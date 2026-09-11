@@ -844,6 +844,13 @@ not obstacles to route around — each has a plain spelling that works:
   conflict with Read plus Edit for the same reason. Plain reads are
   unaffected — `cat`, `sed -n` and `grep` on in-worktree paths run
   normally.
+- A heredoc is graded on the text it carries, not on the program that
+  consumes it, so a `python3 - <<'PY'` script whose *payload* prose
+  merely contains the word `git` is refused for feeding git-naming
+  text that cannot be shown to stay inside the worktree — even though
+  the call runs no git at all. The refusal is on the literal, so
+  quoting or escaping around it changes nothing: make that one edit
+  with the Edit or Write tool instead.
 - Reads outside the repository are refused for `cat`, `grep` and
   `find`, so a dependency's source under a module cache is unreadable.
   Query it through its own tooling instead — `go doc <import-path>.<Symbol>`

@@ -1,16 +1,21 @@
 ---
 name: agent-result-persist-interface
-description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, and the line grammar of the round log it writes. Preloaded into sdlc:theorem-based-pr-reviewer, the theorem-generator variants, sdlc:theorem-disprover, and sdlc:counterexample-verifier via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, the theorem-generator variants, sdlc:theorem-disprover, sdlc:counterexample-verifier, and sdlc:pr-finalizer via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
 # Agent Result Persist Interface
 
 `sdlc-agent-result-persist` keeps one review round's evidence outside
-every worktree: a **round log** of one-line records, and one **result
-file** per child holding that child's full report. Any instance of
-`sdlc:theorem-based-pr-reviewer` derives what is left to do from those
-two, and from nothing it heard back.
+every worktree: a **round log** of one-line records, one **result file**
+per child holding that child's full report, the round's **records file**
+holding its theorem records, and the round's **review file** holding the
+argued review it composed. Any instance of
+`sdlc:theorem-based-pr-reviewer` derives what is left to do from the log
+and the result files, and from nothing it heard back; the next round
+reads its predecessor's theorem records out of the records file, and the
+end of an orchestrate loop assembles the run's detail out of the review
+files.
 
 That is the whole design. A child that ran, finished and reported can
 still skip its own last call, and a `<task-notification>` can go
@@ -20,17 +25,22 @@ its own entry and its own exit**, and the caller's view of a child is
 telemetry rather than truth.
 
 `sdlc:theorem-based-pr-reviewer` anchors the round, records each spawn,
-reads the log back, and records a child it writes off. The theorem
+reads the log back, records a child it writes off, and at the end of the
+round stores its records file and its review file. The theorem
 generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
-each write their own `enter` and `leave`. **Every record is a single
-atomic append**, so no two writers can be ordered wrongly and no call
-has to know what the log already holds.
+each write their own `enter` and `leave`. **Every log record is a
+single atomic append**, so no two writers can be ordered wrongly and no
+call has to know what the log already holds. The records file and the
+review file are not records: each arrives whole on stdin and replaces
+whatever the round held before, so a resumed instance that re-derives
+the round stores its own version over its predecessor's rather than
+adding to it.
 
 ## Invocation
 
 ```text
 sdlc-agent-result-persist --mode <mode> \
-  --owner <owner> --repo <repo> --pr <n> --round <n> \
+  --owner <owner> --repo <repo> --pr <n> [--round <n>] \
   [mode-specific flags]
 ```
 
@@ -41,8 +51,9 @@ because this plugin ships no permission rules.
 
 ## The identifying flags
 
-These four go on **every** call in every mode, and "The paths" below
-says what they compose:
+These four go on **every** call, and "The paths" below says what they
+compose. `--round` is the one exception: `print-records` selects the
+round itself and refuses one.
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
@@ -56,10 +67,20 @@ reader answers every stage's question from one `--mode print`.
 
 ## The paths
 
-The script composes all three and **no caller ever holds one** — there
-is no path string to mistype, and none to carry across a turn
-boundary. A reader learns a result file's path by reading it out of the
-log it just printed.
+The script composes every path below and **no caller ever reads or
+writes one by path** — there is no path string to mistype, and none to carry
+across a turn boundary. A reader learns a result file's path by reading
+it out of the log it just printed, and reaches the records and review
+files through the print modes named for them rather than by path at
+all.
+
+A caller does spell the PR's state root
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/` in
+prose that points a **human** at the directory: the posted review
+summary names it once and hangs a round-relative path off each theorem
+and finding line, and every file that tells a reader where a round's
+detail is spells the same root. That is a signpost, not a route:
+nothing composes it to open a file with.
 
 The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
@@ -68,18 +89,26 @@ makes a round survive the session that opened it: a reviewer resumed in
 a session that never saw the first one holds all four already, composes
 the same path, and reads the same log. The state variable is used when
 set and non-empty and `$HOME/.local/state` otherwise, and the script
-spells that fallback once. Nothing here is ever deleted, and nothing
-here duplicates the theorem state the review body's records block
-holds — that block remains the only cross-round store.
+spells that fallback once. Nothing here is ever deleted, and this
+directory is where the whole of a round's output lives: the theorem
+records that the next round carries forward, and the argued review it
+composed, are files here rather than text on the PR.
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>/log
 <the same directory>/<theorem>-<agent>
+<the same directory>/records
+<the same directory>/review
 ~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl
 ```
 
-The first is the round log, the second a child's result file, the third
-the harness's own transcript of a child, which `--mode enter` records.
+`log` is the round log, `<theorem>-<agent>` a child's result file,
+`records` the round's theorem records, and `review` the round's argued
+review; the `.jsonl` under `~/.claude/projects/` is the harness's own
+transcript of a child, which `--mode enter` records. The records and
+the review are written at the end of the round, and a voided round's
+rename carries both with it exactly as it carries the log and the
+result files.
 `<project>` is the **primary clone's** path with every character
 outside `[A-Za-z0-9-]` replaced by a dash — measured on a `/` and on a
 `.` alike. Every child runs in a worktree, so its own cwd is the wrong
@@ -95,8 +124,8 @@ record.
 
 ## The modes
 
-One word, one meaning: **every mode is named for the record it
-writes**, and `print` for the one that reads.
+One word, one meaning: **every mode is named for what it writes** — the
+record, or the file — and the `print` modes for the ones that read.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`.
   One call per round, and **idempotent**, which is what lets the
@@ -158,10 +187,35 @@ writes**, and `print` for the one that reads.
 - **`print`** — writes the round log to stdout, followed by one
   `result` line per result file present. A `.partial-<pid>` staging
   from a `leave` still in flight is **skipped**, so a report reaches a
-  reader whole or not at all. Exits non-zero when the log
+  reader whole or not at all, and so are the round's `records` and
+  `review` files, which are the round's own output rather than any
+  child's report. Exits non-zero when the log
   does not exist, which means neither the round's `anchor` call nor any
   child's `enter` has run — the fresh-round case the reviewer branches
   on before spawning anything.
+- **`records`** — writes the round's theorem records, read from
+  **stdin**, to the round's `records` file. The reviewer's, once per
+  round that reaches disposition, an empty-delta round included. Empty
+  input is refused, and the bytes land in a staging name and are renamed
+  into place only once whole, for the reason `leave` gives: a reader
+  takes the file's existence as the round's records, and half a file
+  would carry half a round's theorems into the next round with nothing
+  saying so.
+- **`review`** — writes the round's argued review, read from **stdin**,
+  to the round's `review` file, on the same terms as `records`.
+- **`print-records`** — writes to stdout the records of the
+  **highest-numbered** round that holds a records file, ignoring the
+  `.voided-<instant>` directories, whose records describe a tree that no
+  longer exists. It takes **no `--round`** — the round to carry forward
+  is the most recent one there is, not one a caller names, and a
+  `--round` passed anyway is refused rather than ignored. Its first line
+  is `round <n>`, naming the round it selected, so a reader that needs
+  the rest of that round's state — its `anchor` line's head SHA, its
+  review file — has the number to ask for it with; the records follow
+  from the second line on. Exits non-zero when no round under the PR
+  holds a records file, which is the round-1 case.
+- **`print-review`** — writes the named round's review file to stdout.
+  Exits non-zero when that round holds none.
 
 The script stamps every record's time itself: the writer owns when the
 record was made.
@@ -282,10 +336,16 @@ what names the stopped child's worktree for cleanup.
 
 **A duplicate `leave` is a diagnostic, not a conflict, and the later
 one wins.** A child written off as lost can report anyway, leaving one
-theorem with two `leave` records and one result file — the later
-child's, since its rename overwrote the earlier report. So the
-theorem's verdict is the later child's by construction: it is the
-verdict in the one file there is to read, and no reader has a tie to
-break. Both records stay in the log, because the pair is evidence that
-a child believed dead was alive, and the reader reports it as such. No
-line is revised, so concurrent appends cannot collide.
+theorem with two `leave` records. When the replacement carried the
+same `--agent` name as the child it replaced — which every stage but
+`generate` guarantees, there being one definition per stage — the two
+share a result-file name and there is one file, the later child's,
+since its rename overwrote the earlier report. So the theorem's
+verdict is the later child's by construction: it is the verdict in the
+one file there is to read, and no reader has a tie to break. A
+replacement carrying a different `--agent` name writes a file of its
+own instead, leaving the theorem two, and the reader picks between
+them by the log rather than by the directory. Both records stay in the
+log, because the pair is evidence that a child believed dead was
+alive, and the reader reports it as such. No line is revised, so
+concurrent appends cannot collide.

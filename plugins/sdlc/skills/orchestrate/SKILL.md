@@ -65,11 +65,13 @@ under `agents/` owns:
   the branch in a fresh `isolation: worktree` worktree. When it
   returns, every change that pass decided on is a pushed commit on the
   branch and the inbox is empty
-- `pr-finalizer` — appends the run's final section to the PR body in a
+- `pr-finalizer` — posts the run's assembled review detail as chained
+  PR comments and appends the run's final section to the PR body, in a
   fresh `isolation: worktree` worktree, once the loop is over. When it
-  returns, the PR body carries that section and nothing else about the
-  PR has moved: it makes no merge decision, spawns no agent, and flips
-  no status. It is the **only** agent that edits a PR body
+  returns, the PR carries that comment chain and that section, and
+  nothing else about the PR has moved: it makes no merge decision,
+  spawns no agent, and flips no status. It is the **only** agent that
+  edits a PR body
 
 Review **is** a teammate spawn: `theorem-based-pr-reviewer` carries
 the review procedure and spawns the generator and both fan-outs from
@@ -780,6 +782,36 @@ an empty-delta round's verdicts are carried forward from the previous
 round rather than freshly checked, and the reviewer says which kind of
 round it ran.
 
+### Reading a round's detail
+
+What the reviewer **posts** on the PR is a summary: one line per
+theorem, one line per finding, the verdicts, and the Review method
+section. The argued findings, the quoted counterexamples and the
+theorem records are not in it. They are in the round's own files under
+the PR's XDG state directory, and that is where you read them when you
+brief the human on a round or write a fixer brief:
+
+```bash
+gh repo view --json owner,name --jq '.owner.login + " " + .name'
+
+sdlc-agent-result-persist --mode print-review \
+  --owner <owner> --repo <repo> --pr <PR_N> --round <N>
+```
+
+The reviewer numbers a round the PR's review count when it was spawned
+**plus one**, so the round that has just posted is numbered by the PR's
+current review count. A finding whose child report you need — the
+disprover's or the verifier's own words — is reached the same way: the
+summary's line for it names the file, relative to
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR_N>/`,
+and `--mode print --round <N>` lists every result file that round holds.
+
+**Consult the posted review only for its existence and its
+`submittedAt`** — the two facts step 1 of "Handling review findings —
+the fix loop" checks it for. Nothing else you decide about a round comes
+out of it. The detail reaches the PR once, at the end: `pr-finalizer`
+posts it as a chain of comments in Phase 3, before it amends the body.
+
 ### Overriding the generator tier
 
 You do not pick a tier. The rubric lives in the reviewer, next to the
@@ -876,7 +908,7 @@ responses, so read what the report **says** before you act on it:
   on and how much of it is outstanding, the theorem list itself as
   readily as the disprovers or the verifiers, and on a reviewer that
   had already exhausted its own resume loop, which exit it took. A
-  round is under way; follow the four steps below.
+  round is under way; follow the steps below.
 - **A broken call** — the report names a `sdlc-agent-result-persist`
   call the reviewer could not repair and quotes the script's message
   verbatim. No round is under way, so follow "A broken call" below
@@ -911,11 +943,13 @@ responses, so read what the report **says** before you act on it:
    records forward as though nothing had been questioned.
 
    The ruling settles how the loop resumes. Ruled trustworthy, the
-   round stands: read the review off the PR itself, since the report
+   round stands: read the round's own review file, since the report
    that should have carried it did not, and take the path this section
    gives for the verdict that review carries — APPROVED spawns no
    fixer, and NEEDS_CHANGES gets a brief written from the findings the
-   review states. Ruled untrustworthy, re-spawn the reviewer over the
+   review states. That file, not the summary posted on the PR, is where
+   the argued findings are — see "Reading a round's detail" above.
+   Ruled untrustworthy, re-spawn the reviewer over the
    same PR — the new round supersedes the questioned one, and its
    verdicts and findings are what the loop carries forward.
 
@@ -998,8 +1032,8 @@ member)**:
 
    Findings to address — all of them, including Low, each tagged with
    the issue it belongs to:
-   <paste every finding from the review, un-tiered, keeping the
-   review's per-issue tags>
+   <paste every finding from the round's review file, un-tiered,
+   keeping the review's per-issue tags>
 
    Owner rulings — how the findings above are to be fixed, and any
    in-scope work that is not itself a finding:
@@ -1132,7 +1166,7 @@ memory-declaring teammate was spawned after the scrubber last ran.**
 That is this trigger's one full statement; every other mention of it
 in this file uses the same noun phrase or points here. Decide it from
 your own spawn history: capture happens inside the teammate's
-end-of-run, and none of the three reports a *successful* capture back
+end-of-run, and none of them reports a *successful* capture back
 to you — a failed one it does report, stopping before its cleanup — so
 a spawn is the only evidence you have that entries may be waiting. That over-approximates
 — a round that wrote no entry triggers a scrubber spawn that finds
@@ -1247,35 +1281,44 @@ confirms — per PR — that the loop is done and the PR is good enough to
 move forward. On that end-of-loop confirmation for a given PR, and
 only then, the orchestrator performs these transitions, in this order:
 
-1. **Spawn `pr-finalizer` to amend the PR body.** The body has been
-   frozen since the developer wrote it (see "The PR body is frozen for
-   the loop"), so it still describes the PR as first opened. The
-   finalizer appends one section summarising the review rounds, the
-   changes made in response, and any scope notes the run settled.
+1. **Spawn `pr-finalizer` to post the run's detail and amend the PR
+   body.** Each round posted only a summary and kept its argued review,
+   its theorem records and each child's report under the PR's XDG state
+   directory (see "Reading a round's detail"), so the PR carries none of
+   the detail while the loop runs. The finalizer posts that detail as a
+   chain of PR comments, each opening with a marker of the form
+   `<!-- sdlc:theorem-records i/N -->`, where `i` and `N` stand for the
+   chunk's 1-based position and the total, and then appends one section
+   summarising the review rounds, the changes made in response, and any
+   scope notes the run settled. The body has been frozen since the
+   developer wrote it (see "The PR body is frozen for the loop"), so it
+   still describes the PR as first opened.
 
-   The amendment lands **before** the flips below, so the status flip
-   stays the run's single "done" signal and there is no window in
-   which the PR is ready for review carrying no final note.
+   The comments and the amendment both land **before** the flips below,
+   so the status flip stays the run's single "done" signal and there is
+   no window in which the PR is ready for review carrying no final note.
+   The finalizer is the one agent that posts those comments; you post
+   none of them.
 
    Spawn it after the memory scrub and after any final `issue-fixer`
    round — those put commits on the branch, and a summary written
    before them would describe a PR that no longer exists. Give it the
    PR number, the branch name, and the scope notes the run settled
-   that the reviewer's own posted reviews do not carry:
+   that the rounds themselves do not carry:
 
    ```text
    PR <PR_N> has finished its review loop. Branch: <branch-name>
 
    Scope notes this run settled, for the final section:
    <the deferrals, dropped members, and rulings the human made that
-   the posted reviews do not carry — or "none">
+   the rounds do not carry — or "none">
 
-   Append the final section per your agent definition. Report back
-   what you appended.
+   Post the detail and append the final section per your agent
+   definition. Report back what you posted and what you appended.
    ```
 
-   It reads the PR's own reviews and commits for the rest; that is its
-   job, not yours to summarize into the brief.
+   It reads the rounds out of state and the commits off the branch for
+   the rest; that is its job, not yours to summarize into the brief.
 
 2. **Flip the PR draft → ready:**
 
@@ -1316,7 +1359,7 @@ only then, the orchestrator performs these transitions, in this order:
    They flip together, because they ship together. Gated on a
    configured status slot — see "Issue-status transitions" below.
 
-None of the three merges the PR; the human still owns the merge. If
+None of them merges the PR; the human still owns the merge. If
 the human ends the loop without blessing a PR (e.g. it lands in "Needs
 Your Attention"), leave that PR draft and its issues In Progress — do
 not flip it to ready or them to In Review, and do not spawn
@@ -1643,14 +1686,14 @@ draft-first lifecycle:
    is frozen for the loop").
 4. **Finalized, then ready at end-of-loop, on human confirmation
    only.** In Phase 3, when the human confirms a PR is good enough to
-   end the loop, the orchestrator spawns `pr-finalizer` to append the
-   run's final section to the body, and only then calls
-   `/github-prs:pr-ready <PR>` (see "End-of-loop lifecycle
-   transitions"). That order is what keeps the PR from being ready for
-   review for a window in which its body has no final note. The
-   `/pr-ready` call is the single point where the PR becomes
-   mergeable, and even then the human — never the orchestrator —
-   performs the merge.
+   end the loop, the orchestrator spawns `pr-finalizer` to post the
+   run's assembled review detail and append the run's final section to
+   the body, and only then calls `/github-prs:pr-ready <PR>` (see
+   "End-of-loop lifecycle transitions"). That order is what keeps the
+   PR from being ready for review for a window in which its body has no
+   final note. The `/pr-ready` call is the single point where the PR
+   becomes mergeable, and even then the human — never the orchestrator
+   — performs the merge.
 
 The draft state is the enforcement mechanism behind the "Never merge a
 PR" Hard Constraint: it makes "unmergeable until the human blesses it"

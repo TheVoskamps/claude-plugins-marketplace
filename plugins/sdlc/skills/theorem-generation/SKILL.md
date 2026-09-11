@@ -393,12 +393,14 @@ a later run.
 
 When your brief carries `--carried-records` and `--delta-commits`, the
 theorem list already exists and you are extending it, not rebuilding
-it. The pipeline persists the records in the review it posts, so a
-theorem stated in round 1 is still on the books in round 5 under the
-same id.
+it. The pipeline persists the records under the PR's own state
+directory, outside every repository, so a theorem stated in round 1 is
+still on the books in round 5 under the same id.
 
-Read the carried records first. They are the claims already made about
-this PR. Then read the round's change, one delta commit at a time:
+Read the carried records first. The `round <n>` line they open with says
+which round wrote them; the records themselves follow. They are the
+claims already made about this PR. Then read the round's change, one
+delta commit at a time:
 
 ```bash
 git show <oid>   # once per oid in --delta-commits

@@ -72,10 +72,13 @@ them as well.
   gets read.
 - `--pointers <text>` — the generator's pointers, verbatim: the files,
   regions, or symbols to start from.
-- `--carried-records <text>` — the previous round's theorem records
-  block, verbatim from the previous review's body: every recorded
-  theorem with its id, claim, issues, class, pointers, the state it
-  held, and the head SHA it was settled against. Only a generator
+- `--carried-records <text>` — the previous round's theorem records,
+  verbatim as `sdlc-agent-result-persist --mode print-records` printed
+  them: a `round <n>` line naming the round they came from, then every
+  recorded theorem with its id, claim, issues, class, pointers, the
+  state it held, and the head SHA it was settled against. They come off
+  the PR's XDG state directory, never out of a review body, so a
+  withdrawn or edited review costs a round nothing. Only a generator
   receives it, and only on the **delta-round brief**, which
   `sdlc:theorem-based-pr-reviewer` → "Spawn the theorem generator"
   writes and its "Carry the previous round's theorems forward" decides
