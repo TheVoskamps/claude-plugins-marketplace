@@ -228,8 +228,9 @@ func TestHomeChokepointInScriptAbsoluteHome(t *testing.T) {
 // `cd` ever sees it (`X=; cd $X`), and equally one whose field count the gate
 // cannot resolve (`cd $Z`, `cd $(…)`), which is graded as possibly none because
 // an operand the gate cannot place belongs on the deny side, and equally an
-// unquoted glob (`cd *nomatch*`), which `shopt -s nullglob` drops entirely when
-// it matches nothing.
+// unquoted pathname-expansion pattern in either spelling — a metacharacter one
+// (`cd *nomatch*`) and an extended-glob one (`cd @(nomatch)x`) — which
+// `shopt -s nullglob` drops entirely when it matches nothing.
 // `$C` with `C=cd` is here, as a plain assignment and as a
 // loop-variable binding, because the chokepoint must recognize the same `cd`
 // call applyCd does: resolved against a variable map that never learned `C`
@@ -265,6 +266,12 @@ func TestHomeChokepointBareCd(t *testing.T) {
 		// dropped the same way — so the whole word is graded possibly-none.
 		`cd *nomatch*; cat x`,
 		`cd "a"*nomatch*; cat x`,
+		// An extended-glob pattern is dropped by nullglob the same way, and it
+		// carries no `*?[` of its own for a metacharacter scan over the word's
+		// literal text to find: `shopt -s extglob nullglob; cd @(nomatch)x`
+		// lands in $HOME too (measured), as does the `+(…)` spelling.
+		`cd @(nomatch)x; cat x`,
+		`cd +(nomatch)x; cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
@@ -334,10 +341,12 @@ func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
 		// is a bare `cd` (above) while these two are not.
 		`cd $Z/sub; cat x`,
 		`cd "$Z"; cat x`,
-		// A QUOTED glob is not a glob: bash matches no pathname against it, so
-		// it cannot be dropped by nullglob and `cd "*nomatch*"` stays put
-		// (measured). The negative control for the glob rows above.
+		// A QUOTED pattern is not a pattern: bash matches no pathname against
+		// it, so it cannot be dropped by nullglob and `cd "*nomatch*"` stays
+		// put (measured). The negative control for the glob rows above, in
+		// both the metacharacter and the extended-glob spelling.
 		`cd "*nomatch*"; cat x`,
+		`cd "@(nomatch)x"; cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {

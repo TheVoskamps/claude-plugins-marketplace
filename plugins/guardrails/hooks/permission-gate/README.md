@@ -137,8 +137,10 @@ The gate's engines feed that decision:
   `X=; cd $X`, which bash word-splits away before `cd` sees it;
   `cd $Z` with `Z` never assigned or `cd $(…)`, whose field
   count the gate cannot resolve and which it therefore grades as
-  possibly none; and an unquoted glob (`cd *`), which under
-  `shopt -s nullglob` is dropped entirely when it matches nothing
+  possibly none; and an unquoted pathname-expansion pattern in either
+  spelling, a metacharacter one (`cd *`) and an extended-glob one
+  (`cd @(nomatch)x`), which under `shopt -s nullglob` is dropped
+  entirely when it matches nothing
   (measured) — the gate reads no filesystem and tracks no shell
   option, so it cannot tell a matching pattern from a failing one and
   grades every one of them as possibly none, failing closed — and
@@ -156,13 +158,20 @@ The gate's engines feed that decision:
   `HOME=relhome` denies however absolute the process home is, because
   the home that word resolves against is not one: `HOME=relhome; cat
   ~/x` denies under every process home, and that is the rule rather
-  than an exception to it. It is also the one home-referencing shape
-  whose verdict **moves** under an absolute process home — measured
-  against the committed binary at the merge base, that line returned
-  **allow** and returns **deny** here. Every other shape classifies on
-  both sides alike once the home it resolves against is absolute, which
-  is what makes this one the rule's single visible consequence rather
-  than a second behaviour change.
+  than an exception to it. Its verdict also **moves** under an absolute
+  process home — measured against the merge base, that line returned
+  **allow** and returns **deny** here — and it is not alone in that. An
+  in-script `HOME=` taking its value from a **command substitution** the
+  merge base resolved to a repo-rooted path moves the same way:
+  `HOME=$(pwd); cat ~/x`, and the backquoted spelling of it, returned
+  **allow** there and deny as `home:unusable` here, because a value
+  `literalWord` cannot resolve exactly is one this predicate cannot
+  place. Both are the same condition: a shape moves exactly when the
+  merge base placed its in-script home **inside the repo** while this
+  predicate grades that home unusable. An in-script home the merge base
+  placed outside the repo — `HOME=$(echo /abs)`, `HOME=${Z}` — denied
+  there and denies here, under a new label. Every other shape classifies
+  on both sides alike once the home it resolves against is absolute.
 
   On the Bash track that chokepoint **is the classifier's own walk**
   (`extractSimpleCommands`), which raises the deny as it goes and
