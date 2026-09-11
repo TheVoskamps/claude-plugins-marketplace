@@ -49,7 +49,7 @@ is what the closing-keyword rule — PR body only, the branch's own
 issue set only — exists to prevent.
 
 That rule also settles what happens when the caller's numbers and the
-branch name disagree, and it is **global** rather than this skill's:
+branch name disagree, and applying it is not this skill's job:
 `/git-tools:git-issues-from-branch` is the one skill that applies it.
 
 This skill's part is small. Its **claim** is the caller-supplied

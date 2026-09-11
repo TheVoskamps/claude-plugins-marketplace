@@ -237,8 +237,8 @@ full six-field reader contract that used to live at
 (issue #143): `sdlc` no longer bundles its own copy of the `issues`
 plugin's reader contract, and a bare cross-plugin reference to
 `skills/lib/repo-config.md` cannot resolve it either — plugins are
-file-sandboxed (see `docs/rules/plugin-authoring-constraints.md` → "A
-cross-plugin reference does not resolve"). This is deliberate, not a
+file-sandboxed, and a `dependencies` edge grants no file access. This
+is deliberate, not a
 gap: the orchestrator no longer does branch/PR mechanics itself — the
 branch and the draft PR both exist by the time `issue-developer`
 returns — so the orchestrator only ever needed these things out of the
@@ -1380,8 +1380,9 @@ only then, the orchestrator performs these transitions, in this order:
 
    Scope notes this run settled, for the final section:
    <the deferrals, dropped members, and rulings the human made that
-   the rounds do not carry, and docs-writer's per-file list verbatim
-   — or "none">
+   the rounds do not carry; every PR-body claim the run made stale,
+   quoted, with what is true now; and docs-writer's per-file list
+   verbatim — or "none">
 
    Post the detail and append the final section per your agent
    definition. Report back what you posted and what you appended.

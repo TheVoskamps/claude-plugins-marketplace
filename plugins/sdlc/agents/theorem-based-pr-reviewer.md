@@ -276,8 +276,7 @@ mismatch, the records describe a tree that no longer exists: discard
 them, say so in the Review method section, and run the round fresh from
 "Read the PR's shape" against the new head rather than mixing verdicts
 from two trees. This is not hypothetical — a scheduled sweep
-force-rebases open PR branches and can fire mid-round (see `CLAUDE.md` →
-"The rebase automation can move a PR branch mid-session"). Then make the
+force-rebases open PR branches and can fire mid-round. Then make the
 `--mode anchor` call for the fresh round carrying the new head SHA: the
 preloaded `sdlc:agent-result-persist-interface` skill → "The modes" owns
 what the script does with the stale log and the result files beside it.
@@ -421,9 +420,8 @@ Read this repo's `.issues/repo-config.md` with a lightweight
 reader contract in the `issues` plugin's `skills/lib/repo-config.md`.
 That lib file lives inside the `issues` plugin, and plugins are
 file-sandboxed (a bare `Read` from an `sdlc` file cannot resolve a
-path inside another plugin's directory — see
-`docs/rules/plugin-authoring-constraints.md` → "A cross-plugin reference
-does not resolve"). `sdlc` no longer bundles its own copy of that lib
+path inside another plugin's directory, and a `dependencies` edge
+grants no file access either). `sdlc` no longer bundles its own copy of that lib
 (`plugins/sdlc/skills/lib/repo-config.md` was deleted), so do not
 attempt to `Read` it by any bare or qualified path.
 
@@ -519,7 +517,7 @@ one branch — and a batch of one is the ordinary single-issue PR.
   body's closing lines. Never scan the body for them yourself.
 - **Reconcile the claim against the branch.** Invoke
   `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
-  skill that parses a branch name and the one place the global
+  skill that parses a branch name and the one place the
   issue-to-branch rule is applied. Never parse a branch name and never
   re-derive the resolution yourself. **The set you review against is the resolved
   set it reports.**
@@ -1666,9 +1664,9 @@ inside an `isolation: worktree` worktree under the repo's
 `.claude/worktrees/`, which carries a `.claude/worktrees/` of its own —
 the very directory the agents you spawned sit in. So the short form can
 remove a *different* worktree than you meant, or match two and fail
-with an error that reads as though the worktree were already gone. See
-`docs/rules/agent-tooling-notes.md` → "Remove a worktree by the path
-`git worktree list` prints".
+with an error that reads as though the worktree were already gone. The
+absolute path the listing prints is unique by construction and names
+the same worktree from any cwd, so it never reaches either trap.
 
 Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)

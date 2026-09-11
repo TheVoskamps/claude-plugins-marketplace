@@ -94,6 +94,17 @@ turns out false, correct the prose to say what the code does; when the
 code looks like the wrong half of the mismatch, say so in your
 report-back.
 
+## A removed mechanism leaves claims behind
+
+When the PR removes a mechanism — a check, a test, a hook, a build
+step — the documentation that described it goes on asserting it, and
+it usually sits in files the diff never touched. For each mechanism the
+PR removed, search the documentation for its name and for what it
+enforced, and correct or delete every claim it spawned: a section
+describing it, an "every X is gone", a "fails the build if
+reintroduced". Keep the convention it enforced and the reason for it;
+drop the enforcement story.
+
 ## The PR body is not yours to edit
 
 Never run `gh pr edit --body` or `--body-file`, and never change the PR

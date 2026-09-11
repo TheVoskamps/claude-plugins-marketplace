@@ -16,8 +16,9 @@ bare PR number, and `/sdlc:orchestrate` for the member list its
 end-of-loop
 status flip acts on — invoke it rather than each describing the scan
 again. Skill invocation crosses the plugin sandbox boundary that a
-`Read` cannot (see `docs/rules/plugin-authoring-constraints.md` → "Skill
-invocation is global and namespaced"). Each consumer keeps its own
+`Read` cannot, since an enabled plugin's skills are invocable from
+anywhere by their namespaced name while file access stays sandboxed
+per plugin. Each consumer keeps its own
 action on the result; none re-derives the result itself.
 
 `github-prs:pr-create` is not a consumer: it *writes* closing lines
@@ -48,7 +49,7 @@ configures.
 
 ## The syntax
 
-The closing-keyword syntax is a global rule. It is applied here, once,
+The closing-keyword syntax is GitHub's. It is applied here, once,
 so that no consumer applies it again.
 
 A **closing keyword** — `close`, `closes`, `closed`, `fix`, `fixes`,

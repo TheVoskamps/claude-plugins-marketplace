@@ -101,9 +101,7 @@ only doc/empirically-confirmed field (via `block-background-agents`);
 the rest (`subagent_type`, `prompt`, `model`, `description`,
 `isolation`) are **inferred** from the Agent tool's own parameter
 schema — the same doc-gap inference `show-loaded-skills` already
-documents for `tool_input.skill`. See
-[`docs/rules/hook-event-notes.md`](../../docs/rules/hook-event-notes.md) for the
-durable, per-event write-up.
+documents for `tool_input.skill`.
 
 ### Display-only guarantee
 

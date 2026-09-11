@@ -30,18 +30,17 @@ single-issue PR, so nothing below is extra work for that case.
 `git-tools:git-branch-create` encodes the set in the branch name, and
 `git-tools:git-issues-from-branch` — its inverse — recovers it. That
 skill is also where the **issue-to-branch reconciliation rule** is
-applied: the rule itself is global, and neither skill here restates
-it. `/pr-create` and `/pr-link-issue` each hand
-`git-issues-from-branch` the branch plus their own claim — the numbers
+applied, and neither skill here restates it. `/pr-create` and
+`/pr-link-issue` each hand `git-issues-from-branch` the branch plus
+their own claim — the numbers
 their caller passed, which a caller of either always has in hand — and
 act on the outcome it reports. Neither parses a branch name and
 neither re-derives the resolution.
 
 That cross-plugin invocation is why this plugin's `plugin.json`
 declares a `dependencies` edge on `git-tools`: the edge guarantees the
-skill is installed and enabled wherever these skills run (see
-`docs/rules/plugin-authoring-constraints.md` → "`dependencies` coordinates
-install/enable, not files").
+skill is installed and enabled wherever these skills run. It grants
+no access to `git-tools`' files.
 
 What differs between the two is only the **action** each takes on what
 the skill reports. Where there is no safe resolution, `/pr-create`
@@ -78,9 +77,8 @@ configuration at all. Only `pr-create` reads repo-config —
 **internally**, via a lightweight inline parse of just those two
 front-matter lines, not the `issues` plugin's full
 `skills/lib/repo-config.md` reader contract (that lib lives inside the
-`issues` plugin and isn't reachable across the plugin sandbox boundary
-— see `docs/rules/plugin-authoring-constraints.md` → "Plugins are
-file-sandboxed"). Neither `pr-create` nor `pr-link-issue`
+`issues` plugin and isn't reachable across the plugin sandbox
+boundary). Neither `pr-create` nor `pr-link-issue`
 reads anything about the **branch name**: both invoke
 `git-tools:git-issues-from-branch`, which reads
 `issue-branch-naming-prefix` internally in turn.

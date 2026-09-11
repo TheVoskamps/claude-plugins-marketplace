@@ -9,7 +9,7 @@ the human a set of PRs to bless.
 ## Find the owner of a statement before you edit it
 
 This plugin's hazard is duplication. Its behavior is described across
-an agent file, a skill body, this README and the repo's `docs/`, and
+an agent file, a skill body and this README, and
 nothing tests prose, so a change made in one place leaves the others
 asserting the opposite. Every fact has exactly one owner: edit the
 owner, repair pointers elsewhere, and never let a second file restate
@@ -29,11 +29,9 @@ the fact.
 Some owners are worth spelling out, because the obvious guess is wrong.
 The review procedure is an **agent**, not a skill, so both
 `/sdlc:orchestrate` and `/sdlc:git-review-pr` reach it by spawning it,
-and a change to what a review does touches the reviewer, both callers,
-and — when it changes which agents a round spawns —
-`docs/rules/plugin-authoring-constraints.md`'s worked fan-out instance. And
-this file is a **roster**, not a contract: the rosters below carry a
-one-line purpose and a pointer, never a restatement. A README that
+and a change to what a review does touches the reviewer and both
+callers. And this file is a **roster**, not a contract: the rosters
+below carry a one-line purpose and a pointer, never a restatement. A README that
 added a copy of a contract would add a surface to sweep — one that no
 test and no doc pass naturally opens — and it would go stale silently.
 When something here and an owner file disagree, the owner file wins
@@ -141,10 +139,10 @@ glosses it grades its own theorem-less findings by.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
-edit it" above. Why a fan-out procedure lives in one agent rather than
-in a skill its subagents preload is worked through in
-`docs/rules/plugin-authoring-constraints.md` →
-"Fanning out parallel agents: one home for the procedure".
+edit it" above. Every caller spawns that one agent to run the fan-out,
+so the procedure is its body: a skill wrapping a procedure only one
+agent ever runs would split one contract across two files that must
+agree, and an agent body is already loaded at spawn.
 
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
 and `/sdlc:orchestrate` does not invoke it — the user runs it first,
@@ -277,5 +275,4 @@ The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which
 `skills/orchestrate/SKILL.md` invokes once. The edge coordinates
 install and enablement, not file access: plugins are file-sandboxed,
-so nothing here reads another plugin's files (see
-`docs/rules/plugin-authoring-constraints.md`).
+so nothing here reads another plugin's files.

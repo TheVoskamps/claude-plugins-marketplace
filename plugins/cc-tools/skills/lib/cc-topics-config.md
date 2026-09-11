@@ -32,8 +32,7 @@ named above. Neither infers a topic from anything else.
 ${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/config.yml
 ```
 
-Per [`docs/rules/config-file-conventions.md`](../../../../docs/rules/config-file-conventions.md):
-the variable when it is set and non-empty, `$HOME/.config` when it is
+The variable when it is set and non-empty, `$HOME/.config` when it is
 unset or empty. Resolve it by reading the environment yourself and pass
 the absolute path — no skill that reads this file can run a compound
 Bash command, which rules out shell parameter expansion.
@@ -70,8 +69,7 @@ topics:
 Read it with the `Read` tool, never `cat` or `grep` from Bash. The
 permission gate's operator carve-out reaches the file-tool track
 only, so a Bash read is denied on every machine whether or not the
-operator listed a glob (`docs/rules/config-file-conventions.md` → "The
-permission gate's carve-out follows these same roots").
+operator listed a glob.
 
 Every skill that reads the file handles each of these outcomes:
 
