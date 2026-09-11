@@ -208,8 +208,10 @@ The gate's engines feed that decision:
   outcome the predicate exists to prevent. Only the log sits
   outside the verdict; the
   carve-out and the `~/.claude` root are relaxations an unusable home
-  withdraws. So an event carrying no `~`, no `$HOME` and no
-  operand-less `cd` is
+  withdraws. So an event carrying no `~`, no `$HOME` and no `cd` the
+  chokepoint reads as carrying no directory operand — the operand-less
+  spelling, the all-options ones, and the ones whose operand may expand
+  to no field — is
   never denied by the chokepoint, and its verdict is identical under an
   unusable home and an absolute one **unless** it was riding one of
   those two relaxations, which an unusable home leaves unresolved. The
