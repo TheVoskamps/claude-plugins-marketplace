@@ -147,7 +147,9 @@ The gate's engines feed that decision:
   carve-out config (so no operator allow), resolves no `~/.claude` root
   (so a target landing there grades as an ordinary escape — a **deny**
   — instead of the `claudeConfig` defer that root buys), and writes no
-  evolution-log entry. Only the log sits outside the verdict; the
+  evolution-log entry unless `PERMISSION_GATE_LOG` names the file, that
+  override being the one log path no home resolves. Only the log sits
+  outside the verdict; the
   carve-out and the `~/.claude` root are relaxations an unusable home
   withdraws. So an event carrying no `~`, no `$HOME` and no
   operand-less `cd` is

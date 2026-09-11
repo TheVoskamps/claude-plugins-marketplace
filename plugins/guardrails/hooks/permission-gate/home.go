@@ -11,7 +11,7 @@ import (
 
 // Home-directory usability, decided ONCE for the whole gate.
 //
-// The gate reads the home directory from a dozen places — `~` expansion in a
+// The gate reads the home directory from many places — `~` expansion in a
 // Bash word, `$HOME` resolution, an in-script `HOME=` assignment, `cd` / `cd ~`
 // tracking, the containment resolver's tilde arm, `lexicalAbs`, the carve-out
 // config loader, the Claude config root, the evolution-log path. Before this

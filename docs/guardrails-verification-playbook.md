@@ -126,9 +126,12 @@ vacuous probe.
 
 ### A `$HOME`-rooted rule is settled by `go test`, not by a replay
 
-The operator carve-out and the `~/.claude` one are rooted at the real
-home directory, and a worktree-isolated agent can build no fixture for
-either. Each obstacle below is decisive on its own.
+Two kinds of rule are rooted at the real home directory: the operator
+carve-out and the `~/.claude` one, which sit under it, and the
+home-usability chokepoint (`home.go`), which grades the home value
+itself — an unset, empty or relative `$HOME` denies where an absolute
+one does not. A worktree-isolated agent can build no fixture for any of
+them. Each obstacle below is decisive on its own.
 
 **A `HOME=<dir>` prefix is refused** — not by the gate, but by the
 harness's worktree-isolation guard, which answers "this command sets
@@ -170,7 +173,15 @@ with no such file resolves no root from the variable at all.
 
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
-(`operator_carveout_test.go` is the worked example). Replay still
+(`operator_carveout_test.go` is the worked example). A home-usability
+row needs two more steps, both in `home_usability_test.go`: build the
+git worktree the event runs in (`homeTestRepo`) **before** installing
+the home shape, and point `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` at
+`os.DevNull` as part of installing it (`applyHomeShape`). Git itself
+reads `~`, so under an unusable home a driving machine whose global
+config carries a tilde-spelled include fails both the `git init` that
+builds the fixture and every `git rev-parse` the gate shells out to —
+measuring that machine's gitconfig rather than the gate. Replay still
 earns its place as the negative control: the unconfigured machine you
 are running on denies the very reads the carve-out is for, and that
 verdict is real evidence.
