@@ -2171,8 +2171,8 @@ actionable wherever it surfaces.
 
 A Reason cites no instruction file this plugin does not own, for the
 same reason. The gate's artifacts are the binary, its Go source and
-this README; a pointer like `rules/git-workflow.md` resolves against
-the operator's own `~/.claude/rules/`, which a machine that installed
+this README; a pointer into `~/.claude/rules/` resolves against the
+operator's own configuration, which a machine that installed
 this plugin need not have and whose wording this repo does not
 control. So a remediation states the constraint and the call that
 satisfies it inline and stops there — the `cd <path> && git …` and

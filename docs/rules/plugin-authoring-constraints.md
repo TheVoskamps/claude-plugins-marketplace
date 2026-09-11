@@ -119,10 +119,10 @@ branch-name grammar is stated once, in
 `github-prs:pr-create`, `github-prs:pr-link-issue`, and
 `sdlc:theorem-based-pr-reviewer` invoke `git-issues-from-branch`
 rather than each restating the rule. The same skill also applies the global
-issue-to-branch reconciliation rule in `rules/git-workflow.md`,
-because that rule is global rather than per-caller; what each consumer
-keeps is its own **action** per reported outcome, which is exactly the
-deliberate per-caller difference the extraction must not flatten.
+issue-to-branch reconciliation rule, because that rule is global
+rather than per-caller; what each consumer keeps is its own **action**
+per reported outcome, which is exactly the deliberate per-caller
+difference the extraction must not flatten.
 
 A new skill's registration surfaces are the owning plugin's
 `plugin.json` `description` and — where the plugin ships a `README.md`

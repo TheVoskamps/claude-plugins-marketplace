@@ -351,11 +351,9 @@ not a reason to drop a claim; failing either question above is.
 
 Duplicated-looking prose across consumers is often a deliberate
 per-caller **policy** arm, kept precisely so the callers can differ,
-with only the *mechanism* extracted into a shared skill (see
-`docs/rules/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
-lookup, a derivation)", which says in as many words that each consumer
+with only the *mechanism* extracted into a shared skill: each consumer
 keeps its own policy so the extraction does not flatten deliberate
-per-caller differences). "This is duplicated" is not a theorem in that
+per-caller differences. "This is duplicated" is not a theorem in that
 shape, and
 generating it produces a finding the human has already ruled on.
 

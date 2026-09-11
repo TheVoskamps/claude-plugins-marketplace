@@ -127,11 +127,8 @@ the PR's agent memory".
    /cc-tools:agent-memory-inbox-capture
    ```
 
-   `memory: project` resolves `.claude/agent-memory/` relative to this
-   throwaway worktree, so anything you wrote there dies with the
-   worktree unless the capture moves it out. Nothing about your memory
-   is committed, pushed, or `git add`ed. If the capture fails, stop and
-   report it rather than proceeding to cleanup.
+   If the capture fails, stop and report it rather than proceeding to
+   cleanup.
 5. Run the end-of-run cleanup below.
 6. Report back:
    - **Doc changes** — every file you changed, one line each: its path

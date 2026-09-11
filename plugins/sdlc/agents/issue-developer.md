@@ -178,8 +178,8 @@ owns — but never a finding, a location, or an implementation shape
       closing keyword only fires on merge to the default branch, so it
       too stays inert while the PR is draft.
     - The closing keywords in the **PR body** (never a commit message)
-      are REQUIRED, not forbidden. Per `git-workflow.md`'s
-      closing-keyword rule — PR body only, the branch's own issue set
+      are REQUIRED, not forbidden. Per the closing-keyword rule — PR
+      body only, the branch's own issue set
       only — they are how the PR gets linked in the Development
       sidebar AND how each issue auto-closes on merge. One keyword per
       line, one line per issue: `Closes #196, #201` links `#196` only.

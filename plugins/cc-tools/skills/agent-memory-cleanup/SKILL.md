@@ -223,7 +223,7 @@ defect to chase.
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
 every memory path you deleted or edited, plus `CLAUDE.md`, each
-`docs/*.md`, and each README you changed, whether you wrote a
+`docs/rules/*.md`, and each README you changed, whether you wrote a
 constraint into it, cut one out of it, or created the file to receive
 a transfer — a README you created is untracked, so staging it by path
 is what puts it in the commit at all — plus any companion edit the
