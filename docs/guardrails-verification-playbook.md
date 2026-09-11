@@ -174,8 +174,8 @@ with no such file resolves no root from the variable at all.
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
 (`operator_carveout_test.go` is the worked example). A home-usability
-row that runs an EVENT through the gate needs two more steps, both in
-`home_usability_test.go`: build the git worktree the event runs in
+row that runs an EVENT through the gate needs more than that, all of it
+in `home_usability_test.go`: build the git worktree the event runs in
 (`homeTestRepo`) **before** installing the home shape, and point
 `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` at `os.DevNull` as part of
 installing it (`applyHomeShape`). Git itself reads `~`, so under an

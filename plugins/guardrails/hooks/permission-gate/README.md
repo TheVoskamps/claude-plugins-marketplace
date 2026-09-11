@@ -123,8 +123,8 @@ The gate's engines feed that decision:
   home directory is **usable** iff it resolves without error, is
   non-empty, and is **absolute**. That predicate (`homeUsable`) is the
   only place in the gate where a home value is graded, and it is
-  applied at one chokepoint, before any track-specific logic runs: a
-  Bash word that references a home the gate cannot place — `~` or
+  applied at one chokepoint per track, ahead of every rule that grades
+  a path: a Bash word that references a home the gate cannot place — `~` or
   `~/…` in any quoting, `$HOME`/`${HOME}`, or a persistent in-script
   `HOME=` assignment a later word resolves against — **DENIES**
   (`home:unusable`), and so does a **`cd` carrying no directory
@@ -144,11 +144,15 @@ The gate's engines feed that decision:
   (`extractSimpleCommands`), which raises the deny as it goes and
   abandons the rest of the line; the file-tool track has a chokepoint of
   its own (`fileToolHomeChokepoint`), a raw operand needing none of the
-  walk's machinery. Grading a Bash home reference needs three things the
-  walk already carries — the variables assigned so far, the scope depth
-  they are recorded at, and the tracked cwd their values resolve
-  against — so a separate scan has to mirror all three, and whatever it
-  fails to mirror is an escape: a loop-variable binding it does not
+  walk's machinery. A parse error and a forbidden form
+  (`cd <path> && git …`, `git -C <abs>`) still deny ahead of it on the
+  Bash track — each refuses the line's shape and reads no home — so an
+  unusable home is not always the `home:unusable` reason, though it is
+  always a deny. Grading a Bash home reference needs state the walk
+  already carries — the variables assigned so far, the scope depth they
+  are recorded at, and the tracked cwd their values resolve against — so
+  a separate scan has to mirror every piece of it, and whatever it fails
+  to mirror is an escape: a loop-variable binding it does not
   learn hides the `cd` in `for C in cd; do $C; done`, and an assignment
   RHS it does not descend into hides a `HOME=` inside a command
   substitution. One walk, one variable map, one scope counter.
@@ -217,7 +221,7 @@ The gate's engines feed that decision:
   spelling carrying an `=` reaches the grader. `HOME=` is one, and sets
   the empty home.
 
-  Two asymmetries inside that one walk, each deliberate:
+  Asymmetries inside that one walk, each deliberate:
 
   - **A `HOME=` value is resolved with neither the walk's variable map
     nor its tracked cwd**, though `recordAssign` has both a line away.

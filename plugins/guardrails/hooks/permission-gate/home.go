@@ -31,11 +31,11 @@ import (
 // does its own emptiness or IsAbs test on a home value.
 //
 // The Bash half belongs inside the classifier's walk rather than in a scan of
-// its own, because grading a home reference needs the three pieces of state
-// that walk already carries: the variables assigned so far, the scope depth
-// they are recorded at, and the tracked cwd their values resolve against. A
-// second walk has to mirror all three to reach the same verdict, and whatever
-// it fails to mirror is an escape — a loop-variable binding it does not learn
+// its own, because grading a home reference needs the state that walk already
+// carries: the variables assigned so far, the scope depth they are recorded
+// at, and the tracked cwd their values resolve against. A second walk has to
+// mirror every piece of it to reach the same verdict, and whatever it fails to
+// mirror is an escape — a loop-variable binding it does not learn
 // hides the `cd` in `for C in cd; do $C; done`, and an assignment RHS it does
 // not descend into hides a `HOME=` inside a command substitution. So this file
 // holds only the pure predicates, and the walk calls them.

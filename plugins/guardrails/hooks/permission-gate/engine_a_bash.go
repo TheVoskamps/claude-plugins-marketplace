@@ -153,8 +153,9 @@ func classifyBash(command string, ev *Event) Decision {
 	cmds, homeDeny, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver(), rc)
 
 	// Home-usability chokepoint: a word referencing a home the gate cannot
-	// place DENIES, before every track-specific rule and before the
-	// unhandled-construct defer below. The walk above raises it as it goes —
+	// place DENIES, before every rule that grades a path and before the
+	// unhandled-construct defer below. The parse-error and forbidden-form
+	// denies above read no home and stay ahead of it. The walk above raises it as it goes —
 	// grading a home reference needs that walk's variables, scope depth and
 	// tracked cwd (see home.go) — and abandons the rest of the line once it
 	// does. Downstream of this line every site that reads home gets a usable
