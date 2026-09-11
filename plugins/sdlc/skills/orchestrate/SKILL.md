@@ -32,10 +32,19 @@ under `agents/` owns:
 - `issue-fixer` — addresses PR review feedback in a fresh
   `isolation: worktree` worktree. When it returns, the branch carries
   new commits for the review to see again
-- `doc-updater` — updates the docs a PR's changes falsify in a fresh
+- `code-documenter` — adds or corrects the comments the style guides
+  require in the code files a PR's diff touched, in a fresh
   `isolation: worktree` worktree. When it returns, the branch carries
-  a doc commit if the round had doc impact and none otherwise; either
-  way the review runs next
+  at most one new comment commit, and `style-checker` runs next
+- `style-checker` — checks those code files against the style guides
+  in a fresh `isolation: worktree` worktree. When it returns, the
+  branch is unchanged and its report carries findings or none; findings
+  pause the loop for the human, per "The style-fix loop"
+- `docs-writer` — writes the PR's documentation once, after the
+  human's end-of-loop confirmation, in a fresh `isolation: worktree`
+  worktree. When it returns, the branch carries a documentation commit
+  if the change needed one, and its report lists every file it changed
+  with a one-line reason
 - `theorem-based-pr-reviewer` — reviews one PR in a fresh
   `isolation: worktree` worktree, carrying the whole review procedure
   in its own definition and spawning the generator and both fan-outs
@@ -83,7 +92,8 @@ the harness creates each one's worktree under `.claude/worktrees/` and
 starts the subagent inside it. You don't manage worktree paths and you
 never pass them in spawn prompts. They also share a hardened
 frontmatter baseline, with `memory: project` on `issue-developer`,
-`issue-fixer`, and `doc-updater` only — `agent-memory-scrubber`,
+`issue-fixer`, `code-documenter`, `style-checker`, and `docs-writer`
+only — `agent-memory-scrubber`,
 `pr-finalizer`, `theorem-based-pr-reviewer`, `theorem-generator` and
 its variants, `theorem-disprover`, and
 `counterexample-verifier` each declare none. Because `memory: project`
@@ -93,7 +103,7 @@ every run and is removed with the worktree: it is a per-run intake
 queue, not persistence. Nor does any of it reach a commit;
 `.claude/agent-memory/` is never staged, by any agent, at any point.
 The agents close the gap by capturing at end-of-run instead: whatever
-those three write is in the run's session-scoped inbox by the time the
+those agents write is in the run's session-scoped inbox by the time the
 scrubber runs, so you never carry memory between spawns yourself.
 Review is outside this flow entirely: none of
 `theorem-based-pr-reviewer`, `theorem-generator`,
@@ -348,8 +358,8 @@ blocker before the blocked issue in the batch's implementation order.
   and the review has no coherent story to tell.
 - **Overhead is the only argument.** Saving agent spawns is not a
   shared change surface. Per-issue overhead is real — developer,
-  doc-updater, review pipeline, scrubber, worktree churn — but it never
-  justifies a batch on its own.
+  code-documenter, style-checker, review pipeline, docs-writer,
+  scrubber, worktree churn — but it never justifies a batch on its own.
 
 The judgment call is: batch when the **conflict cost of separating**
 exceeds the **blocking cost of joining**. A trivial README change
@@ -524,9 +534,13 @@ Do not:
   rule requires, not which files it governs"* protects what matters
   and leaves the agent its remit. A prohibition that is already in the
   agent's own definition needs no brief line at all — the PR body is
-  the case, frozen for the loop by `issue-fixer`'s and `doc-updater`'s
-  definitions rather than by anything you write (see "The PR body is
-  frozen for the loop").
+  the case, frozen for the loop by the teammates' own definitions
+  rather than by anything you write (see "The PR body is frozen for the
+  loop"). The documentation boundary on `issue-developer` and
+  `issue-fixer` is the one named exception: their spawn prompts state
+  it although their definitions do too, because it is your split of
+  the work between them and `docs-writer` — a scope ruling, which is
+  what a brief carries.
 - **Carry a brief forward.** Write each one from the task, never by
   editing its predecessor. Adding a constraint feels free and removing
   one feels risky, so an edited brief's constraint block only ever
@@ -625,6 +639,10 @@ Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
 
+Edit no documentation file as the sdlc:documentation-definition skill
+defines it; docs-writer writes the PR's documentation after the review
+loop.
+
 Implement the batch end-to-end per your agent definition. Report back:
 PR URL (or equivalent), the issue set the PR closes, branch name, and
 per issue what you implemented, its commit, and its test result — plus
@@ -678,45 +696,71 @@ no-op, per "Report-consumption principle".
 The PR stays a **draft** at this point and through the entire
 review/fix loop — see "PR draft/ready lifecycle" below.
 
-### After each issue-developer or issue-fixer: doc-updater, then review
+### After each round's commits: document, check style, then review
 
-Run `doc-updater` and then `theorem-based-pr-reviewer` **sequentially**,
-doc-updater first. The review must see the final state of the PR
-including the doc commit; if doc-updater runs after the review, the
-review covers an incomplete PR.
+Run `code-documenter`, then `style-checker`, then
+`theorem-based-pr-reviewer`, **sequentially**. The review must see the
+final state of the PR's code, including the comment commit and any
+style fix; if either pass runs after the review, the review covers an
+incomplete PR.
 
 This applies to **every** round that puts commits on the branch — the
-initial `issue-developer` implementation and each `issue-fixer` round
-alike (see "Handling review findings — the fix loop" below) — and each
-of those rounds needs the doc pass before its re-review.
+initial `issue-developer` implementation, each `issue-fixer` round of
+the review loop (see "Handling review findings — the fix loop" below),
+and each style-fix round (see "The style-fix loop" below) alike.
 
-The doc pass is cheap in the common case and never costs a review
-round: a round with no doc impact returns without a doc commit, and
-the review-round cap (see "Hard Constraints" below) counts reviewer
-spawns only, at whatever tier the pipeline picked.
+Neither pass costs a review round: the review-round cap (see "Hard
+Constraints" below) counts reviewer spawns only, at whatever tier the
+pipeline picked.
 
-**doc-updater spawn prompt** — give it PR number, the issue set, and
-branch name. The same prompt serves both the developer's round and
-every fixer round; the agent works from the PR diff, so it needs no
-telling which round produced the commits, and a batch PR needs nothing
-extra — k issues produce one diff. The set is context only, and the
-titles ride along as a human-readable label on the numbers rather than
-as issue content to work from: `doc-updater`'s own Inputs section says
-it never reads those issues, so the developer template's cut of
-title / body / labels — which exists because that agent *does* read
-each issue — has nothing to withhold here:
+**code-documenter spawn prompt** — give it PR number and branch name.
+The same prompt serves every round: the agent works from the PR diff,
+so it needs no telling which round produced the commits, and it reads
+no issue, so the issue set is not passed:
 
 ```text
-PR <PR_N> for issues <link-prefix><issue_N1> ("<title>"),
-<link-prefix><issue_N2> ("<title>"), … has new commits on it.
+PR <PR_N> has new commits on it.
 Branch: <branch-name>
 
-Update docs per your agent definition (CLAUDE.md, READMEs, /docs,
-repo-level .claude/rules/ and .claude/skills/ that the change
-affects, and in-code doc comments — TSDoc or the language
-equivalent — in source files the PR touched). Report back which
-files changed and what you updated.
+Document the code per your agent definition. Report back the files you
+touched and the commit you pushed.
 ```
+
+**style-checker spawn prompt** — the same two identifiers, spawned once
+`code-documenter` has returned:
+
+```text
+PR <PR_N> has new commits on it.
+Branch: <branch-name>
+
+Check the code against the style guides per your agent definition.
+Report back your findings, or that there are none.
+```
+
+#### The style-fix loop
+
+On **no findings**, proceed to the review without a pause.
+
+On **findings**, pause: show the human the list as `style-checker`
+reported it — each finding's quoted rule and offending lines — and ask
+whether to fix them or to ignore them. The question ends your turn.
+Relay the findings as `style-checker`'s report, never as "the review
+found" them.
+
+- **Ignore** — proceed to the review. Nothing records the ruling on the
+  PR. The human's ignore is the loop's only exit.
+- **Fix** — post a fixer brief on the PR in the shape "Handling review
+  findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
+  marker included, with the style findings as its findings, each
+  carrying its quoted rule and offending lines. Then spawn
+  `issue-fixer` with the standard spawn prompt. That round puts commits
+  on the branch, so `code-documenter` and `style-checker` run again
+  after it, before the review, like any other fixer round.
+
+The style-fix loop keeps its own count and has no cap. A style-fix
+round is one `issue-fixer` spawned from a style-findings brief; it does
+not count against the review-round cap. Track the number per PR and
+report it in the Phase 3 summary.
 
 ### Run the review pipeline
 
@@ -852,8 +896,8 @@ The freeze closes as soon as the PR is linked to its issues.
 missing immediately after (see "After each issue-developer reports
 back: link the PR to its issues") — both of those land before the
 first review round exists to be confused by them. From there until
-the loop ends, **nothing edits the PR body**. Not you, not
-`issue-fixer`, not `doc-updater`. `pr-finalizer` appends one final
+the loop ends, **nothing edits the PR body**. Not you, and not any
+other teammate. `pr-finalizer` appends one final
 section after the loop is over (see "End-of-loop lifecycle
 transitions"), and that is the whole exception.
 
@@ -962,8 +1006,9 @@ responses, so read what the report **says** before you act on it:
    into the fix.
 
 3. **Re-spawn the reviewer** over the same PR with the same
-   parameters. Nothing else in the loop changes — no doc-updater pass,
-   because no commits landed, and no adjustment comment, because the
+   parameters. Nothing else in the loop changes — no `code-documenter`
+   or `style-checker` pass, because no commits landed, and no
+   adjustment comment, because the
    human has nothing to adjust yet.
 
    That re-spawn **resumes** the stalled round rather than starting it
@@ -1058,6 +1103,10 @@ member)**:
    ```text
    PR <PR_N> has a fixer brief waiting on it.
 
+   Edit no documentation file as the sdlc:documentation-definition
+   skill defines it; docs-writer writes the PR's documentation after
+   the review loop.
+
    Address it per your agent definition. Report back what you fixed
    and what you didn't.
    ```
@@ -1079,15 +1128,11 @@ member)**:
    finding to be reported under, and the review round that follows
    only re-checks the findings, so an unreported ruling is one nothing
    else will catch.
-4. Spawn `doc-updater` against the branch, with the same spawn prompt
-   as after the developer's round (see "After each issue-developer or
-   issue-fixer: doc-updater, then review" above), before the review
-   runs. The review must see the final state of the PR including any
-   doc commit; if doc-updater runs after the review, the review covers
-   an incomplete PR. Skipping this step is what lets a fixer's own
-   unverified doc claim reach the review unchecked. A round with no
-   doc impact returns without a doc commit and does not consume a
-   review round.
+4. Run `code-documenter` and `style-checker` against the branch, the
+   style-fix loop included, per "After each round's commits: document,
+   check style, then review" above, before the review runs. Skipping
+   them is what lets a fixer's own unverified comment reach the review
+   unchecked.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
@@ -1141,13 +1186,14 @@ strands the fixer — see "Handling review findings — the fix loop".
 
 `agent-memory-scrubber` runs after every memory-declaring teammate and
 before Phase 3's `/github-prs:pr-ready` call, so the changes it lands
-are part of what the human blesses. Spawn it once the PR's review loop
-has settled — APPROVED, or the review-round cap reached — and no
-further branch work is queued.
+are part of what the human blesses. Spawn it in Phase 3's end-of-loop
+transitions, once `docs-writer` has returned and no further branch work
+is queued (see "End-of-loop lifecycle transitions").
 
 Running after every memory-declaring teammate is the whole point: by
 that moment every agent that writes memory (`issue-developer`,
-`issue-fixer`, `doc-updater` — `pr-finalizer`,
+`issue-fixer`, `code-documenter`, `style-checker`, `docs-writer` —
+`pr-finalizer`,
 `theorem-based-pr-reviewer`,
 `theorem-generator`, `theorem-disprover` and
 `counterexample-verifier` write none) has captured into the session's
@@ -1173,9 +1219,10 @@ a spawn is the only evidence you have that entries may be waiting. That over-app
 nothing — and the cost of the over-approximation is one spawn that
 finds an empty inbox and commits nothing, against the cost of the
 under-approximation, which is a round's entries dying with the
-session. A late `issue-fixer` round after a re-review, or the
-`doc-updater` pass that follows it, each captures into the inbox the
-scrubber already emptied; the inbox is session-ephemeral, so entries
+session. A late `issue-fixer` round after a re-review, and the
+`code-documenter` and `style-checker` passes that follow it, each
+capture into the inbox the scrubber already emptied; the inbox is
+session-ephemeral, so entries
 left there when the session ends are lost. Re-running is the correct
 move rather than a violation, and the second pass sees only what the
 later round captured. The only wrong placement is spawning it *early*,
@@ -1247,9 +1294,9 @@ becomes of the dropped issue. Unless the human says otherwise:
   `rules/git-workflow.md` → "Issue references", so the PR closes only
   the landed subset and the developer names the deferral in the PR
   body.
-- The rest of the loop runs on that subset: `/pr-link-issue`,
-  `doc-updater`, and the review pipeline all get the set the PR
-  actually closes, not the branch's full set.
+- The rest of the loop runs on that subset: `/pr-link-issue`, the
+  review pipeline, and `docs-writer` all get the set the PR actually
+  closes, not the branch's full set.
 - The dropped issue **stays In Progress**. Do not flip it to In Review
   at end-of-loop (Phase 3) and do not put it back to Ready. It gets
   its own branch later, on the human's say-so.
@@ -1262,9 +1309,9 @@ run, not failed it — the escalation is about the dropped member alone.
 ### Wave sequencing
 
 Do not start Wave 2 until all Wave 1 issue-developers have reported back
-(doc-updaters, review pipelines, and fix loops can still be running — they don't
-block the next wave). This ensures file-conflicting batches never run
-concurrently.
+(code-documenters, style-checkers, review pipelines, and fix loops can
+still be running — they don't block the next wave). This ensures
+file-conflicting batches never run concurrently.
 
 ---
 
@@ -1273,15 +1320,36 @@ concurrently.
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
 The review/fix loop leaves each PR **draft** and every issue it closes
-**In Progress**, with `agent-memory-scrubber` already run against it
-after every memory-declaring teammate ran (Phase 2, "Before
-`/pr-ready`: curate the PR's agent memory") so the run's memory is
-curated before the human sees it. Phase 3 is where the human
+**In Progress**. Phase 3 is where the human
 confirms — per PR — that the loop is done and the PR is good enough to
 move forward. On that end-of-loop confirmation for a given PR, and
 only then, the orchestrator performs these transitions, in this order:
 
-1. **Spawn `pr-finalizer` to post the run's detail and amend the PR
+1. **Spawn `docs-writer` to write the PR's documentation.** It runs
+   once per PR, here, and no review round runs over its commit. Give it
+   the PR number, the issue set the PR closes, and the branch name:
+
+   ```text
+   PR <PR_N> for issues <link-prefix><issue_N1>,
+   <link-prefix><issue_N2>, … has finished its review loop.
+   Branch: <branch-name>
+
+   Write the PR's documentation per your agent definition. Report back
+   every file you changed with a one-line reason, and the commit you
+   pushed.
+   ```
+
+   Its per-file list is the summary's `Doc Changes` cell, and it goes
+   verbatim into the scope notes you hand `pr-finalizer`, so the human
+   reads it before the ready flip. A documentation change the human
+   wants after reading it is a manual round, not a loop: this flow
+   spawns `docs-writer` once.
+
+2. **Spawn `agent-memory-scrubber`**, per "Before `/pr-ready`: curate
+   the PR's agent memory". `docs-writer` is the last memory-declaring
+   teammate a PR gets, so the scrubber runs after it.
+
+3. **Spawn `pr-finalizer` to post the run's detail and amend the PR
    body.** Each round posted only a summary and kept its argued review,
    its theorem records and each child's report under the PR's XDG state
    directory (see "Reading a round's detail"), so the PR carries none of
@@ -1300,9 +1368,9 @@ only then, the orchestrator performs these transitions, in this order:
    The finalizer is the one agent that posts those comments; you post
    none of them.
 
-   Spawn it after the memory scrub and after any final `issue-fixer`
-   round — those put commits on the branch, and a summary written
-   before them would describe a PR that no longer exists. Give it the
+   Spawn it after `docs-writer` and the memory scrub — those put
+   commits on the branch, and a summary written before them would
+   describe a PR that no longer exists. Give it the
    PR number, the branch name, and the scope notes the run settled
    that the rounds themselves do not carry:
 
@@ -1311,7 +1379,8 @@ only then, the orchestrator performs these transitions, in this order:
 
    Scope notes this run settled, for the final section:
    <the deferrals, dropped members, and rulings the human made that
-   the rounds do not carry — or "none">
+   the rounds do not carry, and docs-writer's per-file list verbatim
+   — or "none">
 
    Post the detail and append the final section per your agent
    definition. Report back what you posted and what you appended.
@@ -1320,7 +1389,7 @@ only then, the orchestrator performs these transitions, in this order:
    It reads the rounds out of state and the commits off the branch for
    the rest; that is its job, not yours to summarize into the brief.
 
-2. **Flip the PR draft → ready:**
+4. **Flip the PR draft → ready:**
 
    ```text
    /github-prs:pr-ready <PR>
@@ -1335,7 +1404,7 @@ only then, the orchestrator performs these transitions, in this order:
    the loop.
 
    If a memory-declaring teammate was spawned after the scrubber last
-   ran — a late `issue-fixer` round, another `doc-updater` pass — spawn
+   ran — a late `issue-fixer` round, another `code-documenter` pass — spawn
    the scrubber again first (Phase 2, "Before `/pr-ready`: curate the
    PR's agent memory"), which is a read of your own spawn history
    rather than of any report. Whatever
@@ -1343,7 +1412,7 @@ only then, the orchestrator performs these transitions, in this order:
    when the session ends, so flipping the PR ready over it discards
    it.
 
-3. **Set every issue the PR closes to In Review.** The authoritative
+5. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`
    reports — the one skill that reads a PR body's closing lines. Ask
    it rather than reusing the batch's planned membership: neither
@@ -1390,10 +1459,10 @@ a summary:
 ## Issue Fix Summary
 
 ### Ready for Your Review
-| Batch | Issues | PR | Review Verdict | Review Rounds | Doc Changes |
-|-------|--------|----|-----------------|---------------|-------------|
-| A | <link-prefix>101 | <PR1> | Approved | 1 | CLAUDE.md, README.md |
-| B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 (fixed high on 104) | /docs/api.md |
+| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | Doc Changes |
+|-------|--------|----|-----------------|---------------|------------------|-------------|
+| A | <link-prefix>101 | <PR1> | Approved | 1 | 0 | README.md — documents the new flag |
+| B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 (fixed high on 104) | 1 | docs/api.md — records the changed endpoint |
 
 ### Needs Your Attention
 | Issue | PR | Problem |
@@ -1421,10 +1490,11 @@ discrepancy your re-read could not settle qualify as they stand.
 
 Every cell in those tables is a claim to the human, and most of them
 arrive from a teammate's report rather than from something you
-observed — the `Doc Changes` list is `doc-updater`'s account of its
-own commit, and the `Review Verdict` and the severity detail behind it
-are `theorem-based-pr-reviewer`'s. `Review Rounds` is the cell that is
-genuinely yours: the reviewer reports one round's verdict, tally, tier
+observed — the `Doc Changes` list is `docs-writer`'s per-file account
+of its own commit, and the `Review Verdict` and the severity detail
+behind it are `theorem-based-pr-reviewer`'s. `Style-fix Rounds` is
+your own count, per "The style-fix loop". `Review Rounds` is the other
+cell that is genuinely yours: the reviewer reports one round's verdict, tally, tier
 and round kind and never a round count, so the number is your own
 tally of loop iterations, while the parenthetical explaining it draws
 on the reviewer's severity line and the fixer's report. Fill them per
@@ -1458,7 +1528,7 @@ on the reviewer's severity line and the fixer's report. Fill them per
   the agent has already run once on this PR. Agent-owned work
   includes:
   - **Code/config edits, including doc edits** — owned by
-    `issue-developer`, `issue-fixer`, `doc-updater`. The orchestrator
+    `issue-developer`, `issue-fixer`, `code-documenter`, `docs-writer`. The orchestrator
     never uses `Edit`, `Write`, or `NotebookEdit`. The
     orchestrator never *originates* feature work via `git commit` or
     `git push` — those belong to the teammate that owns the change.
@@ -1552,9 +1622,11 @@ on the reviewer's severity line and the fixer's report. Fill them per
   round is one `theorem-based-pr-reviewer` spawn **that posted a
   review** — everything inside that spawn is one round, however many
   `theorem-disprover` and `counterexample-verifier` agents its
-  fan-outs spawned, at whatever generator tier; the `doc-updater` pass
-  that precedes each one is not a review and never counts against the
-  cap. A spawn that posted no review does not count either — an
+  fan-outs spawned, at whatever generator tier. The `code-documenter`
+  and `style-checker` passes that precede each one are not reviews, and
+  a style-fix round is counted by its own loop (see "The style-fix
+  loop"), so none of them counts against the cap. A spawn that posted
+  no review does not count either — an
   in-progress status or a broken `sdlc-agent-result-persist` call
   alike (see "Handling review findings — the fix loop"):
   charging the budget for a spawn that checked nothing spends the
@@ -1675,10 +1747,11 @@ draft-first lifecycle:
    fire on merge to the default branch, so they stay inert while the
    PR is draft.
 3. **Stays draft through the whole review/fix loop, and through the
-   memory scrub that closes it out.** doc-updater, the review
-   pipeline, and any issue-fixer rounds all run against the draft PR,
-   and so does
-   `agent-memory-scrubber` — running after every memory-declaring
+   documentation pass and memory scrub that close it out.**
+   `code-documenter`, `style-checker`, the review pipeline, and any
+   `issue-fixer` rounds all run against the draft PR, and so do
+   `docs-writer` and `agent-memory-scrubber` — the scrubber running
+   after every memory-declaring
    teammate, re-spawned whenever a memory-declaring teammate was
    spawned after the scrubber last ran (see "Before `/pr-ready`: curate
    the PR's agent memory"). Nothing in that sequence flips the PR to

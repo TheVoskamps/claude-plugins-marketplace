@@ -10,7 +10,8 @@ Fetch the full unified diff of a GitHub pull request via
 reading a PR's changes: the `theorem-generator`, `theorem-disprover`,
 and `counterexample-verifier` agents `sdlc:theorem-based-pr-reviewer`
 spawns,
-and `/sdlc:orchestrate`'s own `issue-fixer` and `doc-updater`. Each
+and `/sdlc:orchestrate`'s own `issue-fixer`, `code-documenter`,
+`style-checker`, and `docs-writer`. Each
 declares this skill in its `skills:` frontmatter rather than writing
 out a raw `gh pr diff` of its own.
 

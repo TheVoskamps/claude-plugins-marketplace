@@ -131,10 +131,10 @@ changes how the two relate edits it here.
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
+| `sdlc:documentation-definition` | What counts as documentation rather than code | preloaded into the agents that decide which files they may edit or review |
 
-`theorem-generation`, `theorem-agents-interface` and
-`agent-result-persist-interface` carry no leading slash here because
-they are not user verbs — each declares `user-invocable: false`, which
+The rows with no leading slash are not user verbs — each declares
+`user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
 `theorem-generation` is preloaded into each
 `theorem-generator` variant through that agent's `skills:`
@@ -176,9 +176,9 @@ by `skills/agent-result-persist-interface/SKILL.md`.
 
 `pr-finalizer` reads that state and writes none of it. The implementing
 agents are outside the claim entirely and write nothing this
-list owns: `issue-developer`, `issue-fixer` and `doc-updater` commit
-their work to the branch and capture their agent memory into the
-session's inbox, and `agent-memory-scrubber` commits what that inbox
+list owns: those declaring `memory: project` capture their agent memory
+into the session's inbox, each of them but `style-checker` commits its
+work to the branch, and `agent-memory-scrubber` commits what that inbox
 transfers.
 
 Write `<round-dir>` for
@@ -228,7 +228,9 @@ throwaway worktree per spawn.
 | ------- | --------- |
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings to an open PR's branch |
-| `doc-updater` | Updates the docs a PR's changes falsify |
+| `code-documenter` | Adds or corrects the comments the style guides require in a round's code, before its review |
+| `style-checker` | Reports a round's style-guide violations for the human to rule on, before its review |
+| `docs-writer` | Writes a PR's documentation once, after its review loop ends |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and appends the run's final section to its body |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |

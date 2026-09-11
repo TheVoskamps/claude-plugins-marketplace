@@ -10,6 +10,7 @@ skills:
   - github-prs:pr-review-submit
   - git-tools:git-issues-from-branch
   - sdlc:agent-result-persist-interface
+  - sdlc:documentation-definition
 ---
 
 # Theorem-Based PR Reviewer
@@ -32,7 +33,8 @@ Both entry paths spawn you rather than running the procedure in their
 own session:
 
 - `/sdlc:git-review-pr <PR>` — the standalone review.
-- The `/sdlc:orchestrate` loop, after each `doc-updater` pass.
+- The `/sdlc:orchestrate` loop, after each round's `code-documenter`
+  and `style-checker` passes.
 
 ## Read global rules first
 
@@ -369,6 +371,17 @@ you into re-reviewing by hand — an opinion nothing asked for.
 The delta "Carry the previous round's theorems forward" computes is a
 commit list, not a diff, so computing it does not breach this.
 
+## Documentation is outside the review
+
+Documentation files, as the preloaded `sdlc:documentation-definition`
+skill defines them, are not reviewed: `docs-writer` writes them once the
+loop has ended, and no round runs over that commit. So the diff you hand
+the generator and the disprovers excludes them. From the paths "Read the
+PR's shape" lists, collect those the definition calls documentation, and
+name them in the generator's brief and in every disprover's brief as
+paths to leave out of every diff the child reads. Omit that line when
+there are none.
+
 ## Inputs
 
 Your brief carries double-dash parameters. One vocabulary serves every
@@ -444,11 +457,13 @@ quotes that name, so inserting a section renames nothing.
 ### Read the PR's shape
 
 ```bash
-gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
+gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions,files
 ```
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
-review body reports. `headRefName` and `body` feed "Identify the issue
+review body reports. `files` names the paths the diff touches, which
+"Documentation is outside the review" reads; it is a path list, not the
+diff. `headRefName` and `body` feed "Identify the issue
 set"; `headRefOid` feeds the single fetch in "Fan out the disprovers"
 and every disprover's and verifier's brief; `baseRefName` is what bounds
 the delta in "Carry the previous round's theorems forward" to this PR's
@@ -574,7 +589,7 @@ your copy at all: `/github-prs:pr-closing-issues` fetches the body
 itself. That is safe rather than a gap, because the body is **frozen for
 the duration of an orchestrate loop** — written once at PR creation,
 amended once by `pr-finalizer` after the loop ends, and edited by no
-`issue-fixer` and no `doc-updater` in between. Everything in flight
+other agent in between. Everything in flight
 travels as a PR comment instead. Do not add the body as a delta source:
 the freeze is what removes the input, so detecting body edits buys
 nothing, and a round that diffed the body would fan out on
@@ -888,6 +903,9 @@ On a **round-1 or fallback round**, the brief is the whole PR:
 --repo <repo>
 --round <this round's number>
 
+Leave these documentation paths out of every diff you read: <the paths
+"Documentation is outside the review" collected>
+
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file and report it back in the theorem-record format that
 skill defines, and nothing else.
@@ -905,6 +923,9 @@ round's delta commits, and the generator emits only what those imply:
 --owner <owner>
 --repo <repo>
 --round <this round's number>
+
+Leave these documentation paths out of every diff and delta commit you
+read: <the paths "Documentation is outside the review" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file and report it back in the theorem-record format that
@@ -1136,6 +1157,9 @@ Each disprover's brief is one theorem and nothing more:
 --owner <owner>
 --repo <repo>
 --round <this round's number>
+
+Leave these documentation paths out of every diff you read: <the paths
+"Documentation is outside the review" collected>
 
 Try to disprove this one claim per your agent definition. Report
 DISPROVED with a verbatim-quoted counterexample, a consequence

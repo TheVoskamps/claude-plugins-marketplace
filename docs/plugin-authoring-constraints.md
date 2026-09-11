@@ -583,9 +583,8 @@ is stated once, in
 `plugins/cc-tools/skills/lib/agent-memory-inbox.md`, and nowhere else
 — and `/cc-tools:agent-memory-inbox-cleanup` grades every captured
 entry transfer-or-delete, then commits the documentation files its
-transfers landed in. `sdlc`'s `issue-developer`, `issue-fixer`, and
-`doc-updater` call the writer; `agent-memory-scrubber` calls the
-curator.
+transfers landed in. `sdlc`'s agents that declare `memory: project`
+call the writer; `agent-memory-scrubber` calls the curator.
 
 These properties come with the pattern rather than with that
 instance:
