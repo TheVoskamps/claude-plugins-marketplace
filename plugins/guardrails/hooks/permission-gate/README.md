@@ -127,29 +127,28 @@ The gate's engines feed that decision:
   Bash word that references a home the gate cannot place — `~` or
   `~/…` in any quoting, `$HOME`/`${HOME}`, or a persistent in-script
   `HOME=` assignment a later word resolves against — **DENIES**
-  (`home:unusable`), and so does a file-tool operand whose `~` names
-  one. Downstream of that line every site that reads home (`$HOME`
+  (`home:unusable`), and so does a **bare `cd`**, which bash sends to
+  `$HOME` and which is therefore a home reference carrying no
+  home-referencing *word*, and so does a file-tool operand whose `~`
+  names one. Downstream of that line every site that reads home (`$HOME`
   resolution, `cd` / `cd ~` tracking, the containment resolver's tilde
   arm, `lexicalAbs`, the carve-out loader, the Claude config root, the
   evolution-log path) asks `resolveHome` for one and gets either a
   usable absolute home or nothing at all, so none of them carries an
-  emptiness or `IsAbs` test of its own. The one classifier site that
-  still *runs* under an unusable home is **bare `cd`**, which goes to
-  `$HOME` while referencing no word the chokepoint could deny: it invalidates
-  the tracked cwd rather than tracking a relative one, so a later
-  relative operand fails closed instead of being graded against
-  `<worktree>/relhome`. The three **process-home** readers fail closed
+  emptiness or `IsAbs` test of its own — bare `cd` included, which is
+  why nothing downstream ever tracks `<worktree>/relhome` as the cwd.
+  The three **process-home** readers fail closed
   the same way, rather than composing a path against a relative home: an
   unusable home loads no carve-out config (so no operator allow),
   resolves no `~/.claude` root (so a target landing there grades as an
   ordinary escape — a **deny** — instead of the `claudeConfig` defer
   that root buys), and writes no evolution-log entry. Only the log sits
   outside the verdict; the other two are relaxations an unusable home
-  withdraws. So an event carrying no `~` and no `$HOME` is never denied
-  by the chokepoint, and its verdict is identical under an unusable home
-  and an absolute one **unless** its absolutely-spelled target lands
-  under one of those two home-rooted roots, which an unusable home
-  leaves unresolved.
+  withdraws. So an event carrying no `~`, no `$HOME` and no bare `cd` is
+  never denied by the chokepoint, and its verdict is identical under an
+  unusable home and an absolute one **unless** its absolutely-spelled
+  target lands under one of those two home-rooted roots, which an
+  unusable home leaves unresolved.
 
   Before this, each of those sites decided for itself, so one relative
   `$HOME` produced a different outcome per site: `cat ~/x` ALLOWed (the
@@ -168,10 +167,18 @@ The gate's engines feed that decision:
   home nor condemns one under a usable process home — measured, and
   the reason `HOME=/absolute/home cat ~/x` resolves its tilde against
   the process home while `HOME=/absolute/home; cat ~/x` resolves it
-  against `/absolute/home`. And a persistent `HOME=` whose value is not
-  a static literal (an append, an array, a command substitution, an
-  unresolved expansion) is graded **unusable**: the gate cannot place
-  the home the later words resolve against. The chokepoint's scan is
+  against `/absolute/home`. And a persistent `HOME=` is graded by
+  resolving its value with the gate's own word resolver (`literalWord`),
+  so `HOME=$HOME/sub` and `HOME=~/sub` under a usable home set a usable
+  home and deny nothing. What the resolver cannot resolve **exactly** is
+  graded **unusable**, because the gate cannot place the home the later
+  words resolve against: an append, an array, a command substitution
+  outside the anchor allowlist, and an expansion this scan cannot
+  resolve — `$PWD`, or a variable assigned earlier in the same program,
+  neither of which the scan tracks. That last arm denies with both homes
+  perfectly usable: `HOME=$(pwd); cat ~/x` denies, where bash would have
+  placed that home fine (measured against this branch's binary). The
+  chokepoint's scan is
   also flat where `recordAssign` is scope-aware, so a `HOME=<relative>`
   inside a subshell or function body is graded as if it persisted — an
   over-approximation in the deny direction only.
@@ -1359,15 +1366,16 @@ The gate's engines feed that decision:
   brace-list escaping member, `{a.md,~/.ssh/id_rsa}`, but pre-existing
   and reachable through any single-operand path too, e.g. plain
   `cat ~/.ssh/id_rsa`) — now it earns the escape verdict its real
-  location deserves. An UNUSABLE home is not this section's to decide:
-  such an operand denies at the home chokepoint above, before
-  containment runs. `testContainmentFrom` keeps its own fail-safe
-  anyway — an unexpandable `~` is graded an unconditional `escapeRepo`,
-  denied and never `contained` — as defence in depth for any future
-  caller that reaches it without passing the chokepoint. An
-  earlier version of this fix left `~` as a literal
-  relative segment in this branch instead, which actually resolved as
-  `<base>/~/...` and read as `contained` — a live fail-open, caught by
+  location deserves. Whether a home is usable is not this section's to
+  decide and is not restated here: the home-usability bullet above owns
+  that, and its chokepoint denies such an operand before containment
+  runs. The unconditional `escapeRepo` `testContainmentFrom` gives an
+  unexpandable `~` — denied, never `contained` — therefore survives as a
+  fail-safe for a caller that reaches it without passing the chokepoint,
+  not as a second home rule. An earlier version of this fix left `~` as
+  a literal relative segment in this branch instead, which actually
+  resolved as `<base>/~/...` and read as `contained` — a live
+  fail-open, caught by
   round-3 review and closed by threading the resolver's
   home-unresolvable signal through `testContainmentFrom` directly (see
   `canonicalizeFromResolver` in `engine_b_containment.go`). (5) a
@@ -1747,10 +1755,11 @@ The gate's engines feed that decision:
   root — everything under a config home inside the home directory does
   — is allowed when **any** of those roots lists it.
 
-  **How each root resolves.** `home` is the process home —
-  `os.UserHomeDir()` graded by `homeUsable` (see the home chokepoint
-  above), so an unusable one leaves the whole carve-out empty rather
-  than rooting it at a relative path — and has no setting.
+  **How each root resolves.** `home` is the process home as
+  `resolveHome` hands it over — this section applies no home test of its
+  own, and what makes a home usable is stated once, in the home-usability
+  bullet above. An unusable one leaves the whole carve-out empty rather
+  than rooting it at a relative path, and `home` has no setting.
   `config-home` and `state-home` each take
   `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` when
   `resolve-xdg-environment-variables: yes` **and** the variable is set

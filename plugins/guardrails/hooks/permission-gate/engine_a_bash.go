@@ -674,6 +674,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// is handed to `$PWD` unmodified, so a $HOME carrying a trailing
 			// slash would otherwise reach concatenation (pinned by
 			// TestCdTrackingBareCdTracksCleanedHome).
+			//
+			// The !ok arm is a fail-safe, not a reachable policy: a bare `cd`
+			// is a home reference, so the home chokepoint (home.go) has already
+			// DENIED the event when the home is unusable, and nothing gets this
+			// far to invalidate.
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			home, ok := resolveHome(resolver.homeDir)
 			if !ok {
@@ -1498,8 +1503,7 @@ func isAssignment(tok string) bool {
 // process env. Only a PERSISTENT assignment reaches knownVars: the prefix
 // spelling `HOME=/tmp cat "$HOME/x"` sets env for that one command, is never
 // recorded here, and resolves to the process home (measured against the
-// committed binary — this comment previously used that spelling as the
-// example and had it backwards). Only when the name is ABSENT from
+// committed binary). Only when the name is ABSENT from
 // knownVars does resolution fall through to the closed allowlists:
 //
 //   - cwdResolvableNames ($PWD, $OLDPWD): resolved from the tracked cwd (cc),

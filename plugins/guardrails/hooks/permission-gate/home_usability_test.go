@@ -122,25 +122,39 @@ func TestHomeUsabilityPredicate(t *testing.T) {
 // denies at the chokepoint with the one operation label; under an absolute
 // home none of them does.
 func TestHomeChokepointBashShapes(t *testing.T) {
-	commands := []string{
-		`cat ~/x`,
-		`cat "$HOME/x"`,
-		`cat "${HOME}/x"`,
-		`cat '~/x'`,
-		`X=~/x; cat "$X"`,
-		`HOME=relhome; cat ~/x`,
-		`echo $(cat ~/x)`,
+	// alwaysDenies marks a command carrying its own in-script home the gate
+	// cannot place, which denies at the chokepoint whatever the process home is.
+	commands := []struct {
+		cmd          string
+		alwaysDenies bool
+	}{
+		{cmd: `cat ~/x`},
+		{cmd: `cat "$HOME/x"`},
+		{cmd: `cat "${HOME}/x"`},
+		{cmd: `cat '~/x'`},
+		{cmd: `X=~/x; cat "$X"`},
+		{cmd: `HOME=relhome; cat ~/x`, alwaysDenies: true},
+		{cmd: `echo $(cat ~/x)`},
+		// An in-script HOME= built from the home in effect is resolved by the
+		// package's own literalWord, so under a usable home these set a usable
+		// home and deny nothing — the chokepoint carries no second, stricter
+		// notion of "literal".
+		{cmd: `HOME=$HOME/sub; cat ~/x`},
+		{cmd: `HOME=~/sub; cat ~/x`},
+		// A value literalWord cannot resolve exactly is unusable whatever the
+		// process home is: the gate cannot place the home the later `~`
+		// resolves against.
+		{cmd: `HOME=$(pwd); cat ~/x`, alwaysDenies: true},
 	}
 	for _, shape := range homeShapes() {
-		for _, cmd := range commands {
+		for _, tc := range commands {
+			cmd := tc.cmd
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
 				repo := homeTestRepo(t)
 				applyHomeShape(t, shape)
 				ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: repo, AgentType: "main"}
 				d := classifyBash(cmd, ev)
-				// `HOME=relhome; …` carries its own unusable home, so it
-				// denies at the chokepoint whatever the process home is.
-				wantChokepoint := !shape.usable || cmd == `HOME=relhome; cat ~/x`
+				wantChokepoint := !shape.usable || tc.alwaysDenies
 				if wantChokepoint {
 					if d.Bucket != BucketDeny || d.Operation != homeUnusableOp {
 						t.Fatalf("%q with %s home: got bucket %q op %q (reason=%q), want deny/%s",
@@ -182,26 +196,36 @@ func TestHomeChokepointInScriptAbsoluteHome(t *testing.T) {
 	}
 }
 
-// TestHomeChokepointBareCdInvalidates covers the one home-reading Bash shape
-// that carries no home-referencing WORD: bare `cd` goes to $HOME. There is
-// nothing for the chokepoint to deny, so the requirement is the weaker one —
-// an unusable home must never become a tracked relative cwd that a later
-// relative operand is graded against. It invalidates instead, and the later
-// operand fails closed.
-func TestHomeChokepointBareCdInvalidates(t *testing.T) {
-	for _, shape := range homeShapes() {
-		if shape.usable {
-			continue
+// TestHomeChokepointBareCd covers the one home reference spelled with no
+// home-referencing WORD: bare `cd` goes to $HOME, so it is a home reference by
+// definition and denies at the chokepoint under an unusable home exactly as
+// `cat ~/x` does. Under a usable home it tracks $HOME, so the command reads
+// outside the repo and must not ride the allow track either.
+func TestHomeChokepointBareCd(t *testing.T) {
+	for _, cmd := range []string{`cd && cat ../x`, `cd; cat x`} {
+		for _, shape := range homeShapes() {
+			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
+				repo := homeTestRepo(t)
+				applyHomeShape(t, shape)
+				ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: repo, AgentType: "main"}
+				d := classifyBash(cmd, ev)
+				if !shape.usable {
+					if d.Bucket != BucketDeny || d.Operation != homeUnusableOp {
+						t.Fatalf("%q with a %s home: got bucket %q op %q (reason=%q), want deny/%s",
+							cmd, shape.name, d.Bucket, d.Operation, d.Reason, homeUnusableOp)
+					}
+					return
+				}
+				if d.Operation == homeUnusableOp {
+					t.Fatalf("%q with an absolute home must not deny at the home chokepoint (reason=%q)",
+						cmd, d.Reason)
+				}
+				if d.Bucket == BucketAllow {
+					t.Fatalf("%q with an absolute home reads outside the repo and must not allow (reason=%q)",
+						cmd, d.Reason)
+				}
+			})
 		}
-		t.Run(shape.name, func(t *testing.T) {
-			repo := homeTestRepo(t)
-			applyHomeShape(t, shape)
-			ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: repo, AgentType: "main"}
-			d := classifyBash(`cd && cat ../x`, ev)
-			if d.Bucket == BucketAllow {
-				t.Fatalf("`cd && cat ../x` with a %s home must not allow (reason=%q)", shape.name, d.Reason)
-			}
-		})
 	}
 }
 

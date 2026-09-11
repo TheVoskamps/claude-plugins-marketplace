@@ -87,13 +87,22 @@ func denyUnusableHome(spelling string) Decision {
 // been seen, and against the process home before that — the same precedence
 // resolveVar applies to `$HOME`.
 //
-// Two deliberate over-approximations, both in the deny direction and both only
-// reachable when some home value is ALREADY unusable:
+// A bare `cd` (bareCd) is a home reference too: bash sends it to $HOME, so it
+// denies here under an unusable home like any `~`-spelling would, and nothing
+// downstream is left to track a home the gate cannot place.
 //
-//   - An in-script `HOME=` whose value is not a static literal (an append, an
-//     array, a command substitution, an unresolved expansion) is graded
-//     unusable, because the gate cannot place the home the later words resolve
-//     against.
+// Two deliberate over-approximations, both in the deny direction:
+//
+//   - An in-script `HOME=` whose value literalWord cannot resolve EXACTLY is
+//     graded unusable, because the gate cannot place the home the later words
+//     resolve against. That set is an append, an array, a command substitution
+//     outside the anchor allowlist, and an expansion this scan cannot resolve —
+//     `$PWD`, or a variable assigned earlier in the same program, neither of
+//     which it tracks (assignedHomeUsable). It does NOT include `HOME=$HOME/sub`
+//     or `HOME=~/sub`: literalWord resolves both against the home in effect, so
+//     under a usable home each sets a usable home and denies nothing. This arm
+//     therefore does move with both homes usable — `HOME=$(pwd); cat ~/x` denies
+//     though bash would have placed that home fine.
 //   - The scan is flat: an assignment inside a subshell, a function body or a
 //     backgrounded group is graded as if it persisted, where recordAssign
 //     scopes it. A scoped `HOME=<relative>` therefore denies later home words
@@ -137,6 +146,13 @@ func bashHomeChokepoint(file *syntax.File, resolver varResolver) (Decision, bool
 		if hit {
 			return false
 		}
+		// A bare `cd` references the home directory with no word that carries
+		// a `~` or a `$HOME`, so it is graded here rather than by gradeWords.
+		if bareCd(n, resolver) && !effectiveOK() {
+			d = denyUnusableHome("cd")
+			hit = true
+			return false
+		}
 		// A HOME assignment feeds LATER words only when it is a persistent
 		// one: a standalone `HOME=x` (a call expression with assignments and
 		// no program) or a declaration (`export HOME=x`). A PREFIX assignment
@@ -168,7 +184,7 @@ func bashHomeChokepoint(file *syntax.File, resolver varResolver) (Decision, bool
 			}
 			if a.Name != nil && a.Name.Value == "HOME" {
 				scriptHomeSeen = true
-				scriptHomeOK = assignedHomeUsable(a)
+				scriptHomeOK = assignedHomeUsable(a, resolver)
 			}
 		}
 		// Everything beneath has just been graded, in assignment order.
@@ -268,11 +284,18 @@ func wordLeadingLiteral(w *syntax.Word) string {
 	return ""
 }
 
-// assignedHomeUsable grades the value an in-script `HOME=` assignment sets.
-// Only a fully static literal RHS can be graded; every other form leaves the
-// gate unable to place the home and is unusable (see bashHomeChokepoint's
-// over-approximations).
-func assignedHomeUsable(a *syntax.Assign) bool {
+// assignedHomeUsable grades the value an in-script `HOME=` assignment sets. It
+// resolves that value with the package's own word resolver (literalWord), so
+// `HOME=$HOME/sub` and `HOME=~/sub` resolve exactly as they do everywhere else
+// in the gate rather than against a second, stricter notion of "literal". A
+// value literalWord cannot resolve EXACTLY leaves the gate unable to place the
+// home and is unusable (see bashHomeChokepoint's over-approximations).
+//
+// The resolution carries no knownVars and an empty cwdCtx: this scan runs
+// before the classifier that tracks assignments and the cwd, so a value built
+// from an in-script variable (`D=/abs; HOME=$D`) or from $PWD is inexact here
+// and grades unusable.
+func assignedHomeUsable(a *syntax.Assign, resolver varResolver) bool {
 	if a.Append || a.Array != nil || a.Index != nil {
 		return false
 	}
@@ -280,36 +303,24 @@ func assignedHomeUsable(a *syntax.Assign) bool {
 		// `HOME=` — the empty home, which the predicate rejects.
 		return false
 	}
-	lit, ok := staticLiteralWord(a.Value)
-	if !ok {
+	val, exact := literalWord(a.Value, nil, resolver, cwdCtx{})
+	if !exact {
 		return false
 	}
-	return homeUsable(lit, nil)
+	return homeUsable(val, nil)
 }
 
-// staticLiteralWord returns a word's text when every part of it is literal
-// (unquoted text, single quotes, or double quotes over literal text only), and
-// ok=false as soon as any part expands to something the gate would have to
-// resolve.
-func staticLiteralWord(w *syntax.Word) (string, bool) {
-	var b []byte
-	for _, part := range w.Parts {
-		switch p := part.(type) {
-		case *syntax.Lit:
-			b = append(b, p.Value...)
-		case *syntax.SglQuoted:
-			b = append(b, p.Value...)
-		case *syntax.DblQuoted:
-			for _, dp := range p.Parts {
-				lit, ok := dp.(*syntax.Lit)
-				if !ok {
-					return "", false
-				}
-				b = append(b, lit.Value...)
-			}
-		default:
-			return "", false
-		}
+// bareCd reports whether n is a `cd` call carrying no operand. That is the one
+// home reference spelled with no home-referencing WORD — bash sends a bare `cd`
+// to $HOME — so the chokepoint grades it like any other home reference. The
+// detection mirrors applyCd's own bare-cd arm: a call whose single argument has
+// basename `cd`. A `cd` carrying any operand, an option among them, is not this
+// shape; its operand is graded as the word it is.
+func bareCd(n syntax.Node, resolver varResolver) bool {
+	call, ok := n.(*syntax.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
 	}
-	return string(b), true
+	prog, _ := literalWord(call.Args[0], nil, resolver, cwdCtx{})
+	return basename(prog) == "cd"
 }
