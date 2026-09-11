@@ -123,15 +123,16 @@ Your half of the log is four calls, and **not one of them carries
 a verdict**: `--mode anchor` once at the top of the round,
 `--mode spawn` per child you spawn, `--mode return` when a
 `<task-notification>` reaches you, and `--mode stopped` at a child's
-deadline. Two further calls store the round's own output at the end of
-it, and those do carry verdicts — `--mode records` and `--mode review`,
-per "Persist the round's records and review". You read with
-`--mode print`, on every resume, before you
-decide anything. Each write appends a single line and rewrites nothing
-already there. The anchor call is **idempotent** — it writes the anchor
-when none is there, no-ops on one naming the same head SHA, and voids
-the round on one naming a different head — so no ordering between it
-and a child's own first record matters.
+deadline. Each of those appends a single line to the log and rewrites
+nothing already there. Two further calls store the round's own output
+at the end of it, each writing a whole file rather than a log line, and
+those do carry verdicts — `--mode records` and `--mode review`, per
+"Persist the round's records and review". You read with `--mode print`,
+on every resume, before you decide anything. The anchor call is
+**idempotent** — it writes the anchor when none is there, no-ops on one
+naming the same head SHA, and voids the round on one naming a different
+head — so no ordering between it and a child's own first record
+matters.
 
 `--mode return` is the one call that records something you were told
 rather than something you did, and it is **telemetry, not evidence**:
@@ -674,11 +675,11 @@ a marker of the form `<!-- sdlc:theorem-records i/N -->`, with `i` and
 of the run's assembled detail, which `pr-finalizer` posts once the fix
 loop has concluded (see that agent's own definition). Match that shape
 rather than a fixed string: the numbers vary per chunk, so no posted
-comment ever carries the bytes `i/N`. It is your own output coming
-back at you, so skip it entirely on the same terms as the brief below.
-A comment whose first line is the literal marker
-`<!-- sdlc:fixer-brief -->` is the orchestrator's
-brief to `issue-fixer`, not an instruction to you: it carries findings
+comment ever carries the bytes `i/N`. It is your own output coming back
+at you, so skip it entirely on the same terms as the brief below. A
+comment whose first line is the literal marker
+`<!-- sdlc:fixer-brief -->` is the orchestrator's brief to
+`issue-fixer`, not an instruction to you: it carries findings
 *you* filed last round, so applying it would mint theorems for defects
 already in your records. Skip such a comment entirely — it is neither
 an adjustment to apply nor a reason to fan out. It is still worth
@@ -760,9 +761,9 @@ not fan out disprovers, and do not regenerate the
 acceptance-criterion theorems. Every verdict carries forward
 unchanged, the records carry forward unchanged, "Persist the round's
 records and review" stores both under **this** round's number, and the
-posted review says the round was empty-delta. That is the stated trade: an issue
-edited between rounds with no code change goes unchecked until the
-next non-empty round or a `--full` run.
+posted review says the round was empty-delta. That is the stated trade:
+an issue edited between rounds with no code change goes unchecked until
+the next non-empty round or a `--full` run.
 
 **An empty delta with new adjustment comments is an adjustment-only
 round, and it fans out.** It is a different shape from the one above and
@@ -1411,9 +1412,8 @@ a real check.
 Every disproved theorem still without a verifier verdict once the
 resume-pass loop has exited takes the **disproved, unverified**
 disposition in "Derive each theorem's disposition": no finding, no
-severity, named in the round's review and its summary so the tally stays
-true, and live
-again next round.
+severity, named in the round's review and its summary so the tally
+stays true, and live again next round.
 
 At a verifier's deadline, and only there, `TaskStop` it if **you**
 spawned it, so it is no longer mid-run and "Clean up the spawned
@@ -1460,8 +1460,8 @@ by supplying one.
 
 "Could not be settled" and "unsettled" are the same disposition —
 the two rows that resolve to it, the disprover-malformed row and
-the no-disprover-verdict row. The long form is what the argued review's
-section is titled; "unsettled" is the shorthand this file and
+the no-disprover-verdict row. The long form is what the argued
+review's section is titled; "unsettled" is the shorthand this file and
 the report-back tally use for it.
 
 The **disproved, unverified** row resolves like neither of its
@@ -1965,7 +1965,7 @@ Findings
 ```
 
 A finding's argued text lives in that round's `review` file, and a
-child's own report in `round<n>/<theorem>-<agent>` — the name
+child's own report in `round<n>/<theorem>-<agent>` — the name that
 `--mode print` prints as a `result` line. Give a retired theorem the
 round its detail is in, which for a carried-forward one is an **older**
 round than this.
@@ -2201,9 +2201,9 @@ The refuted count is the one number that says what the verification
 stage bought this round, so report it even when it is zero.
 
 Report the findings themselves as well, so your caller can brief a
-fixer from them without re-reading the PR. For anything beyond that your
-caller reads the round's review file —
-`sdlc-agent-result-persist --mode print-review` — rather than the
+fixer from them without re-reading the PR. For anything beyond that
+your caller reads the round's review file, through
+`sdlc-agent-result-persist --mode print-review`, rather than the
 summary you posted, which carries no argued text.
 
 Report whether the round was **resumed** and how it ended: how many

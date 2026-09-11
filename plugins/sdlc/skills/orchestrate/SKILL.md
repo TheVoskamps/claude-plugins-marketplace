@@ -69,9 +69,9 @@ under `agents/` owns:
   PR comments and appends the run's final section to the PR body, in a
   fresh `isolation: worktree` worktree, once the loop is over. When it
   returns, the PR carries that comment chain and that section, and
-  nothing else about the
-  PR has moved: it makes no merge decision, spawns no agent, and flips
-  no status. It is the **only** agent that edits a PR body
+  nothing else about the PR has moved: it makes no merge decision,
+  spawns no agent, and flips no status. It is the **only** agent that
+  edits a PR body
 
 Review **is** a teammate spawn: `theorem-based-pr-reviewer` carries
 the review procedure and spawns the generator and both fan-outs from
@@ -799,11 +799,10 @@ sdlc-agent-result-persist --mode print-review \
 ```
 
 The reviewer numbers a round the PR's review count when it was spawned
-**plus one**, so the round that has just posted is numbered by the
-PR's current review count. A
-finding whose child report you need — the disprover's or the verifier's
-own words — is reached the same way: the summary's line for it names
-the file, relative to
+**plus one**, so the round that has just posted is numbered by the PR's
+current review count. A finding whose child report you need — the
+disprover's or the verifier's own words — is reached the same way: the
+summary's line for it names the file, relative to
 `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR_N>/`,
 and `--mode print --round <N>` lists every result file that round holds.
 
@@ -1691,11 +1690,10 @@ draft-first lifecycle:
    run's assembled review detail and append the run's final section to
    the body, and only then calls `/github-prs:pr-ready <PR>` (see
    "End-of-loop lifecycle transitions"). That order is what keeps the
-   PR from being ready for review for a window in which its body has
-   no final note. The
-   `/pr-ready` call is the single point where the PR becomes
-   mergeable, and even then the human — never the orchestrator —
-   performs the merge.
+   PR from being ready for review for a window in which its body has no
+   final note. The `/pr-ready` call is the single point where the PR
+   becomes mergeable, and even then the human — never the orchestrator
+   — performs the merge.
 
 The draft state is the enforcement mechanism behind the "Never merge a
 PR" Hard Constraint: it makes "unmergeable until the human blesses it"

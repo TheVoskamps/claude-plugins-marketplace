@@ -337,8 +337,8 @@ The one claim you must never make from inference is that a finding was
 fixed. A finding vanishing from the next round's review is consistent
 with a fix, with the theorem going unsettled, and with the round
 carrying verdicts forward on an empty delta — the round's own review
-file says which, and the commits say what landed. Read both before writing that
-anything was addressed.
+file says which, and the commits say what landed. Read both before
+writing that anything was addressed.
 
 ## Rules
 
