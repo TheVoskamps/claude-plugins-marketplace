@@ -70,8 +70,7 @@ other code are the implementer's to sweep in the same round; README
 sections are `docs-writer`'s, after the review loop; and a stale PR-body
 claim is not deleted from the body but corrected by the final section
 `pr-finalizer` appends, from the scope notes the orchestrator hands it.
-Keep the convention and its rationale; drop the
-enforcement story.
+Keep the convention and its rationale; drop the enforcement story.
 
 ## MD041 on a SKILL.md is convention, not debt
 
