@@ -675,10 +675,17 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// slash would otherwise reach concatenation (pinned by
 			// TestCdTrackingBareCdTracksCleanedHome).
 			//
-			// The !ok arm is a fail-safe, not a reachable policy: a bare `cd`
-			// is a home reference, so the home chokepoint (home.go) has already
-			// DENIED the event when the home is unusable, and nothing gets this
-			// far to invalidate.
+			// The !ok arm is very nearly unreachable: a `cd` with no directory
+			// operand is a home reference, so the home chokepoint (home.go) has
+			// already DENIED the event when the home is unusable. What still
+			// reaches it is a program word only THIS resolution recognizes as
+			// `cd`, because the chokepoint's scan resolves with an empty cwdCtx
+			// where this one carries the tracked cwd — measured:
+			// `C=$PWD/cd; $C; touch x` under a relative $HOME passes the
+			// chokepoint and defers here as `bash-write:cd-unresolved-cwd`,
+			// where `C=cd; $C; touch x` denies `home:unusable`. So this arm is
+			// the fail-safe for that residual, and it invalidates rather than
+			// guessing.
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			home, ok := resolveHome(resolver.homeDir)
 			if !ok {

@@ -145,6 +145,21 @@ func TestHomeChokepointBashShapes(t *testing.T) {
 		// process home is: the gate cannot place the home the later `~`
 		// resolves against.
 		{cmd: `HOME=$(pwd); cat ~/x`, alwaysDenies: true},
+		// A NAKED `export HOME` carries no value — a no-op for `$HOME` in bash —
+		// so the home keeps the grade it already had and the `~` after it is
+		// judged against the process home. Only `HOME=`, which sets the EMPTY
+		// home, is the empty-home spelling, and it denies under every process
+		// home.
+		{cmd: `export HOME; cat ~/x`},
+		{cmd: `HOME=; cat ~/x`, alwaysDenies: true},
+		// A SCOPED assignment does not set the home the words after the scope
+		// resolve against, so it may only make the scan stricter. An absolute
+		// one cannot rescue a `~` from an unusable process home…
+		{cmd: `(HOME=/absolute/home); cat ~/x`},
+		{cmd: `f() { HOME=/absolute/home; }; cat ~/x`},
+		// …while a relative one is still graded as if it persisted, which
+		// denies under a process home bash would have resolved the `~` against.
+		{cmd: `(HOME=relhome); cat ~/x`, alwaysDenies: true},
 	}
 	for _, shape := range homeShapes() {
 		for _, tc := range commands {
@@ -196,13 +211,32 @@ func TestHomeChokepointInScriptAbsoluteHome(t *testing.T) {
 	}
 }
 
-// TestHomeChokepointBareCd covers the one home reference spelled with no
-// home-referencing WORD: bare `cd` goes to $HOME, so it is a home reference by
-// definition and denies at the chokepoint under an unusable home exactly as
-// `cat ~/x` does. Under a usable home it tracks $HOME, so the command reads
-// outside the repo and must not ride the allow track either.
+// TestHomeChokepointBareCd covers the home references spelled with no
+// home-referencing WORD: a `cd` carrying no DIRECTORY operand goes to $HOME, so
+// it is a home reference by definition and denies at the chokepoint under an
+// unusable home exactly as `cat ~/x` does. That is the operand-less spelling
+// and every all-options one — `cd -P`, `cd -L`, `cd --` and their combinations,
+// each of which bash sends to $HOME too. `$C` with `C=cd` is here because the
+// chokepoint must recognize the same `cd` call applyCd does, which needs the
+// walk's own knownVars: resolved against a nil map the program word is opaque,
+// the chokepoint stays silent, and applyCd is left tracking a home the gate
+// cannot place.
+//
+// Under a usable home none of them may ride the allow track. The operand-less
+// spelling tracks $HOME, so the command reads outside the repo; the
+// all-options spellings are read by applyCd as a RELATIVE target (it carries no
+// option arm — `cd -P` tracks `<cwd>/-P`), and what holds them off the allow
+// track there is the residual defer `cd` carries as an unclassified program.
 func TestHomeChokepointBareCd(t *testing.T) {
-	for _, cmd := range []string{`cd && cat ../x`, `cd; cat x`} {
+	for _, cmd := range []string{
+		`cd && cat ../x`,
+		`cd; cat x`,
+		`cd -P; cat x`,
+		`cd -L; cat x`,
+		`cd --; cat x`,
+		`cd -P -L; cat x`,
+		`C=cd; $C; cat x`,
+	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
 				repo := homeTestRepo(t)
@@ -223,6 +257,28 @@ func TestHomeChokepointBareCd(t *testing.T) {
 				if d.Bucket == BucketAllow {
 					t.Fatalf("%q with an absolute home reads outside the repo and must not allow (reason=%q)",
 						cmd, d.Reason)
+				}
+			})
+		}
+	}
+}
+
+// TestHomeChokepointCdCarryingADirectory is the negative control for the row
+// above: a `cd` that carries a directory operand names no home, so it must not
+// deny at the chokepoint even under an unusable home. `cd -` is one of these —
+// it names $OLDPWD, not $HOME — and so is an all-options `cd` that still has a
+// directory after the options.
+func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
+	for _, cmd := range []string{`cd sub; cat x`, `cd -; cat x`, `cd -P /absolute/dir; cat x`} {
+		for _, shape := range homeShapes() {
+			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
+				repo := homeTestRepo(t)
+				applyHomeShape(t, shape)
+				ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: repo, AgentType: "main"}
+				d := classifyBash(cmd, ev)
+				if d.Operation == homeUnusableOp {
+					t.Fatalf("%q with a %s home names no home and must not deny at the chokepoint "+
+						"(reason=%q)", cmd, shape.name, d.Reason)
 				}
 			})
 		}
