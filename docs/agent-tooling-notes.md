@@ -84,9 +84,10 @@ has every backtick and `$` in it read by the shell before `gh` sees a
 byte, and the bodies these agents post are Markdown carrying backticks
 throughout: `sdlc:pr-finalizer`'s detail chunks reproduce each child's
 result file verbatim, quoted code included, and even a review summary
-quotes theorem claims and state-relative paths. A 26 KB review body
-posted on this repo, back when the argued detail still travelled in the
-review, carried backticks on 97 of its lines.
+ends every theorem line and every finding line with a backticked
+state-relative path. A 26 KB review body posted on this repo, back when
+the argued detail still travelled in the review, carried backticks on 97
+of its lines.
 
 So pass a long body by path. `gh`'s body-carrying verbs each take
 `-F`/`--body-file` alongside `-b`/`--body` and reject both at once, so

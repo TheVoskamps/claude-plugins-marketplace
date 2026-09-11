@@ -232,20 +232,23 @@ is the one time any of it reaches the PR. Assemble it in one fixed
 order, so a reader scrolling the chain reads the run forwards:
 
 1. the final theorem records, from `--mode print-records`;
-2. then, per round in ascending order: that round's argued review,
-   followed by its children's result files grouped by theorem, in
-   theorem-id order.
+2. then, per round in ascending order: that round's generator result
+   file — named for the literal `list` its theorem column carries, so
+   `list-<agent>` — which is where the round's detail begins; then that
+   round's argued review; then its children's result files grouped by
+   theorem, in theorem-id order.
 
 Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
 
 **Chunk the assembly at a theorem boundary, under GitHub's 64 KB
-comment cap.** Three kinds of piece are whole and never split: the
-records file, one round's review file, and — per round, per theorem —
-that theorem's result files, its `-theorem-disprover` report and its
-`-counterexample-verifier` report together. A chunk breaks between two
-such pieces and never inside one, so a reader never meets a theorem's
-disproof in one comment and its verification in another. Start a new
+comment cap.** Four kinds of piece are whole and never split: the
+records file, one round's `list-<agent>` generator file, one round's
+review file, and — per round, per theorem — that theorem's result files,
+its `-theorem-disprover` report and its `-counterexample-verifier`
+report together. A chunk breaks between two such pieces and never
+inside one, so a reader never meets a theorem's disproof in one comment
+and its verification in another. Start a new
 chunk when the next piece would carry the current one past the cap; the
 cap is on the whole comment body, marker line included, so leave
 headroom rather than filling to the byte.

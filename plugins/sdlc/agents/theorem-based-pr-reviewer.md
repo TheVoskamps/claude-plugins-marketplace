@@ -1564,11 +1564,12 @@ flag, is the skill's to own — see `/github-prs:pr-review-submit`. It
 leaves the file you staged alone.
 
 Use the **file form**, not the skill's inline `<body>` form. The
-summary quotes theorem claims and state-relative paths throughout, and
-the inline form spells the body into a double-quoted `--body "<body>"`
-where the shell reads every backtick and `$` — so the inline form works
-on a toy review and mangles a real one. Staging it is what `Write` is in
-your tool grant for, per "You write nothing on the branch".
+summary ends every theorem line and every finding line with a
+backticked state-relative path, and the inline form spells the body into
+a double-quoted `--body "<body>"` where the shell reads every backtick
+and `$` — so the inline form works on a toy review and mangles a real
+one. Staging it is what `Write` is in your tool grant for, per "You
+write nothing on the branch".
 
 What you post is the **summary**, per "The posted review summary" below:
 one line per theorem, one line per finding, the verdicts, and the Review
