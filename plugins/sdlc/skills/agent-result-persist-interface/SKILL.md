@@ -322,10 +322,16 @@ what names the stopped child's worktree for cleanup.
 
 **A duplicate `leave` is a diagnostic, not a conflict, and the later
 one wins.** A child written off as lost can report anyway, leaving one
-theorem with two `leave` records and one result file — the later
-child's, since its rename overwrote the earlier report. So the
-theorem's verdict is the later child's by construction: it is the
-verdict in the one file there is to read, and no reader has a tie to
-break. Both records stay in the log, because the pair is evidence that
-a child believed dead was alive, and the reader reports it as such. No
-line is revised, so concurrent appends cannot collide.
+theorem with two `leave` records. When the replacement carried the
+same `--agent` name as the child it replaced — which every stage but
+`generate` guarantees, there being one definition per stage — the two
+share a result-file name and there is one file, the later child's,
+since its rename overwrote the earlier report. So the theorem's
+verdict is the later child's by construction: it is the verdict in the
+one file there is to read, and no reader has a tie to break. A
+replacement carrying a different `--agent` name writes a file of its
+own instead, leaving the theorem two, and the reader picks between
+them by the log rather than by the directory. Both records stay in the
+log, because the pair is evidence that a child believed dead was
+alive, and the reader reports it as such. No line is revised, so
+concurrent appends cannot collide.

@@ -76,8 +76,9 @@ skill computes.
    exactly as it does in the `/sdlc:orchestrate` flow. The body
    travels as a file — the reviewer stages it under
    `.claude/tmp/<task-slug>/` and passes `--body-file`, because it
-   quotes code and state-relative paths throughout, which the inline
-   form would hand to the shell. It commits nothing and pushes
+   carries a backticked state-relative path on every theorem and
+   finding line, under the `${…}` state root it names once, which the
+   inline form would hand to the shell. It commits nothing and pushes
    nothing.
 
    Remove the reviewer agent's worktree when it returns.

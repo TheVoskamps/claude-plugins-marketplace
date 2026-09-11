@@ -71,10 +71,12 @@ reviewing.
 You carry `Write` for exactly one purpose, under
 `.claude/tmp/<task-slug>/` and not on the branch: **staging the text you
 hand off** — the argued review and the theorem records you store under
-XDG state, and the summary body "Post one review" posts by path. Each of
-them quotes code throughout, and a body spelled into a double-quoted
-`--body "<body>"` is read by the shell, backtick and `$` alike, so a
-file is the route in every case.
+XDG state, and the summary body "Post one review" posts by path. The
+argued review and the records quote code throughout; the summary quotes
+none of it, and still carries a backticked state-relative path on every
+theorem and finding line under the `${…}` state root it names once. A
+body spelled into a double-quoted `--body "<body>"` is read by the
+shell, backtick and `$` alike, so a file is the route in every case.
 
 The agents you spawn — the `theorem-generator` variants,
 `theorem-disprover`, and `counterexample-verifier` — carry no `Write`
@@ -832,6 +834,14 @@ that result file with `Read` and take the list from it rather than
 spawning. That is what makes a theorem id denote the same claim across
 instances of you; regenerating would renumber the round under a fresh
 reading of the same PR.
+
+**Which result file is the round's list** is settled by the log's
+**last** `spawn` record for the theorem `list`: its `<agent>` column
+names the tier that was spawned, and that agent's result file is the
+list. A round that stopped one generator and replaced it at another
+tier leaves a file per tier in the directory, so an instance that
+picked by what it found there could review against a theorem set
+another instance never saw.
 
 **A generator may instead be in flight**, and it is subtracted like any
 other child, per "You are re-entrant" above: an `enter` for the theorem
@@ -1946,7 +1956,7 @@ finding, giving its severity, the theorem that produced it, and the
 member(s) it is tagged to; and the overall verdict restated in prose
 with a path to approve.
 
-**Every theorem line and every finding line ends with the path of the
+**Every theorem line and every finding line ends with the path of each
 file holding its detail**, relative to the PR's state root, which the
 body names once so a reader composes it once:
 
