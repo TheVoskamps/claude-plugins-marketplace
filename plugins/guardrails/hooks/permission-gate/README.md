@@ -122,10 +122,9 @@ The gate's engines feed that decision:
 - **Home usability — one predicate, one chokepoint** (`home.go`): a
   home directory is **usable** iff it resolves without error, is
   non-empty, and is **absolute**. That predicate (`homeUsable`) is the
-  only place in the gate where a home's **usability** is graded — not
-  the only place a home value is touched, which is a different claim and
-  a false one (see the forbidden forms below) — and it is
-  applied at one chokepoint per track, ahead of every rule that grades
+  only place in the gate where a home's **usability** is graded, though
+  not the only place a home value is touched, and it is applied at one
+  chokepoint per track, ahead of every rule that grades
   a path: a Bash word that references a home the gate cannot place — `~` or
   `~/…` in any quoting, `$HOME`/`${HOME}`, or a persistent in-script
   `HOME=` assignment a later word resolves against — **DENIES**
@@ -203,7 +202,7 @@ The gate's engines feed that decision:
   operand-less `cd` is
   never denied by the chokepoint, and its verdict is identical under an
   unusable home and an absolute one **unless** its absolutely-spelled
-  target lands under one of those two home-rooted roots, which an
+  target lands under one of those home-rooted roots, which an
   unusable home leaves unresolved.
 
   Before this, each of those sites decided for itself, so one relative
@@ -216,8 +215,7 @@ The gate's engines feed that decision:
   that. Measured against the committed binary at the merge base:
   `HOME=relhome; cat ~/x` returned **allow**, and returns **deny** here.
 
-  These grading rules are worth stating because they are not guessable
-  from the deny. A `HOME=x cmd` **prefix** assignment scopes the value
+  A `HOME=x cmd` **prefix** assignment scopes the value
   to that one command and is not recorded by the gate's word
   resolution, so it neither rescues a word from an unusable process
   home nor condemns one under a usable process home — measured, and
@@ -271,13 +269,13 @@ The gate's engines feed that decision:
     tracks assignments, not in home usability, and is out of scope
     here — the chokepoint grades the value each word actually resolves
     against, which for that word is the process home.
-  - `Grep` and `Glob` raise no event, as today, so a `~`-spelled path
-    handed to either is not graded at this chokepoint or anywhere else.
+  - A `~`-spelled path handed to `Grep` or `Glob` is graded neither at
+    this chokepoint nor anywhere else.
   - An all-options `cd`, and one whose operand may expand to no field,
     are home references **to the chokepoint only**. The cd-tracking code
     below carries neither arm, so under a usable home `cd -P` tracks
     `<cwd>/-P` and both `X=; cd $X` and `cd $Z` leave the tracked cwd
-    where it was, where bash goes to `$HOME` in all three. What
+    where it was, where bash goes to `$HOME` in each. What
     bounds that is the residual defer `cd` carries as an unclassified
     program: measured, `cd -P; touch x` in a repo defers
     (`bash:no-specific-rule`) where the same line without the `cd`
