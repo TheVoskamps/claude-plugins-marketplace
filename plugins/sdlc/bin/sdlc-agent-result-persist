@@ -8,8 +8,10 @@
 #
 # Every path is composed here and nowhere else — the round log, each
 # result file, the records file, the review file, and each child's
-# harness transcript — so no agent ever holds a path string to mistype
-# or to carry across a turn boundary.
+# harness transcript — so no agent ever opens one of these files by a
+# path string of its own, to mistype or to carry across a turn
+# boundary. An agent that names the state root in prose, to point a
+# human at the directory, is doing something else.
 #
 # The contract this implements — modes, flags, paths, line grammar — is
 # plugins/sdlc/skills/agent-result-persist-interface/SKILL.md.

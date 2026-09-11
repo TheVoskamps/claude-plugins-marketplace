@@ -109,11 +109,14 @@ into a brief.
    **The walk ends at the first round whose `--mode print` fails**: no
    log means no such round ever ran, and every round the loop did run is
    numbered below it. A round whose log exists but whose
-   `--mode print-review` fails is a round that returned mid-round and
-   never reached disposition — it contributes no review, and it is worth
-   naming as a round that did not finish rather than skipping in
-   silence. `--mode print` also names each child's result file, whose
-   path you read out of its `result` line and open with `Read`.
+   `--mode print-review` fails contributes no review either way, and it
+   is worth naming rather than skipping in silence. Do not call it a
+   round that did not finish unless you can tell that it did not: a
+   round that ran under the older design, which kept its argued review
+   in the body it posted, leaves exactly the same gap on disk as one
+   that returned mid-round and never reached disposition.
+   `--mode print` also names each child's result file, whose path you
+   read out of its `result` line and open with `Read`.
 
    The **last** round's verdict block is where the loop ended up; the
    earlier ones are how it got there. Read the verdicts from these files
@@ -231,7 +234,9 @@ The run's whole record lives under the PR's state directory, and this
 is the one time any of it reaches the PR. Assemble it in one fixed
 order, so a reader scrolling the chain reads the run forwards:
 
-1. the final theorem records, from `--mode print-records`;
+1. the final theorem records, from `--mode print-records` — omitted
+   when that mode exits non-zero, since no round under this PR stored
+   any;
 2. then, per round in ascending order: that round's generator result
    files — each named for the literal `list` its theorem column carries,
    so `list-<agent>` — in agent-name order, which is where the round's
@@ -249,7 +254,7 @@ Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
 
 **Chunk the assembly at a theorem boundary, under GitHub's 64 KB
-comment cap.** Four kinds of piece are whole and never split: the
+comment cap.** These kinds of piece are whole and never split: the
 records file, each of a round's `list-<agent>` generator files, one
 round's review file, and — per round, per theorem — that theorem's
 result files, its `-theorem-disprover` report and its

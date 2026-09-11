@@ -28,9 +28,13 @@ telemetry rather than truth.
 reads the log back, records a child it writes off, and at the end of the
 round stores its records file and its review file. The theorem
 generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
-each write their own `enter` and `leave`. **Every record is a single
-atomic append**, so no two writers can be ordered wrongly and no call
-has to know what the log already holds.
+each write their own `enter` and `leave`. **Every log record is a
+single atomic append**, so no two writers can be ordered wrongly and no
+call has to know what the log already holds. The records file and the
+review file are not records: each arrives whole on stdin and replaces
+whatever the round held before, so a resumed instance that re-derives
+the round stores its own version over its predecessor's rather than
+adding to it.
 
 ## Invocation
 
@@ -63,11 +67,20 @@ reader answers every stage's question from one `--mode print`.
 
 ## The paths
 
-The script composes all five and **no caller ever holds one** — there
-is no path string to mistype, and none to carry across a turn
-boundary. A reader learns a result file's path by reading it out of the
-log it just printed, and reaches the records and review files through
-the print modes named for them rather than by path at all.
+The script composes every path below and **no caller ever reads or
+writes one by path** — there is no path string to mistype, and none to carry
+across a turn boundary. A reader learns a result file's path by reading
+it out of the log it just printed, and reaches the records and review
+files through the print modes named for them rather than by path at
+all.
+
+A caller does spell the PR's state root
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/` in
+prose that points a **human** at the directory: the posted review
+summary names it once and hangs a round-relative path off each theorem
+and finding line, and every file that tells a reader where a round's
+detail is spells the same root. That is a signpost, not a route:
+nothing composes it to open a file with.
 
 The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
@@ -89,12 +102,13 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>/lo
 ~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl
 ```
 
-The first is the round log, the second a child's result file, the third
-the round's theorem records, the fourth the round's argued review, the
-fifth the harness's own transcript of a child, which `--mode enter`
-records. The records and the review are written once each, at the end of
-the round, and a voided round's rename carries both with it exactly as
-it carries the log and the result files.
+`log` is the round log, `<theorem>-<agent>` a child's result file,
+`records` the round's theorem records, and `review` the round's argued
+review; the `.jsonl` under `~/.claude/projects/` is the harness's own
+transcript of a child, which `--mode enter` records. The records and
+the review are written at the end of the round, and a voided round's
+rename carries both with it exactly as it carries the log and the
+result files.
 `<project>` is the **primary clone's** path with every character
 outside `[A-Za-z0-9-]` replaced by a dash — measured on a `/` and on a
 `.` alike. Every child runs in a worktree, so its own cwd is the wrong
