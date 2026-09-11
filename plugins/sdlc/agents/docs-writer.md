@@ -148,7 +148,7 @@ the PR's agent memory".
      changed nothing.
    - The commit SHA you pushed.
    - Anything the change made wrong that was not yours to fix — a code
-     file, or the PR body.
+     file, or a PR-body claim, quoted, with what is true now.
 
 ## End-of-run cleanup
 

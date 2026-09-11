@@ -921,12 +921,12 @@ neither.
 
 A PR-body claim the run made stale is not lost by this. You are the
 party that surfaces it: collect every one the teammate reports you
-consume during the loop name — a finding whose remedy is a body change,
-a body change a fixer reports it did not make, a claim a change
-falsified — and carry each into the scope notes you hand
-`pr-finalizer`, quoted, with what is true now. Say so in the round's
-report. The fix lands once, at the end, rather than mid-loop where
-nothing can see it.
+consume name — during the loop, and in `docs-writer`'s report after it
+— a finding whose remedy is a body change, a body change a fixer
+reports it did not make, a claim a change falsified — and carry each
+into the scope notes you hand `pr-finalizer`, quoted, with what is true
+now. Say so in the round's report. The fix lands once, at the end,
+rather than mid-loop where nothing can see it.
 
 ### Handling review findings — the fix loop
 
@@ -1340,8 +1340,9 @@ only then, the orchestrator performs these transitions, in this order:
    Branch: <branch-name>
 
    Write the PR's documentation per your agent definition. Report back
-   every file you changed with a one-line reason, and the commit you
-   pushed.
+   every file you changed with a one-line reason, the commit you
+   pushed, and every PR-body claim the change made stale, quoted, with
+   what is true now.
    ```
 
    Its per-file list is the summary's `Doc Changes` cell, and it goes
