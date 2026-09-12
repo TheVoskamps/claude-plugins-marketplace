@@ -944,8 +944,9 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 // containPathOperands (the read-only-utility and path-reader tracks), `tee`
 // and `cp` reach containWriteOperands, a plain redirect reaches
 // redirectVetoesAllow, the `git`, `gh` and `aws` redirects reach
-// credentialedRedirectVerdict through each of its three call sites, and an
-// input redirect on a construct that runs no program reaches
+// credentialedRedirectVerdict from each program that calls it (`gh` calls it
+// from several of its arms, and only the read-only-subcommand arm is run), and
+// an input redirect on a construct that runs no program reaches
 // classifyRedirectOnly's own direct call into containPathOperands. write says
 // whether the spelling writes the path, which is what decides its verdict
 // against a `read`-only entry.

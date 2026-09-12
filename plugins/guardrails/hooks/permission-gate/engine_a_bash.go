@@ -2315,14 +2315,19 @@ func hasGlobMeta(s string) bool {
 // share the prefix's own containment verdict — whichever containmentResult it
 // earns — via the existing pathUnder equal-or-nested check.
 //
-// The scratchpad carve-out is the one verdict that is not purely
-// pathUnder: inside <system-tmp>/claude-<uid> the verdict also depends on
-// whether the remainder matches the per-session shape. It cannot fail open
-// here, because the shape is closed under descent — a remainder that matches
-// keeps matching with more segments appended, so a session-shaped prefix
-// implies session-shaped matches, while a prefix that stops short of a session
+// Two verdicts are not purely pathUnder. The scratchpad carve-out is one:
+// inside <system-tmp>/claude-<uid> the verdict also depends on whether the
+// remainder matches the per-session shape. It cannot fail open here, because
+// the shape is closed under descent — a remainder that matches keeps matching
+// with more segments appended, so a session-shaped prefix implies
+// session-shaped matches, while a prefix that stops short of a session
 // directory earns the more conservative unshaped-remainder region (never the
-// carve-out ALLOW its matches might individually have earned).
+// carve-out ALLOW its matches might individually have earned). The operator
+// listing (operatorListed) is the other, and its globs are NOT closed under
+// descent: a `*` segment stops at a separator, so an entry such as
+// `cc-tools/*` matches the prefix directory `cc-tools/sub` while matching
+// none of the files beneath it, and a loop over `cc-tools/sub/*.md` rides the
+// listing where a direct read of one of those files does not.
 //
 // The returned prefix is deliberately left
 // relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
