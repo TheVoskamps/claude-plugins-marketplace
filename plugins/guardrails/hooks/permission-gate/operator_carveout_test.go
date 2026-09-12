@@ -818,38 +818,55 @@ func TestOperatorCarveOutDoesNotOpenGitTree(t *testing.T) {
 }
 
 // The glob grammar: `**` spans whole segments, a plain `*` does not cross a
-// separator, and an exact entry matches only itself.
+// separator, and an exact entry matches only itself. shell marks a remainder
+// read as a Bash operand, where a metacharacter is a pattern the shell will
+// expand; a file-tool path carries the same characters as a literal filename.
 func TestMatchCarveOutGlob(t *testing.T) {
 	cases := []struct {
-		glob string
-		rem  string
-		want bool
+		glob  string
+		rem   string
+		shell bool
+		want  bool
 	}{
-		{"cc-tools/**", "cc-tools/whats-new.md", true},
-		{"cc-tools/**", "cc-tools/a/b/c.md", true},
-		{"cc-tools/**", "cc-tools", true},
-		{"cc-tools/**", "cc-toolsx/a.md", false},
-		{"cc-tools/**", "issues/a.md", false},
-		{"gh/config.yml", "gh/config.yml", true},
-		{"gh/config.yml", "gh/config.yml.bak", false},
-		{"gh/config.yml", "gh/hosts/config.yml", false},
-		{"gh/*", "gh/config.yml", true},
-		{"gh/*", "gh/hosts/config.yml", false},
-		{"**", "anything/at/all", true},
-		{"../**", "cc-tools/a.md", false},
-		// A remainder segment that is itself a glob is covered only by `*` or
-		// a spanning `**`, never by a narrower glob or its own text.
-		{"cc-tools/*", "cc-tools/sub/*.md", false},
-		{"cc-tools/**", "cc-tools/sub/*.md", true},
-		{"cc-tools/sub/*", "cc-tools/sub/*.md", true},
-		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", false},
-		{"cc-tools/sub/?.md", "cc-tools/sub/*.md", false},
-		{"cc-tools/**/x.md", "cc-tools/sub/*.md", false},
-		{"cc-tools/*/*", "cc-tools/*/x.md", true},
+		{"cc-tools/**", "cc-tools/whats-new.md", false, true},
+		{"cc-tools/**", "cc-tools/a/b/c.md", false, true},
+		{"cc-tools/**", "cc-tools", false, true},
+		{"cc-tools/**", "cc-toolsx/a.md", false, false},
+		{"cc-tools/**", "issues/a.md", false, false},
+		{"gh/config.yml", "gh/config.yml", false, true},
+		{"gh/config.yml", "gh/config.yml.bak", false, false},
+		{"gh/config.yml", "gh/hosts/config.yml", false, false},
+		{"gh/*", "gh/config.yml", false, true},
+		{"gh/*", "gh/hosts/config.yml", false, false},
+		{"**", "anything/at/all", false, true},
+		{"../**", "cc-tools/a.md", false, false},
+		// A Bash remainder segment that is itself a glob is covered only by `*`
+		// or a spanning `**`, never by a narrower glob or its own text.
+		{"cc-tools/*", "cc-tools/sub/*.md", true, false},
+		{"cc-tools/**", "cc-tools/sub/*.md", true, true},
+		{"cc-tools/sub/*", "cc-tools/sub/*.md", true, true},
+		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", true, false},
+		{"cc-tools/sub/?.md", "cc-tools/sub/*.md", true, false},
+		{"cc-tools/**/x.md", "cc-tools/sub/*.md", true, false},
+		{"cc-tools/*/*", "cc-tools/*/x.md", true, true},
+		// A `**` segment can reach any depth, so a single `*` does not cover it
+		// and only a spanning `**` does.
+		{"cc-tools/*/x.md", "cc-tools/**/x.md", true, false},
+		{"cc-tools/*/*", "cc-tools/**/x.md", true, false},
+		{"cc-tools/**/x.md", "cc-tools/**/x.md", true, true},
+		{"cc-tools/**", "cc-tools/**/x.md", true, true},
+		{"cc-tools/**", "cc-tools/**", true, true},
+		{"cc-tools/*", "cc-tools/a**", true, false},
+		// The same remainder as a file-tool path is a literal filename, and the
+		// entry covers it or not on its text alone.
+		{"sdlc/pr*/notes.md", "sdlc/pr[1]/notes.md", false, true},
+		{"sdlc/pr*/notes.md", "sdlc/pr[1]/notes.md", true, false},
+		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", false, true},
+		{"cc-tools/*/x.md", "cc-tools/**/x.md", false, true},
 	}
 	for _, tc := range cases {
-		if got := matchCarveOutGlob(tc.glob, tc.rem); got != tc.want {
-			t.Errorf("matchCarveOutGlob(%q, %q) = %v, want %v", tc.glob, tc.rem, got, tc.want)
+		if got := matchCarveOutGlob(tc.glob, tc.rem, tc.shell); got != tc.want {
+			t.Errorf("matchCarveOutGlob(%q, %q, %v) = %v, want %v", tc.glob, tc.rem, tc.shell, got, tc.want)
 		}
 	}
 }
@@ -954,9 +971,14 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 // and `cp` reach containWriteOperands, a plain redirect reaches
 // redirectVetoesAllow, the `git`, `gh` and `aws` redirects reach
 // credentialedRedirectVerdict from each program that calls it (`gh` calls it
-// from several of its arms, and only the read-only-subcommand arm is run), and
-// an input redirect on a construct that runs no program reaches
-// classifyRedirectOnly's own direct call into containPathOperands. write says
+// from several of its arms, and only the read-only-subcommand arm is run), an
+// input redirect on a construct that runs no program reaches
+// classifyRedirectOnly's own direct call into containPathOperands, an input
+// redirect on a write-class program reaches containReadSources' walk into
+// containPathOperands — the read-source grading of the write track, which the
+// `tee` and `cp` rows reach with no source to grade because they hand the path
+// over as the write target — and a `for` loop reaches containPathOperands
+// through the loop variable rather than as an operand written out. write says
 // whether the spelling writes the path, which is what decides its verdict
 // against a `read`-only entry.
 var bashCarveOutSpellings = []struct {
@@ -974,6 +996,8 @@ var bashCarveOutSpellings = []struct {
 	{"gh redirect", func(p string) string { return "gh pr diff 224 > " + p }, true},
 	{"aws redirect", func(p string) string { return "aws s3 ls > " + p }, true},
 	{"redirect-only", func(p string) string { return "[[ -f x ]] < " + p }, false},
+	{"write-track source", func(p string) string { return "tee README.md < " + p }, false},
+	{"for loop", func(p string) string { return "for f in " + p + `; do cat "$f"; done` }, false},
 }
 
 // listedCarveOutPaths are the listed paths the Bash tables run: one under the
@@ -1031,10 +1055,12 @@ func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 
 // The listing's bounds hold on the Bash tracks exactly as on the file-tool
 // one: an unlisted sibling under a listed root, a write against a `read`-only
-// entry, a listed path with a `.git/` segment, and a write to the config file
-// itself each keep the verdict the same spelling has with no config file. The
-// read of the `read`-only entry and of the config file are the negative
-// controls that the listing is in force and the denies are its bounds.
+// entry, a listed path with a `.git/` segment, a listed pattern with a segment
+// the shell can expand to `.git` (a bare `*` is one: `dotglob` lets it), and a
+// write to the config file itself each keep the verdict the same spelling has
+// with no config file. The read of the `read`-only entry and of the config
+// file are the negative controls that the listing is in force and the denies
+// are its bounds.
 func TestOperatorCarveOutBashBounds(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -1067,6 +1093,11 @@ state-home:
 		{"unlisted sibling", filepath.Join(home, ".local", "state", "other", "x"), false},
 		{"read-only entry", filepath.Join(home, ".config", "gh", "config.yml"), true},
 		{".git segment", filepath.Join(home, ".local", "state", "sdlc", ".git", "config"), false},
+		{".g*t segment", filepath.Join(home, ".local", "state", "sdlc", ".g*t", "config"), false},
+		{".g?t segment", filepath.Join(home, ".local", "state", "sdlc", ".g?t", "config"), false},
+		{".[g]it segment", filepath.Join(home, ".local", "state", "sdlc", ".[g]it", "config"), false},
+		{".G*T segment", filepath.Join(home, ".local", "state", "sdlc", ".G*T", "config"), false},
+		{"bare * segment", filepath.Join(home, ".local", "state", "sdlc", "*", "config"), false},
 		{"config file itself", filepath.Join(home, ".config", "guardrails", "config.yml"), true},
 	}
 
@@ -1256,5 +1287,37 @@ func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 				t.Errorf("%s under %s must not ALLOW; got %q (%s)", c.cmd, r.entry, d.Bucket, d.Reason)
 			}
 		}
+	}
+}
+
+// The glob-bearing-segment rule is a rule about Bash operands only. A file-tool
+// path is a literal filename whatever characters it carries, so a `Read` of
+// `sdlc/pr[1]/notes.md` is covered by `sdlc/pr*/notes.md` exactly as
+// `sdlc/pr1/notes.md` would be; the same spelling as a Bash operand is a
+// pattern the shell expands, which that entry does not cover. The plain
+// spelling runs on both tracks as the negative control that the listing is in
+// force and the Bash verdict is the rule's.
+func TestOperatorCarveOutGlobRuleIsBashOnly(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+	cwd := canonicalize(repo)
+	ev := bashEvIn(t, cwd, "issue-developer")
+	writeCarveOutConfig(t, home, "schema-version: 2\nstate-home-default: ~/.local/state\nstate-home:\n  read:\n    - 'sdlc/pr*/notes.md'\n")
+
+	bracketed := filepath.Join(home, ".local", "state", "sdlc", "pr[1]", "notes.md")
+	plain := filepath.Join(home, ".local", "state", "sdlc", "pr1", "notes.md")
+
+	for _, p := range []string{bracketed, plain} {
+		d := fileToolVerdict(t, "Read", cwd, p)
+		wantBucket(t, d, BucketAllow, "Read of "+p+" under sdlc/pr*/notes.md")
+	}
+	d := classifyBash("cat "+plain, ev)
+	wantBucket(t, d, BucketAllow, "cat "+plain+" under sdlc/pr*/notes.md (negative control)")
+	d = classifyBash("cat "+bracketed, ev)
+	if d.Bucket == BucketAllow {
+		t.Errorf("cat %s is a pattern sdlc/pr*/notes.md does not cover and must not ALLOW; got %q (%s)",
+			bracketed, d.Bucket, d.Reason)
 	}
 }

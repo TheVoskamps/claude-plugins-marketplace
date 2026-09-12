@@ -244,7 +244,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 				prog, p, scratchDestinations(rc.topLevel))), false, false
 		}
 
-		res, real, _ := testContainmentFrom(p, base, rc, false, ev)
+		res, real, _ := testContainmentFrom(p, base, rc, false, true, ev)
 		switch res {
 		case escapeWorktree:
 			correct := correctWorktreePath(real, rc)

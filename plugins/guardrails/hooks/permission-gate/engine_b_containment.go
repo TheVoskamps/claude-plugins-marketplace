@@ -728,14 +728,23 @@ func harnessScratchRemainder(real, root string) string {
 // allowed wherever it lands, symlinks included), and ahead of the worktree
 // check for the same reason.
 //
+// shellPattern is true on the bash tracks and false on the file-tool one, and
+// is likewise the listing's alone: a bash operand is the pattern the shell
+// will expand, so the listing reads a metacharacter in it as one, where a
+// file-tool path is a literal filename (allows()).
+//
 // The third result, listed, reports whether the listing covers the target for
 // this class, whatever region the first result names. The two differ only for
 // a target whose canonical path carries a `.git/` segment: that target is kept
 // out of operatorListed, so on the bash tracks it earns the verdict it has
 // without the listing and no listing hands out git internals there, while the
 // file-tool track reads listed to deny the read outright (classifyFileTool).
-// This is the one place the listing is consulted, so listed is how a caller
-// learns of a match the region does not carry.
+// A bash operand is also kept out when a segment of it can EXPAND to `.git`
+// (patternMayNameGitDir): canonicalization keeps a metacharacter segment
+// literal, so `.g*t` carries no `.git` segment for isUnderGitDir to see while
+// naming the same directory to the shell. This is the one place the listing
+// is consulted, so listed is how a caller learns of a match the region does
+// not carry.
 //
 // ev is the event being classified, and an operatorListed result is recorded
 // on it (Event.rodeOperatorListing) so classifyBash's whole-line reason can
@@ -759,14 +768,14 @@ func harnessScratchRemainder(real, root string) string {
 // allow. On today's paths that arm is
 // defence in depth: the home chokepoint (home.go) denies a `~` operand under
 // an unusable home before containment is reached.
-func testContainmentFrom(target string, base string, rc *repoContext, readClass bool, ev *Event) (containmentResult, string, bool) {
+func testContainmentFrom(target string, base string, rc *repoContext, readClass bool, shellPattern bool, ev *Event) (containmentResult, string, bool) {
 	real, unresolvedTilde := canonicalizeFromResolver(target, base, os.UserHomeDir)
 	if unresolvedTilde {
 		return escapeRepo, real, false
 	}
 
-	listed := loadOperatorCarveOut().allows(target, base, readClass)
-	if listed && !isUnderGitDir(real, rc) {
+	listed := loadOperatorCarveOut().allows(target, base, readClass, shellPattern)
+	if listed && !isUnderGitDir(real, rc) && !(shellPattern && patternMayNameGitDir(real)) {
 		if ev != nil {
 			ev.rodeOperatorListing = true
 		}

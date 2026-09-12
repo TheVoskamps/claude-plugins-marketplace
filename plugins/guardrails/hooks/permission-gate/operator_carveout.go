@@ -240,7 +240,13 @@ func (c operatorCarveOut) empty() bool {
 //
 // A target under more than one root — every path under a config-home that sits
 // inside the home directory is — is allowed when ANY of those roots lists it.
-func (c operatorCarveOut) allows(target string, base string, readClass bool) bool {
+//
+// shellPattern says the target is a Bash operand, which the shell will expand
+// before any file is touched, so a metacharacter in it is a pattern and the
+// match has to hold for every file it can expand to (matchCarveOutGlob). A
+// file-tool path is a literal filename, `*`, `?` and `[` included, and is
+// matched as one.
+func (c operatorCarveOut) allows(target string, base string, readClass bool, shellPattern bool) bool {
 	if c.empty() {
 		return false
 	}
@@ -252,10 +258,10 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 		if !ok {
 			continue
 		}
-		if matchAnyCarveOutGlob(r.write, rem) {
+		if matchAnyCarveOutGlob(r.write, rem, shellPattern) {
 			return true
 		}
-		if readClass && matchAnyCarveOutGlob(r.read, rem) {
+		if readClass && matchAnyCarveOutGlob(r.read, rem, shellPattern) {
 			return true
 		}
 	}
@@ -550,9 +556,9 @@ func lexicalAbs(target string, base string) string {
 }
 
 // matchAnyCarveOutGlob reports whether rem matches any glob in globs.
-func matchAnyCarveOutGlob(globs []string, rem string) bool {
+func matchAnyCarveOutGlob(globs []string, rem string, shellPattern bool) bool {
 	for _, g := range globs {
-		if matchCarveOutGlob(g, rem) {
+		if matchCarveOutGlob(g, rem, shellPattern) {
 			return true
 		}
 	}
@@ -569,27 +575,36 @@ func matchAnyCarveOutGlob(globs []string, rem string) bool {
 // so the segment walk below is the smallest thing that gives the documented
 // grammar.
 //
-// The remainder can itself carry a shell glob: a Bash operand reaches
-// containment as the pattern the shell will expand (`cc-tools/sub/*.md`),
-// whether written directly or bound by a `for` loop (globAnchorable,
-// engine_a_bash.go), and the verdict has to hold for every file it can expand
-// to. Such a segment is therefore never handed to path.Match, which would
-// compare the entry against the metacharacters as text and let `?.md` cover
-// `*.md`; it is covered only by an entry segment that covers every name — `*`,
-// or a `**` spanning it. An entry spelling the same pattern is not accepted
-// either: path.Match and bash read a class such as `[!a]` differently, so
-// identical text is not an identical match set.
-func matchCarveOutGlob(glob string, rem string) bool {
-	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"))
+// With shellPattern set, the remainder is a Bash operand and can itself carry
+// a shell glob: it reaches containment as the pattern the shell will expand
+// (`cc-tools/sub/*.md`), whether written directly or bound by a `for` loop
+// (globAnchorable, engine_a_bash.go), and the verdict has to hold for every
+// file it can expand to. Such a segment is therefore never handed to
+// path.Match, which would compare the entry against the metacharacters as text
+// and let `?.md` cover `*.md`; it is covered only by an entry segment that
+// covers every name — `*`, or a `**` spanning it. An entry spelling the same
+// pattern is not accepted either: path.Match and bash read a class such as
+// `[!a]` differently, so identical text is not an identical match set. A `**`
+// segment is one bash expands across directory levels under `globstar`, which
+// the gate cannot see the state of, so a segment carrying `**` is covered only
+// by an entry `**` spanning it and never by a single `*`: `cc-tools/*/x.md`
+// lists one directory level, and `cc-tools/**/x.md` can reach any depth.
+//
+// Without shellPattern the remainder is a file-tool path, a literal filename
+// whatever characters it carries: `sdlc/pr[1]/notes.md` is covered by
+// `sdlc/pr*/notes.md` because the file is named `pr[1]`, and no shell is
+// there to read it as anything else.
+func matchCarveOutGlob(glob string, rem string, shellPattern bool) bool {
+	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"), shellPattern)
 }
 
 // matchGlobSegments is matchCarveOutGlob's recursion over already-split
 // segments.
-func matchGlobSegments(pat []string, seg []string) bool {
+func matchGlobSegments(pat []string, seg []string, shellPattern bool) bool {
 	for len(pat) > 0 {
 		if pat[0] == "**" {
 			for i := 0; i <= len(seg); i++ {
-				if matchGlobSegments(pat[1:], seg[i:]) {
+				if matchGlobSegments(pat[1:], seg[i:], shellPattern) {
 					return true
 				}
 			}
@@ -598,8 +613,8 @@ func matchGlobSegments(pat []string, seg []string) bool {
 		if len(seg) == 0 {
 			return false
 		}
-		if hasGlobMeta(seg[0]) {
-			if pat[0] != "*" {
+		if shellPattern && hasGlobMeta(seg[0]) {
+			if pat[0] != "*" || strings.Contains(seg[0], "**") {
 				return false
 			}
 		} else if ok, err := path.Match(pat[0], seg[0]); err != nil || !ok {
