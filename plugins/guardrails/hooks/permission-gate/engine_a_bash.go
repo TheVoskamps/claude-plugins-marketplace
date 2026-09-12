@@ -2302,16 +2302,17 @@ func hasGlobMeta(s string) bool {
 // verdict every file the loop can iterate shares. Containment on a pattern is
 // pure path arithmetic, without reading the filesystem: the pathUnder checks
 // see only the pattern's literal directory prefix, since every match is a
-// child of it, and the operator listing matches the pattern segment by segment
-// (matchGlobSegments), where a segment carrying a metacharacter is covered
-// only by an entry that covers every name it can expand to.
+// child of it, and the operator listing grades the pattern as written
+// (shellOperandListable, operator_carveout.go): a bare `*` segment is covered
+// only by an entry that covers every name it can expand to, and any other
+// expansion syntax withholds the listing.
 //
 // The pattern is bound rather than its directory prefix because the listing's
 // globs are not closed under descent (a `*` segment stops at a separator): an
 // entry such as `cc-tools/*` matches the prefix directory `cc-tools/sub` while
 // matching none of the files beneath it, so a loop bound to that prefix would
-// ride the listing over `cc-tools/sub/*.md` where a direct read of one of
-// those files does not. The pattern carries the depth a prefix discards.
+// ride the listing over `cc-tools/sub/*` where a direct read of one of those
+// files does not. The pattern carries the depth a prefix discards.
 //
 // A relative pattern is deliberately left relative: the caller feeds it
 // through knownVars into the loop body, and the EXISTING containment pipeline

@@ -242,12 +242,16 @@ func (c operatorCarveOut) empty() bool {
 // inside the home directory is — is allowed when ANY of those roots lists it.
 //
 // shellPattern says the target is a Bash operand, which the shell will expand
-// before any file is touched, so a metacharacter in it is a pattern and the
-// match has to hold for every file it can expand to (matchCarveOutGlob). A
-// file-tool path is a literal filename, `*`, `?` and `[` included, and is
-// matched as one.
+// before any file is touched. Only an operand shellOperandListable accepts is
+// matched at all; in one, a metacharacter segment is a bare `*`, and the match
+// has to hold for every file it can expand to (matchCarveOutGlob). A file-tool
+// path is a literal filename, `*`, `?` and `[` included, and is matched as
+// one.
 func (c operatorCarveOut) allows(target string, base string, readClass bool, shellPattern bool) bool {
 	if c.empty() {
+		return false
+	}
+	if shellPattern && !shellOperandListable(target) {
 		return false
 	}
 	if !readClass && c.isSelfWrite(target, base) {
@@ -555,6 +559,40 @@ func lexicalAbs(target string, base string) string {
 	return filepath.Clean(target)
 }
 
+// shellOperandListable reports whether a Bash operand is one the listing can
+// grade: every segment of its spelling AS WRITTEN is either a literal or a
+// bare `*`, and none is `..`.
+//
+// The listing is matched against the operand the gate holds, and the shell
+// opens whatever that operand expands to, so the two have to name the same
+// files. A bare `*` is the one expansion the matcher can hold to every file it
+// reaches (matchGlobSegments), and the `.git/` rule then withholds it wherever
+// it sits (patternMayNameGitDir), since `dotglob` lets it expand to `.git`.
+// Every other expansion syntax is withheld outright rather than modelled,
+// because each has a spelling the model would miss: path.Match reads a `[`
+// class as a different set from bash — `[!a]` as the two characters, and a
+// POSIX `[[:alpha:]]` as a set that misses `g`, both without error — a
+// `{git,x}` brace group reaches here as one unsplit segment carrying no
+// metacharacter, and a `**` segment reaches any depth under `globstar`. A
+// `..` segment is withheld because lexicalAbs cleans it away before the match,
+// and after a segment the shell expands it folds the operand onto a listed
+// name — `cc-tools/**/../x.md` cleans to `cc-tools/x.md` — while the shell
+// opens `cc-tools/<dir>/x.md` for every `<dir>` the segment expands to.
+//
+// The target is read as written, before lexicalAbs: a cleaned path has no
+// `..` segment left to see.
+func shellOperandListable(target string) bool {
+	for _, seg := range strings.Split(target, "/") {
+		if seg == ".." {
+			return false
+		}
+		if seg != "*" && strings.ContainsAny(seg, "*?[{") {
+			return false
+		}
+	}
+	return true
+}
+
 // matchAnyCarveOutGlob reports whether rem matches any glob in globs.
 func matchAnyCarveOutGlob(globs []string, rem string, shellPattern bool) bool {
 	for _, g := range globs {
@@ -575,20 +613,16 @@ func matchAnyCarveOutGlob(globs []string, rem string, shellPattern bool) bool {
 // so the segment walk below is the smallest thing that gives the documented
 // grammar.
 //
-// With shellPattern set, the remainder is a Bash operand and can itself carry
-// a shell glob: it reaches containment as the pattern the shell will expand
-// (`cc-tools/sub/*.md`), whether written directly or bound by a `for` loop
-// (globAnchorable, engine_a_bash.go), and the verdict has to hold for every
-// file it can expand to. Such a segment is therefore never handed to
-// path.Match, which would compare the entry against the metacharacters as text
-// and let `?.md` cover `*.md`; it is covered only by an entry segment that
-// covers every name — `*`, or a `**` spanning it. An entry spelling the same
-// pattern is not accepted either: path.Match and bash read a class such as
-// `[!a]` differently, so identical text is not an identical match set. A `**`
-// segment is one bash expands across directory levels under `globstar`, which
-// the gate cannot see the state of, so a segment carrying `**` is covered only
-// by an entry `**` spanning it and never by a single `*`: `cc-tools/*/x.md`
-// lists one directory level, and `cc-tools/**/x.md` can reach any depth.
+// With shellPattern set, the remainder is a Bash operand and can carry a bare
+// `*` segment — the one expansion shellOperandListable lets through, reaching
+// containment as the pattern the shell will expand (`cc-tools/sub/*`) whether
+// written directly or bound by a `for` loop (globAnchorable, engine_a_bash.go).
+// The verdict has to hold for every file it can expand to, so such a segment
+// is never handed to path.Match, which would compare the entry against the
+// metacharacter as text and let `?` cover `*`; it is covered only by an entry
+// segment that covers every name — `*`, or a `**` spanning it. Any other
+// metacharacter segment fails closed here, since no entry is held to model
+// what it expands to.
 //
 // Without shellPattern the remainder is a file-tool path, a literal filename
 // whatever characters it carries: `sdlc/pr[1]/notes.md` is covered by
@@ -614,7 +648,7 @@ func matchGlobSegments(pat []string, seg []string, shellPattern bool) bool {
 			return false
 		}
 		if shellPattern && hasGlobMeta(seg[0]) {
-			if pat[0] != "*" || strings.Contains(seg[0], "**") {
+			if seg[0] != "*" || pat[0] != "*" {
 				return false
 			}
 		} else if ok, err := path.Match(pat[0], seg[0]); err != nil || !ok {

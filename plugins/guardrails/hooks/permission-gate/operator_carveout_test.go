@@ -840,27 +840,27 @@ func TestMatchCarveOutGlob(t *testing.T) {
 		{"gh/*", "gh/hosts/config.yml", false, false},
 		{"**", "anything/at/all", false, true},
 		{"../**", "cc-tools/a.md", false, false},
-		// A Bash remainder segment that is itself a glob is covered only by `*`
-		// or a spanning `**`, never by a narrower glob or its own text.
-		{"cc-tools/*", "cc-tools/sub/*.md", true, false},
-		{"cc-tools/**", "cc-tools/sub/*.md", true, true},
-		{"cc-tools/sub/*", "cc-tools/sub/*.md", true, true},
-		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", true, false},
-		{"cc-tools/sub/?.md", "cc-tools/sub/*.md", true, false},
-		{"cc-tools/**/x.md", "cc-tools/sub/*.md", true, false},
+		// A Bash remainder segment that is a bare `*` is covered only by `*` or
+		// a spanning `**`, never by a narrower glob or its own text.
+		{"cc-tools/*", "cc-tools/sub/*", true, false},
+		{"cc-tools/**", "cc-tools/sub/*", true, true},
+		{"cc-tools/sub/*", "cc-tools/sub/*", true, true},
+		{"cc-tools/sub/*.md", "cc-tools/sub/*", true, false},
+		{"cc-tools/sub/?", "cc-tools/sub/*", true, false},
+		{"cc-tools/**/x.md", "cc-tools/sub/*", true, false},
 		{"cc-tools/*/*", "cc-tools/*/x.md", true, true},
-		// A `**` segment can reach any depth, so a single `*` does not cover it
-		// and only a spanning `**` does.
+		// Any other metacharacter segment fails closed against every entry
+		// segment; shellOperandListable keeps such an operand from reaching the
+		// matcher at all, and the matcher does not model it either.
+		{"cc-tools/sub/*", "cc-tools/sub/*.md", true, false},
+		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", true, false},
+		{"cc-tools/sub/*", "cc-tools/sub/?.md", true, false},
 		{"cc-tools/*/x.md", "cc-tools/**/x.md", true, false},
-		{"cc-tools/*/*", "cc-tools/**/x.md", true, false},
-		{"cc-tools/**/x.md", "cc-tools/**/x.md", true, true},
-		{"cc-tools/**", "cc-tools/**/x.md", true, true},
-		{"cc-tools/**", "cc-tools/**", true, true},
 		{"cc-tools/*", "cc-tools/a**", true, false},
-		// The same remainder as a file-tool path is a literal filename, and the
-		// entry covers it or not on its text alone.
-		{"sdlc/pr*/notes.md", "sdlc/pr[1]/notes.md", false, true},
 		{"sdlc/pr*/notes.md", "sdlc/pr[1]/notes.md", true, false},
+		// The same remainders as file-tool paths are literal filenames, and the
+		// entry covers each or not on its text alone.
+		{"sdlc/pr*/notes.md", "sdlc/pr[1]/notes.md", false, true},
 		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", false, true},
 		{"cc-tools/*/x.md", "cc-tools/**/x.md", false, true},
 	}
@@ -981,6 +981,13 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 // through the loop variable rather than as an operand written out. write says
 // whether the spelling writes the path, which is what decides its verdict
 // against a `read`-only entry.
+//
+// One containment caller is absent by design: a `gh` publish verb's body file
+// (ghPublishedFileEscalates, classify_gh_files.go) also reaches
+// containReadSources, but that site discards the listing's ALLOW and keeps
+// only an escape, so a listed body file removes the cross-repo deny and leaves
+// the verb's own tier to decide — a verdict shape neither table here asserts.
+// TestOperatorCarveOutGhPublishBodyFile pins it.
 var bashCarveOutSpellings = []struct {
 	name  string
 	cmd   func(p string) string
@@ -1055,12 +1062,17 @@ func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 
 // The listing's bounds hold on the Bash tracks exactly as on the file-tool
 // one: an unlisted sibling under a listed root, a write against a `read`-only
-// entry, a listed path with a `.git/` segment, a listed pattern with a segment
-// the shell can expand to `.git` (a bare `*` is one: `dotglob` lets it), and a
-// write to the config file itself each keep the verdict the same spelling has
-// with no config file. The read of the `read`-only entry and of the config
-// file are the negative controls that the listing is in force and the denies
-// are its bounds.
+// entry, a listed path with a `.git/` segment, and a write to the config file
+// itself each keep the verdict the same spelling has with no config file. The
+// Bash tracks add the operand rule (shellOperandListable): a bare `*` segment
+// withholds the listing wherever it sits, since `dotglob` lets it expand to
+// `.git`, and every other expansion syntax — a `?`, a bracket expression, a
+// POSIX class, a brace group, a `**` — withholds it whether or not the shell
+// would reach `.git` through it, as does a `..` segment in the operand as
+// written, which filepath.Clean would otherwise fold into a listed name the
+// shell never opens. The read of the `read`-only entry and of the config file
+// are the negative controls that the listing is in force and the denies are
+// its bounds.
 func TestOperatorCarveOutBashBounds(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -1070,7 +1082,8 @@ func TestOperatorCarveOutBashBounds(t *testing.T) {
 
 	// `guardrails/**` under config-home `write` is what puts the config file
 	// itself inside a listing, which is the only way the self-write deny is
-	// reached; `gh/config.yml` stays under `read` alone.
+	// reached; `gh/config.yml` stays under `read` alone. `cc-tools/x.md` is the
+	// exact entry the `..` rows fold onto once cleaned.
 	const config = `schema-version: 2
 config-home-default: ~/.config
 state-home-default: ~/.local/state
@@ -1079,6 +1092,7 @@ config-home:
     - gh/config.yml
   write:
     - guardrails/**
+    - cc-tools/x.md
 state-home:
   write:
     - sdlc/**
@@ -1098,6 +1112,14 @@ state-home:
 		{".[g]it segment", filepath.Join(home, ".local", "state", "sdlc", ".[g]it", "config"), false},
 		{".G*T segment", filepath.Join(home, ".local", "state", "sdlc", ".G*T", "config"), false},
 		{"bare * segment", filepath.Join(home, ".local", "state", "sdlc", "*", "config"), false},
+		{".[[:alpha:]]it segment", filepath.Join(home, ".local", "state", "sdlc", ".[[:alpha:]]it", "config"), false},
+		{".g[[:alpha:]]t segment", filepath.Join(home, ".local", "state", "sdlc", ".g[[:alpha:]]t", "config"), false},
+		{".{git,x} segment", filepath.Join(home, ".local", "state", "sdlc", ".{git,x}", "config"), false},
+		{"{.git,x} segment", filepath.Join(home, ".local", "state", "sdlc", "{.git,x}", "config"), false},
+		// Spelled by concatenation: filepath.Join would fold the `..` away
+		// before the gate ever saw it.
+		{"** then ..", home + "/.config/cc-tools/**/../x.md", false},
+		{"literal then ..", home + "/.config/cc-tools/sub/../x.md", false},
 		{"config file itself", filepath.Join(home, ".config", "guardrails", "config.yml"), true},
 	}
 
@@ -1131,6 +1153,34 @@ state-home:
 					cmd, r.label, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
 			}
 		}
+	}
+}
+
+// The `gh` publish-file site: a listed body file is no longer the cross-repo
+// escape it is with no config, and it is not an ALLOW on the listing's account
+// either — containReadSources discards that, and the verb's own tier decides.
+// The negative control is the same command with no config file, which the
+// escape deny takes. A classifier test only: no `gh` verb runs.
+func TestOperatorCarveOutGhPublishBodyFile(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+	ev := bashEvIn(t, canonicalize(repo), "issue-developer")
+
+	cmd := "gh pr create --title x --body-file " + filepath.Join(home, ".local", "state", "sdlc", "body.md")
+
+	d := classifyBash(cmd, ev)
+	if d.Bucket != BucketDeny || d.Operation != "bash-read:cross-repo" {
+		t.Errorf("%s with no carve-out configured must deny as a cross-repo read; got %q/%q (%s)",
+			cmd, d.Bucket, d.Operation, d.Reason)
+	}
+
+	writeCarveOutConfig(t, home, carveOutConfig)
+	d = classifyBash(cmd, ev)
+	if d.Bucket == BucketDeny && d.Operation == "bash-read:cross-repo" {
+		t.Errorf("%s of a listed body file must not deny as a cross-repo read; got %q/%q (%s)",
+			cmd, d.Bucket, d.Operation, d.Reason)
 	}
 }
 
@@ -1234,16 +1284,21 @@ func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
 	}
 }
 
-// A `for` loop over a glob under a listed directory gets the verdict each
-// iterated file would get on its own, not the verdict of the glob's directory
-// prefix. `cc-tools/*` matches the directory `cc-tools/sub` and none of the
-// files beneath it, so a loop over `cc-tools/sub/*.md` must not ride it; a
-// `cc-tools/**` entry covers every file beneath and allows. The direct read of
-// one such file runs beside each loop, and both run first with no config file —
-// the negative control that the allow comes from the listing. The rows with a
-// glob in the entry's last segment cover the matcher's own rule for a
-// glob-bearing target segment: `*` covers every name the target can expand to,
-// a narrower glob does not, even when it spells the same pattern.
+// A glob operand under a listed directory, looped over or written directly,
+// rides no listing, whatever the entry covers: shellOperandListable admits a
+// bare `*` segment alone, and patternMayNameGitDir withholds that one wherever
+// it sits, since `dotglob` lets it expand to `.git`. The direct read of a file
+// under the same directory runs beside each glob, and allows under every entry
+// that lists it — the negative control that the listing is in force and the
+// glob's verdict is the rule's. Both run first with no config file, the control
+// that the direct allow comes from the listing.
+//
+// The patterns table spells each expansion syntax the rule withholds — a bare
+// `*`, a `*` with a suffix, a `?`, a bracket expression, a `**`, and a `..`
+// segment — on the widest entry there is. A brace group runs on its own: a
+// `for` list is the one place the gate splits it (staticForItems), into
+// literal items the listing grades one by one, so the loop spelling allows and
+// only the direct spelling reaches the operand tracks as one unsplit word.
 func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -1252,7 +1307,8 @@ func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 	ev := bashEvIn(t, canonicalize(repo), "issue-developer")
 
 	dir := filepath.Join(home, ".config", "cc-tools", "sub")
-	loop := "for f in " + filepath.Join(dir, "*.md") + `; do cat "$f"; done`
+	loopOver := func(pattern string) string { return "for f in " + pattern + `; do cat "$f"; done` }
+	loop := loopOver(filepath.Join(dir, "*"))
 	direct := "cat " + filepath.Join(dir, "a.md")
 
 	for _, cmd := range []string{loop, direct} {
@@ -1262,32 +1318,54 @@ func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 	}
 
 	rows := []struct {
-		entry     string
-		loopAllow bool
-		// directAllow is the verdict the loop is measured against: every entry
-		// that lists the file allows the direct read.
+		entry string
+		// directAllow is the negative control: every entry that lists the file
+		// allows the direct read.
 		directAllow bool
 	}{
-		{"cc-tools/*", false, false},
-		{"cc-tools/**", true, true},
-		{"cc-tools/sub/*", true, true},
-		{"cc-tools/sub/*.md", false, true},
-		{"cc-tools/sub/?.md", false, true},
+		{"cc-tools/*", false},
+		{"cc-tools/**", true},
+		{"cc-tools/sub/*", true},
+		{"cc-tools/sub/*.md", true},
+		{"cc-tools/sub/?.md", true},
 	}
 	for _, r := range rows {
 		writeCarveOutConfig(t, home, "schema-version: 2\nconfig-home-default: ~/.config\nconfig-home:\n  read:\n    - '"+r.entry+"'\n")
-		for _, c := range []struct {
-			cmd   string
-			allow bool
-		}{{loop, r.loopAllow}, {direct, r.directAllow}} {
-			d := classifyBash(c.cmd, ev)
-			if c.allow {
-				wantBucket(t, d, BucketAllow, c.cmd+" under "+r.entry)
-			} else if d.Bucket == BucketAllow {
-				t.Errorf("%s under %s must not ALLOW; got %q (%s)", c.cmd, r.entry, d.Bucket, d.Reason)
+		if d := classifyBash(loop, ev); d.Bucket == BucketAllow {
+			t.Errorf("%s under %s must not ALLOW; got %q (%s)", loop, r.entry, d.Bucket, d.Reason)
+		}
+		d := classifyBash(direct, ev)
+		if r.directAllow {
+			wantBucket(t, d, BucketAllow, direct+" under "+r.entry)
+		} else if d.Bucket == BucketAllow {
+			t.Errorf("%s under %s must not ALLOW; got %q (%s)", direct, r.entry, d.Bucket, d.Reason)
+		}
+	}
+
+	writeCarveOutConfig(t, home, "schema-version: 2\nconfig-home-default: ~/.config\nconfig-home:\n  read:\n    - 'cc-tools/**'\n")
+	// Spelled by concatenation: filepath.Join would fold the `..` away before
+	// the gate ever saw it.
+	for _, pattern := range []string{
+		dir + "/*",
+		dir + "/*.md",
+		dir + "/?.md",
+		dir + "/[a].md",
+		dir + "/**/a.md",
+		dir + "/../sub/a.md",
+	} {
+		for _, cmd := range []string{loopOver(pattern), "cat " + pattern} {
+			if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+				t.Errorf("%s under cc-tools/** carries an expansion the listing does not grade and must not ALLOW; got %q (%s)",
+					cmd, d.Bucket, d.Reason)
 			}
 		}
 	}
+	brace := "cat " + dir + "/{a,b}.md"
+	if d := classifyBash(brace, ev); d.Bucket == BucketAllow {
+		t.Errorf("%s under cc-tools/** carries an expansion the listing does not grade and must not ALLOW; got %q (%s)",
+			brace, d.Bucket, d.Reason)
+	}
+	wantBucket(t, classifyBash(loopOver(dir+"/{a,b}.md"), ev), BucketAllow, "a for list splits the brace group into listed literals")
 }
 
 // The glob-bearing-segment rule is a rule about Bash operands only. A file-tool
