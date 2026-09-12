@@ -930,13 +930,13 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	}
 }
 
-// bashCarveOutSpellings are the Bash spellings of one read or write, one per
-// containment caller: `cat`, `ls` and `less` reach containPathOperands (the
-// read-only-utility and path-reader tracks), `tee` and `cp` reach
-// containWriteOperands, a plain redirect reaches redirectVetoesAllow, and a
-// credentialed one reaches credentialedRedirectVerdict. write says whether the
-// spelling writes the path, which is what decides its verdict against a
-// `read`-only entry.
+// bashCarveOutSpellings are the Bash spellings of one read or write, chosen so
+// that every Bash containment caller is reached: `cat`, `ls` and `less` reach
+// containPathOperands (the read-only-utility and path-reader tracks), `tee`
+// and `cp` reach containWriteOperands, a plain redirect reaches
+// redirectVetoesAllow, and a credentialed one reaches
+// credentialedRedirectVerdict. write says whether the spelling writes the
+// path, which is what decides its verdict against a `read`-only entry.
 var bashCarveOutSpellings = []struct {
 	name  string
 	cmd   func(p string) string
@@ -951,8 +951,8 @@ var bashCarveOutSpellings = []struct {
 	{"gh redirect", func(p string) string { return "gh pr diff 224 > " + p }, true},
 }
 
-// listedCarveOutPaths are the two listed paths the Bash tables run: one under
-// the state home and one under the config home, both under a `write` entry.
+// listedCarveOutPaths are the listed paths the Bash tables run: one under the
+// state home and one under the config home, both under a `write` entry.
 func listedCarveOutPaths(home string) []string {
 	return []string{
 		filepath.Join(home, ".local", "state", "sdlc", "round.log"),

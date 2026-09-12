@@ -737,8 +737,9 @@ func harnessScratchRemainder(real, root string) string {
 // posture for `cd ~` with no usable home (engine_a_bash.go: it sets
 // runningCWDInvalid = true rather than guessing) — escapeRepo is
 // testContainmentFrom's equivalent "invalidate rather than guess" verdict:
-// every caller (classifyFileTool, containPathOperands, containWriteOperands)
-// treats escapeRepo as deny, never allow. On today's paths that arm is
+// no caller treats escapeRepo as allow — the operand tracks and the
+// credentialed redirect deny on it, and the plain redirect withholds its
+// allow. On today's paths that arm is
 // defence in depth: the home chokepoint (home.go) denies a `~` operand under
 // an unusable home before containment is reached.
 func testContainmentFrom(target string, base string, rc *repoContext, readClass bool) (containmentResult, string) {
