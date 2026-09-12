@@ -709,7 +709,8 @@ func harnessScratchRemainder(real, root string) string {
 
 // testContainmentFrom canonicalizes the target and tests it against the
 // resolved worktree root. The target is canonicalized BEFORE comparison (both
-// sides). Returns one of the containmentResult values.
+// sides). Returns the containmentResult the target lands in, the canonicalized
+// target, and whether the operator listing covers it (listed, below).
 //
 // base is the directory a relative target is joined onto: the event's cwd for a
 // file tool, or — for a Bash operand — the running cwd tracked through any
