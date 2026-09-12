@@ -33,13 +33,13 @@ import (
 // them follow $XDG_CONFIG_HOME / $XDG_STATE_HOME, and without it they follow
 // only the `config-home-default` / `state-home-default` spellings the file
 // gives. Reading an environment variable lets whatever set that variable
-// relocate a root, so the opt-in is bounded by two denies rather than by
-// refusing to read the variable at all: nothing under a `.git/` segment is
-// ever handed out (testContainmentFrom withholds the region), and no write to
-// this config file itself is ever allowed (isSelfWrite, below). In practice
-// the hook inherits the launcher's environment, so the only same-session route
-// to a relocated root is a nested `claude` launch from the Bash tool with an
-// XDG assignment in front of it.
+// relocate a root, so the opt-in is bounded by denies rather than by refusing
+// to read the variable at all: nothing under a `.git/` segment is ever handed
+// out (testContainmentFrom withholds the region), and no write to this config
+// file itself is ever allowed (isSelfWrite, below). In practice the hook
+// inherits the launcher's environment, so the only same-session route to a
+// relocated root is a nested `claude` launch from the Bash tool with an XDG
+// assignment in front of it.
 //
 // The listing is consulted in exactly one place, testContainmentFrom
 // (engine_b_containment.go), which reports a match as the operatorListed
