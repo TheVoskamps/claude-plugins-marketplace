@@ -2306,13 +2306,12 @@ func hasGlobMeta(s string) bool {
 // (matchGlobSegments), where a segment carrying a metacharacter is covered
 // only by an entry that covers every name it can expand to.
 //
-// Binding the pattern rather than its directory prefix is what keeps the
-// listing honest: its globs are not closed under descent (a `*` segment stops
-// at a separator), so an entry such as `cc-tools/*` matches the prefix
-// directory `cc-tools/sub` while matching none of the files beneath it, and a
-// prefix-bound loop over `cc-tools/sub/*.md` rode the listing where a direct
-// read of one of those files did not. The pattern carries the depth the prefix
-// discarded.
+// The pattern is bound rather than its directory prefix because the listing's
+// globs are not closed under descent (a `*` segment stops at a separator): an
+// entry such as `cc-tools/*` matches the prefix directory `cc-tools/sub` while
+// matching none of the files beneath it, so a loop bound to that prefix would
+// ride the listing over `cc-tools/sub/*.md` where a direct read of one of
+// those files does not. The pattern carries the depth a prefix discards.
 //
 // A relative pattern is deliberately left relative: the caller feeds it
 // through knownVars into the loop body, and the EXISTING containment pipeline

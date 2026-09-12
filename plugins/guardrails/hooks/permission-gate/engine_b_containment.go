@@ -735,16 +735,16 @@ func harnessScratchRemainder(real, root string) string {
 //
 // The third result, listed, reports whether the listing covers the target for
 // this class, whatever region the first result names. The two differ only for
-// a target whose canonical path carries a `.git/` segment: that target is kept
-// out of operatorListed, so on the bash tracks it earns the verdict it has
-// without the listing and no listing hands out git internals there, while the
-// file-tool track reads listed to deny the read outright (classifyFileTool).
-// A bash operand is also kept out when a segment of it can EXPAND to `.git`
-// (patternMayNameGitDir): canonicalization keeps a metacharacter segment
-// literal, so `.g*t` carries no `.git` segment for isUnderGitDir to see while
-// naming the same directory to the shell. This is the one place the listing
-// is consulted, so listed is how a caller learns of a match the region does
-// not carry.
+// a target the `.git/` rule keeps out of operatorListed: one whose canonical
+// path carries a `.git/` segment, and a bash operand with a segment that can
+// EXPAND to `.git` (patternMayNameGitDir) — canonicalization keeps a
+// metacharacter segment literal, so `.g*t` carries no `.git` segment for
+// isUnderGitDir to see while naming the same directory to the shell. Such a
+// target earns on the bash tracks the verdict it has without the listing, so
+// no listing hands out git internals there, while the file-tool track reads
+// listed to deny the read outright (classifyFileTool). This is the one place
+// the listing is consulted, so listed is how a caller learns of a match the
+// region does not carry.
 //
 // ev is the event being classified, and an operatorListed result is recorded
 // on it (Event.rodeOperatorListing) so classifyBash's whole-line reason can
