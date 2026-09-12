@@ -28,8 +28,11 @@ type Event struct {
 	// of this event as operatorListed. classifyBash clears it before walking
 	// the line and reads it at its whole-line ALLOW, which is built after the
 	// per-part reasons are discarded and so has no other way to learn whether
-	// the listing carried a part; every per-part terminal names the listing
-	// from its own operand walk instead. Not part of the wire format.
+	// the listing carried a part. The operand-walk terminals
+	// (containPathOperands, classifyInRepoWrite) name the listing from their
+	// own walk; a part whose redirect rode it carries only the program's own
+	// reason, so the whole-line reason is where that ride surfaces. Not part
+	// of the wire format.
 	rodeOperatorListing bool
 }
 

@@ -732,10 +732,9 @@ func harnessScratchRemainder(real, root string) string {
 // a target whose canonical path carries a `.git/` segment: that target is kept
 // out of operatorListed, so on the bash tracks it earns the verdict it has
 // without the listing and no listing hands out git internals there, while the
-// file-tool track reads listed to deny the read outright (classifyFileTool),
-// the verdict it gave a listed `.git/` read when it consulted the listing
-// itself. This is the one place the listing is consulted, so listed is how a
-// caller learns of a match the region does not carry.
+// file-tool track reads listed to deny the read outright (classifyFileTool).
+// This is the one place the listing is consulted, so listed is how a caller
+// learns of a match the region does not carry.
 //
 // ev is the event being classified, and an operatorListed result is recorded
 // on it (Event.rodeOperatorListing) so classifyBash's whole-line reason can

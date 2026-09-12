@@ -91,10 +91,10 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// A real-file redirect (`cp a b > log`) means bytes also leave for a file the
 	// operand parser does not model. Don't auto-allow — defer to the pipeline.
 	// The one exception is the one the read track carries too: a redirect
-	// whose every destination is a session-shaped harness scratchpad writes into
-	// a region designated safe by construction, which is what this classifier's
-	// own operand track already allows `tee`/`cp` to do. redirectVetoesAllow owns
-	// that grading.
+	// whose every destination is write-eligible — a session-shaped harness
+	// scratchpad, or a path the operator listed under a `write` entry — writes
+	// into a region this classifier's own operand track already allows
+	// `tee`/`cp` to reach. redirectVetoesAllow owns that grading.
 	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}

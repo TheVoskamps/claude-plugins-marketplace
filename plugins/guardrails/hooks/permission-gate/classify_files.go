@@ -122,11 +122,11 @@ func classifyFileTool(ev *Event) Decision {
 		// The listing's `.git/` exception. A listed `.git/` target is not
 		// reported as operatorListed, so on this track it would land on the
 		// verdict its region carries — a defer for an in-repo one — where a
-		// listing wide enough to reach `.git/` has always earned a deny here.
-		// The deny is keyed on the listing rather than widened to every
-		// target, which would flip an unlisted in-repo `.git/` read from its
-		// defer to a deny. Only a read reaches this: a write under `.git/`
-		// denied at the top of the walk.
+		// listing wide enough to reach `.git/` must deny the read rather than
+		// leave it there. The deny is keyed on the listing rather than widened
+		// to every target, which would flip an unlisted in-repo `.git/` read
+		// from its defer to a deny. Only a read reaches this: a write under
+		// `.git/` denied at the top of the walk.
 		if listed && isUnderGitDir(real, rc) {
 			return gitTreeReadDeny(ev.ToolName, p)
 		}
@@ -275,7 +275,8 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 // current worktree, or is one of the carve-outs (the ~/.claude tree,
 // or the harness scratchpad prefix), so the caller may proceed to its
 // contained-path terminal (ALLOW for the read-only-utility classifier, DEFER
-// for classifyPathReader).
+// for classifyPathReader). A path the operator listed counts as contained for
+// that purpose when it sits beside an ordinary in-worktree operand.
 //
 // ok=false means the returned Decision is TERMINAL — return it verbatim.
 // Usually that is a deny (cross-repo, a worktree escape, or a .git/-tree
@@ -630,9 +631,10 @@ func scratchAllowEligible(res containmentResult, readClass bool) bool {
 // exfiltration / clobber risk, which is precisely what the session scratchpad
 // is designated safe against by construction, so refusing the redirect while
 // allowing the argv spelling of the same write bought nothing; the veto lifts
-// for that destination and stays intact for every other one (an in-repo file, a
-// sibling repo, the bundled-skills tree, the unshaped remainder of the prefix,
-// /tmp at large).
+// for that destination, and for a path the operator listed under a `write`
+// entry, and stays intact for every other one (an in-repo file, a sibling repo,
+// the bundled-skills tree, the unshaped remainder of the prefix, /tmp at
+// large).
 //
 // The lift is deliberately narrow, and fails closed on every axis:
 //
@@ -791,8 +793,7 @@ func eligibleScratchRegions(readClass bool) string {
 // involved, so a reason cannot advertise a region the call never touched.
 // subject is the caller's own opening (`Read targets only`, `'cat' reads
 // only`), so the file-tool and bash read tracks name the regions in one
-// wording. The scratchpad-only wording is the one these terminals have always
-// emitted; the other two arms exist because the operator listing joined it.
+// wording.
 func carveOutAllowReason(subject string, readClass bool, sawScratch bool, sawOperator bool) string {
 	scratch := fmt.Sprintf("harness-owned regions under %s/ that are designated safe by construction (%s)",
 		harnessScratchDisplay(), eligibleScratchRegions(readClass))
@@ -808,12 +809,13 @@ func carveOutAllowReason(subject string, readClass bool, sawScratch bool, sawOpe
 }
 
 // gitTreeReadDeny is the read half of the .git/-tree rule as classifyFileTool
-// applies it. It has one call site per arm a file-tool `.git/` read can reach —
-// the worktree-escape arm, and the two carve-out arms that would otherwise
-// hand the read an ALLOW — so the message lives here rather than being spelled
-// at each. The bash read track's own `.git/` deny (containPathOperands, under
-// `bash-read:.git tree`) is a separate message naming the command rather than
-// the tool, and does not come through here.
+// applies it. It has one call site per place a file-tool `.git/` read can
+// reach — the worktree-escape arm, the scratchpad arm that would otherwise
+// hand the read an ALLOW, and the listed-result check that keeps a listed
+// in-repo `.git/` read off its defer — so the message lives here rather than
+// being spelled at each. The bash read track's own `.git/` deny
+// (containPathOperands, under `bash-read:.git tree`) is a separate message
+// naming the command rather than the tool, and does not come through here.
 func gitTreeReadDeny(toolName string, p string) Decision {
 	return deny("read:.git tree", fmt.Sprintf(
 		"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
