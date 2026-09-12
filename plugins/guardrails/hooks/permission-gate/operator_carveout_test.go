@@ -943,11 +943,12 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 // that every Bash containment caller is reached: `cat`, `ls` and `less` reach
 // containPathOperands (the read-only-utility and path-reader tracks), `tee`
 // and `cp` reach containWriteOperands, a plain redirect reaches
-// redirectVetoesAllow, a credentialed one reaches
-// credentialedRedirectVerdict, and an input redirect on a construct that runs
-// no program reaches classifyRedirectOnly's own direct call into
-// containPathOperands. write says whether the spelling writes the path, which
-// is what decides its verdict against a `read`-only entry.
+// redirectVetoesAllow, the `git`, `gh` and `aws` redirects reach
+// credentialedRedirectVerdict through each of its three call sites, and an
+// input redirect on a construct that runs no program reaches
+// classifyRedirectOnly's own direct call into containPathOperands. write says
+// whether the spelling writes the path, which is what decides its verdict
+// against a `read`-only entry.
 var bashCarveOutSpellings = []struct {
 	name  string
 	cmd   func(p string) string
@@ -959,7 +960,9 @@ var bashCarveOutSpellings = []struct {
 	{"tee", func(p string) string { return "tee " + p }, true},
 	{"cp", func(p string) string { return "cp README.md " + p }, true},
 	{"redirect", func(p string) string { return "echo x > " + p }, true},
+	{"git redirect", func(p string) string { return "git log > " + p }, true},
 	{"gh redirect", func(p string) string { return "gh pr diff 224 > " + p }, true},
+	{"aws redirect", func(p string) string { return "aws s3 ls > " + p }, true},
 	{"redirect-only", func(p string) string { return "[[ -f x ]] < " + p }, false},
 }
 
