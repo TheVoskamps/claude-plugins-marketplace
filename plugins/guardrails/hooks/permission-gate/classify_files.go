@@ -33,9 +33,10 @@ import (
 // A call that mixes such a target with any other kind falls back to the
 // ordinary defer, so the allow never rides along with a path the gate has not
 // blessed on its own terms. Neither carve-out opens the `.git/` tree: a write
-// there denies at the top of the walk, a scratchpad read of one denies inside
-// the allow-eligible-region arm, and an operator-listed one never reaches that
-// arm because testContainmentFrom excludes `.git/` from the listed region.
+// there denies at the top of the walk, and a read of one denies as soon as the
+// listing or the scratchpad would otherwise carry it — the listed one on
+// testContainmentFrom's listed result, the scratchpad one inside the
+// allow-eligible-region arm.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -75,13 +76,13 @@ func classifyFileTool(ev *Event) Decision {
 	// walk, so a genuine escape later in the same call still outranks it.
 	//
 	// Neither carve-out outranks a `.git/` segment: a WRITE to one denies at
-	// the top of the walk before containment is consulted, a scratchpad READ
-	// of one denies in the allow-eligible arm below, and a listed path under
-	// one is never reported as operatorListed, so a glob wide enough to cover
-	// a `.git/` segment hands out nothing and neither does a `.git/` directory
-	// somebody created inside the scratchpad. sawOperator and sawScratch record
-	// which carve-outs the ALLOW terminal actually rode, so its reason names
-	// those and no others.
+	// the top of the walk before containment is consulted, a READ of a listed
+	// one denies on the listed result straight after it, and a scratchpad READ
+	// of one denies in the allow-eligible arm below, so a glob wide enough to
+	// cover a `.git/` segment hands out nothing and neither does a `.git/`
+	// directory somebody created inside the scratchpad. sawOperator and
+	// sawScratch record which carve-outs the ALLOW terminal actually rode, so
+	// its reason names those and no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
 	// A relative `file_path` is resolved against the EVENT's cwd, the base the
 	// tool itself resolves it against — the same base the bash tracks join their
@@ -117,7 +118,18 @@ func classifyFileTool(ev *Event) Decision {
 				ev.ToolName, p, scratchDestinations(rc.topLevel)))
 		}
 
-		res, real := testContainmentFrom(p, base, rc, readClass)
+		res, real, listed := testContainmentFrom(p, base, rc, readClass, ev)
+		// The listing's `.git/` exception. A listed `.git/` target is not
+		// reported as operatorListed, so on this track it would land on the
+		// verdict its region carries — a defer for an in-repo one — where a
+		// listing wide enough to reach `.git/` has always earned a deny here.
+		// The deny is keyed on the listing rather than widened to every
+		// target, which would flip an unlisted in-repo `.git/` read from its
+		// defer to a deny. Only a read reaches this: a write under `.git/`
+		// denied at the top of the walk.
+		if listed && isUnderGitDir(real, rc) {
+			return gitTreeReadDeny(ev.ToolName, p)
+		}
 		if scratchAllowEligible(res, readClass) {
 			// The scratchpad's `.git/` exception: eligibility for the ALLOW
 			// terminal is the sole thing that could carry a `.git/` target here
@@ -328,7 +340,7 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// that could disqualify it.
 			continue
 		}
-		res, real := testContainmentFrom(p, base, rc, true)
+		res, real, _ := testContainmentFrom(p, base, rc, true, ev)
 		if !scratchAllowEligible(res, true) {
 			allCarved = false
 		}
@@ -666,7 +678,7 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 		base = ev.CWD
 	}
 	for _, t := range sc.redirectTargets {
-		res, _ := testContainmentFrom(t, base, rc, false)
+		res, _, _ := testContainmentFrom(t, base, rc, false, ev)
 		if !scratchAllowEligible(res, false) {
 			return true
 		}
@@ -747,7 +759,7 @@ func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Deci
 					"committer identity, inject hooks, or corrupt repo state. %s",
 				tool, t, scratchDestinations(rc.topLevel))), true
 		}
-		res, real := testContainmentFrom(t, base, rc, false)
+		res, real, _ := testContainmentFrom(t, base, rc, false, ev)
 		if res == contained || scratchAllowEligible(res, false) {
 			continue
 		}
@@ -797,9 +809,9 @@ func carveOutAllowReason(subject string, readClass bool, sawScratch bool, sawOpe
 
 // gitTreeReadDeny is the read half of the .git/-tree rule as classifyFileTool
 // applies it. It has one call site per arm a file-tool `.git/` read can reach —
-// the worktree-escape arm, and the carve-out arm that would otherwise hand
-// the read an ALLOW — so the message lives here rather than being spelled at
-// each. The bash read track's own `.git/` deny (containPathOperands, under
+// the worktree-escape arm, and the two carve-out arms that would otherwise
+// hand the read an ALLOW — so the message lives here rather than being spelled
+// at each. The bash read track's own `.git/` deny (containPathOperands, under
 // `bash-read:.git tree`) is a separate message naming the command rather than
 // the tool, and does not come through here.
 func gitTreeReadDeny(toolName string, p string) Decision {
@@ -837,6 +849,13 @@ func isMutatingFileTool(name string) bool {
 //     normally has its own .git symlink resolved away, but submodule and nested
 //     layouts can still present a real ".git" directory segment.)
 //
+// The segment is matched regardless of letter case, on every platform:
+// canonicalization keeps the spelling the caller wrote, so on a case-folding
+// volume `.GIT/config` names the real `.git/config` while carrying no `.git`
+// segment to match. Folding the comparison rather than asking the filesystem
+// keeps the predicate free of I/O, and the cost is nil — a `.GIT` directory on
+// a case-sensitive volume is not a git dir, and denying it loses nothing.
+//
 // real is expected to already be canonicalized.
 func isUnderGitDir(real string, rc *repoContext) bool {
 	if real == "" {
@@ -846,7 +865,7 @@ func isUnderGitDir(real string, rc *repoContext) bool {
 		return true
 	}
 	for _, seg := range strings.Split(real, string(filepath.Separator)) {
-		if seg == ".git" {
+		if strings.EqualFold(seg, ".git") {
 			return true
 		}
 	}

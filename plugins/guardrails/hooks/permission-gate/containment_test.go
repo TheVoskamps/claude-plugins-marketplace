@@ -2366,7 +2366,7 @@ func TestContainmentTildeEscapeDenied(t *testing.T) {
 	gitInit(t, repo)
 	rc := &repoContext{insideWorkTree: true, topLevel: canonicalize(repo)}
 
-	result, _ := testContainmentFrom("~/.ssh/id_rsa", canonicalize(repo), rc, true)
+	result, _, _ := testContainmentFrom("~/.ssh/id_rsa", canonicalize(repo), rc, true, nil)
 	if result == contained {
 		t.Errorf("tilde-prefixed target must not resolve as contained; got %v", result)
 	}
@@ -2443,7 +2443,7 @@ func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
 	rc := &repoContext{insideWorkTree: true, topLevel: canonicalize(repo)}
 
 	for _, p := range []string{"~", "~/.ssh/id_rsa"} {
-		result, _ := testContainmentFrom(p, canonicalize(repo), rc, true)
+		result, _, _ := testContainmentFrom(p, canonicalize(repo), rc, true, nil)
 		if result != escapeRepo {
 			t.Errorf("testContainmentFrom(%q, repo, rc) with HOME unset = %v, want escapeRepo (fail closed); "+
 				"a %v verdict here is the exact fail-open this test pins against", p, result, result)

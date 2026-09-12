@@ -209,6 +209,9 @@ func classifyBash(command string, ev *Event) Decision {
 	haveDeferAnalysis := false
 	var residualDefer Decision
 	haveResidualDefer := false
+	// Cleared here rather than trusted: the event is this call's, but a caller
+	// may classify more than one line against it.
+	ev.rodeOperatorListing = false
 
 	for _, sc := range cmds {
 		d := classifySimpleCommand(sc, ev)
@@ -264,12 +267,18 @@ func classifyBash(command string, ev *Event) Decision {
 	// in-worktree `cp` both reach here with BucketAllow while plainly mutating,
 	// so the line claimed something the gate had not established. Restated
 	// rather than deleted, because a reason surfaced to the model should say
-	// why the call was blessed. The regions are the ones scratchAllowEligible
-	// grades plus the worktree itself, named as a disjunction because the
-	// per-part reasons are not carried here.
+	// why the call was blessed. The regions are named as a disjunction because
+	// the per-part reasons are not carried here; the operator listing joins it
+	// only when containment reported a target of this line as operatorListed
+	// (Event.rodeOperatorListing), so the reason never advertises a listing the
+	// line never touched.
+	regions := "this worktree, or the harness scratchpad"
+	if ev.rodeOperatorListing {
+		regions = fmt.Sprintf("this worktree, the harness scratchpad, or paths the operator listed in %s",
+			operatorCarveOutConfigPath())
+	}
 	return allow(fmt.Sprintf("every command part has positive grounds to be safe: the operation itself cannot "+
-		"write, or its targets are confined to a region designated safe by construction (this worktree, the "+
-		"harness scratchpad, or paths the operator listed in %s)", operatorCarveOutConfigPath()))
+		"write, or its targets are confined to a region designated safe by construction (%s)", regions))
 }
 
 // parseErrorCauseSentence names the syntax defect behind a parser error when it

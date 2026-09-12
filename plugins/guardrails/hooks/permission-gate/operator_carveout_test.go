@@ -765,12 +765,19 @@ func TestOperatorCarveOutDoesNotRideAlong(t *testing.T) {
 
 // A `.git/` segment under a listed path denies for read and write alike, so no
 // listing hands out a git internals tree — the write on the top-of-walk rule,
-// the read on the containment verdict the path has without the listing, since
-// testContainmentFrom never reports a `.git/` target as operatorListed. Each
-// fixture lists the widest thing the schema can express — `**` on the HOME
-// root, which now covers everything the other two roots do — and the
-// non-`.git/` read at the end is the negative control that the deny is the
-// `.git/` rule rather than a missing listing.
+// the read on the listed result testContainmentFrom returns beside the region,
+// which is how the read keeps its `.git`-tree deny although the region never
+// reports a `.git/` target as operatorListed. Each fixture lists the widest
+// thing the schema can express — `**` on the HOME root, which now covers
+// everything the other two roots do — and the non-`.git/` read at the end is
+// the negative control that the deny is the `.git/` rule rather than a missing
+// listing.
+//
+// The `.GIT` spelling runs beside `.git` on every platform: a case-folding
+// volume resolves it to the same directory while the canonical path keeps the
+// spelling as written, so a case-sensitive segment match would let the listing
+// hand out the tree there. The paths do not exist, so the rows measure the
+// match and not the filesystem.
 //
 // Both listing keys are run. `read` is the one that puts the read deny
 // against a listing that names it directly, and `write` reaches the same read
@@ -788,10 +795,12 @@ func TestOperatorCarveOutDoesNotOpenGitTree(t *testing.T) {
 			for _, rel := range []string{
 				filepath.Join(".config", "cc-tools", ".git", "config"),
 				filepath.Join(".local", "state", "sdlc", ".git", "config"),
+				filepath.Join(".config", "cc-tools", ".GIT", "config"),
+				filepath.Join(".local", "state", "sdlc", ".GIT", "config"),
 			} {
 				target := filepath.Join(home, rel)
 				for _, tc := range []struct{ tool, op string }{
-					{"Read", "containment:cross-repo"},
+					{"Read", "read:.git tree"},
 					{"Write", "write:.git tree"},
 				} {
 					d := fileToolVerdict(t, tc.tool, repo, target)
@@ -1075,5 +1084,105 @@ state-home:
 					cmd, r.label, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
 			}
 		}
+	}
+}
+
+// The in-repo half of the `.git/` rule: a listing wide enough to cover the
+// repository itself — `**` on the HOME root, with the repo under $HOME — must
+// not carry a `Read` of the repo's own `.git/` tree, and it must deny it
+// outright rather than leave it on the defer an unlisted in-repo `.git/` read
+// keeps. The `.git/` target resolves as contained, so this is the row the
+// listed result exists for: the region alone would report nothing to deny on.
+// The `.GIT` spelling runs beside it, on the same grounds as above. The read of
+// a working file in the same repo is the negative control that the listing is
+// in force and the deny is the `.git/` rule.
+func TestOperatorCarveOutDoesNotOpenInRepoGitTree(t *testing.T) {
+	base := t.TempDir()
+	home := carveOutFixture(t, base, "plain")
+	repo := filepath.Join(home, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  write:\n    - '**'\n")
+
+	for _, rel := range []string{
+		filepath.Join(".git", "config"),
+		filepath.Join(".GIT", "config"),
+	} {
+		d := fileToolVerdict(t, "Read", repo, filepath.Join(repo, rel))
+		wantBucket(t, d, BucketDeny, "Read of the listed repo's own "+rel)
+		if !containsSubstr(d.Operation, "read:.git tree") {
+			t.Errorf("Read of %s should deny as the .git-tree rule; got op %q (%s)", rel, d.Operation, d.Reason)
+		}
+	}
+
+	d := fileToolVerdict(t, "Read", repo, filepath.Join(repo, "README.md"))
+	wantBucket(t, d, BucketAllow, "read of a working file in the listed repo (negative control)")
+}
+
+// The Bash-track allow reasons name the operator listing exactly as the
+// file-tool one does: only when a target of the command rode it. A command
+// that never touched a listed path — a write to a fresh in-repo file, and a
+// line of such parts — must not carry the listing in its reason, with the
+// config file present and every listing in force; the same spellings against a
+// listed path are the negative control that the wording is gated and not
+// dropped. Both terminals are covered, and separately: the whole-line reason
+// is classifyBash's own, built after the per-part reasons are discarded, so
+// the in-repo write terminal (classifyInRepoWrite) is called directly for its
+// own wording, as the aggregate never surfaces it.
+func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := carveOutFixture(t, base, "repo")
+	writeCarveOutConfig(t, home, carveOutConfig)
+	ev := bashEvIn(t, canonicalize(repo), "issue-developer")
+	configPath := filepath.Join(home, ".config", "guardrails", "config.yml")
+
+	for _, cmd := range []string{
+		"touch newfile.txt",
+		"cp README.md copy.md",
+		"cat README.md",
+		"cat README.md && touch newfile.txt",
+	} {
+		d := classifyBash(cmd, ev)
+		wantBucket(t, d, BucketAllow, cmd)
+		if containsSubstr(d.Reason, configPath) {
+			t.Errorf("%s touched no listed path, so its reason must not name the listing; got %q", cmd, d.Reason)
+		}
+	}
+
+	listed := filepath.Join(home, ".local", "state", "sdlc", "round.log")
+	for _, cmd := range []string{
+		"touch " + listed,
+		"cp README.md " + listed,
+		"cat " + listed,
+		"cat README.md && touch " + listed,
+	} {
+		d := classifyBash(cmd, ev)
+		wantBucket(t, d, BucketAllow, cmd)
+		if !containsSubstr(d.Reason, configPath) {
+			t.Errorf("%s rode the listing, so its reason must name it (negative control); got %q", cmd, d.Reason)
+		}
+	}
+
+	inRepoWrite := func(args ...string) Decision {
+		sc := simpleCommand{args: append([]string{"touch"}, args...)}
+		return classifyInRepoWrite("touch", args, sc, ev)
+	}
+	d := inRepoWrite("newfile.txt")
+	wantBucket(t, d, BucketAllow, "touch newfile.txt (in-repo write terminal)")
+	if containsSubstr(d.Reason, configPath) {
+		t.Errorf("the in-repo write terminal must not name a listing no operand rode; got %q", d.Reason)
+	}
+	d = inRepoWrite(listed)
+	wantBucket(t, d, BucketAllow, "touch <listed> (in-repo write terminal)")
+	if !containsSubstr(d.Reason, configPath) {
+		t.Errorf("the in-repo write terminal must name the listing its operand rode (negative control); got %q",
+			d.Reason)
 	}
 }
