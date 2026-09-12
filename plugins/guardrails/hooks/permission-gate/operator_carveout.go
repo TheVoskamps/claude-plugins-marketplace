@@ -568,6 +568,17 @@ func matchAnyCarveOutGlob(globs []string, rem string) bool {
 // no `**`, and filepath.Match on the whole path would let `*` cross separators,
 // so the segment walk below is the smallest thing that gives the documented
 // grammar.
+//
+// The remainder can itself carry a shell glob: a Bash operand reaches
+// containment as the pattern the shell will expand (`cc-tools/sub/*.md`),
+// whether written directly or bound by a `for` loop (globAnchorable,
+// engine_a_bash.go), and the verdict has to hold for every file it can expand
+// to. Such a segment is therefore never handed to path.Match, which would
+// compare the entry against the metacharacters as text and let `?.md` cover
+// `*.md`; it is covered only by an entry segment that covers every name — `*`,
+// or a `**` spanning it. An entry spelling the same pattern is not accepted
+// either: path.Match and bash read a class such as `[!a]` differently, so
+// identical text is not an identical match set.
 func matchCarveOutGlob(glob string, rem string) bool {
 	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"))
 }
@@ -587,8 +598,11 @@ func matchGlobSegments(pat []string, seg []string) bool {
 		if len(seg) == 0 {
 			return false
 		}
-		ok, err := path.Match(pat[0], seg[0])
-		if err != nil || !ok {
+		if hasGlobMeta(seg[0]) {
+			if pat[0] != "*" {
+				return false
+			}
+		} else if ok, err := path.Match(pat[0], seg[0]); err != nil || !ok {
 			return false
 		}
 		pat, seg = pat[1:], seg[1:]

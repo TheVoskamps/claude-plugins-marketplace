@@ -837,6 +837,15 @@ func TestMatchCarveOutGlob(t *testing.T) {
 		{"gh/*", "gh/hosts/config.yml", false},
 		{"**", "anything/at/all", true},
 		{"../**", "cc-tools/a.md", false},
+		// A remainder segment that is itself a glob is covered only by `*` or
+		// a spanning `**`, never by a narrower glob or its own text.
+		{"cc-tools/*", "cc-tools/sub/*.md", false},
+		{"cc-tools/**", "cc-tools/sub/*.md", true},
+		{"cc-tools/sub/*", "cc-tools/sub/*.md", true},
+		{"cc-tools/sub/*.md", "cc-tools/sub/*.md", false},
+		{"cc-tools/sub/?.md", "cc-tools/sub/*.md", false},
+		{"cc-tools/**/x.md", "cc-tools/sub/*.md", false},
+		{"cc-tools/*/*", "cc-tools/*/x.md", true},
 	}
 	for _, tc := range cases {
 		if got := matchCarveOutGlob(tc.glob, tc.rem); got != tc.want {
@@ -1191,5 +1200,61 @@ func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
 	if !containsSubstr(d.Reason, configPath) {
 		t.Errorf("the in-repo write terminal must name the listing its operand rode (negative control); got %q",
 			d.Reason)
+	}
+}
+
+// A `for` loop over a glob under a listed directory gets the verdict each
+// iterated file would get on its own, not the verdict of the glob's directory
+// prefix. `cc-tools/*` matches the directory `cc-tools/sub` and none of the
+// files beneath it, so a loop over `cc-tools/sub/*.md` must not ride it; a
+// `cc-tools/**` entry covers every file beneath and allows. The direct read of
+// one such file runs beside each loop, and both run first with no config file —
+// the negative control that the allow comes from the listing. The rows with a
+// glob in the entry's last segment cover the matcher's own rule for a
+// glob-bearing target segment: `*` covers every name the target can expand to,
+// a narrower glob does not, even when it spells the same pattern.
+func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+	ev := bashEvIn(t, canonicalize(repo), "issue-developer")
+
+	dir := filepath.Join(home, ".config", "cc-tools", "sub")
+	loop := "for f in " + filepath.Join(dir, "*.md") + `; do cat "$f"; done`
+	direct := "cat " + filepath.Join(dir, "a.md")
+
+	for _, cmd := range []string{loop, direct} {
+		if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+			t.Errorf("%s with no carve-out configured must not ALLOW; got %q (%s)", cmd, d.Bucket, d.Reason)
+		}
+	}
+
+	rows := []struct {
+		entry     string
+		loopAllow bool
+		// directAllow is the verdict the loop is measured against: every entry
+		// that lists the file allows the direct read.
+		directAllow bool
+	}{
+		{"cc-tools/*", false, false},
+		{"cc-tools/**", true, true},
+		{"cc-tools/sub/*", true, true},
+		{"cc-tools/sub/*.md", false, true},
+		{"cc-tools/sub/?.md", false, true},
+	}
+	for _, r := range rows {
+		writeCarveOutConfig(t, home, "schema-version: 2\nconfig-home-default: ~/.config\nconfig-home:\n  read:\n    - '"+r.entry+"'\n")
+		for _, c := range []struct {
+			cmd   string
+			allow bool
+		}{{loop, r.loopAllow}, {direct, r.directAllow}} {
+			d := classifyBash(c.cmd, ev)
+			if c.allow {
+				wantBucket(t, d, BucketAllow, c.cmd+" under "+r.entry)
+			} else if d.Bucket == BucketAllow {
+				t.Errorf("%s under %s must not ALLOW; got %q (%s)", c.cmd, r.entry, d.Bucket, d.Reason)
+			}
+		}
 	}
 }

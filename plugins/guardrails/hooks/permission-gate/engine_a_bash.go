@@ -1235,8 +1235,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// item list makes the loop variable's entire value set
 			// visible at parse time. When every item resolves to an exact
 			// literal (directly, via brace expansion, via a known-variable
-			// expansion, or via a glob's containment-relevant directory
-			// prefix — see staticForItems), fan out: walk c.Do once per item
+			// expansion, or as a glob's own unexpanded pattern — see
+			// staticForItems), fan out: walk c.Do once per item
 			// with the loop variable bound to that item's value, so body uses
 			// of "$x" resolve instead of staying inexact / fail-closed. Every
 			// item is walked — an escaping item later in the list is still
@@ -2005,7 +2005,7 @@ const maxForFanOut = 64
 // `for x in <words>` header, and whether ALL of them are exact. It
 // expands every statically-knowable form — brace expansion, a bare
 // known-variable word (split on IFS the way bash word-splits an unquoted
-// expansion), and a glob's containment-relevant directory prefix — and fans
+// expansion), and a glob bound as its own unexpanded pattern — and fans
 // out to the cross product of item words. A single irreducibly dynamic item
 // (command substitution, an unresolved parameter expansion, or a relative
 // glob while cwdInvalid) makes the WHOLE list non-static, since the loop
@@ -2013,9 +2013,9 @@ const maxForFanOut = 64
 //
 // cwdInvalid is whether the running cwd tracked through the walk is
 // currently invalid; used to fail closed on a relative glob item (case 3,
-// see globDirPrefix) that cannot be safely anchored. The resolved directory
-// prefix itself is left relative and resolved later, at containment time,
-// against the command's own tracked cwd (globDirPrefix's doc comment).
+// see globAnchorable) that cannot be safely anchored. A relative pattern is
+// left relative and resolved later, at containment time, against the
+// command's own tracked cwd (globAnchorable's doc comment).
 func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	items := make([]string, 0, len(wi.Items))
 	for _, w := range wi.Items {
@@ -2045,8 +2045,9 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 //     via literalWord/case 3 below, matching bash's no-split-when-quoted
 //     semantics.
 //  3. Every other resolved sub-word: literalWord — a straight literal, or a
-//     glob against the tracked running cwd (globDirPrefix), or (if none of
-//     the above apply) irreducibly dynamic → fail closed.
+//     glob kept as its own pattern against the tracked running cwd
+//     (globAnchorable), or (if none of the above apply) irreducibly dynamic
+//     → fail closed.
 //
 // mvdan.cc/sh's own syntax.SplitBraces declines to split any brace element
 // containing "..", as a guard against ambiguity with the `{x..y}` sequence
@@ -2128,19 +2129,12 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 		return fallbackItems, true
 	}
 
-	final := make([]string, 0, len(items))
 	for _, val := range items {
-		if hasGlobMeta(val) {
-			dir, ok := globDirPrefix(val, cwdInvalid)
-			if !ok {
-				return nil, false
-			}
-			final = append(final, dir)
-			continue
+		if hasGlobMeta(val) && !globAnchorable(val, cwdInvalid) {
+			return nil, false
 		}
-		final = append(final, val)
 	}
-	return final, true
+	return items, true
 }
 
 // hasDotDotBraceMember reports whether raw contains a top-level (unnested)
@@ -2281,13 +2275,8 @@ func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
 	items := make([]string, 0, len(members))
 	for _, m := range members {
 		val := unescape(prefix) + unescape(m) + unescape(suffix)
-		if hasGlobMeta(val) {
-			dir, ok := globDirPrefix(val, cwdInvalid)
-			if !ok {
-				return nil, false
-			}
-			items = append(items, dir)
-			continue
+		if hasGlobMeta(val) && !globAnchorable(val, cwdInvalid) {
+			return nil, false
 		}
 		items = append(items, val)
 	}
@@ -2306,64 +2295,40 @@ func hasGlobMeta(s string) bool {
 	return strings.ContainsAny(s, "*?[")
 }
 
-// globDirPrefix resolves a glob pattern's containment-relevant directory
-// prefix, without reading the filesystem. Containment is pure
-// path arithmetic: every path a glob like `*.md` or `src/*.go` can possibly
-// match is a child of the pattern's directory prefix (the portion before the
-// first path segment that itself contains a glob metacharacter), so binding
-// the loop variable to that prefix directory makes every possible match
-// share the prefix's own containment verdict — whichever containmentResult it
-// earns — via the existing pathUnder equal-or-nested check.
+// globAnchorable reports whether a glob item can be bound as a loop value at
+// all. The loop variable is bound to the PATTERN itself, unexpanded, so a body
+// use such as `cat "$f"` reaches containment as `cat <pattern>` — the verdict
+// the same command has when the glob is written directly, which is the one
+// verdict every file the loop can iterate shares. Containment on a pattern is
+// pure path arithmetic, without reading the filesystem: the pathUnder checks
+// see only the pattern's literal directory prefix, since every match is a
+// child of it, and the operator listing matches the pattern segment by segment
+// (matchGlobSegments), where a segment carrying a metacharacter is covered
+// only by an entry that covers every name it can expand to.
 //
-// Two verdicts are not purely pathUnder. The scratchpad carve-out is one:
-// inside <system-tmp>/claude-<uid> the verdict also depends on whether the
-// remainder matches the per-session shape. It cannot fail open here, because
-// the shape is closed under descent — a remainder that matches keeps matching
-// with more segments appended, so a session-shaped prefix implies
-// session-shaped matches, while a prefix that stops short of a session
-// directory earns the more conservative unshaped-remainder region (never the
-// carve-out ALLOW its matches might individually have earned). The operator
-// listing (operatorListed) is the other, and its globs are NOT closed under
-// descent: a `*` segment stops at a separator, so an entry such as
-// `cc-tools/*` matches the prefix directory `cc-tools/sub` while matching
-// none of the files beneath it, and a loop over `cc-tools/sub/*.md` rides the
-// listing where a direct read of one of those files does not.
+// Binding the pattern rather than its directory prefix is what keeps the
+// listing honest: its globs are not closed under descent (a `*` segment stops
+// at a separator), so an entry such as `cc-tools/*` matches the prefix
+// directory `cc-tools/sub` while matching none of the files beneath it, and a
+// prefix-bound loop over `cc-tools/sub/*.md` rode the listing where a direct
+// read of one of those files did not. The pattern carries the depth the prefix
+// discarded.
 //
-// The returned prefix is deliberately left
-// relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
-// into the loop body, and the EXISTING containment pipeline
+// A relative pattern is deliberately left relative: the caller feeds it
+// through knownVars into the loop body, and the EXISTING containment pipeline
 // (containPathOperands -> testContainmentFrom) already resolves a relative
 // operand against the command's own tracked running cwd (sc.cwd) at
-// classification time — resolving it again here would be redundant, not more
-// correct. This resolves the containment QUESTION without ever asking "which
-// files actually exist".
+// classification time — resolving it here would be redundant, not more
+// correct.
 //
-// ok is false when the prefix cannot be safely resolved: cwdInvalid (an
-// earlier dynamic `cd` invalidated the running cwd) means a RELATIVE
-// glob cannot be safely anchored, so the caller keeps the whole for-list
-// inexact and off the allow track, matching cdInvalidDefer's posture for every
-// other relative operand. An absolute glob (`/abs/*.md`) is unaffected by
-// cwdInvalid, since it needs no cwd to resolve.
-func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
-	segs := strings.Split(pattern, "/")
-	var prefix []string
-	for _, seg := range segs {
-		if hasGlobMeta(seg) {
-			break
-		}
-		prefix = append(prefix, seg)
-	}
-	dir := strings.Join(prefix, "/")
-	if dir == "" {
-		dir = "."
-	}
-	if filepath.IsAbs(dir) {
-		return dir, true
-	}
-	if cwdInvalid {
-		return "", false
-	}
-	return dir, true
+// It is false when cwdInvalid (an earlier dynamic `cd` invalidated the
+// running cwd) and the pattern is RELATIVE: such a glob cannot be safely
+// anchored, so the caller keeps the whole for-list inexact and off the allow
+// track, matching cdInvalidDefer's posture for every other relative operand.
+// An absolute glob (`/abs/*.md`) is unaffected by cwdInvalid, since it needs
+// no cwd to resolve.
+func globAnchorable(pattern string, cwdInvalid bool) bool {
+	return filepath.IsAbs(pattern) || !cwdInvalid
 }
 
 // isResolvableParamExp reports whether a parameter expansion is a plain
