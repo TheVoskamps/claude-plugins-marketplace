@@ -732,15 +732,22 @@ func harnessScratchRemainder(real, root string) string {
 // is likewise the listing's alone: a bash operand is the pattern the shell
 // will expand, so the listing reads a metacharacter in it as one and grades
 // only the operands it can hold to every expansion (shellOperandListable),
-// where a file-tool path is a literal filename (allows()).
+// where a file-tool path is a literal filename (allows()). glued, meaningful
+// only with shellPattern, says the line spells the operand glued to a
+// redirect (simpleCommand.gluedToRedirect), which withholds the listing for
+// the same reason: the word the shell reads is not the operand the parse
+// handed over.
 //
 // The third result, listed, reports whether the listing covers the target for
 // this class, whatever region the first result names. The two differ only for
 // a target the `.git/` rule keeps out of operatorListed: one whose canonical
-// path carries a `.git/` segment, and a bash operand with a bare `*` segment
-// (patternMayNameGitDir) — canonicalization keeps a metacharacter segment
-// literal, so `sdlc/*/config` carries no `.git` segment for isUnderGitDir to
-// see while `dotglob` lets the shell expand it to one. Such a
+// path carries a `.git/` segment, and a bash operand whose canonical path
+// carries a metacharacter segment (patternMayNameGitDir) — canonicalization
+// keeps such a segment literal, so `sdlc/*/config` carries no `.git` segment
+// for isUnderGitDir to see while `dotglob` lets the shell expand it to one.
+// The operand as written carries at most a bare `*` (shellOperandListable),
+// while the canonical path can carry any character an on-disk name can, a
+// symlink's target name included. Such a
 // target earns on the bash tracks the verdict it has without the listing, so
 // no listing hands out git internals there, while the file-tool track reads
 // listed to deny the read outright (classifyFileTool). This is the one place
@@ -769,13 +776,13 @@ func harnessScratchRemainder(real, root string) string {
 // allow. On today's paths that arm is
 // defence in depth: the home chokepoint (home.go) denies a `~` operand under
 // an unusable home before containment is reached.
-func testContainmentFrom(target string, base string, rc *repoContext, readClass bool, shellPattern bool, ev *Event) (containmentResult, string, bool) {
+func testContainmentFrom(target string, base string, rc *repoContext, readClass bool, shellPattern bool, glued bool, ev *Event) (containmentResult, string, bool) {
 	real, unresolvedTilde := canonicalizeFromResolver(target, base, os.UserHomeDir)
 	if unresolvedTilde {
 		return escapeRepo, real, false
 	}
 
-	listed := loadOperatorCarveOut().allows(target, base, readClass, shellPattern)
+	listed := loadOperatorCarveOut().allows(target, base, readClass, shellPattern, glued)
 	if listed && !isUnderGitDir(real, rc) && !(shellPattern && patternMayNameGitDir(real)) {
 		if ev != nil {
 			ev.rodeOperatorListing = true

@@ -119,7 +119,7 @@ func classifyFileTool(ev *Event) Decision {
 				ev.ToolName, p, scratchDestinations(rc.topLevel)))
 		}
 
-		res, real, listed := testContainmentFrom(p, base, rc, readClass, false, ev)
+		res, real, listed := testContainmentFrom(p, base, rc, readClass, false, false, ev)
 		// The listing's `.git/` exception. A listed `.git/` target is not
 		// reported as operatorListed, so on this track it would land on the
 		// verdict its region carries — a defer for an in-repo one — where a
@@ -342,7 +342,7 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// that could disqualify it.
 			continue
 		}
-		res, real, _ := testContainmentFrom(p, base, rc, true, true, ev)
+		res, real, _ := testContainmentFrom(p, base, rc, true, true, sc.gluedToRedirect(p), ev)
 		if !scratchAllowEligible(res, true) {
 			allCarved = false
 		}
@@ -681,7 +681,7 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 		base = ev.CWD
 	}
 	for _, t := range sc.redirectTargets {
-		res, _, _ := testContainmentFrom(t, base, rc, false, true, ev)
+		res, _, _ := testContainmentFrom(t, base, rc, false, true, sc.gluedToRedirect(t), ev)
 		if !scratchAllowEligible(res, false) {
 			return true
 		}
@@ -762,7 +762,7 @@ func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Deci
 					"committer identity, inject hooks, or corrupt repo state. %s",
 				tool, t, scratchDestinations(rc.topLevel))), true
 		}
-		res, real, _ := testContainmentFrom(t, base, rc, false, true, ev)
+		res, real, _ := testContainmentFrom(t, base, rc, false, true, sc.gluedToRedirect(t), ev)
 		if res == contained || scratchAllowEligible(res, false) {
 			continue
 		}
@@ -883,18 +883,30 @@ func isUnderGitDir(real string, rc *repoContext) bool {
 // isUnderGitDir folds its comparison: `.G*T` names the real `.git` on a
 // case-folding volume.
 //
-// path.Match is the conservative reading of the pattern here: it lets `*`
+// path.Match is the conservative reading of a `*` or `?` here: it lets `*`
 // cover a leading dot, which bash does only under `dotglob`, so a pattern is
 // held to every expansion any shell setting can give it, and a bare `*`
 // segment withholds the listing wherever it sits. A pattern path.Match cannot
-// parse is counted as reaching `.git` for the same reason. On the listing
-// path a bare `*` is the only metacharacter segment that reaches here, since
-// allows() withholds every other expansion syntax (shellOperandListable);
-// the predicate is kept general so it holds for any operand handed to it.
+// parse is counted as reaching `.git` for the same reason. A segment carrying
+// a `[` is counted as reaching `.git` outright rather than matched: path.Match
+// reads a bracket expression as a different set from bash — `[!a]` as the two
+// characters, and a POSIX class as the characters of its spelling, so
+// `.[[:alpha:]]it` fails to match `.git` there while bash expands it to
+// exactly that.
+//
+// On the listing path the operand as written carries at most a bare `*`,
+// since allows() withholds every other expansion syntax
+// (shellOperandListable), while the canonical path handed in can carry any
+// character an on-disk name can: a symlink under a listed path resolves to
+// its target's name, metacharacters included. The predicate holds for
+// whatever segment reaches it.
 func patternMayNameGitDir(real string) bool {
 	for _, seg := range strings.Split(real, string(filepath.Separator)) {
 		if !hasGlobMeta(seg) {
 			continue
+		}
+		if strings.Contains(seg, "[") {
+			return true
 		}
 		if ok, err := path.Match(strings.ToLower(seg), ".git"); err != nil || ok {
 			return true

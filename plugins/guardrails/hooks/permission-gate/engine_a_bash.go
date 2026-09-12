@@ -396,6 +396,17 @@ type simpleCommand struct {
 	// as `cat ../sibling-repo/.env`. A `/dev/null` source is not recorded (it
 	// discloses nothing, and containment would read it as an out-of-repo path).
 	inputRedirectTargets []string
+	// redirectGlued holds the expanded literals of the words — argv operands
+	// and redirect targets alike — that the line spells with no blank between
+	// them and a redirect. The parser cuts such a run at the redirect operator,
+	// so the word it hands back is not the token every shell reads: zsh, the
+	// Bash tool's shell, lexes `sub/<1-3>.md` as one word carrying a numeric-
+	// range glob, where the parse yields the operand `sub/` and two redirects.
+	// The operator listing (allows(), operator_carveout.go) is the one
+	// consumer: it refuses to grade a word recorded here, because the files
+	// the shell opens are not the ones the listing would match. Every other
+	// grading of the word runs on the parsed spelling as before.
+	redirectGlued []string
 	// redirectOnly marks a synthetic command that carries NOTHING BUT redirects:
 	// the statement they were attached to runs no program at all (a bare `> f`,
 	// `[[ -f x ]] > f`, `(( i++ )) > f`, `let n=1 > f`, `export A=1 > f`,
@@ -1425,7 +1436,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		if walkErr == nil && len(stmt.Redirs) > 0 && len(out) == emitted {
 			cc := curCC()
 			sc := simpleCommand{}
-			applyRedirs(&sc, redirs, knownVars, resolver, cc)
+			applyRedirs(&sc, redirs, knownVars, resolver, cc, redirectGluedWords(nil, redirs))
 			// Nothing gradeable (every target was /dev/null and statically
 			// resolvable, or the statement carried only heredocs / descriptor
 			// duplications): emitting here would cost an otherwise-clean line a
@@ -1466,7 +1477,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) (simpleCommand, error) {
 	sc := simpleCommand{}
 
-	applyRedirs(&sc, redirs, knownVars, resolver, cc)
+	glued := redirectGluedWords(c.Args, redirs)
+	applyRedirs(&sc, redirs, knownVars, resolver, cc, glued)
 
 	// An inline environment-assignment prefix on the CallExpr itself
 	// (`AWS_ENDPOINT_URL=… aws …`, `GIT_SSH_COMMAND=… git …`) sets env for THIS
@@ -1487,6 +1499,9 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		}
 		sc.args = append(sc.args, lit)
 		sc.argMeta = append(sc.argMeta, argMeta{exact: exact, staticPrefix: staticWordPrefix(w)})
+		if glued[w] {
+			sc.redirectGlued = append(sc.redirectGlued, lit)
+		}
 	}
 
 	// Strip leading `env` wrapper and its VAR=val args. Repeat in case
@@ -1545,13 +1560,19 @@ const redirectOnlyProgram = "shell redirect"
 //
 // Redirects live on the enclosing *syntax.Stmt, not the CallExpr, and a compound
 // statement's redirects reach here through mergeRedirs.
-func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) {
+//
+// glued is redirectGluedWords' answer for the statement; a recorded target
+// whose word is in it is recorded under sc.redirectGlued as well.
+func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx, glued map[*syntax.Word]bool) {
 	// Detect redirections to real files (anything other than /dev/null).
 	for _, r := range redirs {
 		if r.Word == nil {
 			continue
 		}
 		target, exact := literalWord(r.Word, knownVars, resolver, cc)
+		if glued[r.Word] {
+			sc.redirectGlued = append(sc.redirectGlued, target)
+		}
 		// A redirect target built from a non-anchor command substitution, an
 		// OUTPUT process substitution, or an unresolved expansion (e.g.
 		// `cmd > "$DYNAMIC"`) cannot be statically proven safe. Such a command
@@ -1610,6 +1631,69 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 		// reads, so grading it as a path would deny ordinary `cat <<EOF` scripts.
 		// Descriptor duplications (`<&`, `>&`) name a descriptor, not a file.
 	}
+}
+
+// redirectGluedWords reports which of a statement's words the line spells
+// glued to a redirect: an argument word a redirect begins at the very end of,
+// or a redirect target another redirect begins at the end of or ends at the
+// start of. It reads the parser's byte offsets rather than the source text,
+// which record the same fact: the parser ends a word only at a blank, an
+// operator or the end of the line, so two spans that share an offset had no
+// blank between them on the line. A redirect's span runs from its descriptor
+// number or operator to the end of its target, so a target glued to its own
+// operator (`>out`) is not glued by this measure — that is how bash and zsh
+// both spell a redirect.
+//
+// Adjacency is enough, with no chain to follow: two argument words are never
+// glued (the parser would have read them as one), so every glued run holds a
+// redirect, and every word in it touches one.
+//
+// The result is keyed by word so the callers can record each word's expanded
+// literal under the simpleCommand they build; redirectGlued on simpleCommand
+// says what the listing does with it.
+func redirectGluedWords(args []*syntax.Word, redirs []*syntax.Redirect) map[*syntax.Word]bool {
+	type span struct {
+		start, end uint
+		word       *syntax.Word
+	}
+	spans := make([]span, 0, len(args)+len(redirs))
+	for _, w := range args {
+		spans = append(spans, span{w.Pos().Offset(), w.End().Offset(), w})
+	}
+	for _, r := range redirs {
+		if r.Word == nil {
+			continue
+		}
+		start := r.OpPos.Offset()
+		if r.N != nil {
+			start = r.N.Pos().Offset()
+		}
+		spans = append(spans, span{start, r.Word.End().Offset(), r.Word})
+	}
+	glued := map[*syntax.Word]bool{}
+	for i, a := range spans {
+		for _, b := range spans[i+1:] {
+			if a.end == b.start || b.end == a.start {
+				glued[a.word] = true
+				glued[b.word] = true
+			}
+		}
+	}
+	return glued
+}
+
+// gluedToRedirect reports whether operand is, or was cut from, a word the
+// line spells glued to a redirect (redirectGlued). An operand grammar can
+// hand back the value of a path-valued flag rather than the whole token —
+// `--file=<path>` yields `<path>` — so a recorded word that ends with the
+// operand counts: the redirect was glued to the end of that same token.
+func (sc simpleCommand) gluedToRedirect(operand string) bool {
+	for _, w := range sc.redirectGlued {
+		if strings.HasSuffix(w, operand) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripEnvWrapper removes a leading `env` and any leading VAR=val tokens so

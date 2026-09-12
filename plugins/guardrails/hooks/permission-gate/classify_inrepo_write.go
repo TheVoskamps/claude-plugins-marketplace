@@ -144,7 +144,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	if !inputClean && inputEscape.Bucket == BucketDeny {
 		return inputEscape
 	}
-	d, ok, sawOperator := containWriteOperands(prog, operands, sc.cwd, ev)
+	d, ok, sawOperator := containWriteOperands(prog, operands, sc, ev)
 	if !ok {
 		return d
 	}
@@ -194,15 +194,17 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // into the primary clone still denies, because rc.topLevel is the subagent's
 // worktree root.
 //
-// baseCWD is the running cwd this command executes in, tracked through
-// any preceding `cd` in the same parsed program (sc.cwd); a relative operand
-// resolves against baseCWD rather than ev.CWD, mirroring the read side. An
-// empty baseCWD falls back to ev.CWD.
+// sc is the command the operands were taken from: sc.cwd is the running cwd
+// it executes in, tracked through any preceding `cd` in the same parsed
+// program, so a relative operand resolves against it rather than ev.CWD,
+// mirroring the read side, and an empty sc.cwd falls back to ev.CWD; and
+// sc.redirectGlued is what tells the operator listing which operands the line
+// spells glued to a redirect.
 //
 // The third result, sawOperator, reports whether any operand rode the operator
 // listing, so the caller's ALLOW reason can name the listing on that condition
 // and no other; it is meaningful only with ok=true.
-func containWriteOperands(prog string, operands []string, baseCWD string, ev *Event) (Decision, bool, bool) {
+func containWriteOperands(prog string, operands []string, sc simpleCommand, ev *Event) (Decision, bool, bool) {
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
 		return deferJudgment("bash-write:no-repo-context", fmt.Sprintf(
@@ -210,7 +212,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			prog, err)), false, false
 	}
 
-	base := baseCWD
+	base := sc.cwd
 	if base == "" {
 		base = ev.CWD
 	}
@@ -244,7 +246,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 				prog, p, scratchDestinations(rc.topLevel))), false, false
 		}
 
-		res, real, _ := testContainmentFrom(p, base, rc, false, true, ev)
+		res, real, _ := testContainmentFrom(p, base, rc, false, true, sc.gluedToRedirect(p), ev)
 		switch res {
 		case escapeWorktree:
 			correct := correctWorktreePath(real, rc)

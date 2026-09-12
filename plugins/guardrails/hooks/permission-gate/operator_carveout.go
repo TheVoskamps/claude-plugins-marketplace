@@ -243,16 +243,17 @@ func (c operatorCarveOut) empty() bool {
 // inside the home directory is — is allowed when ANY of those roots lists it.
 //
 // shellPattern says the target is a Bash operand, which the shell will expand
-// before any file is touched. Only an operand shellOperandListable accepts is
+// before any file is touched, and glued says the line spells that operand
+// glued to a redirect. Only an operand shellOperandListable accepts is
 // matched at all; in one, a metacharacter segment is a bare `*`, and the match
 // has to hold for every file it can expand to (matchCarveOutGlob). A file-tool
 // path is a literal filename, `*`, `?` and `[` included, and is matched as
 // one.
-func (c operatorCarveOut) allows(target string, base string, readClass bool, shellPattern bool) bool {
+func (c operatorCarveOut) allows(target string, base string, readClass bool, shellPattern bool, glued bool) bool {
 	if c.empty() {
 		return false
 	}
-	if shellPattern && !shellOperandListable(target) {
+	if shellPattern && !shellOperandListable(target, glued) {
 		return false
 	}
 	if !readClass && c.isSelfWrite(target, base) {
@@ -561,12 +562,18 @@ func lexicalAbs(target string, base string) string {
 }
 
 // shellOperandListable reports whether a Bash operand is one the listing can
-// grade: every segment of its spelling AS WRITTEN is either a literal or a
-// bare `*`, and none is `..`.
+// grade: the line spells it as a word of its own, every segment of that
+// spelling is either a literal or a bare `*`, and none is `..`.
 //
 // The listing is matched against the operand the gate holds, and the shell
 // opens whatever that operand expands to, so the two have to name the same
-// files. A bare `*` is the one expansion the matcher can hold to every file it
+// files. glued says the line spells the operand with a redirect glued to it
+// (simpleCommand.redirectGlued), and such an operand is withheld before its
+// segments are read: the parser cut the word at the redirect operator, and
+// zsh — the shell the Bash tool runs — reads the whole run as one word, so
+// `sub/<1-3>.md` reaches here as the operand `sub/` while zsh opens `sub/1.md`
+// through `sub/3.md` under its numeric-range glob. A bare `*` is the one
+// expansion the matcher can hold to every file it
 // reaches (matchGlobSegments), and the `.git/` rule then withholds it wherever
 // it sits (patternMayNameGitDir), since `dotglob` lets it expand to `.git`.
 // Every other expansion syntax is withheld outright rather than modelled,
@@ -582,7 +589,10 @@ func lexicalAbs(target string, base string) string {
 //
 // The target is read as written, before lexicalAbs: a cleaned path has no
 // `..` segment left to see.
-func shellOperandListable(target string) bool {
+func shellOperandListable(target string, glued bool) bool {
+	if glued {
+		return false
+	}
 	for _, seg := range strings.Split(target, "/") {
 		if seg == ".." {
 			return false

@@ -977,10 +977,12 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 // redirect on a write-class program reaches containReadSources' walk into
 // containPathOperands — the read-source grading of the write track, which the
 // `tee` and `cp` rows reach with no source to grade because they hand the path
-// over as the write target — and a `for` loop reaches containPathOperands
-// through the loop variable rather than as an operand written out. write says
-// whether the spelling writes the path, which is what decides its verdict
-// against a `read`-only entry.
+// over as the write target — an input redirect on `tee /dev/null` reaches the
+// branch of classifyReadOnlyUtility for a utility that is not pathBearing,
+// whose read list is the input redirects alone, and a `for` loop reaches
+// containPathOperands through the loop variable rather than as an operand
+// written out. write says whether the spelling writes the path, which is what
+// decides its verdict against a `read`-only entry.
 //
 // One containment caller is absent by design: a `gh` publish verb's body file
 // (ghPublishedFileEscalates, classify_gh_files.go) also reaches
@@ -1004,6 +1006,7 @@ var bashCarveOutSpellings = []struct {
 	{"aws redirect", func(p string) string { return "aws s3 ls > " + p }, true},
 	{"redirect-only", func(p string) string { return "[[ -f x ]] < " + p }, false},
 	{"write-track source", func(p string) string { return "tee README.md < " + p }, false},
+	{"non-path-bearing source", func(p string) string { return "tee /dev/null < " + p }, false},
 	{"for loop", func(p string) string { return "for f in " + p + `; do cat "$f"; done` }, false},
 }
 
@@ -1152,6 +1155,38 @@ state-home:
 				t.Errorf("%s (%s) must keep today's verdict %q/%q; got %q/%q (%s)",
 					cmd, r.label, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
 			}
+		}
+	}
+}
+
+// patternMayNameGitDir holds a metacharacter segment to every expansion any
+// shell can give it, on its own and not by way of shellOperandListable having
+// screened the operand: the canonical path it reads can carry a segment the
+// operand as written never had, a symlink's target name among them. A bracket
+// expression is counted whatever it spells, since path.Match reads
+// `.[[:alpha:]]it` as a set that misses `g` while bash expands it to `.git`.
+// The segments that cannot reach `.git` under any setting are the negative
+// control that the predicate reads the pattern rather than the metacharacter.
+func TestPatternMayNameGitDir(t *testing.T) {
+	for _, r := range []struct {
+		seg  string
+		want bool
+	}{
+		{".git", false},
+		{".g*t", true},
+		{".g?t", true},
+		{".G*T", true},
+		{"*", true},
+		{".[g]it", true},
+		{".[[:alpha:]]it", true},
+		{".g[[:alpha:]]t", true},
+		{"[x]", true},
+		{"x*", false},
+		{"a?c", false},
+	} {
+		p := filepath.Join(string(filepath.Separator), "home", "sdlc", r.seg, "config")
+		if got := patternMayNameGitDir(p); got != r.want {
+			t.Errorf("patternMayNameGitDir(%q) = %v, want %v", p, got, r.want)
 		}
 	}
 }
@@ -1397,5 +1432,127 @@ func TestOperatorCarveOutGlobRuleIsBashOnly(t *testing.T) {
 	if d.Bucket == BucketAllow {
 		t.Errorf("cat %s is a pattern sdlc/pr*/notes.md does not cover and must not ALLOW; got %q (%s)",
 			bracketed, d.Bucket, d.Reason)
+	}
+}
+
+// A word the line spells glued to a redirect rides no listing. The parser
+// reads `sub/<1-3>.md` as the operand `sub/` and two redirects, where zsh —
+// the shell the Bash tool runs — reads it as one word carrying a numeric-range
+// glob and opens `sub/1.md` through `sub/3.md`, so the listing would grade a
+// directory the shell never opens. The rule is checked on each consumer of
+// the listing — the read walk, the write walk and the redirect veto — called
+// directly on the parsed command, because the whole-line terminal of most of
+// these spellings already defers on the redirect the parse invented, which
+// hides whether the operand rode the listing. The two spellings whose
+// whole-line verdict the listing alone decides run at the terminal as well.
+// Every glued spelling keeps the verdict it has with no config file, and the
+// same spelling with the range replaced by a literal name runs beside it and
+// allows — the negative control that the listing is in force and the glued
+// verdict is the rule's.
+func TestOperatorCarveOutWithholdsRedirectGluedWord(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := carveOutFixture(t, base, "repo")
+	cwd := canonicalize(repo)
+	ev := bashEvIn(t, cwd, "issue-developer")
+	configPath := filepath.Join(home, ".config", "guardrails", "config.yml")
+
+	dir := filepath.Join(home, ".config", "cc-tools", "sub")
+	listed := filepath.Join(home, ".config", "cc-tools", "whats-new.md")
+	parse := func(cmd string) simpleCommand {
+		t.Helper()
+		cmds, _, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
+		if err != nil || len(cmds) != 1 {
+			t.Fatalf("%s: want one simple command, got %d (%v)", cmd, len(cmds), err)
+		}
+		return cmds[0]
+	}
+	// Each walk returns its verdict and whether the word rode the listing.
+	walks := []struct {
+		name    string
+		glued   string
+		literal string
+		walk    func(sc simpleCommand) (Decision, bool)
+	}{
+		{"read operand", "cat " + dir + "/<1-3>.md", "cat " + dir + "/1.md",
+			func(sc simpleCommand) (Decision, bool) {
+				d, ok := containPathOperands("cat", readTargets(pathOperands(sc.args[1:]), sc), sc, ev)
+				return d, !ok && d.Bucket == BucketAllow
+			}},
+		{"input-redirect source", "cat < " + dir + "/<1-3>.md", "cat < " + dir + "/1.md",
+			func(sc simpleCommand) (Decision, bool) {
+				d, ok := containPathOperands("cat", readTargets(pathOperands(sc.args[1:]), sc), sc, ev)
+				return d, !ok && d.Bucket == BucketAllow
+			}},
+		{"write operand", "tee " + dir + "/<1-3>.md", "tee " + dir + "/1.md",
+			func(sc simpleCommand) (Decision, bool) {
+				d, ok, sawOperator := containWriteOperands("tee", sc.args[1:], sc, ev)
+				return d, ok && sawOperator
+			}},
+		{"redirect destination", "echo x <1-3>" + listed, "echo x > " + listed,
+			func(sc simpleCommand) (Decision, bool) {
+				return Decision{}, !redirectVetoesAllow(sc, ev)
+			}},
+	}
+	lines := []struct {
+		glued, literal string
+	}{
+		{"cat <1-3>" + listed, "cat README.md > " + listed},
+		{"tee /dev/null <1-3>" + listed, "tee /dev/null < README.md > " + listed},
+	}
+
+	// Today's verdicts, taken before any config exists: nothing rides a
+	// listing there is not.
+	today := map[string]Decision{}
+	for _, w := range walks {
+		d, rode := w.walk(parse(w.glued))
+		if rode {
+			t.Errorf("%s (%s) with no carve-out configured must not ride the listing; got %q (%s)",
+				w.glued, w.name, d.Bucket, d.Reason)
+		}
+		today[w.glued] = d
+	}
+	for _, l := range lines {
+		d := classifyBash(l.glued, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("%s with no carve-out configured must not ALLOW; got %q (%s)", l.glued, d.Bucket, d.Reason)
+		}
+		today[l.glued] = d
+	}
+
+	writeCarveOutConfig(t, home, carveOutConfig)
+	for _, w := range walks {
+		d, rode := w.walk(parse(w.literal))
+		if !rode {
+			t.Errorf("%s (%s, negative control) must ride the listing; got %q (%s)", w.literal, w.name, d.Bucket, d.Reason)
+		}
+		d, rode = w.walk(parse(w.glued))
+		if rode {
+			t.Errorf("%s (%s) is glued to a redirect and must not ride the listing; got %q (%s)",
+				w.glued, w.name, d.Bucket, d.Reason)
+		}
+		if want := today[w.glued]; d.Bucket != want.Bucket || d.Operation != want.Operation {
+			t.Errorf("%s (%s) must keep today's verdict %q/%q; got %q/%q (%s)",
+				w.glued, w.name, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
+		}
+	}
+	for _, l := range lines {
+		d := classifyBash(l.literal, ev)
+		wantBucket(t, d, BucketAllow, l.literal+" (negative control)")
+		if !containsSubstr(d.Reason, configPath) {
+			t.Errorf("%s rode the listing, so its reason must name it; got %q", l.literal, d.Reason)
+		}
+		d = classifyBash(l.glued, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("%s is glued to a redirect and must not ALLOW; got %q (%s)", l.glued, d.Bucket, d.Reason)
+		}
+		if want := today[l.glued]; d.Bucket != want.Bucket || d.Operation != want.Operation {
+			t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
+				l.glued, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
+		}
 	}
 }
