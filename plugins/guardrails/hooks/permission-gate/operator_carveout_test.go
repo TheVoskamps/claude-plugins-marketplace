@@ -765,16 +765,17 @@ func TestOperatorCarveOutDoesNotRideAlong(t *testing.T) {
 
 // A `.git/` segment under a listed path denies for read and write alike, so no
 // listing hands out a git internals tree — the write on the top-of-walk rule,
-// the read inside the carve-out arm, which is the only place a listed path
-// could otherwise reach an ALLOW. Each fixture lists the widest thing the
-// schema can express — `**` on the HOME root, which now covers everything the
-// other two roots do — and the non-`.git/` read at the end is the negative
-// control that the deny is the `.git/` rule rather than a missing listing.
+// the read on the containment verdict the path has without the listing, since
+// testContainmentFrom never reports a `.git/` target as operatorListed. Each
+// fixture lists the widest thing the schema can express — `**` on the HOME
+// root, which now covers everything the other two roots do — and the
+// non-`.git/` read at the end is the negative control that the deny is the
+// `.git/` rule rather than a missing listing.
 //
-// Both listing keys are run. `read` is the one that puts the read arm's deny
+// Both listing keys are run. `read` is the one that puts the read deny
 // against a listing that names it directly, and `write` reaches the same read
-// arm only through write-implies-read while being the only key that lists the
-// write arm's target at all — so neither key on its own covers both arms.
+// deny only through write-implies-read while being the only key that lists
+// the write rule's target at all — so neither key on its own covers both.
 func TestOperatorCarveOutDoesNotOpenGitTree(t *testing.T) {
 	for _, listing := range []string{"read", "write"} {
 		t.Run(listing, func(t *testing.T) {
@@ -790,7 +791,7 @@ func TestOperatorCarveOutDoesNotOpenGitTree(t *testing.T) {
 			} {
 				target := filepath.Join(home, rel)
 				for _, tc := range []struct{ tool, op string }{
-					{"Read", "read:.git tree"},
+					{"Read", "containment:cross-repo"},
 					{"Write", "write:.git tree"},
 				} {
 					d := fileToolVerdict(t, tc.tool, repo, target)
@@ -926,5 +927,153 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	c = loadOperatorCarveOutFrom(path)
 	if len(c.roots) != 1 || len(c.roots[0].write) != 1 {
 		t.Errorf("a higher schema-version must still be read; got %+v", c)
+	}
+}
+
+// bashCarveOutSpellings are the Bash spellings of one read or write, one per
+// containment caller: `cat`, `ls` and `less` reach containPathOperands (the
+// read-only-utility and path-reader tracks), `tee` and `cp` reach
+// containWriteOperands, a plain redirect reaches redirectVetoesAllow, and a
+// credentialed one reaches credentialedRedirectVerdict. write says whether the
+// spelling writes the path, which is what decides its verdict against a
+// `read`-only entry.
+var bashCarveOutSpellings = []struct {
+	name  string
+	cmd   func(p string) string
+	write bool
+}{
+	{"cat", func(p string) string { return "cat " + p }, false},
+	{"ls", func(p string) string { return "ls " + filepath.Dir(p) }, false},
+	{"less", func(p string) string { return "less " + p }, false},
+	{"tee", func(p string) string { return "tee " + p }, true},
+	{"cp", func(p string) string { return "cp README.md " + p }, true},
+	{"redirect", func(p string) string { return "echo x > " + p }, true},
+	{"gh redirect", func(p string) string { return "gh pr diff 224 > " + p }, true},
+}
+
+// listedCarveOutPaths are the two listed paths the Bash tables run: one under
+// the state home and one under the config home, both under a `write` entry.
+func listedCarveOutPaths(home string) []string {
+	return []string{
+		filepath.Join(home, ".local", "state", "sdlc", "round.log"),
+		filepath.Join(home, ".config", "cc-tools", "whats-new.md"),
+	}
+}
+
+// The Bash half of the listing: a path the operator listed is reachable from
+// every Bash spelling that grades it, from the repo root and from a linked
+// worktree alike, and the allow reason names the listing. Each spelling runs
+// first with no config file, which must not allow — the negative control that
+// the allow comes from the listing and not from the track's own terminal.
+func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
+	for _, cwdShape := range []string{"repo root", "worktree"} {
+		t.Run(cwdShape, func(t *testing.T) {
+			base := t.TempDir()
+			var cwd string
+			if cwdShape == "worktree" {
+				_, cwd = setupWorktree(t)
+			} else {
+				repo := filepath.Join(base, "repo")
+				gitInit(t, repo)
+				cwd = canonicalize(repo)
+			}
+			home := carveOutFixture(t, base, "repo")
+			ev := bashEvIn(t, cwd, "issue-developer")
+
+			for _, target := range listedCarveOutPaths(home) {
+				for _, sp := range bashCarveOutSpellings {
+					cmd := sp.cmd(target)
+					if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+						t.Errorf("%s with no carve-out configured must not ALLOW; got %q (%s)", cmd, d.Bucket, d.Reason)
+					}
+				}
+			}
+
+			writeCarveOutConfig(t, home, carveOutConfig)
+			for _, target := range listedCarveOutPaths(home) {
+				for _, sp := range bashCarveOutSpellings {
+					cmd := sp.cmd(target)
+					d := classifyBash(cmd, ev)
+					wantBucket(t, d, BucketAllow, cmd+" of a listed path")
+					if !containsSubstr(d.Reason, filepath.Join(home, ".config", "guardrails", "config.yml")) {
+						t.Errorf("%s: the allow reason should name the operator's config file; got %q", cmd, d.Reason)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The listing's bounds hold on the Bash tracks exactly as on the file-tool
+// one: an unlisted sibling under a listed root, a write against a `read`-only
+// entry, a listed path with a `.git/` segment, and a write to the config file
+// itself each keep the verdict the same spelling has with no config file. The
+// read of the `read`-only entry and of the config file are the negative
+// controls that the listing is in force and the denies are its bounds.
+func TestOperatorCarveOutBashBounds(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+	ev := bashEvIn(t, canonicalize(repo), "issue-developer")
+
+	// `guardrails/**` under config-home `write` is what puts the config file
+	// itself inside a listing, which is the only way the self-write deny is
+	// reached; `gh/config.yml` stays under `read` alone.
+	const config = `schema-version: 2
+config-home-default: ~/.config
+state-home-default: ~/.local/state
+config-home:
+  read:
+    - gh/config.yml
+  write:
+    - guardrails/**
+state-home:
+  write:
+    - sdlc/**
+`
+	rows := []struct {
+		label string
+		path  string
+		// writeOnly marks a row that bounds the write spellings only: its
+		// read spellings must ALLOW, which is the negative control.
+		writeOnly bool
+	}{
+		{"unlisted sibling", filepath.Join(home, ".local", "state", "other", "x"), false},
+		{"read-only entry", filepath.Join(home, ".config", "gh", "config.yml"), true},
+		{".git segment", filepath.Join(home, ".local", "state", "sdlc", ".git", "config"), false},
+		{"config file itself", filepath.Join(home, ".config", "guardrails", "config.yml"), true},
+	}
+
+	// Today's verdicts, taken before any config exists.
+	today := map[string]Decision{}
+	for _, r := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			cmd := sp.cmd(r.path)
+			today[cmd] = classifyBash(cmd, ev)
+		}
+	}
+
+	writeCarveOutConfig(t, home, config)
+	for _, r := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			cmd := sp.cmd(r.path)
+			d := classifyBash(cmd, ev)
+			if r.writeOnly && !sp.write {
+				// `ls` reads the parent directory, which an exact entry such as
+				// `gh/config.yml` does not list, so it is no control here.
+				if sp.name != "ls" {
+					wantBucket(t, d, BucketAllow, cmd+" (read of a listed path, negative control)")
+				}
+				continue
+			}
+			if d.Bucket == BucketAllow {
+				t.Errorf("%s (%s) must not ALLOW; got %q (%s)", cmd, r.label, d.Bucket, d.Reason)
+			}
+			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
+				t.Errorf("%s (%s) must keep today's verdict %q/%q; got %q/%q (%s)",
+					cmd, r.label, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
+			}
+		}
 	}
 }

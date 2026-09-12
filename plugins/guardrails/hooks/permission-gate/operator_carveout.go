@@ -40,10 +40,11 @@ import (
 // only same-session route to a relocated root is a nested `claude` launch from
 // the Bash tool with an XDG assignment in front of it.
 //
-// Scope: the file-tool track only (classify_files.go's classifyFileTool). The
-// bash engine is deliberately untouched, so `cat ~/.config/cc-tools/x.md` is
-// still denied — see the README's carve-out section for why that asymmetry is
-// left standing rather than papered over here.
+// The listing is consulted in exactly one place, testContainmentFrom
+// (engine_b_containment.go), which reports a match as the operatorListed
+// region; every containment caller — the file tools and each bash track —
+// grades that region through scratchAllowEligible, so which tool an agent
+// holds is decided by its own `tools:` frontmatter and not by this gate.
 
 // operatorCarveOutSchemaVersion is the minimum `schema-version` this reader
 // understands, pinned here as a literal rather than derived. A higher stamp is

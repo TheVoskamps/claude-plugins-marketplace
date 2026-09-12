@@ -154,17 +154,21 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// covers the whole per-uid prefix, so a write into another session's
 	// scratchpad directory (cross-session handoff, the point of the carve-out)
 	// reaches this allow too. Naming only the current session would assert
-	// something narrower than what the gate actually established.
+	// something narrower than what the gate actually established. The operator
+	// listing is named for the same reason: a listed operand rides this allow
+	// through the same predicate the scratchpad does.
 	return allow(fmt.Sprintf(
-		"%s writes only paths inside the current worktree or a harness session scratchpad (in-repo write)",
-		prog))
+		"%s writes only paths inside the current worktree, a harness session scratchpad, or paths the operator "+
+			"listed in %s (in-repo write)",
+		prog, operatorCarveOutConfigPath()))
 }
 
 // containWriteOperands runs Engine B containment on a write-class command's path
 // operands. It returns ok=true only when EVERY operand is contained inside the
 // current worktree or lands in a carve-out region scratchAllowEligible grades as
-// write-eligible (the session-shaped scratchpad directory) — a region
-// designated safe by construction, so it rides the caller's ALLOW rather than
+// write-eligible (the session-shaped scratchpad directory, or a path the
+// operator listed under a `write` entry) — a region designated safe by
+// construction or by the operator, so it rides the caller's ALLOW rather than
 // withholding it. The grading is delegated to that shared predicate, not
 // restated here, so this track cannot drift from the two read tracks. A
 // carve-out operand it grades ineligible (~/.claude; the rest of the scratchpad
@@ -231,7 +235,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 				prog, p, scratchDestinations(rc.topLevel))), false
 		}
 
-		res, real := testContainmentFrom(p, base, rc)
+		res, real := testContainmentFrom(p, base, rc, false)
 		switch res {
 		case escapeWorktree:
 			correct := correctWorktreePath(real, rc)
@@ -251,15 +255,17 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			badRoot = harnessScratchBadRootDefer("bash-write:scratchpad-root",
 				fmt.Sprintf("'%s' target '%s'", prog, p))
 			haveBadRoot = true
-		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch:
+		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch, operatorListed:
 			// The carve-out regions, graded by the SHARED predicate rather than
 			// by this switch's arm membership — the literal readClass=false says
 			// what this track is: every operand reaching it is a write operand
 			// by construction.
 			//
-			// Eligible (the session scratchpad) rides the caller's ALLOW
-			// exactly as an in-worktree target does; writing there is the
-			// behavior the carve-out exists to permit.
+			// Eligible (the session scratchpad, and a path the operator listed
+			// under a `write` entry — a `read`-only entry never yields
+			// operatorListed for a write) rides the caller's ALLOW exactly as
+			// an in-worktree target does; writing there is the behavior the
+			// carve-out exists to permit.
 			//
 			// Ineligible is neither a clean write the gate should bless nor an
 			// escape it should deny — a target under the real ~/.claude, the

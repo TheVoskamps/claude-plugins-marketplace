@@ -264,10 +264,12 @@ func classifyBash(command string, ev *Event) Decision {
 	// in-worktree `cp` both reach here with BucketAllow while plainly mutating,
 	// so the line claimed something the gate had not established. Restated
 	// rather than deleted, because a reason surfaced to the model should say
-	// why the call was blessed.
-	return allow("every command part has positive grounds to be safe: the operation itself cannot write, " +
-		"or its targets are confined to a region designated safe by construction (this worktree, or the " +
-		"harness scratchpad)")
+	// why the call was blessed. The regions are the ones scratchAllowEligible
+	// grades plus the worktree itself, named as a disjunction because the
+	// per-part reasons are not carried here.
+	return allow(fmt.Sprintf("every command part has positive grounds to be safe: the operation itself cannot "+
+		"write, or its targets are confined to a region designated safe by construction (this worktree, the "+
+		"harness scratchpad, or paths the operator listed in %s)", operatorCarveOutConfigPath()))
 }
 
 // parseErrorCauseSentence names the syntax defect behind a parser error when it

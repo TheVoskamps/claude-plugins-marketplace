@@ -466,6 +466,19 @@ const (
 	// naming the defect so the failure is not mistaken for the containment bug
 	// reappearing.
 	harnessScratchBadRoot
+	// operatorListed: the target matches an entry the operator listed in
+	// ~/.config/guardrails/config.yml for THIS call's class (see
+	// operator_carveout.go) → ALLOW on every track, reads and writes alike.
+	// The region is decided ahead of the worktree check because a listed path
+	// is allowed wherever it lands, and it is decided here rather than in one
+	// caller so every track grades it through scratchAllowEligible and a
+	// future track cannot forget it. The `write`-implies-`read` grading and
+	// the self-write deny both live inside allows(), so a `read`-only entry
+	// written to, or a write to the config file itself, never reaches this
+	// region and keeps its ordinary verdict; a target under a `.git/` segment
+	// is excluded here for the same effect, so no listing hands out git
+	// internals on any track.
+	operatorListed
 )
 
 // claudeConfigRoot returns the canonicalized $HOME/.claude directory, or "" if
@@ -703,6 +716,16 @@ func harnessScratchRemainder(real, root string) string {
 // closed on an event cwd that is not absolute so that no such base is derived
 // from one.
 //
+// readClass is the caller's own read/write predicate — isMutatingFileTool on
+// the file-tool track, operand position on the bash track — and is consumed by
+// the operator listing alone: a `write` entry covers both classes, a `read`
+// entry only a read, and that grading is allows()'s. The check runs on the
+// target as written, since the listing is lexical by design (a listed path is
+// allowed wherever it lands, symlinks included), and ahead of the worktree
+// check for the same reason. It excludes a target whose canonical path carries
+// a `.git/` segment, which then earns whatever verdict it has without the
+// listing.
+//
 // It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
 // wrapper) so it can see the unresolvedTilde signal: a leading `~`/`~/...`
 // operand whose home directory is unusable (os.UserHomeDir failing, or
@@ -718,12 +741,15 @@ func harnessScratchRemainder(real, root string) string {
 // treats escapeRepo as deny, never allow. On today's paths that arm is
 // defence in depth: the home chokepoint (home.go) denies a `~` operand under
 // an unusable home before containment is reached.
-func testContainmentFrom(target string, base string, rc *repoContext) (containmentResult, string) {
+func testContainmentFrom(target string, base string, rc *repoContext, readClass bool) (containmentResult, string) {
 	real, unresolvedTilde := canonicalizeFromResolver(target, base, os.UserHomeDir)
 	if unresolvedTilde {
 		return escapeRepo, real
 	}
 
+	if !isUnderGitDir(real, rc) && loadOperatorCarveOut().allows(target, base, readClass) {
+		return operatorListed, real
+	}
 	if pathUnder(real, rc.topLevel) {
 		return contained, real
 	}
