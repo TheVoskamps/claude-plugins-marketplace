@@ -742,12 +742,12 @@ func harnessScratchRemainder(real, root string) string {
 // this class, whatever region the first result names. The two differ only for
 // a target the `.git/` rule keeps out of operatorListed: one whose canonical
 // path carries a `.git/` segment, and a bash operand whose canonical path
-// carries a metacharacter segment (patternMayNameGitDir) — canonicalization
-// keeps such a segment literal, so `sdlc/*/config` carries no `.git` segment
-// for isUnderGitDir to see while `dotglob` lets the shell expand it to one.
-// The operand as written carries at most a bare `*` (shellOperandListable),
-// while the canonical path can carry any character an on-disk name can, a
-// symlink's target name included. Such a
+// carries a metacharacter segment the shell can expand to `.git`
+// (patternMayNameGitDir) — canonicalization keeps such a segment literal, so
+// `sdlc/*/config` carries no `.git` segment for isUnderGitDir to see while
+// `dotglob` lets the shell expand it to one. The operand as written carries at
+// most a bare `*` (shellOperandListable), while the canonical path can carry
+// any character an on-disk name can, a symlink's target name included. Such a
 // target earns on the bash tracks the verdict it has without the listing, so
 // no listing hands out git internals there, while the file-tool track reads
 // listed to deny the read outright (classifyFileTool). This is the one place

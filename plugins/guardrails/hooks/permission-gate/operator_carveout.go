@@ -573,19 +573,20 @@ func lexicalAbs(target string, base string) string {
 // zsh — the shell the Bash tool runs — reads the whole run as one word, so
 // `sub/<1-3>.md` reaches here as the operand `sub/` while zsh opens `sub/1.md`
 // through `sub/3.md` under its numeric-range glob. A bare `*` is the one
-// expansion the matcher can hold to every file it
-// reaches (matchGlobSegments), and the `.git/` rule then withholds it wherever
-// it sits (patternMayNameGitDir), since `dotglob` lets it expand to `.git`.
-// Every other expansion syntax is withheld outright rather than modelled,
-// because each has a spelling the model would miss: path.Match reads a `[`
-// class as a different set from bash — `[!a]` as the two characters, and a
-// POSIX `[[:alpha:]]` as a set that misses `g`, both without error — a
-// `{git,x}` brace group reaches here as one unsplit segment carrying no
-// metacharacter, and a `**` segment reaches any depth under `globstar`. A
-// `..` segment is withheld because lexicalAbs cleans it away before the match,
-// and after a segment the shell expands it folds the operand onto a listed
-// name — `cc-tools/**/../x.md` cleans to `cc-tools/x.md` — while the shell
-// opens `cc-tools/<dir>/x.md` for every `<dir>` the segment expands to.
+// expansion the matcher can hold to every file it reaches
+// (matchGlobSegments), and the `.git/` rule then withholds it wherever it sits
+// (patternMayNameGitDir), since `dotglob` lets it expand to `.git`. Every
+// other expansion syntax is withheld outright rather than modelled, because
+// each has a spelling the model would miss: path.Match reads a `[` class as a
+// different set from bash — `[!a]` as the two characters, and a POSIX
+// `[[:alpha:]]` as a set that misses `g`, both without error — a `{git,x}`
+// brace group reaches here as one unsplit segment that hasGlobMeta does not
+// count as a pattern, which is why `{` is named in the check below, and a
+// `**` segment reaches any depth under `globstar`. A `..` segment is withheld
+// because lexicalAbs cleans it away before the match, and after a segment the
+// shell expands it folds the operand onto a listed name — `cc-tools/**/../x.md`
+// cleans to `cc-tools/x.md` — while the shell opens `cc-tools/<dir>/x.md` for
+// every `<dir>` the segment expands to.
 //
 // The target is read as written, before lexicalAbs: a cleaned path has no
 // `..` segment left to see.
