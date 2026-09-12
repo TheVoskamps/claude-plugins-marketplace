@@ -556,13 +556,11 @@ unless this machine's operator listed `claude-vm/**` under
 `config-home` in the permission gate's operator carve-out (see
 [`docs/rules/config-file-conventions.md`](config-file-conventions.md) →
 "The permission gate's carve-out follows these same roots"); the gate
-ships no default entries, so assume it is unreadable until a `Read`
-says otherwise. The carve-out reaches the file tools only, so a `cat` or a
-`cp` of the cache denies whatever the listing says, which rules out
-copying the binary out of it.
-Fetch one into repo scratch through the product's own verified path
-instead, setting `CLAUDE_VM_CACHE_DIR` under `.claude/tmp/<slug>/` and
-sourcing `lib/claude-cache.sh` to call `claude_cache_ensure`. The
+ships no default entries, so assume it is unreadable until a read
+says otherwise. Fetch one into repo scratch through the product's own
+verified path instead, setting `CLAUDE_VM_CACHE_DIR` under
+`.claude/tmp/<slug>/` and sourcing `lib/claude-cache.sh` to call
+`claude_cache_ensure`. The
 signing-key fingerprint is the only blocker: invoking `gpg` directly is
 denied and the pinned value sits in an unreadable config, but
 `claude_cache_gpg_verify` prints the real fingerprints in its mismatch

@@ -91,10 +91,10 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// A real-file redirect (`cp a b > log`) means bytes also leave for a file the
 	// operand parser does not model. Don't auto-allow — defer to the pipeline.
 	// The one exception is the one the read track carries too: a redirect
-	// whose every destination is a session-shaped harness scratchpad writes into
-	// a region designated safe by construction, which is what this classifier's
-	// own operand track already allows `tee`/`cp` to do. redirectVetoesAllow owns
-	// that grading.
+	// whose every destination is write-eligible — a session-shaped harness
+	// scratchpad, or a path the operator listed under a `write` entry — writes
+	// into a region this classifier's own operand track already allows
+	// `tee`/`cp` to reach. redirectVetoesAllow owns that grading.
 	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}
@@ -144,7 +144,8 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	if !inputClean && inputEscape.Bucket == BucketDeny {
 		return inputEscape
 	}
-	if d, ok := containWriteOperands(prog, operands, sc.cwd, ev); !ok {
+	d, ok, sawOperator := containWriteOperands(prog, operands, sc.cwd, ev)
+	if !ok {
 		return d
 	}
 	if !inputClean {
@@ -154,17 +155,24 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// covers the whole per-uid prefix, so a write into another session's
 	// scratchpad directory (cross-session handoff, the point of the carve-out)
 	// reaches this allow too. Naming only the current session would assert
-	// something narrower than what the gate actually established.
-	return allow(fmt.Sprintf(
-		"%s writes only paths inside the current worktree or a harness session scratchpad (in-repo write)",
-		prog))
+	// something narrower than what the gate actually established. The operator
+	// listing is named only when an operand rode it, as carveOutAllowReason
+	// names it: a reason must not advertise a region the command never
+	// touched.
+	regions := "inside the current worktree or a harness session scratchpad"
+	if sawOperator {
+		regions = fmt.Sprintf("inside the current worktree, a harness session scratchpad, or paths the operator "+
+			"listed in %s", operatorCarveOutConfigPath())
+	}
+	return allow(fmt.Sprintf("%s writes only paths %s (in-repo write)", prog, regions))
 }
 
 // containWriteOperands runs Engine B containment on a write-class command's path
 // operands. It returns ok=true only when EVERY operand is contained inside the
 // current worktree or lands in a carve-out region scratchAllowEligible grades as
-// write-eligible (the session-shaped scratchpad directory) — a region
-// designated safe by construction, so it rides the caller's ALLOW rather than
+// write-eligible (the session-shaped scratchpad directory, or a path the
+// operator listed under a `write` entry) — a region designated safe by
+// construction or by the operator, so it rides the caller's ALLOW rather than
 // withholding it. The grading is delegated to that shared predicate, not
 // restated here, so this track cannot drift from the two read tracks. A
 // carve-out operand it grades ineligible (~/.claude; the rest of the scratchpad
@@ -190,12 +198,16 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // any preceding `cd` in the same parsed program (sc.cwd); a relative operand
 // resolves against baseCWD rather than ev.CWD, mirroring the read side. An
 // empty baseCWD falls back to ev.CWD.
-func containWriteOperands(prog string, operands []string, baseCWD string, ev *Event) (Decision, bool) {
+//
+// The third result, sawOperator, reports whether any operand rode the operator
+// listing, so the caller's ALLOW reason can name the listing on that condition
+// and no other; it is meaningful only with ok=true.
+func containWriteOperands(prog string, operands []string, baseCWD string, ev *Event) (Decision, bool, bool) {
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
 		return deferJudgment("bash-write:no-repo-context", fmt.Sprintf(
 			"could not resolve the repository boundary for '%s' (%v), so no write target can be graded against it.",
-			prog, err)), false
+			prog, err)), false, false
 	}
 
 	base := baseCWD
@@ -209,6 +221,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 	// operand has been checked, so a genuine escape anywhere in the command
 	// always outranks it.
 	deferForCarveOut := false
+	sawOperator := false
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range operands {
@@ -228,10 +241,10 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 				"Blocked: '%s' target '%s' is inside a .git/ directory. Directly writing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
 					"repo state. Git's own commands own that tree — do not hand-write .git/. %s",
-				prog, p, scratchDestinations(rc.topLevel))), false
+				prog, p, scratchDestinations(rc.topLevel))), false, false
 		}
 
-		res, real := testContainmentFrom(p, base, rc)
+		res, real, _ := testContainmentFrom(p, base, rc, false, true, ev)
 		switch res {
 		case escapeWorktree:
 			correct := correctWorktreePath(real, rc)
@@ -240,26 +253,28 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 					"Writes must land inside this worktree. Use the worktree-anchored path instead: %s. Anchor every "+
 					"absolute path to $(git rev-parse --show-toplevel). %s",
 				prog, p, real, rc.topLevel, correct,
-				scratchDestinations(rc.topLevel))), false
+				scratchDestinations(rc.topLevel))), false, false
 		case escapeRepo:
 			return deny("bash-write:cross-repo", fmt.Sprintf(
 				"Blocked: '%s' target '%s' resolves outside the current repository (%s, repo root %s). Tool-mediated "+
 					"writes must stay within the current repo — do not write into a sibling repo or the wider "+
 					"filesystem. %s",
-				prog, p, real, rc.topLevel, scratchDestinations(rc.topLevel))), false
+				prog, p, real, rc.topLevel, scratchDestinations(rc.topLevel))), false, false
 		case harnessScratchBadRoot:
 			badRoot = harnessScratchBadRootDefer("bash-write:scratchpad-root",
 				fmt.Sprintf("'%s' target '%s'", prog, p))
 			haveBadRoot = true
-		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch:
+		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch, operatorListed:
 			// The carve-out regions, graded by the SHARED predicate rather than
 			// by this switch's arm membership — the literal readClass=false says
 			// what this track is: every operand reaching it is a write operand
 			// by construction.
 			//
-			// Eligible (the session scratchpad) rides the caller's ALLOW
-			// exactly as an in-worktree target does; writing there is the
-			// behavior the carve-out exists to permit.
+			// Eligible (the session scratchpad, and a path the operator listed
+			// under a `write` entry — a `read`-only entry never yields
+			// operatorListed for a write) rides the caller's ALLOW exactly as
+			// an in-worktree target does; writing there is the behavior the
+			// carve-out exists to permit.
 			//
 			// Ineligible is neither a clean write the gate should bless nor an
 			// escape it should deny — a target under the real ~/.claude, the
@@ -272,16 +287,19 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			if !scratchAllowEligible(res, false) {
 				deferForCarveOut = true
 			}
+			if res == operatorListed {
+				sawOperator = true
+			}
 		case contained:
 		}
 	}
 	if haveBadRoot {
-		return badRoot, false
+		return badRoot, false, false
 	}
 	if deferForCarveOut {
-		return deferToPipeline(), false
+		return deferToPipeline(), false, false
 	}
-	return Decision{}, true
+	return Decision{}, true, sawOperator
 }
 
 // cpMvOperands returns the path operands of cp / mv: every non-flag token,

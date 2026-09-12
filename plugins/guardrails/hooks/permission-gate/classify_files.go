@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -33,10 +34,10 @@ import (
 // A call that mixes such a target with any other kind falls back to the
 // ordinary defer, so the allow never rides along with a path the gate has not
 // blessed on its own terms. Neither carve-out opens the `.git/` tree: a write
-// there denies at the top of the walk, and a read that would otherwise ride a
-// carve-out's ALLOW denies inside that carve-out's own arm — the listed-path
-// arm for an operator-listed target, the allow-eligible-region arm for a
-// scratchpad one.
+// there denies at the top of the walk, and a read of one denies as soon as the
+// listing or the scratchpad would otherwise carry it — the listed one on
+// testContainmentFrom's listed result, the scratchpad one inside the
+// allow-eligible-region arm.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -75,29 +76,25 @@ func classifyFileTool(ev *Event) Decision {
 	// uses. badRoot records a scratchpad-root DEFER without short-circuiting the
 	// walk, so a genuine escape later in the same call still outranks it.
 	//
-	// The operator carve-out is consulted per target and outranks the
-	// containment verdict for that target, because a listed path is allowed
-	// wherever it lands. Neither it nor the scratchpad carve-out outranks a
-	// `.git/` segment: a WRITE to one denies at the top of the walk before
-	// either carve-out is consulted, and a READ of one denies in whichever
-	// carve-out arm would have carried it, so a glob wide enough to cover a
-	// `.git/` segment hands out nothing and neither does a `.git/` directory
-	// somebody created inside the scratchpad. sawOperator and sawScratch record
-	// which carve-outs the ALLOW terminal actually rode, so its reason names
-	// those and no others.
+	// Neither carve-out outranks a `.git/` segment: a WRITE to one denies at
+	// the top of the walk before containment is consulted, a READ of a listed
+	// one denies on the listed result straight after it, and a scratchpad READ
+	// of one denies in the allow-eligible arm below, so a glob wide enough to
+	// cover a `.git/` segment hands out nothing and neither does a `.git/`
+	// directory somebody created inside the scratchpad. sawOperator and
+	// sawScratch record which carve-outs the ALLOW terminal actually rode, so
+	// its reason names those and no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
 	// A relative `file_path` is resolved against the EVENT's cwd, the base the
 	// tool itself resolves it against — the same base the bash tracks join their
 	// relative operands onto (containPathOperands below; containWriteOperands in
-	// classify_inrepo_write.go) and the one the operator carve-out is already
-	// handed below. Leaving it to filepath.Abs's process cwd would both name the
-	// wrong file and destroy the spelling: that call Cleans, so a `..` behind a
-	// symlinked directory collapses before the link is followed and an escape
-	// reads as `contained`. That fallback is unreachable from here: the
-	// resolveRepoContext call above has already failed closed on an ev.CWD that
-	// is not absolute, so this base always is.
+	// classify_inrepo_write.go). Leaving it to filepath.Abs's process cwd would
+	// both name the wrong file and destroy the spelling: that call Cleans, so a
+	// `..` behind a symlinked directory collapses before the link is followed
+	// and an escape reads as `contained`. That fallback is unreachable from
+	// here: the resolveRepoContext call above has already failed closed on an
+	// ev.CWD that is not absolute, so this base always is.
 	base := ev.CWD
-	carve := loadOperatorCarveOut()
 	sawOperator := false
 	sawScratch := false
 	allCarved := true
@@ -122,45 +119,35 @@ func classifyFileTool(ev *Event) Decision {
 				ev.ToolName, p, scratchDestinations(rc.topLevel)))
 		}
 
-		res, real := testContainmentFrom(p, base, rc)
-		if carve.allows(p, base, readClass) {
-			// A path the operator listed under one of the carve-out's roots. It
-			// is allow-eligible for THIS call's class (a `write` entry covers
-			// reads and writes alike; a `read` entry alone covers only a read, so
-			// a write to such a path falls through to the verdict it has today),
-			// and the escape switch below is skipped entirely — resolving outside
-			// the repo is exactly the condition the listing exists to override. A
-			// listed path is allowed wherever it lands, which is why this is not
-			// conditioned on the containment result: the whole point is that the
-			// gate does not look at where the path resolves to.
-			//
-			// One exception, and it is the only place the listing is overridden:
-			// a `.git/` segment. The listing is the sole way a path under one
-			// could reach an ALLOW — a write already denied at the top of the
-			// walk, and an unlisted read under a carve-out root denies on
-			// containment — so the deny is re-stated here rather than widened to
-			// every target, which would flip an in-repo `.git/` read from its
-			// defer to a deny. (The carve-out's other unconditional deny, a write
-			// to its own config file, is applied inside allows() rather than
-			// here, because it has to compare canonically.)
-			if isUnderGitDir(canonicalizeFrom(p, base), rc) {
-				return gitTreeReadDeny(ev.ToolName, p)
-			}
-			sawOperator = true
-			continue
+		res, real, listed := testContainmentFrom(p, base, rc, readClass, false, ev)
+		// The listing's `.git/` exception. A listed `.git/` target is not
+		// reported as operatorListed, so on this track it would land on the
+		// verdict its region carries — a defer for an in-repo one — where a
+		// listing wide enough to reach `.git/` must deny the read rather than
+		// leave it there. The deny is keyed on the listing rather than widened
+		// to every target, which would flip an unlisted in-repo `.git/` read
+		// from its defer to a deny. Only a read reaches this: a write under
+		// `.git/` denied at the top of the walk.
+		if listed && isUnderGitDir(real, rc) {
+			return gitTreeReadDeny(ev.ToolName, p)
 		}
 		if scratchAllowEligible(res, readClass) {
-			// The scratchpad half of the same `.git/` exception, and the same
-			// reasoning: eligibility for the ALLOW terminal is the sole thing
-			// that could carry a `.git/` target here past the deny it would
-			// otherwise earn (a target under the harness prefix is outside the
-			// worktree, so without the carve-out it is an escape). Restating the
-			// deny here rather than at the top of the walk keeps an in-repo
-			// `.git/` read on its defer.
+			// The scratchpad's `.git/` exception: eligibility for the ALLOW
+			// terminal is the sole thing that could carry a `.git/` target here
+			// past the deny it would otherwise earn (a target under the harness
+			// prefix is outside the worktree, so without the carve-out it is an
+			// escape). Restating the deny here rather than at the top of the
+			// walk keeps an in-repo `.git/` read on its defer. An operatorListed
+			// result never carries a `.git/` segment, so the check is moot for
+			// it and it only records which carve-out the ALLOW rode.
 			if isUnderGitDir(real, rc) {
 				return gitTreeReadDeny(ev.ToolName, p)
 			}
-			sawScratch = true
+			if res == operatorListed {
+				sawOperator = true
+			} else {
+				sawScratch = true
+			}
 		} else {
 			allCarved = false
 		}
@@ -218,6 +205,11 @@ func classifyFileTool(ev *Event) Decision {
 			// matching neither the session nor the bundled-skills shape
 			// (in the right tree but not provably either, so the gate has no
 			// opinion).
+		case operatorListed:
+			// A path the operator listed for this call's class. Eligible for
+			// the ALLOW terminal (scratchAllowEligible said so above), wherever
+			// it lands — resolving outside the repo is exactly the condition
+			// the listing exists to override.
 		case contained:
 			// ok; keep checking the remaining paths
 		}
@@ -226,7 +218,7 @@ func classifyFileTool(ev *Event) Decision {
 		return badRoot
 	}
 	if allCarved {
-		return allow(carveOutAllowReason(ev.ToolName, readClass, sawScratch, sawOperator))
+		return allow(carveOutAllowReason(ev.ToolName+" targets only", readClass, sawScratch, sawOperator))
 	}
 	// All targets are inside this worktree — defer to the normal pipeline
 	// (settings.json denyRead, ask lists, etc. still apply).
@@ -284,19 +276,20 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 // current worktree, or is one of the carve-outs (the ~/.claude tree,
 // or the harness scratchpad prefix), so the caller may proceed to its
 // contained-path terminal (ALLOW for the read-only-utility classifier, DEFER
-// for classifyPathReader).
+// for classifyPathReader). A path the operator listed counts as contained for
+// that purpose when it sits beside an ordinary in-worktree operand.
 //
 // ok=false means the returned Decision is TERMINAL — return it verbatim.
 // Usually that is a deny (cross-repo, a worktree escape, or a .git/-tree
 // read) or a defer-with-analysis (no repo context, or a defective scratchpad
 // root), but
-// it is also how the scratchpad ALLOW is delivered: when every operand
-// lands in a read-eligible region of the harness prefix (a session-shaped
-// scratchpad directory, or the bundled-skills tree), the read is allowed
-// outright rather than left to the caller's terminal, because the DEFER
-// terminal would still lose to a `/tmp` deny entry in settings.json. A deny
-// found anywhere in the operand walk returns immediately and so always
-// outranks both the defer and the allow.
+// it is also how the carve-out ALLOW is delivered: when every operand
+// lands in a read-eligible region (a session-shaped scratchpad directory,
+// the bundled-skills tree, or a path the operator listed), the read is
+// allowed outright rather than left to the caller's terminal, because the
+// DEFER terminal would still lose to a `/tmp` or `~/.config` deny entry in
+// settings.json. A deny found anywhere in the operand walk returns
+// immediately and so always outranks both the defer and the allow.
 //
 // With no operands there is nothing to contain, so ok=true and the caller's
 // own terminal applies. The caller is responsible for the hasUnknownExpansion
@@ -327,13 +320,17 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 	if base == "" {
 		base = ev.CWD
 	}
-	// See the ok=false contract above: allScratch drives the terminal
-	// ALLOW; badRoot is recorded rather than returned inline so a genuine
-	// escape later in the walk still outranks it. Every operand reaching this
-	// function is a READ operand by construction (containWriteOperands is the
-	// write track), which is what makes the bundled-skills tree allow-eligible
-	// here and not there — hence the literal readClass=true.
-	allScratch := true
+	// See the ok=false contract above: allCarved drives the terminal
+	// ALLOW, and sawScratch / sawOperator record which carve-outs it rode so
+	// its reason names those and no others; badRoot is recorded rather than
+	// returned inline so a genuine escape later in the walk still outranks
+	// it. Every operand reaching this function is a READ operand by
+	// construction (containWriteOperands is the write track), which is what
+	// makes the bundled-skills tree allow-eligible here and not there — hence
+	// the literal readClass=true.
+	allCarved := true
+	sawScratch := false
+	sawOperator := false
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range operands {
@@ -345,9 +342,9 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// that could disqualify it.
 			continue
 		}
-		res, real := testContainmentFrom(p, base, rc)
+		res, real, _ := testContainmentFrom(p, base, rc, true, true, ev)
 		if !scratchAllowEligible(res, true) {
-			allScratch = false
+			allCarved = false
 		}
 		switch res {
 		case escapeRepo:
@@ -384,6 +381,11 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// construction. Both are read-eligible for the terminal ALLOW
 			// below — this is the read track, and reading a bundled skill is
 			// exactly what that tree is provisioned for.
+			sawScratch = true
+		case operatorListed:
+			// A path the operator listed. Read-eligible for the terminal ALLOW
+			// below wherever it lands, which is the point of the listing.
+			sawOperator = true
 		case claudeConfig, harnessScratch:
 			// A target under the real ~/.claude, and the part of
 			// the harness scratchpad prefix matching neither the session nor
@@ -398,10 +400,8 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 	if haveBadRoot {
 		return badRoot, false
 	}
-	if allScratch {
-		return allow(fmt.Sprintf(
-			"'%s' reads only harness-owned regions under %s/ that are designated safe by construction (%s)",
-			prog, harnessScratchDisplay(), eligibleScratchRegions(true))), false
+	if allCarved {
+		return allow(carveOutAllowReason("'"+prog+"' reads only", true, sawScratch, sawOperator)), false
 	}
 	return Decision{}, true
 }
@@ -575,14 +575,15 @@ func handoffHint() string {
 		harnessScratchDisplay())
 }
 
-// scratchAllowEligible reports whether a harness-prefix containmentResult
-// may ride the outright ALLOW terminal, given whether the call is read-class.
-// It is the single place the read/write grading of the carve-out lives, and
-// every track calls it rather than restating the grading: classifyFileTool and
-// containPathOperands drive their allScratch flag from it, containWriteOperands
-// drives its deferForCarveOut flag from it, and redirectVetoesAllow grades a
-// redirect destination through it as a write operand. Keeping them on one
-// predicate is what stops them drifting apart:
+// scratchAllowEligible reports whether a carve-out containmentResult may ride
+// the outright ALLOW terminal, given whether the call is read-class. It is the
+// single place the read/write grading of the carve-outs lives, and every track
+// calls it rather than restating the grading: classifyFileTool and
+// containPathOperands drive their allCarved flag from it, containWriteOperands
+// drives its deferForCarveOut flag from it, and redirectVetoesAllow and
+// credentialedRedirectVerdict grade a redirect destination through it as a
+// write operand. Keeping them on one predicate is what stops them drifting
+// apart:
 //
 //   - harnessScratchSession — always eligible. Writing to the session
 //     scratchpad is precisely the behavior the carve-out exists to permit.
@@ -591,6 +592,10 @@ func handoffHint() string {
 //     there is not an escape to deny, but it is not something this gate has
 //     positive grounds to bless either, so it falls through to DEFER and the
 //     classifier decides.
+//   - operatorListed — always eligible. The region is already graded for the
+//     call's class where it is decided (testContainmentFrom hands the class to
+//     allows(), which refuses a write against a `read`-only entry), so a
+//     result of this kind is eligible by construction.
 //
 // Everything else (including the non-shape-matching harnessScratch remainder)
 // is ineligible for THIS terminal. What happens then is the caller's own
@@ -607,7 +612,7 @@ func handoffHint() string {
 // definition). No new classification concept is introduced.
 func scratchAllowEligible(res containmentResult, readClass bool) bool {
 	switch res {
-	case harnessScratchSession:
+	case harnessScratchSession, operatorListed:
 		return true
 	case harnessScratchBundled:
 		return readClass
@@ -627,9 +632,10 @@ func scratchAllowEligible(res containmentResult, readClass bool) bool {
 // exfiltration / clobber risk, which is precisely what the session scratchpad
 // is designated safe against by construction, so refusing the redirect while
 // allowing the argv spelling of the same write bought nothing; the veto lifts
-// for that destination and stays intact for every other one (an in-repo file, a
-// sibling repo, the bundled-skills tree, the unshaped remainder of the prefix,
-// /tmp at large).
+// for that destination, and for a path the operator listed under a `write`
+// entry, and stays intact for every other one (an in-repo file, a sibling repo,
+// the bundled-skills tree, the unshaped remainder of the prefix, /tmp at
+// large).
 //
 // The lift is deliberately narrow, and fails closed on every axis:
 //
@@ -675,7 +681,7 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 		base = ev.CWD
 	}
 	for _, t := range sc.redirectTargets {
-		res, _ := testContainmentFrom(t, base, rc)
+		res, _, _ := testContainmentFrom(t, base, rc, false, true, ev)
 		if !scratchAllowEligible(res, false) {
 			return true
 		}
@@ -756,7 +762,7 @@ func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Deci
 					"committer identity, inject hooks, or corrupt repo state. %s",
 				tool, t, scratchDestinations(rc.topLevel))), true
 		}
-		res, real := testContainmentFrom(t, base, rc)
+		res, real, _ := testContainmentFrom(t, base, rc, false, true, ev)
 		if res == contained || scratchAllowEligible(res, false) {
 			continue
 		}
@@ -769,10 +775,12 @@ func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Deci
 	return Decision{}, false
 }
 
-// eligibleScratchRegions names, in the allow reason, exactly the carve-out regions
-// that were eligible for THIS call's class — so a Write's reason does not
-// advertise the bundled-skills tree it could not have ridden. It is the prose
-// mirror of scratchAllowEligible and must be kept in step with it.
+// eligibleScratchRegions names, in the allow reason, exactly the scratchpad
+// regions that were eligible for THIS call's class — so a Write's reason does
+// not advertise the bundled-skills tree it could not have ridden. It is the
+// prose mirror of scratchAllowEligible's scratchpad arms and must be kept in
+// step with them; the operator listing is named beside it by
+// carveOutAllowReason.
 func eligibleScratchRegions(readClass bool) string {
 	regions := "the session scratchpad, <project-slug>/<session-id>/{scratchpad,tasks}"
 	if readClass {
@@ -781,32 +789,34 @@ func eligibleScratchRegions(readClass bool) string {
 	return regions
 }
 
-// carveOutAllowReason names, in the file-tool ALLOW reason, exactly the
+// carveOutAllowReason names, in a carve-out ALLOW reason, exactly the
 // carve-outs this call's targets actually rode — never both when only one was
-// involved, so a reason cannot advertise a region the call never touched. The
-// scratchpad-only wording is the one this terminal has always emitted; the
-// other two arms exist because the operator listing joined it.
-func carveOutAllowReason(toolName string, readClass bool, sawScratch bool, sawOperator bool) string {
+// involved, so a reason cannot advertise a region the call never touched.
+// subject is the caller's own opening (`Read targets only`, `'cat' reads
+// only`), so the file-tool and bash read tracks name the regions in one
+// wording.
+func carveOutAllowReason(subject string, readClass bool, sawScratch bool, sawOperator bool) string {
 	scratch := fmt.Sprintf("harness-owned regions under %s/ that are designated safe by construction (%s)",
 		harnessScratchDisplay(), eligibleScratchRegions(readClass))
 	listed := fmt.Sprintf("paths the operator listed in %s", operatorCarveOutConfigPath())
 	switch {
 	case sawScratch && sawOperator:
-		return fmt.Sprintf("%s targets only %s, and %s", toolName, scratch, listed)
+		return fmt.Sprintf("%s %s, and %s", subject, scratch, listed)
 	case sawOperator:
-		return fmt.Sprintf("%s targets only %s", toolName, listed)
+		return fmt.Sprintf("%s %s", subject, listed)
 	default:
-		return fmt.Sprintf("%s targets only %s", toolName, scratch)
+		return fmt.Sprintf("%s %s", subject, scratch)
 	}
 }
 
 // gitTreeReadDeny is the read half of the .git/-tree rule as classifyFileTool
-// applies it. It has one call site per arm a file-tool `.git/` read can reach —
-// the worktree-escape arm, and the two carve-out arms that would otherwise hand
-// the read an ALLOW — so the message lives here rather than being spelled at
-// each. The bash read track's own `.git/` deny (containPathOperands, under
-// `bash-read:.git tree`) is a separate message naming the command rather than
-// the tool, and does not come through here.
+// applies it. It has one call site per place a file-tool `.git/` read can
+// reach — the worktree-escape arm, the scratchpad arm that would otherwise
+// hand the read an ALLOW, and the listed-result check that keeps a listed
+// in-repo `.git/` read off its defer — so the message lives here rather than
+// being spelled at each. The bash read track's own `.git/` deny
+// (containPathOperands, under `bash-read:.git tree`) is a separate message
+// naming the command rather than the tool, and does not come through here.
 func gitTreeReadDeny(toolName string, p string) Decision {
 	return deny("read:.git tree", fmt.Sprintf(
 		"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
@@ -842,6 +852,13 @@ func isMutatingFileTool(name string) bool {
 //     normally has its own .git symlink resolved away, but submodule and nested
 //     layouts can still present a real ".git" directory segment.)
 //
+// The segment is matched regardless of letter case, on every platform:
+// canonicalization keeps the spelling the caller wrote, so on a case-folding
+// volume `.GIT/config` names the real `.git/config` while carrying no `.git`
+// segment to match. Folding the comparison rather than asking the filesystem
+// keeps the predicate free of I/O, and the cost is nil — a `.GIT` directory on
+// a case-sensitive volume is not a git dir, and denying it loses nothing.
+//
 // real is expected to already be canonicalized.
 func isUnderGitDir(real string, rc *repoContext) bool {
 	if real == "" {
@@ -851,7 +868,32 @@ func isUnderGitDir(real string, rc *repoContext) bool {
 		return true
 	}
 	for _, seg := range strings.Split(real, string(filepath.Separator)) {
-		if seg == ".git" {
+		if strings.EqualFold(seg, ".git") {
+			return true
+		}
+	}
+	return false
+}
+
+// patternMayNameGitDir reports whether a canonicalized bash operand has a
+// segment that the shell can expand to `.git`. Canonicalization passes a
+// metacharacter segment through as written, so `.g*t`, `.g?t` and `.[g]it`
+// each carry no `.git` segment for isUnderGitDir while naming that directory
+// once expanded. The segment is folded to lower case before it is matched, on
+// the same grounds isUnderGitDir folds its comparison: `.G*T` names the real
+// `.git` on a case-folding volume.
+//
+// path.Match is the conservative reading of the pattern here: it lets `*`
+// cover a leading dot, which bash does only under `dotglob`, so a pattern is
+// held to every expansion any shell setting can give it, and a bare `*`
+// segment withholds the listing wherever it sits. A pattern path.Match cannot
+// parse is counted as reaching `.git` for the same reason.
+func patternMayNameGitDir(real string) bool {
+	for _, seg := range strings.Split(real, string(filepath.Separator)) {
+		if !hasGlobMeta(seg) {
+			continue
+		}
+		if ok, err := path.Match(strings.ToLower(seg), ".git"); err != nil || ok {
 			return true
 		}
 	}

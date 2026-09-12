@@ -24,6 +24,16 @@ type Event struct {
 	// are conditioned on the agent being a subagent. The harness has
 	// used a few key names across versions; parseEvent normalizes them.
 	AgentType string `json:"agent_type"`
+	// rodeOperatorListing records that testContainmentFrom reported a target
+	// of this event as operatorListed. classifyBash clears it before walking
+	// the line and reads it at its whole-line ALLOW, which is built after the
+	// per-part reasons are discarded and so has no other way to learn whether
+	// the listing carried a part. The operand-walk terminals
+	// (containPathOperands, classifyInRepoWrite) name the listing from their
+	// own walk; a part whose redirect rode it carries only the program's own
+	// reason, so the whole-line reason is where that ride surfaces. Not part
+	// of the wire format.
+	rodeOperatorListing bool
 }
 
 // bashInput models tool_input for the Bash tool.

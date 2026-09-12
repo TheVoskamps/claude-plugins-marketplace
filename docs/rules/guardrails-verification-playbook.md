@@ -109,13 +109,11 @@ probe. Read the reason string, not just the bucket: both are denies. Use
 The read tracks diverge on a merely **contained** operand: the
 read-only-utility track *allows* it, while the pager/dumper track
 (`less`, `more`, `od`, `xxd`) *defers*. An operand landing in a
-carve-out the bash engine honors *allows* on both tracks —
-`less <scratchpad>/f` and `cat <scratchpad>/f` alike. A probe whose
-track already produces the bucket you expect proves nothing about the
-carve-out under review. Read the program's classifier arm first, then
-pick a probe whose verdict can actually change. Check first whether the
-carve-out reaches the bash engine at all: a file-tool-only one moves no
-bash verdict in either direction, so every bash probe of it is vacuous.
+carve-out *allows* on both tracks — `less <scratchpad>/f` and
+`cat <scratchpad>/f` alike. A probe whose track already produces the
+bucket you expect proves nothing about the carve-out under review. Read
+the program's classifier arm first, then pick a probe whose verdict can
+actually change.
 
 Related facts older notes get backwards: `ls` **is** on the
 read-only-utility allow track, so it grades a path rather than
@@ -965,9 +963,8 @@ format error. Cross-check both directions.
 The gate has two bash read tracks with different terminals for a merely
 **contained** operand: the curated read-only utilities (`cat`, `head`,
 `grep`) terminate in **allow**, while the path-reader track (`less`,
-`more`, `od`, `xxd`) terminates in **defer**. A carve-out the bash
-engine honors lifts the path-reader track to **allow** as well, so the
-two tracks agree there.
+`more`, `od`, `xxd`) terminates in **defer**. A carve-out lifts the
+path-reader track to **allow** as well, so the two tracks agree there.
 
 So an assertion that `cat <path>` allows proves nothing about a
 carve-out carved inside a region that was already contained: the row
@@ -975,13 +972,6 @@ was green before the carve-out existed. Probe that carve-out with a
 path-reader utility or the file-read tool, whose contained terminal is
 a defer, or the negate-check leaves every `cat` assertion green while
 proving nothing.
-
-A carve-out scoped to the **file-tool track alone** — the
-operator-configured listing is one — inverts the trap without escaping
-it: `cat` of a listed path **denies** before and after,
-because the bash engine never consults the listing. There the file-read
-tool is the only probe that moves, and a bash row belongs in the table
-only as the control that pins the asymmetry.
 
 The two tracks agree on a path **outside** the repository: `Read`,
 `cat` and `jq` all deny `/etc/passwd` and `~/.zshrc` alike. A sentence

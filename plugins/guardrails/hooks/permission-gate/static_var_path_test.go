@@ -362,8 +362,8 @@ func TestForLoopDynamicInListStillEscalates(t *testing.T) {
 }
 
 // TestForLoopGlobInListResolvesUnderValidCwd (follow-up) covers a glob
-// item (`*.md`) under a valid, tracked running cwd: containment is pure path
-// arithmetic on the glob's directory prefix (cwd tracking + glob prefixes), so
+// item (`*.md`) under a valid, tracked running cwd: the loop variable is bound
+// to the pattern itself and containment is pure path arithmetic on it, so
 // every possible match of `*.md` is a child of the tracked cwd and the loop
 // now resolves (contained) instead of failing closed.
 func TestForLoopGlobInListResolvesUnderValidCwd(t *testing.T) {
@@ -378,7 +378,7 @@ func TestForLoopGlobInListResolvesUnderValidCwd(t *testing.T) {
 	if d.Bucket == BucketAsk {
 		t.Errorf("follow-up: glob for-in list under a valid cwd must not ASK; got ASK (%s)", d.Reason)
 	}
-	wantBucket(t, d, BucketAllow, "follow-up: glob for-in list resolves via directory-prefix containment")
+	wantBucket(t, d, BucketAllow, "follow-up: glob for-in list resolves via containment on the pattern")
 }
 
 // TestForLoopGlobInListEscapingPrefixDenied covers a glob whose directory
@@ -416,7 +416,7 @@ func TestForLoopGlobInListCwdInvalidStillEscalates(t *testing.T) {
 }
 
 // Loop follow-up (from PR review): braces, known-variable expansion, and
-// glob-directory-prefix resolution broaden the for-loop in-list fan-out.
+// glob items bound as their own pattern broaden the for-loop in-list fan-out.
 // staticForItems must expand every statically-knowable form and feed EVERY
 // expanded item through the existing containment pipeline; irreducibly
 // dynamic parts must still fail closed.

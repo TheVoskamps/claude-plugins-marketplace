@@ -443,10 +443,11 @@ const (
 	// harnessScratchSession: target is under <system-tmp>/claude-<uid> AND the
 	// remainder matches the per-session shape → ALLOW on every track,
 	// reads and writes alike — bar a target under a `.git/` segment, which the
-	// file-tool track denies. This is the one carve-out verdict that outranks
-	// settings.json, which is deliberate: the harness directs the model to this
-	// exact tree, and a defer would leave the feature dead until every /tmp entry
-	// is removed from settings.json.
+	// file-tool track denies. That the scratchpad verdict outranks
+	// settings.json is deliberate, as it is for every carve-out ALLOW below:
+	// the harness directs the model to this exact tree, and a defer would
+	// leave the feature dead until every /tmp entry is removed from
+	// settings.json.
 	harnessScratchSession
 	// harnessScratchBundled: target is under <system-tmp>/claude-<uid> AND the
 	// remainder matches the bundled-skills shape. Unlike every other
@@ -466,6 +467,21 @@ const (
 	// naming the defect so the failure is not mistaken for the containment bug
 	// reappearing.
 	harnessScratchBadRoot
+	// operatorListed: the target matches an entry the operator listed in
+	// ~/.config/guardrails/config.yml for THIS call's class (see
+	// operator_carveout.go) → ALLOW on every track, reads and writes alike.
+	// The region is decided ahead of the worktree check because a listed path
+	// is allowed wherever it lands, and it is decided here rather than in one
+	// caller so every track grades it through scratchAllowEligible and a
+	// future track cannot forget it. The `write`-implies-`read` grading and
+	// the self-write deny both live inside allows(), so a `read`-only entry
+	// written to, or a write to the config file itself, never reaches this
+	// region and keeps its ordinary verdict. A target under a `.git/` segment
+	// is excluded here too, so no listing hands out git internals on any
+	// track; the file-tool track goes one further and denies such a read
+	// outright, on the listed result testContainmentFrom returns beside the
+	// region.
+	operatorListed
 )
 
 // claudeConfigRoot returns the canonicalized $HOME/.claude directory, or "" if
@@ -693,7 +709,8 @@ func harnessScratchRemainder(real, root string) string {
 
 // testContainmentFrom canonicalizes the target and tests it against the
 // resolved worktree root. The target is canonicalized BEFORE comparison (both
-// sides). Returns one of the containmentResult values.
+// sides). Returns the containmentResult the target lands in, the canonicalized
+// target, and whether the operator listing covers it (listed, below).
 //
 // base is the directory a relative target is joined onto: the event's cwd for a
 // file tool, or — for a Bash operand — the running cwd tracked through any
@@ -702,6 +719,38 @@ func harnessScratchRemainder(real, root string) string {
 // which is not a base Engine B may grade against; resolveRepoContext fails
 // closed on an event cwd that is not absolute so that no such base is derived
 // from one.
+//
+// readClass is the caller's own read/write predicate — isMutatingFileTool on
+// the file-tool track, operand position on the bash track — and is consumed by
+// the operator listing alone: a `write` entry covers both classes, a `read`
+// entry only a read, and that grading is allows()'s. The check runs on the
+// target as written, since the listing is lexical by design (a listed path is
+// allowed wherever it lands, symlinks included), and ahead of the worktree
+// check for the same reason.
+//
+// shellPattern is true on the bash tracks and false on the file-tool one, and
+// is likewise the listing's alone: a bash operand is the pattern the shell
+// will expand, so the listing reads a metacharacter in it as one, where a
+// file-tool path is a literal filename (allows()).
+//
+// The third result, listed, reports whether the listing covers the target for
+// this class, whatever region the first result names. The two differ only for
+// a target the `.git/` rule keeps out of operatorListed: one whose canonical
+// path carries a `.git/` segment, and a bash operand with a segment that can
+// EXPAND to `.git` (patternMayNameGitDir) — canonicalization keeps a
+// metacharacter segment literal, so `.g*t` carries no `.git` segment for
+// isUnderGitDir to see while naming the same directory to the shell. Such a
+// target earns on the bash tracks the verdict it has without the listing, so
+// no listing hands out git internals there, while the file-tool track reads
+// listed to deny the read outright (classifyFileTool). This is the one place
+// the listing is consulted, so listed is how a caller learns of a match the
+// region does not carry.
+//
+// ev is the event being classified, and an operatorListed result is recorded
+// on it (Event.rodeOperatorListing) so classifyBash's whole-line reason can
+// name the listing only when some target of the line rode it. Recording here
+// rather than in each caller is what keeps a future track from forgetting it.
+// A nil ev records nothing, for a caller that grades a path with no event.
 //
 // It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
 // wrapper) so it can see the unresolvedTilde signal: a leading `~`/`~/...`
@@ -714,18 +763,26 @@ func harnessScratchRemainder(real, root string) string {
 // posture for `cd ~` with no usable home (engine_a_bash.go: it sets
 // runningCWDInvalid = true rather than guessing) — escapeRepo is
 // testContainmentFrom's equivalent "invalidate rather than guess" verdict:
-// every caller (classifyFileTool, containPathOperands, containWriteOperands)
-// treats escapeRepo as deny, never allow. On today's paths that arm is
+// no caller treats escapeRepo as allow — the operand tracks and the
+// credentialed redirect deny on it, and the plain redirect withholds its
+// allow. On today's paths that arm is
 // defence in depth: the home chokepoint (home.go) denies a `~` operand under
 // an unusable home before containment is reached.
-func testContainmentFrom(target string, base string, rc *repoContext) (containmentResult, string) {
+func testContainmentFrom(target string, base string, rc *repoContext, readClass bool, shellPattern bool, ev *Event) (containmentResult, string, bool) {
 	real, unresolvedTilde := canonicalizeFromResolver(target, base, os.UserHomeDir)
 	if unresolvedTilde {
-		return escapeRepo, real
+		return escapeRepo, real, false
 	}
 
+	listed := loadOperatorCarveOut().allows(target, base, readClass, shellPattern)
+	if listed && !isUnderGitDir(real, rc) && !(shellPattern && patternMayNameGitDir(real)) {
+		if ev != nil {
+			ev.rodeOperatorListing = true
+		}
+		return operatorListed, real, true
+	}
 	if pathUnder(real, rc.topLevel) {
-		return contained, real
+		return contained, real, listed
 	}
 	// Carve-out: a target whose canonical path lands under the real ~/.claude is
 	// reported as claudeConfig rather than as an escape → the caller DEFERS,
@@ -734,7 +791,7 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// classification, and only matches the ~/.claude subtree). Both sides are
 	// canonicalized so the carve-out cannot be symlink-escaped.
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
-		return claudeConfig, real
+		return claudeConfig, real, listed
 	}
 	// Carve-out, a cousin of the ~/.claude one above: the harness
 	// provisions a per-session scratchpad under <system-tmp>/claude-<uid>/ and
@@ -782,29 +839,29 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// falls through to the escapeRepo deny below.
 	if hs := harnessScratchRootResolver(); hs.root != "" && pathUnder(real, hs.root) {
 		if hs.defect != "" {
-			return harnessScratchBadRoot, real
+			return harnessScratchBadRoot, real, listed
 		}
 		rem := harnessScratchRemainder(real, hs.root)
 		if harnessSessionShape.MatchString(rem) {
-			return harnessScratchSession, real
+			return harnessScratchSession, real, listed
 		}
 		if harnessBundledSkillsShape.MatchString(rem) {
-			return harnessScratchBundled, real
+			return harnessScratchBundled, real, listed
 		}
-		return harnessScratch, real
+		return harnessScratch, real, listed
 	}
 	// Not under this worktree. Is it in the primary clone / common dir? That
 	// is the cross-worktree escape: a write corrupts state another worktree
 	// depends on, and a read returns the primary clone's working file.
 	if rc.primaryClone != "" && pathUnder(real, rc.primaryClone) {
-		return escapeWorktree, real
+		return escapeWorktree, real, listed
 	}
 	if rc.commonDir != "" && pathUnder(real, rc.commonDir) {
-		return escapeWorktree, real
+		return escapeWorktree, real, listed
 	}
 	// Outside this worktree and not the primary clone → a different repo /
 	// the wider filesystem.
-	return escapeRepo, real
+	return escapeRepo, real, listed
 }
 
 // pathUnder reports whether child is equal to or nested under parent, using

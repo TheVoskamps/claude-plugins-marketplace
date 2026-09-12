@@ -40,10 +40,11 @@ import (
 // only same-session route to a relocated root is a nested `claude` launch from
 // the Bash tool with an XDG assignment in front of it.
 //
-// Scope: the file-tool track only (classify_files.go's classifyFileTool). The
-// bash engine is deliberately untouched, so `cat ~/.config/cc-tools/x.md` is
-// still denied — see the README's carve-out section for why that asymmetry is
-// left standing rather than papered over here.
+// The listing is consulted in exactly one place, testContainmentFrom
+// (engine_b_containment.go), which reports a match as the operatorListed
+// region; every containment caller — the file tools and each bash track —
+// grades that region through scratchAllowEligible, so which tool an agent
+// holds is decided by its own `tools:` frontmatter and not by this gate.
 
 // operatorCarveOutSchemaVersion is the minimum `schema-version` this reader
 // understands, pinned here as a literal rather than derived. A higher stamp is
@@ -239,7 +240,13 @@ func (c operatorCarveOut) empty() bool {
 //
 // A target under more than one root — every path under a config-home that sits
 // inside the home directory is — is allowed when ANY of those roots lists it.
-func (c operatorCarveOut) allows(target string, base string, readClass bool) bool {
+//
+// shellPattern says the target is a Bash operand, which the shell will expand
+// before any file is touched, so a metacharacter in it is a pattern and the
+// match has to hold for every file it can expand to (matchCarveOutGlob). A
+// file-tool path is a literal filename, `*`, `?` and `[` included, and is
+// matched as one.
+func (c operatorCarveOut) allows(target string, base string, readClass bool, shellPattern bool) bool {
 	if c.empty() {
 		return false
 	}
@@ -251,10 +258,10 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 		if !ok {
 			continue
 		}
-		if matchAnyCarveOutGlob(r.write, rem) {
+		if matchAnyCarveOutGlob(r.write, rem, shellPattern) {
 			return true
 		}
-		if readClass && matchAnyCarveOutGlob(r.read, rem) {
+		if readClass && matchAnyCarveOutGlob(r.read, rem, shellPattern) {
 			return true
 		}
 	}
@@ -549,9 +556,9 @@ func lexicalAbs(target string, base string) string {
 }
 
 // matchAnyCarveOutGlob reports whether rem matches any glob in globs.
-func matchAnyCarveOutGlob(globs []string, rem string) bool {
+func matchAnyCarveOutGlob(globs []string, rem string, shellPattern bool) bool {
 	for _, g := range globs {
-		if matchCarveOutGlob(g, rem) {
+		if matchCarveOutGlob(g, rem, shellPattern) {
 			return true
 		}
 	}
@@ -567,17 +574,37 @@ func matchAnyCarveOutGlob(globs []string, rem string) bool {
 // no `**`, and filepath.Match on the whole path would let `*` cross separators,
 // so the segment walk below is the smallest thing that gives the documented
 // grammar.
-func matchCarveOutGlob(glob string, rem string) bool {
-	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"))
+//
+// With shellPattern set, the remainder is a Bash operand and can itself carry
+// a shell glob: it reaches containment as the pattern the shell will expand
+// (`cc-tools/sub/*.md`), whether written directly or bound by a `for` loop
+// (globAnchorable, engine_a_bash.go), and the verdict has to hold for every
+// file it can expand to. Such a segment is therefore never handed to
+// path.Match, which would compare the entry against the metacharacters as text
+// and let `?.md` cover `*.md`; it is covered only by an entry segment that
+// covers every name — `*`, or a `**` spanning it. An entry spelling the same
+// pattern is not accepted either: path.Match and bash read a class such as
+// `[!a]` differently, so identical text is not an identical match set. A `**`
+// segment is one bash expands across directory levels under `globstar`, which
+// the gate cannot see the state of, so a segment carrying `**` is covered only
+// by an entry `**` spanning it and never by a single `*`: `cc-tools/*/x.md`
+// lists one directory level, and `cc-tools/**/x.md` can reach any depth.
+//
+// Without shellPattern the remainder is a file-tool path, a literal filename
+// whatever characters it carries: `sdlc/pr[1]/notes.md` is covered by
+// `sdlc/pr*/notes.md` because the file is named `pr[1]`, and no shell is
+// there to read it as anything else.
+func matchCarveOutGlob(glob string, rem string, shellPattern bool) bool {
+	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"), shellPattern)
 }
 
 // matchGlobSegments is matchCarveOutGlob's recursion over already-split
 // segments.
-func matchGlobSegments(pat []string, seg []string) bool {
+func matchGlobSegments(pat []string, seg []string, shellPattern bool) bool {
 	for len(pat) > 0 {
 		if pat[0] == "**" {
 			for i := 0; i <= len(seg); i++ {
-				if matchGlobSegments(pat[1:], seg[i:]) {
+				if matchGlobSegments(pat[1:], seg[i:], shellPattern) {
 					return true
 				}
 			}
@@ -586,8 +613,11 @@ func matchGlobSegments(pat []string, seg []string) bool {
 		if len(seg) == 0 {
 			return false
 		}
-		ok, err := path.Match(pat[0], seg[0])
-		if err != nil || !ok {
+		if shellPattern && hasGlobMeta(seg[0]) {
+			if pat[0] != "*" || strings.Contains(seg[0], "**") {
+				return false
+			}
+		} else if ok, err := path.Match(pat[0], seg[0]); err != nil || !ok {
 			return false
 		}
 		pat, seg = pat[1:], seg[1:]
