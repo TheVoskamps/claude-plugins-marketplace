@@ -308,9 +308,8 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool, she
 // The LEXICALLY-cleaned spelling — the one `remainder` matches the globs
 // against — is compared beside it so the deny is never read off a different
 // path than the glob match that would otherwise hand the write out. Comparing
-// both can only widen the deny, and a widened deny inside the carve-out arm
-// hands the call back to the verdict it would have had without the carve-out
-// anyway.
+// both can only widen the deny, and a widened deny hands the call back to the
+// verdict it would have had without the listing anyway.
 //
 // Both sides also pass through selfWriteResolveLink, so a spelling whose final
 // segment is a symlink at a file that does not exist yet is compared as the
