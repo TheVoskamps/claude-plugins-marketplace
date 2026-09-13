@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -563,31 +562,34 @@ func lexicalAbs(target string, base string) string {
 }
 
 // shellOperandListable reports whether a Bash operand is one the listing can
-// grade: the line spells it as a word of its own, it opens as a plain literal
-// path, every segment of that spelling is either a literal or a bare `*`, and
-// none is `..`.
+// grade: the line spells it as a word of its own, and the word is a plain
+// literal path — it opens with `/`, with `~/`, or is exactly `~` (the two
+// tilde spellings hasLeadingTilde and lexicalAbs expand), and every segment
+// past that opening is either `*` alone or spelled only in the characters a
+// filename plainly carries: letters, digits, `.`, `_` and `-`. An empty word
+// and a `..` segment are withheld as well.
 //
 // The listing is matched against the operand the gate holds, and the shell
 // opens whatever that operand expands to, so the two have to name the same
-// files. The opening is stated as what is ADMITTED rather than what is
-// withheld, because the shell is zsh, which gives a word's first character a
-// meaning of its own that expand.Literal does not resolve — `=ls` is the path
-// of the `ls` binary on $PATH under its equals expansion, `~+` is `$PWD` —
-// and a predicate that named each such prefix as it was found was a round
-// behind the next one. A plain path opens with `/`, with `~/`, is exactly `~`
-// (the two tilde spellings hasLeadingTilde and lexicalAbs expand), or opens
-// with a character a filename plainly starts with: a letter, a digit, `.`,
-// `_` or `-`. Any other opening — `=`, `~+`, `~user`, `$`, `%`, `!`, a quote,
-// an empty word, whatever zsh may expand — is withheld without being named.
-// The cost is a filename opening with such a character, which then earns the
-// verdict it has without the listing; the gain is that the first character
-// the shell reads is one the gate has held to a literal. The tilde forms
-// outside the two admitted ones show why that matters: expand.Literal hands
-// `~+/x` over untouched, so lexicalAbs joins it onto the base as a literal
-// segment while the shell opens `$PWD/x`, and under `home: write: ['**']`
-// from a cwd of `$HOME` the literal matches the glob for a write the shell
-// delivers to the config file itself, past the self-write deny that compares
-// the same literal.
+// files. The rule is stated as what is ADMITTED rather than what is withheld,
+// because the shell is zsh, which gives characters a meaning of their own
+// that expand.Literal does not resolve, and a predicate that named each such
+// character as it was found was a round behind the next one. At a word's
+// opening, `=ls` is the path of the `ls` binary on $PATH under its equals
+// expansion and `~+` is `$PWD`; inside a segment, `#` and `^` are pattern
+// operators under `extendedglob`, so `ab#` opens `a`, `ab` and `abb` while
+// the literal names one file. Any character outside the plain set — `=`, a
+// `~` past the opening, `$`, `%`, `!`, `#`, `^`, a quote, whatever any shell
+// option may expand — is withheld without being named. The cost is a
+// filename carrying such a character, which then earns the verdict it has
+// without the listing; the gain is that every character the shell reads is
+// one the gate has held to a literal. The tilde forms outside the two
+// admitted ones show why that matters: expand.Literal hands `~+/x` over
+// untouched, so lexicalAbs joins it onto the base as a literal segment while
+// the shell opens `$PWD/x`, and under `home: write: ['**']` from a cwd of
+// `$HOME` the literal matches the glob for a write the shell delivers to the
+// config file itself, past the self-write deny that compares the same
+// literal.
 //
 // glued says the line spells the operand with a redirect glued to it
 // (simpleCommand.redirectGlued), and such an operand is withheld before its
@@ -602,31 +604,34 @@ func lexicalAbs(target string, base string) string {
 // path.Match reads a `[` class as a different set from bash — `[!a]` as the
 // two characters, and a POSIX `[[:alpha:]]` as a set that misses `g`, both
 // without error — a `{git,x}` brace group reaches here as one unsplit segment
-// that hasGlobMeta does not count as a pattern, which is why `{` is named in
-// the check below, and a `**` segment reaches any depth under `globstar`. A
-// `..` segment is withheld because lexicalAbs cleans it away before the
-// match, and after a segment the shell expands it folds the operand onto a
-// listed name — `cc-tools/**/../x.md` cleans to `cc-tools/x.md` — while the
-// shell opens `cc-tools/<dir>/x.md` for every `<dir>` the segment expands to.
+// that hasGlobMeta does not count as a pattern, and a `**` segment reaches
+// any depth under `globstar`. A `..` segment is withheld because lexicalAbs
+// cleans it away before the match, and after a segment the shell expands it
+// folds the operand onto a listed name — `cc-tools/**/../x.md` cleans to
+// `cc-tools/x.md` — while the shell opens `cc-tools/<dir>/x.md` for every
+// `<dir>` the segment expands to.
 //
 // The target is read as written, before lexicalAbs: a cleaned path has no
 // `..` segment left to see.
 func shellOperandListable(target string, glued bool) bool {
-	if glued {
+	if glued || target == "" {
 		return false
 	}
-	if !hasLeadingTilde(target) && !strings.HasPrefix(target, "/") {
-		r, _ := utf8.DecodeRuneInString(target)
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '_' && r != '-' {
-			return false
-		}
+	rest := target
+	if hasLeadingTilde(target) {
+		rest = strings.TrimPrefix(target, "~")
 	}
-	for _, seg := range strings.Split(target, "/") {
+	for _, seg := range strings.Split(rest, "/") {
 		if seg == ".." {
 			return false
 		}
-		if seg != "*" && strings.ContainsAny(seg, "*?[{") {
-			return false
+		if seg == "*" {
+			continue
+		}
+		for _, r := range seg {
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '_' && r != '-' {
+				return false
+			}
 		}
 	}
 	return true

@@ -1330,6 +1330,92 @@ func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
 	}
 }
 
+// The plain-path rule reads every segment, not only the word's opening
+// (shellOperandListable): a segment rides the listing only when it is `*`
+// alone or spelled in letters, digits, `.`, `_` and `-`, and any other
+// character in it is withheld without being named. `ab#` and `a^b` are the
+// rows that hold the rule to every character: each opens with a letter and
+// carries none of the glob metacharacters `*?[{`, so a rule that named those
+// would admit both as one literal file each, while zsh under `extendedglob`
+// reads `#` as zero-or-more repetition and `^` as not-match — with `a`,
+// `ab`, `abb`, `abbb` and `b` on disk, `echo ab#` prints `a ab abb abbb`
+// and `echo a^b` prints `a abb abbb`. `a~b` is a tilde past
+// the opening, and `x/a^b` carries its operator in a second segment. Every
+// spelling of each keeps the verdict it has with no config file, under the
+// same fixture and for the same reasons as
+// TestOperatorCarveOutWithholdsNonPathOpening. The `-`- and `.`-bearing
+// literals beside them, one and two segments deep, are the negative control
+// that a filename character zsh gives no meaning to still rides, and that
+// the listing is in force.
+func TestOperatorCarveOutWithholdsNonPlainSegment(t *testing.T) {
+	base := t.TempDir()
+	home := carveOutFixture(t, base, "plain")
+	gitInit(t, home)
+	ev := bashEvIn(t, home, "issue-developer")
+
+	rows := []string{"ab#", "a^b", "a~b", "x/a^b"}
+	controls := []string{"a-b.c", "x/a-b.c"}
+	movable := map[string]bool{"redirect": true, "less": true}
+	today := map[string]Decision{}
+	for _, p := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			cmd := sp.cmd(p)
+			today[cmd] = classifyBash(cmd, ev)
+			if movable[sp.name] && today[cmd].Bucket == BucketAllow {
+				t.Fatalf("%s with no carve-out configured must not ALLOW, or the row proves nothing; got %q (%s)",
+					cmd, today[cmd].Bucket, today[cmd].Reason)
+			}
+		}
+	}
+	for _, p := range controls {
+		for _, sp := range bashCarveOutSpellings {
+			if !movable[sp.name] {
+				continue
+			}
+			cmd := sp.cmd(p)
+			if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+				t.Fatalf("%s with no carve-out configured must not ALLOW, or the control proves nothing; got %q (%s)",
+					cmd, d.Bucket, d.Reason)
+			}
+		}
+	}
+
+	writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  read:\n    - '**'\n  write:\n    - '**'\n")
+	for _, p := range controls {
+		for _, sp := range bashCarveOutSpellings {
+			if !movable[sp.name] {
+				continue
+			}
+			cmd := sp.cmd(p)
+			wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd+" (negative control)")
+		}
+	}
+	for _, p := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			cmd := sp.cmd(p)
+			d := classifyBash(cmd, ev)
+			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
+				t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
+					cmd, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
+			}
+		}
+	}
+
+	c := loadOperatorCarveOut()
+	for _, p := range controls {
+		if !c.allows(p, home, true, true, false) {
+			t.Errorf("read of %s must ride the `**` entry (negative control)", p)
+		}
+	}
+	for _, p := range rows {
+		for _, readClass := range []bool{true, false} {
+			if c.allows(p, home, readClass, true, false) {
+				t.Errorf("%s (readClass=%v) must ride no listing", p, readClass)
+			}
+		}
+	}
+}
+
 // patternMayNameGitDir holds a metacharacter segment to every expansion any
 // shell can give it, on its own and not by way of shellOperandListable having
 // screened the operand: the canonical path it reads can carry a segment the
