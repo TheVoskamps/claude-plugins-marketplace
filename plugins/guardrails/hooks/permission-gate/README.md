@@ -559,11 +559,16 @@ The gate's engines feed that decision:
   combined with a known variable — `{a,b}$X.md`); a bare unquoted
   known-variable word (`$LIST`, split on the default IFS the way bash
   word-splits an unquoted expansion — a quoted `"$LIST"` is NOT split,
-  matching bash); and a glob (`*.md`, `src/*.go`, `../*.md`) resolved to
-  its containment-relevant directory prefix against the tracked running
-  cwd, by path arithmetic alone (no filesystem read) — every possible
-  match of the glob is a child of that prefix, so the prefix's
-  containment verdict applies to the whole pattern. Every expanded item
+  matching bash); and a glob (`*.md`, `src/*.go`, `../*.md`) bound as
+  its own unexpanded pattern, which containment resolves against the
+  tracked running cwd by path arithmetic alone (no filesystem read) —
+  the body's `cat "$f"` earns the verdict `cat <pattern>` earns, the
+  one every file the loop can iterate shares. The pattern is bound
+  rather than its directory prefix because the operator listing's globs
+  are not closed under descent: an entry `cc-tools/*` matches the
+  prefix directory `cc-tools/sub` while matching none of the files
+  beneath it, so a loop bound to the prefix would ride the listing over
+  files a direct read of them does not. Every expanded item
   is checked (worst-wins), so an escaping item anywhere in the list is
   still reported even when earlier items were safe. A brace element
   containing `..` (`{a,../../../etc/passwd}`) is where the upstream
@@ -1410,10 +1415,11 @@ The gate's engines feed that decision:
   rewrites identity). An **in-repo** `.git/` read is not a write and is
   unaffected by this refinement; a `.git/` read that resolves into the
   primary clone denies on the read branch described in (3) below, and a
-  `.git/` read either file-tool carve-out would otherwise turn into an
-  ALLOW — one the operator's own listing covers, or one in an
-  allow-eligible region of the harness scratchpad — denies inside that
-  carve-out's own arm. If
+  `.git/` read either carve-out would otherwise turn into an ALLOW
+  denies — one in an allow-eligible region of the harness scratchpad
+  inside that carve-out's own arm, and one the operator's own listing
+  covers on the listed result containment reports beside the region,
+  since the region itself never carries a `.git/` target. If
   you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   are **prescriptive**: a write/edit escape names
@@ -1670,9 +1676,10 @@ The gate's engines feed that decision:
   region is designated safe against by construction, and two spellings
   of one write cannot carry two verdicts. So `redirectVetoesAllow`
   grades the destination instead of vetoing on the bare bool, and lifts
-  **only** for the session shape: an in-repo destination, the
-  bundled-skills tree, the unshaped remainder of the prefix, and `/tmp`
-  at large all keep the veto, as do a destination the gate cannot
+  **only** for a write-eligible region — the session shape, and a path
+  the operator listed under a `write` entry: an in-repo destination,
+  the bundled-skills tree, the unshaped remainder of the prefix, and
+  `/tmp` at large all keep the veto, as do a destination the gate cannot
   resolve statically, an unresolvable running cwd, and a
   command whose *other* redirect escapes the region. The lift reaches
   exactly the allow tracks that call `redirectVetoesAllow` — the
@@ -1693,8 +1700,10 @@ The gate's engines feed that decision:
   **escape**, which is what containment decides. So a credentialed
   redirect is graded as a write operand — the same `readClass=false`
   predicate `tee`/`cp` are held to — and **allows** when every
-  destination is contained in this worktree or lands in a scratchpad-blessed
-  region. A destination that PROVABLY escapes, or that sits under
+  destination is contained in this worktree or lands in a write-eligible
+  carve-out region, the session scratchpad or a path the operator
+  listed under a `write` entry. A destination that PROVABLY escapes, or
+  that sits under
   `.git/`, **denies** — with the same prescriptive
   scratch-destination prose the `Write` tool's deny for the identical
   path carries. An ask here would leave one escape carrying two verdicts,
@@ -1796,8 +1805,9 @@ The gate's engines feed that decision:
   start paying for a gate subprocess. Separately, an
   **in-repo** `.git/` read on the curated read-utility track allows
   (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
-  write path, on the primary-clone read branch and in the file-tool
-  carve-out arms, not for an ordinary contained read. Both gaps predate
+  write path, on the primary-clone read branch, in the file-tool
+  scratchpad arm and on the operator listing, not for an ordinary
+  unlisted contained read. Both gaps predate
   the input-redirect grading, and
   each holds identically for its operand and redirect spellings —
   `cat < <repo-root>/.git/config` allows exactly as
@@ -1826,7 +1836,7 @@ The gate's engines feed that decision:
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
 
-  (6) a **file-tool** target under one of the operator-configured
+  (6) a target, on every track, under one of the operator-configured
   roots — the XDG config home, the XDG state home, or the home
   directory — that matches a glob the operator listed for that root in
   `~/.config/guardrails/config.yml` is **allowed**
@@ -1946,7 +1956,10 @@ The gate's engines feed that decision:
 
   **These denies hold whatever the file says**, and together they are
   what bounds the environment-variable opt-in. (1) Nothing under a
-  `.git/` segment is handed out, read or write, on any root. (2) No
+  `.git/` segment is handed out, read or write, on any root — the
+  segment matched regardless of letter case, since a case-folding
+  volume makes `.GIT/config` the real `.git/config` while the canonical
+  path keeps the spelling as written. (2) No
   **write** to this config file itself is allowed — at its literal load
   path or at the resolved `config-home/guardrails/config.yml` —
   compared by asking the filesystem whether the two spellings name one
@@ -2007,15 +2020,19 @@ The gate's engines feed that decision:
   establishes would permit it — the same broken outcome by a different
   route. The `.git/`-tree deny outranks the carve-out on **both**
   sides, by a different route each. A `Write`/`Edit` of a listed path
-  under a `.git/` segment denies at the top of the operand walk, before
-  the listing is consulted. A `Read` of one denies inside the carve-out
-  arm itself, which is the only place such a read could otherwise reach
-  an ALLOW — an unlisted `.git/` read under a carve-out root is already
-  denied by containment, so the check is stated where the listing
-  overrides it rather than hoisted to the top of the walk, where it
-  would flip an **in-repo** `.git/` read from the defer it earns today
-  to a deny. Either way a glob wide enough to cover a `.git/` segment
-  hands out nothing. List the directories the conventions actually put
+  under a `.git/` segment, or a bash write operand naming one, denies at
+  the top of the operand walk, before the listing is consulted; a plain
+  redirect into one keeps its veto, since the region it is graded by
+  never carries such a target. A read of one is
+  never reported as the listed region: containment withholds the region
+  from any target whose canonical path carries a `.git/` segment, so on
+  the bash tracks the read keeps the verdict it has without the
+  listing, and the file-tool track goes one further and denies the
+  `Read` outright — keyed on the listing rather than hoisted to the top
+  of the walk, where it would flip an **unlisted in-repo** `.git/` read
+  from the defer it earns today to a deny. Either way a glob wide
+  enough to cover a `.git/` segment hands out nothing. List the
+  directories the conventions actually put
   a file in, not `**`, all the same: a `**` under `home` opens
   **everything** under the home directory — every credential file
   included — and the denies above are the only things it cannot
@@ -2024,14 +2041,48 @@ The gate's engines feed that decision:
   to ride a carve-out, so a call mixing a listed path with an ordinary
   in-repo one falls back to the ordinary defer.
 
-  **Scope: the file-tool track only** (`Read`, `Write`, `Edit`,
-  `MultiEdit`, `NotebookEdit`). The bash engine is untouched, so a `cat`
-  of a listed config path is **still denied**. That is a deliberate gap,
-  not an oversight: an outside-repo path denies on both tracks alike
-  (`Read /Users/<u>/.zshrc` and `jq /Users/<u>/.zshrc` both deny today),
-  so the listing is what makes the two disagree, and only for a path an
-  operator listed. Widening it to the bash engine is a separate change
-  with its own blast radius. The config file is hand-written —
+  **Scope: every track.** The listing is consulted in one place,
+  `testContainmentFrom`, which reports a match as the `operatorListed`
+  region, and every containment caller — the file tools, both bash read
+  tracks, the write track, and the plain and credentialed redirect
+  gradings — grades that region through `scratchAllowEligible`, so a
+  listed path is reachable from every tool the agent holds and an
+  unlisted one from none; which tools an agent holds is its own
+  `tools:` frontmatter's decision, not the gate's. The allow reason
+  names the listing on each track, and only when a target rode it — the
+  whole-line bash reason included, which learns of the ride from a flag
+  containment records on the event, because the per-part reasons are
+  gone by the time that reason is built.
+
+  **A bash operand is held to what the shell will open.** The listing
+  is matched against the operand the gate holds, and the shell opens
+  whatever that operand expands to, so the two have to name the same
+  files. A bash operand rides the listing only when every segment after
+  an admitted opening (`/`, `~/` or a bare `~`) is either a bare `*` or
+  spelled only in letters, digits, `.`, `_` and `-`; a `..` segment, an
+  empty word, and a word the line spells glued to a redirect (zsh reads
+  `sub/<1-3>.md` as one word carrying a numeric-range glob where the
+  parser yields the operand `sub/`) are withheld too. The rule is
+  stated as what is admitted rather than what is withheld because the
+  Bash tool's shell is zsh, which gives further characters expansions
+  of their own — `=ls` is the `ls` binary's path, `~+` is `$PWD`, `#`
+  and `^` are pattern operators under `extendedglob` — and a predicate
+  naming each such character as it was found stays a round behind the
+  next one. A bare `*` segment is the one expansion the matcher can
+  hold to every file it reaches: it is covered only by an entry segment
+  that covers every name, `*` or a `**` spanning it, and is never
+  handed to `path.Match`, which would let an entry's `?` cover it as
+  text. A file-tool path is a literal filename whatever characters it
+  carries, so a `Read` of `sdlc/pr[1]/notes.md` is covered by
+  `sdlc/pr*/notes.md`. On a bash operand the `.git/` deny also counts a
+  metacharacter segment in the canonical path that the shell could
+  expand to `.git` — a bare `*` under `dotglob`, or a bracket
+  expression, which `path.Match` and bash read as different sets — as
+  a `.git/` segment. The cost of the admitted set is a filename
+  carrying any other character, which earns the verdict it has without
+  the listing.
+
+  The config file is hand-written —
   no `/guardrails:*` skill creates or merge-updates it, and this section
   is the only documentation of its schema. The fix does not make the
   gate symlink-aware in general: a symlink from inside the repo out to a
