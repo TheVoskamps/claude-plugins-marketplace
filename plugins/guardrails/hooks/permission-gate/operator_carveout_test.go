@@ -1235,6 +1235,101 @@ func TestOperatorCarveOutWithholdsOtherTildeForms(t *testing.T) {
 	}
 }
 
+// An operand rides the listing only when it opens as a plain literal path,
+// and any other opening is withheld without being named
+// (shellOperandListable). `=ls` is the case that fixed the rule's direction:
+// it carries no metacharacter, no `..` and no tilde, so a rule that named
+// what it withholds admitted it as the literal `<cwd>/=ls`, while zsh's
+// equals expansion opens `/bin/ls` — a file outside every root the listing
+// has. `%x` and `!x` are two more openings the rule never names, and every
+// spelling of each keeps the verdict it has with no config file. The cwd is
+// the home, as $HOME spells it, because the operand has to be relative for
+// its first character to be the word's, and the home is a git repository
+// because the whole-line classifier reaches the listing only with a repo
+// context. That makes most spellings in-repo reads and writes the tracks
+// allow with no config file; the two that in-repo defer until a listing
+// lifts them — the plain redirect (redirectVetoesAllow) and the `less` pager
+// (classifyPathReader), one write-class and one read-class — are the
+// whole-line spellings whose verdict the listing alone can move, and the test
+// checks that each starts out withheld. Both classes are pinned at the
+// listing itself as well, where a `*` entry that covers every bare filename
+// still answers no for each row. The `-` and `.` openings beside them are
+// the negative control that a filename character zsh gives no meaning to
+// still rides, and that the listing is in force.
+func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
+	base := t.TempDir()
+	home := carveOutFixture(t, base, "plain")
+	gitInit(t, home)
+	ev := bashEvIn(t, home, "issue-developer")
+
+	rows := []string{"=ls", "%x", "!x"}
+	controls := []string{"-x", ".x"}
+	movable := map[string]bool{"redirect": true, "less": true}
+	today := map[string]Decision{}
+	for _, p := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			cmd := sp.cmd(p)
+			today[cmd] = classifyBash(cmd, ev)
+			if movable[sp.name] && today[cmd].Bucket == BucketAllow {
+				t.Fatalf("%s with no carve-out configured must not ALLOW, or the row proves nothing; got %q (%s)",
+					cmd, today[cmd].Bucket, today[cmd].Reason)
+			}
+		}
+	}
+	// `less -x` hands the pager an option rather than an operand, so that
+	// spelling is no control for the `-` opening.
+	isControl := func(sp string, p string) bool {
+		return movable[sp] && !(sp == "less" && p == "-x")
+	}
+	for _, p := range controls {
+		for _, sp := range bashCarveOutSpellings {
+			if !isControl(sp.name, p) {
+				continue
+			}
+			cmd := sp.cmd(p)
+			if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+				t.Fatalf("%s with no carve-out configured must not ALLOW, or the control proves nothing; got %q (%s)",
+					cmd, d.Bucket, d.Reason)
+			}
+		}
+	}
+
+	writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  read:\n    - '*'\n  write:\n    - '*'\n")
+	for _, p := range controls {
+		for _, sp := range bashCarveOutSpellings {
+			if !isControl(sp.name, p) {
+				continue
+			}
+			cmd := sp.cmd(p)
+			wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd+" (negative control)")
+		}
+	}
+	for _, p := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			cmd := sp.cmd(p)
+			d := classifyBash(cmd, ev)
+			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
+				t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
+					cmd, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
+			}
+		}
+	}
+
+	c := loadOperatorCarveOut()
+	for _, p := range controls {
+		if !c.allows(p, home, true, true, false) {
+			t.Errorf("read of %s must ride the `*` entry (negative control)", p)
+		}
+	}
+	for _, p := range rows {
+		for _, readClass := range []bool{true, false} {
+			if c.allows(p, home, readClass, true, false) {
+				t.Errorf("%s (readClass=%v) must ride no listing", p, readClass)
+			}
+		}
+	}
+}
+
 // patternMayNameGitDir holds a metacharacter segment to every expansion any
 // shell can give it, on its own and not by way of shellOperandListable having
 // screened the operand: the canonical path it reads can carry a segment the

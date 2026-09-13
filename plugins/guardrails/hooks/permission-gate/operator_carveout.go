@@ -5,6 +5,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -561,47 +563,63 @@ func lexicalAbs(target string, base string) string {
 }
 
 // shellOperandListable reports whether a Bash operand is one the listing can
-// grade: the line spells it as a word of its own, it is a plain literal path —
-// absolute, relative, bare `~` or `~/…` — every segment of that spelling is
-// either a literal or a bare `*`, and none is `..`.
+// grade: the line spells it as a word of its own, it opens as a plain literal
+// path, every segment of that spelling is either a literal or a bare `*`, and
+// none is `..`.
 //
 // The listing is matched against the operand the gate holds, and the shell
 // opens whatever that operand expands to, so the two have to name the same
-// files. glued says the line spells the operand with a redirect glued to it
+// files. The opening is stated as what is ADMITTED rather than what is
+// withheld, because the shell is zsh, which gives a word's first character a
+// meaning of its own that expand.Literal does not resolve — `=ls` is the path
+// of the `ls` binary on $PATH under its equals expansion, `~+` is `$PWD` —
+// and a predicate that named each such prefix as it was found was a round
+// behind the next one. A plain path opens with `/`, with `~/`, is exactly `~`
+// (the two tilde spellings hasLeadingTilde and lexicalAbs expand), or opens
+// with a character a filename plainly starts with: a letter, a digit, `.`,
+// `_` or `-`. Any other opening — `=`, `~+`, `~user`, `$`, `%`, `!`, a quote,
+// an empty word, whatever zsh may expand — is withheld without being named.
+// The cost is a filename opening with such a character, which then earns the
+// verdict it has without the listing; the gain is that the first character
+// the shell reads is one the gate has held to a literal. The tilde forms
+// outside the two admitted ones show why that matters: expand.Literal hands
+// `~+/x` over untouched, so lexicalAbs joins it onto the base as a literal
+// segment while the shell opens `$PWD/x`, and under `home: write: ['**']`
+// from a cwd of `$HOME` the literal matches the glob for a write the shell
+// delivers to the config file itself, past the self-write deny that compares
+// the same literal.
+//
+// glued says the line spells the operand with a redirect glued to it
 // (simpleCommand.redirectGlued), and such an operand is withheld before its
 // segments are read: the parser cut the word at the redirect operator, and
-// zsh — the shell the Bash tool runs — reads the whole run as one word, so
-// `sub/<1-3>.md` reaches here as the operand `sub/` while zsh opens `sub/1.md`
-// through `sub/3.md` under its numeric-range glob. A bare `*` is the one
-// expansion the matcher can hold to every file it reaches
-// (matchGlobSegments), and the `.git/` rule then withholds it wherever it sits
-// (patternMayNameGitDir), since `dotglob` lets it expand to `.git`. Every
-// other expansion syntax is withheld outright rather than modelled, because
-// each has a spelling the model would miss: path.Match reads a `[` class as a
-// different set from bash — `[!a]` as the two characters, and a POSIX
-// `[[:alpha:]]` as a set that misses `g`, both without error — a `{git,x}`
-// brace group reaches here as one unsplit segment that hasGlobMeta does not
-// count as a pattern, which is why `{` is named in the check below, and a
-// `**` segment reaches any depth under `globstar`. A `..` segment is withheld
-// because lexicalAbs cleans it away before the match, and after a segment the
-// shell expands it folds the operand onto a listed name — `cc-tools/**/../x.md`
-// cleans to `cc-tools/x.md` — while the shell opens `cc-tools/<dir>/x.md` for
-// every `<dir>` the segment expands to.
-//
-// A tilde the gate does not expand — `~+`, `~-`, `~N`, and a `~user` the
-// account lookup left as written (otherTildeForm, engine_b_containment.go) —
-// is withheld for the same reason as an expansion: expand.Literal hands the
-// spelling over untouched, so lexicalAbs joins `~+/x` onto the base as a
-// literal segment while the shell opens `$PWD/x`, and under
-// `home: write: ['**']` from a cwd of `$HOME` the literal matches the glob for
-// a write the shell delivers to the config file itself, past the self-write
-// deny that compares the same literal.
+// zsh reads the whole run as one word, so `sub/<1-3>.md` reaches here as the
+// operand `sub/` while zsh opens `sub/1.md` through `sub/3.md` under its
+// numeric-range glob. A bare `*` is the one expansion the matcher can hold to
+// every file it reaches (matchGlobSegments), and the `.git/` rule then
+// withholds it wherever it sits (patternMayNameGitDir), since `dotglob` lets
+// it expand to `.git`. Every other expansion syntax is withheld outright
+// rather than modelled, because each has a spelling the model would miss:
+// path.Match reads a `[` class as a different set from bash — `[!a]` as the
+// two characters, and a POSIX `[[:alpha:]]` as a set that misses `g`, both
+// without error — a `{git,x}` brace group reaches here as one unsplit segment
+// that hasGlobMeta does not count as a pattern, which is why `{` is named in
+// the check below, and a `**` segment reaches any depth under `globstar`. A
+// `..` segment is withheld because lexicalAbs cleans it away before the
+// match, and after a segment the shell expands it folds the operand onto a
+// listed name — `cc-tools/**/../x.md` cleans to `cc-tools/x.md` — while the
+// shell opens `cc-tools/<dir>/x.md` for every `<dir>` the segment expands to.
 //
 // The target is read as written, before lexicalAbs: a cleaned path has no
 // `..` segment left to see.
 func shellOperandListable(target string, glued bool) bool {
-	if glued || otherTildeForm(target) {
+	if glued {
 		return false
+	}
+	if !hasLeadingTilde(target) && !strings.HasPrefix(target, "/") {
+		r, _ := utf8.DecodeRuneInString(target)
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '_' && r != '-' {
+			return false
+		}
 	}
 	for _, seg := range strings.Split(target, "/") {
 		if seg == ".." {
