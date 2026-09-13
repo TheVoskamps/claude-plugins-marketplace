@@ -237,11 +237,13 @@ runs showed and keep the recipe.
 
 ### Never read provenance off the embedded vcs stamp
 
-A build run inside a `.claude/worktrees/` linked worktree stamps
-`vcs.revision` with the **primary clone's** HEAD, and `vcs.modified=false`
-even though the worktree carries the branch's source. A "wrong"
-revision stamp is expected, not evidence of staleness; staleness falls
-to the `nm` compare and the behavior probes.
+A build stamps `vcs.revision` with the HEAD of the checkout it runs
+in — inside a `.claude/worktrees/` linked worktree, that worktree's own
+HEAD, never the primary clone's — and the commit that lands the rebuilt
+binaries is by construction later than the one they stamp. A revision
+stamp that names neither the tip nor the commit you expected is
+expected, not evidence of staleness; staleness falls to the `nm`
+compare and the behavior probes.
 
 ### Naming the exact source commit
 
@@ -1161,10 +1163,10 @@ matches what the committed binary was built with, then rebuild every
 arch from the unmodified tip and compare against the committed
 binaries.
 
-That comparison is opportunistic and expires. The embedded revision
-stamp comes from the primary clone's HEAD, so a byte comparison matches
-only while the default branch has not moved since the binaries were
-built. When it has, all arches differ inside the build-information
-region with nothing wrong — do not report that as a provenance failure,
-and never write "a rebuild is byte-identical to the committed binary"
-into a PR body, since it is false for every later reader.
+The byte comparison is not the grade. The embedded revision stamp is
+the HEAD of the checkout that built the binaries, and the commit that
+landed them is later than that, so a tip rebuild differs from the
+committed binary inside the build-information region on every arch
+with nothing wrong — do not report that as a provenance failure, and
+never write "a rebuild is byte-identical to the committed binary" into
+a PR body, since it is false for every later reader.

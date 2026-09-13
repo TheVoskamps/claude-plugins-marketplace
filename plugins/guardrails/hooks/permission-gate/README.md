@@ -2280,18 +2280,28 @@ the same grep finds.
 go -C plugins/guardrails/hooks/permission-gate test ./...   # run the test suite
 go -C plugins/guardrails/hooks/permission-gate vet ./...    # static checks
 
-# Rebuild the committed binaries (pure Go, CGo disabled):
+# Rebuild the committed binaries (pure Go, CGo disabled). Build into a
+# gitignored scratch directory with the tree clean, then copy in:
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
-  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/darwin-arm64/permission-gate .
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../../../../.claude/tmp/rebuild/darwin-arm64/permission-gate .
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-amd64/permission-gate .
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../../../../.claude/tmp/rebuild/linux-amd64/permission-gate .
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-arm64/permission-gate .
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../../../../.claude/tmp/rebuild/linux-arm64/permission-gate .
+cp .claude/tmp/rebuild/darwin-arm64/permission-gate plugins/guardrails/hooks/bin/darwin-arm64/permission-gate
+cp .claude/tmp/rebuild/linux-amd64/permission-gate plugins/guardrails/hooks/bin/linux-amd64/permission-gate
+cp .claude/tmp/rebuild/linux-arm64/permission-gate plugins/guardrails/hooks/bin/linux-arm64/permission-gate
 ```
 
 Every target is pure Go with CGo disabled, so all of them cross-compile
 from the Mac — no toolchain is ever needed on the target machine, and
 none of these binaries is built at plugin load time.
+
+Never build straight into `hooks/bin/`: `vcs.modified` is read from
+`git status --porcelain`, so the first binary written there dirties a
+tracked file and every arch built after it stamps `vcs.modified=true`
+from committed source. Confirm all three stamp `vcs.modified=false`
+with `go version -m` before copying them in.
 
 ### Binary reproducibility (don't expect a byte-identical rebuild)
 
