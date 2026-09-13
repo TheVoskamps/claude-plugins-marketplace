@@ -563,11 +563,12 @@ func lexicalAbs(target string, base string) string {
 
 // shellOperandListable reports whether a Bash operand is one the listing can
 // grade: the line spells it as a word of its own, and the word is a plain
-// literal path — it opens with `/`, with `~/`, or is exactly `~` (the two
-// tilde spellings hasLeadingTilde and lexicalAbs expand), and every segment
-// past that opening is either `*` alone or spelled only in the characters a
-// filename plainly carries: letters, digits, `.`, `_` and `-`. An empty word
-// and a `..` segment are withheld as well.
+// literal path. A leading `/`, a leading `~/` or a bare `~` (the two tilde
+// spellings hasLeadingTilde and lexicalAbs expand) is admitted as the
+// opening, and every segment past it — which is the whole of a relative
+// operand — is either `*` alone or spelled only in the characters a filename
+// plainly carries: letters, digits, `.`, `_` and `-`. An empty word and a
+// `..` segment are withheld as well.
 //
 // The listing is matched against the operand the gate holds, and the shell
 // opens whatever that operand expands to, so the two have to name the same
