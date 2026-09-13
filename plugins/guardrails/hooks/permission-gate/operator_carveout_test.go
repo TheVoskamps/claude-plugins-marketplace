@@ -970,8 +970,11 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 // containPathOperands (the read-only-utility and path-reader tracks), `tee`
 // and `cp` reach containWriteOperands, a plain redirect reaches
 // redirectVetoesAllow, the `git`, `gh` and `aws` redirects reach
-// credentialedRedirectVerdict from each program that calls it (`gh` calls it
-// from several of its arms, and only the read-only-subcommand arm is run), an
+// credentialedRedirectVerdict from each program that calls it — `gh` calls it
+// from every arm of its own that allows, and one row reaches each: the
+// read-only subcommand, `auth status`, a recoverable own-repo write, a
+// query-only `api graphql` document, an allow-listed `api graphql` mutation
+// and an allow-listed `api` REST GET — an
 // input redirect on a construct that runs no program reaches
 // classifyRedirectOnly's own direct call into containPathOperands, an input
 // redirect on a write-class program reaches containReadSources' walk into
@@ -1003,6 +1006,15 @@ var bashCarveOutSpellings = []struct {
 	{"redirect", func(p string) string { return "echo x > " + p }, true},
 	{"git redirect", func(p string) string { return "git log > " + p }, true},
 	{"gh redirect", func(p string) string { return "gh pr diff 224 > " + p }, true},
+	{"gh auth status redirect", func(p string) string { return "gh auth status > " + p }, true},
+	{"gh write redirect", func(p string) string { return "gh issue comment 5 --body hi > " + p }, true},
+	{"gh graphql query redirect", func(p string) string {
+		return "gh api graphql -f query='query { viewer { login } }' > " + p
+	}, true},
+	{"gh graphql mutation redirect", func(p string) string {
+		return "gh api graphql -f query='mutation { addSubIssue(input: {}) { clientMutationId } }' > " + p
+	}, true},
+	{"gh api GET redirect", func(p string) string { return "gh api repos/o/r > " + p }, true},
 	{"aws redirect", func(p string) string { return "aws s3 ls > " + p }, true},
 	{"redirect-only", func(p string) string { return "[[ -f x ]] < " + p }, false},
 	{"write-track source", func(p string) string { return "tee README.md < " + p }, false},
@@ -1154,6 +1166,70 @@ state-home:
 			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
 				t.Errorf("%s (%s) must keep today's verdict %q/%q; got %q/%q (%s)",
 					cmd, r.label, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
+			}
+		}
+	}
+}
+
+// A tilde the gate does not expand rides no listing. expand.Literal expands
+// `~` and `~/…` and hands `~+`, `~-`, `~user` and `~N` back untouched, so the
+// operand the gate holds is the literal spelling, and lexicalAbs joins it onto
+// the cwd as a literal segment — `<cwd>/~+/…` — where bash and zsh both open
+// `$PWD/…`, `$OLDPWD/…` or the named user's home. Under `home: write: ['**']`
+// from a cwd of `$HOME`, `cat malicious.yml > ~+/.config/guardrails/config.yml`
+// is the config file itself to the shell, while the literal
+// `<home>/~+/.config/guardrails/config.yml` matches the `**` entry and slips
+// the self-write deny, which compares the same literal. Every write spelling of
+// each such target keeps the verdict it has with no config file. The home is a
+// git repository because the whole-line classifier reaches the listing only
+// with a repo context, which also makes the literal `<home>/~+/…` an in-repo
+// write: the operand tracks allow it with no config file, so the plain
+// redirect — which in-repo defers until a listing lifts the veto — is the
+// spelling whose no-config verdict the listing alone can move, and the test
+// checks that it starts out withheld. The `~/`-spelled write beside the rows is
+// the negative control that the listing is in force.
+func TestOperatorCarveOutWithholdsOtherTildeForms(t *testing.T) {
+	base := t.TempDir()
+	home := carveOutFixture(t, base, "plain")
+	gitInit(t, home)
+	// The cwd is the home as $HOME spells it, not canonicalized: a relative
+	// operand is joined onto the cwd lexically, and the home root is matched
+	// as a prefix of that spelling.
+	ev := bashEvIn(t, home, "issue-developer")
+
+	rows := []string{
+		"~+/.config/guardrails/config.yml",
+		"~-/.config/guardrails/config.yml",
+		"~someone/.config/guardrails/config.yml",
+	}
+	today := map[string]Decision{}
+	for _, p := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			if !sp.write {
+				continue
+			}
+			cmd := sp.cmd(p)
+			today[cmd] = classifyBash(cmd, ev)
+			if sp.name == "redirect" && today[cmd].Bucket == BucketAllow {
+				t.Fatalf("%s with no carve-out configured must not ALLOW, or the row proves nothing; got %q (%s)",
+					cmd, today[cmd].Bucket, today[cmd].Reason)
+			}
+		}
+	}
+
+	writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  write:\n    - '**'\n")
+	control := "echo x > ~/.config/other/x.yml"
+	wantBucket(t, classifyBash(control, ev), BucketAllow, control+" (negative control)")
+	for _, p := range rows {
+		for _, sp := range bashCarveOutSpellings {
+			if !sp.write {
+				continue
+			}
+			cmd := sp.cmd(p)
+			d := classifyBash(cmd, ev)
+			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
+				t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
+					cmd, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
 			}
 		}
 	}
@@ -1494,6 +1570,12 @@ func TestOperatorCarveOutWithholdsRedirectGluedWord(t *testing.T) {
 				return d, ok && sawOperator
 			}},
 		{"redirect destination", "echo x <1-3>" + listed, "echo x > " + listed,
+			func(sc simpleCommand) (Decision, bool) {
+				return Decision{}, !redirectVetoesAllow(sc, ev)
+			}},
+		// The argument glued to the operator is the shell's problem, not the
+		// spaced target's: `x` is withheld and `listed` rides.
+		{"redirect destination after a glued argument", "echo x<1-3>" + listed, "echo x> " + listed,
 			func(sc simpleCommand) (Decision, bool) {
 				return Decision{}, !redirectVetoesAllow(sc, ev)
 			}},

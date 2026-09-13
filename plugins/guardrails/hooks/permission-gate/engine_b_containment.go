@@ -260,6 +260,23 @@ func hasLeadingTilde(p string) bool {
 	return p == "~" || strings.HasPrefix(p, "~/")
 }
 
+// otherTildeForm reports whether p opens with a `~` hasLeadingTilde does not
+// cover: `~+` and `~-`, which bash and zsh expand to $PWD and $OLDPWD, `~user`,
+// and a `~N` directory-stack reference. Every site hasLeadingTilde serves
+// treats such a spelling as a literal segment, so a relative join lands it
+// under the base as `<base>/~+/…` — a file the shell never opens. That is
+// harmless wherever the literal reading fails closed, and it is what the
+// operator listing has to withhold from (shellOperandListable,
+// operator_carveout.go): the listing grades the spelling the gate holds, so a
+// lexical match on `<home>/~+/…` would hand out a write the shell delivers to
+// `$PWD/…`, and isSelfWrite, comparing the same literal, would never see the
+// config file it lands on. A Bash operand of this shape rides no listing,
+// which is what keeps the self-write comparison and the glob match reading
+// one path.
+func otherTildeForm(p string) bool {
+	return strings.HasPrefix(p, "~") && !hasLeadingTilde(p)
+}
+
 // expandLeadingTilde joins a leading `~` or `~/` onto home, and returns a
 // spelling carrying neither unchanged. ok=false means the spelling names the
 // home directory but the home value is not usable by homeUsable's one test —
@@ -742,11 +759,13 @@ func harnessScratchRemainder(real, root string) string {
 // this class, whatever region the first result names. The two differ only for
 // a target the `.git/` rule keeps out of operatorListed: one whose canonical
 // path carries a `.git/` segment, and a bash operand whose canonical path
-// carries a metacharacter segment the shell can expand to `.git`
-// (patternMayNameGitDir) — canonicalization keeps such a segment literal, so
-// `sdlc/*/config` carries no `.git` segment for isUnderGitDir to see while
-// `dotglob` lets the shell expand it to one. The operand as written carries at
-// most a bare `*` (shellOperandListable), while the canonical path can carry
+// carries a metacharacter segment patternMayNameGitDir cannot hold away from
+// `.git` — one path.Match matches to `.git` or cannot parse, or any
+// bracket-bearing one, which it counts as reaching `.git` outright — since
+// canonicalization keeps such a segment literal, so `sdlc/*/config` carries no
+// `.git` segment for isUnderGitDir to see while `dotglob` lets the shell
+// expand it to one. The operand as written carries at most a bare `*`
+// (shellOperandListable), while the canonical path can carry
 // any character an on-disk name can, a symlink's target name included. Such a
 // target earns on the bash tracks the verdict it has without the listing, so
 // no listing hands out git internals there, while the file-tool track reads

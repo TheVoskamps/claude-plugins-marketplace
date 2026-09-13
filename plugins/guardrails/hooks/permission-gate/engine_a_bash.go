@@ -1644,6 +1644,13 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 // operator (`>out`) is not glued by this measure — that is how bash and zsh
 // both spell a redirect.
 //
+// An argument word touching a redirect glues the argument and not the
+// redirect's target: in `echo x> listed` the parser cuts `x` at the operator,
+// which is the word the shell may read differently, while `listed` stands a
+// blank away from everything and is the word every shell opens. Two redirects
+// touching glue both targets, since a run such as `<1-3>listed` is one word to
+// zsh from its first operator to its last target.
+//
 // Adjacency is enough, with no chain to follow: two argument words are never
 // glued (the parser would have read them as one), so every glued run holds a
 // redirect, and every word in it touches one.
@@ -1655,10 +1662,11 @@ func redirectGluedWords(args []*syntax.Word, redirs []*syntax.Redirect) map[*syn
 	type span struct {
 		start, end uint
 		word       *syntax.Word
+		arg        bool
 	}
 	spans := make([]span, 0, len(args)+len(redirs))
 	for _, w := range args {
-		spans = append(spans, span{w.Pos().Offset(), w.End().Offset(), w})
+		spans = append(spans, span{w.Pos().Offset(), w.End().Offset(), w, true})
 	}
 	for _, r := range redirs {
 		if r.Word == nil {
@@ -1668,13 +1676,20 @@ func redirectGluedWords(args []*syntax.Word, redirs []*syntax.Redirect) map[*syn
 		if r.N != nil {
 			start = r.N.Pos().Offset()
 		}
-		spans = append(spans, span{start, r.Word.End().Offset(), r.Word})
+		spans = append(spans, span{start, r.Word.End().Offset(), r.Word, false})
 	}
 	glued := map[*syntax.Word]bool{}
 	for i, a := range spans {
 		for _, b := range spans[i+1:] {
-			if a.end == b.start || b.end == a.start {
+			if a.end != b.start && b.end != a.start {
+				continue
+			}
+			// A redirect's target is glued by the other span only when that
+			// span is a redirect too; an argument glues itself alone.
+			if a.arg || !b.arg {
 				glued[a.word] = true
+			}
+			if b.arg || !a.arg {
 				glued[b.word] = true
 			}
 		}

@@ -562,8 +562,9 @@ func lexicalAbs(target string, base string) string {
 }
 
 // shellOperandListable reports whether a Bash operand is one the listing can
-// grade: the line spells it as a word of its own, every segment of that
-// spelling is either a literal or a bare `*`, and none is `..`.
+// grade: the line spells it as a word of its own, it is a plain literal path —
+// absolute, relative, bare `~` or `~/…` — every segment of that spelling is
+// either a literal or a bare `*`, and none is `..`.
 //
 // The listing is matched against the operand the gate holds, and the shell
 // opens whatever that operand expands to, so the two have to name the same
@@ -588,10 +589,19 @@ func lexicalAbs(target string, base string) string {
 // cleans to `cc-tools/x.md` — while the shell opens `cc-tools/<dir>/x.md` for
 // every `<dir>` the segment expands to.
 //
+// A tilde the gate does not expand — `~+`, `~-`, `~N`, and a `~user` the
+// account lookup left as written (otherTildeForm, engine_b_containment.go) —
+// is withheld for the same reason as an expansion: expand.Literal hands the
+// spelling over untouched, so lexicalAbs joins `~+/x` onto the base as a
+// literal segment while the shell opens `$PWD/x`, and under
+// `home: write: ['**']` from a cwd of `$HOME` the literal matches the glob for
+// a write the shell delivers to the config file itself, past the self-write
+// deny that compares the same literal.
+//
 // The target is read as written, before lexicalAbs: a cleaned path has no
 // `..` segment left to see.
 func shellOperandListable(target string, glued bool) bool {
-	if glued {
+	if glued || otherTildeForm(target) {
 		return false
 	}
 	for _, seg := range strings.Split(target, "/") {
