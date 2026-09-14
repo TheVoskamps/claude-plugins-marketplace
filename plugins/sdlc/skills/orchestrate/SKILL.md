@@ -703,6 +703,10 @@ gh pr view <PR> --json reviews \
   --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
 ```
 
+That review is this round's only when its `submittedAt` postdates the
+reviewer spawn; one from before the spawn is a previous round's, and
+for this line the PR carries no review.
+
 A line ending `— raise it`, in progress or broken call, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
 first such return, quoting the reviewer's line verbatim. A re-spawn to
@@ -891,11 +895,9 @@ spawn is the only evidence you have that entries may be waiting, and
 the inbox is session-ephemeral. The only wrong placement is spawning
 it *early*, while more branch work is still expected.
 
-Curation is destructive, so it is agent-owned work: never invoke
-`/cc-tools:agent-memory-inbox-cleanup` yourself. The scrubber's
-per-entry and per-cut lines are the record of what it deleted,
-transferred, and cut from a destination file, so pass them through to
-the human as it wrote them.
+The scrubber's per-entry and per-cut lines are the record of what it
+deleted, transferred, and cut from a destination file, so pass them
+through to the human as it wrote them.
 
 **agent-memory-scrubber spawn prompt** — give it PR number and branch
 name:
@@ -1178,10 +1180,11 @@ What you do yourself is orchestration mechanics:
   removal is not on this list: the terminal
   `/git-tools:git-cleanup-branches-and-worktrees` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's dictated
-  review adjustments, and the fixer brief, whose findings you relay
-  un-tiered and whose rulings — scope and owner — are the one judgment
-  you write onto a PR. Commenting is not editing: the PR *body* is
-  `pr-finalizer`'s alone.
+  review adjustments, and the fixer brief. Findings you relay
+  un-tiered; a ruling — scope or owner — is the one judgment you write
+  onto a PR, whether it lands in a brief or as an adjustments comment's
+  `dropped (scope ruling)` line. Commenting is not editing: the PR
+  *body* is `pr-finalizer`'s alone.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
   `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and
   `/pr-ready <PR>`. They set or read the PR's state.
