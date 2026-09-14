@@ -577,6 +577,14 @@ Review this PR per your agent definition. Report back its verdicts,
 findings, severity counts, and theorem tally.
 ```
 
+Immediately before the round's first reviewer spawn, read the PR's
+review count and record it as the round's basis; a re-spawn to resume
+keeps the recorded basis rather than reading a new one:
+
+```bash
+gh pr view <PR> --json reviews --jq '.reviews | length'
+```
+
 Pass no `--generator`, no effort, and no model. The reviewer picks the
 tier itself from the round's delta; `--generator` goes in only when
 the human named a tier, per "Overriding the generator tier" below.
@@ -618,8 +626,8 @@ verifier's own words — is reached the same way: the summary's line for
 it names the file, and `--mode print --round <N>` lists every result
 file that round holds.
 
-**Consult the posted review only for its existence and its
-`submittedAt`.** Nothing else you decide about a round comes out of
+**Consult the posted review only for its existence, read as the
+review count.** Nothing else you decide about a round comes out of
 it; the detail reaches the PR once, when `pr-finalizer` posts it.
 
 ### Overriding the generator tier
@@ -694,16 +702,11 @@ flattening them.
 says.** The harness surfaces every return as `status: completed`, so
 that line is what tells a finished round from an unfinished one.
 Before acting on a posted review, and on an in-progress line too,
-confirm what the PR carries:
-
-```bash
-gh pr view <PR> --json reviews \
-  --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
-```
-
-That review is this round's only when its `submittedAt` postdates the
-reviewer spawn; one from before the spawn is a previous round's, and
-for this line the PR carries no review.
+confirm what the PR carries by reading the review count again. A count
+above the basis recorded before the round's first reviewer spawn means
+the PR carries this round's review; a count equal to it means that for
+this line the PR carries no review, and any review the PR shows is a
+previous round's.
 
 A line ending `— raise it`, in progress or broken call, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
@@ -1169,8 +1172,7 @@ What you do yourself is orchestration mechanics:
   review adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write
   onto a PR, whether it lands in a brief or as an adjustments comment's
-  `dropped (scope ruling)` line. Commenting is not editing: the PR
-  *body* is `pr-finalizer`'s alone.
+  `dropped (scope ruling)` line.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
   `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and
   `/pr-ready <PR>`. They set or read the PR's state.
