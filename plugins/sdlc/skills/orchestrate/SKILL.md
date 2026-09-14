@@ -577,13 +577,23 @@ Review this PR per your agent definition. Report back its verdicts,
 findings, severity counts, and theorem tally.
 ```
 
-Immediately before the round's first reviewer spawn, read the PR's
-review count and record it as the round's basis; a re-spawn to resume
-keeps the recorded basis rather than reading a new one:
+This round's number is the one the reviewer composes its round
+directory from: the PR's review count immediately before the round's
+first reviewer spawn, plus one. Nothing remembers it across a re-spawn
+or a session — the PR and the round's own state re-derive it, with `C`
+the current review count and `--owner`/`--repo` resolved as "Reading a
+round's detail" below shows:
 
 ```bash
 gh pr view <PR> --json reviews --jq '.reviews | length'
+sdlc-agent-result-persist --mode print \
+  --owner <owner> --repo <repo> --pr <PR_N> --round <C+1>
 ```
+
+A `print` that succeeds means a round above the count has begun and
+not posted, so this round is `C+1` and the PR carries no review of it;
+one that fails saying there is no round log means this round is `C`,
+and the count's newest review is its.
 
 Pass no `--generator`, no effort, and no model. The reviewer picks the
 tier itself from the round's delta; `--generator` goes in only when
@@ -702,11 +712,11 @@ flattening them.
 says.** The harness surfaces every return as `status: completed`, so
 that line is what tells a finished round from an unfinished one.
 Before acting on a posted review, and on an in-progress line too,
-confirm what the PR carries by reading the review count again. A count
-above the basis recorded before the round's first reviewer spawn means
-the PR carries this round's review; a count equal to it means that for
-this line the PR carries no review, and any review the PR shows is a
-previous round's.
+confirm what the PR carries by re-deriving the round's number per "Run
+the review pipeline": a round log numbered above the review count means
+that for this line the PR carries no review, and any review the PR
+shows is a previous round's; none above it means the PR carries this
+round's review.
 
 A line ending `— raise it`, in progress or broken call, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
@@ -1130,8 +1140,7 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
   once on this PR. The roster at the top names the owner of each kind:
   you never use `Edit`, `Write` or `NotebookEdit`; never author a
   review finding, a severity or a review body, or run `gh pr review`
-  in any spelling; never run `gh pr edit --body` / `--body-file` or
-  brief a teammate to; never run `git rebase` or `git merge` or
+  in any spelling; never run `git rebase` or `git merge` or
   hand-edit conflict markers in the primary clone; and never delete,
   transfer or rewrite a captured memory entry. Doing any of it to save
   a spawn is not a saving — see "Token Efficiency".
