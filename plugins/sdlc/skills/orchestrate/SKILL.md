@@ -154,6 +154,14 @@ to hand over: it reaches the human on the plan's `Batch criteria
 applied` line and travels in the developer brief's `Why these are
 batched` line.
 
+A structural instruction in a body — a rename, a file move, a new
+abstraction it specifies — is graded, not executed. Read it against
+the repo the way `CLAUDE.md` → "Grade a repo statement an issue
+contradicts, don't pick a side" reads a contradicted statement: it
+stands when, having read the file, you agree it serves the issue;
+otherwise it is a decision item in "Present the plan", with the body's
+sentence quoted, and Phase 2 waits on the answer.
+
 ### Grouping: assign issues to batches, then order the batches
 
 A **batch** is an ordered set of issues implemented on one branch by
@@ -235,6 +243,9 @@ Batch B branch slug: <compound-slug>
 Batch criteria applied: <one line per batch of two or more — which of
 shared-change-surface / internal-dependency / size it turned on, and
 the conflict-cost-vs-blocking-cost call you made>
+Decision items: <one per body instruction you did not agree with on
+reading the file — the sentence quoted, and what you would do instead
+— or "none">
 
 ### Wave 1 (parallel): Batch A, Batch B
 ### Wave 2 (after Wave 1 PRs open): Batch C
@@ -422,8 +433,10 @@ rule means for one.
   cheap moment to act on one is now. Rule on it before the next spawn
   for that PR, or before the loop ends for that PR when no spawn
   follows. Trivial and adjacent to the diff goes into the round's
-  fixer brief as an owner ruling, or is dropped; when no fixer round
-  follows, the choice is drop or ask. Anything larger is put to the
+  fixer brief — as the `— in scope` ruling on its finding line when
+  the review filed it, as an owner ruling otherwise — or is dropped;
+  when no fixer round follows, the choice is drop or ask. Anything
+  larger is put to the
   human while the PR is still open, with the consequence of each
   option stated in the question. It never travels to the final report,
   and it never becomes a follow-up issue on your initiative.
@@ -478,6 +491,15 @@ load-bearing — every follow-up agent and the review pipeline are
 addressed with them. This call is where a wrong PR number surfaces
 cheaply; read what it reports back rather than assuming the no-op.
 
+Then read the developer's `Scope:` block, before the first review
+round. A plugin the issue's title and body do not name, a rename or
+deletion the issue does not specify, or any shared helper edited goes
+to the human now, with pulling it out of the PR stated as one of the
+options; the question ends your turn, and nothing else is spawned for
+the PR until it is answered. This is the gate before round 1: the
+issue is the ceiling of the loop, and a diff that already reaches past
+it is the human's to admit or refuse, never yours.
+
 The PR stays a **draft** from here through the entire review/fix loop,
 until Phase 3 flips it.
 
@@ -525,7 +547,8 @@ whether to fix them or to ignore them. The question ends your turn.
 - **Fix** — post a fixer brief on the PR in the shape "Handling review
   findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
   marker included, with the style findings as its findings, each
-  carrying its quoted rule and offending lines. Then spawn
+  carrying its quoted rule and offending lines and ending `— in
+  scope`, which is what the human's fix decided. Then spawn
   `issue-fixer` with the standard spawn prompt. That round puts commits
   on the branch, so `code-documenter` and `style-checker` run again
   after it, before the review, like any other fixer round.
@@ -739,21 +762,31 @@ member)**:
    Branch: <branch-name>
 
    Findings to address — all of them, including Low, each tagged with
-   the issue it belongs to:
+   the issue it belongs to and each ending in its scope ruling:
    <paste every finding from the round's review file, un-tiered,
-   keeping the review's per-issue tags>
+   keeping the review's per-issue tags, and end each line with one of:
+   `— in scope`, followed by the arm to take where the finding offers
+   two, or by the reason when it is an out-of-scope observation ruled
+   trivial and adjacent;
+   `— outside the issue; put to the human: <question> → <answer>`;
+   `— outside the issue; dropped: <reason>`>
 
-   Owner rulings — how the findings above are to be fixed, and any
-   in-scope work that is not itself a finding:
-   <every ruling you made this round: a human decision from step 1
-   above, the arm to take where a finding offers two, and any
-   out-of-scope observation you ruled trivial and adjacent per
-   "Rule on an out-of-scope observation while the PR is open". Omit
-   the whole section when you made none.>
+   Owner rulings — in-scope work that is not itself a finding, and
+   human decisions that belong to no single finding:
+   <every such ruling you made this round. Omit the whole section
+   when you made none.>
 
    Address per your agent definition. Report back what you fixed and
    what you didn't.
    ```
+
+   Make each scope ruling by reading the finding against the issue's
+   `## Acceptance` section, never against the finding's severity: a
+   fix those criteria cover is in scope, and one they do not is outside
+   the issue however severe. Per-finding rulings live only on the
+   finding lines, and the brief is not posted until every put-to-human
+   finding has its answer, so a fixer never runs on a pending
+   question.
 
    Post it, and post nothing else on the PR until the fixer has run:
    `issue-fixer` reads the PR's **most recent** comment and stops if
@@ -800,6 +833,16 @@ member)**:
    (see "Your own boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
+
+**A finding class that produces a new site each round is a design
+question, not a round.** Two findings are the same class when the
+reviewer files them under the same theorem, or when the second's fix
+would edit a file the previous round's fix edited. When the second
+consecutive round files a finding in the same class as the previous
+round's fix, stop briefing and put the class to the human, with
+reverting to the last state the class was clean in stated as one of
+the options. Name the class you are watching — the theorem or the
+file — in each round's report.
 
 ### Posting the human's review adjustments as a PR comment
 
@@ -1135,8 +1178,8 @@ What you do yourself is orchestration mechanics:
   `/git-tools:git-cleanup-branches-and-worktrees` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's dictated
   review adjustments, and the fixer brief, whose findings you relay
-  un-tiered and whose owner rulings are the one judgment you write
-  onto a PR. Commenting is not editing: the PR *body* is
+  un-tiered and whose rulings — scope and owner — are the one judgment
+  you write onto a PR. Commenting is not editing: the PR *body* is
   `pr-finalizer`'s alone.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
   `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and

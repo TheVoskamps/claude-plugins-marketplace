@@ -252,6 +252,20 @@ owns — but never a finding, a location, or an implementation shape
     and its test result. Name any dropped member and why. (The worktree
     path isn't something you need to surface.)
 
+    End the report with a fixed `Scope:` block of three labelled
+    lines, in this order:
+
+    ```text
+    Scope:
+    Plugins touched: <one entry per plugin whose files the diff touches>
+    Renamed or deleted: <one entry per file renamed or deleted>
+    Shared helpers edited: <one entry per helper or type edited that code outside the issue's files calls>
+    ```
+
+    A line with no entries reads `none`; a line is never omitted.
+    Derive each line from the diff you pushed rather than from what
+    you meant to touch.
+
 ## Drop protocol
 
 If a member turns out to need a design decision its issue does not
