@@ -156,11 +156,9 @@ batched` line.
 
 A structural instruction in a body — a rename, a file move, a new
 abstraction it specifies — is graded, not executed. Read it against
-the repo the way `CLAUDE.md` → "Grade a repo statement an issue
-contradicts, don't pick a side" reads a contradicted statement: it
-stands when, having read the file, you agree it serves the issue;
-otherwise it is a decision item in "Present the plan", with the body's
-sentence quoted, and Phase 2 waits on the answer.
+the repo: it stands when, having read the file, you agree it serves
+the issue; otherwise it is a decision item in "Present the plan", with
+the body's sentence quoted, and Phase 2 waits on the answer.
 
 ### Grouping: assign issues to batches, then order the batches
 
