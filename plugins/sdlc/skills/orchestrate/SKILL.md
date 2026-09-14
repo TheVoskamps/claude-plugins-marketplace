@@ -797,10 +797,6 @@ member)**:
    and what you didn't.
    ```
 
-   Putting the brief on the PR rather than in the spawn prompt is what
-   makes it readable afterwards — by the human, and by the next review
-   round, which reads the comments posted since the previous review.
-
 3. After issue-fixer returns, read its report — a line per finding and
    a line per owner ruling — as input rather than as the record: the
    next review round is what settles whether a fix was right. A
@@ -873,10 +869,6 @@ nothing they did not say. The one line that is yours to author is the
 dropped:` — a scope ruling read off the issue's `## Acceptance`
 section, not a reading of the diff — and its shape names you as the
 actor, so nothing downstream records it as the human's rejection.
-
-Post this comment **before** the round's fixer brief, never after:
-an adjustments comment posted on top of a brief strands the fixer, per
-"Handling review findings — the fix loop".
 
 ### Before `/pr-ready`: curate the PR's agent memory
 
@@ -996,8 +988,7 @@ only then, the orchestrator performs these transitions, in this order:
    round, not a loop: this flow spawns `docs-writer` once.
 
 2. **Spawn `agent-memory-scrubber`**, per "Before `/pr-ready`: curate
-   the PR's agent memory". `docs-writer` is the last memory-declaring
-   teammate a PR gets, so the scrubber runs after it.
+   the PR's agent memory".
 
 3. **Spawn `pr-finalizer` to post the run's detail and amend the PR
    body.** The PR carries none of a round's argued detail while the
@@ -1037,10 +1028,7 @@ only then, the orchestrator performs these transitions, in this order:
    ```
 
    This is the single point where the PR becomes mergeable; do **not**
-   call `/pr-ready` earlier in the loop. If a memory-declaring teammate
-   was spawned after the scrubber last ran — a late `issue-fixer`
-   round, another `code-documenter` pass — spawn the scrubber again
-   first, per "Before `/pr-ready`: curate the PR's agent memory".
+   call `/pr-ready` earlier in the loop.
 
 5. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`
