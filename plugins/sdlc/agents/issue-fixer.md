@@ -325,8 +325,9 @@ cannot be confused by it.
 
 ## Rules
 
-- Address the review's findings and the brief's owner rulings, and
-  nothing else. Do not refactor unrelated code.
+- Address the review's findings as each one's scope ruling directs,
+  and the brief's owner rulings, and nothing else. Do not refactor
+  unrelated code.
 - Never edit a documentation file, as the preloaded
   `sdlc:documentation-definition` skill defines one. Documentation is
   `docs-writer`'s, once the review loop has ended. A finding whose

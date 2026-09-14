@@ -259,7 +259,7 @@ cheap moment for it: regrouping before any spawn is free, and after a
 branch carries commits and a PR it is not. Accept a regrouping
 instruction — re-emit the table with the change applied and confirm
 again. If the run is large (more than 8 issues across all batches),
-say so here and propose splitting it into two sessions.
+split it into two separate sessions and say so here before proceeding.
 
 Wait for explicit human confirmation before Phase 2. Do not spawn any
 teammates yet.
@@ -694,40 +694,20 @@ flattening them.
 
 **Read the report's closing `Return:` line first, and do what it
 says.** The harness surfaces every return as `status: completed`, so
-that line is what tells a finished round from an unfinished one:
+that line is what tells a finished round from an unfinished one.
+Before acting on a posted review, confirm it is on the PR:
 
-- `Return: posted review <VERDICT> — act on the verdict`. Confirm the
-  review exists on the PR before acting on it:
+```bash
+gh pr view <PR> --json reviews \
+  --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
+```
 
-  ```bash
-  gh pr view <PR> --json reviews \
-    --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
-  ```
-
-  then take the verdict's path below.
-- `Return: in progress: … — re-spawn to resume`. Re-spawn the reviewer
-  over the same PR with the same parameters, and nothing else: no
-  `issue-fixer`, since an in-progress return carries no findings; no
-  `code-documenter` or `style-checker` pass, since no commits landed;
-  no adjustments comment, since the human has nothing to adjust yet.
-  The re-spawn resumes the stalled round rather than starting it over,
-  so it is **not a new round** against the review-round cap; count it
-  in the round's report instead.
-- `Return: in progress: … — raise it` or `Return: broken call: … —
-  raise it`. Spawn nothing more for this PR; raise it as a **Needs
-  Your Attention** row, quoting the reviewer's line verbatim.
-
-Run the confirm above on an in-progress line too. A review posted
-under a line that says in progress is a discrepancy the re-read
-settles about the review's existence, not its trustworthiness — a
-reviewer wrong about whether it posted may be wrong about what it
-posted — so put that question to the human in conversation, with the
-two rulings open to them, and spawn nothing until the ruling arrives.
-Ruled trustworthy, the round stands: read its review file (see
-"Reading a round's detail") and take the verdict's path below. Ruled
-untrustworthy, re-spawn the reviewer, and the new round supersedes the
-questioned one. The discrepancy gets a **Needs Your Attention** row
-only when the human ends the run without ruling on it.
+A re-spawn to resume is **not a new round** against the review-round
+cap — count it in the round's report instead — and after two on one
+PR, raise it as a **Needs Your Attention** row rather than re-spawning
+again. A review the PR carries under an in-progress line is the
+human's to rule on — the round stands, or the reviewer is re-spawned
+and the new round supersedes it — and nothing spawns until they do.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member and un-tiered. Do not spawn the
@@ -834,6 +814,14 @@ member)**:
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
+**When every open Critical/High/Medium finding is ruled dropped**,
+steps 2 to 4 do not run: no `issue-fixer` spawns on a brief with
+nothing to fix. Instead, post the drop rulings as a review-adjustments
+comment, each as a rejected finding carrying the ruling's reason, and
+re-spawn the reviewer as step 5 says, so the next round retires those
+theorems as human-refuted rather than filing them again. That
+re-review posts a review, so it counts as a round against the cap.
+
 **A finding class that produces a new site each round is a design
 question, not a round.** Two findings are the same class when the
 reviewer files them under the same theorem, or when the second's fix
@@ -868,7 +856,9 @@ Write only what the human told you to write. This is a relay, not a
 judgment: an adjustment you author yourself would put your own reading
 of the diff into the next round's theorem list, which is exactly what
 "Spawn-prompt principle" forbids. Ask the human first, and post
-nothing they did not say.
+nothing they did not say. The one rejection that is yours to post is a
+finding ruled `— outside the issue; dropped:` — a scope ruling read off
+the issue's `## Acceptance` section, not a reading of the diff.
 
 Post this comment **before** the round's fixer brief, never after:
 an adjustments comment posted on top of a brief strands the fixer, per
@@ -1134,12 +1124,8 @@ The rest of this file says what you spawn and when. This section is
 what you do and do not do yourself, and it keeps only what no agent
 definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
 
-- **Never merge a PR.** Every PR the flow produces is born a draft,
-  stays a draft through the whole review/fix loop, and is flipped
-  ready only in Phase 3 on the human's confirmation; even then the
-  human performs the merge. The repo's auto-merge workflow filters
-  `isDraft == false`, so the draft state makes that a property of the
-  PR rather than a rule in prose.
+- **Never merge a PR.** The merge is the human's, after the ready flip
+  they confirm in Phase 3.
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
   you never use `Edit`, `Write` or `NotebookEdit`; never author a
@@ -1149,10 +1135,16 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
   hand-edit conflict markers in the primary clone; and never delete,
   transfer or rewrite a captured memory entry. Doing any of it to save
   a spawn is not a saving — see "Token Efficiency".
-- **Never act on a teammate's escalation without the human.** Relay it
-  verbatim and wait; never repair its environment — worktree, lock,
-  branch claim, in-flight commits — or resume it on your own. When the
-  human says retry, re-dispatch fresh.
+- **Never write a closing keyword immediately before an issue
+  reference, and never instruct a teammate to.** A closing keyword
+  (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
+  `resolves`/`resolved`, case-insensitive) immediately followed by an
+  issue reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL)
+  auto-closes that issue on merge, from a PR comment as readily as
+  from a commit message. The PR body's closing lines are the one place
+  they belong, and `/pr-link-issue` writes those.
+- **Never repair an escalating teammate's environment** — worktree,
+  lock, branch claim, in-flight commits — on your own.
 - **Never regroup a batch after its developer has spawned.** Grouping
   is settled at the Phase 1 confirm step; once a branch carries
   commits and a PR, the only way a member leaves the batch is the
