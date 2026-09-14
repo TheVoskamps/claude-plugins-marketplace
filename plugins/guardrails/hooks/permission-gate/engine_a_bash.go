@@ -131,19 +131,6 @@ func classifyBash(command string, ev *Event) Decision {
 	// …`. The gate denies each with a remediation naming the two-call
 	// replacement — `cd <path>`, then the bare `git <subcommand>` — rather
 	// than letting the compound shape through.
-	//
-	// It runs BEFORE the extraction below, and must: it Walks the WHOLE file,
-	// and brace expansion (staticForItems) calls syntax.SplitBraces, which
-	// rewrites a word's Parts in place, leaving a *syntax.BraceExp that
-	// syntax.Walk panics on. A pre-extraction Walk therefore has to run before
-	// staticForItems mutates anything, which is here.
-	//
-	// That is not a claim that the extraction Walks nothing: the home
-	// chokepoint Walks each statement it reaches (gradeHomeWords). Such a Walk
-	// is unsafe over a statement the `for` fan-out has already re-walked, whose
-	// words carry the split Parts.
-	//
-	// TODO(#436): make the chokepoint's Walk safe over fan-out-rewritten words.
 	if d, hit := forbiddenForm(file); hit {
 		return d
 	}
@@ -2182,12 +2169,17 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 		}
 	}
 
-	// Capture the raw, pre-mutation printed form for the dotdot-comma-list
-	// cross-check below; SplitBraces mutates w's Parts in place.
 	raw := printWord(w)
 
-	syntax.SplitBraces(w)
-	subWords := expand.Braces(w)
+	// Split braces on a copy of the word, never on w itself: the parsed tree
+	// is walked again after this returns (the outer `for` fan-out re-walks a
+	// nested statement once per outer item, and syntax.Walk panics on a
+	// *syntax.BraceExp), so the tree must never carry one. A struct copy
+	// suffices because SplitBraces replaces the Word's fields wholesale and
+	// copies each *syntax.Lit it rewrites rather than editing it in place.
+	split := *w
+	syntax.SplitBraces(&split)
+	subWords := expand.Braces(&split)
 
 	declined := false
 	items := make([]string, 0, len(subWords))
@@ -2296,9 +2288,8 @@ func hasDotDotBraceMember(raw string) bool {
 // unpinnable-path DEFER — rather than guess at bash's grammar.
 //
 // $VAR / other non-literal word parts around the brace group (e.g.
-// `{a,../b}$X.md`) are not visible in raw's flat text once mutated by
-// SplitBraces, so this fallback is only invoked on the word's raw
-// PRE-mutation text captured in staticExpandItem — meaning a brace group
+// `{a,../b}$X.md`) are visible only in the word's raw printed text, which
+// staticExpandItem captures before splitting — meaning a brace group
 // combined with an adjacent $VAR is out of scope for this fallback and
 // naturally falls to ok=false (the raw text still contains the unresolved
 // "$X" token, which literalWord would already have marked inexact on the
