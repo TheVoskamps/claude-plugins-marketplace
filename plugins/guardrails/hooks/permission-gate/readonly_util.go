@@ -1187,8 +1187,12 @@ var awkPathValueFlags = map[string]bool{
 // returned, mirroring sedFileOperands: a flag value is not a path operand of the
 // command. A flag outside this grammar is skipped as a bool flag; awkDefers
 // refuses the invocation's ALLOW on it, but only after these operands have been
-// contained, so a value such a flag consumes is walked as a positional: a
-// mismodelled flag can put an extra path through containment, never drop one.
+// contained, so a value such a flag consumes is walked as a positional, and its
+// slot decides its fate: after the program text it is contained as an extra
+// file, but in the program-text slot it is dropped uncontained. A value-taking
+// flag that awkDefers lists as a bool one has its value walked the same way,
+// with no refusal to follow, so the flag tables are load-bearing for
+// containment.
 func awkFileOperands(args []string) []string {
 	valueFlags := awkOperandValueFlags
 	programSuppliedByFlag := false
@@ -1263,8 +1267,12 @@ func dropAssignmentOperands(operands []string) []string {
 //
 // A flag outside grep's known grammar is skipped as a bool flag. grepDefers
 // refuses the invocation's ALLOW on it, but only after these operands have
-// been contained, so a value such a flag consumes is walked as a positional: a
-// mismodelled flag can put an extra path through containment, never drop one.
+// been contained, so a value such a flag consumes is walked as a positional,
+// and its slot decides its fate: after the pattern it is contained as an
+// extra file, but in the pattern slot it is dropped uncontained. A
+// value-taking flag that grepDefers lists as a bool one has its value walked
+// the same way, with no refusal to follow, so the flag tables are
+// load-bearing for containment.
 func grepFileOperands(args []string) []string {
 	patternSuppliedByFlag := false
 	var operands []string
