@@ -209,6 +209,9 @@ func classifyBash(command string, ev *Event) Decision {
 	haveDeferAnalysis := false
 	var residualDefer Decision
 	haveResidualDefer := false
+	// Cleared here rather than trusted: the event is this call's, but a caller
+	// may classify more than one line against it.
+	ev.rodeOperatorListing = false
 
 	for _, sc := range cmds {
 		d := classifySimpleCommand(sc, ev)
@@ -264,10 +267,18 @@ func classifyBash(command string, ev *Event) Decision {
 	// in-worktree `cp` both reach here with BucketAllow while plainly mutating,
 	// so the line claimed something the gate had not established. Restated
 	// rather than deleted, because a reason surfaced to the model should say
-	// why the call was blessed.
-	return allow("every command part has positive grounds to be safe: the operation itself cannot write, " +
-		"or its targets are confined to a region designated safe by construction (this worktree, or the " +
-		"harness scratchpad)")
+	// why the call was blessed. The regions are named as a disjunction because
+	// the per-part reasons are not carried here; the operator listing joins it
+	// only when containment reported a target of this line as operatorListed
+	// (Event.rodeOperatorListing), so the reason never advertises a listing the
+	// line never touched.
+	regions := "this worktree, or the harness scratchpad"
+	if ev.rodeOperatorListing {
+		regions = fmt.Sprintf("this worktree, the harness scratchpad, or paths the operator listed in %s",
+			operatorCarveOutConfigPath())
+	}
+	return allow(fmt.Sprintf("every command part has positive grounds to be safe: the operation itself cannot "+
+		"write, or its targets are confined to a region designated safe by construction (%s)", regions))
 }
 
 // parseErrorCauseSentence names the syntax defect behind a parser error when it
@@ -385,6 +396,17 @@ type simpleCommand struct {
 	// as `cat ../sibling-repo/.env`. A `/dev/null` source is not recorded (it
 	// discloses nothing, and containment would read it as an out-of-repo path).
 	inputRedirectTargets []string
+	// redirectGlued holds the expanded literals of the words — argv operands
+	// and redirect targets alike — that the line spells with no blank between
+	// them and a redirect. The parser cuts such a run at the redirect operator,
+	// so the word it hands back is not the token every shell reads: zsh, the
+	// Bash tool's shell, lexes `sub/<1-3>.md` as one word carrying a numeric-
+	// range glob, where the parse yields the operand `sub/` and two redirects.
+	// The operator listing (allows(), operator_carveout.go) is the one
+	// consumer: it refuses to grade a word recorded here, because the files
+	// the shell opens are not the ones the listing would match. Every other
+	// grading of the word runs on the parsed spelling as before.
+	redirectGlued []string
 	// redirectOnly marks a synthetic command that carries NOTHING BUT redirects:
 	// the statement they were attached to runs no program at all (a bare `> f`,
 	// `[[ -f x ]] > f`, `(( i++ )) > f`, `let n=1 > f`, `export A=1 > f`,
@@ -1224,8 +1246,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// item list makes the loop variable's entire value set
 			// visible at parse time. When every item resolves to an exact
 			// literal (directly, via brace expansion, via a known-variable
-			// expansion, or via a glob's containment-relevant directory
-			// prefix — see staticForItems), fan out: walk c.Do once per item
+			// expansion, or as a glob's own unexpanded pattern — see
+			// staticForItems), fan out: walk c.Do once per item
 			// with the loop variable bound to that item's value, so body uses
 			// of "$x" resolve instead of staying inexact / fail-closed. Every
 			// item is walked — an escaping item later in the list is still
@@ -1414,7 +1436,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		if walkErr == nil && len(stmt.Redirs) > 0 && len(out) == emitted {
 			cc := curCC()
 			sc := simpleCommand{}
-			applyRedirs(&sc, redirs, knownVars, resolver, cc)
+			applyRedirs(&sc, redirs, knownVars, resolver, cc, redirectGluedWords(nil, redirs))
 			// Nothing gradeable (every target was /dev/null and statically
 			// resolvable, or the statement carried only heredocs / descriptor
 			// duplications): emitting here would cost an otherwise-clean line a
@@ -1455,7 +1477,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) (simpleCommand, error) {
 	sc := simpleCommand{}
 
-	applyRedirs(&sc, redirs, knownVars, resolver, cc)
+	glued := redirectGluedWords(c.Args, redirs)
+	applyRedirs(&sc, redirs, knownVars, resolver, cc, glued)
 
 	// An inline environment-assignment prefix on the CallExpr itself
 	// (`AWS_ENDPOINT_URL=… aws …`, `GIT_SSH_COMMAND=… git …`) sets env for THIS
@@ -1476,6 +1499,9 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		}
 		sc.args = append(sc.args, lit)
 		sc.argMeta = append(sc.argMeta, argMeta{exact: exact, staticPrefix: staticWordPrefix(w)})
+		if glued[w] {
+			sc.redirectGlued = append(sc.redirectGlued, lit)
+		}
 	}
 
 	// Strip leading `env` wrapper and its VAR=val args. Repeat in case
@@ -1534,13 +1560,19 @@ const redirectOnlyProgram = "shell redirect"
 //
 // Redirects live on the enclosing *syntax.Stmt, not the CallExpr, and a compound
 // statement's redirects reach here through mergeRedirs.
-func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) {
+//
+// glued is redirectGluedWords' answer for the statement; a recorded target
+// whose word is in it is recorded under sc.redirectGlued as well.
+func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx, glued map[*syntax.Word]bool) {
 	// Detect redirections to real files (anything other than /dev/null).
 	for _, r := range redirs {
 		if r.Word == nil {
 			continue
 		}
 		target, exact := literalWord(r.Word, knownVars, resolver, cc)
+		if glued[r.Word] {
+			sc.redirectGlued = append(sc.redirectGlued, target)
+		}
 		// A redirect target built from a non-anchor command substitution, an
 		// OUTPUT process substitution, or an unresolved expansion (e.g.
 		// `cmd > "$DYNAMIC"`) cannot be statically proven safe. Such a command
@@ -1599,6 +1631,84 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 		// reads, so grading it as a path would deny ordinary `cat <<EOF` scripts.
 		// Descriptor duplications (`<&`, `>&`) name a descriptor, not a file.
 	}
+}
+
+// redirectGluedWords reports which of a statement's words the line spells
+// glued to a redirect: an argument word a redirect begins at the very end of,
+// or a redirect target another redirect begins at the end of or ends at the
+// start of. It reads the parser's byte offsets rather than the source text,
+// which record the same fact: the parser ends a word only at a blank, an
+// operator or the end of the line, so two spans that share an offset had no
+// blank between them on the line. A redirect's span runs from its descriptor
+// number or operator to the end of its target, so a target glued to its own
+// operator (`>out`) is not glued by this measure — that is how bash and zsh
+// both spell a redirect.
+//
+// An argument word touching a redirect glues the argument and not the
+// redirect's target: in `echo x> listed` the parser cuts `x` at the operator,
+// which is the word the shell may read differently, while `listed` stands a
+// blank away from everything and is the word every shell opens. Two redirects
+// touching glue both targets, since a run such as `<1-3>listed` is one word to
+// zsh from its first operator to its last target.
+//
+// Adjacency is enough, with no chain to follow: two argument words are never
+// glued (the parser would have read them as one), so every glued run holds a
+// redirect, and every word in it touches one.
+//
+// The result is keyed by word so the callers can record each word's expanded
+// literal under the simpleCommand they build; redirectGlued on simpleCommand
+// says what the listing does with it.
+func redirectGluedWords(args []*syntax.Word, redirs []*syntax.Redirect) map[*syntax.Word]bool {
+	type span struct {
+		start, end uint
+		word       *syntax.Word
+		arg        bool
+	}
+	spans := make([]span, 0, len(args)+len(redirs))
+	for _, w := range args {
+		spans = append(spans, span{w.Pos().Offset(), w.End().Offset(), w, true})
+	}
+	for _, r := range redirs {
+		if r.Word == nil {
+			continue
+		}
+		start := r.OpPos.Offset()
+		if r.N != nil {
+			start = r.N.Pos().Offset()
+		}
+		spans = append(spans, span{start, r.Word.End().Offset(), r.Word, false})
+	}
+	glued := map[*syntax.Word]bool{}
+	for i, a := range spans {
+		for _, b := range spans[i+1:] {
+			if a.end != b.start && b.end != a.start {
+				continue
+			}
+			// A redirect's target is glued by the other span only when that
+			// span is a redirect too; an argument glues itself alone.
+			if a.arg || !b.arg {
+				glued[a.word] = true
+			}
+			if b.arg || !a.arg {
+				glued[b.word] = true
+			}
+		}
+	}
+	return glued
+}
+
+// gluedToRedirect reports whether operand is, or was cut from, a word the
+// line spells glued to a redirect (redirectGlued). An operand grammar can
+// hand back the value of a path-valued flag rather than the whole token —
+// `--file=<path>` yields `<path>` — so a recorded word that ends with the
+// operand counts: the redirect was glued to the end of that same token.
+func (sc simpleCommand) gluedToRedirect(operand string) bool {
+	for _, w := range sc.redirectGlued {
+		if strings.HasSuffix(w, operand) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripEnvWrapper removes a leading `env` and any leading VAR=val tokens so
@@ -1994,7 +2104,7 @@ const maxForFanOut = 64
 // `for x in <words>` header, and whether ALL of them are exact. It
 // expands every statically-knowable form — brace expansion, a bare
 // known-variable word (split on IFS the way bash word-splits an unquoted
-// expansion), and a glob's containment-relevant directory prefix — and fans
+// expansion), and a glob bound as its own unexpanded pattern — and fans
 // out to the cross product of item words. A single irreducibly dynamic item
 // (command substitution, an unresolved parameter expansion, or a relative
 // glob while cwdInvalid) makes the WHOLE list non-static, since the loop
@@ -2002,9 +2112,9 @@ const maxForFanOut = 64
 //
 // cwdInvalid is whether the running cwd tracked through the walk is
 // currently invalid; used to fail closed on a relative glob item (case 3,
-// see globDirPrefix) that cannot be safely anchored. The resolved directory
-// prefix itself is left relative and resolved later, at containment time,
-// against the command's own tracked cwd (globDirPrefix's doc comment).
+// see globAnchorable) that cannot be safely anchored. A relative pattern is
+// left relative and resolved later, at containment time, against the
+// command's own tracked cwd (globAnchorable's doc comment).
 func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	items := make([]string, 0, len(wi.Items))
 	for _, w := range wi.Items {
@@ -2034,8 +2144,9 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 //     via literalWord/case 3 below, matching bash's no-split-when-quoted
 //     semantics.
 //  3. Every other resolved sub-word: literalWord — a straight literal, or a
-//     glob against the tracked running cwd (globDirPrefix), or (if none of
-//     the above apply) irreducibly dynamic → fail closed.
+//     glob kept as its own pattern against the tracked running cwd
+//     (globAnchorable), or (if none of the above apply) irreducibly dynamic
+//     → fail closed.
 //
 // mvdan.cc/sh's own syntax.SplitBraces declines to split any brace element
 // containing "..", as a guard against ambiguity with the `{x..y}` sequence
@@ -2117,19 +2228,12 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 		return fallbackItems, true
 	}
 
-	final := make([]string, 0, len(items))
 	for _, val := range items {
-		if hasGlobMeta(val) {
-			dir, ok := globDirPrefix(val, cwdInvalid)
-			if !ok {
-				return nil, false
-			}
-			final = append(final, dir)
-			continue
+		if hasGlobMeta(val) && !globAnchorable(val, cwdInvalid) {
+			return nil, false
 		}
-		final = append(final, val)
 	}
-	return final, true
+	return items, true
 }
 
 // hasDotDotBraceMember reports whether raw contains a top-level (unnested)
@@ -2270,13 +2374,8 @@ func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
 	items := make([]string, 0, len(members))
 	for _, m := range members {
 		val := unescape(prefix) + unescape(m) + unescape(suffix)
-		if hasGlobMeta(val) {
-			dir, ok := globDirPrefix(val, cwdInvalid)
-			if !ok {
-				return nil, false
-			}
-			items = append(items, dir)
-			continue
+		if hasGlobMeta(val) && !globAnchorable(val, cwdInvalid) {
+			return nil, false
 		}
 		items = append(items, val)
 	}
@@ -2295,59 +2394,40 @@ func hasGlobMeta(s string) bool {
 	return strings.ContainsAny(s, "*?[")
 }
 
-// globDirPrefix resolves a glob pattern's containment-relevant directory
-// prefix, without reading the filesystem. Containment is pure
-// path arithmetic: every path a glob like `*.md` or `src/*.go` can possibly
-// match is a child of the pattern's directory prefix (the portion before the
-// first path segment that itself contains a glob metacharacter), so binding
-// the loop variable to that prefix directory makes every possible match
-// share the prefix's own containment verdict — whichever containmentResult it
-// earns — via the existing pathUnder equal-or-nested check.
+// globAnchorable reports whether a glob item can be bound as a loop value at
+// all. The loop variable is bound to the PATTERN itself, unexpanded, so a body
+// use such as `cat "$f"` reaches containment as `cat <pattern>` — the verdict
+// the same command has when the glob is written directly, which is the one
+// verdict every file the loop can iterate shares. Containment on a pattern is
+// pure path arithmetic, without reading the filesystem: the pathUnder checks
+// see only the pattern's literal directory prefix, since every match is a
+// child of it, and the operator listing grades the pattern as written
+// (shellOperandListable, operator_carveout.go): a bare `*` segment is covered
+// only by an entry that covers every name it can expand to, and any other
+// expansion syntax withholds the listing.
 //
-// The scratchpad carve-out is the one verdict that is not purely
-// pathUnder: inside <system-tmp>/claude-<uid> the verdict also depends on
-// whether the remainder matches the per-session shape. It cannot fail open
-// here, because the shape is closed under descent — a remainder that matches
-// keeps matching with more segments appended, so a session-shaped prefix
-// implies session-shaped matches, while a prefix that stops short of a session
-// directory earns the more conservative unshaped-remainder region (never the
-// carve-out ALLOW its matches might individually have earned).
+// The pattern is bound rather than its directory prefix because the listing's
+// globs are not closed under descent (a `*` segment stops at a separator): an
+// entry such as `cc-tools/*` matches the prefix directory `cc-tools/sub` while
+// matching none of the files beneath it, so a loop bound to that prefix would
+// ride the listing over `cc-tools/sub/*` where a direct read of one of those
+// files does not. The pattern carries the depth a prefix discards.
 //
-// The returned prefix is deliberately left
-// relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
-// into the loop body, and the EXISTING containment pipeline
+// A relative pattern is deliberately left relative: the caller feeds it
+// through knownVars into the loop body, and the EXISTING containment pipeline
 // (containPathOperands -> testContainmentFrom) already resolves a relative
 // operand against the command's own tracked running cwd (sc.cwd) at
-// classification time — resolving it again here would be redundant, not more
-// correct. This resolves the containment QUESTION without ever asking "which
-// files actually exist".
+// classification time — resolving it here would be redundant, not more
+// correct.
 //
-// ok is false when the prefix cannot be safely resolved: cwdInvalid (an
-// earlier dynamic `cd` invalidated the running cwd) means a RELATIVE
-// glob cannot be safely anchored, so the caller keeps the whole for-list
-// inexact and off the allow track, matching cdInvalidDefer's posture for every
-// other relative operand. An absolute glob (`/abs/*.md`) is unaffected by
-// cwdInvalid, since it needs no cwd to resolve.
-func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
-	segs := strings.Split(pattern, "/")
-	var prefix []string
-	for _, seg := range segs {
-		if hasGlobMeta(seg) {
-			break
-		}
-		prefix = append(prefix, seg)
-	}
-	dir := strings.Join(prefix, "/")
-	if dir == "" {
-		dir = "."
-	}
-	if filepath.IsAbs(dir) {
-		return dir, true
-	}
-	if cwdInvalid {
-		return "", false
-	}
-	return dir, true
+// It is false when cwdInvalid (an earlier dynamic `cd` invalidated the
+// running cwd) and the pattern is RELATIVE: such a glob cannot be safely
+// anchored, so the caller keeps the whole for-list inexact and off the allow
+// track, matching cdInvalidDefer's posture for every other relative operand.
+// An absolute glob (`/abs/*.md`) is unaffected by cwdInvalid, since it needs
+// no cwd to resolve.
+func globAnchorable(pattern string, cwdInvalid bool) bool {
+	return filepath.IsAbs(pattern) || !cwdInvalid
 }
 
 // isResolvableParamExp reports whether a parameter expansion is a plain

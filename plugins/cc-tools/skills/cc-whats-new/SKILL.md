@@ -45,13 +45,12 @@ headings and no dates; `last-run` is what filters the issue search,
 which is dated and versionless. Both are needed — neither substitutes
 for the other.
 
-Read it with the `Read` tool, for the reason the topics contract gives,
-requiring `schema-version: 1`. A malformed file is not a watermark to
-guess at: report the path and stop, so a hand-edit that broke the file
-is not silently overwritten. A `schema-version` lower than the pin
-stops the same way, naming both versions — the one the file carries and
-the `1` this skill requires. A **higher** version reads fine — take the
-two keys and ignore the rest.
+Read it with the `Read` tool, requiring `schema-version: 1`. A
+malformed file is not a watermark to guess at: report the path and
+stop, so a hand-edit that broke the file is not silently overwritten. A
+`schema-version` lower than the pin stops the same way, naming both
+versions — the one the file carries and the `1` this skill requires. A
+**higher** version reads fine — take the two keys and ignore the rest.
 
 If the file is absent, this is a first run: report that, use the 30
 days before today as the window, and say in the report that the

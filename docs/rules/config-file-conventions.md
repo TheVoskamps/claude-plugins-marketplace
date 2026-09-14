@@ -43,16 +43,16 @@ names the relocated path, the config a plugin writes is still at the
 path this document prescribes, and is still correct — but it is
 unreachable from a tool-mediated read or write,
 because no carve-out covers it. A reader that is not a tool call at all
-— a script running inside a claude-vm guest, say — is unaffected. The
-**Bash tool** is not one of those: the carve-out reaches the file-tool
-track only, so a skill that reads its own config with `cat` or `grep` is
-denied on every machine, carve-out or not. `Read` is the only spelling a
-listing can reach, and it reaches it only for a path that machine's
-operator actually listed — on an unconfigured machine the `Read` denies
-too, and a skill has to survive that rather than assume the file is
-readable. See
+— a script running inside a claude-vm guest, say — is unaffected. A
+listed path is reachable from every tool the agent holds — `Read`,
+`Write`, `Edit`, and a Bash `cat`, `grep` or redirect alike — and an
+unlisted one from none of them; which tools an agent holds is its
+`tools:` frontmatter's decision, not the gate's. The listing reaches a
+path only when that machine's operator actually listed it — on an
+unconfigured machine every read of it denies, and a skill has to
+survive that rather than assume the file is readable. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md)
-for the carve-out's schema and scope limits.
+for the carve-out's schema.
 
 ## State goes under `$XDG_STATE_HOME/<plugin>/`
 

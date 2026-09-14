@@ -156,9 +156,10 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 			return d
 		}
 		// containPathOperands is called directly rather than through
-		// containInputRedirects: this is not a write command borrowing the read
-		// grading, so its terminal ALLOW for an all-scratchpad source must be
-		// delivered rather than discarded.
+		// containReadSources: this is not a write command borrowing the read
+		// grading, so its terminal ALLOW — every source in a harness-owned
+		// scratchpad region or on the operator listing — must be delivered
+		// rather than discarded.
 		if d, ok := containPathOperands(prog, sc.inputRedirectTargets, sc, ev); !ok {
 			return d
 		}

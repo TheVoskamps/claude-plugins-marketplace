@@ -66,17 +66,12 @@ topics:
 
 ## Reading it
 
-Read it with the `Read` tool, never `cat` or `grep` from Bash. The
-permission gate's operator carve-out reaches the file-tool track
-only, so a Bash read is denied on every machine whether or not the
-operator listed a glob.
-
 Every skill that reads the file handles each of these outcomes:
 
 - **Absent** — invoke `/cc-tools:cc-seed-config` to write it, say in
   your own report that the config was seeded and at which path, and
   proceed on the topics it wrote.
-- **Unreadable** — the `Read` denies. Report the tool's error verbatim
+- **Unreadable** — the read denies. Report the tool's error verbatim
   and the path it was denied at, and name no cause: a denial says
   nothing about why, so any explanation you offer is a guess the user
   will act on. Then offer to invoke `/cc-tools:cc-seed-config`, in case

@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,17 +34,19 @@ import (
 // them follow $XDG_CONFIG_HOME / $XDG_STATE_HOME, and without it they follow
 // only the `config-home-default` / `state-home-default` spellings the file
 // gives. Reading an environment variable lets whatever set that variable
-// relocate a root, so the opt-in is bounded by the denies below rather
-// than by refusing to read the variable at all: nothing under a `.git/`
-// segment is ever handed out, and no write to this config file itself is ever
-// allowed. In practice the hook inherits the launcher's environment, so the
-// only same-session route to a relocated root is a nested `claude` launch from
-// the Bash tool with an XDG assignment in front of it.
+// relocate a root, so the opt-in is bounded by denies rather than by refusing
+// to read the variable at all: nothing under a `.git/` segment is ever handed
+// out (testContainmentFrom withholds the region), and no write to this config
+// file itself is ever allowed (isSelfWrite, below). In practice the hook
+// inherits the launcher's environment, so the only same-session route to a
+// relocated root is a nested `claude` launch from the Bash tool with an XDG
+// assignment in front of it.
 //
-// Scope: the file-tool track only (classify_files.go's classifyFileTool). The
-// bash engine is deliberately untouched, so `cat ~/.config/cc-tools/x.md` is
-// still denied — see the README's carve-out section for why that asymmetry is
-// left standing rather than papered over here.
+// The listing is consulted in exactly one place, testContainmentFrom
+// (engine_b_containment.go), which reports a match as the operatorListed
+// region; every containment caller — the file tools and each bash track —
+// grades that region through scratchAllowEligible, so which tool an agent
+// holds is decided by its own `tools:` frontmatter and not by this gate.
 
 // operatorCarveOutSchemaVersion is the minimum `schema-version` this reader
 // understands, pinned here as a literal rather than derived. A higher stamp is
@@ -239,8 +242,19 @@ func (c operatorCarveOut) empty() bool {
 //
 // A target under more than one root — every path under a config-home that sits
 // inside the home directory is — is allowed when ANY of those roots lists it.
-func (c operatorCarveOut) allows(target string, base string, readClass bool) bool {
+//
+// shellPattern says the target is a Bash operand, which the shell will expand
+// before any file is touched, and glued says the line spells that operand
+// glued to a redirect. Only an operand shellOperandListable accepts is
+// matched at all; in one, a metacharacter segment is a bare `*`, and the match
+// has to hold for every file it can expand to (matchCarveOutGlob). A file-tool
+// path is a literal filename, `*`, `?` and `[` included, and is matched as
+// one.
+func (c operatorCarveOut) allows(target string, base string, readClass bool, shellPattern bool, glued bool) bool {
 	if c.empty() {
+		return false
+	}
+	if shellPattern && !shellOperandListable(target, glued) {
 		return false
 	}
 	if !readClass && c.isSelfWrite(target, base) {
@@ -251,10 +265,10 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 		if !ok {
 			continue
 		}
-		if matchAnyCarveOutGlob(r.write, rem) {
+		if matchAnyCarveOutGlob(r.write, rem, shellPattern) {
 			return true
 		}
-		if readClass && matchAnyCarveOutGlob(r.read, rem) {
+		if readClass && matchAnyCarveOutGlob(r.read, rem, shellPattern) {
 			return true
 		}
 	}
@@ -295,9 +309,8 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 // The LEXICALLY-cleaned spelling — the one `remainder` matches the globs
 // against — is compared beside it so the deny is never read off a different
 // path than the glob match that would otherwise hand the write out. Comparing
-// both can only widen the deny, and a widened deny inside the carve-out arm
-// hands the call back to the verdict it would have had without the carve-out
-// anyway.
+// both can only widen the deny, and a widened deny hands the call back to the
+// verdict it would have had without the listing anyway.
 //
 // Both sides also pass through selfWriteResolveLink, so a spelling whose final
 // segment is a symlink at a file that does not exist yet is compared as the
@@ -548,10 +561,87 @@ func lexicalAbs(target string, base string) string {
 	return filepath.Clean(target)
 }
 
+// shellOperandListable reports whether a Bash operand is one the listing can
+// grade: the line spells it as a word of its own, and the word is a plain
+// literal path. A leading `/`, a leading `~/` or a bare `~` (the two tilde
+// spellings hasLeadingTilde and lexicalAbs expand) is admitted as the
+// opening, and every segment past it — which is the whole of a relative
+// operand — is either `*` alone or spelled only in the characters a filename
+// plainly carries: letters, digits, `.`, `_` and `-`. An empty word and a
+// `..` segment are withheld as well.
+//
+// The listing is matched against the operand the gate holds, and the shell
+// opens whatever that operand expands to, so the two have to name the same
+// files. The rule is stated as what is ADMITTED rather than what is withheld,
+// because the shell is zsh, which gives characters a meaning of their own
+// that expand.Literal does not resolve, and a predicate that named each such
+// character as it was found was a round behind the next one. At a word's
+// opening, `=ls` is the path of the `ls` binary on $PATH under its equals
+// expansion and `~+` is `$PWD`; inside a segment, `#` and `^` are pattern
+// operators under `extendedglob`, so `ab#` opens `a`, `ab` and `abb` while
+// the literal names one file. Any character outside the plain set — `=`, a
+// `~` past the opening, `$`, `%`, `!`, `#`, `^`, a quote, whatever any shell
+// option may expand — is withheld without being named. The cost is a
+// filename carrying such a character, which then earns the verdict it has
+// without the listing; the gain is that every character the shell reads is
+// one the gate has held to a literal. The tilde forms outside the two
+// admitted ones show why that matters: expand.Literal hands `~+/x` over
+// untouched, so lexicalAbs joins it onto the base as a literal segment while
+// the shell opens `$PWD/x`, and under `home: write: ['**']` from a cwd of
+// `$HOME` the literal matches the glob for a write the shell delivers to the
+// config file itself, past the self-write deny that compares the same
+// literal.
+//
+// glued says the line spells the operand with a redirect glued to it
+// (simpleCommand.redirectGlued), and such an operand is withheld before its
+// segments are read: the parser cut the word at the redirect operator, and
+// zsh reads the whole run as one word, so `sub/<1-3>.md` reaches here as the
+// operand `sub/` while zsh opens `sub/1.md` through `sub/3.md` under its
+// numeric-range glob. A bare `*` is the one expansion the matcher can hold to
+// every file it reaches (matchGlobSegments), and the `.git/` rule then
+// withholds it wherever it sits (patternMayNameGitDir), since `dotglob` lets
+// it expand to `.git`. Every other expansion syntax is withheld outright
+// rather than modelled, because each has a spelling the model would miss:
+// path.Match reads a `[` class as a different set from bash — `[!a]` as the
+// two characters, and a POSIX `[[:alpha:]]` as a set that misses `g`, both
+// without error — a `{git,x}` brace group reaches here as one unsplit segment
+// that hasGlobMeta does not count as a pattern, and a `**` segment reaches
+// any depth under `globstar`. A `..` segment is withheld because lexicalAbs
+// cleans it away before the match, and after a segment the shell expands it
+// folds the operand onto a listed name — `cc-tools/**/../x.md` cleans to
+// `cc-tools/x.md` — while the shell opens `cc-tools/<dir>/x.md` for every
+// `<dir>` the segment expands to.
+//
+// The target is read as written, before lexicalAbs: a cleaned path has no
+// `..` segment left to see.
+func shellOperandListable(target string, glued bool) bool {
+	if glued || target == "" {
+		return false
+	}
+	rest := target
+	if hasLeadingTilde(target) {
+		rest = strings.TrimPrefix(target, "~")
+	}
+	for _, seg := range strings.Split(rest, "/") {
+		if seg == ".." {
+			return false
+		}
+		if seg == "*" {
+			continue
+		}
+		for _, r := range seg {
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '_' && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // matchAnyCarveOutGlob reports whether rem matches any glob in globs.
-func matchAnyCarveOutGlob(globs []string, rem string) bool {
+func matchAnyCarveOutGlob(globs []string, rem string, shellPattern bool) bool {
 	for _, g := range globs {
-		if matchCarveOutGlob(g, rem) {
+		if matchCarveOutGlob(g, rem, shellPattern) {
 			return true
 		}
 	}
@@ -567,17 +657,33 @@ func matchAnyCarveOutGlob(globs []string, rem string) bool {
 // no `**`, and filepath.Match on the whole path would let `*` cross separators,
 // so the segment walk below is the smallest thing that gives the documented
 // grammar.
-func matchCarveOutGlob(glob string, rem string) bool {
-	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"))
+//
+// With shellPattern set, the remainder is a Bash operand and can carry a bare
+// `*` segment — the one expansion shellOperandListable lets through, reaching
+// containment as the pattern the shell will expand (`cc-tools/sub/*`) whether
+// written directly or bound by a `for` loop (globAnchorable, engine_a_bash.go).
+// The verdict has to hold for every file it can expand to, so such a segment
+// is never handed to path.Match, which would compare the entry against the
+// metacharacter as text and let `?` cover `*`; it is covered only by an entry
+// segment that covers every name — `*`, or a `**` spanning it. Any other
+// metacharacter segment fails closed here, since no entry is held to model
+// what it expands to.
+//
+// Without shellPattern the remainder is a file-tool path, a literal filename
+// whatever characters it carries: `sdlc/pr[1]/notes.md` is covered by
+// `sdlc/pr*/notes.md` because the file is named `pr[1]`, and no shell is
+// there to read it as anything else.
+func matchCarveOutGlob(glob string, rem string, shellPattern bool) bool {
+	return matchGlobSegments(strings.Split(glob, "/"), strings.Split(rem, "/"), shellPattern)
 }
 
 // matchGlobSegments is matchCarveOutGlob's recursion over already-split
 // segments.
-func matchGlobSegments(pat []string, seg []string) bool {
+func matchGlobSegments(pat []string, seg []string, shellPattern bool) bool {
 	for len(pat) > 0 {
 		if pat[0] == "**" {
 			for i := 0; i <= len(seg); i++ {
-				if matchGlobSegments(pat[1:], seg[i:]) {
+				if matchGlobSegments(pat[1:], seg[i:], shellPattern) {
 					return true
 				}
 			}
@@ -586,8 +692,11 @@ func matchGlobSegments(pat []string, seg []string) bool {
 		if len(seg) == 0 {
 			return false
 		}
-		ok, err := path.Match(pat[0], seg[0])
-		if err != nil || !ok {
+		if shellPattern && hasGlobMeta(seg[0]) {
+			if seg[0] != "*" || pat[0] != "*" {
+				return false
+			}
+		} else if ok, err := path.Match(pat[0], seg[0]); err != nil || !ok {
 			return false
 		}
 		pat, seg = pat[1:], seg[1:]
