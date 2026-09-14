@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // A read-class command whose path argument is built from a variable that
@@ -890,4 +892,56 @@ func TestForLoopBraceInListBareTildeMemberDenied(t *testing.T) {
 	cmd := `for f in {~,a.md}; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
 	wantBucket(t, d, BucketDeny, "follow-up: bare '~' brace member must DENY (resolves to the real home directory, outside the repo)")
+}
+
+// TestForLoopNestedBracedInnerHeaderClassifies covers a nested `for` whose
+// INNER header carries a brace expansion. The outer fan-out re-walks the
+// same inner statement once per outer item, so a brace split that rewrote
+// the inner header's word in place would leave a *syntax.BraceExp behind for
+// the second pass's whole-subtree syntax.Walk to panic on. The nested form
+// must classify, and earn the single-level form's verdict.
+func TestForLoopNestedBracedInnerHeaderClassifies(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, f := range []string{"x1", "x2"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	control := classifyBash(`for b in x{1,2}; do cat $b; done`, ev)
+	nested := classifyBash(`for a in 1 2; do for b in x{1,2}; do cat $b; done; done`, ev)
+	if nested.Bucket != control.Bucket {
+		t.Errorf("nested braced inner header: got %v (%s), single-level control got %v (%s)",
+			nested.Bucket, nested.Reason, control.Bucket, control.Reason)
+	}
+	wantBucket(t, nested, BucketAllow, "nested for with a braced inner header classifies")
+}
+
+// TestStaticForItemsLeavesHeaderUnsplit pins the invariant the nested case
+// rests on: after staticForItems returns, the *syntax.WordIter it was given
+// carries no *syntax.BraceExp, so a later syntax.Walk over the statement
+// that holds it does not panic.
+func TestStaticForItemsLeavesHeaderUnsplit(t *testing.T) {
+	file := mustParse(t, `for b in x{1,2} {a,b}.md; do cat $b; done`)
+	wi := file.Stmts[0].Cmd.(*syntax.ForClause).Loop.(*syntax.WordIter)
+
+	items, ok := staticForItems(wi, map[string]string{}, false, defaultVarResolver(), cwdCtx{cwd: "/"})
+	if !ok || len(items) != 4 {
+		t.Fatalf("staticForItems: got %v, %v; want 4 static items", items, ok)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("syntax.Walk over the header after staticForItems panicked: %v", r)
+		}
+	}()
+	syntax.Walk(wi, func(n syntax.Node) bool {
+		if _, isBrace := n.(*syntax.BraceExp); isBrace {
+			t.Errorf("header word carries a *syntax.BraceExp after staticForItems")
+		}
+		return true
+	})
 }

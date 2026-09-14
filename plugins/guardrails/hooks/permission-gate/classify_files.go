@@ -279,16 +279,21 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 // for classifyPathReader). A path the operator listed counts as contained for
 // that purpose when it sits beside an ordinary in-worktree operand.
 //
-// ok=false means the returned Decision is TERMINAL — return it verbatim.
-// Usually that is a deny (cross-repo, a worktree escape, or a .git/-tree
-// read) or a defer-with-analysis (no repo context, or a defective scratchpad
-// root), but
-// it is also how the carve-out ALLOW is delivered: when every operand
-// lands in a read-eligible region (a session-shaped scratchpad directory,
-// the bundled-skills tree, or a path the operator listed), the read is
-// allowed outright rather than left to the caller's terminal, because the
-// DEFER terminal would still lose to a `/tmp` or `~/.config` deny entry in
-// settings.json. A deny found anywhere in the operand walk returns
+// ok=false means the returned Decision settles the paths: the caller's own
+// terminal no longer applies. Usually that is a deny (cross-repo, a worktree
+// escape, or a .git/-tree read) or a defer-with-analysis (no repo context, or
+// a defective scratchpad root), and those the caller returns verbatim. But it
+// is also how the carve-out ALLOW is delivered: when every operand lands in a
+// read-eligible region (a session-shaped scratchpad directory, the
+// bundled-skills tree, or a path the operator listed), the read is allowed
+// outright rather than left to the caller's terminal, because the DEFER
+// terminal would still lose to a `/tmp` or `~/.config` deny entry in
+// settings.json. That ALLOW is the one verdict a caller may hold: the
+// allow tracks (classifyReadOnlyUtility, classifyRedirectOnly) deliver it
+// only once the checks that follow containment and can only defer — a flag
+// grammar, the redirect veto — have passed, and the write track
+// (containReadSources) discards it, since a read source is no grounds to
+// bless a write. A deny found anywhere in the operand walk returns
 // immediately and so always outranks both the defer and the allow.
 //
 // With no operands there is nothing to contain, so ok=true and the caller's

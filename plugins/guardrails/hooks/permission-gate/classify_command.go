@@ -12,10 +12,14 @@ import (
 //     shell performs) → graded on the paths those redirects open.
 //  2. A command we cannot statically pin (no program token) → DEFER (with the
 //     analysis; it never reaches the allow track).
-//  3. A command with a redirect to a real file → DEFER (the normal pipeline's
-//     allow-list will not match it; we do not auto-allow exfiltration) — unless
-//     every destination is a session-shaped harness scratchpad, the one
-//     region designated safe by construction. See redirectVetoesAllow.
+//  3. A command with a redirect to a real file never ALLOWs: it DEFERS (the
+//     normal pipeline's allow-list will not match it; we do not auto-allow
+//     exfiltration) — unless every destination is a session-shaped harness
+//     scratchpad, the one region designated safe by construction. See
+//     redirectVetoesAllow. The veto withholds an ALLOW and nothing more, so
+//     the read-only-utility track and the redirect-only track run it after
+//     containment: an escaping read denies whatever the redirect does. The
+//     in-repo-write track runs it before containment.
 //  4. Program-specific DENY / hard-ASK / DEFER rules (git, gh, aws identity,
 //     etc.).
 //  5. Program-specific ALLOW rules (read-only git/gh/aws/acli).
@@ -123,26 +127,26 @@ const deferResidualOp = "bash:no-specific-rule"
 // `echo hi` and ALLOWed while the shell created the out-of-repo file.
 //
 // The grading deliberately mirrors classifyReadOnlyUtility for a utility with no
-// path operands of its own, in the same order — redirect veto, then read
-// containment, then the unknown-expansion fallback — because that is exactly what
-// this is: no argv to inspect, only the paths the redirects open. Reusing the
-// shape (and the same two helpers) is what keeps a redirect from carrying one
-// verdict when attached to `echo` and a different one when attached to a
+// path operands of its own, in the same order — read containment (or the
+// unknown-expansion fallback), then the redirect veto — because that is exactly
+// what this is: no argv to inspect, only the paths the redirects open. Reusing
+// the shape (and the same two helpers) is what keeps a redirect from carrying
+// one verdict when attached to `echo` and a different one when attached to a
 // construct, which is the inconsistency the redirect work exists to remove.
 //
 // So a destination outside the carve-out defers exactly as `echo x > <dest>`
 // does, a session-scratchpad destination allows exactly as `echo x >
 // <scratchpad>/f` does, and an out-of-repo input source denies exactly as
-// `cat < <src>` does.
+// `cat < <src>` does — with or without a destination beside it.
 func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 	prog := sc.args[0]
 
-	// A real-file destination the carve-out does not cover keeps the veto, so the
-	// write lands back in the normal pipeline rather than on the allow track.
-	if redirectVetoesAllow(sc, ev) {
-		return deferToPipeline()
-	}
-
+	// Containment on the input sources runs before the redirect veto, which
+	// can only defer, so an escaping source denies whatever the destination
+	// is. Its ALLOW for an all-carve-out source set is held until the veto has
+	// passed, since a vetoed destination withholds that ALLOW.
+	var carved Decision
+	haveCarved := false
 	if len(sc.inputRedirectTargets) > 0 {
 		// A source built from an expansion the gate cannot resolve, or a relative
 		// one after a dynamic `cd`, cannot be contained — DEFER, the same posture
@@ -161,7 +165,10 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 		// scratchpad region or on the operator listing — must be delivered
 		// rather than discarded.
 		if d, ok := containPathOperands(prog, sc.inputRedirectTargets, sc, ev); !ok {
-			return d
+			if d.Bucket != BucketAllow {
+				return d
+			}
+			carved, haveCarved = d, true
 		}
 	} else if sc.hasUnknownExpansion {
 		// No path to contain, but a redirect the gate could not pin statically
@@ -170,6 +177,15 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 		return deferToPipeline()
 	}
 
+	// A real-file destination the carve-out does not cover keeps the veto, so the
+	// write lands back in the normal pipeline rather than on the allow track.
+	if redirectVetoesAllow(sc, ev) {
+		return deferToPipeline()
+	}
+
+	if haveCarved {
+		return carved
+	}
 	return allow("every path this shell redirect opens is contained, or lands in a region designated " +
 		"safe by construction")
 }

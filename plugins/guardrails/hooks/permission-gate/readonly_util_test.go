@@ -672,3 +672,80 @@ func TestReadOnlyUtilitySpecHelpers(t *testing.T) {
 		}
 	}
 }
+
+// An escaping read carries its bare form's deny whatever the command's
+// redirects do: the redirect veto withholds only the ALLOW, so it runs after
+// containment has graded every path the command reads, on the read-only
+// utility track and on the redirect-only construct track alike. Rows run
+// under cwd = repo root and cwd = a linked worktree.
+func TestEscapingReadDeniesUnderAnyRedirect(t *testing.T) {
+	outside := t.TempDir()
+	state := filepath.Join(outside, "home", ".local", "state", "sdlc", "run.log")
+	sibling := filepath.Join(outside, "sibling", "secret")
+	for _, p := range []string{state, sibling} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sess := scratchTarget(os.Getuid(), sessionSlug, sessionUUID, "scratchpad", "x")
+
+	roots := map[string]string{}
+	{
+		base := t.TempDir()
+		repo := filepath.Join(base, "repo")
+		gitInit(t, repo)
+		roots["repo root"] = canonicalize(repo)
+	}
+	{
+		_, wt := setupWorktree(t)
+		roots["linked worktree"] = wt
+	}
+
+	for shape, root := range roots {
+		if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bev := bashEvIn(t, root, "issue-developer")
+
+		// Every escaping row, paired with its bare form. The verdict is the bare
+		// form's, byte for byte on the operation label.
+		for _, row := range []struct{ cmd, bare string }{
+			{"cat " + state + " > .claude/tmp/x", "cat " + state},
+			{"cat " + state + " > " + sess, "cat " + state},
+			{"cat " + state + " > /tmp/x", "cat " + state},
+			{"cat " + sibling + " > .claude/tmp/x", "cat " + sibling},
+			{"head -c 100 " + sibling + " > .claude/tmp/x", "head -c 100 " + sibling},
+			{"cat < " + state + " > .claude/tmp/x", "cat < " + state},
+			{"grep foo " + state + " > .claude/tmp/x", "grep foo " + state},
+			{"cat " + state + " | tee .claude/tmp/x", "cat " + state},
+			{"grep --no-such-flag foo " + sibling + " > .claude/tmp/x", "grep --no-such-flag foo " + sibling},
+			{"[[ -f a ]] < " + state + " > .claude/tmp/x && echo hi", "[[ -f a ]] < " + state + " && echo hi"},
+		} {
+			bare := classifyBash(row.bare, bev)
+			if bare.Bucket != BucketDeny || bare.Operation != "bash-read:cross-repo" {
+				t.Errorf("%s: bare form %q must deny bash-read:cross-repo; got %q/%q (%s)",
+					shape, row.bare, bare.Bucket, bare.Operation, bare.Reason)
+			}
+			got := classifyBash(row.cmd, bev)
+			if got.Bucket != bare.Bucket || got.Operation != bare.Operation {
+				t.Errorf("%s: %q must carry its bare form's verdict %q/%q; got %q/%q (%s)",
+					shape, row.cmd, bare.Bucket, bare.Operation, got.Bucket, got.Operation, got.Reason)
+			}
+		}
+
+		// The rows the reorder must not move: an in-repo read with an unlisted
+		// redirect still defers, a deferring flag on an in-repo read still
+		// defers, and a scratchpad destination still allows.
+		wantBucket(t, classifyBash("cat README.md > .claude/tmp/x", bev), BucketDefer,
+			shape+": in-repo read with an unlisted redirect keeps the veto")
+		wantBucket(t, classifyBash("[[ -f a ]] > .claude/tmp/x && echo hi", bev), BucketDefer,
+			shape+": redirect-only construct with an unlisted destination keeps the veto")
+		wantBucket(t, classifyBash("grep --no-such-flag foo README.md", bev), BucketDefer,
+			shape+": unrecognized flag on an in-repo read still defers")
+		wantBucket(t, classifyBash("cat README.md > "+sess, bev), BucketAllow,
+			shape+": in-repo read into the session scratchpad still allows")
+	}
+}
