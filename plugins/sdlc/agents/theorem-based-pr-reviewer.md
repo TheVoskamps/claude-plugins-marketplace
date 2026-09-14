@@ -679,7 +679,9 @@ thing, which patch-id deliberately does not.
 **The adjustment comments.** The human's input on a round — a rejected
 finding, a severity override, a missed defect — reaches later rounds
 only as a **PR comment the orchestrator posted on the human's
-instruction**. Read the comments posted since the previous review:
+instruction**, and a finding the orchestrator dropped on its own scope
+ruling travels in the same comment. Read the comments posted since the
+previous review:
 
 ```bash
 gh pr view <PR> --json comments \
@@ -718,6 +720,9 @@ the literal sweeps all of them.
 Apply each remaining comment to the carried records:
 
 - **A rejected finding** — its theorem retires as *human-refuted*.
+- **A scope-dropped finding** — a `dropped (scope ruling)` line — its
+  theorem retires as *scope-dropped*. The ruling is the orchestrator's,
+  not the human's, and the label is what keeps the two apart.
 - **A severity override** — it rewrites the derived severity of that
   theorem's finding, replacing what the class table would give.
 - **A missed defect** — it mints a **new** theorem, continuing the id
@@ -2058,8 +2063,9 @@ owns:
   round leaves it in. "Derive each theorem's disposition" does the
   stamping. `state-detail` says what settled it: `survived`,
   `disproved-but-refuted`, `subject removed` for a generator retirement,
-  or `human-refuted` for a rejected finding an adjustment comment
-  retired. On a `disproved` record, `state-detail` names the finding the
+  `human-refuted` for a rejected finding an adjustment comment retired,
+  or `scope-dropped` for one the orchestrator's scope ruling dropped
+  there. On a `disproved` record, `state-detail` names the finding the
   state produced instead — except on the one whose verifier never
   reported, where it is `unverified`, because that disposition produces
   no finding to name.

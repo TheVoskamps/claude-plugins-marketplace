@@ -108,11 +108,12 @@ skill computes.
      stalled round from its round log rather than starting it over, so
      the theorems already settled stay settled.
    - `Return: in progress: … — raise it`: tell the user the same, and
-     relay the reviewer's line verbatim with no offer: the reviewer
-     judged that another pass would settle nothing new.
-   - `Return: broken call: … — raise it`: no fan-out ran, and a
-     re-spawn composes the same call again. Quote the script's message
-     verbatim to the user and offer no re-spawn.
+     relay the reviewer's line verbatim with no offer, since this exit
+     means the reviewer judged that another pass would settle nothing
+     new.
+   - `Return: broken call: … — raise it`: quote the script's message
+     verbatim to the user with no offer, for a different reason: no
+     fan-out ran, and a re-spawn composes the same call again.
 
 4. **Relay the reviewer's verdicts and findings** back to the user, and
    say where the round's detail is — the state path above — since the

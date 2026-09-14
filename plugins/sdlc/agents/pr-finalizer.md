@@ -319,7 +319,9 @@ it is rather than when it was written. It carries:
   attempt and which was a repair.
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
-  grounds, a deferral to a follow-up issue, and the documentation
+  grounds, a finding dropped on the orchestrator's scope ruling — worded
+  as that ruling, never as the human's rejection — a deferral to a
+  follow-up issue, and the documentation
   `docs-writer` changed, which no review round checked — its per-file
   list as your brief carries it. Take these from your
   brief and from the non-brief PR comments, never from your own

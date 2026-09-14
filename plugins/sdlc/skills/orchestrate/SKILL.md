@@ -695,19 +695,25 @@ flattening them.
 **Read the report's closing `Return:` line first, and do what it
 says.** The harness surfaces every return as `status: completed`, so
 that line is what tells a finished round from an unfinished one.
-Before acting on a posted review, confirm it is on the PR:
+Before acting on a posted review, and on an in-progress line too,
+confirm what the PR carries:
 
 ```bash
 gh pr view <PR> --json reviews \
   --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
 ```
 
-A re-spawn to resume is **not a new round** against the review-round
-cap — count it in the round's report instead — and after two on one
-PR, raise it as a **Needs Your Attention** row rather than re-spawning
-again. A review the PR carries under an in-progress line is the
-human's to rule on — the round stands, or the reviewer is re-spawned
-and the new round supersedes it — and nothing spawns until they do.
+A line ending `— raise it`, in progress or broken call, spawns nothing
+more for this PR: raise it as a **Needs Your Attention** row on the
+first such return, quoting the reviewer's line verbatim. A re-spawn to
+resume is **not a new round** against the review-round cap — count it
+in the round's report instead — and after two on one PR, raise it as a
+**Needs Your Attention** row rather than re-spawning again. A review
+the PR carries under an in-progress line is the human's to rule on —
+the round stands, with its verdict and findings read from the round's
+review file per "Reading a round's detail", or the reviewer is
+re-spawned and the new round supersedes it — and nothing spawns until
+they do.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member and un-tiered. Do not spawn the
@@ -817,10 +823,11 @@ member)**:
 **When every open Critical/High/Medium finding is ruled dropped**,
 steps 2 to 4 do not run: no `issue-fixer` spawns on a brief with
 nothing to fix. Instead, post the drop rulings as a review-adjustments
-comment, each as a rejected finding carrying the ruling's reason, and
-re-spawn the reviewer as step 5 says, so the next round retires those
-theorems as human-refuted rather than filing them again. That
-re-review posts a review, so it counts as a round against the cap.
+comment, each as a `dropped (scope ruling)` line carrying the ruling's
+reason, and re-spawn the reviewer as step 5 says, so the next round
+retires those theorems as scope-dropped rather than filing them again.
+That re-review posts a review, so it counts as a round against the
+cap.
 
 **A finding class that produces a new site each round is a design
 question, not a round.** Two findings are the same class when the
@@ -848,6 +855,7 @@ Review adjustments for round <N>:
 
 - T7 — rejected. <the human's reason>
 - T11 — severity override: High → Low. <the human's reason>
+- T13 — dropped (scope ruling). <the reason it is outside the issue>
 - new — <the defect the human says the round missed>, in
   <file-or-location>.
 ```
@@ -856,9 +864,11 @@ Write only what the human told you to write. This is a relay, not a
 judgment: an adjustment you author yourself would put your own reading
 of the diff into the next round's theorem list, which is exactly what
 "Spawn-prompt principle" forbids. Ask the human first, and post
-nothing they did not say. The one rejection that is yours to post is a
-finding ruled `— outside the issue; dropped:` — a scope ruling read off
-the issue's `## Acceptance` section, not a reading of the diff.
+nothing they did not say. The one line that is yours to author is the
+`dropped (scope ruling)` line for a finding ruled `— outside the issue;
+dropped:` — a scope ruling read off the issue's `## Acceptance`
+section, not a reading of the diff — and its shape names you as the
+actor, so nothing downstream records it as the human's rejection.
 
 Post this comment **before** the round's fixer brief, never after:
 an adjustments comment posted on top of a brief strands the fixer, per
@@ -1046,11 +1056,10 @@ only then, the orchestrator performs these transitions, in this order:
    They flip together, because they ship together. Gated on a
    configured status slot — see "Issue-status transitions" below.
 
-None of them merges the PR; the human still owns the merge. If the
-human ends the loop without blessing a PR (e.g. it lands in "Needs
-Your Attention"), leave that PR draft and its issues In Progress, and
-spawn no `pr-finalizer`: the loop has not ended, so the body stays
-frozen for whatever round comes next.
+If the human ends the loop without blessing a PR (e.g. it lands in
+"Needs Your Attention"), leave that PR draft and its issues In
+Progress, and spawn no `pr-finalizer`: the loop has not ended, so the
+body stays frozen for whatever round comes next.
 
 ### Clean up, once, at the end
 
@@ -1175,7 +1184,7 @@ What you do yourself is orchestration mechanics:
   `pr-finalizer`'s alone.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
   `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and
-  `/pr-ready <PR>`. They set or read the PR's state; none merges it.
+  `/pr-ready <PR>`. They set or read the PR's state.
 - **Set issue status via `/issue-set-status`, and assign via
   `/issue-update`**, per "Issue-status transitions" below.
 - **File follow-up issues via `/issue-create`** — only when the human
