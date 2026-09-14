@@ -580,7 +580,16 @@ The gate's engines feed that decision:
   and the silent-drop shape and performs the split itself, so every
   member — including the escaping one — still flows through normal
   containment (worst-wins) instead of the whole list falling back to
-  an unnecessary escalation. The fallback only understands the single,
+  an unnecessary escalation. The split runs on a copy of the header
+  word, never on the parsed tree: the outer loop of a nested `for`
+  re-walks the inner statement once per outer item, and `syntax.Walk`
+  panics on the `*syntax.BraceExp` that `SplitBraces` leaves behind, so
+  the tree must never carry one — a nested `for` with a braced inner
+  header (`for a in 1 2; do for b in x{1,2}; do cat $b; done; done`)
+  once returned the fail-closed panic deny for exactly that reason. A
+  struct copy is enough because `SplitBraces` replaces the word's fields
+  wholesale and copies each literal it rewrites rather than editing it
+  in place. The fallback only understands the single,
   unnested `{a,b,c}` comma-list grammar; a brace form it does not
   handle (nested braces combined with `..`, a bare range form like
   `{1..9}` — ranges without a top-level comma resolve via the upstream
@@ -610,7 +619,18 @@ The gate's engines feed that decision:
   `jq -i`) or a write-destination operand (`uniq INPUT OUTPUT`,
   `find -delete`/`-exec`, `tee` to a real file); **or when it carries
   any unrecognized flag** — so a future or unmodeled mutating mode fails
-  safe. This fail-safe and write-form inspection covers the
+  safe. Each of those withholds only the ALLOW: every path the
+  invocation reads is contained before any of them is checked, so an
+  escaping read denies whatever redirect or flag sits beside it, and the
+  redirect or flag defers only a read containment passed. That order
+  makes the flag tables load-bearing for containment, not just for the
+  allow: an operand grammar walks the value of a flag it does not know as
+  a positional, so the value of a path-valued flag missing from the
+  table is contained as an extra file after the pattern or program slot
+  but dropped uncontained in that slot, and a value-taking flag the
+  table lists as a bool one has its value walked the same way with no
+  fail-safe defer to follow. This fail-safe and write-form inspection
+  covers the
   **always-read-only path-bearing utilities too** (not just the
   conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
   utility enumerates its read-only flag grammar, and anything outside it
@@ -1683,7 +1703,31 @@ The gate's engines feed that decision:
   resolve statically, an unresolvable running cwd, and a
   command whose *other* redirect escapes the region. The lift reaches
   exactly the allow tracks that call `redirectVetoesAllow` — the
-  read-only-utility classifier and the in-repo-write classifier.
+  read-only-utility classifier, the redirect-only classifier, and the
+  in-repo-write classifier. The veto withholds an ALLOW and nothing more,
+  so the two read tracks run it **after** containment: everything the
+  command reads — its path operands and its input-redirect sources — is
+  contained first, a deny or a defer from that walk is terminal, the
+  flag grammar's defer comes next on the track that has one, and only
+  a read that passed both reaches the veto's defer. The carve-out ALLOW
+  containment can return for an all-carve-out read set is held until
+  the flag and veto checks have passed, since either withholds it.
+  Spelled as an early return
+  ahead of containment, as it first was, the veto withheld the DENY too:
+  `cat <cross-repo> > .claude/tmp/x` deferred where `cat <cross-repo>`
+  denies, for any destination the carve-out does not cover — and
+  `.claude/tmp/` is the destination the gate's own deny messages
+  prescribe, so one appended token lifted a cross-repo read off its
+  deny and handed it to the auto-mode classifier. Now the escaping row
+  earns its bare form's deny, `bash-read:cross-repo`, under every
+  destination, a scratchpad destination included; the same reach means
+  a deferring flag beside an escaping read denies as well
+  (`grep --no-such-flag foo <cross-repo> > .claude/tmp/x` denies rather
+  than deferring on the flag), while the same redirect or flag on an
+  in-repo read still defers (`cat README.md > .claude/tmp/x`,
+  `grep --no-such-flag foo README.md`) and `cat README.md >
+  <scratchpad>/x` still allows. The in-repo-write classifier keeps the
+  veto ahead of its containment.
 
   **The credentialed tools grade their redirect too**
   (`credentialedRedirectVerdict`). The scratchpad carve-out left
@@ -1741,9 +1785,10 @@ The gate's engines feed that decision:
   repo while every operand it parses is contained; there the read
   source can only lose the ALLOW, never earn one. Heredocs and
   herestrings (`<<`, `<<-`, `<<<`) are inline text, not file reads, and
-  are deliberately not swept in; `<>` is graded for its read half but
-  sets no write flag, since `hasRedirectToFile` is checked *before*
-  containment and would replace this deny with a defer. An input source
+  are deliberately not swept in; `<>` is graded for its read half and
+  sets no write flag: its write half is unmodelled, and unreachable
+  without a further fd-duplication redirect (`>&0`) the gate does not
+  model either. An input source
   built from an unresolved expansion lands on the existing
   dynamic-path `defer`.
 
@@ -1776,13 +1821,15 @@ The gate's engines feed that decision:
   allow-eligible `echo hi` and **allowed** while the shell created the
   file. Such a statement now emits a synthetic **redirect-only** command
   (`simpleCommand.redirectOnly`), graded by `classifyRedirectOnly` on the
-  paths its redirects open — the redirect veto, then read containment,
-  then the unknown-expansion fallback, in the same order and through the
-  same helpers `classifyReadOnlyUtility` uses for a utility with no path
-  operands of its own. The result is the operand form's verdict in every
-  case: `> <out-of-repo>` defers like `echo x > <out-of-repo>`,
+  paths its redirects open — read containment on its input sources (or
+  the unknown-expansion fallback when it has none), then the redirect
+  veto, in the same order and through the same helpers
+  `classifyReadOnlyUtility` uses for a utility with no path operands of
+  its own. The result is the operand form's verdict in every case:
+  `> <out-of-repo>` defers like `echo x > <out-of-repo>`,
   `> <scratchpad>/f` allows like `echo x > <scratchpad>/f`, and
-  `< /etc/passwd` denies like `cat < /etc/passwd`. A redirect that names
+  `< /etc/passwd` denies like `cat < /etc/passwd`, with or without a
+  destination beside it. A redirect that names
   no file (`> /dev/null`, `>&2`, a heredoc) is not emitted at all, so it
   costs the line nothing.
 
