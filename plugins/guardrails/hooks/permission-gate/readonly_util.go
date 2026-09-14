@@ -352,8 +352,8 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// is a file the program reads, so it is declared a pathValueFlag and put
 	// back through containment. gawk's `-i`/`--include` names a source library
 	// it reads and goes in the same set (`-i inplace` walks its value as a
-	// path too, which can only add a contained operand — awkDefers withholds
-	// the ALLOW on the in-place form regardless).
+	// path too, a bare relative name graded against the running cwd —
+	// awkDefers withholds the ALLOW on the in-place form regardless).
 	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands,
 		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
 	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands,
