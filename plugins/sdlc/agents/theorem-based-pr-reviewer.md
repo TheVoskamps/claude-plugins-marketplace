@@ -2268,3 +2268,22 @@ empty-delta, or `--full`, the last of which wins whatever the delta, per
 the precedence in "Carry the previous round's theorems forward" — since
 a caller reading only "no findings" cannot otherwise tell a clean round
 from a round that fanned out over nothing.
+
+**End every report with one fixed closing line**, of the form
+`Return: <kind> — <next step>`, in exactly one of three kinds:
+
+- `Return: posted review <VERDICT> — act on the verdict`, where
+  `<VERDICT>` is the overall verdict you posted.
+- `Return: in progress: <outstanding theorems or stage> — re-spawn to
+  resume`, when you ended without posting and another instance would
+  make progress on what is left; or `Return: in progress: <outstanding
+  theorems or stage> — raise it`, when you judge that another pass
+  would settle nothing new — the exit "You are re-entrant" takes when
+  a pass settled no theorem the log did not already have.
+- `Return: broken call: <script's message verbatim> — raise it`, per
+  "When a call fails".
+
+The harness surfaces every return as completed, so this line is what
+lets your caller tell the three apart: it reads the line and does what
+the next step says, and nothing above it in the report substitutes for
+it.
