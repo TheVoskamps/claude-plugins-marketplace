@@ -19,8 +19,9 @@ import (
 //     whose every destination is a session-shaped harness scratchpad, a region
 //     the carve-out designates safe by construction (redirectVetoesAllow grades
 //     it; the two conditions together are sc.allowEligible() with its redirect
-//     half graded rather than absolute). Checked by the caller's gate before
-//     any per-program logic.
+//     half graded rather than absolute). Both can only withhold the ALLOW,
+//     so classifyReadOnlyUtility runs them after containment, which can
+//     deny.
 //   - Path operands of a path-bearing utility must pass Engine B containment,
 //     so a `cat ../sibling-repo/node_modules/x` still denies; so does a
 //     target resolving into the primary clone / shared git dir, whose
@@ -379,8 +380,9 @@ var readOnlyUtilities = map[string]utilitySpec{
 }
 
 // classifyReadOnlyUtility ALLOWs a curated read-only utility when its
-// invocation is provably non-mutating, else defers. The caller has already
-// confirmed prog is in readOnlyUtilities.
+// invocation is provably non-mutating, denies when a path it reads escapes
+// containment, and defers otherwise. The caller has already confirmed prog is
+// in readOnlyUtilities.
 func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *Event) Decision {
 	spec := readOnlyUtilities[prog]
 
@@ -1225,7 +1227,8 @@ func awkFileOperands(args []string) []string {
 		if len(a) >= 2 && a[1] != '-' && valueFlags[a[:2]] {
 			continue // attached short value form (`-F:`, `-vx=1`)
 		}
-		// A bool flag (awkDefers vouched for it); carries no value.
+		// Treated as a bool flag: known ones carry no value, and an unknown
+		// one loses the ALLOW in awkDefers after this walk.
 	}
 	if !programSuppliedByFlag {
 		if len(operands) == 0 {
@@ -1306,7 +1309,9 @@ func grepFileOperands(args []string) []string {
 			}
 			continue // attached short value form (`-A3`, `-eFOO`)
 		}
-		// A bool flag or a short cluster (grepDefers vouched for it).
+		// Treated as a bool flag or a short cluster: known ones carry no
+		// value, and an unknown one loses the ALLOW in grepDefers after this
+		// walk.
 	}
 	if !patternSuppliedByFlag {
 		if len(operands) == 0 {

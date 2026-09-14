@@ -12,10 +12,14 @@ import (
 //     shell performs) → graded on the paths those redirects open.
 //  2. A command we cannot statically pin (no program token) → DEFER (with the
 //     analysis; it never reaches the allow track).
-//  3. A command with a redirect to a real file → DEFER (the normal pipeline's
-//     allow-list will not match it; we do not auto-allow exfiltration) — unless
-//     every destination is a session-shaped harness scratchpad, the one
-//     region designated safe by construction. See redirectVetoesAllow.
+//  3. A command with a redirect to a real file never ALLOWs: it DEFERS (the
+//     normal pipeline's allow-list will not match it; we do not auto-allow
+//     exfiltration) — unless every destination is a session-shaped harness
+//     scratchpad, the one region designated safe by construction. See
+//     redirectVetoesAllow. The veto withholds an ALLOW and nothing more, so
+//     the read-only-utility track and the redirect-only track run it after
+//     containment: an escaping read denies whatever the redirect does. The
+//     in-repo-write track runs it before containment.
 //  4. Program-specific DENY / hard-ASK / DEFER rules (git, gh, aws identity,
 //     etc.).
 //  5. Program-specific ALLOW rules (read-only git/gh/aws/acli).
