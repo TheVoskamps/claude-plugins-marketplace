@@ -350,8 +350,9 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// grammar drops is the script TEXT; the script FILE named by `-f`/`--file`
 	// is a file the program reads, so it is declared a pathValueFlag and put
 	// back through containment. gawk's `-i`/`--include` names a source library
-	// it reads and goes in the same set (`-i inplace` never reaches here —
-	// awkDefers defers on the in-place form first).
+	// it reads and goes in the same set (`-i inplace` walks its value as a
+	// path too, which can only add a contained operand — awkDefers withholds
+	// the ALLOW on the in-place form regardless).
 	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands,
 		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
 	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands,
@@ -383,25 +384,6 @@ var readOnlyUtilities = map[string]utilitySpec{
 func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *Event) Decision {
 	spec := readOnlyUtilities[prog]
 
-	// A real-file redirect (clobber/exfiltration) disqualifies the allow track:
-	// the bytes leave stdout for a file. Defer to the normal pipeline — unless
-	// every destination is a session-shaped harness scratchpad, a region the
-	// carve-out designates safe by construction and which `tee`/`cp` already
-	// write to under an ALLOW. redirectVetoesAllow owns that grading; see why
-	// the lift is exactly that narrow. (The unknown-expansion half of
-	// allowEligible is handled below: a path-bearing utility DEFERS WITH ITS
-	// ANALYSIS on a dynamic path operand — the same bucket as this bare defer,
-	// but the evolution log records why.)
-	if redirectVetoesAllow(sc, ev) {
-		return deferToPipeline()
-	}
-
-	// Conditionally-read-only utilities defer on a mutating flag or any
-	// unrecognized flag (fail-safe for new mutating modes — criterion 4).
-	if spec.defersForm != nil && spec.defersForm(args) {
-		return deferToPipeline()
-	}
-
 	// Everything this invocation READS, in one list: the path operands of a
 	// path-bearing utility, plus the sources of any input redirect. The input
 	// redirects are graded even for a utility whose OPERANDS are not paths —
@@ -412,6 +394,15 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		readPaths = readTargets(spec.operands(args), sc)
 	}
 
+	// Containment runs before every check that can only defer — the flag
+	// grammar and the redirect veto below — so an escaping read denies
+	// whatever else the command carries; `cat <cross-repo> > .claude/tmp/x`
+	// earns the deny `cat <cross-repo>` earns. The one containment verdict that
+	// must wait is its ALLOW for an all-carve-out read set: a deferring flag or
+	// a vetoed redirect withholds that ALLOW, so it is held here and delivered
+	// only once both checks have passed.
+	var carved Decision
+	haveCarved := false
 	if spec.pathBearing || len(readPaths) > 0 {
 		// A command substitution / unresolved expansion in a path operand or a
 		// redirect source can't be statically contained → DEFER WITH THE
@@ -431,21 +422,43 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		// Engine B containment on every path it reads: a cross-repo read, a
 		// read that resolves into the primary clone from a linked worktree,
 		// and a read under `.git/` each deny. A non-contained path returns
-		// that deny verdict; otherwise ALLOW.
+		// that deny verdict.
 		if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {
-			return d
+			if d.Bucket != BucketAllow {
+				return d
+			}
+			carved, haveCarved = d, true
 		}
 	} else if sc.hasUnknownExpansion {
 		// Pure-output utility (printf/echo/seq/...) with an unresolved
 		// expansion: no path to contain, but an unprovable command still may
 		// not ride the allow track.
 		// This is allowEligible()'s unknown-expansion half, spelled out: the
-		// redirect half is the graded check above, and calling allowEligible()
+		// redirect half is the graded check below, and calling allowEligible()
 		// here would re-apply the ungraded veto and undo it (`echo x >
 		// <scratchpad>/f` is exactly this branch).
 		return deferToPipeline()
 	}
 
+	// Conditionally-read-only utilities defer on a mutating flag or any
+	// unrecognized flag (fail-safe for new mutating modes — criterion 4).
+	if spec.defersForm != nil && spec.defersForm(args) {
+		return deferToPipeline()
+	}
+
+	// A real-file redirect (clobber/exfiltration) disqualifies the allow track:
+	// the bytes leave stdout for a file. Defer to the normal pipeline — unless
+	// every destination is a session-shaped harness scratchpad, a region the
+	// carve-out designates safe by construction and which `tee`/`cp` already
+	// write to under an ALLOW. redirectVetoesAllow owns that grading; see why
+	// the lift is exactly that narrow.
+	if redirectVetoesAllow(sc, ev) {
+		return deferToPipeline()
+	}
+
+	if haveCarved {
+		return carved
+	}
 	return allow(fmt.Sprintf("%s is a provably read-only utility invocation", prog))
 }
 
@@ -1170,8 +1183,10 @@ var awkPathValueFlags = map[string]bool{
 //
 // Flag VALUES (`-F :`, `-v x=1`, `-f prog.awk`) are consumed rather than
 // returned, mirroring sedFileOperands: a flag value is not a path operand of the
-// command, and awkDefers has already refused any flag outside this grammar, so
-// an unrecognized flag never reaches here.
+// command. A flag outside this grammar is skipped as a bool flag; awkDefers
+// refuses the invocation's ALLOW on it, but only after these operands have been
+// contained, so a value such a flag consumes is walked as a positional: a
+// mismodelled flag can put an extra path through containment, never drop one.
 func awkFileOperands(args []string) []string {
 	valueFlags := awkOperandValueFlags
 	programSuppliedByFlag := false
@@ -1242,8 +1257,11 @@ func dropAssignmentOperands(operands []string) []string {
 // A pattern is not a path, and treating it as one is not merely wasted work: an
 // anchored pattern (`grep '/usr/local/bin' f`) looks absolute, so containment
 // resolves it outside the repo and DENIES a command that reads only `f`.
-// grepDefers has already refused any flag outside grep's known grammar, so an
-// unrecognized flag never reaches here.
+//
+// A flag outside grep's known grammar is skipped as a bool flag. grepDefers
+// refuses the invocation's ALLOW on it, but only after these operands have
+// been contained, so a value such a flag consumes is walked as a positional: a
+// mismodelled flag can put an extra path through containment, never drop one.
 func grepFileOperands(args []string) []string {
 	patternSuppliedByFlag := false
 	var operands []string

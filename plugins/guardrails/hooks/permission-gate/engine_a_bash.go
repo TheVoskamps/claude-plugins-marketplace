@@ -1603,12 +1603,9 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 			// `cmd <> f` opens f for reading and writing on the same fd. Its READ
 			// half is the same disclosure `<` is, so the target is graded here
 			// exactly like an input redirect. It deliberately does NOT set
-			// hasRedirectToFile: that flag is checked BEFORE containment on the
-			// allow tracks, so setting it would replace this read's DENY with the
-			// veto's defer — strictly worse than the earlier status quo, in which
-			// `<>` was ungraded on both axes. Its write half stays where it
-			// already was: unmodelled, and unreachable without a further
-			// fd-duplication redirect (`>&0`) the gate does not model either.
+			// hasRedirectToFile: its write half stays where it already was —
+			// unmodelled, and unreachable without a further fd-duplication
+			// redirect (`>&0`) the gate does not model either.
 			if target != "/dev/null" {
 				sc.inputRedirectTargets = append(sc.inputRedirectTargets, target)
 			}
