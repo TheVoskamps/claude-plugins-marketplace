@@ -248,6 +248,25 @@ The injected `CLAUDE.md` in system context is a stale copy of the
 primary clone's and can run whole sections behind the worktree's. Read
 the worktree's copy before deciding what a repo rule says.
 
+## A `git` operand shaped like a subcommand counts as a second `git`
+
+The harness's worktree-isolation guard refuses a Bash call with "this
+command names git more than once in a single command" when an operand
+of a `git` invocation has a final path component that is `git` or
+begins `git-`:
+`git diff --stat origin/main...HEAD -- plugins/sdlc/skills/git-review-pr`
+is refused with or without a trailing slash, and so is the same operand
+reaching `git` through a shell variable. The count is over the `git`
+invocation's own arguments, so the refusal's advice — one `git` per
+command — misdiagnoses it: several chained `git` commands in one call
+are allowed, and so are a path that continues past that component
+(`plugins/sdlc/skills/git-review-pr/SKILL.md`), a component such as
+`gitbar` or `foo-git`, a `--git` word or awk pattern elsewhere on the
+line, and a `git-`-named path handed to a program other than `git`.
+
+Name the files inside such a directory rather than the directory, or
+read it with a tool other than `git`.
+
 ## A branch already claimed by another worktree
 
 `git checkout <branch>` can fail naming another worktree that holds
