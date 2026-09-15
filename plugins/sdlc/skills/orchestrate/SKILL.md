@@ -592,8 +592,7 @@ sdlc-agent-result-persist --mode print \
 
 A `print` that succeeds means a round above the count has begun and
 not posted, so this round is `C+1` and the PR carries no review of it;
-one that fails saying there is no round log means this round is `C`,
-and the count's newest review is its.
+one that fails saying there is no round log means this round is `C`.
 
 Pass no `--generator`, no effort, and no model. The reviewer picks the
 tier itself from the round's delta; `--generator` goes in only when
@@ -608,11 +607,11 @@ review findings — the fix loop" reads first.
 You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
-the review is **posted** on the PR, so whether it says what the
-reviewer reported back is one `gh pr view` away: verify before a cap
-escalation or a Phase 3 hand-off rests on it. An empty-delta round's
-verdicts are carried forward from the previous round rather than
-freshly checked, and the reviewer says which kind of round it ran.
+the round's review file records it, so whether it says what the
+reviewer reported back is one `print-review` away: verify there before
+a cap escalation or a Phase 3 hand-off rests on it. An empty-delta
+round's verdicts are carried forward from the previous round rather
+than freshly checked, and the reviewer says which kind of round it ran.
 
 ### Reading a round's detail
 
@@ -1118,13 +1117,14 @@ from a teammate's report — the `Doc Changes` list is `docs-writer`'s,
 and the `Review Verdict` and the severity detail behind it are the
 reviewer's — while `Review Rounds` and `Style-fix Rounds` are your own
 counts. Fill them per "Report-consumption principle": verify the PR
-column and the verdict against the live PR, since the human decides
-whether to merge on them; say what a finding's provenance was when it
-is not the review's own — a defect you observed yourself is never "the
-review found" it, while one the human raised and you relayed as an
-adjustment comment is the review's finding by the round that minted
-and broke its theorem; and give a discrepancy your re-read could not
-settle its own **Needs Your Attention** row, naming both versions.
+column against the live PR and the verdict against the round's review
+file, since the human decides whether to merge on them; say what a
+finding's provenance was when it is not the review's own — a defect
+you observed yourself is never "the review found" it, while one the
+human raised and you relayed as an adjustment comment is the review's
+finding by the round that minted and broke its theorem; and give a
+discrepancy your re-read could not settle its own **Needs Your
+Attention** row, naming both versions.
 
 ---
 
