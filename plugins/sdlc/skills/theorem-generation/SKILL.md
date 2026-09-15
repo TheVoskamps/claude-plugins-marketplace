@@ -91,8 +91,7 @@ workflow — see "On a re-review, generate from the delta" below. Absent
 both, you are generating round 1: the whole diff, the full list. A
 `--delta-commits` that arrives carrying **no oids** is a re-review
 whose delta is empty, not a round 1: `--carried-records` is present
-beside it, and the round still wants its acceptance-criterion
-theorems.
+beside it, and everything the records hold is the pipeline's to carry.
 
 ## Workflow
 
@@ -421,24 +420,20 @@ remove is the pipeline's to carry forward; re-emitting it mints a
 duplicate under a new id, which is exactly what stable ids exist to
 prevent.
 
-**Acceptance-criterion theorems are the exception, and they
-regenerate in full.** Issues can be edited between rounds, and the
-rule is mechanical — one theorem per criterion of every member
-issue — so re-read each issue via `/issue-view <N>` and emit the
-criterion theorems for this round regardless of the delta. Give a
-criterion whose theorem the records already carry that theorem's
-existing id, so its history stays legible; a criterion the issue
-gained since gets a new id from the sequence.
-
-Invariant theorems — everything from the other sources — persist
-instead of regenerating.
+**Acceptance-criterion theorems are generated once**, in the first
+round that sees their criterion, and a criterion whose theorem the
+carried records already hold is never re-emitted — whatever state that
+record is in, and whatever the delta touched. Issues can still be
+edited between rounds, and the rule stays mechanical — one theorem per
+criterion of every member issue — so re-read each issue via
+`/issue-view <N>` and emit a theorem, under a new id from the sequence,
+for each criterion no carried record holds.
 
 The delta is computed patch-equivalently by the pipeline, so a clean
 rebase between rounds yields nothing to generate from — it arrives as
 an empty `--delta-commits`, with no oid to read. When the list is
 empty, emit an empty list of new theorems and say so rather than
-reaching back into the whole diff for something to say; the
-acceptance-criterion theorems still regenerate.
+reaching back into the whole diff for something to say.
 
 ## Output format
 
@@ -491,6 +486,5 @@ T4 — the section this claim is about was deleted by the delta.
 
 Emit the `RETIREMENTS` line only when you have at least one. A round
 with new theorems and no retirements, or retirements and no new
-theorems, is ordinary; a round with neither emits the regenerated
-criterion theorems alone — an empty list when the issues yield none —
-and says so.
+theorems, is ordinary; a round with neither emits an empty list and
+says so.

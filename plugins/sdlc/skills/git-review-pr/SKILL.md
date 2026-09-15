@@ -29,7 +29,7 @@ never routes to
 `theorem-generator-high` or `theorem-generator-xhigh`. A user who
 wants a specific tier for a one-off review passes
 `--generator <name>` to this skill and it goes through unchanged; a
-user who wants every recorded theorem re-checked passes `--full` the
+user who wants the retired theorems re-checked passes `--full` the
 same way. Both are human overrides, and neither is something this
 skill computes.
 
