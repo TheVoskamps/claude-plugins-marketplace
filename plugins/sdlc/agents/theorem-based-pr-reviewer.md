@@ -403,8 +403,8 @@ spawns you, and a standalone invocation passes the same flags.
   decides. Neither caller computes a tier — both pass this only when a
   human named one.
 - `--full` (optional, no value) — re-disprove **every** theorem in the
-  carried records, retired ones included, with full briefs. See "The
-  `--full` round" below. Absent, the round is a default round and the
+  carried records, retired ones included and only a human-rejected one
+  excepted, with full briefs. See "The `--full` round" below. Absent, the round is a default round and the
   live list is delta-sized.
 
 No other parameter exists. In particular there is no effort or model
@@ -719,12 +719,20 @@ the literal sweeps all of them.
 
 Apply each remaining comment to the carried records:
 
-- **A rejected finding** — its theorem retires as *human-refuted*.
+- **A rejected finding** — its theorem retires as *human-refuted*, and
+  nothing revives it: a `--full` round skips it, and a human who
+  changes their mind posts a missed defect instead, which mints a new
+  theorem under a new id. A rejection therefore holds for the rest of
+  the PR's rounds by every route.
 - **A scope-dropped finding** — a `dropped (scope ruling)` line — its
   theorem retires as *scope-dropped*. The ruling is the orchestrator's,
   not the human's, and the label is what keeps the two apart.
-- **A severity override** — it rewrites the derived severity of that
-  theorem's finding, replacing what the class table would give.
+- **A severity override** — it writes `severity-override: <value>` on
+  that theorem's record, per "The theorem records file". The record
+  carries the field forward verbatim on every later round, and a
+  standing finding the theorem produces in any of them grades at that
+  value, per "Findings by severity"; only a later adjustment comment on
+  the same theorem replaces it.
 - **A missed defect** — it mints a **new** theorem, continuing the id
   sequence, live until it survives a round.
 
@@ -1032,13 +1040,15 @@ the *list* is delta-sized.
 #### The `--full` round
 
 With `--full`, the live list is **every theorem in the records, retired
-included**, each with a full brief. It is the one way a retired theorem
-is re-disproved, acceptance-criterion theorems among them, and it
-reaches them because it re-runs every record, not because of their
-class. A `--full` round reaches this step
-whatever its delta, per the precedence "Carry the previous round's
-theorems forward" states. That is the backstop that measures what
-retirement risked: between a theorem's retirement and a `--full` run, a
+included**, each with a full brief — except a record whose
+`state-detail` is `human-refuted`, which no round re-disproves: the
+human already ruled on the claim, and re-attacking it would put the
+ruling back to them. It is the one way a retired theorem is
+re-disproved, acceptance-criterion theorems among them, and it reaches
+them because it re-runs every record, not because of their class. A
+`--full` round reaches this step whatever its delta, per the precedence
+"Carry the previous round's theorems forward" states. That is the
+backstop that measures what retirement risked: between a theorem's retirement and a `--full` run, a
 fix can silently break the retired claim, and `--full` is the
 bounded-cost check for that, priced once instead of every round.
 
@@ -1701,10 +1711,12 @@ The generator continues the sequence the carried records ended at, and
 no id is ever reused, which is what makes a theorem's history legible
 across rounds.
 
-The fields *you* add — `state`, `state-detail`, and `settled-at` — are
-not the generator's to emit. You stamp them in "Derive each theorem's
-disposition" and write them into the records file; a generator that
-emits any of them has misread its brief.
+The fields *you* add — `state`, `state-detail`, `settled-at`, and
+`severity-override` — are not the generator's to emit. You stamp the
+first three in "Derive each theorem's disposition" and the last in
+"Carry the previous round's theorems forward", and write them into the
+records file; a generator that emits any of them has misread its
+brief.
 
 The generation skill (`sdlc:theorem-generation`) owns *what* theorems
 to generate. This section owns only the record shape you read.
@@ -1994,8 +2006,9 @@ issues: #206
 class: mechanical
 pointers: …
 state: disproved
-state-detail: finding 1, High
+state-detail: finding 1, Low
 settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+severity-override: Low
 ```
 
 Field rules, on top of the record shape "The theorem contract" already
@@ -2006,8 +2019,8 @@ owns:
   survived, or the round whose counterexample the verifier refuted — and
   holds that state in every later round's block unless a later round
   puts it back on the live list. One round does: a `--full` round
-  re-runs every record. Such a theorem then takes whatever state that
-  round leaves it in. "Derive each theorem's disposition" does the
+  re-runs every record but one whose `state-detail` is `human-refuted`.
+  Such a theorem then takes whatever state that round leaves it in. "Derive each theorem's disposition" does the
   stamping. `state-detail` says what settled it: `survived`,
   `disproved-but-refuted`, `subject removed` for a generator retirement,
   `human-refuted` for a rejected finding an adjustment comment retired,
@@ -2020,6 +2033,12 @@ owns:
   a carried-forward retired theorem that is an *older* head than this
   round's, which is exactly the fact a reader needs to judge how much a
   `--full` round would buy.
+- **`severity-override`** — present only on a theorem an adjustment
+  comment overrode, written in the round that read the comment and
+  carried forward verbatim on every later round. It is the severity of
+  any standing finding the theorem produces from then on, per "Findings
+  by severity". A later adjustment comment on the same theorem replaces
+  it; nothing else clears it.
 
 Every recorded theorem gets a record, in id order, retired ones
 included. **Ids are never reused**: a round that mints new theorems
@@ -2119,22 +2138,26 @@ This is the same derivation-not-judgment principle the verdicts
 already follow, moved one link up the chain: the agent that read the
 code grades the consequence, and you transcribe.
 
-**A human severity override outranks the table.** When an adjustment
-comment "Carry the previous round's theorems forward" read overrides a
-finding's severity, that value is the finding's severity, and the
-records file says so. That is not a judgment of yours either — it is a
-transcription from a different source, and it is the only thing that
-displaces the class table.
+Two things displace what the table gives, and they apply in a fixed
+order: the table gives the base, the acceptance-criterion floor raises
+it, and a human override replaces the result of both.
 
-**The acceptance-criterion floor overrides the table.** A standing
+**The acceptance-criterion floor raises the table's grade.** A standing
 finding on a theorem the generator emitted as an acceptance-criterion
 claim is **at minimum High**, whatever class the verifier assigned,
 regardless of how small the remaining work looks — a disproved
 acceptance-criterion theorem IS an unmet acceptance criterion. That
-override keys off the theorem's provenance, which the generator's
-claim states and the verifier need not know. It only ever raises a
-severity; a `breaks-production` class on such a theorem stays
-Critical.
+floor keys off the theorem's provenance, which the generator's claim
+states and the verifier need not know. It only ever raises a severity;
+a `breaks-production` class on such a theorem stays Critical.
+
+**A human severity override outranks the floor and the table alike.**
+When the theorem's record carries `severity-override`, written from an
+adjustment comment per "Carry the previous round's theorems forward",
+that value is the finding's severity in this round and every later
+round that fans out, criterion theorems included: an override of Low
+on a criterion theorem grades Low. That is not a judgment of yours
+either — it is a transcription from a different source.
 
 #### The findings that carry no class
 

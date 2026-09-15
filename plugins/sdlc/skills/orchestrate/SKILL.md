@@ -666,9 +666,10 @@ immaterial claims, each of which drives a fix round when disproved. An
 override is something to argue for rather than a default to reach past.
 
 `--full` is the other override, and it is the human's or yours: it
-re-disproves every recorded theorem, retired ones included. Say in the
-round's report which tier ran, whether the rubric or an override
-picked it, and whether the round was a `--full` one.
+re-disproves every recorded theorem, retired ones included and only a
+human-rejected one excepted. Say in the round's report which tier ran,
+whether the rubric or an override picked it, and whether the round was
+a `--full` one.
 
 ### The PR body is frozen for the loop
 
@@ -869,6 +870,14 @@ Review adjustments for round <N>:
 - new — <the defect the human says the round missed>, in
   <file-or-location>.
 ```
+
+Each adjustment binds the rest of the PR's rounds, so the human is
+never asked to repeat one. A rejection retires the theorem for good:
+no later round re-attacks it, `--full` included, and a human who
+changes their mind reports a missed defect instead. A severity override
+is written on the theorem's record and grades every standing finding
+that theorem produces from then on, until a later override on the same
+theorem replaces it.
 
 Write only what the human told you to write. This is a relay, not a
 judgment: an adjustment you author yourself would put your own reading
