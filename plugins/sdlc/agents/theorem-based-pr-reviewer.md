@@ -404,8 +404,8 @@ spawns you, and a standalone invocation passes the same flags.
   human named one.
 - `--full` (optional, no value) — re-disprove **every** theorem in the
   carried records, retired ones included and only a human-rejected one
-  excepted, with full briefs. See "The `--full` round" below. Absent, the round is a default round and the
-  live list is delta-sized.
+  excepted, with full briefs. See "The `--full` round" below. Absent,
+  the round is a default round and the live list is delta-sized.
 
 No other parameter exists. In particular there is no effort or model
 parameter for the generator: its tier IS the definition spawned, and the
@@ -800,10 +800,11 @@ review body still being readable.
 is a round whose delta is empty *and* which read no new adjustment
 comments — both halves, because an adjustment comment is a reason to
 fan out that no commit produced. On one: do not spawn a generator and
-do not fan out disprovers. Every verdict carries forward unchanged, the records carry forward unchanged, "Persist the round's
-records and review" stores both under **this** round's number, and the
-posted review says the round was empty-delta. That is the stated trade:
-an issue edited between rounds with no code change goes unchecked until
+do not fan out disprovers. Every verdict carries forward unchanged, the
+records carry forward unchanged, "Persist the round's records and
+review" stores both under **this** round's number, and the posted
+review says the round was empty-delta. That is the stated trade: an
+issue edited between rounds with no code change goes unchecked until
 the next non-empty round or a `--full` run.
 
 **An empty delta with new adjustment comments is an adjustment-only
@@ -1048,9 +1049,10 @@ re-disproved, acceptance-criterion theorems among them, and it reaches
 them because it re-runs every record, not because of their class. A
 `--full` round reaches this step whatever its delta, per the precedence
 "Carry the previous round's theorems forward" states. That is the
-backstop that measures what retirement risked: between a theorem's retirement and a `--full` run, a
-fix can silently break the retired claim, and `--full` is the
-bounded-cost check for that, priced once instead of every round.
+backstop that measures what retirement risked: between a theorem's
+retirement and a `--full` run, a fix can silently break the retired
+claim, and `--full` is the bounded-cost check for that, priced once
+instead of every round.
 
 The orchestrator or the human passes it; a default round never runs
 one. **No rule here forces a `--full` round**, deliberately: whether
@@ -2020,15 +2022,16 @@ owns:
   holds that state in every later round's block unless a later round
   puts it back on the live list. One round does: a `--full` round
   re-runs every record but one whose `state-detail` is `human-refuted`.
-  Such a theorem then takes whatever state that round leaves it in. "Derive each theorem's disposition" does the
-  stamping. `state-detail` says what settled it: `survived`,
-  `disproved-but-refuted`, `subject removed` for a generator retirement,
-  `human-refuted` for a rejected finding an adjustment comment retired,
-  or `scope-dropped` for one the orchestrator's scope ruling dropped
-  there. On a `disproved` record, `state-detail` names the finding the
-  state produced instead — except on the one whose verifier never
-  reported, where it is `unverified`, because that disposition produces
-  no finding to name.
+  Such a theorem then takes whatever state that round leaves it in.
+  "Derive each theorem's disposition" does the stamping. `state-detail`
+  says what settled it: `survived`, `disproved-but-refuted`,
+  `subject removed` for a generator retirement, `human-refuted` for a
+  rejected finding an adjustment comment retired, or `scope-dropped`
+  for one the orchestrator's scope ruling dropped there. On a
+  `disproved` record, `state-detail` names the finding the state
+  produced instead — except on the one whose verifier never reported,
+  where it is `unverified`, because that disposition produces no
+  finding to name.
 - **`settled-at`** — the head SHA the state was established against. For
   a carried-forward retired theorem that is an *older* head than this
   round's, which is exactly the fact a reader needs to judge how much a
