@@ -28,7 +28,7 @@
 # IMAGE IDENTITY: the image cache key + filename is a WHOLE-FILE, RAW-BYTE hash
 # of the BAKE files (this one, and the repo's config-bake.yml if present):
 #   - a repo with NO repo-bake file shares one image per global-bake hash
-#     (~/.config/claude-vm/images/guest+global<hash>.raw);
+#     (~/.local/state/claude-vm/images/guest+global<hash>.raw);
 #   - a repo WITH a repo-bake file gets its OWN image, its name in the filename
 #     (guest+global<hash>+<reponame>-<repohash>.raw).
 # The hash is over the RAW file bytes with NO canonicalization: list order, key

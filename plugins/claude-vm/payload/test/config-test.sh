@@ -1126,7 +1126,7 @@ assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" 
 # explicit guest_image opts out; a repo with no repo-bake file shares
 # guest+global<hash>.raw; a repo WITH a repo-bake file gets a two-segment name.
 # ---------------------------------------------------------------------
-IMGDIR="/home/op/.config/claude-vm/images"
+IMGDIR="/home/op/.local/state/claude-vm/images"
 derive_image_path() {
   # Mirror claude-vm.sh's derivation: <boot-merged-file> <global-bake>
   # <repo-bake> <reponame> <default-image-dir>. The boot-merged file supplies

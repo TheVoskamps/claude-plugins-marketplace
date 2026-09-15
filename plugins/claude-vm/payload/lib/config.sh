@@ -69,6 +69,14 @@ set -uo pipefail
 # relative to the repo root by the launcher (<repo>/.claude-vm/config-{bake,boot}.yml);
 # tests set them directly.
 
+# State root: what claude-vm writes for itself and reads back later -- the
+# built guest images (images/), the verified claude binary cache (cache/) and
+# the acceptance test's retained diagnostics (logs/). Kept apart from the
+# config root so the rebuildable state can be deleted without touching the
+# hand-written config. This is the ONE spelling of the XDG state fallback;
+# every state path derives from CLAUDE_VM_STATE_DIR rather than restating it.
+: "${CLAUDE_VM_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm}"
+
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now
 # expected, and emit an actionable migration message. The design's chosen
 # migration path is FAIL-WITH-MESSAGE (Acceptance: "Existing single-file configs
