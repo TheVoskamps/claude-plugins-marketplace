@@ -607,11 +607,11 @@ review findings — the fix loop" reads first.
 You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
-the round's review file records it, so whether it says what the
-reviewer reported back is one `print-review` away: verify there before
-a cap escalation or a Phase 3 hand-off rests on it. An empty-delta
-round's verdicts are carried forward from the previous round rather
-than freshly checked, and the reviewer says which kind of round it ran.
+the review is **posted** on the PR, so whether it says what the
+reviewer reported back is one `gh pr view` away: verify before a cap
+escalation or a Phase 3 hand-off rests on it. An empty-delta round's
+verdicts are carried forward from the previous round rather than
+freshly checked, and the reviewer says which kind of round it ran.
 
 ### Reading a round's detail
 
@@ -635,9 +635,10 @@ verifier's own words — is reached the same way: the summary's line for
 it names the file, and `--mode print --round <N>` lists every result
 file that round holds.
 
-**Consult the posted review only for its existence, read as the
-review count.** Nothing else you decide about a round comes out of
-it; the detail reaches the PR once, when `pr-finalizer` posts it.
+**Consult the posted review for its existence, read as the review
+count, and for its verdict block, which the reviewer cannot revise
+once posted.** Everything else about a round comes out of the review
+file; the detail reaches the PR once, when `pr-finalizer` posts it.
 
 ### Overriding the generator tier
 
@@ -724,10 +725,9 @@ resume is **not a new round** against the review-round cap — count it
 in the round's report instead — and after two on one PR, raise it as a
 **Needs Your Attention** row rather than re-spawning again. A review
 the PR carries under an in-progress line is the human's to rule on —
-the round stands, with its verdict and findings read from the round's
-review file per "Reading a round's detail", or the reviewer is
-re-spawned and the new round supersedes it — and nothing spawns until
-they do.
+the round stands, its verdict and findings read per "Reading a round's
+detail", or the reviewer is re-spawned and the new round supersedes
+it — and nothing spawns until they do.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member and un-tiered. Do not spawn the
@@ -1117,14 +1117,13 @@ from a teammate's report — the `Doc Changes` list is `docs-writer`'s,
 and the `Review Verdict` and the severity detail behind it are the
 reviewer's — while `Review Rounds` and `Style-fix Rounds` are your own
 counts. Fill them per "Report-consumption principle": verify the PR
-column against the live PR and the verdict against the round's review
-file, since the human decides whether to merge on them; say what a
-finding's provenance was when it is not the review's own — a defect
-you observed yourself is never "the review found" it, while one the
-human raised and you relayed as an adjustment comment is the review's
-finding by the round that minted and broke its theorem; and give a
-discrepancy your re-read could not settle its own **Needs Your
-Attention** row, naming both versions.
+column and the verdict against the live PR, since the human decides
+whether to merge on them; say what a finding's provenance was when it
+is not the review's own — a defect you observed yourself is never "the
+review found" it, while one the human raised and you relayed as an
+adjustment comment is the review's finding by the round that minted
+and broke its theorem; and give a discrepancy your re-read could not
+settle its own **Needs Your Attention** row, naming both versions.
 
 ---
 
