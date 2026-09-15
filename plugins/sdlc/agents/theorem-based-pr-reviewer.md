@@ -762,12 +762,16 @@ which is what makes this review self-contained given `--pr`.
 **Retire on survive.** A theorem that survived its round, or whose
 counterexample the verifier refuted, **retires in that same round**:
 "Derive each theorem's disposition" stamps its record `retired` against
-that round's head SHA, and no later default round re-disproves it —
-except an acceptance-criterion theorem, which "Assemble the round's live
-list" regenerates on every round that fans out and which therefore goes
-live again whatever state it holds. Retirement is a record state, never
-a deletion — a retired theorem still appears in every later round's
-records file, carrying the head SHA it settled at.
+that round's head SHA, and no later default round re-disproves it. An
+acceptance-criterion theorem is no exception: its retired record is the
+permanent rationale for its verdict, and it stays retired when a later
+delta touches its pointers — nothing keyed on pointer overlap re-livens
+a record, and a delta that touches a criterion's subject is covered by
+the new theorems that delta yields. A criterion theorem left `disproved`
+or `unsettled` stays live like any other, and is re-attacked on the next
+round that fans out. Retirement is a record state, never a deletion — a
+retired theorem still appears in every later round's records file,
+carrying the head SHA it settled at.
 
 **Fall back to round-1 behavior** — full generation from the whole
 diff, every theorem live — when either of these holds, and say which in
@@ -787,10 +791,8 @@ review body still being readable.
 **An empty-delta round ends the round here.** An **empty-delta round**
 is a round whose delta is empty *and* which read no new adjustment
 comments — both halves, because an adjustment comment is a reason to
-fan out that no commit produced. On one: do not spawn a generator, do
-not fan out disprovers, and do not regenerate the
-acceptance-criterion theorems. Every verdict carries forward
-unchanged, the records carry forward unchanged, "Persist the round's
+fan out that no commit produced. On one: do not spawn a generator and
+do not fan out disprovers. Every verdict carries forward unchanged, the records carry forward unchanged, "Persist the round's
 records and review" stores both under **this** round's number, and the
 posted review says the round was empty-delta. That is the stated trade:
 an issue edited between rounds with no code change goes unchecked until
@@ -799,14 +801,12 @@ the next non-empty round or a `--full` run.
 **An empty delta with new adjustment comments is an adjustment-only
 round, and it fans out.** It is a different shape from the one above and
 does not stop here. Spawn the generator on the delta-round brief ("Spawn
-the theorem generator"): its delta half yields nothing, and the
-acceptance-criterion theorems regenerate. That is what the generation
-skill's empty-list rule already says — the rule is scoped to the
-delta-derived theorems, while criterion theorems regenerate "regardless
-of the delta" (`sdlc:theorem-generation` → "On a re-review, generate
-from the delta"). "Assemble the round's live list" then assembles a live
-list of those criterion theorems, the theorems the adjustment comments
-minted, and whatever last round left disproved or unsettled.
+the theorem generator"): its delta yields nothing, so it emits an empty
+list unless a member issue gained a criterion since the carried records
+were written (`sdlc:theorem-generation` → "On a re-review, generate from
+the delta"). "Assemble the round's live list" then assembles a live list
+of the theorems the adjustment comments minted, whatever last round left
+disproved or unsettled, and any theorem the generator emitted.
 
 **A `--full` round outranks both shapes.** Invoked with `--full`, a
 round proceeds to "Assemble the round's live list" whatever its delta
@@ -964,8 +964,8 @@ theorems forward" computed, never as the previous head for the generator
 to diff against — the `sdlc:theorem-agents-interface` skill → "The brief
 parameters" owns why that bound matters. On an adjustment-only round the
 list is empty, and `--delta-commits` carries an empty value rather than
-being dropped: the generator reads that as a delta of nothing, which is
-what makes its criterion theorems the round's whole output.
+being dropped: the generator reads that as a delta of nothing, not as a
+round 1 to generate whole.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into the generator;
@@ -986,15 +986,6 @@ ended at, so a finding's history stays legible as "T7: disproved round
 **new** theorem an id the carried records already hold, ask the
 generator to re-emit that record rather than guessing the field
 yourself — you are not a source of theorems.
-
-A **regenerated acceptance-criterion theorem** carrying the id its own
-carried record already holds is not that, and rejecting it would reject
-what the generation skill mandates: "Assemble the round's live list"
-puts those theorems back on the live list every round that fans out, and
-the generator re-emits each under its existing id so a criterion's
-history stays under one handle. Reuse means a *different* claim under an
-id already spoken for; a criterion theorem re-emitted verbatim under its
-own id is the same claim.
 
 That rule is about a **generator's** record, and the one record you fill
 in yourself is no exception to it: an adjustment comment's minted
@@ -1019,39 +1010,19 @@ generator emitted. On a delta round it is exactly:
 - theorems **disproved last round** — re-disproof is the check that
   the fix landed;
 - theorems left **unsettled** last round;
-- the **acceptance-criterion theorems**, regenerated this round;
-- the **new theorems** the delta produced;
+- the **new theorems** the generator emitted — from the delta, or for
+  a criterion no carried record holds;
 - theorems **minted from an adjustment comment** that have not yet
   survived a round.
 
-Everything else — every retired theorem the bullets above do not name
-— carries its verdict forward untouched and gets no disprover.
-
-Acceptance-criterion theorems are the one class that regenerates on
-every round that fans out, because the issues can be edited between
-rounds and the rule is mechanical: one theorem per criterion. Invariant
-theorems persist instead of regenerating. An empty-delta round never
-reaches this step, so it skips even this regeneration; an
-adjustment-only round does reach it and does regenerate them. Both terms
-are defined in "Carry the previous round's theorems forward".
-
-**The re-attack is unconditional, and nothing gates it.** A criterion
-theorem goes live whatever state its carried record holds — including
-`state-detail: disproved-but-refuted` — and its brief carries no
-prior-round state, because the criterion's own text may have changed
-under it and a gate keyed on the carried verdict would skip the round
-that would have caught that. So every round that fans out regenerates
-every criterion theorem, and a brief carries the same fields whatever
-the record held.
-
-What the re-attack costs is that a criterion can be graded the
-opposite way in two rounds on identical facts, which would make a
-verdict a function of which agents happened to run. So **a round that
-reverses an earlier verdict on a criterion theorem declares the
-reversal in the posted review** — see "Declare a reversed criterion
-verdict" below. A reversal is not forbidden; a *silent* one is. The
-declaration is what turns a flip into an argument the human can see
-and settle, without gating anything.
+Everything else — every retired theorem the bullets above do not name,
+acceptance-criterion theorems included — carries its verdict forward
+untouched and gets no disprover. The class earns no place on the list:
+a criterion theorem is generated once, in the first round that sees its
+criterion, and from then on its record's state alone decides whether it
+is live, per "Retire on survive" under "Carry the previous round's
+theorems forward". An empty-delta round never reaches this step; an
+adjustment-only round does. Both terms are defined there too.
 
 Every live theorem gets a **full, unbounded** disprover: no brief
 limits what it may read, and nothing about a delta round makes a
@@ -1061,7 +1032,10 @@ the *list* is delta-sized.
 #### The `--full` round
 
 With `--full`, the live list is **every theorem in the records, retired
-included**, each with a full brief. A `--full` round reaches this step
+included**, each with a full brief. It is the one way a retired theorem
+is re-disproved, acceptance-criterion theorems among them, and it
+reaches them because it re-runs every record, not because of their
+class. A `--full` round reaches this step
 whatever its delta, per the precedence "Carry the previous round's
 theorems forward" states. That is the backstop that measures what
 retirement risked: between a theorem's retirement and a `--full` run, a
@@ -1134,9 +1108,7 @@ counterexamples show up in practice, N disprovers per theorem is a
 one-line change here.
 
 A retired theorem gets no disprover on a default round, so it never
-reaches this fan-out — unless it is an acceptance-criterion theorem,
-which "Assemble the round's live list" puts back on the live list
-whatever state it holds. That is the whole cost saving — the disprovers
+reaches this fan-out. That is the whole cost saving — the disprovers
 that do run are unbounded, and only the list is smaller.
 
 Route the model by the theorem's class:
@@ -1900,8 +1872,10 @@ sections, in this order:
    that discarded its records for a moved head says that here as well,
    naming both SHAs.
 
-   Any **reversed criterion verdict** is declared here too, per "Declare
-   a reversed criterion verdict" below.
+   Name what was **skipped** too: one line listing each
+   acceptance-criterion theorem carried as retired, with its
+   `state-detail`. The posted summary carries this section unchanged,
+   so the line reaches the PR as well as the review file.
 3. **Change counts** — files changed, additions, deletions, from "Read
    the PR's shape".
 4. **Disproved theorems** — one entry per disproved theorem, in
@@ -1955,32 +1929,6 @@ a file of its own, not a ninth section of this one. It is the
 machine-readable carrier, and it covers every recorded theorem — retired
 ones the round never fanned out over included — where the argued
 partition here covers only the round's live list.
-
-### Declare a reversed criterion verdict
-
-An acceptance-criterion theorem is re-attacked every round that fans out
-("Assemble the round's live list"), so it can be graded one way in one
-round and the opposite way in the next. When this round's disposition
-for such a theorem contradicts the one its carried record holds, say so
-in the Review method section, naming the earlier round's verdict and
-this one's:
-
-```markdown
-Reversal: T4 was `disproved-but-refuted` in the round at
-1a2b3c4d (the verifier rejected the counterexample); this round it is
-disproved and the counterexample stands. <what differs — the
-criterion's text changed, or the same facts read the other way.>
-```
-
-A reversal in either direction counts, and so does one on a criterion
-whose text did not change — that is the case worth seeing, because it
-is the one where nothing about the PR explains the flip. Say which of
-the two it is: a criterion the issue was edited between rounds is an
-argued change, and identical facts graded the opposite way is a
-disagreement the human is the one to settle.
-
-This declares; it does not gate. The reversal stands as this round's
-verdict, and the theorem's record carries this round's state as usual.
 
 ### The posted review summary
 
@@ -2057,8 +2005,7 @@ owns:
   is stamped `retired` in the very round that settled it — the round it
   survived, or the round whose counterexample the verifier refuted — and
   holds that state in every later round's block unless a later round
-  puts it back on the live list. Two rounds do: any round that fans out
-  re-runs the acceptance-criterion theorems, and a `--full` round
+  puts it back on the live list. One round does: a `--full` round
   re-runs every record. Such a theorem then takes whatever state that
   round leaves it in. "Derive each theorem's disposition" does the
   stamping. `state-detail` says what settled it: `survived`,
