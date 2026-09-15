@@ -95,29 +95,25 @@ skill computes.
    full for anyone who wants it, and a standalone review has no loop
    whose end would be the honest moment to post it.
 
-3. **Check for a verdict block before relaying anything.** A reviewer
-   that returns mid-round reports an **in-progress status** — which
-   stage it is still waiting on and how much of it is outstanding, the
-   theorem list itself as readily as the disprovers or the verifiers,
-   plus which exit its own
-   resume loop took when it ran one — with no verdict line, no tally
-   and no findings, and the harness surfaces
-   that as `status: completed` with the closing message as the result,
-   so it reads like a finished review unless you look. On such a
-   return, tell the user the round did not finish, say no review was
-   posted, and offer to re-spawn the reviewer on the same PR — that
-   re-spawn resumes the stalled round from its round log rather than
-   starting it over, so the theorems already settled stay settled. Do
-   not present the partial text as a review outcome. Relay the loop
-   exit with the offer: a reviewer that stopped because a pass settled
-   nothing new is telling the user another spawn is unlikely to settle
-   anything either.
+3. **Read the report's closing `Return:` line before relaying
+   anything.** The harness surfaces every return as `status: completed`
+   with the closing message as the result, so a round that did not
+   finish reads like a finished review unless you look; the line is
+   what tells them apart, and on any kind but a posted review, do not
+   present the partial text as a review outcome.
 
-   A verdictless return that instead reports a
-   `sdlc-agent-result-persist` call the reviewer could not repair is a
-   different report: no fan-out ran, and a re-spawn composes the same
-   call again. Quote the script's message verbatim to the user and
-   offer no re-spawn.
+   - `Return: in progress: … — re-spawn to resume`: tell the user the
+     round did not finish, say no review was posted, and offer to
+     re-spawn the reviewer on the same PR — that re-spawn resumes the
+     stalled round from its round log rather than starting it over, so
+     the theorems already settled stay settled.
+   - `Return: in progress: … — raise it`: tell the user the same, and
+     relay the reviewer's line verbatim with no offer, since this exit
+     means the reviewer judged that another pass would settle nothing
+     new.
+   - `Return: broken call: … — raise it`: quote the script's message
+     verbatim to the user with no offer, for a different reason: no
+     fan-out ran, and a re-spawn composes the same call again.
 
 4. **Relay the reviewer's verdicts and findings** back to the user, and
    say where the round's detail is — the state path above — since the

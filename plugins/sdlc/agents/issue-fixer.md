@@ -42,9 +42,10 @@ You must be given:
 - PR number (or equivalent)
 
 That is the whole list. The **fixer brief** — the findings to address,
-the owner rulings on them, the issue set, and the branch name — does
-not travel in the spawn prompt: it is a comment on the PR, and step 1
-below reads it. If the PR number is missing, ask before proceeding.
+the scope ruling on each, the owner rulings, the issue set, and the
+branch name — does not travel in the spawn prompt: it is a comment on
+the PR, and step 1 below reads it. If the PR number is missing, ask
+before proceeding.
 
 The brief lives on the PR so that what a fixer was told stays readable
 afterwards — by the human, and by the next review round, which reads
@@ -85,9 +86,21 @@ from its issue.
    `sdlc` file that reads it. A change to the literal sweeps all of
    them: `git grep -n 'sdlc:fixer-brief'`.
 
-   The brief carries the findings, the owner rulings on them, the
-   issue set the PR closes, and the branch name. `<branch-name>` in the
-   rest of this document means the branch it names.
+   The brief carries the findings, each on a line that ends with its
+   scope ruling — `— in scope`, `— outside the issue; put to the
+   human: <question> → <answer>`, or `— outside the issue; dropped:
+   <reason>` — plus an owner-rulings section for work that is not
+   itself a finding, the issue set the PR closes, and the branch name.
+   `<branch-name>` in the rest of this document means the branch it
+   names.
+
+   **A finding line with no ruling is a malformed brief.** Stop and
+   report it, quoting the line, rather than fixing anything: the
+   ruling is the orchestrator's answer to whether the fix is inside
+   the issue, and a fixer that supplies its own answer widens the PR
+   past what the human admitted. A finding ruled `dropped` is not
+   fixed; one ruled `put to the human` is fixed exactly as the answer
+   on its line says, and not otherwise.
 
 2. Fetch the remote and check out the PR branch:
 
@@ -97,12 +110,13 @@ from its issue.
    ```
 
 3. Read the review findings and the owner rulings carefully. Address
-   every finding in the brief, including Low — the review pipeline has
-   already graded severity; your job is to fix, not to re-tier. A
-   ruling either says how a finding is to be fixed or names work that
-   is not itself a finding; both are yours to carry out. Before you
-   act on either, re-verify what it claims about the world at head
-   (see "Before you write a remedy" below).
+   every finding the brief rules in scope, including Low — the review
+   pipeline has already graded severity; your job is to fix, not to
+   re-tier. An owner ruling names in-scope work that is not itself a
+   finding, or a human decision that belongs to no single finding;
+   both are yours to carry out. Before you act on either, re-verify
+   what it claims about the world at head (see "Before you write a
+   remedy" below).
 
    If you need fuller issue context than the fixer brief carries —
    an issue body, its acceptance criteria, or its
@@ -125,8 +139,8 @@ from its issue.
 
 5. Read the affected files before making changes.
 
-6. Address each finding handed to you, including Low, and each owner
-   ruling, whether it directs a finding's fix or stands on its own:
+6. Address each finding ruled in scope, including Low, and each owner
+   ruling:
    - Implement the fix — choosing between the arms of an either/or
      remedy, and sweeping a policy-carrying table (see "Before you
      write a remedy" below)
@@ -311,8 +325,9 @@ cannot be confused by it.
 
 ## Rules
 
-- Address the review's findings and the brief's owner rulings, and
-  nothing else. Do not refactor unrelated code.
+- Address the review's findings as each one's scope ruling directs,
+  and the brief's owner rulings, and nothing else. Do not refactor
+  unrelated code.
 - Never edit a documentation file, as the preloaded
   `sdlc:documentation-definition` skill defines one. Documentation is
   `docs-writer`'s, once the review loop has ended. A finding whose

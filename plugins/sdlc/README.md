@@ -37,12 +37,6 @@ test and no doc pass naturally opens — and it would go stale silently.
 When something here and an owner file disagree, the owner file wins
 and this file is the thing to fix.
 
-Frontmatter has one deliberate exception: `skills/orchestrate/SKILL.md`
-states the teammates' `effort: medium` default, twice, because effort
-has no `Agent`-tool override and the value is a decision rather than a
-per-agent tier. Both statements name the off-default generators as
-exceptions, and a PR changing any teammate's effort updates both.
-
 ## Sweep a contract change by grepping the string, not the file list
 
 Nothing here is refactor-safe by construction, so derive the sweep
@@ -113,6 +107,34 @@ skills that are not user verbs — so a PR changing either key edits
 this file. And the sequencing of `/sdlc:orchestrate-ready` in front of
 `/sdlc:orchestrate` is stated here and nowhere else, so a PR that
 changes how the two relate edits it here.
+
+## The issue is the ceiling of the fix loop
+
+An issue's `## Acceptance` section is the ceiling of the fix loop, not
+its floor. A review finding whose fix lies outside it, or a diff that
+already reaches past it, is the human's to admit or refuse, and the
+orchestrator never admits one on its own. That boundary is enforced by
+slots that must be filled rather than by prose asking for judgment, and
+each slot has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| The `Scope:` block that ends the developer's report | `agents/issue-developer.md` |
+| The gate that reads that block before the first review round | `skills/orchestrate/SKILL.md` |
+| The scope ruling every finding line of a fixer brief ends in, and what it is derived from | `skills/orchestrate/SKILL.md` |
+| What a fixer does with a ruled finding line, and with one that has no ruling | `agents/issue-fixer.md` |
+| The rule that a finding class recurring on consecutive rounds is a design question | `skills/orchestrate/SKILL.md` |
+| The grading of an issue body's structural instruction against the repo | `skills/orchestrate/SKILL.md` |
+| How a finding dropped on a scope ruling reaches the next round and retires | `agents/theorem-based-pr-reviewer.md` |
+| How a finding dropped on a scope ruling is worded in the PR's final section | `agents/pr-finalizer.md` |
+
+The reviewer's own scope theorem, in `skills/theorem-generation/SKILL.md`,
+is unchanged by any of this: the slots make the orchestrator act on
+the theorem's answer, and none of them changes how that answer is
+produced. A scope ruling is the orchestrator's judgment, never the
+human's, and the reviewer keeps the two apart by retiring a
+scope-dropped theorem under its own label rather than as
+human-refuted.
 
 ## Skills
 
