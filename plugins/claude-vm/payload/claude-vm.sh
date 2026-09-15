@@ -278,7 +278,7 @@ PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.
 # compare against are the SAME string; the MERGED bake config and MERGED
 # headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
 # as the image build CONTENT.
-DEFAULT_IMAGE_DIR="$CLAUDE_VM_GLOBAL_CONFIG_DIR/images"
+DEFAULT_IMAGE_DIR="$CLAUDE_VM_STATE_DIR/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG

@@ -26,7 +26,7 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$TEST_DIR/../lib/claude-cache.sh"
 
 # Point the cache at a throwaway dir BEFORE sourcing, so the lib's default
-# never touches the real ~/.config/claude-vm/cache.
+# never touches the real $CLAUDE_VM_STATE_DIR/cache.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-cache-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 export CLAUDE_VM_CACHE_DIR="$WORK/cache"
@@ -112,6 +112,34 @@ assert_rc "validate: typo rejected (non-zero)" "1" "$?"
 # ---------------------------------------------------------------------
 assert_eq "cache path keyed on version + platform" \
   "$WORK/cache/9.9.9/linux-arm64/claude" "$(claude_cache_binary_path 9.9.9)"
+
+# The DEFAULT cache location, when nothing overrides it, is cache/ under the
+# state root lib/config.sh resolves -- the lib sources config.sh itself, so a
+# caller that sources only this lib still gets it. Run in a subshell with the
+# override unset and the XDG state home pinned to a throwaway path so the
+# operator's real state root is never touched.
+STATE_HOME="$WORK/xdg-state"
+assert_eq "default cache dir is \$CLAUDE_VM_STATE_DIR/cache" \
+  "$STATE_HOME/claude-vm/cache/9.9.9/linux-arm64/claude" \
+  "$(unset CLAUDE_VM_CACHE_DIR CLAUDE_VM_STATE_DIR
+     XDG_STATE_HOME="$STATE_HOME" . "$LIB"
+     claude_cache_binary_path 9.9.9)"
+
+# An EMPTY state root after config.sh loads is a hard abort naming the
+# variable, never a cache rooted at "/cache". The real config.sh always
+# assigns the variable, so the branch is reached through a copy of the lib
+# beside a stub config.sh that blanks it.
+STUB_LIB="$WORK/stub-lib"
+mkdir -p "$STUB_LIB"
+cp "$LIB" "$STUB_LIB/claude-cache.sh"
+printf 'CLAUDE_VM_STATE_DIR=""\n' > "$STUB_LIB/config.sh"
+STUB_ERR="$( (unset CLAUDE_VM_CACHE_DIR; . "$STUB_LIB/claude-cache.sh") 2>&1 >/dev/null )"
+assert_rc "empty CLAUDE_VM_STATE_DIR after config.sh -> source aborts (rc 1)" "1" "$?"
+case "$STUB_ERR" in
+  *CLAUDE_VM_STATE_DIR*) named=yes ;;
+  *) named=no ;;
+esac
+assert_eq "empty CLAUDE_VM_STATE_DIR abort names the variable" "yes" "$named"
 
 # ---------------------------------------------------------------------
 # 3. Manifest sha256 extraction + checksum comparison

@@ -173,10 +173,10 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-accept.XXXXXX")"
 # build/boot/proxy logs -- and the podman machine init/start stderr -- were
 # deleted before they could be read (issue #115). Logs now go here instead
 # and are NEVER removed on exit, so a failed run is diagnosable after the
-# fact. Path mirrors the global config path resolution in lib/config.sh
-# (respects XDG_CONFIG_HOME, expands $HOME). A unique per-run id keeps
+# fact. Path derives from the state root lib/config.sh resolves
+# (CLAUDE_VM_STATE_DIR, sourced above). A unique per-run id keeps
 # concurrent/repeated runs from colliding.
-LOG_BASE="${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs"
+LOG_BASE="$CLAUDE_VM_STATE_DIR/logs"
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 LOG_DIR="$LOG_BASE/$RUN_ID"
 mkdir -p "$LOG_DIR"
@@ -764,7 +764,7 @@ elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>
   echo "ok   - (d) host-side verified-cache test SKIPPED (no sha256 tool)"
 else
   # Isolated GNUPGHOME + cache dir so we never touch the operator's real
-  # keyring or ~/.config/claude-vm/cache.
+  # keyring or $CLAUDE_VM_STATE_DIR/cache.
   D_HOME="$WORK/gpg-d"
   mkdir -p "$D_HOME"; chmod 700 "$D_HOME"
   export GNUPGHOME="$D_HOME"
