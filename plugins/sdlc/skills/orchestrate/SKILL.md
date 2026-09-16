@@ -32,7 +32,8 @@ under `agents/` owns:
   require in the code files a PR's diff touched. When it returns, the
   branch carries at most one new comment commit, and `style-checker`
   runs next
-- `style-checker` — checks those code files against the style guides.
+- `style-checker` — checks those code files against the rules under
+  `## For Authors and Checkers` of each style guide that reaches it.
   When it returns, the branch is unchanged and its report carries
   findings or none; findings pause the loop for the human, per "The
   style-fix loop"
@@ -528,8 +529,9 @@ touched and the commit you pushed.
 PR <PR_N> has new commits on it.
 Branch: <branch-name>
 
-Check the code against the style guides per your agent definition.
-Report back your findings, or that there are none.
+Check the code against the rules under `## For Authors and Checkers`
+per your agent definition. Report back your findings, or that there
+are none.
 ```
 
 #### The style-fix loop
