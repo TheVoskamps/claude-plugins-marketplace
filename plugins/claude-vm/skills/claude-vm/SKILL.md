@@ -1199,8 +1199,9 @@ bring-up the test attempted that then fails (`podman machine
 init`/`start`) is a real failure, not a skip: the test exits non-zero
 rather than green-exiting with nothing proven. Diagnostics (including
 the machine init/start stderr) are retained under
-`${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs/<run-id>/` so a failed
-run stays diagnosable.
+`$CLAUDE_VM_STATE_DIR/logs/<run-id>/` — the state root `lib/config.sh`
+resolves, `~/.local/state/claude-vm` by default — so a failed run stays
+diagnosable.
 
 `payload/test/podman-machine-test.sh` covers the launcher's own podman
 machine management (issue #215) against a stateful stub podman, and — by

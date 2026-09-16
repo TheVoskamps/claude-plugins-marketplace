@@ -427,6 +427,24 @@ Revert every flip and confirm `git status --porcelain` is empty, plus
 `git hash-object <file>` equal to `git rev-parse HEAD:<path>`, before
 writing anything up.
 
+## A shellcheck baseline needs `-x`, run from the script's directory
+
+A `# shellcheck source=<path>` directive names the sourced file, and
+shellcheck still reports SC1091 on that line unless `-x` tells it to
+follow the source. So a plain `shellcheck <file>` over a script that
+sources four libraries carries four SC1091s at the base as well as on
+the branch, and a "no new finding class" claim measured that way has
+compared noise with noise. Measure both sides under `-x`.
+
+Under `-x` the `source=` path resolves against the working directory,
+not the script's: a top-level script annotated `source=lib/x.sh` lints
+clean from its own directory and reports SC1091 `does not exist` from
+the repo root. Run both sides from the script's directory. A library
+that sources a sibling carries `# shellcheck source-path=SCRIPTDIR`
+above its `source=` line, which anchors the lookup wherever the run
+starts; that is the fix for a lib-to-lib SC1091. `disable=SC1091` is
+for a file that exists only at runtime, never for one in the tree.
+
 ## `set -e` does not abort a non-final failure in an AND-OR list
 
 `set -e` exempts a failing command that is part of an AND-OR list other

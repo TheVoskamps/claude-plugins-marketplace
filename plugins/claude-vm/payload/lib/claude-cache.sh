@@ -38,8 +38,19 @@
 
 set -uo pipefail
 
-# Default cache + key locations. Overridable via env for testing.
-: "${CLAUDE_VM_CACHE_DIR:=${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/cache}"
+# The cache lives under the state root config.sh resolves (CLAUDE_VM_STATE_DIR).
+# This file sources config.sh itself, by a path relative to its own location,
+# so a caller that sources only this library (test/claude-cache-test.sh) still
+# gets the one state-root spelling; config.sh has no readonly bindings and no
+# source guard, so a caller that already sourced it is unaffected.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=config.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
+[ -n "${CLAUDE_VM_STATE_DIR:-}" ] \
+  || { echo "claude-vm: CLAUDE_VM_STATE_DIR is empty after sourcing lib/config.sh; cannot place the claude binary cache" >&2; exit 1; }
+
+# Default cache location. Overridable via env for testing.
+: "${CLAUDE_VM_CACHE_DIR:=$CLAUDE_VM_STATE_DIR/cache}"
 
 # The guest is an arm64 Linux micro-VM (Apple Silicon host, debian guest),
 # so the manifest platform key and artifact path are linux-arm64.

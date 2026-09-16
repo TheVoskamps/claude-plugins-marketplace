@@ -36,13 +36,13 @@
 #
 # HOST-GATED, split by cause (issue #110): like config-test.sh skips when
 # yq is absent, this test SKIPS (exit 0 with a clear message) when a
-# required BINARY (gvproxy, vfkit, podman, tinyproxy, curl) is absent --
-# the test cannot install software for the user. But a podman binary that
-# is present with only its MACHINE stopped/absent is NOT a skip: starting
-# the machine installs nothing, so the test brings it up itself (init+start
-# when no machine exists, start-only when one exists but is stopped) and
-# tears down exactly what it changed on exit. This keeps the test from
-# green-exiting on a fully-equipped host without proving anything.
+# required BINARY is absent -- the test cannot install software for the
+# user. But a podman binary that is present with only its MACHINE
+# stopped/absent is NOT a skip: starting the machine installs nothing, so
+# the test brings it up itself (init+start when no machine exists,
+# start-only when one exists but is stopped) and tears down exactly what
+# it changed on exit. This keeps the test from green-exiting on a
+# fully-equipped host without proving anything.
 #
 # SKIP vs FAIL (issue #115): the line is "missing software the test won't
 # install" -> SKIP (exit 0); "the test tried to bring up a runtime it chose
@@ -54,16 +54,17 @@
 #
 # DIAGNOSTICS (issue #115): build/boot/proxy logs and the podman machine
 # init/start stderr are written to a STABLE, RETAINED per-run directory
-# under ${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs/<run-id>/ and are
+# under $CLAUDE_VM_STATE_DIR/logs/<run-id>/ (lib/config.sh) and are
 # NOT deleted on exit, so a failed run stays diagnosable. (The earlier code
 # logged into a mktemp dir it rm -rf'd on exit, so failure diagnostics --
 # including the machine-start error -- were destroyed before they could be
 # read.)
 #
 # Requires (to actually run, not skip): gvproxy (resolved from podman
-# libexec), vfkit, podman, tinyproxy, curl, python3 (the shared machine
-# probe parses podman's JSON with it). A podman machine is started by
-# the test when absent/stopped, rather than required up front.
+# libexec), vfkit, podman, tinyproxy, curl, yq (mikefarah v4+), python3
+# (the shared machine probe parses podman's JSON with it). A podman
+# machine is started by the test when absent/stopped, rather than
+# required up front.
 
 set -uo pipefail
 
@@ -82,10 +83,9 @@ PROXY_LAUNCH="$PAYLOAD_DIR/proxy/tinyproxy-launch.sh"
 # The preflight has two categorically different failure modes, and only
 # one warrants a SKIP:
 #
-#   1. A required BINARY is absent (gvproxy, vfkit, podman,
-#      tinyproxy, curl) -> SKIP (exit 0). The test cannot install
-#      software for the user, exactly as config-test.sh skips on a
-#      missing yq.
+#   1. A required BINARY is absent -> SKIP (exit 0). The test cannot
+#      install software for the user, exactly as config-test.sh skips
+#      on a missing yq.
 #
 #   2. The binaries are present but podman's MACHINE is stopped/absent
 #      -> the test brings the machine up itself. 'podman machine
@@ -102,8 +102,7 @@ PROXY_LAUNCH="$PAYLOAD_DIR/proxy/tinyproxy-launch.sh"
 # ---------------------------------------------------------------------
 # gate_skip is for "this host cannot run the test" -> exit 0. It is
 # correct ONLY for a MISSING BINARY the test will not install for the
-# user (curl, gvproxy, vfkit, podman, tinyproxy), mirroring how
-# config-test.sh skips on a missing yq.
+# user, mirroring how config-test.sh skips on a missing yq.
 gate_skip() {
   echo "SKIP: $1 host-acceptance test skipped." >&2
   exit 0
@@ -136,6 +135,13 @@ claude_vm_resolve_gvproxy >/dev/null 2>&1 || \
 for bin in vfkit podman tinyproxy; do
   command -v "$bin" >/dev/null 2>&1 || gate_skip "$bin not available;"
 done
+
+# yq (mikefarah v4+) backs claude_vm_render_guest_settings, which
+# criterion (b) runs to write the stub guest settings.json; lib/config.sh
+# does not check for yq at source time, so this gate does. An absent or
+# wrong yq is missing software the test will not install: a SKIP, like
+# the binaries above. claude_vm_require_yq prints the install hint itself.
+claude_vm_require_yq || gate_skip "yq (mikefarah v4+) not usable;"
 
 # python3 parses 'podman machine list --format json' below, inside
 # claude_vm_podman_machine_probe (sourced from lib/config.sh above) --
@@ -173,10 +179,10 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-accept.XXXXXX")"
 # build/boot/proxy logs -- and the podman machine init/start stderr -- were
 # deleted before they could be read (issue #115). Logs now go here instead
 # and are NEVER removed on exit, so a failed run is diagnosable after the
-# fact. Path mirrors the global config path resolution in lib/config.sh
-# (respects XDG_CONFIG_HOME, expands $HOME). A unique per-run id keeps
+# fact. Path derives from the state root lib/config.sh resolves
+# (CLAUDE_VM_STATE_DIR, sourced above). A unique per-run id keeps
 # concurrent/repeated runs from colliding.
-LOG_BASE="${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs"
+LOG_BASE="$CLAUDE_VM_STATE_DIR/logs"
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 LOG_DIR="$LOG_BASE/$RUN_ID"
 mkdir -p "$LOG_DIR"
@@ -764,7 +770,7 @@ elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>
   echo "ok   - (d) host-side verified-cache test SKIPPED (no sha256 tool)"
 else
   # Isolated GNUPGHOME + cache dir so we never touch the operator's real
-  # keyring or ~/.config/claude-vm/cache.
+  # keyring or $CLAUDE_VM_STATE_DIR/cache.
   D_HOME="$WORK/gpg-d"
   mkdir -p "$D_HOME"; chmod 700 "$D_HOME"
   export GNUPGHOME="$D_HOME"

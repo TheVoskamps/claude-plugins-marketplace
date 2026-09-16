@@ -46,8 +46,8 @@
 # host `.env` file, both read at launch (issue #135). `env.set` is for
 # non-secret literals only, since its values ARE the committed config.
 #
-# Requires: yq (v4+, the Go/mikefarah implementation). Detected at
-# source time so callers fail fast with an actionable message.
+# Requires: yq (v4+, the Go/mikefarah implementation). Sourcing does not
+# check for it; a caller runs claude_vm_require_yq before parsing config.
 
 set -uo pipefail
 
@@ -68,6 +68,16 @@ set -uo pipefail
 # CLAUDE_VM_REPO_BAKE_CONFIG / CLAUDE_VM_REPO_BOOT_CONFIG are resolved per-run
 # relative to the repo root by the launcher (<repo>/.claude-vm/config-{bake,boot}.yml);
 # tests set them directly.
+
+# State root: what claude-vm writes for itself and reads back later -- the
+# built guest images (images/), the verified claude binary cache (cache/) and
+# the acceptance test's retained diagnostics (logs/). Kept apart from the
+# config root so the rebuildable state can be deleted without touching the
+# hand-written config. The scripts spell the XDG state fallback only here;
+# every state path they build derives from CLAUDE_VM_STATE_DIR rather than
+# restating it (the example configs and the skill prose name the default
+# for the operator).
+: "${CLAUDE_VM_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm}"
 
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now
 # expected, and emit an actionable migration message. The design's chosen

@@ -255,7 +255,7 @@ PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.
 # by the #106 root-headroom knob): the operator owns that path and its
 # contents, so we neither hash nor rewrite it. When UNSET, the launcher
 # DERIVES the image path from the image-identity segments below, defaulting
-# into the cache dir alongside the global config.
+# into images/ under the state root (CLAUDE_VM_STATE_DIR, lib/config.sh).
 #
 # Image identity (issue #105 bake-hash, redesigned by #106, re-redesigned by
 # #179 to a whole-file raw-byte hash). The image's CONTENT is determined by
@@ -278,7 +278,7 @@ PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.
 # compare against are the SAME string; the MERGED bake config and MERGED
 # headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
 # as the image build CONTENT.
-DEFAULT_IMAGE_DIR="$CLAUDE_VM_GLOBAL_CONFIG_DIR/images"
+DEFAULT_IMAGE_DIR="$CLAUDE_VM_STATE_DIR/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
@@ -1677,7 +1677,7 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # which keeps this correct if a future mount strategy changes what is shared,
 # and fall back to a per-run dir under $TMPDIR -- outside the repo, and outside
 # the other shares claude-vm builds for itself ($RUN/config, $RUN/creds, and
-# the verified-binary cache under ~/.config/claude-vm). That dir is NOT covered
+# the verified-binary cache under $CLAUDE_VM_STATE_DIR). That dir is NOT covered
 # by the run-dir retention, so cleanup() removes it (removing hard links, never
 # the operator's file).
 #
@@ -2212,7 +2212,7 @@ CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 # CLONE, so N concurrent sessions share one immutable base with no cross-session
 # leakage and no multi-writer corruption. cp -c is instant + zero-copy on APFS
 # (macOS default fs). If cp -c fails (non-APFS volume, e.g. an operator who put
-# their config dir on a case-sensitive HFS+ or exFAT volume), fall back to a
+# their state dir on a case-sensitive HFS+ or exFAT volume), fall back to a
 # plain full copy with a warning -- correctness (a per-run image) over speed.
 # The .version sidecar is NOT cloned: the clone is throwaway and the base's
 # version was already checked by the build-or-reuse block above.
