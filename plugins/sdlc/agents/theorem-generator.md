@@ -1,6 +1,6 @@
 ---
 name: theorem-generator
-description: Reads a PR, the issues it closes, and the surrounding codebase — or, before a PR exists, the issues and the default issue source branch's tree alone — at the default (low) reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out or for the human to rule on as the seed. Spawned by the sdlc:theorem-based-pr-reviewer agent on each review round, and by /sdlc:orchestrate once per batch on the issues-only brief; it posts nothing and writes nothing in any repository.
+description: Reads a PR, the issues it closes, and the surrounding codebase — or, before a PR exists, the issues and the default issue source branch's tree alone — at the default (low) reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out or for the human to rule on as the seed. It posts nothing and writes nothing in any repository.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
 effort: low

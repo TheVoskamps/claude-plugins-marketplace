@@ -7,17 +7,12 @@ user-invocable: false
 # Theorem Agents Interface
 
 This is the one statement of what goes into a theorem agent and what
-comes back out. The `sdlc:theorem-based-pr-reviewer` agent writes the
-briefs, all but one: the **issues-only brief** under "The three
-generator briefs" below is written by `/sdlc:orchestrate`, before any
-PR exists. The generator variants, `theorem-disprover`, and
-`counterexample-verifier` receive them and answer. An `## Inputs`
-section names which of the parameters below one agent's brief carries
-and adds only what is specific to that agent — `theorem-disprover`'s
-and `counterexample-verifier`'s in their own agent files, the
-generator's in `sdlc:theorem-generation`, since the generator
-skeletons hold no instructions of their own. The meaning of a
-parameter is stated here and nowhere else.
+comes back out. An `## Inputs` section names which of the parameters
+below one agent's brief carries and adds only what is specific to
+that agent — `theorem-disprover`'s and `counterexample-verifier`'s in
+their own agent files, the generator's in `sdlc:theorem-generation`,
+since the generator skeletons hold no instructions of their own. The
+meaning of a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
 its issue-set findings come from no theorem, so it grades them by the
