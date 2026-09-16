@@ -73,8 +73,10 @@ set -uo pipefail
 # built guest images (images/), the verified claude binary cache (cache/) and
 # the acceptance test's retained diagnostics (logs/). Kept apart from the
 # config root so the rebuildable state can be deleted without touching the
-# hand-written config. This is the ONE spelling of the XDG state fallback;
-# every state path derives from CLAUDE_VM_STATE_DIR rather than restating it.
+# hand-written config. The scripts spell the XDG state fallback only here;
+# every state path they build derives from CLAUDE_VM_STATE_DIR rather than
+# restating it (the example configs and the skill prose name the default
+# for the operator).
 : "${CLAUDE_VM_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm}"
 
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now
