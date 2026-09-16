@@ -43,6 +43,7 @@ set -uo pipefail
 # so a caller that sources only this library (test/claude-cache-test.sh) still
 # gets the one state-root spelling; config.sh has no readonly bindings and no
 # source guard, so a caller that already sourced it is unaffected.
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=config.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 [ -n "${CLAUDE_VM_STATE_DIR:-}" ] \

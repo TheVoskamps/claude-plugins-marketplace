@@ -137,6 +137,13 @@ for bin in vfkit podman tinyproxy; do
   command -v "$bin" >/dev/null 2>&1 || gate_skip "$bin not available;"
 done
 
+# yq (mikefarah v4+) backs claude_vm_render_guest_settings, which
+# criterion (b) runs to write the stub guest settings.json; lib/config.sh
+# does not check for yq at source time, so this gate does. An absent or
+# wrong yq is missing software the test will not install: a SKIP, like
+# the binaries above. claude_vm_require_yq prints the install hint itself.
+claude_vm_require_yq || gate_skip "yq (mikefarah v4+) not usable;"
+
 # python3 parses 'podman machine list --format json' below, inside
 # claude_vm_podman_machine_probe (sourced from lib/config.sh above) --
 # this test resolves its target machine through that shared helper rather
