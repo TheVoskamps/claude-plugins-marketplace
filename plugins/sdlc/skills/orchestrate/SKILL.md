@@ -821,8 +821,9 @@ member)**:
 4. Run `code-documenter` and `style-checker` against the branch, the
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping
-   them is what lets a fixer's own unverified comment reach the review
-   unchecked.
+   them is what lets a fixer's commits reach the review without the
+   comments the style guides require of them, and unchecked against
+   the `## For Authors and Checkers` rules.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
