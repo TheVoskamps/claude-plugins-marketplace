@@ -719,11 +719,9 @@ the literal sweeps all of them.
 
 Apply each remaining comment to the carried records:
 
-- **A rejected finding** — its theorem retires as *human-refuted*, and
-  nothing revives it: a `--full` round skips it, and a human who
-  changes their mind posts a missed defect instead, which mints a new
-  theorem under a new id. A rejection therefore holds for the rest of
-  the PR's rounds by every route.
+- **A rejected finding** — its theorem retires as *human-refuted*. A
+  human who changes their mind posts a missed defect instead, which
+  mints a new theorem under a new id.
 - **A scope-dropped finding** — a `dropped (scope ruling)` line — its
   theorem retires as *scope-dropped*. The ruling is the orchestrator's,
   not the human's, and the label is what keeps the two apart.
@@ -2016,9 +2014,8 @@ owns:
   is stamped `retired` in the very round that settled it — the round it
   survived, or the round whose counterexample the verifier refuted — and
   holds that state in every later round's block unless a later round
-  puts it back on the live list. One round does: a `--full` round
-  re-runs every record but one whose `state-detail` is `human-refuted`.
-  Such a theorem then takes whatever state that round leaves it in.
+  puts it back on the live list, as a `--full` round can. Such a
+  theorem then takes whatever state that round leaves it in.
   "Derive each theorem's disposition" does the stamping. `state-detail`
   says what settled it: `survived`, `disproved-but-refuted`,
   `subject removed` for a generator retirement, `human-refuted` for a
