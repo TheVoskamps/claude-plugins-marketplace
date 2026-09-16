@@ -267,6 +267,24 @@ line, and a `git-`-named path handed to a program other than `git`.
 Name the files inside such a directory rather than the directory, or
 read it with a tool other than `git`.
 
+## The isolation guard refuses a command it cannot read the text of
+
+The harness's worktree-isolation guard refuses a command whose name is
+"computed at runtime inside a construct too complex to verify"
+— `for t in a b; do ./test/$t.sh; done` — and a loop that feeds a file
+into a program it does not know (`for e in …; do <bin> < $e; done`),
+because neither "can be shown not to run git". It reads the shell text
+it is handed, so `bash <script>`, `bash -n <script>` and
+`bash -c '…'` pass while a `bash` with nothing to read, such as
+`bash --version`, is refused as "runs bash in a plain command". The
+guardrails permission gate is not the refuser: it defers on
+`bash <script>`.
+
+Name each script by its own literal path, one invocation per statement
+rather than a loop. A `PATH=…` prefix on that invocation is not
+refused, so that is how to steer which interpreter the script's shebang
+resolves.
+
 ## A branch already claimed by another worktree
 
 `git checkout <branch>` can fail naming another worktree that holds
