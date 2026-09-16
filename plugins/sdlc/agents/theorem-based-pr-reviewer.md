@@ -993,7 +993,7 @@ to diff against — the `sdlc:theorem-agents-interface` skill → "The brief
 parameters" owns why that bound matters. On an adjustment-only round the
 list is empty, and `--delta-commits` carries an empty value rather than
 being dropped: the generator reads that as a delta of nothing, not as a
-round 1 to generate whole.
+fallback round to generate whole.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into the generator;
