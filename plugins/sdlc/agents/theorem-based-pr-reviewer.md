@@ -1041,7 +1041,8 @@ round. On a fallback round it is every theorem the
 generator emitted. On a delta round it is exactly:
 
 - every carried record holding **no `state`** — round 0's accepted and
-  merged seed theorems, which no round has attacked yet;
+  re-moded seed theorems, and the record each merge minted, none of
+  which any round has attacked yet;
 - theorems **disproved last round** — re-disproof is the check that
   the fix landed;
 - theorems left **unsettled** last round;
