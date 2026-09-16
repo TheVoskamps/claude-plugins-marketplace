@@ -2058,8 +2058,9 @@ silently wrong in a way nothing downstream can detect.
 ### Per-issue verdicts, one overall
 
 Every member of the set you review against — as "Identify the issue set"
-resolved it — gets its own verdict line, graded from that member's
-findings alone:
+resolved it — gets its own verdict line, derived per "Verdict follows
+from findings" below from the findings and the unsettled theorems
+tagged to that member, and from nothing tagged to another:
 
 ```markdown
 ## Verdicts
@@ -2200,10 +2201,10 @@ the floor above, not Low for "just a comment fix."
 
 ## Verdict follows from findings
 
-Each verdict line is a mechanical consequence of the findings tagged
-to the issue it names — a member of the set, or one of the extra
-issues "Per-issue verdicts, one overall" above gives a line to — not a
-separate judgment call:
+Each verdict line is a mechanical consequence of the findings and the
+unsettled theorems tagged to the issue it names — a member of the set,
+or one of the extra issues "Per-issue verdicts, one overall" above
+gives a line to — not a separate judgment call:
 
 - Any open Critical, High, or Medium finding tagged to that issue →
   `request_changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
