@@ -57,8 +57,8 @@ rather than recalling it:
 - A renamed heading in the issue-body grammar: the grammar has a
   writer, `skills/orchestrate-ready/SKILL.md`, and a reader,
   `skills/theorem-generation/SKILL.md`, which keys a criterion
-  theorem's `class` off the headings the writer emits. Neither side can
-  hold the grammar alone, so both move in one PR.
+  theorem's `settle-mode` off the headings the writer emits. Neither side
+  can hold the grammar alone, so both move in one PR.
 
 Surfaces outside this plugin that a contract change reaches:
 `plugins/github-prs/` attributes PR verbs to named `sdlc` agents in its
