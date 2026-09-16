@@ -36,7 +36,7 @@
 #
 # HOST-GATED, split by cause (issue #110): like config-test.sh skips when
 # yq is absent, this test SKIPS (exit 0 with a clear message) when a
-# required BINARY (gvproxy, vfkit, podman, tinyproxy, curl) is absent --
+# required BINARY (gvproxy, vfkit, podman, tinyproxy, curl, yq) is absent --
 # the test cannot install software for the user. But a podman binary that
 # is present with only its MACHINE stopped/absent is NOT a skip: starting
 # the machine installs nothing, so the test brings it up itself (init+start
@@ -83,7 +83,7 @@ PROXY_LAUNCH="$PAYLOAD_DIR/proxy/tinyproxy-launch.sh"
 # one warrants a SKIP:
 #
 #   1. A required BINARY is absent (gvproxy, vfkit, podman,
-#      tinyproxy, curl) -> SKIP (exit 0). The test cannot install
+#      tinyproxy, curl, yq) -> SKIP (exit 0). The test cannot install
 #      software for the user, exactly as config-test.sh skips on a
 #      missing yq.
 #
@@ -102,7 +102,7 @@ PROXY_LAUNCH="$PAYLOAD_DIR/proxy/tinyproxy-launch.sh"
 # ---------------------------------------------------------------------
 # gate_skip is for "this host cannot run the test" -> exit 0. It is
 # correct ONLY for a MISSING BINARY the test will not install for the
-# user (curl, gvproxy, vfkit, podman, tinyproxy), mirroring how
+# user (curl, gvproxy, vfkit, podman, tinyproxy, yq), mirroring how
 # config-test.sh skips on a missing yq.
 gate_skip() {
   echo "SKIP: $1 host-acceptance test skipped." >&2
