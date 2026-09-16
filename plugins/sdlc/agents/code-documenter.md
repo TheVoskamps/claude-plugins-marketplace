@@ -31,8 +31,11 @@ instructions at the top of that file.
 
 The code and comment style guides, doc comments included, reach you
 through the triggers that file states. Each guide names its own per-repo
-extension mechanism; follow it. When a guide is absent it contributes
-nothing, silently: never reconstruct a style rule from memory.
+extension mechanism; follow it. A guide `~/.claude/CLAUDE.md` indexes
+that cannot be read at the path it names is a fault: check nothing
+against that guide, reconstruct no rule from memory, and report the
+miss in your report-back as one line naming the path you tried. A
+per-repo extension file that is absent contributes nothing, silently.
 
 ## Inputs
 
