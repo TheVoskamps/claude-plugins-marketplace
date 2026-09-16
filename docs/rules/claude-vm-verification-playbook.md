@@ -551,9 +551,10 @@ over merged documents; the bake files' own schema has `packages:` as a
 flat list, with no `.packages.bake` normalization on that path.
 
 **Getting a real linux-arm64 claude binary.** The host's cache under
-`~/.config/claude-vm/` is unreadable from a worktree-isolated agent
-unless this machine's operator listed `claude-vm/**` under
-`config-home` in the permission gate's operator carve-out (see
+`$CLAUDE_VM_STATE_DIR/cache` (default `~/.local/state/claude-vm/cache`)
+is unreadable from a worktree-isolated agent unless this machine's
+operator listed `claude-vm/**` under `state-home` in the permission
+gate's operator carve-out (see
 [`docs/rules/config-file-conventions.md`](config-file-conventions.md) →
 "The permission gate's carve-out follows these same roots"); the gate
 ships no default entries, so assume it is unreadable until a read

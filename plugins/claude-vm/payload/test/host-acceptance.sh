@@ -54,7 +54,7 @@
 #
 # DIAGNOSTICS (issue #115): build/boot/proxy logs and the podman machine
 # init/start stderr are written to a STABLE, RETAINED per-run directory
-# under ${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs/<run-id>/ and are
+# under $CLAUDE_VM_STATE_DIR/logs/<run-id>/ (lib/config.sh) and are
 # NOT deleted on exit, so a failed run stays diagnosable. (The earlier code
 # logged into a mktemp dir it rm -rf'd on exit, so failure diagnostics --
 # including the machine-start error -- were destroyed before they could be

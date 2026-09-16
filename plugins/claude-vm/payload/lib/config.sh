@@ -46,8 +46,8 @@
 # host `.env` file, both read at launch (issue #135). `env.set` is for
 # non-secret literals only, since its values ARE the committed config.
 #
-# Requires: yq (v4+, the Go/mikefarah implementation). Detected at
-# source time so callers fail fast with an actionable message.
+# Requires: yq (v4+, the Go/mikefarah implementation). Sourcing does not
+# check for it; a caller runs claude_vm_require_yq before parsing config.
 
 set -uo pipefail
 

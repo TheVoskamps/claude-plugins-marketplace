@@ -1677,7 +1677,7 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # which keeps this correct if a future mount strategy changes what is shared,
 # and fall back to a per-run dir under $TMPDIR -- outside the repo, and outside
 # the other shares claude-vm builds for itself ($RUN/config, $RUN/creds, and
-# the verified-binary cache under ~/.config/claude-vm). That dir is NOT covered
+# the verified-binary cache under $CLAUDE_VM_STATE_DIR). That dir is NOT covered
 # by the run-dir retention, so cleanup() removes it (removing hard links, never
 # the operator's file).
 #
