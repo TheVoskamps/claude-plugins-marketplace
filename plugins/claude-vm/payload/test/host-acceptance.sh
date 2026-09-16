@@ -36,13 +36,13 @@
 #
 # HOST-GATED, split by cause (issue #110): like config-test.sh skips when
 # yq is absent, this test SKIPS (exit 0 with a clear message) when a
-# required BINARY (gvproxy, vfkit, podman, tinyproxy, curl, yq) is absent --
-# the test cannot install software for the user. But a podman binary that
-# is present with only its MACHINE stopped/absent is NOT a skip: starting
-# the machine installs nothing, so the test brings it up itself (init+start
-# when no machine exists, start-only when one exists but is stopped) and
-# tears down exactly what it changed on exit. This keeps the test from
-# green-exiting on a fully-equipped host without proving anything.
+# required BINARY is absent -- the test cannot install software for the
+# user. But a podman binary that is present with only its MACHINE
+# stopped/absent is NOT a skip: starting the machine installs nothing, so
+# the test brings it up itself (init+start when no machine exists,
+# start-only when one exists but is stopped) and tears down exactly what
+# it changed on exit. This keeps the test from green-exiting on a
+# fully-equipped host without proving anything.
 #
 # SKIP vs FAIL (issue #115): the line is "missing software the test won't
 # install" -> SKIP (exit 0); "the test tried to bring up a runtime it chose
@@ -61,9 +61,10 @@
 # read.)
 #
 # Requires (to actually run, not skip): gvproxy (resolved from podman
-# libexec), vfkit, podman, tinyproxy, curl, python3 (the shared machine
-# probe parses podman's JSON with it). A podman machine is started by
-# the test when absent/stopped, rather than required up front.
+# libexec), vfkit, podman, tinyproxy, curl, yq (mikefarah v4+), python3
+# (the shared machine probe parses podman's JSON with it). A podman
+# machine is started by the test when absent/stopped, rather than
+# required up front.
 
 set -uo pipefail
 
@@ -82,10 +83,9 @@ PROXY_LAUNCH="$PAYLOAD_DIR/proxy/tinyproxy-launch.sh"
 # The preflight has two categorically different failure modes, and only
 # one warrants a SKIP:
 #
-#   1. A required BINARY is absent (gvproxy, vfkit, podman,
-#      tinyproxy, curl, yq) -> SKIP (exit 0). The test cannot install
-#      software for the user, exactly as config-test.sh skips on a
-#      missing yq.
+#   1. A required BINARY is absent -> SKIP (exit 0). The test cannot
+#      install software for the user, exactly as config-test.sh skips
+#      on a missing yq.
 #
 #   2. The binaries are present but podman's MACHINE is stopped/absent
 #      -> the test brings the machine up itself. 'podman machine
@@ -102,8 +102,7 @@ PROXY_LAUNCH="$PAYLOAD_DIR/proxy/tinyproxy-launch.sh"
 # ---------------------------------------------------------------------
 # gate_skip is for "this host cannot run the test" -> exit 0. It is
 # correct ONLY for a MISSING BINARY the test will not install for the
-# user (curl, gvproxy, vfkit, podman, tinyproxy, yq), mirroring how
-# config-test.sh skips on a missing yq.
+# user, mirroring how config-test.sh skips on a missing yq.
 gate_skip() {
   echo "SKIP: $1 host-acceptance test skipped." >&2
   exit 0
