@@ -474,15 +474,10 @@ report it back in the theorem-record format that skill defines, and
 nothing else.
 ```
 
-Pick the definition to spawn by the reviewer's own rubric
-(`sdlc:theorem-based-pr-reviewer` → "Pick the generator tier"), with
-its two signals read against the batch's issue bodies rather than a
-delta: **complexity** fires when a "Files affected" entry is a
-contract other agents consume, a `lib/` helper, config parse or
-merge, the launcher, or gate verdict logic; **extent** fires when the
-lists span many files, or an issue adds a new unit — a skill, an
-agent, a script, a gate arm. The output is low or medium and nothing
-else. A tier the human named at the plan confirm wins outright.
+Pick the definition to spawn by the tier rubric's complexity and
+extent signals, read against the batch's issue bodies rather than a
+delta. The output is low or medium and nothing else. A tier the human
+named at the plan confirm wins outright.
 
 The seed spawn is not persisted through `sdlc-agent-result-persist`:
 every path it composes is keyed on a PR number, and none exists.
