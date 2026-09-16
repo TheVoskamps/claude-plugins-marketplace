@@ -59,13 +59,8 @@ round itself and refuses one.
   `owner/name` token, whose `/` would add a directory level to the
   path. Neither may carry a path separator or whitespace.
 - `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
-  from 1, and **`--round 0` is valid**: it is the pre-loop seed, the
-  theorem list generated from the issues and ruled on by the human
-  before any implementer ran. Round 0 holds only a records file,
-  written with `--mode records` — no round log, no result files, no
-  review file — so `--mode print --round 0` fails as on a round that
-  never ran, and `print-records` selects it only until round 1 stores
-  its own.
+  from 1, and **`--round 0` is valid**: the pre-loop seed, ruled on by
+  the human before any implementer ran.
 
 **One round is one log.** There is no per-fan-out file and no `--agent`
 in the path: the `stage` column below says which fan-out a record

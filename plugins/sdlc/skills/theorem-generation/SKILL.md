@@ -1,6 +1,6 @@
 ---
 name: theorem-generation
-description: How an sdlc theorem-generator turns a PR, its issues, and the surrounding codebase — or, before a PR exists, the issues and the default branch's tree alone — into a list of disprovable theorems. Preloaded into each theorem-generator variant via its skills frontmatter; not invoked from the user's slash menu.
+description: How an sdlc theorem-generator turns a PR, its issues, and the surrounding codebase — or, before a PR exists, the issues and the default issue source branch's tree alone — into a list of disprovable theorems. Preloaded into each theorem-generator variant via its skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -297,10 +297,11 @@ There is no diff and no PR body, so the issue bodies stand in for
 both. Source 1 runs unchanged: every criterion of every member issue
 becomes a theorem, tagged to its member, with the settle mode its
 heading hands you. Source 2 has nothing to read. For sources 3 and 4,
-read each issue's design prose and its "Files affected" list as the
-change it describes, and emit the theorems that description warrants —
-which restatement of a fact the issue moves must move with it, where
-the change has to sit, what second source of truth it must not create.
+read each issue's design prose and its "Files affected (floor)" list
+as the change it describes, and emit the theorems that description
+warrants — which restatement of a fact the issue moves must move with
+it, where the change has to sit, what second source of truth it must
+not create.
 A pointer names the issue text the claim comes from, or the file in
 the current tree it is about; nothing else exists to point at.
 

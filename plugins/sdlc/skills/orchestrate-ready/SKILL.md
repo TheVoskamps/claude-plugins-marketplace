@@ -74,10 +74,12 @@ Assess the fetched issue against each of these:
   section, and each bullet in it is one claim about the delivered
   change that a reviewer can attempt to disprove against the diff. An
   issue without one is not orchestrate-ready.
-- **Files affected.** The body carries a `## Files affected` section
-  listing every path the change creates, edits, or deletes. Before any
-  developer runs, the theorem generator reads that list in place of a
-  diff — it decides which of the repo's on-demand rule files and
+- **Files affected.** The body carries a `## Files affected (floor)`
+  section listing the paths the design reaches as written. It is a
+  floor and not a fence: the developer edits whatever the change needs
+  beyond it, and a path outside the list is not a scope breach. Before
+  any developer runs, the theorem generator reads that list in place
+  of a diff — it decides which of the repo's on-demand rule files and
   READMEs the generator reads and which mirrored facts it checks — so
   an issue without one is not orchestrate-ready.
 
@@ -131,12 +133,12 @@ Assess the fetched issue against each of these:
    mechanical criterion: every PR that changes a plugin bumps its
    version, and the generator makes a theorem of every criterion.
 
-   **The `## Files affected` section is a gap the same way.** When the
-   body has none, derive the list from the design prose — every file
-   the change names or plainly has to touch — and put it to the user
-   with the other decisions; a path the design does not reach is a
-   design decision to settle, not a file to guess. When the body has
-   one, check it against the design prose and surface any path the
+   **The `## Files affected (floor)` section is a gap the same way.**
+   When the body has none, derive the list from the design prose —
+   every file the change names or plainly has to touch — and put it to
+   the user with the other decisions; a path the design does not reach
+   is a design decision to settle, not a file to guess. When the body
+   has one, check it against the design prose and surface any path the
    prose reaches that the list omits.
 
    **If any gap from step 2 is still unresolved when the conversation
@@ -174,7 +176,8 @@ Assess the fetched issue against each of these:
    tense, and a dependency the prose stated is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed
    `## Acceptance` section goes in as its two grouped sub-lists, and
-   the agreed `## Files affected` section goes in as a list of paths.
+   the agreed `## Files affected (floor)` section goes in as a list of
+   paths.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,

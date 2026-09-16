@@ -162,11 +162,6 @@ gh pr view <PR> --json reviews --jq '.reviews | length'
 
 The first gives `--owner` and `--repo`; `--pr` is the PR under review;
 `--round` is that review count **plus one**, so a first round is `1`.
-Rounds count review passes from 1; **round 0** is the pre-loop seed —
-the theorem list the orchestrator generated from the issues and the
-human ruled on before the developer ran — and no reviewer ever runs
-it: it holds a records file and nothing else, and "Carry the previous
-round's theorems forward" reads it as round 1's carried records.
 Your own review lands only at "Post one review", so the count holds
 across the round. Resolving them is what reaches the log, on the terms
 the preloaded `sdlc:agent-result-persist-interface` skill → "The paths"

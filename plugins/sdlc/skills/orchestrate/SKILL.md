@@ -574,8 +574,8 @@ RECORDS
 ```
 
 The file holds every candidate the generator emitted, in id order, in
-the record shape `sdlc:theorem-based-pr-reviewer` → "The theorem
-records file" owns, with the human's rulings transcribed onto it:
+the record shape `sdlc:theorem-based-pr-reviewer` owns, with the
+human's rulings transcribed onto it:
 
 - an **accepted** or **re-moded** theorem is a live record carrying
   **no `state` field** — it has never been attacked — with its
