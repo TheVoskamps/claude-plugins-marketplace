@@ -664,7 +664,7 @@ argv, settings, image identity, and plugin manifests from:
   `sharedDir=$CREDS_DIR` (both under `$RUN`, which is
   `<repo>/.claude/tmp/<run-id>` whenever the argument is a git repo, in
   either mount mode), and `sharedDir=$CLAUDE_BIN_DIR` (under
-  `CLAUDE_VM_CACHE_DIR`, i.e. `$XDG_CONFIG_HOME`/`$HOME` by default). And,
+  `CLAUDE_VM_CACHE_DIR`, i.e. `$XDG_STATE_HOME`/`$HOME` by default). And,
   outside the shares: `--bootloader efi,variable-store=$EFISTORE,create`,
   `virtio-blk,path=$GUEST_IMAGE_CLONE` and
   `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, all under `$RUN`; and
@@ -1190,6 +1190,57 @@ the incoming CLI args through `claude_vm_augment_rc_args` to add
 identically and is never duplicated. Any value other than `true`/`false`
 (or unset) aborts the launch, matching `claude.renderer`'s strictness.
 
+## State root (`CLAUDE_VM_STATE_DIR`)
+
+What claude-vm writes for itself and reads back on a later launch lives
+under one **state root**, `CLAUDE_VM_STATE_DIR`, which `lib/config.sh`
+resolves to `${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm` — the
+variable when set and non-empty, `~/.local/state/claude-vm` otherwise —
+and which an operator can override by exporting it. Under it:
+
+- `images/` — the built guest base images (`guest+….raw`) and their
+  `.version` sidecars; `DEFAULT_IMAGE_DIR` in `claude-vm.sh`, unless an
+  explicit `guest_image` opts out of derivation;
+- `cache/` — the GPG-manifest-verified `claude` binary
+  (`<version>/linux-arm64/claude`) and the `.last-network-state` marker;
+  the `CLAUDE_VM_CACHE_DIR` default in `lib/claude-cache.sh`;
+- `logs/<run-id>/` — the retained diagnostics of a `host-acceptance.sh`
+  run.
+
+The config root, `~/.config/claude-vm/`, holds only the hand-written
+bake/boot pair and the legacy `config.yml` the migration check detects.
+The split exists so the rebuildable state can be deleted without reading
+past the operator's config: everything under the state root is
+content-addressed (an image by its bake-file hash, a binary by its
+resolved version) and is rebuilt or re-fetched on the next launch, and
+the logs are diagnostics.
+
+The scripts spell the XDG state fallback once, in `lib/config.sh`;
+every state path they build derives from `CLAUDE_VM_STATE_DIR`.
+`lib/claude-cache.sh` sources `config.sh` itself, by a path relative to
+its own location, before defaulting the cache dir, so a caller that
+sources only the cache library (`test/claude-cache-test.sh`) still gets
+that one spelling; a caller that already sourced `config.sh` is
+unaffected, since it has no `readonly` bindings and no source guard. A
+`CLAUDE_VM_STATE_DIR` that is empty after that source aborts naming the
+variable rather than rooting the cache at `/cache`.
+
+**No migration.** Before issue #448 these directories lived under the
+config root. The launcher does not move them: an `images/`, `cache/`
+or `logs/` directory still under `~/.config/claude-vm/` is stale and can
+be deleted, and the next launch rebuilds the image and re-fetches the
+binary under the state root.
+
+**Guardrails carve-out.** The `guardrails` permission gate roots its
+operator carve-out on the config home and the state home separately, so
+a `~/.config/guardrails/config.yml` that lists `claude-vm/**` under
+`config-home` alone reaches the config and nothing under the state
+root. An operator who wants tool-mediated reads of the cached binary or
+the images — a worktree-isolated agent fetching a real guest `claude`,
+say — adds `claude-vm/**` under `state-home` as well. The launcher run
+from the operator's own terminal, and anything inside the guest, is not
+a tool call and is unaffected.
+
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
@@ -1501,7 +1552,7 @@ therefore tests `$RUN` against the *actual* repo share —
 not against `repo.mount`, so the test survives a change of mount strategy —
 and falls back to a per-run directory under `$TMPDIR`, which none of the
 shares claude-vm builds for itself (the repo share, `$RUN/config`,
-`$RUN/creds`, the verified-binary cache under `~/.config/claude-vm`)
+`$RUN/creds`, the verified-binary cache under `$CLAUDE_VM_STATE_DIR`)
 contains. That fallback is not covered by the run-dir retention, so
 `cleanup()` removes it, dropping hard links and never the operator's file. In
 the `$RUN` case the wrap dir is retained along with the rest of the run dir,
@@ -1917,7 +1968,7 @@ like `2.1.172`):
 4. read the `linux-arm64` SHA256 from the signature-verified manifest;
 5. download the binary; verify its SHA256 against the manifest;
 6. cache the verified binary under
-   `~/.config/claude-vm/cache/<version>/linux-arm64/claude` and share it
+   `$CLAUDE_VM_STATE_DIR/cache/<version>/linux-arm64/claude` and share it
    into the guest (`mountTag=claudebin`), where the image's fstab mounts it
    `ro`.
 
@@ -2287,17 +2338,19 @@ manifest, aborts on a checksum mismatch, **rejects a valid signature made
 by an unexpected (unpinned) key**, and serves a warm boot with no network.
 Criterion (d) skips cleanly when `gpg` is absent. It is host-gated,
 split by cause: it skips cleanly (exit 0) when a required *binary* is
-absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `python3`) — the test
-cannot install software for you — mirroring how `config-test.sh` skips
-when `yq` is absent. A podman binary present with only its *machine*
-stopped or absent is **not** a skip: the test brings the machine up
-itself (`init`+`start` when no machine exists, `start`-only when one is
-stopped) and tears down exactly what it changed on exit. If a bring-up
+absent — the test cannot install software for you — mirroring how
+`config-test.sh` skips when `yq` is absent. A podman binary present with
+only its *machine* stopped or absent is **not** a skip: the test brings
+the machine up itself (`init`+`start` when no machine exists,
+`start`-only when one is stopped) and tears down exactly what it changed
+on exit. If a bring-up
 the test attempted (`podman machine init`/`start`) **fails**, that is a
 real failure, not a skip — the runtime it chose to provision did not
 come up, so the test exits **non-zero** rather than green-exiting with
 nothing proven. Requires `gvproxy` (resolved from podman's libexec),
-`vfkit`, `podman`, `tinyproxy`, `curl`, and `python3` to actually run.
+`vfkit`, `podman`, `tinyproxy`, `curl`, `yq` (mikefarah v4+, which backs
+the stub guest `settings.json` render criterion (b) writes) and
+`python3` to actually run.
 It resolves its target machine through the launcher's own
 `claude_vm_podman_machine_probe` rather than a probe of its own, so the
 `--format json` read that keeps the `{{.Name}}` Go template's `*`
@@ -2309,7 +2362,7 @@ than required up front.
 Diagnostics (build, boot, proxy logs and the `podman machine`
 init/start stderr, plus a pass/fail summary) are written to a stable,
 retained per-run directory under
-`${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs/<run-id>/` and are
+`$CLAUDE_VM_STATE_DIR/logs/<run-id>/` and are
 **not** deleted on exit, so a failed run stays diagnosable after the
 fact. The resolved log directory is printed at the start and end of the
 run. Teardown is best-effort but not silent: if a `podman machine
