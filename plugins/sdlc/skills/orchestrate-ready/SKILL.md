@@ -118,9 +118,9 @@ Assess the fetched issue against each of these:
    rewrites the body.
 
    Group that list under `## Acceptance` into a `### Mechanical`
-   sub-list and a `### Semantic` one, splitting it by the `class`
-   definitions in `sdlc:theorem-generation` → "Output format" so the
-   two files agree by construction. An issue that touches
+   sub-list and a `### Semantic` one, splitting it by the
+   `settle-mode` definitions in `sdlc:theorem-generation` → "Output
+   format" so the two files agree by construction. An issue that touches
    `plugins/<name>/` always gets the plugin version bump as a
    mechanical criterion: every PR that changes a plugin bumps its
    version, and the generator makes a theorem of every criterion.

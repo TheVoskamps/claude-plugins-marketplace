@@ -64,10 +64,10 @@ them as well.
   reviewed against; for a disprover or a verifier, the member issue(s)
   the theorem is tagged to, which is context for the consequence
   statement and nothing more — neither reviews against them.
-- `--class <mechanical|semantic>` — how the generator expects the
-  claim to be settled. `mechanical` means a grep, a file listing, or a
-  one-command check should do it; `semantic` means reading behavior or
-  exercising code. It is a hint about the claim, not a cap on what the
+- `--settle-mode <mechanical|semantic>` — how the generator expects
+  the claim to be settled. `mechanical` means a grep, a file listing,
+  or a one-command check should do it; `semantic` means reading
+  behavior or exercising code. It is a hint about the claim, not a cap on what the
   agent may read: a `mechanical` claim that turns out to need reading
   gets read.
 - `--pointers <text>` — the generator's pointers, verbatim: the files,
@@ -75,9 +75,9 @@ them as well.
 - `--carried-records <text>` — the previous round's theorem records,
   verbatim as `sdlc-agent-result-persist --mode print-records` printed
   them: a `round <n>` line naming the round they came from, then every
-  recorded theorem with its id, claim, issues, class, pointers, the
-  state it held, the head SHA it was settled against, and, on a theorem
-  an adjustment comment overrode, its `severity-override`. They come
+  recorded theorem with its id, claim, issues, settle mode, pointers,
+  the state it held, the head SHA it was settled against, and, on a
+  theorem an adjustment comment overrode, its `severity-override`. They come
   off the PR's XDG state directory, never out of a review body, so a
   withdrawn or edited review costs a round nothing. Only a generator
   receives it, and only on the **delta-round brief**, which
@@ -99,7 +99,8 @@ them as well.
   nothing, not a missing parameter.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, as its result file holds it — `VERDICT`,
-  `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
+  `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and
+  `CONSEQUENCE-CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
 - `--owner <owner>` — the repository owner.
@@ -131,7 +132,8 @@ never what you may check out.
 ## The consequence classes
 
 A `DISPROVED` report and a `STANDS` report each carry one of exactly
-these tokens as its `CLASS`, alongside its `CONSEQUENCE` statement:
+these tokens as its `CONSEQUENCE-CLASS`, alongside its `CONSEQUENCE`
+statement:
 
 - `breaks-production` — merging causes data loss, opens a security
   hole, or breaks production.
@@ -144,8 +146,9 @@ these tokens as its `CLASS`, alongside its `CONSEQUENCE` statement:
   merge, it is not this one.
 
 The class grades the **consequence of merging as-is**, never the
-topic. A generator assigns no consequence class at all — the `--class`
-above is a different vocabulary, about how a claim gets settled — and
+topic. A generator assigns no consequence class at all —
+`--settle-mode` above is a different vocabulary, about how a claim
+gets settled — and
 only `theorem-disprover` and `counterexample-verifier` do; which of
 the two the reviewer takes when they disagree is stated in each of
 those agents' own "The consequence classes" section, from where that
