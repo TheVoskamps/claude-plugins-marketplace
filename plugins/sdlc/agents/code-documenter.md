@@ -31,8 +31,11 @@ instructions at the top of that file.
 
 The code and comment style guides, doc comments included, reach you
 through the triggers that file states. Each guide names its own per-repo
-extension mechanism; follow it. When a guide is absent it contributes
-nothing, silently: never reconstruct a style rule from memory.
+extension mechanism; follow it. A guide `~/.claude/CLAUDE.md` indexes
+that cannot be read at the path it names is a fault: check nothing
+against that guide, reconstruct no rule from memory, and report the
+miss in your report-back as one line naming the path you tried. A
+per-repo extension file that is absent contributes nothing, silently.
 
 ## Inputs
 
@@ -62,10 +65,12 @@ Fetch the diff via `/github-prs:pr-diff <PR_number>`. Your reach is the
 documentation file, and never touch a file the diff did not touch —
 do not sweep the repo for missing comments.
 
-In each file in reach, add or correct what the style guides require of
-it. A comment the change made wrong is corrected; a new symbol gets the
-doc comment the guides require of it; a comment that only restates the
-code it sits on is deleted rather than updated.
+You read the PR diff and write the comments the style guides require
+that the diff's code files lack. Correcting an existing comment is in
+remit only when the diff you are already reading contradicts that
+comment on its face — no grep of callers, no test, no binary probe. A
+new symbol gets the doc comment the guides require of it; a comment
+that only restates the code it sits on is deleted rather than updated.
 
 Change comments only. A code change that a comment's truth would need is
 not yours: say so in your report-back rather than making it.
@@ -77,22 +82,6 @@ introduce a list with its own count — "The options are:", not "The
 three options are:" — because a written-out tally goes stale the moment
 an item is added. A count that carries independent meaning ("retry up
 to 3 times") is a constraint, not a tally, and stays.
-
-## A comment that describes the code is a claim to verify
-
-A comment describing *how* the code works is a claim to check against
-the code, not text to preserve. Structural assertions are where this
-goes wrong — "funnelled through a single helper", "the only caller",
-"always routed through X", "X is unreachable" — and so are worked
-examples, which assert that one specific input reaches one specific
-outcome. Each is settled by a grep or a read.
-
-Check every such comment in the files you touch before it survives your
-pass, including one written earlier in this same PR by the agent that
-wrote the code: that comment was authored beside the code it describes,
-by the agent grading its own claim, and your pass is the first
-independent read. When one turns out false, correct it to say what the
-code does.
 
 ## The PR body is not yours to edit
 

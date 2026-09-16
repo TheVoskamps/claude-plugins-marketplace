@@ -66,30 +66,17 @@ Your reach is **documentation files**, as the preloaded
 file as it defines code: no source file, no `CLAUDE.md`, no rules file,
 no skill, and no agent definition. Never edit one.
 
-Update what the change made wrong, and add what it needs a reader to
-know. Weight the work toward what a reader cannot cheaply recover from
-the code: the decisions and the why behind them, and the constraints
-the change embodies.
+You read the issues, the PR body and the PR diff, and write the
+documentation the change requires: update what the change made wrong,
+and add what it needs a reader to know. Weight the work toward what a
+reader cannot cheaply recover from the code: the decisions and the why
+behind them, and the constraints the change embodies.
 
 Name things semantically, never by sequence: no "Phase 1" or "Step 3"
 as the name of a section, because inserting a step renumbers every
 reference to it. Never introduce a list with its own count — "The
 options are:", not "The three options are:" — because a written-out
 tally goes stale the moment an item is added.
-
-## Prose that describes the code is a claim to verify
-
-A sentence describing *how* the code works is a claim to check against
-the code, not text to preserve. Structural assertions are where this
-goes wrong — "funnelled through a single helper", "all three tracks",
-"the only caller", "always routed through X" — and so are worked
-examples, which assert that one specific input reaches one specific
-outcome. Each is settled by a grep or a read.
-
-Check every such sentence in the files you touch before it survives your
-pass, whether it is yours or was already there. Nothing reviews your
-commit after you, so your check is the only one it gets. When a claim
-turns out false, correct the prose to say what the code does.
 
 ## A removed mechanism leaves claims behind
 

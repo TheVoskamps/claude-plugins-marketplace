@@ -32,7 +32,8 @@ under `agents/` owns:
   require in the code files a PR's diff touched. When it returns, the
   branch carries at most one new comment commit, and `style-checker`
   runs next
-- `style-checker` — checks those code files against the style guides.
+- `style-checker` — checks those code files against the rules under
+  `## For Authors and Checkers` of each style guide that reaches it.
   When it returns, the branch is unchanged and its report carries
   findings or none; findings pause the loop for the human, per "The
   style-fix loop"
@@ -528,8 +529,9 @@ touched and the commit you pushed.
 PR <PR_N> has new commits on it.
 Branch: <branch-name>
 
-Check the code against the style guides per your agent definition.
-Report back your findings, or that there are none.
+Check the code against the rules under `## For Authors and Checkers`
+per your agent definition. Report back your findings, or that there
+are none.
 ```
 
 #### The style-fix loop
@@ -819,8 +821,9 @@ member)**:
 4. Run `code-documenter` and `style-checker` against the branch, the
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping
-   them is what lets a fixer's own unverified comment reach the review
-   unchecked.
+   them is what lets a fixer's commits reach the review without the
+   comments the style guides require of them, and unchecked against
+   the `## For Authors and Checkers` rules.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
