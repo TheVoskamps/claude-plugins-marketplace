@@ -71,6 +71,15 @@ add one back. Its `skills/issue-create/SKILL.md` does read the
 issue-body grammar, though, so a change to that grammar reaches that
 file too.
 
+The header `style-checker` takes its rules from, `## For Authors and
+Checkers`, is spelled in the global style guides under
+`~/.claude/docs/rules/` — outside this repository, so a rename there
+never shows up in a grep here — and in their per-repo extension files.
+By the checker's own wording a guide without that header contributes no
+rules, so a renamed header makes the pass report clean rather than
+fail. A PR that renames it in the guides edits `agents/style-checker.md`
+and the orchestrator's roster line and spawn prompt in the same change.
+
 ## A spawn template and its receiving agent are one change
 
 The orchestrator's teammate briefs are two-sided, and the receiving
