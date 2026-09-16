@@ -728,11 +728,7 @@ Apply each remaining comment to the carried records:
   theorem retires as *scope-dropped*. The ruling is the orchestrator's,
   not the human's, and the label is what keeps the two apart.
 - **A severity override** — it writes `severity-override: <value>` on
-  that theorem's record, per "The theorem records file". The record
-  carries the field forward verbatim on every later round, and a
-  standing finding the theorem produces in any of them grades at that
-  value, per "Findings by severity"; only a later adjustment comment on
-  the same theorem replaces it.
+  that theorem's record.
 - **A missed defect** — it mints a **new** theorem, continuing the id
   sequence, live until it survives a round.
 
