@@ -48,10 +48,14 @@ under `agents/` owns:
   brief a fixer from. It leaves nothing on the branch
 - `theorem-generator` and its `-medium`, `-high` and `-xhigh` tiers,
   `theorem-disprover`, and `counterexample-verifier` — the reviewer's
-  own children, spawned by the review pipeline and never by you; each
-  leaves nothing on the branch. The reviewer's rubric picks between
-  the base generator and `-medium`; the other two tiers are yours to
-  override with, per "Overriding the generator tier" below
+  own children, spawned by the review pipeline; each leaves nothing on
+  the branch. You spawn a generator yourself exactly once per batch,
+  on the issues-only brief, before its developer runs — when it
+  returns, its report is the seed candidate list the human rules on,
+  per "Seed the theorem set from the issues, and put it to the human".
+  The reviewer's rubric picks between the base generator and
+  `-medium`; the other two tiers are yours to override with, per
+  "Overriding the generator tier" below
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty
@@ -250,14 +254,17 @@ reading the file — the sentence quoted, and what you would do instead
 ### Wave 2 (after Wave 1 PRs open): Batch C
 
 Ready to proceed? (y to continue, or give me adjustments — e.g.
-"split 102 out of B" or "merge 101 into B")
+"split 102 out of B", "merge 101 into B", or "generator high for C")
 ```
 
 The confirm step is the human's escape hatch on grouping, and the only
 cheap moment for it: regrouping before any spawn is free, and after a
 branch carries commits and a PR it is not. Accept a regrouping
 instruction — re-emit the table with the change applied and confirm
-again. If the run is large (more than 8 issues across all batches),
+again. A generator tier the human names here is a `--generator`
+override for that batch: it wins outright for the seed generator and
+for every reviewer round on the batch's PR, per "Overriding the
+generator tier". If the run is large (more than 8 issues across all batches),
 split it into two separate sessions and say so here before proceeding.
 
 Wait for explicit human confirmation before Phase 2. Do not spawn any
@@ -440,6 +447,69 @@ rule means for one.
   option stated in the question. It never travels to the final report,
   and it never becomes a follow-up issue on your initiative.
 
+### Seed the theorem set from the issues, and put it to the human
+
+Before a batch's developer is spawned, the review's theorem set is
+seeded from the issues alone and the human rules on it — so a
+developer that goes beyond the issues, or decides something they do
+not, shows up later against a list the human already owns. The gate
+runs once per batch, after the plan is confirmed and the batch's
+members are In Progress, and it is three moves.
+
+**Spawn the generator on the issues-only brief.** The brief carries
+the batch's resolved issue set and repo-config's
+`default-issue-source-branch`, and nothing else — no PR, owner, repo
+or round, no carried records or delta, and no documentation-paths
+line, because none of those exists yet. What that brief means to the
+generator is the `sdlc:theorem-agents-interface` skill's to own; the
+generator reads the issue bodies and the source branch's tree and
+returns a candidate list:
+
+```text
+--issues <issue_N1> <issue_N2> …
+--branch <default-issue-source-branch>
+
+Generate the theorem list per your preloaded generation skill, and
+report it back in the theorem-record format that skill defines, and
+nothing else.
+```
+
+Pick the definition to spawn by the reviewer's own rubric
+(`sdlc:theorem-based-pr-reviewer` → "Pick the generator tier"), with
+its two signals read against the batch's issue bodies rather than a
+delta: **complexity** fires when a "Files affected" entry is a
+contract other agents consume, a `lib/` helper, config parse or
+merge, the launcher, or gate verdict logic; **extent** fires when the
+lists span many files, or an issue adds a new unit — a skill, an
+agent, a script, a gate arm. The output is low or medium and nothing
+else. A tier the human named at the plan confirm wins outright.
+
+The seed spawn is not persisted through `sdlc-agent-result-persist`:
+every path it composes is keyed on a PR number, and none exists.
+Hold the generator's return in your scratchpad. Its worktree is left
+for the run's terminal `/git-tools:git-cleanup-branches-and-worktrees`
+sweep, like every other worktree you spawn.
+
+**Put every candidate to the human.** Show each theorem — id, claim,
+issues, settle mode, pointers — and take one ruling per theorem:
+
+- **accept** as is;
+- **reject**;
+- **change its settle mode**, to `mechanical` or `semantic`;
+- **merge** into another theorem, with a claim the human states.
+
+A theorem the human does not name is accepted. This is a question and
+ends your turn: write nothing until the human has ruled. You carry no
+review vocabulary on the human's behalf — a merged claim is the
+human's words, quoted, per "Posting the human's review adjustments as
+a PR comment".
+
+**Hold the ruled list until the PR exists.** The ruled list is the
+seed, and it is written as round 0 of the PR's state once the
+developer has reported and the PR is linked to its issues, per "After
+each issue-developer reports back: link the PR to its issues". Until
+then it lives in your scratchpad.
+
 ### For each wave, spawn one issue-developer per batch, simultaneously
 
 One developer per batch, all of a wave's batches spawned at once. For
@@ -489,6 +559,46 @@ The PR number and the branch name the developer reported are
 load-bearing — every follow-up agent and the review pipeline are
 addressed with them. This call is where a wrong PR number surfaces
 cheaply; read what it reports back rather than assuming the no-op.
+
+**Then write the ruled seed as round 0 of the PR's state**, before
+`code-documenter` and before the first reviewer spawn — the PR number
+now exists to key the path on. Resolve `--owner` and `--repo` as
+"Reading a round's detail" shows, and pass the file on stdin through a
+quoted heredoc, which is what keeps a backtick or a `$` in a claim from
+reaching the shell:
+
+```bash
+sdlc-agent-result-persist --mode records \
+  --owner <owner> --repo <repo> --pr <PR_N> --round 0 <<'RECORDS'
+T1
+claim: …
+issues: …
+settle-mode: …
+pointers: …
+RECORDS
+```
+
+The file holds every candidate the generator emitted, in id order, in
+the record shape `sdlc:theorem-based-pr-reviewer` → "The theorem
+records file" owns, with the human's rulings transcribed onto it:
+
+- an **accepted** or **re-moded** theorem is a live record carrying
+  **no `state` field** — it has never been attacked — with its
+  `settle-mode` as the human left it;
+- a **rejected** theorem is `state: retired`,
+  `state-detail: human-refuted`, `settled-at` the PR head, so no
+  later default round revives it;
+- a **merge** retires each merged theorem the same way and mints one
+  new record continuing the id sequence — the human's claim, quoted;
+  `settle-mode: semantic` unless the human said otherwise; `issues`
+  and `pointers` the union of the merged theorems'. Ids are never
+  reused.
+
+Round 0 holds that file and nothing else — no log, no result files,
+no review. That write is transcription of the human's rulings, not
+authored review content, per "Your own boundary"; the reviewer's
+round 1 reads it as its carried records and takes the delta path over
+the whole branch.
 
 Then read the developer's `Scope:` block, before the first review
 round. A plugin the issue's title and body do not name, a rename or
@@ -651,7 +761,11 @@ delta it reads (see the `sdlc:theorem-based-pr-reviewer` agent →
 
 `--generator` is a human-override channel, and you pass it only when
 the human names a tier. `theorem-generator-high` and
-`theorem-generator-xhigh` are reachable that way and no other. The
+`theorem-generator-xhigh` are reachable that way and no other. A tier
+named at the plan confirm is that override for the whole batch: it
+picks the seed generator in "Seed the theorem set from the issues, and
+put it to the human" and travels as `--generator` on every reviewer
+spawn for the batch's PR. The
 cases that warrant asking the human for one:
 
 - The diff changes the **executable behavior of a shared mechanism**
@@ -1154,7 +1268,10 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
   in any spelling; never run `git rebase` or `git merge` or
   hand-edit conflict markers in the primary clone; and never delete,
   transfer or rewrite a captured memory entry. Doing any of it to save
-  a spawn is not a saving — see "Token Efficiency".
+  a spawn is not a saving — see "Token Efficiency". The one review
+  file you write is the round-0 records file, and it is
+  **transcription**: every claim in it is the generator's or the
+  human's, and every state on it is a ruling the human gave.
 - **Never write a closing keyword immediately before an issue
   reference, and never instruct a teammate to.** A closing keyword
   (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/

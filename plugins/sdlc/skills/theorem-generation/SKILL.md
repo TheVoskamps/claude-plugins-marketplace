@@ -1,6 +1,6 @@
 ---
 name: theorem-generation
-description: How an sdlc theorem-generator turns a PR, its issues, and the surrounding codebase into a list of disprovable theorems. Preloaded into each theorem-generator variant via its skills frontmatter; not invoked from the user's slash menu.
+description: How an sdlc theorem-generator turns a PR, its issues, and the surrounding codebase — or, before a PR exists, the issues and the default branch's tree alone — into a list of disprovable theorems. Preloaded into each theorem-generator variant via its skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -36,8 +36,8 @@ binds at every tier.
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
-Bash call onward. The worktree is throwaway: check out the PR's head
-commit, read the surrounding codebase, run scripts, grep, build,
+Bash call onward. The worktree is throwaway: check out the branch you
+were given, read the surrounding codebase, run scripts, grep, build,
 exercise the change — whatever it takes to know what claims are worth
 stating.
 
@@ -47,7 +47,9 @@ Scratch work goes under `.claude/tmp/<task-slug>/`.
 
 The two `sdlc-agent-result-persist` calls the workflow below opens and
 closes with are not an exception: both go **outside every repository**,
-through a script you run with Bash rather than a file tool.
+through a script you run with Bash rather than a file tool. On the
+issues-only brief neither call is made — every path that script
+composes is keyed on a PR, and there is none yet.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -58,9 +60,10 @@ Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file. Then read the repo's own
 `CLAUDE.md` from the worktree root, plus every on-demand file it
 indexes whose trigger this PR's diff hits and the README of every
-plugin the diff touches: each sweep section in them names a fact that
-several surfaces mirror, so together they tell you where a *changed*
-fact leaves a stale restatement behind. Which of those sections
+plugin the diff touches — on the issues-only brief, the files the
+issues' bodies name stand in for the diff: each sweep section in them
+names a fact that several surfaces mirror, so together they tell you
+where a *changed* fact leaves a stale restatement behind. Which of those sections
 warrants a theorem is decided in "Codebase consistency" below, and the
 test is narrow — the diff must change the mirrored fact, not merely
 touch a file the section mentions.
@@ -75,11 +78,16 @@ agent alongside this one) says it means: `--pr`, `--issues`,
 documentation file, the brief also carries the documentation-paths
 line that skill describes; apply it as it says.
 
-Without `--owner`, `--repo` and `--round` you can still generate the
-list but cannot record that you started or write it where a resumed
-reviewer would find it — say so in your report rather than guessing at
-one. `--pr` is what you generate *from*: steps 2 and 4 fetch the diff
-and the body with it.
+A brief carrying **`--issues` and `--branch` and nothing else** is the
+issues-only brief that skill defines: no PR exists, `--branch` is the
+default issue source branch, and you generate from the issue bodies
+and that branch's tree — see "On an issues-only brief, generate from
+the issues" below. That is the one brief without `--pr`. On any other
+brief, without `--owner`, `--repo` and `--round` you can still generate
+the list but cannot record that you started or write it where a
+resumed reviewer would find it — say so in your report rather than
+guessing at one. `--pr` is what you generate *from*: steps 2 and 4
+fetch the diff and the body with it.
 
 `--issues` is the answer, not a claim: the pipeline already resolved
 it, so do not re-derive it, do not parse the branch name, and do not
@@ -88,12 +96,17 @@ add or remove a member.
 `--carried-records` and `--delta-commits` arrive together or not at
 all, and which of the two cases you are in decides your whole
 workflow — see "On a re-review, generate from the delta" below. Absent
-both, you are generating round 1: the whole diff, the full list. A
-`--delta-commits` that arrives carrying **no oids** is a re-review
-whose delta is empty, not a round 1: `--carried-records` is present
-beside it, and everything the records hold is the pipeline's to carry.
+both, with `--pr` present, you are generating the whole-PR list: the
+whole diff, the full list. A `--delta-commits` that arrives carrying
+**no oids** is a re-review whose delta is empty, not a whole-PR brief:
+`--carried-records` is present beside it, and everything the records
+hold is the pipeline's to carry.
 
 ## Workflow
+
+On the issues-only brief, steps 1, 2, 4 and 6 do not run — each needs
+a PR — and the workflow is step 3, step 5 on the branch you were
+given, and step 7.
 
 1. **Record that you started, before you do anything else.** The script
    derives your agent id and your transcript path from the worktree you
@@ -164,7 +177,8 @@ beside it, and everything the records hold is the pipeline's to carry.
    the round. So write it in full, and write it before you report.
 
 7. **Emit the theorem list** in the record format below, the same text
-   you just wrote. Nothing else goes in your report.
+   step 6 wrote where it ran. Nothing else goes in your report — on the
+   issues-only brief the report is the only copy there is.
 
 ## Theorem sources
 
@@ -276,6 +290,25 @@ the abstract, or the disprover has nowhere to start.
 Style is not a theorem source: `code-documenter` and `style-checker`
 own it, before the review runs, so no theorem states a style-guide
 rule.
+
+### On an issues-only brief, generate from the issues
+
+There is no diff and no PR body, so the issue bodies stand in for
+both. Source 1 runs unchanged: every criterion of every member issue
+becomes a theorem, tagged to its member, with the settle mode its
+heading hands you. Source 2 has nothing to read. For sources 3 and 4,
+read each issue's design prose and its "Files affected" list as the
+change it describes, and emit the theorems that description warrants —
+which restatement of a fact the issue moves must move with it, where
+the change has to sit, what second source of truth it must not create.
+A pointer names the issue text the claim comes from, or the file in
+the current tree it is about; nothing else exists to point at.
+
+Number from `T1`. The list is a seed: the human rules on each theorem
+before any developer runs, and the ruled list is what the PR's first
+review round carries, so the emission bar binds here exactly as it
+does on a diff — a claim the design does not make is not a theorem
+about it.
 
 ## The emission bar: falsifiability, then stakes
 
