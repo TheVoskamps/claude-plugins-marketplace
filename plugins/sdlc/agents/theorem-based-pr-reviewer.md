@@ -618,8 +618,8 @@ The mode names no round and refuses one: the records to carry are the
 most recent there are, not a round you pick. Its first line is
 `round <n>`, naming the round they came from — call that
 `<prev-round>` — and the records follow, each with its id, claim,
-issues, class, pointers, and the state it held last round. Parse those
-into the carried list. A non-zero exit means no round under this PR has
+issues, settle mode, pointers, and the state it held last round. Parse
+those into the carried list. A non-zero exit means no round under this PR has
 stored records, which is the first fallback trigger below.
 
 If that `round <n>` names **this** round's own number, an earlier
@@ -740,15 +740,15 @@ of them is yours to invent:
 | `id` | the next id in the sequence the carried records ended at |
 | `claim` | the defect as the comment states it, quoted, not reworded |
 | `issues` | the member(s) the comment names; the resolved set from "Identify the issue set" when it names none |
-| `class` | always `semantic` |
+| `settle-mode` | always `semantic` |
 | `pointers` | the comment's `<file-or-location>`, verbatim |
 
-`class` is assigned rather than judged because nothing in a human's
-prose settles whether a grep would close the claim, and what the field
-drives is the model routing in "Fan out the disprovers" and the
+`settle-mode` is assigned rather than judged because nothing in a
+human's prose settles whether a grep would close the claim, and what
+the field drives is the model routing in "Fan out the disprovers" and the
 identical routing in "Fan out the verifiers": `semantic` spawns each
 agent at its declared default, which is costlier than the `mechanical`
-route and never weaker. Reading a class out of the comment would need
+route and never weaker. Reading a mode out of the comment would need
 the human to write review vocabulary the orchestrator is forbidden to
 supply on their behalf (`sdlc:orchestrate` → "Posting the human's review
 adjustments as a PR comment").
@@ -980,15 +980,15 @@ the `effort:` of the definition you spawned.
 The generator's list reaches you twice — in its report, and in its
 result file, which is the copy a later instance of you reads. Where the
 two disagree, the file is the round's list: it is what every instance
-sees. Each record carries a claim, the
-member issue(s) it is tagged to, a `mechanical` / `semantic` class,
-and file/region pointers. **Ids are stable across rounds and are never
-reused**: new theorems continue the numbering the carried records
-ended at, so a finding's history stays legible as "T7: disproved round
-1, survived round 2". If any record is missing a field, or gives a
-**new** theorem an id the carried records already hold, ask the
-generator to re-emit that record rather than guessing the field
-yourself — you are not a source of theorems.
+sees. Each record carries a claim, the member issue(s) it is tagged
+to, a `mechanical` / `semantic` settle mode, and file/region pointers.
+**Ids are stable across rounds and are never reused**: new theorems
+continue the numbering the carried records ended at, so a finding's
+history stays legible as "T7: disproved round 1, survived round 2". If
+any record is missing a field, or gives a **new** theorem an id the
+carried records already hold, ask the generator to re-emit that record
+rather than guessing the field yourself — you are not a source of
+theorems.
 
 That rule is about a **generator's** record, and the one record you fill
 in yourself is no exception to it: an adjustment comment's minted
@@ -1117,7 +1117,7 @@ A retired theorem gets no disprover on a default round, so it never
 reaches this fan-out. That is the whole cost saving — the disprovers
 that do run are unbounded, and only the list is smaller.
 
-Route the model by the theorem's class:
+Route the model by the theorem's settle mode:
 
 - **`mechanical`** — pass `model: haiku` on the `Agent` call. A
   grep-shaped claim is settled by running the grep, and the cheap
@@ -1144,7 +1144,7 @@ Each disprover's brief is one theorem and nothing more:
 --theorem T<k>
 --claim <the claim, verbatim from the generator's record>
 --issues <the member(s) the theorem is tagged to>
---class <mechanical|semantic>
+--settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --owner <owner>
 --repo <repo>
@@ -1337,8 +1337,8 @@ notification that never arrived took nothing with it. There is no
 lost-report case here to recover from.
 
 Route the model exactly as "Fan out the disprovers" did, by the
-theorem's class: `model: haiku` on the `Agent` call for a `mechanical`
-theorem, no `model` for a `semantic` one, so that spawn uses whatever
+theorem's settle mode: `model: haiku` on the `Agent` call for a
+`mechanical` theorem, no `model` for a `semantic` one, so that spawn uses whatever
 `counterexample-verifier`'s frontmatter declares. Read the value there
 rather than restating it here.
 
@@ -1356,7 +1356,7 @@ Each verifier's brief is one counterexample and nothing more:
 --theorem T<k>
 --claim <the claim, verbatim from the generator's record>
 --issues <the member(s) the theorem is tagged to>
---class <mechanical|semantic>
+--settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
 --owner <owner>
@@ -1692,7 +1692,7 @@ all of them:
 | `id` | `T1`, `T2`, … — the handle every later step uses |
 | `claim` | the claim itself, in the wording the generator emitted |
 | `issues` | the member issue(s) the theorem is tagged to |
-| `class` | `mechanical` (grep-shaped) or `semantic` (needs reading behavior) |
+| `settle-mode` | `mechanical` (grep-shaped) or `semantic` (needs reading behavior) |
 | `pointers` | files, regions, or symbols the disprover starts from |
 
 `issues` is a list rather than a single value because a theorem about
@@ -1884,6 +1884,13 @@ sections, in this order:
    acceptance-criterion theorem carried as retired, with its
    `state-detail`. The posted summary carries this section unchanged,
    so the line reaches the PR as well as the review file.
+
+   Name every **unsettled** theorem here as a **pipeline defect** —
+   its id and which row of "Derive each theorem's disposition" left
+   it unsettled. A claim nobody settled is a gap in the review, not a
+   fact about the PR, and this section is where a reader learns the
+   round is incomplete; section 7 lists the same theorems without
+   that grading.
 3. **Change counts** — files changed, additions, deletions, from "Read
    the PR's shape".
 4. **Disproved theorems** — one entry per disproved theorem, in
@@ -1990,7 +1997,7 @@ review" above, holding every recorded theorem in id order:
 T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
-class: semantic
+settle-mode: semantic
 pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, "Fan out the disprovers"
 state: retired
 state-detail: survived
@@ -1999,7 +2006,7 @@ settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
 T2
 claim: …
 issues: #206
-class: mechanical
+settle-mode: mechanical
 pointers: …
 state: disproved
 state-detail: finding 1, Low
@@ -2024,7 +2031,9 @@ owns:
   `disproved` record, `state-detail` names the finding the state
   produced instead — except on the one whose verifier never reported,
   where it is `unverified`, because that disposition produces no
-  finding to name.
+  finding to name. A finding filed at the `class-underivable` default
+  of "Consequence classes are transcribed, not graded" carries that
+  token after its severity, as `finding 1, High, class-underivable`.
 - **`settled-at`** — the head SHA the state was established against. For
   a carried-forward retired theorem that is an *older* head than this
   round's, which is exactly the fact a reader needs to judge how much a
@@ -2123,20 +2132,38 @@ and the disprover disagree, the verifier's class is the one you take,
 per `counterexample-verifier` → "The consequence classes", which states
 why. The one case where you take the disprover's proposal is the one
 "Fan out the verifiers" defines: a malformed verifier report, whose
-finding stands anyway. A `STANDS` report carrying no class at all is
-malformed on exactly those terms, so it takes that same row rather than
-a class you assign yourself. You are not a source of consequence
-grades any more than you are a source of theorems — everything you write
-into a record is transcribed from the agent or the human that produced
-it.
+finding stands anyway.
+
+A report whose `CONSEQUENCE-CLASS` is absent, or holds any token that
+is not one of the four in the table, is malformed for its own sender,
+and takes the row the sender's malformed report already takes: a
+`STANDS` report so filed is a malformed verifier report, so the
+finding stands on the disprover's proposal, and a `DISPROVED` report
+so filed is a malformed disprover report, so it reaches no verifier
+and the theorem is unsettled. Neither gets a class you assign yourself,
+and neither gets a replacement child. You are not a source of
+consequence grades any more than you are a source of theorems —
+everything you write into a record is transcribed from the agent or
+the human that produced it.
+
+When the verifier's report is malformed and the disprover's proposal
+is itself not one of the four tokens, the finding still stands — its
+evidence was quoted verbatim, and a malformed report resolves toward
+filing — and its severity is **High**, with `class-underivable` in
+place of a consequence class: on the finding's entry in section 4 and
+its line in section 5, and after the severity in its record's
+`state-detail`, per "The theorem records file". High is the default
+because an unexplained finding is not one to wave through at Low, and
+Critical would assert a production break nobody graded.
 
 This is the same derivation-not-judgment principle the verdicts
 already follow, moved one link up the chain: the agent that read the
 code grades the consequence, and you transcribe.
 
-Two things displace what the table gives, and they apply in a fixed
-order: the table gives the base, the acceptance-criterion floor raises
-it, and a human override replaces the result of both.
+The severity is then derived in one fixed order: the table, or the
+`class-underivable` default, gives the base; the acceptance-criterion
+floor raises it; and a human severity override from an adjustment
+comment replaces the result of both.
 
 **The acceptance-criterion floor raises the table's grade.** A standing
 finding on a theorem the generator emitted as an acceptance-criterion
@@ -2147,8 +2174,8 @@ floor keys off the theorem's provenance, which the generator's claim
 states and the verifier need not know. It only ever raises a severity;
 a `breaks-production` class on such a theorem stays Critical.
 
-**A human severity override outranks the floor and the table alike.**
-When the theorem's record carries `severity-override`, written from an
+**A human severity override replaces the result of both.** When the
+theorem's record carries `severity-override`, written from an
 adjustment comment per "Carry the previous round's theorems forward",
 that value is the finding's severity in this round and every later
 round that fans out, criterion theorems included: an override of Low
@@ -2182,6 +2209,14 @@ separate judgment call:
   `request_changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
   is outside the issue's scope and needs human decision).
 - Only Low findings, or no findings at all → `approve`.
+- Any **unsettled** theorem tagged to that issue → `BLOCKED`, whatever
+  its findings derive, with the line saying so: `- #206 — BLOCKED
+  (1 unsettled)`. An unsettled theorem is a pipeline defect, per
+  "Review method", and a claim nobody settled cannot ground an
+  approval. `BLOCKED` is the label that puts a round to the human
+  rather than to a fixer, so it is reused and no third verdict is
+  added; the posted verdict is `request_changes`, as "Post one review"
+  maps every `BLOCKED`.
 
 The overall verdict is then the worst of those lines, per "Per-issue
 verdicts, one overall" above — also mechanical. Every finding must be

@@ -37,7 +37,7 @@ instructions at the top of that file.
 Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
-(optional), `--theorem`, `--claim`, `--issues`, `--class`,
+(optional), `--theorem`, `--claim`, `--issues`, `--settle-mode`,
 `--pointers`, `--owner`, `--repo`, and `--round`. When the PR changes a
 documentation file, it also carries the documentation-paths line that
 skill describes; apply it as it says.
@@ -240,9 +240,10 @@ the cited location have to survive somebody else running
 
 ## The consequence classes
 
-A `DISPROVED` report proposes one of the class tokens the
-`sdlc:theorem-agents-interface` skill → "The consequence classes"
-defines as its `CLASS`, alongside its `CONSEQUENCE` statement.
+A `DISPROVED` report proposes one of the four consequence tokens the
+report template below lists as its `CONSEQUENCE-CLASS`, alongside its
+`CONSEQUENCE` statement; the `sdlc:theorem-agents-interface` skill →
+"The consequence classes" glosses each.
 
 Your class is a **proposal**: the verifier confirms or corrects it,
 and on disagreement the verifier's wins.
@@ -260,7 +261,7 @@ COUNTEREXAMPLE: <what refutes the claim, in one or two sentences>
 EVIDENCE: in `<file-or-location>` at <line/section>:
 > <byte-for-byte quote of the offending text>
 CONSEQUENCE: <what happens if this PR merges as-is>
-CLASS: <one of the tokens the `sdlc:theorem-agents-interface` skill defines>
+CONSEQUENCE-CLASS: <breaks-production | behavior-broken-or-criterion-unmet | defect-no-shipped-breakage | optional-polish>
 ```
 
 The `EVIDENCE` quote must be a byte-for-byte copy of the source text —
@@ -279,9 +280,9 @@ text that should have contained it. Both parts are required.
 state the effect of merging, not the topic. "An acceptance criterion
 of #206 is unmet" and "the guest can write a share documented as
 read-only" are consequences; "this is a documentation problem" is not.
-`CLASS` is your proposed grade of that consequence, per "The
-consequence classes" above; both lines are required on a `DISPROVED`
-report.
+`CONSEQUENCE-CLASS` is your proposed grade of that consequence, per
+"The consequence classes" above; both lines are required on a
+`DISPROVED` report.
 
 **Survived** — you could not break it:
 

@@ -188,11 +188,11 @@ Keep the members separate. A batch PR is precisely where one member
 can be under-delivered while the diff as a whole reads well, so tag
 each of these theorems to the single member its criterion came from.
 
-**A groomed issue hands you the class.** Under an `## Acceptance`
-section, emit a criterion listed beneath `### Mechanical` with
-`class: mechanical` and one beneath `### Semantic` with
-`class: semantic`. A criterion under neither heading falls back to
-the `class` rule in "Output format" below.
+**A groomed issue hands you the settle mode.** Under an
+`## Acceptance` section, emit a criterion listed beneath
+`### Mechanical` with `settle-mode: mechanical` and one beneath
+`### Semantic` with `settle-mode: semantic`. A criterion under neither
+heading falls back to the `settle-mode` rule in "Output format" below.
 
 ### 2. PR-body claims
 
@@ -444,7 +444,7 @@ recommendations, no severity labels. One record per theorem:
 T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
-class: semantic
+settle-mode: semantic
 pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, "Fan out the disprovers"
 ```
 
@@ -463,7 +463,7 @@ Field rules:
   theorem tagged to no member is malformed — it would produce a
   finding no verdict line carries, which is exactly how a defect
   escapes the overall verdict.
-- **`class`** — `mechanical` when a grep, a file listing, or a
+- **`settle-mode`** — `mechanical` when a grep, a file listing, or a
   one-command check settles it; `semantic` when it needs reading
   behavior or exercising code. The pipeline routes a cheaper model to
   `mechanical` theorems, so a misclassified semantic theorem gets
@@ -472,7 +472,7 @@ Field rules:
   start from. Be specific; a disprover with a whole-repo pointer
   wastes its budget finding the place you already found.
 
-Close the list with a one-line count of theorems by class, so the
+Close the list with a one-line count of theorems by settle mode, so the
 pipeline can sanity-check the fan-out it is about to run.
 
 On a re-review, a **retirement** is the one other thing your report

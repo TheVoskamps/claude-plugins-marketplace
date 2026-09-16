@@ -57,7 +57,7 @@ instructions at the top of that file.
 Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
-(optional), `--theorem`, `--claim`, `--issues`, `--class`,
+(optional), `--theorem`, `--claim`, `--issues`, `--settle-mode`,
 `--pointers`, `--counterexample`, `--owner`, `--repo`, and `--round`.
 
 Without `--branch` you have no tree to check the quote against.
@@ -147,6 +147,20 @@ calls in a subagent context.
    and reporting `REFUTED` from the base tree would delete a real
    finding.
 
+   This head is the only tree a quote is checked against. Re-read
+   every line the counterexample quotes at it — `git show HEAD:<path>`
+   — and when a quoted line does not appear there, the counterexample
+   is `REFUTED`, whatever tree it was true in: name the head SHA you
+   checked and the commit the quote came from, which
+   `git log -S'<quoted text>' origin/<branch>` finds when a real
+   earlier head carried it. A disprover can quote a head an earlier
+   round reviewed, and confirming that quote files a finding against
+   code the PR no longer contains. Whether the quote's commit is
+   inside the round's delta never enters this check: a review covers
+   the PR's whole head tree, so a theorem carried forward from an
+   earlier round legitimately concerns code this round's delta never
+   touched.
+
    `--detach` is not a style choice. Every worktree of a repo shares
    one ref store, and a branch can be checked out in only one of them
    at a time, so a plain `git checkout <branch>` fails with
@@ -163,7 +177,8 @@ calls in a subagent context.
    consequence is not — you correct it, per that axis's own bullet:
 
    - **Does the evidence exist, byte for byte, at the cited
-     location?** Extract it rather than eyeballing it:
+     location, in the head step 2 checked out?** Extract it rather
+     than eyeballing it:
      `git show HEAD:<path>` and compare, or
      `grep -F -n '<literal>' <path>`. A quote that differs in
      whitespace, in wording, or in which file it lives in is a
@@ -261,9 +276,10 @@ managed to reject belongs in front of the human.
 
 ## The consequence classes
 
-A `STANDS` report carries one of the class tokens the
+A `STANDS` report carries one of the four consequence tokens the
+report template below lists as its `CONSEQUENCE-CLASS`; the
 `sdlc:theorem-agents-interface` skill → "The consequence classes"
-defines as its `CLASS`.
+glosses each.
 
 The disprover proposed a class in the report you were handed. Confirm
 it or correct it; on disagreement **your** class is the one the
@@ -303,7 +319,7 @@ VERDICT: STANDS
 THEOREM: T<k>
 CONSEQUENCE: <what happens if this PR merges as-is — the disprover's
 statement confirmed, or your corrected version of it>
-CLASS: <one of the tokens the `sdlc:theorem-agents-interface` skill defines>
+CONSEQUENCE-CLASS: <breaks-production | behavior-broken-or-criterion-unmet | defect-no-shipped-breakage | optional-polish>
 ```
 
 State the consequence as an effect of merging, not as a topic. "An
