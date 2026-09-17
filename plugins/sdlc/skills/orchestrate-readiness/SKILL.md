@@ -35,19 +35,17 @@ can trigger that stop. The items:
   outside the body. No competing opinions left standing side by side,
   and no amendment layers ("Update:", "Actually, on reflection…"). One
   clean, current spec, written as the thing to build.
-- **No unanswered design decisions**. Naming, placement in the tree,
-  load mode, the fate of content the change subsumes, and any
-  structural contract a downstream consumer depends on are each
-  settled in the body — not posed as questions and not left implicit.
+- **No unanswered design decisions**. Every design decision the
+  implementer would otherwise have to make — naming, placement in the
+  tree, load mode, the fate of content the change subsumes, a
+  structural contract a downstream consumer depends on — is settled in
+  the body: not posed as a question and not left implicit.
 - **Sandbox fit**. Everything the issue asks for lands inside this
-  repo. Work that would land in another repo becomes its own issue
-  in that repo, tied to this one by an edge — never folded into this
-  issue's scope, because the implementer's sandbox is this repo and
-  it would have to stop.
+  repo, because the implementer's sandbox is this repo and it would
+  have to stop on anything else.
 - **Dependency posture**. The issue's `blockedBy`/`blocking` edges
   describe reality. Read the edges themselves; never infer sequencing
-  or independence from issue titles. Resolve any cross-repo edge to
-  the repo it actually lives in before naming it.
+  or independence from issue titles.
 - **Spec quality**. Every sentence changes what the implementer builds
   or what the reviewer checks. A sentence about how the change came to
   be asked for, what an earlier round did, or why an earlier design
