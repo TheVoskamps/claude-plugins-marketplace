@@ -30,33 +30,39 @@ when it hits one, which costs a full round trip through the
 orchestrator and the human. An issue meets the bar when nothing in it
 can trigger that stop. The items:
 
-- **Self-contained**. The body alone suffices. It carries no reference
-  out of itself — to another issue, a PR, a commit, or a document
-  outside the body. No competing opinions left standing side by side,
-  and no amendment layers ("Update:", "Actually, on reflection…"). One
-  clean, current spec, written as the thing to build.
+- **Self-contained**. The body alone suffices. It fails on a reference
+  out of the body — to another issue, a PR, a commit, or a document
+  outside it — on two opinions left standing on one point, or on an
+  amendment layer ("Update:", "Actually, on reflection…"). One clean,
+  current spec, written as the thing to build.
 - **No unanswered design decisions**. Every design decision the
   implementer would otherwise have to make — naming, placement in the
   tree, load mode, the fate of content the change subsumes, a
   structural contract a downstream consumer depends on — is settled in
-  the body: not posed as a question and not left implicit.
-- **Sandbox fit**. Everything the issue asks for lands inside this
-  repo, because the implementer's sandbox is this repo and it would
-  have to stop on anything else.
+  the body. It fails on a decision the body poses as a question or
+  leaves implicit; the gap line names the decision.
+- **Sandbox fit**. The implementer's sandbox is this repo, and it would
+  have to stop on anything else. It fails on a sentence asking for work
+  that lands outside this repo.
 - **Dependency posture**. The issue's `blockedBy`/`blocking` edges
   describe reality. Read the edges themselves; never infer sequencing
-  or independence from issue titles.
-- **Spec quality**. Every sentence changes what the implementer builds
-  or what the reviewer checks. A sentence about how the change came to
-  be asked for, what an earlier round did, or why an earlier design
-  was rejected is provenance rather than spec — it costs the
-  implementer reads that buy nothing.
+  or independence from issue titles. It fails on a dependency the body
+  states that no edge carries, or on an edge the body contradicts.
+- **Spec quality**. It fails on a sentence that changes neither what
+  the implementer builds nor what the reviewer checks. A sentence about
+  how the change came to be asked for, what an earlier round did, or
+  why an earlier design was rejected is provenance rather than spec —
+  it costs the implementer reads that buy nothing.
 - **Acceptance criteria**. The body carries an `## Acceptance`
-  section with at least one bullet, and each bullet in it is one claim
-  about the delivered change that a reviewer can attempt to disprove
-  against the diff. An issue without one is not orchestrate-ready.
+  section, and each bullet in it is one claim about the delivered
+  change that a reviewer can attempt to disprove against the diff. It
+  fails when the section is absent, has no bullets, or has a bullet
+  that is not such a claim.
 - **Files affected**. The body carries the files-affected section the
-  grammar below defines, and every bullet in it is well-formed against
+  grammar below defines. Settled against the tree and consulting no
+  prose, it fails when the section is absent or departs from that
+  grammar in any way the grammar states — in whether it carries a
+  bullet, in a bullet's shape, or in what a bullet's tag asserts about
   the tree at check time. The list is a floor and not a fence: the
   implementer may touch paths outside it, and a listed path the change
   ends up not touching is not a failure. Before any developer runs,
@@ -112,31 +118,6 @@ Given an issue number:
 3. Return a gap list: one line per bar item the body does not meet,
    naming the item and the sentence or absence that fails it. An empty
    list is the verdict `ready`.
-
-The items settled from prose and edges each fail on the thing their
-gap line then quotes:
-
-- **Self-contained** fails on a reference out of the body, on two
-  opinions left standing on one point, or on an amendment layer.
-- **No unanswered design decisions** fails on a decision the body
-  poses as a question or leaves implicit; the gap line names the
-  decision.
-- **Sandbox fit** fails on a sentence asking for work that lands
-  outside this repo.
-- **Dependency posture** fails on a dependency the body states that
-  no edge carries, or on an edge the body contradicts.
-- **Spec quality** fails on a sentence that changes neither what the
-  implementer builds nor what the reviewer checks.
-
-The **Acceptance criteria** item fails when the acceptance section is
-absent, has no bullets, or has a bullet that is not a claim a reviewer
-can attempt to disprove against the diff.
-
-The **Files affected** item is settled against the tree and consults
-no prose. It fails when the section is absent or departs from the
-grammar above in any way that grammar states — in whether it carries
-a bullet, in a bullet's shape, or in what a bullet's tag asserts about
-the tree at check time.
 
 ## Output
 
