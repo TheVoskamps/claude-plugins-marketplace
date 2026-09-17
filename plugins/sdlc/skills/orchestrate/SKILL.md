@@ -127,6 +127,15 @@ no `.issues/repo-config.md`. Run `/repo-config` to create one."
 Throughout the rest of this template, `<link-prefix>` means the
 resolved value above.
 
+### Gate: refuse an issue that is not orchestrate-ready
+
+Before any analysis, invoke `/sdlc:orchestrate-readiness <N>` on
+every issue given. If any returns a non-empty gap list, stop the run
+here — no branch, no generator spawn, no PR exists yet, and none is
+created — print each failing issue's gap list, and say to run
+`/sdlc:orchestrate-ready <N>` on it. Do not run that skill yourself:
+grooming is a conversation with the human, and this flow is not it.
+
 ### Read each issue, in parallel
 
 Read each issue via `/issue-view <N>`, which dispatches on the
@@ -134,7 +143,9 @@ tracker and surfaces the issue's type, slot fields, and relationships
 in one shot; reach for `/issue-view-tree` / `/issue-sub-list` when you
 need the hierarchy beyond the single issue.
 
-For each issue, also read the files most likely affected:
+For each issue, also read the files most likely affected, starting
+from the body's files-affected section as `sdlc:orchestrate-readiness`
+defines it and extending it from the tree:
 
 - Grep for symbols, function names, or identifiers mentioned in the
   issue body
@@ -144,7 +155,8 @@ For each issue, also read the files most likely affected:
 Produce an internal analysis with the following for each issue:
 
 1. **Complexity**: simple / medium / complex
-2. **Files likely affected**: list
+2. **Files likely affected**: the body's files-affected section,
+   extended by what the reads above turned up
 3. **Dependencies**: does this issue depend on another of the issues
    you were given being fixed first?
 4. **Conflicts**: does it touch the same files as another of them?
@@ -187,7 +199,9 @@ Batch two issues together when **all** of these hold:
 
 - **Shared change surface** — they touch the same files, or the same
   plugin/module, such that separate PRs would conflict or force a
-  rebase. The canonical instance is a shared version-bump line: a repo
+  rebase. Settle it on each member's "Files likely affected" list
+  from the analysis above. The canonical instance is a shared
+  version-bump line: a repo
   that requires one version bump per touched plugin per PR makes three
   PRs against one plugin conflict on that line by construction, and
   two of them get rebased.
@@ -893,7 +907,8 @@ member)**:
    ```
 
    Make each scope ruling by reading the finding against the issue's
-   `## Acceptance` section, never against the finding's severity: a
+   acceptance section, as `sdlc:orchestrate-readiness` defines it,
+   never against the finding's severity: a
    fix those criteria cover is in scope, and one they do not is outside
    the issue however severe. Per-finding rulings live only on the
    finding lines, and the brief is not posted until every put-to-human
@@ -997,7 +1012,7 @@ of the diff into the next round's theorem list, which is exactly what
 "Spawn-prompt principle" forbids. Ask the human first, and post
 nothing they did not say. The one line that is yours to author is the
 `dropped (scope ruling)` line for a finding ruled `— outside the issue;
-dropped:` — a scope ruling read off the issue's `## Acceptance`
+dropped:` — a scope ruling read off the issue's acceptance
 section, not a reading of the diff — and its shape names you as the
 actor, so nothing downstream records it as the human's rejection.
 

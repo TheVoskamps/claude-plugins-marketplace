@@ -6,7 +6,8 @@ description: Assess whether an issue is specified well enough for /sdlc:orchestr
 # Orchestrate-Ready Grooming
 
 You are grooming exactly one issue up to the bar `/sdlc:orchestrate`
-needs, then flipping its status. Issues are filed at the tracker's
+needs, then flipping its status. That bar is
+`sdlc:orchestrate-readiness`'s. Issues are filed at the tracker's
 default backlog status; they reach the orchestrate-ready status once
 they are sound enough that an
 `issue-developer` can implement them without stopping to ask a
@@ -37,52 +38,6 @@ proceeding. If it names more than one, ask the user which single issue
 to groom — grooming is a conversation per issue, and interleaving two
 of them loses track of which decision belongs to which.
 
-## The readiness bar
-
-The bar is the `issue-developer`'s own escalation rule: **a design
-decision the issue does not answer**. That agent stops and reports
-when it hits one, which costs a full round trip through the
-orchestrator and the human. An issue is orchestrate-ready when nothing
-in it can trigger that stop.
-
-Assess the fetched issue against each of these:
-
-- **Self-contained.** The body alone suffices. It carries no reference
-  out of itself — to another issue, a PR, a commit, or a document
-  outside the body. No competing opinions left standing side by side,
-  and no amendment layers ("Update:", "Actually, on reflection…"). One
-  clean, current spec, written as the thing to build.
-- **No unanswered design decisions.** Naming, placement in the tree,
-  load mode, the fate of content the change subsumes, and any
-  structural contract a downstream consumer depends on are each
-  settled in the body — not posed as questions and not left implicit.
-- **Sandbox fit.** Everything the issue asks for lands inside this
-  repo. Work that would land in another repo becomes its own issue
-  in that repo, tied to this one by an edge — never folded into this
-  issue's scope, because the implementer's sandbox is this repo and
-  it would have to stop.
-- **Dependency posture.** The issue's `blockedBy`/`blocking` edges
-  describe reality. Read the edges themselves; never infer sequencing
-  or independence from issue titles. Resolve any cross-repo edge to
-  the repo it actually lives in before naming it.
-- **Spec quality.** Every sentence changes what the implementer builds
-  or what the reviewer checks. A sentence about how the change came to
-  be asked for, what an earlier round did, or why an earlier design
-  was rejected is provenance rather than spec — it costs the
-  implementer reads that buy nothing.
-- **Acceptance criteria.** The body carries an `## Acceptance`
-  section, and each bullet in it is one claim about the delivered
-  change that a reviewer can attempt to disprove against the diff. An
-  issue without one is not orchestrate-ready.
-- **Files affected.** The body carries a `## Files affected (floor)`
-  section listing the paths the design reaches as written. It is a
-  floor and not a fence: the developer edits whatever the change needs
-  beyond it, and a path outside the list is not a scope breach. Before
-  any developer runs, the theorem generator reads that list in place
-  of a diff — it decides which of the repo's on-demand rule files and
-  READMEs the generator reads and which mirrored facts it checks — so
-  an issue without one is not orchestrate-ready.
-
 ## Procedure
 
 1. **Fetch the issue.**
@@ -96,11 +51,13 @@ Assess the fetched issue against each of these:
    blocking edges in one call. Read the edges from that output rather
    than inferring them.
 
-2. **Report the verdict first, then the gaps.** Open with one of
-   `ready` / `nearly ready` / `not ready`, so the user knows the size
-   of the conversation before reading the detail. Then list the gaps
-   as a numbered list, each with a **proposed default answer** — your
-   best reading of what the issue intends, stated as a proposal.
+2. **Run the check, then report the verdict first and the gaps
+   after.** Invoke `/sdlc:orchestrate-readiness <N>`; its verdict and
+   its gap list are what you report. Open with the verdict, so the
+   user knows the size of the conversation before reading the detail.
+   Then list the gaps as a numbered list, each with a **proposed
+   default answer** — your best reading of what the issue intends,
+   stated as a proposal.
 
    An issue that is already `ready` still gets step 6: the status flip
    is the deliverable even when the body needs no edit.
@@ -113,7 +70,7 @@ Assess the fetched issue against each of these:
    own words, and move to the next topic once it is settled. Your
    proposed defaults are proposals; the user decides.
 
-   **The `## Acceptance` section is a gap like any other.** When the
+   **The acceptance section is a gap like any other.** When the
    body has none, derive candidate criteria from the design prose —
    one per load-bearing commitment it makes, and never past it: a
    commitment the design does not make is a design decision to settle
@@ -125,21 +82,24 @@ Assess the fetched issue against each of these:
    resulting list to the user with the other decisions before step 4
    rewrites the body.
 
-   Group that list under `## Acceptance` into a `### Mechanical`
-   sub-list and a `### Semantic` one, splitting it by the
-   `settle-mode` definitions in `sdlc:theorem-generation` → "Output
-   format" so the two files agree by construction. An issue that touches
-   `plugins/<name>/` always gets the plugin version bump as a
-   mechanical criterion: every PR that changes a plugin bumps its
-   version, and the generator makes a theorem of every criterion.
+   Group that list into the two sub-lists the acceptance section of
+   `sdlc:orchestrate-readiness`'s grammar defines, splitting it by
+   that skill's sub-heading definitions so the writer and every reader
+   agree by construction. An issue that touches `plugins/<name>/`
+   always gets the plugin version bump as a mechanical criterion:
+   every PR that changes a plugin bumps its version, and the generator
+   makes a theorem of every criterion.
 
-   **The `## Files affected (floor)` section is a gap the same way.**
-   When the body has none, derive the list from the design prose —
-   every file the change names or plainly has to touch — and put it to
-   the user with the other decisions; a path the design does not reach
+   **The files-affected section is a gap the same way.** Derive the
+   list from the placement decisions settled with the user and from
+   the tree: every path the design names or plainly has to touch,
+   each tagged with one of the tags `sdlc:orchestrate-readiness`'s
+   grammar defines for that section. A path the design does not reach
    is a design decision to settle, not a file to guess. When the body
-   has one, check it against the design prose and surface any path the
-   prose reaches that the list omits.
+   already has a list, check it against the design prose and the
+   tree, and surface any path the prose reaches that the list omits
+   and any bullet the check reported malformed. Put the tagged list to
+   the user with the other decisions before step 4 rewrites the body.
 
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped
@@ -174,10 +134,15 @@ Assess the fetched issue against each of these:
    and every provenance sentence comes out, a fact the body needs
    from a referenced document is restated in the body in the present
    tense, and a dependency the prose stated is created with
-   `/issue-set-blocked-by <blocked> <blocker>`. The agreed
-   `## Acceptance` section goes in as its two grouped sub-lists, and
-   the agreed `## Files affected (floor)` section goes in as a list of
-   paths.
+   `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance
+   section goes in as its two grouped sub-lists, and the agreed
+   files-affected section goes in as its tagged list, both in the
+   shape `sdlc:orchestrate-readiness`'s grammar spells.
+
+   Then run the check again. The rewrite loop ends when
+   `/sdlc:orchestrate-readiness <N>` returns an empty gap list; a gap
+   it still reports goes back to step 3 as a topic, and a malformed
+   files-affected bullet is repaired here without a conversation.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,
@@ -204,10 +169,13 @@ Assess the fetched issue against each of these:
    closing-keyword rule forbids.
 
 6. **Set the status, then verify the write landed.** Skip this step
-   whenever a gap from step 2 went unresolved (see step 3) — the issue
-   is not ready and the status stays where it is. Otherwise resolve
-   the orchestrate-ready status name per "Status resolution" below,
-   then:
+   whenever a gap from step 2 went unresolved (see step 3) or the
+   check has not yet returned an empty gap list (see step 4) — the
+   issue is not ready and the status stays where it is. The flip is a
+   Kanban visibility aid for humans, not part of readiness: it runs
+   only after the check passes, and it is still skipped where the repo
+   has no board, per "Status resolution" below. Otherwise resolve the
+   orchestrate-ready status name per that section, then:
 
    ```text
    /issue-set-status <N> <status-name>

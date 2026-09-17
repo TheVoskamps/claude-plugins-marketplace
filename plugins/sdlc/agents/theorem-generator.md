@@ -8,6 +8,7 @@ isolation: worktree
 skills:
   - sdlc:theorem-generation
   - sdlc:theorem-agents-interface
+  - sdlc:orchestrate-readiness
   - sdlc:agent-result-persist-interface
   - issue-view
   - github-prs:pr-diff
