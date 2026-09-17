@@ -60,13 +60,17 @@ Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file. Then read the repo's own
 `CLAUDE.md` from the worktree root, plus every on-demand file it
 indexes whose trigger this PR's diff hits and the README of every
-plugin the diff touches — on the issues-only brief, the files the
-issues' bodies name stand in for the diff: each sweep section in them
-names a fact that several surfaces mirror, so together they tell you
-where a *changed* fact leaves a stale restatement behind. Which of those sections
-warrants a theorem is decided in "Codebase consistency" below, and the
-test is narrow — the diff must change the mirrored fact, not merely
-touch a file the section mentions.
+plugin the diff touches. On the issues-only brief the diff's stand-in
+is the union of the issues' files-affected sections, as
+`sdlc:orchestrate-readiness` defines them: read the on-demand rules
+whose trigger those paths hit and the README of every plugin owning
+one. A body without that section is reported as not ready, and you
+derive a read set from nothing else. Each sweep section in those
+files names a fact that several surfaces mirror, so together they
+tell you where a *changed* fact leaves a stale restatement behind.
+Which of those sections warrants a theorem is decided in "Codebase
+consistency" below, and the test is narrow — the diff must change the
+mirrored fact, not merely touch a file the section mentions.
 
 ## Inputs
 
@@ -202,11 +206,11 @@ Keep the members separate. A batch PR is precisely where one member
 can be under-delivered while the diff as a whole reads well, so tag
 each of these theorems to the single member its criterion came from.
 
-**A groomed issue hands you the settle mode.** Under an
-`## Acceptance` section, emit a criterion listed beneath
-`### Mechanical` with `settle-mode: mechanical` and one beneath
-`### Semantic` with `settle-mode: semantic`. A criterion under neither
-heading falls back to the `settle-mode` rule in "Output format" below.
+**A groomed issue hands you the settle mode.** Emit each criterion
+with the `settle-mode` its sub-heading names under the acceptance
+section of the issue-body grammar `sdlc:orchestrate-readiness`
+defines. A criterion under no such sub-heading falls back to the
+`settle-mode` rule in "Output format" below.
 
 ### 2. PR-body claims
 
@@ -297,8 +301,9 @@ There is no diff and no PR body, so the issue bodies stand in for
 both. Source 1 runs unchanged: every criterion of every member issue
 becomes a theorem, tagged to its member, with the settle mode its
 heading hands you. Source 2 has nothing to read. For sources 3 and 4,
-read each issue's design prose and its "Files affected (floor)" list
-as the change it describes, and emit the theorems that description
+read each issue's design prose and its files-affected section, as
+`sdlc:orchestrate-readiness` defines it, as the change it describes,
+and emit the theorems that description
 warrants — which restatement of a fact the issue moves must move with
 it, where the change has to sit, what second source of truth it must
 not create.

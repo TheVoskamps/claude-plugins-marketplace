@@ -368,10 +368,9 @@ code or reading files in the repo.
    "documentation"; no acceptance criterion mentions executable
    behavior. Heavy bias toward XS / S.
 
-2. **Estimated file count.** Scan the body for explicit "Files
-   affected" / "Files most likely affected" sections — the
-   multi-issue orchestrator produces these in its Phase 1
-   analysis. Count the file paths listed. Mapping:
+2. **Estimated file count.** Find the body's
+   `## Files affected (floor)` section — that heading literal, not a
+   substring of it — and count its bullets. Mapping:
    - 0-1 files mentioned: XS
    - 2-3 files: S
    - 4-7 files: M
