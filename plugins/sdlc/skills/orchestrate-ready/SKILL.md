@@ -99,15 +99,13 @@ verdict or a gap list.
    **The files-affected section is a gap the same way.** Derive the
    list from the placement decisions settled with the user and from
    the tree: every path the design names or plainly has to touch,
-   each tagged per that grammar — `new` when the path is absent from
-   the tree and the design creates it, `update` when it exists and
-   the design edits it, `delete` when it exists and the design removes
-   it. A path the design does not reach is a design decision to
-   settle, not a file to guess. When the body already has a list,
-   check it against the design prose and the tree, and surface any
-   path the prose reaches that the list omits and any bullet the
-   check reported malformed. Put the tagged list to the user with the
-   other decisions before step 4 rewrites the body.
+   each tagged with one of the tags `sdlc:orchestrate-readiness`'s
+   grammar defines for that section. A path the design does not reach
+   is a design decision to settle, not a file to guess. When the body
+   already has a list, check it against the design prose and the
+   tree, and surface any path the prose reaches that the list omits
+   and any bullet the check reported malformed. Put the tagged list to
+   the user with the other decisions before step 4 rewrites the body.
 
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped

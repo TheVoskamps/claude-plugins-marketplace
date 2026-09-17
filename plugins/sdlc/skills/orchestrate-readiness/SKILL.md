@@ -53,10 +53,10 @@ can trigger that stop. The bar has seven items:
   be asked for, what an earlier round did, or why an earlier design
   was rejected is provenance rather than spec — it costs the
   implementer reads that buy nothing.
-- **Acceptance criteria.** The body carries the acceptance section
-  the grammar below defines, and each bullet in it is one claim about
-  the delivered change that a reviewer can attempt to disprove against
-  the diff.
+- **Acceptance criteria.** The body carries an `## Acceptance`
+  section, and each bullet in it is one claim about the delivered
+  change that a reviewer can attempt to disprove against the diff. An
+  issue without one is not orchestrate-ready.
 - **Files affected.** The body carries the files-affected section the
   grammar below defines, and every bullet in it is well-formed against
   the tree at check time. The list is a floor and not a fence: the
