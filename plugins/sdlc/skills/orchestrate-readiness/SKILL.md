@@ -28,7 +28,7 @@ The bar is the `issue-developer`'s own escalation rule: **a design
 decision the issue does not answer**. That agent stops and reports
 when it hits one, which costs a full round trip through the
 orchestrator and the human. An issue meets the bar when nothing in it
-can trigger that stop. The bar has seven items:
+can trigger that stop. The items:
 
 - **Self-contained.** The body alone suffices. It carries no reference
   out of itself — to another issue, a PR, a commit, or a document
@@ -54,9 +54,9 @@ can trigger that stop. The bar has seven items:
   was rejected is provenance rather than spec — it costs the
   implementer reads that buy nothing.
 - **Acceptance criteria.** The body carries an `## Acceptance`
-  section, and each bullet in it is one claim about the delivered
-  change that a reviewer can attempt to disprove against the diff. An
-  issue without one is not orchestrate-ready.
+  section with at least one bullet, and each bullet in it is one claim
+  about the delivered change that a reviewer can attempt to disprove
+  against the diff. An issue without one is not orchestrate-ready.
 - **Files affected.** The body carries the files-affected section the
   grammar below defines, and every bullet in it is well-formed against
   the tree at check time. The list is a floor and not a fence: the
@@ -100,8 +100,9 @@ generator reading the body emits a criterion theorem with the
 
 Every bullet is one path in backticks followed by one tag in
 parentheses, where `<tag>` is one of `new`, `update`, `delete`:
-`new` for a path the change creates, `update` for one it edits, and
-`delete` for one it removes.
+`new` for a path the change creates, absent from the tree at check
+time; `update` for one it edits and `delete` for one it removes, each
+present in the tree at check time.
 
 ## The check
 
@@ -113,16 +114,18 @@ Given an issue number:
    naming the item and the sentence or absence that fails it. An empty
    list is the verdict `ready`.
 
-The first five items are read from the body and the edges. The
-**Acceptance criteria** item fails when the acceptance section is
-absent, has no bullets, or has a bullet that is not a claim a reviewer
-can attempt to disprove against the diff.
+**Self-contained**, **No unanswered design decisions**, **Sandbox
+fit**, **Dependency posture**, and **Spec quality** are read from the
+body and the edges. The **Acceptance criteria** item fails when the
+acceptance section is absent, has no bullets, or has a bullet that is
+not a claim a reviewer can attempt to disprove against the diff.
 
 The **Files affected** item is settled against the tree and consults
 no prose. It fails when:
 
 - the section is absent or has no bullets;
-- a bullet has no tag, or a tag outside the three;
+- a bullet has no tag, or a tag other than `new`, `update`, or
+  `delete`;
 - an `update` or `delete` path does not exist in the tree at check
   time;
 - a `new` path exists in the tree at check time.
