@@ -98,11 +98,12 @@ generator reading the body emits a criterion theorem with the
 - `<repo-relative path>` (<tag>)
 ```
 
-Every bullet is one path in backticks followed by one tag in
-parentheses, where `<tag>` is one of `new`, `update`, `delete`:
-`new` for a path the change creates, absent from the tree at check
-time; `update` for one it edits and `delete` for one it removes, each
-present in the tree at check time.
+The section carries at least one bullet, and every bullet is one path
+in backticks followed by exactly one tag in parentheses, where `<tag>`
+is one of `new`, `update`, `delete` and nothing else: `new` for a path
+the change creates, absent from the tree at check time; `update` for
+one it edits and `delete` for one it removes, each present in the tree
+at check time.
 
 ## The check
 
@@ -114,21 +115,30 @@ Given an issue number:
    naming the item and the sentence or absence that fails it. An empty
    list is the verdict `ready`.
 
-**Self-contained**, **No unanswered design decisions**, **Sandbox
-fit**, **Dependency posture**, and **Spec quality** are read from the
-body and the edges. The **Acceptance criteria** item fails when the
-acceptance section is absent, has no bullets, or has a bullet that is
-not a claim a reviewer can attempt to disprove against the diff.
+The first five items are read from the body and the edges, and each
+fails on the thing its gap line then quotes:
+
+- **Self-contained** fails on a reference out of the body, on two
+  opinions left standing on one point, or on an amendment layer.
+- **No unanswered design decisions** fails on a decision the body
+  poses as a question or leaves implicit; the gap line names the
+  decision.
+- **Sandbox fit** fails on a sentence asking for work that lands
+  outside this repo.
+- **Dependency posture** fails on a dependency the body states that
+  no edge carries, on an edge the body contradicts, or on a cross-repo
+  edge not resolved to the repo it lives in.
+- **Spec quality** fails on a provenance sentence.
+
+The **Acceptance criteria** item fails when the acceptance section is
+absent, has no bullets, or has a bullet that is not a claim a reviewer
+can attempt to disprove against the diff.
 
 The **Files affected** item is settled against the tree and consults
-no prose. It fails when:
-
-- the section is absent or has no bullets;
-- a bullet has no tag, or a tag other than `new`, `update`, or
-  `delete`;
-- an `update` or `delete` path does not exist in the tree at check
-  time;
-- a `new` path exists in the tree at check time.
+no prose. It fails when the section is absent or departs from the
+grammar above in any way that grammar states — in whether it carries
+a bullet, in a bullet's shape, or in what a bullet's tag asserts about
+the tree at check time.
 
 ## Output
 
