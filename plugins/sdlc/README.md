@@ -23,6 +23,7 @@ the fact.
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
 | How the orchestrator sequences the flow and briefs each teammate | `skills/orchestrate/SKILL.md` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
+| The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
@@ -54,13 +55,19 @@ rather than recalling it:
   reference wrapped across two lines survives a single-line grep.
 - A changed count or roster: a back-reference like "those three" goes
   stale in silence. Read the paragraph; don't trust the grep.
-- A renamed heading in the issue-body grammar: the grammar has a
-  writer, `skills/orchestrate-ready/SKILL.md`, and a reader,
+- A renamed heading in the issue-body grammar: the grammar has one
+  owner, `skills/orchestrate-readiness/SKILL.md`, and its readers name
+  that skill rather than spelling a heading — the writer,
+  `skills/orchestrate-ready/SKILL.md`; the gate and the "Files likely
+  affected" step in `skills/orchestrate/SKILL.md`; and
   `skills/theorem-generation/SKILL.md`, which keys a criterion
-  theorem's `settle-mode` off the headings the writer emits and, on the
-  issues-only brief, reads the `## Files affected (floor)` list in
-  place of a diff. Neither side can hold the grammar alone, so both
-  move in one PR.
+  theorem's `settle-mode` off the acceptance sub-headings and, on the
+  issues-only brief, reads the files-affected section in place of a
+  diff. So a grep for the heading literal hits the owner and one file
+  outside this plugin, `plugins/issues/skills/issue-create/SKILL.md`,
+  which spells the literal because the plugin sandbox keeps it from
+  reaching the skill. A rename edits the owner, that file, and any
+  reader whose wording no longer fits the renamed section.
 
 Surfaces outside this plugin that a contract change reaches:
 `plugins/github-prs/` attributes PR verbs to named `sdlc` agents in its
@@ -70,8 +77,8 @@ carried them last time.
 `plugins/issues/` deliberately names no `sdlc` reader of its
 repo-config, for the reason `plugins/issues/README.md` gives — do not
 add one back. Its `skills/issue-create/SKILL.md` does read the
-issue-body grammar, though, so a change to that grammar reaches that
-file too.
+issue-body grammar, though, and spells the files-affected heading
+literally, so a change to that grammar reaches that file too.
 
 The header `style-checker` takes its rules from, `## For Authors and
 Checkers`, is spelled in the global style guides under
@@ -115,13 +122,14 @@ Not everything below is a roster entry, and what is not has a trigger
 of its own. The frontmatter keys spelled here hold for a whole class —
 `isolation: worktree` on every agent, `user-invocable: false` on the
 skills that are not user verbs — so a PR changing either key edits
-this file. And the sequencing of `/sdlc:orchestrate-ready` in front of
-`/sdlc:orchestrate` is stated here and nowhere else, so a PR that
-changes how the two relate edits it here.
+this file. And how `/sdlc:orchestrate-ready` and `/sdlc:orchestrate`
+relate — one writes a body up to the bar, the other refuses a body
+below it, and neither runs the other — is summarised here, so a PR
+that changes how the two relate edits it here.
 
 ## The issue is the ceiling of the fix loop
 
-An issue's `## Acceptance` section is the ceiling of the fix loop, not
+An issue's acceptance section is the ceiling of the fix loop, not
 its floor. A review finding whose fix lies outside it, or a diff that
 already reaches past it, is the human's to admit or refuse, and the
 orchestrator never admits one on its own. That boundary is enforced by
@@ -171,25 +179,26 @@ Each piece has one owner:
 | The seed spawn, the tier pick against the issue bodies, the per-theorem ruling, and the round-0 write | `skills/orchestrate/SKILL.md` |
 | Round 0 as a valid round number holding only a records file | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
-| The `## Files affected (floor)` section the seed generator reads in place of a diff | `skills/orchestrate-ready/SKILL.md` |
+| The files-affected section the seed generator reads in place of a diff | `skills/orchestrate-readiness/SKILL.md` |
 
 ## Skills
 
 | Skill | Purpose | Where it runs |
 | ------- | --------- | --------------- |
-| `/sdlc:orchestrate-ready <issue>` | Groom one issue up to the bar the orchestrator needs, then flip its status | main session, interactive |
-| `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues | main session |
+| `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
+| `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
 | `sdlc:documentation-definition` | What counts as documentation rather than code | preloaded into the agents that decide which files they may edit or review |
+| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
 
 The rows with no leading slash are not user verbs — each declares
 `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
-`theorem-generation` is preloaded into each
-`theorem-generator` variant through that agent's `skills:`
+`theorem-generation` and `orchestrate-readiness` are preloaded into
+each `theorem-generator` variant through that agent's `skills:`
 frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
 `counterexample-verifier` — the same way. `theorem-based-pr-reviewer`
@@ -205,9 +214,16 @@ agree, and an agent body is already loaded at spawn.
 
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
 and `/sdlc:orchestrate` does not invoke it — the user runs it first,
-per issue, and runs the orchestrator once the issues are ready. What
-it assesses an issue against, and why it is interactive rather than an
-agent, is owned by `skills/orchestrate-ready/SKILL.md`.
+per issue, and runs the orchestrator once the issues are ready. Both
+invoke the same check, `orchestrate-readiness`: the grooming skill
+rewrites the body until the check returns no gap, and the orchestrator
+runs the check on every issue it is given before any analysis and
+stops, before a branch or a PR exists, on the first non-empty gap
+list, naming the grooming skill rather than running it — grooming is a
+conversation with the human, and the orchestrator is not one. The bar
+and the grammar are owned by `skills/orchestrate-readiness/SKILL.md`;
+why grooming is interactive rather than an agent is owned by
+`skills/orchestrate-ready/SKILL.md`.
 
 ## Executables
 
