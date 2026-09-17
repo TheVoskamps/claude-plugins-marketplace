@@ -58,7 +58,9 @@ round itself and refuses one.
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
   path. Neither may carry a path separator or whitespace.
-- `--pr <n>` and `--round <n>` — numbers.
+- `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
+  from 1, and **`--round 0` is valid**: the pre-loop seed, ruled on by
+  the human before any implementer ran.
 
 **One round is one log.** There is no per-fan-out file and no `--agent`
 in the path: the `stage` column below says which fan-out a record
@@ -195,7 +197,8 @@ record, or the file — and the `print` modes for the ones that read.
   on before spawning anything.
 - **`records`** — writes the round's theorem records, read from
   **stdin**, to the round's `records` file. The reviewer's, once per
-  round that reaches disposition, an empty-delta round included. Empty
+  round that reaches disposition, an empty-delta round included; and
+  the orchestrator's once, at `--round 0`, for the ruled seed. Empty
   input is refused, and the bytes land in a staging name and are renamed
   into place only once whole, for the reason `leave` gives: a reader
   takes the file's existence as the round's records, and half a file
@@ -213,7 +216,8 @@ record, or the file — and the `print` modes for the ones that read.
   the rest of that round's state — its `anchor` line's head SHA, its
   review file — has the number to ask for it with; the records follow
   from the second line on. Exits non-zero when no round under the PR
-  holds a records file, which is the round-1 case.
+  holds a records file — a PR whose round 1 has no round-0 seed to
+  read.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
 

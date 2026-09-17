@@ -622,6 +622,29 @@ issues, settle mode, pointers, and the state it held last round. Parse
 those into the carried list. A non-zero exit means no round under this PR has
 stored records, which is the first fallback trigger below.
 
+If that `round <n>` names **round 0**, the carried records are the
+seed: the theorem list the orchestrator generated from the issues
+before the developer ran, as the human ruled on it. An accepted or
+re-moded theorem there carries **no `state`** — it has never been
+attacked — and a rejected or merged one is `retired` /
+`human-refuted`. This round is round 1 taking the **delta path**, not
+the whole-diff fallback: round 0 has no log and no head, so
+`<prev-head>` is the merge-base of the PR head and the base branch,
+which makes the delta the whole branch, and the adjustment cut is the
+PR's `createdAt`:
+
+```bash
+git fetch origin
+git merge-base <headRefOid> origin/<baseRefName>
+gh pr view <PR> --json createdAt --jq .createdAt
+```
+
+The rest of this section reads unchanged with those two values in
+place of the ones it derives from `<prev-round>`'s log. The whole
+branch is never an empty delta, so round 1 always fans out. A
+`human-refuted` seed record is retired for good, per "The `--full`
+round".
+
 If that `round <n>` names **this** round's own number, an earlier
 instance of this same round stored its records before it managed to
 post: they are this round's own output rather than a predecessor
@@ -775,13 +798,15 @@ round that fans out. Retirement is a record state, never a deletion — a
 retired theorem still appears in every later round's records file,
 carrying the head SHA it settled at.
 
-**Fall back to round-1 behavior** — full generation from the whole
-diff, every theorem live — when either of these holds, and say which in
-the Review method section:
+**Fall back to whole-diff behavior** — a **fallback round**: full
+generation from the whole diff, every theorem live — when either of
+these holds, and say which in the Review method section:
 
 - `--mode print-records` exits non-zero, so no round under this PR has
-  stored records — round 1, the ordinary case, and equally the first
-  round after this design ships;
+  stored records — a PR with no round-0 seed, which is one reviewed
+  outside the orchestrate loop or one whose seed was lost with the
+  session that took it. Say in the Review method section that the
+  round ran without seed records, so the missing gate is visible;
 - `<prev-head>`'s objects are not fetchable, so no delta can be
   computed.
 
@@ -853,7 +878,7 @@ picked by this rubric. They exist for an explicit `--generator`
 override and nothing else.
 
 Both signals read the same delta "Carry the previous round's theorems
-forward" computed — on a round-1 or fallback round, the whole PR diff.
+forward" computed — on a fallback round, the whole PR diff.
 Say which tier ran, and whether the rubric or an override picked it, in
 the Review method section.
 
@@ -910,7 +935,7 @@ Otherwise spawn the definition "Pick the generator tier" settled on,
 with the `Agent` tool, passing the resolved set from "Identify the issue
 set" — not the caller's claim.
 
-On a **round-1 or fallback round**, the brief is the whole PR:
+On a **fallback round**, the brief is the whole PR:
 
 ```text
 --pr <PR_N>
@@ -968,7 +993,7 @@ to diff against — the `sdlc:theorem-agents-interface` skill → "The brief
 parameters" owns why that bound matters. On an adjustment-only round the
 list is empty, and `--delta-commits` carries an empty value rather than
 being dropped: the generator reads that as a delta of nothing, not as a
-round 1 to generate whole.
+fallback round to generate whole.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into the generator;
@@ -1007,9 +1032,12 @@ meant.
 ### Assemble the round's live list
 
 The **live list** is the set of theorems that get a disprover this
-round. On a round-1 or fallback round it is every theorem the
+round. On a fallback round it is every theorem the
 generator emitted. On a delta round it is exactly:
 
+- every carried record holding **no `state`** — round 0's accepted and
+  re-moded seed theorems, and the record each merge minted, none of
+  which any round has attacked yet;
 - theorems **disproved last round** — re-disproof is the check that
   the fix landed;
 - theorems left **unsettled** last round;
@@ -1858,9 +1886,11 @@ sections, in this order:
    review procedure can weigh the rest of the body.
 
    Say which **kind of round** this was, because the rest of the body is
-   read differently for each: a round-1 or fallback round (and, on a
-   fallback, which condition in "Carry the previous round's theorems
-   forward" fired), a delta round (naming `<prev-head>`), an
+   read differently for each: a fallback round (naming which condition
+   in "Carry the previous round's theorems forward" fired, and saying
+   it ran without seed records when that was the condition), a delta
+   round (naming `<prev-head>`, and naming round 0 as the source of the
+   live list when the carried records were the seed's), an
    adjustment-only round (naming what the adjustment comments changed),
    an empty-delta round whose verdicts all carried forward, or a
    `--full` round. A `--full` invocation names the round `--full`
@@ -2017,7 +2047,10 @@ severity-override: Low
 Field rules, on top of the record shape "The theorem contract" already
 owns:
 
-- **`state`** — one of `disproved`, `unsettled`, or `retired`. A theorem
+- **`state`** — one of `disproved`, `unsettled`, or `retired`. A record
+  may lack `state` in **round 0 only** — a seed theorem the human
+  accepted or re-moded, which no round has attacked — and every round
+  from 1 on stamps one on every record. A theorem
   is stamped `retired` in the very round that settled it — the round it
   survived, or the round whose counterexample the verifier refuted — and
   holds that state in every later round's block unless a later round
@@ -2026,7 +2059,8 @@ owns:
   "Derive each theorem's disposition" does the stamping. `state-detail`
   says what settled it: `survived`, `disproved-but-refuted`,
   `subject removed` for a generator retirement, `human-refuted` for a
-  rejected finding an adjustment comment retired, or `scope-dropped`
+  rejected finding an adjustment comment retired or for a seed theorem
+  the human rejected or merged at round 0, or `scope-dropped`
   for one the orchestrator's scope ruling dropped there. On a
   `disproved` record, `state-detail` names the finding the state
   produced instead — except on the one whose verifier never reported,
@@ -2270,8 +2304,8 @@ worktrees", and this line is the only record that one may be left over.
 
 Also report which generator tier ran and whether the rubric or a
 `--generator` override picked it, so an override has something to
-disagree with. And report which kind of round it was — round-1 or
-fallback (with the condition that fired), delta, adjustment-only,
+disagree with. And report which kind of round it was — fallback (with
+the condition that fired), delta, adjustment-only,
 empty-delta, or `--full`, the last of which wins whatever the delta, per
 the precedence in "Carry the previous round's theorems forward" — since
 a caller reading only "no findings" cannot otherwise tell a clean round

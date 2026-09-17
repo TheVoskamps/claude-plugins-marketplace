@@ -7,15 +7,12 @@ user-invocable: false
 # Theorem Agents Interface
 
 This is the one statement of what goes into a theorem agent and what
-comes back out. The `sdlc:theorem-based-pr-reviewer` agent writes the
-briefs; the generator variants, `theorem-disprover`, and
-`counterexample-verifier` receive them and answer. An `## Inputs`
-section names which of the parameters below one agent's brief carries
-and adds only what is specific to that agent — `theorem-disprover`'s
-and `counterexample-verifier`'s in their own agent files, the
-generator's in `sdlc:theorem-generation`, since the generator
-skeletons hold no instructions of their own. The meaning of a
-parameter is stated here and nowhere else.
+comes back out. An `## Inputs` section names which of the parameters
+below one agent's brief carries and adds only what is specific to
+that agent — `theorem-disprover`'s and `counterexample-verifier`'s in
+their own agent files, the generator's in `sdlc:theorem-generation`,
+since the generator skeletons hold no instructions of their own. The
+meaning of a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
 its issue-set findings come from no theorem, so it grades them by the
@@ -40,10 +37,36 @@ reviewer transcribes the former into the latter — so neither is a
 restatement of this file, and a class renamed or redefined here sweeps
 them as well.
 
+## The three generator briefs
+
+A generator receives one of three briefs, and which one decides its
+whole workflow:
+
+- The **whole-PR brief** — `--pr`, `--issues`, `--branch`, `--owner`,
+  `--repo`, `--round`, and the documentation-paths line when the PR
+  changes a documentation file. The generator reads the whole diff and
+  emits the full list.
+- The **delta brief** — the whole-PR brief plus `--carried-records`
+  and `--delta-commits`. The generator emits only what the delta
+  implies that the carried records do not cover.
+- The **issues-only brief** — `--issues` and `--branch` **only**. No
+  PR exists yet: `--branch` names the repo's default issue source
+  branch rather than a PR head, and the brief carries no `--pr`,
+  `--owner`, `--repo`, `--round`, `--carried-records`, `--delta-commits`
+  and no documentation-paths line, because none of those exists. The
+  generator reads the issue bodies and that branch's tree, emits the
+  acceptance-criterion theorems and the theorems the issues' design
+  and file lists warrant, and points into the issue text or the
+  current tree. Its list is a **seed**: the human rules on it, and the
+  ruled list becomes the round-0 records the PR's first review round
+  carries.
+
 ## The brief parameters
 
-- `--pr <N>` — the pull request under review.
-- `--branch <name>` — the PR's head branch. Every theorem agent checks
+- `--pr <N>` — the pull request under review. Absent on the
+  issues-only brief.
+- `--branch <name>` — the PR's head branch, or on the issues-only
+  brief the default issue source branch. Every theorem agent checks
   it out **detached**, from `origin/<branch>`, in its own worktree.
   Without it, stop and say so rather than reading the branch from
   GitHub yourself. The disprover's and the verifier's own `## Inputs`
@@ -61,7 +84,8 @@ them as well.
   the sentence a disprover tries to break, and the one a verifier
   re-reads as written rather than as the disprover restated it.
 - `--issues <N…>` — for a generator, the whole issue set the PR is
-  reviewed against; for a disprover or a verifier, the member issue(s)
+  reviewed against — on the issues-only brief, the batch's resolved
+  issue set; for a disprover or a verifier, the member issue(s)
   the theorem is tagged to, which is context for the consequence
   statement and nothing more — neither reviews against them.
 - `--settle-mode <mechanical|semantic>` — how the generator expects
@@ -76,7 +100,8 @@ them as well.
   verbatim as `sdlc-agent-result-persist --mode print-records` printed
   them: a `round <n>` line naming the round they came from, then every
   recorded theorem with its id, claim, issues, settle mode, pointers,
-  the state it held, the head SHA it was settled against, and, on a
+  the state it held — absent on a round-0 seed theorem no round has
+  attacked — the head SHA it was settled against, and, on a
   theorem an adjustment comment overrode, its `severity-override`. They come
   off the PR's XDG state directory, never out of a review body, so a
   withdrawn or edited review costs a round nothing. Only a generator
@@ -108,7 +133,9 @@ them as well.
 - `--round <n>` — the review round, as the reviewer numbers it.
 
 Those three say nothing about the claim, and **every** theorem agent
-receives them, the generator included. Each passes them straight back —
+receives them, the generator included — on every brief but the
+issues-only one, which has no PR to key a path on. Each passes them
+straight back —
 alongside `--pr`, its own stage, and its own definition's name — to
 `sdlc-agent-result-persist`, per
 `sdlc:agent-result-persist-interface`, when it records that it started
@@ -126,8 +153,8 @@ the reviewer lists them because documentation is outside the review.
 Comply by treating those paths' hunks as absent from every diff and
 delta commit you read: settle nothing from them, and name none of them
 in a claim, a pointer, or a counterexample. The line is absent when
-the PR changes no documentation file, and it narrows what you read,
-never what you may check out.
+the PR changes no documentation file, and on the issues-only brief,
+and it narrows what you read, never what you may check out.
 
 ## The consequence classes
 
