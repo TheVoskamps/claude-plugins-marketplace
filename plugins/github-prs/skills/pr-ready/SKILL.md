@@ -7,8 +7,8 @@ description: Mark a draft GitHub pull request as ready for review (draft -> read
 
 Flip a draft GitHub pull request into the ready-for-review state via
 `gh pr ready <N>`. This is the transition the `/sdlc:orchestrate`
-orchestrator performs in Phase 3, after the human confirms a PR is
-good enough to end the review/fix loop — a draft PR cannot be
+orchestrator performs in its Final Report, after the human confirms a
+PR is good enough to end the review/fix loop — a draft PR cannot be
 auto-merged, so keeping PRs draft until this point is what enforces
 "the orchestrator never merges."
 
