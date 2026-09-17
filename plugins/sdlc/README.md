@@ -22,7 +22,7 @@ the fact.
 | What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
 | How the orchestrator sequences the flow and briefs each teammate | `skills/orchestrate/SKILL.md` |
-| How a generator turns a PR into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
+| How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
@@ -57,8 +57,10 @@ rather than recalling it:
 - A renamed heading in the issue-body grammar: the grammar has a
   writer, `skills/orchestrate-ready/SKILL.md`, and a reader,
   `skills/theorem-generation/SKILL.md`, which keys a criterion
-  theorem's `settle-mode` off the headings the writer emits. Neither side
-  can hold the grammar alone, so both move in one PR.
+  theorem's `settle-mode` off the headings the writer emits and, on the
+  issues-only brief, reads the `## Files affected (floor)` list in
+  place of a diff. Neither side can hold the grammar alone, so both
+  move in one PR.
 
 Surfaces outside this plugin that a contract change reaches:
 `plugins/github-prs/` attributes PR verbs to named `sdlc` agents in its
@@ -145,6 +147,32 @@ human's, and the reviewer keeps the two apart by retiring a
 scope-dropped theorem under its own label rather than as
 human-refuted.
 
+## The theorem set is seeded from the issues before the developer runs
+
+The first theorem list the human sees is generated from the issues
+alone and ruled on before the batch's developer is spawned, so a
+developer that goes beyond the issues, or decides something they do
+not, surfaces in the first review round as new theorems against a list
+the human already owns. That seed is **round 0**: rounds count
+implementer passes from 1, and 0 is the pre-loop stage. The generator
+runs on an issues-only brief and its return is held, not persisted —
+every path `bin/sdlc-agent-result-persist` composes is keyed on a PR
+number, and none exists yet — until the developer's PR is open and
+linked, when the ruled list is written as round 0's records file.
+Round 0 holds that one file, so a walk that starts at round 1 never
+sees it, and a PR with no round 0 — one reviewed outside the
+orchestrate loop, or one whose seed was lost with the session that
+took it — is reviewed from its whole diff, with the review saying so.
+Each piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| The issues-only brief, and what a generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `skills/theorem-generation/SKILL.md` |
+| The seed spawn, the tier pick against the issue bodies, the per-theorem ruling, and the round-0 write | `skills/orchestrate/SKILL.md` |
+| Round 0 as a valid round number holding only a records file | `skills/agent-result-persist-interface/SKILL.md` |
+| A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
+| The `## Files affected (floor)` section the seed generator reads in place of a diff | `skills/orchestrate-ready/SKILL.md` |
+
 ## Skills
 
 | Skill | Purpose | Where it runs |
@@ -152,8 +180,8 @@ human-refuted.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue up to the bar the orchestrator needs, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
-| `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
+| `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
+| `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
 | `sdlc:documentation-definition` | What counts as documentation rather than code | preloaded into the agents that decide which files they may edit or review |
 
@@ -198,7 +226,10 @@ convention "Executables" above sets. Which mode writes each, and the
 record grammar the log holds, are part of that contract and are owned
 by `skills/agent-result-persist-interface/SKILL.md`.
 
-`pr-finalizer` reads that state and writes none of it. The implementing
+`pr-finalizer` reads that state and writes none of it. The orchestrator
+writes exactly one of these files, round 0's `records` — the seed the
+human ruled on before the developer ran, transcribed through the same
+script. The implementing
 agents are outside the claim entirely and write nothing this
 list owns: those declaring `memory: project` capture their agent memory
 into the session's inbox, each of them but `style-checker` commits its
@@ -213,7 +244,7 @@ the round's own directory:
 | ------- | --------------- |
 | `<round-dir>/log` | the round log |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
-| `<round-dir>/records` | the round's theorem records, which the next round carries forward |
+| `<round-dir>/records` | the round's theorem records, which the next round carries forward; round 0's is the ruled seed |
 | `<round-dir>/review` | the round's argued review, which the posted review summarises and `pr-finalizer` posts in full once the loop concludes |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 
@@ -258,7 +289,7 @@ throwaway worktree per spawn.
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and appends the run's final section to its body |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
-| `theorem-generator` | Searches one PR for claims worth trying to disprove |
+| `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |
 | `theorem-generator-high` | The same generator at a higher reasoning tier still |
 | `theorem-generator-xhigh` | The same generator at the highest reasoning tier |
