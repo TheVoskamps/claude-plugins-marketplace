@@ -37,13 +37,6 @@ proceeding. If it names more than one, ask the user which single issue
 to groom — grooming is a conversation per issue, and interleaving two
 of them loses track of which decision belongs to which.
 
-## The readiness bar
-
-The bar, the issue-body grammar it keys on, and the check that grades
-an issue against it are `sdlc:orchestrate-readiness`'s; invoke that
-check as `/sdlc:orchestrate-readiness <N>` wherever this skill needs a
-verdict or a gap list.
-
 ## Procedure
 
 1. **Fetch the issue.**
