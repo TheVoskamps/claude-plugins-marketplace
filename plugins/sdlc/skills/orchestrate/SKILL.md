@@ -1162,7 +1162,7 @@ reported to the human as such.
 | `UNSTABLE` | non-required checks failing | proceed as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
 | `BEHIND` | branch is behind the base | do not ask: report that it is rebasing, post the fixer brief, spawn `issue-fixer`, re-run the gate |
 | `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>`, show the human its output, ask what to do, then post the fixer brief carrying the ruling, spawn `issue-fixer`, re-run the gate |
-| `BLOCKED` | required checks or reviews not satisfied | when the gate lists a running check, wait for it per "A running check is waited on" below. Otherwise, when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green, the missing required review is the only cause, and the ready flip below is what requests that review — proceed as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the review does not account for — stop and report to the human; nothing automates that |
+| `BLOCKED` | required checks or reviews not satisfied | when the gate lists a running check and no check that is not green, wait for it per "A running check is waited on" below. Otherwise, when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green, the missing required review is the only cause, and the ready flip below is what requests that review — proceed as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the review does not account for — stop and report to the human; nothing automates that |
 
 The ready loop runs on a draft PR, before any review has been
 requested, so on a repo whose rules require a review every PR reaches
@@ -1175,15 +1175,21 @@ to the human, as a `BLOCKED` with any other cause is.
 **A running check is waited on**, not stopped on. The gate runs
 moments after the scrubber's push, and a required check that push
 triggered is still `QUEUED` or `IN_PROGRESS` then — not green, and not
-a failure either. A `BLOCKED` whose report lists a running check gets
-a wait rather than a verdict: announce the wait, naming the checks
-still running, wait **60 s**, and re-run the gate, up to **10** times
-for one visit to the ready loop, so a running check is never the cause
-you stop on before it has had ten minutes to finish. A check still
-running after the last wait is put to the human like any other
-`BLOCKED` cause. The 60 s interval and the 10-wait bound are declared
-starting bounds, not measured ones; revise them here if practice shows
-them wrong.
+a failure either. A `BLOCKED` whose report lists a running check and
+no check that is not green gets a wait rather than a verdict: announce
+the wait, naming the checks still running, wait **60 s**, and re-run
+the gate, up to **10** times for one visit to the ready loop, so a
+running check is never the cause you stop on before it has had ten
+minutes to finish. A report that also lists a check that is not green
+is not waited on: that check is a stop-and-report cause already, and
+the wait would only delay it. Every running check the gate lists holds
+the wait, required or not — a slow non-required check holds the
+close-out for the same bounded wait as a required one, deliberately,
+rather than the close-out guessing which checks the merge depends on.
+A check still running after the last wait is put to the human like
+any other `BLOCKED` cause. The 60 s interval and the 10-wait bound are
+declared starting bounds, not measured ones; revise them here if
+practice shows them wrong.
 
 **The fixer brief for `BEHIND` or `DIRTY`** is a PR comment whose
 first line is the marker `<!-- sdlc:fixer-brief -->`, exactly as the

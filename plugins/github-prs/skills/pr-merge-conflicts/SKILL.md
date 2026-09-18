@@ -39,13 +39,19 @@ exactly as it found it.
    cleanup sweep skips as uncommitted work, so nothing but this skill
    ever clears it. Abort that merge and remove the worktree before the
    add — `git worktree add` refuses an existing path, and every later
-   run on this PR would fail here:
+   run on this PR would fail here. A registration whose directory is
+   gone — the path deleted without `git worktree remove` — makes the
+   add refuse too, with `is a missing but already registered
+   worktree`, and the path test does not see it; `git worktree prune`
+   drops every such registration and is a no-op when there is none, so
+   it runs unconditionally:
 
    ```bash
    if [ -e .claude/worktrees/pr-merge-conflicts-<N> ]; then
      git -C .claude/worktrees/pr-merge-conflicts-<N> merge --abort
      git worktree remove .claude/worktrees/pr-merge-conflicts-<N>
    fi
+   git worktree prune
    ```
 
    Then detach, so no branch claim is taken that another worktree
