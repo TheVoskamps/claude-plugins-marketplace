@@ -74,8 +74,9 @@ A teammate that declares `memory: project` resolves
 `.claude/agent-memory/` relative to that throwaway worktree, so the
 tree starts empty on every run and never reaches a commit; the teammate
 captures its entries into the run's session-scoped inbox at
-end-of-run, and `agent-memory-scrubber` curates that inbox (see "Before
-`/pr-ready`: curate the PR's agent memory"). You never carry memory
+end-of-run, and `agent-memory-scrubber` curates that inbox on the
+human's end-of-loop confirmation (see "Before `/pr-ready`: curate the
+PR's agent memory" under "Final Report"). You never carry memory
 between spawns yourself.
 
 ## Invocation
@@ -87,7 +88,7 @@ If no issue numbers are given, ask for them before proceeding.
 
 ---
 
-## Phase 1: Discovery and Planning (read-only, no changes)
+## Discovery and Planning (read-only, no changes)
 
 ### Pre-flight: orchestrator must run from the primary clone
 
@@ -175,7 +176,7 @@ A structural instruction in a body — a rename, a file move, a new
 abstraction it specifies — is graded, not executed. Read it against
 the repo: it stands when, having read the file, you agree it serves
 the issue; otherwise it is a decision item in "Present the plan", with
-the body's sentence quoted, and Phase 2 waits on the answer.
+the body's sentence quoted, and Execution waits on the answer.
 
 ### Grouping: assign issues to batches, then order the batches
 
@@ -281,22 +282,22 @@ for every reviewer round on the batch's PR, per "Overriding the
 generator tier". If the run is large (more than 8 issues across all batches),
 split it into two separate sessions and say so here before proceeding.
 
-Wait for explicit human confirmation before Phase 2. Do not spawn any
-teammates yet.
+Wait for explicit human confirmation before Execution. Do not spawn
+any teammates yet.
 
 ---
 
-## Phase 2: Execution
+## Execution
 
 Work in waves of batches, as defined by your plan. Each batch gets one
 `issue-developer`, one branch, and one PR.
 
 ### Set each batch's issues to In Progress and assign them before spawning its developer
 
-Immediately after the human confirms the plan (end of Phase 1) and
-**before spawning the developer for a given batch**, transition every
-member of that batch to In Progress and assign it — they start
-together because one developer starts them together:
+Immediately after the human confirms the plan (the end of Discovery
+and Planning) and **before spawning the developer for a given batch**,
+transition every member of that batch to In Progress and assign it —
+they start together because one developer starts them together:
 
 ```text
 /issue-set-status <N> "In Progress"
@@ -619,7 +620,7 @@ issue is the ceiling of the loop, and a diff that already reaches past
 it is the human's to admit or refuse, never yours.
 
 The PR stays a **draft** from here through the entire review/fix loop,
-until Phase 3 flips it.
+until the Final Report flips it.
 
 ### After each round's commits: document, check style, then review
 
@@ -675,7 +676,7 @@ whether to fix them or to ignore them. The question ends your turn.
 The style-fix loop keeps its own count and has no cap. A style-fix
 round is one `issue-fixer` spawned from a style-findings brief; it does
 not count against the review-round cap. Track the number per PR and
-report it in the Phase 3 summary.
+report it in the Final Report summary.
 
 ### Run the review pipeline
 
@@ -730,7 +731,7 @@ independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
 the review is **posted** on the PR, so whether it says what the
 reviewer reported back is one `gh pr view` away: verify before a cap
-escalation or a Phase 3 hand-off rests on it. An empty-delta round's
+escalation or a Final Report hand-off rests on it. An empty-delta round's
 verdicts are carried forward from the previous round rather than
 freshly checked, and the reviewer says which kind of round it ran.
 
@@ -1016,39 +1017,6 @@ dropped:` — a scope ruling read off the issue's acceptance
 section, not a reading of the diff — and its shape names you as the
 actor, so nothing downstream records it as the human's rejection.
 
-### Before `/pr-ready`: curate the PR's agent memory
-
-`agent-memory-scrubber` runs after every memory-declaring teammate and
-before Phase 3's `/github-prs:pr-ready` call, so the changes it lands
-are part of what the human blesses. Spawn it in Phase 3's end-of-loop
-transitions, once `docs-writer` has returned and no further branch
-work is queued. By then every teammate that writes memory has captured
-into the session's inbox for this branch, so one pass grades the whole
-run's entries.
-
-**Spawn the scrubber again whenever a memory-declaring teammate was
-spawned after the scrubber last ran.** Decide it from your own spawn
-history: none of them reports a *successful* capture back to you, so a
-spawn is the only evidence you have that entries may be waiting, and
-the inbox is session-ephemeral. The only wrong placement is spawning
-it *early*, while more branch work is still expected.
-
-The scrubber's per-entry and per-cut lines are the record of what it
-deleted, transferred, and cut from a destination file, so pass them
-through to the human as it wrote them.
-
-**agent-memory-scrubber spawn prompt** — give it PR number and branch
-name:
-
-```text
-PR <PR_N> has settled its review loop. Branch: <branch-name>
-
-Curate the PR's agent memory per your agent definition. Report back
-what was transferred, what was deleted, and what was cut from or
-created as a destination file, where transfers landed, and the commit
-SHA you pushed — or, if nothing was staged, why.
-```
-
 ### When a teammate escalates
 
 A teammate "escalates" when it stops mid-run and reports back instead
@@ -1089,7 +1057,7 @@ says otherwise:
   review pipeline, and `docs-writer` all get the set the PR actually
   closes, not the branch's full set.
 - The dropped issue **stays In Progress**. Do not flip it to In Review
-  at end-of-loop (Phase 3) and do not put it back to Ready. It gets
+  at end-of-loop (the Final Report) and do not put it back to Ready. It gets
   its own branch later, on the human's say-so.
 - Surface it in the final report's **Needs Your Attention** section,
   naming the reason the developer gave.
@@ -1103,12 +1071,12 @@ batches never run concurrently.
 
 ---
 
-## Phase 3: Final Report
+## Final Report
 
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
 The review/fix loop leaves each PR **draft** and every issue it closes
-**In Progress**. Phase 3 is where the human
+**In Progress**. The Final Report is where the human
 confirms — per PR — that the loop is done and the PR is good enough to
 move forward. On that end-of-loop confirmation for a given PR, and
 only then, the orchestrator performs these transitions, in this order:
@@ -1134,7 +1102,7 @@ only then, the orchestrator performs these transitions, in this order:
    round, not a loop: this flow spawns `docs-writer` once.
 
 2. **Spawn `agent-memory-scrubber`**, per "Before `/pr-ready`: curate
-   the PR's agent memory".
+   the PR's agent memory" below.
 
 3. **Spawn `pr-finalizer` to post the run's detail and amend the PR
    body.** The PR carries none of a round's argued detail while the
@@ -1196,6 +1164,43 @@ If the human ends the loop without blessing a PR (e.g. it lands in
 "Needs Your Attention"), leave that PR draft and its issues In
 Progress, and spawn no `pr-finalizer`: the loop has not ended, so the
 body stays frozen for whatever round comes next.
+
+### Before `/pr-ready`: curate the PR's agent memory
+
+`agent-memory-scrubber` is the end-of-loop transition above that sits
+between `docs-writer` and `pr-finalizer`: it runs after every
+memory-declaring teammate and before the `/github-prs:pr-ready` call,
+so the changes it lands are part of what the human blesses. Spawn it
+once `docs-writer` has returned and no further branch work is queued.
+By then every teammate that writes memory has captured into the
+session's inbox for this branch, so one pass grades the whole run's
+entries.
+
+**Spawn the scrubber again whenever a memory-declaring teammate was
+spawned after the scrubber last ran.** Decide it from your own spawn
+history: none of them reports a *successful* capture back to you, so a
+spawn is the only evidence you have that entries may be waiting, and
+the inbox is session-ephemeral. The rule fires only if branch work runs
+after the confirmation scrub, which the ordered transitions do not do:
+only `pr-finalizer` runs between the scrub and `/pr-ready`, and it
+writes no memory. The only wrong placement is spawning it *early*,
+while more branch work is still expected.
+
+The scrubber's per-entry and per-cut lines are the record of what it
+deleted, transferred, and cut from a destination file, so pass them
+through to the human as it wrote them.
+
+**agent-memory-scrubber spawn prompt** — give it PR number and branch
+name:
+
+```text
+PR <PR_N> has settled its review loop. Branch: <branch-name>
+
+Curate the PR's agent memory per your agent definition. Report back
+what was transferred, what was deleted, and what was cut from or
+created as a destination file, where transfers landed, and the commit
+SHA you pushed — or, if nothing was staged, why.
+```
 
 ### Clean up, once, at the end
 
@@ -1270,7 +1275,7 @@ what you do and do not do yourself, and it keeps only what no agent
 definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
 
 - **Never merge a PR.** The merge is the human's, after the ready flip
-  they confirm in Phase 3.
+  they confirm in the Final Report.
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
   you never use `Edit`, `Write` or `NotebookEdit`; never author a
@@ -1293,9 +1298,9 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
 - **Never repair an escalating teammate's environment** — worktree,
   lock, branch claim, in-flight commits — on your own.
 - **Never regroup a batch after its developer has spawned.** Grouping
-  is settled at the Phase 1 confirm step; once a branch carries
-  commits and a PR, the only way a member leaves the batch is the
-  developer's drop protocol (see "A dropped batch member").
+  is settled at the Discovery and Planning confirm step; once a branch
+  carries commits and a PR, the only way a member leaves the batch is
+  the developer's drop protocol (see "A dropped batch member").
 - **Max review rounds per PR: 5.** Escalate to the human after that. A
   round is one `theorem-based-pr-reviewer` spawn **that posted a
   review**, however many children its fan-outs spawned and at whatever
