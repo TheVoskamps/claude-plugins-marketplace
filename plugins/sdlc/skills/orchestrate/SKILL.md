@@ -1136,11 +1136,13 @@ merge-readiness gate:
 **The gate reports; it does not remedy.** Rebasing and conflict
 resolution are `issue-fixer`'s work — you never run `git rebase` or
 `git merge` or hand-edit conflict markers in the primary clone, per
-"Your own boundary". The gate names the state it found; you act on
-that row of the table and re-run the gate. Its retry schedule for a
-merge state GitHub is still computing — three attempts, 10 s and then
-30 s apart, each wait announced — is the skill's own, and a gate that
-fails reporting `UNKNOWN` after it is reported to the human as such.
+"Your own boundary". The gate names the state it found, with the
+PR's `reviewDecision` and its not-green `statusCheckRollup` entries
+alongside; you act on that row of the table and re-run the gate. Its
+retry schedule for a merge state GitHub is still computing — three
+attempts, 10 s and then 30 s apart, each wait announced — is the
+skill's own, and a gate that fails reporting `UNKNOWN` after it is
+reported to the human as such.
 
 | State | Meaning | What the close-out does |
 | ------- | --------- | ------------------------- |
@@ -1148,11 +1150,15 @@ fails reporting `UNKNOWN` after it is reported to the human as such.
 | `UNSTABLE` | non-required checks failing | proceed as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
 | `BEHIND` | branch is behind the base | do not ask: report that it is rebasing, post the fixer brief, spawn `issue-fixer`, re-run the gate |
 | `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>`, show the human its output, ask what to do, then post the fixer brief carrying the ruling, spawn `issue-fixer`, re-run the gate |
-| `BLOCKED` | required checks or reviews not satisfied | stop and report to the human; nothing automates this |
+| `BLOCKED` | required checks or reviews not satisfied | when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green, the missing required review is the only cause, and the ready flip below is what requests that review — proceed as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the review does not account for — stop and report to the human; nothing automates that |
 
-`BEHIND`, `DIRTY` and `BLOCKED` each mean the close-out is not
-reached: no In Review flip, no `pr-finalizer`, no ready flip. A state
-the table does not name is put to the human as `BLOCKED` is.
+The ready loop runs on a draft PR, before any review has been
+requested, so on a repo whose rules require a review every PR reaches
+this gate `BLOCKED` with nothing wrong: that is the one `BLOCKED` the
+close-out proceeds from. `BEHIND`, `DIRTY` and every other `BLOCKED`
+mean the close-out is not reached: no In Review flip, no
+`pr-finalizer`, no ready flip. A state the table does not name is put
+to the human, as a `BLOCKED` with any other cause is.
 
 **The fixer brief for `BEHIND` or `DIRTY`** is a PR comment whose
 first line is the marker `<!-- sdlc:fixer-brief -->`, exactly as the
@@ -1168,7 +1174,8 @@ the loop is the `DIRTY` ruling; a `BEHIND` remedy runs without asking.
 
 ### The close-out
 
-Reached only from `CLEAN` or `UNSTABLE`, and linear:
+Reached only from `CLEAN`, `UNSTABLE`, or the review-only `BLOCKED`
+the ready loop's table names, and linear:
 
 1. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`

@@ -1,13 +1,18 @@
 ---
 name: pr-ready-to-merge
-description: Report an open GitHub pull request's merge readiness — its `mergeable` and `mergeStateStatus` values — retrying on a fixed schedule while GitHub is still computing the merge commit. Read-only; refuses a PR that is not open.
+description: Report an open GitHub pull request's merge readiness — its `mergeable` and `mergeStateStatus` values, with `reviewDecision` and `statusCheckRollup` alongside so a caller can tell what a `BLOCKED` is blocked on — retrying on a fixed schedule while GitHub is still computing the merge commit. Read-only; refuses a PR that is not open.
 ---
 
 # PR Ready To Merge
 
 Report one pull request's merge readiness and nothing else. The skill
-reads `mergeable` and `mergeStateStatus` off the PR and reports the
-state it found; it writes nothing, flips nothing, and remedies nothing.
+reads `mergeable` and `mergeStateStatus` off the PR, and `reviewDecision`
+and `statusCheckRollup` alongside them, and reports the state it found;
+it writes nothing, flips nothing, and remedies nothing. The two extra
+fields are there because `mergeStateStatus: BLOCKED` names no cause —
+a missing required review and a failing required check report the same
+word — and a caller deciding what to do with a `BLOCKED` needs to know
+which it is.
 "Ready for review" is a draft flag and says nothing about whether the
 branch is current with its base, merges cleanly, or passes its required
 checks — this skill is what answers those questions, for any caller
@@ -27,7 +32,8 @@ that has to decide whether a PR can move forward.
 1. **Read the PR's state and merge fields:**
 
    ```bash
-   gh pr view <N> --json number,state,mergeable,mergeStateStatus
+   gh pr view <N> --json \
+     number,state,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
    ```
 
 2. **Refuse a PR that is not open.** If `state` is anything other than
@@ -59,7 +65,8 @@ that has to decide whether a PR can move forward.
 
    ```bash
    sleep 10
-   gh pr view <N> --json number,state,mergeable,mergeStateStatus
+   gh pr view <N> --json \
+     number,state,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
    ```
 
    Leave the loop as soon as `mergeable` is anything other than
@@ -70,16 +77,32 @@ that has to decide whether a PR can move forward.
    bound, not a measured one: it is revised here if practice shows it
    is wrong.
 
-4. **Report back**, in one block, the two values and what the
-   `mergeStateStatus` means on GitHub's side:
+4. **Report back**, in one block, the two merge values and what the
+   `mergeStateStatus` means on GitHub's side, then the review decision
+   and the check rollup:
 
    ```text
    PR #<N>: mergeable <MERGEABLE|CONFLICTING|UNKNOWN>,
    mergeStateStatus <STATE> — <meaning>
+   reviewDecision: <REVIEW_REQUIRED|APPROVED|CHANGES_REQUESTED|(none)>
+   checks not green: <none | one line per entry: name, status, conclusion or state>
    ```
 
+   `reviewDecision` is empty when the base's rules require no review;
+   report that as `(none)`. `statusCheckRollup` is a list mixing two
+   shapes: a `CheckRun` carries `status` and `conclusion`, a
+   `StatusContext` carries `state`. An entry is green when it is a
+   `CheckRun` with `status: COMPLETED` and a `conclusion` of `SUCCESS`,
+   `SKIPPED` or `NEUTRAL`, or a `StatusContext` with `state: SUCCESS`;
+   list every entry that is not, by its `name` (a `StatusContext` names
+   itself in `context`) with the values it carries, and `none` when all
+   are. The rollup does not say which entries are required, so the list
+   is every entry that is not green, required or not.
+
    The meaning column is GitHub's, and it is all this skill says: what
-   a caller does about a given state is the caller's own rule.
+   a caller does about a given state — a `BLOCKED` included, whichever
+   of the review and the checks accounts for it — is the caller's own
+   rule.
 
    | `mergeStateStatus` | Meaning |
    | -------------------- | --------- |
