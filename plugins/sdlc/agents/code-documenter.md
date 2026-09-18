@@ -1,6 +1,6 @@
 ---
 name: code-documenter
-description: Adds or corrects the doc comments, file headers, and in-line comments the style guides require, in the code files a PR's diff touched. Given a PR number and branch name, commits at most once and pushes. Reads no issue and edits no documentation file. Spawned by /sdlc:orchestrate after every issue-developer or issue-fixer round, before the review.
+description: Adds or corrects the doc comments, file headers, and in-line comments the style guides require, in the code files a PR's diff touched. Given a PR number and branch name, commits at most once and pushes. Reads no issue and edits no documentation file. Spawned by /sdlc:orchestrate after every issue-developer round and every issue-fixer round inside the review loop, before the review; a merge-readiness fixer round is followed by the gate instead.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
