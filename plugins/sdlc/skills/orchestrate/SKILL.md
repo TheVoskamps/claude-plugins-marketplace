@@ -1167,13 +1167,14 @@ body stays frozen for whatever round comes next.
 
 ### Before `/pr-ready`: curate the PR's agent memory
 
-`agent-memory-scrubber` is step 2 of the transitions above: it runs
-after every memory-declaring teammate and before the
-`/github-prs:pr-ready` call, so the changes it lands are part of what
-the human blesses. Spawn it once `docs-writer` has returned and no
-further branch work is queued. By then every teammate that writes
-memory has captured into the session's inbox for this branch, so one
-pass grades the whole run's entries.
+`agent-memory-scrubber` is the end-of-loop transition above that sits
+between `docs-writer` and `pr-finalizer`: it runs after every
+memory-declaring teammate and before the `/github-prs:pr-ready` call,
+so the changes it lands are part of what the human blesses. Spawn it
+once `docs-writer` has returned and no further branch work is queued.
+By then every teammate that writes memory has captured into the
+session's inbox for this branch, so one pass grades the whole run's
+entries.
 
 **Spawn the scrubber again whenever a memory-declaring teammate was
 spawned after the scrubber last ran.** Decide it from your own spawn
