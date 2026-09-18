@@ -1090,6 +1090,17 @@ authorizes the ready flip and nothing past it: the merge stays the
 human's, by hand or by the repo's auto-merge, and the monitor loop
 only watches for it.
 
+**One PR goes through these stages at a time.** When the human confirms
+more than one PR, take them in the order confirmed, and start the next
+PR's stages — pre-gate agents onward — only when the previous PR's
+monitor loop has ended, whether by a merge, a close, or the human
+declining to keep waiting. The first PR's merge moves the base the
+second is measured against, so serialising is what makes the second
+PR's ready loop see that merged base — and rebase onto it — before its
+finalizer writes a section describing commits the rebase would then
+rewrite. A monitor loop that never ends holds the queue; that is what
+its wait bound and the question it asks are for.
+
 1. **Spawn `docs-writer` to write the PR's documentation.** It runs
    once per PR, here, and no review round runs over its commit. Give it
    the PR number, the issue set the PR closes, and the branch name:
@@ -1137,8 +1148,9 @@ merge-readiness gate:
 resolution are `issue-fixer`'s work — you never run `git rebase` or
 `git merge` or hand-edit conflict markers in the primary clone, per
 "Your own boundary". The gate names the state it found, with the
-PR's `reviewDecision` and its not-green `statusCheckRollup` entries
-alongside; you act on that row of the table and re-run the gate. Its
+PR's `reviewDecision` and its `statusCheckRollup` entries alongside —
+the running ones and the not-green ones on separate lines; you act on
+that row of the table and re-run the gate. Its
 retry schedule for a merge state GitHub is still computing — three
 attempts, 10 s and then 30 s apart, each wait announced — is the
 skill's own, and a gate that fails reporting `UNKNOWN` after it is
@@ -1150,7 +1162,7 @@ reported to the human as such.
 | `UNSTABLE` | non-required checks failing | proceed as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
 | `BEHIND` | branch is behind the base | do not ask: report that it is rebasing, post the fixer brief, spawn `issue-fixer`, re-run the gate |
 | `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>`, show the human its output, ask what to do, then post the fixer brief carrying the ruling, spawn `issue-fixer`, re-run the gate |
-| `BLOCKED` | required checks or reviews not satisfied | when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green, the missing required review is the only cause, and the ready flip below is what requests that review — proceed as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the review does not account for — stop and report to the human; nothing automates that |
+| `BLOCKED` | required checks or reviews not satisfied | when the gate lists a running check, wait for it per "A running check is waited on" below. Otherwise, when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green, the missing required review is the only cause, and the ready flip below is what requests that review — proceed as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the review does not account for — stop and report to the human; nothing automates that |
 
 The ready loop runs on a draft PR, before any review has been
 requested, so on a repo whose rules require a review every PR reaches
@@ -1159,6 +1171,19 @@ close-out proceeds from. `BEHIND`, `DIRTY` and every other `BLOCKED`
 mean the close-out is not reached: no In Review flip, no
 `pr-finalizer`, no ready flip. A state the table does not name is put
 to the human, as a `BLOCKED` with any other cause is.
+
+**A running check is waited on**, not stopped on. The gate runs
+moments after the scrubber's push, and a required check that push
+triggered is still `QUEUED` or `IN_PROGRESS` then — not green, and not
+a failure either. A `BLOCKED` whose report lists a running check gets
+a wait rather than a verdict: announce the wait, naming the checks
+still running, wait **60 s**, and re-run the gate, up to **10** times
+for one visit to the ready loop, so a running check is never the cause
+you stop on before it has had ten minutes to finish. A check still
+running after the last wait is put to the human like any other
+`BLOCKED` cause. The 60 s interval and the 10-wait bound are declared
+starting bounds, not measured ones; revise them here if practice shows
+them wrong.
 
 **The fixer brief for `BEHIND` or `DIRTY`** is a PR comment whose
 first line is the marker `<!-- sdlc:fixer-brief -->`, exactly as the
@@ -1232,8 +1257,9 @@ the ready loop's table names, and linear:
 
 A close-out that fails partway is re-run from the ready loop once the
 cause is settled, with no manual cleanup: a status flip repeats
-harmlessly, the finalizer overwrites its own section rather than
-stacking one, and the ready flip no-ops on a PR already ready.
+harmlessly, the finalizer leaves a detail chain it finds complete
+alone and overwrites its own section rather than stacking one, and
+the ready flip no-ops on a PR already ready.
 
 ### The monitor loop
 
@@ -1251,8 +1277,13 @@ whether to keep waiting. The 120 s interval and the 15-poll bound are
 declared starting bounds, not measured ones; revise them here if
 practice shows them wrong.
 
-A poll that finds the PR closed without merging ends the loop: report
-it as a **Needs Your Attention** row and move on.
+Two outcomes end the loop short of a merge, and each gets a
+**Needs Your Attention** row of its own rather than a place in
+"Merged": a poll that finds the PR closed without merging, and the
+human declining to keep waiting. The row names which it was and the
+state the last poll found, so the human reading the summary knows
+whether the PR is gone or still open, ready, and unmerged. Then move
+on.
 
 ### The post-merge tail, once per run
 

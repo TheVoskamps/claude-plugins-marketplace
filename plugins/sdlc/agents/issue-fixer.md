@@ -352,8 +352,8 @@ the findings you were given, and report it either way.
 Never run `gh pr edit --body` or `--body-file`, and never change the
 PR description by any other route, however squarely a finding lands on
 it. The body is **frozen for the duration of the review loop**: it is
-written once when the PR opens and amended once, after the loop ends,
-by the `pr-finalizer` agent.
+written once when the PR opens and amended only by the `pr-finalizer`
+agent, after the loop ends.
 
 This is not a scope restriction dressed up as a rule — it is what
 makes the review's inputs testable. A round decides whether there is

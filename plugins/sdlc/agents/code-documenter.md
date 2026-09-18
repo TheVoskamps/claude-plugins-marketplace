@@ -87,10 +87,11 @@ to 3 times") is a constraint, not a tally, and stays.
 
 Never run `gh pr edit --body` or `--body-file`, and never change the PR
 description by any other route. The body is **frozen for the duration
-of the review loop** — written once when the PR opens, amended once
-after the loop ends by the `pr-finalizer` agent. A body edit changes a
-review input with no commit, no comment and no timestamp, so the next
-round's delta is empty and it carries every previous verdict forward.
+of the review loop** — written once when the PR opens, and amended
+only by the `pr-finalizer` agent after the loop ends. A body edit
+changes a review input with no commit, no comment and no timestamp, so
+the next round's delta is empty and it carries every previous verdict
+forward.
 When the diff has made the body wrong, say so in your report-back.
 
 ## Agent memory is not yours to curate

@@ -33,8 +33,23 @@ exactly as it found it.
 
 2. **Add a throwaway worktree at the PR's head.** Every path this
    skill creates lives under `.claude/worktrees/`, so nothing lands in
-   the primary clone's working tree. Detach, so no branch claim is
-   taken that another worktree would then be refused:
+   the primary clone's working tree. A path that already exists is a
+   previous run of this skill on this PR that was interrupted before
+   its step 5: it holds a merge in progress, which the whole-repo
+   cleanup sweep skips as uncommitted work, so nothing but this skill
+   ever clears it. Abort that merge and remove the worktree before the
+   add — `git worktree add` refuses an existing path, and every later
+   run on this PR would fail here:
+
+   ```bash
+   if [ -e .claude/worktrees/pr-merge-conflicts-<N> ]; then
+     git -C .claude/worktrees/pr-merge-conflicts-<N> merge --abort
+     git worktree remove .claude/worktrees/pr-merge-conflicts-<N>
+   fi
+   ```
+
+   Then detach, so no branch claim is taken that another worktree
+   would then be refused:
 
    ```bash
    git worktree add --detach .claude/worktrees/pr-merge-conflicts-<N> \

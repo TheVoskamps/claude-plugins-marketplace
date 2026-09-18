@@ -10,9 +10,9 @@ reads `mergeable` and `mergeStateStatus` off the PR, and `reviewDecision`
 and `statusCheckRollup` alongside them, and reports the state it found;
 it writes nothing, flips nothing, and remedies nothing. The two extra
 fields are there because `mergeStateStatus: BLOCKED` names no cause —
-a missing required review and a failing required check report the same
-word — and a caller deciding what to do with a `BLOCKED` needs to know
-which it is.
+a missing required review, a failing required check and a required
+check still running all report the same word — and a caller deciding
+what to do with a `BLOCKED` needs to know which it is.
 "Ready for review" is a draft flag and says nothing about whether the
 branch is current with its base, merges cleanly, or passes its required
 checks — this skill is what answers those questions, for any caller
@@ -85,19 +85,27 @@ that has to decide whether a PR can move forward.
    PR #<N>: mergeable <MERGEABLE|CONFLICTING|UNKNOWN>,
    mergeStateStatus <STATE> — <meaning>
    reviewDecision: <REVIEW_REQUIRED|APPROVED|CHANGES_REQUESTED|(none)>
+   checks running: <none | one line per entry: name, status or state>
    checks not green: <none | one line per entry: name, status, conclusion or state>
    ```
 
    `reviewDecision` is empty when the base's rules require no review;
    report that as `(none)`. `statusCheckRollup` is a list mixing two
    shapes: a `CheckRun` carries `status` and `conclusion`, a
-   `StatusContext` carries `state`. An entry is green when it is a
+   `StatusContext` carries `state`. An entry is **running** when it is
+   a `CheckRun` whose `status` is anything but `COMPLETED`, or a
+   `StatusContext` whose `state` is `PENDING` or `EXPECTED` — it has
+   not reported yet, so it is neither a pass nor a failure, and a
+   caller that treated it as a failure would stop on a repo whose
+   checks are merely slow. An entry is **green** when it is a
    `CheckRun` with `status: COMPLETED` and a `conclusion` of `SUCCESS`,
-   `SKIPPED` or `NEUTRAL`, or a `StatusContext` with `state: SUCCESS`;
-   list every entry that is not, by its `name` (a `StatusContext` names
-   itself in `context`) with the values it carries, and `none` when all
-   are. The rollup does not say which entries are required, so the list
-   is every entry that is not green, required or not.
+   `SKIPPED` or `NEUTRAL`, or a `StatusContext` with `state: SUCCESS`.
+   Every other entry is **not green**. List the running and the
+   not-green entries on their own lines, each by its `name` (a
+   `StatusContext` names itself in `context`) with the values it
+   carries, and `none` on a line whose list is empty. The rollup does
+   not say which entries are required, so each list is every entry in
+   its class, required or not.
 
    The meaning column is GitHub's, and it is all this skill says: what
    a caller does about a given state — a `BLOCKED` included, whichever
