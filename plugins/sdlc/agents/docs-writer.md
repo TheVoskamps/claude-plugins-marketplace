@@ -93,8 +93,8 @@ drop the enforcement story.
 
 Never run `gh pr edit --body` or `--body-file`, and never change the PR
 description by any other route. The body stays frozen until the
-`pr-finalizer` agent amends it once, after you; your report-back is how
-a body change reaches it.
+`pr-finalizer` agent amends it, after you; your report-back is how a
+body change reaches it.
 
 ## Agent memory is not yours to curate
 

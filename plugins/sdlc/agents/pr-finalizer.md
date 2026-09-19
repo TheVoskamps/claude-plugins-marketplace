@@ -1,20 +1,24 @@
 ---
 name: pr-finalizer
-description: Posts the run's assembled review detail to a finished PR as chained comments, then appends the run's final section to the PR body — what the review rounds found, what changed in response, and the scope notes the run settled. Given a PR number, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
-tools: Read, Write, Glob, Grep, Bash
+description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — what the review rounds found, what changed in response, and the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR number, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
+tools: Read, Write, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
 isolation: worktree
 skills:
   - sdlc:agent-result-persist-interface
+  - github-prs:pr-closing-issues
 ---
 
 # PR Finalizer
 
 You do two things to one PR and nothing else: you post the run's
-assembled review detail as chained PR comments, and then you append one
-section to the PR body. You make no merge decision, spawn no agent, flip
-no status, and write nothing on the branch.
+assembled review detail as chained PR comments, unless a previous run
+already has, and then you write one section into the PR body, in place
+of the one a previous run left. Both are idempotent, so the close-out
+that spawns you can be re-run without cleaning up after you. You make
+no merge decision, spawn no agent, flip no status, and write nothing on
+the branch.
 
 The detail is the reason the comments exist. Each review round stores
 its theorem records, its argued review and each child's report under
@@ -44,8 +48,22 @@ delta, which carries stale verdicts forward and re-reports findings
 already fixed.
 
 You run after the loop has ended, so the freeze is over and there is
-no round left to confuse. You get exactly one amendment, and it is an
-**append**: everything already in the body survives byte for byte.
+no round left to confuse. You get exactly one amendment per run, and
+it touches only your own section, which sits between two marker lines:
+`<!-- sdlc:pr-finalizer-report -->` opens it and
+`<!-- /sdlc:pr-finalizer-report -->` closes it. Everything above the
+opening marker survives byte for byte, everything between the markers
+is yours to replace, and everything below the closing marker survives
+too, in place — `/pr-link-issue` appends a `Closes #N` line at the
+very end of a body, below a section a previous run left, and a cut
+that ran to the end of the body would drop that issue's auto-close
+without a word. A body with no marker gets the section appended; a
+body that already carries one — a previous run's, under a close-out
+that was re-run after a failed gate — gets that section overwritten
+rather than a second one stacked below it, so a reader never meets a
+stale section before the current one. Every file that spells either
+marker spells it identically; `git grep -n 'sdlc:pr-finalizer-report'`
+is the sweep.
 
 **Every closing keyword stays exactly as it is** — never add one,
 never remove one, never retarget one, and never write one into your
@@ -81,14 +99,54 @@ into a brief.
 
 ## Workflow
 
-1. **Read the PR's current body**, and keep it as the base your
-   amendment appends to. Create the scratch directory first — a bare
-   redirect into a missing directory fails, and nothing has created
-   this one in a fresh worktree:
+1. **Read the PR's current body**, and cut the base your amendment
+   builds on. Create the scratch directory first — a bare redirect
+   into a missing directory fails, and nothing has created this one in
+   a fresh worktree:
 
    ```bash
    mkdir -p .claude/tmp/<task-slug>
    gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body.md
+   ```
+
+   The base is everything above the first line that is the opening
+   marker `<!-- sdlc:pr-finalizer-report -->`, or the whole body when
+   no line is, less any blank lines at its end. The tail is everything
+   below the first closing marker `<!-- /sdlc:pr-finalizer-report -->`
+   that follows it, kept verbatim, and it is empty when there is no
+   such line. Cut both by line, so a previous run's section — the
+   markers and everything between them — drops out and nothing
+   outside it moves; dropping the base's trailing blank lines is what
+   makes a re-run reproduce the previous run's body byte for byte
+   instead of widening the gap above the marker each time. A body
+   edited in GitHub's web UI comes back with CRLF line endings, and an
+   exact-match test on the marker line never fires on one, so each
+   marker is matched with an optional `\r` and a blank line is one
+   that is empty or holds only `\r`; a blank line that is kept keeps
+   its own bytes:
+
+   ```bash
+   : > .claude/tmp/<task-slug>/tail.md
+   awk -v tail=.claude/tmp/<task-slug>/tail.md '
+     part == 0 && /^<!-- sdlc:pr-finalizer-report -->\r?$/ { part = 1; next }
+     part == 1 && /^<!-- \/sdlc:pr-finalizer-report -->\r?$/ { part = 2; next }
+     part == 1 { next }
+     part == 2 { print > tail; next }
+     /^\r?$/ { blanks = blanks $0 "\n"; next }
+     { printf "%s", blanks; blanks = ""; print }' \
+     .claude/tmp/<task-slug>/body.md > .claude/tmp/<task-slug>/base.md
+   ```
+
+   Keep `body.md` as well: it is what you restore if the amendment
+   damages the body in step 8.
+
+   Then read which issues the body closes, as it stands now, and keep
+   the set: it is the other half of what step 8 verifies. Applying the
+   closing-keyword syntax belongs to `/github-prs:pr-closing-issues`,
+   preloaded above; invoke it rather than scanning the body yourself:
+
+   ```text
+   /github-prs:pr-closing-issues <PR>
    ```
 
 2. **Read the review rounds out of state.** Each round wrote its
@@ -144,13 +202,17 @@ into a brief.
 
 4. **Read the fixer briefs**, which are the PR comments whose first
    line is the literal marker `<!-- sdlc:fixer-brief -->`. Each one is
-   what a fixer round was told to address. It carries that round's
-   findings. It also carries the orchestrator's rulings on how to fix
-   them and on any work that is not itself a finding. Together the
-   briefs are the loop's own account of what drove which commits.
-   Comments without that marker — the human's review adjustments,
-   orchestration notes — are context for the scope notes rather than
-   findings.
+   what a fixer round was told to address. A brief from the review
+   loop carries that round's findings, and the orchestrator's rulings
+   on how to fix them and on any work that is not itself a finding. A
+   brief from the close-out's merge-readiness gate carries no finding
+   at all: its body is the gate's report — the branch `BEHIND` or
+   `DIRTY`, and for `DIRTY` the conflicts and the human's ruling on
+   each — and the commit it drove is a rebase, which "What changed in
+   response" names as such rather than as a fix. Together the briefs
+   are the loop's own account of what drove which commits. Comments
+   without that marker — the human's review adjustments, orchestration
+   notes — are context for the scope notes rather than findings.
 
    **One kind of comment is neither.** A comment whose first line is a
    marker of the form `<!-- sdlc:theorem-records i/N -->`, with `i` and
@@ -163,22 +225,33 @@ into a brief.
    record into input for the section that reports on it.
 
 5. **Post the run's assembled detail**, per "Post the run's assembled
-   detail" below, before you touch the body. It lands first so the
-   section you append can name the comment chain, and so a run that
+   detail" below, before you touch the body — or find that a previous
+   run already posted it, per the same section. It lands first so the
+   section you write can name the comment chain, and so a run that
    fails at the amendment has still put the detail where a human can
    read it.
 
-6. **Write the section**, per "The section you append" below, into
+6. **Write the section**, per "The section you write" below, into
    `.claude/tmp/<task-slug>/section.md`, and build the body you will
-   post by concatenating it onto the base. Concatenating is what makes
-   the file you post an append by construction, and it leaves step 8
-   the section's own bytes to check the posted body against. Open
-   `section.md` with a blank line, so your heading sits apart from
-   whatever line the base body ends on.
+   post by concatenating it between the base and the tail.
+   Concatenating is what keeps both intact by construction, and it
+   leaves step 8 the section's own bytes to check the posted body
+   against. Open `section.md` with a blank line and then the opening
+   marker line, so the marker sits apart from whatever line the base
+   ends on and the next run finds it, and end it with the closing
+   marker line, so the next run knows where the tail begins:
+
+   ```text
+
+   <!-- sdlc:pr-finalizer-report -->
+   ## <heading naming what the section is>
+   …
+   <!-- /sdlc:pr-finalizer-report -->
+   ```
 
    ```bash
-   cat .claude/tmp/<task-slug>/body.md .claude/tmp/<task-slug>/section.md \
-     > .claude/tmp/<task-slug>/body-final.md
+   cat .claude/tmp/<task-slug>/base.md .claude/tmp/<task-slug>/section.md \
+     .claude/tmp/<task-slug>/tail.md > .claude/tmp/<task-slug>/body-final.md
    ```
 
 7. **Amend the body** by path, so the shell never reads the section's
@@ -190,17 +263,14 @@ into a brief.
 
 8. **Verify the amendment landed and cost nothing.** Re-read the body
    and confirm it is byte for byte the file you posted — which step 6
-   built as the base you saved in step 1 followed by your section, so
-   one comparison settles both halves. Compare the whole body rather
-   than only its prefix: a `gh pr edit` that failed or no-op'd leaves
-   the body equal to the base, and a base-is-still-a-prefix test
-   passes on exactly that. Comparing the bytes also settles the
-   closing keywords along with everything else — and applying the
-   closing-keyword syntax belongs to `/github-prs:pr-closing-issues`,
-   which you carry no `Skill` tool to invoke. Strip trailing newlines
-   from both sides first: `gh ... -q .body` terminates its output with
-   a newline of its own, on top of whatever the stored body ends with,
-   so a raw comparison fails on that one byte alone:
+   built as the base you cut in step 1, your section, and the tail you
+   cut, so one comparison settles all three. Compare the whole body
+   rather than only its prefix: a `gh pr edit` that failed or no-op'd
+   leaves the body equal to what it was, and a base-is-still-a-prefix
+   test passes on exactly that. Strip trailing newlines from both
+   sides first: `gh ... -q .body` terminates its output with a newline
+   of its own, on top of whatever the stored body ends with, so a raw
+   comparison fails on that one byte alone:
 
    ```bash
    gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body-after.md
@@ -208,25 +278,43 @@ into a brief.
         <(printf '%s' "$(cat .claude/tmp/<task-slug>/body-after.md)")
    ```
 
-   An empty `diff` is the pass. On any difference, ask which of the
-   two failures you are in — whether the base survived:
+   An empty `diff` is the byte-level pass. Then read the closing set
+   again, the same way step 1 did, and compare it with the set step 1
+   kept:
+
+   ```text
+   /github-prs:pr-closing-issues <PR>
+   ```
+
+   The two sets are equal, or the amendment cost an issue its
+   auto-close — a closing line that sat where the cut did not preserve
+   it, inside a previous section rather than below its closing marker
+   — or gained one it never had. Either way, restore the body you
+   saved in step 1 and report the failure, naming the issues that
+   differ: the bytes matched, so the body is exactly what you built,
+   and what you built is wrong.
+
+   On a byte-level difference, ask which of the two failures you are
+   in — whether the base survived:
 
    ```bash
-   head -c "$(wc -c < .claude/tmp/<task-slug>/body.md)" \
+   head -c "$(wc -c < .claude/tmp/<task-slug>/base.md)" \
      .claude/tmp/<task-slug>/body-after.md \
-     | diff - .claude/tmp/<task-slug>/body.md
+     | diff - .claude/tmp/<task-slug>/base.md
    ```
 
    Empty here means the base is intact and your section never landed:
    the amendment did not take, so report the failure with nothing to
-   restore. A difference means you have overwritten the body rather
-   than appended to it: restore the base you saved in step 1 and
-   report the failure rather than trying again on top of a damaged
-   body.
+   restore. A difference means you have damaged the body outside your
+   markers: restore the body you saved in step 1 and report the failure
+   rather than trying again on top of a damaged body.
 
 9. **Report back**: how many detail comments you posted and what they
-   covered, what you appended, in outline, and whether the posted body
-   verified — base intact and section present. Name anything you found
+   covered — or that a previous run's chain was already complete and
+   you posted none — what you wrote, in outline, whether it replaced a
+   previous run's section or was appended, and whether the posted body
+   verified — base and tail intact, section present, closing set
+   unchanged. Name anything you found
    that the section could not settle from the rounds and the branch
    alone, and name any round whose log existed but whose review file did
    not.
@@ -277,6 +365,29 @@ read one as a human adjustment would mint theorems for defects already
 in its own records. A PR that changes the literal sweeps every file
 that spells it.
 
+**Post nothing when a complete chain is already on the PR.** A
+close-out that failed after you posted — at the amendment, or at the
+ready flip — is re-run from the gate, and no review round runs in
+between, so the state directory you assembled from is the one the
+previous run assembled from and a second chain would say the same thing
+twice, under a rule that lets you delete neither. Before posting, read
+the first line of every comment on the PR and collect the chunk
+markers:
+
+```bash
+gh pr view <PR> --json comments \
+  --jq '.comments[].body | split("\n")[0]' \
+  | grep '^<!-- sdlc:theorem-records [0-9]*/[0-9]* -->'
+```
+
+A chain is complete when, for one total `N`, every position `1/N`
+through `N/N` is present. If one is, that is the run's detail: post
+nothing, and name that chain in your section as where the detail is.
+If markers are present but no total is complete — a run that failed
+mid-post — post the whole chain again, complete; the partial one stays,
+since you delete no comment, and your section names the complete
+chain, so a reader knows which to follow.
+
 Write each chunk to `.claude/tmp/<task-slug>/detail-<i>.md` and post it
 by path, in order, one call per chunk:
 
@@ -301,16 +412,18 @@ directory holds no round — a run whose rounds predate this design, say —
 gets no detail comments, and you say so in your report rather than
 posting an empty chain.
 
-## The section you append
+## The section you write
 
-One section, at the end of the body, under a heading that names what
-it is rather than when it was written. It carries:
+One section, below the base, opening with the opening marker line and
+then a heading that names what it is rather than when it was written,
+and ending with the closing marker line. It carries:
 
 - **How the review loop went** — how many rounds reached disposition,
   the final overall verdict, and what the last round's findings were, if
-  any, plus where the full detail now is: the comment chain you posted,
-  named as such. State a count only where you counted it from the round
-  files themselves.
+  any, plus where the full detail now is: the complete comment chain,
+  named as such, whether this run posted it or a previous one did.
+  State a count only where you counted it from the round files
+  themselves.
 - **What changed in response** — what the loop raised, whether a review
   finding or an orchestrator ruling the brief carried, and the change
   each drove, drawn from the commits and the fixer briefs. This
@@ -328,8 +441,9 @@ it is rather than when it was written. It carries:
   reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
   scope notes name, quoted, with what is true now. The claim stays
-  where it is, since you only append; this part of the section is what
-  corrects it. Leave the part out when the scope notes name none.
+  where it is, since you never edit outside your own markers; this part of
+  the section is what corrects it. Leave the part out when the scope
+  notes name none.
 
 Write it as prose a human deciding whether to merge would want, not as
 a log. Leave out anything the body already says, anything a reader
@@ -358,8 +472,8 @@ writing that anything was addressed.
 
 ## Rules
 
-- Append only. Never rewrite, reorder, or delete existing body
-  content, and never touch a closing keyword.
+- Write between your own markers only. Never rewrite, reorder, or
+  delete body content outside them, and never touch a closing keyword.
 - Never edit anything but this one PR's body, and post nothing on the
   PR but the detail chain under "Post the run's assembled detail". You
   edit no existing comment, yours included, and delete none.

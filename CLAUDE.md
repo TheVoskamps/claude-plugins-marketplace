@@ -69,7 +69,7 @@ Removing such a mechanism sweeps every claim it spawned, including any
 other code are the implementer's to sweep in the same round. Under an
 orchestrated run, README sections are written after the review loop, and
 a stale PR-body claim is not deleted from the body: the orchestrator
-collects it, and `pr-finalizer`'s appended final section corrects it. On
+collects it, and `pr-finalizer`'s final section corrects it. On
 a PR no orchestrator runs, whoever changes the mechanism corrects the
 body claim themselves. Keep the convention and its rationale; drop the
 enforcement story.
@@ -119,7 +119,7 @@ longest. Read it with `gh pr view <N> --json body -q .body`, edit a
 scratch copy, pass it back with `--body-file`. Three bounds, and only
 three: the closing keyword survives byte for byte, nothing else on the
 PR is in scope, and no edit lands during a `/sdlc:orchestrate` loop —
-there the body is frozen, and `pr-finalizer` amends it once at the end.
+there the body is frozen, and `pr-finalizer` amends it at the end.
 
 ## The rebase automation can move a PR branch mid-session
 
