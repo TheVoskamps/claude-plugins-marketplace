@@ -285,6 +285,21 @@ rather than a loop. A `PATH=…` prefix on that invocation is not
 refused, so that is how to steer which interpreter the script's shebang
 resolves.
 
+`awk` is graded the same way. `awk 'prog' <file>` and
+`awk -v x=y 'prog' <file>` pass, while `awk -f <prog-file>` and
+`awk --version` are refused as "runs awk with -f in a plain command":
+the guard does not read an awk program file the way it reads a shell
+script. Keep the awk program inline, or run the awk from a shell script
+named by its literal path.
+
+An inline script fed on stdin is graded on its text, not on what it
+does. `python3 - <<'EOF' … EOF` is refused as "feeds python text naming
+git in a plain command" when the heredoc contains the word `git`
+anywhere — a Markdown hunk quoting `git status` inside a string literal
+is enough. Write the script to a file and run it by path,
+`python3 <path> <target>`; the command line then names no `git`, and
+the same script runs.
+
 ## A branch already claimed by another worktree
 
 `git checkout <branch>` can fail naming another worktree that holds

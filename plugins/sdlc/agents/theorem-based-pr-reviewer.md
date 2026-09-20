@@ -597,7 +597,7 @@ the issue set" reads it again. The closing-issue parse never touches
 your copy at all: `/github-prs:pr-closing-issues` fetches the body
 itself. That is safe rather than a gap, because the body is **frozen for
 the duration of an orchestrate loop** — written once at PR creation,
-amended once by `pr-finalizer` after the loop ends, and edited by no
+amended only by `pr-finalizer` after the loop ends, and edited by no
 other agent in between. Everything in flight
 travels as a PR comment instead. Do not add the body as a delta source:
 the freeze is what removes the input, so detecting body edits buys

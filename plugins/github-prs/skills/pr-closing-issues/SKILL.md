@@ -10,16 +10,14 @@ pull request's body and report every issue a closing keyword in it is
 aimed at.
 
 This skill is the only parser of closing lines in this marketplace.
-Its consumers — `github-prs:pr-link-issue` for its idempotency check,
-`sdlc:theorem-based-pr-reviewer` for its claim when run standalone on a
-bare PR number, and `/sdlc:orchestrate` for the member list its
-end-of-loop
-status flip acts on — invoke it rather than each describing the scan
-again. Skill invocation crosses the plugin sandbox boundary that a
-`Read` cannot, since an enabled plugin's skills are invocable from
-anywhere by their namespaced name while file access stays sandboxed
-per plugin. Each consumer keeps its own
-action on the result; none re-derives the result itself.
+Every skill and agent that acts on which issues a body closes — for an
+idempotency check, a standalone review's claim, a status flip, or a
+before-and-after comparison around a body edit — invokes it rather
+than describing the scan again. Skill invocation crosses the plugin
+sandbox boundary that a `Read` cannot, since an enabled plugin's
+skills are invocable from anywhere by their namespaced name while file
+access stays sandboxed per plugin. Each consumer keeps its own action
+on the result; none re-derives the result itself.
 
 `github-prs:pr-create` is not a consumer: it *writes* closing lines
 from a set it was given, and never reads them back.

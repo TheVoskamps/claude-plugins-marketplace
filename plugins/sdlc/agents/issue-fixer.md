@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names, and pushes updates. Use this after the PR review pipeline requests changes.
+description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves the conflicts the brief lists — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -101,6 +101,11 @@ from its issue.
    past what the human admitted. A finding ruled `dropped` is not
    fixed; one ruled `put to the human` is fixed exactly as the answer
    on its line says, and not otherwise.
+
+   A brief that carries no findings but names a merge state — `BEHIND`
+   or `DIRTY` — is the other kind of brief, and "Merge-readiness
+   briefs" below says what it asks of you. Steps 3 to 6 are about
+   findings and do not apply to it; the rest of the workflow does.
 
 2. Fetch the remote and check out the PR branch:
 
@@ -270,6 +275,51 @@ the change you make.
    conjunct of a cell separately: a cell that opens compliantly can
    smuggle a violating clause behind an "and".
 
+## Merge-readiness briefs
+
+The orchestrator's close-out gates a PR on `github-prs:pr-ready-to-merge`
+and never rebases or resolves a conflict itself; when the gate reports
+the branch `BEHIND` or `DIRTY`, the remedy is yours, and it reaches
+you as a fixer brief whose body is the gate's report verbatim. Such a
+brief names no findings and carries no branch line; take the head and
+base branches from the PR:
+
+```bash
+gh pr view <PR_number> --json headRefName,baseRefName
+```
+
+- **A brief naming `BEHIND`** means the branch is behind its base.
+  Rebase it onto the base and push with `--force-with-lease`:
+
+  ```bash
+  git fetch origin
+  git checkout <head>
+  git rebase origin/<base>
+  git push --force-with-lease
+  ```
+
+- **A brief naming `DIRTY`** means the branch has merge conflicts with
+  its base. The brief carries `github-prs:pr-merge-conflicts`' output —
+  the conflicting files and hunks — followed by the human's ruling on
+  how each is to be resolved. Rebase as for `BEHIND`; when the rebase
+  stops on a conflict, resolve each listed file exactly as the ruling
+  says, `git add` it, and `git rebase --continue`, then push with
+  `--force-with-lease`. A conflict the ruling does not settle is a
+  design decision you cannot make: abort the rebase, leave the branch
+  as it was, and report which conflict has no ruling, quoting it.
+
+Run the tests after the rebase, as for any other change. Then capture
+memory, clean up, and report back per the workflow: which state the
+brief named, the base you rebased onto, each conflict and how the
+ruling had you resolve it, the new head SHA, and the test result. The
+orchestrator re-runs the gate on your return; no review round follows
+a merge-readiness brief.
+
+`--force-with-lease` is the one force flag this file sanctions, and a
+rebase is the one occasion: the push replaces commits the PR already
+carries, and the lease is what refuses to replace ones you never saw.
+Never `--force`.
+
 ## Verify the claims in your own prose
 
 A sentence you write about *how* the code works is a claim about the
@@ -302,8 +352,8 @@ the findings you were given, and report it either way.
 Never run `gh pr edit --body` or `--body-file`, and never change the
 PR description by any other route, however squarely a finding lands on
 it. The body is **frozen for the duration of the review loop**: it is
-written once when the PR opens and amended once, after the loop ends,
-by the `pr-finalizer` agent.
+written once when the PR opens and amended only by the `pr-finalizer`
+agent, after the loop ends.
 
 This is not a scope restriction dressed up as a rule — it is what
 makes the review's inputs testable. A round decides whether there is
@@ -326,8 +376,8 @@ cannot be confused by it.
 ## Rules
 
 - Address the review's findings as each one's scope ruling directs,
-  and the brief's owner rulings, and nothing else. Do not refactor
-  unrelated code.
+  and the brief's owner rulings — or the merge-readiness remedy the
+  brief names — and nothing else. Do not refactor unrelated code.
 - Never edit a documentation file, as the preloaded
   `sdlc:documentation-definition` skill defines one. Documentation is
   `docs-writer`'s, once the review loop has ended. A finding whose

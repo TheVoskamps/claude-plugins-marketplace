@@ -26,8 +26,10 @@ under `agents/` owns:
 - `issue-developer` — implements one **batch** (an ordered set of one
   or more issues). When it returns, a pushed branch and an open draft
   PR exist for the members it landed
-- `issue-fixer` — addresses PR review feedback. When it returns, the
-  branch carries new commits for the review to see again
+- `issue-fixer` — addresses PR review feedback, or a merge-readiness
+  remedy. When it returns, the branch carries new commits for the
+  review to see again — or, on a merge-readiness brief, has been
+  rebased for the gate to see again
 - `code-documenter` — adds or corrects the comments the style guides
   require in the code files a PR's diff touched. When it returns, the
   branch carries at most one new comment commit, and `style-checker`
@@ -60,9 +62,10 @@ under `agents/` owns:
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty
 - `pr-finalizer` — posts the run's assembled review detail as chained
-  PR comments and appends the run's final section to the PR body, once
-  the loop is over. When it returns, the PR carries that comment chain
-  and that section, and nothing else about the PR has moved. It is the
+  PR comments and writes the run's final section into the PR body,
+  once the loop is over, replacing the section an earlier run left.
+  When it returns, the PR carries that comment chain and exactly one
+  such section, and nothing else about the PR has moved. It is the
   **only** agent that edits a PR body
 
 Every teammate declares `isolation: worktree` in its frontmatter, so
@@ -497,8 +500,8 @@ named at the plan confirm wins outright.
 The seed spawn is not persisted through `sdlc-agent-result-persist`:
 every path it composes is keyed on a PR number, and none exists.
 Hold the generator's return in your scratchpad. Its worktree is left
-for the run's terminal `/git-tools:git-cleanup-branches-and-worktrees`
-sweep, like every other worktree you spawn.
+for the post-merge tail's cleanup sweep, like every other worktree you
+spawn.
 
 **Put every candidate to the human.** Show each theorem — id, claim,
 issues, settle mode, pointers — and take one ruling per theorem:
@@ -805,8 +808,8 @@ The freeze closes as soon as the PR is linked to its issues.
 missing immediately after — both of those land before the first review
 round exists to be confused by them. From there until the loop ends,
 **nothing edits the PR body**. Not you, and not any other teammate.
-`pr-finalizer` appends one final section after the loop is over (see
-"End-of-loop lifecycle transitions"), and that is the whole exception.
+`pr-finalizer` writes one final section after the loop is over (see
+"The close-out"), and that is the whole exception.
 
 The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
@@ -1079,7 +1082,24 @@ The review/fix loop leaves each PR **draft** and every issue it closes
 **In Progress**. The Final Report is where the human
 confirms — per PR — that the loop is done and the PR is good enough to
 move forward. On that end-of-loop confirmation for a given PR, and
-only then, the orchestrator performs these transitions, in this order:
+only then, the orchestrator performs these stages, in this order: the
+pre-gate agents below, then the ready loop, then the close-out, then
+the monitor loop — each its own section — and, once per run after the
+last PR's monitor loop ends, the post-merge tail. The confirmation
+authorizes the ready flip and nothing past it: the merge stays the
+human's, by hand or by the repo's auto-merge, and the monitor loop
+only watches for it.
+
+**One PR goes through these stages at a time.** When the human confirms
+more than one PR, take them in the order confirmed, and start the next
+PR's stages — pre-gate agents onward — only when the previous PR's
+monitor loop has ended, whether by a merge, a close, or the human
+declining to keep waiting. The first PR's merge moves the base the
+second is measured against, so serialising is what makes the second
+PR's ready loop see that merged base — and rebase onto it — before its
+finalizer writes a section describing commits the rebase would then
+rewrite. A monitor loop that never ends holds the queue; that is what
+its wait bound and the question it asks are for.
 
 1. **Spawn `docs-writer` to write the PR's documentation.** It runs
    once per PR, here, and no review round runs over its commit. Give it
@@ -1104,47 +1124,92 @@ only then, the orchestrator performs these transitions, in this order:
 2. **Spawn `agent-memory-scrubber`**, per "Before `/pr-ready`: curate
    the PR's agent memory" below.
 
-3. **Spawn `pr-finalizer` to post the run's detail and amend the PR
-   body.** The PR carries none of a round's argued detail while the
-   loop runs (see "Reading a round's detail"); the finalizer posts it
-   as a chain of PR comments and appends one section summarising the
-   review rounds, the changes made in response, and any scope notes
-   the run settled. Both land **before** the flips below, so the
-   status flip stays the run's single "done" signal and there is no
-   window in which the PR is ready for review carrying no final note.
+Both put commits on the branch, which is why the gate runs after them.
 
-   Spawn it after `docs-writer` and the memory scrub — those put
-   commits on the branch, and a summary written before them would
-   describe a PR that no longer exists. Give it the
-   PR number, the branch name, and the scope notes the run settled
-   that the rounds themselves do not carry:
+If the human ends the loop without blessing a PR (e.g. it lands in
+"Needs Your Attention"), leave that PR draft and its issues In
+Progress, and run none of these stages for it: the loop has not ended,
+so the body stays frozen for whatever round comes next.
 
-   ```text
-   PR <PR_N> has finished its review loop. Branch: <branch-name>
+### The ready loop
 
-   Scope notes this run settled, for the final section:
-   <the deferrals, dropped members, and rulings the human made that
-   the rounds do not carry; every PR-body claim the run made stale,
-   quoted, with what is true now; and docs-writer's per-file list
-   verbatim — or "none">
+"Ready for review" is a draft flag; it says nothing about whether the
+branch is current with its base, merges cleanly, or passes its
+required checks, and a body written while the branch is behind its
+base describes commits a rebase is about to rewrite. So nothing is
+written to the tracker and nothing is flipped until the PR passes the
+merge-readiness gate:
 
-   Post the detail and append the final section per your agent
-   definition. Report back what you posted and what you appended.
-   ```
+```text
+/github-prs:pr-ready-to-merge <PR>
+```
 
-   It reads the rounds out of state and the commits off the branch for
-   the rest; that is its job, not yours to summarize into the brief.
+**The gate reports; it does not remedy.** Rebasing and conflict
+resolution are `issue-fixer`'s work — you never run `git rebase` or
+`git merge` or hand-edit conflict markers in the primary clone, per
+"Your own boundary". The gate names the state it found, with the
+PR's `reviewDecision` and its `statusCheckRollup` entries alongside —
+the running ones and the not-green ones on separate lines; you act on
+that row of the table and re-run the gate. Its
+retry schedule for a merge state GitHub is still computing — three
+attempts, 10 s and then 30 s apart, each wait announced — is the
+skill's own, and a gate that fails reporting `UNKNOWN` after it is
+reported to the human as such.
 
-4. **Flip the PR draft → ready:**
+| State | Meaning | What the close-out does |
+| ------- | --------- | ------------------------- |
+| `CLEAN` | mergeable | leave the loop; proceed to the close-out |
+| `UNSTABLE` | non-required checks failing | proceed as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
+| `BEHIND` | branch is behind the base | do not ask: report that it is rebasing, post the fixer brief, spawn `issue-fixer`, re-run the gate |
+| `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>`, show the human its output, ask what to do, then post the fixer brief carrying the ruling, spawn `issue-fixer`, re-run the gate |
+| `BLOCKED` | required checks or reviews not satisfied | when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green and none still running, the missing required review is the only cause, and the ready flip below is what requests that review — proceed as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the review does not account for — is a stop cause: stop and report to the human; nothing automates that. A running check is neither: when the gate lists one and none of this row's stop causes, wait for it per "A running check is waited on" below; a report that lists one alongside a stop cause is stopped on, not waited on |
 
-   ```text
-   /github-prs:pr-ready <PR>
-   ```
+The ready loop runs on a draft PR, before any review has been
+requested, so on a repo whose rules require a review every PR reaches
+this gate `BLOCKED` with nothing wrong: that is the one `BLOCKED` the
+close-out proceeds from. `BEHIND`, `DIRTY` and every other `BLOCKED`
+mean the close-out is not reached: no In Review flip, no
+`pr-finalizer`, no ready flip. A state the table does not name is put
+to the human, as a `BLOCKED` with any other cause is.
 
-   This is the single point where the PR becomes mergeable; do **not**
-   call `/pr-ready` earlier in the loop.
+**A running check is waited on**, not stopped on. The gate runs
+moments after the scrubber's push, and a required check that push
+triggered is still `QUEUED` or `IN_PROGRESS` then — not green, and not
+a failure either. A `BLOCKED` whose report lists a running check and
+none of the stop causes the table's `BLOCKED` row names gets a wait
+rather than a verdict: announce the wait, naming the checks still
+running, wait **60 s**, and re-run the gate, up to **10** times for
+one visit to the ready loop, so a running check is never the cause you
+stop on before it has had ten minutes to finish. A report that also
+carries one of those stop causes is not waited on: the stop is decided
+already, and the wait would only delay it. Every running check the
+gate lists holds the wait, required or not — a slow non-required check
+holds the close-out for the same bounded wait as a required one,
+deliberately, rather than the close-out guessing which checks the
+merge depends on.
+A check still running after the last wait is put to the human like
+any other `BLOCKED` cause. The 60 s interval and the 10-wait bound are
+declared starting bounds, not measured ones; revise them here if
+practice shows them wrong.
 
-5. **Set every issue the PR closes to In Review.** The authoritative
+**The fixer brief for `BEHIND` or `DIRTY`** is a PR comment whose
+first line is the marker `<!-- sdlc:fixer-brief -->`, exactly as the
+fix loop's brief is (see "Handling review findings — the fix loop"),
+and whose body is the gate's report **verbatim** — the state and, for
+`DIRTY`, the `pr-merge-conflicts` output followed by the human's
+ruling — and nothing you authored. Post it, spawn `issue-fixer` with
+the fix loop's spawn prompt, and wait for it to return. `issue-fixer`
+declares memory, so its return is followed by `agent-memory-scrubber`,
+per "Before `/pr-ready`: curate the PR's agent memory", and then by
+the gate again — never by a review round. The only question inside
+the loop is the `DIRTY` ruling; a `BEHIND` remedy runs without asking.
+
+### The close-out
+
+Reached only from `CLEAN`, `UNSTABLE`, or the review-only `BLOCKED`
+the ready loop's table names, and linear:
+
+1. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`
    reports — the one skill that reads a PR body's closing lines. Ask
    it rather than reusing the batch's planned membership: neither
@@ -1158,33 +1223,119 @@ only then, the orchestrator performs these transitions, in this order:
    ```
 
    They flip together, because they ship together. Gated on a
-   configured status slot — see "Issue-status transitions" below.
+   configured status slot — see "Issue-status transitions" below. The
+   flip lands before the finalizer because it is a tracker write the
+   finalizer's section may mention.
 
-If the human ends the loop without blessing a PR (e.g. it lands in
-"Needs Your Attention"), leave that PR draft and its issues In
-Progress, and spawn no `pr-finalizer`: the loop has not ended, so the
-body stays frozen for whatever round comes next.
+2. **Spawn `pr-finalizer` to post the run's detail and amend the PR
+   body.** The PR carries none of a round's argued detail while the
+   loop runs (see "Reading a round's detail"); the finalizer posts it
+   as a chain of PR comments and writes one section summarising the
+   review rounds, the changes made in response, and any scope notes
+   the run settled, replacing the section a previous run of this
+   close-out left. Give it the PR number, the branch name, and the
+   scope notes the run settled that the rounds themselves do not
+   carry:
+
+   ```text
+   PR <PR_N> has finished its review loop. Branch: <branch-name>
+
+   Scope notes this run settled, for the final section:
+   <the deferrals, dropped members, and rulings the human made that
+   the rounds do not carry; every PR-body claim the run made stale,
+   quoted, with what is true now; and docs-writer's per-file list
+   verbatim — or "none">
+
+   Post the detail and write the final section per your agent
+   definition. Report back what you posted and what you wrote.
+   ```
+
+   It reads the rounds out of state and the commits off the branch for
+   the rest; that is its job, not yours to summarize into the brief.
+
+3. **Flip the PR draft → ready:**
+
+   ```text
+   /github-prs:pr-ready <PR>
+   ```
+
+   This is the single point where the PR becomes mergeable; do **not**
+   call `/pr-ready` earlier in the loop.
+
+A close-out that fails partway is re-run from the ready loop once the
+cause is settled, with no manual cleanup: a status flip repeats
+harmlessly, the finalizer leaves a detail chain it finds complete
+alone and overwrites its own section rather than stacking one, and
+the ready flip no-ops on a PR already ready.
+
+### The monitor loop
+
+After the ready flip, poll the PR every **120 s** until it is merged,
+announcing every poll and the state it found. Each poll reads the PR
+state and, while the PR is still open, runs
+`/github-prs:pr-ready-to-merge <PR>` again: a PR can go `BEHIND` or
+`DIRTY` while it waits, and the remedy is the same row of the ready
+loop's table, followed by another poll. `BLOCKED` here is reported
+once and polling continues, because a required review landing is what
+the loop is waiting for.
+
+After **15** consecutive polls with no change in state, report and ask
+whether to keep waiting. The 120 s interval and the 15-poll bound are
+declared starting bounds, not measured ones; revise them here if
+practice shows them wrong.
+
+Two outcomes end the loop short of a merge, and each gets a
+**Needs Your Attention** row of its own rather than a place in
+"Merged": a poll that finds the PR closed without merging, and the
+human declining to keep waiting. The row names which it was and the
+state the last poll found, so the human reading the summary knows
+whether the PR is gone or still open, ready, and unmerged. Then move
+on.
+
+### The post-merge tail, once per run
+
+After the last PR's monitor loop ends, and before you write the
+summary, invoke the whole-repo sweep exactly once, with no scoping
+added — its own skip-and-report conditions are the scope:
+
+```text
+/git-tools:git-cleanup-branches-and-worktrees
+```
+
+Report what it reports, in its own words, and add nothing — no count of
+your own, no list of what you expected it to find.
+
+Then bring the primary clone back to the default branch, current with
+the remote and with its stale tracking refs gone:
+
+```bash
+git checkout <default-branch>
+git pull --ff-only
+git remote prune origin
+```
+
+Then write the summary.
 
 ### Before `/pr-ready`: curate the PR's agent memory
 
-`agent-memory-scrubber` is the end-of-loop transition above that sits
-between `docs-writer` and `pr-finalizer`: it runs after every
-memory-declaring teammate and before the `/github-prs:pr-ready` call,
-so the changes it lands are part of what the human blesses. Spawn it
-once `docs-writer` has returned and no further branch work is queued.
-By then every teammate that writes memory has captured into the
-session's inbox for this branch, so one pass grades the whole run's
-entries.
+`agent-memory-scrubber` runs after every memory-declaring teammate and
+before the `/github-prs:pr-ready` call, so the changes it lands are
+part of what the human blesses and what the merge-readiness gate
+grades. Spawn it once `docs-writer` has returned and no further branch
+work is queued. By then every teammate that writes memory has captured
+into the session's inbox for this branch, so one pass grades the whole
+run's entries.
 
 **Spawn the scrubber again whenever a memory-declaring teammate was
 spawned after the scrubber last ran.** Decide it from your own spawn
 history: none of them reports a *successful* capture back to you, so a
 spawn is the only evidence you have that entries may be waiting, and
-the inbox is session-ephemeral. The rule fires only if branch work runs
-after the confirmation scrub, which the ordered transitions do not do:
-only `pr-finalizer` runs between the scrub and `/pr-ready`, and it
-writes no memory. The only wrong placement is spawning it *early*,
-while more branch work is still expected.
+the inbox is session-ephemeral. Inside the ordered stages that is the
+`issue-fixer` a ready-loop or monitor-loop remedy spawns, and nothing
+else: `pr-finalizer` writes no memory. The scrubber's commit lands on
+the branch, which is why the gate runs after it and not before. The
+only wrong placement is spawning it *early*, while more branch work is
+still expected.
 
 The scrubber's per-entry and per-cut lines are the record of what it
 deleted, transferred, and cut from a destination file, so pass them
@@ -1202,32 +1353,19 @@ created as a destination file, where transfers landed, and the commit
 SHA you pushed — or, if nothing was staged, why.
 ```
 
-### Clean up, once, at the end
-
-After the end-of-loop transitions and before you write the summary,
-invoke the whole-repo sweep exactly once:
-
-```text
-/git-tools:git-cleanup-branches-and-worktrees
-```
-
-Its own gates decide what is safe to remove. Report what it reports, in
-its own words, and add nothing — no count of your own, no list of what
-you expected it to find.
-
 ### Summary
 
-Once all waves are complete and all review loops have settled, deliver
-a summary:
+Once all waves are complete, all review loops have settled, and the
+post-merge tail has run, deliver a summary:
 
 ```text
 ## Issue Fix Summary
 
-### Ready for Your Review
-| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | Doc Changes |
-|-------|--------|----|-----------------|---------------|------------------|-------------|
-| A | <link-prefix>101 | <PR1> | Approved | 1 | 0 | README.md — documents the new flag |
-| B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 (fixed high on 104) | 1 | docs/api.md — records the changed endpoint |
+### Merged
+| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | Readiness Remedies | Doc Changes |
+|-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
+| A | <link-prefix>101 | <PR1> | Approved | 1 | 0 | 0 | README.md — documents the new flag |
+| B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 (fixed high on 104) | 1 | 1 (BEHIND, rebased) | docs/api.md — records the changed endpoint |
 
 ### Needs Your Attention
 | Issue | PR | Problem |
@@ -1240,8 +1378,8 @@ a summary:
 |-------|--------|-----------|--------|
 | D | <link-prefix>103 | Batch C to merge | same file conflict |
 
-All ready-for-review PRs are open and awaiting your approval.
-Nothing has been merged.
+Every PR above merged while this run watched it; this run merged
+nothing itself.
 
 To start the sequential queue, reply: "continue with <link-prefix>103"
 ```
@@ -1256,10 +1394,12 @@ discrepancy your re-read could not settle qualify as they stand.
 Every cell in those tables is a claim to the human, and most arrive
 from a teammate's report — the `Doc Changes` list is `docs-writer`'s,
 and the `Review Verdict` and the severity detail behind it are the
-reviewer's — while `Review Rounds` and `Style-fix Rounds` are your own
-counts. Fill them per "Report-consumption principle": verify the PR
-column and the verdict against the live PR, since the human decides
-whether to merge on them; say what a finding's provenance was when it
+reviewer's — while `Review Rounds`, `Style-fix Rounds` and
+`Readiness Remedies` are your own counts, the last one naming each
+state the gate reported and the remedy it drove. Fill them per
+"Report-consumption principle": verify the PR column and its merged
+state against the live PR, since the human reads the table as the
+record of what landed; say what a finding's provenance was when it
 is not the review's own — a defect you observed yourself is never "the
 review found" it, while one the human raised and you relayed as an
 adjustment comment is the review's finding by the round that minted
@@ -1316,9 +1456,10 @@ What you do yourself is orchestration mechanics:
 - **Read freely** — `gh pr view`, `gh pr diff`, `git log`, `git diff`,
   file reads. Reading is planning, and what it turns up stays yours.
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
-  long-lived branches the primary clone tracks, and `git push` of a
-  commit an agent authored but could not push. Branch and worktree
-  removal is not on this list: the terminal
+  long-lived branches the primary clone tracks, the post-merge tail's
+  checkout of the default branch and `git remote prune`, and
+  `git push` of a commit an agent authored but could not push. Branch
+  and worktree removal is not on this list: the post-merge tail's
   `/git-tools:git-cleanup-branches-and-worktrees` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's dictated
   review adjustments, and the fixer brief. Findings you relay
@@ -1326,8 +1467,10 @@ What you do yourself is orchestration mechanics:
   onto a PR, whether it lands in a brief or as an adjustments comment's
   `dropped (scope ruling)` line.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
-  `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and
-  `/pr-ready <PR>`. They set or read the PR's state.
+  `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`,
+  `/pr-ready-to-merge <PR>`, `/pr-merge-conflicts <PR>`, and
+  `/pr-ready <PR>`. They set or read the PR's state; none of them
+  remedies it.
 - **Set issue status via `/issue-set-status`, and assign via
   `/issue-update`**, per "Issue-status transitions" below.
 - **File follow-up issues via `/issue-create`** — only when the human
@@ -1351,8 +1494,9 @@ stay the tool.
 ### Issue-status transitions
 
 Each issue's board status tracks its lifecycle via `/issue-set-status`:
-In Progress before its batch's developer spawns, In Review on
-end-of-loop confirmation for every member the PR closes. The assign
+In Progress before its batch's developer spawns, In Review in the
+close-out — after the ready loop has passed, not on the confirmation
+that starts it — for every member the PR closes. The assign
 that accompanies the first is outside this section's gate: it is not a
 status, it happens once, and nothing later unassigns — a member
 dropped from a batch mid-run keeps its assignee.

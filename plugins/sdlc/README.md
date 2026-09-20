@@ -3,8 +3,9 @@
 End-to-end issue orchestration: groom an issue until it can be
 implemented without stopping to ask, plan and delegate the
 implementation of one or more issues across parallel teammate agents,
-review the resulting PRs through a theorem-based pipeline, and hand
-the human a set of PRs to bless.
+review the resulting PRs through a theorem-based pipeline, hand the
+human a set of PRs to bless, and watch each blessed PR until it
+merges.
 
 ## Find the owner of a statement before you edit it
 
@@ -22,6 +23,9 @@ the fact.
 | What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
 | How the orchestrator sequences the flow and briefs each teammate | `skills/orchestrate/SKILL.md` |
+| What the close-out does on each merge-readiness state a blessed PR reports, and the bounds on its waits | `skills/orchestrate/SKILL.md` |
+| What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
+| How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
@@ -125,7 +129,50 @@ skills that are not user verbs — so a PR changing either key edits
 this file. And how `/sdlc:orchestrate-ready` and `/sdlc:orchestrate`
 relate — one writes a body up to the bar, the other refuses a body
 below it, and neither runs the other — is summarised here, so a PR
-that changes how the two relate edits it here.
+that changes how the two relate edits it here. So are the stages a
+blessed PR goes through and the split between the gate that reports a
+merge state and the teammate that remedies it, so a PR that reorders
+those stages or moves a remedy edits it here.
+
+## A blessed PR is gated on merge readiness, and the gate never remedies
+
+The human's end-of-loop blessing authorizes the ready flip and nothing
+past it, and the flip is not the next thing that happens. "Ready for
+review" is a draft flag; it says nothing about whether the branch is
+current with its base, merges cleanly, or passes its required checks,
+and a final section written while the branch is behind its base
+describes commits a rebase is about to rewrite. So a blessed PR goes
+through the close-out's stages in order: the agents that still put
+commits on the branch (`docs-writer`, `agent-memory-scrubber`), then
+the **ready loop**, which runs `github-prs:pr-ready-to-merge` and
+leaves only on a state the orchestrator's table lets through; then the
+linear **close-out** — the In Review flips, `pr-finalizer`, the ready
+flip; then the **monitor loop**, which polls until the PR merges and
+re-runs the gate while it waits; and, once per run after the last PR's
+monitor loop ends, the **post-merge tail**, which owns the single
+cleanup sweep and returns the primary clone to the default branch. One
+PR goes through the stages at a time, because the first merge moves
+the base the next PR is measured against.
+
+The split that holds this together: the gate **reports**, and the
+remedy is a teammate's. The orchestrator never runs `git rebase` or
+`git merge` or hand-edits a conflict in the primary clone. A branch the
+gate finds `BEHIND` or `DIRTY` is handed to `issue-fixer` through the
+same fixer-brief comment the review loop uses, carrying the gate's
+report verbatim, and the fixer's return is followed by the memory
+scrub and the gate again rather than a review round — so `issue-fixer`
+performs merge-readiness remedies as well as review fixes, and the two
+kinds of brief are told apart by whether the brief carries findings.
+What each state drives, and every wait bound in the loops, is owned by
+`skills/orchestrate/SKILL.md`, and each bound is a declared starting
+value rather than a measured one.
+
+Because every failed gate means the close-out is run again, each of
+its steps is safe to repeat: the status flips repeat harmlessly, the
+ready flip no-ops on a PR already ready, and `pr-finalizer` finds a
+detail chain a previous run posted and leaves it alone, and finds its
+own marked section in the body and overwrites it, so a reader never
+meets a stale section before the current one.
 
 ## The issue is the ceiling of the fix loop
 
@@ -298,12 +345,12 @@ throwaway worktree per spawn.
 | Agent | Purpose |
 | ------- | --------- |
 | `issue-developer` | Implements one batch of issues on one branch |
-| `issue-fixer` | Applies review findings to an open PR's branch |
+| `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving the conflicts the brief lists — to an open PR's branch |
 | `code-documenter` | Adds or corrects the comments the style guides require in a round's code, before its review |
 | `style-checker` | Reports a round's style-guide violations for the human to rule on, before its review |
 | `docs-writer` | Writes a PR's documentation once, after its review loop ends |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and appends the run's final section to its body |
+| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, replacing the one an earlier run left |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |
