@@ -195,8 +195,8 @@ from its issue.
     That copies the entries that outlive this run into the session's
     inbox for this branch, where `agent-memory-scrubber` grades them
     and transfers the durable ones into the repo's own documentation —
-    for when it runs, see the `/sdlc:orchestrate` skill → "Before
-    `/pr-ready`: curate the PR's agent memory". The skill applies its
+    for when it runs, see the `/sdlc:orchestrate` skill → "Final
+    Report". The skill applies its
     own session-scope filter and reports what it dropped, so do not
     curate your own entries here. Nothing about your memory is
     committed, pushed, or `git add`ed: `.claude/agent-memory/` never
@@ -277,10 +277,12 @@ the change you make.
 
 ## Merge-readiness briefs
 
-The orchestrator's close-out gates a PR on `github-prs:pr-ready-to-merge`
-and never rebases or resolves a conflict itself; when the gate reports
-the branch `BEHIND` or `DIRTY`, the remedy is yours, and it reaches
-you as a fixer brief whose body is the gate's report verbatim. Such a
+A blessed PR is gated on `github-prs:pr-ready-to-merge` by the
+`pr-merge-readiness` agent, which the orchestrator spawns for that loop
+and which never rebases or resolves a conflict itself; when the gate
+reports the branch `BEHIND` or `DIRTY`, the remedy is yours, and
+`pr-merge-readiness` — not the orchestrator — spawns you with a fixer
+brief whose body is the gate's report verbatim. Such a
 brief names no findings and carries no branch line; take the head and
 base branches from the PR:
 
@@ -311,9 +313,9 @@ gh pr view <PR_number> --json headRefName,baseRefName
 Run the tests after the rebase, as for any other change. Then capture
 memory, clean up, and report back per the workflow: which state the
 brief named, the base you rebased onto, each conflict and how the
-ruling had you resolve it, the new head SHA, and the test result. The
-orchestrator re-runs the gate on your return; no review round follows
-a merge-readiness brief.
+ruling had you resolve it, the new head SHA, and the test result.
+`pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
+again on your return; no review round follows a merge-readiness brief.
 
 `--force-with-lease` is the one force flag this file sanctions, and a
 rebase is the one occasion: the push replaces commits the PR already

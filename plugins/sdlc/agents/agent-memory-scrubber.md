@@ -1,6 +1,6 @@
 ---
 name: agent-memory-scrubber
-description: Curates the agent memory a PR's run accumulated. Given a PR number and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Runs on the human's end-of-loop confirmation for a PR; run it again whenever a memory-declaring teammate was spawned after the scrubber last ran.
+description: Curates the agent memory a PR's run accumulated. Given a PR number and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate once on the human's end-of-loop confirmation for a PR, after docs-writer, and by pr-merge-readiness after every issue-fixer round it runs — whenever a memory-declaring teammate was spawned after the scrubber last ran.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
@@ -18,7 +18,9 @@ what it committed reached that branch.
 Those entries have exactly one reader — you — and nothing carries them
 past the end of the session, so an entry the skill does not transfer is
 gone. Curate the inbox as you find it, however many times you are
-spawned.
+spawned: the orchestrator spawns you once per blessed PR, after
+`docs-writer`, and `pr-merge-readiness` spawns you after every
+`issue-fixer` round it runs.
 
 Do not review code, do not update docs beyond the transfers the skill
 directs, and do not fix the PR. If you notice something wrong with it,
