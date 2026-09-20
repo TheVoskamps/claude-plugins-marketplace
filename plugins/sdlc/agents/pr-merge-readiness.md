@@ -142,7 +142,11 @@ report as the question again, the ruling quoted beside it, so the
 human sees what it did not settle rather than the identical question.
 A ruling whose question the gate no longer reports has lapsed on that
 question — act on the row the gate now lands in; it still travels in
-any fixer brief you post on this spawn.
+any fixer brief you post on this spawn, and `issue-fixer` judges it
+for fit there. So the `DIRTY` row's with-a-ruling arm fires on any
+ruling the brief carries, not only one that resolves the conflicts: a
+lapsed ruling that settles no conflict is forwarded all the same, and
+comes back as the fixer's question.
 
 ## The fixer brief, and the remedy spawns
 

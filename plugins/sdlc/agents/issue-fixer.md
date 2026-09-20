@@ -313,10 +313,12 @@ The state the brief names sets the remedy:
 The ruling governs the remedy the same way on every state. A rebase
 that stops on a conflict is resolved as the ruling says — resolve each
 file exactly so, `git add` it, and `git rebase --continue`, then push
-with `--force-with-lease`. A conflict the ruling does not settle, or
-that no ruling reaches — a `BEHIND` brief carries none until a round
-of yours has escalated one — is a design decision you cannot make, and
-so is a ruling that leaves the remedy unclear: abort the rebase, leave
+with `--force-with-lease`. A brief on any state may carry a ruling
+that lapsed on another question — one the gate no longer reports —
+and you read it for what it settles about the remedy in front of you
+and otherwise ignore it. A conflict the ruling does not settle, or
+that no ruling reaches, is a design decision you cannot make, and so
+is a ruling that leaves the remedy unclear: abort the rebase, leave
 the branch as it was, and report what has no ruling, quoting it.
 `pr-merge-readiness` returns that as the question, and the human's
 ruling reaches you in the next brief.

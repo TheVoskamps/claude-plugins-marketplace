@@ -427,8 +427,10 @@ and ending with the closing marker line. It carries:
   State a count only where you counted it from the round files
   themselves.
 - **What changed in response** — what the loop raised, whether a review
-  finding or an orchestrator ruling the brief carried, and the change
-  each drove, drawn from the commits and the fixer briefs. This
+  finding, an orchestrator ruling the brief carried, or a
+  merge-readiness remedy — a rebase unless the human's ruling named
+  another — and the change each drove, drawn from the commits and the
+  fixer briefs. This
   is the part a reviewer of the merged PR cannot reconstruct: the
   diff shows the end state, and this says which of it was the first
   attempt and which was a repair.
