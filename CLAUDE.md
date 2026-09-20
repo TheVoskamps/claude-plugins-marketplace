@@ -133,11 +133,13 @@ states, so a conflicted PR never self-heals and is yours to rebase.
 
 ## Read a plugin's README before you edit the plugin
 
-Before your first edit to a plugin, read the README inside its tree —
+Before your first edit to a plugin, read the `README.md` at its root —
 which file owns which statement, what a change there sweeps, and the
-measurement behind each rule. It may sit deep in that tree, and some
-plugins have none. These kernels are what a README cannot supply,
-because each has to be in front of you before you know you needed it:
+measurement behind each rule. Every plugin carries one; a README deeper
+in the tree, such as guardrails' `hooks/permission-gate/README.md`, is
+a component document, not the plugin's README. These kernels are what
+a README cannot supply, because each has to be in front of you before
+you know you needed it:
 
 - **`sdlc`** — an agent's contract is two-sided: changing what an
   agent does edits the orchestrator skill that briefs it too, not just
