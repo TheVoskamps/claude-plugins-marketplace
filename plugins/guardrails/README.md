@@ -30,17 +30,12 @@ source under `hooks/permission-gate/`.
 
 ## Using it
 
-Install it like any plugin from this marketplace:
-
-```text
-/plugin install guardrails@thevoskamps
-```
-
-There is no skill and no command. The hook registers itself from
-`hooks/hooks.json` and runs on every matched call; there is nothing to
-configure for it to work. The policy is compiled into the binary, so
-there is no rule file to edit — a change of policy is a source change
-and a rebuild, not a setting.
+Install it like any plugin from this marketplace. There is no skill
+and no command. The hook registers itself from `hooks/hooks.json` and
+runs on every matched call; there is nothing to configure for it to
+work. The policy is compiled into the binary, so there is no rule file
+to edit — a change of policy is a source change and a rebuild, not a
+setting.
 
 One optional file exists, `~/.config/guardrails/config.yml`, which
 nothing installs and you write yourself. What it is for, its format,
@@ -55,14 +50,13 @@ the binaries.
 fails closed everywhere else.** Binaries are committed under
 `hooks/bin/` for `darwin-arm64`, `linux-amd64` and `linux-arm64`. On
 any other platform, `hooks/hooks.json` finds no executable gate for the
-running `uname` and denies every matched tool call — every `Bash`,
-`Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit` and `mcp__*` call.
-A session on such a platform cannot do anything until a binary for it
-is built and committed per the permission-gate README, which also
-lists the other conditions under which `hooks/hooks.json` denies rather
-than runs the gate. This is deliberate — a gate that cannot run must
-block rather than step aside — but it means installing this plugin on
-an unsupported platform stops the session rather than degrading it.
+running `uname` and denies every matched tool call. A session on such a
+platform cannot do anything until a binary for it is built and
+committed per the permission-gate README, which also lists the other
+conditions under which `hooks/hooks.json` denies rather than runs the
+gate. This is deliberate — a gate that cannot run must block rather
+than step aside — but it means installing this plugin on an unsupported
+platform stops the session rather than degrading it.
 
 **It is not the whole permission stack.** The gate decides only what
 it can settle better than a model can, and deliberately passes the
