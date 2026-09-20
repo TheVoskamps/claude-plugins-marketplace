@@ -31,8 +31,10 @@ shared into the guest read-only.
   the claude.ai login. The launcher aborts if the Keychain holds no
   credential or `~/.claude.json` carries no usable identity.
 - `git`, `yq` (mikefarah v4+), `python3`, `gpg`, `vfkit`, `podman` and
-  `tinyproxy` — on a clean host,
-  `brew install yq git gnupg vfkit podman tinyproxy`. `tinyproxy` is
+  `tinyproxy`. On a clean host
+  `brew install yq git gnupg vfkit podman tinyproxy` covers them in one
+  go; the launcher itself names each missing piece with its own
+  install hint rather than that line. `tinyproxy` is
   only needed by the bundled default proxy; a custom `proxy.cmd` brings
   its own. `podman` is what a guest-image build runs, and its formula
   is also where the launcher finds `gvproxy`, which need not be on
@@ -43,8 +45,8 @@ shared into the guest read-only.
   config file. A launch with no pin aborts before any download; the
   abort message carries the import and pin commands.
 
-Every missing piece fails a preflight up front with its remediation
-command, before any image build or network fetch.
+Every missing piece fails a preflight up front, before any image build
+or network fetch.
 
 ## Configuration
 
@@ -61,9 +63,13 @@ environment literals written into it. A **boot** file holds keys
 applied at run time — cpus and memory, the egress allowlist, mounts,
 the proxy, the repo mount strategy, environment variables forwarded
 from the host, and the claude version and signing-key pin. The
-placement is the classification: a key in the wrong file does nothing,
-loudly. The effective config is the union of all four, with per-repo
-scalars overriding global ones and lists unioned.
+placement is the classification, and only some misplacements are
+diagnosed: a `claude.plugins` sub-key in the wrong file, or `env.copy`
+or `env.files` in a bake file, aborts the launch. Any other key in the
+wrong file is silently ignored — `cpus: 8` in a bake file merges
+without complaint and the guest boots with the default. The effective
+config is the union of all four, with per-repo scalars overriding
+global ones and lists unioned.
 
 The guest image is keyed on the raw bytes of the bake files, so editing
 a bake file rebuilds the image on the next launch and editing a boot
@@ -104,19 +110,22 @@ the repo you want the guest to work on:
 claude-vm [claude args...]
 ```
 
-It moves to the repo root, names the run from any arguments you passed
-or a date stamp so parallel runs are told apart, offers to create a
-global config if none exists, checks the Keychain for a login, and
-hands off to the launcher. The launcher merges the config, runs its
-preflights, builds the guest image if no image matches the bake files,
-resolves and verifies the `claude` binary, clones the repo into a
-persistent worktree under `<repo>/.claude/tmp/<runid>/`, and boots the
-guest.
+With no config on the host, the first launch offers to write the global
+pair for you, and it builds the guest image; later launches reuse that
+image until a bake file changes. Once the guest boots, your terminal
+becomes the guest's console and the session is the ordinary Claude
+Code REPL, running inside the VM, working by default on a clone of your
+repo rather than the live tree. The sequence the launcher runs between
+the command and the console is in
+[`payload/README.md`](payload/README.md).
 
-Your terminal becomes the guest's console and the session is the
-ordinary Claude Code REPL, running inside the VM. Every argument after
-`claude-vm` reaches the in-guest `claude` verbatim, so
-`--remote-control --name <n>` works as it does on the host.
+Arguments after `claude-vm` reach the in-guest `claude` unchanged, with
+two additions: `claude.remote_control: true` in a boot file adds
+`--remote-control` for you, and whenever `--remote-control` is in
+effect — from that key or from your command line — with no `--name`,
+the launcher adds a date-stamped one. So `--remote-control --name <n>`
+works as it does on the host, and `--remote-control` alone gets a
+name.
 
 When the session exits the launcher copies the worktree's changes back
 onto your local source by default. Set `repo.copy_back: none` to keep
