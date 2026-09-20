@@ -1,6 +1,6 @@
 ---
 name: pr-merge-readiness
-description: Drives one blessed PR to a merge-ready state. Given a PR number, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND, or on DIRTY once a ruling is in hand, posts the fixer brief, spawns issue-fixer and then agent-memory-scrubber, and runs the gate again; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
+description: Drives one blessed PR to a merge-ready state. Given a PR number, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND, or on DIRTY once a ruling is in hand, posts the fixer brief, spawns issue-fixer and then agent-memory-scrubber, and runs the gate again; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
 tools: Read, Write, Glob, Grep, Bash, Agent, Skill
 model: opus
 effort: medium
@@ -53,8 +53,10 @@ You must be given:
 - The branch name (`<branch-name>`).
 - Optionally, a **ruling**: the human's answer to the question a
   previous spawn of this agent returned with. On a `DIRTY` it is the
-  resolution for each conflict; on any other question it is what the
-  human decided.
+  resolution for each conflict; on any other question it names the
+  state to proceed as, the check to stop waiting on, or the remedy to
+  run, per "A carried ruling is consumed by the question it answers"
+  below.
 
 Ask for the PR number or the branch if either is missing. A ruling is
 absent on the first spawn, and that is not a gap.
@@ -108,12 +110,47 @@ question like any other `BLOCKED` cause. The 60 s interval and the
 10-wait bound are declared starting bounds, not measured ones; revise
 them here if practice shows them wrong.
 
+## A carried ruling is consumed by the question it answers
+
+A re-spawn runs the gate afresh, and the ruling it carries is consumed
+on the row the gate now lands in — never by returning the question the
+ruling answered a second time. Every question this loop can return has
+its arm:
+
+- **A `DIRTY`**: the ruling is the resolution for each conflict, and
+  the `DIRTY` row's with-a-ruling arm is the whole of it — the ruling
+  travels in the fixer brief.
+- **A stop-cause `BLOCKED`, a state the table does not name, or a
+  check still running after the last wait**: the ruling names one of
+  three things, and each is acted on the same way whichever of those
+  questions it answers:
+  - **the state to proceed as** — `CLEAN`, say, for a `BLOCKED` whose
+    failing check the human has judged not to gate: leave the loop
+    and return with that as the terminal state, the gate's own state
+    named beside it;
+  - **the check to stop waiting on** — a running check the human has
+    released the loop from: it no longer holds the wait, so a report
+    whose running checks are all released ones is acted on as one
+    that lists none;
+  - **the remedy to run** — work on the branch, a rebase or a change
+    that turns a check green: post the fixer brief with the report
+    and the ruling, run the remedy spawns, and run the gate again, as
+    a `BEHIND` is handled.
+
+A ruling that names none of these cannot be consumed: return with the
+report as the question again, the ruling quoted beside it, so the
+human sees what it did not settle rather than the identical question.
+A ruling whose question the gate no longer reports has lapsed on that
+question — act on the row the gate now lands in; it still travels in
+any fixer brief you post on this spawn.
+
 ## The fixer brief, and the remedy spawns
 
-**The fixer brief for `BEHIND` or `DIRTY`** is a PR comment whose
-first line is the marker `<!-- sdlc:fixer-brief -->` — the literal by
-which `issue-fixer` recognizes a brief, spelled in every `sdlc` file
-that writes or reads it, so a change to it sweeps every file
+**The fixer brief** — posted on a `BEHIND`, on a `DIRTY` with a
+ruling, and on any state whose ruling names a remedy — is a PR comment
+whose first line is the marker `<!-- sdlc:fixer-brief -->` — the
+literal by which `issue-fixer` recognizes a brief, spelled in every
+`sdlc` file that writes or reads it, so a change to it sweeps every file
 `git grep -n 'sdlc:fixer-brief'` returns — and whose body is the gate's
 report **verbatim** — the state and, for `DIRTY`, the
 `pr-merge-conflicts` output — followed by the ruling your brief carries
@@ -178,7 +215,8 @@ Your report carries:
 - **The outcome** — one of:
   - `State: CLEAN`, `State: UNSTABLE`, or `State: BLOCKED
     (review-only)` — the loop left on a terminal state, and the
-    close-out may proceed.
+    close-out may proceed. A state a ruling had you proceed as is
+    reported as that state, with the gate's own state beside it.
   - `Question:` followed by the gate's report verbatim — and, for
     `DIRTY`, the `pr-merge-conflicts` output — the state the loop
     stopped on, and what a ruling has to settle. The orchestrator

@@ -729,11 +729,12 @@ rather than a fixed string: the numbers vary per chunk, so no posted
 comment ever carries the bytes `i/N`. It is your own output coming back
 at you, so skip it entirely on the same terms as the brief below. A
 comment whose first line is the literal marker
-`<!-- sdlc:fixer-brief -->` is the orchestrator's brief to
-`issue-fixer`, not an instruction to you: it carries findings
-*you* filed last round, so applying it would mint theorems for defects
-already in your records. Skip such a comment entirely — it is neither
-an adjustment to apply nor a reason to fan out. It is still worth
+`<!-- sdlc:fixer-brief -->` is a brief to `issue-fixer` — the
+orchestrator's, or `pr-merge-readiness`'s — not an instruction to
+you: a review-loop brief carries findings *you* filed last round, so
+applying it would mint theorems for defects already in your records.
+Skip such a comment entirely — it is neither an adjustment to apply
+nor a reason to fan out. It is still worth
 reading as context for what the fixer was told, but nothing in it
 changes a record. That marker is spelled in every `sdlc` file that
 writes or reads it, this one included; a change to the literal sweeps

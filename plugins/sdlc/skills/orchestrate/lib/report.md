@@ -74,9 +74,9 @@ from a teammate's report — the `Doc Changes` list is `docs-writer`'s,
 and the `Review Verdict` and the severity detail behind it are the
 reviewer's — while `Review Rounds`, `Style-fix Rounds` and
 `Readiness Remedies` are your own counts, the last one naming each
-state `pr-merge-readiness` reported and the remedy it drove. Fill them
-per the report-consumption principle: verify the PR column and its
-merged state against the live PR, since the human reads the table as
+state `pr-merge-readiness` reported and the remedy it drove. Fill them as
+the claims they are: verify the PR column and its merged state
+against the live PR, since the human reads the table as
 the record of what landed; say what a finding's provenance was when it
 is not the review's own — a defect you observed yourself is never "the
 review found" it, while one the human raised and you relayed as an

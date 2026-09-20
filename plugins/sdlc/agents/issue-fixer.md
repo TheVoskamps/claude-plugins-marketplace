@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves the conflicts the brief lists — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY.
+description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves the conflicts the brief lists — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -101,10 +101,10 @@ from its issue.
    fixed; one ruled `put to the human` is fixed exactly as the answer
    on its line says, and not otherwise.
 
-   A brief that carries no findings but names a merge state — `BEHIND`
-   or `DIRTY` — is the other kind of brief, and "Merge-readiness
-   briefs" below says what it asks of you. Steps 3 to 6 are about
-   findings and do not apply to it; the rest of the workflow does.
+   A brief that carries no findings but names a merge state is the
+   other kind of brief, and "Merge-readiness briefs" below says what
+   it asks of you. Steps 3 to 6 are about findings and do not apply to
+   it; the rest of the workflow does.
 
 2. Fetch the remote and check out the PR branch:
 
@@ -278,20 +278,21 @@ the change you make.
 A blessed PR is gated on `github-prs:pr-ready-to-merge` by the
 `pr-merge-readiness` agent, which the orchestrator spawns for that loop
 and which never rebases or resolves a conflict itself; when the gate
-reports the branch `BEHIND` or `DIRTY`, the remedy is yours, and
-`pr-merge-readiness` — not the orchestrator — spawns you with a fixer
-brief whose body is the gate's report verbatim, followed — whatever
-the state — by the human's ruling when a previous round of yours
-escalated a question; act on that ruling as it says. Such a brief
-names no findings and carries no branch line; take the head and base
-branches from the PR:
+reports a state whose remedy is on the branch, the remedy is yours,
+and `pr-merge-readiness` — not the orchestrator — spawns you with a
+fixer brief whose body is the gate's report verbatim, followed —
+whatever the state — by the human's ruling when it carries one. Such a
+brief names no findings and carries no branch line; take the head and
+base branches from the PR:
 
 ```bash
 gh pr view <PR_number> --json headRefName,baseRefName
 ```
 
-- **A brief naming `BEHIND`** means the branch is behind its base.
-  Rebase it onto the base and push with `--force-with-lease`:
+The state the brief names sets the remedy:
+
+- **`BEHIND`** — the branch is behind its base. Rebase it onto the base
+  and push with `--force-with-lease`:
 
   ```bash
   git fetch origin
@@ -300,15 +301,25 @@ gh pr view <PR_number> --json headRefName,baseRefName
   git push --force-with-lease
   ```
 
-- **A brief naming `DIRTY`** means the branch has merge conflicts with
-  its base. The brief carries `github-prs:pr-merge-conflicts`' output —
-  the conflicting files and hunks — followed by the human's ruling on
-  how each is to be resolved. Rebase as for `BEHIND`; when the rebase
-  stops on a conflict, resolve each listed file exactly as the ruling
-  says, `git add` it, and `git rebase --continue`, then push with
-  `--force-with-lease`. A conflict the ruling does not settle is a
-  design decision you cannot make: abort the rebase, leave the branch
-  as it was, and report which conflict has no ruling, quoting it.
+- **`DIRTY`** — the branch has merge conflicts with its base. The brief
+  carries `github-prs:pr-merge-conflicts`' output — the conflicting
+  files and hunks — and the ruling on how each is to be resolved.
+  Rebase as for `BEHIND`.
+- **Any other state** reaches you only with a ruling naming the remedy
+  to run — a rebase, or a change on the branch that turns a check
+  green. Carry it out as the ruling says, under this file's rules as
+  any fix is.
+
+The ruling governs the remedy the same way on every state. A rebase
+that stops on a conflict is resolved as the ruling says — resolve each
+file exactly so, `git add` it, and `git rebase --continue`, then push
+with `--force-with-lease`. A conflict the ruling does not settle, or
+that no ruling reaches — a `BEHIND` brief carries none until a round
+of yours has escalated one — is a design decision you cannot make, and
+so is a ruling that leaves the remedy unclear: abort the rebase, leave
+the branch as it was, and report what has no ruling, quoting it.
+`pr-merge-readiness` returns that as the question, and the human's
+ruling reaches you in the next brief.
 
 Run the tests after the rebase, as for any other change. Then capture
 memory, clean up, and report back per the workflow: which state the

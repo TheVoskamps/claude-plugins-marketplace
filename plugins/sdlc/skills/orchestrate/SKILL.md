@@ -74,10 +74,9 @@ under `agents/` owns:
   merge-readiness gate, spawning `issue-fixer` and
   `agent-memory-scrubber` for the remedies. When it returns, either
   the PR is in a state the close-out proceeds from, or its report
-  carries a question with the gate's output verbatim — a `DIRTY` with
-  no ruling, a stop-cause `BLOCKED`, a state its table does not name,
-  or a check still running after its last wait — which you relay to
-  the human and answer by re-spawning it with the ruling in the brief
+  carries a question with the gate's output verbatim, which you relay
+  to the human and answer by re-spawning it with the ruling in the
+  brief
 - `pr-finalizer` — posts the run's assembled review detail as chained
   PR comments and writes the run's final section into the PR body,
   once the loop is over, replacing the section an earlier run left.

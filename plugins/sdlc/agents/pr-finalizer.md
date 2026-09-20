@@ -206,10 +206,12 @@ into a brief.
    loop carries that round's findings, and the orchestrator's rulings
    on how to fix them and on any work that is not itself a finding. A
    brief from the close-out's merge-readiness gate carries no finding
-   at all: its body is the gate's report — the branch `BEHIND` or
-   `DIRTY`, and for `DIRTY` the conflicts and the human's ruling on
-   each — and the commit it drove is a rebase, which "What changed in
-   response" names as such rather than as a fix. Together the briefs
+   at all: its body is the gate's report — the state it found, for
+   `DIRTY` the conflicts, and — whatever the state — the human's
+   ruling when one was carried — and the commit it drove is a
+   merge-readiness remedy, a rebase unless the ruling named another,
+   which "What changed in response" names as such rather than as a
+   fix. Together the briefs
    are the loop's own account of what drove which commits. Comments
    without that marker — the human's review adjustments, orchestration
    notes — are context for the scope notes rather than findings.
