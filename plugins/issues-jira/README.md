@@ -21,10 +21,9 @@ and the `issues` verbs work against Jira with nothing else to learn.
   it as a dependency; it does nothing on its own.
 - **`acli`**, the Atlassian CLI, installed on the host and on `PATH`.
   The verbs detect its absence and stop; none installs it.
-- **`acli jira auth login --web` completed.** The verbs check the
-  session, and when it is missing or expired they run that login once
-  and wait for you to finish the browser flow. They never read or
-  script around the credential store.
+- **`acli jira auth login --web` completed.** What the verbs do when
+  the session is missing or expired is set out in
+  `plugins/issues-jira/skills/jira-lib/SKILL.md`.
 
 ## How to use
 
