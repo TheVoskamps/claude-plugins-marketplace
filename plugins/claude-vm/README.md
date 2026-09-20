@@ -110,22 +110,21 @@ the repo you want the guest to work on:
 claude-vm [claude args...]
 ```
 
-With no config on the host, the first launch offers to write the global
-pair for you, and it builds the guest image; later launches reuse that
-image until a bake file changes. Once the guest boots, your terminal
-becomes the guest's console and the session is the ordinary Claude
-Code REPL, running inside the VM, working by default on a clone of your
-repo rather than the live tree. The sequence the launcher runs between
-the command and the console is in
-[`payload/README.md`](payload/README.md).
+With no config on the host, the first launch runs on built-in defaults
+and tells you to run `/claude-vm-config-global` to write the global
+pair; it also builds the guest image, and later launches reuse that
+image until a bake file changes. Before boot the launcher clones your
+repo into the run's own directory — or, under `repo.mount: live`,
+shares the live working tree instead. Once the guest boots, your
+terminal becomes the guest's console and the session is the ordinary
+Claude Code REPL, running inside the VM on that clone or share.
 
-Arguments after `claude-vm` reach the in-guest `claude` unchanged, with
-two additions: `claude.remote_control: true` in a boot file adds
-`--remote-control` for you, and whenever `--remote-control` is in
-effect — from that key or from your command line — with no `--name`,
-the launcher adds a date-stamped one. So `--remote-control --name <n>`
-works as it does on the host, and `--remote-control` alone gets a
-name.
+Arguments after `claude-vm` reach the in-guest `claude` unchanged,
+except for a `--name`: whenever you pass none, the launcher adds one
+made of your arguments — or a date stamp when there are none —
+followed by the repo name. A `--name` you pass yourself is kept as is.
+`claude.remote_control: true` in a boot file additionally adds
+`--remote-control` unless your command line already carries it.
 
 When the session exits the launcher copies the worktree's changes back
 onto your local source by default. Set `repo.copy_back: none` to keep
