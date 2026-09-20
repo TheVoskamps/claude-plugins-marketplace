@@ -98,8 +98,7 @@ When the diff has made the body wrong, say so in your report-back.
 
 You do not judge, prune, or edit anything under `.claude/agent-memory/`
 beyond your own entries, or anything in the session's agent-memory
-inbox. That is the `agent-memory-scrubber` agent's job — for when it
-runs, see the `/sdlc:orchestrate` skill → "Final Report".
+inbox. That is the `agent-memory-scrubber` agent's job.
 
 ## Output
 

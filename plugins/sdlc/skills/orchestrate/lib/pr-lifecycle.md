@@ -164,8 +164,8 @@ scrubber's per-entry and per-cut lines as it wrote them.
 
 ## The close-out
 
-Reached only when `pr-merge-readiness` returns with `CLEAN`,
-`UNSTABLE`, or the review-only `BLOCKED`, and linear:
+Reached only when `pr-merge-readiness` returns with a terminal state,
+and linear:
 
 1. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`

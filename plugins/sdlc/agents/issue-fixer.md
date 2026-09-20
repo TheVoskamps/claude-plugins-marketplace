@@ -81,10 +81,9 @@ from its issue.
    picking the review instead would put your own reading of it where
    the orchestrator's judgment belongs.
 
-   The marker is spelled here, in `sdlc:orchestrate` → "Handling
-   review findings — the fix loop" which writes it, and in every other
-   `sdlc` file that reads it. A change to the literal sweeps all of
-   them: `git grep -n 'sdlc:fixer-brief'`.
+   The marker is spelled in every `sdlc` file that writes or reads
+   it, this one included. A change to the literal sweeps all of them:
+   `git grep -n 'sdlc:fixer-brief'`.
 
    The brief carries the findings, each on a line that ends with its
    scope ruling — `— in scope`, `— outside the issue; put to the
@@ -194,14 +193,13 @@ from its issue.
 
     That copies the entries that outlive this run into the session's
     inbox for this branch, where `agent-memory-scrubber` grades them
-    and transfers the durable ones into the repo's own documentation —
-    for when it runs, see the `/sdlc:orchestrate` skill → "Final
-    Report". The skill applies its
-    own session-scope filter and reports what it dropped, so do not
-    curate your own entries here. Nothing about your memory is
-    committed, pushed, or `git add`ed: `.claude/agent-memory/` never
-    enters a commit. If the capture fails, stop and report it rather
-    than proceeding to cleanup — the worktree removal is what makes
+    and transfers the durable ones into the repo's own documentation.
+    The skill applies its own session-scope filter and reports what it
+    dropped, so do not curate your own entries here. Nothing about
+    your memory is committed, pushed, or `git add`ed:
+    `.claude/agent-memory/` never enters a commit. If the capture
+    fails, stop and report it rather than proceeding to cleanup — the
+    worktree removal is what makes
     the loss permanent.
 
     A later round of yours on the same branch writes the same inbox
@@ -282,9 +280,11 @@ A blessed PR is gated on `github-prs:pr-ready-to-merge` by the
 and which never rebases or resolves a conflict itself; when the gate
 reports the branch `BEHIND` or `DIRTY`, the remedy is yours, and
 `pr-merge-readiness` — not the orchestrator — spawns you with a fixer
-brief whose body is the gate's report verbatim. Such a
-brief names no findings and carries no branch line; take the head and
-base branches from the PR:
+brief whose body is the gate's report verbatim, followed — whatever
+the state — by the human's ruling when a previous round of yours
+escalated a question; act on that ruling as it says. Such a brief
+names no findings and carries no branch line; take the head and base
+branches from the PR:
 
 ```bash
 gh pr view <PR_number> --json headRefName,baseRefName

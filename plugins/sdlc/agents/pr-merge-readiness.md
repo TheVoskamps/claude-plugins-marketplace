@@ -80,7 +80,7 @@ unnamed state. Act on the row of the table the state lands in:
 | `CLEAN` | mergeable | leave the loop; return with this state |
 | `UNSTABLE` | non-required checks failing | as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
 | `BEHIND` | branch is behind the base | do not ask: announce that it is rebasing, post the fixer brief, run the remedy spawns, run the gate again |
-| `DIRTY` | merge conflicts | with no ruling in the brief: run `/github-prs:pr-merge-conflicts <PR>` and return with its output as the question. With a ruling: post the fixer brief with the ruling appended, run the remedy spawns, run the gate again |
+| `DIRTY` | merge conflicts | with no ruling in the brief: run `/github-prs:pr-merge-conflicts <PR>` and return with its output as the question. With a ruling: post the fixer brief, run the remedy spawns, run the gate again |
 | `BLOCKED` | required checks or reviews not satisfied | when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green and none still running, the missing required review is the only cause, and the ready flip that follows the close-out is what requests that review — as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the report does not account for — is a stop cause: return with the report as the question. A running check is neither: when the gate lists one and none of this row's stop causes, wait for it per "A running check is waited on" below; a report that lists one alongside a stop cause is returned on, not waited on |
 
 The loop runs on a draft PR, before any review has been requested, so
@@ -115,9 +115,13 @@ first line is the marker `<!-- sdlc:fixer-brief -->` — the literal by
 which `issue-fixer` recognizes a brief, spelled in every `sdlc` file
 that writes or reads it, so a change to it sweeps every file
 `git grep -n 'sdlc:fixer-brief'` returns — and whose body is the gate's
-report **verbatim**: the state and, for `DIRTY`, the
-`pr-merge-conflicts` output followed by the ruling the brief gave you,
-and nothing you authored. Write the body to a file under
+report **verbatim** — the state and, for `DIRTY`, the
+`pr-merge-conflicts` output — followed by the ruling your brief carries
+when it carries one, whatever the state, and nothing you authored. The
+brief is the only route by which a ruling reaches the fixer, and a
+`BEHIND` whose fixer escalated comes back with one just as a `DIRTY`
+does, so a brief that dropped it on any state would send the fixer back
+to the same question. Write the body to a file under
 `.claude/tmp/<task-slug>/` and post it with `gh pr comment <PR>
 --body-file <path>`: the report quotes check names and hunks, and a
 body spelled into `--body "…"` is read by the shell, backtick and `$`

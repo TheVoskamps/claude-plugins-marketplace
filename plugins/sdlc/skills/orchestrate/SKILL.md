@@ -118,9 +118,9 @@ If no issue numbers are given, ask for them before proceeding.
 
 ### Pre-flight
 
-Read `lib/pre-flight.md` and run it first: the primary-clone check,
-then the per-repo config read that resolves `<link-prefix>` for the
-rest of the run.
+Read `skills/orchestrate/lib/pre-flight.md` and run it first: the
+primary-clone check, then the per-repo config read that resolves
+`<link-prefix>` for the rest of the run.
 
 ### Gate: refuse an issue that is not orchestrate-ready
 
@@ -174,12 +174,13 @@ the body's sentence quoted, and Execution waits on the answer.
 
 ### Group the issues, present the plan, and wait
 
-Read `lib/plan.md` and follow it: assign every issue to a batch, order
-the batches into waves, choose each multi-member batch's compound
-slug, and present the plan in the shape that file gives. Its grouping
-criteria are a judgment call — batch when the conflict cost of
-separating exceeds the blocking cost of joining — and the criteria you
-applied reach the human on the plan's `Batch criteria applied` line.
+Read `skills/orchestrate/lib/plan.md` and follow it: assign every
+issue to a batch, order the batches into waves, choose each
+multi-member batch's compound slug, and present the plan in the shape
+that file gives. Its grouping criteria are a judgment call — batch
+when the conflict cost of separating exceeds the blocking cost of
+joining — and the criteria you applied reach the human on the plan's
+`Batch criteria applied` line.
 
 Wait for explicit human confirmation before Execution. Do not spawn
 any teammates yet. The plan file's wave-sequencing rule holds through
@@ -195,12 +196,13 @@ Work in waves of batches, as defined by your plan. Each batch gets one
 ### Set each batch's issues to In Progress and assign them before spawning its developer
 
 Immediately after the human confirms the plan and **before spawning
-the developer for a given batch**, read `lib/issue-lifecycle.md` and
-make its In Progress transition and assign for every member of that
-batch — a batch queued behind another wave flips only when its own
-developer is about to start. That file owns every status transition
-of the run, the status-slot gate each one passes through, and how the
-`/issue-*` namespace is used for them.
+the developer for a given batch**, read
+`skills/orchestrate/lib/issue-lifecycle.md` and make its In Progress
+transition and assign for every member of that batch — a batch
+queued behind another wave flips only when its own developer is about
+to start. That file owns every status transition of the run, the
+status-slot gate each one passes through, and how the `/issue-*`
+namespace is used for them.
 
 ### Spawn-prompt principle
 
@@ -442,11 +444,12 @@ lines all go away.
 
 ### After each issue-developer reports back: link the PR to its issues
 
-Read `lib/pr-lifecycle.md` when the first developer returns, and keep
-it through every PR's close-out: it owns the link step below, the
-body freeze that holds from that step to the end of the loop, the two
-spawns that run on the human's end-of-loop confirmation, the close-out,
-and the briefs for `pr-merge-readiness` and `pr-monitor`.
+Read `skills/orchestrate/lib/pr-lifecycle.md` when the first developer
+returns, and keep it through every PR's close-out: it owns the link
+step below, the body freeze that holds from that step to the end of
+the loop, the two spawns that run on the human's end-of-loop
+confirmation, the close-out, and the briefs for `pr-merge-readiness`
+and `pr-monitor`.
 
 Before spawning the follow-up agents, make that file's link step for
 the PR the developer just reported, passing the set the PR **actually
@@ -913,8 +916,7 @@ for it.
    asks: a state that needs a ruling comes back as its report's
    question, carrying the gate's output verbatim.
 
-   - A **terminal state** — `CLEAN`, `UNSTABLE`, or the review-only
-     `BLOCKED` — proceeds to the close-out.
+   - A **terminal state** proceeds to the close-out.
    - A **question** is relayed to the human verbatim, per "When a
      teammate escalates", and ends your turn. On the answer, spawn
      `pr-merge-readiness` again with the ruling in the brief; it runs
@@ -961,9 +963,10 @@ so the body stays frozen for whatever round comes next.
 
 ### The post-merge tail and the summary, once per run
 
-After the last PR's monitor loop ends, read `lib/report.md` and follow
-it: the single cleanup sweep, the return of the primary clone to the
-default branch, and then the summary in the shape that file gives.
+After the last PR's monitor loop ends, read
+`skills/orchestrate/lib/report.md` and follow it: the single cleanup
+sweep, the return of the primary clone to the default branch, and then
+the summary in the shape that file gives.
 Every cell of the summary is a claim to the human, filled per
 "Report-consumption principle".
 
