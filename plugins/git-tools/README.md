@@ -109,10 +109,11 @@ outcomes, and report shape — and this README does not restate them.
   command, so the branch need not exist anywhere.
 - **`/git-branch-create` never invents a compound slug.** Two or more
   issues with no slug is a question back to the caller, not a guess.
-- **The cleanup skill never force-removes.** It leaves alone the
-  default branch, any worktree with uncommitted or unpushed work, any
-  live subagent's lock, and any nested worktree, and reports each one
-  it skipped instead.
+- **The cleanup skill never force-removes a worktree on its own.** It
+  leaves alone the default branch, any worktree with uncommitted or
+  unpushed work, any live subagent's lock, and any nested worktree,
+  and reports each one it skipped instead; discarding work takes the
+  human's explicit approval first.
 
 ## Editing this plugin
 
