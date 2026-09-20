@@ -3,9 +3,10 @@
 GitHub-only skills for the operations a pull request goes through:
 create it (as a draft, closing its own issue set), fetch its diff,
 submit a review with a verdict, flip it between draft and
-ready-for-review, link it to the issues it resolves via one closing
-keyword each in the PR body, and read those closing lines back to say
-which issues it closes.
+ready-for-review, report whether it can be merged and enumerate the
+conflicts when it cannot, link it to the issues it resolves via one
+closing keyword each in the PR body, and read those closing lines back
+to say which issues it closes.
 
 These skills serve the `/sdlc:orchestrate` flow and its agents. The
 `issue-developer` opens the PR. The
@@ -15,11 +16,13 @@ PR's closing lines to learn which issues it claims; the
 agents it spawns — every `theorem-generator` variant,
 `theorem-disprover`, and `counterexample-verifier` — fetch the diff, as do the `issue-fixer`,
 `code-documenter`, `style-checker`, and `docs-writer`. The orchestrator
-keeps PRs draft through the review/fix loop, reads those same closing
-lines for the issues it flips to In Review, and only flips draft → ready
-once the human blesses the PR at
-end-of-loop. Each skill is still a standalone verb usable by a human
-or any caller.
+keeps PRs draft through the review/fix loop; once the human blesses a
+PR at end-of-loop it gates the close-out on the PR's merge readiness,
+enumerating the conflicts when the branch has any, and only then reads
+those same closing lines for the issues it flips to In Review and
+flips the PR draft → ready. It keeps reading the merge readiness while
+it waits for the merge. Each skill is still a standalone verb usable
+by a human or any caller.
 
 ## One PR, one issue set
 
@@ -59,9 +62,31 @@ Both skills therefore write one `Closes #<issue>` line per issue.
 
 Reading those lines back belongs to `/pr-closing-issues` alone: it is
 the one skill in this marketplace that parses a PR body's closing
-lines, so `/pr-link-issue`'s idempotency check invokes it instead of
-scanning the body itself. `/pr-create` is not a consumer — it writes
-closing lines and never reads them.
+lines, so every skill and agent that acts on which issues a body
+closes invokes it instead of scanning the body itself. `/pr-create` is
+not a consumer — it writes closing lines and never reads them.
+
+## Readiness is reported, never remedied
+
+`/pr-ready-to-merge` and `/pr-merge-conflicts` are the two skills that
+answer whether a PR can move forward, and both are read-only by design.
+"Ready for review" is a draft flag and says nothing about whether the
+branch is current with its base, merges cleanly, or passes its required
+checks; `mergeStateStatus` does, and GitHub reports `DIRTY` without
+saying which files or hunks conflict, so the second skill trial-merges
+the base in a throwaway worktree under `.claude/worktrees/` to find
+out, then aborts the merge and removes the worktree. Neither rebases,
+resolves, pushes, or flips anything: a caller that acts on a `BEHIND`
+or a `DIRTY` owns the remedy and whoever performs it, and this plugin
+carries no rule about what a given state should trigger. Keeping the
+readiness read separate from the remedy is what lets a human check a
+PR by hand with the same verb an orchestrator gates on.
+
+`/pr-ready-to-merge` refuses a PR that is not open rather than
+retrying: GitHub stops computing merge state once a PR closes, so a
+merged or closed PR reports `UNKNOWN` permanently, and a retry
+schedule run against one would exhaust itself and then report a
+readiness failure that means nothing.
 
 Every skill is GitHub-only **by design**: each is built directly on the
 `gh` CLI, and there is no CodeCommit (or other source-control) branch
@@ -70,9 +95,8 @@ deferred.
 
 ## Config: read internally, not by the caller
 
-`pr-ready`, `pr-draft`, `pr-diff`, `pr-review-submit`, and
-`pr-closing-issues` take everything they need as arguments and read no
-configuration at all. Only `pr-create` reads repo-config —
+Every skill but `pr-create` takes everything it needs as arguments
+and reads no configuration at all. Only `pr-create` reads repo-config —
 `default-pr-target-branch` and `issue-link-prefix` — and it does so
 **internally**, via a lightweight inline parse of just those two
 front-matter lines, not the `issues` plugin's full
@@ -97,6 +121,8 @@ hand-roll a raw `gh pr create`/`gh pr diff`/`gh pr review`.
 | `/pr-review-submit <PR> --verdict <verdict> <body>` or `--body-file <path>` | Post a single PR review carrying a verdict, with the body inline or from a file | `gh pr review <PR>` |
 | `/pr-ready <N>` | Mark a draft PR ready for review (draft → ready) | `gh pr ready <N>` |
 | `/pr-draft <N>` | Convert a ready PR back to a draft (ready → draft) | `gh pr ready <N> --undo` |
+| `/pr-ready-to-merge <PR>` | Report an open PR's merge readiness — `mergeable`, `mergeStateStatus`, review decision and check rollup — retrying while GitHub is still computing it | `gh pr view <PR> --json mergeable,mergeStateStatus,…` |
+| `/pr-merge-conflicts <PR>` | Enumerate a PR's actual merge conflicts with its base — files and hunks — by a trial merge that is aborted afterwards | `git merge --no-commit --no-ff` in a throwaway worktree |
 | `/pr-link-issue <PR> <issue>…` | Ensure the PR body links & closes every issue in its own set | verify/append the missing `Closes #<issue>` lines in the PR body |
 | `/pr-closing-issues <PR>` | Report which issues the PR body closes | `gh pr view <PR> --json number,body` |
 
@@ -162,6 +188,31 @@ Converts a ready PR back to a draft, re-arming that safety gate. Used
 manually when a PR that looked ready turns out to still need work.
 Safe to run more than once.
 
+### `/pr-ready-to-merge <PR>`
+
+Reads `mergeable` and `mergeStateStatus` off an open PR, with
+`reviewDecision` and `statusCheckRollup` alongside so a caller can tell
+what a `BLOCKED` is blocked on — a missing required review, a failing
+required check and a required check still running all report the same
+word — and reports them with GitHub's meaning of the state. Refuses a
+PR that is not open as an input error (see "Readiness is reported,
+never remedied" above). `mergeable: UNKNOWN` on an open PR means the
+merge commit is still being computed, so the skill retries on a fixed,
+announced schedule and fails reporting `UNKNOWN` if it never resolves;
+the schedule is a declared starting bound the skill states as such.
+What a caller does about each state is the caller's own rule.
+
+### `/pr-merge-conflicts <PR>`
+
+Adds a detached throwaway worktree at the PR's head, trial-merges the
+base there without committing, collects the conflicting files and
+each one's conflicting hunks, then aborts the merge and removes the
+worktree — whatever the collection steps produced, so a failed run
+leaves nothing for the next one to trip on. The primary clone's
+`git status` reads the same before and after. It reports the
+conflicts and nothing else; what to do about each is the caller's to
+decide.
+
 ### `/pr-link-issue <PR> <issue>…`
 
 Set-idempotent verify/append. Asks `/pr-closing-issues` what the body
@@ -183,8 +234,8 @@ deliberately deferred member stays un-closed.
 Fetches the PR body and reports the set of issues it closes, applying
 the closing-keyword-immediately-before-reference syntax. It is
 the one place in this marketplace that syntax is applied to a PR body,
-so `/pr-link-issue`, `sdlc:theorem-based-pr-reviewer` running
-standalone, and
-`/sdlc:orchestrate`'s end-of-loop status flip all invoke it rather
-than scanning a body themselves. A single-PR primitive: a caller
-holding several PRs loops.
+so every skill and agent that acts on which issues a body closes — for
+an idempotency check, a standalone review's claim, a status flip, or a
+before-and-after comparison around a body edit — invokes it rather
+than scanning a body itself. A single-PR primitive: a caller holding
+several PRs loops.

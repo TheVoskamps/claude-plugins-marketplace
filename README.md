@@ -13,8 +13,8 @@ The marketplace currently ships these plugins (one entry each in
 - **`sdlc`** — issue grooming and end-to-end orchestration, with a
   theorem-based PR review pipeline.
 - **`github-prs`** — GitHub pull-request operations, from opening and
-  diffing a PR through reviewing it and linking it to the issues it
-  closes. GitHub-only by design.
+  diffing a PR through reviewing it, reporting whether it can merge,
+  and linking it to the issues it closes. GitHub-only by design.
 - **`github-setup`** — GitHub repo provisioning: identity, PR
   automation, security and protection posture, and the move from
   private to public.
