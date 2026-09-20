@@ -156,6 +156,10 @@ because each has to be in front of you before you know you needed it:
   paraphrased outside the plugin, so changing what one says also edits
   `sdlc`'s agents and its orchestrator skill and the
   `guardrails` permission-gate README, and bumps those plugins too.
+- **`git-tools`** — `git-branch-create` encodes the issue set in the
+  branch name and `git-issues-from-branch` is its inverse, so a change
+  to either edits both, and `github-prs` and `sdlc` depend on that
+  encoding.
 
 ## Read on demand
 
