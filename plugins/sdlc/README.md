@@ -160,10 +160,10 @@ remedy is a teammate's. The orchestrator never runs `git rebase` or
 gate finds `BEHIND` or `DIRTY` is handed to `issue-fixer` through the
 same fixer-brief comment the review loop uses, carrying the gate's
 report verbatim, and the fixer's return is followed by the memory
-scrub and the gate again rather than a review round — so `issue-fixer` performs merge-readiness
-remedies as well as review fixes, and the two kinds of brief are told
-apart by whether the brief carries findings. What each state drives,
-and every wait bound in the loops, is owned by
+scrub and the gate again rather than a review round — so `issue-fixer`
+performs merge-readiness remedies as well as review fixes, and the two
+kinds of brief are told apart by whether the brief carries findings.
+What each state drives, and every wait bound in the loops, is owned by
 `skills/orchestrate/SKILL.md`, and each bound is a declared starting
 value rather than a measured one.
 
