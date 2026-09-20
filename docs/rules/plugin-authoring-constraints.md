@@ -125,16 +125,16 @@ per reported outcome, which is exactly the deliberate per-caller
 difference the extraction must not flatten.
 
 A new skill's registration surfaces are the owning plugin's
-`plugin.json` `description` and — where the plugin ships a `README.md`
-of its own that rosters what it contains — that roster as well. The
-root `README.md` roster registers the *plugin*, not each skill by
-name: its bullet exists and describes the plugin, so a skill added to
-an already-rostered plugin needs no edit there.
+`plugin.json` `description` and — where the plugin's own `README.md`
+rosters what it contains — that roster as well. The root `README.md`
+roster registers the *plugin*, not each skill by name: its bullet
+exists and describes the plugin, so a skill added to an
+already-rostered plugin needs no edit there.
 `.claude-plugin/marketplace.json` is per-plugin, not per-skill, so a
 new skill in an already-published plugin needs no entry there either.
 A new `dependencies` edge's surface is the depending plugin's own
-`README.md`, where it ships one: the edge is a fact about that plugin,
-so its README names it.
+`README.md`: the edge is a fact about that plugin, so its README names
+it.
 
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's
@@ -680,6 +680,10 @@ fact:
 - **A new plugin's roster bullet** belongs in the root `README.md`.
   That is the one doc that reliably goes stale when a plugin is added,
   since nothing else cross-references the plugin list by name.
+- **A new plugin's own README** is `plugins/<name>/README.md`. Every
+  plugin carries one, so adding a plugin means a root README **and** a
+  roster bullet; a README deeper in the plugin's tree is a component
+  document and does not stand in for it.
 - **A fact about working inside one plugin's tree** — which file owns
   which statement, what a change there sweeps — belongs in that
   plugin's own README, not here and not in a second file under
