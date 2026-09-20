@@ -29,8 +29,11 @@ Every `Bash`, `Read`, `Write`, `Edit`, `MultiEdit` and `NotebookEdit`
 call, and every `mcp__*` tool call, passes through the gate first.
 Four things can happen to it:
 
-- **Allowed outright**, with no prompt. Read-only commands, and writes
-  that stay inside the current repo or worktree, mostly land here.
+- **Allowed outright**, with no prompt. This is where `Bash` reads
+  that are provably read-only, and `Bash` writes that stay inside the
+  current repo or worktree, land. A contained `Read`, `Write`, `Edit`,
+  `MultiEdit` or `NotebookEdit` call does not: it is passed through
+  with no opinion, the fourth bucket below.
 - **Denied with a redirect.** The reason is fed back to the model,
   which names the sanctioned way to do what it was trying to do, so
   the model corrects itself on its next call.
@@ -86,11 +89,13 @@ running `uname` and denies every matched tool call — every `Bash`,
 — each with a message on stderr naming the path it looked for. A
 session on such a platform cannot do anything until a binary for it is
 built and committed per the permission-gate README. The same denial
-applies when a binary is present but cannot run: wrong architecture,
-a corrupt or truncated file, a missing executable bit, a `noexec`
-mount. This is deliberate — a gate that cannot run must block rather
-than step aside — but it means installing this plugin on an
-unsupported platform stops the session rather than degrading it.
+applies when a binary is present but does not produce a decision —
+because of a wrong architecture, a missing executable bit or a
+`noexec` mount, for example; the permission-gate README's
+"Registration" section lists every case `hooks/hooks.json` denies on.
+This is deliberate — a gate that cannot run must block rather than
+step aside — but it means installing this plugin on an unsupported
+platform stops the session rather than degrading it.
 
 **It is not the whole permission stack.** The gate decides only what
 it can settle better than a model can, and deliberately passes the
@@ -103,7 +108,7 @@ allow-list and prompt settings do with them. The
 [`auto-mode-tools`](../auto-mode-tools/README.md) plugin is the other
 half: it tunes and personalizes that configuration.
 
-**A broad static allow rule in `settings.json` gets there first.** A
-`Bash(<prog>:*)`-shaped allow matches a passed-through call before auto
-mode sees it, so the gate's pass-through is only as safe as your
-allow-list is narrow.
+**The pass-through is only as safe as your allow-list is narrow.** The
+permission-gate README's "The verdict model" section states why a broad
+static allow rule in `settings.json` reaches a passed-through call
+before auto mode does; the remedy is to tighten the rule.
