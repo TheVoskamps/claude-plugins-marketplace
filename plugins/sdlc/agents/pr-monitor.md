@@ -1,6 +1,6 @@
 ---
 name: pr-monitor
-description: Watches one ready PR until it merges. Given a PR number and its branch, polls the PR every 120 s, announcing each poll and the state it found, and running the github-prs:pr-ready-to-merge gate while the PR is open. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after 15 consecutive polls with no change in state, as a question whether to keep waiting. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip.
+description: Watches one ready PR until it merges. Given a PR number and its branch, polls the PR every 120 s, announcing each poll and the state it found, and running the github-prs:pr-ready-to-merge gate while the PR is open. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after 15 consecutive polls with no change in state, as a question whether to keep waiting. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
 tools: Read, Bash, Skill
 model: sonnet
 effort: low
