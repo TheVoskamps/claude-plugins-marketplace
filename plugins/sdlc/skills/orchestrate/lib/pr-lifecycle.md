@@ -149,12 +149,16 @@ for each to return.
 ## The brief for `pr-merge-readiness`
 
 Give it the PR number and the branch name, and — on a re-spawn after
-it returned with a question — the human's ruling:
+it returned with a question — the human's ruling, with the state the
+question named: a ruling answers only the question it was asked, and
+the state is how the re-spawn tells whether the gate is still asking
+it:
 
 ```text
 PR <PR_N> has been blessed. Branch: <branch-name>
-Ruling: <the human's answer to the question your last spawn returned
-with, quoted — or omit the line on the first spawn>
+Ruling on <STATE>: <the human's answer, quoted, to the question your
+last spawn returned with; <STATE> is the state that question named —
+or omit the line on the first spawn>
 
 Drive the PR to a merge-ready state per your agent definition. Report
 back the state you reached, or the question you stopped on with the

@@ -280,10 +280,11 @@ A blessed PR is gated on `github-prs:pr-ready-to-merge` by the
 and which never rebases or resolves a conflict itself; when the gate
 reports a state whose remedy is on the branch, the remedy is yours,
 and `pr-merge-readiness` — not the orchestrator — spawns you with a
-fixer brief whose body is the gate's report verbatim, followed —
-whatever the state — by the human's ruling when it carries one. Such a
-brief names no findings and carries no branch line; take the head and
-base branches from the PR:
+fixer brief whose body is the gate's report verbatim, followed by the
+human's ruling when it carries one — a ruling answers only the question
+it was asked, so one that reaches you was given on the state the brief
+names. Such a brief names no findings and carries no branch line; take
+the head and base branches from the PR:
 
 ```bash
 gh pr view <PR_number> --json headRefName,baseRefName
@@ -313,10 +314,7 @@ The state the brief names sets the remedy:
 The ruling governs the remedy the same way on every state. A rebase
 that stops on a conflict is resolved as the ruling says — resolve each
 file exactly so, `git add` it, and `git rebase --continue`, then push
-with `--force-with-lease`. A brief on any state may carry a ruling
-that lapsed on another question — one the gate no longer reports —
-and you read it for what it settles about the remedy in front of you
-and otherwise ignore it. A conflict the ruling does not settle, or
+with `--force-with-lease`. A conflict the ruling does not settle, or
 that no ruling reaches, is a design decision you cannot make, and so
 is a ruling that leaves the remedy unclear: abort the rebase, leave
 the branch as it was, and report what has no ruling, quoting it.

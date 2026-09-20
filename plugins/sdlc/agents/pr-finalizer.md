@@ -207,8 +207,8 @@ into a brief.
    on how to fix them and on any work that is not itself a finding. A
    brief from the close-out's merge-readiness gate carries no finding
    at all: its body is the gate's report — the state it found, for
-   `DIRTY` the conflicts, and — whatever the state — the human's
-   ruling when one was carried — and the commit it drove is a
+   `DIRTY` the conflicts, and the human's ruling on that state when one
+   was carried — and the commit it drove is a
    merge-readiness remedy, a rebase unless the ruling named another,
    which "What changed in response" names as such rather than as a
    fix. Together the briefs
