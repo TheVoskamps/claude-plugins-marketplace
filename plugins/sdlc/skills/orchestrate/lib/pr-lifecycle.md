@@ -149,21 +149,26 @@ for each to return.
 ## The brief for `pr-merge-readiness`
 
 Give it the PR number and the branch name, and — on a re-spawn after
-it returned with a question — the human's ruling, with the state the
-question named: a ruling answers only the question it was asked, and
-the state is how the re-spawn tells whether the gate is still asking
-it:
+it returned with a question — the human's ruling, with the state and
+the cause the question named, both copied from the `Question:` line of
+the report that asked it: a ruling answers only the question it was
+asked, and the state and cause together are how the re-spawn tells
+whether the gate is still asking it:
 
 ```text
 PR <PR_N> has been blessed. Branch: <branch-name>
-Ruling on <STATE>: <the human's answer, quoted, to the question your
-last spawn returned with; <STATE> is the state that question named —
-or omit the line on the first spawn>
+Ruling on <STATE> (<cause>): <the human's answer, quoted, to the
+question your last spawn returned with; <STATE> and <cause> are the
+state and the cause that question named — or omit the line on the
+first spawn>
 
 Drive the PR to a merge-ready state per your agent definition. Report
-back the state you reached, or the question you stopped on with the
-gate's report verbatim; every issue-fixer round you ran; and the
-scrubber's per-entry and per-cut lines as it wrote them.
+back the state you reached, or the question you stopped on — its state
+and cause, with the gate's report verbatim; any ruling this brief
+carried that the gate's report did not consume, quoted, with what the
+gate reported instead; every issue-fixer round you ran; the scrubber's
+per-entry and per-cut lines as it wrote them; and every wait you took
+on a running check, with the checks it named.
 ```
 
 ## The close-out

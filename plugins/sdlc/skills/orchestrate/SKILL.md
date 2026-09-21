@@ -918,10 +918,14 @@ for it.
    - A **terminal state** proceeds to the close-out.
    - A **question** is relayed to the human verbatim, per "When a
      teammate escalates", and ends your turn. On the answer, spawn
-     `pr-merge-readiness` again with the ruling in the brief; it runs
-     the gate afresh and carries on from there. Nothing else is
-     spawned for the PR until it returns with a terminal state.
+     `pr-merge-readiness` again with the ruling in the brief, keyed to
+     the state and cause the question named; it runs the gate afresh
+     and carries on from there. Nothing else is spawned for the PR
+     until it returns with a terminal state.
 
+   A ruling its report says the gate did not consume is relayed to
+   the human beside the question or the state it returned with, so
+   the human knows the earlier answer lapsed rather than took effect.
    Count each `issue-fixer` round its report names, with the state
    that drove it, toward the summary's `Readiness Remedies` cell, and
    pass the scrubber lines it relays through to the human as it wrote

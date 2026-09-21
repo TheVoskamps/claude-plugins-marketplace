@@ -52,11 +52,12 @@ You must be given:
 - The PR number.
 - The branch name (`<branch-name>`).
 - Optionally, a **ruling**: the human's answer to the question a
-  previous spawn of this agent returned with, and the state that
-  question named. On a `DIRTY` it is the resolution for each conflict;
-  on any other question it names the state to proceed as, the check to
-  stop waiting on, or the remedy to run, per "A carried ruling answers
-  only the question it was asked" below.
+  previous spawn of this agent returned with, and the state and the
+  cause that question named. On a `DIRTY`, or a `BEHIND` whose fixer
+  escalated, it is the resolution for each conflict; on any other
+  question it names the state to proceed as, the check to stop waiting
+  on, or the remedy to run, per "A carried ruling answers only the
+  question it was asked" below.
 
 Ask for the PR number or the branch if either is missing. A ruling is
 absent on the first spawn, and that is not a gap.
@@ -113,17 +114,32 @@ them here if practice shows them wrong.
 ## A carried ruling answers only the question it was asked
 
 A re-spawn runs the gate afresh. The ruling it carries answers one
-question — the one your last spawn returned with, whose state the
-brief names beside the ruling — and it is consumed only when the gate
-reports that state again, on that state's row, never by returning the
-same question a second time. When the gate reports any other state,
-the ruling is discarded: it travels in no fixer brief, and the row the
-gate landed in runs as with no ruling. Name a discarded ruling in your
-report. Every question this loop can return has its arm:
+question — the one your last spawn returned with, whose state and
+cause the brief names beside the ruling — and it is consumed only when
+the gate reports that state again **with that cause**, on that state's
+row, never by returning the same question a second time. The cause is
+what the report named as needing the ruling: on a `BLOCKED`, the
+failing check or the `reviewDecision`; on a check still running after
+the last wait, that check; on a `DIRTY`, or a `BEHIND` whose fixer
+escalated, the conflicting files; on a state the table does not name,
+the state itself. A state name alone is not a match: a "proceed as
+`CLEAN`" given on one failing check was not given on another. When
+the gate reports any other state, or that state with a cause the
+human did not judge, the ruling is discarded: it travels in no fixer
+brief, and the row the gate landed in runs as with no ruling, so a new
+cause goes back as a fresh question. That discards a `BEHIND` ruling
+when the unchanged branch comes back `DIRTY` with the same conflicts,
+and the human is asked twice — the accepted cost of the rule, since a
+`BEHIND` question and a `DIRTY` question are different questions.
+Name a discarded ruling in your report. Every question this loop can
+return has its arm:
 
 - **A `DIRTY`**: the ruling is the resolution for each conflict, and
   the `DIRTY` row's with-a-ruling arm is the whole of it — the ruling
   travels in the fixer brief.
+- **A `BEHIND`**: the fixer escalated on the rebase, and the ruling is
+  the resolution for each conflict it reported; it travels in the
+  `BEHIND` row's fixer brief.
 - **A stop-cause `BLOCKED`, a state the table does not name, or a
   check still running after the last wait**: the ruling names one of
   three things, and each is acted on the same way whichever of those
@@ -155,7 +171,7 @@ literal by which `issue-fixer` recognizes a brief, spelled in every
 `git grep -n 'sdlc:fixer-brief'` returns — and whose body is the gate's
 report **verbatim** — the state and, for `DIRTY`, the
 `pr-merge-conflicts` output — followed by the ruling when your brief
-carries one the gate's state consumes, and nothing you authored. The
+carries one the gate's report consumes, and nothing you authored. The
 brief is the only route by which a ruling reaches the fixer, and a
 `BEHIND` whose fixer escalated comes back with one just as a `DIRTY`
 does, so a brief that dropped it on any state would send the fixer back
@@ -220,13 +236,16 @@ Your report carries:
     (review-only)` — the loop left on a terminal state, and the
     close-out may proceed. A state a ruling had you proceed as is
     reported as that state, with the gate's own state beside it.
-  - `Question:` followed by the gate's report verbatim — and, for
-    `DIRTY`, the `pr-merge-conflicts` output — the state the loop
-    stopped on, and what a ruling has to settle; when a fixer
-    escalated, its report verbatim beneath them. The orchestrator
-    relays it and re-spawns you with the ruling.
-- **A ruling the spawn carried that the gate's state did not
-  consume**, quoted, with the state the gate reported instead.
+  - `Question:` followed by the state the loop stopped on and its
+    cause, as "A carried ruling answers only the question it was
+    asked" defines it, then the gate's report verbatim — and, for
+    `DIRTY`, the `pr-merge-conflicts` output — and what a ruling has
+    to settle; when a fixer escalated, its report verbatim beneath
+    them. The orchestrator relays it and re-spawns you with the
+    ruling, the state and cause beside it.
+- **A ruling the spawn carried that the gate's report did not
+  consume**, quoted, with the state and cause the gate reported
+  instead.
 - **Every `issue-fixer` round you ran**: the state that drove it, the
   base the fixer rebased onto, each conflict and how the ruling had it
   resolved, and the new head SHA, as the fixer reported them.
