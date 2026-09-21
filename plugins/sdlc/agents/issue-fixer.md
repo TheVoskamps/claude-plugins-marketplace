@@ -331,7 +331,8 @@ ruling reaches you in the next brief.
 Run the tests after the rebase, as for any other change. Then capture
 memory, clean up, and report back per the workflow: which state the
 brief named, the base you rebased onto, each conflict and how the
-ruling had you resolve it, the new head SHA, and the test result.
+ruling had you resolve it, any ruling the rebase did not need, quoted,
+the new head SHA, and the test result.
 `pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
 again on your return; no review round follows a merge-readiness brief.
 

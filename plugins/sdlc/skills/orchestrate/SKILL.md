@@ -923,9 +923,11 @@ for it.
      and carries on from there. Nothing else is spawned for the PR
      until it returns with a terminal state.
 
-   A ruling its report says the gate did not consume is relayed to
-   the human beside the question or the state it returned with, so
-   the human knows the earlier answer lapsed rather than took effect.
+   A ruling its report names as discarded — one the gate's report
+   did not consume or, on a `BEHIND`, one the fixer's rebase did not
+   need — is relayed to the human beside the question or the state it
+   returned with, so the human knows the earlier answer lapsed rather
+   than took effect.
    Count each `issue-fixer` round its report names, with the state
    that drove it, toward the summary's `Readiness Remedies` cell, and
    pass the scrubber lines it relays through to the human as it wrote
