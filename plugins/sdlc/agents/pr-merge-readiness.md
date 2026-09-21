@@ -255,8 +255,8 @@ Your report carries:
     ruling, the state and cause beside it.
 - **A ruling the spawn carried that the gate's report did not
   consume**, quoted, with the state and cause the gate reported
-  instead — or, on a `BEHIND`, one the fixer's report named as
-  unconsumed, quoted as it did.
+  instead — or one the fixer's report named as unconsumed, whatever
+  state its brief named, quoted as it did.
 - **Every `issue-fixer` round you ran**: the state that drove it, the
   base the fixer rebased onto, each conflict and how the ruling had it
   resolved, and the new head SHA, as the fixer reported them.
