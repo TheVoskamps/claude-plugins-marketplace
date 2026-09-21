@@ -302,6 +302,13 @@ The state the brief names sets the remedy:
   git push --force-with-lease
   ```
 
+  A `BEHIND` brief that carries a ruling is one a previous round of
+  yours escalated on: the ruling names the conflicts that round
+  reported and how each resolves. The gate's `BEHIND` report lists no
+  files, so `pr-merge-readiness` forwards the ruling on the state
+  alone, and matching it to the conflicts is yours: apply it to the
+  conflicts the rebase hits, and report a ruling the rebase did not
+  need as unconsumed, quoting it.
 - **`DIRTY`** — the branch has merge conflicts with its base. The brief
   carries `github-prs:pr-merge-conflicts`' output — the conflicting
   files and hunks — and the ruling on how each is to be resolved.

@@ -120,26 +120,36 @@ the gate reports that state again **with that cause**, on that state's
 row, never by returning the same question a second time. The cause is
 what the report named as needing the ruling: on a `BLOCKED`, the
 failing check or the `reviewDecision`; on a check still running after
-the last wait, that check; on a `DIRTY`, or a `BEHIND` whose fixer
-escalated, the conflicting files; on a state the table does not name,
-the state itself. A state name alone is not a match: a "proceed as
-`CLEAN`" given on one failing check was not given on another. When
-the gate reports any other state, or that state with a cause the
-human did not judge, the ruling is discarded: it travels in no fixer
-brief, and the row the gate landed in runs as with no ruling, so a new
-cause goes back as a fresh question. That discards a `BEHIND` ruling
-when the unchanged branch comes back `DIRTY` with the same conflicts,
-and the human is asked twice — the accepted cost of the rule, since a
-`BEHIND` question and a `DIRTY` question are different questions.
-Name a discarded ruling in your report. Every question this loop can
-return has its arm:
+the last wait, that check; on a `DIRTY`, the conflicting files; on a
+state the table does not name, the state itself. A `BEHIND` is the one
+state whose cause you cannot match before the spawn: the gate's
+`BEHIND` report carries no file list, and the conflicts the ruling
+answers are the ones a fixer's rebase hit, so on a `BEHIND` you match
+the state alone and the cause match is `issue-fixer`'s, per its arm
+below. On every other state a state name alone is not a match: a
+"proceed as `CLEAN`" given on one failing check was not given on
+another. When the gate reports any other state, or that state with a
+cause the human did not judge, the ruling is discarded: it travels in
+no fixer brief, and the row the gate landed in runs as with no ruling,
+so a new cause goes back as a fresh question. That discards a `BEHIND`
+ruling when the unchanged branch comes back `DIRTY` with the same
+conflicts, and the human is asked twice — the accepted cost of the
+rule, since a `BEHIND` question and a `DIRTY` question are different
+questions. Name a discarded ruling in your report. Every question this
+loop can return has its arm:
 
 - **A `DIRTY`**: the ruling is the resolution for each conflict, and
   the `DIRTY` row's with-a-ruling arm is the whole of it — the ruling
   travels in the fixer brief.
 - **A `BEHIND`**: the fixer escalated on the rebase, and the ruling is
-  the resolution for each conflict it reported; it travels in the
-  `BEHIND` row's fixer brief.
+  the resolution for each conflict it reported. A `BEHIND` reported
+  again always forwards it: it travels in the `BEHIND` row's fixer
+  brief, and the cause match is `issue-fixer`'s, made against the
+  conflicts its rebase hits. A conflict the ruling does not settle
+  aborts that rebase and comes back as a fixer escalation, which you
+  return as a question like any other; a ruling whose conflicts the
+  rebase never hit comes back in the fixer's report as unconsumed, and
+  you name it as a discarded ruling.
 - **A stop-cause `BLOCKED`, a state the table does not name, or a
   check still running after the last wait**: the ruling names one of
   three things, and each is acted on the same way whichever of those
@@ -245,7 +255,8 @@ Your report carries:
     ruling, the state and cause beside it.
 - **A ruling the spawn carried that the gate's report did not
   consume**, quoted, with the state and cause the gate reported
-  instead.
+  instead — or, on a `BEHIND`, one the fixer's report named as
+  unconsumed, quoted as it did.
 - **Every `issue-fixer` round you ran**: the state that drove it, the
   base the fixer rebased onto, each conflict and how the ruling had it
   resolved, and the new head SHA, as the fixer reported them.
