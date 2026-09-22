@@ -173,6 +173,12 @@ given, and step 7.
    LIST
    ```
 
+   The `--agent` value is the definition name your own agent body
+   states as a literal. Take it from there, never from what you think
+   your frontmatter says: the harness does not show you your
+   frontmatter, and a guessed name files the list under a tier that
+   was not spawned.
+
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness
    may never deliver, and a later instance of the reviewer reads this

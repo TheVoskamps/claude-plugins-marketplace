@@ -879,7 +879,15 @@ override and nothing else.
 Both signals read the same delta "Carry the previous round's theorems
 forward" computed — on a fallback round, the whole PR diff.
 Say which tier ran, and whether the rubric or an override picked it, in
-the Review method section.
+the Review method section. Read the tier that ran from the generate
+stage's `leave` record for the theorem `list`, never from your own
+spawn choice: in `leave <theorem> <stage> <instant> <agent-id>
+<result-file>`, the `<result-file>` column's file name is
+`list-<agent>`, and that `<agent>` is the definition that ran. The
+`<agent-id>` column is the worktree-derived id, not a definition name.
+When that definition differs from the `<agent>` column of the last
+`spawn` record for the theorem `list`, say so in the Review method
+section and name both.
 
 ### Spawn the theorem generator
 
