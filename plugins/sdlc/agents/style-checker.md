@@ -56,8 +56,8 @@ goes under `.claude/tmp/<task-slug>/`.
 
 ## Setup
 
-Check the branch out attached — the memory capture at the end names
-its inbox after the current branch, and a detached HEAD has none:
+Check the branch out attached — the memory capture at the end refuses
+a detached HEAD:
 
 ```bash
 git fetch origin

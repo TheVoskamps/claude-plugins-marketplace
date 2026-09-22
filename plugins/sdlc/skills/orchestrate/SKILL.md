@@ -96,13 +96,11 @@ inside it. You don't manage worktree paths and you never pass them in
 spawn prompts. Those two run in the primary clone and write nothing to
 it.
 
-A teammate that declares `memory: project` resolves
-`.claude/agent-memory/` relative to that throwaway worktree, so the
-tree starts empty on every run and never reaches a commit; the teammate
-captures its entries into the run's session-scoped inbox at
-end-of-run, and `agent-memory-scrubber` curates that inbox on the
-human's end-of-loop confirmation (see "Final Report"). You never carry
-memory between spawns yourself.
+A teammate that declares `memory: project` captures its entries with
+`/cc-tools:agent-memory-inbox-capture` at end-of-run, and
+`agent-memory-scrubber` curates that inbox on the human's end-of-loop
+confirmation (see "Final Report"). You never carry memory between
+spawns yourself.
 
 ## Invocation
 

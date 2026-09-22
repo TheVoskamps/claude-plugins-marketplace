@@ -182,30 +182,15 @@ from its issue.
 10. Push the branch (it's already tracking the remote).
 
 11. Capture agent memory into the session inbox, before worktree
-    cleanup. `memory: project` resolves `.claude/agent-memory/`
-    relative to your cwd, which is this throwaway worktree — anything
-    you wrote there during this run dies with the worktree unless you
-    move it out. Invoke:
+    cleanup:
 
     ```text
     /cc-tools:agent-memory-inbox-capture
     ```
 
-    That copies the entries that outlive this run into the session's
-    inbox for this branch, where `agent-memory-scrubber` grades them
-    and transfers the durable ones into the repo's own documentation.
     The skill applies its own session-scope filter and reports what it
-    dropped, so do not curate your own entries here. Nothing about
-    your memory is committed, pushed, or `git add`ed:
-    `.claude/agent-memory/` never enters a commit. If the capture
-    fails, stop and report it rather than proceeding to cleanup — the
-    worktree removal is what makes
-    the loss permanent.
-
-    A later round of yours on the same branch writes the same inbox
-    subdirectory, and a same-named entry from this run overwrites the
-    earlier one. That is intended: entries are one fact each, and this
-    run saw more.
+    dropped, so do not curate your own entries here. If the capture
+    fails, stop and report it rather than proceeding to cleanup.
 
 12. End-of-run cleanup — release the branch claim so subsequent
     subagents can check out the same branch. Run this only if step 11
@@ -214,9 +199,7 @@ from its issue.
     commit or the push failed, `git branch -D` would destroy the only
     copy of your work, so stop and report the failure instead of
     proceeding to cleanup. The capture condition holds on the
-    nothing-to-commit path too: your memory entries live only in this
-    worktree until step 11 moves them out, whether or not you committed
-    anything:
+    nothing-to-commit path too:
 
     ```bash
     git checkout --detach
