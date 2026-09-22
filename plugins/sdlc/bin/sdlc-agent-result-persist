@@ -109,7 +109,7 @@ for pair in "owner:$owner" "repo:$repo"; do
   given=${pair#*:}
   [ -n "$given" ] || die "--$name is required"
   case "$given" in
-    *[!A-Za-z0-9._-]*) die "--$name must not contain a path separator or whitespace: $given" ;;
+    *[!A-Za-z0-9._-]*) die "--$name may hold only letters, digits, ., _ and -: $given" ;;
     .|..) die "--$name must not be . or ..: $given" ;;
   esac
 done

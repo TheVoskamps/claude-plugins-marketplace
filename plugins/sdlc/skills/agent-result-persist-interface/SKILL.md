@@ -42,6 +42,7 @@ adding to it.
 sdlc-agent-result-persist --mode <mode> \
   --owner <owner> --repo <repo> --pr <n> [--round <n>] \
   [mode-specific flags]
+sdlc-agent-result-persist --mode list --owner <owner> --repo <repo>
 ```
 
 Spell the command as a bare name, never by path: the rule that lets a
@@ -60,8 +61,8 @@ alike.
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
-  path. Neither may carry a path separator or whitespace, or be `.`
-  or `..`.
+  path. Each may hold only letters, digits, `.`, `_` and `-`, and
+  neither may be `.` or `..`.
 - `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
   from 1, and **`--round 0` is valid**: the pre-loop seed, ruled on by
   the human before any implementer ran.
