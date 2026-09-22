@@ -100,13 +100,17 @@ esac
 
 # A / in an identifying value would silently add a directory level to
 # the composed path, which is why owner and repo stay separate flags
-# rather than arriving as one owner/name token.
+# rather than arriving as one owner/name token. A value of . or .. names
+# no directory of its own: .. climbs out of the level it stands at, and
+# . lets the other value climb further, so either could compose a path
+# outside the state root that every mode reads, writes or deletes under.
 for pair in "owner:$owner" "repo:$repo"; do
   name=${pair%%:*}
   given=${pair#*:}
   [ -n "$given" ] || die "--$name is required"
   case "$given" in
     *[!A-Za-z0-9._-]*) die "--$name must not contain a path separator or whitespace: $given" ;;
+    .|..) die "--$name must not be . or ..: $given" ;;
   esac
 done
 

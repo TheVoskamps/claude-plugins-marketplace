@@ -60,7 +60,8 @@ alike.
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
-  path. Neither may carry a path separator or whitespace.
+  path. Neither may carry a path separator or whitespace, or be `.`
+  or `..`.
 - `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
   from 1, and **`--round 0` is valid**: the pre-loop seed, ruled on by
   the human before any implementer ran.
