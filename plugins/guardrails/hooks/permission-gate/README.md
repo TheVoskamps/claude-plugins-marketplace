@@ -2307,13 +2307,6 @@ file; and the gate's own message fragments ("not all static literals",
 "resolves outside the current repository", "cannot resolve
 statically").
 
-`.claude/agent-memory/` needs no sweep of its own: the tree is
-gitignored, lives only in a throwaway worktree, and the session inbox
-its entries reach dies with the session, so nothing there survives to
-be falsified. Such a note reaches the repo only once a curator
-transfers it into the repo's own documentation, where the grep above
-finds it.
-
 What a verdict looks like **on the wire** is a different axis — why a
 defer omits `permissionDecision` rather than spelling it, explained
 above. A rebucketing PR touches none of it; a PR that changes how a

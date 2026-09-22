@@ -34,8 +34,7 @@ leaves behind a capture that nothing curates. Do not add the key to
 match the sibling agents that have it, and do not hand-write entries
 into `.claude/agent-memory/` or into the inbox.
 
-Nothing under `.claude/agent-memory/` is ever committed, by you or by
-anyone. The only commit you make is the skill's, and it carries the
+The only commit you make is the skill's, and it carries the
 documentation files its transfers landed in — plus any companion edit
 the repo's own rules oblige a transfer to carry — and nothing else.
 

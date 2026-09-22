@@ -546,59 +546,6 @@ child written off as lost to report anyway, leaving one item with
 two finish records: the reader keeps the duplicate
 as a diagnostic, which is what lets no line ever be revised.
 
-### Handing data between agents: a session-scoped inbox
-
-An agent that declares `memory: project` under `isolation: worktree`
-resolves `.claude/agent-memory/<plugin>-<agent>/` inside its own
-throwaway worktree. That tree starts empty on every run and is removed
-with the worktree, so it persists nothing: it is a per-run intake
-queue, and whatever one agent wants a *later* agent to read has to
-leave the worktree before cleanup. Committing it onto the branch is
-the obvious exit and the one this marketplace rejects — the tree is
-gitignored, because notes nothing has graded are not repo content
-(see `.gitignore`).
-
-Route the hand-off through the harness's per-session scratchpad
-instead. Every agent in a session names the same scratchpad directory
-in its own context, so one agent's write is another's read, and the
-directory sits outside every repository — which is what keeps the
-sandboxing constraints above out of the picture. Package the two
-halves as skills in the plugin that owns the format: a **writer** the
-producing agents invoke at end of run, and a **curator** the consuming
-agent invokes, with the path layout and the grading rules in
-separate `skills/lib/` files (constraint 1). Split the judgment by
-what each half can still see: the writer is the last stage holding the
-run in context, so it drops the entries that mean nothing outside it —
-a question no rubric can answer, which is why it reads only the
-layout. The curator reads entry files stripped of that context, and
-both lib files, to decide which survivors are worth publishing.
-Consumers in another plugin invoke the skills by namespaced name and
-add a `dependencies` edge; they cannot read those lib files
-(constraint 3).
-
-`cc-tools`'s agent-memory inbox is the worked instance:
-`/cc-tools:agent-memory-inbox-capture` copies the entries that outlive
-the run into an inbox keyed by branch and by writing agent — the path
-is stated once, in
-`plugins/cc-tools/skills/lib/agent-memory-inbox.md`, and nowhere else
-— and `/cc-tools:agent-memory-inbox-cleanup` grades every captured
-entry transfer-or-delete, then commits the documentation files its
-transfers landed in. `sdlc`'s agents that declare `memory: project`
-call the writer; `agent-memory-scrubber` calls the curator.
-
-These properties come with the pattern rather than with that
-instance:
-
-- **The inbox is session-ephemeral.** Nothing gitignores it, nothing
-  sweeps it, and nothing carries it into the next session, so an entry
-  the curator never grades is simply lost. That makes ordering part of
-  the design — the curator runs after every writer, and again whenever
-  a later writer runs — rather than an implementation detail.
-- **A branch-keyed path is read before the detach.** An agent whose
-  end-of-run cleanup detaches HEAD gets an empty
-  `git branch --show-current` afterwards, so it resolves the branch
-  first and captures before releasing its claim.
-
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same
