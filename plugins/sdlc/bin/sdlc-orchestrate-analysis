@@ -2,7 +2,7 @@
 # Report where one /sdlc:orchestrate run's wall-clock time went, for the
 # PR it produced, as Markdown tables on stdout.
 #
-# Three sources, each read as it stands and never substituted for one
+# Its sources, each read as it stands and never substituted for one
 # another: the PR's review rounds, read only through
 # sdlc-agent-result-persist's print modes and the result-file and
 # transcript paths those modes print; the orchestrator session's
@@ -335,7 +335,7 @@ fi
 # ---------------------------------------------------------------------------
 # Shared awk: ISO-8601 UTC to epoch seconds by civil-date arithmetic, since
 # POSIX awk has no mktime and date's parsing flags differ between BSD and
-# GNU; and a duration printer.
+# GNU; a duration printer; and an escaper for a Markdown table cell.
 read -r -d '' AWK_TIME <<'EOF' || true
 function ep(s,   y, m, d, era, yoe, mp, doy, doe) {
   y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
