@@ -345,8 +345,9 @@ human ruled on before the developer ran, transcribed through the same
 script. The implementing
 agents are outside the claim entirely and write nothing this
 list owns: those declaring `memory: project` capture their agent memory
-into the session's inbox, each of them but `style-checker` commits its
-work to the branch, and `agent-memory-scrubber` commits what that inbox
+with `/cc-tools:agent-memory-inbox-capture`, each of them but
+`style-checker` commits its work to the branch, and
+`agent-memory-scrubber` commits what `/cc-tools:agent-memory-inbox-cleanup`
 transfers.
 
 Write `<round-dir>` for
