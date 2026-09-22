@@ -60,8 +60,9 @@ under `agents/` owns:
   own children, spawned by the review pipeline; each leaves nothing on
   the branch. You spawn a generator yourself exactly once per batch,
   on the issues-only brief, before its developer runs — when it
-  returns, its report is the seed candidate list the human rules on,
-  per "Seed the theorem set from the issues, and put it to the human".
+  returns, its report is the seed candidate list the human rules on —
+  or that `seed-review: auto-accept` accepts whole — per "Seed the
+  theorem set from the issues, and put it to the human".
   The reviewer's rubric picks between the base generator and
   `-medium`; the other two tiers are yours to override with, per
   "Overriding the generator tier" below
@@ -116,8 +117,11 @@ If no issue numbers are given, ask for them before proceeding.
 ### Pre-flight
 
 Read `skills/orchestrate/lib/pre-flight.md` and run it first: the
-primary-clone check, then the per-repo config read that resolves
-`<link-prefix>` for the rest of the run.
+primary-clone check, the per-repo config read that resolves
+`<link-prefix>` for the rest of the run, and the sdlc config
+resolution that fixes `seed-review`, `merge-wait`,
+`merge-poll-interval-seconds` and `merge-max-unchanged-polls` for the
+rest of the run.
 
 ### Gate: refuse an issue that is not orchestrate-ready
 
@@ -278,7 +282,9 @@ Do not:
 - **Pass resolved repo-config values, generic git-workflow
   instructions, end-of-run cleanup steps, or "use this `gh` command"
   templates.** The agents read the config and know their own workflow.
-  Trust them.
+  Trust them. The sdlc config pre-flight resolves is the named
+  exception: no agent reads it, so a resolved value a teammate acts on
+  reaches it only through the brief, which carries it.
 
 Further rules govern **findings** wherever you pass them onward — into
 an `issue-fixer` brief or to the human:
@@ -350,9 +356,10 @@ rule means for one.
 ### Seed the theorem set from the issues, and put it to the human
 
 Before a batch's developer is spawned, the review's theorem set is
-seeded from the issues alone and the human rules on it — so a
-developer that goes beyond the issues, or decides something they do
-not, shows up later against a list the human already owns. The gate
+seeded from the issues alone and the human rules on it, unless
+`seed-review` is `auto-accept` — so a developer that goes beyond the
+issues, or decides something they do not, shows up later against a
+list the human already owns. The gate
 runs once per batch, after the plan is confirmed and the batch's
 members are In Progress, and it is three moves.
 
@@ -393,11 +400,16 @@ issues, settle mode, pointers — and take one ruling per theorem:
 - **change its settle mode**, to `mechanical` or `semantic`;
 - **merge** into another theorem, with a claim the human states.
 
-A theorem the human does not name is accepted. This is a question and
-ends your turn: write nothing until the human has ruled. You carry no
-review vocabulary on the human's behalf — a merged claim is the
-human's words, quoted, per "Posting the human's review adjustments as
-a PR comment".
+A theorem the human does not name is accepted. Under `seed-review:
+ask` this is a question and ends your turn: write nothing until the
+human has ruled. You carry no review vocabulary on the human's behalf —
+a merged claim is the human's words, quoted, per "Posting the human's
+review adjustments as a PR comment".
+
+Under `seed-review: auto-accept`, still show every candidate the same
+way, say that the config accepted all of them, and continue without
+waiting: every theorem is accepted as the generator emitted it, and
+that list is the ruled seed from here on.
 
 **Hold the ruled list until the PR exists.** The ruled list is the
 seed, and it is written as round 0 of the PR's state once the
@@ -458,8 +470,9 @@ cheaply. From the moment it returns, the PR body is frozen.
 **Then write the ruled seed as round 0 of the PR's state**, per that
 file, before `code-documenter` and before the first reviewer spawn —
 the PR number now exists to key the path on. That write is
-transcription of the human's rulings, not authored review content, per
-"Your own boundary".
+transcription of the human's rulings — or, under `seed-review:
+auto-accept`, of the generator's list as emitted — not authored review
+content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
 round. A plugin the issue's title and body do not name, a rename or
@@ -936,7 +949,9 @@ for it.
    It is linear, and every step is safe to repeat.
 
 4. **Spawn `pr-monitor`**, with the brief the PR-lifecycle file
-   carries. It polls until one of its outcomes:
+   carries — unless `merge-wait` is `skip`. Then spawn nothing: the
+   PR's stages end at the ready flip, and the summary lists it as
+   ready and unmonitored. Otherwise it polls until one of its outcomes:
 
    - **Merged** — the PR's stages are done; start the next confirmed
      PR's, or the post-merge tail when this was the last.
@@ -952,7 +967,8 @@ for it.
 more than one PR, take them in the order confirmed, and start the next
 PR's stages — the pre-readiness spawns onward — only when the previous
 PR's monitor loop has ended, whether by a merge, a close, or the human
-declining to keep waiting. The first PR's merge moves the base the
+declining to keep waiting; under `merge-wait: skip`, when the previous
+PR's ready flip has landed. The first PR's merge moves the base the
 second is measured against, so serialising is what makes the second
 PR's merge-readiness loop see that merged base — and rebase onto it —
 before its finalizer writes a section describing commits the rebase
@@ -966,7 +982,8 @@ so the body stays frozen for whatever round comes next.
 
 ### The post-merge tail and the summary, once per run
 
-After the last PR's monitor loop ends, read
+After the last PR's monitor loop ends — or its ready flip, under
+`merge-wait: skip` — read
 `skills/orchestrate/lib/report.md` and follow it: the single cleanup
 sweep, the return of the primary clone to the default branch, and then
 the summary in the shape that file gives.

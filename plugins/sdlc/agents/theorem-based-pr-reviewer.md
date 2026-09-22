@@ -624,9 +624,9 @@ stored records, which is the first fallback trigger below.
 
 If that `round <n>` names **round 0**, the carried records are the
 seed: the theorem list the orchestrator generated from the issues
-before the developer ran, as the human ruled on it. An accepted or
-re-moded theorem there carries **no `state`** — it has never been
-attacked — and a rejected or merged one is `retired` /
+before the developer ran, as the orchestrator's seed step settled it.
+An accepted or re-moded theorem there carries **no `state`** — it has
+never been attacked — and a rejected or merged one is `retired` /
 `human-refuted`. This round is round 1 taking the **delta path**, not
 the whole-diff fallback: round 0 has no log and no head, so
 `<prev-head>` is the merge-base of the PR head and the base branch,

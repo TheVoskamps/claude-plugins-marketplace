@@ -1,7 +1,7 @@
 # Pre-flight
 
-Two checks run before any analysis, in this order: the primary-clone
-check, then the per-repo config read.
+Three steps run before any analysis, in this order: the primary-clone
+check, the per-repo config read, then the sdlc config resolution.
 
 ## The orchestrator must run from the primary clone
 
@@ -39,3 +39,23 @@ no `.issues/repo-config.md`. Run `/repo-config` to create one."
 
 Throughout the rest of the run, `<link-prefix>` means the resolved
 value above.
+
+## Resolve the sdlc config
+
+Read `skills/lib/sdlc-config.md` and resolve its three tiers per its
+"Reading" section, once, here. An abort it calls for stops the run
+before any issue is read.
+
+Print every key's resolved value beside the tier it came from, one
+line per key, before the readiness gate:
+
+```text
+sdlc config:
+  seed-review: ask (default)
+  merge-wait: monitor (default)
+  merge-poll-interval-seconds: 300 (repo user)
+  merge-max-unchanged-polls: 15 (default)
+```
+
+Throughout the rest of the run, each key's name means its resolved
+value. Nothing re-reads a config file after this point.
