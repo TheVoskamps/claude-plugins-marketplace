@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves the conflicts the brief lists — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY.
+description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves the conflicts the brief lists — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -81,10 +81,9 @@ from its issue.
    picking the review instead would put your own reading of it where
    the orchestrator's judgment belongs.
 
-   The marker is spelled here, in `sdlc:orchestrate` → "Handling
-   review findings — the fix loop" which writes it, and in every other
-   `sdlc` file that reads it. A change to the literal sweeps all of
-   them: `git grep -n 'sdlc:fixer-brief'`.
+   The marker is spelled in every `sdlc` file that writes or reads
+   it, this one included. A change to the literal sweeps all of them:
+   `git grep -n 'sdlc:fixer-brief'`.
 
    The brief carries the findings, each on a line that ends with its
    scope ruling — `— in scope`, `— outside the issue; put to the
@@ -102,10 +101,10 @@ from its issue.
    fixed; one ruled `put to the human` is fixed exactly as the answer
    on its line says, and not otherwise.
 
-   A brief that carries no findings but names a merge state — `BEHIND`
-   or `DIRTY` — is the other kind of brief, and "Merge-readiness
-   briefs" below says what it asks of you. Steps 3 to 6 are about
-   findings and do not apply to it; the rest of the workflow does.
+   A brief that carries no findings but names a merge state is the
+   other kind of brief, and "Merge-readiness briefs" below says what
+   it asks of you. Steps 3 to 6 are about findings and do not apply to
+   it; the rest of the workflow does.
 
 2. Fetch the remote and check out the PR branch:
 
@@ -194,14 +193,13 @@ from its issue.
 
     That copies the entries that outlive this run into the session's
     inbox for this branch, where `agent-memory-scrubber` grades them
-    and transfers the durable ones into the repo's own documentation —
-    for when it runs, see the `/sdlc:orchestrate` skill → "Before
-    `/pr-ready`: curate the PR's agent memory". The skill applies its
-    own session-scope filter and reports what it dropped, so do not
-    curate your own entries here. Nothing about your memory is
-    committed, pushed, or `git add`ed: `.claude/agent-memory/` never
-    enters a commit. If the capture fails, stop and report it rather
-    than proceeding to cleanup — the worktree removal is what makes
+    and transfers the durable ones into the repo's own documentation.
+    The skill applies its own session-scope filter and reports what it
+    dropped, so do not curate your own entries here. Nothing about
+    your memory is committed, pushed, or `git add`ed:
+    `.claude/agent-memory/` never enters a commit. If the capture
+    fails, stop and report it rather than proceeding to cleanup — the
+    worktree removal is what makes
     the loss permanent.
 
     A later round of yours on the same branch writes the same inbox
@@ -277,19 +275,25 @@ the change you make.
 
 ## Merge-readiness briefs
 
-The orchestrator's close-out gates a PR on `github-prs:pr-ready-to-merge`
-and never rebases or resolves a conflict itself; when the gate reports
-the branch `BEHIND` or `DIRTY`, the remedy is yours, and it reaches
-you as a fixer brief whose body is the gate's report verbatim. Such a
-brief names no findings and carries no branch line; take the head and
-base branches from the PR:
+A blessed PR is gated on `github-prs:pr-ready-to-merge` by the
+`pr-merge-readiness` agent, which the orchestrator spawns for that loop
+and which never rebases or resolves a conflict itself; when the gate
+reports a state whose remedy is on the branch, the remedy is yours,
+and `pr-merge-readiness` — not the orchestrator — spawns you with a
+fixer brief whose body is the gate's report verbatim, followed by the
+human's ruling when it carries one — a ruling answers only the question
+it was asked, so one that reaches you was given on the state the brief
+names. Such a brief names no findings and carries no branch line; take
+the head and base branches from the PR:
 
 ```bash
 gh pr view <PR_number> --json headRefName,baseRefName
 ```
 
-- **A brief naming `BEHIND`** means the branch is behind its base.
-  Rebase it onto the base and push with `--force-with-lease`:
+The state the brief names sets the remedy:
+
+- **`BEHIND`** — the branch is behind its base. Rebase it onto the base
+  and push with `--force-with-lease`:
 
   ```bash
   git fetch origin
@@ -298,22 +302,39 @@ gh pr view <PR_number> --json headRefName,baseRefName
   git push --force-with-lease
   ```
 
-- **A brief naming `DIRTY`** means the branch has merge conflicts with
-  its base. The brief carries `github-prs:pr-merge-conflicts`' output —
-  the conflicting files and hunks — followed by the human's ruling on
-  how each is to be resolved. Rebase as for `BEHIND`; when the rebase
-  stops on a conflict, resolve each listed file exactly as the ruling
-  says, `git add` it, and `git rebase --continue`, then push with
-  `--force-with-lease`. A conflict the ruling does not settle is a
-  design decision you cannot make: abort the rebase, leave the branch
-  as it was, and report which conflict has no ruling, quoting it.
+  A `BEHIND` brief that carries a ruling is one a previous round of
+  yours escalated on: the ruling names the conflicts that round
+  reported and how each resolves. The gate's `BEHIND` report lists no
+  files, so `pr-merge-readiness` forwards the ruling on the state
+  alone, and matching it to the conflicts is yours: apply it to the
+  conflicts the rebase hits, and report a ruling the rebase did not
+  need as unconsumed, quoting it.
+- **`DIRTY`** — the branch has merge conflicts with its base. The brief
+  carries `github-prs:pr-merge-conflicts`' output — the conflicting
+  files and hunks — and the ruling on how each is to be resolved.
+  Rebase as for `BEHIND`.
+- **Any other state** reaches you only with a ruling naming the remedy
+  to run — a rebase, or a change on the branch that turns a check
+  green. Carry it out as the ruling says, under this file's rules as
+  any fix is.
+
+The ruling governs the remedy the same way on every state. A rebase
+that stops on a conflict is resolved as the ruling says — resolve each
+file exactly so, `git add` it, and `git rebase --continue`, then push
+with `--force-with-lease`. A conflict the ruling does not settle, or
+that no ruling reaches, is a design decision you cannot make, and so
+is a ruling that leaves the remedy unclear: abort the rebase, leave
+the branch as it was, and report what has no ruling, quoting it.
+`pr-merge-readiness` returns that as the question, and the human's
+ruling reaches you in the next brief.
 
 Run the tests after the rebase, as for any other change. Then capture
 memory, clean up, and report back per the workflow: which state the
 brief named, the base you rebased onto, each conflict and how the
-ruling had you resolve it, the new head SHA, and the test result. The
-orchestrator re-runs the gate on your return; no review round follows
-a merge-readiness brief.
+ruling had you resolve it, any ruling the rebase did not need, quoted,
+the new head SHA, and the test result.
+`pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
+again on your return; no review round follows a merge-readiness brief.
 
 `--force-with-lease` is the one force flag this file sanctions, and a
 rebase is the one occasion: the push replaces commits the PR already

@@ -17,12 +17,13 @@ agents it spawns — every `theorem-generator` variant,
 `theorem-disprover`, and `counterexample-verifier` — fetch the diff, as do the `issue-fixer`,
 `code-documenter`, `style-checker`, and `docs-writer`. The orchestrator
 keeps PRs draft through the review/fix loop; once the human blesses a
-PR at end-of-loop it gates the close-out on the PR's merge readiness,
-enumerating the conflicts when the branch has any, and only then reads
-those same closing lines for the issues it flips to In Review and
-flips the PR draft → ready. It keeps reading the merge readiness while
-it waits for the merge. Each skill is still a standalone verb usable
-by a human or any caller.
+PR at end-of-loop, `pr-merge-readiness` gates the close-out on the PR's
+merge readiness, enumerating the conflicts when the branch has any, and
+only then does the orchestrator read those same closing lines for the
+issues it flips to In Review and flip the PR draft → ready.
+`pr-monitor` keeps reading the merge readiness while the PR waits for
+its merge. Each skill is still a standalone verb usable by a human or
+any caller.
 
 ## One PR, one issue set
 
@@ -178,9 +179,9 @@ ahead of the caller's text, leaving the caller's own file untouched.
 
 Flips a draft PR into ready-for-review. A draft PR cannot be
 auto-merged (the repo's auto-merge workflow filters `isDraft ==
-false`), so keeping PRs draft until this point is what enforces "the
-orchestrator never merges." Safe to run more than once — `gh` no-ops
-if the PR is already ready.
+false`), so the flip is the point at which a PR becomes mergeable, and
+keeping a PR draft until then is what keeps it inert. Safe to run more
+than once — `gh` no-ops if the PR is already ready.
 
 ### `/pr-draft <N>`
 

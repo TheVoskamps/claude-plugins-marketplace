@@ -10,11 +10,11 @@ merges.
 ## Find the owner of a statement before you edit it
 
 This plugin's hazard is duplication. Its behavior is described across
-an agent file, a skill body and this README, and
-nothing tests prose, so a change made in one place leaves the others
-asserting the opposite. Every fact has exactly one owner: edit the
-owner, repair pointers elsewhere, and never let a second file restate
-the fact.
+an agent file, a skill body, the lib files beside that body and this
+README, and nothing tests prose, so a change made in one place leaves
+the others asserting the opposite. Every fact has exactly one owner:
+edit the owner, repair pointers elsewhere, and never let a second file
+restate the fact.
 
 | Fact | Owner |
 | --- | --- |
@@ -22,8 +22,10 @@ the fact.
 | What one agent does | that agent's own file under `agents/` |
 | What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
-| How the orchestrator sequences the flow and briefs each teammate | `skills/orchestrate/SKILL.md` |
-| What the close-out does on each merge-readiness state a blessed PR reports, and the bounds on its waits | `skills/orchestrate/SKILL.md` |
+| How the orchestrator sequences the flow, what it branches on when a teammate returns, and how it briefs the teammates it spawns during the review loop | `skills/orchestrate/SKILL.md` |
+| The procedure the orchestrator runs at one moment of the flow, and the briefs it spawns at that moment | the file for that moment under `skills/orchestrate/lib/` |
+| What the merge-readiness loop does on each state the gate reports, which of those it returns as a question, how a ruling is matched to the question it answered, and the bounds on its waits | `agents/pr-merge-readiness.md` |
+| What ends the monitor loop, and the bounds on its polls | `agents/pr-monitor.md` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
@@ -41,6 +43,38 @@ added a copy of a contract would add a surface to sweep — one that no
 test and no doc pass naturally opens — and it would go stale silently.
 When something here and an owner file disagree, the owner file wins
 and this file is the thing to fix.
+
+## The orchestrator's body holds what every turn needs
+
+`skills/orchestrate/SKILL.md` is resident for the whole run, so every
+line in it competes for attention with the judgment text the run
+depends on: the agent roster with what the orchestrator branches on at
+each return, the spawn-prompt and report-consumption principles, the
+fix loop's decision points, the escalation relay and the hard
+constraints. Procedure that applies at one known moment lives outside
+the body, in one of two shapes:
+
+- A **linear** procedure — run once at its moment, top to bottom — is
+  a lib file under `skills/orchestrate/lib/`, one file per moment. The
+  body names each file exactly once, at the point where it applies, and
+  the orchestrator reads it when that moment arrives and not before.
+- A **loop** — a gate run repeatedly with a remedy between runs — is
+  an agent, spawned at its moment and reporting back when the loop
+  ends, so that no single surface absorbs the whole loop and its
+  bounds move with it.
+
+| Lib file | Moment |
+| --- | --- |
+| `pre-flight.md` | before any issue is read: the primary-clone check and the per-repo config read |
+| `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
+| `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
+| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the spawns on the human's end-of-loop confirmation, the close-out, and the briefs for the two loop agents |
+| `report.md` | after the last PR's monitor loop ends: the post-merge tail and the summary |
+
+A step the orchestrator runs is run by exactly one of the body, a lib
+file, `pr-merge-readiness` or `pr-monitor`; a PR that moves a step
+edits the surface it leaves and the one it lands in, and this table
+when a lib file's moment changes.
 
 ## Sweep a contract change by grepping the string, not the file list
 
@@ -96,8 +130,10 @@ and the orchestrator's roster line and spawn prompt in the same change.
 ## A spawn template and its receiving agent are one change
 
 The orchestrator's teammate briefs are two-sided, and the receiving
-side is the half that stays stale. When you widen a spawn template in
-`skills/orchestrate/SKILL.md`, repair the bullet **list** under the
+side is the half that stays stale. When you widen a spawn template —
+in `skills/orchestrate/SKILL.md`, in the lib file for the moment the
+spawn belongs to, or in `agents/pr-merge-readiness.md`, which briefs
+the teammates it spawns itself — repair the bullet **list** under the
 receiving agent's `## Inputs`, matching it against the template field
 by field. The prose around that list often already reads as if it
 covered the new field, which is what makes the omission survive review.
@@ -124,9 +160,9 @@ end.
 
 Not everything below is a roster entry, and what is not has a trigger
 of its own. The frontmatter keys spelled here hold for a whole class —
-`isolation: worktree` on every agent, `user-invocable: false` on the
-skills that are not user verbs — so a PR changing either key edits
-this file. And how `/sdlc:orchestrate-ready` and `/sdlc:orchestrate`
+`isolation: worktree` on every agent but the two loop agents,
+`user-invocable: false` on the skills that are not user verbs — so a
+PR changing either key edits this file. And how `/sdlc:orchestrate-ready` and `/sdlc:orchestrate`
 relate — one writes a body up to the bar, the other refuses a body
 below it, and neither runs the other — is summarised here, so a PR
 that changes how the two relate edits it here. So are the stages a
@@ -144,28 +180,42 @@ and a final section written while the branch is behind its base
 describes commits a rebase is about to rewrite. So a blessed PR goes
 through the close-out's stages in order: the agents that still put
 commits on the branch (`docs-writer`, `agent-memory-scrubber`), then
-the **ready loop**, which runs `github-prs:pr-ready-to-merge` and
-leaves only on a state the orchestrator's table lets through; then the
-linear **close-out** — the In Review flips, `pr-finalizer`, the ready
-flip; then the **monitor loop**, which polls until the PR merges and
-re-runs the gate while it waits; and, once per run after the last PR's
-monitor loop ends, the **post-merge tail**, which owns the single
-cleanup sweep and returns the primary clone to the default branch. One
-PR goes through the stages at a time, because the first merge moves
-the base the next PR is measured against.
+the **merge-readiness loop** — the `pr-merge-readiness` agent, which
+runs `github-prs:pr-ready-to-merge` and leaves only on a state its
+table lets through; then the linear **close-out** — the In Review
+flips, `pr-finalizer`, the ready flip; then the **monitor loop** — the
+`pr-monitor` agent, which polls until the PR merges and re-runs the
+gate while it waits, returning when the branch has fallen `BEHIND` or
+`DIRTY` so the merge-readiness loop runs again; and, once per run
+after the last PR's monitor loop ends, the **post-merge tail**, which
+owns the single cleanup sweep and returns the primary clone to the
+default branch. One PR goes through the stages at a time, because the
+first merge moves the base the next PR is measured against.
 
 The split that holds this together: the gate **reports**, and the
-remedy is a teammate's. The orchestrator never runs `git rebase` or
-`git merge` or hand-edits a conflict in the primary clone. A branch the
-gate finds `BEHIND` or `DIRTY` is handed to `issue-fixer` through the
-same fixer-brief comment the review loop uses, carrying the gate's
-report verbatim, and the fixer's return is followed by the memory
-scrub and the gate again rather than a review round — so `issue-fixer`
-performs merge-readiness remedies as well as review fixes, and the two
-kinds of brief are told apart by whether the brief carries findings.
-What each state drives, and every wait bound in the loops, is owned by
-`skills/orchestrate/SKILL.md`, and each bound is a declared starting
-value rather than a measured one.
+remedy is a teammate's. Neither the orchestrator nor a loop agent runs
+`git rebase` or `git merge` or hand-edits a conflict in the primary
+clone. A branch the gate finds `BEHIND` or `DIRTY` is handed by
+`pr-merge-readiness` to `issue-fixer` through the same fixer-brief
+comment the review loop uses, carrying the gate's report verbatim, and
+the fixer's return is followed by the memory scrub and the gate again
+rather than a review round — so `issue-fixer` performs merge-readiness
+remedies as well as review fixes, and the two kinds of brief are told
+apart by whether the brief carries findings. What each state drives,
+and every wait bound in a loop, is owned by that loop agent's own
+file, and each bound is a declared starting value rather than a
+measured one.
+
+A loop agent never asks; it returns. The orchestrator is the only
+party in a position to put a question to the human, so a state that
+needs a ruling ends the agent's run: it returns with the gate's report
+verbatim as its question, the orchestrator relays the question, and on
+the answer spawns the agent again with the ruling in the brief, keyed
+to the state and cause the question named. A ruling answers only that
+question: the re-spawn runs the gate afresh, and a ruling the new
+report does not consume is discarded and named in the agent's report,
+so the human learns that an earlier answer lapsed rather than took
+effect.
 
 Because every failed gate means the close-out is run again, each of
 its steps is safe to repeat: the status flips repeat harmlessly, the
@@ -339,8 +389,12 @@ here bounds that growth — removing one is the operator's own call.
 
 ## Agents
 
-Every agent declares `isolation: worktree`, so the harness creates a
-throwaway worktree per spawn.
+Every agent but `pr-merge-readiness` and `pr-monitor` declares
+`isolation: worktree`, so the harness creates a throwaway worktree per
+spawn. Those two declare no `isolation` and run in the orchestrator's
+primary clone, writing nothing to it: each is a loop over a gate, and
+every change to the branch a loop drives is a commit by a teammate it
+spawns or that the orchestrator spawns after it.
 
 | Agent | Purpose |
 | ------- | --------- |
@@ -350,7 +404,9 @@ throwaway worktree per spawn.
 | `style-checker` | Reports a round's style-guide violations for the human to rule on, before its review |
 | `docs-writer` | Writes a PR's documentation once, after its review loop ends |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
+| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` and then `agent-memory-scrubber` for each remedy, and returns a state that needs a ruling as a question |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, replacing the one an earlier run left |
+| `pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |
@@ -397,7 +453,7 @@ wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, the PR verbs, `agent-memory-inbox-capture`,
 and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
-`git-cleanup-branches-and-worktrees`, which
-`skills/orchestrate/SKILL.md` invokes once. The edge coordinates
+`git-cleanup-branches-and-worktrees`, which the orchestrator's
+post-merge tail invokes once. The edge coordinates
 install and enablement, not file access: plugins are file-sandboxed,
 so nothing here reads another plugin's files.

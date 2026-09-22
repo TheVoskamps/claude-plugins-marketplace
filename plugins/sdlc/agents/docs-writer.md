@@ -100,9 +100,7 @@ body change reaches it.
 
 You do not judge, prune, or edit anything under `.claude/agent-memory/`
 beyond your own entries, or anything in the session's agent-memory
-inbox. That is the `agent-memory-scrubber` agent's job — for when it
-runs, see the `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate
-the PR's agent memory".
+inbox. That is the `agent-memory-scrubber` agent's job.
 
 ## Output
 

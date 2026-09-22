@@ -65,8 +65,7 @@ Nothing of the issues' *content* is an input. You read each issue
 yourself in step 1, and you derive the files a fix touches yourself;
 neither arrives in the brief. This list is the required minimum, so a
 brief may carry a further decision or scope ruling the orchestrator
-owns — but never a finding, a location, or an implementation shape
-(see the `/sdlc:orchestrate` skill → "Spawn-prompt principle").
+owns — but never a finding, a location, or an implementation shape.
 
 ## Workflow
 
@@ -174,9 +173,9 @@ owns — but never a finding, a location, or an implementation shape
     - `--draft` is REQUIRED: every PR is born as a draft. A draft PR
       cannot be auto-merged (the repo's auto-merge workflow filters
       `isDraft == false`), so it stays inert until the orchestrator
-      flips it to ready in its Final Report after the human blesses
-      it. The closing keyword only fires on merge to the default
-      branch, so it too stays inert while the PR is draft.
+      flips it to ready, after the human blesses it. The closing
+      keyword only fires on merge to the default branch, so it too
+      stays inert while the PR is draft.
     - The closing keywords in the **PR body** (never a commit message)
       are REQUIRED, not forbidden. Per the closing-keyword rule — PR
       body only, the branch's own issue set
@@ -215,14 +214,13 @@ owns — but never a finding, a location, or an implementation shape
 
     That copies the entries that outlive this run into the session's
     inbox for this branch, where `agent-memory-scrubber` grades them
-    and transfers the durable ones into the repo's own documentation —
-    for when it runs, see the `/sdlc:orchestrate` skill → "Before
-    `/pr-ready`: curate the PR's agent memory". The skill applies its
-    own session-scope filter and reports what it dropped, so do not
-    curate your own entries here. Nothing about your memory is
-    committed, pushed, or `git add`ed: `.claude/agent-memory/` never
-    enters a commit. If the capture fails, stop and report it rather
-    than proceeding to cleanup — the worktree removal is what makes
+    and transfers the durable ones into the repo's own documentation.
+    The skill applies its own session-scope filter and reports what it
+    dropped, so do not curate your own entries here. Nothing about
+    your memory is committed, pushed, or `git add`ed:
+    `.claude/agent-memory/` never enters a commit. If the capture
+    fails, stop and report it rather than proceeding to cleanup — the
+    worktree removal is what makes
     the loss permanent.
 
 12. End-of-run cleanup — release the branch claim so subsequent
