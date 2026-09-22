@@ -4,7 +4,9 @@
 # records and the round's argued review in files of their own, so a
 # round completes from what is on disk rather than from what a caller
 # heard back, and so the next round reads its predecessor's records off
-# disk rather than off the PR.
+# disk rather than off the PR. It also lists the PRs a repo holds state
+# for and deletes one PR's state whole, which is the only way any of it
+# is ever removed.
 #
 # Every path is composed here and nowhere else — the round log, each
 # result file, the records file, the review file, and each child's
@@ -258,7 +260,7 @@ store_from_stdin() {
 }
 
 # Every mode that writes writes into the same directory; the reading
-# modes create nothing.
+# modes and delete create nothing.
 case "$mode" in
   print|print-records|print-review|list|delete) ;;
   *) mkdir -p "$dir" ;;
