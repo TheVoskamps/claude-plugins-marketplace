@@ -11,7 +11,8 @@ comes back out. An `## Inputs` section names which of the parameters
 below one agent's brief carries and adds only what is specific to
 that agent — `theorem-disprover`'s and `counterexample-verifier`'s in
 their own agent files, the generator's in `sdlc:theorem-generation`,
-since the generator skeletons hold no instructions of their own. The
+since the generator skeletons leave the whole generation procedure to
+that skill. The
 meaning of a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:

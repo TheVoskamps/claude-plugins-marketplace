@@ -210,29 +210,28 @@ The pattern that avoids it: move the agent's entire operating
 instruction into a skill in the same plugin, name that skill in each
 definition's `skills:` frontmatter so it is preloaded at spawn, and
 leave each definition a **skeleton** — frontmatter plus a pointer at
-the skill. The definitions then differ only in `name:`, `effort:`, and
-the tier phrase in `description:`, and choosing a tier is choosing
-which definition to spawn.
-
-`sdlc`'s theorem generators are the worked instance:
-`theorem-generator`, `theorem-generator-medium`,
-`theorem-generator-high`, and
-`theorem-generator-xhigh` are skeletons over
-`plugins/sdlc/skills/theorem-generation/SKILL.md`.
+the skill. The definitions then differ only in `name:`, `effort:`, the
+tier phrase in `description:`, and one body sentence stating the
+definition's own name and tier as literals, and choosing a tier is
+choosing which definition to spawn. The body sentence is there because
+the harness does not inject frontmatter into the agent's prompt: without
+it a skeleton cannot know which definition it is, and guesses whenever
+it has to name itself.
 
 - **The skill is tier-blind.** It carries no tier parameter and never
   asks which variant is running it, so the variants cannot diverge in
   behavior — only in budget.
 - **Guidance never lands in a skeleton.** Anything a skeleton says that
   its siblings do not is the second source of truth the pattern exists
-  to remove; a `diff` of the skeletons is the mechanical check.
-- **A skeleton points at the whole skill, not at its parts.** The `diff`
-  check above catches only what one skeleton says and its siblings do
-  not, so a list of the skill's sections — identical in every skeleton,
-  and read by the agent as the skill's section set — passes it while
-  falling behind the skill. `sdlc`'s skeletons carried such a list and
-  it had already gone stale; the repair is a pointer at the file as a
-  whole, which cannot go stale, rather than a wider list, which can.
+  to remove. The one per-skeleton body line allowed is the sentence
+  stating the definition's own name and tier.
+- **A skeleton points at the whole skill, not at its parts.** Comparing
+  the skeletons catches only what one says and its siblings do not, so
+  a list of the skill's sections — identical in every skeleton, and
+  read by the agent as the skill's section set — passes that comparison
+  while falling behind the skill. The repair is a pointer at the file
+  as a whole, which cannot go stale, rather than a wider list, which
+  can.
 
 Such a skill is machinery, not a user verb: give it
 `user-invocable: false` (constraint 4) so it stays out of the human `/`

@@ -27,8 +27,10 @@ of it, start to finish. Nothing in this file changes what you generate
 or how you report it; what follows is only the frontmatter's
 consequences for your worktree.
 
-Your reasoning tier is the `effort:` in the frontmatter above. The
-generation skill is tier-blind and never asks which generator is
+Your definition is `theorem-generator-xhigh` and your reasoning tier is
+xhigh. Pass that name as `--agent` on your `leave` call.
+
+The generation skill is tier-blind and never asks which generator is
 running it — the reviewer picks a tier by spawning one of the
 generator variants (see the `sdlc:theorem-based-pr-reviewer` agent →
 "Pick the generator tier").

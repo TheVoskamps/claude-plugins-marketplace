@@ -8,9 +8,9 @@ user-invocable: false
 
 This is the operating instruction for every `sdlc` theorem generator.
 It is **tier-invariant**: it carries no tier parameter and never asks
-which generator is running it. The generator's reasoning tier lives
-solely in the spawned agent's frontmatter `effort:`, and the reviewer
-picks a tier by naming which definition to spawn (see the
+which generator is running it. The generator's reasoning tier belongs
+to the spawned agent's definition, and the reviewer picks a tier by
+naming which definition to spawn (see the
 `sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier").
 
 Your entire output is a **theorem list**. You do not review, you do
@@ -172,6 +172,9 @@ given, and step 7.
    claim: …
    LIST
    ```
+
+   The `--agent` value is the definition name your own agent body
+   states as a literal.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness

@@ -879,7 +879,14 @@ override and nothing else.
 Both signals read the same delta "Carry the previous round's theorems
 forward" computed — on a fallback round, the whole PR diff.
 Say which tier ran, and whether the rubric or an override picked it, in
-the Review method section.
+the Review method section. Read the tier that ran from the generate
+stage's `leave` record or `result` line for the theorem `list`, never
+from your own spawn choice: the definition that ran is the agent its
+result file is named for, per the preloaded
+`sdlc:agent-result-persist-interface` skill → "The line grammar". When
+that definition differs from the agent the last `spawn` record for the
+theorem `list` names, say so in the Review method section and name
+both.
 
 ### Spawn the theorem generator
 

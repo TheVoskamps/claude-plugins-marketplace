@@ -429,8 +429,10 @@ spawns or that the orchestrator spawns after it.
 ### The generator skeletons are copies of one file
 
 `agents/theorem-generator.md`, `-medium`, `-high` and `-xhigh` are
-byte-identical except the frontmatter `name:` and `effort:` lines and
-the tier phrase in `description:`. Generation instructions live in
+byte-identical except the frontmatter `name:` and `effort:` lines, the
+tier phrase in `description:`, and the one body sentence stating the
+definition's own name and tier as literals — the name each passes as
+`--agent` on its `leave` call. Generation instructions live in
 `skills/theorem-generation/SKILL.md`, preloaded into each skeleton, so
 picking a tier is picking which definition to spawn rather than
 passing a parameter. After editing any skeleton, prove the others
@@ -443,11 +445,11 @@ for v in medium high xhigh; do
 done
 ```
 
-Only those lines may differ. A skeleton must not carry generation
-guidance, and must not *enumerate* what the skill supplies — a list of
-the skill's sections is byte-identical across all four skeletons, so
-the `diff` passes while every copy names a section set the skill no
-longer has. Point at the whole file instead.
+Only those lines and that sentence may differ. A skeleton must not
+carry generation guidance, and must not *enumerate* what the skill
+supplies — a list of the skill's sections is byte-identical across all
+four skeletons, so the `diff` passes while every copy names a section
+set the skill no longer has. Point at the whole file instead.
 
 `theorem-disprover` and `counterexample-verifier` are deliberately not
 skeleton sets: one definition each, no tiers, and a `model` the
