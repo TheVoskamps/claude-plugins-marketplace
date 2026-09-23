@@ -2054,8 +2054,8 @@ Field rules, on top of the record shape "The theorem contract" already
 owns:
 
 - **`state`** — one of `disproved`, `unsettled`, or `retired`. A record
-  may lack `state` in **round 0 only** — a seed theorem the human
-  accepted or re-moded, which no round has attacked — and every round
+  may lack `state` in **round 0 only** — an accepted or re-moded seed
+  theorem, which no round has attacked — and every round
   from 1 on stamps one on every record. A theorem
   is stamped `retired` in the very round that settled it — the round it
   survived, or the round whose counterexample the verifier refuted — and
