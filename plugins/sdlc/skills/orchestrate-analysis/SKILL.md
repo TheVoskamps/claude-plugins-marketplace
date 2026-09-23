@@ -1,6 +1,6 @@
 ---
 name: orchestrate-analysis
-description: Report where an /sdlc:orchestrate run's wall-clock time went for one PR — a begin-to-end timeline, totals, per-round review phases, every wait on the human, and each theorem ruled on — by running the read-only sdlc-orchestrate-analysis script.
+description: Report where an /sdlc:orchestrate run's wall-clock time went for one PR — a begin-to-end timeline, totals, per-round review phases, every wait on the human, and each ruling on a theorem or on a fixer-brief finding that names none — by running the read-only sdlc-orchestrate-analysis script.
 ---
 
 # Orchestrate Analysis
