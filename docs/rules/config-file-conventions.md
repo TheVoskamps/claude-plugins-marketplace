@@ -150,3 +150,9 @@ never delete a key on a "leave unset" answer. A file one skill owns
 end to end is rewritten whole. `user-config.md` is the first kind;
 `repo-config.md` is the second. A reader of either tolerates keys it
 does not recognize and never errors on one.
+
+Named exception: each of `sdlc`'s three config-tier files has one
+writer skill, and that writer merges rather than rewrites. A tier file
+is written by hand as readily as by its writer, and a rewrite from the
+writer's own key table would drop every hand-written key the table does
+not list.

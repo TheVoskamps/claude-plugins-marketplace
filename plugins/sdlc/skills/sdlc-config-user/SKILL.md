@@ -21,11 +21,18 @@ no repository to write into.
 
 The file must never be committed, so the repo's tracked `.gitignore`
 lists it. Before the writer's approval step, read
-`<repo-root>/.gitignore` and check whether it already ignores the file,
-from `<repo-root>`:
+`<repo-root>/.gitignore` and check whether it already ignores the file.
+A plain `git check-ignore` also honours `core.excludesFile` and
+`.git/info/exclude`, which never leave this machine, so borrow the git
+directory of an empty repository in the session scratchpad and turn the
+global file off; only the working tree's own `.gitignore` files are
+then consulted. From `<repo-root>`:
 
 ```bash
-git check-ignore --no-index -q .sdlc/user-config.yml
+git init -q <scratchpad>/sdlc-ignore-probe
+git --git-dir=<scratchpad>/sdlc-ignore-probe/.git --work-tree=. \
+  -c core.excludesFile=/dev/null \
+  check-ignore --no-index -q .sdlc/user-config.yml
 ```
 
 Exit status `0` means it is already ignored, and `.gitignore` is left
@@ -38,9 +45,10 @@ saying the file is one user's private sdlc config, at the end of
 ```
 
 Show that change beside the merged config file in the writer's approval
-step, and make both on the one yes. Append with `Edit`, leaving every
-other line where it is. The check runs every time, so repeated runs add
-the line at most once.
+step, and make both on the one yes. When `.gitignore` is absent or
+empty, write it with `Write`. Otherwise append with `Edit`, leaving
+every other line where it is. The check runs every time, so repeated
+runs add the line at most once.
 
 The `.gitignore` change is tracked and the user's to commit. Write the
 config file and `.gitignore`, and nothing else.
