@@ -601,8 +601,23 @@ if [ -n "$win_start" ]; then
       label["review"] = "review rounds"; label["agent"] = "other agent work"
       label["human"] = "waiting on the human"; label["overhead"] = "orchestrator overhead"
       label["unattributed"] = "unattributed"
+      # Shares are apportioned in tenths of a percent by largest remainder,
+      # so they sum to the rounded share of the buckets combined; rounding
+      # each row on its own lets the column sum to 100.1%.
+      if (all > 0) {
+        sum = 0; got = 0
+        for (i = 1; i <= n; i++) {
+          x = 1000 * v[i] / all; t[i] = int(x); rem[i] = x - t[i]
+          sum += v[i]; got += t[i]
+        }
+        for (left = int(1000 * sum / all + 0.5) - got; left > 0; left--) {
+          b = 0
+          for (i = 1; i <= n; i++) if (b == 0 || rem[i] > rem[b]) b = i
+          t[b]++; rem[b] = -1
+        }
+      }
       for (i = 1; i <= n; i++)
-        printf "| %s | %s | %s |\n", label[k[i]], dur(v[i]), (all > 0 ? sprintf("%.1f%%", 100 * v[i] / all) : "—")
+        printf "| %s | %s | %s |\n", label[k[i]], dur(v[i]), (all > 0 ? sprintf("%.1f%%", t[i] / 10) : "—")
     }'
   printf '\nWhere spans overlap, the time is counted once, in the first of: review rounds, other agent work, waiting on the human, orchestrator overhead.\n'
 fi
