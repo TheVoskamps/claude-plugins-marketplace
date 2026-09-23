@@ -5,10 +5,14 @@ description: Interactively create or merge-update the repo user sdlc config, `<r
 
 # sdlc Config: Repo User
 
+## Run the contract's writer steps against tier 3
+
 You are writing tier 3, the repo user file. Read
 `skills/lib/sdlc-config.md` for its path, its keys, and the writer
 steps, and run those steps against that file. That contract is the only
 statement of them; this skill does not restate them.
+
+## Abort outside a repository
 
 Abort, saying so, when `git rev-parse --show-toplevel` fails: there is
 no repository to write into.
