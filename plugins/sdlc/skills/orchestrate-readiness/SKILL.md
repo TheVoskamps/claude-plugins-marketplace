@@ -126,9 +126,11 @@ an unchanged tree is the same on every invocation. Every bullet under
   design-changed only when its file is listed in the files-affected
   section with the tag `update` or `delete` **and**, for a site
   reported at a line in a file that has headings, the body's design
-  prose names the heading of the section containing that line. The
-  design prose is every part of the body outside the `## Acceptance`
-  and `## Files affected (floor)` sections. In a file with no headings
+  prose names the heading of the section containing that line. A file
+  has headings when it is a Markdown (`.md`) file carrying at least one
+  ATX heading line; every other file has none. The design prose is
+  every part of the body outside the `## Acceptance` and
+  `## Files affected (floor)` sections. In a file with no headings
   the tag alone makes a reported site design-changed, and the design
   prose plays no part. Every other reported site is a gap
   under "No unanswered design decisions", and the gap line quotes the
