@@ -475,9 +475,9 @@ auto-accept`, of the generator's list as emitted — not authored review
 content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
-round. A plugin the issue's title and body do not name, a rename or
-deletion the issue does not specify, or any shared helper edited goes
-to the human now, with pulling it out of the PR stated as one of the
+round. A plugin the issue's title and body do not name, or a rename,
+deletion, or shared-helper edit the issue does not specify goes to the
+human now, with pulling it out of the PR stated as one of the
 options; the question ends your turn, and nothing else is spawned for
 the PR until it is answered. This is the gate before round 1: the
 issue is the ceiling of the loop, and a diff that already reaches past
