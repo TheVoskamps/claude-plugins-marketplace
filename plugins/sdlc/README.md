@@ -26,7 +26,8 @@ restate the fact.
 | How the orchestrator sequences the flow, what it branches on when a teammate returns, and how it briefs the teammates it spawns during the review loop | `skills/orchestrate/SKILL.md` |
 | The procedure the orchestrator runs at one moment of the flow, and the briefs it spawns at that moment | the file for that moment under `skills/orchestrate/lib/` |
 | What the merge-readiness loop does on each state the gate reports, which of those it returns as a question, how a ruling is matched to the question it answered, and the bounds on its waits | `agents/pr-merge-readiness.md` |
-| What ends the monitor loop, and the bounds on its polls | `agents/pr-monitor.md` |
+| What ends the monitor loop | `agents/pr-monitor.md` |
+| Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
@@ -67,11 +68,11 @@ the body, in one of two shapes:
 
 | Lib file | Moment |
 | --- | --- |
-| `pre-flight.md` | before any issue is read: the primary-clone check and the per-repo config read |
+| `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
 | `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
 | `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the spawns on the human's end-of-loop confirmation, the close-out, and the briefs for the two loop agents |
-| `report.md` | after the last PR's monitor loop ends: the post-merge tail and the summary |
+| `report.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
 
 A step the orchestrator runs is run by exactly one of the body, a lib
 file, `pr-merge-readiness` or `pr-monitor`; a PR that moves a step
@@ -172,6 +173,52 @@ blessed PR goes through and the split between the gate that reports a
 merge state and the teammate that remedies it, so a PR that reorders
 those stages or moves a remedy edits it here.
 
+## The run's waits are configured in tiers only the orchestrator reads
+
+Two moments of the flow are waits on a human: the ruling on the seed
+theorem list before a batch's developer runs, and the monitor loop
+after a PR's ready flip. Those two, and the monitor's poll interval and
+unchanged-poll bound, are what sdlc's config turns — `seed-review`,
+`merge-wait`, `merge-poll-interval-seconds` and
+`merge-max-unchanged-polls`. Every default is the unconfigured
+behaviour, so a repo with no config file at any tier waits for the
+ruling and monitors exactly as before the keys existed. A PR that adds
+a key edits this list.
+
+The config is three YAML files — a global user file outside every
+repository, a shared repo file that is tracked, and a repo user file
+that is gitignored — and the higher tier wins per key, so a team can
+commit `auto-accept` to the shared file and one user can put the ruling
+back for themselves. The paths, the keys' values and defaults, the read
+aborts and the writer procedure have one owner,
+`skills/lib/sdlc-config.md`; the `sdlc-config-*` verbs are one writer
+per tier, each running that procedure against its own file and
+restating none of it.
+
+The decision that shapes everything else: **no agent reads the config**.
+Pre-flight resolves the tiers once, prints each value beside the tier
+it came from, and a value a teammate acts on travels in its brief — the
+named exception to the orchestrator's rule against passing resolved
+config in briefs. Every agent but the two loop agents runs in a fresh
+worktree, where the gitignored repo user file does not exist, so a
+teammate that read the tiers itself would resolve a different answer
+from the run that spawned it. The brief that carries a key and the
+receiving agent's `## Inputs` are therefore one change, the same as any
+other spawn-template field.
+
+What the two switches leave alone is as deliberate as what they skip:
+
+- `seed-review: auto-accept` skips only the wait. The candidate list is
+  still shown, and still written as round 0 of the PR's state, so the
+  first review round starts from the same records whichever way the
+  seed was settled; the setting changes who settled it, not what is
+  recorded.
+- `merge-wait: skip` ends the PR's stages at the ready flip, and the
+  summary lists the PR under its own table as ready and unmonitored.
+  Nothing re-runs the merge-readiness gate after that flip, so a PR
+  that falls `BEHIND` or `DIRTY` while it waits is the human's to
+  remedy, not the run's.
+
 ## A blessed PR is gated on merge readiness, and the gate never remedies
 
 The human's end-of-loop blessing authorizes the ready flip and nothing
@@ -185,14 +232,15 @@ commits on the branch (`docs-writer`, `agent-memory-scrubber`), then
 the **merge-readiness loop** — the `pr-merge-readiness` agent, which
 runs `github-prs:pr-ready-to-merge` and leaves only on a state its
 table lets through; then the linear **close-out** — the In Review
-flips, `pr-finalizer`, the ready flip; then the **monitor loop** — the
-`pr-monitor` agent, which polls until the PR merges and re-runs the
-gate while it waits, returning when the branch has fallen `BEHIND` or
-`DIRTY` so the merge-readiness loop runs again; and, once per run
-after the last PR's monitor loop ends, the **post-merge tail**, which
-owns the single cleanup sweep and returns the primary clone to the
-default branch. One PR goes through the stages at a time, because the
-first merge moves the base the next PR is measured against.
+flips, `pr-finalizer`, the ready flip; then, unless `merge-wait` is
+`skip`, the **monitor loop** — the `pr-monitor` agent, which polls
+until the PR merges and re-runs the gate while it waits, returning when
+the branch has fallen `BEHIND` or `DIRTY` so the merge-readiness loop
+runs again; and, once per run after the last PR's stages end, the
+**post-merge tail**, which owns the single cleanup sweep and returns
+the primary clone to the default branch. One PR goes through the
+stages at a time, because the first merge moves the base the next PR
+is measured against.
 
 The split that holds this together: the gate **reports**, and the
 remedy is a teammate's. Neither the orchestrator nor a loop agent runs
@@ -203,10 +251,12 @@ comment the review loop uses, carrying the gate's report verbatim, and
 the fixer's return is followed by the memory scrub and the gate again
 rather than a review round — so `issue-fixer` performs merge-readiness
 remedies as well as review fixes, and the two kinds of brief are told
-apart by whether the brief carries findings. What each state drives,
-and every wait bound in a loop, is owned by that loop agent's own
-file, and each bound is a declared starting value rather than a
-measured one.
+apart by whether the brief carries findings. What each state drives is
+owned by that loop agent's own file. The merge-readiness loop's wait
+bounds are that file's too; the monitor loop's poll interval and
+unchanged-poll bound reach it in its brief, as config keys whose
+defaults the config contract owns. Each bound, in either place, is a
+declared starting value rather than a measured one.
 
 A loop agent never asks; it returns. The orchestrator is the only
 party in a position to put a question to the human, so a state that
@@ -257,10 +307,11 @@ human-refuted.
 ## The theorem set is seeded from the issues before the developer runs
 
 The first theorem list the human sees is generated from the issues
-alone and ruled on before the batch's developer is spawned, so a
-developer that goes beyond the issues, or decides something they do
-not, surfaces in the first review round as new theorems against a list
-the human already owns. That seed is **round 0**: rounds count
+alone and settled — ruled on by the human, or accepted whole under
+`seed-review: auto-accept` — before the batch's developer is spawned,
+so a developer that goes beyond the issues, or decides something they
+do not, surfaces in the first review round as new theorems against a
+list the human already owns. That seed is **round 0**: rounds count
 implementer passes from 1, and 0 is the pre-loop stage. The generator
 runs on an issues-only brief and its return is held, not persisted —
 every path `bin/sdlc-agent-result-persist` composes is keyed on a PR
@@ -275,7 +326,7 @@ Each piece has one owner:
 | Slot | Owner |
 | --- | --- |
 | The issues-only brief, and what a generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `skills/theorem-generation/SKILL.md` |
-| The seed spawn, the tier pick against the issue bodies, the per-theorem ruling, and the round-0 write | `skills/orchestrate/SKILL.md` |
+| The seed spawn, the tier pick against the issue bodies, the per-theorem ruling or its `auto-accept` skip, and the round-0 write | `skills/orchestrate/SKILL.md` |
 | Round 0 as a valid round number holding only a records file | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
 | The files-affected section the seed generator reads in place of a diff | `skills/orchestrate-readiness/SKILL.md` |
@@ -289,6 +340,9 @@ Each piece has one owner:
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then sweep merged branches and stale worktrees; `--dry-run` reports the verdicts and deletes nothing | main session |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` and presents its output unchanged | main session |
+| `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
+| `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
+| `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
@@ -362,9 +416,11 @@ record grammar the log holds, are part of that contract and are owned
 by `skills/agent-result-persist-interface/SKILL.md`.
 
 `pr-finalizer` reads that state and writes none of it. The orchestrator
-writes exactly one of these files, round 0's `records` — the seed the
-human ruled on before the developer ran, transcribed through the same
-script. The implementing
+writes exactly one of these files, round 0's `records` — the seed
+settled before the developer ran, transcribed through the same
+script. The `sdlc-config-*` verbs write the config files their contract
+names, on the user's yes, and those are the user's files rather than
+run state. The implementing
 agents are outside the claim entirely and write nothing this
 list owns: those declaring `memory: project` capture their agent memory
 with `/cc-tools:agent-memory-inbox-capture`, each of them but
