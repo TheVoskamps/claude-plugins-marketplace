@@ -312,6 +312,26 @@ if [ -n "$gh_events" ]; then
     | [$t, $t, "event", ., "PR timeline"] | join("\t")')$NL"
 fi
 
+# Round spans and timeline events carry no knowledge of the run, so a second
+# /sdlc:orchestrate run on this PR, or a merge or comment after the session
+# ended, would widen the window. Clip every row to the run: from its window's
+# start to the latest transcript instant inside it.
+if [ -n "$events" ]; then
+  run_end=$(printf '%s\n' "$events" | awk -F'\t' '
+    $1 == "" {next}
+    {if ($2 > m) m = $2}
+    ($1 == "TURN" || $1 == "WAIT") && $3 > m {m = $3}
+    END {print m}')
+fi
+if [ -n "${run_end:-}" ]; then
+  rows=$(printf '%s' "$rows" | awk -F'\t' -v OFS='\t' -v s="$win_start" -v e="$run_end" '
+    $1 == "" {next}
+    $1 > e {next}
+    $2 != "" && $2 < s {next}
+    $2 == "" && $1 < s {next}
+    {if ($1 < s) $1 = s; if ($2 > e) $2 = e; print}')$NL
+fi
+
 # ---------------------------------------------------------------------------
 # Shared awk: ISO-8601 UTC to epoch seconds by civil-date arithmetic, since
 # POSIX awk has no mktime and date's parsing flags differ between BSD and
