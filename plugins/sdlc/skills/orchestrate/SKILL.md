@@ -476,7 +476,7 @@ content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
 round. A plugin the issue's title and body do not name, a rename or
-deletion the issue does not specify, or any shared helper edited goes
+deletion, or any shared helper edited the issue does not specify goes
 to the human now, with pulling it out of the PR stated as one of the
 options; the question ends your turn, and nothing else is spawned for
 the PR until it is answered. This is the gate before round 1: the
