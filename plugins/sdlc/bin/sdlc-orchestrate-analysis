@@ -403,11 +403,12 @@ accounting=
 rows="$rows$(printf '%s\n' "$accounting" | awk -F'\t' '$1 != "TOTAL" && $1 != ""')$NL"
 
 # ---------------------------------------------------------------------------
-# Rulings. Each is one theorem ruled on in one round, from one source: a
-# "Review adjustments for round N" comment, or a finding line in a fixer
-# brief's "Findings to address" list, which yields one ruling per T<n> it
-# names before its first ": ", or one with a null id when it names none,
-# as a style-checker finding does. One JSON object per line:
+# Rulings. Each is one theorem ruled on in one round, or one fixer-brief
+# finding that names no theorem, from one source: a "Review adjustments
+# for round N" comment, or a finding line in a fixer brief's "Findings to
+# address" list, which yields one ruling per T<n> it names before its
+# first ": ", or one with a null id when it names none, as a
+# style-checker finding does. One JSON object per line:
 # {t, kind, round, id, quote}; round is null where the comment names none.
 rulings=
 if [ -n "$gh_events" ]; then
