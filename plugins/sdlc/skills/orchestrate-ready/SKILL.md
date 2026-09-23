@@ -163,10 +163,15 @@ of them loses track of which decision belongs to which.
    `/issue-set-blocked-by <blocked> <blocker>` when the new issue is a
    prerequisite of the groomed one,
    `/issue-set-blocks <blocker> <blocked>` when it is the other way
-   round. **Never** a closing keyword in either body — a closing
-   keyword auto-closes the referenced issue on merge, and one aimed at
-   an issue outside a branch's own set is precisely what the
-   closing-keyword rule forbids.
+   round. Write the groomed issue as a bare number and an issue filed
+   in another repo as `owner/repo#N`, in whichever operand position
+   the direction puts it:
+   `/issue-set-blocked-by <N> <owner>/<repo>#<M>` when the other
+   repo's issue `<M>` is the prerequisite. **Never** a closing
+   keyword in either body — a closing keyword auto-closes the
+   referenced issue on merge, and one aimed at an issue outside a
+   branch's own set is precisely what the closing-keyword rule
+   forbids.
 
 6. **Set the status, then verify the write landed.** Skip this step
    whenever a gap from step 2 went unresolved (see step 3) or the

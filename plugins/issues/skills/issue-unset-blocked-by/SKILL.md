@@ -23,8 +23,12 @@ canonical read sequence and abort messages for
 /issue-unset-blocked-by <N> <blocker-N>
 ```
 
-- `<N>` (required): issue number of the formerly blocked issue.
-- `<blocker-N>` (required): issue number of the blocker to detach.
+- `<N>` (required): the formerly blocked issue.
+- `<blocker-N>` (required): the blocker to detach.
+
+Either operand may be `N`, `#N`, or `owner/repo#N` — the last names
+an issue in another GitHub repo, so the two issues need not share a
+repo. See "Operand resolution" in `skills/lib/issue.md`.
 
 ## Tracker dispatch
 
@@ -35,14 +39,18 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 
 ## Execution (GitHub backend)
 
-1. **Look up node IDs for both issues** using the node-ID lookup
-   template from `skills/lib/issue.md`, trimmed to `id` plus
-   `blockedBy(first: 50) { nodes { number } }` on the blocked side
-   (to detect a missing relationship for the idempotency check).
+1. **Look up node IDs for both issues.** Resolve each operand per
+   "Operand resolution" in `skills/lib/issue.md`, then run the
+   node-ID lookup template from the same file for each, trimmed to
+   `id` plus, on the blocked side, `url` and
+   `blockedBy(first: 50) { nodes { id } }` (to detect a missing
+   relationship for the idempotency check).
 
-2. **Idempotency check.** If `<blocker-N>` is not in the blocked
-   issue's `blockedBy.nodes`, no-op: print one line (`Issue #<N> is
-   not blocked by #<B>; no change.`) and exit zero.
+2. **Idempotency check.** If the blocker's resolved node ID is not
+   among the blocked issue's `blockedBy.nodes` IDs, no-op: print one
+   line (`Issue <N> is not blocked by <B>; no change.`) and exit
+   zero. Match on the node ID, never on `number`: either list can
+   carry an issue from another repo.
 
 3. **Remove the edge** via the `removeBlockedBy` template from
    `skills/lib/issue.md`, with `<N>` as the **blocked** issue and
@@ -55,6 +63,11 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 ## Output
 
 ```text
-Removed blocked-by relationship: issue #<N> is no longer blocked by #<B>.
-https://github.com/<owner>/<repo>/issues/<N>
+Removed blocked-by relationship: issue <N> is no longer blocked by <B>.
+<url of the formerly blocked issue>
 ```
+
+`<N>` and `<B>` print as `#<N>` for an issue in the current repo and
+as `owner/repo#N` for an issue in another repo, per "Operand
+resolution" in `skills/lib/issue.md`. The URL is the `url` the
+formerly blocked issue's lookup returned.
