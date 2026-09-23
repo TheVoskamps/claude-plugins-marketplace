@@ -403,10 +403,12 @@ accounting=
 rows="$rows$(printf '%s\n' "$accounting" | awk -F'\t' '$1 != "TOTAL" && $1 != ""')$NL"
 
 # ---------------------------------------------------------------------------
-# Rulings. Each is one theorem ruled on in one round, from one source: a
-# "Review adjustments for round N" comment, or a finding line in a fixer
-# brief's "Findings to address" list, which yields one ruling per T<n> it
-# names before its first ": ". One JSON object per line:
+# Rulings. Each is one theorem ruled on in one round, or one fixer-brief
+# finding that names no theorem, from one source: a "Review adjustments
+# for round N" comment, or a finding line in a fixer brief's "Findings to
+# address" list, which yields one ruling per T<n> it names before its
+# first ": ", or one with a null id when it names none, as a
+# style-checker finding does. One JSON object per line:
 # {t, kind, round, id, quote}; round is null where the comment names none.
 rulings=
 if [ -n "$gh_events" ]; then
@@ -430,7 +432,7 @@ if [ -n "$gh_events" ]; then
             elif .on and ($x | test("^(- |[0-9]+\\. )")) then
               .out += (if .cur then [.cur] else [] end)
               | ([$x | split(": ") | .[0] | scan("\\bT[0-9]+\\b")] | unique) as $ids
-              | .cur = (if ($ids | length) > 0 then {ids: $ids, q: [$x]} else null end)
+              | .cur = {ids: (if ($ids | length) > 0 then $ids else [null] end), q: [$x]}
             elif .cur and ($x | test("^(\\s|$)")) then .cur.q += [$x]
             else .out += (if .cur then [.cur] else [] end) | .cur = null end)
         | (.out + (if .cur then [.cur] else [] end))[]
@@ -539,6 +541,16 @@ theorem_block() {
   printf '\n'
 }
 
+# One ruled fixer-brief finding that names no theorem, so it has no
+# record, disprover or verifier result to quote. $1 the resolution's
+# lead-in, $2 its verbatim text.
+finding_block() {
+  printf '#### A finding naming no theorem\n\n'
+  printf '**Resolution.** %s\n\n' "$1"
+  quote "$2"
+  printf '\n'
+}
+
 # Every ruling as "<wait, or empty><TAB><json>", so the report lists each
 # under the wait it answered.
 assigned=
@@ -548,12 +560,15 @@ if [ -n "$rulings" ]; then
     t=$(printf '%s' "$j" | jq -r .t)
     r=$(printf '%s' "$j" | jq -r '.round // empty')
     [ -n "$r" ] || r=$(round_before "$t")
-    if [ -z "$r" ]; then
-      note_missing "the round a ruling on $(printf '%s' "$j" | jq -r .id) at $t rules on: no round log had closed by then; the ruling is not listed"
+    id=$(printf '%s' "$j" | jq -r '.id // empty')
+    # A finding naming no theorem quotes no round's records, so it is
+    # listed even when no round had closed, as a style finding can be.
+    if [ -z "$r" ] && [ -n "$id" ]; then
+      note_missing "the round a ruling on $id at $t rules on: no round log had closed by then; the ruling is not listed"
       continue
     fi
     w=$(wait_for "$t" "$(round_end "$r")")
-    assigned="$assigned$w$TAB$(printf '%s' "$j" | jq -c --argjson r "$r" '.round = $r')$NL"
+    assigned="$assigned$w$TAB$(printf '%s' "$j" | jq -c --arg r "$r" '.round = (if $r == "" then null else ($r | tonumber) end)')$NL"
   done <<EOF
 $rulings
 EOF
@@ -694,7 +709,7 @@ for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
     [ -n "$j" ] || continue
     kind=$(printf '%s' "$j" | jq -r .kind)
     r=$(printf '%s' "$j" | jq -r .round)
-    id=$(printf '%s' "$j" | jq -r .id)
+    id=$(printf '%s' "$j" | jq -r '.id // empty')
     q=$(printf '%s' "$j" | jq -r .quote)
     t=$(printf '%s' "$j" | jq -r .t)
     if [ "$kind" = adjust ]; then
@@ -703,10 +718,14 @@ for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
       case "$q" in
         *"— in scope"*) lead="Accepted into the fixer brief posted $t:" ;;
         *"— outside the issue; dropped"*) lead="Dropped on a scope ruling in the fixer brief posted $t:" ;;
-        *"— outside the issue; put to the human"*) lead="Put to the human, per the fixer brief posted $t:" ;;
+        *"— outside the issue; put to the human"*|*"— put to the human"*) lead="Put to the human, per the fixer brief posted $t:" ;;
         *) lead="From the fixer brief posted $t:" ;;
       esac
-      theorem_block "$r" "$id" "$lead" "$q"
+      if [ -n "$id" ]; then
+        theorem_block "$r" "$id" "$lead" "$q"
+      else
+        finding_block "$lead" "$q"
+      fi
     fi
   done <<EOF
 $mine
