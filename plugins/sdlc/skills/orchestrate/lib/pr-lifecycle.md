@@ -27,8 +27,8 @@ cheaply; read what it reports back rather than assuming the no-op.
 ## Write the ruled seed as round 0 of the PR's state
 
 Once the PR is linked, and before `code-documenter` and the first
-reviewer spawn, write the seed the human ruled on as round 0 — the PR
-number now exists to key the path on. Resolve `--owner` and `--repo`
+reviewer spawn, write the ruled seed as round 0 — the PR number now
+exists to key the path on. Resolve `--owner` and `--repo`
 with `gh repo view --json owner,name --jq '.owner.login + " " +
 .name'`, and pass the file on stdin through a quoted heredoc, which is
 what keeps a backtick or a `$` in a claim from reaching the shell:
@@ -46,11 +46,11 @@ RECORDS
 
 The file holds every candidate the generator emitted, in id order, in
 the record shape `sdlc:theorem-based-pr-reviewer` owns, with the
-human's rulings transcribed onto it:
+seed's rulings transcribed onto it:
 
 - an **accepted** or **re-moded** theorem is a live record carrying
   **no `state` field** — it has never been attacked — with its
-  `settle-mode` as the human left it;
+  `settle-mode` as ruled;
 - a **rejected** theorem is `state: retired`,
   `state-detail: human-refuted`, `settled-at` the PR head, so no
   later default round revives it;
@@ -232,10 +232,15 @@ one, and the ready flip no-ops on a PR already ready.
 
 ## The brief for `pr-monitor`
 
-Give it the PR number and the branch name:
+Give it the PR number, the branch name, and the resolved
+`merge-poll-interval-seconds` and `merge-max-unchanged-polls` from
+pre-flight, on every spawn — the first, and each re-spawn after a
+`BEHIND` or `DIRTY` remedy or a yes to keep waiting:
 
 ```text
 PR <PR_N> is ready for review. Branch: <branch-name>
+Poll interval: <merge-poll-interval-seconds> seconds
+Unchanged-poll bound: <merge-max-unchanged-polls>
 
 Watch the PR per your agent definition. Report back which outcome
 ended your loop and the state your last poll found.

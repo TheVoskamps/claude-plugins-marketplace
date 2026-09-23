@@ -624,9 +624,9 @@ stored records, which is the first fallback trigger below.
 
 If that `round <n>` names **round 0**, the carried records are the
 seed: the theorem list the orchestrator generated from the issues
-before the developer ran, as the human ruled on it. An accepted or
-re-moded theorem there carries **no `state`** — it has never been
-attacked — and a rejected or merged one is `retired` /
+before the developer ran, as the orchestrator's seed step settled it.
+An accepted or re-moded theorem there carries **no `state`** — it has
+never been attacked — and a rejected or merged one is `retired` /
 `human-refuted`. This round is round 1 taking the **delta path**, not
 the whole-diff fallback: round 0 has no log and no head, so
 `<prev-head>` is the merge-base of the PR head and the base branch,
@@ -2054,8 +2054,8 @@ Field rules, on top of the record shape "The theorem contract" already
 owns:
 
 - **`state`** — one of `disproved`, `unsettled`, or `retired`. A record
-  may lack `state` in **round 0 only** — a seed theorem the human
-  accepted or re-moded, which no round has attacked — and every round
+  may lack `state` in **round 0 only** — an accepted or re-moded seed
+  theorem, which no round has attacked — and every round
   from 1 on stamps one on every record. A theorem
   is stamped `retired` in the very round that settled it — the round it
   survived, or the round whose counterexample the verifier refuted — and

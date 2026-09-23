@@ -313,11 +313,11 @@ not create.
 A pointer names the issue text the claim comes from, or the file in
 the current tree it is about; nothing else exists to point at.
 
-Number from `T1`. The list is a seed: the human rules on each theorem
-before any developer runs, and the ruled list is what the PR's first
-review round carries, so the emission bar binds here exactly as it
-does on a diff — a claim the design does not make is not a theorem
-about it.
+Number from `T1`. The list is a seed: the orchestrator settles each
+theorem before any developer runs, and the settled list is what the
+PR's first review round carries, so the emission bar binds here
+exactly as it does on a diff — a claim the design does not make is not
+a theorem about it.
 
 ## The emission bar: falsifiability, then stakes
 

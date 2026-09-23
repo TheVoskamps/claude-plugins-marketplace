@@ -1,11 +1,13 @@
 # Report
 
 The post-merge tail that runs once after the last PR's monitor loop
-ends, and the summary that closes the run.
+ends — or, under `merge-wait: skip`, after the last PR's ready flip —
+and the summary that closes the run.
 
 ## The post-merge tail, once per run
 
-After the last PR's monitor loop ends, and before you write the
+After the last PR's monitor loop ends, or its ready flip under
+`merge-wait: skip`, and before you write the
 summary, invoke the whole-repo sweep exactly once, with no scoping
 added — its own skip-and-report conditions are the scope:
 
@@ -41,6 +43,11 @@ post-merge tail has run, deliver a summary:
 | A | <link-prefix>101 | <PR1> | Approved | 1 | 0 | 0 | README.md — documents the new flag |
 | B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 (fixed high on 104) | 1 | 1 (BEHIND, rebased) | docs/api.md — records the changed endpoint |
 
+### Ready, not monitored
+| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | Readiness Remedies | Doc Changes |
+|-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
+| E | <link-prefix>107 | <PR4> | Approved | 1 | 0 | 0 | none |
+
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
@@ -52,11 +59,16 @@ post-merge tail has run, deliver a summary:
 |-------|--------|-----------|--------|
 | D | <link-prefix>103 | Batch C to merge | same file conflict |
 
-Every PR above merged while this run watched it; this run merged
+Every PR under Merged merged while this run watched it; this run merged
 nothing itself.
 
 To start the sequential queue, reply: "continue with <link-prefix>103"
 ```
+
+Under `merge-wait: skip`, every PR the run flipped ready goes under
+**Ready, not monitored** rather than **Merged**: it is ready and
+unmerged, and nothing is watching it. Leave that table out when it has
+no rows.
 
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop

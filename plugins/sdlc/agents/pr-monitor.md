@@ -1,6 +1,6 @@
 ---
 name: pr-monitor
-description: Watches one ready PR until it merges. Given a PR number and its branch, polls the PR every 120 s, announcing each poll and the state it found, and running the github-prs:pr-ready-to-merge gate while the PR is open. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after 15 consecutive polls with no change in state, as a question whether to keep waiting. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
+description: Watches one ready PR until it merges. Given a PR number, its branch, a poll interval and an unchanged-poll bound, polls the PR once per interval, announcing each poll and the state it found, and running the github-prs:pr-ready-to-merge gate while the PR is open. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after the bound's number of consecutive polls with no change in state, as a question whether to keep waiting. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
 tools: Read, Bash, Skill
 model: sonnet
 effort: low
@@ -29,13 +29,15 @@ You must be given:
 
 - The PR number.
 - The branch name (`<branch-name>`).
+- The poll interval, in seconds (`<interval>`).
+- The unchanged-poll bound (`<bound>`).
 
-Ask if either is missing.
+Ask if any is missing.
 
 ## The loop
 
-Poll the PR every **120 s**, announcing every poll and the state it
-found. Each poll reads the PR's state:
+Poll the PR every **`<interval>` seconds**, announcing every poll and
+the state it found. Each poll reads the PR's state:
 
 ```bash
 gh pr view <PR> --json state,mergedAt,closedAt
@@ -56,7 +58,7 @@ Return on the first of these:
   base or grow a conflict while it waits, and the remedy is
   `pr-merge-readiness`'s, after which the orchestrator spawns you
   again.
-- **15 consecutive polls found no change in state.** Return with a
+- **`<bound>` consecutive polls found no change in state.** Return with a
   question whether to keep waiting; the orchestrator puts it to the
   human and spawns you again if the answer is yes. A poll that finds a
   different state from the previous one — a check finishing, a review
@@ -67,16 +69,13 @@ polling continues: a required review landing is what the loop is
 waiting for, and the merge itself stays the human's, by hand or by the
 repo's auto-merge.
 
-The 120 s interval and the 15-poll bound are declared starting bounds,
-not measured ones; revise them here if practice shows them wrong.
-
 ## Report back
 
 Your report carries:
 
 - **The outcome** that ended the loop, one of: `Merged`, `Closed
-  without merging`, `BEHIND`, `DIRTY`, or `No change after 15 polls —
-  keep waiting?`.
+  without merging`, `BEHIND`, `DIRTY`, or `No change after <bound> polls
+  — keep waiting?`.
 - **The state the last poll found**: the PR's open/merged/closed state
   and the gate's report, so the orchestrator can tell whether the PR
   is gone or still open, ready, and unmerged.

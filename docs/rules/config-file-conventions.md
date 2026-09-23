@@ -50,7 +50,11 @@ unlisted one from none of them; which tools an agent holds is its
 `tools:` frontmatter's decision, not the gate's. The listing reaches a
 path only when that machine's operator actually listed it — on an
 unconfigured machine every read of it denies, and a skill has to
-survive that rather than assume the file is readable. See
+survive that rather than assume the file is readable. Named exception:
+`sdlc`'s config-tier reads abort on a refused read, naming the path. A
+refused read cannot be told from a present file that holds settings,
+so falling back to the defaults would silently drop settings the
+operator wrote. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema.
 
@@ -146,3 +150,9 @@ never delete a key on a "leave unset" answer. A file one skill owns
 end to end is rewritten whole. `user-config.md` is the first kind;
 `repo-config.md` is the second. A reader of either tolerates keys it
 does not recognize and never errors on one.
+
+Named exception: each of `sdlc`'s three config-tier files has one
+writer skill, and that writer merges rather than rewrites. A tier file
+is written by hand as readily as by its writer, and a rewrite from the
+writer's own key table would drop every hand-written key the table does
+not list.

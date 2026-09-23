@@ -860,8 +860,11 @@ not obstacles to route around — each has a plain spelling that works:
   Write tool: a `cat > <path> <<'EOF'` heredoc is itself a redirect
   inside a compound and is refused whatever the path, so the obvious
   way to write the script trips the same rule. Resolve a merge
-  conflict with Read plus Edit for the same reason. Plain reads are
-  unaffected — `cat`, `sed -n` and `grep` on in-worktree paths run
+  conflict with Read plus Edit for the same reason. A refused call ran
+  none of its statements, a write earlier in the chain included, so a
+  retry of only the `git add` that followed it stages the file with its
+  conflict markers intact: grep the file for them before staging.
+  Plain reads are unaffected — `cat`, `sed -n` and `grep` on in-worktree paths run
   normally.
 - A heredoc is graded on the text it carries, not on the program that
   consumes it, so a `python3 - <<'PY'` script whose *payload* prose

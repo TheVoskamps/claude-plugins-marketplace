@@ -58,9 +58,9 @@ whole workflow:
   generator reads the issue bodies and that branch's tree, emits the
   acceptance-criterion theorems and the theorems the issues' design
   and file lists warrant, and points into the issue text or the
-  current tree. Its list is a **seed**: the human rules on it, and the
-  ruled list becomes the round-0 records the PR's first review round
-  carries.
+  current tree. Its list is a **seed**: the orchestrator settles it,
+  and the settled list becomes the round-0 records the PR's first
+  review round carries.
 
 ## The brief parameters
 

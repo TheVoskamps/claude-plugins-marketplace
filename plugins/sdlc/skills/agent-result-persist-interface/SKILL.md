@@ -64,8 +64,8 @@ alike.
   path. Each may hold only letters, digits, `.`, `_` and `-`, and
   neither may be `.` or `..`.
 - `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
-  from 1, and **`--round 0` is valid**: the pre-loop seed, ruled on by
-  the human before any implementer ran.
+  from 1, and **`--round 0` is valid**: the pre-loop seed, settled by
+  the orchestrator before any implementer ran.
 
 **One round is one log.** There is no per-fan-out file and no `--agent`
 in the path: the `stage` column below says which fan-out a record
