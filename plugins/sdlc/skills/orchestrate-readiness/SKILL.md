@@ -40,7 +40,9 @@ can trigger that stop. The items:
   tree, load mode, the fate of content the change subsumes, a
   structural contract a downstream consumer depends on — is settled in
   the body. It fails on a decision the body poses as a question or
-  leaves implicit; the gap line names the decision.
+  leaves implicit; the gap line names the decision. It also fails on
+  every site the executed Mechanical check below reports for a
+  prohibition-shaped bullet that the design does not change.
 - **Sandbox fit**. The implementer's sandbox is this repo, and it would
   have to stop on anything else. It fails on a sentence asking for work
   that lands outside this repo.
@@ -57,7 +59,9 @@ can trigger that stop. The items:
   section, and each bullet in it is one claim about the delivered
   change that a reviewer can attempt to disprove against the diff. It
   fails when the section is absent, has no bullets, or has a bullet
-  that is not such a claim.
+  that is not such a claim. It also fails on every presence-shaped
+  bullet and every write-shaped check the executed Mechanical check
+  below makes a gap.
 - **Files affected**. The body carries the files-affected section the
   grammar below defines. Settled against the tree and consulting no
   prose, it fails when the section is absent or departs from that
@@ -109,12 +113,39 @@ the change creates, absent from the tree at check time; `update` for
 one it edits and `delete` for one it removes, each present in the tree
 at check time.
 
+## The executed Mechanical check
+
+A `### Mechanical` bullet is graded by running it against the tree at
+check time, not by reading it, so the verdict on an unchanged body and
+an unchanged tree is the same on every invocation. Every bullet under
+`### Mechanical` is one of two shapes:
+
+- **Prohibition-shaped** — a bullet asserting the absence of a string
+  or a path. Run the grep, file listing, or one-command check the
+  bullet names against the tree. Each site the command reports is
+  design-changed only when its file is listed in the files-affected
+  section with the tag `update` or `delete`; the tag alone decides, in
+  every file. Every other reported site is a gap under "No unanswered
+  design decisions", and the gap line quotes the bullet and names each
+  such site by path and line.
+- **Presence-shaped** — a bullet requiring a string, a path, or a
+  change to a file, such as a version bump. It is not executed, since
+  it fails before implementation by design. It passes when its target
+  file is listed in the files-affected section; otherwise it is a gap
+  under "Acceptance criteria" naming the bullet and the unlisted file.
+
+The check runs read-only commands only — `grep`, `ls`, `test`, and
+the like. A Mechanical bullet whose check would write to the tree is
+not run; it is a gap under "Acceptance criteria" naming the bullet.
+
 ## The check
 
 Given an issue number:
 
 1. Fetch the body and the edges with `/issue-view <N>`.
 2. Grade the body against each bar item in the order listed above.
+   This step runs the executed Mechanical check above for every
+   `### Mechanical` bullet, on every invocation.
 3. Return a gap list: one line per bar item the body does not meet,
    naming the item and the sentence or absence that fails it. An empty
    list is the verdict `ready`.
