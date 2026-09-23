@@ -70,14 +70,20 @@ set -uo pipefail
 # tests set them directly.
 
 # State root: what claude-vm writes for itself and reads back later -- the
-# built guest images (images/), the verified claude binary cache (cache/) and
-# the acceptance test's retained diagnostics (logs/). Kept apart from the
+# built guest images (images/), the verified claude binary cache (cache/),
+# every launch's run dir (runs/) and the acceptance test's retained
+# diagnostics (logs/). Kept apart from the
 # config root so the rebuildable state can be deleted without touching the
 # hand-written config. The scripts spell the XDG state fallback only here;
 # every state path they build derives from CLAUDE_VM_STATE_DIR rather than
 # restating it (the example configs and the skill prose name the default
 # for the operator).
 : "${CLAUDE_VM_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm}"
+# Runs root: one <run-id>/ dir per launch, from every repo on this host. The
+# launcher creates $RUN here, the diff/apply skills select a run from here by
+# its run.meta repo_src, and bin/claude-vm-cleanup enumerates it. This is the
+# only place the runs root is composed.
+: "${CLAUDE_VM_RUNS_DIR:=$CLAUDE_VM_STATE_DIR/runs}"
 
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now
 # expected, and emit an actionable migration message. The design's chosen
@@ -1461,12 +1467,12 @@ claude_vm_check_mounts() {
       # spells a second `sharedDir=` REPLACES the first (last key wins, also
       # measured), so the guest would get a directory this entry never named.
       # A single-FILE source is exempt and is not checked here: what gets
-      # shared then is the wrap directory $MOUNT_WRAP_DIR/<tag>, whose <tag>
+      # shared then is the wrap directory <parent>/<tag>, whose <tag>
       # COMPONENT the tag check above already settled, so a comma in the file's
       # own path reaches nothing but a hard link and a mounts.tsv field. That
-      # settles the component and not the directory: $MOUNT_WRAP_DIR is
-      # $RUN/mount-wrap, or a $TMPDIR mktemp when $RUN sits inside the repo
-      # share, and neither is a config value this function can see. The
+      # settles the component and not the directory: the wrap dir's parent is
+      # $RUN/mount-wrap, or a $TMPDIR mktemp when the source is on another
+      # volume, and neither is a config value this function can see. The
       # launcher checks THAT for a comma where it wraps the file, and blames
       # $TMPDIR or the run dir rather than the entry -- an earlier, cause-
       # naming abort, since those two paths already reach vfkit through

@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+#
+# claude-vm-cleanup -- reap the residue of claude-vm runs that died without
+# running their own cleanup() trap (kill -9, a crash, a closed terminal).
+#
+# Usage:
+#   claude-vm-cleanup
+#
+# Host-scoped: it walks every run dir under $CLAUDE_VM_RUNS_DIR, whichever
+# repo launched it, so it is run by hand from anywhere. For each run it
+# test-acquires $RUN/run.lock without waiting:
+#
+#   - lock held (lockf exits 75)  -> the run is LIVE: its launcher, or the
+#     vfkit that launcher left running, still holds the lock. Left untouched.
+#   - lock acquired               -> the run is DEAD. Every pid its run.meta
+#     records (gvproxy_pid, proxy_pid) is sent SIGTERM, the directory holding
+#     its recorded gvproxy_sock is removed, and the run dir is removed with
+#     everything under it, guest-clone.raw included.
+#
+# The lock is the whole liveness test. The recorded pids are not tested on
+# their own -- a pid alone cannot tell a dead run's gvproxy from an unrelated
+# process that inherited the number -- so they are only acted on once the
+# lock has said the run is dead. The lock is held for the whole reap, so a
+# launcher that raced this pass for the same dir fails its own lockf and
+# aborts rather than run in a dir being removed.
+#
+# A run dir with no run.lock is spared: the launcher creates it the moment it
+# creates the dir, so its absence means a launch caught mid-creation, which
+# looks exactly like a dead run to a lock that does not exist yet.
+#
+# Never removed: $CLAUDE_VM_STATE_DIR/logs/<run-id>/. Each reaped run's log
+# dir path is reported so the post-mortem is one `ls` away.
+#
+# macOS-only, like the rest of claude-vm: the lock is lockf(1) from
+# /usr/bin, and bash 3.2 is the interpreter this must run under.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../payload/lib/config.sh
+. "$PLUGIN_ROOT/payload/lib/config.sh"
+
+if [ "$#" -gt 0 ]; then
+  echo "usage: claude-vm-cleanup" >&2
+  exit 2
+fi
+
+# meta_get <run.meta> <key> -- print <key>'s value, the last line winning.
+meta_get() {
+  [ -f "$1" ] || return 0
+  sed -n "s/^$2=//p" "$1" | tail -n 1
+}
+
+if [ ! -d "$CLAUDE_VM_RUNS_DIR" ]; then
+  echo "claude-vm-cleanup: no runs root at '$CLAUDE_VM_RUNS_DIR'; nothing to reap."
+  exit 0
+fi
+
+reaped=0
+spared=0
+failed=0
+for run in "$CLAUDE_VM_RUNS_DIR"/*/; do
+  [ -d "$run" ] || continue
+  run="${run%/}"
+  run_id="${run##*/}"
+  lock="$run/run.lock"
+  meta="$run/run.meta"
+  repo_src="$(meta_get "$meta" repo_src)"
+
+  if [ ! -f "$lock" ]; then
+    echo "spared  $run_id -- no run.lock (a launch mid-creation)"
+    spared=$((spared + 1))
+    continue
+  fi
+  if ! exec 8<"$lock"; then
+    echo "FAILED  $run_id -- could not open '$lock'"
+    failed=$((failed + 1))
+    continue
+  fi
+  /usr/bin/lockf -s -t 0 8
+  lock_rc=$?
+  if [ "$lock_rc" -eq 75 ]; then
+    exec 8<&-
+    echo "spared  $run_id -- live${repo_src:+ (repo $repo_src)}"
+    spared=$((spared + 1))
+    continue
+  fi
+  if [ "$lock_rc" -ne 0 ]; then
+    exec 8<&-
+    echo "FAILED  $run_id -- lockf exited $lock_rc testing '$lock'; left untouched"
+    failed=$((failed + 1))
+    continue
+  fi
+
+  echo "reaped  $run_id${repo_src:+ (repo $repo_src)}"
+  for key in gvproxy_pid proxy_pid; do
+    pid="$(meta_get "$meta" "$key")"
+    case "$pid" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    if kill "$pid" 2>/dev/null; then
+      echo "        killed $key $pid"
+    else
+      echo "        $key $pid was not running"
+    fi
+  done
+  sock="$(meta_get "$meta" gvproxy_sock)"
+  if [ -n "$sock" ]; then
+    sock_dir="${sock%/*}"
+    # Only a directory named the way the launcher names it: run.meta is a
+    # plain file, and an rm -rf driven by an edited one should not reach
+    # anything the launcher did not create.
+    case "${sock_dir##*/}" in
+      claude-vm-sock.*)
+        if [ -d "$sock_dir" ]; then
+          rm -rf "$sock_dir"
+          echo "        removed socket dir $sock_dir"
+        fi
+        ;;
+      *)
+        echo "        left socket dir $sock_dir -- not a claude-vm-sock.* dir"
+        ;;
+    esac
+  fi
+  if rm -rf "$run"; then
+    echo "        removed run dir $run"
+  else
+    echo "        FAILED to remove run dir $run"
+    failed=$((failed + 1))
+  fi
+  exec 8<&-
+  echo "        log dir $CLAUDE_VM_STATE_DIR/logs/$run_id/ (kept)"
+  reaped=$((reaped + 1))
+done
+
+echo "claude-vm-cleanup: $reaped reaped, $spared spared, $failed failed under $CLAUDE_VM_RUNS_DIR"
+[ "$failed" -eq 0 ]

@@ -694,10 +694,12 @@ fi
 # ---------------------------------------------------------------------
 # Run directory + repo mount strategy
 # ---------------------------------------------------------------------
-# A persistent run id and run dir. When launched from inside a repo,
-# the run dir lives under <repo>/.claude/tmp/<runid>/ (git-ignored, and
-# persistent so the companion diff/apply skills can extract results).
-# Otherwise it falls back to a mktemp dir under TMPDIR.
+# A persistent run id and run dir, $CLAUDE_VM_RUNS_DIR/<run-id>/, for a git
+# repo and a non-repo argument alike. Every repo's runs share that one root so
+# bin/claude-vm-cleanup can reach them all; the companion diff/apply skills
+# tell one repo's runs from another's by run.meta's repo_src, not by location.
+# The leaf is created with a plain mkdir so two launches that somehow drew the
+# same run id collide loudly instead of sharing a dir.
 #
 # The run dir and the config dir hold the token-bearing run.env, so they
 # must not be world-traversable to that secret. Create them with a
@@ -712,23 +714,44 @@ fi
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$$"
 OLD_UMASK="$(umask)"
 umask 077
-if git -C "$REPO_SRC" rev-parse --show-toplevel >/dev/null 2>&1; then
-  RUN="$REPO_SRC/.claude/tmp/$RUN_ID"
-  mkdir -p "$RUN"
-else
-  RUN="$(claude_vm_mktemp -d claude-vm)"
+RUN="$CLAUDE_VM_RUNS_DIR/$RUN_ID"
+mkdir -p "$CLAUDE_VM_RUNS_DIR"
+mkdir "$RUN"
+
+# Liveness lock. The launcher holds an exclusive flock(2) lock on
+# $RUN/run.lock for as long as it lives, through fd 9, and the kernel drops it
+# when the last holder of that open file dies -- kill -9 included. That is
+# bin/claude-vm-cleanup's whole liveness test: a run whose lock it can take
+# is dead, one whose lock it cannot is live. The lock file outliving the run
+# means nothing; only a held lock does.
+#
+# Every child forked after this line inherits fd 9, and an inheriting child
+# keeps the lock held after the launcher itself is gone. That is wanted for
+# vfkit: a vfkit orphaned by a killed launcher is still running the guest off
+# $RUN/guest-clone.raw, so the run stays live until the VM stops. It is wrong
+# for the forward proxy and gvproxy, which outlive a killed launcher
+# indefinitely and are exactly what the cleaner must be able to reap -- so
+# both are started with 9>&-. A short-lived child is harmless either way.
+#
+# A cleaner that tested the lock between the open and the lockf below holds
+# it now, and this launch aborts rather than run in a dir being reaped.
+exec 9>>"$RUN/run.lock"
+if ! /usr/bin/lockf -s -t 0 9; then
+  echo "claude-vm: could not lock '$RUN/run.lock' -- bin/claude-vm-cleanup is reaping this run dir;" >&2
+  echo "claude-vm: relaunch." >&2
+  exit 1
 fi
 
 # gvproxy unix socket -- sited under a SHORT $TMPDIR path, NOT under $RUN
 # (issue #88, Finding 7). The AF_UNIX sun_path limit is ~104 bytes, and
 # vfkit derives a child socket name (e.g. vfkit-<hex>-<num>.sock, ~20 bytes)
-# in the SAME directory as the socket we pass it. With $RUN under
-# <repo>/.claude/tmp/<runid>/ the base socket path is already ~118 bytes on a
-# normally-nested repo -- and the derived child path ~124 -- so BOTH overflow
-# and `claude-vm <repo>` cannot boot. The run dir must stay under the repo
-# (the diff/apply skills depend on its location), but the socket location is
-# independent of it: site it under a short mktemp dir under $TMPDIR (resulting
-# child path ~79 bytes, well under the limit). $TMPDIR is used BARE: it is
+# in the SAME directory as the socket we pass it. Measured with a 19-byte
+# $HOME, $RUN/net.sock under the default runs root is 78 bytes and
+# $TMPDIR/claude-vm-sock.XXXXXX/net.sock is 79, so either leaves the derived
+# child around 90. The difference is what can grow: $RUN's length follows
+# $HOME, XDG_STATE_HOME and CLAUDE_VM_RUNS_DIR, any of which an operator can
+# lengthen past the limit without meaning to, while the per-user $TMPDIR
+# macOS sets is a fixed-length /var/folders path. $TMPDIR is used BARE: it is
 # always set on macOS (the only platform claude-vm targets), is a per-user
 # owner-only dir (matches the launcher's credential posture, unlike
 # world-writable /tmp), and a user can override with TMPDIR=... claude-vm ...
@@ -1207,7 +1230,8 @@ esac
 # (issue #179), so run.meta never names an endpoint that failed to materialize.
 # There is no vfkit_rest_uri: the guest powers itself off, so no host->guest
 # REST channel exists. run.meta is thus the single source of truth for the
-# launcher's own liveness checks and for a separate host-scoped cleanup tool.
+# launcher's own liveness checks and for bin/claude-vm-cleanup, which reaps a
+# dead run's processes from the pids recorded here.
 RUN_META="$RUN/run.meta"
 {
   printf 'run_id=%s\n' "$RUN_ID"
@@ -1642,8 +1666,9 @@ fi
 # make the write-through a lie (guest writes would land in the throwaway wrap
 # dir and never reach the host file), whereas a hard link is the same inode, so
 # a single-file mount writes through to the host file live. `ln` fails across
-# filesystems, and that is a hard abort rather than a silent downgrade to a
-# copy -- see the message for the fix.
+# filesystems, so a source on another volume than $RUN is linked under $TMPDIR
+# instead (below); when that fails too it is a hard abort rather than a silent
+# downgrade to a copy -- see the message for the fix.
 #
 # A caveat the directory shape does not have: a file bind mount cannot be
 # REPLACED by rename(2) inside the guest (the kernel returns EBUSY), so a
@@ -1660,35 +1685,27 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # this directory can write that file. It must therefore sit OUTSIDE the
 # directories claude-vm itself hands the guest, or a single-file mount quietly
 # exposes the operator's file through a second path as well as its own.
+# $RUN/mount-wrap is: the repo share is $RUN/worktree under repo.mount: clone,
+# a sibling of the wrap dir, and the operator's repo under repo.mount: live,
+# which holds no run dir unless the runs root was pointed inside it.
 #
-# $RUN is the natural home: it is where the run's other artifacts live, and it
-# is the best available guess at the source file's own volume, which a hard
-# link cannot cross. Under repo.mount: clone that is also SAFE -- the repo
-# share is $RUN/worktree, a sibling of this directory, so the guest never sees
-# the wrap dir at all. Under repo.mount: live the repo share is $REPO_SRC
-# itself and $RUN lives inside it (<repo>/.claude/tmp/<run-id>), and the guest
-# fstab mounts tag `repo` RW -- so a wrap dir under $RUN would be reachable and
-# writable from the guest at /mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/,
-# exposing the operator's file at a second guest path they never configured
-# (and one that survives the entry's own mountpoint being skipped by the guest's
-# occupancy check).
-#
-# So: test $RUN against the ACTUAL repo share rather than against REPO_MOUNT,
-# which keeps this correct if a future mount strategy changes what is shared,
-# and fall back to a per-run dir under $TMPDIR -- outside the repo, and outside
-# the other shares claude-vm builds for itself ($RUN/config, $RUN/creds, and
-# the verified-binary cache under $CLAUDE_VM_STATE_DIR). That dir is NOT covered
-# by the run-dir retention, so cleanup() removes it (removing hard links, never
-# the operator's file).
+# A hard link cannot cross volumes, so a source on another volume than $RUN
+# cannot be linked there. The loop links such an entry under a per-run mktemp
+# dir under $TMPDIR instead, created on the first entry that needs it. That
+# rescues a source on $TMPDIR's volume only; one on a volume that is neither
+# $RUN's nor $TMPDIR's still aborts, naming the directory mount as the fix.
+# The $TMPDIR dir is outside the run dir, so cleanup() removes it (removing
+# hard links, never the operator's file).
 #
 # Wherever it lands, this directory's path becomes a `sharedDir=` field in
 # vfkit's comma-delimited device string as soon as an entry is wrapped, and
 # neither home is a config value claude_vm_check_mounts can see -- so its comma
 # check on a DIRECTORY source does not reach them, and a comma in $RUN or in
 # $TMPDIR would produce exactly the malformed device string that check exists
-# to prevent, on an entry the validator accepted. The loop below aborts on it,
-# in its single-file branch: that is where the entry being wrapped is in hand,
-# so the message can name it and say the comma is not the operator's.
+# to prevent, on an entry the validator accepted. The loop aborts on it,
+# through claude_vm_wrap_comma_guard, before it links into either home: that
+# is where the entry being wrapped is in hand, so the message can name it and
+# say the comma is not the operator's.
 #
 # The abort is an EARLIER, cause-naming failure, not a rescue. Both of those
 # paths already reach vfkit through argument strings this launcher does not
@@ -1702,21 +1719,43 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # already doomed with or without a mounts entry. See
 # payload/README.md -> *The tag is not just a tag* for that whole class and
 # for where a guard covering it would belong.
+#
+# $RUN is RETAINED after the run (cleanup() shreds only $CREDS_DIR; the
+# diff/apply skills read the rest), so a wrap dir under it and its links
+# outlive the VM. That duplicates no bytes -- a hard link is an extra NAME for
+# the operator's file -- but it does mean the file's data survives deletion of
+# the original until the run dir is removed.
+MOUNT_WRAP_DIR="$RUN/mount-wrap"
 MOUNT_WRAP_TMPDIR=""
-case "$RUN/" in
-  "$MOUNT_SHARED_DIR"/*)
-    MOUNT_WRAP_TMPDIR="$(claude_vm_mktemp -d claude-vm-wrap)"
-    MOUNT_WRAP_DIR="$MOUNT_WRAP_TMPDIR"
-    ;;
-  *)
-    # $RUN is RETAINED after the run (cleanup() shreds only $CREDS_DIR; the
-    # diff/apply skills read the rest), so the wrap dir and its links outlive
-    # the VM. That duplicates no bytes -- a hard link is an extra NAME for the
-    # operator's file -- but it does mean the file's data survives deletion of
-    # the original until the run dir is removed.
-    MOUNT_WRAP_DIR="$RUN/mount-wrap"
-    ;;
-esac
+
+# claude_vm_wrap_comma_guard <wrap-parent> <tag> <src> -- abort the launch
+# when <wrap-parent>, the directory the entry's wrap dir is about to be made
+# in, carries a comma. The message blames whichever home that is.
+claude_vm_wrap_comma_guard() {
+  case "$1" in
+    *,*)
+      echo "claude-vm: mounts entry '$2' has the single FILE source '$3', which claude-vm shares by" >&2
+      echo "claude-vm:   hard-linking it into the wrap directory '$1/$2' -- whose path carries" >&2
+      echo "claude-vm:   a ','. claude-vm names the shared directory inside vfkit's comma-delimited" >&2
+      echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so vfkit would read that comma" >&2
+      echo "claude-vm:   as the start of another device option and refuse to start." >&2
+      if [ "$1" = "$MOUNT_WRAP_TMPDIR" ]; then
+        echo "claude-vm:   The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:': the source is on a" >&2
+        echo "claude-vm:   different volume than the run dir, and a hard link cannot cross volumes, so its wrap" >&2
+        echo "claude-vm:   directory has to live under \$TMPDIR instead. Point TMPDIR at a path with no comma in" >&2
+        echo "claude-vm:   it and rerun. Dropping the mounts entry will NOT help: claude-vm hands vfkit a" >&2
+        echo "claude-vm:   gvproxy socket under \$TMPDIR on every launch, in the same comma-delimited form." >&2
+      else
+        echo "claude-vm:   The comma is in the run directory's path, NOT in anything you wrote under 'mounts:':" >&2
+        echo "claude-vm:   \$RUN is '$RUN', under the runs root '$CLAUDE_VM_RUNS_DIR'. Point" >&2
+        echo "claude-vm:   CLAUDE_VM_RUNS_DIR (or XDG_STATE_HOME) at a path with no comma in it. Dropping the" >&2
+        echo "claude-vm:   mounts entry will NOT help: the EFI store, the disk and the console log ride that" >&2
+        echo "claude-vm:   same run dir into vfkit's comma-delimited argument strings." >&2
+      fi
+      exit 1
+      ;;
+  esac
+}
 # Split each record BY HAND rather than with 'IFS=<tab> read -r src tag path'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
 # an empty MIDDLE field vanishes and every later field shifts left. A mounts
@@ -1754,44 +1793,45 @@ while IFS= read -r mount_record; do
     # rides in the device string -- not just the <tag> component the tag check
     # settled. Its parent is $RUN/mount-wrap or the $TMPDIR fallback, neither
     # of which claude_vm_check_mounts ever sees; see MOUNT_WRAP_DIR above for
-    # what this abort does and does not buy. Tested on $MOUNT_WRAP_DIR rather
-    # than on $mount_shared_dir so the message can say the comma is not the
-    # operator's: a comma in the tag cannot reach this line.
-    case "$MOUNT_WRAP_DIR" in
-      *,*)
-        echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
-        echo "claude-vm:   hard-linking it into the wrap directory '$MOUNT_WRAP_DIR/$tag' -- whose path carries" >&2
-        echo "claude-vm:   a ','. claude-vm names the shared directory inside vfkit's comma-delimited" >&2
-        echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so vfkit would read that comma" >&2
-        echo "claude-vm:   as the start of another device option and refuse to start." >&2
-        if [ -n "$MOUNT_WRAP_TMPDIR" ]; then
-          echo "claude-vm:   The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:': the repo itself" >&2
-          echo "claude-vm:   is the share here (repo.mount: live), so the run dir sits inside it and the wrap" >&2
-          echo "claude-vm:   directory has to live under \$TMPDIR instead. Point TMPDIR at a path with no comma in" >&2
-          echo "claude-vm:   it and rerun. Dropping the mounts entry will NOT help: claude-vm hands vfkit a" >&2
-          echo "claude-vm:   gvproxy socket under \$TMPDIR on every launch, in the same comma-delimited form." >&2
-        else
-          echo "claude-vm:   The comma is in the run directory's path, NOT in anything you wrote under 'mounts:':" >&2
-          echo "claude-vm:   \$RUN is '$RUN' (<repo>/.claude/tmp/<run-id> for a git repo, a \$TMPDIR mktemp" >&2
-          echo "claude-vm:   otherwise). Launch from a path with no comma in it. Dropping the mounts entry will" >&2
-          echo "claude-vm:   NOT help: the EFI store, the disk and the console log ride that same run dir into" >&2
-          echo "claude-vm:   vfkit's comma-delimited argument strings." >&2
-        fi
-        exit 1
-        ;;
-    esac
+    # what the comma abort does and does not buy. The guard tests the parent
+    # rather than $mount_shared_dir so the message can say the comma is not
+    # the operator's: a comma in the tag cannot reach this line.
+    claude_vm_wrap_comma_guard "$MOUNT_WRAP_DIR" "$tag" "$src"
     mount_file="${src##*/}"
+    mount_wrap_fallback=""
     mount_shared_dir="$MOUNT_WRAP_DIR/$tag"
     mkdir -p "$mount_shared_dir"
     # -f so a rerun over a retained run dir replaces a stale link rather than
     # failing; the link target is the operator's file either way.
     if ! ln -f "$src" "$mount_shared_dir/$mount_file" 2>/dev/null; then
+      # EXDEV is the one failure the $TMPDIR home can answer, and a device
+      # number that differs between the source and $RUN is how it shows:
+      # BSD ln reports the errno only as text on stderr.
+      if [ "$(stat -f %d "$src")" != "$(stat -f %d "$RUN")" ]; then
+        rmdir "$mount_shared_dir" 2>/dev/null || true
+        if [ -z "$MOUNT_WRAP_TMPDIR" ]; then
+          MOUNT_WRAP_TMPDIR="$(claude_vm_mktemp -d claude-vm-wrap)"
+        fi
+        claude_vm_wrap_comma_guard "$MOUNT_WRAP_TMPDIR" "$tag" "$src"
+        mount_wrap_fallback="$MOUNT_WRAP_TMPDIR"
+        mount_shared_dir="$MOUNT_WRAP_TMPDIR/$tag"
+        mkdir -p "$mount_shared_dir"
+        ln -f "$src" "$mount_shared_dir/$mount_file" 2>/dev/null || mount_shared_dir=""
+      else
+        mount_shared_dir=""
+      fi
+    fi
+    if [ -z "$mount_shared_dir" ]; then
       echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
-      echo "claude-vm:   hard-linking it into a wrap directory at $mount_shared_dir -- but that link" >&2
-      echo "claude-vm:   could not be created. A hard link cannot cross filesystems, so this usually means" >&2
-      echo "claude-vm:   the source is on a different volume than that wrap directory. Either put a copy" >&2
-      echo "claude-vm:   of the file on the same volume and point 'source:' at that, or mount its" >&2
-      echo "claude-vm:   containing DIRECTORY instead (source: $(dirname "$src"))." >&2
+      echo "claude-vm:   hard-linking it into a wrap directory -- but that link could not be created under" >&2
+      echo "claude-vm:   the run dir '$RUN'." >&2
+      if [ -n "$mount_wrap_fallback" ]; then
+        echo "claude-vm:   The source is on a different volume than the run dir, and the fallback under" >&2
+        echo "claude-vm:   \$TMPDIR ('$mount_wrap_fallback') failed too: a hard link cannot cross volumes, and" >&2
+        echo "claude-vm:   the source is on neither one's volume." >&2
+      fi
+      echo "claude-vm:   Either put a copy of the file on the run dir's volume and point 'source:' at that," >&2
+      echo "claude-vm:   or mount its containing DIRECTORY instead (source: $(dirname "$src"))." >&2
       exit 1
     fi
   fi
@@ -2074,7 +2114,8 @@ cleanup() {
     rm -rf "$SOCK_DIR"
   fi
   # Remove the single-file mount wrap dir when it was sited under $TMPDIR
-  # rather than under $RUN (repo.mount: live -- see MOUNT_WRAP_DIR above).
+  # rather than under $RUN (a source on another volume -- see MOUNT_WRAP_DIR
+  # above).
   # Like SOCK_DIR it is outside the run dir, so the run-dir retention does not
   # cover it. Its entries are hard links: removing them drops an extra NAME for
   # the operator's file and never the file itself. Empty when the wrap dir
@@ -2135,11 +2176,15 @@ trap cleanup EXIT INT TERM
 # RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
 # matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
 # paths are echoed in cleanup() alongside the other retained-artifact lines.
-eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 &
+#
+# Both are started with fd 9 closed so neither holds the run's liveness lock
+# (see run.lock above): each outlives a killed launcher, and a run whose lock
+# they held could never be reaped.
+eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 9>&- &
 PROXY_PID=$!
 # Record the forward-proxy pid the moment it is spawned (issue #179): run.meta
-# is the single source of truth a separate host-scoped cleanup tool uses to
-# find and reap this run's processes.
+# is the single source of truth bin/claude-vm-cleanup uses to find and reap
+# this run's processes.
 claude_vm_run_meta_put proxy_pid "$PROXY_PID"
 
 # Clear any stale gvproxy socket corpse before gvproxy tries to bind it (issue
@@ -2164,7 +2209,7 @@ SSH_PORT="$(claude_vm_acquire_free_tcp_port)" || {
 
 "$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --ssh-port "$SSH_PORT" \
   --pcap "$PCAP" \
-  >"$GVPROXY_LOG" 2>&1 &
+  >"$GVPROXY_LOG" 2>&1 9>&- &
 GV_PID=$!
 
 # Readiness: wait for a LIVE listener on the gvproxy socket, not merely for the

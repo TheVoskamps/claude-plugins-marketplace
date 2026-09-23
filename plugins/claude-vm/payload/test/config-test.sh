@@ -24,7 +24,16 @@ if ! claude_vm_require_yq; then
 fi
 
 WORK="$(claude_vm_mktemp -d claude-vm-test)"
-trap 'rm -rf "$WORK"' EXIT
+# The cross-volume mount tests attach a disk image under $WORK; detach it
+# before removing $WORK, or rm would empty the image and leave it mounted.
+MNT_VOL_ATTACHED=""
+config_test_cleanup() {
+  if [ -n "$MNT_VOL_ATTACHED" ]; then
+    hdiutil detach -quiet -force "$MNT_VOL_ATTACHED" >/dev/null 2>&1
+  fi
+  rm -rf "$WORK"
+}
+trap config_test_cleanup EXIT
 
 PASS=0
 FAIL=0
@@ -2574,12 +2583,6 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
   # $RUN and $CONFIG_DIR are the run-dir paths the real launcher has already
   # created by the time this loop runs; the harness supplies them so the wrap
   # dir and mounts.tsv land inside the suite's own temp tree.
-  #
-  # $MOUNT_SHARED_DIR is the directory the launcher shares as tag `repo`, which
-  # the loop tests $RUN against to decide where the single-file wrap dir may
-  # live. It defaults to $RUN/worktree -- what repo.mount: clone really sets --
-  # so the calls below that do not care read as they always did; the live-mode
-  # case passes its own.
   write_mnt_slice() {
     local out="$1" mode="$2"
     {
@@ -2588,7 +2591,6 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
       printf '. %s\n' "\"$LIB\""
       echo 'MERGED_BOOT="$1"'
       echo 'RUN="$2"'
-      echo 'MOUNT_SHARED_DIR="${3:-$RUN/worktree}"'
       echo 'CONFIG_DIR="$RUN/config"'
       echo 'mkdir -p "$CONFIG_DIR"'
       awk -v start="$MNT_START" -v end="$MNT_END" \
@@ -2596,8 +2598,8 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
         NR < start || NR > end { next }
         mode == "old" && $0 == "while IFS= read -r mount_record; do" { print oldread; next }
         mode == "old" && $0 ~ /^  (src|mount_rest|tag|mount_path)=\$\{mount_(record|rest)/ { next }
-        mode == "preguard" && $0 == "    case \"$MOUNT_WRAP_DIR\" in" { drop = 1 }
-        drop == 1 { if ($0 == "    esac") drop = 0; next }
+        mode == "preguard" && $0 == "claude_vm_wrap_comma_guard() {" { print "claude_vm_wrap_comma_guard() { :; }"; drop = 1; next }
+        drop == 1 { if ($0 == "}") drop = 0; next }
         { print }
       ' "$LAUNCHER"
       echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
@@ -2695,140 +2697,154 @@ YML
   assert_eq "directory mount: no wrap dir is created for a directory source" \
     "absent" "$([ -e "$MNT_RUN2/mount-wrap/data" ] && echo present || echo absent)"
 
-  # ---- the wrap dir must sit outside the repo share (issue #157 review) ----
+  # ---- where the wrap dir lands (issue #181) ----
   #
-  # The wrap entry is a hard link to the operator's file, so anything that can
-  # reach INSIDE the wrap dir can read and write that file. Under
-  # repo.mount: clone the repo share is $RUN/worktree and the wrap dir is a
-  # sibling, so $RUN is fine. Under repo.mount: live the share is the REPO
-  # ITSELF and $RUN lives inside it (<repo>/.claude/tmp/<run-id>) -- and the
-  # guest fstab mounts tag `repo` rw, so a wrap dir under $RUN would expose the
-  # operator's file at a second guest path they never configured, one that
-  # survives the entry's own mountpoint being skipped by the guest's occupancy
-  # check. The loop must move the wrap dir out.
+  # The wrap entry is a hard link to the operator's file, so whatever can reach
+  # inside the wrap dir can read and write that file; it lives under $RUN,
+  # which no share claude-vm builds contains. A hard link cannot cross volumes,
+  # though, so a source on another volume than $RUN is linked under a $TMPDIR
+  # mktemp instead -- covered against a real second volume further below.
   #
   # Asserted on the sharedDir the loop actually hands vfkit, since that -- not
-  # the variable -- is what decides whether the guest can reach the directory.
+  # the variable -- is what the guest is given.
   MNT_WRAP_SHARED() {
     printf '%s\n' "$1" | sed -n 's/^virtio-fs,sharedDir=\(.*\),mountTag=cfg$/\1/p'
   }
 
-  # Is <path> inside <share>? Answered as `inside`/`outside`, from a function
-  # rather than from a `case` written inline in the assertion's own $( ):
-  # bash 3.2 -- what this file's `#!/usr/bin/env bash` resolves to on a stock
-  # macOS, and the header above says to run it directly -- finds the end of a
-  # command substitution by counting parens, and a case pattern's `)` ends it
-  # early. Written inline, the assertion compares against a fragment of its own
-  # source and FAILs there while passing on bash 5, so a harness artifact reads
-  # as a broken wrap-dir siting. Defined out here, the substitution holds only
-  # the call and both shells agree. Same rule as README's "A guard must survive
-  # the oldest bash that can reach it", applied to the harness that checks the
-  # guards.
-  mnt_inside_share() {
-    case "$1/" in
-      "$2"/*) echo inside ;;
-      *) echo outside ;;
-    esac
-  }
-
-  # CLONE shape: the share is $RUN/worktree, so the wrap dir stays under $RUN.
-  assert_eq "single-file wrap (clone): the wrap dir stays under \$RUN, beside the worktree share" \
+  assert_eq "single-file wrap: a source on \$RUN's volume is wrapped under \$RUN" \
     "$MNT_RUN2/mount-wrap/cfg" "$(MNT_WRAP_SHARED "$MNT_OUT2")"
-
-  # LIVE shape: $RUN sits INSIDE the shared repo, mirroring
-  # <repo>/.claude/tmp/<run-id>. TMPDIR is pointed at $WORK so the fallback dir
-  # the loop creates lands where this suite's trap already cleans up.
-  MNT_LIVE_SHARE="$WORK/mount-live-repo"
-  MNT_RUN3="$MNT_LIVE_SHARE/.claude/tmp/run3"
-  mkdir -p "$MNT_RUN3"
-  MNT_OUT3="$(TMPDIR="$WORK" bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN3" "$MNT_LIVE_SHARE" 2>&1)"
-  MNT_WRAP3="$(MNT_WRAP_SHARED "$MNT_OUT3")"
-  assert_eq "single-file wrap (live): the shared wrap dir is OUTSIDE the rw repo share" \
-    "outside" "$(mnt_inside_share "$MNT_WRAP3" "$MNT_LIVE_SHARE")"
-  assert_eq "single-file wrap (live): it is still a real per-entry dir holding the one file" \
-    "mount-src-file.txt" "$(ls "$MNT_WRAP3" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
-  # Still a hard link, so moving the wrap dir did not quietly become a copy --
-  # which would make the documented write-through a lie.
-  assert_eq "single-file wrap (live): the wrap entry is still a HARD LINK to the source" \
-    "same" "$([ "$(ls -i "$MNT_SRC_FILE" | awk '{print $1}')" = "$(ls -i "$MNT_WRAP3/mount-src-file.txt" | awk '{print $1}')" ] && echo same || echo different)"
-  # NEGATIVE CONTROL: the pre-fix siting was $RUN/mount-wrap unconditionally.
-  # Computed against this very fixture, that path is inside the live share --
-  # which is the defect, and is why the assertion above is not vacuous.
-  assert_eq "single-file wrap (live): NEGATIVE CONTROL -- the pre-fix \$RUN/mount-wrap is INSIDE the share" \
-    "inside" "$(mnt_inside_share "$MNT_RUN3/mount-wrap" "$MNT_LIVE_SHARE")"
-  # ...and nothing was left behind under $RUN in the live case.
-  assert_eq "single-file wrap (live): no wrap dir is created under \$RUN" \
-    "absent" "$([ -e "$MNT_RUN3/mount-wrap" ] && echo present || echo absent)"
 
   # ---- a comma in the wrap dir's PARENT aborts, naming the real cause ----
   #
   # The wrap dir is what vfkit is handed for a single-file source, so its WHOLE
   # path -- not just the <tag> component claude_vm_check_mounts settles -- rides
-  # inside the comma-delimited device string. Under repo.mount: live that path
-  # is a mktemp under $TMPDIR, which no `mounts` value reaches, so a comma there
+  # inside the comma-delimited device string. Its parent is $RUN/mount-wrap (or
+  # the $TMPDIR fallback), which no `mounts` value reaches, so a comma there
   # yields a malformed --device on an entry the validator ACCEPTED. The abort is
   # an earlier, cause-naming one rather than a rescue -- such a launch also
-  # breaks on vfkit arguments nothing checks (the gvproxy socket under $TMPDIR,
-  # the EFI store/disk/console log under $RUN) -- so what is asserted here is
+  # breaks on vfkit arguments nothing checks (the EFI store/disk/console log
+  # under $RUN, the gvproxy socket under $TMPDIR) -- so what is asserted here is
   # the abort and its blame, not that the launch would otherwise have worked.
-  # Driven through the real loop with a comma-carrying $TMPDIR and a clean repo.
-  MNT_COMMA_TMP="$WORK/tmp,dir"
-  mkdir -p "$MNT_COMMA_TMP"
-  MNT_RUN4="$MNT_LIVE_SHARE/.claude/tmp/run4"
-  mkdir -p "$MNT_RUN4"
-  MNT_OUT4="$(TMPDIR="$MNT_COMMA_TMP" bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN4" "$MNT_LIVE_SHARE" 2>&1)"
-  MNT_RC4=$?
-  assert_eq "wrap-dir comma: the launcher aborts rather than emitting a malformed device" \
-    "1" "$MNT_RC4"
-  assert_eq "wrap-dir comma: the diagnostic blames \$TMPDIR rather than the mounts entry" \
-    "1" "$(printf '%s\n' "$MNT_OUT4" | grep -c "The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:'")"
-  assert_eq "wrap-dir comma: no --device spec survives the abort" \
-    "0" "$(printf '%s\n' "$MNT_OUT4" | grep -c '^virtio-fs,sharedDir=')"
-
-  # The other arm of the same message: with $RUN OUTSIDE the share the wrap dir
-  # is $RUN/mount-wrap, so the comma is in the run dir rather than in $TMPDIR
-  # and the diagnostic has to say so. Both arms are operator-facing.
   MNT_COMMA_RUN="$WORK/run,dir"
   mkdir -p "$MNT_COMMA_RUN"
-  MNT_OUT7="$(bash "$MNT_SLICE" "$MNT_YML2" "$MNT_COMMA_RUN" 2>&1)"
+  MNT_RUNS_ROOT="$WORK/runs-root"
+  MNT_OUT7="$(CLAUDE_VM_RUNS_DIR="$MNT_RUNS_ROOT" bash "$MNT_SLICE" "$MNT_YML2" "$MNT_COMMA_RUN" 2>&1)"
   MNT_RC7=$?
-  assert_eq "wrap-dir comma (clone shape): the launcher aborts too" \
+  assert_eq "wrap-dir comma (run dir): the launcher aborts rather than emitting a malformed device" \
     "1" "$MNT_RC7"
-  assert_eq "wrap-dir comma (clone shape): the diagnostic blames the run directory" \
+  assert_eq "wrap-dir comma (run dir): the diagnostic blames the run directory" \
     "1" "$(printf '%s\n' "$MNT_OUT7" | grep -c "The comma is in the run directory's path")"
+  assert_eq "wrap-dir comma (run dir): the diagnostic names the runs root" \
+    "1" "$(printf '%s\n' "$MNT_OUT7" | grep -cF "under the runs root '$MNT_RUNS_ROOT'")"
+  assert_eq "wrap-dir comma (run dir): no --device spec survives the abort" \
+    "0" "$(printf '%s\n' "$MNT_OUT7" | grep -c '^virtio-fs,sharedDir=')"
 
   # The guard is at the point of USE, not at the MOUNT_WRAP_DIR assignment, so
   # it fires only for an entry that is actually wrapped: under the same
-  # comma-carrying $TMPDIR a directory-only config still reaches vfkit with the
+  # comma-carrying run dir a directory-only config still reaches vfkit with the
   # device it asked for, since a directory source is shared as itself and the
   # wrap dir is never built into a sharedDir=. (That launch still dies later on
-  # the gvproxy socket's own $TMPDIR path -- a documented, unguarded line -- so
-  # this pins the guard's SCOPE, not a working launch.)
+  # the EFI store's own $RUN path -- a documented, unguarded line -- so this
+  # pins the guard's SCOPE, not a working launch.)
   MNT_YML4="$WORK/mount-loop-boot4.yml"
   {
     printf 'mounts:\n'
     printf '  - source: %s\n    tag: data\n' "$MNT_SRC_DIR"
   } > "$MNT_YML4"
-  MNT_RUN5="$MNT_LIVE_SHARE/.claude/tmp/run5"
-  mkdir -p "$MNT_RUN5"
-  MNT_OUT5="$(TMPDIR="$MNT_COMMA_TMP" bash "$MNT_SLICE" "$MNT_YML4" "$MNT_RUN5" "$MNT_LIVE_SHARE" 2>&1)"
-  assert_eq "wrap-dir comma: a directory-only config under the same \$TMPDIR is not aborted" \
+  MNT_OUT5="$(bash "$MNT_SLICE" "$MNT_YML4" "$MNT_COMMA_RUN" 2>&1)"
+  assert_eq "wrap-dir comma: a directory-only config under the same run dir is not aborted" \
     "virtio-fs,sharedDir=$MNT_SRC_DIR,mountTag=data" \
     "$(printf '%s\n' "$MNT_OUT5" | grep -x -- "virtio-fs,sharedDir=$MNT_SRC_DIR,mountTag=data")"
 
-  # NEGATIVE CONTROL: with the guard's own lines dropped from the SAME captured
+  # NEGATIVE CONTROL: with the guard's body dropped from the SAME captured
   # loop, the run does not abort and emits exactly the string vfkit v0.6.4
   # rejects with `unknown option for virtio-fs devices: ...` -- a bare comma
   # inside sharedDir=, which is what makes the assertions above non-vacuous.
   MNT_SLICE_PREGUARD="$WORK/mount-loop-preguard.sh"
   write_mnt_slice "$MNT_SLICE_PREGUARD" preguard
-  assert_eq "wrap-dir comma: the control really has the guard removed" \
-    "0" "$(grep -c 'case "$MOUNT_WRAP_DIR" in' "$MNT_SLICE_PREGUARD")"
-  MNT_RUN6="$MNT_LIVE_SHARE/.claude/tmp/run6"
-  mkdir -p "$MNT_RUN6"
-  MNT_OUT6="$(TMPDIR="$MNT_COMMA_TMP" bash "$MNT_SLICE_PREGUARD" "$MNT_YML2" "$MNT_RUN6" "$MNT_LIVE_SHARE" 2>&1)"
+  assert_eq "wrap-dir comma: the control really has the guard's body removed" \
+    "0" "$(grep -c "The comma is in the run directory's path" "$MNT_SLICE_PREGUARD")"
+  MNT_COMMA_RUN6="$WORK/run,dir6"
+  mkdir -p "$MNT_COMMA_RUN6"
+  MNT_OUT6="$(bash "$MNT_SLICE_PREGUARD" "$MNT_YML2" "$MNT_COMMA_RUN6" 2>&1)"
   assert_eq "wrap-dir comma: NEGATIVE CONTROL -- without the guard the emitted sharedDir carries the comma" \
-    "1" "$(printf '%s\n' "$MNT_OUT6" | grep -c "^virtio-fs,sharedDir=$MNT_COMMA_TMP/claude-vm-wrap\..*/cfg,mountTag=cfg$")"
+    "1" "$(printf '%s\n' "$MNT_OUT6" | grep -cx -- "virtio-fs,sharedDir=$MNT_COMMA_RUN6/mount-wrap/cfg,mountTag=cfg")"
+
+  # ---- a source on another volume falls back to $TMPDIR (issue #181) ----
+  #
+  # A second volume, for real: a small disk image attached at a mountpoint
+  # inside $WORK. The source file and a $TMPDIR both live on it, $RUN does
+  # not, so the link under $RUN fails with EXDEV and the fallback's link under
+  # $TMPDIR succeeds. Skipped where hdiutil cannot attach an image.
+  MNT_VOL="$WORK/second-volume"
+  MNT_VOL_OK=0
+  if command -v hdiutil >/dev/null 2>&1; then
+    mkdir -p "$MNT_VOL"
+    if hdiutil create -quiet -size 4m -fs HFS+ -volname cvmtest "$WORK/second-volume.dmg" >/dev/null 2>&1 \
+      && hdiutil attach -quiet -nobrowse -noverify -mountpoint "$MNT_VOL" "$WORK/second-volume.dmg" >/dev/null 2>&1; then
+      MNT_VOL_ATTACHED="$MNT_VOL"
+      MNT_VOL_OK=1
+    fi
+  fi
+  if [ "$MNT_VOL_OK" -eq 1 ]; then
+    MNT_VOL_SRC="$MNT_VOL/vol-src.txt"
+    printf 'second-volume-content\n' > "$MNT_VOL_SRC"
+    MNT_VOL_TMP="$MNT_VOL/tmp"
+    mkdir -p "$MNT_VOL_TMP"
+    MNT_YML_VOL="$WORK/mount-loop-boot-vol.yml"
+    {
+      printf 'mounts:\n'
+      printf '  - source: %s\n    tag: cfg\n    path: /root/.gitconfig\n' "$MNT_VOL_SRC"
+    } > "$MNT_YML_VOL"
+    MNT_RUN8="$WORK/mount-loop-run8"
+    mkdir -p "$MNT_RUN8"
+
+    # The fixture's premise, measured rather than assumed: two volumes, and a
+    # plain hard link from the source into $RUN really fails.
+    assert_eq "cross-volume: the fixture's source and \$RUN are on different volumes" \
+      "different" "$([ "$(stat -f %d "$MNT_VOL_SRC")" != "$(stat -f %d "$MNT_RUN8")" ] && echo different || echo same)"
+    assert_eq "cross-volume: NEGATIVE CONTROL -- a hard link from the source into \$RUN fails" \
+      "fails" "$(ln "$MNT_VOL_SRC" "$MNT_RUN8/probe-link" 2>/dev/null && echo links || echo fails)"
+
+    MNT_OUT8="$(TMPDIR="$MNT_VOL_TMP" bash "$MNT_SLICE" "$MNT_YML_VOL" "$MNT_RUN8" 2>&1)"
+    MNT_RC8=$?
+    MNT_WRAP8="$(MNT_WRAP_SHARED "$MNT_OUT8")"
+    assert_eq "cross-volume: the launch is not aborted" "0" "$MNT_RC8"
+    assert_eq "cross-volume: the entry is shared from a wrap dir under \$TMPDIR" \
+      "$MNT_VOL_TMP/claude-vm-wrap.*/cfg" "$(printf '%s\n' "$MNT_WRAP8" | sed "s|^$MNT_VOL_TMP/claude-vm-wrap\.[^/]*/cfg$|$MNT_VOL_TMP/claude-vm-wrap.*/cfg|")"
+    assert_eq "cross-volume: the \$TMPDIR wrap entry is a HARD LINK to the source (same inode)" \
+      "same" "$([ -n "$MNT_WRAP8" ] && [ "$(ls -i "$MNT_VOL_SRC" | awk '{print $1}')" = "$(ls -i "$MNT_WRAP8/vol-src.txt" 2>/dev/null | awk '{print $1}')" ] && echo same || echo different)"
+    assert_eq "cross-volume: no wrap dir is left behind under \$RUN" \
+      "absent" "$([ -e "$MNT_RUN8/mount-wrap/cfg" ] && echo present || echo absent)"
+
+    # A comma in that $TMPDIR aborts, and the message explains the $TMPDIR
+    # siting by the volume crossing.
+    MNT_VOL_COMMA_TMP="$MNT_VOL/tmp,dir"
+    mkdir -p "$MNT_VOL_COMMA_TMP"
+    MNT_RUN9="$WORK/mount-loop-run9"
+    mkdir -p "$MNT_RUN9"
+    MNT_OUT9="$(TMPDIR="$MNT_VOL_COMMA_TMP" bash "$MNT_SLICE" "$MNT_YML_VOL" "$MNT_RUN9" 2>&1)"
+    assert_eq "cross-volume comma: the launcher aborts" "1" "$?"
+    assert_eq "cross-volume comma: the diagnostic blames \$TMPDIR rather than the mounts entry" \
+      "1" "$(printf '%s\n' "$MNT_OUT9" | grep -c "The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:'")"
+    assert_eq "cross-volume comma: ...and explains the \$TMPDIR siting by the volume crossing" \
+      "1" "$(printf '%s\n' "$MNT_OUT9" | grep -c "different volume than the run dir, and a hard link cannot cross volumes")"
+
+    # A $TMPDIR on neither volume cannot rescue it: the launch aborts naming
+    # both failed homes and the directory mount as the fix.
+    MNT_RUN10="$WORK/mount-loop-run10"
+    mkdir -p "$MNT_RUN10"
+    MNT_OUT10="$(TMPDIR="$WORK" bash "$MNT_SLICE" "$MNT_YML_VOL" "$MNT_RUN10" 2>&1)"
+    assert_eq "cross-volume, \$TMPDIR on \$RUN's volume: the launcher aborts" "1" "$?"
+    assert_eq "cross-volume, \$TMPDIR on \$RUN's volume: the diagnostic says the fallback failed too" \
+      "1" "$(printf '%s\n' "$MNT_OUT10" | grep -c "failed too: a hard link cannot cross volumes")"
+    assert_eq "cross-volume, \$TMPDIR on \$RUN's volume: the diagnostic offers the directory mount" \
+      "1" "$(printf '%s\n' "$MNT_OUT10" | grep -cF "(source: $MNT_VOL)")"
+
+    hdiutil detach -quiet -force "$MNT_VOL" >/dev/null 2>&1 && MNT_VOL_ATTACHED=""
+  else
+    echo "SKIP: hdiutil could not attach a second volume; cross-volume wrap-dir tests skipped." >&2
+  fi
 else
   echo "SKIP: extra-mount loop extraction from claude-vm.sh failed; mount-split tests skipped." >&2
 fi

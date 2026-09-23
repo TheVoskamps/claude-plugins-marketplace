@@ -359,6 +359,9 @@ env:
   directory (hard-linking it, so writes still reach the host file) and
   the guest bind-mounts just that one file onto `path:`.
   Nothing else from the file's real parent directory reaches the guest.
+  A hard link cannot cross volumes: the wrap directory sits in the run
+  dir, and a file on another volume is linked under `$TMPDIR` instead.
+  A file on neither volume aborts the launch — mount its directory.
   A caveat a directory mount does not have: the kernel refuses a
   `rename(2)` onto a file bind mount with `EBUSY`, so a single-file
   mount takes in-place edits but **not** the write-a-temp-then-rename
@@ -399,8 +402,9 @@ env:
   checked; the launch fails loudly on the argument rather than booting, and
   `payload/README.md` → *The tag is not just a tag* records why it is left
   there. The one such path this feature adds — the single-file wrap
-  directory (`$RUN/mount-wrap`, or a `$TMPDIR` `mktemp -d` under
-  `repo.mount: live`) — is checked: the launcher aborts on a comma there
+  directory (`$RUN/mount-wrap`, or a `$TMPDIR` `mktemp -d` for a source
+  on another volume than `$RUN`, since a hard link cannot cross
+  volumes) — is checked: the launcher aborts on a comma there
   when it wraps a file, naming `$TMPDIR` or the run dir. That is an
   earlier, cause-naming abort rather than a rescue; the other arguments
   break the same launch anyway.
@@ -818,10 +822,11 @@ How the repo is made available RW to the guest:
 - **`clone` (default)**: `git clone --no-hardlinks` the repo into a
   **persistent** worktree, mounted RW. The guest never touches the live
   working tree or `.git`. The worktree lives under
-  `<repo>/.claude/tmp/<runid>/worktree` when launched from inside a
-  repo (otherwise a `mktemp` dir under `TMPDIR`). It persists after the
-  run so the companion diff/apply skills can inspect and extract
-  results. `.claude/tmp/` is git-ignored.
+  `$CLAUDE_VM_RUNS_DIR/<runid>/worktree` — the runs root, `runs/`
+  under the state root `lib/config.sh` resolves — whether or not the
+  argument is a git repo. It persists after the run so the companion
+  diff/apply skills can inspect and extract results; they find this
+  repo's runs by the `repo_src` line of each run's `run.meta`.
 - **`live`**: mount the live repo dir RW directly. More convenient,
   less isolated. Opt-in.
 
@@ -838,6 +843,19 @@ companion skills handle extraction explicitly:
   local source.
 - `/claude-vm-apply-remote` — push the VM worktree's changes to the
   remote.
+
+### Reaping a run that died without cleaning up
+
+A launcher killed with `kill -9` (or a crash, or a closed terminal)
+never runs its exit trap, so its gvproxy and proxy keep running and its
+run dir keeps its guest-image clone. `bin/claude-vm-cleanup`, run by
+hand, reaps that residue for every repo at once. Each launcher holds a
+`lockf` lock on `$RUN/run.lock` for its lifetime, as does a vfkit it
+leaves running; the cleaner reaps only a run whose lock it can take —
+killing the pids its `run.meta` records, removing its gvproxy socket
+dir and its run dir — and leaves every live run alone. It never removes
+`$CLAUDE_VM_STATE_DIR/logs/`, and it reports each run it reaped or
+spared.
 
 ## Guest image — built on demand, version-pinned, claude verified host-side
 
@@ -1177,7 +1195,9 @@ socket-file corpse, the exact distinction the concurrency fix turns on),
 using real `perl` listeners; `payload/test/bin-config-check-test.sh`
 regression-tests `bin/claude-vm`'s four-file bake/boot config-presence
 check so it no longer prints a false "no global config" when the
-migrated pair is present.
+migrated pair is present. `payload/test/cleanup-test.sh` covers the
+run's `run.lock` across a `kill -9` of the launcher and
+`bin/claude-vm-cleanup` over dead, live and lockless run dirs.
 
 `payload/test/podman-mkosi-test.sh` regression-tests the recipe the
 default provisioner generates (the literal `mkosi.conf` and
