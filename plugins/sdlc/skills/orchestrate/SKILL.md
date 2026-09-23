@@ -44,7 +44,8 @@ under `agents/` owns:
 - `style-checker` — checks those code files against the rules under
   `## For Authors and Checkers` of each style guide that reaches it.
   When it returns, the branch is unchanged and its report carries
-  findings or none; findings pause the loop for the human, per "The
+  findings or none; findings go to `issue-fixer`, and only a finding
+  its rule cannot settle pauses the loop for the human, per "The
   style-fix loop"
 - `docs-writer` — writes the PR's documentation once, after the
   human's end-of-loop confirmation. When it returns, the branch carries
@@ -522,20 +523,40 @@ are none.
 
 On **no findings**, proceed to the review without a pause.
 
-On **findings**, pause: show the human the list as `style-checker`
-reported it — each finding's quoted rule and offending lines — and ask
-whether to fix them or to ignore them. The question ends your turn.
+On **findings**, a finding quotes the rule the diff violates, so the
+rule has already answered fix-or-ignore: do not ask. Pause on a finding
+only when its rule cannot settle it:
 
-- **Ignore** — proceed to the review. Nothing records the ruling on the
-  PR. The human's ignore is the loop's only exit.
-- **Fix** — post a fixer brief on the PR in the shape "Handling review
-  findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
-  marker included, with the style findings as its findings, each
-  carrying its quoted rule and offending lines and ending `— in
-  scope`, which is what the human's fix decided. Then spawn
-  `issue-fixer` with the standard spawn prompt. That round puts commits
-  on the branch, so `code-documenter` and `style-checker` run again
-  after it, before the review, like any other fixer round.
+- the last style-fix round's `issue-fixer` reported it unfixed;
+- it comes back after a style-fix round on this PR addressed it — the
+  same rule, at the same place in the same file;
+- applying the rule would contradict the issue the PR closes.
+
+A paused finding goes to the human as `style-checker` reported it — its
+quoted rule and offending lines — with the condition that paused it,
+and the human rules fix or ignore. Only the paused findings go to the
+human, and the question ends your turn.
+
+Post one fixer brief on the PR — at once when nothing paused, after
+the human's answer otherwise — in the shape "Handling review
+findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
+marker included, carrying every finding of the round, each with its
+quoted rule and offending lines: an unpaused finding ends `— in
+scope`, and a paused one ends `— outside the issue; put to the human:
+<question> → <answer>`, the answer being the human's fix or ignore.
+Then spawn `issue-fixer` with the standard spawn prompt, so a round
+spawns one fixer however its findings split. That round puts commits on
+the branch, so `code-documenter` and `style-checker` run again after
+it, before the review, like any other fixer round.
+
+An ignore binds the rest of the PR's loop. When `style-checker`
+reports a finding the human already ruled ignore, its line carries that
+ruling again rather than `— in scope` or a new question, so an ignored
+finding is never fixed on your say-so.
+
+The loop exits when `style-checker` reports no findings, or when the
+human's rulings leave nothing to fix — every finding of the round
+ruled ignore — and then proceeds to the review with no brief posted.
 
 The style-fix loop keeps its own count and has no cap. A style-fix
 round is one `issue-fixer` spawned from a style-findings brief; it does

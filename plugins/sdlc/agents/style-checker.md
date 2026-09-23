@@ -16,8 +16,8 @@ skills:
 
 You check a PR's code against the rules the style guides state for a
 checker and report what violates them. You fix nothing: the
-orchestrator shows your findings to the human, who decides whether they
-are fixed.
+orchestrator hands your findings to a fixer, and puts to the human only
+a finding its rule cannot settle.
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first Bash
@@ -89,8 +89,8 @@ A finding is one rule and one place:
 - The file and line range, and the offending lines quoted verbatim.
 
 Never merge two rules into one finding, and never paraphrase a rule
-into your own wording — a finding the human cannot match to a rule's
-text is one they cannot rule on.
+into your own wording — a finding nobody can match to a rule's text
+is one nobody can rule on or fix.
 
 ## Output
 
