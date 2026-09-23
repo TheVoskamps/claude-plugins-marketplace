@@ -576,8 +576,8 @@ query($owner: String!, $repo: String!, $number: Int!) {
       issueType { id name }
       parent { id number title }
       subIssues(first: 50)  { nodes { number title url } }
-      blockedBy(first: 50)  { nodes { number title url } }
-      blocking(first: 50)   { nodes { number title url } }
+      blockedBy(first: 50)  { nodes { id number title url } }
+      blocking(first: 50)   { nodes { id number title url } }
       issueDependenciesSummary {
         blockedBy blocking totalBlockedBy totalBlocking
       }
@@ -622,8 +622,10 @@ takes one of three forms:
 
 Parse each operand into `(owner, repo, number)` before its node-ID
 lookup. `owner` and `repo` come from the operand when it has the
-`owner/repo#N` form, and are the current repo's otherwise; `number`
-is the digits after the `#`, or the whole operand when it is bare.
+`owner/repo#N` form, and are the current repo's otherwise — its
+`owner.login` and `name` as `gh repo view --json owner,name` reports
+them for the working tree; `number` is the digits after the `#`, or
+the whole operand when it is bare.
 Run the lookup above with those three values as `$owner`, `$repo`
 and `$number`. A bare or `#`-prefixed number therefore resolves in
 the current repo, and an `owner/repo#N` operand resolves the node ID
@@ -635,8 +637,9 @@ current repo's (compared case-insensitively) and as
 
 The `owner/repo#N` form is GitHub-only: a Jira key is already
 globally unique. Under `issues == Jira`, an operand of that shape
-aborts with the "Cross-repo operand under Jira" catalogue entry
-before any `acli` call.
+aborts with the "Cross-repo operand under Jira" catalogue entry.
+This form check runs before the Jira backend's "Preconditions", so
+it precedes every `acli` call, `acli jira auth status` included.
 
 ### Sub-issues paginated lookup
 
@@ -1452,7 +1455,7 @@ underlying Jira link is one edge.
   `removeBlockedBy`" above (`set-blocks N B` writes "N blocks B";
   `set-blocked-by N B` writes "N is blocked by B"). Remove the link to
   unset. Check each operand's form per "Operand resolution" above
-  first.
+  before the "Preconditions" run.
 
 ### Abort-if-missing / no-silent-fallback (Jira)
 
