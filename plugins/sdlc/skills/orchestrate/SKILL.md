@@ -542,8 +542,8 @@ the human's answer otherwise — in the shape "Handling review
 findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
 marker included, carrying every finding of the round, each with its
 quoted rule and offending lines: an unpaused finding ends `— in
-scope`, and a paused one ends `— outside the issue; put to the human:
-<question> → <answer>`, the answer being the human's fix or ignore.
+scope`, and a paused one ends `— put to the human: <question> →
+<answer>`, the answer being the human's fix or ignore.
 Then spawn `issue-fixer` with the standard spawn prompt, so a round
 spawns one fixer however its findings split. That round puts commits on
 the branch, so `code-documenter` and `style-checker` run again after
@@ -754,6 +754,8 @@ member)**:
    two, or by the reason when it is an out-of-scope observation ruled
    trivial and adjacent;
    `— outside the issue; put to the human: <question> → <answer>`;
+   `— put to the human: <question> → <answer>`, for a finding inside
+   the issue that you still put to the human;
    `— outside the issue; dropped: <reason>`>
 
    Owner rulings — in-scope work that is not itself a finding, and

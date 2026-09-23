@@ -87,9 +87,10 @@ from its issue.
 
    The brief carries the findings, each on a line that ends with its
    scope ruling — `— in scope`, `— outside the issue; put to the
-   human: <question> → <answer>`, or `— outside the issue; dropped:
-   <reason>` — plus an owner-rulings section for work that is not
-   itself a finding, the issue set the PR closes, and the branch name.
+   human: <question> → <answer>`, `— put to the human: <question> →
+   <answer>`, or `— outside the issue; dropped: <reason>` — plus an
+   owner-rulings section for work that is not itself a finding, the
+   issue set the PR closes, and the branch name.
    `<branch-name>` in the rest of this document means the branch it
    names.
 
