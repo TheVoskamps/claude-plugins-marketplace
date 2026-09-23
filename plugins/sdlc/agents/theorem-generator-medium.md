@@ -30,8 +30,6 @@ consequences for your worktree.
 Your definition is `theorem-generator-medium` and your reasoning tier is
 medium. Pass that name as `--agent` on your `leave` call.
 
-The harness does not put this file's frontmatter in front of you, so
-the sentence above is the only way you know which definition you are.
 The generation skill is tier-blind and never asks which generator is
 running it — the reviewer picks a tier by spawning one of the
 generator variants (see the `sdlc:theorem-based-pr-reviewer` agent →
