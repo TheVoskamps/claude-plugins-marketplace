@@ -4,8 +4,9 @@ End-to-end issue orchestration: groom an issue until it can be
 implemented without stopping to ask, plan and delegate the
 implementation of one or more issues across parallel teammate agents,
 review the resulting PRs through a theorem-based pipeline, hand the
-human a set of PRs to bless, and watch each blessed PR until it
-merges.
+human a set of PRs to bless, watch each blessed PR until it merges,
+and, when the human asks, delete the review state of PRs that have
+merged or closed.
 
 ## Find the owner of a statement before you edit it
 
@@ -285,6 +286,7 @@ Each piece has one owner:
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
+| `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then sweep merged branches and stale worktrees; `--dry-run` reports the verdicts and deletes nothing | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
@@ -321,6 +323,12 @@ conversation with the human, and the orchestrator is not one. The bar
 and the grammar are owned by `skills/orchestrate-readiness/SKILL.md`;
 why grooming is interactive rather than an agent is owned by
 `skills/orchestrate-ready/SKILL.md`.
+
+`/sdlc:orchestrate-cleanup` is the pass behind the flow, and
+`/sdlc:orchestrate` does not invoke it either: a run's review state
+outlives the run, and the human runs the cleanup once that evidence is
+no longer wanted. Its verdicts, its report, and what `--dry-run` skips
+are owned by `skills/orchestrate-cleanup/SKILL.md`.
 
 ## Executables
 
@@ -378,15 +386,17 @@ The `enter` record also carries a path outside that directory,
 that path and writes nothing there; recording it is what lets a
 post-mortem reach a child's transcript after its worktree is gone.
 
-**Nothing ever removes any of it, and that is deliberate.** There is no
-cleanup mode, no expiry, and no sweep: a round log outlives the
-worktrees of every child it names, and the voided copies outlive the
-round they describe. That accumulation is the debugging trail — a
-stalled or voided round is diagnosed from these files and from nothing
-else, since the reviewer holds no state across a turn. Deleting on a
-schedule would throw away the evidence at exactly the moment it is
-wanted. A `pr<N>/` stays after its PR merges or closes, and nothing
-here bounds that growth — removing one is the operator's own call.
+**Nothing removes any of it during a run, and that is deliberate.**
+No mode that runs during a review deletes, and nothing expires: a
+round log outlives the worktrees of every child it names, and the
+voided copies outlive the round they describe. That accumulation is
+the debugging trail — a stalled or voided round is diagnosed from
+these files and from nothing else, since the reviewer holds no state
+across a turn. The one `sdlc` surface that deletes state is the
+script's `--mode delete`, which removes a whole `pr<N>/`, and its only
+caller is `/sdlc:orchestrate-cleanup`, a pass the human invokes; so a
+`pr<N>/` stays after its PR merges or closes until the human runs that
+pass.
 
 ## Agents
 
@@ -455,6 +465,7 @@ wherever it runs — the issue verbs, `git-branch-create`,
 and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which the orchestrator's
-post-merge tail invokes once. The edge coordinates
+post-merge tail invokes once and `/sdlc:orchestrate-cleanup` invokes
+after its state-directory pass. The edge coordinates
 install and enablement, not file access: plugins are file-sandboxed,
 so nothing here reads another plugin's files.

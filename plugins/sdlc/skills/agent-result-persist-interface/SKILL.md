@@ -42,6 +42,7 @@ adding to it.
 sdlc-agent-result-persist --mode <mode> \
   --owner <owner> --repo <repo> --pr <n> [--round <n>] \
   [mode-specific flags]
+sdlc-agent-result-persist --mode list --owner <owner> --repo <repo>
 ```
 
 Spell the command as a bare name, never by path: the rule that lets a
@@ -52,12 +53,16 @@ because this plugin ships no permission rules.
 ## The identifying flags
 
 These four go on **every** call, and "The paths" below says what they
-compose. `--round` is the one exception: `print-records` selects the
-round itself and refuses one.
+compose, except where a mode acts above the level a flag names and
+refuses it: `print-records` selects the round itself and `delete`
+removes the whole PR's directory, so both refuse `--round`, and `list`
+reads across every PR of the repo, so it refuses `--pr` and `--round`
+alike.
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
-  path. Neither may carry a path separator or whitespace.
+  path. Each may hold only letters, digits, `.`, `_` and `-`, and
+  neither may be `.` or `..`.
 - `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
   from 1, and **`--round 0` is valid**: the pre-loop seed, ruled on by
   the human before any implementer ran.
@@ -91,8 +96,8 @@ makes a round survive the session that opened it: a reviewer resumed in
 a session that never saw the first one holds all four already, composes
 the same path, and reads the same log. The state variable is used when
 set and non-empty and `$HOME/.local/state` otherwise, and the script
-spells that fallback once. Nothing here is ever deleted, and this
-directory is where the whole of a round's output lives: the theorem
+spells that fallback once. This directory is where the whole of a
+round's output lives: the theorem
 records that the next round carries forward, and the argued review it
 composed, are files here rather than text on the PR.
 
@@ -124,10 +129,19 @@ With any of those unavailable the record still lands, carrying `-` in
 the transcript column. A missing path is worth less than a missing
 record.
 
+**Nothing here is deleted but by `--mode delete`, and that mode is
+called only by `/sdlc:orchestrate-cleanup`, a pass the human invokes.**
+A round's files are the evidence a stalled or voided round is diagnosed
+from, so no mode that runs during a review removes one, and none ever
+expires: a PR's directory stays until the human decides its evidence is
+no longer wanted, which is the one exception this policy makes.
+
 ## The modes
 
 One word, one meaning: **every mode is named for what it writes** — the
-record, or the file — and the `print` modes for the ones that read.
+record, or the file — the `print` modes for the ones that read one
+round, and `list` and `delete` for what they do across a repo's PR
+directories.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`.
   One call per round, and **idempotent**, which is what lets the
@@ -220,6 +234,23 @@ record, or the file — and the `print` modes for the ones that read.
   read.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
+- **`list`** — writes to stdout one bare PR number per line, in
+  ascending order, one per `pr<n>/` directory under the repo's
+  `<owner>/<repo>/` state directory, and nothing else on the line; an
+  entry whose name is not `pr` followed by digits, or that is not a
+  directory, is skipped. It takes **no `--pr` and no `--round`**, and
+  refuses either. A repo no review has run against has no directory,
+  so the output is empty and the exit zero; the mode creates nothing.
+- **`delete`** — removes `pr<n>/` recursively, every round under it
+  and every voided round with them. It takes **no `--round`** and
+  refuses one, and it refuses a missing `--pr` with the usual
+  `--pr is required` message. A directory already absent is the state
+  the call asks for, so it exits zero and prints nothing.
+
+  **`delete` is the only mode that deletes stored state.** The one
+  thing any other mode removes is its own staging file, when `leave`,
+  `records` or `review` refuses empty input; `anchor` renames a voided
+  round rather than removing it.
 
 The script stamps every record's time itself: the writer owns when the
 record was made.

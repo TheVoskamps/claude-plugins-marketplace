@@ -4,7 +4,9 @@
 # records and the round's argued review in files of their own, so a
 # round completes from what is on disk rather than from what a caller
 # heard back, and so the next round reads its predecessor's records off
-# disk rather than off the PR.
+# disk rather than off the PR. It also lists the PRs a repo holds state
+# for and deletes one PR's state whole, which is the only way any of it
+# is ever removed.
 #
 # Every path is composed here and nowhere else — the round log, each
 # result file, the records file, the review file, and each child's
@@ -28,7 +30,8 @@ usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |records|review|print-records|print-review
-                --owner <owner> --repo <repo> --pr <n> [--round <n>]
+                       |list|delete
+                --owner <owner> --repo <repo> [--pr <n>] [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
@@ -90,32 +93,40 @@ done
 case "$mode" in
   anchor|spawn|enter|leave|return|stopped|print) ;;
   records|review|print-records|print-review) ;;
+  list|delete) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
 
 # A / in an identifying value would silently add a directory level to
 # the composed path, which is why owner and repo stay separate flags
-# rather than arriving as one owner/name token.
+# rather than arriving as one owner/name token. A value of . or .. names
+# no directory of its own: .. climbs out of the level it stands at, and
+# . lets the other value climb further, so either could compose a path
+# outside the state root that every mode reads, writes or deletes under.
 for pair in "owner:$owner" "repo:$repo"; do
   name=${pair%%:*}
   given=${pair#*:}
   [ -n "$given" ] || die "--$name is required"
   case "$given" in
-    *[!A-Za-z0-9._-]*) die "--$name must not contain a path separator or whitespace: $given" ;;
+    *[!A-Za-z0-9._-]*|.|..)
+      die "--$name may hold only letters, digits, ., _ and -, and must not be . or ..: $given" ;;
   esac
 done
 
-# --round is the one identifying flag a mode may refuse: print-records
-# selects the round itself, so a caller passing one would be naming a
-# round the mode is not going to read.
+# A mode refuses an identifying flag it does not act at: print-records
+# selects the round itself, delete removes a whole PR's directory, and
+# list reads above every PR's, so a caller passing one would be naming a
+# round or a PR the mode is not going to touch.
 for pair in "pr:$pr" "round:$round"; do
   name=${pair%%:*}
   given=${pair#*:}
-  if [ "$name" = round ] && [ "$mode" = print-records ]; then
-    [ -z "$given" ] || die "--round is not accepted in --mode print-records: $given"
-    continue
-  fi
+  case "$name:$mode" in
+    round:print-records|round:delete|round:list|pr:list)
+      [ -z "$given" ] || die "--$name is not accepted in --mode $mode: $given"
+      continue
+      ;;
+  esac
   [ -n "$given" ] || die "--$name is required"
   case "$given" in
     *[!0-9]*) die "--$name must be a number: $given" ;;
@@ -192,7 +203,8 @@ done
 # The round gets a directory of its own under XDG state, composed from
 # the identifying flags alone: no session is part of the path, so a
 # round interrupted by a session ending is resumed from the same one.
-readonly pr_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$owner/$repo/pr$pr"
+readonly repo_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$owner/$repo"
+readonly pr_dir="$repo_dir/pr$pr"
 readonly dir="$pr_dir/round$round"
 readonly file="$dir/log"
 readonly result_file="$dir/$theorem-$agent"
@@ -252,9 +264,9 @@ store_from_stdin() {
 }
 
 # Every mode that writes writes into the same directory; the reading
-# modes create nothing.
+# modes and delete create nothing.
 case "$mode" in
-  print|print-records|print-review) ;;
+  print|print-records|print-review|list|delete) ;;
   *) mkdir -p "$dir" ;;
 esac
 
@@ -363,5 +375,22 @@ case "$mode" in
   print-review)
     [ -e "$review_file" ] || die "no round review at $review_file"
     cat -- "$review_file"
+    ;;
+  list)
+    # A repo no review has run against has no directory, which is an
+    # empty list rather than an error.
+    for found in "$repo_dir"/pr*; do
+      [ -d "$found" ] || continue
+      n=${found##*/pr}
+      case "$n" in
+        ''|*[!0-9]*) continue ;;
+      esac
+      printf '%s\n' "$n"
+    done | sort -n
+    ;;
+  delete)
+    # The one mode that deletes. A directory already gone is the state
+    # the call asks for, so it succeeds silently.
+    rm -rf -- "$pr_dir"
     ;;
 esac
