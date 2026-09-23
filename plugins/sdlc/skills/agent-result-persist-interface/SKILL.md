@@ -232,6 +232,12 @@ directories.
   from the second line on. Exits non-zero when no round under the PR
   holds a records file — a PR whose round 1 has no round-0 seed to
   read.
+- **`print-round-records`** — writes the named round's records file
+  to stdout, byte for byte, with no `round <n>` line in front: the
+  caller named the round. It is the read for a caller that walks every
+  round rather than carrying the most recent one forward, and it
+  creates nothing. Exits non-zero when that round holds no records
+  file.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
 - **`list`** — writes to stdout one bare PR number per line, in

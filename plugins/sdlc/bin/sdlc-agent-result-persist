@@ -29,8 +29,8 @@ die() {
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                       |records|review|print-records|print-review
-                       |list|delete
+                       |records|review|print-records|print-round-records
+                       |print-review|list|delete
                 --owner <owner> --repo <repo> [--pr <n>] [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
@@ -92,7 +92,7 @@ done
 
 case "$mode" in
   anchor|spawn|enter|leave|return|stopped|print) ;;
-  records|review|print-records|print-review) ;;
+  records|review|print-records|print-round-records|print-review) ;;
   list|delete) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
@@ -266,7 +266,7 @@ store_from_stdin() {
 # Every mode that writes writes into the same directory; the reading
 # modes and delete create nothing.
 case "$mode" in
-  print|print-records|print-review|list|delete) ;;
+  print|print-records|print-round-records|print-review|list|delete) ;;
   *) mkdir -p "$dir" ;;
 esac
 
@@ -371,6 +371,10 @@ case "$mode" in
     [ -n "$best" ] || die "no round under $pr_dir holds a records file"
     printf 'round %s\n' "$best_round"
     cat -- "$best/records"
+    ;;
+  print-round-records)
+    [ -e "$records_file" ] || die "no round records at $records_file"
+    cat -- "$records_file"
     ;;
   print-review)
     [ -e "$review_file" ] || die "no round review at $review_file"

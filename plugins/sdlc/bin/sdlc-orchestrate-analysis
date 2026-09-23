@@ -1,0 +1,718 @@
+#!/usr/bin/env bash
+# Report where one /sdlc:orchestrate run's wall-clock time went, for the
+# PR it produced, as Markdown tables on stdout.
+#
+# Its sources, each read as it stands and never substituted for one
+# another: the PR's review rounds, read only through
+# sdlc-agent-result-persist's print modes and the result-file and
+# transcript paths those modes print; the orchestrator session's
+# transcript, found from the transcript paths on the round logs' enter
+# lines; and the PR's GitHub timeline. A source that is missing is named
+# in the report, and every row it would have backed is left out.
+#
+# Read-only: nothing here writes a file or mutates anything on GitHub,
+# which is why every intermediate result lives in a shell variable.
+set -euo pipefail
+
+readonly PROGRAM=${0##*/}
+readonly TAB=$'\t'
+readonly NL=$'\n'
+
+die() {
+  printf '%s: %s\n' "$PROGRAM" "$1" >&2
+  exit 2
+}
+
+usage() {
+  cat <<EOF
+usage: $PROGRAM <pr-number>
+EOF
+}
+
+[ "$#" -eq 1 ] || { usage >&2; exit 2; }
+case "$1" in
+  -h|--help) usage; exit 0 ;;
+esac
+pr=${1#\#}
+case "$pr" in
+  ''|*[!0-9]*) die "the PR number must be a number: $1" ;;
+esac
+
+command -v jq >/dev/null 2>&1 || die "jq is required and is not on PATH"
+command -v gh >/dev/null 2>&1 || die "gh is required and is not on PATH"
+command -v sdlc-agent-result-persist >/dev/null 2>&1 \
+  || die "sdlc-agent-result-persist is required and is not on PATH"
+
+nwo=$(gh repo view --json owner,name --jq '.owner.login + " " + .name' 2>/dev/null) \
+  || die "cannot resolve this repository's owner and name with gh repo view"
+owner=${nwo%% *}
+repo=${nwo#* }
+
+missing=
+note_missing() {
+  missing="$missing- $1$NL"
+}
+
+persist() {
+  sdlc-agent-result-persist --owner "$owner" --repo "$repo" --pr "$pr" "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Review rounds. print-records names the highest round holding records, so
+# every round up to it is expected to have a log; past it, the walk stops at
+# the first round with none, which is the round not yet opened.
+
+top=$(persist --mode print-records 2>/dev/null | sed -n '1s/^round //p') || top=
+[ -n "$top" ] || top=0
+
+# Each line is "<round><TAB><log line>", the log line as print wrote it.
+round_logs=
+n=1
+while :; do
+  if log=$(persist --mode print --round "$n" 2>/dev/null); then
+    round_logs="$round_logs$(printf '%s\n' "$log" | awk -v r="$n" '{print r "\t" $0}')$NL"
+  elif [ "$n" -le "$top" ]; then
+    note_missing "round $n log: \`sdlc-agent-result-persist --mode print --round $n\` found none; no row for round $n"
+  else
+    break
+  fi
+  n=$((n + 1))
+done
+if [ -z "$round_logs" ]; then
+  note_missing "every round log: no round of PR #$pr has one; no review-round rows"
+fi
+
+# ---------------------------------------------------------------------------
+# The orchestrator session's transcript is <session>.jsonl beside the
+# <session> directory that every enter line's transcript path sits under.
+
+sessions=$(printf '%s' "$round_logs" | awk -F'\t' '{split($2, f, " ")} f[1] == "enter" && f[6] ~ /\/subagents\/agent-[^\/]*\.jsonl$/ {
+  p = f[6]; sub(/\/subagents\/agent-[^\/]*\.jsonl$/, "", p); print p ".jsonl"
+}' | sort -u)
+
+transcripts=
+if [ -z "$sessions" ]; then
+  note_missing "orchestrator session transcript: no enter line carries a transcript path; no agent, wait, planning or overhead rows"
+else
+  while IFS= read -r t; do
+    if [ -f "$t" ]; then
+      transcripts="$transcripts$t$NL"
+    else
+      note_missing "orchestrator session transcript \`$t\`: not on disk; no rows from it"
+    fi
+  done <<EOF
+$sessions
+EOF
+fi
+
+# One line per event, tab-separated, kind first:
+#   INVOKE <ts>
+#   TURN   <from> <to> <inbound-kind>
+#   WAIT   <from> <to> <question line> <first line of the answer>
+#   SPAWN  <ts> <tool-use-id> <subagent-type> <description>
+#   LAUNCH <ts> <tool-use-id> <agent-id> <status>
+#   REPORT <ts> <agent-id>
+# A turn opens on a human message, a subagent's hand-back or a task
+# notification, and runs to the last line before the next one; the gap
+# from a turn's last line to a human message is a wait on the human.
+read -r -d '' TRANSCRIPT_JQ <<'EOF' || true
+def ts: (.timestamp // "") | sub("\\.[0-9]+Z$"; "Z");
+def clean: gsub("[\t\r]"; " ");
+def text_of: if type == "string" then . else ([.[]? | select(.type == "text") | .text] | join("\n")) end;
+def lines: split("\n") | map(select(test("\\S")));
+def question: lines as $l | (([$l[] | select(test("\\?"))] | last) // ($l | last) // "") | clean;
+def firstline: (lines | .[0] // "") | clean;
+reduce (inputs | select(.type == "user" or .type == "assistant") | select(.timestamp)) as $e
+  ({start: null, kind: null, last: null, text: "", out: []};
+   ($e | ts) as $t
+   | ($e.origin.kind // "") as $k
+   | if $e.type == "user" and ($k == "human" or $k == "peer" or $k == "task-notification") then
+       ($e.message.content | text_of) as $body
+       | .out += (if .start then [["TURN", .start, .last, .kind] | join("\t")] else [] end)
+       | .out += (if $k == "human" and .last and .last < $t
+                  then [["WAIT", .last, $t, (.text | question), ($body | firstline)] | join("\t")]
+                  else [] end)
+       | .out += (if $k == "human" and ($body | test("<command-name>/sdlc:orchestrate</command-name>"))
+                  then [["INVOKE", $t] | join("\t")] else [] end)
+       | .out += (if $k == "peer" and $e.origin.from
+                  then [["REPORT", $t, $e.origin.from] | join("\t")] else [] end)
+       | .out += (if $k == "task-notification" and ($body | test("<task-id>"))
+                  then [["REPORT", $t, ($body | capture("<task-id>(?<id>[^<]+)</task-id>").id)] | join("\t")]
+                  else [] end)
+       | .start = $t | .kind = $k | .last = $t
+     else
+       .last = (if .last == null or .last < $t then $t else .last end)
+       | if $e.type == "assistant" then
+           ($e.message.content | text_of) as $said
+           | .text = (if ($said | test("\\S")) then $said else .text end)
+           | .out += [$e.message.content[]?
+                      | select(.type == "tool_use" and (.name == "Agent" or .name == "Task"))
+                      | ["SPAWN", $t, .id, (.input.subagent_type // "general-purpose"),
+                         ((.input.description // "") | clean)] | join("\t")]
+         else
+           .out += (if ($e.toolUseResult | type) == "object" and $e.toolUseResult.agentId
+                    then [["LAUNCH", $t, ([$e.message.content[]? | .tool_use_id? // empty] | .[0] // ""),
+                           $e.toolUseResult.agentId, ($e.toolUseResult.status // "")] | join("\t")]
+                    else [] end)
+         end
+     end)
+| .out[], (if .start then ["TURN", .start, .last, .kind] | join("\t") else empty end)
+EOF
+
+events=
+if [ -n "$transcripts" ]; then
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    if got=$(jq -n -r "$TRANSCRIPT_JQ" "$t" 2>/dev/null); then
+      events="$events$got$NL"
+    else
+      note_missing "orchestrator session transcript \`$t\`: jq could not parse it; no rows from it"
+    fi
+  done <<EOF
+$transcripts
+EOF
+fi
+
+# ---------------------------------------------------------------------------
+# The PR's GitHub timeline: one JSON object per event.
+
+gh_events=
+pr_url=
+if pr_url=$(gh api "repos/$owner/$repo/pulls/$pr" --jq .html_url 2>/dev/null) \
+  && gh_events=$(gh api --paginate "repos/$owner/$repo/issues/$pr/timeline" \
+       --jq '.[] | {event, t: ((.created_at // .submitted_at // "") | sub("\\.[0-9]+Z$"; "Z")), body: (.body // "")} | @json' 2>/dev/null); then
+  :
+else
+  gh_events=
+  note_missing "the PR's GitHub timeline: \`gh api\` could not read PR #$pr; no review, comment, force-push, ready or merge rows, and no ruling from a PR comment"
+fi
+
+# ---------------------------------------------------------------------------
+# The run's window, which the Run line, the Timeline and Totals read. A
+# session holds one /sdlc:orchestrate invocation, and the run is that
+# session through to the PR's merge: the window opens at the invocation and
+# closes at the later of the transcript's last entry and the PR's merge, or
+# its last timeline event while unmerged. With no transcript, or no
+# invocation in it, there is no window, and the report omits the Run line
+# and Totals rather than derive one from another source.
+invokes=$(printf '%s' "$events" | awk -F'\t' '$1 == "INVOKE" {print $2}' | sort)
+win_start=
+win_end=
+if [ -z "$events" ]; then
+  note_missing "the run's window: no orchestrator session transcript was read; no Run line and no Totals"
+elif [ -z "$invokes" ]; then
+  note_missing "the /sdlc:orchestrate invocation: the orchestrator session transcript holds none, so the run's window has no start; no Run line, no Totals and no planning row"
+else
+  win_start=$(printf '%s\n' "$invokes" | sed -n 1p)
+  events=$(printf '%s' "$events" | awk -F'\t' -v s="$win_start" '$2 >= s')
+  transcript_end=$(printf '%s\n' "$events" | awk -F'\t' '
+    $1 == "" {next}
+    {if ($2 > m) m = $2}
+    ($1 == "TURN" || $1 == "WAIT") && $3 > m {m = $3}
+    END {print m}')
+  timeline_end=
+  if [ -n "$gh_events" ]; then
+    timeline_end=$(printf '%s\n' "$gh_events" | jq -r -s '
+      map(select(.t != "")) as $e
+      | ([$e[] | select(.event == "merged") | .t] | max) // ([$e[] | .t] | max) // ""')
+  fi
+  win_end=$transcript_end
+  if [ -n "$timeline_end" ] && [[ "$timeline_end" > "$win_end" ]]; then
+    win_end=$timeline_end
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Rows: <from> <to> <category> <what> <evidence>, tab-separated. The
+# category decides both the totals bucket and whether the row shows: an
+# orchestrator turn other than planning counts toward overhead but is not
+# listed, and a GitHub event is a point with no bucket.
+
+rows=
+
+# Agent spans: the spawn's tool call, joined to the launch result that
+# names the agent id, joined to the first report back for that id. A
+# foreground spawn's launch result is its report.
+agents=$(printf '%s' "$events" | awk -F'\t' '
+  $1 == "SPAWN"  {n++; st[n] = $2; tid[n] = $3; typ[n] = $4; desc[n] = $5}
+  $1 == "LAUNCH" {aid[$3] = $4; lst[$3] = $5; lts[$3] = $2}
+  $1 == "REPORT" {r++; rts[r] = $2; rid[r] = $3}
+  END {
+    for (i = 1; i <= n; i++) {
+      id = aid[tid[i]]; end = ""
+      if (id != "" && lst[tid[i]] != "async_launched") end = lts[tid[i]]
+      if (id != "" && end == "")
+        for (j = 1; j <= r; j++)
+          if (rid[j] == id && rts[j] >= st[i] && (end == "" || rts[j] < end)) end = rts[j]
+      t = typ[i]; sub(/^sdlc:/, "", t)
+      print st[i] "\t" end "\t" t "\t" desc[i] "\t" id
+    }
+  }')
+
+if [ -n "$agents" ]; then
+  rows="$rows$(printf '%s\n' "$agents" | awk -F'\t' '{
+    cat = ($3 == "theorem-based-pr-reviewer") ? "review" : "agent"
+    what = $3 ($4 != "" ? " — " $4 : "")
+    if ($2 == "") what = what " (no report back in the transcript)"
+    print $1 "\t" $2 "\t" cat "\t" what "\torchestrator transcript (agent " $5 ")"
+  }')$NL"
+fi
+
+turns=$(printf '%s' "$events" | awk -F'\t' '$1 == "TURN" {print $2 "\t" $3}' | sort)
+if [ -n "$turns" ]; then
+  rows="$rows$(printf '%s\n' "$turns" | awk -F'\t' -v s="$win_start" -v inv="$invokes" '{
+    if (NR == 1 && $1 == s && inv != "") print $1 "\t" $2 "\toverhead\tplanning\torchestrator transcript"
+    else print $1 "\t" $2 "\toverhead-hidden\torchestrator turn\torchestrator transcript"
+  }')$NL"
+fi
+
+waits=$(printf '%s' "$events" | awk -F'\t' '$1 == "WAIT" {print $2 "\t" $3 "\t" $4 "\t" $5}' | sort \
+  | awk -F'\t' '{print "W" NR "\t" $0}')
+if [ -n "$waits" ]; then
+  rows="$rows$(printf '%s\n' "$waits" | awk -F'\t' '{
+    print $2 "\t" $3 "\thuman\twait on the human, " $1 "\torchestrator transcript (human turn)"
+  }')$NL"
+fi
+
+# Per round: its whole span, then one span per stage from the stage's
+# first record to its last. Every instant is the round log's own.
+round_spans=$(printf '%s' "$round_logs" | awk -F'\t' '
+  {split($2, f, " "); r = $1}
+  f[1] == "anchor" {t = f[2]; s = ""}
+  f[1] ~ /^(spawn|enter|leave|return|stopped)$/ {t = f[4]; s = f[3]}
+  f[1] == "result" {next}
+  {
+    if (!(r in lo) || t < lo[r]) lo[r] = t
+    if (!(r in hi) || t > hi[r]) hi[r] = t
+    if (s != "") {
+      k = r SUBSEP s
+      if (!(k in slo) || t < slo[k]) slo[k] = t
+      if (!(k in shi) || t > shi[k]) shi[k] = t
+      if (f[1] == "spawn") kids[k]++
+    }
+  }
+  END {
+    for (r in lo) {
+      print "ROUND\t" r "\t" lo[r] "\t" hi[r]
+      split("generate disprove verify", st, " ")
+      for (i = 1; i <= 3; i++) {
+        k = r SUBSEP st[i]
+        if (k in slo) print "STAGE\t" r "\t" slo[k] "\t" shi[k] "\t" st[i] "\t" (kids[k] + 0)
+      }
+    }
+  }' | sort -t "$TAB" -k2,2n -k3,3)
+
+if [ -n "$round_spans" ]; then
+  rows="$rows$(printf '%s\n' "$round_spans" | awk -F'\t' '$1 == "ROUND" {
+    print $3 "\t" $4 "\treview\treview round " $2 "\tround " $2 " log"
+  }')$NL"
+fi
+
+if [ -n "$gh_events" ]; then
+  rows="$rows$(printf '%s\n' "$gh_events" | jq -r '
+    .t as $t
+    | (.body | split("\n") | .[0] // "") as $first
+    | if .event == "reviewed" then "review posted"
+      elif .event == "commented" and ($first | startswith("<!-- sdlc:fixer-brief -->")) then "fixer brief posted"
+      elif .event == "commented" and ($first | test("^Review adjustments for round [0-9]+:")) then ($first | rtrimstr(":")) + " posted"
+      elif .event == "head_ref_force_pushed" then "force-push"
+      elif .event == "ready_for_review" then "ready flip"
+      elif .event == "convert_to_draft" then "back to draft"
+      elif .event == "merged" then "merge"
+      else empty end
+    | [$t, $t, "event", ., "PR timeline"] | join("\t")')$NL"
+fi
+
+# Round spans and timeline events carry no knowledge of the run, so clip
+# every row to its window.
+if [ -n "$win_start" ]; then
+  rows=$(printf '%s' "$rows" | awk -F'\t' -v OFS='\t' -v s="$win_start" -v e="$win_end" '
+    $1 == "" {next}
+    $1 > e {next}
+    $2 != "" && $2 < s {next}
+    $2 == "" && $1 < s {next}
+    {if ($1 < s) $1 = s; if ($2 > e) $2 = e; print}')$NL
+fi
+
+# ---------------------------------------------------------------------------
+# Shared awk: ISO-8601 UTC to epoch seconds by civil-date arithmetic, since
+# POSIX awk has no mktime and date's parsing flags differ between BSD and
+# GNU; a duration printer; and an escaper for a Markdown table cell.
+read -r -d '' AWK_TIME <<'EOF' || true
+function ep(s,   y, m, d, era, yoe, mp, doy, doe) {
+  y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
+  if (m <= 2) y--
+  era = int(y / 400); yoe = y - era * 400
+  mp = (m + 9) % 12
+  doy = int((153 * mp + 2) / 5) + d - 1
+  doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+  return (era * 146097 + doe - 719468) * 86400 \
+    + substr(s, 12, 2) * 3600 + substr(s, 15, 2) * 60 + substr(s, 18, 2)
+}
+function dur(n,   h, m) {
+  if (n < 0) return "—"
+  h = int(n / 3600); m = int((n % 3600) / 60)
+  if (h > 0) return sprintf("%dh%02dm%02ds", h, m, n % 60)
+  if (m > 0) return sprintf("%dm%02ds", m, n % 60)
+  return sprintf("%ds", n)
+}
+function cell(s) { gsub(/\|/, "\\|", s); return s }
+EOF
+
+# Totals and unattributed gaps. Every instant in the run's window is given
+# to exactly one bucket: the highest-ranked span covering it, in the order
+# review round, other agent work, wait on the human, orchestrator overhead.
+# An instant no span covers is unattributed, and each unattributed stretch
+# becomes a row of its own.
+accounting=
+[ -z "$win_start" ] || accounting=$(printf '%s' "$rows" | awk -F'\t' -v s="$win_start" -v e="$win_end" "$AWK_TIME"'
+  function rank(c) {
+    return (c == "review") ? 1 : (c == "agent") ? 2 : (c == "human") ? 3 \
+      : (c == "overhead" || c == "overhead-hidden") ? 4 : 0
+  }
+  function mark(t,   e) { e = ep(t); if (!(e in iso)) { iso[e] = t; b[++nb] = e } }
+  BEGIN { mark(s); mark(e) }
+  $1 == "" {next}
+  {
+    mark($1)
+    if ($2 != "") mark($2)
+    if (rank($3) > 0 && $2 != "") { n++; lo[n] = ep($1); hi[n] = ep($2); rk[n] = rank($3) }
+  }
+  END {
+    if (nb == 0) exit
+    for (i = 2; i <= nb; i++) { v = b[i]; for (j = i - 1; j >= 1 && b[j] > v; j--) b[j + 1] = b[j]; b[j + 1] = v }
+    split("review agent human overhead", name, " ")
+    gap = ""
+    for (i = 1; i < nb; i++) {
+      len = b[i + 1] - b[i]; best = 0
+      for (k = 1; k <= n; k++)
+        if (lo[k] <= b[i] && hi[k] >= b[i + 1] && (best == 0 || rk[k] < best)) best = rk[k]
+      if (best > 0) {
+        tot[best] += len
+        if (gap != "") { print iso[gap] "\t" iso[b[i]] "\tunattributed\tunattributed\tno source"; gap = "" }
+      } else {
+        tot[5] += len
+        if (gap == "") gap = b[i]
+      }
+    }
+    if (gap != "") print iso[gap] "\t" iso[b[nb]] "\tunattributed\tunattributed\tno source"
+    for (i = 1; i <= 4; i++) print "TOTAL\t" name[i] "\t" (tot[i] + 0)
+    print "TOTAL\tunattributed\t" (tot[5] + 0)
+  }')
+
+rows="$rows$(printf '%s\n' "$accounting" | awk -F'\t' '$1 != "TOTAL" && $1 != ""')$NL"
+
+# ---------------------------------------------------------------------------
+# Rulings. Each is one theorem ruled on in one round, from one source: a
+# "Review adjustments for round N" comment, or a finding line in a fixer
+# brief's "Findings to address" list, which yields one ruling per T<n> it
+# names before its first ": ". One JSON object per line:
+# {t, kind, round, id, quote}; round is null where the comment names none.
+rulings=
+if [ -n "$gh_events" ]; then
+  rulings=$(printf '%s\n' "$gh_events" | jq -c '
+    select(.event == "commented") | .t as $t | (.body | split("\n")) as $l
+    | if ($l[0] // "" | test("^Review adjustments for round [0-9]+:"))
+      then ($l[0] | capture("round (?<n>[0-9]+)").n | tonumber) as $r
+        | reduce $l[1:][] as $x ({cur: null, out: []};
+            if ($x | test("^- T[0-9]+ ")) then
+              .out += (if .cur then [.cur] else [] end)
+              | .cur = {id: ($x | capture("^- (?<i>T[0-9]+) ").i), q: [$x]}
+            elif .cur and ($x | test("^\\s+\\S")) then .cur.q += [$x]
+            else .out += (if .cur then [.cur] else [] end) | .cur = null end)
+        | (.out + (if .cur then [.cur] else [] end))[]
+        | {t: $t, kind: "adjust", round: $r, id, quote: (.q | join("\n"))}
+      elif ($l[0] // "") == "<!-- sdlc:fixer-brief -->"
+      then reduce $l[1:][] as $x ({on: false, cur: null, out: []};
+            if ($x | test("^Findings to address")) then .on = true
+            elif ($x | test("^(Owner rulings|Address per your agent definition)")) then
+              .out += (if .cur then [.cur] else [] end) | .cur = null | .on = false
+            elif .on and ($x | test("^(- |[0-9]+\\. )")) then
+              .out += (if .cur then [.cur] else [] end)
+              | ([$x | split(": ") | .[0] | scan("\\bT[0-9]+\\b")] | unique) as $ids
+              | .cur = (if ($ids | length) > 0 then {ids: $ids, q: [$x]} else null end)
+            elif .cur and ($x | test("^(\\s|$)")) then .cur.q += [$x]
+            else .out += (if .cur then [.cur] else [] end) | .cur = null end)
+        | (.out + (if .cur then [.cur] else [] end))[]
+        | .ids[] as $id
+        | {t: $t, kind: "brief", round: null, id: $id, quote: (.q | join("\n") | sub("\\s+$"; ""))}
+      else empty end')
+fi
+
+round_ends=$(printf '%s\n' "$round_spans" | awk -F'\t' '$1 == "ROUND" {print $2 "\t" $4}')
+
+# The round a fixer brief rules on is the latest round whose log had
+# closed by the time the brief was posted.
+round_before() {
+  printf '%s\n' "$round_ends" | awk -F'\t' -v t="$1" \
+    '$2 != "" && $2 <= t && $1 + 0 > best {best = $1 + 0} END {if (best) print best}'
+}
+
+round_end() {
+  printf '%s\n' "$round_ends" | awk -F'\t' -v r="$1" '$1 == r {print $2}'
+}
+
+# The wait a ruling answered: the latest wait that ended no later than
+# the ruling was posted and no earlier than the round it rules on closed.
+wait_for() {
+  printf '%s\n' "$waits" | awk -F'\t' -v t="$1" -v floor="$2" \
+    '$1 != "" && $3 <= t && $3 >= floor {w = $1} END {print w}'
+}
+
+records_of() {
+  persist --mode print-round-records --round "$1" 2>/dev/null
+}
+
+# The named fields of one theorem's record, verbatim. $1 records text,
+# $2 theorem id, $3 an awk regex alternation of field names.
+record_lines() {
+  printf '%s\n' "$1" | awk -v id="$2" -v want="$3" '
+    /^T[0-9]+$/ {inside = ($0 == id); next}
+    /^$/ {inside = 0}
+    inside && $0 ~ ("^(" want "):") {print}'
+}
+
+# A result file's path, as the round's print output named it.
+result_path() {
+  printf '%s' "$round_logs" | awk -F'\t' -v r="$1" -v id="$2" -v ag="$3" '
+    $1 == r {split($2, f, " "); if (f[1] == "result" && f[2] == id && f[3] == ag) p = f[4]}
+    END {print p}'
+}
+
+quote() {
+  printf '%s\n' "$1" | sed 's/^/> /'
+}
+
+# One ruled theorem. $1 round, $2 id, $3 the resolution's lead-in, $4 the
+# resolution's verbatim text.
+theorem_block() {
+  local r=$1 id=$2 recs claim dp vp sev
+  printf '#### %s, round %s\n\n' "$id" "$r"
+  if recs=$(records_of "$r"); then
+    claim=$(record_lines "$recs" "$id" claim)
+    if [ -n "$claim" ]; then
+      printf "**Theorem.** From round %s's records:\n\n" "$r"
+      quote "$claim"
+    else
+      printf "**Theorem.** Round %s's records hold no %s.\n" "$r" "$id"
+      note_missing "the claim of $id: round $r's records file holds no $id record"
+    fi
+  else
+    recs=
+    printf '**Theorem.** Round %s has no records file.\n' "$r"
+    note_missing "round $r records: \`sdlc-agent-result-persist --mode print-round-records --round $r\` found none; no claim or severity quoted from it"
+  fi
+  printf '\n'
+  if [ "$r" = 0 ]; then
+    printf '**Finding.** None: a round-0 seed theorem is ruled on before any round attacks it.\n\n'
+  else
+    dp=$(result_path "$r" "$id" theorem-disprover)
+    vp=$(result_path "$r" "$id" counterexample-verifier)
+    if [ -n "$dp" ] && [ -f "$dp" ]; then
+      printf '**Finding.** From %s:\n\n' "\`${dp##*/}\`"
+      quote "$(awk '
+        /^COUNTEREXAMPLE:/ {on = 1; print; next}
+        on && /^[A-Z][A-Z-]*:/ {on = 0}
+        on {print}
+        /^CONSEQUENCE-CLASS:/ {print}' "$dp")"
+    else
+      printf '**Finding.** Round %s holds no theorem-disprover result for %s.\n' "$r" "$id"
+      note_missing "round $r theorem-disprover result for $id: no result line names one; no counterexample quoted"
+    fi
+    if [ -n "$vp" ] && [ -f "$vp" ]; then
+      printf '\nFrom %s:\n\n' "\`${vp##*/}\`"
+      quote "$(awk '/^(VERDICT|CONSEQUENCE-CLASS):/' "$vp")"
+    else
+      printf '\nRound %s holds no counterexample-verifier result for %s.\n' "$r" "$id"
+      note_missing "round $r counterexample-verifier result for $id: no result line names one; no verdict quoted"
+    fi
+    sev=
+    [ -z "$recs" ] || sev=$(record_lines "$recs" "$id" 'state-detail|severity-override')
+    if [ -n "$sev" ]; then
+      printf "\nSeverity, from round %s's records:\n\n" "$r"
+      quote "$sev"
+    fi
+    printf '\n'
+  fi
+  printf '**Resolution.** %s\n\n' "$3"
+  quote "$4"
+  printf '\n'
+}
+
+# Every ruling as "<wait, or empty><TAB><json>", so the report lists each
+# under the wait it answered.
+assigned=
+if [ -n "$rulings" ]; then
+  while IFS= read -r j; do
+    [ -n "$j" ] || continue
+    t=$(printf '%s' "$j" | jq -r .t)
+    r=$(printf '%s' "$j" | jq -r '.round // empty')
+    [ -n "$r" ] || r=$(round_before "$t")
+    if [ -z "$r" ]; then
+      note_missing "the round a ruling on $(printf '%s' "$j" | jq -r .id) at $t rules on: no round log had closed by then; the ruling is not listed"
+      continue
+    fi
+    w=$(wait_for "$t" "$(round_end "$r")")
+    assigned="$assigned$w$TAB$(printf '%s' "$j" | jq -c --argjson r "$r" '.round = $r')$NL"
+  done <<EOF
+$rulings
+EOF
+fi
+
+# The seed ruling: the wait answered after the seed generator reported and
+# before the developer was spawned, ruling on every round-0 record.
+seed_wait=
+seed_recs=
+if [ -n "$agents" ] && seed_recs=$(records_of 0); then
+  seed_end=$(printf '%s\n' "$agents" | awk -F'\t' '$3 ~ /^theorem-generator/ {print $2; exit}')
+  dev_start=$(printf '%s\n' "$agents" | awk -F'\t' '$3 == "issue-developer" {print $1; exit}')
+  if [ -n "$seed_end" ] && [ -n "$dev_start" ]; then
+    seed_wait=$(wait_for "$dev_start" "$seed_end")
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# The report.
+
+printf '# Where the time went: PR #%s\n\n' "$pr"
+[ -z "$pr_url" ] || printf '%s\n\n' "$pr_url"
+
+if [ -n "$win_start" ]; then
+  awk -v s="$win_start" -v e="$win_end" "$AWK_TIME"'
+    BEGIN {printf "Run: %s to %s, %s.\n\n", s, e, dur(ep(e) - ep(s))}'
+fi
+
+printf '## Timeline\n\n'
+printf '| From | To | Duration | What | Evidence |\n| --- | --- | --- | --- | --- |\n'
+printf '%s' "$rows" | awk -F'\t' '$1 != "" && $3 != "overhead-hidden"' | sort -t "$TAB" -k1,1 -k2,2 \
+  | awk -F'\t' -v seed="$seed_wait" "$AWK_TIME"'{
+      if (seed != "" && $4 == "wait on the human, " seed) $4 = $4 ", the seed ruling"
+      d = ($2 == "") ? "—" : dur(ep($2) - ep($1))
+      printf "| %s | %s | %s | %s | %s |\n", $1, ($2 == "" ? "—" : $2), d, cell($4), cell($5)
+    }'
+
+if [ -n "$win_start" ]; then
+  printf '\n## Totals\n\n'
+  printf '| Bucket | Time | Share |\n| --- | --- | --- |\n'
+  printf '%s\n' "$accounting" | awk -F'\t' -v s="$win_start" -v e="$win_end" "$AWK_TIME"'
+    BEGIN {all = ep(e) - ep(s)}
+    $1 == "TOTAL" {n++; k[n] = $2; v[n] = $3}
+    END {
+      label["review"] = "review rounds"; label["agent"] = "other agent work"
+      label["human"] = "waiting on the human"; label["overhead"] = "orchestrator overhead"
+      label["unattributed"] = "unattributed"
+      # Shares are apportioned in tenths of a percent by largest remainder,
+      # so they sum to the rounded share of the buckets combined; rounding
+      # each row on its own lets the column sum to 100.1%.
+      if (all > 0) {
+        sum = 0; got = 0
+        for (i = 1; i <= n; i++) {
+          x = 1000 * v[i] / all; t[i] = int(x); rem[i] = x - t[i]
+          sum += v[i]; got += t[i]
+        }
+        for (left = int(1000 * sum / all + 0.5) - got; left > 0; left--) {
+          b = 0
+          for (i = 1; i <= n; i++) if (b == 0 || rem[i] > rem[b]) b = i
+          t[b]++; rem[b] = -1
+        }
+      }
+      for (i = 1; i <= n; i++)
+        printf "| %s | %s | %s |\n", label[k[i]], dur(v[i]), (all > 0 ? sprintf("%.1f%%", t[i] / 10) : "—")
+    }'
+  printf '\nWhere spans overlap, the time is counted once, in the first of: review rounds, other agent work, waiting on the human, orchestrator overhead.\n'
+fi
+
+printf '\n## Review rounds\n\n'
+if [ -n "$round_spans" ]; then
+  printf '| Round | Phase | From | To | Duration | Children spawned |\n| --- | --- | --- | --- | --- | --- |\n'
+  printf '%s\n' "$round_spans" | awk -F'\t' "$AWK_TIME"'
+    $1 == "ROUND" {printf "| %s | whole round | %s | %s | %s | |\n", $2, $3, $4, dur(ep($4) - ep($3))}
+    $1 == "STAGE" {
+      p = ($5 == "generate") ? "generator" : ($5 == "disprove") ? "disprove fan-out" : "verify fan-out"
+      printf "| %s | %s | %s | %s | %s | %s |\n", $2, p, $3, $4, dur(ep($4) - ep($3)), $6
+    }'
+  printf '\n### Flags\n\n'
+  flags=$(printf '%s' "$round_logs" | awk -F'\t' '
+    {split($2, f, " "); r = $1}
+    f[1] == "stopped" {n++; sr[n] = r; sid[n] = f[2]; sst[n] = f[3]; sts[n] = f[4]}
+    f[1] == "spawn" {m++; pr_[m] = r; pid[m] = f[2]; pst[m] = f[3]; pts[m] = f[4]}
+    f[1] == "return" {
+      miss = ""
+      if (f[6] == "tokens=") miss = "tokens"
+      if (f[8] == "ms=") miss = miss (miss == "" ? "" : " and ") "ms"
+      if (miss != "") print "- Round " r ": the `return` for " f[2] " (" f[3] ", agent " f[5] ") at " f[4] " is missing " miss "."
+    }
+    END {
+      for (i = 1; i <= n; i++) {
+        again = ""
+        for (j = 1; j <= m; j++)
+          if (again == "" && pr_[j] == sr[i] && pid[j] == sid[i] && pst[j] == sst[i] && pts[j] >= sts[i]) again = pts[j]
+        print "- Round " sr[i] ": " sid[i] " (" sst[i] ") was `stopped` at " sts[i] \
+          (again != "" ? ", and re-spawned at " again "." : ", and not re-spawned.")
+      }
+    }')
+  if [ -n "$flags" ]; then printf '%s\n' "$flags"; else printf 'None.\n'; fi
+else
+  printf 'No round log was read.\n'
+fi
+
+printf '\n## Waits on the human\n\n'
+if [ -n "$waits" ]; then
+  printf '| Wait | From | To | Duration | Question asked | Answer, first line |\n| --- | --- | --- | --- | --- | --- |\n'
+  printf '%s\n' "$waits" | awk -F'\t' "$AWK_TIME"'{
+    printf "| %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, dur(ep($3) - ep($2)), cell($4), cell($5)
+  }'
+else
+  printf 'No wait on the human was read.\n'
+fi
+
+printf '\n## Rulings\n'
+any_ruling=
+for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
+  mine=$(printf '%s' "$assigned" | awk -F'\t' -v w="$w" '$1 == w && $2 != "" {print $2}')
+  if [ -n "$w" ] && [ "$w" = "$seed_wait" ]; then
+    any_ruling=1
+    answer=$(printf '%s\n' "$waits" | awk -F'\t' -v w="$w" '$1 == w {print $5}')
+    printf '\n### %s: the round-0 seed ruling\n\n' "$w"
+    for id in $(printf '%s\n' "$seed_recs" | awk '/^T[0-9]+$/'); do
+      detail=$(record_lines "$seed_recs" "$id" state-detail)
+      if [ -n "$detail" ]; then
+        theorem_block 0 "$id" "Rejected at the seed. The human's reply, and round 0's record:" "$answer$NL$detail"
+      else
+        theorem_block 0 "$id" "Accepted at the seed. The human's reply:" "$answer"
+      fi
+    done
+  fi
+  [ -n "$mine" ] || continue
+  any_ruling=1
+  if [ -n "$w" ]; then
+    printf '\n### %s\n\n' "$w"
+  else
+    printf '\n### Rulings matched to no wait on the human\n\n'
+  fi
+  while IFS= read -r j; do
+    [ -n "$j" ] || continue
+    kind=$(printf '%s' "$j" | jq -r .kind)
+    r=$(printf '%s' "$j" | jq -r .round)
+    id=$(printf '%s' "$j" | jq -r .id)
+    q=$(printf '%s' "$j" | jq -r .quote)
+    t=$(printf '%s' "$j" | jq -r .t)
+    if [ "$kind" = adjust ]; then
+      theorem_block "$r" "$id" "From the \"Review adjustments for round $r\" comment posted $t:" "$q"
+    else
+      case "$q" in
+        *"— in scope"*) lead="Accepted into the fixer brief posted $t:" ;;
+        *"— outside the issue; dropped"*) lead="Dropped on a scope ruling in the fixer brief posted $t:" ;;
+        *"— outside the issue; put to the human"*) lead="Put to the human, per the fixer brief posted $t:" ;;
+        *) lead="From the fixer brief posted $t:" ;;
+      esac
+      theorem_block "$r" "$id" "$lead" "$q"
+    fi
+  done <<EOF
+$mine
+EOF
+done
+[ -n "$any_ruling" ] || printf '\nNo ruling was read.\n'
+
+printf '\n## Missing sources\n\n'
+if [ -n "$missing" ]; then printf '%s' "$missing"; else printf 'None.\n'; fi
