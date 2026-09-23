@@ -32,9 +32,6 @@ The marketplace currently ships these plugins (one entry each in
   classification and worktree/cross-repo path containment, three-tiered
   (deny-with-teaching, positive-grounds allow, enumerated hard asks)
   with the judgment middle deferred to the automode evaluator.
-- **`block-background-agents`** — PreToolUse policy hook that denies
-  background agent spawns (`run_in_background: true`) so a detached
-  subagent's permission prompts can still bubble up to the user.
 - **`claude-vm`** — run Claude Code inside an isolated Linux micro-VM
   on macOS with config-driven egress, mounts, guest environment
   variables, and repo isolation.
