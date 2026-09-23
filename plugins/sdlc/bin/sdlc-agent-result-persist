@@ -109,8 +109,8 @@ for pair in "owner:$owner" "repo:$repo"; do
   given=${pair#*:}
   [ -n "$given" ] || die "--$name is required"
   case "$given" in
-    *[!A-Za-z0-9._-]*) die "--$name may hold only letters, digits, ., _ and -: $given" ;;
-    .|..) die "--$name must not be . or ..: $given" ;;
+    *[!A-Za-z0-9._-]*|.|..)
+      die "--$name may hold only letters, digits, ., _ and -, and must not be . or ..: $given" ;;
   esac
 done
 
