@@ -32,6 +32,7 @@ restate the fact.
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
+| Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
 Some owners are worth spelling out, because the obvious guess is wrong.
@@ -287,6 +288,7 @@ Each piece has one owner:
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then sweep merged branches and stale worktrees; `--dry-run` reports the verdicts and deletes nothing | main session |
+| `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` and presents its output unchanged | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
@@ -332,10 +334,22 @@ are owned by `skills/orchestrate-cleanup/SKILL.md`.
 
 ## Executables
 
-The plugin ships exactly one, `bin/sdlc-agent-result-persist`, whose
-whole contract is owned by
-`skills/agent-result-persist-interface/SKILL.md`. A PR that adds or
-removes an executable edits this count.
+The plugin ships these, each callable by bare name once the plugin is
+enabled. A PR that adds or removes an executable edits this roster.
+
+| Executable | Purpose | Contract |
+| ------- | --------- | --------------- |
+| `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
+| `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
+
+The time report composes no state path of its own: it reaches round
+logs, result files and transcripts only through the paths
+`sdlc-agent-result-persist`'s read modes print, so a change to where
+that state lives is a change to one executable. A source it cannot
+reach is named in the report as missing, and no row that source would
+have backed is printed — the report never reads a substitute, so a
+missing row is evidence that a source is gone, not a guess about what
+it held.
 
 ## Files it writes
 
@@ -392,11 +406,12 @@ round log outlives the worktrees of every child it names, and the
 voided copies outlive the round they describe. That accumulation is
 the debugging trail — a stalled or voided round is diagnosed from
 these files and from nothing else, since the reviewer holds no state
-across a turn. The one `sdlc` surface that deletes state is the
-script's `--mode delete`, which removes a whole `pr<N>/`, and its only
-caller is `/sdlc:orchestrate-cleanup`, a pass the human invokes; so a
-`pr<N>/` stays after its PR merges or closes until the human runs that
-pass.
+across a turn, and a finished run's time report is reconstructed from
+them after every worktree that produced them is gone. The one `sdlc`
+surface that deletes state is the script's `--mode delete`, which
+removes a whole `pr<N>/`, and its only caller is
+`/sdlc:orchestrate-cleanup`, a pass the human invokes; so a `pr<N>/`
+stays after its PR merges or closes until the human runs that pass.
 
 ## Agents
 

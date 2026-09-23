@@ -11,7 +11,8 @@ The marketplace currently ships these plugins (one entry each in
 - **`issues`** — GitHub issue tracking verbs and repo/user config.
 - **`issues-jira`** — optional Jira backend for the issue verbs.
 - **`sdlc`** — issue grooming and end-to-end orchestration, with a
-  theorem-based PR review pipeline.
+  theorem-based PR review pipeline and a report of where a run's time
+  went.
 - **`github-prs`** — GitHub pull-request operations, from opening and
   diffing a PR through reviewing it, reporting whether it can merge,
   and linking it to the issues it closes. GitHub-only by design.
