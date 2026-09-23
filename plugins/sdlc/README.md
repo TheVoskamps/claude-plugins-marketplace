@@ -289,7 +289,7 @@ each slot has one owner:
 | --- | --- |
 | The `Scope:` block that ends the developer's report | `agents/issue-developer.md` |
 | The gate that reads that block before the first review round | `skills/orchestrate/SKILL.md` |
-| The scope ruling every finding line of a fixer brief ends in, and what it is derived from | `skills/orchestrate/SKILL.md` |
+| The ruling every finding line of a fixer brief ends in — a scope ruling, or the human's answer on a finding the orchestrator put to them — and what it is derived from | `skills/orchestrate/SKILL.md` |
 | What a fixer does with a ruled finding line, and with one that has no ruling | `agents/issue-fixer.md` |
 | The rule that a finding class recurring on consecutive rounds is a design question | `skills/orchestrate/SKILL.md` |
 | The grading of an issue body's structural instruction against the repo | `skills/orchestrate/SKILL.md` |
@@ -483,7 +483,7 @@ spawns or that the orchestrator spawns after it.
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving the conflicts the brief lists — to an open PR's branch |
 | `code-documenter` | Adds or corrects the comments the style guides require in a round's code, before its review |
-| `style-checker` | Reports a round's style-guide violations for the human to rule on, before its review |
+| `style-checker` | Reports a round's style-guide violations, which the orchestrator sends to a fixer before its review |
 | `docs-writer` | Writes a PR's documentation once, after its review loop ends |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` and then `agent-memory-scrubber` for each remedy, and returns a state that needs a ruling as a question |
