@@ -46,12 +46,11 @@ RECORDS
 
 The file holds every candidate the generator emitted, in id order, in
 the record shape `sdlc:theorem-based-pr-reviewer` owns, with the
-human's rulings transcribed onto it — under `seed-review: auto-accept`,
-every theorem is accepted:
+seed's rulings transcribed onto it:
 
 - an **accepted** or **re-moded** theorem is a live record carrying
   **no `state` field** — it has never been attacked — with its
-  `settle-mode` as the human left it;
+  `settle-mode` as ruled;
 - a **rejected** theorem is `state: retired`,
   `state-detail: human-refuted`, `settled-at` the PR head, so no
   later default round revives it;

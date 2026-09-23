@@ -62,12 +62,12 @@ The pin is **`schema-version: 1`**. Read tier 1, then tier 2, then
 tier 3, each with the `Read` tool, and handle every file by the first
 of these that applies:
 
-- **The read fails because the file does not exist** — the tier
-  contributes no keys.
-- **The read fails for any other reason**, a permission-gate denial
-  included — abort, naming the path and quoting the tool's error. A
-  denied read says nothing about whether the file exists, so it is
-  never treated as a missing one.
+- **The read ran and reported that the file does not exist** — the
+  tier contributes no keys.
+- **The read did not run, or failed for any other reason**, whatever
+  refused it — abort, naming the path and quoting the error. A refused
+  read says nothing about whether the file exists, so it is never
+  treated as a missing one.
 - **The YAML is malformed, or `schema-version` is absent** — abort,
   naming the path.
 - **`schema-version` is lower than the pin** — abort, naming the path
