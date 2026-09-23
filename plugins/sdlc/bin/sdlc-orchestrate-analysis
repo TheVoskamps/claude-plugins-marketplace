@@ -173,30 +173,6 @@ $transcripts
 EOF
 fi
 
-# The run's window opens on the /sdlc:orchestrate invocation that started
-# this PR's run — the last one before the first round-log record — and
-# closes on the next invocation, if any. A transcript with none opens the
-# window on its first turn instead, and the report says so.
-first_state=$(printf '%s' "$round_logs" | awk -F'\t' '{split($2, f, " ")}
-  f[1] == "anchor" {print f[2]} f[1] ~ /^(spawn|enter|leave|return|stopped)$/ {print f[4]}' | sort | sed -n 1p)
-invokes=$(printf '%s' "$events" | awk -F'\t' '$1 == "INVOKE" {print $2}' | sort)
-win_start=
-win_end=
-if [ -n "$events" ]; then
-  if [ -n "$invokes" ]; then
-    if [ -n "$first_state" ]; then
-      win_start=$(printf '%s\n' "$invokes" | awk -v s="$first_state" '$0 <= s {w = $0} END {print w}')
-    fi
-    [ -n "$win_start" ] || win_start=$(printf '%s\n' "$invokes" | sed -n 1p)
-    win_end=$(printf '%s\n' "$invokes" | awk -v s="$win_start" '$0 > s {print; exit}')
-  else
-    note_missing "the /sdlc:orchestrate invocation: the transcript holds none, so the run is read from the transcript's first turn and no planning row is emitted"
-    win_start=$(printf '%s' "$events" | awk -F'\t' '$1 == "TURN" {print $2}' | sort | sed -n 1p)
-  fi
-  events=$(printf '%s' "$events" | awk -F'\t' -v s="$win_start" -v e="$win_end" \
-    '$2 >= s && (e == "" || $2 < e)')
-fi
-
 # ---------------------------------------------------------------------------
 # The PR's GitHub timeline: one JSON object per event.
 
@@ -209,6 +185,41 @@ if pr_url=$(gh api "repos/$owner/$repo/pulls/$pr" --jq .html_url 2>/dev/null) \
 else
   gh_events=
   note_missing "the PR's GitHub timeline: \`gh api\` could not read PR #$pr; no review, comment, force-push, ready or merge rows, and no ruling from a PR comment"
+fi
+
+# ---------------------------------------------------------------------------
+# The run's window, which the Run line, the Timeline and Totals read. A
+# session holds one /sdlc:orchestrate invocation, and the run is that
+# session through to the PR's merge: the window opens at the invocation and
+# closes at the later of the transcript's last entry and the PR's merge, or
+# its last timeline event while unmerged. With no transcript, or no
+# invocation in it, there is no window, and the report omits the Run line
+# and Totals rather than derive one from another source.
+invokes=$(printf '%s' "$events" | awk -F'\t' '$1 == "INVOKE" {print $2}' | sort)
+win_start=
+win_end=
+if [ -z "$events" ]; then
+  note_missing "the run's window: no orchestrator session transcript was read; no Run line and no Totals"
+elif [ -z "$invokes" ]; then
+  note_missing "the /sdlc:orchestrate invocation: the orchestrator session transcript holds none, so the run's window has no start; no Run line, no Totals and no planning row"
+else
+  win_start=$(printf '%s\n' "$invokes" | sed -n 1p)
+  events=$(printf '%s' "$events" | awk -F'\t' -v s="$win_start" '$2 >= s')
+  transcript_end=$(printf '%s\n' "$events" | awk -F'\t' '
+    $1 == "" {next}
+    {if ($2 > m) m = $2}
+    ($1 == "TURN" || $1 == "WAIT") && $3 > m {m = $3}
+    END {print m}')
+  timeline_end=
+  if [ -n "$gh_events" ]; then
+    timeline_end=$(printf '%s\n' "$gh_events" | jq -r -s '
+      map(select(.t != "")) as $e
+      | ([$e[] | select(.event == "merged") | .t] | max) // ([$e[] | .t] | max) // ""')
+  fi
+  win_end=$transcript_end
+  if [ -n "$timeline_end" ] && [[ "$timeline_end" > "$win_end" ]]; then
+    win_end=$timeline_end
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -312,19 +323,10 @@ if [ -n "$gh_events" ]; then
     | [$t, $t, "event", ., "PR timeline"] | join("\t")')$NL"
 fi
 
-# Round spans and timeline events carry no knowledge of the run, so a second
-# /sdlc:orchestrate run on this PR, or a merge or comment after the session
-# ended, would widen the window. Clip every row to the run: from its window's
-# start to the latest transcript instant inside it.
-if [ -n "$events" ]; then
-  run_end=$(printf '%s\n' "$events" | awk -F'\t' '
-    $1 == "" {next}
-    {if ($2 > m) m = $2}
-    ($1 == "TURN" || $1 == "WAIT") && $3 > m {m = $3}
-    END {print m}')
-fi
-if [ -n "${run_end:-}" ]; then
-  rows=$(printf '%s' "$rows" | awk -F'\t' -v OFS='\t' -v s="$win_start" -v e="$run_end" '
+# Round spans and timeline events carry no knowledge of the run, so clip
+# every row to its window.
+if [ -n "$win_start" ]; then
+  rows=$(printf '%s' "$rows" | awk -F'\t' -v OFS='\t' -v s="$win_start" -v e="$win_end" '
     $1 == "" {next}
     $1 > e {next}
     $2 != "" && $2 < s {next}
@@ -357,17 +359,19 @@ function dur(n,   h, m) {
 function cell(s) { gsub(/\|/, "\\|", s); return s }
 EOF
 
-# Totals and unattributed gaps. Every instant between the window's first
-# and last row is given to exactly one bucket: the highest-ranked span
-# covering it, in the order review round, other agent work, wait on the
-# human, orchestrator overhead. An instant no span covers is unattributed,
-# and each unattributed stretch becomes a row of its own.
-accounting=$(printf '%s' "$rows" | awk -F'\t' "$AWK_TIME"'
+# Totals and unattributed gaps. Every instant in the run's window is given
+# to exactly one bucket: the highest-ranked span covering it, in the order
+# review round, other agent work, wait on the human, orchestrator overhead.
+# An instant no span covers is unattributed, and each unattributed stretch
+# becomes a row of its own.
+accounting=
+[ -z "$win_start" ] || accounting=$(printf '%s' "$rows" | awk -F'\t' -v s="$win_start" -v e="$win_end" "$AWK_TIME"'
   function rank(c) {
     return (c == "review") ? 1 : (c == "agent") ? 2 : (c == "human") ? 3 \
       : (c == "overhead" || c == "overhead-hidden") ? 4 : 0
   }
   function mark(t,   e) { e = ep(t); if (!(e in iso)) { iso[e] = t; b[++nb] = e } }
+  BEGIN { mark(s); mark(e) }
   $1 == "" {next}
   {
     mark($1)
@@ -392,17 +396,17 @@ accounting=$(printf '%s' "$rows" | awk -F'\t' "$AWK_TIME"'
       }
     }
     if (gap != "") print iso[gap] "\t" iso[b[nb]] "\tunattributed\tunattributed\tno source"
-    print "WINDOW\t" iso[b[1]] "\t" iso[b[nb]] "\t" (b[nb] - b[1])
     for (i = 1; i <= 4; i++) print "TOTAL\t" name[i] "\t" (tot[i] + 0)
     print "TOTAL\tunattributed\t" (tot[5] + 0)
   }')
 
-rows="$rows$(printf '%s\n' "$accounting" | awk -F'\t' '$1 != "WINDOW" && $1 != "TOTAL" && $1 != ""')$NL"
+rows="$rows$(printf '%s\n' "$accounting" | awk -F'\t' '$1 != "TOTAL" && $1 != ""')$NL"
 
 # ---------------------------------------------------------------------------
 # Rulings. Each is one theorem ruled on in one round, from one source: a
-# "Review adjustments for round N" comment, or a review-loop fixer brief's
-# finding line naming "from T<n>". One JSON object per line:
+# "Review adjustments for round N" comment, or a finding line in a fixer
+# brief's "Findings to address" list, which yields one ruling per T<n> it
+# names before its first ": ". One JSON object per line:
 # {t, kind, round, id, quote}; round is null where the comment names none.
 rulings=
 if [ -n "$gh_events" ]; then
@@ -419,14 +423,19 @@ if [ -n "$gh_events" ]; then
         | (.out + (if .cur then [.cur] else [] end))[]
         | {t: $t, kind: "adjust", round: $r, id, quote: (.q | join("\n"))}
       elif ($l[0] // "") == "<!-- sdlc:fixer-brief -->"
-      then reduce $l[1:][] as $x ({cur: null, out: []};
-            if ($x | test("^[0-9]+\\. ")) then
+      then reduce $l[1:][] as $x ({on: false, cur: null, out: []};
+            if ($x | test("^Findings to address")) then .on = true
+            elif ($x | test("^(Owner rulings|Address per your agent definition)")) then
+              .out += (if .cur then [.cur] else [] end) | .cur = null | .on = false
+            elif .on and ($x | test("^(- |[0-9]+\\. )")) then
               .out += (if .cur then [.cur] else [] end)
-              | .cur = (if ($x | test("from T[0-9]+")) then {id: ($x | capture("from (?<i>T[0-9]+)").i), q: [$x]} else null end)
+              | ([$x | split(": ") | .[0] | scan("\\bT[0-9]+\\b")] | unique) as $ids
+              | .cur = (if ($ids | length) > 0 then {ids: $ids, q: [$x]} else null end)
             elif .cur and ($x | test("^(\\s|$)")) then .cur.q += [$x]
             else .out += (if .cur then [.cur] else [] end) | .cur = null end)
         | (.out + (if .cur then [.cur] else [] end))[]
-        | {t: $t, kind: "brief", round: null, id, quote: (.q | join("\n") | sub("\\s+$"; ""))}
+        | .ids[] as $id
+        | {t: $t, kind: "brief", round: null, id: $id, quote: (.q | join("\n") | sub("\\s+$"; ""))}
       else empty end')
 fi
 
@@ -568,9 +577,9 @@ fi
 printf '# Where the time went: PR #%s\n\n' "$pr"
 [ -z "$pr_url" ] || printf '%s\n\n' "$pr_url"
 
-window=$(printf '%s\n' "$accounting" | awk -F'\t' '$1 == "WINDOW"')
-if [ -n "$window" ]; then
-  printf '%s\n' "$window" | awk -F'\t' "$AWK_TIME"'{printf "Run: %s to %s, %s.\n\n", $2, $3, dur($4)}'
+if [ -n "$win_start" ]; then
+  awk -v s="$win_start" -v e="$win_end" "$AWK_TIME"'
+    BEGIN {printf "Run: %s to %s, %s.\n\n", s, e, dur(ep(e) - ep(s))}'
 fi
 
 printf '## Timeline\n\n'
@@ -582,19 +591,21 @@ printf '%s' "$rows" | awk -F'\t' '$1 != "" && $3 != "overhead-hidden"' | sort -t
       printf "| %s | %s | %s | %s | %s |\n", $1, ($2 == "" ? "—" : $2), d, cell($4), cell($5)
     }'
 
-printf '\n## Totals\n\n'
-printf '| Bucket | Time | Share |\n| --- | --- | --- |\n'
-printf '%s\n' "$accounting" | awk -F'\t' "$AWK_TIME"'
-  $1 == "WINDOW" {all = $4}
-  $1 == "TOTAL" {n++; k[n] = $2; v[n] = $3}
-  END {
-    label["review"] = "review rounds"; label["agent"] = "other agent work"
-    label["human"] = "waiting on the human"; label["overhead"] = "orchestrator overhead"
-    label["unattributed"] = "unattributed"
-    for (i = 1; i <= n; i++)
-      printf "| %s | %s | %s |\n", label[k[i]], dur(v[i]), (all > 0 ? sprintf("%.1f%%", 100 * v[i] / all) : "—")
-  }'
-printf '\nWhere spans overlap, the time is counted once, in the first of: review rounds, other agent work, waiting on the human, orchestrator overhead.\n'
+if [ -n "$win_start" ]; then
+  printf '\n## Totals\n\n'
+  printf '| Bucket | Time | Share |\n| --- | --- | --- |\n'
+  printf '%s\n' "$accounting" | awk -F'\t' -v s="$win_start" -v e="$win_end" "$AWK_TIME"'
+    BEGIN {all = ep(e) - ep(s)}
+    $1 == "TOTAL" {n++; k[n] = $2; v[n] = $3}
+    END {
+      label["review"] = "review rounds"; label["agent"] = "other agent work"
+      label["human"] = "waiting on the human"; label["overhead"] = "orchestrator overhead"
+      label["unattributed"] = "unattributed"
+      for (i = 1; i <= n; i++)
+        printf "| %s | %s | %s |\n", label[k[i]], dur(v[i]), (all > 0 ? sprintf("%.1f%%", 100 * v[i] / all) : "—")
+    }'
+  printf '\nWhere spans overlap, the time is counted once, in the first of: review rounds, other agent work, waiting on the human, orchestrator overhead.\n'
+fi
 
 printf '\n## Review rounds\n\n'
 if [ -n "$round_spans" ]; then
