@@ -329,10 +329,6 @@ env:
   (`payload/proxy/tinyproxy-launch.sh`), which reads that file and binds
   `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
   file instead of a hand-maintained allowlist baked into the command.
-  The launcher runs `proxy.cmd` behind an `exec`, so the pid it records
-  and stops is the proxy's own: an override is one command that runs
-  the proxy in the foreground — no `;` or `&&` list, and a variable
-  prefix spelled `env VAR=value cmd`.
 - `mounts` generates the extra `virtio-fs` device flags, and the guest
   mounts each one at `path:` (default `/mnt/<tag>`) before claude starts.
   A leading `~` in `source` expands to `$HOME`. Both `source` and `tag`
@@ -855,7 +851,10 @@ Each launcher holds a `lockf` lock on `$RUN/run.lock` for its lifetime,
 and no process it leaves running holds it, so a dead launcher is a
 dead run. A watcher the launcher starts beside vfkit waits on that
 lock and, the moment the launcher dies, stops vfkit, gvproxy and the
-proxy — so a `kill -9` of the launcher stops the VM too.
+proxy — so a `kill -9` of the launcher stops the VM too. The watcher
+signals those three pids, and the launcher's own exit trap the
+gvproxy, proxy and watcher pids, only while each still carries the
+start time recorded for it at launch.
 `bin/claude-vm-cleanup`, run by hand, reaps the rest for every repo at
 once: it reaps only a run whose lock it can take, whether that run
 exited normally or crashed — killing the pids its `run.meta` records

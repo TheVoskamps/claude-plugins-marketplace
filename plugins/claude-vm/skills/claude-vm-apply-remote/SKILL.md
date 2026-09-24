@@ -23,9 +23,12 @@ Same as `/claude-vm-diff`: each run writes
 ones whose `repo_src` names it. The run dir persists after the guest
 exits (clone mode).
 `bin/claude-vm-cleanup` reaps a run once its launcher has exited,
-normally or not: it removes the run's `guest-clone.raw` and keeps the
-run dir, `worktree/` and `run.meta` included, so the run is still found
-after a reap.
+normally or not. It stops the vfkit, gvproxy and proxy processes the
+run left running, and removes the run's gvproxy socket dir, its
+`creds/` dir (the OAuth credential and identity seed), any raw
+Keychain blob (`.keychain-blob.raw.json`) and its `guest-clone.raw`.
+It keeps the run dir, `worktree/` and `run.meta` included, so the run
+is still found after a reap.
 
 ## Inputs
 
