@@ -55,15 +55,14 @@ normalization) have nothing to guard here.
    key under `fields:` — and with no block, the output is the single
    line `No fields configured.` instead of per-slot blocks.
 
-3. **Render each slot** by its `kind:`:
+3. **Render each slot** by its `kind:`, reading the slot's shape from
+   the kind's own schema — `skills/lib/issue.md` "Field kinds" for the
+   `github-project:` block, `skills/lib/repo-config.md` for the
+   `jira:` block:
 
-   | Tracker | `kind:` | Reports |
-   | ------- | ------- | ------- |
-   | GitHub | `single-select`, `issue-field` | option names (keys of the `options:` map) |
-   | GitHub, Jira | `label` | option names (entries of the `options:` list) |
-   | Jira | `status`, `custom-field` | option names (keys of the `options:` map) |
-   | GitHub | `number` | `min:` and `max:` |
-   | GitHub, Jira | `skip` | unconfigured |
+   - A kind whose schema carries `options:` reports its option names.
+   - `kind: number` reports the range bounds its schema declares.
+   - `kind: skip` reports unconfigured.
 
    A slot absent from `fields:` reports unconfigured, exactly as
    `kind: skip` does — the namespace treats the two as equivalent.
