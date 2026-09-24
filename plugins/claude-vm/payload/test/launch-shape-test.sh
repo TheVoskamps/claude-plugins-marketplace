@@ -11,7 +11,7 @@
 # while a foreground child runs (so cleanup() can never face a live vfkit),
 # and therefore no reap machinery may exist in the launcher's own path.
 #
-# vfkit is exec'd from a foreground subshell (issue #181), so the subshell's
+# vfkit is exec'd from a foreground subshell, so the subshell's
 # pid is vfkit's and the run's watcher can be told it before vfkit starts.
 # That subshell is as foreground as a bare invocation: it must not be
 # backgrounded either, and its status is what lands in `$?`.

@@ -2697,7 +2697,7 @@ YML
   assert_eq "directory mount: no wrap dir is created for a directory source" \
     "absent" "$([ -e "$MNT_RUN2/mount-wrap/data" ] && echo present || echo absent)"
 
-  # ---- where the wrap dir lands (issue #181) ----
+  # ---- where the wrap dir lands ----
   #
   # The wrap entry is a hard link to the operator's file, so whatever can reach
   # inside the wrap dir can read and write that file; it lives under $RUN,
@@ -2770,7 +2770,7 @@ YML
   assert_eq "wrap-dir comma: NEGATIVE CONTROL -- without the guard the emitted sharedDir carries the comma" \
     "1" "$(printf '%s\n' "$MNT_OUT6" | grep -cx -- "virtio-fs,sharedDir=$MNT_COMMA_RUN6/mount-wrap/cfg,mountTag=cfg")"
 
-  # ---- a source on another volume aborts, naming its directory (issue #181) ----
+  # ---- a source on another volume aborts, naming its directory ----
   #
   # A second volume, for real: a small disk image attached at a mountpoint
   # inside $WORK. The source file lives on it and $RUN does not, so the link

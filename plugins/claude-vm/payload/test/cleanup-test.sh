@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # cleanup-test.sh -- tests for a run's liveness lock and for
-# bin/claude-vm-cleanup, which reaps dead runs by it (issue #181).
+# bin/claude-vm-cleanup, which reaps dead runs by it.
 #
 # Four parts, none booting a VM:
 #
