@@ -85,6 +85,19 @@ set -uo pipefail
 # only place the runs root is composed.
 : "${CLAUDE_VM_RUNS_DIR:=$CLAUDE_VM_STATE_DIR/runs}"
 
+# claude_vm_pid_start <pid> -- print when <pid> started, as ps(1) reports it,
+# or nothing when no process has that pid. The launcher records it in run.meta
+# beside each pid, and bin/claude-vm-cleanup signals a recorded pid only while
+# it still prints the same value: a pid alone cannot tell the run's process
+# from an unrelated one that inherited the number once the run's had exited.
+# LC_ALL=C keeps the two readings comparable whatever locale each ran under.
+claude_vm_pid_start() {
+  local start
+  start="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)" || return 0
+  start="${start#"${start%%[![:space:]]*}"}"
+  printf '%s' "${start%"${start##*[![:space:]]}"}"
+}
+
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now
 # expected, and emit an actionable migration message. The design's chosen
 # migration path is FAIL-WITH-MESSAGE (Acceptance: "Existing single-file configs

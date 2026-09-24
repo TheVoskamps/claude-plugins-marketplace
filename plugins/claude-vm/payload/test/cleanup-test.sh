@@ -9,14 +9,16 @@
 #      run in a harness process: a non-blocking test-acquire of run.lock
 #      exits 75 while the harness lives and succeeds after `kill -9` of it.
 #   2. The launcher's proxy and gvproxy spawn lines, sliced the same way with
-#      a sleeping stand-in for each process: a child still running after its
-#      launcher is killed does not keep the lock held.
+#      a sleeping stand-in for each process: the pid recorded for the proxy is
+#      the proxy's own, and a child still running after its launcher is killed
+#      does not keep the lock held.
 #   3. The launcher's vfkit launch, sliced the same way with a sleeping
 #      stand-in for vfkit: after `kill -9` of the launcher its watcher stops
 #      vfkit, gvproxy and the proxy, and the lock test-acquire succeeds.
 #   4. bin/claude-vm-cleanup over a runs root holding a dead run, a live run
-#      of the same repo_src, a run with no lock file and a run that exited
-#      normally, with real processes standing in for the recorded pids.
+#      of the same repo_src, a run with no lock file, a run that exited
+#      normally and runs whose recorded pids now name other processes, with
+#      real processes standing in for the recorded pids.
 #
 # Run directly:
 #
@@ -77,6 +79,13 @@ alive() {
   if kill -0 "$1" 2>/dev/null; then echo alive; else echo dead; fi
 }
 
+# pid_start <pid> -- lib/config.sh's claude_vm_pid_start, sourced in a subshell
+# so this shell's environment is left alone.
+pid_start() {
+  # shellcheck source=../lib/config.sh
+  (. "$LIB" && claude_vm_pid_start "$1")
+}
+
 # track_pids <file> -- add every pid listed in <file>, one per line, to
 # SPAWNED.
 track_pids() {
@@ -85,23 +94,6 @@ track_pids() {
   while IFS= read -r p; do
     [ -n "$p" ] && SPAWNED+=("$p")
   done < "$1"
-}
-
-# track_children <pid> -- poll up to 5s for <pid> to have forked a child, then
-# add each of its children to SPAWNED. The launcher's proxy pid is the
-# background subshell its `eval` runs in, and that subshell forks the proxy
-# command rather than becoming it, so killing the recorded pid alone leaves
-# the command running. Call it while <pid> is alive: once <pid> dies its
-# children are reparented and no longer found by it.
-track_children() {
-  local i=0 c
-  while [ -z "$(pgrep -P "$1")" ] && kill -0 "$1" 2>/dev/null && [ "$i" -lt 50 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  for c in $(pgrep -P "$1"); do
-    SPAWNED+=("$c")
-  done
 }
 
 # wait_for_file <path> -- poll up to 5s for <path> to exist and be non-empty.
@@ -197,7 +189,7 @@ fi
 # ---------------------------------------------------------------------
 # 2. The proxy and gvproxy are spawned without the lock.
 # ---------------------------------------------------------------------
-PROXY_LINE="$(grep -n '^eval "\$PROXY_CMD" ' "$LAUNCHER" | head -1 | cut -d: -f1)"
+PROXY_LINE="$(grep -n '^eval "exec \$PROXY_CMD" ' "$LAUNCHER" | head -1 | cut -d: -f1)"
 GV_START="$(grep -n '^"\$GVPROXY_BIN" --listen-vfkit' "$LAUNCHER" | head -1 | cut -d: -f1)"
 GV_END=""
 if [ -n "$GV_START" ]; then
@@ -205,13 +197,19 @@ if [ -n "$GV_START" ]; then
 fi
 if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$GV_START" ] && [ -n "$GV_END" ]; then
   # Stand-ins: the proxy command and the gvproxy binary each just sleep, long
-  # enough to outlive the launcher they were started from.
+  # enough to outlive the launcher they were started from. The proxy stand-in
+  # is shaped like the bundled tinyproxy launch -- a script that execs the
+  # proxy -- and first writes its own pid to $RUN/proxy.self, so a test can
+  # tell the process that became the proxy from the pid the launcher recorded.
   FAKE_GVPROXY="$WORK/fake-gvproxy"
   printf '#!/bin/sh\nexec sleep 300\n' > "$FAKE_GVPROXY"
   chmod +x "$FAKE_GVPROXY"
+  FAKE_PROXY="$WORK/fake-proxy"
+  printf '#!/bin/sh\necho "$$" > "$1"\nexec sleep 300\n' > "$FAKE_PROXY"
+  chmod +x "$FAKE_PROXY"
   SPAWN_LINES="$WORK/spawn-lines.sh"
   {
-    echo 'PROXY_CMD="sleep 300"'
+    printf 'PROXY_CMD=%s\n' "'$FAKE_PROXY \"\$RUN/proxy.self\"'"
     echo 'PROXY_LOG="$RUN/proxy.log"'
     echo "GVPROXY_BIN=\"$FAKE_GVPROXY\""
     echo 'GVPROXY_LOG="$RUN/gvproxy.log"'
@@ -234,8 +232,11 @@ if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$
   C_PIDS="$(cat "$WORK/c.pids" 2>/dev/null)"
   track_pids "$WORK/c.pids"
   C_PROXY_PID="$(printf '%s\n' "$C_PIDS" | sed -n 1p)"
-  [ -n "$C_PROXY_PID" ] && track_children "$C_PROXY_PID"
   C_GV_PID="$(printf '%s\n' "$C_PIDS" | sed -n 2p)"
+  wait_for_file "$RUN_C/proxy.self"
+  track_pids "$RUN_C/proxy.self"
+  assert_eq "spawn: the pid the launcher records for the proxy is the proxy's own process" \
+    "$(cat "$RUN_C/proxy.self" 2>/dev/null)" "$C_PROXY_PID"
 
   kill -9 "$HOLDER_PID"
   wait "$HOLDER_PID" 2>/dev/null
@@ -261,12 +262,38 @@ if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$
   wait_for_file "$WORK/d.ready"
   RUN_D="$(cat "$WORK/d.ready" 2>/dev/null)"
   track_pids "$WORK/d.pids"
-  D_PROXY_PID="$(sed -n 1p "$WORK/d.pids" 2>/dev/null)"
-  [ -n "$D_PROXY_PID" ] && track_children "$D_PROXY_PID"
+  wait_for_file "$RUN_D/proxy.self"
+  track_pids "$RUN_D/proxy.self"
   kill -9 "$HOLDER_PID"
   wait "$HOLDER_PID" 2>/dev/null
   assert_eq "spawn: NEGATIVE CONTROL -- children holding fd 9 keep the lock after kill -9" \
     "75" "$(lock_probe "$RUN_D/run.lock")"
+
+  # NEGATIVE CONTROL: the same slice with proxy.cmd eval'd without its exec.
+  # The recorded pid is then the subshell the eval runs in, and the proxy is
+  # its child, which stopping the recorded pid leaves running.
+  SPAWN_LINES_NOEXEC="$WORK/spawn-lines-noexec.sh"
+  sed 's/"exec \$PROXY_CMD"/"$PROXY_CMD"/' "$SPAWN_LINES" > "$SPAWN_LINES_NOEXEC"
+  assert_eq "spawn: the control really evals proxy.cmd without the exec" \
+    "0" "$(grep -c 'exec \$PROXY_CMD' "$SPAWN_LINES_NOEXEC")"
+  HOLDER_NOEXEC="$WORK/holder-noexec.sh"
+  write_holder "$HOLDER_NOEXEC" "$SPAWN_LINES_NOEXEC"
+  bash "$HOLDER_NOEXEC" run-d2 "$WORK/d2.ready" "$WORK/d2.pids" 2>/dev/null &
+  HOLDER_PID=$!
+  SPAWNED+=("$HOLDER_PID")
+  wait_for_file "$WORK/d2.ready"
+  RUN_D2="$(cat "$WORK/d2.ready" 2>/dev/null)"
+  track_pids "$WORK/d2.pids"
+  wait_for_file "$RUN_D2/proxy.self"
+  track_pids "$RUN_D2/proxy.self"
+  D2_PROXY_PID="$(sed -n 1p "$WORK/d2.pids" 2>/dev/null)"
+  D2_PROXY_SELF="$(cat "$RUN_D2/proxy.self" 2>/dev/null)"
+  kill "$D2_PROXY_PID" 2>/dev/null
+  sleep 0.3
+  assert_eq "spawn: NEGATIVE CONTROL -- without the exec, stopping the recorded pid leaves the proxy running" \
+    "alive" "$(alive "$D2_PROXY_SELF")"
+  kill -9 "$HOLDER_PID"
+  wait "$HOLDER_PID" 2>/dev/null
 else
   FAIL=$((FAIL + 1))
   echo "FAIL - could not slice the proxy/gvproxy spawn lines out of claude-vm.sh"
@@ -324,8 +351,9 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
     track_pids "$WORK/$1.pids"
     track_pids "$WORK/$1.vfkit-pid"
     VF_PID="$(cat "$WORK/$1.vfkit-pid" 2>/dev/null)"
-    VF_PROXY_PID="$(sed -n 1p "$WORK/$1.pids" 2>/dev/null)"
-    [ -n "$VF_PROXY_PID" ] && track_children "$VF_PROXY_PID"
+    wait_for_file "$VF_RUN/proxy.self"
+    track_pids "$VF_RUN/proxy.self"
+    VF_PROXY_PID="$(cat "$VF_RUN/proxy.self" 2>/dev/null)"
     VF_GV_PID="$(sed -n 2p "$WORK/$1.pids" 2>/dev/null)"
     VF_WATCHER_PID="$(sed -n 's/^watcher_pid=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
     [ -n "$VF_WATCHER_PID" ] && SPAWNED+=("$VF_WATCHER_PID")
@@ -345,6 +373,10 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
   assert_eq "vfkit: the stand-in is running under the launcher" "alive" "$(alive "$VF_PID")"
   assert_eq "vfkit: run.meta records the pid that became vfkit as vfkit_pid" \
     "$VF_PID" "$(sed -n 's/^vfkit_pid=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
+  assert_eq "vfkit: run.meta records vfkit's start time beside its pid" \
+    "$(pid_start "$VF_PID")" "$(sed -n 's/^vfkit_pid_start=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
+  assert_eq "vfkit: the proxy pid the watcher is handed is the proxy's own process" \
+    "$VF_PROXY_PID" "$(sed -n 1p "$WORK/run-e.pids" 2>/dev/null)"
   assert_eq "vfkit: run.meta's watcher_pid is lockf itself, waiting on the lock" \
     "/usr/bin/lockf" "$([ -n "$VF_WATCHER_PID" ] && ps -o comm= -p "$VF_WATCHER_PID" 2>/dev/null)"
   assert_eq "vfkit: the lock is held while the launcher runs" \
@@ -397,14 +429,17 @@ assert_eq "runs root: lib/config.sh derives it under the state root" \
 REPO="/repos/shared"
 
 # make_run <run-id> <gvproxy-pid> <proxy-pid> <sock-dir> [<vfkit-pid>] -- a
-# run dir shaped the way the launcher leaves one: run.lock, run.meta, a clone,
-# a worktree.
+# run dir shaped the way a crashed launcher leaves one: run.lock, run.meta
+# with each pid's start time beside it, a clone, a worktree, the creds/ dir
+# and the raw Keychain blob.
 make_run() {
   local run="$CLAUDE_VM_RUNS_DIR/$1"
-  mkdir -p "$run/worktree" "$4"
+  mkdir -p "$run/worktree" "$run/creds" "$4"
   : > "$run/run.lock"
   : > "$4/net.sock"
   printf 'guest image bytes\n' > "$run/guest-clone.raw"
+  printf '{"claudeAiOauth":{}}\n' > "$run/creds/.credentials.json"
+  printf '{"claudeAiOauth":{}}\n' > "$run/.keychain-blob.raw.json"
   {
     printf 'run_id=%s\n' "$1"
     printf 'repo_src=%s\n' "$REPO"
@@ -412,10 +447,13 @@ make_run() {
     printf 'worktree=%s\n' "$run/worktree"
     printf 'copy_back=local\n'
     printf 'proxy_pid=%s\n' "$3"
+    printf 'proxy_pid_start=%s\n' "$([ -n "$3" ] && pid_start "$3")"
     printf 'gvproxy_pid=%s\n' "$2"
+    printf 'gvproxy_pid_start=%s\n' "$([ -n "$2" ] && pid_start "$2")"
     printf 'gvproxy_sock=%s\n' "$4/net.sock"
     printf 'ssh_port=2222\n'
     printf 'vfkit_pid=%s\n' "${5:-}"
+    printf 'vfkit_pid_start=%s\n' "$([ -n "${5:-}" ] && pid_start "$5")"
   } > "$run/run.meta"
 }
 
@@ -471,6 +509,12 @@ assert_eq "cleaner: keeps the dead run's worktree" \
   "present" "$([ -d "$DEAD_RUN/worktree" ] && echo present || echo absent)"
 assert_eq "cleaner: keeps the dead run's run.meta" \
   "present" "$([ -f "$DEAD_RUN/run.meta" ] && echo present || echo absent)"
+assert_eq "cleaner: removes the dead run's creds/ dir" \
+  "absent" "$([ -e "$DEAD_RUN/creds" ] && echo present || echo absent)"
+assert_eq "cleaner: removes the dead run's raw Keychain blob" \
+  "absent" "$([ -e "$DEAD_RUN/.keychain-blob.raw.json" ] && echo present || echo absent)"
+assert_eq "cleaner: reports the creds/ removal" \
+  "1" "$(printf '%s\n' "$CLEAN_OUT" | grep -cF "removed $DEAD_RUN/creds")"
 # Live run of the same repo_src: untouched, processes included.
 assert_eq "cleaner: leaves the live run dir of the same repo_src in place" \
   "present" "$([ -f "$LIVE_RUN/guest-clone.raw" ] && echo present || echo absent)"
@@ -481,6 +525,8 @@ assert_eq "cleaner: does not kill the live run's proxy_pid" "alive" "$(alive "$L
 assert_eq "cleaner: does not kill the live run's vfkit_pid" "alive" "$(alive "$LIVE_VFKIT")"
 assert_eq "cleaner: leaves the live run's socket dir" \
   "present" "$([ -d "$LIVE_SOCK_DIR" ] && echo present || echo absent)"
+assert_eq "cleaner: leaves the live run's creds/ dir" \
+  "present" "$([ -f "$LIVE_RUN/creds/.credentials.json" ] && echo present || echo absent)"
 assert_eq "cleaner: the live run's lock is still held afterwards" \
   "75" "$(lock_probe "$LIVE_RUN/run.lock")"
 # No lock file: spared.
@@ -513,6 +559,38 @@ assert_eq "cleaner: a second pass reaps the run once its launcher is gone" \
 assert_eq "cleaner: ...keeping its worktree" \
   "present" "$([ -d "$LIVE_RUN/worktree" ] && echo present || echo absent)"
 assert_eq "cleaner: ...killing its recorded gvproxy_pid then" "dead" "$(alive "$LIVE_GV")"
+assert_eq "cleaner: ...and removing its creds/ dir then" \
+  "absent" "$([ -e "$LIVE_RUN/creds" ] && echo present || echo absent)"
+
+# A recorded pid that now belongs to another process is never signalled. The
+# stand-in for a pid reused since the run stopped is a live process whose
+# start time differs from the one run.meta records; one with no recorded start
+# time is left alone too.
+REUSED_PID="$(spawn_sleeper)"; SPAWNED+=("$REUSED_PID")
+make_run 20260101-000000-6 "" "$REUSED_PID" "$WORK/tmp/claude-vm-sock.reuse01"
+printf 'proxy_pid_start=Thu Jan  1 00:00:00 1970\n' >> "$CLAUDE_VM_RUNS_DIR/20260101-000000-6/run.meta"
+NOSTART_PID="$(spawn_sleeper)"; SPAWNED+=("$NOSTART_PID")
+make_run 20260101-000000-7 "$NOSTART_PID" "" "$WORK/tmp/claude-vm-sock.nostart01"
+printf 'gvproxy_pid_start=\n' >> "$CLAUDE_VM_RUNS_DIR/20260101-000000-7/run.meta"
+REUSE_OUT="$("$CLEANER" 2>&1)"
+sleep 0.2
+assert_eq "cleaner: does not signal a recorded pid whose start time has changed" \
+  "alive" "$(alive "$REUSED_PID")"
+assert_eq "cleaner: ...and says it left it alone" \
+  "1" "$(printf '%s\n' "$REUSE_OUT" | grep -c "proxy_pid $REUSED_PID left alone -- not provably this run's process")"
+assert_eq "cleaner: does not signal a recorded pid with no recorded start time" \
+  "alive" "$(alive "$NOSTART_PID")"
+
+# The same on a later pass over a run already reaped: the dead run's proxy pid
+# number now names a different, live process. Start times are whole seconds,
+# so the stand-in is started a second after the recorded one.
+sleep 1.1
+LATER_PID="$(spawn_sleeper)"; SPAWNED+=("$LATER_PID")
+printf 'proxy_pid=%s\n' "$LATER_PID" >> "$DEAD_RUN/run.meta"
+"$CLEANER" >/dev/null 2>&1
+sleep 0.2
+assert_eq "cleaner: a later pass over a reaped run does not signal its reused pid" \
+  "alive" "$(alive "$LATER_PID")"
 
 # A gvproxy_sock whose directory is not one the launcher names is left alone,
 # while the rest of the dead run is still reaped.

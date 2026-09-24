@@ -329,6 +329,10 @@ env:
   (`payload/proxy/tinyproxy-launch.sh`), which reads that file and binds
   `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
   file instead of a hand-maintained allowlist baked into the command.
+  The launcher runs `proxy.cmd` behind an `exec`, so the pid it records
+  and stops is the proxy's own: an override is one command that runs
+  the proxy in the foreground — no `;` or `&&` list, and a variable
+  prefix spelled `env VAR=value cmd`.
 - `mounts` generates the extra `virtio-fs` device flags, and the guest
   mounts each one at `path:` (default `/mnt/<tag>`) before claude starts.
   A leading `~` in `source` expands to `$HOME`. Both `source` and `tag`
@@ -856,8 +860,11 @@ proxy — so a `kill -9` of the launcher stops the VM too.
 once: it reaps only a run whose lock it can take, whether that run
 exited normally or crashed — killing the pids its `run.meta` records
 (`vfkit_pid`, `gvproxy_pid`, `proxy_pid`, a backstop for a watcher that
-was killed as well), removing its gvproxy socket dir and its
-`guest-clone.raw` — and leaves every live run alone. It keeps the run
+was killed as well) while each still carries the start time recorded
+beside it, so a pid since taken by another process is never signalled,
+and removing its gvproxy socket dir, its `creds/` dir (the OAuth
+credential and identity seed) and its `guest-clone.raw` — and leaves
+every live run alone. It keeps the run
 dir, `worktree/` and `run.meta` included, so the companion skills still
 find the run, and it never removes `$CLAUDE_VM_STATE_DIR/logs/`, where
 each run's console, gvproxy and proxy logs and egress capture are kept.

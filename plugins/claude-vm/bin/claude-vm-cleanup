@@ -15,10 +15,12 @@
 #   - lock held (lockf exits 75)  -> the run is LIVE: its launcher is still
 #     running (or, for a moment, its watcher or another pass is tearing it
 #     down). Left untouched.
-#   - lock acquired               -> the run is DEAD. The vfkit, gvproxy and
-#     proxy pids its run.meta records (vfkit_pid, gvproxy_pid, proxy_pid) are
-#     sent SIGTERM, the directory holding its recorded gvproxy_sock is
-#     removed, and its guest-clone.raw is removed.
+#   - lock acquired               -> the run is DEAD. Each of the vfkit,
+#     gvproxy and proxy pids its run.meta records (vfkit_pid, gvproxy_pid,
+#     proxy_pid) that is still the run's own process is sent SIGTERM, the
+#     directory holding its recorded gvproxy_sock is removed, its creds/ dir
+#     and any raw Keychain blob are removed, and its guest-clone.raw is
+#     removed.
 #
 # The run dir itself is kept, worktree/ and run.meta included, so
 # /claude-vm-diff and /claude-vm-apply-* still find the run after the reap.
@@ -30,12 +32,17 @@
 # the lock the moment the launcher dies and stops them itself. The kills here
 # are the backstop for a run whose watcher was killed too.
 #
-# The lock is the whole liveness test. The recorded pids are not tested on
-# their own -- a pid alone cannot tell a dead run's gvproxy from an unrelated
-# process that inherited the number -- so they are only acted on once the
-# lock has said the run is dead. The lock is held for the whole reap, so a
-# launcher that raced this pass for the same dir fails its own lockf and
-# aborts rather than run in a dir being reaped.
+# The lock is the whole liveness test. A recorded pid is only acted on once
+# the lock has said the run is dead, and even then only while it is the run's
+# own process: a pid alone cannot tell a dead run's gvproxy from an unrelated
+# process that inherited the number, so the start time run.meta records beside
+# it (<key>_start) must still match the pid's current one. A pid with no
+# recorded start time, or a different one, is left alone -- on every pass, so
+# a kept run dir reaped again later never signals a number since reused.
+#
+# The lock is held for the whole reap, so a launcher that raced this pass for
+# the same dir fails its own lockf and aborts rather than run in a dir being
+# reaped.
 #
 # A run dir with no run.lock is spared: the launcher creates it the moment it
 # creates the dir, so its absence means a launch caught mid-creation, which
@@ -45,8 +52,8 @@
 # dir path is reported so the post-mortem is one `ls` away.
 #
 # Exit status: 0 when no run failed, including when the runs root does not
-# exist; 1 when any run could not be tested or its guest-clone.raw could not
-# be removed; 2 when given any argument.
+# exist; 1 when any run could not be tested or its credential files or
+# guest-clone.raw could not be removed; 2 when given any argument.
 #
 # macOS-only, like the rest of claude-vm: the lock is lockf(1) from
 # /usr/bin, and bash 3.2 is the interpreter this must run under.
@@ -116,7 +123,13 @@ for run in "$CLAUDE_VM_RUNS_DIR"/*/; do
     case "$pid" in
       '' | *[!0-9]*) continue ;;
     esac
-    if kill "$pid" 2>/dev/null; then
+    recorded_start="$(meta_get "$meta" "${key}_start")"
+    current_start="$(claude_vm_pid_start "$pid")"
+    if [ -z "$current_start" ]; then
+      echo "        $key $pid was not running"
+    elif [ -z "$recorded_start" ] || [ "$current_start" != "$recorded_start" ]; then
+      echo "        $key $pid left alone -- not provably this run's process (started $current_start, run.meta records ${recorded_start:-no start})"
+    elif kill "$pid" 2>/dev/null; then
       echo "        killed $key $pid"
     else
       echo "        $key $pid was not running"
@@ -140,6 +153,17 @@ for run in "$CLAUDE_VM_RUNS_DIR"/*/; do
         ;;
     esac
   fi
+  # The credential files cleanup() removes on the launcher's own exit, which a
+  # crashed launcher never reached.
+  for secret in "$run/creds" "$run/.keychain-blob.raw.json"; do
+    [ -e "$secret" ] || continue
+    if rm -rf "$secret"; then
+      echo "        removed $secret"
+    else
+      echo "        FAILED to remove $secret"
+      failed=$((failed + 1))
+    fi
+  done
   if [ -e "$run/guest-clone.raw" ]; then
     if rm -f "$run/guest-clone.raw"; then
       echo "        removed $run/guest-clone.raw"

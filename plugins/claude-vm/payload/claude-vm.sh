@@ -1234,7 +1234,8 @@ esac
 #
 # This writes only the PATH fields, which are all known now. The run's
 # network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid,
-# vfkit_pid, watcher_pid) do NOT exist yet -- they are created further below
+# vfkit_pid, watcher_pid, and a <key>_start beside each of gvproxy_pid,
+# proxy_pid and vfkit_pid) do NOT exist yet -- they are created further below
 # and APPENDED to run.meta by claude_vm_run_meta_put AT THE MOMENT each is
 # created and confirmed live (issue #179), so run.meta never names an endpoint
 # that failed to materialize -- save vfkit_pid, recorded just before the exec
@@ -2139,12 +2140,20 @@ trap cleanup EXIT INT TERM
 # Both are started with fd 9 closed so neither holds the run's liveness lock
 # (see run.lock above): each outlives a killed launcher, and a run whose lock
 # they held could never be reaped.
-eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 9>&- &
+#
+# proxy.cmd is eval'd behind an `exec`, so the background subshell becomes the
+# proxy rather than forking it, and $! is the proxy's own pid. Without the
+# exec, $! is the subshell, which waits on the proxy as its child: stopping it
+# leaves the proxy running, orphaned, still bound to its port.
+eval "exec $PROXY_CMD" >"$PROXY_LOG" 2>&1 9>&- &
 PROXY_PID=$!
 # Record the forward-proxy pid the moment it is spawned (issue #179): run.meta
 # is the single source of truth bin/claude-vm-cleanup uses to find and reap
-# this run's processes.
+# this run's processes. The proxy, gvproxy and vfkit pids are each recorded
+# with their start time, which the cleaner checks before it signals the pid
+# (see claude_vm_pid_start).
 claude_vm_run_meta_put proxy_pid "$PROXY_PID"
+claude_vm_run_meta_put proxy_pid_start "$(claude_vm_pid_start "$PROXY_PID")"
 
 # Clear any stale gvproxy socket corpse before gvproxy tries to bind it (issue
 # #179). SOCK_DIR is a fresh per-run mktemp dir so a collision here is unlikely,
@@ -2186,6 +2195,7 @@ fi
 # gvproxy is confirmed live: record its pid, socket, and ssh-port in run.meta
 # now (write-as-you-go), so run.meta only ever names endpoints that materialized.
 claude_vm_run_meta_put gvproxy_pid "$GV_PID"
+claude_vm_run_meta_put gvproxy_pid_start "$(claude_vm_pid_start "$GV_PID")"
 claude_vm_run_meta_put gvproxy_sock "$GVPROXY_SOCK"
 claude_vm_run_meta_put ssh_port "$SSH_PORT"
 
@@ -2313,6 +2323,7 @@ set +e
 (
   VFKIT_PID="$(exec /bin/sh -c 'echo "$PPID"')"
   claude_vm_run_meta_put vfkit_pid "$VFKIT_PID"
+  claude_vm_run_meta_put vfkit_pid_start "$(claude_vm_pid_start "$VFKIT_PID")"
   /usr/bin/lockf -k -s "$RUN/run.lock" /bin/kill "$VFKIT_PID" "$GV_PID" "$PROXY_PID" \
     </dev/null >/dev/null 2>&1 9>&- &
   claude_vm_run_meta_put watcher_pid "$!"
