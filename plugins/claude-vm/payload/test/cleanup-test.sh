@@ -3,23 +3,23 @@
 # cleanup-test.sh -- tests for a run's liveness lock and for
 # bin/claude-vm-cleanup, which reaps dead runs by it.
 #
-# Four parts, none booting a VM:
+# Its parts, none booting a VM:
 #
-#   1. The launcher's own run-dir + lock lines, sliced out of claude-vm.sh and
-#      run in a harness process: a non-blocking test-acquire of run.lock
-#      exits 75 while the harness lives and succeeds after `kill -9` of it.
-#   2. The launcher's proxy and gvproxy spawn lines, sliced the same way with
-#      a sleeping stand-in for each process: the pid recorded for the proxy is
-#      the proxy's own, and a child still running after its launcher is killed
-#      does not keep the lock held.
-#   3. The launcher's vfkit launch, sliced the same way with a sleeping
-#      stand-in for vfkit: after `kill -9` of the launcher its watcher stops
-#      vfkit, gvproxy and the proxy, and the lock test-acquire succeeds; a
-#      pid whose recorded start time it no longer carries is left running.
-#   4. bin/claude-vm-cleanup over a runs root holding a dead run, a live run
-#      of the same repo_src, a run with no lock file, a run that exited
-#      normally and runs whose recorded pids now name other processes, with
-#      real processes standing in for the recorded pids.
+#   - The launcher's own run-dir + lock lines, sliced out of claude-vm.sh and
+#     run in a harness process: a non-blocking test-acquire of run.lock
+#     exits 75 while the harness lives and succeeds after `kill -9` of it.
+#   - The launcher's proxy and gvproxy spawn lines, sliced the same way with
+#     a sleeping stand-in for each process: the pid recorded for the proxy is
+#     the proxy's own, and a child still running after its launcher is killed
+#     does not keep the lock held.
+#   - The launcher's vfkit launch, sliced the same way with a sleeping
+#     stand-in for vfkit: after `kill -9` of the launcher its watcher stops
+#     vfkit, gvproxy and the proxy, and the lock test-acquire succeeds; a
+#     pid whose recorded start time it no longer carries is left running.
+#   - bin/claude-vm-cleanup over a runs root holding a dead run, a live run
+#     of the same repo_src, a run with no lock file, a run that exited
+#     normally and runs whose recorded pids now name other processes, with
+#     real processes standing in for the recorded pids.
 #
 # Run directly:
 #
@@ -107,7 +107,7 @@ wait_for_file() {
 }
 
 # ---------------------------------------------------------------------
-# 1. The launcher holds the lock for its lifetime, and kill -9 drops it.
+# The launcher holds the lock for its lifetime, and kill -9 drops it.
 # ---------------------------------------------------------------------
 LOCK_START="$(grep -n '^RUN="\$CLAUDE_VM_RUNS_DIR/\$RUN_ID"$' "$LAUNCHER" | head -1 | cut -d: -f1)"
 LOCK_END=""
@@ -188,7 +188,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 2. The proxy and gvproxy are spawned without the lock.
+# The proxy and gvproxy are spawned without the lock.
 # ---------------------------------------------------------------------
 PROXY_LINE="$(grep -n '^eval "exec \$PROXY_CMD" ' "$LAUNCHER" | head -1 | cut -d: -f1)"
 GV_START="$(grep -n '^"\$GVPROXY_BIN" --listen-vfkit' "$LAUNCHER" | head -1 | cut -d: -f1)"
@@ -301,7 +301,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 3. kill -9 of the launcher stops vfkit through the run's watcher.
+# kill -9 of the launcher stops vfkit through the run's watcher.
 # ---------------------------------------------------------------------
 VF_START="$(grep -n '^VM_EXIT_STATUS=1$' "$LAUNCHER" | head -1 | cut -d: -f1)"
 VF_END=""
@@ -439,8 +439,8 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 4. bin/claude-vm-cleanup reaps the dead run, keeping its worktree and
-#    run.meta, and spares the live one.
+# bin/claude-vm-cleanup reaps the dead run, keeping its worktree and
+# run.meta, and spares the live one.
 # ---------------------------------------------------------------------
 # Only the state root is set; the runs root is whatever lib/config.sh derives
 # from it, read back here the same way the cleaner gets it.

@@ -780,7 +780,7 @@ GVPROXY_SOCK="$SOCK_DIR/net.sock"
 # N concurrent runs each get their own free port. Declared empty here so the
 # cleanup() trap's guards are well-defined if a signal fires before it is set.
 SSH_PORT=""
-# The run's post-mortem diagnostics -- the egress capture and the three logs
+# The run's post-mortem diagnostics -- the egress capture and the logs
 # below -- live in their own per-run dir under the state root, NOT under $RUN.
 # bin/claude-vm-cleanup never touches this dir, so a run's diagnostics
 # outlive the reaping of its run dir, and the log dir the cleaner reports for
@@ -1234,13 +1234,12 @@ esac
 #
 # This writes only the PATH fields, which are all known now. The run's
 # network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid,
-# vfkit_pid, watcher_pid, and a <key>_start beside each of those four pids)
+# vfkit_pid, watcher_pid, and a <key>_start beside each of those pids)
 # do NOT exist yet -- they are created further below and APPENDED to run.meta
 # by claude_vm_run_meta_put AT THE MOMENT each is created and confirmed live
 # (issue #179), so run.meta never names an endpoint that failed to
-# materialize -- save vfkit_pid, recorded just before the exec
-# that makes that pid vfkit, so a failed exec leaves it naming a process that
-# is already gone. There is no vfkit_rest_uri: the guest powers itself off, so
+# materialize -- save vfkit_pid, recorded just before the exec that makes that
+# pid vfkit, so a failed exec leaves it naming a process that is already gone. There is no vfkit_rest_uri: the guest powers itself off, so
 # no host->guest REST channel exists. run.meta is thus the single source of
 # truth for the launcher's own liveness checks and for bin/claude-vm-cleanup,
 # which reaps a dead run's processes from the pids recorded here.
@@ -1721,9 +1720,10 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 #
 # $RUN is RETAINED after the run (cleanup() and bin/claude-vm-cleanup remove
 # only its credential files and guest clone; the diff/apply skills read the
-# rest), so a wrap dir under it and its links outlive the VM. That duplicates no bytes -- a hard link is an extra NAME for
-# the operator's file -- but it does mean the file's data survives deletion of
-# the original until the run dir is removed.
+# rest), so the wrap dir and its links outlive the VM. That duplicates no
+# bytes -- a hard link is an extra NAME for the operator's file -- but it does
+# mean the file's data survives deletion of the original until the run dir is
+# removed.
 MOUNT_WRAP_DIR="$RUN/mount-wrap"
 # Split each record BY HAND rather than with 'IFS=<tab> read -r src tag path'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
@@ -2136,8 +2136,9 @@ trap cleanup EXIT INT TERM
 # sniffer.go emits a continuous stream of
 # `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and tinyproxy emits
 # `NOTICE ... Proxying refused` lines. Routed off-terminal, but RETAINED (not
-# /dev/null) so a proxy/gvproxy failure stays diagnosable -- matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
-# paths are echoed in cleanup() alongside the other retained-artifact lines.
+# /dev/null) so a proxy/gvproxy failure stays diagnosable -- matching how the
+# guest boot console is captured to $GUEST_CONSOLE_LOG. The paths are echoed
+# in cleanup() alongside the other retained-artifact lines.
 #
 # Both are started with fd 9 closed so neither holds the run's liveness lock
 # (see run.lock above): each outlives a killed launcher, and a run whose lock
@@ -2315,15 +2316,16 @@ fi
 # The watcher is lockf blocking (no -t) on run.lock, holding no lock itself
 # while it waits. It acquires the lock only once the launcher is gone, and
 # then stops vfkit, gvproxy and the forward proxy, each only while it still
-# carries the start time recorded for it (claude_vm_kill_own, run in a bash that
-# sources lib/config.sh): a `kill -9` of the launcher stops the whole run, VM
-# included, and never a process that has since taken one of those pids. -k keeps run.lock, whose absence the
-# cleaner reads as a launch mid-creation. The watcher is lockf itself rather
-# than a shell around it, so cleanup() stopping its pid (recorded as
-# watcher_pid) stops the wait -- it does that first, so a normal exit never
-# fires the watcher. It is started after vfkit_pid is in run.meta and from
-# inside the subshell, so a launcher killed at any point after the fork still
-# leaves a watcher that knows which pid became vfkit.
+# carries the start time recorded for it (claude_vm_kill_own, run in a bash
+# that sources lib/config.sh): a `kill -9` of the launcher stops the whole run,
+# VM included, and never a process that has since taken one of those pids. -k
+# keeps run.lock, whose absence the cleaner reads as a launch mid-creation.
+# The watcher is lockf itself rather than a shell around it, so cleanup()
+# stopping its pid (recorded as watcher_pid) stops the wait -- it does that
+# first, so a normal exit never fires the watcher. It is started after
+# vfkit_pid is in run.meta and from inside the subshell, so a launcher killed
+# at any point after the fork still leaves a watcher that knows which pid
+# became vfkit.
 VM_EXIT_STATUS=1
 set +e
 (
