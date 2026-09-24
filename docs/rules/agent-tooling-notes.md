@@ -187,6 +187,20 @@ So do not trust `gh pr diff` alone on a PR that touches compiled
 artifacts. Cross-check against local git objects with
 `git diff <merge-base> HEAD --stat`, which is unaffected.
 
+## `git diff origin/main..HEAD` is not what a PR changes
+
+Two dots compare the two tips, not the merge-base. On a branch that is
+behind the default branch, the output lists every file the default
+branch changed since the fork as though the branch had changed it, and
+reads as a plausible PR diff. Take a PR's changed-file set from
+`gh pr diff --name-only <PR>`, or locally from
+`git diff --name-only origin/main...HEAD` — three dots, which diffs
+from the merge-base.
+
+The PR body's file list is not that set either: a later commit can
+revert a file the body still names. A file the body names that the
+merge-base diff lacks is a stale body claim, not a change.
+
 ## Read the worktree, never the primary clone's path
 
 Build every absolute path from the worktree root — the cwd the harness

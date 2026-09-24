@@ -479,6 +479,9 @@ Verb pairs that share an edge:
     from the other side).
   - `unset-blocked-by` / `unset-blocks` mirror this with the
     `removeBlockedBy` template.
+  - The two operands of an edge verb may name issues in different
+    repos; see "Operand resolution" under "Node-ID lookup by issue
+    number".
 - **`set-parent` / `set-child`** — same sub-issue edge, written with
   the `addSubIssue` template.
   - `set-parent C P` — `P` is the parent, `C` the child ("the parent
@@ -573,8 +576,8 @@ query($owner: String!, $repo: String!, $number: Int!) {
       issueType { id name }
       parent { id number title }
       subIssues(first: 50)  { nodes { number title url } }
-      blockedBy(first: 50)  { nodes { number title url } }
-      blocking(first: 50)   { nodes { number title url } }
+      blockedBy(first: 50)  { nodes { id number title url } }
+      blocking(first: 50)   { nodes { id number title url } }
       issueDependenciesSummary {
         blockedBy blocking totalBlockedBy totalBlocking
       }
@@ -606,6 +609,37 @@ query($owner: String!, $repo: String!, $number: Int!) {
 Most commands need only a subset of those fields. Trim the query to
 what the caller actually uses; the shape above is what `/issue-view`
 returns in one shot.
+
+#### Operand resolution
+
+An operand of a blocked-by edge verb (see "One edge, two sides")
+takes one of three forms:
+
+- `<N>` — an issue number in the current repo.
+- `#<N>` — the same, with the link prefix.
+- `<owner>/<repo>#<N>` — an issue in the named GitHub repo (written
+  `owner/repo#N` in prose).
+
+Parse each operand into `(owner, repo, number)` before its node-ID
+lookup. `owner` and `repo` come from the operand when it has the
+`owner/repo#N` form, and are the current repo's otherwise — its
+`owner.login` and `name` as `gh repo view --json owner,name` reports
+them for the working tree; `number` is the digits after the `#`, or
+the whole operand when it is bare.
+Run the lookup above with those three values as `$owner`, `$repo`
+and `$number`. A bare or `#`-prefixed number therefore resolves in
+the current repo, and an `owner/repo#N` operand resolves the node ID
+in the named repo.
+
+Each resolved issue prints as `#<N>` when its `(owner, repo)` is the
+current repo's (compared case-insensitively) and as
+`<owner>/<repo>#<N>` otherwise.
+
+The `owner/repo#N` form is GitHub-only: a Jira key is already
+globally unique. Under `issues == Jira`, an operand of that shape
+aborts with the "Cross-repo operand under Jira" catalogue entry.
+This form check runs before the Jira backend's "Preconditions", so
+it precedes every `acli` call, `acli jira auth status` included.
 
 ### Sub-issues paginated lookup
 
@@ -1420,7 +1454,8 @@ underlying Jira link is one edge.
   direction per the call-site mapping in "`addBlockedBy` /
   `removeBlockedBy`" above (`set-blocks N B` writes "N blocks B";
   `set-blocked-by N B` writes "N is blocked by B"). Remove the link to
-  unset.
+  unset. Check each operand's form per "Operand resolution" above
+  before the "Preconditions" run.
 
 ### Abort-if-missing / no-silent-fallback (Jira)
 
@@ -1446,7 +1481,16 @@ Wrap variable parts in backticks.
   > issue `#<N>` not found in `<owner>/<repo>`
 
   Triggered when the node-ID lookup returns `repository.issue: null`.
-  Includes the repo so the user can spot a wrong-repo invocation.
+  Includes the repo so the user can spot a wrong-repo invocation. For
+  an `owner/repo#N` operand (see "Operand resolution") the repo named
+  is the operand's.
+
+- **Cross-repo operand under Jira**
+
+  > `owner/repo#N` operands are GitHub-only
+
+  Triggered when an edge verb runs under `issues == Jira` and either
+  operand has the `owner/repo#N` form.
 
 - **Slot value not in options map**
 

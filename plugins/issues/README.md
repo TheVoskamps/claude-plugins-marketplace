@@ -101,10 +101,10 @@ skill's own `SKILL.md`.
 | `/issue-set-child <parent-N> <child-N>` | The same edge, named from the parent's end |
 | `/issue-unset-parent <child-N>` | Detach an issue from its parent |
 | `/issue-unset-child <parent-N> <child-N>` | The same removal, named from the parent's end |
-| `/issue-set-blocked-by <N> <blocker-N>` | Record that an issue is blocked |
-| `/issue-set-blocks <N> <blocked-N>` | The same edge, named from the blocker's end |
-| `/issue-unset-blocked-by <N> <blocker-N>` | Clear a blocked-by edge |
-| `/issue-unset-blocks <N> <blocked-N>` | The same removal, named from the blocker's end |
+| `/issue-set-blocked-by <issue> <blocker>` | Record that an issue is blocked |
+| `/issue-set-blocks <issue> <blocked>` | The same edge, named from the blocker's end |
+| `/issue-unset-blocked-by <issue> <blocker>` | Clear a blocked-by edge |
+| `/issue-unset-blocks <issue> <blocked>` | The same removal, named from the blocker's end |
 | `/issues:repo-config` | Interview the repo's team-shared config into existence, or rewrite it whole |
 | `/issues:user-config` | Merge-update this user's private per-repo settings, and keep the file ignored |
 | `/issues:global-user-config` | Merge-update this user's machine-wide settings |
@@ -114,6 +114,18 @@ skill's own `SKILL.md`.
 The two-verb pairs above are two views of **one** edge each, not two
 edges: users think about a link from either end, so the namespace lets
 them say it either way.
+
+An `<issue>`, `<blocker>` or `<blocked>` operand of a blocked-by verb
+is `N`, `#N`, or `owner/repo#N`, so a blocked-by edge can join an
+issue in this repo to one filed in another GitHub repo — the case a
+grooming pass hits when the work an issue depends on belongs
+elsewhere. Nothing new is needed on the GitHub side for this: the
+mutation takes two node IDs, which are global, so an edge between
+repos is the same edge as one within a repo, and each verb resolves
+each operand in the repo it names. The form is GitHub-only, because a
+Jira key is already globally unique and needs no repo qualifier; under
+a Jira backend an `owner/repo#N` operand aborts before any call is
+made.
 
 ## What it deliberately does not do
 
