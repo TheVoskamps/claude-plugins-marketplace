@@ -439,7 +439,8 @@ loop.
 Implement the batch end-to-end per your agent definition. Report back:
 PR URL (or equivalent), the issue set the PR closes, branch name, and
 per issue what you implemented, its commit, and its test result — plus
-any member you had to drop and why, and any decisions you made.
+any member you had to drop and why, and any design decision you stopped
+on, with its options.
 ```
 
 The template carries identifiers and decisions and nothing else — no
