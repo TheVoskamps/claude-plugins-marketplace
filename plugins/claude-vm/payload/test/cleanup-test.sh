@@ -15,8 +15,8 @@
 #      stand-in for vfkit: after `kill -9` of the launcher its watcher stops
 #      vfkit, gvproxy and the proxy, and the lock test-acquire succeeds.
 #   4. bin/claude-vm-cleanup over a runs root holding a dead run, a live run
-#      of the same repo_src and a run with no lock file, with real processes
-#      standing in for the recorded pids.
+#      of the same repo_src, a run with no lock file and a run that exited
+#      normally, with real processes standing in for the recorded pids.
 #
 # Run directly:
 #
@@ -85,6 +85,23 @@ track_pids() {
   while IFS= read -r p; do
     [ -n "$p" ] && SPAWNED+=("$p")
   done < "$1"
+}
+
+# track_children <pid> -- poll up to 5s for <pid> to have forked a child, then
+# add each of its children to SPAWNED. The launcher's proxy pid is the
+# background subshell its `eval` runs in, and that subshell forks the proxy
+# command rather than becoming it, so killing the recorded pid alone leaves
+# the command running. Call it while <pid> is alive: once <pid> dies its
+# children are reparented and no longer found by it.
+track_children() {
+  local i=0 c
+  while [ -z "$(pgrep -P "$1")" ] && kill -0 "$1" 2>/dev/null && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  for c in $(pgrep -P "$1"); do
+    SPAWNED+=("$c")
+  done
 }
 
 # wait_for_file <path> -- poll up to 5s for <path> to exist and be non-empty.
@@ -217,6 +234,7 @@ if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$
   C_PIDS="$(cat "$WORK/c.pids" 2>/dev/null)"
   track_pids "$WORK/c.pids"
   C_PROXY_PID="$(printf '%s\n' "$C_PIDS" | sed -n 1p)"
+  [ -n "$C_PROXY_PID" ] && track_children "$C_PROXY_PID"
   C_GV_PID="$(printf '%s\n' "$C_PIDS" | sed -n 2p)"
 
   kill -9 "$HOLDER_PID"
@@ -243,6 +261,8 @@ if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$
   wait_for_file "$WORK/d.ready"
   RUN_D="$(cat "$WORK/d.ready" 2>/dev/null)"
   track_pids "$WORK/d.pids"
+  D_PROXY_PID="$(sed -n 1p "$WORK/d.pids" 2>/dev/null)"
+  [ -n "$D_PROXY_PID" ] && track_children "$D_PROXY_PID"
   kill -9 "$HOLDER_PID"
   wait "$HOLDER_PID" 2>/dev/null
   assert_eq "spawn: NEGATIVE CONTROL -- children holding fd 9 keep the lock after kill -9" \
@@ -305,6 +325,7 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
     track_pids "$WORK/$1.vfkit-pid"
     VF_PID="$(cat "$WORK/$1.vfkit-pid" 2>/dev/null)"
     VF_PROXY_PID="$(sed -n 1p "$WORK/$1.pids" 2>/dev/null)"
+    [ -n "$VF_PROXY_PID" ] && track_children "$VF_PROXY_PID"
     VF_GV_PID="$(sed -n 2p "$WORK/$1.pids" 2>/dev/null)"
     VF_WATCHER_PID="$(sed -n 's/^watcher_pid=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
     [ -n "$VF_WATCHER_PID" ] && SPAWNED+=("$VF_WATCHER_PID")
@@ -362,7 +383,8 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 4. bin/claude-vm-cleanup reaps the dead run and spares the live one.
+# 4. bin/claude-vm-cleanup reaps the dead run, keeping its worktree and
+#    run.meta, and spares the live one.
 # ---------------------------------------------------------------------
 # Only the state root is set; the runs root is whatever lib/config.sh derives
 # from it, read back here the same way the cleaner gets it.
@@ -443,8 +465,12 @@ assert_eq "cleaner: kills the dead run's recorded proxy_pid" "dead" "$(alive "$D
 assert_eq "cleaner: kills the dead run's recorded vfkit_pid" "dead" "$(alive "$DEAD_VFKIT")"
 assert_eq "cleaner: removes the dead run's gvproxy_sock directory" \
   "absent" "$([ -e "$DEAD_SOCK_DIR" ] && echo present || echo absent)"
-assert_eq "cleaner: removes the dead run dir, guest-clone.raw included" \
-  "absent" "$([ -e "$DEAD_RUN" ] && echo present || echo absent)"
+assert_eq "cleaner: removes the dead run's guest-clone.raw" \
+  "absent" "$([ -e "$DEAD_RUN/guest-clone.raw" ] && echo present || echo absent)"
+assert_eq "cleaner: keeps the dead run's worktree" \
+  "present" "$([ -d "$DEAD_RUN/worktree" ] && echo present || echo absent)"
+assert_eq "cleaner: keeps the dead run's run.meta" \
+  "present" "$([ -f "$DEAD_RUN/run.meta" ] && echo present || echo absent)"
 # Live run of the same repo_src: untouched, processes included.
 assert_eq "cleaner: leaves the live run dir of the same repo_src in place" \
   "present" "$([ -f "$LIVE_RUN/guest-clone.raw" ] && echo present || echo absent)"
@@ -468,6 +494,8 @@ assert_eq "cleaner: reports the reaped run" \
   "1" "$(printf '%s\n' "$CLEAN_OUT" | grep -c '^reaped  20260101-000000-1 ')"
 assert_eq "cleaner: reports the reaped run's log dir path" \
   "1" "$(printf '%s\n' "$CLEAN_OUT" | grep -cF "log dir $CLAUDE_VM_STATE_DIR/logs/20260101-000000-1/")"
+assert_eq "cleaner: reports the reaped run's kept worktree path" \
+  "1" "$(printf '%s\n' "$CLEAN_OUT" | grep -cF "worktree $DEAD_RUN/worktree (kept)")"
 assert_eq "cleaner: reports the live run as spared" \
   "1" "$(printf '%s\n' "$CLEAN_OUT" | grep -c '^spared  20260101-000000-2 -- live')"
 assert_eq "cleaner: reports the lockless run as spared" \
@@ -481,7 +509,9 @@ wait "$LIVE_HOLDER" 2>/dev/null
 "$CLEANER" >/dev/null 2>&1
 sleep 0.2
 assert_eq "cleaner: a second pass reaps the run once its launcher is gone" \
-  "absent" "$([ -e "$LIVE_RUN" ] && echo present || echo absent)"
+  "absent" "$([ -e "$LIVE_RUN/guest-clone.raw" ] && echo present || echo absent)"
+assert_eq "cleaner: ...keeping its worktree" \
+  "present" "$([ -d "$LIVE_RUN/worktree" ] && echo present || echo absent)"
 assert_eq "cleaner: ...killing its recorded gvproxy_pid then" "dead" "$(alive "$LIVE_GV")"
 
 # A gvproxy_sock whose directory is not one the launcher names is left alone,
@@ -491,8 +521,22 @@ make_run 20260101-000000-4 "" "" "$FOREIGN_DIR"
 "$CLEANER" >/dev/null 2>&1
 assert_eq "cleaner: leaves a recorded socket dir that is not claude-vm-sock.*" \
   "present" "$([ -d "$FOREIGN_DIR" ] && echo present || echo absent)"
-assert_eq "cleaner: ...and still removes that dead run dir" \
-  "absent" "$([ -e "$CLAUDE_VM_RUNS_DIR/20260101-000000-4" ] && echo present || echo absent)"
+assert_eq "cleaner: ...and still removes that dead run's guest-clone.raw" \
+  "absent" "$([ -e "$CLAUDE_VM_RUNS_DIR/20260101-000000-4/guest-clone.raw" ] && echo present || echo absent)"
+
+# A run that exited normally: its cleanup() already removed guest-clone.raw
+# and stopped its processes. It is reaped the same way as a crashed one, and
+# its worktree is kept for the companion skills.
+make_run 20260101-000000-5 "" "" "$WORK/tmp/claude-vm-sock.clean01"
+rm -f "$CLAUDE_VM_RUNS_DIR/20260101-000000-5/guest-clone.raw"
+CLEAN5_OUT="$("$CLEANER" 2>&1)"
+assert_eq "cleaner: exits 0 on a run that exited normally" "0" "$?"
+assert_eq "cleaner: reaps a run that exited normally" \
+  "1" "$(printf '%s\n' "$CLEAN5_OUT" | grep -c '^reaped  20260101-000000-5 ')"
+assert_eq "cleaner: ...keeping its worktree" \
+  "present" "$([ -d "$CLAUDE_VM_RUNS_DIR/20260101-000000-5/worktree" ] && echo present || echo absent)"
+assert_eq "cleaner: ...and its run.meta" \
+  "present" "$([ -f "$CLAUDE_VM_RUNS_DIR/20260101-000000-5/run.meta" ] && echo present || echo absent)"
 
 # No runs root at all is not an error.
 NOROOT_OUT="$(CLAUDE_VM_RUNS_DIR="$WORK/no-such-root" "$CLEANER" 2>&1)"

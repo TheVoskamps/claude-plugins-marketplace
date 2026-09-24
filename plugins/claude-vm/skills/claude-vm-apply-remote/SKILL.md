@@ -22,6 +22,10 @@ Same as `/claude-vm-diff`: each run writes
 `repo_mount`, `worktree`, and `copy_back`, and this repo's runs are the
 ones whose `repo_src` names it. The run dir persists after the guest
 exits (clone mode).
+`bin/claude-vm-cleanup` reaps a run once its launcher has exited,
+normally or not: it removes the run's `guest-clone.raw` and keeps the
+run dir, `worktree/` and `run.meta` included, so the run is still found
+after a reap.
 
 ## Inputs
 

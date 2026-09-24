@@ -726,12 +726,14 @@ mkdir "$RUN"
 # means nothing; only a held lock does.
 #
 # Every child forked after this line inherits fd 9, and an inheriting child
-# keeps the lock held after the launcher itself is gone. While the run is up
-# only the launcher holds it, so that launcher dead means run dead: the
-# forward proxy, gvproxy, vfkit and the run's watcher are all started with
-# fd 9 closed. The watcher (see the vfkit launch) is what turns the
-# launcher's death into the whole run's -- it stops vfkit, gvproxy and the
-# proxy once it can take the lock. A short-lived child is harmless either way.
+# keeps the lock held after the launcher itself is gone. No long-lived child
+# keeps it, so that launcher dead means run dead: the forward proxy, gvproxy
+# and the run's watcher are started with fd 9 closed, and the vfkit subshell
+# (with the command substitution it forks) holds fd 9 only until its
+# `exec 9>&-`, just before it becomes vfkit. The watcher (see the vfkit
+# launch) is what turns the launcher's death into the whole run's -- it stops
+# vfkit, gvproxy and the proxy once it can take the lock. A short-lived child
+# is harmless either way.
 #
 # A cleaner that tested the lock between the open and the lockf below holds
 # it now, and this launch aborts rather than run in a dir being reaped.
@@ -780,10 +782,9 @@ GVPROXY_SOCK="$SOCK_DIR/net.sock"
 SSH_PORT=""
 # The run's post-mortem diagnostics -- the egress capture and the three logs
 # below -- live in their own per-run dir under the state root, NOT under $RUN.
-# bin/claude-vm-cleanup removes a dead run's $RUN whole and never touches
-# this dir, so a run's diagnostics outlive the reaping of its run dir, and
-# the log dir the cleaner reports for a reaped run is the one that holds
-# them. Created under the umask 077 above: the capture and the proxy log
+# bin/claude-vm-cleanup never touches this dir, so a run's diagnostics
+# outlive the reaping of its run dir, and the log dir the cleaner reports for
+# a reaped run is the one that holds them. Created under the umask 077 above: the capture and the proxy log
 # record every host the guest reached.
 LOG_DIR="$CLAUDE_VM_STATE_DIR/logs/$RUN_ID"
 mkdir -p "$LOG_DIR"

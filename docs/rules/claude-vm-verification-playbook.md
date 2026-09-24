@@ -319,8 +319,9 @@ isolation story around it:
   sibling under `$RUN` is outside the share.
 - `repo.mount: live` shares `$REPO_SRC` itself, rw, which holds no run
   dir unless `CLAUDE_VM_RUNS_DIR` was pointed inside it.
-- `cleanup()` retains `$RUN`, so whatever lands there outlives the run
-  until `bin/claude-vm-cleanup` or the operator removes it.
+- `cleanup()` retains `$RUN`, and `bin/claude-vm-cleanup` removes only
+  its `guest-clone.raw`, so whatever else lands there outlives the run
+  until the operator removes it.
 
 For each new `$RUN/<thing>`, still ask what it grants the guest — a
 hard link to an arbitrary host file hands whoever reaches it a writable

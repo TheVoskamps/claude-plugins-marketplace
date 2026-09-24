@@ -843,23 +843,26 @@ companion skills handle extraction explicitly:
 - `/claude-vm-apply-remote` — push the VM worktree's changes to the
   remote.
 
-### Reaping a run that died without cleaning up
+### Reaping a run whose launcher has exited
 
 A launcher killed with `kill -9` (or a crash, or a closed terminal)
 never runs its exit trap, and its run dir keeps its guest-image clone.
 Each launcher holds a `lockf` lock on `$RUN/run.lock` for its lifetime,
-and while the run is up no other process holds it, so a dead launcher
-is a dead run. A watcher the launcher starts beside vfkit waits on that
+and no process it leaves running holds it, so a dead launcher is a
+dead run. A watcher the launcher starts beside vfkit waits on that
 lock and, the moment the launcher dies, stops vfkit, gvproxy and the
 proxy — so a `kill -9` of the launcher stops the VM too.
 `bin/claude-vm-cleanup`, run by hand, reaps the rest for every repo at
-once: it reaps only a run whose lock it can take — killing the pids its
-`run.meta` records (`vfkit_pid`, `gvproxy_pid`, `proxy_pid`, a backstop
-for a watcher that was killed as well), removing its gvproxy socket dir
-and its run dir — and leaves every live run alone. It never removes
-`$CLAUDE_VM_STATE_DIR/logs/`, where each run's console, gvproxy and
-proxy logs and egress capture are kept, and it reports each run it
-reaped or spared.
+once: it reaps only a run whose lock it can take, whether that run
+exited normally or crashed — killing the pids its `run.meta` records
+(`vfkit_pid`, `gvproxy_pid`, `proxy_pid`, a backstop for a watcher that
+was killed as well), removing its gvproxy socket dir and its
+`guest-clone.raw` — and leaves every live run alone. It keeps the run
+dir, `worktree/` and `run.meta` included, so the companion skills still
+find the run, and it never removes `$CLAUDE_VM_STATE_DIR/logs/`, where
+each run's console, gvproxy and proxy logs and egress capture are kept.
+It reports each run it reaped, with its log dir and kept worktree, or
+spared.
 
 ## Guest image — built on demand, version-pinned, claude verified host-side
 
@@ -1012,7 +1015,7 @@ launcher's diagnostic/seam lines, which it writes explicitly to
 `/dev/console` — are observable from the host instead of being
 discarded, while staying off the interactive `hvc1` terminal. The path
 is reported on exit and retained in the run's log dir, beside the
-gvproxy and proxy logs and the egress capture, where reaping the run dir
+gvproxy and proxy logs and the egress capture, where reaping the run
 does not reach it.
 
 ## Authentication (secrets)

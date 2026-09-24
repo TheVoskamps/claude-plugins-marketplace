@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
-# claude-vm-cleanup -- reap the residue of claude-vm runs that died without
-# running their own cleanup() trap (kill -9, a crash, a closed terminal).
+# claude-vm-cleanup -- reap the residue of claude-vm runs whose launcher has
+# exited, whether it ran its own cleanup() trap or died without it (kill -9, a
+# crash, a closed terminal). A run that exited normally and one that crashed
+# are reaped the same way.
 #
 # Usage:
 #   claude-vm-cleanup
@@ -12,13 +14,17 @@
 #
 #   - lock held (lockf exits 75)  -> the run is LIVE: its launcher is still
 #     running (or, for a moment, its watcher or another pass is tearing it
-#     down). While the run is up no other process of it holds the lock.
-#     Left untouched.
+#     down). Left untouched.
 #   - lock acquired               -> the run is DEAD. The vfkit, gvproxy and
 #     proxy pids its run.meta records (vfkit_pid, gvproxy_pid, proxy_pid) are
 #     sent SIGTERM, the directory holding its recorded gvproxy_sock is
-#     removed, and the run dir is removed with everything under it,
-#     guest-clone.raw included.
+#     removed, and its guest-clone.raw is removed.
+#
+# The run dir itself is kept, worktree/ and run.meta included, so
+# /claude-vm-diff and /claude-vm-apply-* still find the run after the reap.
+# Each reaped run is reported with its log dir and, when it has one, the kept
+# worktree's path. A kept run dir stays dead, so every later pass reaps it
+# again.
 #
 # Stopping those processes is normally the run's own watcher's job: it takes
 # the lock the moment the launcher dies and stops them itself. The kills here
@@ -29,7 +35,7 @@
 # process that inherited the number -- so they are only acted on once the
 # lock has said the run is dead. The lock is held for the whole reap, so a
 # launcher that raced this pass for the same dir fails its own lockf and
-# aborts rather than run in a dir being removed.
+# aborts rather than run in a dir being reaped.
 #
 # A run dir with no run.lock is spared: the launcher creates it the moment it
 # creates the dir, so its absence means a launch caught mid-creation, which
@@ -39,8 +45,8 @@
 # dir path is reported so the post-mortem is one `ls` away.
 #
 # Exit status: 0 when no run failed, including when the runs root does not
-# exist; 1 when any run could not be tested or its run dir could not be
-# removed; 2 when given any argument.
+# exist; 1 when any run could not be tested or its guest-clone.raw could not
+# be removed; 2 when given any argument.
 #
 # macOS-only, like the rest of claude-vm: the lock is lockf(1) from
 # /usr/bin, and bash 3.2 is the interpreter this must run under.
@@ -134,14 +140,19 @@ for run in "$CLAUDE_VM_RUNS_DIR"/*/; do
         ;;
     esac
   fi
-  if rm -rf "$run"; then
-    echo "        removed run dir $run"
-  else
-    echo "        FAILED to remove run dir $run"
-    failed=$((failed + 1))
+  if [ -e "$run/guest-clone.raw" ]; then
+    if rm -f "$run/guest-clone.raw"; then
+      echo "        removed $run/guest-clone.raw"
+    else
+      echo "        FAILED to remove $run/guest-clone.raw"
+      failed=$((failed + 1))
+    fi
   fi
   exec 8<&-
   echo "        log dir $CLAUDE_VM_STATE_DIR/logs/$run_id/ (kept)"
+  if [ -d "$run/worktree" ]; then
+    echo "        worktree $run/worktree (kept)"
+  fi
   reaped=$((reaped + 1))
 done
 
