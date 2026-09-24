@@ -195,23 +195,22 @@ of them loses track of which decision belongs to which.
 
 ## Status resolution
 
-Read `.issues/repo-config.md` →
-`github-project.fields.status.options`:
+Ask the `issues` namespace which status options exist:
+
+```text
+/issue-field-options status
+```
+
+Apply this rule to the option names it reports:
 
 - A `Ready` option exists → use it.
 - Otherwise a `Todo` option exists → use it.
 - Otherwise → ask the user which of the configured options means
   orchestrate-ready, and use their answer.
 
-If `.issues/repo-config.md` is missing, abort with: "This repo has
-no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
-same wording the full reader contract uses for its "File missing"
-case, so the namespace's abort messages stay consistent even though
-this skill doesn't consume the whole contract).
-
-If the repo has no `github-project:` block, or the block has no
-`status` slot, there is nothing to flip: say so plainly, deliver the
-groomed body, and stop rather than inventing a status.
+If it reports the `status` slot as unconfigured, there is nothing to
+flip: say so plainly, deliver the groomed body, and stop rather than
+inventing a status.
 
 ## Non-goals
 

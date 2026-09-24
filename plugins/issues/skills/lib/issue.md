@@ -11,8 +11,9 @@ documented here. Individual command files (`/issue-create`,
 `/issue-unset-child`,
 `/issue-sub-list`, `/issue-set-blocked-by`, `/issue-unset-blocked-by`,
 `/issue-set-blocks`, `/issue-unset-blocks`, `/issue-close`,
-`/issue-comment`, etc.) reference this doc rather than duplicating
-GraphQL templates or default-resolution logic inline.
+`/issue-comment`, `/issue-field-options`, etc.) reference this doc
+rather than duplicating GraphQL templates or default-resolution logic
+inline.
 
 The higher-level multi-issue orchestrator that drives end-to-end issue
 fixes is **not** part of this namespace and does not read this file —
