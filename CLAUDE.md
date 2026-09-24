@@ -44,10 +44,10 @@ publish, stop and report that.
 
 One named exception: a PR whose deliverable **is** the publish path may
 run one `gh pr comment --body-file` against a scratch PR, carrying a
-body its author wrote, as its acceptance test. Nothing is being learned
-about the verb's parsing there — the flags, target and content are all
-chosen in advance, and what the run establishes is that a body that size
-survives the trip. One publish, scratch PR, no second run "to be sure".
+body its author wrote, as its acceptance test. That run learns nothing
+about the verb's parsing — flags, target and content are chosen in
+advance; it shows only that a body that size survives the trip. One
+publish, scratch PR, no second run "to be sure".
 
 ## Never test the package's own prose
 
@@ -65,14 +65,13 @@ the tree look clean when the wrap-split instances are still there. A
 check over text the program **emits** is behavior and stays.
 
 Removing such a mechanism sweeps every claim it spawned, including any
-"every X is gone" or "fails the build if reintroduced". Comments and
-other code are the implementer's to sweep in the same round. Under an
-orchestrated run, README sections are written after the review loop, and
-a stale PR-body claim is not deleted from the body: the orchestrator
-collects it, and `pr-finalizer`'s final section corrects it. On
-a PR no orchestrator runs, whoever changes the mechanism corrects the
-body claim themselves. Keep the convention and its rationale; drop the
-enforcement story.
+"every X is gone" or "fails the build if reintroduced". The implementer
+sweeps comments and other code in the same round. Under an orchestrated
+run, README sections are written after the review loop, and a stale
+PR-body claim stays in the body: the orchestrator collects it, and
+`pr-finalizer`'s final section corrects it. On a PR no orchestrator
+runs, whoever changes the mechanism corrects the body claim. Keep the
+convention and its rationale; drop the enforcement story.
 
 ## MD041 on a SKILL.md is convention, not debt
 
@@ -97,15 +96,14 @@ the repo asserting the opposite in a file a future agent reads as
 policy; the repo's version alone leaves an acceptance criterion unmet
 with no explanation.
 
-Which repair is right turns on the kind of claim, and the two take
-opposite repairs. A **capability** claim — what the harness can or
-cannot do — is verifiable, so a false one is deleted; carving an
-exception out of it preserves a false claim as the general rule. A
-**policy** claim — a choice this repo made where the harness permits
-both — is not falsifiable, so an issue may carve a named exception out
-of it with the reason stated inline. Prescriptive wording ("may only",
-"never") does not settle the grade; that is exactly how a false
-capability claim reads.
+The two kinds of claim take opposite repairs. A **capability** claim —
+what the harness can or cannot do — is verifiable, so a false one is
+deleted; carving an exception out of it preserves a false claim as the
+general rule. A **policy** claim — a choice this repo made where the
+harness permits both — is not falsifiable, so an issue may carve a named
+exception out of it with the reason stated inline. Prescriptive wording
+("may only", "never") does not settle the grade; that is exactly how a
+false capability claim reads.
 
 Sweep every restatement rather than the one the issue names, and say in
 the PR body which grade you gave, so the reviewer grades that judgment
@@ -124,12 +122,12 @@ there the body is frozen, and `pr-finalizer` amends it at the end.
 ## The rebase automation can move a PR branch mid-session
 
 A scheduled sweep force-rebases open PR branches onto the default
-branch, and it can fire while you are working on one. The symptom is a
-checkout reporting diverged histories right after a fetch, with the same
-logical commits under different hashes on a newer merge. Rebuild your
-work onto the new tip rather than resetting — a worktree must never
-reset away commits it has not pushed. The sweep skips conflicted
-states, so a conflicted PR never self-heals and is yours to rebase.
+branch, even while you work on one. The symptom: a checkout reports
+diverged histories right after a fetch, the same logical commits under
+different hashes on a newer merge. Rebuild your work onto the new tip
+rather than resetting — a worktree must never reset away commits it has
+not pushed. The sweep skips conflicted states, so a conflicted PR never
+self-heals and is yours to rebase.
 
 ## Read a plugin's README before you edit the plugin
 
@@ -137,9 +135,8 @@ Before your first edit to a plugin, read the `README.md` at its root —
 which file owns which statement, what a change there sweeps, and the
 measurement behind each rule. Every plugin carries one; a README deeper
 in the tree, such as guardrails' `hooks/permission-gate/README.md`, is
-a component document, not the plugin's README. These kernels are what
-a README cannot supply, because each has to be in front of you before
-you know you needed it:
+a component document. These kernels are what a README cannot supply,
+since each must be in front of you before you know you need it:
 
 - **`sdlc`** — an agent's contract is two-sided: changing what an
   agent does edits the orchestrator skill that briefs it too, not just
@@ -163,10 +160,9 @@ you know you needed it:
 
 These files carry what does not apply on every turn. Read the matching
 one **before** asserting behavior you have not run, or before editing
-the tree it governs — not afterwards. Each entry names its trigger and
-its hardest rule. Playbooks record technique, not policy: when a
-playbook step and a rule above disagree, the rule wins and the playbook
-is the thing to fix.
+the tree it governs. Each entry names its trigger and hardest rule.
+Playbooks record technique, not policy: when a playbook step and a rule
+above disagree, the rule wins and the playbook is the thing to fix.
 
 - [`docs/rules/verification-playbook.md`](docs/rules/verification-playbook.md) —
   read before claiming a change was verified, in any domain. Kernel: a
