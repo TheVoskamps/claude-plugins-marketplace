@@ -2316,10 +2316,10 @@ fi
 # The watcher is lockf blocking (no -t) on run.lock, holding no lock itself
 # while it waits. It acquires the lock only once the launcher is gone, and
 # then stops vfkit, gvproxy and the forward proxy, each only while it still
-# carries the start time recorded for it (claude_vm_kill_own, run in a bash
-# that sources lib/config.sh): a `kill -9` of the launcher stops the whole run,
-# VM included, and never a process that has since taken one of those pids. -k
-# keeps run.lock, whose absence the cleaner reads as a launch mid-creation.
+# carries the start time recorded for it (claude_vm_kill_own, run by
+# kill-own.sh): a `kill -9` of the launcher stops the whole run, VM included,
+# and never a process that has since taken one of those pids. -k keeps
+# run.lock, whose absence the cleaner reads as a launch mid-creation.
 # The watcher is lockf itself rather than a shell around it, so cleanup()
 # stopping its pid (recorded as watcher_pid) stops the wait -- it does that
 # first, so a normal exit never fires the watcher. It is started after
@@ -2333,11 +2333,8 @@ set +e
   VFKIT_PID_START="$(claude_vm_pid_start "$VFKIT_PID")"
   claude_vm_run_meta_put vfkit_pid "$VFKIT_PID"
   claude_vm_run_meta_put vfkit_pid_start "$VFKIT_PID_START"
-  # $1 and $@ are the watcher's own arguments, expanded by its bash.
-  # shellcheck disable=SC2016
   /usr/bin/lockf -k -s "$RUN/run.lock" \
-    /bin/bash -c '. "$1" && shift && claude_vm_kill_own "$@"' claude-vm-watcher \
-    "$SCRIPT_DIR/lib/config.sh" "$VFKIT_PID" "$VFKIT_PID_START" \
+    /bin/bash "$SCRIPT_DIR/kill-own.sh" "$VFKIT_PID" "$VFKIT_PID_START" \
     "$GV_PID" "$GV_PID_START" "$PROXY_PID" "$PROXY_PID_START" \
     </dev/null >/dev/null 2>&1 9>&- &
   WATCHER_PID=$!

@@ -862,7 +862,8 @@ exited normally or crashed — killing the pids its `run.meta` records
 was killed as well) while each still carries the start time recorded
 beside it, so a pid since taken by another process is never signalled,
 and removing its gvproxy socket dir, its `creds/` dir (the OAuth
-credential and identity seed) and its `guest-clone.raw` — and leaves
+credential and identity seed), any raw Keychain blob
+(`.keychain-blob.raw.json`) and its `guest-clone.raw` — and leaves
 every live run alone. It keeps the run
 dir, `worktree/` and `run.meta` included, so the companion skills still
 find the run, and it never removes `$CLAUDE_VM_STATE_DIR/logs/`, where
