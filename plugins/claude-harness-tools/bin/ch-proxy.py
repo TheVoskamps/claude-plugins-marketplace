@@ -5,9 +5,11 @@ The client speaks plain HTTP to a loopback port this proxy binds; the
 proxy opens its own connection to the upstream base URL, forwards the
 request, and streams the response back. Every request, whatever its
 path, is written to disk raw beneath the capture directory: the request
-headers and body as received, the response headers and body as
-forwarded. No body is decompressed, re-serialized or redacted on the way
-through, so two captures differ only where the traffic did.
+headers as received, the response headers as upstream sent them, before
+any hop-by-hop header is dropped, and both bodies with only their chunked
+transfer framing removed. No body is decompressed, re-serialized or
+redacted on the way through, so two captures differ only where the
+traffic did.
 
 Recording fails open. A disk or serialization error is reported on
 stderr and never alters the response the client receives, and an
@@ -105,6 +107,11 @@ class Recorder:
             _warn("could not write %s in %s: %s" % (what, self.directory, error))
 
     def start(self, meta, body):
+        """Create the request directory and write request.json and request.body.
+
+        The directory must not exist yet: one that does is reported as a
+        recording error, and neither file is written.
+        """
         self.meta = meta
 
         def write():
@@ -116,12 +123,18 @@ class Recorder:
         self._guard(write, "the request")
 
     def response_headers(self, status, reason, headers):
+        """Write response.headers.json and hold `status` for request.json."""
         self.meta["status"] = status
         payload = {"status": status, "reason": reason, "headers": headers}
         path = os.path.join(self.directory, "response.headers.json")
         self._guard(lambda: _write_json(path, payload), "response.headers.json")
 
     def response_chunk(self, data):
+        """Append `data` to response.body, opening the file on first use.
+
+        The first failed write ends recording of this body, so the failure
+        is reported once and no later chunk lands after a missing one.
+        """
         if self._body_failed:
             return
 
@@ -138,6 +151,12 @@ class Recorder:
             _warn("could not write response.body in %s: %s" % (self.directory, error))
 
     def finish(self, error=None):
+        """Close the capture: stamp `ended_at` and any `error` into request.json.
+
+        Call it once per request, after the last chunk. It creates an empty
+        response.body when no chunk arrived, so a request directory recorded
+        without error holds all four files.
+        """
         self.meta["ended_at"] = _now()
         if error is not None:
             self.meta["error"] = error
@@ -171,12 +190,18 @@ class CaptureServer(http.server.ThreadingHTTPServer):
         self._session_header_seen = False
 
     def next_request_dir(self):
+        """Return the path for the next request, numbered in arrival order.
+
+        Safe to call from concurrent handler threads. The directory is not
+        created here; `Recorder.start` creates it.
+        """
         with self._lock:
             self._counter += 1
             number = self._counter
         return os.path.join(self.capture_dir, REQUEST_DIR_FORMAT % number)
 
     def write_session(self):
+        """Rewrite session.json; unlike a `Recorder` write, an error propagates."""
         _write_json(os.path.join(self.capture_dir, SESSION_FILE), self.session)
 
     def note_session_header(self, headers):
@@ -201,6 +226,10 @@ class CaptureServer(http.server.ThreadingHTTPServer):
                 _warn("could not update %s: %s" % (SESSION_FILE, error))
 
     def connect_upstream(self):
+        """Return a new, not yet connected connection to the upstream host.
+
+        Each request gets a connection of its own and must close it.
+        """
         if self.upstream_scheme == "https":
             return http.client.HTTPSConnection(
                 self.upstream_host,
@@ -365,6 +394,13 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
 
 
 def main(argv=None):
+    """Bind a loopback port, write session.json, and serve until interrupted.
+
+    The bound port is printed as the first line on stdout, after
+    session.json is written; a launcher reads that line to find the proxy.
+    Everything after `--` in `argv` is recorded in session.json as the
+    claude argv and is not run.
+    """
     parser = argparse.ArgumentParser(
         description="Forward a Claude Code session's API traffic, writing all of it to disk."
     )

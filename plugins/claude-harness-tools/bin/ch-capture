@@ -14,7 +14,8 @@
 #
 # Words before `--` are the session-name suffix; everything after `--`
 # reaches `claude` verbatim, except that a `--name` among them gets
-# ` [harness-proxy]` appended to its value.
+# ` [harness-proxy]` appended to its value. When they hold no `--name`,
+# one carrying the computed session name is appended.
 #
 # Portable to the bash 3.2 macOS ships: no associative arrays, no
 # `${var,,}`, and empty arrays expanded through `${a[@]+"${a[@]}"}`.
