@@ -236,7 +236,8 @@ owns — but never a finding, a location, or an implementation shape.
 
 13. Report back: PR URL (or equivalent), the issue set the PR closes,
     branch name, and — per member — what you implemented, its commit,
-    and its test result. Name any dropped member and why. (The worktree
+    and its test result. Name any dropped member and why, and any
+    design decision you stopped on, with its options. (The worktree
     path isn't something you need to surface.)
 
     End the report with a fixed `Scope:` block of three labelled
@@ -271,9 +272,11 @@ The batch does not die with the member. The default remedy:
   in the PR body. A batch member missing from the body with no
   explanation is indistinguishable from silent under-delivery, which
   is what the review pipeline raises as a finding.
-- Say it again in your report-back. The orchestrator relays it to the
-  human, who decides whether the dropped issue gets its own branch
-  later; it stays In Progress in the meantime.
+- Say it again in your report-back, and when a design decision is
+  what stopped the member, name the decision and its options. The
+  orchestrator relays it to the human, who decides whether the
+  dropped issue gets its own branch later; it stays In Progress in the
+  meantime.
 
 Report the drop even if you finish everything else successfully — the
 decision is the human's, and the report is how it reaches them.
