@@ -1236,9 +1236,9 @@ esac
 # network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid,
 # vfkit_pid, watcher_pid, and a <key>_start beside each of those pids)
 # do NOT exist yet -- they are created further below and APPENDED to run.meta
-# by claude_vm_run_meta_put AT THE MOMENT each is created and confirmed live
-# (issue #179), so run.meta never names an endpoint that failed to
-# materialize -- save vfkit_pid, recorded just before the exec that makes that
+# by claude_vm_run_meta_put AT THE MOMENT each is created and confirmed live,
+# so run.meta never names an endpoint that failed to materialize -- save
+# vfkit_pid, recorded just before the exec that makes that
 # pid vfkit, so a failed exec leaves it naming a process that is already
 # gone. There is no vfkit_rest_uri: the guest powers itself off, so no
 # host->guest REST channel exists. run.meta is thus the single source of
@@ -2131,7 +2131,7 @@ trap cleanup EXIT INT TERM
 # $CLAUDE_VM_EGRESS_ALLOWLIST (exported above).
 #
 # REDIRECT both host-side background processes' stdout AND stderr to RETAINED
-# log files under $LOG_DIR (issue #88). Without this they inherit the
+# log files under $LOG_DIR. Without this they inherit the
 # interactive terminal's fd 1/2 (the hvc1 claude session), and their
 # per-request/per-packet diagnostics flood and destroy that session: gvproxy's
 # sniffer.go emits a continuous stream of
