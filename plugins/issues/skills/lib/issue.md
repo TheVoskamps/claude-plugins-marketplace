@@ -281,6 +281,11 @@ entirely. In that case:
 - `/issue-view` prints whatever project fields it can read; if there's
   no project, the project-fields section is omitted.
 
+- `/issue-field-options` neither warns nor aborts: it reports a named
+  slot as unconfigured, prints `No fields configured.` when no slot
+  is named, and exits zero. A `kind: skip` or absent slot is reported
+  unconfigured the same way, not warned about.
+
 Warn-and-skip is also what happens at the per-slot level — for the
 set-slot verbs too, which abort only on the missing block — when a
 slot is **declared as `kind: skip`** and when a slot is **absent

@@ -173,8 +173,9 @@ of them loses track of which decision belongs to which.
    check has not yet returned an empty gap list (see step 4) — the
    issue is not ready and the status stays where it is. The flip is a
    Kanban visibility aid for humans, not part of readiness: it runs
-   only after the check passes, and it is still skipped where the repo
-   has no board, per "Status resolution" below. Otherwise resolve the
+   only after the check passes, and it is still skipped wherever the
+   `status` slot reports unconfigured, per "Status resolution" below.
+   Otherwise resolve the
    orchestrate-ready status name per that section, then:
 
    ```text
