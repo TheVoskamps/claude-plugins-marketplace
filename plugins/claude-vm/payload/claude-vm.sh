@@ -1239,8 +1239,9 @@ esac
 # by claude_vm_run_meta_put AT THE MOMENT each is created and confirmed live
 # (issue #179), so run.meta never names an endpoint that failed to
 # materialize -- save vfkit_pid, recorded just before the exec that makes that
-# pid vfkit, so a failed exec leaves it naming a process that is already gone. There is no vfkit_rest_uri: the guest powers itself off, so
-# no host->guest REST channel exists. run.meta is thus the single source of
+# pid vfkit, so a failed exec leaves it naming a process that is already
+# gone. There is no vfkit_rest_uri: the guest powers itself off, so no
+# host->guest REST channel exists. run.meta is thus the single source of
 # truth for the launcher's own liveness checks and for bin/claude-vm-cleanup,
 # which reaps a dead run's processes from the pids recorded here.
 RUN_META="$RUN/run.meta"
@@ -2299,7 +2300,9 @@ fi
 # the host handles no keyboard signals for it. And bash defers traps while a
 # foreground child runs, so cleanup() can only ever run after vfkit has
 # already exited (or before it launched) -- there is never a live vfkit for
-# cleanup() to deal with, hence no reap code exists.
+# cleanup() to deal with, hence cleanup() carries no vfkit reap code. A
+# launcher killed outright runs no cleanup() at all; the run's watcher below
+# stops vfkit then.
 #
 # VM_EXIT_STATUS is initialized to 1 (abnormal) so any interrupted path
 # decides RETAIN; the assignment below overwrites it with vfkit's real status

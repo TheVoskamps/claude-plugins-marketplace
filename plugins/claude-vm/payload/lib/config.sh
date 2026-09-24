@@ -1223,9 +1223,9 @@ claude_vm_guest_system_path_containing() {
 #     vfkit shares, so it sits inside that same comma-delimited device string,
 #     as the only field of it with no charset check of its own. A single-FILE
 #     source is exempt -- what gets shared then is the wrap directory, whose
-#     <tag> component is already checked and whose PARENT ($RUN/mount-wrap, or
-#     a $TMPDIR mktemp) is not a config value at all: the launcher checks that
-#     one where it wraps the file. See the arm itself for the full reasoning.
+#     <tag> component is already checked and whose PARENT ($RUN/mount-wrap) is
+#     not a config value at all: the launcher checks that one where it wraps
+#     the file. See the arm itself for the full reasoning.
 #   - a tag colliding with a RESERVED built-in tag: the launcher always attaches
 #     repo/runconfig/claudebin/claudecreds and the image's fstab always mounts
 #     them, so a second device under one of those names puts the operator's own
