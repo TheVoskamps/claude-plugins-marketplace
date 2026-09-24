@@ -726,12 +726,12 @@ mkdir "$RUN"
 # means nothing; only a held lock does.
 #
 # Every child forked after this line inherits fd 9, and an inheriting child
-# keeps the lock held after the launcher itself is gone. That is wanted for
-# vfkit: a vfkit orphaned by a killed launcher is still running the guest off
-# $RUN/guest-clone.raw, so the run stays live until the VM stops. It is wrong
-# for the forward proxy and gvproxy, which outlive a killed launcher
-# indefinitely and are exactly what the cleaner must be able to reap -- so
-# both are started with 9>&-. A short-lived child is harmless either way.
+# keeps the lock held after the launcher itself is gone. While the run is up
+# only the launcher holds it, so that launcher dead means run dead: the
+# forward proxy, gvproxy, vfkit and the run's watcher are all started with
+# fd 9 closed. The watcher (see the vfkit launch) is what turns the
+# launcher's death into the whole run's -- it stops vfkit, gvproxy and the
+# proxy once it can take the lock. A short-lived child is harmless either way.
 #
 # A cleaner that tested the lock between the open and the lockf below holds
 # it now, and this launch aborts rather than run in a dir being reaped.
@@ -778,14 +778,22 @@ GVPROXY_SOCK="$SOCK_DIR/net.sock"
 # N concurrent runs each get their own free port. Declared empty here so the
 # cleanup() trap's guards are well-defined if a signal fires before it is set.
 SSH_PORT=""
-PCAP="$RUN/egress.pcap"
+# The run's post-mortem diagnostics -- the egress capture and the three logs
+# below -- live in their own per-run dir under the state root, NOT under $RUN.
+# bin/claude-vm-cleanup removes a dead run's $RUN whole and never touches
+# this dir, so a run's diagnostics outlive the reaping of its run dir, and
+# the log dir the cleaner reports for a reaped run is the one that holds
+# them. Created under the umask 077 above: the capture and the proxy log
+# record every host the guest reached.
+LOG_DIR="$CLAUDE_VM_STATE_DIR/logs/$RUN_ID"
+mkdir -p "$LOG_DIR"
+PCAP="$LOG_DIR/egress.pcap"
 # Retained log files for the two host-side background processes (issue #88).
-# Both are sited under $RUN (the persistent run dir) and their stdout+stderr
-# are redirected here at launch so their chatty diagnostics do NOT flood the
-# interactive hvc1 terminal. Retained (not /dev/null) so failures stay
-# diagnosable, matching $GUEST_CONSOLE_LOG.
-GVPROXY_LOG="$RUN/gvproxy.log"
-PROXY_LOG="$RUN/proxy.log"
+# Their stdout+stderr are redirected here at launch so their chatty
+# diagnostics do NOT flood the interactive hvc1 terminal. Retained (not
+# /dev/null) so failures stay diagnosable, matching $GUEST_CONSOLE_LOG.
+GVPROXY_LOG="$LOG_DIR/gvproxy.log"
+PROXY_LOG="$LOG_DIR/proxy.log"
 # Host-side capture of the guest's BOOT virtio-console (/dev/hvc0 in the
 # guest). The recipe's KernelCommandLine sets console=hvc0
 # (provisioners/podman-mkosi.sh, issue #71), so all kernel + systemd boot
@@ -800,7 +808,7 @@ PROXY_LOG="$RUN/proxy.log"
 # runs on hvc1 via an autologin getty (see build-guest-image.sh /
 # provisioners/podman-mkosi.sh), so boot diagnostics (hvc0 capture) stay off
 # the interactive terminal (hvc1).
-GUEST_CONSOLE_LOG="$RUN/guest-console.log"
+GUEST_CONSOLE_LOG="$LOG_DIR/guest-console.log"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
 EFISTORE="$RUN/efistore"
@@ -1224,12 +1232,14 @@ esac
 # apply-remote) can locate the source and worktree after exit.
 #
 # This writes only the PATH fields, which are all known now. The run's
-# network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid)
-# do NOT exist yet -- they are created further below and APPENDED to run.meta
-# by claude_vm_run_meta_put AT THE MOMENT each is created and confirmed live
-# (issue #179), so run.meta never names an endpoint that failed to materialize.
-# There is no vfkit_rest_uri: the guest powers itself off, so no host->guest
-# REST channel exists. run.meta is thus the single source of truth for the
+# network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid,
+# vfkit_pid, watcher_pid) do NOT exist yet -- they are created further below
+# and APPENDED to run.meta by claude_vm_run_meta_put AT THE MOMENT each is
+# created and confirmed live (issue #179), so run.meta never names an endpoint
+# that failed to materialize -- save vfkit_pid, recorded just before the exec
+# that makes that pid vfkit, so a failed exec leaves it naming a process that
+# is already gone. There is no vfkit_rest_uri: the guest powers itself off, so
+# no host->guest REST channel exists. run.meta is thus the single source of truth for the
 # launcher's own liveness checks and for bin/claude-vm-cleanup, which reaps a
 # dead run's processes from the pids recorded here.
 RUN_META="$RUN/run.meta"
@@ -1666,9 +1676,8 @@ fi
 # make the write-through a lie (guest writes would land in the throwaway wrap
 # dir and never reach the host file), whereas a hard link is the same inode, so
 # a single-file mount writes through to the host file live. `ln` fails across
-# filesystems, so a source on another volume than $RUN is linked under $TMPDIR
-# instead (below); when that fails too it is a hard abort rather than a silent
-# downgrade to a copy -- see the message for the fix.
+# filesystems, and that is a hard abort rather than a silent downgrade to a
+# copy -- see the message for the fix.
 #
 # A caveat the directory shape does not have: a file bind mount cannot be
 # REPLACED by rename(2) inside the guest (the kernel returns EBUSY), so a
@@ -1689,34 +1698,22 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # a sibling of the wrap dir, and the operator's repo under repo.mount: live,
 # which holds no run dir unless the runs root was pointed inside it.
 #
-# A hard link cannot cross volumes, so a source on another volume than $RUN
-# cannot be linked there. The loop links such an entry under a per-run mktemp
-# dir under $TMPDIR instead, created on the first entry that needs it. That
-# rescues a source on $TMPDIR's volume only; one on a volume that is neither
-# $RUN's nor $TMPDIR's still aborts, naming the directory mount as the fix.
-# The $TMPDIR dir is outside the run dir, so cleanup() removes it (removing
-# hard links, never the operator's file).
+# This directory's path becomes a `sharedDir=` field in vfkit's
+# comma-delimited device string as soon as an entry is wrapped, and it is not
+# a config value claude_vm_check_mounts can see -- so its comma check on a
+# DIRECTORY source does not reach it, and a comma in $RUN would produce
+# exactly the malformed device string that check exists to prevent, on an
+# entry the validator accepted. The loop below aborts on it, in its
+# single-file branch: that is where the entry being wrapped is in hand, so the
+# message can name it and say the comma is not the operator's.
 #
-# Wherever it lands, this directory's path becomes a `sharedDir=` field in
-# vfkit's comma-delimited device string as soon as an entry is wrapped, and
-# neither home is a config value claude_vm_check_mounts can see -- so its comma
-# check on a DIRECTORY source does not reach them, and a comma in $RUN or in
-# $TMPDIR would produce exactly the malformed device string that check exists
-# to prevent, on an entry the validator accepted. The loop aborts on it,
-# through claude_vm_wrap_comma_guard, before it links into either home: that
-# is where the entry being wrapped is in hand, so the message can name it and
-# say the comma is not the operator's.
-#
-# The abort is an EARLIER, cause-naming failure, not a rescue. Both of those
-# paths already reach vfkit through argument strings this launcher does not
-# check -- $RUN through `efi,variable-store=$EFISTORE,create`,
-# `virtio-blk,path=$GUEST_IMAGE_CLONE` and
-# `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, and $TMPDIR through
-# `virtio-net,unixSocketPath=$GVPROXY_SOCK`, whose directory is a mktemp under
-# $TMPDIR on EVERY launch. Measured on vfkit v0.6.4, each of those dies on the
-# text after the comma (`unknown option for virtio-net devices: ...`,
-# `unknown option for EFI bootloaders: ...`), so a launch under such a path was
-# already doomed with or without a mounts entry. See
+# The abort is an EARLIER, cause-naming failure, not a rescue. $RUN already
+# reaches vfkit through argument strings this launcher does not check --
+# `efi,variable-store=$EFISTORE,create` and
+# `virtio-blk,path=$GUEST_IMAGE_CLONE`. Measured on vfkit v0.6.4, each of
+# those dies on the text after the comma (`unknown option for EFI
+# bootloaders: ...`), so a launch under such a path was already doomed with
+# or without a mounts entry. See
 # payload/README.md -> *The tag is not just a tag* for that whole class and
 # for where a guard covering it would belong.
 #
@@ -1726,36 +1723,6 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # the operator's file -- but it does mean the file's data survives deletion of
 # the original until the run dir is removed.
 MOUNT_WRAP_DIR="$RUN/mount-wrap"
-MOUNT_WRAP_TMPDIR=""
-
-# claude_vm_wrap_comma_guard <wrap-parent> <tag> <src> -- abort the launch
-# when <wrap-parent>, the directory the entry's wrap dir is about to be made
-# in, carries a comma. The message blames whichever home that is.
-claude_vm_wrap_comma_guard() {
-  case "$1" in
-    *,*)
-      echo "claude-vm: mounts entry '$2' has the single FILE source '$3', which claude-vm shares by" >&2
-      echo "claude-vm:   hard-linking it into the wrap directory '$1/$2' -- whose path carries" >&2
-      echo "claude-vm:   a ','. claude-vm names the shared directory inside vfkit's comma-delimited" >&2
-      echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so vfkit would read that comma" >&2
-      echo "claude-vm:   as the start of another device option and refuse to start." >&2
-      if [ "$1" = "$MOUNT_WRAP_TMPDIR" ]; then
-        echo "claude-vm:   The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:': the source is on a" >&2
-        echo "claude-vm:   different volume than the run dir, and a hard link cannot cross volumes, so its wrap" >&2
-        echo "claude-vm:   directory has to live under \$TMPDIR instead. Point TMPDIR at a path with no comma in" >&2
-        echo "claude-vm:   it and rerun. Dropping the mounts entry will NOT help: claude-vm hands vfkit a" >&2
-        echo "claude-vm:   gvproxy socket under \$TMPDIR on every launch, in the same comma-delimited form." >&2
-      else
-        echo "claude-vm:   The comma is in the run directory's path, NOT in anything you wrote under 'mounts:':" >&2
-        echo "claude-vm:   \$RUN is '$RUN', under the runs root '$CLAUDE_VM_RUNS_DIR'. Point" >&2
-        echo "claude-vm:   CLAUDE_VM_RUNS_DIR (or XDG_STATE_HOME) at a path with no comma in it. Dropping the" >&2
-        echo "claude-vm:   mounts entry will NOT help: the EFI store, the disk and the console log ride that" >&2
-        echo "claude-vm:   same run dir into vfkit's comma-delimited argument strings." >&2
-      fi
-      exit 1
-      ;;
-  esac
-}
 # Split each record BY HAND rather than with 'IFS=<tab> read -r src tag path'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
 # an empty MIDDLE field vanishes and every later field shifts left. A mounts
@@ -1791,47 +1758,37 @@ while IFS= read -r mount_record; do
   if [ -f "$src" ]; then
     # The wrap dir is what vfkit is handed for this entry, so its WHOLE path
     # rides in the device string -- not just the <tag> component the tag check
-    # settled. Its parent is $RUN/mount-wrap or the $TMPDIR fallback, neither
-    # of which claude_vm_check_mounts ever sees; see MOUNT_WRAP_DIR above for
-    # what the comma abort does and does not buy. The guard tests the parent
-    # rather than $mount_shared_dir so the message can say the comma is not
-    # the operator's: a comma in the tag cannot reach this line.
-    claude_vm_wrap_comma_guard "$MOUNT_WRAP_DIR" "$tag" "$src"
+    # settled. Its parent is $RUN/mount-wrap, which claude_vm_check_mounts
+    # never sees; see MOUNT_WRAP_DIR above for what this abort does and does
+    # not buy. Tested on $MOUNT_WRAP_DIR rather than on $mount_shared_dir so
+    # the message can say the comma is not the operator's: a comma in the tag
+    # cannot reach this line.
+    case "$MOUNT_WRAP_DIR" in
+      *,*)
+        echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
+        echo "claude-vm:   hard-linking it into the wrap directory '$MOUNT_WRAP_DIR/$tag' -- whose path carries" >&2
+        echo "claude-vm:   a ','. claude-vm names the shared directory inside vfkit's comma-delimited" >&2
+        echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so vfkit would read that comma" >&2
+        echo "claude-vm:   as the start of another device option and refuse to start." >&2
+        echo "claude-vm:   The comma is in the run directory's path, NOT in anything you wrote under 'mounts:':" >&2
+        echo "claude-vm:   \$RUN is '$RUN', under the runs root '$CLAUDE_VM_RUNS_DIR'. Point" >&2
+        echo "claude-vm:   CLAUDE_VM_RUNS_DIR (or XDG_STATE_HOME) at a path with no comma in it. Dropping the" >&2
+        echo "claude-vm:   mounts entry will NOT help: the EFI store and the disk ride that same run dir into" >&2
+        echo "claude-vm:   vfkit's comma-delimited argument strings." >&2
+        exit 1
+        ;;
+    esac
     mount_file="${src##*/}"
-    mount_wrap_fallback=""
     mount_shared_dir="$MOUNT_WRAP_DIR/$tag"
     mkdir -p "$mount_shared_dir"
     # -f so a rerun over a retained run dir replaces a stale link rather than
     # failing; the link target is the operator's file either way.
     if ! ln -f "$src" "$mount_shared_dir/$mount_file" 2>/dev/null; then
-      # EXDEV is the one failure the $TMPDIR home can answer, and a device
-      # number that differs between the source and $RUN is how it shows:
-      # BSD ln reports the errno only as text on stderr.
-      if [ "$(stat -f %d "$src")" != "$(stat -f %d "$RUN")" ]; then
-        rmdir "$mount_shared_dir" 2>/dev/null || true
-        if [ -z "$MOUNT_WRAP_TMPDIR" ]; then
-          MOUNT_WRAP_TMPDIR="$(claude_vm_mktemp -d claude-vm-wrap)"
-        fi
-        claude_vm_wrap_comma_guard "$MOUNT_WRAP_TMPDIR" "$tag" "$src"
-        mount_wrap_fallback="$MOUNT_WRAP_TMPDIR"
-        mount_shared_dir="$MOUNT_WRAP_TMPDIR/$tag"
-        mkdir -p "$mount_shared_dir"
-        ln -f "$src" "$mount_shared_dir/$mount_file" 2>/dev/null || mount_shared_dir=""
-      else
-        mount_shared_dir=""
-      fi
-    fi
-    if [ -z "$mount_shared_dir" ]; then
       echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
-      echo "claude-vm:   hard-linking it into a wrap directory -- but that link could not be created under" >&2
-      echo "claude-vm:   the run dir '$RUN'." >&2
-      if [ -n "$mount_wrap_fallback" ]; then
-        echo "claude-vm:   The source is on a different volume than the run dir, and the fallback under" >&2
-        echo "claude-vm:   \$TMPDIR ('$mount_wrap_fallback') failed too: a hard link cannot cross volumes, and" >&2
-        echo "claude-vm:   the source is on neither one's volume." >&2
-      fi
-      echo "claude-vm:   Either put a copy of the file on the run dir's volume and point 'source:' at that," >&2
-      echo "claude-vm:   or mount its containing DIRECTORY instead (source: $(dirname "$src"))." >&2
+      echo "claude-vm:   hard-linking it into a wrap directory under the run dir '$RUN' -- but that link" >&2
+      echo "claude-vm:   could not be created. A hard link cannot cross filesystems, so this usually means" >&2
+      echo "claude-vm:   the source is on a different volume than the run dir. Mount the file's containing" >&2
+      echo "claude-vm:   DIRECTORY instead (source: $(dirname "$src"))." >&2
       exit 1
     fi
   fi
@@ -2051,10 +2008,22 @@ cleanup() {
   fi
   CLEANUP_DONE=1
 
+  # Stop the run's watcher before anything else (see the vfkit launch): it
+  # fires the moment the launcher's lock drops, and on this normal exit the
+  # launcher drops it by exiting, so a watcher left running would kill pids
+  # this run no longer owns. Absent when the trap fired before vfkit launched.
+  local watcher_pid=""
+  if [ -n "${RUN_META:-}" ] && [ -f "$RUN_META" ]; then
+    watcher_pid="$(sed -n 's/^watcher_pid=//p' "$RUN_META" | tail -n 1)"
+  fi
+  if [ -n "$watcher_pid" ]; then
+    kill "$watcher_pid" 2>/dev/null || true
+  fi
+
   # By the time this runs, vfkit has already exited: bash defers traps while a
   # foreground child runs, so the INT/TERM/EXIT trap cannot fire mid-vfkit
-  # (see the comment above the vfkit launch). There is no process to stop or
-  # reap here -- cleanup() only tidies state and decides the clone's fate.
+  # (see the comment above the vfkit launch). There is no vfkit to stop or
+  # reap here.
 
   # sync so writes the guest flushed to the attached image (the per-run clone)
   # reach the host filesystem buffers that back the APFS clone's written
@@ -2113,17 +2082,6 @@ cleanup() {
   if [ -n "${SOCK_DIR:-}" ]; then
     rm -rf "$SOCK_DIR"
   fi
-  # Remove the single-file mount wrap dir when it was sited under $TMPDIR
-  # rather than under $RUN (a source on another volume -- see MOUNT_WRAP_DIR
-  # above).
-  # Like SOCK_DIR it is outside the run dir, so the run-dir retention does not
-  # cover it. Its entries are hard links: removing them drops an extra NAME for
-  # the operator's file and never the file itself. Empty when the wrap dir
-  # went under $RUN, which is retained with the rest of the run dir. Guarded
-  # for an early-trap fire (before MOUNT_WRAP_TMPDIR is set).
-  if [ -n "${MOUNT_WRAP_TMPDIR:-}" ]; then
-    rm -rf "$MOUNT_WRAP_TMPDIR"
-  fi
   # Last link in the trap chain that started at the image-build branch (issue
   # #215): stop the podman machine iff THIS run started it for the build. A
   # no-op on a warm-cache launch, which never invoked podman at all, and on a
@@ -2168,8 +2126,8 @@ trap cleanup EXIT INT TERM
 # $CLAUDE_VM_EGRESS_ALLOWLIST (exported above).
 #
 # REDIRECT both host-side background processes' stdout AND stderr to RETAINED
-# log files under $RUN (issue #88). Without this they inherit the interactive
-# terminal's fd 1/2 (the hvc1 claude session), and their per-request/per-packet
+# log files under $LOG_DIR (issue #88). Without this they inherit the
+# interactive terminal's fd 1/2 (the hvc1 claude session), and their per-request/per-packet
 # diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
 # continuous stream of `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and
 # tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
@@ -2303,10 +2261,11 @@ if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
   stty -isig -ixon < /dev/tty 2>/dev/null || true
 fi
 
-# vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
-# EXIT/INT/TERM) runs the copy-back + clone-lifecycle + socket-dir removal
-# when the session ends. Do NOT switch this to `exec vfkit` -- that would
-# replace the shell and the trap would never fire.
+# vfkit runs as a CHILD here (the launcher does NOT exec it), so cleanup()
+# (trapped on EXIT/INT/TERM) runs the copy-back + clone-lifecycle +
+# socket-dir removal when the session ends. The `exec vfkit` below replaces only the subshell it
+# runs in; do NOT move it out of that subshell -- exec'd from the launcher
+# itself it would replace the launcher's shell and the trap would never fire.
 #
 # vfkit runs FOREGROUND (issue #179): no `set -m`, no backgrounding `&`. The
 # guest powers ITSELF off when claude quits deliberately (the boot launcher
@@ -2329,21 +2288,47 @@ fi
 # decides RETAIN; the assignment below overwrites it with vfkit's real status
 # on every path that reaches it. `set -e` is relaxed so a nonzero vfkit
 # status is recorded rather than aborting before the assignment.
+#
+# vfkit runs in a foreground subshell that execs into it, so the subshell's
+# pid IS vfkit's pid, known before vfkit starts. bash 3.2 has no $BASHPID; a
+# command substitution that execs sh reports its parent, which is this
+# subshell. The subshell records it as vfkit_pid in run.meta, then starts the
+# run's WATCHER, then drops fd 9 and becomes vfkit -- so vfkit holds no
+# liveness lock, and the launcher alone decides whether the run is live.
+#
+# The watcher is lockf blocking (no -t) on run.lock, holding no lock itself
+# while it waits. It acquires the lock only once the launcher is gone, and
+# then stops vfkit, gvproxy and the forward proxy: a `kill -9` of the launcher
+# stops the whole run, VM included. -k keeps run.lock, whose absence the
+# cleaner reads as a launch mid-creation. The watcher is lockf itself rather
+# than a shell around it, so cleanup() stopping its pid (recorded as
+# watcher_pid) stops the wait -- it does that first, so a normal exit never
+# fires the watcher. It is started after vfkit_pid is in run.meta and from
+# inside the subshell, so a launcher killed at any point after the fork still
+# leaves a watcher that knows which pid became vfkit.
 VM_EXIT_STATUS=1
 set +e
-vfkit \
-  --cpus "$VM_CPUS" --memory "$VM_MEM" \
-  --bootloader "efi,variable-store=$EFISTORE,create" \
-  --device "virtio-blk,path=$GUEST_IMAGE_CLONE" \
-  --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
-  --device "virtio-fs,sharedDir=$CONFIG_DIR,mountTag=runconfig" \
-  --device "virtio-fs,sharedDir=$CLAUDE_BIN_DIR,mountTag=claudebin" \
-  --device "virtio-fs,sharedDir=$CREDS_DIR,mountTag=claudecreds" \
-  ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
-  --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
-  --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
-  --device "virtio-serial,stdio" \
-  --device "virtio-rng"
+(
+  VFKIT_PID="$(exec /bin/sh -c 'echo "$PPID"')"
+  claude_vm_run_meta_put vfkit_pid "$VFKIT_PID"
+  /usr/bin/lockf -k -s "$RUN/run.lock" /bin/kill "$VFKIT_PID" "$GV_PID" "$PROXY_PID" \
+    </dev/null >/dev/null 2>&1 9>&- &
+  claude_vm_run_meta_put watcher_pid "$!"
+  exec 9>&-
+  exec vfkit \
+    --cpus "$VM_CPUS" --memory "$VM_MEM" \
+    --bootloader "efi,variable-store=$EFISTORE,create" \
+    --device "virtio-blk,path=$GUEST_IMAGE_CLONE" \
+    --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
+    --device "virtio-fs,sharedDir=$CONFIG_DIR,mountTag=runconfig" \
+    --device "virtio-fs,sharedDir=$CLAUDE_BIN_DIR,mountTag=claudebin" \
+    --device "virtio-fs,sharedDir=$CREDS_DIR,mountTag=claudecreds" \
+    ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
+    --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
+    --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
+    --device "virtio-serial,stdio" \
+    --device "virtio-rng"
+)
 VM_EXIT_STATUS=$?
 set -e
 exit "$VM_EXIT_STATUS"

@@ -204,8 +204,8 @@ END="$(awk -v s="$START" 'NR >= s && /^done < <\(claude_vm_mount_specs/ { print 
 
 Wrap the captured lines in a harness that sources the real
 `lib/config.sh` and supplies `MERGED_BOOT`, `RUN` and `CONFIG_DIR`,
-then `printf` the resulting flags. The `$TMPDIR` wrap-dir branch needs
-a source on a genuinely different volume from `$RUN`: `hdiutil attach`
+then `printf` the resulting flags. The single-file link abort needs a
+source on a genuinely different volume from `$RUN`: `hdiutil attach`
 of a small image at a mountpoint inside the harness's workspace works
 unprivileged, and `config-test.sh` does exactly that. The same trick
 works on the config-load gate block when you want the real validator.
@@ -326,10 +326,8 @@ For each new `$RUN/<thing>`, still ask what it grants the guest — a
 hard link to an arbitrary host file hands whoever reaches it a writable
 second path to the same inode. The hard link is also why `ln` is used
 rather than `cp` (same inode means write-through), and a hard link
-cannot cross volumes, so the single-file wrap dir falls back to a
-`$TMPDIR` directory for a source on another volume than `$RUN`. That
-rescues only a source on `$TMPDIR`'s own volume; read that branch
-before re-filing a cross-volume mount failure.
+cannot cross volumes, so a single-file source on another volume than
+`$RUN` aborts the launch, naming its directory as the mount to use.
 
 ## Measure the emitters before worrying about record injection
 

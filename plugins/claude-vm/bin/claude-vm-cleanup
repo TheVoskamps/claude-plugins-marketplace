@@ -10,12 +10,17 @@
 # repo launched it, so it is run by hand from anywhere. For each run it
 # test-acquires $RUN/run.lock without waiting:
 #
-#   - lock held (lockf exits 75)  -> the run is LIVE: its launcher, or the
-#     vfkit that launcher left running, still holds the lock. Left untouched.
+#   - lock held (lockf exits 75)  -> the run is LIVE: its launcher is still
+#     running (or, for a moment, its watcher or another pass is tearing it
+#     down). No other process of the run holds the lock. Left untouched.
 #   - lock acquired               -> the run is DEAD. Every pid its run.meta
-#     records (gvproxy_pid, proxy_pid) is sent SIGTERM, the directory holding
-#     its recorded gvproxy_sock is removed, and the run dir is removed with
-#     everything under it, guest-clone.raw included.
+#     records (vfkit_pid, gvproxy_pid, proxy_pid) is sent SIGTERM, the
+#     directory holding its recorded gvproxy_sock is removed, and the run dir
+#     is removed with everything under it, guest-clone.raw included.
+#
+# Stopping those processes is normally the run's own watcher's job: it takes
+# the lock the moment the launcher dies and stops them itself. The kills here
+# are the backstop for a run whose watcher was killed too.
 #
 # The lock is the whole liveness test. The recorded pids are not tested on
 # their own -- a pid alone cannot tell a dead run's gvproxy from an unrelated
@@ -94,7 +99,7 @@ for run in "$CLAUDE_VM_RUNS_DIR"/*/; do
   fi
 
   echo "reaped  $run_id${repo_src:+ (repo $repo_src)}"
-  for key in gvproxy_pid proxy_pid; do
+  for key in vfkit_pid gvproxy_pid proxy_pid; do
     pid="$(meta_get "$meta" "$key")"
     case "$pid" in
       '' | *[!0-9]*) continue ;;

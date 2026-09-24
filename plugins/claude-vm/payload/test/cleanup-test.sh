@@ -3,7 +3,7 @@
 # cleanup-test.sh -- tests for a run's liveness lock and for
 # bin/claude-vm-cleanup, which reaps dead runs by it (issue #181).
 #
-# Three parts, none booting a VM:
+# Four parts, none booting a VM:
 #
 #   1. The launcher's own run-dir + lock lines, sliced out of claude-vm.sh and
 #      run in a harness process: a non-blocking test-acquire of run.lock
@@ -11,7 +11,10 @@
 #   2. The launcher's proxy and gvproxy spawn lines, sliced the same way with
 #      a sleeping stand-in for each process: a child still running after its
 #      launcher is killed does not keep the lock held.
-#   3. bin/claude-vm-cleanup over a runs root holding a dead run, a live run
+#   3. The launcher's vfkit launch, sliced the same way with a sleeping
+#      stand-in for vfkit: after `kill -9` of the launcher its watcher stops
+#      vfkit, gvproxy and the proxy, and the lock test-acquire succeeds.
+#   4. bin/claude-vm-cleanup over a runs root holding a dead run, a live run
 #      of the same repo_src and a run with no lock file, with real processes
 #      standing in for the recorded pids.
 #
@@ -250,7 +253,116 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 3. bin/claude-vm-cleanup reaps the dead run and spares the live one.
+# 3. kill -9 of the launcher stops vfkit through the run's watcher.
+# ---------------------------------------------------------------------
+VF_START="$(grep -n '^VM_EXIT_STATUS=1$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+VF_END=""
+if [ -n "$VF_START" ]; then
+  VF_END="$(awk -v s="$VF_START" 'NR > s && /^VM_EXIT_STATUS=\$\?$/ { print NR; exit }' "$LAUNCHER")"
+fi
+META_START="$(grep -n '^claude_vm_run_meta_put() {$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] && [ -n "$VF_END" ] && [ -n "$META_START" ]; then
+  # Stand-in vfkit: records its own pid -- the pid the launcher's subshell
+  # had before it exec'd into this -- then sleeps as a running VM would.
+  FAKE_BIN="$WORK/fake-bin"
+  mkdir -p "$FAKE_BIN"
+  printf '#!/bin/sh\necho "$$" > "$VFKIT_PIDFILE"\nexec sleep 300\n' > "$FAKE_BIN/vfkit"
+  chmod +x "$FAKE_BIN/vfkit"
+
+  # The launch harness: the lock lines, the proxy and gvproxy spawns, then the
+  # vfkit launch itself, which it never returns from while the stand-in runs.
+  # Only the variables vfkit's argument list reads are supplied.
+  VF_HOLDER="$WORK/holder-vfkit.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -euo pipefail'
+    printf '. %s\n' "\"$LIB\""
+    echo 'RUN_ID="$1"'
+    awk -v s="$LOCK_START" -v e="$LOCK_END" 'NR >= s && NR <= e' "$LAUNCHER"
+    cat "$SPAWN_LINES"
+    # The launcher's own PROXY_PID=$! line is not in the spawn slice.
+    echo 'PROXY_PID="$(sed -n 1p "$3")"'
+    echo 'RUN_META="$RUN/run.meta"'
+    awk -v s="$META_START" 'NR >= s { print } NR > s && /^}$/ { exit }' "$LAUNCHER"
+    echo 'VM_CPUS=1 VM_MEM=512 EFISTORE="$RUN/efistore" GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"'
+    echo 'MOUNT_SHARED_DIR="$RUN/worktree" CONFIG_DIR="$RUN/config" CLAUDE_BIN_DIR="$RUN/bin"'
+    echo 'CREDS_DIR="$RUN/creds" GUEST_CONSOLE_LOG="$RUN/guest-console.log" EXTRA_MOUNT_FLAGS=()'
+    echo "PATH=\"$FAKE_BIN:\$PATH\""
+    awk -v s="$VF_START" -v e="$VF_END" 'NR >= s && NR < e' "$LAUNCHER"
+  } > "$VF_HOLDER"
+
+  # start_vf_run <run-id> -- start a launch harness for <run-id> and wait for
+  # its stand-in vfkit and its watcher to be up. Sets VF_HOLDER_PID, VF_RUN,
+  # VF_PID, VF_PROXY_PID, VF_GV_PID and VF_WATCHER_PID.
+  start_vf_run() {
+    VF_RUN="$CLAUDE_VM_RUNS_DIR/$1"
+    VFKIT_PIDFILE="$WORK/$1.vfkit-pid" bash "$VF_HOLDER" "$1" unused "$WORK/$1.pids" \
+      >/dev/null 2>&1 &
+    VF_HOLDER_PID=$!
+    SPAWNED+=("$VF_HOLDER_PID")
+    wait_for_file "$WORK/$1.vfkit-pid"
+    track_pids "$WORK/$1.pids"
+    track_pids "$WORK/$1.vfkit-pid"
+    VF_PID="$(cat "$WORK/$1.vfkit-pid" 2>/dev/null)"
+    VF_PROXY_PID="$(sed -n 1p "$WORK/$1.pids" 2>/dev/null)"
+    VF_GV_PID="$(sed -n 2p "$WORK/$1.pids" 2>/dev/null)"
+    VF_WATCHER_PID="$(sed -n 's/^watcher_pid=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
+    [ -n "$VF_WATCHER_PID" ] && SPAWNED+=("$VF_WATCHER_PID")
+  }
+
+  # wait_dead <pid> -- poll up to 5s for <pid> to exit.
+  wait_dead() {
+    local i=0
+    while kill -0 "$1" 2>/dev/null && [ "$i" -lt 50 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+  }
+
+  export CLAUDE_VM_RUNS_DIR="$WORK/runs-vfkit"
+  start_vf_run run-e
+  assert_eq "vfkit: the stand-in is running under the launcher" "alive" "$(alive "$VF_PID")"
+  assert_eq "vfkit: run.meta records the pid that became vfkit as vfkit_pid" \
+    "$VF_PID" "$(sed -n 's/^vfkit_pid=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
+  assert_eq "vfkit: run.meta's watcher_pid is lockf itself, waiting on the lock" \
+    "/usr/bin/lockf" "$([ -n "$VF_WATCHER_PID" ] && ps -o comm= -p "$VF_WATCHER_PID" 2>/dev/null)"
+  assert_eq "vfkit: the lock is held while the launcher runs" \
+    "75" "$(lock_probe "$VF_RUN/run.lock")"
+  kill -9 "$VF_HOLDER_PID"
+  wait "$VF_HOLDER_PID" 2>/dev/null
+  wait_dead "$VF_PID"
+  assert_eq "vfkit: after kill -9 of the launcher, the watcher stops vfkit" \
+    "dead" "$(alive "$VF_PID")"
+  assert_eq "vfkit: ...and gvproxy" "dead" "$(alive "$VF_GV_PID")"
+  assert_eq "vfkit: ...and the forward proxy" "dead" "$(alive "$VF_PROXY_PID")"
+  wait_dead "$VF_WATCHER_PID"
+  assert_eq "vfkit: the run's lock test-acquire then succeeds" \
+    "0" "$(lock_probe "$VF_RUN/run.lock")"
+  assert_eq "vfkit: the watcher keeps run.lock in place" \
+    "present" "$([ -f "$VF_RUN/run.lock" ] && echo present || echo absent)"
+
+  # NEGATIVE CONTROL: the same launch with its watcher stopped first -- what
+  # cleanup() does on a normal exit. kill -9 of the launcher then leaves vfkit
+  # running, so the watcher is what stopped it above; and the lock is still
+  # free, so vfkit itself holds none.
+  start_vf_run run-f
+  kill "$VF_WATCHER_PID" 2>/dev/null
+  wait_dead "$VF_WATCHER_PID"
+  kill -9 "$VF_HOLDER_PID"
+  wait "$VF_HOLDER_PID" 2>/dev/null
+  sleep 0.5
+  assert_eq "vfkit: NEGATIVE CONTROL -- with the watcher stopped, vfkit outlives the killed launcher" \
+    "alive" "$(alive "$VF_PID")"
+  assert_eq "vfkit: ...and still holds no lock: the test-acquire succeeds" \
+    "0" "$(lock_probe "$VF_RUN/run.lock")"
+  kill "$VF_PID" "$VF_GV_PID" "$VF_PROXY_PID" 2>/dev/null
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - could not slice the vfkit launch lines out of claude-vm.sh"
+fi
+
+# ---------------------------------------------------------------------
+# 4. bin/claude-vm-cleanup reaps the dead run and spares the live one.
 # ---------------------------------------------------------------------
 # Only the state root is set; the runs root is whatever lib/config.sh derives
 # from it, read back here the same way the cleaner gets it.
@@ -262,8 +374,9 @@ assert_eq "runs root: lib/config.sh derives it under the state root" \
   "$CLAUDE_VM_STATE_DIR/runs" "$CLAUDE_VM_RUNS_DIR"
 REPO="/repos/shared"
 
-# make_run <run-id> <gvproxy-pid> <proxy-pid> <sock-dir> -- a run dir shaped
-# the way the launcher leaves one: run.lock, run.meta, a clone, a worktree.
+# make_run <run-id> <gvproxy-pid> <proxy-pid> <sock-dir> [<vfkit-pid>] -- a
+# run dir shaped the way the launcher leaves one: run.lock, run.meta, a clone,
+# a worktree.
 make_run() {
   local run="$CLAUDE_VM_RUNS_DIR/$1"
   mkdir -p "$run/worktree" "$4"
@@ -280,6 +393,7 @@ make_run() {
     printf 'gvproxy_pid=%s\n' "$2"
     printf 'gvproxy_sock=%s\n' "$4/net.sock"
     printf 'ssh_port=2222\n'
+    printf 'vfkit_pid=%s\n' "${5:-}"
   } > "$run/run.meta"
 }
 
@@ -294,10 +408,12 @@ DEAD_GV="$(spawn_sleeper)"; SPAWNED+=("$DEAD_GV")
 DEAD_PROXY="$(spawn_sleeper)"; SPAWNED+=("$DEAD_PROXY")
 LIVE_GV="$(spawn_sleeper)"; SPAWNED+=("$LIVE_GV")
 LIVE_PROXY="$(spawn_sleeper)"; SPAWNED+=("$LIVE_PROXY")
+DEAD_VFKIT="$(spawn_sleeper)"; SPAWNED+=("$DEAD_VFKIT")
+LIVE_VFKIT="$(spawn_sleeper)"; SPAWNED+=("$LIVE_VFKIT")
 DEAD_SOCK_DIR="$WORK/tmp/claude-vm-sock.dead01"
 LIVE_SOCK_DIR="$WORK/tmp/claude-vm-sock.live01"
-make_run 20260101-000000-1 "$DEAD_GV" "$DEAD_PROXY" "$DEAD_SOCK_DIR"
-make_run 20260101-000000-2 "$LIVE_GV" "$LIVE_PROXY" "$LIVE_SOCK_DIR"
+make_run 20260101-000000-1 "$DEAD_GV" "$DEAD_PROXY" "$DEAD_SOCK_DIR" "$DEAD_VFKIT"
+make_run 20260101-000000-2 "$LIVE_GV" "$LIVE_PROXY" "$LIVE_SOCK_DIR" "$LIVE_VFKIT"
 DEAD_RUN="$CLAUDE_VM_RUNS_DIR/20260101-000000-1"
 LIVE_RUN="$CLAUDE_VM_RUNS_DIR/20260101-000000-2"
 # A run dir with no lock file: a launch caught between mkdir and its lock.
@@ -324,6 +440,7 @@ assert_eq "cleaner: exits 0 when nothing failed" "0" "$CLEAN_RC"
 sleep 0.2
 assert_eq "cleaner: kills the dead run's recorded gvproxy_pid" "dead" "$(alive "$DEAD_GV")"
 assert_eq "cleaner: kills the dead run's recorded proxy_pid" "dead" "$(alive "$DEAD_PROXY")"
+assert_eq "cleaner: kills the dead run's recorded vfkit_pid" "dead" "$(alive "$DEAD_VFKIT")"
 assert_eq "cleaner: removes the dead run's gvproxy_sock directory" \
   "absent" "$([ -e "$DEAD_SOCK_DIR" ] && echo present || echo absent)"
 assert_eq "cleaner: removes the dead run dir, guest-clone.raw included" \
@@ -335,6 +452,7 @@ assert_eq "cleaner: leaves the live run's run.meta in place" \
   "present" "$([ -f "$LIVE_RUN/run.meta" ] && echo present || echo absent)"
 assert_eq "cleaner: does not kill the live run's gvproxy_pid" "alive" "$(alive "$LIVE_GV")"
 assert_eq "cleaner: does not kill the live run's proxy_pid" "alive" "$(alive "$LIVE_PROXY")"
+assert_eq "cleaner: does not kill the live run's vfkit_pid" "alive" "$(alive "$LIVE_VFKIT")"
 assert_eq "cleaner: leaves the live run's socket dir" \
   "present" "$([ -d "$LIVE_SOCK_DIR" ] && echo present || echo absent)"
 assert_eq "cleaner: the live run's lock is still held afterwards" \
