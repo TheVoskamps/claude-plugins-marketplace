@@ -2128,9 +2128,9 @@ trap cleanup EXIT INT TERM
 # REDIRECT both host-side background processes' stdout AND stderr to RETAINED
 # log files under $LOG_DIR (issue #88). Without this they inherit the
 # interactive terminal's fd 1/2 (the hvc1 claude session), and their
-# per-request/per-packet diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
-# continuous stream of `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and
-# tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
+# per-request/per-packet diagnostics flood and destroy that session: gvproxy's
+# sniffer.go emits a continuous stream of
+# `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
 # RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
 # matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
 # paths are echoed in cleanup() alongside the other retained-artifact lines.

@@ -38,6 +38,10 @@
 # Never removed: $CLAUDE_VM_STATE_DIR/logs/<run-id>/. Each reaped run's log
 # dir path is reported so the post-mortem is one `ls` away.
 #
+# Exit status: 0 when no run failed, including when the runs root does not
+# exist; 1 when any run could not be tested or its run dir could not be
+# removed; 2 when given any argument.
+#
 # macOS-only, like the rest of claude-vm: the lock is lockf(1) from
 # /usr/bin, and bash 3.2 is the interpreter this must run under.
 

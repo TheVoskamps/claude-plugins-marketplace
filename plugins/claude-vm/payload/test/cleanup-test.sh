@@ -109,8 +109,8 @@ fi
 # lock lines under the launcher's own `set -euo pipefail`, then <extra-file>'s
 # lines (sliced spawn lines, or nothing), then idling in the `wait` builtin so
 # the harness shell itself is the lock holder. Prints the run dir to $2 of the
-# harness once locked; the sleep it idles on is started with fd 9 closed so
-# only the harness holds the lock.
+# harness once locked, and appends the pid of the sleep it idles on to $3; that
+# sleep is started with fd 9 closed so only the harness holds the lock.
 write_holder() {
   local out="$1" extra="$2"
   {

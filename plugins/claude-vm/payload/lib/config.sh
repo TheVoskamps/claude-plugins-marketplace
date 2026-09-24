@@ -72,9 +72,9 @@ set -uo pipefail
 # State root: what claude-vm writes for itself and reads back later -- the
 # built guest images (images/), the verified claude binary cache (cache/),
 # every launch's run dir (runs/) and the retained diagnostics of every launch
-# and every acceptance-test run (logs/). Kept apart from the
-# config root so the rebuildable state can be deleted without touching the
-# hand-written config. The scripts spell the XDG state fallback only here;
+# and every acceptance-test run (logs/). Kept apart from the config root so
+# the rebuildable state can be deleted without touching the hand-written
+# config. The scripts spell the XDG state fallback only here;
 # every state path they build derives from CLAUDE_VM_STATE_DIR rather than
 # restating it (the example configs and the skill prose name the default
 # for the operator).
