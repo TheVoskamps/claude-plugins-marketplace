@@ -2775,7 +2775,7 @@ YML
   # A second volume, for real: a small disk image attached at a mountpoint
   # inside $WORK. The source file lives on it and $RUN does not, so the link
   # under $RUN fails with EXDEV. $TMPDIR is put on the source's volume too, so
-  # a launcher that still linked there would succeed and the abort asserted
+  # a launcher that linked under $TMPDIR would succeed and the abort asserted
   # below would not happen. Skipped where hdiutil cannot attach an image.
   MNT_VOL="$WORK/second-volume"
   MNT_VOL_OK=0
