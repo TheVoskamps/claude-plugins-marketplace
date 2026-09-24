@@ -2145,10 +2145,7 @@ trap cleanup EXIT INT TERM
 # (see run.lock above): each outlives a killed launcher, and a run whose lock
 # they held could never be reaped.
 #
-# proxy.cmd is eval'd behind an `exec`, so the background subshell becomes the
-# proxy rather than forking it, and $! is the proxy's own pid. Without the
-# exec, $! is the subshell, which waits on the proxy as its child: stopping it
-# leaves the proxy running, orphaned, still bound to its port.
+# The backgrounded process is the proxy itself, so $! is the proxy's own pid.
 eval "exec $PROXY_CMD" >"$PROXY_LOG" 2>&1 9>&- &
 PROXY_PID=$!
 PROXY_PID_START="$(claude_vm_pid_start "$PROXY_PID")"
