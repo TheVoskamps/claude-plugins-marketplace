@@ -14,7 +14,8 @@
 #      does not keep the lock held.
 #   3. The launcher's vfkit launch, sliced the same way with a sleeping
 #      stand-in for vfkit: after `kill -9` of the launcher its watcher stops
-#      vfkit, gvproxy and the proxy, and the lock test-acquire succeeds.
+#      vfkit, gvproxy and the proxy, and the lock test-acquire succeeds; a
+#      pid whose recorded start time it no longer carries is left running.
 #   4. bin/claude-vm-cleanup over a runs root holding a dead run, a live run
 #      of the same repo_src, a run with no lock file, a run that exited
 #      normally and runs whose recorded pids now name other processes, with
@@ -327,8 +328,14 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
     echo 'RUN_ID="$1"'
     awk -v s="$LOCK_START" -v e="$LOCK_END" 'NR >= s && NR <= e' "$LAUNCHER"
     cat "$SPAWN_LINES"
-    # The launcher's own PROXY_PID=$! line is not in the spawn slice.
+    # The launcher's own PROXY_PID=$! line is not in the spawn slice, nor are
+    # the start-time readings taken beside it and beside GV_PID=$!. A
+    # FAKE_PROXY_START in the environment stands in for a recorded start time
+    # the proxy's pid no longer carries: a pid another process has taken.
     echo 'PROXY_PID="$(sed -n 1p "$3")"'
+    echo 'PROXY_PID_START="${FAKE_PROXY_START:-$(claude_vm_pid_start "$PROXY_PID")}"'
+    echo 'GV_PID_START="$(claude_vm_pid_start "$GV_PID")"'
+    printf 'SCRIPT_DIR="%s"\n' "$TEST_DIR/.."
     echo 'RUN_META="$RUN/run.meta"'
     awk -v s="$META_START" 'NR >= s { print } NR > s && /^}$/ { exit }' "$LAUNCHER"
     echo 'VM_CPUS=1 VM_MEM=512 EFISTORE="$RUN/efistore" GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"'
@@ -408,6 +415,23 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
     "alive" "$(alive "$VF_PID")"
   assert_eq "vfkit: ...and still holds no lock: the test-acquire succeeds" \
     "0" "$(lock_probe "$VF_RUN/run.lock")"
+  kill "$VF_PID" "$VF_GV_PID" "$VF_PROXY_PID" 2>/dev/null
+
+  # A recorded pid that no longer carries its recorded start time is left
+  # alone: the watcher stops vfkit and gvproxy but not a proxy pid whose start
+  # time run.meta does not match -- a number another process has since taken.
+  FAKE_PROXY_START="Thu Jan  1 00:00:00 1970" start_vf_run run-g
+  assert_eq "vfkit: run.meta records the watcher's start time beside its pid" \
+    "$(pid_start "$VF_WATCHER_PID")" "$(sed -n 's/^watcher_pid_start=//p' "$VF_RUN/run.meta" 2>/dev/null | tail -n 1)"
+  kill -9 "$VF_HOLDER_PID"
+  wait "$VF_HOLDER_PID" 2>/dev/null
+  wait_dead "$VF_PID"
+  wait_dead "$VF_WATCHER_PID"
+  assert_eq "vfkit: the watcher stops a pid still carrying its recorded start time" \
+    "dead" "$(alive "$VF_PID")"
+  assert_eq "vfkit: ...and gvproxy" "dead" "$(alive "$VF_GV_PID")"
+  assert_eq "vfkit: ...and leaves a pid whose start time is not the recorded one" \
+    "alive" "$(alive "$VF_PROXY_PID")"
   kill "$VF_PID" "$VF_GV_PID" "$VF_PROXY_PID" 2>/dev/null
 else
   FAIL=$((FAIL + 1))

@@ -87,15 +87,29 @@ set -uo pipefail
 
 # claude_vm_pid_start <pid> -- print when <pid> started, as ps(1) reports it,
 # or nothing when no process has that pid. The launcher records it in run.meta
-# beside each pid, and bin/claude-vm-cleanup signals a recorded pid only while
-# it still prints the same value: a pid alone cannot tell the run's process
-# from an unrelated one that inherited the number once the run's had exited.
+# beside each pid, and bin/claude-vm-cleanup, the launcher's cleanup() and the
+# run's watcher signal a recorded pid only while it still prints the same
+# value: a pid alone cannot tell the run's process from an unrelated one that
+# inherited the number once the run's had exited.
 # LC_ALL=C keeps the two readings comparable whatever locale each ran under.
 claude_vm_pid_start() {
   local start
   start="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)" || return 0
   start="${start#"${start%%[![:space:]]*}"}"
   printf '%s' "${start%"${start##*[![:space:]]}"}"
+}
+
+# claude_vm_kill_own <pid> <start> [<pid> <start> ...] -- SIGTERM each <pid>
+# whose claude_vm_pid_start still prints the <start> recorded beside it. A pid
+# with an empty <start>, or a different one, is left alone. The launcher's
+# cleanup() and the run's watcher stop the run's processes through this.
+claude_vm_kill_own() {
+  while [ "$#" -ge 2 ]; do
+    if [ -n "$1" ] && [ -n "$2" ] && [ "$(claude_vm_pid_start "$1")" = "$2" ]; then
+      kill "$1" 2>/dev/null || true
+    fi
+    shift 2
+  done
 }
 
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now

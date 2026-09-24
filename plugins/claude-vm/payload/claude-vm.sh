@@ -1234,11 +1234,11 @@ esac
 #
 # This writes only the PATH fields, which are all known now. The run's
 # network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid,
-# vfkit_pid, watcher_pid, and a <key>_start beside each of gvproxy_pid,
-# proxy_pid and vfkit_pid) do NOT exist yet -- they are created further below
-# and APPENDED to run.meta by claude_vm_run_meta_put AT THE MOMENT each is
-# created and confirmed live (issue #179), so run.meta never names an endpoint
-# that failed to materialize -- save vfkit_pid, recorded just before the exec
+# vfkit_pid, watcher_pid, and a <key>_start beside each of those four pids)
+# do NOT exist yet -- they are created further below and APPENDED to run.meta
+# by claude_vm_run_meta_put AT THE MOMENT each is created and confirmed live
+# (issue #179), so run.meta never names an endpoint that failed to
+# materialize -- save vfkit_pid, recorded just before the exec
 # that makes that pid vfkit, so a failed exec leaves it naming a process that
 # is already gone. There is no vfkit_rest_uri: the guest powers itself off, so
 # no host->guest REST channel exists. run.meta is thus the single source of
@@ -1802,7 +1802,9 @@ done < <(claude_vm_mount_specs "$MERGED_BOOT")
 # Launch: proxy -> gvproxy -> vfkit. Copy-back on exit (clone mode).
 # ---------------------------------------------------------------------
 PROXY_PID=""
+PROXY_PID_START=""
 GV_PID=""
+GV_PID_START=""
 # cleanup() idempotence guard (issue #179): set to 1 the first time cleanup()
 # runs so the EXIT trap that follows a signal-triggered INT/TERM trap does not
 # run the clone-discard decision and end-of-run prints a second time.
@@ -2014,13 +2016,14 @@ cleanup() {
   # fires the moment the launcher's lock drops, and on this normal exit the
   # launcher drops it by exiting, so a watcher left running would kill pids
   # this run no longer owns. Absent when the trap fired before vfkit launched.
-  local watcher_pid=""
+  # Like every pid this run signals, it is stopped only while it still carries
+  # the start time recorded beside it (claude_vm_kill_own).
+  local watcher_pid="" watcher_pid_start=""
   if [ -n "${RUN_META:-}" ] && [ -f "$RUN_META" ]; then
     watcher_pid="$(sed -n 's/^watcher_pid=//p' "$RUN_META" | tail -n 1)"
+    watcher_pid_start="$(sed -n 's/^watcher_pid_start=//p' "$RUN_META" | tail -n 1)"
   fi
-  if [ -n "$watcher_pid" ]; then
-    kill "$watcher_pid" 2>/dev/null || true
-  fi
+  claude_vm_kill_own "$watcher_pid" "$watcher_pid_start"
 
   # By the time this runs, vfkit has already exited: bash defers traps while a
   # foreground child runs, so the INT/TERM/EXIT trap cannot fire mid-vfkit
@@ -2052,8 +2055,7 @@ cleanup() {
     clean_exit=1
   fi
 
-  [ -n "$GV_PID" ] && kill "$GV_PID" 2>/dev/null || true
-  [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
+  claude_vm_kill_own "$GV_PID" "$GV_PID_START" "$PROXY_PID" "$PROXY_PID_START"
   copy_back
   # Remove the merged-config temp files. Guarded for the case where the
   # trap fires before the merged docs are set (unset/empty then). Written as
@@ -2147,13 +2149,14 @@ trap cleanup EXIT INT TERM
 # leaves the proxy running, orphaned, still bound to its port.
 eval "exec $PROXY_CMD" >"$PROXY_LOG" 2>&1 9>&- &
 PROXY_PID=$!
+PROXY_PID_START="$(claude_vm_pid_start "$PROXY_PID")"
 # Record the forward-proxy pid the moment it is spawned (issue #179): run.meta
 # is the single source of truth bin/claude-vm-cleanup uses to find and reap
 # this run's processes. The proxy, gvproxy and vfkit pids are each recorded
-# with their start time, which the cleaner checks before it signals the pid
-# (see claude_vm_pid_start).
+# with their start time, which the cleaner, the watcher and cleanup() check
+# before they signal the pid (see claude_vm_pid_start).
 claude_vm_run_meta_put proxy_pid "$PROXY_PID"
-claude_vm_run_meta_put proxy_pid_start "$(claude_vm_pid_start "$PROXY_PID")"
+claude_vm_run_meta_put proxy_pid_start "$PROXY_PID_START"
 
 # Clear any stale gvproxy socket corpse before gvproxy tries to bind it (issue
 # #179). SOCK_DIR is a fresh per-run mktemp dir so a collision here is unlikely,
@@ -2179,6 +2182,7 @@ SSH_PORT="$(claude_vm_acquire_free_tcp_port)" || {
   --pcap "$PCAP" \
   >"$GVPROXY_LOG" 2>&1 9>&- &
 GV_PID=$!
+GV_PID_START="$(claude_vm_pid_start "$GV_PID")"
 
 # Readiness: wait for a LIVE listener on the gvproxy socket, not merely for the
 # socket FILE to exist (issue #179). The old check tested `[ -S "$sock" ]`,
@@ -2195,7 +2199,7 @@ fi
 # gvproxy is confirmed live: record its pid, socket, and ssh-port in run.meta
 # now (write-as-you-go), so run.meta only ever names endpoints that materialized.
 claude_vm_run_meta_put gvproxy_pid "$GV_PID"
-claude_vm_run_meta_put gvproxy_pid_start "$(claude_vm_pid_start "$GV_PID")"
+claude_vm_run_meta_put gvproxy_pid_start "$GV_PID_START"
 claude_vm_run_meta_put gvproxy_sock "$GVPROXY_SOCK"
 claude_vm_run_meta_put ssh_port "$SSH_PORT"
 
@@ -2310,8 +2314,10 @@ fi
 #
 # The watcher is lockf blocking (no -t) on run.lock, holding no lock itself
 # while it waits. It acquires the lock only once the launcher is gone, and
-# then stops vfkit, gvproxy and the forward proxy: a `kill -9` of the launcher
-# stops the whole run, VM included. -k keeps run.lock, whose absence the
+# then stops vfkit, gvproxy and the forward proxy, each only while it still
+# carries the start time recorded for it (claude_vm_kill_own, run in a bash that
+# sources lib/config.sh): a `kill -9` of the launcher stops the whole run, VM
+# included, and never a process that has since taken one of those pids. -k keeps run.lock, whose absence the
 # cleaner reads as a launch mid-creation. The watcher is lockf itself rather
 # than a shell around it, so cleanup() stopping its pid (recorded as
 # watcher_pid) stops the wait -- it does that first, so a normal exit never
@@ -2322,11 +2328,19 @@ VM_EXIT_STATUS=1
 set +e
 (
   VFKIT_PID="$(exec /bin/sh -c 'echo "$PPID"')"
+  VFKIT_PID_START="$(claude_vm_pid_start "$VFKIT_PID")"
   claude_vm_run_meta_put vfkit_pid "$VFKIT_PID"
-  claude_vm_run_meta_put vfkit_pid_start "$(claude_vm_pid_start "$VFKIT_PID")"
-  /usr/bin/lockf -k -s "$RUN/run.lock" /bin/kill "$VFKIT_PID" "$GV_PID" "$PROXY_PID" \
+  claude_vm_run_meta_put vfkit_pid_start "$VFKIT_PID_START"
+  # $1 and $@ are the watcher's own arguments, expanded by its bash.
+  # shellcheck disable=SC2016
+  /usr/bin/lockf -k -s "$RUN/run.lock" \
+    /bin/bash -c '. "$1" && shift && claude_vm_kill_own "$@"' claude-vm-watcher \
+    "$SCRIPT_DIR/lib/config.sh" "$VFKIT_PID" "$VFKIT_PID_START" \
+    "$GV_PID" "$GV_PID_START" "$PROXY_PID" "$PROXY_PID_START" \
     </dev/null >/dev/null 2>&1 9>&- &
-  claude_vm_run_meta_put watcher_pid "$!"
+  WATCHER_PID=$!
+  claude_vm_run_meta_put watcher_pid "$WATCHER_PID"
+  claude_vm_run_meta_put watcher_pid_start "$(claude_vm_pid_start "$WATCHER_PID")"
   exec 9>&-
   exec vfkit \
     --cpus "$VM_CPUS" --memory "$VM_MEM" \
