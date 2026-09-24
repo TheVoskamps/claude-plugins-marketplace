@@ -1,0 +1,6 @@
+{
+  "name": "claude-harness-tools",
+  "description": "Instruments for seeing what the Claude Code harness sends to the API: launch a session through a local logging reverse proxy that writes every request and response to disk verbatim, so two sessions launched identically except for one setting can be compared.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
