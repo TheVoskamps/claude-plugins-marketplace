@@ -18,9 +18,9 @@
 #   - lock acquired               -> the run is DEAD. Each of the vfkit,
 #     gvproxy and proxy pids its run.meta records (vfkit_pid, gvproxy_pid,
 #     proxy_pid) that is still the run's own process is sent SIGTERM, the
-#     directory holding its recorded gvproxy_sock is removed, its creds/ dir
-#     and any raw Keychain blob are removed, and its guest-clone.raw is
-#     removed.
+#     directory holding its recorded gvproxy_sock is removed when it is a
+#     claude-vm-sock.* dir, its creds/ dir and any raw Keychain blob are
+#     removed, and its guest-clone.raw is removed.
 #
 # The run dir itself is kept, worktree/ and run.meta included, so
 # /claude-vm-diff and /claude-vm-apply-* still find the run after the reap.

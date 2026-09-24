@@ -319,7 +319,7 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
 
   # The launch harness: the lock lines, the proxy and gvproxy spawns, then the
   # vfkit launch itself, which it never returns from while the stand-in runs.
-  # Only the variables vfkit's argument list reads are supplied.
+  # Beyond what those slices set, only what the vfkit launch reads is supplied.
   VF_HOLDER="$WORK/holder-vfkit.sh"
   {
     echo '#!/usr/bin/env bash'
