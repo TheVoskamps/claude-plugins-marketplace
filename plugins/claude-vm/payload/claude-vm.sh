@@ -784,8 +784,8 @@ SSH_PORT=""
 # below -- live in their own per-run dir under the state root, NOT under $RUN.
 # bin/claude-vm-cleanup never touches this dir, so a run's diagnostics
 # outlive the reaping of its run dir, and the log dir the cleaner reports for
-# a reaped run is the one that holds them. Created under the umask 077 above: the capture and the proxy log
-# record every host the guest reached.
+# a reaped run is the one that holds them. Created under the umask 077 above:
+# the capture and the proxy log record every host the guest reached.
 LOG_DIR="$CLAUDE_VM_STATE_DIR/logs/$RUN_ID"
 mkdir -p "$LOG_DIR"
 PCAP="$LOG_DIR/egress.pcap"
@@ -1719,9 +1719,9 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # payload/README.md -> *The tag is not just a tag* for that whole class and
 # for where a guard covering it would belong.
 #
-# $RUN is RETAINED after the run (cleanup() shreds only $CREDS_DIR; the
-# diff/apply skills read the rest), so a wrap dir under it and its links
-# outlive the VM. That duplicates no bytes -- a hard link is an extra NAME for
+# $RUN is RETAINED after the run (cleanup() and bin/claude-vm-cleanup remove
+# only its credential files and guest clone; the diff/apply skills read the
+# rest), so a wrap dir under it and its links outlive the VM. That duplicates no bytes -- a hard link is an extra NAME for
 # the operator's file -- but it does mean the file's data survives deletion of
 # the original until the run dir is removed.
 MOUNT_WRAP_DIR="$RUN/mount-wrap"
@@ -2132,9 +2132,9 @@ trap cleanup EXIT INT TERM
 # interactive terminal's fd 1/2 (the hvc1 claude session), and their
 # per-request/per-packet diagnostics flood and destroy that session: gvproxy's
 # sniffer.go emits a continuous stream of
-# `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
-# RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
-# matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
+# `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and tinyproxy emits
+# `NOTICE ... Proxying refused` lines. Routed off-terminal, but RETAINED (not
+# /dev/null) so a proxy/gvproxy failure stays diagnosable -- matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
 # paths are echoed in cleanup() alongside the other retained-artifact lines.
 #
 # Both are started with fd 9 closed so neither holds the run's liveness lock
