@@ -1,6 +1,6 @@
 ---
 name: issue-field-options
-description: Report a slot's configured kind and options (status, priority, size, or any configured slot), or every slot's when none is named. Read-only.
+description: Report a slot's configured kind and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named. Read-only.
 ---
 
 Report what repo-config says a field slot accepts: its `kind:` and its
