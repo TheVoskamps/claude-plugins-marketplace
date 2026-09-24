@@ -521,6 +521,13 @@ writing that anything was addressed.
   PR but the detail chain under "Post the run's assembled detail". You
   edit no existing comment, yours included, and delete none.
 - Never commit, never push, never edit a tracked file.
+- Report a hook refusal as three things: the refused command, verbatim;
+  the gate's message, verbatim; and the route you took instead. Never
+  generalise a refusal into a claim about what a tool or a directory can
+  or cannot do: the gate's verdict is on that one command's shape, and
+  another command reaching the same tool or directory can still be
+  admitted, so the generalisation sends the reader after a limit that
+  does not exist and hides the command that actually failed.
 - Never merge the PR, flip it ready, or change an issue's status.
   Those are the orchestrator's, after you return.
 - You declare no `memory:`, so there is nothing to capture at
