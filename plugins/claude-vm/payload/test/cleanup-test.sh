@@ -87,7 +87,7 @@ track_pids() {
   done < "$1"
 }
 
-# wait_for_file <path> -- poll up to 5s for <path> to exist.
+# wait_for_file <path> -- poll up to 5s for <path> to exist and be non-empty.
 wait_for_file() {
   local i=0
   while [ ! -s "$1" ] && [ "$i" -lt 50 ]; do

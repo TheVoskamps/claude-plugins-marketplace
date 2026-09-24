@@ -12,11 +12,13 @@
 #
 #   - lock held (lockf exits 75)  -> the run is LIVE: its launcher is still
 #     running (or, for a moment, its watcher or another pass is tearing it
-#     down). No other process of the run holds the lock. Left untouched.
-#   - lock acquired               -> the run is DEAD. Every pid its run.meta
-#     records (vfkit_pid, gvproxy_pid, proxy_pid) is sent SIGTERM, the
-#     directory holding its recorded gvproxy_sock is removed, and the run dir
-#     is removed with everything under it, guest-clone.raw included.
+#     down). While the run is up no other process of it holds the lock.
+#     Left untouched.
+#   - lock acquired               -> the run is DEAD. The vfkit, gvproxy and
+#     proxy pids its run.meta records (vfkit_pid, gvproxy_pid, proxy_pid) are
+#     sent SIGTERM, the directory holding its recorded gvproxy_sock is
+#     removed, and the run dir is removed with everything under it,
+#     guest-clone.raw included.
 #
 # Stopping those processes is normally the run's own watcher's job: it takes
 # the lock the moment the launcher dies and stops them itself. The kills here

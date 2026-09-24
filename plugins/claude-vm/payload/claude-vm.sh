@@ -1239,9 +1239,9 @@ esac
 # that failed to materialize -- save vfkit_pid, recorded just before the exec
 # that makes that pid vfkit, so a failed exec leaves it naming a process that
 # is already gone. There is no vfkit_rest_uri: the guest powers itself off, so
-# no host->guest REST channel exists. run.meta is thus the single source of truth for the
-# launcher's own liveness checks and for bin/claude-vm-cleanup, which reaps a
-# dead run's processes from the pids recorded here.
+# no host->guest REST channel exists. run.meta is thus the single source of
+# truth for the launcher's own liveness checks and for bin/claude-vm-cleanup,
+# which reaps a dead run's processes from the pids recorded here.
 RUN_META="$RUN/run.meta"
 {
   printf 'run_id=%s\n' "$RUN_ID"
@@ -2127,8 +2127,8 @@ trap cleanup EXIT INT TERM
 #
 # REDIRECT both host-side background processes' stdout AND stderr to RETAINED
 # log files under $LOG_DIR (issue #88). Without this they inherit the
-# interactive terminal's fd 1/2 (the hvc1 claude session), and their per-request/per-packet
-# diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
+# interactive terminal's fd 1/2 (the hvc1 claude session), and their
+# per-request/per-packet diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
 # continuous stream of `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and
 # tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
 # RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
@@ -2263,9 +2263,10 @@ fi
 
 # vfkit runs as a CHILD here (the launcher does NOT exec it), so cleanup()
 # (trapped on EXIT/INT/TERM) runs the copy-back + clone-lifecycle +
-# socket-dir removal when the session ends. The `exec vfkit` below replaces only the subshell it
-# runs in; do NOT move it out of that subshell -- exec'd from the launcher
-# itself it would replace the launcher's shell and the trap would never fire.
+# socket-dir removal when the session ends. The `exec vfkit` below replaces
+# only the subshell it runs in; do NOT move it out of that subshell -- exec'd
+# from the launcher itself it would replace the launcher's shell and the trap
+# would never fire.
 #
 # vfkit runs FOREGROUND (issue #179): no `set -m`, no backgrounding `&`. The
 # guest powers ITSELF off when claude quits deliberately (the boot launcher
