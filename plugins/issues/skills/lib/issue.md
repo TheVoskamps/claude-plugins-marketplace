@@ -1413,14 +1413,21 @@ resolve aborts with the actual valid list re-discovered from Jira
 work item, custom-field options via the field payload); it never
 silently writes a fallback. The catalogue entries below
 ("Slot value not in options map", "Issue-type name not in repo's
-issue-types map") apply to both backends — the wording is
-tracker-neutral; only the source of the "known options" list differs
-(the `jira:` block instead of `github-project:`).
+issue-types map") apply to both backends; only the source of the
+"known options" list differs (the `jira:` block instead of
+`github-project:`).
 
 ## Error message catalogue
 
 Use these exact wordings so the namespace presents consistent errors.
 Wrap variable parts in backticks.
+
+A wording below that names the `github-project:` block is its GitHub
+form. Under `issues: Jira` it names the `jira:` block in that place
+and is otherwise unchanged. "No `github-project:` block in
+repo-config", for one, reads under Jira:
+
+> no `jira:` block in `repo-config.md`; run `/repo-config` to add it
 
 - **Issue not found**
 
@@ -1471,6 +1478,14 @@ Wrap variable parts in backticks.
   "No `github-project:` block in repo-config": here the block exists
   but the issue-types map specifically is absent, so the fix is the
   same (`/repo-config`) but the diagnosis points at the missing map.
+
+- **No `github-project:` block in repo-config (warning)**
+
+  > warning: no `github-project:` block in `repo-config.md`;
+  > skipping `--<flag>`. Run `/repo-config` to add it.
+
+  The warning form of "No `github-project:` block in repo-config".
+  `<flag>` is the flag being skipped.
 
 - **`acli` not installed** (Jira branch)
 

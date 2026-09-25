@@ -88,11 +88,11 @@ with `<slot>` = `size`. The per-kind write paths
 (number / single-select / label / issue-field) are documented there;
 do not duplicate them.
 
-Before the routine, require the `github-project:` block (the `jira:`
-block under `issues: Jira`). If it is absent, abort with the "No
-`github-project:` block in repo-config" error — without project
-metadata there is no slot to set, so this is an abort, not a
-warning-and-skip.
+Before the routine, require the tracker's metadata block —
+`github-project:`, or `jira:` under `issues: Jira`. If it is absent,
+abort with the "No `github-project:` block in repo-config" error from
+the catalogue in `skills/lib/issue.md` — without project metadata
+there is no slot to set, so this is an abort, not a warning-and-skip.
 
 When the routine ends on a `size` slot that is absent from `fields:`
 or declared `kind: skip`, print this line and exit **zero** — it is a

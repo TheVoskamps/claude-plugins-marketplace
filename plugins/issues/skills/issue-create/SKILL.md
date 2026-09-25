@@ -514,11 +514,9 @@ A warning-skipped flag prints one warning line on its own before the
 URL, in addition to the corresponding `skipped: <reason>` checklist
 line:
 
-- **No `github-project:` block** (under `issues: Jira`, no `jira:`
-  block, and the line names `jira:`), once per such flag:
-
-  > `warning: no github-project: block in repo-config.md;`
-  > `skipping --status. Run /repo-config to add it.`
+- **No `github-project:` block** — the "No `github-project:` block in
+  repo-config (warning)" entry from the catalogue in
+  `skills/lib/issue.md`, once per such flag.
 
 - **A slot declared `kind: skip`:**
 
@@ -548,11 +546,12 @@ Created issue #1042 "Add /issue-create skill"
 https://github.com/<owner>/<repo>/issues/1042
 ```
 
-An issue in a repo whose `size` slot is intentionally `kind: skip`
-and where `--status` was neither passed nor defaulted — the required
-lines still appear, as `skipped: <reason>`, the `kind: skip` slot
-also prints its warning line, and `parent:` is omitted because
-`--parent` was not passed:
+An issue in a repo whose `size` slot is intentionally `kind: skip`,
+run without `--size`, and where `--status` was neither passed nor
+defaulted — the required lines still appear, as `skipped: <reason>`,
+the `kind: skip` slot prints its warning line even though no `--size`
+was passed (Step 2 of the execution chain), and `parent:` is omitted
+because `--parent` was not passed:
 
 ```text
 Created issue #1043 "Tidy up the create runbook"

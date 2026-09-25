@@ -44,12 +44,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 This command **requires** a `github-project:` block in
 `.issues/repo-config.md` (the `jira:` block under `issues: Jira`). If
 the block is absent, abort with the "No `github-project:` block in
-repo-config" error from the catalogue in `skills/lib/issue.md`; under
-`issues: Jira`, abort with that entry's wording naming `jira:` in
-place of `github-project:`:
-
-> no `jira:` block in `repo-config.md`; run `/repo-config` to add it
-
+repo-config" error from the catalogue in `skills/lib/issue.md`.
 This is an abort, not a warning-and-skip — without the option map
 there is no way to resolve the requested status name.
 
