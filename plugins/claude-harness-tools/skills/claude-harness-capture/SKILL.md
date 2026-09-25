@@ -80,6 +80,10 @@ Say these plainly, because each one surprises a first reader:
   is a series of chunks, each a hex size line, that many bytes and a
   CRLF, ended by a `0` size line, any trailer lines and a blank line.
   Strip the framing first, before decompressing or splitting events.
+  The exception is a response that has no body whatever its headers
+  say, which is one to a `HEAD` request and any `1xx`, `204` or `304`:
+  its `response.body` is empty, even beside a `Transfer-Encoding:
+  chunked` that upstream sent.
 - **Bodies may be compressed.** `Accept-Encoding` is forwarded
   unchanged, so a body is compressed whenever `response.headers.json`
   carries a `Content-Encoding`. Decompress before reading, for example
