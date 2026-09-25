@@ -118,6 +118,12 @@ check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "--name|Mine [harness-proxy]|" "--
 check "$(session_field name)" "Mine [harness-proxy]" "session.json carries the caller's tagged name"
 run_case name-equals "$REPO" -- --name=Other -c
 check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "--name=Other [harness-proxy]|-c|" "--name=<v> is tagged in place and wins"
+run_case name-bare "$REPO" bare -- -c --name
+check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "-c|--name|bare widget [harness-proxy]|" \
+  "a trailing --name with no value is replaced by the computed --name"
+run_case name-only-bare "$REPO" lone -- --name
+check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "--name|lone widget [harness-proxy]|" \
+  "a lone valueless --name is replaced by the computed --name"
 
 # --- no repo, no suffix, caller's upstream, error exit ----------------
 ANTHROPIC_BASE_URL="$DEAD_UPSTREAM" STUB_RC=3 STUB_REQUEST=1 run_case plain "$PLAIN"
