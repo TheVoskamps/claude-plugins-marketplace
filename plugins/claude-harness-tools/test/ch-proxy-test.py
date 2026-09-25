@@ -41,6 +41,10 @@ ERROR_BODY = (
     b'{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
 )
 
+SSE_EVENTS = [b"event: first\ndata: {}\n\n", b"event: second\ndata: {}\n\n"]
+
+CHUNKED_REQUEST_BODY = b"5;ext=1\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
+
 FAILURES = []
 
 
@@ -110,9 +114,9 @@ class UpstreamHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
-        self._chunk(b"event: first\ndata: {}\n\n")
+        self._chunk(SSE_EVENTS[0])
         self.server.release_stream.wait(5)
-        self._chunk(b"event: second\ndata: {}\n\n")
+        self._chunk(SSE_EVENTS[1])
         self.wfile.write(b"0\r\n\r\n")
         self.server.stream_finished.set()
 
@@ -165,6 +169,24 @@ def request(port, method, path, body=None, headers=None):
     payload = response.read()
     connection.close()
     return response, payload
+
+
+def chunk(data):
+    return b"%x\r\n%s\r\n" % (len(data), data)
+
+
+def raw_request(port, data):
+    """Send `data` as the whole request and return everything read back."""
+    connection = socket.create_connection(("127.0.0.1", port), timeout=15)
+    connection.sendall(data)
+    received = []
+    while True:
+        part = connection.recv(65536)
+        if not part:
+            break
+        received.append(part)
+    connection.close()
+    return b"".join(received)
 
 
 def request_dirs(capture_dir):
@@ -347,11 +369,35 @@ def run_cases(upstream, port, capture_dir):
     upstream.release_stream.set()
     rest = response.read()
     connection.close()
-    check(b"event: second" in first_event + rest, "the rest of the SSE stream follows")
+    check(
+        first_event + rest == b"".join(SSE_EVENTS),
+        "the rest of the SSE stream follows",
+    )
     sse_dir = request_dirs(capture_dir)[-1]
     check(
-        read(os.path.join(capture_dir, sse_dir, "response.body")) == first_event + rest,
-        "response.body holds the event stream as forwarded",
+        read(os.path.join(capture_dir, sse_dir, "response.body"))
+        == chunk(SSE_EVENTS[0]) + chunk(SSE_EVENTS[1]) + b"0\r\n\r\n",
+        "response.body holds the event stream with its chunked framing",
+    )
+
+    reply = raw_request(
+        port,
+        b"POST /chunked HTTP/1.1\r\nHost: client\r\nTransfer-Encoding: chunked\r\n"
+        b"Content-Length: 3\r\nConnection: close\r\n\r\n" + CHUNKED_REQUEST_BODY,
+    )
+    check(reply.startswith(b"HTTP/1.1 200 "), "a chunked request is answered")
+    check(
+        upstream.received[-1][3] == b"hello world",
+        "a chunked request with a stale Content-Length reaches upstream whole",
+    )
+    chunked_dir = os.path.join(capture_dir, request_dirs(capture_dir)[-1])
+    check(
+        read(os.path.join(chunked_dir, "request.body")) == CHUNKED_REQUEST_BODY,
+        "request.body holds a chunked request with its chunked framing",
+    )
+    check(
+        ["Content-Length", "3"] in finished_meta(chunked_dir).get("headers", []),
+        "request.json keeps the Content-Length the client sent",
     )
 
     results = []

@@ -6,10 +6,10 @@ proxy opens its own connection to the upstream base URL, forwards the
 request, and streams the response back. Every request, whatever its
 path, is written to disk raw beneath the capture directory: the request
 headers as received, the response headers as upstream sent them, before
-any hop-by-hop header is dropped, and both bodies with only their chunked
-transfer framing removed. No body is decompressed, re-serialized or
-redacted on the way through, so two captures differ only where the
-traffic did.
+any hop-by-hop header is dropped, and both bodies as the bytes on the
+wire, chunked transfer framing included. No body is decompressed,
+re-serialized or redacted on the way through, so two captures differ
+only where the traffic did.
 
 Recording fails open. A disk or serialization error is reported on
 stderr and never alters the response the client receives, and an
@@ -31,6 +31,10 @@ import threading
 import urllib.parse
 
 CHUNK_SIZE = 64 * 1024
+
+# The longest chunk-size or trailer line accepted from upstream, the same
+# bound `http.client` puts on the lines it reads itself.
+MAX_LINE = 65536
 
 UPSTREAM_TIMEOUT = 600.0
 
@@ -252,7 +256,12 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         recorder = Recorder(server.next_request_dir())
         headers = list(self.headers.items())
         server.note_session_header(headers)
-        body = self._read_body()
+        chunked = self.headers.get("Transfer-Encoding", "").lower() == "chunked"
+        if chunked:
+            wire, body = self._read_chunked()
+        else:
+            length = int(self.headers.get("Content-Length") or 0)
+            wire = body = self.rfile.read(length) if length else b""
         recorder.start(
             {
                 "method": self.command,
@@ -260,12 +269,12 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 "headers": headers,
                 "started_at": _now(),
             },
-            body,
+            wire,
         )
 
         connection = server.connect_upstream()
         try:
-            response = self._send_upstream(connection, headers, body)
+            response = self._send_upstream(connection, headers, body, chunked)
         except (OSError, ValueError, http.client.HTTPException) as error:
             connection.close()
             self._bad_gateway(recorder, error)
@@ -284,25 +293,26 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
     do_HEAD = do_any
     do_OPTIONS = do_any
 
-    def _read_body(self):
-        if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
-            return self._read_chunked()
-        length = int(self.headers.get("Content-Length") or 0)
-        return self.rfile.read(length) if length else b""
-
     def _read_chunked(self):
+        """Return a chunked request body twice: as received, and de-chunked."""
+        wire = []
         parts = []
         while True:
-            header = self.rfile.readline().split(b";")[0].strip()
-            size = int(header or b"0", 16)
+            line = self.rfile.readline()
+            wire.append(line)
+            size = int(line.split(b";")[0].strip() or b"0", 16)
             if size == 0:
-                while self.rfile.readline().strip():
-                    pass
-                return b"".join(parts)
-            parts.append(self.rfile.read(size))
-            self.rfile.read(2)
+                while True:
+                    line = self.rfile.readline()
+                    wire.append(line)
+                    if not line.strip():
+                        return b"".join(wire), b"".join(parts)
+            data = self.rfile.read(size)
+            parts.append(data)
+            wire.append(data)
+            wire.append(self.rfile.read(2))
 
-    def _send_upstream(self, connection, headers, body):
+    def _send_upstream(self, connection, headers, body, chunked):
         server = self.server
         connection.putrequest(
             self.command,
@@ -317,10 +327,14 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             if lowered == "host" or lowered in HOP_BY_HOP:
                 continue
             if lowered == "content-length":
+                # Beside chunked framing a `Content-Length` does not describe
+                # the body (RFC 9112, section 6.3), so it is not forwarded.
+                if chunked:
+                    continue
                 has_length = True
             connection.putheader(name, value)
-        # A chunked request body arrives de-chunked, so it goes upstream
-        # framed by length instead; `Transfer-Encoding` is hop-by-hop.
+        # A chunked request body is forwarded de-chunked and framed by its
+        # own length; `Transfer-Encoding` is hop-by-hop.
         if body and not has_length:
             connection.putheader("Content-Length", str(len(body)))
         connection.endheaders(body if body else None)
@@ -346,26 +360,61 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 self.close_connection = True
             self.end_headers()
 
-            while has_body:
+            if chunked:
+                self._relay_chunked(response.fp, recorder)
+            while has_body and not chunked:
                 data = response.read1(CHUNK_SIZE)
                 if not data:
                     break
-                recorder.response_chunk(data)
-                if chunked:
-                    self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
-                else:
-                    self.wfile.write(data)
-                self.wfile.flush()
-            if chunked:
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
-        except (OSError, http.client.HTTPException) as failure:
+                self._pass_on(data, recorder)
+        except (OSError, ValueError, http.client.HTTPException) as failure:
             # The status line is already out, so a failure mid-stream on
             # either leg can only end the connection, which is what tells
             # the client the body is truncated.
             error = "%s: %s" % (type(failure).__name__, failure)
             self.close_connection = True
         recorder.finish(error)
+
+    def _relay_chunked(self, upstream, recorder):
+        """Relay a chunked body from `upstream` as it arrives, framing and all.
+
+        `http.client` would strip the framing, so the body is read from
+        the socket file beneath the response instead. Each chunk-size line,
+        chunk and trailer line is recorded and forwarded unchanged, which
+        keeps response.body the wire bytes of both legs.
+        """
+        while True:
+            line = self._read_line(upstream)
+            self._pass_on(line, recorder)
+            size = int(line.split(b";")[0].strip(), 16)
+            if size == 0:
+                break
+            remaining = size + len(b"\r\n")
+            while remaining:
+                data = upstream.read1(min(remaining, CHUNK_SIZE))
+                if not data:
+                    raise http.client.IncompleteRead(b"", remaining)
+                remaining -= len(data)
+                self._pass_on(data, recorder)
+        while True:
+            line = self._read_line(upstream)
+            self._pass_on(line, recorder)
+            if not line.strip():
+                return
+
+    @staticmethod
+    def _read_line(upstream):
+        line = upstream.readline(MAX_LINE + 1)
+        if len(line) > MAX_LINE:
+            raise http.client.LineTooLong("chunked response line")
+        if not line:
+            raise http.client.IncompleteRead(b"")
+        return line
+
+    def _pass_on(self, data, recorder):
+        recorder.response_chunk(data)
+        self.wfile.write(data)
+        self.wfile.flush()
 
     def _bad_gateway(self, recorder, failure):
         """Answer a request that never reached upstream with a 502."""
