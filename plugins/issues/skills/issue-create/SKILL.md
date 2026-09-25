@@ -168,7 +168,8 @@ what didn't — do not roll back successful steps.
    of the run, exactly as if they had passed the CLI flag. If a
    prompt is unanswered (harness time-out, non-interactive context),
    fall through to `fields.<slot>.default`; if that is also absent,
-   warn-and-skip.
+   the slot is skipped with no warning line — its checklist line reads
+   `skipped: flag not passed and no default` (see "Output" below).
 
    Skip this step entirely when no slot needs a prompt — i.e. when
    every slot was either passed on the CLI in Step 1 or is
