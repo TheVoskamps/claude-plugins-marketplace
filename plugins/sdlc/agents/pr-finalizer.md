@@ -343,8 +343,34 @@ wrote its file late anyway, leaving `list-theorem-generator` beside the
 wrote. The names differ, so neither file overwrites the other: post
 every `list-` file the round holds rather than the first one you find.
 
+**A round's pieces come from the `result` lines its `--mode print`
+writes**: each `result` line names one result file of the round, and
+the pieces are those files, every `list-<agent>` generator file a
+`result list <agent>` line names included. You already open each with
+`Read` in step 2. The records and each round's review are what
+`--mode print-records` and `--mode print-review` write to stdout. That
+is the whole of your access to the state directory: reach it through
+`sdlc-agent-result-persist` and `Read` only. Do not point `Glob` or
+`Grep` at it either, and run no raw shell listing such as `ls` or
+`find` there, nor any other Bash command naming a path under it. Whether the gate
+admits a raw command there turns on the operator's own configuration,
+so a run that leans on one works on one machine and is refused on the
+next.
+
 Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
+
+**Write each piece to the scratch directory and size it there.** As you
+read a piece, write it, headed by that name, with `Write` to
+`.claude/tmp/<task-slug>/piece-<k>.md`, `<k>` its 1-based position in
+the assembly order above, and measure it:
+
+```bash
+wc -c .claude/tmp/<task-slug>/piece-<k>.md
+```
+
+Those sizes are what you choose chunk boundaries from, per the next
+paragraph.
 
 **Chunk the assembly at a theorem boundary, under GitHub's 64 KB
 comment cap.** These kinds of piece are whole and never split: the
@@ -390,8 +416,22 @@ mid-post — post the whole chain again, complete; the partial one stays,
 since you delete no comment, and your section names the complete
 chain, so a reader knows which to follow.
 
-Write each chunk to `.claude/tmp/<task-slug>/detail-<i>.md` and post it
-by path, in order, one call per chunk:
+Build each chunk as `.claude/tmp/<task-slug>/detail-<i>.md`: write its
+marker line with `Write` to `.claude/tmp/<task-slug>/marker-<i>.md`,
+then concatenate the chunk's pieces after it, in assembly order:
+
+```bash
+cat .claude/tmp/<task-slug>/marker-<i>.md \
+  .claude/tmp/<task-slug>/piece-<a>.md … .claude/tmp/<task-slug>/piece-<b>.md \
+  > .claude/tmp/<task-slug>/detail-<i>.md
+wc -c .claude/tmp/<task-slug>/detail-<i>.md
+```
+
+That `wc -c` is the check against the 64 KB cap, and it runs on every
+chunk before you post any. A chunk over the cap is re-cut at a piece
+boundary or, when it is one piece alone, handled as "A single piece
+larger than the cap" below says; it is never posted over the cap and
+never trimmed. Then post each by path, in order, one call per chunk:
 
 ```bash
 gh pr comment <PR> --body-file .claude/tmp/<task-slug>/detail-<i>.md
@@ -482,6 +522,13 @@ writing that anything was addressed.
   PR but the detail chain under "Post the run's assembled detail". You
   edit no existing comment, yours included, and delete none.
 - Never commit, never push, never edit a tracked file.
+- Report a hook refusal as the refused command, verbatim;
+  the gate's message, verbatim; and the route you took instead. Never
+  generalise a refusal into a claim about what a tool or a directory can
+  or cannot do: the gate's verdict is on that one command's shape, and
+  another command reaching the same tool or directory can still be
+  admitted, so the generalisation sends the reader after a limit that
+  does not exist and hides the command that actually failed.
 - Never merge the PR, flip it ready, or change an issue's status.
   Those are the orchestrator's, after you return.
 - You declare no `memory:`, so there is nothing to capture at

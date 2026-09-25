@@ -30,6 +30,7 @@ restate the fact.
 | Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
+| How the finalizer reaches a round's review state, and where it stages and sizes the detail it posts | `agents/pr-finalizer.md` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
