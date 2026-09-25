@@ -462,21 +462,21 @@ single-select / label slot value (per "Name -> ID lookup rules" in
 
 ### Required lines
 
-Emit each of these whenever the stated condition holds. "Required"
-means the line must appear — as a value or as `skipped: <reason>` —
-before the URL.
+Emit each of these on every run. "Required" means the line must
+appear — as a value or as `skipped: <reason>` — before the URL. A
+line whose metadata is not configured still appears, as its
+`skipped: <reason>`; that is the checklist line "Warnings" below
+pairs with each warning.
 
-- **`type:`** — required when `github-project.issue-types` exists in
-  repo-config. Either the canonical type name (e.g. `Feature`) or
-  `skipped: no issue-types map in repo-config`.
-- **`priority:`** — required when `github-project.fields.priority`
-  exists and is not `kind: skip`. Either the canonical value or
+- **`type:`** — either the canonical type name (e.g. `Feature`) or
+  `skipped: <reason>` (e.g. `skipped: no issue-types map in
+  repo-config`).
+- **`priority:`** — either the canonical value or
   `skipped: <reason>` (e.g. `skipped: slot kind: skip`,
+  `skipped: slot absent from fields:`,
   `skipped: flag not passed and no default`).
-- **`size:`** — same shape as `priority:` (keyed on
-  `github-project.fields.size`).
-- **`status:`** — same shape as `priority:` (keyed on
-  `github-project.fields.status`).
+- **`size:`** — same shape as `priority:`.
+- **`status:`** — same shape as `priority:`.
 - **`assignee:`** — required. Either the canonical login(s) that were
   set, or `skipped: no --assignee passed and no built-in default
   applies`. Before printing this line, **post-fetch verify** (see
@@ -550,8 +550,9 @@ https://github.com/<owner>/<repo>/issues/1042
 
 An issue in a repo whose `size` slot is intentionally `kind: skip`
 and where `--status` was neither passed nor defaulted — the required
-lines still appear, as `skipped: <reason>`, and `parent:` is omitted
-because `--parent` was not passed:
+lines still appear, as `skipped: <reason>`, the `kind: skip` slot
+also prints its warning line, and `parent:` is omitted because
+`--parent` was not passed:
 
 ```text
 Created issue #1043 "Tidy up the create runbook"
@@ -560,6 +561,8 @@ Created issue #1043 "Tidy up the create runbook"
   size:       skipped: slot kind: skip
   status:     skipped: flag not passed and no default
   assignee:   octocat
+
+warning: slot 'size' is kind: skip in repo-config.md; skipping --size.
 
 https://github.com/<owner>/<repo>/issues/1043
 ```
