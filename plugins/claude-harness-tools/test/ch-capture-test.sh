@@ -124,6 +124,10 @@ check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "-c|--name|bare widget [harness-pr
 run_case name-only-bare "$REPO" lone -- --name
 check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "--name|lone widget [harness-proxy]|" \
   "a lone valueless --name is replaced by the computed --name"
+run_case name-then-bare "$REPO" ignored -- --name foo --name
+check "$(cat "$CASE_OUT/argv" | tr '\n' '|')" "--name|foo [harness-proxy]|" \
+  "a valued --name still wins when a valueless --name trails it"
+check "$(session_field name)" "foo [harness-proxy]" "session.json carries the valued --name, tagged"
 
 # --- no repo, no suffix, caller's upstream, error exit ----------------
 ANTHROPIC_BASE_URL="$DEAD_UPSTREAM" STUB_RC=3 STUB_REQUEST=1 run_case plain "$PLAIN"

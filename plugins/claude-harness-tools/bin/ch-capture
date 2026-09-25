@@ -14,9 +14,9 @@
 #
 # Words before `--` are the session-name suffix; everything after `--`
 # reaches `claude` verbatim, except that a `--name` among them gets
-# ` [harness-proxy]` appended to its value. When they hold no `--name`,
-# or only a trailing one with no value, one carrying the computed session
-# name is appended in its place.
+# ` [harness-proxy]` appended to its value. A trailing `--name` with no
+# value is dropped, and when no `--name` among them carries a value, one
+# carrying the computed session name is appended.
 #
 # Portable to the bash 3.2 macOS ships: no associative arrays, no
 # `${var,,}`, and empty arrays expanded through `${a[@]+"${a[@]}"}`.
@@ -82,6 +82,7 @@ for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
   if [ "$NEXT_IS_NAME_VALUE" -eq 1 ]; then
     arg="$arg $NAME_TAG"
     SESSION_NAME="$arg"
+    HAS_NAME=1
     NEXT_IS_NAME_VALUE=0
   else
     case "$arg" in
@@ -91,17 +92,16 @@ for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
         HAS_NAME=1
         ;;
       --name)
-        HAS_NAME=1
         NEXT_IS_NAME_VALUE=1
         ;;
     esac
   fi
   TAGGED_ARGS=(${TAGGED_ARGS[@]+"${TAGGED_ARGS[@]}"} "$arg")
 done
-# A trailing `--name` with no value supplies no name, so it is dropped
-# and the computed one takes its place.
+# A trailing `--name` with no value supplies no name, so it is dropped.
+# An earlier `--name` that did carry a value still counts; only without
+# one does the computed name take its place.
 if [ "$NEXT_IS_NAME_VALUE" -eq 1 ]; then
-  HAS_NAME=0
   unset 'TAGGED_ARGS[${#TAGGED_ARGS[@]}-1]'
 fi
 CLAUDE_ARGS=(${TAGGED_ARGS[@]+"${TAGGED_ARGS[@]}"})
