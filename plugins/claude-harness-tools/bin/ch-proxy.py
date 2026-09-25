@@ -13,7 +13,10 @@ only where the traffic did.
 
 Recording fails open. A disk or serialization error is reported on
 stderr and never alters the response the client receives, and an
-upstream response of any status is forwarded as it arrived.
+upstream response of any status is forwarded as it arrived. When the
+exchange with upstream fails before a response arrives, the proxy
+answers 502 itself, and the response headers and body it records are
+its own rather than upstream's.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.
@@ -173,7 +176,11 @@ class Recorder:
 
 
 class CaptureServer(http.server.ThreadingHTTPServer):
-    """A threaded server holding the upstream, the counter and session.json."""
+    """A threaded server holding the upstream, the counter and session.json.
+
+    Raises `ValueError` when `upstream` is not an http or https URL with
+    a host.
+    """
 
     daemon_threads = True
 
@@ -209,7 +216,11 @@ class CaptureServer(http.server.ThreadingHTTPServer):
         _write_json(os.path.join(self.capture_dir, SESSION_FILE), self.session)
 
     def note_session_header(self, headers):
-        """Add the first `*session*` request header seen to session.json."""
+        """Add the first `*session*` request header seen to session.json.
+
+        Safe to call from concurrent handler threads. A write error is
+        reported on stderr rather than raised.
+        """
         if self._session_header_seen:
             return
         match = None
@@ -419,7 +430,11 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _bad_gateway(self, recorder, failure):
-        """Answer a request that never reached upstream with a 502."""
+        """Answer with a 502 a request whose upstream exchange failed.
+
+        The failure is one raised before a response arrived: building the
+        connection, sending the request, or reading the status line.
+        """
         error = "%s: %s" % (type(failure).__name__, failure)
         payload = ("ch-proxy: upstream request failed: %s\n" % error).encode("utf-8")
         headers = [
