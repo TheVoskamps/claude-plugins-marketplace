@@ -17,30 +17,50 @@ or push it to the remote (`/claude-vm-apply-remote`).
 ## How runs are located
 
 Each `claude-vm` run writes a `run.meta` file into its persistent run
-directory:
+directory, under the runs root every repo on the host shares:
 
 ```text
-<repo>/.claude/tmp/<runid>/run.meta
+$CLAUDE_VM_RUNS_DIR/<runid>/run.meta
 ```
 
 `run.meta` records `run_id`, `repo_src`, `repo_mount`, `worktree`, and
 `copy_back`. The run directory persists after the guest exits (clone
-mode) precisely so this skill can find it.
+mode) precisely so this skill can find it. `repo_src` is what tells this
+repo's runs apart from every other repo's.
+`bin/claude-vm-cleanup` never removes a run's `worktree/` or
+`run.meta`, so a run it has reaped is still found.
+
+Resolve the runs root through the plugin's own config library rather
+than spelling the path:
+
+```bash
+RUNS_DIR="$(. "$CLAUDE_PLUGIN_ROOT/payload/lib/config.sh" && printf '%s' "$CLAUDE_VM_RUNS_DIR")"
+```
 
 ## Inputs
 
 - **`<runid>`** (optional): the run to inspect. When omitted, use the
-  most recent run dir under `<repo>/.claude/tmp/` (highest-sorting
-  `run_id`, which is timestamp-prefixed).
+  most recent run of this repo: among the run dirs under `$RUNS_DIR`
+  whose `run.meta` `repo_src` is `<repo>`, the highest-sorting `run_id`,
+  which is timestamp-prefixed.
 - **`<repo>`** (optional): the source repo root. Defaults to the
   current repo.
 
 ## Steps
 
 1. Resolve the run dir:
-   - If `<runid>` is given, use `<repo>/.claude/tmp/<runid>/`.
-   - Otherwise, pick the most recent `<repo>/.claude/tmp/*/` that
-     contains a `run.meta`. If none exists, report that there are no
+   - If `<runid>` is given, use `$RUNS_DIR/<runid>/`.
+   - Otherwise, pick the most recent run whose `run.meta` names this
+     repo:
+
+     ```bash
+     find "$RUNS_DIR" -mindepth 2 -maxdepth 2 -name run.meta \
+       -exec grep -lxF "repo_src=<repo>" {} + 2>/dev/null | sort | tail -n 1
+     ```
+
+     `<repo>` is spelled the way the launcher records it: the output of
+     `git rev-parse --show-toplevel`. The run dir is the printed file's
+     directory. If nothing matches, report that this repo has no
      recorded runs and stop.
 2. Read `run.meta`. Confirm `repo_mount` is `clone`. For a `live` run
    there is no separate worktree — the guest wrote to the source in

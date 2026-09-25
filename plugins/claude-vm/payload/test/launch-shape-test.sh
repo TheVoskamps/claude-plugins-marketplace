@@ -9,7 +9,12 @@
 # shape shipped once and never booted. Foreground is load-bearing: vfkit owns
 # the tty, its exit status lands in the launcher's own `$?`, bash defers traps
 # while a foreground child runs (so cleanup() can never face a live vfkit),
-# and therefore no reap machinery may exist.
+# and therefore no reap machinery may exist in the launcher's own path.
+#
+# vfkit is exec'd from a foreground subshell, so the subshell's pid is
+# vfkit's and the run's watcher can be told it before vfkit starts.
+# That subshell is as foreground as a bare invocation: it must not be
+# backgrounded either, and its status is what lands in `$?`.
 #
 # These are grep-level shape assertions against the launcher SOURCE (like the
 # getty drop-in assertions in podman-mkosi-test.sh) -- no VM, no network, no
@@ -35,20 +40,26 @@ FAIL=0
 ok()   { PASS=$((PASS + 1)); echo "ok   - $1"; }
 bad()  { FAIL=$((FAIL + 1)); echo "FAIL - $1"; [ -n "${2:-}" ] && echo "        $2"; }
 
-# Slice the vfkit invocation: from the `vfkit \` command line through the
-# first following non-continuation line. awk collects the invocation's lines.
+# Slice the vfkit invocation: from the `exec vfkit \` command line through
+# the first following non-continuation line. awk collects the invocation's
+# lines.
 VFKIT_BLOCK="$(awk '
-  /^vfkit \\$/ { grab = 1 }
+  /^  exec vfkit \\$/ { grab = 1 }
   grab {
     print
     if ($0 !~ /\\$/) exit
   }
 ' "$LAUNCHER")"
 
-# The line AFTER the invocation (first line following the block).
-AFTER_LINE="$(awk '
-  /^vfkit \\$/ { grab = 1; next }
+# The two lines AFTER the invocation: the subshell's close, then the status
+# capture.
+CLOSE_LINE="$(awk '
+  /^  exec vfkit \\$/ { grab = 1; next }
   grab && $0 !~ /\\$/ { getline nxt; print nxt; exit }
+' "$LAUNCHER")"
+AFTER_LINE="$(awk '
+  /^  exec vfkit \\$/ { grab = 1; next }
+  grab && $0 !~ /\\$/ { getline nxt; getline nxt; print nxt; exit }
 ' "$LAUNCHER")"
 
 # ---------------------------------------------------------------------
@@ -56,7 +67,7 @@ AFTER_LINE="$(awk '
 #    end with `&` (allowing trailing whitespace).
 # ---------------------------------------------------------------------
 if [ -z "$VFKIT_BLOCK" ]; then
-  bad "vfkit invocation found in launcher" "no ^vfkit \\\\ block located"
+  bad "vfkit invocation found in launcher" "no ^  exec vfkit \\\\ block located"
 else
   ok "vfkit invocation found in launcher"
   LAST_LINE="$(printf '%s\n' "$VFKIT_BLOCK" | tail -1)"
@@ -67,23 +78,31 @@ else
       ok "vfkit runs foreground (no trailing &)" ;;
   esac
 fi
+# The subshell vfkit is exec'd from closes on a bare `)`: no `&` after it.
+if [ "$CLOSE_LINE" = ')' ]; then
+  ok "the subshell vfkit is exec'd from runs foreground (bare close)"
+else
+  bad "the subshell vfkit is exec'd from runs foreground (bare close)" \
+      "line after invocation: [$CLOSE_LINE]"
+fi
 
 # ---------------------------------------------------------------------
-# 2. `VM_EXIT_STATUS=$?` immediately follows the invocation, so vfkit's real
+# 2. `VM_EXIT_STATUS=$?` immediately follows the subshell, so vfkit's real
 #    status is captured from the foreground wait -- no `$!`, no `wait`.
 # ---------------------------------------------------------------------
 if [ "$AFTER_LINE" = 'VM_EXIT_STATUS=$?' ]; then
-  ok 'VM_EXIT_STATUS=$? immediately follows the vfkit invocation'
+  ok 'VM_EXIT_STATUS=$? immediately follows the vfkit subshell'
 else
-  bad 'VM_EXIT_STATUS=$? immediately follows the vfkit invocation' \
-      "line after invocation: [$AFTER_LINE]"
+  bad 'VM_EXIT_STATUS=$? immediately follows the vfkit subshell' \
+      "line after the subshell: [$AFTER_LINE]"
 fi
 
 # ---------------------------------------------------------------------
 # 3. None of the background-era machinery survives anywhere in the launcher:
-#    no VFKIT_PID, no reap functions, no REAP_ constants, no `wait "$VFKIT...`.
+#    no reap functions, no REAP_ constants, no `wait "$VFKIT...`. The
+#    subshell's own VFKIT_PID, handed to the watcher, is never waited on.
 # ---------------------------------------------------------------------
-for FORBIDDEN in 'VFKIT_PID' 'reap_vfkit' 'REAP_'; do
+for FORBIDDEN in 'wait "$VFKIT' 'reap_vfkit' 'REAP_'; do
   if grep -q "$FORBIDDEN" "$LAUNCHER"; then
     bad "launcher contains no '$FORBIDDEN'" \
         "$(grep -n "$FORBIDDEN" "$LAUNCHER" | head -3)"

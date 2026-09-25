@@ -359,6 +359,9 @@ env:
   directory (hard-linking it, so writes still reach the host file) and
   the guest bind-mounts just that one file onto `path:`.
   Nothing else from the file's real parent directory reaches the guest.
+  A hard link cannot cross volumes: the wrap directory sits in the run
+  dir, and a file on another volume aborts the launch — mount its
+  directory instead.
   A caveat a directory mount does not have: the kernel refuses a
   `rename(2)` onto a file bind mount with `EBUSY`, so a single-file
   mount takes in-place edits but **not** the write-a-temp-then-rename
@@ -399,9 +402,8 @@ env:
   checked; the launch fails loudly on the argument rather than booting, and
   `payload/README.md` → *The tag is not just a tag* records why it is left
   there. The one such path this feature adds — the single-file wrap
-  directory (`$RUN/mount-wrap`, or a `$TMPDIR` `mktemp -d` under
-  `repo.mount: live`) — is checked: the launcher aborts on a comma there
-  when it wraps a file, naming `$TMPDIR` or the run dir. That is an
+  directory (`$RUN/mount-wrap`) — is checked: the launcher aborts on a
+  comma there when it wraps a file, naming the run dir. That is an
   earlier, cause-naming abort rather than a rescue; the other arguments
   break the same launch anyway.
 
@@ -799,11 +801,12 @@ Ways to turn on Remote Control:
 
 Topology: vfkit attaches **two** virtio-serial consoles. The first
 (`logFilePath`, guest `hvc0`) captures all kernel/systemd boot output to
-`$RUN/guest-console.log` (preserving the observability from the
-guest-console capture); the second (`stdio`, guest `hvc1`) bridges the
-launching terminal. The guest runs claude as the login program of an
-autologin `serial-getty@hvc1`, so claude *is* the session with no shell
-in between. Boot diagnostics stay on `hvc0` (off your terminal).
+`$CLAUDE_VM_STATE_DIR/logs/<run-id>/guest-console.log` (preserving the
+observability from the guest-console capture); the second (`stdio`,
+guest `hvc1`) bridges the launching terminal. The guest runs claude as
+the login program of an autologin `serial-getty@hvc1`, so claude *is*
+the session with no shell in between. Boot diagnostics stay on `hvc0`
+(off your terminal).
 
 Because the `stdio` console is a byte pipe that needs a real controlling
 TTY on the host, **launch `claude-vm` from a real terminal**, not from a
@@ -818,10 +821,11 @@ How the repo is made available RW to the guest:
 - **`clone` (default)**: `git clone --no-hardlinks` the repo into a
   **persistent** worktree, mounted RW. The guest never touches the live
   working tree or `.git`. The worktree lives under
-  `<repo>/.claude/tmp/<runid>/worktree` when launched from inside a
-  repo (otherwise a `mktemp` dir under `TMPDIR`). It persists after the
-  run so the companion diff/apply skills can inspect and extract
-  results. `.claude/tmp/` is git-ignored.
+  `$CLAUDE_VM_RUNS_DIR/<runid>/worktree` — the runs root, `runs/`
+  under the state root `lib/config.sh` resolves — whether or not the
+  argument is a git repo. It persists after the run so the companion
+  diff/apply skills can inspect and extract results; they find this
+  repo's runs by the `repo_src` line of each run's `run.meta`.
 - **`live`**: mount the live repo dir RW directly. More convenient,
   less isolated. Opt-in.
 
@@ -838,6 +842,34 @@ companion skills handle extraction explicitly:
   local source.
 - `/claude-vm-apply-remote` — push the VM worktree's changes to the
   remote.
+
+### Reaping a run whose launcher has exited
+
+A launcher killed with `kill -9` (or a crash, or a closed terminal)
+never runs its exit trap, and its run dir keeps its guest-image clone.
+Each launcher holds a `lockf` lock on `$RUN/run.lock` for its lifetime,
+and no process it leaves running holds it, so a dead launcher is a
+dead run. A watcher the launcher starts beside vfkit waits on that
+lock and, the moment the launcher dies, stops vfkit, gvproxy and the
+proxy — so a `kill -9` of the launcher stops the VM too. The watcher
+signals those three pids, and the launcher's own exit trap the
+gvproxy, proxy and watcher pids, only while each still carries the
+start time recorded for it at launch.
+`bin/claude-vm-cleanup`, run by hand, reaps the rest for every repo at
+once: it reaps only a run whose lock it can take, whether that run
+exited normally or crashed — killing the pids its `run.meta` records
+(`vfkit_pid`, `gvproxy_pid`, `proxy_pid`, a backstop for a watcher that
+was killed as well) while each still carries the start time recorded
+beside it, so a pid since taken by another process is never signalled,
+and removing its gvproxy socket dir, its `creds/` dir (the OAuth
+credential and identity seed), any raw Keychain blob
+(`.keychain-blob.raw.json`) and its `guest-clone.raw` — and leaves
+every live run alone. It keeps the run
+dir, `worktree/`, `run.meta` and `run.lock` included, so the companion skills still
+find the run, and it never removes `$CLAUDE_VM_STATE_DIR/logs/`, where
+each run's console, gvproxy and proxy logs and egress capture are kept.
+It reports each run it reaped, with its log dir and kept worktree, or
+spared.
 
 ## Guest image — built on demand, version-pinned, claude verified host-side
 
@@ -982,13 +1014,16 @@ bundled default with your own script honoring the same two-argument
 contract.
 
 The launcher captures the booting guest's **boot** serial console
-(`hvc0`) to `$RUN/guest-console.log` via the first vfkit `--device
+(`hvc0`) to `$CLAUDE_VM_STATE_DIR/logs/<run-id>/guest-console.log` via
+the first vfkit `--device
 virtio-serial,logFilePath=…`. The recipe `KernelCommandLine` sets
 `console=hvc0`, so all kernel/systemd boot output — and the boot
 launcher's diagnostic/seam lines, which it writes explicitly to
 `/dev/console` — are observable from the host instead of being
 discarded, while staying off the interactive `hvc1` terminal. The path
-is reported on exit and retained in the run dir.
+is reported on exit and retained in the run's log dir, beside the
+gvproxy and proxy logs and the egress capture, where reaping the run
+does not reach it.
 
 ## Authentication (secrets)
 
@@ -1177,7 +1212,10 @@ socket-file corpse, the exact distinction the concurrency fix turns on),
 using real `perl` listeners; `payload/test/bin-config-check-test.sh`
 regression-tests `bin/claude-vm`'s four-file bake/boot config-presence
 check so it no longer prints a false "no global config" when the
-migrated pair is present.
+migrated pair is present. `payload/test/cleanup-test.sh` covers the
+run's `run.lock` across a `kill -9` of the launcher, the watcher
+stopping a vfkit stand-in after one, and `bin/claude-vm-cleanup` over
+dead, live and lockless run dirs.
 
 `payload/test/podman-mkosi-test.sh` regression-tests the recipe the
 default provisioner generates (the literal `mkosi.conf` and

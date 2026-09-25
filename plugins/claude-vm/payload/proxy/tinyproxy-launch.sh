@@ -2,9 +2,9 @@
 #
 # tinyproxy-launch.sh -- the BUNDLED DEFAULT claude-vm forward proxy.
 #
-# This is the default `proxy.cmd`: claude-vm.sh runs it (via `eval`) to
-# start the forward proxy that confines the guest's egress to the
-# allowlist. It bridges the launcher's interface to tinyproxy:
+# This is the default `proxy.cmd`: claude-vm.sh runs it to start the
+# forward proxy that confines the guest's egress to the allowlist. It
+# bridges the launcher's interface to tinyproxy:
 #
 #   - reads the egress allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST (the
 #     newline-delimited host file claude-vm.sh writes from egress.allow),

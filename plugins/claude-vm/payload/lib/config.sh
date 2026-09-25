@@ -70,14 +70,47 @@ set -uo pipefail
 # tests set them directly.
 
 # State root: what claude-vm writes for itself and reads back later -- the
-# built guest images (images/), the verified claude binary cache (cache/) and
-# the acceptance test's retained diagnostics (logs/). Kept apart from the
-# config root so the rebuildable state can be deleted without touching the
-# hand-written config. The scripts spell the XDG state fallback only here;
+# built guest images (images/), the verified claude binary cache (cache/),
+# every launch's run dir (runs/) and the retained diagnostics of every launch
+# and every acceptance-test run (logs/). Kept apart from the config root so
+# the rebuildable state can be deleted without touching the hand-written
+# config. The scripts spell the XDG state fallback only here;
 # every state path they build derives from CLAUDE_VM_STATE_DIR rather than
 # restating it (the example configs and the skill prose name the default
 # for the operator).
 : "${CLAUDE_VM_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm}"
+# Runs root: one <run-id>/ dir per launch, from every repo on this host. The
+# launcher creates $RUN here, the diff/apply skills select a run from here by
+# its run.meta repo_src, and bin/claude-vm-cleanup enumerates it. This is the
+# only place the runs root is composed.
+: "${CLAUDE_VM_RUNS_DIR:=$CLAUDE_VM_STATE_DIR/runs}"
+
+# claude_vm_pid_start <pid> -- print when <pid> started, as ps(1) reports it,
+# or nothing when no process has that pid. The launcher records it in run.meta
+# beside each pid, and bin/claude-vm-cleanup, the launcher's cleanup() and the
+# run's watcher signal a recorded pid only while it still prints the same
+# value: a pid alone cannot tell the run's process from an unrelated one that
+# inherited the number once the run's had exited.
+# LC_ALL=C keeps the two readings comparable whatever locale each ran under.
+claude_vm_pid_start() {
+  local start
+  start="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null)" || return 0
+  start="${start#"${start%%[![:space:]]*}"}"
+  printf '%s' "${start%"${start##*[![:space:]]}"}"
+}
+
+# claude_vm_kill_own <pid> <start> [<pid> <start> ...] -- SIGTERM each <pid>
+# whose claude_vm_pid_start still prints the <start> recorded beside it. A pid
+# with an empty <start>, or a different one, is left alone. The launcher's
+# cleanup() and the run's watcher stop the run's processes through this.
+claude_vm_kill_own() {
+  while [ "$#" -ge 2 ]; do
+    if [ -n "$1" ] && [ -n "$2" ] && [ "$(claude_vm_pid_start "$1")" = "$2" ]; then
+      kill "$1" 2>/dev/null || true
+    fi
+    shift 2
+  done
+}
 
 # Detect a legacy single-file config (config.yml) where a bake/boot pair is now
 # expected, and emit an actionable migration message. The design's chosen
@@ -1190,9 +1223,9 @@ claude_vm_guest_system_path_containing() {
 #     vfkit shares, so it sits inside that same comma-delimited device string,
 #     as the only field of it with no charset check of its own. A single-FILE
 #     source is exempt -- what gets shared then is the wrap directory, whose
-#     <tag> component is already checked and whose PARENT ($RUN/mount-wrap, or
-#     a $TMPDIR mktemp) is not a config value at all: the launcher checks that
-#     one where it wraps the file. See the arm itself for the full reasoning.
+#     <tag> component is already checked and whose PARENT ($RUN/mount-wrap) is
+#     not a config value at all: the launcher checks that one where it wraps
+#     the file. See the arm itself for the full reasoning.
 #   - a tag colliding with a RESERVED built-in tag: the launcher always attaches
 #     repo/runconfig/claudebin/claudecreds and the image's fstab always mounts
 #     them, so a second device under one of those names puts the operator's own
@@ -1465,12 +1498,11 @@ claude_vm_check_mounts() {
       # COMPONENT the tag check above already settled, so a comma in the file's
       # own path reaches nothing but a hard link and a mounts.tsv field. That
       # settles the component and not the directory: $MOUNT_WRAP_DIR is
-      # $RUN/mount-wrap, or a $TMPDIR mktemp when $RUN sits inside the repo
-      # share, and neither is a config value this function can see. The
-      # launcher checks THAT for a comma where it wraps the file, and blames
-      # $TMPDIR or the run dir rather than the entry -- an earlier, cause-
-      # naming abort, since those two paths already reach vfkit through
-      # argument strings nothing checks (see the comment at MOUNT_WRAP_DIR).
+      # $RUN/mount-wrap, which is not a config value this function can see.
+      # The launcher checks THAT for a comma where it wraps the file, and
+      # blames the run dir rather than the entry -- an earlier, cause-naming
+      # abort, since the run dir already reaches vfkit through argument
+      # strings nothing checks (see the comment at MOUNT_WRAP_DIR).
       case "$expanded" in
         *,*)
           echo "claude-vm: mounts entry #${idx} ('$src') shares a DIRECTORY whose path contains a ','. claude-vm" >&2

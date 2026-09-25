@@ -18,14 +18,18 @@ force-push.
 ## How runs are located
 
 Same as `/claude-vm-diff`: each run writes
-`<repo>/.claude/tmp/<runid>/run.meta` recording `run_id`, `repo_src`,
-`repo_mount`, `worktree`, and `copy_back`. The run dir persists after
-the guest exits (clone mode).
+`$CLAUDE_VM_RUNS_DIR/<runid>/run.meta` recording `run_id`, `repo_src`,
+`repo_mount`, `worktree`, and `copy_back`, and this repo's runs are the
+ones whose `repo_src` names it. The run dir persists after the guest
+exits (clone mode).
+`bin/claude-vm-cleanup` never removes a run's `worktree/` or
+`run.meta`, so a run it has reaped is still found.
 
 ## Inputs
 
 - **`<runid>`** (optional): the run to push. Defaults to the most
-  recent run under `<repo>/.claude/tmp/`.
+  recent run of this repo, selected the way `/claude-vm-diff`
+  selects it.
 - **`<repo>`** (optional): the source repo root. Defaults to the
   current repo.
 - **`<branch>`** (optional): the remote branch to push to. When

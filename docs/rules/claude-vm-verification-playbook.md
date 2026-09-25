@@ -203,12 +203,12 @@ END="$(awk -v s="$START" 'NR >= s && /^done < <\(claude_vm_mount_specs/ { print 
 ```
 
 Wrap the captured lines in a harness that sources the real
-`lib/config.sh` and supplies `MERGED_BOOT`, `RUN`, `MOUNT_SHARED_DIR`
-and `CONFIG_DIR`, then `printf` the resulting flags. Pass
-`MOUNT_SHARED_DIR` as the tree `$RUN` sits in to get the
-`repo.mount: live` branch, or `$RUN/worktree` for `clone`. The same
-trick works on the config-load gate block when you want the real
-validator.
+`lib/config.sh` and supplies `MERGED_BOOT`, `RUN` and `CONFIG_DIR`,
+then `printf` the resulting flags. The single-file link abort needs a
+source on a genuinely different volume from `$RUN`: `hdiutil attach`
+of a small image at a mountpoint inside the harness's workspace works
+unprivileged, and `config-test.sh` does exactly that. The same trick
+works on the config-load gate block when you want the real validator.
 
 Before filing such a finding, enumerate the emitted strings with
 `grep -n -- '--device'` plus the assignment of each interpolated
@@ -308,30 +308,27 @@ playbook's slice advice, to run a fragment under `/bin/bash` and under
 `bash`, assumes a newer `bash` earlier in PATH, which is the
 assumption to measure before claiming a two-interpreter run.
 
-## The run dir sits inside the guest's repo share
+## Where the run dir sits, and what shares reach it
 
 Trace where a new host-side artifact lands before accepting any
 isolation story around it:
 
-- `RUN="$REPO_SRC/.claude/tmp/$RUN_ID"` whenever the launcher starts
-  inside a git repo — the run dir is *inside the operator's repo*, not
-  in `$TMPDIR`.
+- `RUN="$CLAUDE_VM_RUNS_DIR/$RUN_ID"` for every launch, repo or not —
+  under the state root, outside the operator's repo.
 - `repo.mount: clone` (the default) shares `$RUN/worktree`, so a
   sibling under `$RUN` is outside the share.
-- `repo.mount: live` shares `$REPO_SRC` itself, and the image's fstab
-  mounts tag `repo` **rw**. So in live mode everything under `$RUN` is
-  reachable and writable from the guest.
-- `cleanup()` retains `$RUN`, so whatever lands there outlives the
-  run, inside the repo.
+- `repo.mount: live` shares `$REPO_SRC` itself, rw, which holds no run
+  dir unless `CLAUDE_VM_RUNS_DIR` was pointed inside it.
+- `cleanup()` retains `$RUN`, and `bin/claude-vm-cleanup` removes only
+  its `creds/` dir, raw Keychain blob and `guest-clone.raw`, so whatever
+  else lands there outlives the run until the operator removes it.
 
-For each new `$RUN/<thing>`, ask what it grants the guest in live mode
-— a hard link to an arbitrary host file hands the guest a writable
-second path to the same inode. The launcher now tests `$RUN` against
-`$MOUNT_SHARED_DIR` and falls back to a `$TMPDIR` directory when the
-run dir is inside the share, so read that branch before re-filing it.
-The hard link is also why `ln` is used rather than `cp` (same inode
-means write-through), so "move it out of the repo" trades against "a
-hard link cannot cross filesystems" — expect that tension in any fix.
+For each new `$RUN/<thing>`, still ask what it grants the guest — a
+hard link to an arbitrary host file hands whoever reaches it a writable
+second path to the same inode. The hard link is also why `ln` is used
+rather than `cp` (same inode means write-through), and a hard link
+cannot cross volumes, so a single-file source on another volume than
+`$RUN` aborts the launch, naming its directory as the mount to use.
 
 ## Measure the emitters before worrying about record injection
 

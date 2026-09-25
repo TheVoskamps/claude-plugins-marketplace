@@ -10,7 +10,9 @@ config-layering unit test. They travel with the plugin and live at
 The plugin's user-facing entry point, `bin/claude-vm` (issue #51), lives
 one directory up at `${CLAUDE_PLUGIN_ROOT}/bin/claude-vm` — a preflight
 wrapper that forwards to `payload/claude-vm.sh` (below). See "Entry
-point (`bin/claude-vm`)" further down.
+point (`bin/claude-vm`)" further down. Its sibling
+`bin/claude-vm-cleanup` reaps the residue of runs whose launcher has
+exited; see "Run liveness and the cleaner (`bin/claude-vm-cleanup`)".
 
 ## Directory layout
 
@@ -18,6 +20,8 @@ point (`bin/claude-vm`)" further down.
 payload/
   README.md             # this file
   claude-vm.sh          # the launcher (config-driven; entry point)
+  kill-own.sh           # claude_vm_kill_own as a command, for the run's
+                        # watcher (lockf can exec a command, not a function)
   build-guest-image.sh  # version-pinned guest base build recipe
   config-bake.example.yml  # annotated example: image-bytes keys (packages
                         # baked in, apt_sources, image.root_headroom_mb,
@@ -58,10 +62,16 @@ payload/
                         # against stubs; needs only bash + awk
     launch-shape-test.sh
                         # regression test for the vfkit launch shape (issue
-                        # #179): vfkit runs FOREGROUND -- no `&`, no
-                        # VFKIT_PID/wait, no reap machinery -- and
-                        # VM_EXIT_STATUS=$? follows the invocation directly.
+                        # #179): vfkit runs FOREGROUND, exec'd from a
+                        # foreground subshell -- no `&` on either, no wait
+                        # on VFKIT_PID, no reap machinery -- and
+                        # VM_EXIT_STATUS=$? follows the subshell directly.
                         # Grep-level source assertions; bash + awk only
+    cleanup-test.sh     # the run's liveness lock across a kill -9 of the
+                        # launcher, the watcher stopping vfkit/gvproxy/proxy
+                        # stand-ins after one, and bin/claude-vm-cleanup over
+                        # dead, live and lockless run dirs; host-gated on
+                        # /usr/bin/lockf
     bin-config-check-test.sh
                         # regression test for bin/claude-vm's four-file
                         # config-presence check (issue #179 defect #3): no
@@ -121,6 +131,93 @@ checks that the global config exists (offering to create it via
 `/claude-vm-config-global` if not), fails fast if the macOS Keychain has
 no claude.ai OAuth credential, and forwards the repo root plus any
 trailing args to `payload/claude-vm.sh` below.
+
+## Run liveness and the cleaner (`bin/claude-vm-cleanup`)
+
+```bash
+# From anywhere; walks every repo's runs.
+claude-vm-cleanup
+```
+
+A launcher that dies without its exit trap — `kill -9` is uncatchable, and
+a crash or a closed terminal ends the same way — used to leave its gvproxy
+and forward proxy running and its run dir, `guest-clone.raw` included, on
+disk. Issue #181 gives every run a **liveness lock** and ships the cleaner
+that reaps by it. The cleaner is a bare command beside `bin/claude-vm`, run
+by hand, with no skill and no slash command, and the launcher does not run
+it on its own hot path: folding it in is a separate decision, deferred
+until the standalone cleaner has been proven in use.
+
+**The lock is the whole liveness test.** The launcher opens `$RUN/run.lock`
+on fd 9 the moment it creates `$RUN` and takes an exclusive lock on it with
+`/usr/bin/lockf -s -t 0 9`, which it holds for its own lifetime. Because
+`lockf(1)` has `flock(2)` semantics, the kernel drops the lock when the last
+holder of the open file dies — `kill -9` included — and the file's existence
+means nothing, so a leftover `run.lock` is never mistaken for a live run.
+The cleaner's test is the same non-blocking acquire: exit 75 (`EX_TEMPFAIL`)
+means held, so live; success means dead. Existence is deliberately *not*
+the test — many concurrent runs in one repo is normal usage, so at any
+moment the runs root holds many live dirs, and reaping by existence would
+delete a running VM's disk. Nor are a run's pids independently
+liveness-tested: they are acted on only once the lock has said the run is
+dead. The alternatives were ruled out, not overlooked: macOS ships no
+`flock(1)`; a PID file (`shlock`-style) has exactly the PID-recycling
+weakness the lock avoids; and a `python3` helper would depend on a binary
+that on a developer host may be a version-manager install rather than a
+system one. claude-vm is macOS-only, so there is no portability branch.
+
+**No long-lived child holds the lock.** Every process forked after the lock
+inherits fd 9, and an inheriting child keeps the lock held after the
+launcher is gone — so the forward proxy, gvproxy and the watcher are started
+with `9>&-`, and the vfkit subshell closes fd 9 just before it `exec`s
+vfkit. Launcher dead therefore means run dead. The proxy is `exec`'d from
+the `eval` that starts it, so `$!` is the proxy's own pid rather than a
+shell around it.
+
+**A launcher killed outright stops its VM.** A dead launcher's vfkit is
+still running the guest off `$RUN/guest-clone.raw`, and nothing in the
+launcher's trap chain can reach it. So the vfkit subshell, after recording
+`vfkit_pid`, starts a **watcher**: `lockf -k -s "$RUN/run.lock"` blocking
+(no `-t`) around `kill-own.sh` with the vfkit, gvproxy and proxy pids. It
+holds no lock while it waits, acquires it only once the launcher is gone,
+and then stops those three. The watcher is `lockf` itself rather than a
+shell around it, so `cleanup()` on a normal exit stops the wait by
+signalling `watcher_pid` — and does that *first*, since exiting drops the
+lock and would otherwise fire the watcher at processes `cleanup()` is about
+to stop itself. `-k` keeps `run.lock` after release; the cleaner reads its
+absence as a launch caught between `mkdir` and its lock, and spares the
+dir.
+
+**A pid is signalled only while it is still the run's process.** A pid
+number alone cannot tell a dead run's gvproxy from an unrelated process that
+inherited the number, so the launcher records each pid's start time
+(`claude_vm_pid_start`, `ps -o lstart=` under `LC_ALL=C` so two readings
+compare) beside it in `run.meta` as `<key>_start`, and every signaller —
+`cleanup()`, the watcher via `kill-own.sh`, and the cleaner — sends SIGTERM
+through `claude_vm_kill_own` only while the pid still reports that start
+time. A pid with no recorded start, or a different one, is left alone on
+every pass, so a run dir reaped again later never signals a reused number.
+`vfkit_pid` is the one endpoint recorded *before* it materializes — just
+before the `exec` that makes the pid vfkit — so a failed exec leaves it
+naming a process already gone, which the start-time check makes harmless.
+
+**What the cleaner removes, and what it keeps.** For a dead run, while
+still holding its lock so a launcher racing for the same dir fails its own
+`lockf` and aborts: the recorded pids (a backstop for a watcher that was
+killed too), the directory holding the recorded `gvproxy_sock` — only when
+its name matches the launcher's own `claude-vm-sock.*`, so an edited
+`run.meta` cannot aim an `rm -rf` elsewhere — the `creds/` dir and any raw
+Keychain blob (what `cleanup()` would have shredded), and
+`guest-clone.raw`. The run dir itself is **kept**, `worktree/`, `run.meta`
+and `run.lock` included, so `/claude-vm-diff` and the apply skills still
+find the run; a kept run dir stays dead and is reaped again on every later
+pass, which is idempotent by the start-time rule above. A run that exited
+normally and one that crashed are reaped alike. `$CLAUDE_VM_STATE_DIR/logs/`
+is never touched, and each reaped run is reported with its log dir (the
+post-mortem for whatever killed it) and its kept worktree; each live run is
+reported spared. Exit status is 0 when no run failed, a missing runs root
+included; 1 when a run could not be tested or its credential files or clone
+could not be removed; 2 on any argument.
 
 ## Launcher (`claude-vm.sh`)
 
@@ -606,10 +703,8 @@ argv, settings, image identity, and plugin manifests from:
     `if [ -n "$path" ]`, so a tag-derived mountpoint never reaches it, and
     with an explicit `path:` the mountpoint is clean while the wrap paths
     are still walked up. The launcher would then share the wrap directory's
-    *parent*: `$RUN` (which holds `creds/.credentials.json`) under
-    `repo.mount: clone`, or `$TMPDIR` itself under `live` (where the wrap
-    dir is a `mktemp -d` under `$TMPDIR`, since `$RUN` sits inside the
-    shared repo), mounted read-write in the guest one level above
+    *parent*, `$RUN` (which holds `creds/.credentials.json`), mounted
+    read-write in the guest one level above
     `CLAUDE_VM_GUEST_WRAP_MOUNT`. A run of three or more dots (`...`) and a
     `..` inside a longer name (`a..b`) are ordinary component names and still
     pass.
@@ -645,16 +740,17 @@ argv, settings, image identity, and plugin manifests from:
   reaches only a hard link and a `mounts.tsv` field.
 
   The component is not the directory, though. `$MOUNT_WRAP_DIR` is
-  `$RUN/mount-wrap`, or a `mktemp -d` under `$TMPDIR` when `$RUN` sits inside
-  the repo share, and neither is a config value `claude_vm_check_mounts` can
-  see — so the exemption settles the `<tag>` and nothing else, and a comma in
-  `$TMPDIR` alone yields the malformed device string the arm above exists to
-  prevent, on an entry the validator accepted. The launcher therefore checks
-  the wrap directory itself, in the single-file branch of its extra-mount
-  loop: that is where `$RUN` and the `$TMPDIR` fallback are both in scope
-  (which is why the check is not in the validator) and where the entry being
-  wrapped is in hand, so the message can name it and blame `$TMPDIR` or the
-  run dir rather than the `mounts` value, which is not what is wrong.
+  `$RUN/mount-wrap`, which is not a config value `claude_vm_check_mounts`
+  can see — so the exemption settles the `<tag>` and nothing else, and a
+  comma in the run dir's path alone yields the malformed device string the
+  arm above exists to prevent, on an entry the validator accepted. The
+  launcher therefore checks the wrap directory itself, in the single-file
+  branch of its extra-mount loop: that is where `$RUN` is in scope (which is
+  why the check is not in the validator) and where the entry being wrapped
+  is in hand, so the message can name it and blame the run dir — naming the
+  runs root it sits under, and `CLAUDE_VM_RUNS_DIR`/`XDG_STATE_HOME` as the
+  knobs that move it — rather than the `mounts` value, which is not what is
+  wrong.
 
   That comma exposure is **not** confined to `mounts`, and the check above
   does not cover the rest of it. **Every** vfkit argument that embeds a host
@@ -662,17 +758,19 @@ argv, settings, image identity, and plugin manifests from:
   all. The built-in shares: `sharedDir=$MOUNT_SHARED_DIR` (`$REPO_SRC` under
   `repo.mount: live`, else `$RUN/worktree`), `sharedDir=$CONFIG_DIR` and
   `sharedDir=$CREDS_DIR` (both under `$RUN`, which is
-  `<repo>/.claude/tmp/<run-id>` whenever the argument is a git repo, in
-  either mount mode), and `sharedDir=$CLAUDE_BIN_DIR` (under
-  `CLAUDE_VM_CACHE_DIR`, i.e. `$XDG_STATE_HOME`/`$HOME` by default). And,
-  outside the shares: `--bootloader efi,variable-store=$EFISTORE,create`,
-  `virtio-blk,path=$GUEST_IMAGE_CLONE` and
-  `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, all under `$RUN`; and
-  `virtio-net,unixSocketPath=$GVPROXY_SOCK`, whose directory is a
-  `mktemp -d` under `$TMPDIR` on **every** launch — in either mount mode,
-  git repo or not. So a repo — or a `$HOME`, or a `$TMPDIR` — whose path
-  carries a comma breaks the launch the same way, before any extra mount is
-  involved: measured on vfkit v0.6.4, each of those spellings dies on the
+  `$CLAUDE_VM_RUNS_DIR/<run-id>` on every launch, git repo or not), and
+  `sharedDir=$CLAUDE_BIN_DIR` (under `CLAUDE_VM_CACHE_DIR`, i.e.
+  `$XDG_STATE_HOME`/`$HOME` by default). And, outside the shares:
+  `--bootloader efi,variable-store=$EFISTORE,create` and
+  `virtio-blk,path=$GUEST_IMAGE_CLONE`, both under `$RUN`;
+  `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, under the run's log dir
+  in the state root; and `virtio-net,unixSocketPath=$GVPROXY_SOCK`, whose
+  directory is a `mktemp -d` under `$TMPDIR` on **every** launch — in
+  either mount mode, git repo or not. So a `$HOME` — or an `XDG_STATE_HOME`,
+  a `CLAUDE_VM_RUNS_DIR`, or a `$TMPDIR` — whose path carries a comma
+  breaks the launch the same way, before any extra mount is involved (a
+  repo path reaches vfkit only under `repo.mount: live`): measured on vfkit
+  v0.6.4, each of those spellings dies on the
   text after the comma — `unknown option for virtio-net devices: …` for the
   socket, `unknown option for EFI bootloaders: …` for the variable store, and
   so on per argument. It is left unchecked deliberately: unlike a `mounts`
@@ -688,10 +786,10 @@ argv, settings, image identity, and plugin manifests from:
 
   The one line in that class that *is* guarded is the single-file wrap share,
   `sharedDir=$MOUNT_WRAP_DIR/<tag>` — not a built-in, and the only member
-  this feature adds. The guard does not make a comma-carrying `$RUN` or
-  `$TMPDIR` survivable; the lines above already break the launch in both of
-  those shapes, mounts or no mounts. What it buys is what the host-existence
-  check buys: an abort at mount-setup time, naming `$TMPDIR` or the run dir,
+  this feature adds. The guard does not make a comma-carrying `$RUN`
+  survivable; the lines above already break the launch in that shape,
+  mounts or no mounts. What it buys is what the host-existence check buys:
+  an abort at mount-setup time, naming the run dir,
   instead of a device-shaped complaint from vfkit minutes later — and it
   keeps this feature from adding a share to an argument string it can already
   see is malformed. A guard that actually covers the class belongs where
@@ -704,8 +802,9 @@ argv, settings, image identity, and plugin manifests from:
   value of the message — the operator has to be told that the comma is not in
   anything they wrote under `mounts:`. That placement also fixes its scope: it
   fires only for a config that actually wraps a file, so a directory-only
-  `mounts` list under the same comma-carrying `$TMPDIR` is not aborted (that
-  launch still dies later, on the gvproxy socket's own `$TMPDIR` path).
+  `mounts` list under the same comma-carrying run dir is not aborted (that
+  launch still dies later, on the EFI store and the disk clone under that
+  same `$RUN`).
 
   *Guest OS paths, by shape.* `CLAUDE_VM_GUEST_SYSTEM_PATHS` is the guest's
   own directory set. Linux **stacks** a mount, so an entry landing on one
@@ -1204,8 +1303,24 @@ and which an operator can override by exporting it. Under it:
 - `cache/` — the GPG-manifest-verified `claude` binary
   (`<version>/linux-arm64/claude`) and the `.last-network-state` marker;
   the `CLAUDE_VM_CACHE_DIR` default in `lib/claude-cache.sh`;
-- `logs/<run-id>/` — the retained diagnostics of a `host-acceptance.sh`
-  run.
+- `runs/<run-id>/` — every launch's run dir, `$RUN`: the worktree, the
+  config and creds shares, the EFI store, the guest-image clone, the
+  single-file mount wrap dir, `run.meta` and `run.lock`. The root is
+  `CLAUDE_VM_RUNS_DIR`, resolved beside the state root in `lib/config.sh`
+  and composed nowhere else. One root for every repo on the host is what
+  lets `bin/claude-vm-cleanup` reach every run; the companion diff/apply
+  skills tell one repo's runs from another's by `run.meta`'s `repo_src`,
+  not by location. A run launched on a non-repo argument lands here too,
+  rather than in a `$TMPDIR` mktemp the cleaner would never see. Run
+  state is state, not config, which is why it is not under
+  `~/.config/claude-vm/`; and it is not under the repo (its home before
+  issue #181) because a per-repo run dir is reachable by no host-wide
+  sweep, and under `repo.mount: live` it sat inside the very tree the
+  guest mounts read-write.
+- `logs/<run-id>/` — the retained diagnostics of every launch (the guest
+  boot console capture, the gvproxy and proxy logs, the egress capture)
+  and of a `host-acceptance.sh` run. Kept out of `runs/<run-id>/` so
+  reaping a run never takes its post-mortem with it.
 
 The config root, `~/.config/claude-vm/`, holds only the hand-written
 bake/boot pair and the legacy `config.yml` the migration check detects.
@@ -1213,7 +1328,9 @@ The split exists so the rebuildable state can be deleted without reading
 past the operator's config: everything under the state root is
 content-addressed (an image by its bake-file hash, a binary by its
 resolved version) and is rebuilt or re-fetched on the next launch, and
-the logs are diagnostics.
+the logs are diagnostics. A run dir is the one thing under the state
+root a later launch does not rebuild: it is the run's result, which the
+diff/apply skills extract.
 
 The scripts spell the XDG state fallback once, in `lib/config.sh`;
 every state path they build derives from `CLAUDE_VM_STATE_DIR`.
@@ -1229,7 +1346,10 @@ variable rather than rooting the cache at `/cache`.
 config root. The launcher does not move them: an `images/`, `cache/`
 or `logs/` directory still under `~/.config/claude-vm/` is stale and can
 be deleted, and the next launch rebuilds the image and re-fetches the
-binary under the state root.
+binary under the state root. The same holds for run dirs left under a
+repo's `.claude/tmp/` from before issue #181: neither the launcher nor
+`bin/claude-vm-cleanup` looks there, and the operator removes them by
+hand.
 
 **Guardrails carve-out.** The `guardrails` permission gate roots its
 operator carve-out on the config home and the state home separately, so
@@ -1328,14 +1448,15 @@ written blocks — no cross-session/cross-repo state leakage (OAuth credential,
 identity seed, transcripts, shell history, boot-installed packages), and no
 multi-writer corruption from several guests reading-writing one shared ext4
 image. The clone is discarded on a clean exit and RETAINED (path logged) on an
-abnormal exit (nonzero vfkit status or a signal) for forensics. There is no
+abnormal exit (nonzero vfkit status or a signal) for forensics, until
+`bin/claude-vm-cleanup` reaps the run and removes it. There is no
 host-driven forced stop any more — the guest halts itself and vfkit exits on its
 own — so `cleanup()`'s `sync` purely narrows the window in which writes in
 flight to the clone are still unflushed when the guest goes away; with per-run
 clones the blast radius of any torn write is one throwaway session's clone.
 
 **Foreground vfkit, then an intact terminal (issue #179).** vfkit runs in the
-**foreground** — no `&`, no PID capture, no reap machinery. Backgrounding it
+**foreground** — no `&`, no reap machinery. Backgrounding it
 breaks the boot outright (a backgrounded vfkit cannot attach its
 `virtio-serial,stdio` console: `Error: operation not supported by device`), so
 foreground is load-bearing, not stylistic. Its exit status lands in the
@@ -1348,8 +1469,14 @@ instead of signalling host-side vfkit; a wedged guest is recovered with
 `kill <vfkit pid>` from another terminal. `cleanup()` restores the host tty
 first (the stdio bridge leaves it in raw mode, and that state survives
 vfkit's death), then decides the clone's fate from `VM_EXIT_STATUS`. A
-SIGKILL of the launcher runs no traps at all; the stranded vfkit/clone is
-separate host-debris work, tracked on its own and out of scope here.
+SIGKILL of the launcher runs no traps at all; what stops the VM then is the
+run's watcher, and what reaps the rest is `bin/claude-vm-cleanup` (see *Run
+liveness and the cleaner* below). Since issue #181 the invocation is
+`exec vfkit` inside a foreground subshell rather than a bare `vfkit`: the
+subshell's pid becomes vfkit's, so the launcher can record `vfkit_pid` in
+`run.meta` and hand it to the watcher *before* vfkit starts, with no
+`$BASHPID` (absent on bash 3.2) and no backgrounding. The subshell is as
+foreground as the bare call was, and its status is what lands in `$?`.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -1538,28 +1665,32 @@ silent downgrade to copy semantics.
 *Where the wrap directory lives.* Because the wrap entry is the same inode as
 the operator's file, anything that can reach **inside** the wrap directory can
 read and write that file — so the wrap directory has to sit outside the
-directories claude-vm itself hands the guest, and `$RUN`
-only sometimes does. Under `repo.mount: clone` the repo share is
-`$RUN/worktree` and the wrap
-dir is its sibling, invisible to the guest. Under `repo.mount: live` the share
-is the repo itself, `$RUN` is `<repo>/.claude/tmp/<run-id>` *inside* it, and
-the guest's fstab mounts tag `repo` **rw** — so a wrap dir under `$RUN` would
-be reachable and writable from the guest at
-`/mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/`: the operator's file exposed
-at a second guest path they never configured, and one that survives the entry's
-own mountpoint being skipped by the occupancy check above. The launcher
-therefore tests `$RUN` against the *actual* repo share —
-not against `repo.mount`, so the test survives a change of mount strategy —
-and falls back to a per-run directory under `$TMPDIR`, which none of the
-shares claude-vm builds for itself (the repo share, `$RUN/config`,
-`$RUN/creds`, the verified-binary cache under `$CLAUDE_VM_STATE_DIR`)
-contains. That fallback is not covered by the run-dir retention, so
-`cleanup()` removes it, dropping hard links and never the operator's file. In
-the `$RUN` case the wrap dir is retained along with the rest of the run dir,
-which means a link to a host file living *outside* the repo persists under
-`<repo>/.claude/tmp/<run-id>/` until that run dir is removed: no bytes are
-duplicated (a hard link is a name, not a copy), but the file's data does
-survive deletion of the original.
+directories claude-vm itself hands the guest. It is `$RUN/mount-wrap`, and
+`$RUN` is outside every one of them: under `repo.mount: clone` the repo share
+is `$RUN/worktree`, a sibling of the wrap dir, and under `repo.mount: live`
+the share is the operator's repo, which holds no run dir unless
+`CLAUDE_VM_RUNS_DIR` was pointed inside it. Before issue #181 `$RUN` was
+`<repo>/.claude/tmp/<run-id>`, *inside* the live share, and the launcher had
+to test `$RUN` against the share and fall back to a `$TMPDIR` directory; that
+test and fallback are gone with the condition that triggered them. The wrap
+dir is retained along with the rest of the run dir, which means a link to a
+host file persists under `$RUN/mount-wrap/` until the operator removes that
+run dir (`bin/claude-vm-cleanup` does not): no bytes are duplicated (a hard
+link is a name, not a copy), but the file's data does survive deletion of the
+original.
+
+Siting the wrap dir under `$RUN` has a cost the old in-repo siting did not:
+a hard link cannot cross volumes, and a run dir under `~/.local/state` is on
+the home volume whatever volume the operator's file is on, whereas the old
+one was the best available guess at the file's own volume. A single-file
+source on another volume therefore aborts the launch, naming the file's
+containing directory as the mount to declare instead. A fallback that
+linked under `$TMPDIR` on that failure was considered and not built: the
+per-user `$TMPDIR` is on the home volume too, so it would rescue nothing
+the run dir cannot, and `config-test.sh` pins the abort against a real
+second volume (`hdiutil attach` of a small image) with `$TMPDIR` placed on
+the *source's* volume, so a launcher that quietly linked there would fail
+the test.
 
 *What a single-file mount cannot do.* A file bind mount cannot be
 replaced by `rename(2)` — the kernel returns `EBUSY` — so the
@@ -1842,14 +1973,16 @@ never share a cached image.
 
 The launcher attaches **two** virtio-serial consoles (issue #88). The
 first (`logFilePath`, guest `hvc0`) captures the booting guest's
-kernel/systemd output to `$RUN/guest-console.log`, making an otherwise
+kernel/systemd output to `$CLAUDE_VM_STATE_DIR/logs/<run-id>/guest-console.log`,
+making an otherwise
 black-box boot observable from the host: the recipe's `KernelCommandLine`
 sets `console=hvc0`, and the boot launcher writes its `claude-vm:`
 diagnostic/seam lines explicitly to `/dev/console`, so they land in this
 log. The second (`stdio`, guest `hvc1`) bridges the launching terminal —
 the interactive claude session. Boot diagnostics stay on `hvc0`, off the
 interactive terminal. The capture path is reported on exit and retained
-in the run dir alongside `egress.pcap`.
+in the run's log dir alongside `egress.pcap` and the gvproxy and proxy
+logs, outside the run dir so that reaping the run leaves them in place.
 
 Because the `hvc1` console is a byte pipe that needs a real controlling
 TTY on the host, launch `claude-vm` from a real terminal (not a pipe).
@@ -2060,6 +2193,7 @@ replacement.
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-machine-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/cleanup-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
 ```
 
@@ -2091,13 +2225,18 @@ also run for the manifest it writes (a directory entry defaulting to
 single-file entry naming its basename) and for the wrap directory it builds —
 including that the wrap entry is a **hard link** to the source, asserted by
 comparing inode numbers rather than content, since a copy would match on
-content and silently break write-through, and that a comma in the wrap
-directory's own parent aborts the launch, blaming `$TMPDIR` in the `live`
-shape and the run dir in the other while a directory-only config under that
-same `$TMPDIR` is left alone (the guard's scope, since it sits at the point of
-use), against a negative
-control that drops the guard's lines from the same captured loop and shows the
-malformed `sharedDir=` it would otherwise emit. The config-load gate block is
+content and silently break write-through; that a comma in the wrap
+directory's own parent aborts the launch, blaming the run dir and naming the
+runs root, while a directory-only config under that same run dir is left
+alone (the guard's scope, since it sits at the point of use), against a
+negative control that drops the guard's lines from the same captured loop
+and shows the malformed `sharedDir=` it would otherwise emit; and that a
+source on another volume than `$RUN` aborts naming the file's directory,
+against a real second volume (`hdiutil attach` of a small image, skipped
+where that fails), with the premise measured first — two device numbers,
+and a plain `ln` into `$RUN` that really fails — and `$TMPDIR` placed on the
+source's volume so a launcher that linked there instead would not pass. The
+config-load gate block is
 run once per rejected config, each asserting both the non-zero exit and a
 diagnostic naming the actual problem: a reserved tag, a duplicate tag, a
 `mode:` key (spelled `ro`, `rw`, a typo, an explicit `""`, and a valueless
@@ -2235,11 +2374,28 @@ shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its
 `virtio-serial,stdio` console to the terminal — a real boot fails with
 `Error: operation not supported by device` at "Adding stdio console" — and
 that shape shipped once and never booted. The test asserts, at the source
-level (like the getty drop-in assertions): the vfkit invocation carries no
-trailing `&`; `VM_EXIT_STATUS=$?` immediately follows it; no `VFKIT_PID`,
-`reap_vfkit`, or `REAP_` machinery exists anywhere in the launcher; and
-`VM_EXIT_STATUS` is initialized to `1` so an interrupted path fails safe to
-*retain*. No VM, no network, no root; `bash` + `awk`.
+level (like the getty drop-in assertions): the `exec vfkit` invocation
+carries no trailing `&`, and neither does the foreground subshell it runs
+in; `VM_EXIT_STATUS=$?` immediately follows that subshell; no
+`wait "$VFKIT…`, `reap_vfkit`, or `REAP_` machinery exists anywhere in the
+launcher (the subshell's `VFKIT_PID` is recorded for the watcher and never
+waited on); and `VM_EXIT_STATUS` is initialized to `1` so an interrupted
+path fails safe to *retain*. No VM, no network, no root; `bash` + `awk`.
+
+`cleanup-test.sh` covers the run's liveness lock and `bin/claude-vm-cleanup`
+without booting a VM, by slicing the launcher's own lines out of
+`claude-vm.sh` and running them in harness processes: the run-dir and lock
+lines (a non-blocking test-acquire of `run.lock` exits 75 while the harness
+lives and succeeds after `kill -9` of it), the proxy and gvproxy spawn lines
+with sleeping stand-ins (the recorded pid is the proxy's own, and a child
+outliving its killed launcher does not keep the lock held — with a negative
+control that restores the inherited fd and shows the lock staying held), and
+the vfkit launch with a sleeping stand-in (after `kill -9` of the launcher the
+watcher stops all three, and a pid that no longer carries its recorded start
+time is left running). The cleaner is then run over a runs root holding a
+dead run, a live run of the same `repo_src`, a lockless dir, a normally
+exited run, and runs whose recorded pids now name other processes, with
+real processes standing in for the pids. Host-gated on `/usr/bin/lockf`.
 
 `bin-config-check-test.sh` is the regression test for issue #179 real-boot
 defect #3: `bin/claude-vm`'s global-config presence check must know the
@@ -2407,18 +2563,19 @@ a shape worth following exactly.
    build is the point rather than an obstacle: it is the branch's own
    image, under its own filename, so the cached image everyday launches
    from the primary clone use is neither reused nor replaced.
-4. **Boot-phase assertions checked by grepping `$RUN/guest-console.log`
-   after the run**, not by watching the terminal. The boot launcher
+4. **Boot-phase assertions checked by grepping the run's
+   `guest-console.log` after the run**, not by watching the terminal —
+   it is under `$CLAUDE_VM_STATE_DIR/logs/<run-id>/`. The boot launcher
    writes its `claude-vm:` markers — the `claude-home/` seed line, the
    apt and plugin install warnings — to `/dev/console`, which is `hvc0`
    and lands in that capture; the terminal is `hvc1`, carrying the
    interactive session alone. A criterion about what the guest did
    during boot is therefore settled after the fact, from the log.
 5. **The run dir, inspected after exit.** `$RUN` is
-   `<repo>/.claude/tmp/<run-id>/` — under the worktree — and is
-   retained: `guest-console.log`, the egress capture and the
-   proxy/gvproxy logs stay there, and `cleanup()` prints each path on
-   the way out. `creds/` is the exception and must be **gone**: it is
+   `$CLAUDE_VM_RUNS_DIR/<run-id>/` — under the state root, not the
+   worktree — and is retained; the run's logs and egress capture are in
+   its log dir beside it, and `cleanup()` prints each path on the way
+   out. `creds/` is the exception and must be **gone**: it is
    the transient `claudecreds` share, and `cleanup()` shreds it on every
    exit, a Ctrl-C included. A surviving `creds/` is a defect, not a
    leftover.
