@@ -85,8 +85,21 @@ One fenced example per kind:
 
 Follow the "Set-slot dispatcher" routine in `skills/lib/issue.md`
 with `<slot>` = `size`. The per-kind write paths
-(number / single-select / label / issue-field) and the slot-absent /
-`kind: skip` handling are documented there; do not duplicate them.
+(number / single-select / label / issue-field) are documented there;
+do not duplicate them.
+
+Before the routine, require the `github-project:` block (the `jira:`
+block under `issues: Jira`). If it is absent, abort with the "No
+`github-project:` block in repo-config" error — without project
+metadata there is no slot to set, so this is an abort, not a
+warning-and-skip.
+
+When the routine ends on a `size` slot that is absent from `fields:`
+or declared `kind: skip`, print this line and exit **zero** — it is a
+warning, not an error:
+
+> `/issue-set-size` has nothing to do: this repo has no `size`
+> slot configured. (Run `/repo-config` to add one.)
 
 The relevant catalogue entries (referenced by name from the lib):
 
@@ -99,8 +112,6 @@ The relevant catalogue entries (referenced by name from the lib):
 - **Slot kind doesn't match the operation** — input shape doesn't
   match configured kind (e.g. integer passed when slot is
   `kind: label`).
-- **Slot not configured** — slot is absent or `kind: skip`; exit
-  zero with this message.
 - **Project field ID no longer exists on the project** —
   `updateProjectV2ItemFieldValue` returned a field-not-found error
   (applies to `kind: number` and `kind: single-select` only).

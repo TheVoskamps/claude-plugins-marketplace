@@ -68,8 +68,8 @@ canonical read sequence and abort messages for
     map), matched case-insensitively (canonical capitalization from
     the option map).
   - **`kind: skip` or slot absent** — warn-and-skip the flag (per
-    "Graceful degradation when the block is missing" in
-    `skills/lib/issue.md`). The value is not parsed or validated.
+    "Warnings" under "Output" below). The value is not parsed or
+    validated.
 
   Default resolves via the order in `skills/lib/issue.md`
   ("Default-resolution order"). For create-time slot flags the full
@@ -139,9 +139,9 @@ what didn't — do not roll back successful steps.
 
    If `github-project:` is absent in repo-config, `--type` and
    `--assignee` still resolve via their defaults, but the slot flags
-   warn-and-skip per "Graceful degradation when the block is missing"
-   — no prompt either (Step 2 is a no-op for any slot whose `kind:`
-   resolves to `skip` / slot-absent).
+   warn-and-skip per "Warnings" under "Output" below — no prompt
+   either (Step 2 is a no-op for any slot whose `kind:` resolves to
+   `skip` / slot-absent).
 
 2. **Interactive prompts for slot flags.** For each slot in
    `{priority, size, status}` whose CLI flag was **not** passed in
@@ -150,8 +150,8 @@ what didn't — do not roll back successful steps.
 
    - Skip the prompt for any slot whose `fields.<slot>.kind:` is
      `skip` or whose entry is absent from `fields:` — those slots
-     warn-and-skip per "Graceful degradation when the block is
-     missing" without any prompt.
+     warn-and-skip per "Warnings" under "Output" below, without any
+     prompt.
    - For `--size`, evaluate the issue body per the "Size evaluation
      heuristic" section below to pick the recommended option, then
      issue a single `AskUserQuestion` for size with that option
@@ -239,8 +239,7 @@ what didn't — do not roll back successful steps.
      step 5 — it works even when the issue is not on (or there is no)
      project board.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
-     from "Graceful degradation when the block is missing" in
-     `skills/lib/issue.md` and skip.
+     from "Warnings" under "Output" below and skip.
 
    If the `github-project:` block is missing entirely, emit the same
    warning and skip — there is no slot configuration to dispatch on.
@@ -507,9 +506,29 @@ to assign:
 
 ### Warnings
 
-When a step was warning-skipped, print the warning line on its own
-(per the catalogue in `skills/lib/issue.md`) before the URL, in
-addition to the corresponding `skipped: <reason>` checklist line.
+Nothing this verb skips aborts the run: the issue is still filed. A
+flag that needs project metadata — `--type`, `--priority`, `--size`,
+`--status` — is warning-skipped when that metadata is not configured.
+A warning-skipped flag prints one warning line on its own before the
+URL, in addition to the corresponding `skipped: <reason>` checklist
+line:
+
+- **No `github-project:` block** (under `issues: Jira`, no `jira:`
+  block, and the line names `jira:`), once per such flag:
+
+  > `warning: no github-project: block in repo-config.md;`
+  > `skipping --status. Run /repo-config to add it.`
+
+- **A slot declared `kind: skip`:**
+
+  > `warning: slot 'priority' is kind: skip in repo-config.md;`
+  > `skipping --priority.`
+
+- **A slot absent from `fields:`** — the same line, naming the slot
+  as missing from `fields:` instead of `kind: skip`.
+
+When several flags are warning-skipped in one run, print one line per
+flag, in the order the flags appeared on the CLI.
 
 ### Examples
 

@@ -132,14 +132,13 @@ namespace presents consistent errors.
    - Under `issues: GitHub`, scan the body for a line that starts
      with `github-project:` at column 0. If present, parse the
      indented YAML beneath it per the schema documented in
-     `skills/lib/issue.md`. If absent, the reader gracefully
-     degrades per the "Graceful degradation when the block is
-     missing" section of `skills/lib/issue.md`.
+     `skills/lib/issue.md`. If absent, the read still succeeds: the
+     repo configures no project, no `issue-types:` map and no slot.
    - Under `issues: Jira`, scan the body for a line that starts with
      `jira:` at column 0. If present, parse the indented YAML
      beneath it per the `jira:` schema documented under "`jira:`
      block" below and in the `/issues-jira:jira-lib` skill. If absent,
-     the reader degrades per that same section, reading `jira:` for
+     the read still succeeds, with the same meaning as an absent
      `github-project:`.
 
    Skip-marker HTML comments (see below) count as "absent" for read
@@ -326,11 +325,8 @@ This library does not duplicate that schema; readers needing the
 block should follow the parse rules there.
 
 The block is **optional**. Repos without a Project V2 board omit
-it entirely. The `/issue-*` namespace degrades gracefully when the
-block is absent, per `skills/lib/issue.md` "Graceful degradation
-when the block is missing". This library's canonical read
-sequence (step 6) covers the absent-block case by deferring to
-that section.
+it entirely; this library's canonical read sequence (step 6) covers
+the absent-block case.
 
 ### Skip marker
 
@@ -439,11 +435,7 @@ Keys:
 The full `acli` discovery and application command templates for this
 block live in the `/issues-jira:jira-lib` skill. The block is
 **optional**, and a Jira repo without it (or with a skip marker)
-degrades exactly as a GitHub repo without `github-project:` does, per
-verb and per case: `/issue-create`'s slot flags warn and skip so the
-issue is still filed, while the set-slot verbs abort.
-`skills/lib/issue.md` → "Graceful degradation when the block is
-missing" states which verb does which and why.
+means exactly what a GitHub repo without `github-project:` means.
 
 > Note: the `/issue-*` Jira operations that consume this block are
 > implemented (issue #9, built on the #249 foundation). They live in
