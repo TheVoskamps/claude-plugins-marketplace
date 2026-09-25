@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Drive the real proxy over loopback against a fake upstream.
 
-Every case starts `ch-proxy.py` as a subprocess pointed at an in-process
-plain-HTTP upstream, sends traffic through the port it prints, and then
-grades both what the client received and what landed on disk.
+Most cases run `ch-proxy.py` as a subprocess pointed at an in-process
+plain-HTTP upstream, send traffic through the port it prints, and then
+grade both what the client received and what landed on disk. A case no
+subprocess argument can reach loads the proxy as a module instead.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.

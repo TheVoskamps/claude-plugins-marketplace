@@ -49,8 +49,9 @@ REQUEST_DIR_FORMAT = "%06d"
 SESSION_FILE = "session.json"
 
 # What writing a capture file can raise: the filesystem, and `json` on a
-# value it cannot encode. Every one is reported and swallowed, so a
-# recording failure never reaches the client.
+# value it cannot encode. Every one raised while serving a request is
+# reported and swallowed, so a recording failure never reaches the client;
+# the startup write of session.json lets one propagate.
 RECORDING_ERRORS = (OSError, TypeError, ValueError)
 
 # Headers that describe one connection rather than the message, so each
