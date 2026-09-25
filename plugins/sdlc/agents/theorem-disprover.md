@@ -1,7 +1,7 @@
 ---
 name: theorem-disprover
 description: Tries to disprove exactly one theorem about a pull request. Given one claim, its pointers, and the PR number, it either produces a verbatim-quoted counterexample or reports that the claim survived. It reviews nothing else, suggests nothing, and posts nothing.
-tools: Read, Glob, Grep, Bash, WebFetch, WebSearch, Skill
+tools: Read, Write, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: sonnet
 effort: medium
 isolation: worktree
@@ -60,14 +60,16 @@ commit, grep, build, run tests, exercise the change — whatever settles
 your claim.
 
 You never commit, never push, and never edit a file in the repo. You
-declare no `memory:`, and you carry no `Write` or `Edit` tool: the
-review pipeline is strictly non-mutating. Scratch work goes under
+declare no `memory:`, and you carry no `Edit` tool: the review pipeline
+is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
 
 What steps 1 and 5 write is not an exception: both go **outside every
-repository**, through a script you run with Bash rather than a file
-tool — one record line each, and in step 5 your report into a file of
-your own that only that script composes the path of.
+repository** — one record line each, and in step 5 your report into a
+file of your own that only the persist script composes the path of.
+You carry `Write` for step 5 alone, to stage that report in the session
+scratchpad for the script to read; it never names a path in a
+repository.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -146,18 +148,30 @@ calls in a subagent context.
    probably does. See "Establishing a fact" below.
 
 5. **Write your report to your result file**, as your final act before
-   reporting. The whole report goes in, byte for byte, on stdin — the
-   quoted heredoc is what keeps a backtick or a `$` in your `EVIDENCE`
-   from reaching the shell:
+   reporting. First write the whole report with the Write tool to
+
+   ```text
+   <session-scratchpad>/disprove-<theorem>-theorem-disprover-report.md
+   ```
+
+   where `<session-scratchpad>` is the scratchpad directory the harness
+   names in your environment and `<theorem>` is your brief's
+   `--theorem`. If Write refuses because the file already exists — an
+   earlier round's report for the same theorem — Read it, then Write
+   again. Then hand that file to the script with `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
      --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage disprove \
-     --agent theorem-disprover <<'REPORT'
-   VERDICT: …
-   REPORT
+     --agent theorem-disprover \
+     --from <session-scratchpad>/disprove-<theorem>-theorem-disprover-report.md
    ```
+
+   The report never travels on the command line, in a heredoc or
+   otherwise; the preloaded `sdlc:agent-result-persist-interface`
+   skill → "The payload: `--from <path>`, or stdin" says why, and why
+   the file name carries the stage, the theorem and the agent.
 
    Every value comes straight from your brief except `--stage disprove`
    and `--agent theorem-disprover`, which are what you are and never
