@@ -350,9 +350,9 @@ the pieces are those files, every `list-<agent>` generator file a
 `Read` in step 2. The records and each round's review are what
 `--mode print-records` and `--mode print-review` write to stdout. That
 is the whole of your access to the state directory: reach it through
-`sdlc-agent-result-persist` and `Read` only. `Glob` and `Grep` do not
-reach it either, nor does a raw shell listing such as `ls` or `find`,
-nor any other Bash command naming a path under it. Whether the gate
+`sdlc-agent-result-persist` and `Read` only. Do not point `Glob` or
+`Grep` at it either, and run no raw shell listing such as `ls` or
+`find` there, nor any other Bash command naming a path under it. Whether the gate
 admits a raw command there turns on the operator's own configuration,
 so a run that leans on one works on one machine and is refused on the
 next.
