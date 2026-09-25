@@ -51,6 +51,15 @@ absent entirely, abort with the "No `github-project:` block in
 repo-config" error from the catalogue in `skills/lib/issue.md`. If the
 block is present but carries no `issue-types:` map, abort with the
 "No `issue-types:` map in repo-config" error from the same catalogue.
+Under `issues: Jira`, abort with those entries' wording naming `jira:`
+in place of `github-project:` — when the `jira:` block is absent:
+
+> no `jira:` block in `repo-config.md`; run `/repo-config` to add it
+
+and when the block is present but carries no `issue-types:` map:
+
+> issue-types map missing from `jira:` in `repo-config.md`;
+> run `/repo-config` to add it
 
 This is an abort, not a warning-and-skip — without the issue-types map
 there is no way to resolve the requested type name.
