@@ -132,8 +132,9 @@ namespace presents consistent errors.
    - Under `issues: GitHub`, scan the body for a line that starts
      with `github-project:` at column 0. If present, parse the
      indented YAML beneath it per the schema documented in
-     `skills/lib/issue.md`. If absent, the read still succeeds: the
-     repo configures no project, no `issue-types:` map and no slot.
+     `skills/lib/issue.md`. If absent, the read still succeeds; what
+     an absent block means is stated under "Locating the
+     `github-project:` block" in `skills/lib/issue.md`.
    - Under `issues: Jira`, scan the body for a line that starts with
      `jira:` at column 0. If present, parse the indented YAML
      beneath it per the `jira:` schema documented under "`jira:`
