@@ -16,7 +16,9 @@ stderr and never alters the response the client receives, and an
 upstream response of any status is forwarded as it arrived. When the
 exchange with upstream fails before a response arrives, the proxy
 answers 502 itself, and the response headers and body it records are
-its own rather than upstream's.
+its own rather than upstream's. A request whose Content-Length or chunk
+size carries anything but digits is recorded, is answered 400 by the
+proxy the same way, and never reaches upstream.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.
@@ -29,6 +31,7 @@ import http.server
 import json
 import os
 import ssl
+import string
 import sys
 import threading
 import urllib.parse
@@ -92,6 +95,35 @@ def _write_json(path, payload):
 
 def _body_less(method, status):
     return method == "HEAD" or 100 <= status < 200 or status in (204, 304)
+
+
+class MalformedRequest(ValueError):
+    """A client request whose body framing cannot be read.
+
+    `wire` holds the body bytes read before the framing broke.
+    """
+
+    def __init__(self, message, wire=b""):
+        ValueError.__init__(self, message)
+        self.wire = wire
+
+
+def _parse_size(text, base):
+    """Return a Content-Length (base 10) or chunk size (base 16) as an int.
+
+    `int` alone would also accept a sign, underscores and surrounding
+    whitespace, and a length of -1 makes `read` wait for the client to
+    hang up. Raises `MalformedRequest` for anything but digits.
+    """
+    if isinstance(text, bytes):
+        text = text.decode("latin-1")
+    digits = string.hexdigits if base == 16 else string.digits
+    if not text or any(character not in digits for character in text):
+        raise MalformedRequest(
+            "malformed %s: %r"
+            % ("chunk size" if base == 16 else "Content-Length", text)
+        )
+    return int(text, base)
 
 
 class Recorder:
@@ -186,12 +218,17 @@ class CaptureServer(http.server.ThreadingHTTPServer):
 
     def __init__(self, address, handler, upstream, capture_dir, session):
         http.server.ThreadingHTTPServer.__init__(self, address, handler)
-        parsed = urllib.parse.urlsplit(upstream)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        try:
+            parsed = urllib.parse.urlsplit(upstream)
+            port = parsed.port
+            valid = parsed.scheme in ("http", "https") and bool(parsed.hostname)
+        except ValueError:
+            valid = False
+        if not valid:
             raise ValueError("upstream must be an http or https URL: %r" % upstream)
         self.upstream_scheme = parsed.scheme
         self.upstream_host = parsed.hostname
-        self.upstream_port = parsed.port
+        self.upstream_port = port
         self.upstream_netloc = parsed.netloc
         self.upstream_prefix = parsed.path.rstrip("/")
         self.capture_dir = capture_dir
@@ -268,11 +305,18 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         headers = list(self.headers.items())
         server.note_session_header(headers)
         chunked = self.headers.get("Transfer-Encoding", "").lower() == "chunked"
-        if chunked:
-            wire, body = self._read_chunked()
-        else:
-            length = int(self.headers.get("Content-Length") or 0)
-            wire = body = self.rfile.read(length) if length else b""
+        malformed = None
+        try:
+            if chunked:
+                wire, body = self._read_chunked()
+            else:
+                length = _parse_size(
+                    (self.headers.get("Content-Length") or "0").strip(), 10
+                )
+                wire = body = self.rfile.read(length) if length else b""
+        except MalformedRequest as error:
+            malformed = error
+            wire = error.wire
         recorder.start(
             {
                 "method": self.command,
@@ -282,6 +326,9 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             },
             wire,
         )
+        if malformed is not None:
+            self._bad_request(recorder, malformed)
+            return
 
         connection = None
         try:
@@ -307,13 +354,21 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
     do_OPTIONS = do_any
 
     def _read_chunked(self):
-        """Return a chunked request body twice: as received, and de-chunked."""
+        """Return a chunked request body twice: as received, and de-chunked.
+
+        Raises `MalformedRequest`, carrying the bytes read so far, on a
+        chunk-size line that is not a hex number.
+        """
         wire = []
         parts = []
         while True:
             line = self.rfile.readline()
             wire.append(line)
-            size = int(line.split(b";")[0].strip() or b"0", 16)
+            try:
+                size = _parse_size(line.split(b";")[0].strip() or b"0", 16)
+            except MalformedRequest as error:
+                error.wire = b"".join(wire)
+                raise
             if size == 0:
                 while True:
                     line = self.rfile.readline()
@@ -435,15 +490,37 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         The failure is one raised before a response arrived: building the
         connection, sending the request, or reading the status line.
         """
+        self._answer_failure(
+            recorder, 502, "Bad Gateway", "upstream request failed", failure
+        )
+
+    def _bad_request(self, recorder, failure):
+        """Answer with a 400, and close, a request whose body cannot be framed.
+
+        Where the next request on the connection would begin is unknown,
+        so the connection is not reused. Nothing is sent upstream.
+        """
+        self._answer_failure(
+            recorder,
+            400,
+            "Bad Request",
+            "malformed request",
+            failure,
+            [("Connection", "close")],
+        )
+
+    def _answer_failure(self, recorder, status, reason, what, failure, extra=()):
+        """Answer `status` with a text body naming `failure`, and record both."""
         error = "%s: %s" % (type(failure).__name__, failure)
-        payload = ("ch-proxy: upstream request failed: %s\n" % error).encode("utf-8")
+        payload = ("ch-proxy: %s: %s\n" % (what, error)).encode("utf-8")
         headers = [
             ("Content-Type", "text/plain; charset=utf-8"),
             ("Content-Length", str(len(payload))),
         ]
-        recorder.response_headers(502, "Bad Gateway", headers)
+        headers.extend(extra)
+        recorder.response_headers(status, reason, headers)
         try:
-            self.send_response_only(502, "Bad Gateway")
+            self.send_response_only(status, reason)
             for name, value in headers:
                 self.send_header(name, value)
             self.end_headers()
