@@ -68,8 +68,8 @@ canonical read sequence and abort messages for
     map), matched case-insensitively (canonical capitalization from
     the option map).
   - **`kind: skip` or slot absent** — warn-and-skip the flag (per
-    "Graceful degradation when the block is missing" in
-    `skills/lib/issue.md`). The value is not parsed or validated.
+    "Warnings" under "Output" below). The value is not parsed or
+    validated.
 
   Default resolves via the order in `skills/lib/issue.md`
   ("Default-resolution order"). For create-time slot flags the full
@@ -139,9 +139,9 @@ what didn't — do not roll back successful steps.
 
    If `github-project:` is absent in repo-config, `--type` and
    `--assignee` still resolve via their defaults, but the slot flags
-   warn-and-skip per "Graceful degradation when the block is missing"
-   — no prompt either (Step 2 is a no-op for any slot whose `kind:`
-   resolves to `skip` / slot-absent).
+   warn-and-skip per "Warnings" under "Output" below — no prompt
+   either (Step 2 is a no-op for any slot whose `kind:` resolves to
+   `skip` / slot-absent).
 
 2. **Interactive prompts for slot flags.** For each slot in
    `{priority, size, status}` whose CLI flag was **not** passed in
@@ -150,8 +150,8 @@ what didn't — do not roll back successful steps.
 
    - Skip the prompt for any slot whose `fields.<slot>.kind:` is
      `skip` or whose entry is absent from `fields:` — those slots
-     warn-and-skip per "Graceful degradation when the block is
-     missing" without any prompt.
+     warn-and-skip per "Warnings" under "Output" below, without any
+     prompt.
    - For `--size`, evaluate the issue body per the "Size evaluation
      heuristic" section below to pick the recommended option, then
      issue a single `AskUserQuestion` for size with that option
@@ -168,7 +168,8 @@ what didn't — do not roll back successful steps.
    of the run, exactly as if they had passed the CLI flag. If a
    prompt is unanswered (harness time-out, non-interactive context),
    fall through to `fields.<slot>.default`; if that is also absent,
-   warn-and-skip.
+   the slot is skipped with no warning line — its checklist line reads
+   `skipped: flag not passed and no default` (see "Output" below).
 
    Skip this step entirely when no slot needs a prompt — i.e. when
    every slot was either passed on the CLI in Step 1 or is
@@ -239,8 +240,7 @@ what didn't — do not roll back successful steps.
      step 5 — it works even when the issue is not on (or there is no)
      project board.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
-     from "Graceful degradation when the block is missing" in
-     `skills/lib/issue.md` and skip.
+     from "Warnings" under "Output" below and skip.
 
    If the `github-project:` block is missing entirely, emit the same
    warning and skip — there is no slot configuration to dispatch on.
@@ -462,21 +462,21 @@ single-select / label slot value (per "Name -> ID lookup rules" in
 
 ### Required lines
 
-Emit each of these whenever the stated condition holds. "Required"
-means the line must appear — as a value or as `skipped: <reason>` —
-before the URL.
+Emit each of these on every run. "Required" means the line must
+appear — as a value or as `skipped: <reason>` — before the URL. A
+line whose metadata is not configured still appears, as its
+`skipped: <reason>`; that is the checklist line "Warnings" below
+pairs with each warning.
 
-- **`type:`** — required when `github-project.issue-types` exists in
-  repo-config. Either the canonical type name (e.g. `Feature`) or
-  `skipped: no issue-types map in repo-config`.
-- **`priority:`** — required when `github-project.fields.priority`
-  exists and is not `kind: skip`. Either the canonical value or
+- **`type:`** — either the canonical type name (e.g. `Feature`) or
+  `skipped: <reason>` (e.g. `skipped: no issue-types map in
+  repo-config`).
+- **`priority:`** — either the canonical value or
   `skipped: <reason>` (e.g. `skipped: slot kind: skip`,
+  `skipped: slot absent from fields:`,
   `skipped: flag not passed and no default`).
-- **`size:`** — same shape as `priority:` (keyed on
-  `github-project.fields.size`).
-- **`status:`** — same shape as `priority:` (keyed on
-  `github-project.fields.status`).
+- **`size:`** — same shape as `priority:`.
+- **`status:`** — same shape as `priority:`.
 - **`assignee:`** — required. Either the canonical login(s) that were
   set, or `skipped: no --assignee passed and no built-in default
   applies`. Before printing this line, **post-fetch verify** (see
@@ -507,9 +507,27 @@ to assign:
 
 ### Warnings
 
-When a step was warning-skipped, print the warning line on its own
-(per the catalogue in `skills/lib/issue.md`) before the URL, in
-addition to the corresponding `skipped: <reason>` checklist line.
+Nothing this verb skips aborts the run: the issue is still filed. A
+flag that needs project metadata — `--type`, `--priority`, `--size`,
+`--status` — is warning-skipped when that metadata is not configured.
+A warning-skipped flag prints one warning line on its own before the
+URL, in addition to the corresponding `skipped: <reason>` checklist
+line:
+
+- **No `github-project:` block** — the "No `github-project:` block in
+  repo-config (warning)" entry from the catalogue in
+  `skills/lib/issue.md`, once per such flag.
+
+- **A slot declared `kind: skip`:**
+
+  > `warning: slot 'priority' is kind: skip in repo-config.md;`
+  > `skipping --priority.`
+
+- **A slot absent from `fields:`** — the same line, naming the slot
+  as missing from `fields:` instead of `kind: skip`.
+
+When several flags are warning-skipped in one run, print one line per
+flag, in the order the flags appeared on the CLI.
 
 ### Examples
 
@@ -528,9 +546,11 @@ Created issue #1042 "Add /issue-create skill"
 https://github.com/<owner>/<repo>/issues/1042
 ```
 
-An issue in a repo whose `size` slot is intentionally `kind: skip`
-and where `--status` was neither passed nor defaulted — the required
-lines still appear, as `skipped: <reason>`, and `parent:` is omitted
+An issue in a repo whose `size` slot is intentionally `kind: skip`,
+run without `--size`, and where `--status` was neither passed nor
+defaulted — the required lines still appear, as `skipped: <reason>`,
+the `kind: skip` slot prints its warning line even though no `--size`
+was passed (Step 2 of the execution chain), and `parent:` is omitted
 because `--parent` was not passed:
 
 ```text
@@ -540,6 +560,8 @@ Created issue #1043 "Tidy up the create runbook"
   size:       skipped: slot kind: skip
   status:     skipped: flag not passed and no default
   assignee:   octocat
+
+warning: slot 'size' is kind: skip in repo-config.md; skipping --size.
 
 https://github.com/<owner>/<repo>/issues/1043
 ```

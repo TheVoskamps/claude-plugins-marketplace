@@ -14,9 +14,8 @@ map (which lives at the same level as `fields:` but is its own thing).
 closes the "set type on an existing issue" gap.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, name -> ID lookup rules, error wording, and
-graceful-degradation rules. This file documents only what is specific
-to `/issue-set-type`.
+dispatch, name -> ID lookup rules, and error wording. This file
+documents only what is specific to `/issue-set-type`.
 
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
@@ -46,12 +45,12 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 ## Required repo-config
 
 This command **requires** a `github-project.issue-types` map in
-`.issues/repo-config.md`. If the `github-project:` block is
-absent entirely, abort with the "No `github-project:` block in
-repo-config" error from the catalogue in `skills/lib/issue.md`. If the
-block is present but carries no `issue-types:` map, abort with the
-"No `issue-types:` map in repo-config" error from the same catalogue.
-
+`.issues/repo-config.md` (the `jira:` block's `issue-types:` map
+under `issues: Jira`). If the tracker's block is absent entirely,
+abort with the "No `github-project:` block in repo-config" error from
+the catalogue in `skills/lib/issue.md`. If the block is present but
+carries no `issue-types:` map, abort with the "No `issue-types:` map
+in repo-config" error from the same catalogue.
 This is an abort, not a warning-and-skip — without the issue-types map
 there is no way to resolve the requested type name.
 
