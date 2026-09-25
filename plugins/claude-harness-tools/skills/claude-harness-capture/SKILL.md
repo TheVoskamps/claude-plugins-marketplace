@@ -42,11 +42,12 @@ except for that setting and compare their captures.
 ## Where captures land
 
 The capture root is
-`${XDG_STATE_HOME:-$HOME/.local/state}/claude-harness-tools/captures/`.
+`${XDG_STATE_HOME:-$HOME/.local/state}/claude-harness-tools/captures`.
 Each session gets one directory, `<stamp>-<slug>`: a UTC stamp to the
 millisecond such as `20260924T153012.123Z`, then the session name
 lowercased, with every run of characters other than `a-z` and `0-9`
-turned into one `-`.
+turned into one `-` and a leading or trailing `-` dropped, so
+`my run widget [harness-proxy]` becomes `my-run-widget-harness-proxy`.
 
 ```text
 <stamp>-<slug>/
@@ -55,7 +56,8 @@ turned into one `-`.
                       whose name contains "session"
   proxy.log           the proxy's own diagnostics and access log
   000001/             one directory per request, numbered in arrival order
-    request.json      method, path, headers, started_at, ended_at, status
+    request.json      method, path, headers, started_at, ended_at, status;
+                      error when forwarding or relaying the request failed
     request.body      the request body as received
     response.headers.json   status, reason, and headers from upstream
     response.body     the response body as forwarded
@@ -73,6 +75,11 @@ Say these plainly, because each one surprises a first reader:
 
 - **Nothing is parsed or rewritten.** The bodies are the bytes on the
   wire. Parse them in a separate step, never in place.
+- **A chunked body keeps its framing.** When `request.json`'s headers or
+  `response.headers.json` carry `Transfer-Encoding: chunked`, the body
+  is a series of chunks, each a hex size line, that many bytes and a
+  CRLF, ended by a `0` size line, any trailer lines and a blank line.
+  Strip the framing first, before decompressing or splitting events.
 - **Bodies may be compressed.** `Accept-Encoding` is forwarded
   unchanged, so a body is compressed whenever `response.headers.json`
   carries a `Content-Encoding`. Decompress before reading, for example
@@ -85,3 +92,9 @@ Say these plainly, because each one surprises a first reader:
   sharing or analysing it, and never edit the original.
 - **A `request.json` without `ended_at`** belongs to a request that was
   still in flight when the proxy stopped.
+- **A 502 may be the proxy's own.** When forwarding fails before
+  upstream answers, the proxy answers `502 Bad Gateway` itself:
+  `request.json` then carries an `error`, and `response.body` opens with
+  `ch-proxy: upstream request failed:`, or is empty for a `HEAD`. An
+  upstream 502 has upstream's body, and an `error` only when relaying it
+  failed part-way.
