@@ -230,6 +230,7 @@ def main():
         run_fail_open(port, capture_dir)
         run_unreachable_upstream(sandbox)
         run_connect_failure(sandbox)
+        run_bad_upstream(sandbox)
     finally:
         process.terminate()
         process.wait()
@@ -403,6 +404,47 @@ def run_cases(upstream, port, capture_dir):
         "request.json keeps the Content-Length the client sent",
     )
 
+    malformed = [
+        ("a non-numeric Content-Length", b"Content-Length: abc\r\n\r\n", b""),
+        ("a negative Content-Length", b"Content-Length: -1\r\n\r\nhello", b""),
+        (
+            "a non-hex chunk size",
+            b"Transfer-Encoding: chunked\r\n\r\n" + chunk(b"hello") + b"zz\r\n",
+            chunk(b"hello") + b"zz\r\n",
+        ),
+    ]
+    for description, framing, recorded in malformed:
+        received_before = len(upstream.received)
+        reply = raw_request(
+            port, b"POST /malformed HTTP/1.1\r\nHost: client\r\n" + framing
+        )
+        check(
+            reply.startswith(b"HTTP/1.1 400 "),
+            "a request with %s is answered with a 400" % description,
+        )
+        check(
+            len(upstream.received) == received_before,
+            "a request with %s is not forwarded" % description,
+        )
+        malformed_dir = os.path.join(capture_dir, request_dirs(capture_dir)[-1])
+        check(
+            all(
+                os.path.isfile(os.path.join(malformed_dir, name))
+                for name in REQUEST_FILES
+            ),
+            "a request with %s produces all four files" % description,
+        )
+        check(
+            read(os.path.join(malformed_dir, "request.body")) == recorded,
+            "request.body holds what was read of a request with %s" % description,
+        )
+        meta = finished_meta(malformed_dir)
+        check(
+            meta.get("status") == 400
+            and meta.get("error", "").startswith("MalformedRequest"),
+            "request.json records the 400 and the error for %s" % description,
+        )
+
     results = []
 
     def concurrent():
@@ -454,15 +496,37 @@ def run_unreachable_upstream(sandbox):
         process.wait()
 
 
+def load_proxy():
+    spec = importlib.util.spec_from_file_location("ch_proxy", PROXY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_bad_upstream(sandbox):
+    module = load_proxy()
+    for upstream in ["http://example.com:abc/path", "ftp://example.com"]:
+        try:
+            server = module.CaptureServer(
+                ("127.0.0.1", 0), module.ProxyHandler, upstream, sandbox, {}
+            )
+            server.server_close()
+            message = None
+        except ValueError as error:
+            message = str(error)
+        check(
+            message == "upstream must be an http or https URL: %r" % upstream,
+            "an upstream of %s is rejected as not an http or https URL" % upstream,
+        )
+
+
 def run_connect_failure(sandbox):
     """Serve in-process, with building the upstream connection raising.
 
     Nothing a subprocess can be handed makes `connect_upstream` raise, so
     this case loads the proxy as a module and overrides that one method.
     """
-    spec = importlib.util.spec_from_file_location("ch_proxy", PROXY)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_proxy()
 
     class FailingServer(module.CaptureServer):
         def connect_upstream(self):
