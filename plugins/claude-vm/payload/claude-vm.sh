@@ -2017,10 +2017,11 @@ cleanup() {
 
   # Stop the run's watcher before anything else (see the vfkit launch): it
   # fires the moment the launcher's lock drops, and on this normal exit the
-  # launcher drops it by exiting, so a watcher left running would kill pids
-  # this run no longer owns. Absent when the trap fired before vfkit launched.
-  # Like every pid this run signals, it is stopped only while it still carries
-  # the start time recorded beside it (claude_vm_kill_own).
+  # launcher drops it by exiting, so a watcher left running would fire then
+  # and signal again vfkit, which has already exited, and the gvproxy and
+  # proxy this cleanup() stops below. Absent when the trap fired before vfkit
+  # launched. Like every pid this run signals, it is stopped only while it
+  # still carries the start time recorded beside it (claude_vm_kill_own).
   local watcher_pid="" watcher_pid_start=""
   if [ -n "${RUN_META:-}" ] && [ -f "$RUN_META" ]; then
     watcher_pid="$(sed -n 's/^watcher_pid=//p' "$RUN_META" | tail -n 1)"
