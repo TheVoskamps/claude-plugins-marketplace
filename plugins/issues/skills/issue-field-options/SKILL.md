@@ -9,10 +9,9 @@ it has to **choose** an option rather than set one it already has —
 `/issue-set-<slot>` resolves a name the caller brings, and says nothing
 about which names exist.
 
-See `skills/lib/issue.md` for tracker dispatch, the per-kind slot
-schema ("Field kinds (`fields.<slot>.kind`)"), and graceful
-degradation. This file documents only what is specific to
-`/issue-field-options`.
+See `skills/lib/issue.md` for tracker dispatch and the per-kind slot
+schema ("Field kinds (`fields.<slot>.kind`)"). This file documents
+only what is specific to `/issue-field-options`.
 
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
@@ -95,7 +94,8 @@ priority: number
 ```
 
 An unconfigured slot — `kind: skip`, or absent from `fields:`, or no
-tracker block at all — prints one line and exits zero:
+tracker block at all — prints one line and exits zero, with no
+warning:
 
 ```text
 effort: unconfigured

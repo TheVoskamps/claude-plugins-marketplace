@@ -190,9 +190,12 @@ of them loses track of which decision belongs to which.
 7. **Final report.** State: what changed in the body (the substantive
    changes, not a diff), which side-effect issues you created and
    where, the status you set and that you confirmed it by re-reading,
-   and the issue URL. When step 6 was skipped, say instead that the
-   issue is not ready, name the gaps still open, and say the status is
-   unchanged — never report an unflipped status as a success.
+   and the issue URL. When step 6 was skipped because a gap is still
+   open, say instead that the issue is not ready, name the gaps still
+   open, and say the status is unchanged. When it was skipped only
+   because the `status` slot reports unconfigured, say the issue is
+   ready and that the repo has no status to flip. Either way, never
+   report an unflipped status as a success.
 
 ## Status resolution
 

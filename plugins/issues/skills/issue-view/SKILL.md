@@ -8,8 +8,8 @@ labels, assignees, issue type, priority, status, parent, sub-issues,
 blockedBy, and blocking — without requiring follow-up commands.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, error wording, and graceful-degradation rules. This file
-documents only what is specific to `/issue-view`.
+dispatch, and error wording. This file documents only what is
+specific to `/issue-view`.
 
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
@@ -91,9 +91,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      No row, no `(none)` placeholder, no "skipped" notice.
 
    Slots that are **absent entirely** from `fields:` are also omitted
-   entirely from the output (the same shape as `kind: skip`, per
-   "Graceful degradation when the block is missing" in
-   `skills/lib/issue.md`).
+   entirely from the output, the same shape as `kind: skip`.
 
    The list of slots, their canonical names, and the row order in
    the output are all derived from `fields:` as read from repo-config.
@@ -102,8 +100,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    `priority:` row for free.
 
    If `github-project:` is missing from repo-config, omit the
-   project-fields section entirely per "Graceful degradation when the
-   block is missing" — do not warn; reads degrade quietly.
+   project-fields section entirely — do not warn; reads degrade
+   quietly.
 
    If the configured project is present but the issue has no item on
    it, render every `kind: number` and `kind: single-select` slot as

@@ -11,9 +11,8 @@ is stored under `github-project.fields.status` in
 `options:` map under that block.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, name -> ID lookup rules, error wording, and
-graceful-degradation rules. This file documents only what is specific
-to `/issue-set-status`.
+dispatch, name -> ID lookup rules, and error wording. This file
+documents only what is specific to `/issue-set-status`.
 
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
@@ -43,11 +42,18 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 ## Required repo-config
 
 This command **requires** a `github-project:` block in
-`.issues/repo-config.md`. If the block is absent, abort with
-the "No `github-project:` block in repo-config" error from the
-catalogue in `skills/lib/issue.md`. This is an abort, not a
-warning-and-skip — without the option map there is no way to resolve
-the requested status name.
+`.issues/repo-config.md` (the `jira:` block under `issues: Jira`). If
+the block is absent, abort with the "No `github-project:` block in
+repo-config" error from the catalogue in `skills/lib/issue.md`. This
+is an abort, not a warning-and-skip — without the option map there is
+no way to resolve the requested status name.
+
+If the block is present but its `status` slot is absent from
+`fields:` or declared `kind: skip`, print this line and exit **zero**
+without resolving the status name — it is a warning, not an error:
+
+> `/issue-set-status` has nothing to do: this repo has no `status`
+> slot configured. (Run `/repo-config` to add one.)
 
 ## Execution (GitHub backend)
 
