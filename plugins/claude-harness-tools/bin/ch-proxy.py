@@ -211,7 +211,7 @@ class CaptureServer(http.server.ThreadingHTTPServer):
     """A threaded server holding the upstream, the counter and session.json.
 
     Raises `ValueError` when `upstream` is not an http or https URL with
-    a host.
+    a host, or when its port is not an integer in range.
     """
 
     daemon_threads = True
