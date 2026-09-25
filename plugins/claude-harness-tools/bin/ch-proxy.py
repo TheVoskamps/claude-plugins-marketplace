@@ -272,11 +272,13 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             wire,
         )
 
-        connection = server.connect_upstream()
+        connection = None
         try:
+            connection = server.connect_upstream()
             response = self._send_upstream(connection, headers, body, chunked)
         except (OSError, ValueError, http.client.HTTPException) as error:
-            connection.close()
+            if connection is not None:
+                connection.close()
             self._bad_gateway(recorder, error)
             return
 

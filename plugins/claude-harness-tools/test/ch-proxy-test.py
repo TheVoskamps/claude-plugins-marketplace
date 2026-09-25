@@ -12,10 +12,12 @@ macOS `/usr/bin/python3` runs it with nothing installed.
 import gzip
 import http.client
 import http.server
+import importlib.util
 import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -227,6 +229,7 @@ def main():
         run_cases(upstream, port, capture_dir)
         run_fail_open(port, capture_dir)
         run_unreachable_upstream(sandbox)
+        run_connect_failure(sandbox)
     finally:
         process.terminate()
         process.wait()
@@ -449,6 +452,50 @@ def run_unreachable_upstream(sandbox):
     finally:
         process.terminate()
         process.wait()
+
+
+def run_connect_failure(sandbox):
+    """Serve in-process, with building the upstream connection raising.
+
+    Nothing a subprocess can be handed makes `connect_upstream` raise, so
+    this case loads the proxy as a module and overrides that one method.
+    """
+    spec = importlib.util.spec_from_file_location("ch_proxy", PROXY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class FailingServer(module.CaptureServer):
+        def connect_upstream(self):
+            raise ssl.SSLError("no usable trust store")
+
+    capture_dir = os.path.join(sandbox, "connect-failure")
+    os.makedirs(capture_dir)
+    server = FailingServer(
+        ("127.0.0.1", 0),
+        module.ProxyHandler,
+        "https://upstream.invalid",
+        capture_dir,
+        {"name": "connect failure"},
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        response, payload = request(server.server_address[1], "GET", "/v1/models")
+        check(
+            response.status == 502,
+            "a failure building the upstream connection is answered with a 502",
+        )
+        meta = finished_meta(os.path.join(capture_dir, "000001"))
+        check(
+            "ended_at" in meta,
+            "a failure building the upstream connection still stamps ended_at",
+        )
+        check(
+            meta.get("error", "").startswith("SSLError"),
+            "a failure building the upstream connection is recorded as the error",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":
