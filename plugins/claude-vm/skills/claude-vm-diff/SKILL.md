@@ -27,16 +27,8 @@ $CLAUDE_VM_RUNS_DIR/<runid>/run.meta
 `copy_back`. The run directory persists after the guest exits (clone
 mode) precisely so this skill can find it. `repo_src` is what tells this
 repo's runs apart from every other repo's.
-`bin/claude-vm-cleanup` reaps a run once its launcher has exited,
-normally or not. It stops each of the run's vfkit, gvproxy and proxy
-processes that is still running under the pid and start time
-`run.meta` records for it, and removes the run's gvproxy socket dir (a
-`claude-vm-sock.*` dir), its `creds/` dir (the OAuth credential and
-identity seed), any raw Keychain blob (`.keychain-blob.raw.json`) and
-its `guest-clone.raw`. It removes nothing else: it keeps the run dir,
-`worktree/`, `run.meta` and `run.lock` included, so the run is still
-found after a reap, and the run's log dir,
-`$CLAUDE_VM_STATE_DIR/logs/<runid>/`.
+`bin/claude-vm-cleanup` never removes a run's `worktree/` or
+`run.meta`, so a run it has reaped is still found.
 
 Resolve the runs root through the plugin's own config library rather
 than spelling the path:

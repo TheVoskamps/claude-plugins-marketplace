@@ -819,9 +819,11 @@ EFISTORE="$RUN/efistore"
 # boots the CLONE. N concurrent sessions then cost one base image plus each
 # session's own written blocks -- no cross-session leakage, no multi-writer
 # corruption on a shared ext4 image. The clone is discarded by cleanup() on a
-# CLEAN exit and RETAINED on an abnormal exit (nonzero vfkit status / signal)
-# for forensics. Set here (empty) so cleanup()'s guard is well-defined even if
-# a signal fires before the clone is created just above the vfkit launch.
+# CLEAN exit. On an abnormal exit (nonzero vfkit status / signal, or a launcher
+# that never reached cleanup()) it is retained for forensics only until
+# bin/claude-vm-cleanup reaps the dead run and removes it. Set here, before the
+# clone exists, so cleanup()'s guard is well-defined even if a signal fires
+# before the clone is created just above the vfkit launch.
 GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
 # The credential lives in its OWN dir, NOT in CONFIG_DIR: CONFIG_DIR is
 # shared into the guest under mountTag=runconfig, and the secret-bearing
@@ -2108,8 +2110,9 @@ cleanup() {
   # Per-run image clone lifecycle (issue #179). On a CLEAN exit, discard the
   # clone -- it is throwaway and reclaiming its written blocks is the whole
   # point of the immutable-base design. On an ABNORMAL exit (nonzero vfkit
-  # status or a signal), RETAIN it for forensics and print its path, so a torn
-  # or corrupted session's on-disk state can be inspected. Guarded on
+  # status or a signal), RETAIN it and print its path, so a torn or corrupted
+  # session's on-disk state can be inspected until bin/claude-vm-cleanup reaps
+  # the run and removes the clone. Guarded on
   # CLONE_CREATED so an early-trap fire (before the clone is materialized) is a
   # no-op. The immutable BASE image ($GUEST_IMAGE) is never touched here either
   # way -- only the per-run clone.
