@@ -35,7 +35,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
-                [--tokens <n>] [--tools <n>] [--ms <n>]
+                [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
 EOF
 }
 
@@ -54,11 +54,12 @@ agent_id=
 tokens=
 tools=
 ms=
+from=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms)
+    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -87,6 +88,7 @@ while [ "$#" -gt 0 ]; do
     --tokens)     tokens=$value ;;
     --tools)      tools=$value ;;
     --ms)         ms=$value ;;
+    --from)       from=$value ;;
   esac
 done
 
@@ -191,6 +193,17 @@ if [ "$mode" = anchor ]; then
   single_token head-sha "$head_sha"
 fi
 
+# --from names the file a writing mode reads its payload from in place
+# of stdin. A mode that reads no payload refuses it rather than ignore a
+# file the caller expected to be stored.
+if [ -n "$from" ]; then
+  case "$mode" in
+    leave|records|review) ;;
+    *) die "--from is not accepted in --mode $mode: $from" ;;
+  esac
+  [ -f "$from" ] || die "--from names no file: $from"
+fi
+
 for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
   name=${pair%%:*}
   given=${pair#*:}
@@ -245,20 +258,29 @@ transcript_path() {
   printf '%s\n' "$HOME/.claude/projects/$project/$session/subagents/agent-$(this_agent_id).jsonl"
 }
 
-# A file arriving on stdin lands in a staging name and is renamed into
-# place only once it is whole, because a stored file's mere existence is
-# what a reader takes as settled: a file streamed straight to its own
-# name would read as complete the moment the first byte landed, and a
-# writer killed mid-write would leave that fragment there for good. The
-# -$$ suffix is what keeps two writers from staging over each other.
-store_from_stdin() {
+# A payload, read from the --from file when one is named and from stdin
+# otherwise, lands in a staging name and is renamed into place only once
+# it is whole, because a stored file's mere existence is what a reader
+# takes as settled: a file streamed straight to its own name would read
+# as complete the moment the first byte landed, and a writer killed
+# mid-write would leave that fragment there for good. The -$$ suffix is
+# what keeps two writers from staging over each other.
+store_payload() {
   target=$1
   noun=$2
   staged="$target.partial-$$"
-  cat > "$staged"
-  if [ ! -s "$staged" ]; then
-    rm -f -- "$staged"
-    die "--mode $mode takes the $noun on stdin, and nothing arrived"
+  if [ -n "$from" ]; then
+    cat -- "$from" > "$staged"
+    if [ ! -s "$staged" ]; then
+      rm -f -- "$staged"
+      die "--mode $mode takes the $noun from --from, and $from is empty"
+    fi
+  else
+    cat > "$staged"
+    if [ ! -s "$staged" ]; then
+      rm -f -- "$staged"
+      die "--mode $mode takes the $noun on stdin, and nothing arrived"
+    fi
   fi
   mv -- "$staged" "$target"
 }
@@ -311,7 +333,7 @@ case "$mode" in
     # The report is written before the record that names it, so a run
     # that dies between the two leaves the report readable rather than a
     # record pointing at nothing.
-    store_from_stdin "$result_file" report
+    store_payload "$result_file" report
     printf 'leave %s %s %s %s %s\n' \
       "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
     ;;
@@ -338,10 +360,10 @@ case "$mode" in
     done
     ;;
   records)
-    store_from_stdin "$records_file" records
+    store_payload "$records_file" records
     ;;
   review)
-    store_from_stdin "$review_file" review
+    store_payload "$review_file" review
     ;;
   print-records)
     # The caller names no round: the records to carry forward are the

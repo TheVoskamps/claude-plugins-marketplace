@@ -1580,16 +1580,16 @@ step from here to the posted review is mechanical.
 Store the round's own output under XDG state **before** you post
 anything, so a run that dies between the two leaves the round readable
 rather than announced. Stage each file with `Write` under
-`.claude/tmp/<task-slug>/` and hand it to the script on stdin:
+`.claude/tmp/<task-slug>/` and hand it to the script with `--from`:
 
 ```bash
 sdlc-agent-result-persist --mode records \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
-  < .claude/tmp/<task-slug>/records.md
+  --from .claude/tmp/<task-slug>/records.md
 
 sdlc-agent-result-persist --mode review \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
-  < .claude/tmp/<task-slug>/review.md
+  --from .claude/tmp/<task-slug>/review.md
 ```
 
 The records file carries every recorded theorem, in id order, retired

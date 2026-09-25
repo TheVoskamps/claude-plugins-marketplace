@@ -47,9 +47,10 @@ Scratch work goes under `.claude/tmp/<task-slug>/`.
 
 The two `sdlc-agent-result-persist` calls the workflow below opens and
 closes with are not an exception: both go **outside every repository**,
-through a script you run with Bash rather than a file tool. On the
-issues-only brief neither call is made — every path that script
-composes is keyed on a PR, and there is none yet.
+through a script you run with Bash, and so does the file step 6 stages
+its list in with the Write tool — the session scratchpad, never a path
+in a repository. On the issues-only brief neither call is made — every
+path that script composes is keyed on a PR, and there is none yet.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -159,22 +160,32 @@ given, and step 7.
    identical tree, and leaves nothing to release when you return.
 
 6. **Write the theorem list to your result file**, as your final act
-   before reporting. The whole list goes in, byte for byte, on stdin —
-   the quoted heredoc is what keeps a backtick or a `$` in a claim from
-   reaching the shell:
+   before reporting. First write the whole list with the Write tool to
+
+   ```text
+   <session-scratchpad>/generate-list-<agent>-report.md
+   ```
+
+   where `<session-scratchpad>` is the scratchpad directory the harness
+   names in your environment and `<agent>` is your own definition's
+   name. If Write refuses because the file already exists — an earlier
+   round's list — Read it, then Write again. Then hand that file to the
+   script with `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
      --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem list --stage generate \
-     --agent <your own definition's name> <<'LIST'
-   T1
-   claim: …
-   LIST
+     --agent <agent> \
+     --from <session-scratchpad>/generate-list-<agent>-report.md
    ```
 
-   The `--agent` value is the definition name your own agent body
-   states as a literal.
+   The `<agent>` value is the definition name your own agent body
+   states as a literal. The list never travels on the command line, in
+   a heredoc or otherwise; the preloaded
+   `sdlc:agent-result-persist-interface` skill → "The payload:
+   `--from <path>`, or stdin" says why, and why the file name carries
+   the stage, the theorem column and the agent.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness
