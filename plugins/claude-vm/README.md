@@ -131,6 +131,21 @@ onto your local source by default. Set `repo.copy_back: none` to keep
 that manual, and use `/claude-vm-diff`, `/claude-vm-apply-local` and
 `/claude-vm-apply-remote` to inspect and extract the run's work.
 
+Every run's directory — its worktree, guest-image clone and `run.meta`
+— lives under one host-wide runs root, `runs/` under the state root
+(`~/.local/state/claude-vm/` unless `XDG_STATE_HOME` or
+`CLAUDE_VM_RUNS_DIR` says otherwise), never inside your repo; the run's
+logs and egress capture sit beside it under `logs/<run-id>/`. A run
+whose launcher exited keeps its clone on disk until reaped: a normal
+exit discards it, but a launcher killed outright (`kill -9`, a crash, a
+closed terminal) leaves it, and its VM is stopped by a watcher the
+launcher left behind. Run `claude-vm-cleanup`, a second command on the
+same PATH, to reap every such run across all your repos at once: it
+stops any of the run's processes still running, removes the clone and
+credential files, and keeps the worktree so the companion skills still
+find the run. It tells a live run from a dead one by a lock the kernel
+releases on the launcher's death, so it never touches a running VM.
+
 ## Limits
 
 - macOS hosts only.
