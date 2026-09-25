@@ -57,10 +57,12 @@ turned into one `-` and a leading or trailing `-` dropped, so
   proxy.log           the proxy's own diagnostics and access log
   000001/             one directory per request, numbered in arrival order
     request.json      method, path, headers, started_at, ended_at, status;
-                      error when forwarding or relaying the request failed
+                      error when the proxy answered the request itself or
+                      relaying upstream's response failed
     request.body      the request body as received
-    response.headers.json   status, reason, and headers from upstream
-    response.body     the response body as forwarded
+    response.headers.json   status, reason, and headers: upstream's, or
+                            the proxy's own when it answered itself
+    response.body     the response body as sent to the client
   000002/
   ...
 ```
@@ -96,9 +98,18 @@ Say these plainly, because each one surprises a first reader:
   sharing or analysing it, and never edit the original.
 - **A `request.json` without `ended_at`** belongs to a request that was
   still in flight when the proxy stopped.
-- **A 502 may be the proxy's own.** When forwarding fails before
-  upstream answers, the proxy answers `502 Bad Gateway` itself:
-  `request.json` then carries an `error`, and `response.body` opens with
-  `ch-proxy: upstream request failed:`, or is empty for a `HEAD`. An
-  upstream 502 has upstream's body, and an `error` only when relaying it
-  failed part-way.
+- **A 502 or a 400 may be the proxy's own.** The proxy answers two
+  failures itself. When forwarding fails before upstream answers, it
+  answers `502 Bad Gateway`. When a request's `Content-Length` is not
+  decimal digits, or one of its chunk sizes is not hex digits, it answers
+  `400 Bad Request` with `Connection: close` and never forwards the
+  request. Either way `request.json` carries an `error`,
+  `response.headers.json` holds the proxy's own headers rather than
+  upstream's, and `response.body` opens with
+  `ch-proxy: upstream request failed:` for a 502 or
+  `ch-proxy: malformed request:` for a 400, or is empty for a `HEAD`.
+  A 400's `request.body` holds only what was read before the framing
+  broke: nothing after a bad `Content-Length`, and for a chunked body
+  everything up to and including the bad size line. An upstream 502 or
+  400 has upstream's headers and body, and an `error` only when relaying
+  it failed part-way.
