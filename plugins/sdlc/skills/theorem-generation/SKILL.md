@@ -163,21 +163,21 @@ given, and step 7.
    before reporting. First write the whole list with the Write tool to
 
    ```text
-   <session-scratchpad>/generate-list-<agent>-report.md
+   <session-scratchpad>/pr<PR>-generate-list-<agent>-report.md
    ```
 
    where `<session-scratchpad>` is the scratchpad directory the harness
-   names in your environment and `<agent>` is your own definition's
-   name. If Write refuses because the file already exists — an earlier
-   round's list — Read it, then Write again. Then hand that file to the
-   script with `--from`:
+   names in your environment, `<PR>` is your brief's `--pr`, and
+   `<agent>` is your own definition's name. If Write refuses because
+   the file already exists — an earlier round's list — Read it, then
+   Write again. Then hand that file to the script with `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
      --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem list --stage generate \
      --agent <agent> \
-     --from <session-scratchpad>/generate-list-<agent>-report.md
+     --from <session-scratchpad>/pr<PR>-generate-list-<agent>-report.md
    ```
 
    The `<agent>` value is the definition name your own agent body
@@ -185,7 +185,7 @@ given, and step 7.
    a heredoc or otherwise; the preloaded
    `sdlc:agent-result-persist-interface` skill → "The payload:
    `--from <path>`, or stdin" says why, and why the file name carries
-   the stage, the theorem column and the agent.
+   the PR, the stage, the theorem column and the agent.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness

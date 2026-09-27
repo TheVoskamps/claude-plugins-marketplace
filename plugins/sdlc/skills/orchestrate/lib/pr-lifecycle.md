@@ -30,19 +30,24 @@ Once the PR is linked, and before `code-documenter` and the first
 reviewer spawn, write the ruled seed as round 0 — the PR number now
 exists to key the path on. Resolve `--owner` and `--repo`
 with `gh repo view --json owner,name --jq '.owner.login + " " +
-.name'`, and pass the file on stdin through a quoted heredoc, which is
-what keeps a backtick or a `$` in a claim from reaching the shell:
+.name'`. Write the file with the Write tool to
+
+```text
+<session-scratchpad>/pr<PR_N>-round0-records.md
+```
+
+where `<session-scratchpad>` is the scratchpad directory the harness
+names in your environment, then hand it to the script with `--from`:
 
 ```bash
 sdlc-agent-result-persist --mode records \
-  --owner <owner> --repo <repo> --pr <PR_N> --round 0 <<'RECORDS'
-T1
-claim: …
-issues: …
-settle-mode: …
-pointers: …
-RECORDS
+  --owner <owner> --repo <repo> --pr <PR_N> --round 0 \
+  --from <session-scratchpad>/pr<PR_N>-round0-records.md
 ```
+
+The records never travel on the command line, in a heredoc or
+otherwise; the `sdlc:agent-result-persist-interface` skill → "The
+payload: `--from <path>`, or stdin" says why.
 
 The file holds every candidate the generator emitted, in id order, in
 the record shape `sdlc:theorem-based-pr-reviewer` owns, with the

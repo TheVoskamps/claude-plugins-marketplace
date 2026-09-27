@@ -203,27 +203,28 @@ calls in a subagent context.
    reporting. First write the whole report with the Write tool to
 
    ```text
-   <session-scratchpad>/verify-<theorem>-counterexample-verifier-report.md
+   <session-scratchpad>/pr<PR>-verify-<theorem>-counterexample-verifier-report.md
    ```
 
    where `<session-scratchpad>` is the scratchpad directory the harness
-   names in your environment and `<theorem>` is your brief's
-   `--theorem`. If Write refuses because the file already exists — an
-   earlier round's report for the same theorem — Read it, then Write
-   again. Then hand that file to the script with `--from`:
+   names in your environment, and `<PR>` and `<theorem>` are your
+   brief's `--pr` and `--theorem`. If Write refuses because the file
+   already exists — an earlier round's report for the same theorem —
+   Read it, then Write again. Then hand that file to the script with
+   `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
      --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage verify \
      --agent counterexample-verifier \
-     --from <session-scratchpad>/verify-<theorem>-counterexample-verifier-report.md
+     --from <session-scratchpad>/pr<PR>-verify-<theorem>-counterexample-verifier-report.md
    ```
 
    The report never travels on the command line, in a heredoc or
    otherwise; the preloaded `sdlc:agent-result-persist-interface`
    skill → "The payload: `--from <path>`, or stdin" says why, and why
-   the file name carries the stage, the theorem and the agent.
+   the file name carries the PR, the stage, the theorem and the agent.
 
    Every value comes straight from your brief except `--stage verify`
    and `--agent counterexample-verifier`, which are what you are and

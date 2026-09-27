@@ -68,11 +68,14 @@ sees the file's bytes on the persist call.
 
 A child stages its `leave` payload in the session scratchpad the
 harness names in its environment, at
-`<session-scratchpad>/<stage>-<theorem>-<agent>-report.md`, filling in
-the `--stage`, `--theorem` and `--agent` values of its own `leave`
-call. Every child in a fan-out shares that one scratchpad, so a name
-missing any of the three would let two concurrent children stage over
-each other's reports.
+`<session-scratchpad>/pr<pr>-<stage>-<theorem>-<agent>-report.md`,
+filling in the `--pr`, `--stage`, `--theorem` and `--agent` values of
+its own `leave` call, `pr<pr>` spelled as the state directory spells
+it. Every child in a fan-out shares that one scratchpad, so a name
+missing the stage, the theorem or the agent would let two concurrent
+children stage over each other's reports; and theorem ids restart at
+`T1` on every PR, so a name missing the PR would let two PRs' fan-outs
+in one session do the same.
 
 - A `--from` path that is not an existing file is refused, non-zero,
   with a message naming the path, before anything is written.
