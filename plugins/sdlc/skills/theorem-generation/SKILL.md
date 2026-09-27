@@ -132,7 +132,7 @@ given, and step 7.
    once per member of `--issues`. Read them yourself rather than
    relying on any summary in your brief — each issue's own text,
    especially its acceptance criteria, is the yardstick.
-4. **Read the PR body** (`gh pr view <PR> --json body`).
+4. **Read the PR body** (`/github-prs:pr-view <PR> --json body`).
 5. **Check out the branch's head commit and read the surrounding
    codebase.**
 

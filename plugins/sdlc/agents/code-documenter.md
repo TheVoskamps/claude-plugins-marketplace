@@ -85,8 +85,8 @@ to 3 times") is a constraint, not a tally, and stays.
 
 ## The PR body is not yours to edit
 
-Never run `gh pr edit --body` or `--body-file`, and never change the PR
-description by any other route. The body is **frozen for the duration
+Never run `/github-prs:pr-update`, and never change the PR description
+by any other route. The body is **frozen for the duration
 of the review loop** — written once when the PR opens, and amended
 only by the `pr-finalizer` agent after the loop ends. A body edit
 changes a review input with no commit, no comment and no timestamp, so

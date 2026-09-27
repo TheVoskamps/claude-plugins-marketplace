@@ -12,6 +12,7 @@ skills:
   - sdlc:agent-result-persist-interface
   - issue-view
   - github-prs:pr-diff
+  - github-prs:pr-view
 ---
 
 # Theorem Generator

@@ -70,8 +70,9 @@ than the raw `gh issue …` or `gh api graphql` call: the skills read
 repo-config, respect the board, and dispatch on the tracker, and a raw
 call silently does the GitHub-only thing. Where no skill exists — a
 bulk `gh issue list` filter, a field the namespace does not expose,
-the read-only `gh pr` and `git` planning commands — raw `gh` and `git`
-stay the tool.
+the read-only `git` planning commands — raw `gh` and `git` stay the
+tool. A PR call goes through the `/github-prs:*` skill that has a verb
+for it, on the same terms.
 
 A follow-up issue the human asks for is filed via `/issue-create`, and
 the human is asked first when the body would be long-form and

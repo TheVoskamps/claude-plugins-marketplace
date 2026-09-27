@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# pr-merge-conflicts -- enumerate a pull request's merge conflicts with
+# its base: trial-merge the base into the PR's head in a throwaway
+# detached worktree under .claude/worktrees/, report the conflicting
+# files and each one's hunks, then abort the merge and remove the
+# worktree whatever happened. Resolves, commits and pushes nothing, and
+# leaves the primary clone's working tree as it found it.
+#
+# The contract is plugins/github-prs/skills/pr-merge-conflicts/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR>"
+}
+
+[ "$#" -eq 1 ] || gp_usage_error "Pass exactly one PR number."
+pr=$(gp_pr_number "$1") || exit $?
+
+refs=$(gp_gh pr view "$pr" --json headRefName,baseRefName \
+  --jq '"\(.headRefName) \(.baseRefName)"') || exit $?
+head_ref=${refs% *}
+base_ref=${refs#* }
+
+root=$(git rev-parse --show-toplevel) || gp_fail 3 "not inside a git repository"
+tree="$root/.claude/worktrees/pr-merge-conflicts-$pr"
+
+git fetch -q origin "$base_ref" "$head_ref" ||
+  gp_fail 3 "git fetch origin $base_ref $head_ref failed"
+
+# A path left behind holds an interrupted run's merge in progress, which
+# nothing else clears, and `worktree add` refuses an existing path. A
+# registration whose directory is gone makes the add refuse too, and
+# only `prune` drops it.
+if [ -e "$tree" ]; then
+  git -C "$tree" merge --abort >/dev/null 2>&1 || true
+  git worktree remove --force "$tree" ||
+    gp_fail 3 "git worktree remove of the leftover $tree failed"
+fi
+git worktree prune || gp_fail 3 "git worktree prune failed"
+
+git worktree add -q --detach "$tree" "origin/$head_ref" ||
+  gp_fail 3 "git worktree add at origin/$head_ref failed"
+
+cleanup() {
+  # No merge in progress -- a head already up to date with the base --
+  # makes the abort fail, which is not a failure here.
+  git -C "$tree" merge --abort >/dev/null 2>&1 || true
+  git worktree remove --force "$tree" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "PR #$pr: head $head_ref, base $base_ref"
+
+if git -C "$tree" -c user.name=pr-merge-conflicts -c user.email=pr-merge-conflicts@localhost \
+  merge -q --no-commit --no-ff "origin/$base_ref" >/dev/null 2>&1; then
+  echo "The trial merge is clean: no conflicts with origin/$base_ref."
+  exit 0
+fi
+
+files=$(git -C "$tree" diff --name-only --diff-filter=U) ||
+  gp_fail 3 "git diff could not list the conflicted files"
+if [ -z "$files" ]; then
+  gp_fail 3 "the trial merge of origin/$base_ref failed without leaving a conflicted file"
+fi
+
+echo "Conflicting files:"
+printf '%s\n' "$files" | sed 's/^/  /'
+printf '%s\n' "$files" | while IFS= read -r file; do
+  echo
+  echo "=== $file"
+  git -C "$tree" diff -- "$file"
+done

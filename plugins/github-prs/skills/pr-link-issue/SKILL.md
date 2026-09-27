@@ -63,11 +63,10 @@ reads no config of its own.
 
 ## Execution
 
-1. **Resolve the set of issues to ensure.** Fetch the PR's head branch
-   and body:
+1. **Resolve the set of issues to ensure.** Fetch the PR's head branch:
 
-   ```bash
-   gh pr view <PR> --json number,headRefName,body
+   ```text
+   /github-prs:pr-view <PR> --json headRefName --jq .headRefName
    ```
 
    Invoke `/git-tools:git-issues-from-branch <headRefName>
@@ -92,21 +91,28 @@ reads no config of its own.
    - **Every member already linked** → no-op. Report `PR #<PR> already
      closes <issues>` and stop. Do not append a duplicate keyword.
 
-3. **Append the missing ones.** Append one `Closes #<issue>` line for
-   each member step 2 found missing — and only those — to the existing
-   PR body (preserve the current body; add the lines separated from it
-   by a blank line) and write it back:
+3. **Append the missing ones** with the bundled script, spelled as a
+   bare name, passing each member step 2 found missing — and only
+   those:
 
    ```bash
-   gh pr edit <PR> --body "<existing-body>
-
-   Closes #<issueA>
-   Closes #<issueB>"
+   pr-link-issue <PR> <issueA> <issueB>
    ```
 
-   Preserve the existing body verbatim; only add the missing closing
-   lines. Never add a closing keyword aimed at an issue outside the
+   The script keeps the existing body verbatim, appends one
+   `Closes #<issue>` line per issue after a blank line, writes the body
+   back, and re-reads it. It appends every issue it is given, so what
+   it is given decides what it writes: never pass an issue outside the
    branch's set, and never write the keyword into a commit message.
+
+   | Exit | Meaning |
+   | --- | --- |
+   | 0 | the lines landed; stdout names the lines appended |
+   | 1 | the re-read body is not the body written; stderr says so |
+   | 2 | a usage error; the body is untouched |
+   | 3 | a `gh` call failed; gh's own error is on stderr above the script's line |
+
+   On any non-zero exit, surface stderr verbatim in the report-back.
 
 4. Report back a single line: which members were already linked and
    which had a `Closes #<issue>` line appended, naming `<PR>`, plus

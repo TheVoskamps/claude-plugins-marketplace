@@ -592,8 +592,11 @@ or a session — the PR and the round's own state re-derive it, with `C`
 the current review count and `--owner`/`--repo` resolved as "Reading a
 round's detail" below shows:
 
+```text
+/github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
+```
+
 ```bash
-gh pr view <PR> --json reviews --jq '.reviews | length'
 sdlc-agent-result-persist --mode print \
   --owner <owner> --repo <repo> --pr <PR_N> --round <C+1>
 ```
@@ -616,7 +619,7 @@ You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
 the review is **posted** on the PR, so whether it says what the
-reviewer reported back is one `gh pr view` away: verify before a cap
+reviewer reported back is one `/github-prs:pr-view` away: verify before a cap
 escalation or a Final Report hand-off rests on it. An empty-delta round's
 verdicts are carried forward from the previous round rather than
 freshly checked, and the reviewer says which kind of round it ran.
@@ -1037,7 +1040,7 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
   once on this PR. The roster at the top names the owner of each kind:
   you never use `Edit` or `NotebookEdit`, and `Write` for one file
   only, named below; never author a review finding, a severity or a
-  review body, or run `gh pr review` in any spelling; never run
+  review body, or post a review by any route; never run
   `git rebase` or `git merge` or hand-edit conflict markers in the
   primary clone; and never delete, transfer or rewrite a captured
   memory entry. Doing any of it to save a spawn is not a saving — see
@@ -1072,8 +1075,9 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
 
 What you do yourself is orchestration mechanics:
 
-- **Read freely** — `gh pr view`, `gh pr diff`, `git log`, `git diff`,
-  file reads. Reading is planning, and what it turns up stays yours.
+- **Read freely** — `/github-prs:pr-view`, `/github-prs:pr-diff`,
+  `git log`, `git diff`, file reads. Reading is planning, and what it
+  turns up stays yours.
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
   long-lived branches the primary clone tracks, the post-merge tail's
   checkout of the default branch and `git remote prune`, and

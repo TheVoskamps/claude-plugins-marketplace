@@ -66,13 +66,16 @@ with `fatal: bad revision` — cannot occur.
    issue can be closed without its PR ever merging, and an unmerged
    branch may still hold work that hasn't landed on the default branch.
 
+   ```text
+   /github-prs:pr-list --head <branch> --state merged
+   ```
+
    ```bash
-   gh pr list --state merged --head <branch> --json number,mergedAt
    git ls-remote --exit-code origin <branch>   # exit 2 = branch is gone
    ```
 
    Both conditions must be true:
-   - `gh pr list` returns a non-empty result for a merged PR on this branch
+   - `/github-prs:pr-list` returns a non-empty array — a merged PR on this branch
    - `git ls-remote --exit-code origin <branch>` exits 2 (branch absent on origin)
 
    A branch with no merged PR (e.g. a local-only branch you never
@@ -82,8 +85,8 @@ with `fatal: bad revision` — cannot occur.
    ignoring merged branches that don't happen to start with
    `issue-`.
 
-   **Note on the name-based PR match.** `gh pr list --head <branch>`
-   matches by branch *name*, not by SHA. Edge case: a branch was deleted,
+   **Note on the name-based PR match.** `/github-prs:pr-list --head
+   <branch>` matches by branch *name*, not by SHA. Edge case: a branch was deleted,
    then later recreated with the same name and a different commit lineage,
    and that new instance has its own merged PR. The name-based gate would
    pass even though the local SHA points at the *first* (now-gone) remote

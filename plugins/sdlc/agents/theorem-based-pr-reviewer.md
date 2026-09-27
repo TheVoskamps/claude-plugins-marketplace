@@ -8,6 +8,7 @@ isolation: worktree
 skills:
   - github-prs:pr-closing-issues
   - github-prs:pr-review-submit
+  - github-prs:pr-view
   - git-tools:git-issues-from-branch
   - sdlc:agent-result-persist-interface
   - sdlc:documentation-definition
@@ -159,7 +160,10 @@ again on every resume** rather than trusting a remembered one:
 
 ```bash
 gh repo view --json owner,name --jq '.owner.login + " " + .name'
-gh pr view <PR> --json reviews --jq '.reviews | length'
+```
+
+```text
+/github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
 ```
 
 The first gives `--owner` and `--repo`; `--pr` is the PR under review;
@@ -365,7 +369,7 @@ worktree and returns a theorem list; each disprover reads only the
 region its own theorem points at, and each verifier only the region
 the counterexample it was handed points at. What reaches you is the
 theorem list, the per-theorem verdicts, the verification verdicts, and
-the change counts you read from `gh pr view`. That is deliberate: your
+the change counts you read from `/github-prs:pr-view`. That is deliberate: your
 job here is routing and derivation, and a diff in context would tempt
 you into re-reviewing by hand — an opinion nothing asked for.
 
@@ -456,8 +460,8 @@ quotes that name, so inserting a section renames nothing.
 
 ### Read the PR's shape
 
-```bash
-gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
+```text
+/github-prs:pr-view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
 ```
 
 Then read the paths the diff touches, with `<owner>` and `<repo>`
@@ -470,9 +474,10 @@ gh api graphql --paginate -F owner=<owner> -F repo=<repo> -F pr=<PR> \
 ```
 
 `--paginate` follows `endCursor` until `hasNextPage` is false, so the
-list is complete however many files the PR changes — `gh pr view
---json files` stops at the first 100. "Documentation is outside the
-review" reads this list; it is a path list, not the diff.
+list is complete however many files the PR changes — the `files` field
+`/github-prs:pr-view` can ask for stops at the first 100.
+"Documentation is outside the review" reads this list; it is a path
+list, not the diff.
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed "Identify the issue
@@ -580,9 +585,8 @@ nothing else — it is what cuts the adjustment comments. During the
 orchestrate loop that review is always one of yours; the human's own
 review lands only after the loop terminates.
 
-```bash
-gh pr view <PR> --json reviews \
-  --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
+```text
+/github-prs:pr-view <PR> --json reviews --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
 ```
 
 A round's inputs are **append-only** channels, each carrying a
@@ -638,7 +642,10 @@ PR's `createdAt`:
 ```bash
 git fetch origin
 git merge-base <headRefOid> origin/<baseRefName>
-gh pr view <PR> --json createdAt --jq .createdAt
+```
+
+```text
+/github-prs:pr-view <PR> --json createdAt --jq .createdAt
 ```
 
 The rest of this section reads unchanged with those two values in
@@ -708,9 +715,8 @@ instruction**, and a finding the orchestrator dropped on its own scope
 ruling travels in the same comment. Read the comments posted since the
 previous review:
 
-```bash
-gh pr view <PR> --json comments \
-  --jq '.comments[] | select(.createdAt > "<prev-review-submittedAt>")'
+```text
+/github-prs:pr-view <PR> --json comments --jq '.comments[] | select(.createdAt > "<prev-review-submittedAt>")'
 ```
 
 When the PR carries **no** review to take a `submittedAt` from — one was

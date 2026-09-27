@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+#
+# pr-ready-to-merge -- report an open pull request's merge readiness:
+# mergeable and mergeStateStatus with GitHub's meaning, the review
+# decision, and the status checks still running or not green. Retries
+# while GitHub is still computing the merge commit. Read-only.
+#
+# The contract is plugins/github-prs/skills/pr-ready-to-merge/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR>"
+}
+
+[ "$#" -eq 1 ] || gp_usage_error "Pass exactly one PR number."
+pr=$(gp_pr_number "$1") || exit $?
+
+# One read yields a header line -- state, mergeable, mergeStateStatus,
+# reviewDecision -- then one line per status check that is running (R)
+# or not green (N). A CheckRun carries status and conclusion, a
+# StatusContext carries state.
+read_pr() {
+  gp_gh pr view "$pr" \
+    --json number,state,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup \
+    --jq '
+      ([.state, .mergeable, .mergeStateStatus,
+        (if (.reviewDecision // "") == "" then "(none)" else .reviewDecision end)]
+       | join(" ")),
+      ((.statusCheckRollup // [])[] |
+        if .__typename == "StatusContext" then
+          if .state == "PENDING" or .state == "EXPECTED" then "R \(.context): state \(.state)"
+          elif .state == "SUCCESS" then empty
+          else "N \(.context): state \(.state)" end
+        else
+          if .status != "COMPLETED" then "R \(.name): status \(.status)"
+          elif .conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL" then empty
+          else "N \(.name): status \(.status), conclusion \(.conclusion)" end
+        end)'
+}
+
+attempt=1
+waits="10 30"
+while :; do
+  report=$(read_pr) || exit $?
+  # shellcheck disable=SC2046 # the header is four space-separated enum words
+  set -- $(printf '%s\n' "$report" | head -n 1)
+  pr_state=$1 mergeable=$2 merge_state=$3 review=$4
+
+  if [ "$pr_state" != OPEN ]; then
+    gp_fail 1 "PR #$pr is $pr_state, not open. Merge readiness is only computed for an open PR."
+  fi
+  [ "$mergeable" = UNKNOWN ] || break
+  [ -n "$waits" ] || break
+
+  delay=${waits%% *}
+  attempt=$((attempt + 1))
+  echo "PR #$pr: merge state still computing, attempt $attempt of 3 — waiting $delay s."
+  sleep "$delay"
+  case "$waits" in
+    *' '*) waits=${waits#* } ;;
+    *) waits= ;;
+  esac
+done
+
+case "$merge_state" in
+  CLEAN) meaning=' — mergeable' ;;
+  UNSTABLE) meaning=' — mergeable; non-required checks failing' ;;
+  HAS_HOOKS) meaning=' — mergeable; a pre-receive hook is pending' ;;
+  BEHIND) meaning=' — the branch is behind its base' ;;
+  DIRTY) meaning=' — the branch has merge conflicts with its base' ;;
+  BLOCKED) meaning=' — required checks or reviews are not satisfied' ;;
+  DRAFT) meaning=' — the PR is a draft' ;;
+  UNKNOWN) meaning=' — still computing after the whole retry schedule' ;;
+  *) meaning= ;;
+esac
+
+check_list() {
+  local lines
+  lines=$(printf '%s\n' "$report" | sed -n "s/^$1 /  /p")
+  if [ -n "$lines" ]; then
+    printf '%s\n%s\n' "$2:" "$lines"
+  else
+    printf '%s none\n' "$2:"
+  fi
+}
+
+echo "PR #$pr: mergeable $mergeable, mergeStateStatus $merge_state$meaning"
+echo "reviewDecision: $review"
+check_list R "checks running"
+check_list N "checks not green"
+
+[ "$mergeable" != UNKNOWN ] || exit 1

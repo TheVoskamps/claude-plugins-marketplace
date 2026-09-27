@@ -7,6 +7,7 @@ effort: medium
 skills:
   - github-prs:pr-ready-to-merge
   - github-prs:pr-merge-conflicts
+  - github-prs:pr-comment
 ---
 
 # PR Merge Readiness
@@ -189,10 +190,10 @@ brief is the only route by which a ruling reaches the fixer, and a
 `BEHIND` or a `DIRTY` whose fixer escalated comes back with one, so a
 brief that dropped it on any state would send the fixer back to the
 same question. Write the body to a file under
-`.claude/tmp/<task-slug>/` and post it with `gh pr comment <PR>
---body-file <path>`: the report quotes check names and hunks, and a
-body spelled into `--body "…"` is read by the shell, backtick and `$`
-alike.
+`.claude/tmp/<task-slug>/` and post it with `/github-prs:pr-comment
+<PR> --body-file <path>`: the report quotes check names and hunks, and
+a body spelled inline on a command line is read by the shell, backtick
+and `$` alike.
 
 Post it, and post nothing else on the PR until the fixer has run:
 `issue-fixer` reads the PR's **most recent** comment and stops if that

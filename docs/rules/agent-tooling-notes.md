@@ -108,7 +108,7 @@ the file form needs no quoting at all: stage the text with `Write`
 under `<repo-root>/.claude/tmp/<task-slug>/` and name the path.
 `sdlc:theorem-based-pr-reviewer` posts every review that way, through
 `/github-prs:pr-review-submit --body-file`, and `sdlc:pr-finalizer`
-posts each detail chunk with `gh pr comment --body-file`.
+posts each detail chunk with `/github-prs:pr-comment --body-file`.
 
 ## `gh pr create` is GraphQL and can fail while REST is healthy
 

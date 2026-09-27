@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# pr-link-issue -- append one `Closes #<issue>` line per issue named to a
+# pull request's body, keeping the existing body verbatim above them,
+# then re-read the body and fail unless it is the one written. Which
+# issues are missing is the pr-link-issue skill's decision, made before
+# this runs; this script appends every issue it is given.
+#
+# The contract is plugins/github-prs/skills/pr-link-issue/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR> <issue>..."
+}
+
+[ "$#" -ge 2 ] || gp_usage_error "Pass a PR number and at least one issue number."
+pr=$(gp_pr_number "$1") || exit $?
+shift
+
+closing=
+for arg in "$@"; do
+  issue=$(gp_issue_number "$arg") || exit $?
+  closing="${closing}Closes #$issue
+"
+done
+closing=${closing%
+}
+
+existing=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
+if [ -n "$existing" ]; then
+  wanted="$existing
+
+$closing"
+else
+  wanted=$closing
+fi
+
+printf '%s\n' "$wanted" | gp_gh pr edit "$pr" --body-file - >/dev/null
+
+landed=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
+[ "$landed" = "$wanted" ] ||
+  gp_not_landed "$pr" "the closing lines" "the re-read body is not the body written"
+
+printf 'PR #%s: appended %s\n' "$pr" "$(printf '%s' "$closing" | tr '\n' ',' | sed 's/,/, /g')"

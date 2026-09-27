@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+#
+# pr-review-submit -- post one review on a pull request carrying both a
+# verdict and a body, the body opening with the verdict word. When the
+# authenticated user is the PR's author, GitHub refuses both verdict
+# flags, so those two post with --comment instead. Then re-read the new
+# review and fail unless it has the expected state and body.
+#
+# The contract is plugins/github-prs/skills/pr-review-submit/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR> --verdict approve|request_changes|comment <body>"
+  echo "       $GP_PROGRAM <PR> --verdict approve|request_changes|comment --body-file <path>"
+}
+
+[ "$#" -ge 1 ] || gp_usage_error "No PR number was supplied."
+pr=$(gp_pr_number "$1") || exit $?
+shift
+
+verdict=
+verdicts_seen=0
+inline_body=
+inline_seen=0
+body_file=
+file_seen=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --verdict)
+      [ "$#" -ge 2 ] || gp_usage_error "\`--verdict\` needs a value."
+      verdicts_seen=$((verdicts_seen + 1))
+      if [ "$verdicts_seen" -eq 2 ]; then
+        gp_usage_error "\`--verdict\` was supplied more than once, as \`$verdict\` and \`$2\`. Pass exactly one of \`approve\`, \`request_changes\`, or \`comment\`."
+      fi
+      verdict=$2
+      shift 2
+      ;;
+    --body-file)
+      [ "$#" -ge 2 ] || gp_usage_error "\`--body-file\` needs a path."
+      file_seen=$((file_seen + 1))
+      body_file=$2
+      shift 2
+      ;;
+    *)
+      inline_seen=$((inline_seen + 1))
+      inline_body=$1
+      shift
+      ;;
+  esac
+done
+
+[ "$verdicts_seen" -gt 0 ] ||
+  gp_usage_error "No \`--verdict\` was supplied. Pass exactly one of \`approve\`, \`request_changes\`, or \`comment\`."
+case "$verdict" in
+  approve) flag=--approve line=APPROVED state=APPROVED ;;
+  request_changes) flag=--request-changes line=CHANGES_REQUESTED state=CHANGES_REQUESTED ;;
+  comment) flag=--comment line=COMMENTED state=COMMENTED ;;
+  *) gp_usage_error "\`$verdict\` is not a verdict. Pass \`approve\`, \`request_changes\`, or \`comment\`." ;;
+esac
+if [ "$inline_seen" -gt 0 ] && [ "$file_seen" -gt 0 ]; then
+  gp_usage_error "Both an inline \`<body>\` and \`--body-file <path>\` were supplied. Pass exactly one."
+fi
+if [ "$inline_seen" -eq 0 ] && [ "$file_seen" -eq 0 ]; then
+  gp_usage_error "No review body was supplied. Pass either an inline \`<body>\` or \`--body-file <path>\`."
+fi
+[ "$inline_seen" -le 1 ] && [ "$file_seen" -le 1 ] ||
+  gp_usage_error "More than one review body was supplied. Pass exactly one."
+
+if [ "$file_seen" -eq 1 ]; then
+  [ -f "$body_file" ] && [ -r "$body_file" ] ||
+    gp_usage_error "\`$body_file\` is not a readable file."
+  text=$(cat "$body_file")
+  form='file'
+else
+  text=$inline_body
+  form='inline'
+fi
+wanted="$line
+
+$text"
+
+me=$(gp_gh api user --jq .login) || exit $?
+author=$(gp_gh pr view "$pr" --json author --jq .author.login) || exit $?
+if [ "$me" = "$author" ]; then
+  flag=--comment
+  state=COMMENTED
+fi
+
+reviews_path=$(gp_repo_path "pulls/$pr/reviews")
+# The id of the newest review $me has left on the PR, or nothing. A
+# login is letters, digits and hyphens, so it is safe inside the filter.
+last_own_review() {
+  gp_gh api --paginate "$reviews_path" \
+    --jq ".[] | select(.user.login == \"$me\") | .id" | tail -n 1
+}
+
+before=$(last_own_review) || exit $?
+printf '%s\n' "$wanted" | gp_gh pr review "$pr" "$flag" --body-file - >/dev/null
+after=$(last_own_review) || exit $?
+
+if [ -z "$after" ] || [ "$after" = "$before" ]; then
+  gp_not_landed "$pr" "the review" "no new review by $me is on the PR"
+fi
+landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
+landed_state=$(printf '%s\n' "$landed" | head -n 1)
+landed_body=$(printf '%s\n' "$landed" | tail -n +2)
+[ "$landed_state" = "$state" ] ||
+  gp_not_landed "$pr" "the review" "review $after has state $landed_state, not $state"
+[ "$landed_body" = "$wanted" ] ||
+  gp_not_landed "$pr" "the review" "review $after's body is not the body written"
+
+printf 'PR #%s: verdict %s, review state %s, body %s\n' \
+  "$pr" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"

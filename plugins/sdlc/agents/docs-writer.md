@@ -9,6 +9,7 @@ memory: project
 skills:
   - issue-view
   - github-prs:pr-diff
+  - github-prs:pr-view
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
 ---
@@ -54,7 +55,7 @@ git checkout <branch-name>
 ## Discovery
 
 1. Read each issue in the set via `/issue-view <N>`.
-2. Read the PR body: `gh pr view <PR_number> --json body -q .body`.
+2. Read the PR body: `/github-prs:pr-view <PR_number> --json body --jq .body`.
 3. Fetch the PR diff via `/github-prs:pr-diff <PR_number>`.
 4. Read the documentation that covers the changed code, and the changed
    code itself where you need it to understand what changed and why.
@@ -91,8 +92,8 @@ drop the enforcement story.
 
 ## The PR body is not yours to edit
 
-Never run `gh pr edit --body` or `--body-file`, and never change the PR
-description by any other route. The body stays frozen until the
+Never run `/github-prs:pr-update`, and never change the PR description
+by any other route. The body stays frozen until the
 `pr-finalizer` agent amends it, after you; your report-back is how a
 body change reaches it.
 

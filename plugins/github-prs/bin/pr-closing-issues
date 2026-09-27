@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# pr-closing-issues -- print the body a pull request carries, which is
+# the text the pr-closing-issues skill applies GitHub's closing-keyword
+# syntax to. Read-only.
+#
+# The contract is plugins/github-prs/skills/pr-closing-issues/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR>"
+}
+
+[ "$#" -eq 1 ] || gp_usage_error "Pass exactly one PR number."
+pr=$(gp_pr_number "$1") || exit $?
+
+gp_gh pr view "$pr" --json body --jq .body

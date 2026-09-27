@@ -58,8 +58,8 @@ has no dry-run form.
 
 3. **Give each PR a verdict** from GitHub:
 
-   ```bash
-   gh pr view <N> --json state --jq .state
+   ```text
+   /github-prs:pr-view <N> --json state --jq .state
    ```
 
    | Answer | Verdict |
