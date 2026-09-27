@@ -312,8 +312,8 @@ then push with `--force-with-lease`:
 
 ```bash
 git add <resolved-paths>
-git commit --no-edit    # lands the stopped commit under its original message
-git rebase --continue   # finds nothing left to commit, so opens no editor
+git commit -C REBASE_HEAD   # lands the stopped commit under its original message and author
+git rebase --continue       # finds nothing left to commit, so opens no editor
 ```
 
 A bare `git rebase --continue` over staged resolutions opens an editor
