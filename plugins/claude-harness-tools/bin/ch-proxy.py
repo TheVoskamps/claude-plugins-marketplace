@@ -16,10 +16,11 @@ stderr and never alters the response the client receives, and an
 upstream response of any status is forwarded as it arrived. When the
 exchange with upstream fails before a response arrives, the proxy
 answers 502 itself, and the response headers and body it records are
-its own rather than upstream's. A request whose Content-Length or chunk
-size is empty or carries anything but digits, or whose chunked body ends
-before the blank line that closes it, is recorded, is answered 400 by
-the proxy the same way, and never reaches upstream.
+its own rather than upstream's. A request whose Content-Length is not
+decimal digits or one of whose chunk sizes is not hex digits, an empty
+one included, or whose chunked body ends before the blank line that
+closes it, is recorded, is answered 400 by the proxy the same way, and
+never reaches upstream.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.
@@ -116,7 +117,7 @@ def _parse_size(text, base):
     `int` alone would also accept a sign, underscores and surrounding
     whitespace, and a length of -1 makes `read` wait for the client to
     hang up. Raises `MalformedRequest` for an empty text or anything but
-    digits.
+    digits of `base`.
     """
     if isinstance(text, bytes):
         text = text.decode("latin-1")
