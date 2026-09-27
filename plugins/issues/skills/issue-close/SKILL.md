@@ -6,136 +6,73 @@ description: Close an issue by number; optionally post a summary comment first. 
 Close one issue, identified by its number. Optionally post a summary
 comment **before** closing it.
 
-See `skills/lib/issue.md` for shared repo-config parsing, tracker
-dispatch, and error wording. This file documents only what is specific
-to `/issue-close`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
-
 ## Invocation
 
 ```text
 /issue-close <issue-number> [--comment "summary"]
 ```
 
-- `<issue-number>` — required. The issue number, with or without the
-  repo's `issue-link-prefix` (`#42` and `42` are both accepted).
-- `--comment "summary"` — optional. If present, post this string as a
-  new comment on the issue **before** closing it. Use shell-style
-  quoting; the value is passed verbatim to the tracker.
+- `<issue-number>` — required. The issue number, with or without a
+  leading `#`.
+- `--comment "summary"` — optional. Posted verbatim as a new comment
+  before the issue is closed.
 
-If `<issue-number>` is missing, prompt the user for it. Do not search
-for "relevant issues" by title or by recent work — this skill closes
+If `<issue-number>` is missing, ask the user for it. Do not search for
+"relevant issues" by title or by recent work — this skill closes
 exactly the issue whose number was passed.
 
-## Repo-config and tracker dispatch
+## Execution
 
-Open with the standard repo-config read and `issues:` switch from
-`skills/lib/issue.md` ("Repo-config parsing" and "Tracker dispatch").
-This skill does **not** read the optional `github-project:` block —
-closing an issue is a pure-issue operation and degrades fine without
-project metadata.
+Run the `issue-close` script, which this plugin puts on `PATH`, with
+the Bash tool from inside the repo's working tree:
 
-## GitHub path (`issues: GitHub`)
+```bash
+issue-close <N> [--comment "<summary>"]
+```
 
-Strip a leading `issue-link-prefix` (`#` for GitHub) from
-`<issue-number>` before invoking `gh`. Use the normalized integer in
-both the `gh` calls below and the report-back. `gh issue close #42`
-is not a valid invocation; `gh issue close 42` is.
+The script posts the comment first and stops without closing when the
+comment fails, so the summary trail is never missing from a closed
+issue. After closing, it re-reads the issue's state and exits non-zero
+unless it reads `CLOSED`. Print its stdout as it stands. On a non-zero
+exit, relay its stderr verbatim and stop.
 
-1. Fetch the issue title for the report-back:
+## Output
 
-   ```bash
-   gh issue view <N> --json number,title,url --jq '.title'
-   ```
+```text
+Closed issue #<N> "<title>".
+  comment: posted
+  state:   CLOSED
+https://github.com/<owner>/<repo>/issues/<N>
+```
 
-   `gh issue close` and `gh issue comment` do not print the title, so
-   this lookup happens up front. Cache the result for use in step 4.
-   Surface any non-zero exit verbatim and stop — if `gh issue view`
-   fails, the issue likely doesn't exist or isn't accessible, and
-   neither commenting nor closing should proceed.
+`comment:` reads `not posted` when no `--comment` was given. When the
+comment carries a closing keyword (`close`, `closes`, `closed`, `fix`,
+`fixes`, `fixed`, `resolve`, `resolves`, `resolved`, any case) followed
+by `#<N>`, the script appends a note naming each such issue, because
+that pattern auto-closes it:
 
-2. If `--comment` was passed, post it first:
+```text
+note: your comment contained closing keyword(s) referencing #X, which will auto-close that/those issue(s).
+```
 
-   ```bash
-   gh issue comment <N> --body "<summary>"
-   ```
+The note does not block the close — the comment is the caller's, and
+passes through verbatim either way.
 
-   Surface any non-zero exit verbatim and stop — do **not** close the
-   issue if the comment failed to post, otherwise the summary trail
-   the user requested is missing.
+## Jira backend
 
-3. Close the issue:
-
-   ```bash
-   gh issue close <N>
-   ```
-
-4. Report back:
-   - The issue number and title (the title fetched in step 1).
-   - Whether a comment was posted.
-   - The new state (closed) and the URL.
-   - **Closing-keywords safety net.** If `--comment` was supplied,
-     scan the comment body for a closing keyword (case-insensitive:
-     `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`,
-     `resolves`, `resolved`) immediately followed by `#<N>` (allowing
-     whitespace between the keyword and the `#`). If any match, append
-     one line to the report-back:
-
-     > note: your comment contained closing keyword(s) referencing
-     > #X, which will auto-close that/those issue(s).
-
-     List every distinct `#X` that matched. Do **not** block the
-     operation; the user-supplied `--comment` is passed through
-     verbatim either way — this warning just makes the cascade-close
-     consequence visible.
-
-## Jira path (`issues: Jira`)
-
-Follow the Jira backend close path in `skills/lib/issue.md` → "Jira
-backend" → "Close (`/issue-close`)". Jira has no separate close verb —
-closing is a transition to the project's done-equivalent status,
-resolved from the `jira:` `status` slot. Concretely:
-
-1. Normalize `<issue-number>` to a Jira key (`SET-42`; both `42` and
-   `SET-42` are accepted) per the Jira-backend "Preconditions (every
-   Jira operation)". Confirm `acli` is present and authenticated
-   first.
-2. Fetch the work item's summary (title) for the report-back via the
-   `workitem view` template from the `/issues-jira:jira-lib` skill. Surface any
-   non-zero exit verbatim and stop.
-3. If `--comment` was passed, post it first via the `comment create`
-   template (the same comment-then-close ordering as the GitHub path),
-   and stop if it fails — do not transition if the comment failed.
-4. Transition to the done-equivalent status via the `workitem
-   transition` template (`--status "<Done>" --yes`).
-5. Report back the same fields as the GitHub path (number/key, title,
-   whether a comment was posted, new state, URL), including the
-   closing-keywords safety-net scan on any `--comment` body.
-
-Do not partially implement on an `acli`-absent or auth failure: handle
-those per the Jira-backend "Preconditions (every Jira operation)" (the
-"`acli` not installed" catalogue entry, or the `acli jira auth login
---web` recovery) rather than transitioning.
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Close" instead, with the
+same comment-then-close order and the same closing-keyword note.
 
 ## Hard constraints
 
-- **Never close an issue you weren't given by number.** No
-  title-search, no "recent work" inference, no "find the relevant
-  issues". The number is the only input that identifies the target.
-- **Never close before commenting** when `--comment` was provided.
-  Order is comment-then-close so the summary is preserved even if a
-  later step fails.
-- **Never place closing keywords adjacent to issue references in the
-  comment body.** A closing keyword (`close`/`closes`/`closed`/
-  `fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`,
-  case-insensitive) **immediately followed by** an issue reference
-  (`#N`, `owner/repo#N`, `GH-N`, or issue URL) inside a comment
-  cascade-closes the referenced issue(s). The same keywords as
-  ordinary English prose with no adjacent issue reference are fine.
-  If the user-supplied `--comment` contains the parser-triggering
-  pattern, pass it through verbatim — that's their call — but do
-  not add such patterns yourself.
+- **Never close an issue you weren't given by number.** The number is
+  the only input that identifies the target.
+- **Never place a closing keyword before an issue reference in a
+  comment you write.** A closing keyword immediately followed by an
+  issue reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL)
+  cascade-closes the referenced issue. The same keywords as ordinary
+  prose with no adjacent reference are fine. A user-supplied
+  `--comment` with that pattern passes through verbatim — that's their
+  call.

@@ -157,8 +157,8 @@ namespace presents consistent errors.
 A reader pins the **minimum** schema-version it requires as a
 constant in its own code. For prose-defined readers (subagent
 definitions, skill SKILL.md files), the constant is a literal in
-the reader's text; for any future executable reader, it would be a
-code constant.
+the reader's text; for an executable reader, such as the `/issue-*`
+scripts, it is a code constant.
 
 The pinned value should equal the version this library documents
 at the time the reader was written. Readers accept files at the
@@ -454,10 +454,11 @@ readers sit outside this contract altogether: they parse the one or
 two fields they need inline, reuse at most this library's "File
 missing" abort wording, and check neither `schema-version` nor any
 other part of the read sequence. The user-facing `/issue-*` namespace
-is migrated: its shared `skills/lib/issue.md` "Repo-config parsing"
-section and each `/issue-*` SKILL.md pin schema-version 6 and defer
-here (migrated in #114). Remaining reader migrations land in their
-own follow-up issues.
+is migrated: its scripts pin schema-version 6 as a constant in
+`bin/lib/issues-common.sh` and emit this library's abort messages, and
+its Jira path pins the same version in `skills/lib/issue.md`
+"Repo-config parsing". Remaining reader migrations land in their own
+follow-up issues.
 
 When migrating a reader:
 

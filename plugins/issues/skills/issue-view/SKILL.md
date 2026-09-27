@@ -4,17 +4,9 @@ description: Dump a single issue with body, all project fields, and parent/sub-i
 ---
 
 Print everything about a single issue in one pass — title, body,
-labels, assignees, issue type, priority, status, parent, sub-issues,
-blockedBy, and blocking — without requiring follow-up commands.
-
-See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, and error wording. This file documents only what is
-specific to `/issue-view`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
+labels, assignees, issue type, every configured field slot, parent,
+sub-issues, blockedBy, and blocking — without requiring follow-up
+commands.
 
 ## Invocation
 
@@ -22,162 +14,70 @@ canonical read sequence and abort messages for
 /issue-view <issue-number>
 ```
 
-A single positional argument: the issue number in the current repo.
-No flags.
+A single positional argument: the issue number in the current repo,
+with or without a leading `#`. No flags.
 
-## Tracker dispatch
+## Execution
 
-Apply the standard `issues:` switch from `skills/lib/issue.md`.
-Under `issues == Jira`, follow the Jira backend path documented
-there (`skills/lib/issue.md` → "Jira backend"), which talks to Jira
-via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
+Run the `issue-view` script, which this plugin puts on `PATH`, with
+the Bash tool from inside the repo's working tree:
 
-## Execution (GitHub backend)
+```bash
+issue-view <N>
+```
 
-1. **Fetch labels and assignees** via `gh issue view`:
-
-   ```bash
-   gh issue view <N> --json number,title,body,url,labels,assignees,state
-   ```
-
-   These fields are convenient to read via `gh` and avoid a second
-   GraphQL round-trip.
-
-2. **Fetch relationships and project fields** via the node-ID lookup
-   template from `skills/lib/issue.md` ("Node-ID lookup by issue
-   number"). Use the template as-shown — `/issue-view` is the canonical
-   caller, so it consumes the full shape (issue type, parent,
-   subIssues, blockedBy, blocking, issueDependenciesSummary, and
-   projectItems with fieldValues).
-
-3. **Resolve per-slot field values by `kind:`.** Iterate the
-   `github-project.fields` map in repo-config and, for each slot,
-   dispatch on its `kind:` per the "Field-value read by kind" recipe
-   in `skills/lib/issue.md`. The cases:
-
-   - **`kind: number`** — scan the project item's `fieldValues` for
-     the `ProjectV2ItemFieldNumberValue` whose `field.id` matches
-     `fields.<slot>.id`. Display the `number` as-is. Render `(none)`
-     when the entry is absent.
-   - **`kind: single-select`** — scan the project item's `fieldValues`
-     for the `ProjectV2ItemFieldSingleSelectValue` whose `field.id`
-     matches `fields.<slot>.id`. Display the `name` (the canonical
-     option label, e.g. `P0`, `Backlog`). Render `(none)` when the
-     entry is absent.
-   - **`kind: issue-field`** — does **not** read from `projectItems`.
-     Native issue fields live on the issue itself, so read from
-     `Issue.issueFieldValues` (extend the node-ID lookup query per the
-     `kind: issue-field` branch of the "Field-value read by kind"
-     recipe). Find the `IssueFieldSingleSelectValue` whose `field.id`
-     matches `fields.<slot>.field-id` and display its `name` (the
-     canonical option label, e.g. `Medium`). Render `(none)` when no
-     entry matches. This works regardless of project-board membership.
-   - **`kind: label`** — does **not** read from `projectItems`. Read
-     the issue's labels (from step 1's `gh issue view --json labels`
-     payload), filter to labels that both start with
-     `fields.<slot>.namespace` **and** strip to an option name that
-     appears in `fields.<slot>.options` (case-insensitive match;
-     canonical capitalization comes from `<options>`). The display
-     depends on how many matched:
-     - **zero matches** → `(none)`
-     - **exactly one match** → the option name without the namespace
-       prefix (e.g. `M`, not `size:M`)
-     - **more than one match** → `(multiple)` — the read path does
-       **not** delete extras; the user runs `/issue-set-<slot>` to
-       converge. The "Label-namespace update (`gh issue edit`, not
-       GraphQL)" recipe enforces the at-most-one invariant on the
-       next write.
-   - **`kind: skip`** — the slot is omitted entirely from the output.
-     No row, no `(none)` placeholder, no "skipped" notice.
-
-   Slots that are **absent entirely** from `fields:` are also omitted
-   entirely from the output, the same shape as `kind: skip`.
-
-   The list of slots, their canonical names, and the row order in
-   the output are all derived from `fields:` as read from repo-config.
-   This skill hardcodes nothing about which slots exist — a repo that
-   adds e.g. a `priority` slot under any of the kinds gets a
-   `priority:` row for free.
-
-   If `github-project:` is missing from repo-config, omit the
-   project-fields section entirely — do not warn; reads degrade
-   quietly.
-
-   If the configured project is present but the issue has no item on
-   it, render every `kind: number` and `kind: single-select` slot as
-   `(not on project board)` rather than failing. `kind: label` and
-   `kind: issue-field` slots are unaffected by the project-board state
-   — they read from the issue's labels and native issue fields
-   respectively, and continue to render normally.
-
-4. **Issue not found**: if the node-ID lookup returns
-   `repository.issue: null`, emit the "Issue not found" error from
-   the catalogue in `skills/lib/issue.md` and abort.
+Print its stdout to the user as it stands. On a non-zero exit, relay
+its stderr verbatim and stop — the script has already worded the
+error (missing or stale repo-config, issue not found).
 
 ## Output
 
-Print a single block in this order. Sections with no content (no
-labels, no assignees, no parent, empty sub-issues, etc.) are still
-printed with a `(none)` placeholder so the shape is predictable for
-the reader — except project-field rows for slots that are absent or
-`kind: skip` (those are omitted entirely), and the whole
-project-fields group when there is no `github-project:` block.
+The script prints a single block in this order:
 
 ```text
-#<N> <title>                                       (<state>)
+#<N> <title>    (<state>)
 <url>
 
 Labels:     <comma-separated names>
 Assignees:  <comma-separated logins>
 Type:       <issue-type name>
-Priority:   <option name>
-Size:       <option name>
-Status:     <option name>
+Status:     <value>
+Priority:   <value>
+Size:       <value>
 
 Parent:     #<N> <title>
 
 Sub-issues:
   - #<N> <title>
-  - #<N> <title>
 
 Blocked by:
   - #<N> <title>
-  - #<N> <title>
 
 Blocking:
-  - #<N> <title>
   - #<N> <title>
 
 Body:
 <body verbatim>
 ```
 
-The `Priority:`, `Size:`, and `Status:` rows in the block above
-are illustrative — they are the conceptually-standard slots today.
-The actual rows emitted come from iterating `fields:` in repo-config
-(per step 3) in the order the slots appear in YAML.
-`Size:` is positioned adjacent to `Priority:` when both are
-present. Rows for slots that are absent or `kind: skip` are not
-emitted at all.
+- **Field-slot rows** follow the `fields:` map in
+  `.issues/repo-config.md`, in the order the file lists the slots,
+  except that `Size:` follows `Priority:` when both are configured. A
+  slot declared `kind: skip` or absent from `fields:` has no row, and
+  with no `github-project:` block there are no slot rows at all.
+- A row reads `(none)` when the value is unset,
+  `(not on project board)` for a project-field slot (`kind: number`
+  or `kind: single-select`) on an issue that is not on the configured
+  board, and `(multiple)` for a `kind: label` slot carrying more than
+  one of its own labels. `/issue-set-<slot>` converges that last state;
+  this verb is read-only.
+- Every other empty section reads `(none)`.
+- A related issue in another repo prints as `owner/repo#N`.
+- Lists keep GitHub's order, and the body is printed verbatim.
 
-When a section has no entries, replace its body with a single
-`(none)` line — for the inline fields (`Labels:`, `Assignees:`,
-`Type:`, the per-slot rows, and `Parent:`), that means the value
-column reads `(none)`; for the list sections (`Sub-issues:`,
-`Blocked by:`, `Blocking:`), that means the section header is
-followed by one `(none)` line at the bullet indent instead of any
-`- #<N>` lines.
+## Jira backend
 
-`kind: label` slot rows have one additional display state: when
-more than one of the slot's own labels is set on the issue (an
-inconsistent state), the value column reads `(multiple)`. The view
-path does **not** delete the extras — `/issue-view` is read-only.
-The user converges the state with `/issue-set-<slot>`.
-
-The body is printed verbatim, including its own Markdown. Do not
-re-wrap or re-format it.
-
-Parent is a single value (an issue can only have one parent). The
-three other relationship sections are lists. Render
-`subIssues`/`blockedBy`/`blocking` from the GraphQL `nodes` arrays in
-their returned order; do not re-sort.
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Read / view" instead, which
+renders the same block from `acli`.

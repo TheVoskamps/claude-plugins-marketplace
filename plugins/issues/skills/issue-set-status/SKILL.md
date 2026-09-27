@@ -3,21 +3,10 @@ name: issue-set-status
 description: Set the status (single-select field) on a single issue's project board entry by human-readable name.
 ---
 
-Set the status option on a single issue's entry in the configured
-GitHub Project V2 board. Status is the single-select field whose ID
-is stored under `github-project.fields.status` in
-`.issues/repo-config.md`; option names (e.g. `Todo`,
-`In Progress`) resolve case-insensitively to option IDs in the
-`options:` map under that block.
-
-See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, name -> ID lookup rules, and error wording. This file
-documents only what is specific to `/issue-set-status`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
+Set the status slot on a single issue — the slot declared as
+`github-project.fields.status` in `.issues/repo-config.md`, normally a
+`kind: single-select` field on the configured Project V2 board. The
+issue is added to the board first when it is not on it yet.
 
 ## Invocation
 
@@ -28,75 +17,48 @@ canonical read sequence and abort messages for
 - `<issue-number>` (required): issue number in the current repo, with
   or without a leading `#`.
 - `<status-name>` (required): a human-readable status name (e.g.
-  `Todo`, `In Progress`, `Done`). Matched case-insensitively against
-  the `github-project.fields.status.options` map. Multi-word names
-  must be quoted on the CLI.
+  `Todo`, `In Progress`, `Done`), matched case-insensitively against
+  the slot's configured options. Whitespace inside a name is
+  significant, and a multi-word name is one quoted argument. A name
+  that matches nothing is an error, never a guess — run
+  `/issue-field-options status` when you need to choose one.
 
-## Tracker dispatch
+## Execution
 
-Apply the standard `issues:` switch from `skills/lib/issue.md`.
-Under `issues == Jira`, follow the Jira backend path documented
-there (`skills/lib/issue.md` → "Jira backend"), which talks to Jira
-via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
+Run the `issue-set-status` script, which this plugin puts on `PATH`,
+with the Bash tool from inside the repo's working tree:
 
-## Required repo-config
+```bash
+issue-set-status <N> "<status-name>"
+```
 
-This command **requires** a `github-project:` block in
-`.issues/repo-config.md` (the `jira:` block under `issues: Jira`). If
-the block is absent, abort with the "No `github-project:` block in
-repo-config" error from the catalogue in `skills/lib/issue.md`.
-This is an abort, not a warning-and-skip — without the option map
-there is no way to resolve the requested status name.
-
-If the block is present but its `status` slot is absent from
-`fields:` or declared `kind: skip`, print this line and exit **zero**
-without resolving the status name — it is a warning, not an error:
-
-> `/issue-set-status` has nothing to do: this repo has no `status`
-> slot configured. (Run `/repo-config` to add one.)
-
-## Execution (GitHub backend)
-
-1. **Resolve the status name to an option ID** per the
-   "Name -> ID lookup rules" in `skills/lib/issue.md`. Case-folding
-   is applied; whitespace is significant. If the name does not match
-   any key in `fields.status.options`, abort with the "Slot value not
-   in options map" error from the catalogue (with `<slot>` = `status`).
-   Capture the canonical capitalization of the matched key for the
-   report-back.
-
-2. **Look up the issue node ID and current project item** using the
-   node-ID lookup template from `skills/lib/issue.md`. Trim the query
-   to `id` and the `projectItems` block.
-
-3. **Resolve the project-item ID** per the "Project-item lookup"
-   section in `skills/lib/issue.md`. If the issue is not yet on the
-   configured board, call `addProjectV2ItemById` (template in the lib)
-   to add it and capture the returned `item.id`.
-
-4. **Set the status field** via the
-   `updateProjectV2ItemFieldValue` single-select-field template from
-   `skills/lib/issue.md`, taking the project from
-   `github-project.project-id`, the project item resolved in step 3,
-   the field from `github-project.fields.status.id`, and the option
-   resolved in step 1.
-
-5. **Handle stale field IDs.** If the mutation returns a GraphQL
-   error indicating the field ID is unknown to the project, surface
-   the "Project field ID no longer exists on the project" error from
-   the catalogue in `skills/lib/issue.md`.
-
-6. **Issue not found**: if the node-ID lookup returns
-   `repository.issue: null`, emit the "Issue not found" error from
-   the catalogue and abort.
+The script resolves the name, writes it, and re-reads the status; it
+exits non-zero when the re-read does not show the value it set. Print
+its stdout as it stands. On a non-zero exit, relay its stderr verbatim
+and stop: it carries the canonical wording for a missing
+`github-project:` block, a name not in the options, an issue not
+found, a stale field ID (re-run `/repo-config`), or a write that did
+not land.
 
 ## Output
 
-Print one confirmation line using the **canonical capitalization** of
-the option key (not whatever casing the user typed), then the issue
-URL:
+On success, one confirmation line using the option's canonical
+capitalization, then the issue URL:
 
 ```text
 Set status on issue #<N> to <canonical-name>.
 https://github.com/<owner>/<repo>/issues/<N>
 ```
+
+When the repo's `status` slot is `kind: skip` or absent from
+`fields:`, the script prints this line instead and exits **zero** — a
+warning, not an error:
+
+> `/issue-set-status` has nothing to do: this repo has no `status`
+> slot configured. (Run `/repo-config` to add one.)
+
+## Jira backend
+
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Metadata setters" instead.

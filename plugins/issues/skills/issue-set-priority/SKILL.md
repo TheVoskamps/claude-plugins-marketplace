@@ -3,31 +3,13 @@ name: issue-set-priority
 description: Set the priority slot on a single issue, dispatching on the slot's configured kind (number, single-select, issue-field, label, or skip).
 ---
 
-Set the priority slot on a single issue. The slot is read from
-`github-project.fields.priority` in `.issues/repo-config.md`;
-the verb dispatches on its `kind:` discriminator and writes via the
-matching template/recipe.
+Set the priority slot on a single issue — the slot declared as
+`github-project.fields.priority` in `.issues/repo-config.md`. What
+`<value>` means depends on the slot's `kind:`, and the script writes
+it through that kind's own path: a project field, a native GitHub
+issue field, or a label.
 
-See `skills/lib/issue.md` for the shared "Set-slot dispatcher"
-routine, GraphQL templates (number, single-select, and the
-`setIssueFieldValue` native-issue-field template), the
-"Label-namespace update (`gh issue edit`, not GraphQL)" recipe, the
-catalogue error wordings, and the slot-absent / `kind: skip`
-equivalence. This file documents only what is specific to
-`/issue-set-priority`: the slot name (`priority`) and the
-verb-specific echo lines.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
-
-## Slot
-
-`<slot>` = `priority`. The dispatcher reads
-`github-project.fields.priority` each run.
-
-## Arguments
+## Invocation
 
 ```text
 /issue-set-priority <N> <value>
@@ -35,133 +17,59 @@ canonical read sequence and abort messages for
 
 - `<N>` (required): issue number in the current repo, with or without
   a leading `#`.
-- `<value>` (required): one token whose parse rules depend on the
-  slot's configured `kind:`. Multi-word option names must be quoted
-  on the CLI.
+- `<value>` (required): one argument, quoted when it has spaces. By the
+  slot's kind:
+  - **`kind: number`** — an integer within the slot's `min`/`max`.
+  - **`kind: single-select`**, **`kind: issue-field`**,
+    **`kind: label`** — an option name, matched case-insensitively.
+    GitHub's native `Priority` field, the usual `issue-field` backing,
+    has the options `Urgent`, `High`, `Medium`, `Low`.
+  - **`kind: skip`** or slot absent — ignored.
 
-One fenced example per kind:
-
-- **`kind: number`** — integer in `[min, max]` (the verb does not
-  default; the value must be supplied):
-
-  ```text
-  /issue-set-priority 123 5
-  ```
-
-- **`kind: single-select`** — option name from
-  `fields.priority.options`, matched case-insensitively:
-
-  ```text
-  /issue-set-priority 123 P1
-  ```
-
-- **`kind: label`** — option name from `fields.priority.options`
-  (flat list), matched case-insensitively:
-
-  ```text
-  /issue-set-priority 123 High
-  ```
-
-- **`kind: issue-field`** — option name from `fields.priority.options`
-  (the native GitHub Issue Field's option map), matched
-  case-insensitively. GitHub's native `Priority` field options are
-  `Urgent`, `High`, `Medium`, `Low`:
-
-  ```text
-  /issue-set-priority 123 Medium
-  ```
-
-- **`kind: skip`** or slot absent — any `<value>` is ignored:
-
-  ```text
-  /issue-set-priority 123 anything
-  ```
+  Run `/issue-field-options priority` when you need to choose a value
+  rather than set one you already hold.
 
 ## Execution
 
-Follow the "Set-slot dispatcher" routine in `skills/lib/issue.md`
-with `<slot>` = `priority`. The per-kind write paths
-(number / single-select / label / issue-field) are documented there;
-do not duplicate them.
+Run the `issue-set-priority` script, which this plugin puts on
+`PATH`, with the Bash tool from inside the repo's working tree:
 
-Before the routine, require the tracker's metadata block —
-`github-project:`, or `jira:` under `issues: Jira`. If it is absent,
-abort with the "No `github-project:` block in repo-config" error from
-the catalogue in `skills/lib/issue.md` — without project metadata
-there is no slot to set, so this is an abort, not a warning-and-skip.
+```bash
+issue-set-priority <N> "<value>"
+```
 
-When the routine ends on a `priority` slot that is absent from `fields:`
-or declared `kind: skip`, print this line and exit **zero** — it is a
-warning, not an error:
+The script validates the value, skips the write when the slot already
+holds it (every kind but `number`), and otherwise writes it and
+re-reads the slot, exiting non-zero when the re-read does not show the
+value it set. Print its stdout as it stands. On a non-zero exit, relay
+its stderr verbatim and stop: it carries the canonical wording for a
+missing `github-project:` block, an issue not found, an out-of-range
+number, a name not in the options, a value of the wrong shape for the
+kind, a stale field ID (re-run `/repo-config`), a viewer who may not
+set native issue fields, or a write that did not land.
+
+## Output
+
+On success, exactly one line; no URL:
+
+```text
+#<N> priority set to <value>.
+#<N> priority set to <CanonicalOption> (via label `<namespace><Option>`).
+```
+
+The second form is a `kind: label` slot's. When the slot already held
+the value, `set to` reads `already set to`. The option name always
+carries the config's capitalization, not the caller's.
+
+When the slot is `kind: skip` or absent from `fields:`, the script
+prints this line instead and exits **zero** — a warning, not an
+error:
 
 > `/issue-set-priority` has nothing to do: this repo has no `priority`
 > slot configured. (Run `/repo-config` to add one.)
 
-The relevant catalogue entries (referenced by name from the lib):
+## Jira backend
 
-- **Issue not found** — node-ID lookup returned `null`.
-- **No `github-project:` block in repo-config** — abort (this verb
-  requires project metadata).
-- **Slot value out of range** — `kind: number` parse / range failure.
-- **Slot value not in options map** — `kind: single-select` or
-  `kind: label` name didn't match.
-- **Slot kind doesn't match the operation** — input shape doesn't
-  match configured kind (e.g. integer passed when slot is
-  `kind: single-select`).
-- **Project field ID no longer exists on the project** —
-  `updateProjectV2ItemFieldValue` returned a field-not-found error
-  (applies to `kind: number` and `kind: single-select` only).
-- **Native issue field no longer exists** — `setIssueFieldValue`
-  returned a field-not-found error (applies to `kind: issue-field`
-  only).
-- **Cannot set native issue field** — `Issue.viewerCanSetFields` is
-  false (applies to `kind: issue-field` only).
-
-## Echo
-
-On success, print exactly one line. Format depends on the slot's
-configured `kind:`:
-
-- **`kind: number`**:
-
-  ```text
-  #<N> priority set to <value>.
-  ```
-
-- **`kind: single-select`**:
-
-  ```text
-  #<N> priority set to <CanonicalOption>.
-  ```
-
-- **`kind: label`** (with `<namespace>` from
-  `fields.priority.namespace`):
-
-  ```text
-  #<N> priority set to <CanonicalOption> (via label `<namespace><Option>`).
-  ```
-
-- **`kind: issue-field`**:
-
-  ```text
-  #<N> priority set to <CanonicalOption>.
-  ```
-
-For `kind: single-select`, `kind: issue-field`, and `kind: label`,
-the no-op (idempotent) echo uses `already set to` in place of
-`set to`:
-
-- ``#<N> priority already set to <CanonicalOption>.``
-- ``#<N> priority already set to <CanonicalOption> (via label `<namespace><Option>`).``
-
-`kind: number` has no pre-check and therefore no `already set to`
-form — the mutation is always invoked.
-
-No trailing URL line.
-
-## Migration note
-
-This skill replaces the legacy `skills/issue-set-importance/SKILL.md`.
-That file now contains a one-line pointer to this skill for muscle
-memory. The slot it sets was renamed `importance` -> `priority` to
-match GitHub's native "Priority" issue-field vocabulary.
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Metadata setters" instead.

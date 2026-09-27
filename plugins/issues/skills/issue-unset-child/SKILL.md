@@ -3,17 +3,8 @@ name: issue-unset-child
 description: Remove one specific sub-issue from a parent (sub-issue edge), addressed from the parent side.
 ---
 
-Remove a specific child from a parent's sub-issue list. Takes both
-issue numbers so the parent's other sub-issues are untouched.
-
-See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, the "One edge, two sides" pattern, and error wording. This
-file documents only what is specific to `/issue-unset-child`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
+Remove one named child from a parent's sub-issues; the parent's other
+sub-issues are untouched.
 
 ## Invocation
 
@@ -21,46 +12,41 @@ canonical read sequence and abort messages for
 /issue-unset-child <parent-N> <child-N>
 ```
 
-- `<parent-N>` (required): issue number of the parent.
-- `<child-N>` (required): issue number of the specific child to
-  remove. Required because a parent may have many children;
-  `unset-child P` with no child argument would be ambiguous.
+- `<parent-N>` (required): the parent.
+- `<child-N>` (required): the child to remove. Required because a
+  parent may have many children.
 
-## Tracker dispatch
+Both are issue numbers in the current repo, with or without a leading
+`#`.
 
-Apply the standard `issues:` switch from `skills/lib/issue.md`.
-Under `issues == Jira`, follow the Jira backend path documented
-there (`skills/lib/issue.md` → "Jira backend"), which talks to Jira
-via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
+## Execution
 
-## Execution (GitHub backend)
+Run the `issue-unset-child` script, which this plugin puts on `PATH`,
+with the Bash tool from inside the repo's working tree:
 
-1. **Look up the child's node ID and current parent** using the
-   node-ID lookup template from `skills/lib/issue.md`, trimmed to
-   `id` and `parent { id number title }`. (The parent's node ID is
-   read off the child's `parent` field; this saves the extra lookup
-   that `gh issue view <parent-N>` would otherwise require.)
+```bash
+issue-unset-child <parent-N> <child-N>
+```
 
-2. **Idempotency check.** If the child's `parent` is `null`, or if
-   `parent.number` is **not** `<parent-N>`, no-op: print one line
-   (`Issue #<C> is not a sub-issue of #<P>; no change.`) and exit
-   zero. Do not call the mutation. Mismatch here is treated as a
-   no-op (not an error) because the requested end state — "child is
-   not under that parent" — already holds.
-
-3. **Remove the edge** via the `removeSubIssue` template from
-   `skills/lib/issue.md`, supplying the parent and child node IDs
-   resolved in step 1.
-
-4. **Issue not found**: if the node-ID lookup returns
-   `repository.issue: null` for the child, emit the "Issue not
-   found" error from the catalogue and abort.
+When the child has no parent, or a parent other than `<parent-N>`,
+the script is a no-op rather than an error: the end state "the child
+is not under that parent" already holds. Otherwise it removes the edge
+and re-reads the child, exiting non-zero when the parent is still
+there. Print its stdout as it stands. On a non-zero exit, relay its
+stderr verbatim and stop.
 
 ## Output
-
-Print one confirmation line and the parent's URL:
 
 ```text
 Removed issue #<C> as a sub-issue of #<P>.
 https://github.com/<owner>/<repo>/issues/<P>
 ```
+
+The no-op prints `Issue #<C> is not a sub-issue of #<P>; no change.`
+and exits zero.
+
+## Jira backend
+
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Relationships" instead.

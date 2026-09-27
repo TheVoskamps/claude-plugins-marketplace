@@ -1,44 +1,30 @@
 # `/issue-*` shared reference (`skills/lib/issue.md`)
 
-This file is the single source of truth for the `/issue-*` command
-namespace. It is **reference prose**, not an executable script: Claude
-reads it when running any `/issue-*` command and follows the patterns
-documented here. Individual command files (`/issue-create`,
-`/issue-update`, `/issue-view`, `/issue-view-tree`,
-`/issue-set-status`, `/issue-set-priority`, `/issue-set-size`,
-`/issue-set-type`,
-`/issue-set-parent`, `/issue-unset-parent`, `/issue-set-child`,
-`/issue-unset-child`,
-`/issue-sub-list`, `/issue-set-blocked-by`, `/issue-unset-blocked-by`,
-`/issue-set-blocks`, `/issue-unset-blocks`, `/issue-close`,
-`/issue-comment`, `/issue-field-options`, etc.) reference this doc
-rather than duplicating GraphQL templates or default-resolution logic
-inline.
+This file holds what the `/issue-*` verbs share that is not code: the
+schema of the `github-project:` block in `.issues/repo-config.md`, and
+the Jira backend.
 
-The higher-level multi-issue orchestrator that drives end-to-end issue
-fixes is **not** part of this namespace and does not read this file —
-it lives in a different plugin/scope and predates
-`skills/lib/issue.md`.
+The GitHub backend of every verb is a script in this plugin's `bin/`,
+named after the verb, and every script sources
+`bin/lib/issues-common.sh`. That code is the only statement of the
+GitHub calls: the repo-config read, node-ID and field/option ID
+resolution, the GraphQL documents, the post-write re-reads, and the
+error wording. A verb's `SKILL.md` says when to run its script, with
+which arguments, and what the output means. Under `issues: Jira` every
+script exits non-zero with one fixed message before any call, and the
+verb follows "Jira backend" below instead.
 
 ## Repo-config parsing
 
-Every `/issue-*` command runs from a repo working tree and starts by
-reading `<repo-root>/.issues/repo-config.md` **following the read
-contract in `skills/lib/repo-config.md`**. This reader requires
-**schema-version 6**. Run that library's canonical read sequence
-(locate the file via `git rev-parse --show-toplevel`, read it, parse
-the front-matter, check `schema-version`, read the front-matter
-fields, optionally read the `github-project:` block) and use its abort
-messages verbatim — including the "File missing", "Schema-version
-absent", "Schema-version stale", and "Front-matter incomplete" cases.
-Do not re-derive the parse rules or invent new abort wording here.
+Every `/issue-*` verb reads `<repo-root>/.issues/repo-config.md`
+following the read contract in `skills/lib/repo-config.md`, and
+requires **schema-version 6**. The scripts do so in
+`issues-common.sh`; the Jira path runs that library's canonical read
+sequence and uses its abort messages verbatim — "File missing",
+"Schema-version absent", "Schema-version stale", and "Front-matter
+incomplete".
 
-When the file is missing, abort with the library's "File missing"
-message; the `/issue-* commands require it` reader-specific prefix is
-permitted ahead of the canonical `Run /repo-config to create one`
-tail.
-
-The library's read sequence resolves **two sections**:
+The read resolves **two sections**:
 
 1. **Front-matter** — the canonical keys: `source-control`, `issues`,
    `issue-link-prefix`, `default-issue-source-branch`,
@@ -118,10 +104,6 @@ The kinds:
       max: 9
   ```
 
-  Writes use the `updateProjectV2ItemFieldValue` — number-field
-  template under "GraphQL templates". Reads use the `kind: number`
-  branch of the "Field-value read by kind" recipe.
-
 - **`kind: single-select`** — a single-select project field with an
   `options:` map from canonical option name to option ID. Same shape
   `fields.status` uses, applied uniformly to any slot:
@@ -137,12 +119,6 @@ The kinds:
         P1: <option-id>
         P2: <option-id>
   ```
-
-  Writes use the `updateProjectV2ItemFieldValue` — single-select-field
-  template under "GraphQL templates", regardless of which slot
-  (`status`, `priority`, or any other) carries `kind: single-select`.
-  Reads use the `kind: single-select` branch of the "Field-value read
-  by kind" recipe.
 
 - **`kind: label`** — a label **namespace**, not a project field at
   all. The verb manages the slot by adding/removing labels via
@@ -160,10 +136,10 @@ The kinds:
       options: [XS, S, M, L, XL]
   ```
 
-  Writes use the "Label-namespace update (`gh issue edit`, not
-  GraphQL)" recipe under "GraphQL templates" — note that recipe is a
-  `gh issue edit` invocation, not GraphQL. Reads use the `kind: label`
-  branch of the "Field-value read by kind" recipe.
+  A slot owns only the labels its `options` form. Setting it adds
+  the requested one and removes the slot's others, so at most one is
+  ever set; a namespace label outside `options` (`size:XXL` above) is
+  left alone.
 
 - **`kind: skip`** — the slot is explicitly declared as unused: the
   repo does not track it. No other keys are allowed:
@@ -230,14 +206,10 @@ The kinds:
         Low:    IFSSO_...
   ```
 
-  Writes use the `setIssueFieldValue` template under "GraphQL
-  templates". Reads use the `kind: issue-field` branch of the
-  "Field-value read by kind" recipe (via `Issue.issueFieldValues`).
-
   Scoping note: at the time `#29` was scoped, the `IssueFieldCommon`
   interface exposed no node `id`, so native fields were addressable
-  only by `name`. Re-introspection against the live schema (see "GraphQL
-  templates") found the concrete `IssueFieldSingleSelect` object type
+  only by `name`. Re-introspection against the live schema
+  found the concrete `IssueFieldSingleSelect` object type
   **does** expose a stable node `id`, and `setIssueFieldValue`'s input
   (`IssueFieldCreateOrUpdateInput`) addresses the field by that node
   ID, not by name. The slot therefore stores `field-id:` as the
@@ -260,945 +232,19 @@ The block is optional. A repo without a Project V2 board omits it
 entirely, and then configures no project, no `issue-types:` map and no
 slot: every slot reads as unconfigured, as if declared `kind: skip`.
 
-## Tracker dispatch
-
-Every command opens with the same `issues:` switch as the
-multi-issue orchestrator:
-
-- `issues == GitHub`: continue with the GitHub code path documented
-  below (the "GraphQL templates", "Field-value read by kind", and
-  "Set-slot dispatcher" sections).
-- `issues == Jira`: continue with the Jira code path documented under
-  "Jira backend" below. The Jira path talks to Jira via the Atlassian
-  CLI (`acli`); the `acli` command templates and the auth/discovery
-  contract live in the `/issues-jira:jira-lib` skill, and the metadata-resolution
-  rules consume the `jira:` block of `.issues/repo-config.md`
-  (schema in `skills/lib/repo-config.md` → "`jira:` block"). Before
-  any Jira operation, confirm `acli` is available
-  (`command -v acli`) and the session is authenticated
-  (`acli jira auth status`); on absence or auth failure, follow the
-  "`acli` availability" and "Auth expectation and failure surface"
-  sections of the `/issues-jira:jira-lib` skill rather than aborting the whole
-  namespace with a generic message.
-
-Both backends share the **same surface**: the same CLI flags, the same
-default-resolution order, the same name→identifier lookup rules, and
-the same abort-if-missing contract. Only the underlying calls differ —
-`gh` / GraphQL on the GitHub side, `acli` on the Jira side. A command
-file that defers to this section gets both backends without restating
-either; it only documents what is genuinely command-specific.
-
-## Default-resolution order
-
-For every flag with a default, resolve in this exact order — first
-hit wins:
-
-1. **CLI flag** explicitly passed on the command line.
-2. **Interactive prompt** (slot flags only, create-time only — see
-   below). Skipped when the CLI flag is set or when no human is
-   available (e.g. the verb is invoked from a non-interactive
-   harness call).
-3. **Repo-config default** in the relevant section of the
-   `github-project:` block (`fields.<slot>.default` for slot flags,
-   `issue-types.default` for `--type`).
-4. **Built-in default** (the values below) — only for flags that
-   have one.
-
-Built-in defaults:
-
-- `--type`       — `Feature`
-- `--assignee`   — the current identity: the authenticated GitHub
-  user (`gh api user --jq .login`) on the GitHub backend, the account
-  `acli jira auth status` reports on the Jira one
-- `--labels`     — (none)
-- `--parent`     — (none)
-
-Slot flags (`--priority`, `--size`, `--status`, and any future
-per-slot create-time flag) have **no built-in default**. They resolve
-via CLI flag, then — for create-time verbs only — an interactive
-prompt (rung 2), then `fields.<slot>.default` from repo-config. If
-none of those produce a value — or if the slot is `kind: skip` or
-absent from `fields:` entirely — the slot resolves to no value. The skill
-no longer hardcodes `3` / `Todo` fallbacks; the slot's own repo-config
-is authoritative.
-
-A repo-config-level default only applies when its containing block
-exists. If `github-project:` is absent, the built-in default still
-applies for `--type`, `--assignee`, and `--labels`, but the slot flags
-resolve to no value — no prompt either, because there is nothing to
-prompt against.
-
-### Interactive prompt rung (create-time slot flags)
-
-Rung 2 above applies **only** to slot flags on create-time verbs —
-today, `/issue-create`'s `--priority`, `--size`, and `--status`.
-Set-slot verbs (`/issue-set-priority`, `/issue-set-size`,
-`/issue-set-status`) require an explicit `<value>` positional argument
-and do not prompt. The rationale is that create-time is the moment
-the user is already actively shaping the issue's metadata, so a
-two-or-three-tab prompt is a natural extension; a set-slot verb is a
-targeted edit and would be surprising to gate behind an
-AskUserQuestion call.
-
-The prompt is rendered via the harness's `AskUserQuestion` mechanism,
-mirroring how `/repo-config` interviews the user. Each slot is a
-separate question (so the user can answer them in any order the tool
-presents them) with the slot's full set of options enumerated. The
-**first option** in each question's list is the *recommended* choice
-and carries `(Recommended)` appended to its label.
-
-Per-slot prompt content, by `fields.<slot>.kind`:
-
-- **`kind: single-select`** — the question's options are the keys of
-  `fields.<slot>.options` in YAML order. The recommended option is
-  picked per the per-slot rules below.
-- **`kind: issue-field`** (single-select data-type) — identical prompt
-  shape to `kind: single-select`: the question's options are the keys
-  of `fields.<slot>.options` in YAML order, recommended per the
-  per-slot rules below.
-- **`kind: label`** — the question's options are
-  `fields.<slot>.options` (the flat list) in YAML order. The
-  recommended option is picked per the per-slot rules below.
-- **`kind: number`** — render an open-ended prompt that accepts an
-  integer in `[min, max]`. The recommended seed (shown as the
-  prefilled / first option) is picked per the per-slot rules below.
-- **`kind: skip` or slot absent** — no prompt; the rung does not
-  apply.
-
-Per-slot recommended-option rules (apply on top of the per-kind
-shape above):
-
-- **size** — model evaluates the issue body and proposes a
-  recommendation. See the "Size evaluation heuristic" section in
-  `skills/issue-create/SKILL.md` for the exact heuristic. The
-  model's pick becomes the first option (with `(Recommended)`); the
-  remaining options follow in YAML order with the model's pick
-  removed. For `kind: number`, the model's proposed integer is the
-  seed value. There is no static `default:` fallback in this rung —
-  if the model can't make a useful call, it picks the median option
-  for `kind: single-select` / `kind: label` or the midpoint of
-  `[min, max]` for `kind: number`.
-- **priority** — no model evaluation. The recommended option is
-  `fields.priority.default` from repo-config (if set), echoed back
-  as the first option with `(Recommended)`. If `default:` is absent,
-  no option is recommended; the YAML order stands and the user
-  picks. For `kind: number`, the seed is the `default:` value, or
-  the midpoint of `[min, max]` if no `default:` is set.
-- **status** — same shape as priority. Recommended is
-  `fields.status.default` (typically `Backlog` / `Todo`).
-
-If the user picks an option, that value resolves the slot for the
-rest of the run (as if it had been passed on the CLI). If the
-prompt is unanswered (harness times it out, or the verb is invoked
-from a non-interactive context), fall through to rung 3
-(`fields.<slot>.default`); if that is also absent, the slot resolves
-to no value.
-
-## Name -> ID lookup rules
-
-CLI flags accept **human-readable names**, never raw node IDs. Names
-are translated to IDs by looking them up in the `github-project:`
-block.
-
-- **Case-insensitive match.** `todo`, `Todo`, and `TODO` all resolve
-  to the `Todo` option.
-- **Canonical capitalization from the map.** When echoing the chosen
-  value back to the user ("set status to Todo"), use the spelling
-  exactly as it appears in the option map key, not whatever casing
-  the user typed.
-- **Whitespace is significant.** `In Progress` and `In  Progress`
-  (two spaces) are different keys; project boards routinely have
-  multi-word status options. YAML parsers typically collapse or
-  drop internal multi-spacing in unquoted keys, so if an option
-  name genuinely contains consecutive spaces, quote the key
-  (e.g. `"In  Progress": <option-id>`) to preserve them.
-- **No fuzzy matching.** If the name doesn't match an option in the
-  map (after case-folding), emit the "not in options" error from the
-  catalogue below. Don't guess.
-
-The same rules apply to issue type names against `issue-types:` and
-to any other name-to-ID lookups added later.
-
-## "One edge, two sides" pattern
-
-Several GitHub-issue relationships are **single edges in the data
-model** but are exposed by the `/issue-*` namespace as **two verbs**
-— one verb per direction — because users think about them from
-either end. The underlying API still has only one mutation per edge;
-the two verbs differ in how they take their CLI arguments — in
-their order, or in their arity where a verb resolves one end by
-lookup instead of taking it as an argument.
-
-Verb pairs that share an edge:
-
-- **`set-blocked-by` / `set-blocks`** — same blocked-by edge, written
-  with the `addBlockedBy` template.
-  - `set-blocked-by N B` — `N` is the blocked issue, `B` the blocker
-    ("issue N is blocked by issue B").
-  - `set-blocks N B` — the roles invert: `B` is the blocked issue and
-    `N` the blocker ("issue N blocks issue B" — the same edge, written
-    from the other side).
-  - `unset-blocked-by` / `unset-blocks` mirror this with the
-    `removeBlockedBy` template.
-  - The two operands of an edge verb may name issues in different
-    repos; see "Operand resolution" under "Node-ID lookup by issue
-    number".
-- **`set-parent` / `set-child`** — same sub-issue edge, written with
-  the `addSubIssue` template.
-  - `set-parent C P` — `P` is the parent, `C` the child ("the parent
-    of C is P").
-  - `set-child P C` — the same parent and the same child ("a child of
-    P is C"); only the CLI order differs.
-  - `unset-parent` / `unset-child` mirror this with the
-    `removeSubIssue` template.
-
-The namespace exposes both directions even though the underlying API
-only offers one mutation per edge (`addBlockedBy` only, no
-`addBlocking`; `addSubIssue` only, no `addParent`). Reading is
-symmetric in the schema: `Issue.blockedBy` and `Issue.blocking` are
-the same edge read from opposite sides, and `Issue.parent` /
-`Issue.subIssues` are the same.
-
-When implementing a new verb in this namespace, decide which side of
-an existing edge it lives on **before** writing a new mutation
-template — odds are the mutation already exists in this doc and the
-new verb is that template called with the two roles swapped.
-
-`unset-child P C` treats a mismatched current parent (child's parent
-is something other than P) as a no-op — the end state "child is not
-under P" already holds. `unset-parent C` has no analogous case
-because the verb determines the parent by lookup rather than taking
-it as an argument.
-
-## GraphQL templates
-
-All GraphQL templates below are GitHub GraphQL v4 (`gh api graphql`).
-The "Label-namespace update (`gh issue edit`, not GraphQL)" recipe is
-included in this section for proximity to related write paths but is
-not GraphQL. The field names were confirmed by introspection against
-the live schema. To re-verify any input type, run a query of this
-shape, substituting the input type name in the `__type(name: "...")`
-argument:
-
-```bash
-gh api graphql -f query='
-query {
-  __type(name: "AddBlockedByInput") {
-    inputFields { name type { name kind ofType { name } } }
-  }
-}'
-```
-
-The input types this doc relies on, all verified via the query above:
-`AddBlockedByInput`, `RemoveBlockedByInput`, `AddSubIssueInput`,
-`RemoveSubIssueInput`, `UpdateProjectV2ItemFieldValueInput`,
-`UpdateIssueIssueTypeInput`, `SetIssueFieldValueInput`, and its nested
-list-member `IssueFieldCreateOrUpdateInput` (the native-issue-field
-write path — see "`setIssueFieldValue` — native issue field
-(single-select)").
-
-Use the templates below verbatim, and treat them as the **only**
-place a mutation's shape is written. A caller — a `SKILL.md` step, or
-any other prose outside this section — names which template it uses
-and which value supplies each input in role terms ("the blocked issue
-and the blocker", "the field from `fields.status.id`"), and never
-restates the mutation's own argument names or nesting. Prose that
-spells the arguments reads as a specification complete enough to build
-the call from, so a reader builds one instead of opening the template;
-nothing then makes the paraphrase fail when a template changes, and
-the malformed-input error that follows looks like an upstream schema
-change rather than a misread runbook.
-
-Variable substitutions use `<...>` for the call site to fill in.
-Where the template takes runtime arguments, prefer
-`gh api graphql -f query='...' -F name=value` to interpolating
-shell-escaped strings. Use `-f` (string) for `ID!` arguments; `-F`
-coerces to int/bool when the value parses as one, which can mangle
-node IDs — reserve `-F` for numeric or boolean arguments only.
-
-A field VALUE may be a shell variable: `ID=$(gh api graphql … --jq …)`
-then `gh api graphql -f query='…' -f id="$ID"` is fine, so a node ID
-captured from a prior query does not have to be pasted back as a
-literal. The guardrails permission-gate shields a `-f`/`-F` value from
-its static-argv deny as long as the field NAME is spelled literally and
-is not `query`. The document itself still has to be a literal —
-`-f query="$DOC"` denies, and so does a dynamic field name
-(`-f "$KEY"=v`).
-
-### Node-ID lookup by issue number
-
-```graphql
-query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    issue(number: $number) {
-      id
-      title
-      url
-      issueType { id name }
-      parent { id number title }
-      subIssues(first: 50)  { nodes { number title url } }
-      blockedBy(first: 50)  { nodes { id number title url } }
-      blocking(first: 50)   { nodes { id number title url } }
-      issueDependenciesSummary {
-        blockedBy blocking totalBlockedBy totalBlocking
-      }
-      projectItems(first: 10) {
-        nodes {
-          id
-          project { id number title }
-          fieldValues(first: 20) {
-            nodes {
-              __typename
-              ... on ProjectV2ItemFieldNumberValue {
-                field { ... on ProjectV2FieldCommon { id name } }
-                number
-              }
-              ... on ProjectV2ItemFieldSingleSelectValue {
-                field { ... on ProjectV2FieldCommon { id name } }
-                name
-                optionId
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-Most commands need only a subset of those fields. Trim the query to
-what the caller actually uses; the shape above is what `/issue-view`
-returns in one shot.
-
-#### Operand resolution
-
-An operand of a blocked-by edge verb (see "One edge, two sides")
-takes one of three forms:
-
-- `<N>` — an issue number in the current repo.
-- `#<N>` — the same, with the link prefix.
-- `<owner>/<repo>#<N>` — an issue in the named GitHub repo (written
-  `owner/repo#N` in prose).
-
-Parse each operand into `(owner, repo, number)` before its node-ID
-lookup. `owner` and `repo` come from the operand when it has the
-`owner/repo#N` form, and are the current repo's otherwise — its
-`owner.login` and `name` as `gh repo view --json owner,name` reports
-them for the working tree; `number` is the digits after the `#`, or
-the whole operand when it is bare.
-Run the lookup above with those three values as `$owner`, `$repo`
-and `$number`. A bare or `#`-prefixed number therefore resolves in
-the current repo, and an `owner/repo#N` operand resolves the node ID
-in the named repo.
-
-Each resolved issue prints as `#<N>` when its `(owner, repo)` is the
-current repo's (compared case-insensitively) and as
-`<owner>/<repo>#<N>` otherwise.
-
-The `owner/repo#N` form is GitHub-only: a Jira key is already
-globally unique. Under `issues == Jira`, an operand of that shape
-aborts with the "Cross-repo operand under Jira" catalogue entry.
-This form check runs before the Jira backend's "Preconditions", so
-it precedes every `acli` call, `acli jira auth status` included.
-
-### Sub-issues paginated lookup
-
-When listing all direct sub-issues of an issue (e.g. `/issue-sub-list`),
-the catch-all template's `subIssues(first: 50)` is not enough if a
-parent has more than 50 children. Use this dedicated paginated form
-instead, driving the `$after` cursor until `pageInfo.hasNextPage` is
-`false`:
-
-```graphql
-query($owner: String!, $repo: String!, $number: Int!, $after: String) {
-  repository(owner: $owner, name: $repo) {
-    issue(number: $number) {
-      id
-      title
-      subIssues(first: 50, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes { number title url }
-      }
-    }
-  }
-}
-```
-
-`title` on the parent is constant across pages — read it from the
-first call's response and ignore it on subsequent pages.
-
-Caller loop:
-
-1. First call: pass `$after: null` (omit the variable). Record `nodes`.
-2. While `pageInfo.hasNextPage` is `true`, re-run with
-   `$after: <pageInfo.endCursor>` and append the new `nodes` to the
-   accumulated list.
-3. Stop when `hasNextPage` is `false`. Render the accumulated list in
-   returned order.
-
-Callers that only ever need the first page (e.g. `/issue-view`,
-`/issue-view-tree`) keep using the catch-all template's
-`subIssues(first: 50)` shape and skip the pagination loop.
-
-### Project-item lookup
-
-The project-item ID is **different** from the issue node ID. Field
-mutations target the project item, not the issue. To find it for a
-given issue, scan `Issue.projectItems(first: N)` (above) and pick the
-node whose `project.id` matches the configured `project-id`. Cache
-the resulting `itemId` for the lifetime of the command — it doesn't
-change.
-
-If the issue is not yet on the project board, add it first:
-
-```graphql
-mutation($projectId: ID!, $contentId: ID!) {
-  addProjectV2ItemById(input: {
-    projectId: $projectId
-    contentId: $contentId
-  }) {
-    item { id }
-  }
-}
-```
-
-`/issue-create` calls this automatically when `github-project:` is
-configured. Other commands either fail with the "not on project
-board" error (read-only paths) or call it on demand (write paths
-like `/issue-set-status`).
-
-### `addSubIssue` / `removeSubIssue`
-
-Parent/child edge. `issueId` is the parent; `subIssueId` is the
-child.
-
-```graphql
-mutation($parentId: ID!, $childId: ID!) {
-  addSubIssue(input: { issueId: $parentId, subIssueId: $childId }) {
-    issue    { id number title }
-    subIssue { id number title }
-  }
-}
-```
-
-```graphql
-mutation($parentId: ID!, $childId: ID!) {
-  removeSubIssue(input: { issueId: $parentId, subIssueId: $childId }) {
-    issue    { id number title }
-    subIssue { id number title }
-  }
-}
-```
-
-The `AddSubIssueInput` type also accepts a `subIssueUrl` (instead of
-`subIssueId`) and a `replaceParent: Boolean` flag — leave those off
-for now; the namespace standardizes on the ID-based form.
-
-### `addBlockedBy` / `removeBlockedBy`
-
-Blocked-by edge. Introspection confirms the input fields are
-`issueId` (the issue that **is blocked**) and `blockingIssueId` (the
-**blocker**). There is no separate `addBlocking` mutation — write
-"X blocks Y" as "Y is blocked by X" by swapping the arguments.
-
-```graphql
-mutation($issueId: ID!, $blockingIssueId: ID!) {
-  addBlockedBy(input: {
-    issueId: $issueId
-    blockingIssueId: $blockingIssueId
-  }) {
-    issue         { id number title }
-    blockingIssue { id number title }
-  }
-}
-```
-
-```graphql
-mutation($issueId: ID!, $blockingIssueId: ID!) {
-  removeBlockedBy(input: {
-    issueId: $issueId
-    blockingIssueId: $blockingIssueId
-  }) {
-    issue         { id number title }
-    blockingIssue { id number title }
-  }
-}
-```
-
-Call-site mapping:
-
-- `set-blocked-by N B`
-  → `issueId: <node-id-of-N>`, `blockingIssueId: <node-id-of-B>`
-- `set-blocks N B`
-  → `issueId: <node-id-of-B>`, `blockingIssueId: <node-id-of-N>`
-
-### `updateProjectV2ItemFieldValue` — number field (priority)
-
-```graphql
-mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId:    $itemId
-    fieldId:   $fieldId
-    value:     { number: $value }
-  }) {
-    projectV2Item { id }
-  }
-}
-```
-
-`projectId` and `fieldId` come from the `github-project:` block.
-`itemId` comes from the project-item lookup. `value` is the resolved
-number for the slot (CLI flag or repo-config default — slot flags have
-no built-in default, see "Default-resolution order").
-
-### `updateProjectV2ItemFieldValue` — single-select field (status)
-
-```graphql
-mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId:    $itemId
-    fieldId:   $fieldId
-    value:     { singleSelectOptionId: $optionId }
-  }) {
-    projectV2Item { id }
-  }
-}
-```
-
-`optionId` is resolved by case-insensitive lookup of the chosen
-status name in `fields.status.options`.
-
-Note: the `ProjectV2FieldValue` input type uses `singleSelectOptionId`
-(not `optionId`). Don't confuse this with the field-level `optionId`
-returned by reads of `ProjectV2ItemFieldSingleSelectValue`.
-
-### `setIssueFieldValue` — native issue field (single-select)
-
-`kind: issue-field` slots write the value **on the issue itself**, not
-on a project item — there is no `addProjectV2ItemById` step and the
-`github-project.project-id` is irrelevant. The write is a single
-`setIssueFieldValue` call addressing the field by its node `id`.
-
-```graphql
-mutation($issueId: ID!, $fieldId: ID!, $optionId: ID!) {
-  setIssueFieldValue(input: {
-    issueId: $issueId
-    issueFields: [
-      { fieldId: $fieldId, singleSelectOptionId: $optionId }
-    ]
-  }) {
-    issue { id number }
-  }
-}
-```
-
-`issueId` is the issue node ID (from the "Node-ID lookup by issue
-number" template). `fieldId` is `fields.<slot>.field-id` (the native
-field's `IFSS_...` node ID). `optionId` is the option's `IFSSO_...`
-node ID, resolved by case-insensitive lookup of the chosen option
-name in `fields.<slot>.options`.
-
-Verified input shape (introspected against the live GitHub GraphQL
-schema, 2026-06-17 — re-verify with the `__type(name: "...")` query
-above if the feature graduates from preview):
-
-- `SetIssueFieldValueInput` fields: `clientMutationId: String`,
-  `issueId: ID!`, `issueFields: [IssueFieldCreateOrUpdateInput!]!`.
-- `IssueFieldCreateOrUpdateInput` fields: `fieldId: ID!` (required —
-  the field is addressed by node ID, **not** by name),
-  `textValue: String`, `dateValue: String`,
-  `singleSelectOptionId: ID`, `multiSelectOptionIds: [ID!]`,
-  `numberValue: Float`, `delete: Boolean`. For a single-select native
-  field, set `fieldId` + `singleSelectOptionId`; leave the other
-  typed-value fields unset. (`delete: true` clears the value — not
-  used by the set-slot verb, which always sets a concrete option.)
-- `setIssueFieldValue` sets only the fields named in the `issueFields`
-  list; passing just the Priority entry does not disturb any other
-  native field on the issue. Addressing each entry by `fieldId` means
-  the call is an upsert — it works whether or not the field already
-  had a value, so there is no create-vs-update branch.
-
-The read side (`Issue.issueFieldValues`) is documented under
-"Field-value read by kind". The `Issue.viewerCanSetFields` boolean
-gates whether the viewer may write; a write attempt when it is false
-surfaces the "Cannot set native issue field" catalogue entry.
-
-### Label-namespace update (`gh issue edit`, not GraphQL)
-
-`kind: label` slots are managed as issue labels, not project fields.
-There is no `updateProjectV2ItemFieldValue` mutation involved — do
-**not** invent one. The write path is a single `gh issue edit`
-invocation that adds the requested label and removes any other
-in-namespace labels from the slot's own `options` list.
-
-Inputs to the recipe:
-
-- `<N>`             — issue number.
-- `<namespace>`     — `fields.<slot>.namespace`, e.g. `size:`.
-- `<options>`       — `fields.<slot>.options`, e.g. `[XS, S, M, L, XL]`.
-- `<requested>`     — the option name the caller wants set, already
-  resolved against `<options>` (case-insensitive match, canonical
-  capitalization).
-
-Label-name matching is case-insensitive against `<options>`,
-consistent with GitHub's case-insensitive label-name uniqueness.
-Canonical capitalization for display always comes from the
-`<options>` list, never from the label as stored on the issue.
-
-Procedure:
-
-1. Read the issue's current labels (e.g. via the node-ID lookup
-   query extended with `labels(first: 50) { nodes { name } }`, or
-   `gh issue view <N> --json labels --jq '.labels[].name'`).
-2. Compute the **remove set**: every label of the form
-   `<namespace><option>` for each `<option>` in `<options>` **other
-   than `<requested>`** that is currently present on the issue.
-3. Compute the **add set**: the single label
-   `<namespace><requested>` if it is not already present; otherwise
-   empty.
-4. Call `gh issue edit <N>` once with both deltas:
-
-   ```bash
-   gh issue edit <N> \
-     --add-label    "<add-csv>" \
-     --remove-label "<remove-csv>"
-   ```
-
-   Omit either flag whose set is empty rather than passing it with an
-   empty value. If both sets are empty (the requested option is
-   already set and no other in-namespace labels are present), the
-   verb is a no-op and does not invoke `gh issue edit` at all.
-
-Determinism: sort both sets **alphabetically** before formatting them
-into the comma-separated `--add-label` / `--remove-label` values, so
-repeated invocations against the same starting state produce
-byte-identical `gh` commands. This matters for review of dry-run
-output and for any future test fixtures.
-
-Foreign-label rule: a slot owns **only** the labels it lists in
-`<options>`. Labels in the same namespace but not in `<options>` —
-e.g. `size:XXL` when `options: [XS, S, M, L, XL]` — are
-**left alone**. The remove set is computed by intersecting "labels
-formed from the slot's own `options`" with "labels currently on the
-issue", not by scanning the namespace prefix. This keeps the verb
-safe against hand-applied or legacy labels the repo-config doesn't
-know about.
-
-Multiple in-namespace labels: if the issue currently has more than
-one of the slot's own labels (e.g. both `size:S` and `size:M`), the
-remove set includes all of them except `<requested>`, and they are
-all removed in the same `gh issue edit` call. **Invariant**: after
-the verb runs, at most one of the slot's own labels is set on the
-issue.
-
-### `updateIssueIssueType` (set issue type)
-
-```graphql
-mutation($issueId: ID!, $issueTypeId: ID!) {
-  updateIssueIssueType(input: {
-    issueId: $issueId
-    issueTypeId: $issueTypeId
-  }) {
-    issue { id number issueType { id name } }
-  }
-}
-```
-
-`issueTypeId` is resolved by case-insensitive lookup of the chosen
-type name (e.g. `Bug`, `Feature`) in the `issue-types:` map. To
-**clear** the issue type, pass `issueTypeId: null` (the input field
-is nullable).
-
-## Field-value read by kind
-
-Read-side consumers (`/issue-view` and similar) display a slot's
-current value by dispatching on `fields.<slot>.kind`. This section
-documents how to read each kind. None of these branches mutate state
-— for writes, see the templates and recipes in "GraphQL templates".
-
-Note: issue-type display is not covered here. Issue types are not
-modeled as a `fields.<slot>` (they're an issue-level attribute, not
-a project-field-level one). Reading the current issue type uses the
-catch-all "Node-ID lookup by issue number" query's
-`issueType { id name }` field, not a kind-dispatched recipe.
-
-The kinds are read as follows:
-
-- **`kind: number`** — read from the issue's project item. In the
-  `Issue.projectItems(first: N)` payload (see "Node-ID lookup by
-  issue number"), find the node whose `project.id` matches the
-  configured `project-id`, then locate the `fieldValues` entry whose
-  `field.id` matches `fields.<slot>.id` (or, equivalently, whose
-  `field.name` matches the slot's project-field name). Pull the
-  `number` scalar from the `ProjectV2ItemFieldNumberValue` fragment.
-  Display the number as-is. If no `fieldValues` entry exists for
-  that field, the value is unset; render it as `(none)`.
-
-  A more targeted alternative, when the consumer only needs one
-  slot, is `projectItems(first: 10) { nodes { fieldValueByName(name:
-  "<project-field-name>") { ... on ProjectV2ItemFieldNumberValue {
-  number } } } }`. Use whichever fits the calling query — the
-  catch-all template already pulls all `fieldValues` in one shot, so
-  most callers just filter the existing payload.
-
-- **`kind: single-select`** — same project-item lookup as
-  `kind: number`, but read from the
-  `ProjectV2ItemFieldSingleSelectValue` fragment. Display the option
-  `name` (the canonical option label, e.g. `Todo` or `In Progress`).
-  Do not display the `optionId`. If no entry exists, render `(none)`.
-
-- **`kind: label`** — does **not** read from project items at all.
-  Read the issue's labels (the same source as the "Label-namespace
-  update (`gh issue edit`, not GraphQL)" recipe), filter to labels
-  that both start with `<namespace>` **and** strip to an option name
-  that appears in `<options>`. Label-name matching is case-insensitive
-  against `<options>`, consistent with GitHub's case-insensitive
-  label-name uniqueness. Canonical capitalization for display always
-  comes from the `<options>` list, never from the label as stored on
-  the issue.
-  The display rule depends on how many matched:
-  - **zero matches** → render `(none)`
-  - **exactly one match** → render the option name (without the
-    namespace prefix, e.g. `M` not `size:M`)
-  - **more than one match** → render `(multiple)`
-
-  Read-side is **strictly read-only**: even when more than one
-  in-namespace label is set, the read path does not delete extras.
-  Cleaning that up is the write path's job (the "Label-namespace
-  update (`gh issue edit`, not GraphQL)" recipe enforces the
-  at-most-one invariant the next time the slot is written). Foreign
-  labels in the namespace that are not in `<options>` are ignored for
-  display purposes, the same way the write path leaves them alone.
-
-- **`kind: issue-field`** — does **not** read from project items.
-  Native issue fields live on the issue itself, so the value comes
-  from `Issue.issueFieldValues`, not from `Issue.projectItems`. Extend
-  the catch-all "Node-ID lookup by issue number" query with:
-
-  ```graphql
-  issueFieldValues(first: 20) {
-    nodes {
-      __typename
-      ... on IssueFieldSingleSelectValue {
-        name
-        optionId
-        field { ... on IssueFieldSingleSelect { id name } }
-      }
-    }
-  }
-  ```
-
-  Find the `IssueFieldSingleSelectValue` node whose `field.id` matches
-  `fields.<slot>.field-id` (equivalently whose `field.name` matches
-  `fields.<slot>.field-name`), then display its `name` (the canonical
-  option label, e.g. `Medium`). Do not display `optionId`. If no entry
-  matches, the field is unset; render `(none)`. This read works
-  whether or not the issue is on any project board — that
-  board-independence is the point of the kind.
-
-- **`kind: skip`** — there is no value to read, and the recipe does
-  not apply. The same holds for a slot absent from `fields:`.
-
-## Set-slot dispatcher
-
-`/issue-set-<slot>` verbs (`/issue-set-priority`, `/issue-set-size`,
-and any future per-slot setters like `/issue-set-effort`) share one
-dispatch routine. Each verb's SKILL.md picks a `<slot>` name and then
-follows this routine; the verb-specific files document only their
-slot name, their echo wording, what they do when the slot or its
-block is unconfigured, and one fenced argument example per kind.
-The shared logic lives here so it stays in one place.
-
-The verb takes exactly two positional arguments:
-
-```text
-/issue-set-<slot> <N> <value>
-```
-
-- `<N>` (required): issue number, with or without a leading `#`.
-- `<value>` (required): a single token whose parse rules depend on the
-  slot's `kind:` (see below). Multi-word option names must be quoted
-  on the CLI.
-
-### Dispatch routine
-
-1. **Apply tracker dispatch** per "Tracker dispatch" above. Under
-   `issues == Jira`, follow the **Jira set-slot path** in the "Jira
-   backend" section ("Metadata setters (set-status / -priority /
-   -size / -type)") instead of the GitHub steps below: the dispatcher
-   structure is identical (re-read the slot, dispatch on `kind:`,
-   resolve `<value>`, abort-if-missing),
-   but the metadata block is `jira:` instead of
-   `github-project:`, the slot kinds are the Jira kinds (`status`,
-   `custom-field`, `label`, `skip`), and the write paths are the
-   `acli` templates. Steps 2–3 below describe the GitHub path.
-
-2. **Re-read `github-project.fields.<slot>`** from
-   `.issues/repo-config.md`. Do not assume it's already in
-   context; verbs in this namespace re-read repo-config every run.
-
-3. **Dispatch on `fields.<slot>.kind`.** The cases:
-
-   - **slot absent** (no `fields.<slot>` entry) **or `kind: skip`** —
-     there is no write path, and the routine ends here. `<value>` is
-     not parsed or validated.
-
-   - **`kind: number`** — parse `<value>` as a base-10 integer. If it
-     does not parse, or is outside the closed interval `[min, max]`
-     (using `fields.<slot>.min` and `fields.<slot>.max` when set),
-     abort with the "Slot value out of range" catalogue entry. Then
-     follow the **number write path** below. No idempotency pre-check.
-
-   - **`kind: single-select`** — resolve `<value>` against
-     `fields.<slot>.options` per "Name -> ID lookup rules"
-     (case-insensitive; canonical capitalization from the map). If
-     `<value>` does not match any key, treat as a kind mismatch when
-     the input is numeric-only (surface the "Slot kind doesn't match
-     the operation" catalogue entry, single-select-vs-number variant);
-     otherwise surface the "Slot value not in options map" entry.
-     Then follow the **single-select write path** below, including
-     the pre-check.
-
-   - **`kind: label`** — resolve `<value>` against
-     `fields.<slot>.options` (flat list) case-insensitively; capture
-     canonical capitalization. Same kind-mismatch handling as
-     `single-select` (numeric-only input is "Slot kind doesn't match
-     the operation", label-vs-anything variant). Then follow the
-     **label write path** below, including the pre-check.
-
-   - **`kind: issue-field`** — resolve `<value>` against
-     `fields.<slot>.options` (name→id map) per "Name -> ID lookup
-     rules" (case-insensitive; canonical capitalization from the map).
-     Same kind-mismatch handling as `single-select` (numeric-only
-     input that does not match any option name is "Slot kind doesn't
-     match the operation"). Then follow the **issue-field write path**
-     below, including the pre-check.
-
-### Number write path
-
-1. Look up the issue node ID and current project item via the
-   "Node-ID lookup by issue number" template, trimmed to `id` and the
-   `projectItems` block. If the lookup returns
-   `repository.issue: null`, emit "Issue not found" and abort.
-2. Resolve the project-item ID per "Project-item lookup". If the
-   issue is not on the configured board, call `addProjectV2ItemById`
-   to add it and capture the returned `item.id`.
-3. Call the "`updateProjectV2ItemFieldValue` — number field
-   (priority)" template, taking the project from
-   `github-project.project-id`, the project item resolved in step 2,
-   the field from `fields.<slot>.id`, and the parsed integer as the
-   value.
-4. If the mutation returns a "field not found"-shaped GraphQL error,
-   surface the "Project field ID no longer exists on the project"
-   catalogue entry.
-5. Emit the success echo (verb-specific format).
-
-### Single-select write path
-
-1. Look up the issue node ID, current project item, and current
-   field values via the "Node-ID lookup by issue number" template,
-   trimmed to `id` plus the `projectItems` block (which already
-   includes `fieldValues`). Issue-not-found handling as above.
-2. **Pre-check (idempotency).** Inspect the project item's
-   `fieldValues` for a `ProjectV2ItemFieldSingleSelectValue` whose
-   `field.id` matches `fields.<slot>.id`. If its `name` already
-   equals the requested canonical option name (case-insensitive),
-   print the verb's no-op echo (verb-specific format) and exit zero
-   without calling the mutation.
-3. Resolve the project-item ID per "Project-item lookup". If the
-   issue is not on the configured board, call `addProjectV2ItemById`.
-   (A board-absent issue cannot match the pre-check, so this step
-   only fires when the pre-check missed.)
-4. Call the "`updateProjectV2ItemFieldValue` — single-select field
-   (status)" template, taking the project from
-   `github-project.project-id`, the project item resolved in step 3,
-   the field from `fields.<slot>.id`, and the option from
-   `fields.<slot>.options.<canonical>`.
-5. Stale-field-ID handling as above.
-6. Emit the success echo using the **canonical capitalization** of
-   the matched option key (not whatever casing the caller typed).
-
-### Label write path
-
-1. Read the issue's current labels (e.g. via the node-ID lookup query
-   extended with `labels(first: 50) { nodes { name } }`, or via
-   `gh issue view <N> --json labels --jq '.labels[].name'`).
-   Issue-not-found handling as above.
-2. **Pre-check (idempotency).** Compute the set of currently-present
-   in-namespace labels that map to an option in
-   `fields.<slot>.options` (case-insensitive against `options`). If
-   that set contains exactly the requested label
-   `<namespace><canonical>` and nothing else, print the verb's no-op
-   echo and exit zero without calling `gh issue edit`.
-3. Follow the "Label-namespace update (`gh issue edit`, not GraphQL)"
-   recipe verbatim — compute the add/remove sets, sort alphabetically,
-   invoke `gh issue edit <N>` once with both flags. Foreign-label and
-   multiple-in-namespace rules from that recipe apply.
-4. Emit the success echo using the canonical capitalization from
-   `options` and the concrete label name
-   (`<namespace><canonical>`).
-
-### Issue-field write path
-
-`kind: issue-field` writes the value on the issue itself — there is no
-project item and no `addProjectV2ItemById` step.
-
-1. Look up the issue node ID and its current native-field values via
-   the "Node-ID lookup by issue number" template, trimmed to `id`,
-   `viewerCanSetFields`, and the `issueFieldValues` block shown in the
-   `kind: issue-field` read recipe. If the lookup returns
-   `repository.issue: null`, emit "Issue not found" and abort.
-2. **Permission check.** If `viewerCanSetFields` is `false`, abort with
-   the "Cannot set native issue field" catalogue entry — the viewer
-   may not write native fields on this issue.
-3. **Pre-check (idempotency).** Inspect `issueFieldValues` for an
-   `IssueFieldSingleSelectValue` whose `field.id` matches
-   `fields.<slot>.field-id`. If its `name` already equals the
-   requested canonical option name (case-insensitive), print the
-   verb's no-op echo and exit zero without calling the mutation.
-4. Call the "`setIssueFieldValue` — native issue field (single-select)"
-   template, taking the issue node ID, the field from
-   `fields.<slot>.field-id`, and the option from
-   `fields.<slot>.options.<canonical>`.
-5. If the mutation returns a "field not found"-shaped GraphQL error,
-   surface the "Native issue field no longer exists" catalogue entry.
-6. Emit the success echo using the **canonical capitalization** of the
-   matched option key.
-
-### Echo formats
-
-Each verb defines its own echo lines, parameterized by its slot name
-(e.g. `priority`, `size`). The shapes are uniform across verbs:
-
-- **`kind: number`** (success):
-  `#<N> <slot> set to <value>.`
-- **`kind: single-select`** (success):
-  `#<N> <slot> set to <CanonicalOption>.`
-- **`kind: single-select`** (no-op):
-  `#<N> <slot> already set to <CanonicalOption>.`
-- **`kind: issue-field`** (success):
-  `#<N> <slot> set to <CanonicalOption>.`
-- **`kind: issue-field`** (no-op):
-  `#<N> <slot> already set to <CanonicalOption>.`
-- **`kind: label`** (success):
-  ``#<N> <slot> set to <CanonicalOption> (via label `<namespace><Option>`).``
-- **`kind: label`** (no-op):
-  ``#<N> <slot> already set to <CanonicalOption> (via label `<namespace><Option>`).``
-
-No trailing URL line — set-slot verbs are terse on success.
-
 ## Jira backend
 
-This section is the Jira-side counterpart to the GitHub "GraphQL
-templates", "Field-value read by kind", and "Set-slot dispatcher"
-sections above. It is reached from "Tracker dispatch" when
-`issues == Jira`. Every operation talks to Jira through the Atlassian
-CLI (`acli`); the concrete `acli` command shapes are **not** restated
-here — they live in the `/issues-jira:jira-lib` skill and are referenced by name
-("uses the `workitem transition` template from the `/issues-jira:jira-lib` skill").
+This section is how every `/issue-*` verb runs when
+`.issues/repo-config.md` says `issues: Jira`: the verb's script refuses
+that tracker, so the verb is carried out from this prose. The surface
+is the GitHub one — the same flags, the same default-resolution order,
+the same name lookups, the same echo formats and the same
+abort-if-missing contract as the verb's `SKILL.md` describes — and only
+the calls underneath differ. Every operation talks to Jira through the
+Atlassian CLI (`acli`); the concrete `acli` command shapes are **not**
+restated here — they live in the `/issues-jira:jira-lib` skill and are
+referenced by name ("uses the `workitem transition` template from the
+`/issues-jira:jira-lib` skill").
 This keeps the `acli` command surface in one place so a version drift
 is fixed once.
 
@@ -1214,7 +260,7 @@ means there.
 
 1. **`acli` present.** Detect with `command -v acli` per
    the `/issues-jira:jira-lib` skill → "`acli` availability". If absent, abort the
-   Jira branch with the "`acli` not installed" catalogue entry below —
+   Jira branch with the "`acli` not installed" wording below —
    do **not** fall back to the REST API or `jira-cli`.
 2. **Authenticated.** Check with `acli jira auth status`. On a missing
    or expired session, the canonical recovery is a single
@@ -1232,37 +278,100 @@ means there.
    and `SET-123` are accepted, mirroring the GitHub side's `#42` / `42`
    tolerance.
 
+### Resolution rules
+
+#### Default-resolution order
+
+For every flag with a default, resolve in this exact order — first
+hit wins:
+
+1. **CLI flag** explicitly passed on the command line.
+2. **Interactive prompt** — slot flags on `/issue-create` only, per
+   Step 2 of `skills/issue-create/SKILL.md`.
+3. **Repo-config default** in the tracker block — `fields.<slot>.default`
+   for a slot flag, `issue-types.default` for `--type`.
+4. **Built-in default** — `Feature` for `--type`; for `--assignee`,
+   `default-assignee` across the two user-config scopes
+   (`skills/lib/user-config.md`), then the account
+   `acli jira auth status` reports.
+
+Slot flags have no built-in default: with none of the first three, or
+on a `kind: skip` or absent slot, the slot resolves to no value.
+
+#### Name -> ID lookup rules
+
+Flags take **human-readable names**, never raw identifiers, resolved
+against the tracker block:
+
+- **Case-insensitive match**, with the canonical capitalization taken
+  from the map key for every echo.
+- **Whitespace is significant**: `In Progress` and `In  Progress` are
+  different keys.
+- **No fuzzy matching.** A name that matches nothing aborts with the
+  "Slot value not in options map" or "Issue-type name not in repo's
+  issue-types map" wording below.
+
+#### One edge, two sides
+
+`set-blocked-by N B` and `set-blocks B N` write one edge, as do
+`set-parent C P` and `set-child P C`; the `unset-` verbs mirror them.
+`unset-child P C` on a child whose parent is not `P` is a no-op, since
+the end state already holds.
+
+An operand of a blocked-by verb may be `N`, `#N`, or `owner/repo#N`.
+The last form is GitHub-only, because a Jira key is already globally
+unique: under `issues: Jira` it aborts with the "Cross-repo operand
+under Jira" wording below, before the "Preconditions" run and so before
+any `acli` call.
+
+#### Label-slot update
+
+A `kind: label` slot is written by computing two sets against the
+issue's current labels: the **remove set**, every
+`<namespace><option>` for the slot's other options that is present,
+and the **add set**, `<namespace><requested>` when it is absent. Sort
+both alphabetically, and make one call with both deltas, omitting an
+empty one; when both are empty, make none. Labels in the namespace but
+outside `options` are never touched. Afterwards at most one of the
+slot's own labels is set.
+
+#### Set-slot dispatch
+
+`/issue-set-<slot> <N> <value>` re-reads the slot from the `jira:`
+block every run and dispatches on its `kind:`: `skip` or absent prints
+the verb's "nothing to do" line and exits zero; every other kind
+resolves `<value>` against the slot's `options` per the lookup rules
+above, then follows its write path under "Metadata setters" below. A
+write whose value is already set prints the verb's `already set to`
+echo and skips the call.
+
 ### Read / view (`/issue-view`, `/issue-view-tree`, `/issue-sub-list`)
 
 Fetch a work item and its relationships with the `workitem view`
 template from the `/issues-jira:jira-lib` skill (`acli jira workitem view "<KEY>"
 --json`, with the key as a **positional** argument — `workitem view`
-takes no `--key` flag). The `--json` payload is the Jira analogue of the
-GitHub "Node-ID lookup by issue number" query: read the summary
-(title), description (body), status, labels, issue type, and the
-custom-field values (priority/size) from it.
+takes no `--key` flag). Read the summary (title), description (body),
+status, labels, issue type, and the custom-field values
+(priority/size) from its `--json` payload.
 
 - **Slot values** are read by dispatching on the `jira:` slot's
-  `kind:`, the parallel of "Field-value read by kind":
+  `kind:`:
   - **`kind: status`** — the work item's current status name from the
     `--json` payload. Render the status name; `(none)` if unset.
   - **`kind: custom-field`** — the value of the field whose id is the
     slot's `field-id:` (`customfield_NNNNN`) from the payload. Render
     the value as-is; `(none)` if the field is absent or empty.
-  - **`kind: label`** — identical to the GitHub `kind: label` read:
-    filter the work item's labels to `<namespace><option>` for each
-    option in the slot's `options`, applying the same zero / exactly-one
-    (render option name without prefix) / more-than-one (`(multiple)`)
-    rules. Foreign labels in the namespace not in `options` are
-    ignored for display.
+  - **`kind: label`** — filter the work item's labels to
+    `<namespace><option>` for each option in the slot's `options`,
+    applying the same zero / exactly-one (render option name without
+    prefix) / more-than-one (`(multiple)`) rules. Foreign labels in
+    the namespace not in `options` are ignored for display.
   - **`kind: skip` / slot absent** — no value to read, as on GitHub.
-- **Issue type** — the work item's type name from the payload (the
-  Jira analogue of `issueType { name }`).
+- **Issue type** — the work item's type name from the payload.
 - **Relationships** — parent/sub-task and issue links come from the
   same `workitem view --json` payload (its `parent` and issue-links
   arrays). For listing **all** sub-tasks of a parent (the
-  `/issue-sub-list` need, parallel to the GitHub "Sub-issues paginated
-  lookup"), use the `workitem search` template
+  `/issue-sub-list` need), use the `workitem search` template
   (`acli jira workitem search --jql "parent = <KEY>" --json`), which
   returns every child without a 50-item cap. `/issue-view` and
   `/issue-view-tree` read the inline parent/children from the
@@ -1272,8 +381,8 @@ custom-field values (priority/size) from it.
 
 Create a work item with the `workitem create` template from
 the `/issues-jira:jira-lib` skill. Resolve each field through the **same
-default-resolution order** the GitHub path uses ("Default-resolution
-order" above), then map to `acli` flags / payload:
+default-resolution order** ("Default-resolution order" above), then
+map to `acli` flags / payload:
 
 - **type** → `--type "<Type Name>"`, resolved from the `jira:`
   `issue-types:` map (name→name; identity). Abort-if-missing per the
@@ -1298,9 +407,7 @@ work item lives in its project inherently — there is no separate
 
 ### Metadata setters (set-status / -priority / -size / -type)
 
-These follow the **same** "Set-slot dispatcher" routine documented
-above, with the Jira write paths substituted for the GitHub ones. The
-dispatcher's structure is unchanged: normalize `<N>` to a key,
+These follow "Set-slot dispatch" above: normalize `<N>` to a key,
 re-read the slot's `jira:` config, dispatch on `kind:`, resolve
 `<value>` against the slot's `options` (case-insensitive, canonical
 capitalization from the map), and abort-if-missing with the live valid
@@ -1320,15 +427,11 @@ list. The kind→write-path mapping:
   is the Jira analogue of the number / single-select project-field
   write. The payload file is written under `.claude/tmp/<task-slug>/`
   and passed by path.
-- **`kind: label`** — identical to the GitHub `kind: label` write,
-  except the CLI is `acli jira workitem edit --key "<KEY>" --labels
-  "<to-add>" --remove-labels "<to-remove>"` instead of `gh issue edit`
-  (note `--labels` / `--remove-labels`, plural — `workitem edit` has no
-  singular `--label` flag; that exists only on `workitem create`). The
-  add/remove-set computation, alphabetical-sort determinism,
-  foreign-label rule, and at-most-one invariant from the GitHub
-  "Label-namespace update (`gh issue edit`, not GraphQL)" recipe all
-  apply unchanged — only the underlying CLI differs.
+- **`kind: label`** — "Label-slot update" above, making the call with
+  `acli jira workitem edit --key "<KEY>" --labels "<to-add>"
+  --remove-labels "<to-remove>"` (note `--labels` / `--remove-labels`,
+  plural — `workitem edit` has no singular `--label` flag; that exists
+  only on `workitem create`).
 - **issue type** (`/issue-set-type`) — there is no Jira "edit type"
   per-field flag in all `acli` versions; set it via `workitem edit`
   with the type in the JSON payload (or the `--type` flag where the
@@ -1342,9 +445,8 @@ Title / body / labels / assignees go through `workitem edit`:
 - **title** → the `--summary` field on `edit`.
 - **body** → the description field on `edit`.
 - **labels** → `--labels` / `--remove-labels` deltas on `edit`
-  (Jira analogue of `gh issue edit --add-label/--remove-label`; note
-  `acli`'s flags are plural and `--labels` sets the full intended list
-  rather than appending — see the `workitem edit` label note in
+  (note `acli`'s flags are plural and `--labels` sets the full
+  intended list rather than appending — see the `workitem edit` label note in
   the `/issues-jira:jira-lib` skill).
 - **assignees** → the assignee flag on `edit`. Jira work items
   typically carry a single assignee; map `--add-assignees` /
@@ -1376,10 +478,9 @@ the summary is preserved even if the transition fails.
 
 ### Relationships (parent/child, blocks/blocked-by)
 
-The "One edge, two sides" pattern above applies unchanged — the two
-verbs per edge differ in how they take their CLI arguments (their
-order, or their arity where a verb resolves one end by lookup); the
-underlying Jira link is one edge.
+"One edge, two sides" above applies: the two verbs per edge differ
+only in how they take their arguments, and the underlying Jira link is
+one edge.
 
 - **parent / child** (`/issue-set-parent`, `/issue-set-child`,
   `/issue-unset-parent`, `/issue-unset-child`) — Jira models this as
@@ -1396,12 +497,9 @@ underlying Jira link is one edge.
   template from the `/issues-jira:jira-lib` skill (`acli jira workitem link create
   --out "<KEY-A>" --in "<KEY-B>" --type "Blocks"`); the **unset** verbs
   delete by link id (`link list --key` to find the id, then `link
-  delete --id`) — there is no `workitem unlink` command. Set the
-  direction per the call-site mapping in "`addBlockedBy` /
-  `removeBlockedBy`" above (`set-blocks N B` writes "N blocks B";
-  `set-blocked-by N B` writes "N is blocked by B"). Remove the link to
-  unset. Check each operand's form per "Operand resolution" above
-  before the "Preconditions" run.
+  delete --id`) — there is no `workitem unlink` command.
+  `set-blocks N B` writes "N blocks B"; `set-blocked-by N B` writes
+  "N is blocked by B". Remove the link to unset.
 
 ### Abort-if-missing / no-silent-fallback (Jira)
 
@@ -1411,236 +509,65 @@ no-silent-fallback contract". A configured option that does not
 resolve aborts with the actual valid list re-discovered from Jira
 (issue types via the create template, statuses via a representative
 work item, custom-field options via the field payload); it never
-silently writes a fallback. The catalogue entries below
-("Slot value not in options map", "Issue-type name not in repo's
-issue-types map") apply to both backends; only the source of the
-"known options" list differs (the `jira:` block instead of
-`github-project:`).
+silently writes a fallback. The "Slot value not in options map" and
+"Issue-type name not in repo's issue-types map" wordings below take
+their known-options list from the `jira:` block.
 
-## Error message catalogue
+### Error wording
 
-Use these exact wordings so the namespace presents consistent errors.
-Wrap variable parts in backticks.
-
-A wording below that names the `github-project:` block is its GitHub
-form. Under `issues: Jira` it names the `jira:` block in that place
-and is otherwise unchanged. "No `github-project:` block in
-repo-config", for one, reads under Jira:
-
-> no `jira:` block in `repo-config.md`; run `/repo-config` to add it
+Use these exact wordings, which are the Jira forms of the ones the
+scripts emit. Variable parts are in backticks.
 
 - **Issue not found**
 
-  > issue `#<N>` not found in `<owner>/<repo>`
-
-  Triggered when the node-ID lookup returns `repository.issue: null`.
-  Includes the repo so the user can spot a wrong-repo invocation. For
-  an `owner/repo#N` operand (see "Operand resolution") the repo named
-  is the operand's.
+  > issue `<KEY>` not found in project `<project-key>`
 
 - **Cross-repo operand under Jira**
 
   > `owner/repo#N` operands are GitHub-only
-
-  Triggered when an edge verb runs under `issues == Jira` and either
-  operand has the `owner/repo#N` form.
 
 - **Slot value not in options map**
 
   > value `<value>` is not in `<slot>`'s options. Known options:
   > `<comma-separated canonical names>`.
 
-  Triggered when a `/issue-set-<slot> N <value>` call resolves a value
-  that does not match (case-insensitively) any entry in
-  `fields.<slot>.options`. Applies to both `kind: single-select` slots
-  (lookup against the option map keys) and `kind: label` slots (lookup
-  against the flat options list). The comma-separated list is the
-  canonical names from the slot's `options`, in the order they appear
-  in the YAML. `<slot>` is the slot name as it appears under `fields:`
-  (e.g. `status`, `size`).
+  The names are the slot's `options` keys, in the order the YAML lists
+  them.
 
-  This is the generic form. The older "Status name not in repo's
-  option map" entry is folded into this one — callers that previously
-  referenced it by name should now reference "Slot value not in options
-  map" instead.
+- **No `jira:` block in repo-config** — for a verb that needs the
+  block:
 
-- **No `github-project:` block in repo-config**
+  > no `jira:` block in `repo-config.md`; run `/repo-config` to add it
 
-  > no `github-project:` block in `repo-config.md`; run `/repo-config` to add it
+  `/issue-create` warns and skips the flag instead:
+
+  > warning: no `jira:` block in `repo-config.md`;
+  > skipping `--<flag>`. Run `/repo-config` to add it.
 
 - **No `issue-types:` map in repo-config**
 
-  > issue-types map missing from `github-project:` in `repo-config.md`;
+  > issue-types map missing from `jira:` in `repo-config.md`;
   > run `/repo-config` to add it
 
-  Describes a `github-project:` block that is present but carries no
-  `issue-types:` map. Distinct from
-  "No `github-project:` block in repo-config": here the block exists
-  but the issue-types map specifically is absent, so the fix is the
-  same (`/repo-config`) but the diagnosis points at the missing map.
+- **Issue-type name not in repo's issue-types map**
 
-- **No `github-project:` block in repo-config (warning)**
+  > issue type `<name>` not in repo's `jira.issue-types`.
+  > Known types: `<comma-separated canonical names>`
 
-  > warning: no `github-project:` block in `repo-config.md`;
-  > skipping `--<flag>`. Run `/repo-config` to add it.
+- **Slot kind doesn't match the operation**
 
-  The warning form of "No `github-project:` block in repo-config".
-  `<flag>` is the flag being skipped.
+  > `/issue-set-<slot>` was called with `<value>`, but this repo's
+  > `<slot>` is configured as `kind: <kind>`. Use one of:
+  > `<comma-separated canonical names>`. (Or run `/repo-config` to
+  > reconfigure.)
 
-- **`acli` not installed** (Jira branch)
+- **`acli` not installed**
 
   > `issues: Jira` is configured, but `acli` (the Atlassian CLI) is
   > not on `PATH`. Install it per Atlassian's docs; do not fall back
   > to the REST API or `jira-cli`.
 
-  Emitted when a Jira operation runs `command -v acli` and finds it
-  absent (see the `/issues-jira:jira-lib` skill → "`acli` availability"). The
-  skill detects the absence and reports — it does **not** install
-  `acli` (a host modification forbidden by
-  `~/.claude/rules/forbid-host-modifications.md`, and for subagents
-  `~/.claude/rules/dependency-discipline.md`).
-
-  An **auth** failure is handled differently — it is not a catalogue
-  abort but a credential-prompting recovery: run
-  `acli jira auth login --web` once and retry, per
-  the `/issues-jira:jira-lib` skill → "Auth expectation and failure surface". Only
-  if that single login does not resolve it do you stop and report.
-
-- **Issue not on the configured project board** (read paths only)
-
-  > issue `#<N>` is not on project `<project-title>`
-  > (`<project-id>`); add it first or run a write command which
-  > adds it on demand
-
-  Avoid this for write paths; those should add the item automatically
-  via `addProjectV2ItemById`.
-
-- **Issue-type name not in repo's issue-types map**
-
-  > issue type `<name>` not in repo's `github-project.issue-types`.
-  > Known types: `<comma-separated canonical names>`
-
-- **Project field ID no longer exists on the project**
-
-  > project field `<field-id>` no longer exists on project
-  > `<project-id>`; the cached IDs in `repo-config.md` may be stale.
-  > Run `/repo-config` to refresh them.
-
-  Triggered when `updateProjectV2ItemFieldValue` returns a
-  "field not found"-shaped GraphQL error. Surface this from
-  `/issue-set-priority` and `/issue-set-status` so the user knows
-  the fix is to re-run `/repo-config` rather than to retry blindly.
-
-  Applies only to `kind: number` and `kind: single-select` slots —
-  the kinds whose write path is `updateProjectV2ItemFieldValue` and
-  therefore carries a project field ID. `kind: label` slots have no
-  field ID (the label name is the identifier) and so cannot hit this
-  error; their failure modes are GitHub-side label errors from
-  `gh issue edit`, not project-field errors. `kind: issue-field` slots
-  have their own stale-ID and permission entries below.
-
-- **Native issue field no longer exists**
-
-  > native issue field `<field-name>` (`<field-id>`) no longer exists
-  > on `<owner>/<repo>`; the cached ID in `repo-config.md` may be
-  > stale. Run `/repo-config` to refresh it.
-
-  Triggered when `setIssueFieldValue` returns a "field not found"-shaped
-  GraphQL error for a `kind: issue-field` slot. Surface this from
-  `/issue-set-priority` (and `/issue-create`'s `--priority`) so the
-  user knows the fix is to re-run `/repo-config`. The native-field
-  analogue of "Project field ID no longer exists on the project".
-
-- **Cannot set native issue field**
-
-  > cannot set native issue field `<field-name>` on issue `#<N>`:
-  > `viewerCanSetFields` is false. You may lack write access, or the
-  > native-issue-fields preview may not be enabled for this
-  > repository.
-
-  Triggered when a `kind: issue-field` write reads
-  `Issue.viewerCanSetFields == false`. Distinct from a stale field ID:
-  the field exists, but the authenticated viewer is not permitted to
-  write native field values on this issue.
-
-- **Slot value out of range**
-
-  > value `<value>` for `<slot>` is out of range. Expected an integer
-  > in `[<min>, <max>]`.
-
-  Triggered when `/issue-set-<slot> N <value>` is called against a
-  `kind: number` slot and the parsed value is outside the closed
-  interval defined by `fields.<slot>.min` and `fields.<slot>.max`.
-  Also triggered for non-integer input (e.g. `3.5`, `three`) and for
-  empty or missing input — the verb echoes back the offending
-  `<value>` verbatim (or `<empty>` if it was missing) so the user can
-  see what the parser actually received.
-
-  This is the generic form. The older "Invalid importance value"
-  entry — which hardcoded the `1-9` wording — is folded into this
-  one; the `<min>` and `<max>` come from the slot's own
-  repo-config, so a slot with `min: 0, max: 100` reads `[0, 100]`
-  here rather than `1-9`. Callers that previously referenced
-  "Invalid importance value" by name should now reference "Slot value
-  out of range" instead.
-
-- **Slot kind doesn't match the operation**
-
-  > `/issue-set-<slot>` was called with a number, but this repo's
-  > `<slot>` is configured as `kind: single-select`. Use one of:
-  > `<comma-separated canonical names>`. (Or run `/repo-config` to
-  > reconfigure.)
-
-  Triggered when the verb's input shape doesn't match the configured
-  `kind:` on the slot. The wording above shows the
-  number-vs-single-select direction; symmetric variants exist for the
-  other directions:
-
-  - **single-select-vs-number** (input parses as a number, slot is
-    `kind: single-select`): as shown above. The `kind: issue-field`
-    slot (single-select native field) uses this same variant — a
-    numeric-only `<value>` that matches no option name reads
-    `configured as kind: issue-field` in place of `kind: single-select`.
-  - **label-vs-anything** (slot is `kind: label` but the input shape
-    can't be matched against `options`, or a verb assuming a project
-    field is run against a `kind: label` slot):
-
-    > `/issue-set-<slot>` was called with `<value>`, but this repo's
-    > `<slot>` is configured as `kind: label`. Use one of:
-    > `<comma-separated canonical names>`. (Or run `/repo-config` to
-    > reconfigure.)
-
-  Note: there is no `number-vs-single-select` variant for the
-  reverse direction (non-numeric input against a `kind: number`
-  slot). The "Set-slot dispatcher" `kind: number` branch folds **all**
-  non-integer input — including non-numeric names like `three` — into
-  the "Slot value out of range" entry above, which echoes the
-  offending `<value>` verbatim and names the expected
-  `[<min>, <max>]` interval. Do not re-add the variant; route those
-  cases through "Slot value out of range" instead.
-
-  The verb echoes back the offending `<value>` verbatim and names the
-  configured kind so the user can see the mismatch at a glance.
-
-## Conventions for command files
-
-When writing a new `/issue-*` command's `.md`:
-
-- Open with one or two sentences describing the command's intent.
-- Link to this file: "See `skills/lib/issue.md` for shared GraphQL
-  templates, default resolution, and error wording."
-- Document only what's specific to that command: argument shape,
-  which templates from this file it uses, and any per-command
-  edge cases.
-- Do **not** copy GraphQL templates inline — reference them by name
-  ("uses the `addSubIssue` template from `skills/lib/issue.md`").
-- Do **not** restate the default-resolution order — reference it.
-- Do **not** restate the tracker-dispatch open — reference it.
-- **Flag naming for sets vs. add/remove.** Create-style verbs that
-  set a field outright use the singular `--assignee` and the plural
-  collection name `--labels` (the flag value is the full intended
-  set). Update-style verbs that mutate an existing list use the
-  plural pair `--add-assignees` / `--remove-assignees` and
-  `--add-labels` / `--remove-labels` (each flag value is a delta
-  applied to the current list). Stick to this split when adding new
-  verbs so callers don't have to remember per-verb spellings.
+  Detect the absence and report it — never install `acli`. An **auth**
+  failure is not this abort: it is the one `acli jira auth login --web`
+  under "Preconditions", and only if that login does not resolve it do
+  you stop and report.

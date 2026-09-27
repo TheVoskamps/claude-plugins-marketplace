@@ -3,20 +3,10 @@ name: issue-create
 description: Create a new issue in this repo end-to-end (title, body, type, priority, size, status, parent, assignees, labels) in a single invocation.
 ---
 
-Create a new issue in the current repo with all metadata set in one
-shot: title, body, issue type, parent link, priority, size, status,
-assignees, and labels. The command runs the full GraphQL chain so the
-issue is fully configured before the URL is printed.
-
-See `skills/lib/issue.md` for the shared GraphQL templates,
-default-resolution order, name -> ID lookup rules, tracker dispatch,
-and error wording. This file documents only what is specific to
-`/issue-create`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
+Create a new issue with all metadata set in one shot: title, body,
+issue type, parent link, priority, size, status, assignees, and
+labels — in the current repo, or with `--repo` in another. The issue
+is fully configured before its URL is printed.
 
 ## Invocation
 
@@ -25,276 +15,89 @@ canonical read sequence and abort messages for
               [--type T] [--labels a,b,c] [--assignee u1,u2]
               [--parent N]
               [--priority V] [--size V] [--status S]
+              [--repo owner/repo]
 ```
 
 - `--title` (required): issue title.
-- `--body-file` (required): path to a file whose contents are used as
-  the issue body verbatim. Use a file rather than `--body "..."` so
-  long bodies and Markdown survive the CLI unchanged.
-- `--type` (optional): issue type name (case-insensitive match against
-  `issue-types:` in the repo's `github-project:` block). Default
-  resolves via the order in `skills/lib/issue.md` ("Default-resolution
-  order"): CLI flag, then `issue-types.default` in the repo's
-  `github-project:` block, then built-in default `Feature`.
-- `--labels` (optional): comma-separated label names. Passed straight
-  through to `gh issue create --label`. Default: none.
-- `--assignee` (optional): comma-separated assignee identifiers, in
-  the form this repo's tracker accepts. With no flag, the default is
-  `default-assignee`, resolved across the two user-config scopes per
-  `skills/lib/user-config.md` → "Resolution order across the two
-  scopes"; this reader requires user-config schema-version `1`, and a
-  user-config file that exists at an older version aborts the read
-  rather than degrading. Both files are **optional**: when neither
-  defines the key, resolution degrades to the current identity — the
-  authenticated GitHub user (`gh api user --jq '.login'`) on the
-  GitHub backend, the account `acli jira auth status` reports on the
-  Jira one.
-- `--parent` (optional): parent issue number. When set, the new issue
-  is linked as a sub-issue of the given parent via the `addSubIssue`
-  template from `skills/lib/issue.md`. Default: none.
-- `--priority` (optional): a single token whose parse rules depend
-  on `fields.priority.kind:` in the repo's `github-project:` block.
-  Per-kind parse rules (same as the "Set-slot dispatcher" in
-  `skills/lib/issue.md`):
-  - **`kind: number`** — base-10 integer in
-    `[fields.priority.min, fields.priority.max]`.
-  - **`kind: single-select`** — option name from
-    `fields.priority.options`, matched case-insensitively (canonical
-    capitalization from the option map).
-  - **`kind: label`** — option name from `fields.priority.options`
-    (flat list), matched case-insensitively.
-  - **`kind: issue-field`** — option name from
-    `fields.priority.options` (the native GitHub Issue Field's option
-    map), matched case-insensitively (canonical capitalization from
-    the option map).
-  - **`kind: skip` or slot absent** — warn-and-skip the flag (per
-    "Warnings" under "Output" below). The value is not parsed or
-    validated.
+- `--body-file` (required): a file whose contents become the body
+  verbatim, so long Markdown survives the CLI unchanged.
+- `--type` (optional): issue type name, matched case-insensitively
+  against the `issue-types:` map. Default: the map's `default:`, then
+  `Feature`.
+- `--labels` (optional): comma-separated label names. Default: none.
+- `--assignee` (optional): comma-separated GitHub logins. Default:
+  `default-assignee` from the repo-level user-config, then the
+  user-global one (`skills/lib/user-config.md`), then the
+  authenticated GitHub user. A user-config file that exists but
+  predates schema-version `1` aborts rather than being skipped.
+- `--parent` (optional): the parent's issue number, in the repo the
+  issue is filed in. The new issue becomes its sub-issue.
+- `--priority`, `--size`, `--status` (optional): one value per slot,
+  whose meaning depends on the slot's `kind:` in repo-config — an
+  integer within `min`/`max` for `kind: number`, an option name
+  matched case-insensitively for `kind: single-select`,
+  `kind: issue-field` and `kind: label`. Run `/issue-field-options`
+  to see what a slot accepts. A slot with no value resolves through
+  Step 2 below, then the slot's `default:`; there is no built-in
+  default.
+- `--repo` (optional): file the issue in `owner/repo` instead of the
+  current repo. The script reads that repo's `.issues/repo-config.md`
+  from its default branch and uses it exactly as a local create uses
+  the local one. A target with no repo-config gets a plain issue —
+  title, body, labels, and any `--assignee` or `--parent` passed — and
+  one output line saying the project fields were skipped. A target
+  whose repo-config is at an unsupported schema-version aborts before
+  anything is filed. The repo-level user-config is this repo's, so a
+  cross-repo default assignee comes from the user-global one only.
 
-  Default resolves via the order in `skills/lib/issue.md`
-  ("Default-resolution order"). For create-time slot flags the full
-  order is: CLI flag, then an **interactive prompt** (see Step 2 in
-  the execution chain below and the "Interactive prompt rung
-  (create-time slot flags)" section in `skills/lib/issue.md`), then
-  `fields.priority.default` in the repo's `github-project:` block.
-  There is no built-in default — if none of those produce a value,
-  the slot is skipped.
-- `--size` (optional): a single token whose parse rules depend on
-  `fields.size.kind:`. Same kind dispatch as `--priority`:
-  - **`kind: number`** — base-10 integer in
-    `[fields.size.min, fields.size.max]`.
-  - **`kind: single-select`** — option name from `fields.size.options`,
-    matched case-insensitively (canonical capitalization from the
-    option map).
-  - **`kind: label`** — option name from `fields.size.options` (flat
-    list), matched case-insensitively.
-  - **`kind: issue-field`** — option name from `fields.size.options`
-    (the native GitHub Issue Field's option map — e.g. the native
-    `Effort` field's `High` / `Medium` / `Low`), matched
-    case-insensitively (canonical capitalization from the option map).
-  - **`kind: skip` or slot absent** — warn-and-skip the flag.
+## Execution
 
-  Default resolves via CLI flag, then the interactive prompt
-  (Step 2 in the execution chain), then `fields.size.default`. No
-  built-in default; an unset slot is skipped. The interactive
-  prompt's recommendation for `--size` is generated by evaluating
-  the issue body — see the "Size evaluation heuristic" section
-  below.
-- `--status` (optional): a single token whose parse rules depend on
-  `fields.status.kind:`. Same kind dispatch as `--priority` and
-  `--size`. Default resolves via CLI flag, then the interactive
-  prompt (Step 2 in the execution chain), then
-  `fields.status.default`. No built-in default; an unset slot is
-  skipped.
+1. **Collect the flags the user gave.** Nothing is resolved here that
+   the script resolves itself.
 
-Build the `gh issue create` invocation only from flags the user
-actually passed or that resolved to a concrete value. Do not pass
-empty arguments (`--label ""`, `--assignee ""`); skip the flag.
+2. **Ask for the slot values the user did not give.** For each slot in
+   `priority`, `size`, `status` whose flag was not passed, and which
+   `/issue-field-options <slot>` does not report as unconfigured, ask
+   the user with `AskUserQuestion` — one question per slot, or up to
+   four combined in one call. The options are the slot's option names
+   in configured order; a `kind: number` slot gets an open-ended
+   integer prompt in `[min, max]`. The first option is the
+   recommendation and carries `(Recommended)`:
 
-## Tracker dispatch
+   - **size** — evaluate the issue body per "Size evaluation
+     heuristic" below and put that pick first; the rest follow in
+     configured order.
+   - **priority**, **status** — the slot's `default:` from repo-config,
+     echoed back first. With no `default:`, recommend nothing and keep
+     the configured order.
 
-Apply the standard `issues:` switch from `skills/lib/issue.md`
-("Tracker dispatch"). Under `issues == Jira`, follow the Jira backend
-path documented there (`skills/lib/issue.md` → "Jira backend" →
-"Create (`/issue-create`)"), which creates the work item via `acli`
-(the `/issues-jira:jira-lib` skill) and resolves type/status/priority/size from
-the `jira:` block the same way the GitHub backend resolves them from
-`github-project:`; it no longer aborts.
+   An answer resolves the slot exactly as if its flag had been passed.
+   An unanswered prompt — a timeout, or a non-interactive caller —
+   leaves the flag off, so the script falls back to the slot's
+   `default:`. Skip this step when every slot was passed or is
+   unconfigured. This step is create-time only; the set-slot verbs
+   take an explicit value and never prompt.
 
-## Execution chain (GitHub backend)
-
-Run these steps in order; each step takes the output of the previous
-step as input. If any step fails, stop and report what completed and
-what didn't — do not roll back successful steps.
-
-1. **Resolve defaults (non-prompted rungs).** Apply the
-   default-resolution order from `skills/lib/issue.md` to `--type`,
-   `--labels`, and `--parent` — i.e. CLI flag, then repo-config
-   default, then built-in default where applicable. Resolve
-   `--assignee` through its own order from the `--assignee` flag spec
-   under "Invocation" above. None of these flags prompt; their
-   resolution is complete after this step. The slot flags
-   (`--priority`, `--size`, `--status`) get rung 1 here (CLI flag,
-   if passed); the remaining rungs are handled in Step 2 below.
-
-   If `github-project:` is absent in repo-config, `--type` and
-   `--assignee` still resolve via their defaults, but the slot flags
-   warn-and-skip per "Warnings" under "Output" below — no prompt
-   either (Step 2 is a no-op for any slot whose `kind:` resolves to
-   `skip` / slot-absent).
-
-2. **Interactive prompts for slot flags.** For each slot in
-   `{priority, size, status}` whose CLI flag was **not** passed in
-   Step 1, run the "Interactive prompt rung (create-time slot
-   flags)" from `skills/lib/issue.md`:
-
-   - Skip the prompt for any slot whose `fields.<slot>.kind:` is
-     `skip` or whose entry is absent from `fields:` — those slots
-     warn-and-skip per "Warnings" under "Output" below, without any
-     prompt.
-   - For `--size`, evaluate the issue body per the "Size evaluation
-     heuristic" section below to pick the recommended option, then
-     issue a single `AskUserQuestion` for size with that option
-     first / `(Recommended)`.
-   - For `--priority` and `--status`, the recommended option is
-     `fields.<slot>.default` from repo-config (if set). Issue one
-     `AskUserQuestion` per slot.
-   - The per-slot prompts MAY be combined into a single
-     `AskUserQuestion` call when convenient (the harness allows up
-     to four questions per call) — the user experience is
-     equivalent.
-
-   The user's answer for a given slot resolves it for the remainder
-   of the run, exactly as if they had passed the CLI flag. If a
-   prompt is unanswered (harness time-out, non-interactive context),
-   fall through to `fields.<slot>.default`; if that is also absent,
-   the slot is skipped with no warning line — its checklist line reads
-   `skipped: flag not passed and no default` (see "Output" below).
-
-   Skip this step entirely when no slot needs a prompt — i.e. when
-   every slot was either passed on the CLI in Step 1 or is
-   `kind: skip` / absent.
-
-3. **Create the issue.**
+3. **Run the script.** Run `issue-create`, which this plugin puts on
+   `PATH`, with the Bash tool from inside the repo's working tree,
+   passing the flags from steps 1 and 2 and no empty values:
 
    ```bash
-   gh issue create \
-     --title "<title>" \
-     --body-file "<path>" \
-     [--label "<labels>"] \
-     [--assignee "<assignees>"]
+   issue-create --title "<title>" --body-file <path> [--type <T>] [--labels <a,b>] \
+     [--assignee <u1,u2>] [--parent <N>] [--priority <V>] [--size <V>] [--status <S>] [--repo <owner/repo>]
    ```
 
-   `gh issue create` prints the new issue URL on stdout. Capture it.
-   Extract the issue number from the URL tail.
+   The script validates every value against repo-config before it
+   files anything, so a bad type or slot value aborts with nothing
+   created. It then creates the issue, adds it to the configured
+   project board, and sets the type, parent and slots, re-reading each
+   write and exiting non-zero when a re-read does not show it. When a
+   step fails after the issue exists, stderr names the issue, its URL,
+   and the steps that completed; nothing is rolled back.
 
-4. **Look up the issue node ID** using the node-ID-lookup template
-   from `skills/lib/issue.md`. Trim the query to just `id` and the
-   `projectItems` block (the rest of the template's fields aren't
-   needed here).
-
-5. **Look up the project-item ID** per the "Project-item lookup"
-   section in `skills/lib/issue.md`. If `github-project:` is present
-   and the issue is not yet on the configured board, call
-   `addProjectV2ItemById` (template in the lib) to add it and capture
-   the returned `item.id`.
-
-6. **Set the issue type** via the `updateIssueIssueType` template,
-   using the resolved type name -> ID lookup. Skip if there is no
-   `github-project:` block (no `issue-types:` map to look up against).
-
-7. **Link to parent**, if `--parent` was passed. Look up the parent's
-   node ID (re-use the node-ID lookup template, trimmed to `id`), then
-   call the `addSubIssue` template, taking `--parent`'s issue as the
-   parent and the newly created issue as the child.
-
-8. **Set priority**, if `--priority` resolved to a concrete value.
-   Dispatch on `github-project.fields.priority.kind:` and follow the
-   matching write path from the "Set-slot dispatcher" routine in
-   `skills/lib/issue.md`:
-   - **`kind: number`** — validate the parsed integer against
-     `[min, max]`, then call the `updateProjectV2ItemFieldValue`
-     number-field template, taking the field from
-     `fields.priority.id`.
-   - **`kind: single-select`** — resolve the option name to an option
-     ID via the case-insensitive lookup rules ("Name -> ID lookup
-     rules"), then call the `updateProjectV2ItemFieldValue`
-     single-select-field template, taking the field from
-     `fields.priority.id` and the option resolved above.
-   - **`kind: label`** — resolve the option name against
-     `fields.priority.options` (flat list, case-insensitive), then
-     follow the "Label-namespace update (`gh issue edit`, not
-     GraphQL)" recipe with
-     `<namespace> = fields.priority.namespace` and
-     `<requested> = <canonical>`. This is a `gh issue edit`
-     invocation, not GraphQL.
-   - **`kind: issue-field`** — resolve the option name against
-     `fields.priority.options` (case-insensitive), then follow the
-     **issue-field write path** from the "Set-slot dispatcher" routine
-     in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
-     the "`setIssueFieldValue` — native issue field (single-select)"
-     template, taking the issue node ID from step 4, the field from
-     `fields.priority.field-id`, and the option from
-     `fields.priority.options.<canonical>`. This writes on the issue
-     itself and does **not** depend on the project-item lookup from
-     step 5 — it works even when the issue is not on (or there is no)
-     project board.
-   - **`kind: skip` or slot absent** — emit the slot-skipped warning
-     from "Warnings" under "Output" below and skip.
-
-   If the `github-project:` block is missing entirely, emit the same
-   warning and skip — there is no slot configuration to dispatch on.
-   (A `kind: issue-field` slot still lives under `github-project.fields`
-   in repo-config even though its write does not touch the board; if
-   the whole block is absent there is no slot to dispatch on.)
-
-9. **Set size**, if `--size` resolved to a concrete value. Same
-   dispatch shape as step 8, against
-   `github-project.fields.size.kind:`:
-   - **`kind: number`** — validate against `[min, max]`, then call
-     the `updateProjectV2ItemFieldValue` number-field template, taking
-     the field from `fields.size.id`.
-   - **`kind: single-select`** — resolve the option name to an
-     option ID, then call the `updateProjectV2ItemFieldValue`
-     single-select-field template, taking the field from
-     `fields.size.id` and the option resolved above.
-   - **`kind: label`** — resolve the option name against
-     `fields.size.options`, then follow the "Label-namespace update
-     (`gh issue edit`, not GraphQL)" recipe with
-     `<namespace> = fields.size.namespace`.
-   - **`kind: issue-field`** — resolve the option name against
-     `fields.size.options` (case-insensitive), then follow the
-     **issue-field write path** from the "Set-slot dispatcher" routine
-     in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
-     the "`setIssueFieldValue` — native issue field (single-select)"
-     template, taking the issue node ID from step 4, the field from
-     `fields.size.field-id`, and the option from
-     `fields.size.options.<canonical>`. This writes on the issue
-     itself and does **not** depend on the project-item lookup from
-     step 5 — it works even when the issue is not on (or there is no)
-     project board. GitHub's native `Effort` field is the size
-     analogue here; its options are `High` / `Medium` / `Low`, not the
-     t-shirt buckets.
-   - **`kind: skip` or slot absent** — emit the slot-skipped warning
-     and skip.
-
-   If the `github-project:` block is missing entirely, warn and skip
-   as above.
-
-10. **Set status**, if `--status` resolved to a concrete value. Same
-    dispatch shape as steps 8 and 9, against
-    `github-project.fields.status.kind:`. Most repos configure
-    `status` as `kind: single-select`, in which case this step
-    resolves the status name to an option ID via the
-    case-insensitive lookup rules ("Name -> ID lookup rules") and
-    calls the `updateProjectV2ItemFieldValue` single-select-field
-    template, taking the field from `fields.status.id` and the option
-    resolved above. The remaining kinds (`number`, `label`,
-    `issue-field`, and `skip`/absent) follow the same per-kind write
-    paths as in step 8.
-
-    If the `github-project:` block is missing entirely, warn and
-    skip as above.
+4. **Report.** Print the script's stdout as it stands. On a non-zero
+   exit, relay its stderr verbatim — including which steps completed
+   when the issue was already created.
 
 ## Size evaluation heuristic
 
@@ -447,99 +250,15 @@ toward the same default and matches the issue's intent that
 
 ## Output
 
-The output is a **hard checklist, not a suggestion**. The runbook is
-**not complete** until every required line below has been emitted.
-Each applicable field must echo **either** a concrete value **or** the
-literal word `skipped` followed by a reason (`skipped: <reason>`).
-Printing the URL line without all of the required field lines above it
-means the skill has **not** finished its work — the URL is the *last*
-line, never a substitute for the checklist.
-
-Echo back the canonical capitalization for type and for any
-single-select / label slot value (per "Name -> ID lookup rules" in
-`skills/lib/issue.md`), not whatever casing the user typed.
-`kind: number` slots echo the integer as-is.
-
-### Required lines
-
-Emit each of these on every run. "Required" means the line must
-appear — as a value or as `skipped: <reason>` — before the URL. A
-line whose metadata is not configured still appears, as its
-`skipped: <reason>`; that is the checklist line "Warnings" below
-pairs with each warning.
-
-- **`type:`** — either the canonical type name (e.g. `Feature`) or
-  `skipped: <reason>` (e.g. `skipped: no issue-types map in
-  repo-config`).
-- **`priority:`** — either the canonical value or
-  `skipped: <reason>` (e.g. `skipped: slot kind: skip`,
-  `skipped: slot absent from fields:`,
-  `skipped: flag not passed and no default`).
-- **`size:`** — same shape as `priority:`.
-- **`status:`** — same shape as `priority:`.
-- **`assignee:`** — required. Either the canonical login(s) that were
-  set, or `skipped: no --assignee passed and no built-in default
-  applies`. Before printing this line, **post-fetch verify** (see
-  below).
-
-### Optional line
-
-- **`parent:`** — either `#<N>` or **omitted entirely**. This is the
-  one optional field: it is omitted (no `skipped:` annotation needed)
-  when `--parent` was not passed.
-
-### Assignee post-fetch verification
-
-Before emitting the `assignee:` line, re-read the issue's assignees
-from GitHub (`gh issue view <N> --json assignees --jq
-'.assignees[].login'`) and compare the result to the set you intended
-to assign:
-
-- If every intended login is present, echo the canonical login(s) on
-  the `assignee:` line.
-- If any intended login is **missing** from the re-read set (a silent
-  assignee-add failure — e.g. an invalid or non-collaborator login
-  that `gh issue create --assignee` accepted without error), do
-  **not** print a clean value line. Instead surface the mismatch:
-  print `assignee: <set-that-landed> (requested <full-set>; <missing>
-  did not land)` so the failure is visible in the output rather than
-  silently lost.
-
-### Warnings
-
-Nothing this verb skips aborts the run: the issue is still filed. A
-flag that needs project metadata — `--type`, `--priority`, `--size`,
-`--status` — is warning-skipped when that metadata is not configured.
-A warning-skipped flag prints one warning line on its own before the
-URL, in addition to the corresponding `skipped: <reason>` checklist
-line:
-
-- **No `github-project:` block** — the "No `github-project:` block in
-  repo-config (warning)" entry from the catalogue in
-  `skills/lib/issue.md`, once per such flag.
-
-- **A slot declared `kind: skip`:**
-
-  > `warning: slot 'priority' is kind: skip in repo-config.md;`
-  > `skipping --priority.`
-
-- **A slot absent from `fields:`** — the same line, naming the slot
-  as missing from `fields:` instead of `kind: skip`.
-
-When several flags are warning-skipped in one run, print one line per
-flag, in checklist order — `--type`, `--priority`, `--size`,
-`--status` — whether or not each flag was passed: a `kind: skip` or
-absent slot warns without its flag, so the CLI supplies no order.
-
-### Examples
-
-A fully-configured issue on this repo's typical `single-select`
-priority, size, and status:
+The output is a checklist: each line shows **either** a concrete value
+**or** `skipped: <reason>`, and the URL is the last line, never a
+substitute for the checklist. Values carry the config's capitalization,
+not the caller's.
 
 ```text
 Created issue #1042 "Add /issue-create skill"
   type:       Feature
-  priority:   P0
+  priority:   High
   size:       M
   status:     Backlog
   assignee:   octocat
@@ -548,27 +267,40 @@ Created issue #1042 "Add /issue-create skill"
 https://github.com/<owner>/<repo>/issues/1042
 ```
 
-An issue in a repo whose `size` slot is intentionally `kind: skip`,
-run without `--size`, and where `--status` was neither passed nor
-defaulted — the required lines still appear, as `skipped: <reason>`,
-the `kind: skip` slot prints its warning line even though no `--size`
-was passed (Step 2 of the execution chain), and `parent:` is omitted
-because `--parent` was not passed:
+- `type:`, `priority:`, `size:`, `status:` and `assignee:` always
+  appear. The skip reasons are `slot kind: skip`,
+  `slot absent from fields:`, `flag not passed and no default`,
+  `no github-project block in repo-config`,
+  `no issue-types map in repo-config`, and
+  `target repo has no repo-config`.
+- `parent:` appears only when `--parent` was passed.
+- An issue filed in another repo prints as `owner/repo#N`.
+- The assignee line is the re-read set. When a requested login did not
+  land — GitHub accepts an invalid login on create without an error —
+  it reads `<landed> (requested <all>; <missing> did not land)` and the
+  script exits non-zero after printing the checklist.
+
+A flag skipped for missing project metadata also prints one warning
+line before the URL, for `--type`, `--priority`, `--size` and
+`--status` in that order, whether or not the flag was passed. The
+warning shapes:
 
 ```text
-Created issue #1043 "Tidy up the create runbook"
-  type:       Tech Debt
-  priority:   P2
-  size:       skipped: slot kind: skip
-  status:     skipped: flag not passed and no default
-  assignee:   octocat
-
 warning: slot 'size' is kind: skip in repo-config.md; skipping --size.
-
-https://github.com/<owner>/<repo>/issues/1043
+warning: slot 'status' is missing from fields: in repo-config.md; skipping --status.
+warning: no `github-project:` block in `repo-config.md`; skipping `--priority`. Run `/repo-config` to add it.
 ```
 
-## Migration note
+A `--repo` target without a repo-config prints, instead of warnings:
 
-This skill replaces the legacy `skills/issue-add/SKILL.md`. That file
-now contains a one-line pointer to this skill for muscle memory.
+```text
+note: project fields skipped: `<owner>/<repo>` has no `.issues/repo-config.md`.
+```
+
+## Jira backend
+
+The script serves the GitHub backend only. Under `issues: Jira` — in
+the current repo, or in a `--repo` target — it exits non-zero with its
+fixed Jira message before filing anything; follow
+`skills/lib/issue.md` → "Jira backend" → "Create" instead, running
+Step 2's prompts the same way and producing the same checklist.
