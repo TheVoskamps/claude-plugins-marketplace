@@ -1,6 +1,6 @@
 ---
 name: issue-create
-description: Create a new issue in this repo end-to-end (title, body, type, priority, size, status, parent, assignees, labels) in a single invocation.
+description: Create a new issue end-to-end (title, body, type, priority, size, status, parent, assignees, labels) in a single invocation, in this repo or, with --repo, in another.
 ---
 
 Create a new issue with all metadata set in one shot: title, body,

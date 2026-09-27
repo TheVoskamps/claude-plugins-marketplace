@@ -381,8 +381,8 @@ EOF
 # ---------------------------------------------------------------------------
 
 # iss_parse_operand <operand> [local-only]: sets OP_OWNER, OP_REPO,
-# OP_NUMBER from N, #N or owner/repo#N. With local-only, the owner/repo#N
-# form is a usage error.
+# OP_NUMBER from N, #N or owner/repo#N; N may also carry the repo-config's
+# issue-link-prefix. With local-only, the owner/repo#N form is a usage error.
 iss_parse_operand() {
   local op=$1 nwo num
   case "$op" in

@@ -1,6 +1,6 @@
 ---
 name: issue-set-status
-description: Set the status (single-select field) on a single issue's project board entry by human-readable name.
+description: Set the status slot on a single issue by human-readable name, adding the issue to the project board first when the slot is a board field it is not on yet.
 ---
 
 Set the status slot on a single issue — the slot declared as
