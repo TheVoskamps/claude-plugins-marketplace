@@ -102,7 +102,7 @@ Say these plainly, because each one surprises a first reader:
   failures itself. When forwarding fails before upstream answers, it
   answers `502 Bad Gateway`. When a request's `Content-Length` is not
   decimal digits, one of its chunk sizes is not hex digits, or its
-  chunked body ends before the `0` size line, it answers
+  chunked body ends before the blank line that closes it, it answers
   `400 Bad Request` with `Connection: close` and never forwards the
   request. Either way `request.json` carries an `error`,
   `response.headers.json` holds the proxy's own headers rather than

@@ -17,9 +17,9 @@ upstream response of any status is forwarded as it arrived. When the
 exchange with upstream fails before a response arrives, the proxy
 answers 502 itself, and the response headers and body it records are
 its own rather than upstream's. A request whose Content-Length or chunk
-size carries anything but digits, or whose chunked body ends before its
-last chunk, is recorded, is answered 400 by the proxy the same way, and
-never reaches upstream.
+size carries anything but digits, or whose chunked body ends before the
+blank line that closes it, is recorded, is answered 400 by the proxy the
+same way, and never reaches upstream.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.
@@ -360,7 +360,8 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
 
         Raises `MalformedRequest`, carrying the bytes read so far, on a
         chunk-size line that is not a hex number, an empty one included,
-        and on a client that stops sending before the `0` size line.
+        and on a client that stops sending before the blank line that
+        follows the `0` size line and any trailers.
         """
         wire = []
         parts = []
@@ -380,6 +381,11 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 while True:
                     line = self.rfile.readline()
                     wire.append(line)
+                    if not line:
+                        raise MalformedRequest(
+                            "request body ended before the blank line closing it",
+                            b"".join(wire),
+                        )
                     if not line.strip():
                         return b"".join(wire), b"".join(parts)
             data = self.rfile.read(size)

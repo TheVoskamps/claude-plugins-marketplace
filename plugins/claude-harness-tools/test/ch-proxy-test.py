@@ -178,23 +178,33 @@ def chunk(data):
     return b"%x\r\n%s\r\n" % (len(data), data)
 
 
-def raw_request(port, data, hang_up=False):
-    """Send `data` as the whole request and return everything read back.
+def raw_exchange(port, data, hang_up=False, timeout=15):
+    """Send `data` as the whole request; return what was read back and
+    whether the proxy ended the connection within `timeout`.
 
     With `hang_up`, the sending side of the socket is shut after `data`.
     """
-    connection = socket.create_connection(("127.0.0.1", port), timeout=15)
+    connection = socket.create_connection(("127.0.0.1", port), timeout=timeout)
     connection.sendall(data)
     if hang_up:
         connection.shutdown(socket.SHUT_WR)
     received = []
+    ended = True
     while True:
-        part = connection.recv(65536)
+        try:
+            part = connection.recv(65536)
+        except socket.timeout:
+            ended = False
+            break
         if not part:
             break
         received.append(part)
     connection.close()
-    return b"".join(received)
+    return b"".join(received), ended
+
+
+def raw_request(port, data, hang_up=False):
+    return raw_exchange(port, data, hang_up)[0]
 
 
 def request_dirs(capture_dir):
@@ -422,36 +432,64 @@ def run_cases(upstream, port, capture_dir):
         "an empty chunked request reaches upstream with Content-Length: 0",
     )
 
+    # Only a truncated body needs the client to hang up. Every other case
+    # keeps its sending side open, so the connection ends only if the
+    # proxy's own `Connection: close` ends it.
     malformed = [
-        ("a non-numeric Content-Length", b"Content-Length: abc\r\n\r\n", b""),
-        ("a negative Content-Length", b"Content-Length: -1\r\n\r\nhello", b""),
+        (
+            "a non-numeric Content-Length",
+            b"Content-Length: abc\r\n\r\n",
+            b"",
+            False,
+        ),
+        (
+            "a negative Content-Length",
+            b"Content-Length: -1\r\n\r\nhello",
+            b"",
+            False,
+        ),
         (
             "a non-hex chunk size",
             b"Transfer-Encoding: chunked\r\n\r\n" + chunk(b"hello") + b"zz\r\n",
             chunk(b"hello") + b"zz\r\n",
+            False,
         ),
         (
             "an empty chunk-size line",
             b"Transfer-Encoding: chunked\r\n\r\n\r\n",
             b"\r\n",
+            False,
         ),
         (
             "a hang-up right after the headers",
             b"Transfer-Encoding: chunked\r\n\r\n",
             b"",
+            True,
+        ),
+        (
+            "a hang-up inside the 0 size line",
+            b"Transfer-Encoding: chunked\r\n\r\n" + chunk(b"hello") + b"0",
+            chunk(b"hello") + b"0",
+            True,
         ),
     ]
-    for description, framing, recorded in malformed:
+    for description, framing, recorded, hang_up in malformed:
         received_before = len(upstream.received)
-        reply = raw_request(
+        reply, ended = raw_exchange(
             port,
             b"POST /malformed HTTP/1.1\r\nHost: client\r\n" + framing,
-            hang_up=True,
+            hang_up=hang_up,
+            timeout=15 if hang_up else 3,
         )
         check(
             reply.startswith(b"HTTP/1.1 400 "),
             "a request with %s is answered with a 400" % description,
         )
+        if not hang_up:
+            check(
+                ended and b"\r\nConnection: close\r\n" in reply,
+                "the proxy closes the connection after a request with %s" % description,
+            )
         check(
             len(upstream.received) == received_before,
             "a request with %s is not forwarded" % description,
