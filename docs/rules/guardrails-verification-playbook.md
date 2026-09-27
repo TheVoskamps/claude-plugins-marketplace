@@ -847,10 +847,7 @@ not obstacles to route around — each has a plain spelling that works:
   variable rather than every command — so
   `GIT_EDITOR=true git rebase --continue` never runs. `git rebase
   --continue` accepts no `--no-edit` of its own either, and prints its
-  usage instead. Finish a conflicted rebase by staging the resolution,
-  running `git commit --no-edit`, which reuses the rebased commit's own
-  message, and then `git rebase --continue`, which finds nothing left
-  to commit and opens no editor.
+  usage instead.
 - A multi-construct one-liner — a `for` loop, an `&&` chain, anything
   carrying a redirect — is refused as too complex to verify it stays
   inside the worktree. Write the script to a file and run
