@@ -101,7 +101,8 @@ Say these plainly, because each one surprises a first reader:
 - **A 502 or a 400 may be the proxy's own.** The proxy answers two
   failures itself. When forwarding fails before upstream answers, it
   answers `502 Bad Gateway`. When a request's `Content-Length` is not
-  decimal digits, or one of its chunk sizes is not hex digits, it answers
+  decimal digits, one of its chunk sizes is not hex digits, or its
+  chunked body ends before the `0` size line, it answers
   `400 Bad Request` with `Connection: close` and never forwards the
   request. Either way `request.json` carries an `error`,
   `response.headers.json` holds the proxy's own headers rather than
@@ -110,6 +111,6 @@ Say these plainly, because each one surprises a first reader:
   `ch-proxy: malformed request:` for a 400, or is empty for a `HEAD`.
   A 400's `request.body` holds only what was read before the framing
   broke: nothing after a bad `Content-Length`, and for a chunked body
-  everything up to and including the bad size line. An upstream 502 or
-  400 has upstream's headers and body, and an `error` only when relaying
-  it failed part-way.
+  everything up to and including the bad size line, or up to where the
+  client stopped sending. An upstream 502 or 400 has upstream's headers
+  and body, and an `error` only when relaying it failed part-way.

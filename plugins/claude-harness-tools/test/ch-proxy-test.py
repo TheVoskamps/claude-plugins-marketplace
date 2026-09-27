@@ -178,10 +178,15 @@ def chunk(data):
     return b"%x\r\n%s\r\n" % (len(data), data)
 
 
-def raw_request(port, data):
-    """Send `data` as the whole request and return everything read back."""
+def raw_request(port, data, hang_up=False):
+    """Send `data` as the whole request and return everything read back.
+
+    With `hang_up`, the sending side of the socket is shut after `data`.
+    """
     connection = socket.create_connection(("127.0.0.1", port), timeout=15)
     connection.sendall(data)
+    if hang_up:
+        connection.shutdown(socket.SHUT_WR)
     received = []
     while True:
         part = connection.recv(65536)
@@ -405,6 +410,18 @@ def run_cases(upstream, port, capture_dir):
         "request.json keeps the Content-Length the client sent",
     )
 
+    reply = raw_request(
+        port,
+        b"POST /chunked HTTP/1.1\r\nHost: client\r\nTransfer-Encoding: chunked\r\n"
+        b"Connection: close\r\n\r\n0\r\n\r\n",
+    )
+    check(reply.startswith(b"HTTP/1.1 200 "), "an empty chunked request is answered")
+    check(
+        ("Content-Length", "0") in upstream.received[-1][2]
+        and upstream.received[-1][3] == b"",
+        "an empty chunked request reaches upstream with Content-Length: 0",
+    )
+
     malformed = [
         ("a non-numeric Content-Length", b"Content-Length: abc\r\n\r\n", b""),
         ("a negative Content-Length", b"Content-Length: -1\r\n\r\nhello", b""),
@@ -413,11 +430,23 @@ def run_cases(upstream, port, capture_dir):
             b"Transfer-Encoding: chunked\r\n\r\n" + chunk(b"hello") + b"zz\r\n",
             chunk(b"hello") + b"zz\r\n",
         ),
+        (
+            "an empty chunk-size line",
+            b"Transfer-Encoding: chunked\r\n\r\n\r\n",
+            b"\r\n",
+        ),
+        (
+            "a hang-up right after the headers",
+            b"Transfer-Encoding: chunked\r\n\r\n",
+            b"",
+        ),
     ]
     for description, framing, recorded in malformed:
         received_before = len(upstream.received)
         reply = raw_request(
-            port, b"POST /malformed HTTP/1.1\r\nHost: client\r\n" + framing
+            port,
+            b"POST /malformed HTTP/1.1\r\nHost: client\r\n" + framing,
+            hang_up=True,
         )
         check(
             reply.startswith(b"HTTP/1.1 400 "),

@@ -17,8 +17,9 @@ upstream response of any status is forwarded as it arrived. When the
 exchange with upstream fails before a response arrives, the proxy
 answers 502 itself, and the response headers and body it records are
 its own rather than upstream's. A request whose Content-Length or chunk
-size carries anything but digits is recorded, is answered 400 by the
-proxy the same way, and never reaches upstream.
+size carries anything but digits, or whose chunked body ends before its
+last chunk, is recorded, is answered 400 by the proxy the same way, and
+never reaches upstream.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.
@@ -358,15 +359,20 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         """Return a chunked request body twice: as received, and de-chunked.
 
         Raises `MalformedRequest`, carrying the bytes read so far, on a
-        chunk-size line that is not a hex number.
+        chunk-size line that is not a hex number, an empty one included,
+        and on a client that stops sending before the `0` size line.
         """
         wire = []
         parts = []
         while True:
             line = self.rfile.readline()
             wire.append(line)
+            if not line:
+                raise MalformedRequest(
+                    "request body ended before its last chunk", b"".join(wire)
+                )
             try:
-                size = _parse_size(line.split(b";")[0].strip() or b"0", 16)
+                size = _parse_size(line.split(b";")[0].strip(), 16)
             except MalformedRequest as error:
                 error.wire = b"".join(wire)
                 raise
@@ -403,8 +409,8 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 has_length = True
             connection.putheader(name, value)
         # A chunked request body is forwarded de-chunked and framed by its
-        # own length; `Transfer-Encoding` is hop-by-hop.
-        if body and not has_length:
+        # own length, zero included; `Transfer-Encoding` is hop-by-hop.
+        if (body or chunked) and not has_length:
             connection.putheader("Content-Length", str(len(body)))
         connection.endheaders(body if body else None)
         return connection.getresponse()
