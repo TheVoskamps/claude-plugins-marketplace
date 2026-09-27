@@ -443,6 +443,18 @@ def run_cases(upstream, port, capture_dir):
             False,
         ),
         (
+            "an empty Content-Length",
+            b"Content-Length:\r\n\r\n",
+            b"",
+            False,
+        ),
+        (
+            "a whitespace-only Content-Length",
+            b"Content-Length:   \r\n\r\n",
+            b"",
+            False,
+        ),
+        (
             "a negative Content-Length",
             b"Content-Length: -1\r\n\r\nhello",
             b"",
@@ -473,6 +485,10 @@ def run_cases(upstream, port, capture_dir):
             True,
         ),
     ]
+    check(
+        any(not hang_up for _, _, _, hang_up in malformed),
+        "some malformed case leaves the client's sending side open",
+    )
     for description, framing, recorded, hang_up in malformed:
         received_before = len(upstream.received)
         reply, ended = raw_exchange(
@@ -485,9 +501,13 @@ def run_cases(upstream, port, capture_dir):
             reply.startswith(b"HTTP/1.1 400 "),
             "a request with %s is answered with a 400" % description,
         )
+        check(
+            b"\r\nConnection: close\r\n" in reply,
+            "the 400 to a request with %s carries Connection: close" % description,
+        )
         if not hang_up:
             check(
-                ended and b"\r\nConnection: close\r\n" in reply,
+                ended,
                 "the proxy closes the connection after a request with %s" % description,
             )
         check(

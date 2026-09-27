@@ -313,9 +313,8 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             if chunked:
                 wire, body = self._read_chunked()
             else:
-                length = _parse_size(
-                    (self.headers.get("Content-Length") or "0").strip(), 10
-                )
+                declared = self.headers.get("Content-Length")
+                length = 0 if declared is None else _parse_size(declared.strip(), 10)
                 wire = body = self.rfile.read(length) if length else b""
         except MalformedRequest as error:
             malformed = error
