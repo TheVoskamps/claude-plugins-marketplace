@@ -71,9 +71,8 @@ wrong.
   ```
 
   Report it back as it stands.
-- **Exit 1** — either the PR is not open, and stderr reads
-  `PR #<N> is <state>, not open. Merge readiness is only computed for
-  an open PR.`, or the third read still returned `mergeable: UNKNOWN`,
+- **Exit 1** — either the PR is not open, and stderr says so and names
+  the state it is in, or the third read still returned `mergeable: UNKNOWN`,
   and stdout is the block above reporting `UNKNOWN` — never a guessed
   state. Report either as a failure.
 - **Exit 2** — a usage error; nothing was read.

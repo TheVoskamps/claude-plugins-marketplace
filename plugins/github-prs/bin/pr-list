@@ -17,23 +17,23 @@ state=open
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --head)
-      [ "$#" -ge 2 ] || gp_usage_error "\`--head\` needs a branch name."
+      [ "$#" -ge 2 ] || gp_err_needs_value --head "a branch name"
       head_ref=$2
       shift 2
       ;;
     --state)
-      [ "$#" -ge 2 ] || gp_usage_error "\`--state\` needs a value."
+      [ "$#" -ge 2 ] || gp_err_needs_value --state "a value"
       state=$2
       shift 2
       ;;
-    *) gp_usage_error "\`$1\` is not an argument pr-list takes." ;;
+    *) gp_err_unknown_arg "$1" ;;
   esac
 done
 
-[ -n "$head_ref" ] || gp_usage_error "No \`--head\` branch was supplied."
+[ -n "$head_ref" ] || gp_err_missing "\`--head\` branch"
 case "$state" in
   open | closed | merged | all) ;;
-  *) gp_usage_error "\`$state\` is not a state. Pass open, closed, merged, or all." ;;
+  *) gp_err_bad_state "$state" ;;
 esac
 
 gp_gh pr list --head "$head_ref" --state "$state" \

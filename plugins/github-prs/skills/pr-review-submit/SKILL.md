@@ -77,19 +77,14 @@ pr-review-submit <pr-number> --verdict <verdict> --body-file <path>
 
 The script checks its arguments before posting anything, and every
 refusal posts no review rather than guessing what the caller meant.
-Each is a usage error, reported on stderr as:
+Each is a usage error, and stderr names which of these it is:
 
-- No `--verdict` — "No `--verdict` was supplied. Pass exactly one of
-  `approve`, `request_changes`, or `comment`."
-- More than one `--verdict` — "`--verdict` was supplied more than once,
-  as `<first value>` and `<second value>`. Pass exactly one of
-  `approve`, `request_changes`, or `comment`."
-- A `--verdict` value outside those — "`<value>` is not a verdict. Pass
-  `approve`, `request_changes`, or `comment`."
-- Both body forms supplied — "Both an inline `<body>` and
-  `--body-file <path>` were supplied. Pass exactly one."
-- Neither body form supplied — "No review body was supplied. Pass
-  either an inline `<body>` or `--body-file <path>`."
+- No `--verdict`.
+- More than one `--verdict`; the message names the first two values.
+- A `--verdict` value other than `approve`, `request_changes`, or
+  `comment`; the message names the value.
+- Both body forms supplied.
+- Neither body form supplied.
 
 The verdict then decides, at once, the review action, the line the body
 opens with, and the GitHub review state the call creates. The

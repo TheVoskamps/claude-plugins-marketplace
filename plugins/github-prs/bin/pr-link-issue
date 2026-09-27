@@ -15,7 +15,7 @@ usage() {
   echo "usage: $GP_PROGRAM <PR> <issue>..."
 }
 
-[ "$#" -ge 2 ] || gp_usage_error "Pass a PR number and at least one issue number."
+[ "$#" -ge 2 ] || gp_err_pr_and_issues
 pr=$(gp_pr_number "$1") || exit $?
 shift
 
@@ -41,6 +41,6 @@ printf '%s\n' "$wanted" | gp_gh pr edit "$pr" --body-file - >/dev/null
 
 landed=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_not_landed "$pr" "the closing lines" "the re-read body is not the body written"
+  gp_err_body_not_landed "$pr" "the closing lines"
 
 printf 'PR #%s: appended %s\n' "$pr" "$(printf '%s' "$closing" | tr '\n' ',' | sed 's/,/, /g')"

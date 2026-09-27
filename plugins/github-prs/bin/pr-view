@@ -13,7 +13,7 @@ usage() {
   echo "usage: $GP_PROGRAM <PR> [--json <fields> [--jq <expression>]]"
 }
 
-[ "$#" -ge 1 ] || gp_usage_error "No PR number was supplied."
+[ "$#" -ge 1 ] || gp_err_no_pr
 pr=$(gp_pr_number "$1") || exit $?
 shift
 
@@ -22,21 +22,21 @@ jq_expr=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --json)
-      [ "$#" -ge 2 ] || gp_usage_error "\`--json\` needs a field list."
+      [ "$#" -ge 2 ] || gp_err_needs_value --json "a field list"
       fields=$2
       shift 2
       ;;
     --jq)
-      [ "$#" -ge 2 ] || gp_usage_error "\`--jq\` needs an expression."
+      [ "$#" -ge 2 ] || gp_err_needs_value --jq "an expression"
       jq_expr=$2
       shift 2
       ;;
-    *) gp_usage_error "\`$1\` is not an argument pr-view takes." ;;
+    *) gp_err_unknown_arg "$1" ;;
   esac
 done
 
 if [ -n "$jq_expr" ] && [ -z "$fields" ]; then
-  gp_usage_error "\`--jq\` filters the \`--json\` fields, so it needs \`--json\` too."
+  gp_err_jq_needs_json
 fi
 
 if [ -n "$fields" ]; then

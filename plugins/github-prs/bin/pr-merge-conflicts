@@ -16,7 +16,7 @@ usage() {
   echo "usage: $GP_PROGRAM <PR>"
 }
 
-[ "$#" -eq 1 ] || gp_usage_error "Pass exactly one PR number."
+[ "$#" -eq 1 ] || gp_err_one_pr
 pr=$(gp_pr_number "$1") || exit $?
 
 refs=$(gp_gh pr view "$pr" --json headRefName,baseRefName \
@@ -24,11 +24,11 @@ refs=$(gp_gh pr view "$pr" --json headRefName,baseRefName \
 head_ref=${refs% *}
 base_ref=${refs#* }
 
-root=$(git rev-parse --show-toplevel) || gp_fail 3 "not inside a git repository"
+root=$(git rev-parse --show-toplevel) || gp_err_not_a_repo
 tree="$root/.claude/worktrees/pr-merge-conflicts-$pr"
 
 git fetch -q origin "$base_ref" "$head_ref" ||
-  gp_fail 3 "git fetch origin $base_ref $head_ref failed"
+  gp_err_git "git fetch origin $base_ref $head_ref"
 
 # A path left behind holds an interrupted run's merge in progress, which
 # nothing else clears, and `worktree add` refuses an existing path. A
@@ -37,12 +37,12 @@ git fetch -q origin "$base_ref" "$head_ref" ||
 if [ -e "$tree" ]; then
   git -C "$tree" merge --abort >/dev/null 2>&1 || true
   git worktree remove --force "$tree" ||
-    gp_fail 3 "git worktree remove of the leftover $tree failed"
+    gp_err_git "git worktree remove of the leftover $tree"
 fi
-git worktree prune || gp_fail 3 "git worktree prune failed"
+git worktree prune || gp_err_git "git worktree prune"
 
 git worktree add -q --detach "$tree" "origin/$head_ref" ||
-  gp_fail 3 "git worktree add at origin/$head_ref failed"
+  gp_err_git "git worktree add at origin/$head_ref"
 
 cleanup() {
   # No merge in progress -- a head already up to date with the base --
@@ -61,9 +61,9 @@ if git -C "$tree" -c user.name=pr-merge-conflicts -c user.email=pr-merge-conflic
 fi
 
 files=$(git -C "$tree" diff --name-only --diff-filter=U) ||
-  gp_fail 3 "git diff could not list the conflicted files"
+  gp_err_git "git diff listing the conflicted files"
 if [ -z "$files" ]; then
-  gp_fail 3 "the trial merge of origin/$base_ref failed without leaving a conflicted file"
+  gp_err_merge_no_conflict "$base_ref"
 fi
 
 echo "Conflicting files:"

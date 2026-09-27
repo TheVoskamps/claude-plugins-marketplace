@@ -13,11 +13,11 @@ usage() {
 }
 
 [ "$#" -eq 3 ] && [ "$2" = --body-file ] ||
-  gp_usage_error "Pass a PR number and \`--body-file <path>\`."
+  gp_err_pr_and_body_file
 pr=$(gp_pr_number "$1") || exit $?
 body_file=$3
 [ -f "$body_file" ] && [ -r "$body_file" ] ||
-  gp_usage_error "\`$body_file\` is not a readable file."
+  gp_err_unreadable "$body_file"
 
 gp_gh pr edit "$pr" --body-file "$body_file" >/dev/null
 
@@ -26,6 +26,6 @@ gp_gh pr edit "$pr" --body-file "$body_file" >/dev/null
 wanted=$(cat "$body_file")
 landed=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_not_landed "$pr" "the body edit" "the re-read body differs from $body_file"
+  gp_err_body_file_not_landed "$pr" "$body_file"
 
 echo "PR #$pr body replaced from $body_file"

@@ -19,6 +19,29 @@ usage() {
   echo "usage: $GP_PROGRAM --head <branch> --title <title> --body-file <path> <issue>..."
 }
 
+# config_value <key> -- one front-matter value from the repo's
+# .issues/repo-config.md, with surrounding quotes removed. Only the
+# front matter is read: the block between the first two `---` lines.
+# It lives here rather than in the common helper because this is the
+# one verb that reads repo-config.
+config_value() {
+  local root file value
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=.
+  file="$root/.issues/repo-config.md"
+  [ -f "$file" ] || gp_err_no_config
+  value=$(awk -v key="$1" '
+    NR == 1 && $0 == "---" { inside = 1; next }
+    inside && $0 == "---" { exit }
+    inside && index($0, key ":") == 1 {
+      v = substr($0, length(key) + 2)
+      sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) v = substr(v, 2, length(v) - 2)
+      print v; exit
+    }' "$file")
+  [ -n "$value" ] || gp_err_config_key "$1"
+  printf '%s\n' "$value"
+}
+
 head_ref=
 title=
 body_file=
@@ -26,7 +49,7 @@ issues=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --head | --title | --body-file)
-      [ "$#" -ge 2 ] || gp_usage_error "\`$1\` needs a value."
+      [ "$#" -ge 2 ] || gp_err_needs_value "$1" "a value"
       case "$1" in
         --head) head_ref=$2 ;;
         --title) title=$2 ;;
@@ -34,7 +57,7 @@ while [ "$#" -gt 0 ]; do
       esac
       shift 2
       ;;
-    -*) gp_usage_error "\`$1\` is not an argument pr-create takes." ;;
+    -*) gp_err_unknown_arg "$1" ;;
     *)
       issue=$(gp_issue_number "$1") || exit $?
       issues="$issues $issue"
@@ -43,15 +66,15 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "$head_ref" ] || gp_usage_error "No \`--head\` branch was supplied."
-[ -n "$title" ] || gp_usage_error "No \`--title\` was supplied."
-[ -n "$body_file" ] || gp_usage_error "No \`--body-file\` was supplied."
+[ -n "$head_ref" ] || gp_err_missing "\`--head\` branch"
+[ -n "$title" ] || gp_err_missing "\`--title\`"
+[ -n "$body_file" ] || gp_err_missing "\`--body-file\`"
 [ -f "$body_file" ] && [ -r "$body_file" ] ||
-  gp_usage_error "\`$body_file\` is not a readable file."
-[ -n "$issues" ] || gp_usage_error "No issue number was supplied."
+  gp_err_unreadable "$body_file"
+[ -n "$issues" ] || gp_err_missing "issue number"
 
-base=$(gp_config_value default-pr-target-branch) || exit $?
-prefix=$(gp_config_value issue-link-prefix) || exit $?
+base=$(config_value default-pr-target-branch) || exit $?
+prefix=$(config_value issue-link-prefix) || exit $?
 
 closing=
 for issue in $issues; do
@@ -76,17 +99,16 @@ url=$(printf '%s\n' "$wanted" |
 url=$(printf '%s\n' "$url" | tail -n 1)
 pr=${url##*/}
 case "$pr" in
-  '' | *[!0-9]*) gp_fail 1 "gh pr create reported \`$url\`, which names no PR number" ;;
+  '' | *[!0-9]*) gp_err_no_pr_in_url "$url" ;;
 esac
 
 landed=$(gp_gh pr view "$pr" --json isDraft,baseRefName,headRefName \
   --jq '"\(.isDraft) \(.baseRefName) \(.headRefName)"') || exit $?
 [ "$landed" = "true $base $head_ref" ] ||
-  gp_not_landed "$pr" "the draft PR" \
-    "the re-read reports isDraft, base and head as \`$landed\`, not \`true $base $head_ref\`"
+  gp_err_draft_pr_not_landed "$pr" "$landed" "true $base $head_ref"
 
 landed_body=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
 [ "$landed_body" = "$wanted" ] ||
-  gp_not_landed "$pr" "the PR body" "the re-read body is not the body written"
+  gp_err_body_not_landed "$pr" "the PR body"
 
 echo "$url"

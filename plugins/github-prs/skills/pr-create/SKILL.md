@@ -51,11 +51,11 @@ plugin, or inventing a cross-plugin `Read`, would either
 reproduce the exact coupling issue #143 removed from `sdlc` or simply
 not work; a two-field inline parse avoids both.
 
-If `.issues/repo-config.md` is missing, the script aborts with: "This
-repo has no `.issues/repo-config.md`. Run `/repo-config` to create
-one." (the same wording the full reader contract uses for its "File
-missing" case, so the namespace's abort messages stay consistent even
-though this skill doesn't consume the whole contract).
+If `.issues/repo-config.md` is missing, the script aborts with exit 4
+and the wording the full reader contract uses for its "File missing"
+case, pointing at `/repo-config`, so the namespace's abort messages
+stay consistent even though this skill doesn't consume the whole
+contract.
 
 The values consumed:
 
@@ -151,7 +151,7 @@ the resolution.
    | Exit | Meaning |
    | --- | --- |
    | 0 | the draft PR is open with the body written; stdout is its URL |
-   | 1 | the PR did not land as asked — not a draft, the wrong base or head, or a different body; stderr names which |
+   | 1 | the PR did not land as asked — not a draft, the wrong base or head, or a different body — or `gh pr create` succeeded but printed no URL naming a PR number, so nothing was re-read and a PR may exist all the same; stderr names which |
    | 2 | a usage error; no PR was opened |
    | 3 | the `gh` call failed; gh's own error is on stderr above the script's line |
    | 4 | `.issues/repo-config.md` is missing or lacks one of the two keys |

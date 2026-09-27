@@ -16,7 +16,7 @@ usage() {
   echo "       $GP_PROGRAM <PR> --verdict approve|request_changes|comment --body-file <path>"
 }
 
-[ "$#" -ge 1 ] || gp_usage_error "No PR number was supplied."
+[ "$#" -ge 1 ] || gp_err_no_pr
 pr=$(gp_pr_number "$1") || exit $?
 shift
 
@@ -29,16 +29,16 @@ file_seen=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --verdict)
-      [ "$#" -ge 2 ] || gp_usage_error "\`--verdict\` needs a value."
+      [ "$#" -ge 2 ] || gp_err_needs_value --verdict "a value"
       verdicts_seen=$((verdicts_seen + 1))
       if [ "$verdicts_seen" -eq 2 ]; then
-        gp_usage_error "\`--verdict\` was supplied more than once, as \`$verdict\` and \`$2\`. Pass exactly one of \`approve\`, \`request_changes\`, or \`comment\`."
+        gp_err_verdict_twice "$verdict" "$2"
       fi
       verdict=$2
       shift 2
       ;;
     --body-file)
-      [ "$#" -ge 2 ] || gp_usage_error "\`--body-file\` needs a path."
+      [ "$#" -ge 2 ] || gp_err_needs_value --body-file "a path"
       file_seen=$((file_seen + 1))
       body_file=$2
       shift 2
@@ -52,25 +52,25 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ "$verdicts_seen" -gt 0 ] ||
-  gp_usage_error "No \`--verdict\` was supplied. Pass exactly one of \`approve\`, \`request_changes\`, or \`comment\`."
+  gp_err_no_verdict
 case "$verdict" in
   approve) flag=--approve line=APPROVED state=APPROVED ;;
   request_changes) flag=--request-changes line=CHANGES_REQUESTED state=CHANGES_REQUESTED ;;
   comment) flag=--comment line=COMMENTED state=COMMENTED ;;
-  *) gp_usage_error "\`$verdict\` is not a verdict. Pass \`approve\`, \`request_changes\`, or \`comment\`." ;;
+  *) gp_err_bad_verdict "$verdict" ;;
 esac
 if [ "$inline_seen" -gt 0 ] && [ "$file_seen" -gt 0 ]; then
-  gp_usage_error "Both an inline \`<body>\` and \`--body-file <path>\` were supplied. Pass exactly one."
+  gp_err_both_bodies
 fi
 if [ "$inline_seen" -eq 0 ] && [ "$file_seen" -eq 0 ]; then
-  gp_usage_error "No review body was supplied. Pass either an inline \`<body>\` or \`--body-file <path>\`."
+  gp_err_no_body
 fi
 [ "$inline_seen" -le 1 ] && [ "$file_seen" -le 1 ] ||
-  gp_usage_error "More than one review body was supplied. Pass exactly one."
+  gp_err_many_bodies
 
 if [ "$file_seen" -eq 1 ]; then
   [ -f "$body_file" ] && [ -r "$body_file" ] ||
-    gp_usage_error "\`$body_file\` is not a readable file."
+    gp_err_unreadable "$body_file"
   text=$(cat "$body_file")
   form='file'
 else
@@ -101,15 +101,15 @@ printf '%s\n' "$wanted" | gp_gh pr review "$pr" "$flag" --body-file - >/dev/null
 after=$(last_own_review) || exit $?
 
 if [ -z "$after" ] || [ "$after" = "$before" ]; then
-  gp_not_landed "$pr" "the review" "no new review by $me is on the PR"
+  gp_err_review_missing "$pr" "$me"
 fi
 landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
 landed_state=$(printf '%s\n' "$landed" | head -n 1)
 landed_body=$(printf '%s\n' "$landed" | tail -n +2)
 [ "$landed_state" = "$state" ] ||
-  gp_not_landed "$pr" "the review" "review $after has state $landed_state, not $state"
+  gp_err_review_state "$pr" "$after" "$landed_state" "$state"
 [ "$landed_body" = "$wanted" ] ||
-  gp_not_landed "$pr" "the review" "review $after's body is not the body written"
+  gp_err_review_body "$pr" "$after"
 
 printf 'PR #%s: verdict %s, review state %s, body %s\n' \
   "$pr" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"

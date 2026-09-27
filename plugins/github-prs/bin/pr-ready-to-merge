@@ -14,7 +14,7 @@ usage() {
   echo "usage: $GP_PROGRAM <PR>"
 }
 
-[ "$#" -eq 1 ] || gp_usage_error "Pass exactly one PR number."
+[ "$#" -eq 1 ] || gp_err_one_pr
 pr=$(gp_pr_number "$1") || exit $?
 
 # One read yields a header line -- state, mergeable, mergeStateStatus,
@@ -49,7 +49,7 @@ $report
 EOF
 
   if [ "$pr_state" != OPEN ]; then
-    gp_fail 1 "PR #$pr is $pr_state, not open. Merge readiness is only computed for an open PR."
+    gp_err_not_open "$pr" "$pr_state"
   fi
   [ "$mergeable" = UNKNOWN ] || break
   [ -n "$waits" ] || break
