@@ -527,7 +527,9 @@ line:
   as missing from `fields:` instead of `kind: skip`.
 
 When several flags are warning-skipped in one run, print one line per
-flag, in the order the flags appeared on the CLI.
+flag, in checklist order — `--type`, `--priority`, `--size`,
+`--status` — whether or not each flag was passed: a `kind: skip` or
+absent slot warns without its flag, so the CLI supplies no order.
 
 ### Examples
 
