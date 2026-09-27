@@ -480,6 +480,12 @@ def run_cases(upstream, port, capture_dir):
             True,
         ),
         (
+            "a hang-up inside a chunk's data",
+            b"Transfer-Encoding: chunked\r\n\r\n" + b"a\r\nhel",
+            b"a\r\nhel",
+            True,
+        ),
+        (
             "a hang-up inside the 0 size line",
             b"Transfer-Encoding: chunked\r\n\r\n" + chunk(b"hello") + b"0",
             chunk(b"hello") + b"0",
