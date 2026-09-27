@@ -146,7 +146,7 @@ into a brief.
    ```
 
    Keep `body.md` as well: it is what you restore if the amendment
-   damages the body in step 8.
+   fails in step 8.
 
    Then read which issues the body closes, as it stands now, and keep
    the set: it is the other half of what step 8 verifies. Applying the
@@ -297,22 +297,13 @@ into a brief.
    differ: the bytes matched, so the body is exactly what you built,
    and what you built is wrong.
 
-   On a byte-level difference, read the body as it now stands, the same
-   way step 1 did, with the output saved to
-   `.claude/tmp/<task-slug>/body-after.md`, and ask which of the two
-   failures you are in — whether the base survived:
-
-   ```bash
-   head -c "$(wc -c < .claude/tmp/<task-slug>/base.md)" \
-     .claude/tmp/<task-slug>/body-after.md \
-     | diff - .claude/tmp/<task-slug>/base.md
-   ```
-
-   Empty here means the base is intact and your section never landed:
-   the amendment did not take, so report the failure with nothing to
-   restore. A difference means you have damaged the body outside your
-   markers: restore the body you saved in step 1 and report the failure
-   rather than trying again on top of a damaged body.
+   On a byte-level difference, do not read the body back to work out
+   what happened: the re-read is `/github-prs:pr-update`'s, and its
+   stderr is the account of it. Whether the edit never took or landed
+   damaged, restore the body you saved in step 1 — a write that changes
+   nothing when the edit never took — and report the failure, quoting
+   that stderr, rather than trying again on top of a body you have not
+   verified.
 
 9. **Report back**: how many detail comments you posted and what they
    covered — or that a previous run's chain was already complete and

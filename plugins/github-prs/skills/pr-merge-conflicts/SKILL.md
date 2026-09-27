@@ -1,6 +1,6 @@
 ---
 name: pr-merge-conflicts
-description: Enumerate a GitHub pull request's actual merge conflicts against its base — the conflicting files and hunks — by trial-merging in a throwaway worktree that is aborted and removed afterwards. Read-only; resolves nothing and leaves the primary clone untouched.
+description: Enumerate a GitHub pull request's actual merge conflicts against its base — the conflicting files and hunks — by trial-merging in a throwaway worktree that is aborted and removed afterwards. Resolves, commits and pushes nothing; in the primary clone it fetches the head and base into the origin/* refs and runs git worktree prune, and leaves its tracked files and index as it found them.
 ---
 
 # PR Merge Conflicts
@@ -10,8 +10,9 @@ branch, and nothing else. GitHub reports `mergeStateStatus: DIRTY`
 without saying which files or hunks conflict; this skill performs the
 merge in a throwaway worktree, collects what conflicts, then aborts
 the merge and removes the worktree. It resolves nothing, commits
-nothing, pushes nothing, and leaves the primary clone's `git status`
-exactly as it found it.
+nothing, pushes nothing, and leaves the primary clone's tracked files
+and index as it found them; what it does change there is the fetched
+`origin/*` refs and the `git worktree prune` described below.
 
 ## Invocation
 
@@ -38,8 +39,10 @@ and nothing lands in the primary clone's working tree. It trial-merges
 the base there without committing, collects the conflicting files and
 each one's hunks, then aborts the merge and removes the worktree on
 every exit, so a failed run leaves nothing for the next one to trip
-on. A worktree an interrupted earlier run left at that path, and a
-registration whose directory is gone, are both cleared before the add.
+on. A worktree an interrupted earlier run left at that path is cleared
+before the add, and `git worktree prune` runs there too, dropping every
+registration in the clone whose directory is gone — not only this
+skill's own.
 
 ## Output and exit status
 
