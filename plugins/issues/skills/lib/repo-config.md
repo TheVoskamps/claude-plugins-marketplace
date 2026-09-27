@@ -157,8 +157,8 @@ namespace presents consistent errors.
 A reader pins the **minimum** schema-version it requires as a
 constant in its own code. For prose-defined readers (subagent
 definitions, skill SKILL.md files), the constant is a literal in
-the reader's text; for an executable reader, such as the `/issue-*`
-scripts, it is a code constant.
+the reader's text; for any future executable reader, it would be a
+code constant.
 
 The pinned value should equal the version this library documents
 at the time the reader was written. Readers accept files at the
