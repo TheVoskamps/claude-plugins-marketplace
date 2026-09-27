@@ -1,6 +1,6 @@
 ---
 name: orchestrate-cleanup
-description: Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then sweep merged branches and stale worktrees. --dry-run reports the verdicts and deletes nothing.
+description: Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then index the interim work runs leave behind — scratch, scratchpads, worktrees, branches — and remove what the human approves. --dry-run reports the verdicts and the index and deletes nothing.
 ---
 
 # Orchestrate Cleanup
@@ -31,9 +31,9 @@ not one this skill knows: say so and stop, rather than guessing what
 was meant.
 
 **`--dry-run` deletes nothing.** It reports the same per-directory
-verdicts without calling `--mode delete`, and it skips the branch and
-worktree pass, because `/git-tools:git-cleanup-branches-and-worktrees`
-has no dry-run form.
+verdicts without calling `--mode delete`, and runs the interim-work
+pass with `--index-only`, so that pass reports its index and removes
+nothing either.
 
 ## Process
 
@@ -83,15 +83,17 @@ has no dry-run form.
    "delete failed", with the CLI's message quoted; carry on with the
    rest.
 
-5. **Sweep branches and worktrees** — skipped under `--dry-run`.
-   Invoke, with no arguments:
+5. **Sweep the interim work.** Invoke, with no arguments — or with
+   `--index-only` under `--dry-run`:
 
    ```text
-   /git-tools:git-cleanup-branches-and-worktrees
+   /sdlc:cleanup-interim-work
    ```
 
-   It runs after the state-directory pass, and owns every branch and
-   worktree decision; relay what it reports in its own words.
+   It runs after the state-directory pass, and owns every decision
+   about scratch, scratchpads, worktrees and branches, including the
+   question it asks the human before it removes anything; relay what it
+   reports in its own words.
 
 ## Report
 
@@ -106,7 +108,6 @@ pr<N>/  kept               (unresolved: <quoted error or answer>)
 pr<N>/  delete failed      (<quoted CLI message>)
 ```
 
-Under `--dry-run`, `deleted` reads `would delete`, and the report
-closes by saying that the branch and worktree pass was skipped because
-`/git-tools:git-cleanup-branches-and-worktrees` has no dry-run form.
-Otherwise it closes with that skill's own report.
+Under `--dry-run`, `deleted` reads `would delete`. The report closes
+with the interim-work pass's own report — its index alone under
+`--dry-run`.

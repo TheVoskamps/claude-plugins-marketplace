@@ -1083,7 +1083,7 @@ What you do yourself is orchestration mechanics:
   checkout of the default branch and `git remote prune`, and
   `git push` of a commit an agent authored but could not push. Branch
   and worktree removal is not on this list: the post-merge tail's
-  `/git-tools:git-cleanup-branches-and-worktrees` invocation owns it.
+  `/sdlc:cleanup-interim-work` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's dictated
   review adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write
