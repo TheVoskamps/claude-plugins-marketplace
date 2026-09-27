@@ -842,12 +842,12 @@ not obstacles to route around — each has a plain spelling that works:
   a HOME-redirected experiment impossible: move it into a container,
   where the redirection is the container's business and no host git
   configuration is in play.
-- An inline environment assignment on a `git` command is denied
-  outright — a narrower rule than the `HOME=` one above, reaching every
-  variable rather than every command — so
-  `GIT_EDITOR=true git rebase --continue` never runs. `git rebase
-  --continue` accepts no `--no-edit` of its own either, and prints its
-  usage instead.
+- Finish a conflicted rebase with the sequence in
+  `plugins/sdlc/agents/issue-fixer.md`, "Merge-readiness briefs". It
+  sets no environment variable, which matters because an inline
+  environment assignment on a `git` command is denied outright — a
+  narrower rule than the `HOME=` one above, reaching every variable
+  rather than every command.
 - A multi-construct one-liner — a `for` loop, an `&&` chain, anything
   carrying a redirect — is refused as too complex to verify it stays
   inside the worktree. Write the script to a file and run

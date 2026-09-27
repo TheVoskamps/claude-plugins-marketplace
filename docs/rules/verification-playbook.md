@@ -241,10 +241,14 @@ permission gate refuses it by shape. The local route needs no fetch:
    cross-check files against the index to prove no branch-side entry
    was.
 
-Bonus tell: replayed conflict commits can carry literal `# Conflicts:`
-blocks in their final messages, because `git commit --no-edit` uses
+Bonus tell, for a rebase whose conflicts were finished with
+`git commit --no-edit`: its replayed conflict commits can carry literal
+`# Conflicts:` blocks in their final messages, because that command uses
 cleanup=whitespace and keeps `#` lines. That is both commit-message
-noise and a free map of exactly which commits needed resolution.
+noise and a free map of exactly which commits needed resolution. A
+commit finished with `git commit -C REBASE_HEAD` takes the stopped
+commit's original message and carries no such block, so its absence
+says nothing about whether a commit needed resolution.
 
 ## Grade a between-rounds delta formula in a throwaway rebase lab
 
