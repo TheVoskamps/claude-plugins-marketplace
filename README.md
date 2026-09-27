@@ -50,6 +50,11 @@ The marketplace currently ships these plugins (one entry each in
   masking inappropriate language character-for-character.
 - **`auto-mode-tools`** — tune and personalize the Claude Code auto
   mode classifier config against this machine's facts.
+- **`claude-harness-tools`** — instruments for seeing what the Claude
+  Code harness sends to the API: launch a session through a local
+  logging reverse proxy that writes every request and response to disk
+  verbatim, so two sessions launched identically except for one setting
+  can be compared.
 
 ## Add this marketplace
 
