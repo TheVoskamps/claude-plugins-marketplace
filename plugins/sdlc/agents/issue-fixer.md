@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves the conflicts the brief lists — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
+description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves each conflict a ruling or a resolvability condition settles, escalating the rest — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -295,28 +295,47 @@ The state the brief names sets the remedy:
   need as unconsumed, quoting it.
 - **`DIRTY`** — the branch has merge conflicts with its base. The brief
   carries `github-prs:pr-merge-conflicts`' output — the conflicting
-  files and hunks — and the ruling on how each is to be resolved.
-  Rebase as for `BEHIND`.
+  files and hunks — and, when a previous round of yours escalated, the
+  ruling on how each conflict it reported resolves. Rebase as for
+  `BEHIND`.
 - **Any other state** reaches you only with a ruling naming the remedy
   to run — a rebase, or a change on the branch that turns a check
   green. Carry it out as the ruling says, under this file's rules as
   any fix is.
 
-The ruling governs the remedy the same way on every state. A rebase
-that stops on a conflict is resolved as the ruling says — resolve each
-file exactly so, `git add` it, and `git rebase --continue`, then push
-with `--force-with-lease`. A conflict the ruling does not settle, or
-that no ruling reaches, is a design decision you cannot make, and so
-is a ruling that leaves the remedy unclear: abort the rebase, leave
-the branch as it was, and report what has no ruling, quoting it.
-`pr-merge-readiness` returns that as the question, and the human's
-ruling reaches you in the next brief.
+A rebase that stops on a conflict, on any state, is resolved by the
+first of these that settles each conflicting file — resolve it so,
+`git add` it, and `git rebase --continue`, then push with
+`--force-with-lease`:
+
+1. **A ruling that names the conflict.** Resolve it exactly as the
+   ruling says. For the conflicts it names, a ruling takes precedence
+   over the two conditions below.
+2. **A repo rule that settles it** — a rule in the repo's `CLAUDE.md`,
+   `.claude/rules/` or `docs/rules/`. A plugin `version` line is the
+   common case: the version-bump rule settles it to a version above
+   the base's.
+3. **Both sides kept together, without choosing between them** — the
+   two sides' hunks edit different parts of the conflicting region, or
+   one side's change already contains the other's.
+
+The second and third are the resolvability conditions, and they apply
+to a conflict no ruling names. A conflict that meets neither is a
+design decision you cannot make, and so is a ruling that leaves the
+remedy unclear: abort the rebase with `git rebase --abort`, leave the
+branch as it was, push nothing, and report each such conflict the
+rebase reached, quoting it. A conflict you resolved earlier in the same
+rebase is undone by the abort, and resolved again on the next round.
+`pr-merge-readiness` returns your report as the question, and the
+human's ruling reaches you in the next brief.
 
 Run the tests after the rebase, as for any other change. Then capture
 memory, clean up, and report back per the workflow: which state the
-brief named, the base you rebased onto, each conflict and how the
-ruling had you resolve it, any ruling the rebase did not need, quoted,
-the new head SHA, and the test result.
+brief named, the base you rebased onto, each conflict and what settled
+it — for one a ruling named, the ruling; for one you resolved without
+a ruling, the repo rule, quoted, or the combination of both sides you
+kept — any ruling the rebase did not need, quoted, the new head SHA,
+and the test result.
 `pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
 again on your return; no review round follows a merge-readiness brief.
 
