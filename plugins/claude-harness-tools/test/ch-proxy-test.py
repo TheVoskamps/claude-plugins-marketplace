@@ -179,9 +179,10 @@ def chunk(data):
 
 
 def raw_exchange(port, data, hang_up=False, timeout=15):
-    """Send `data` as the whole request; return what was read back and
-    whether the proxy ended the connection within `timeout`.
+    """Send `data` as the whole request and return `(received, ended)`.
 
+    `received` is every byte read back. `ended` is False when the proxy
+    left the connection open for `timeout` seconds without sending more.
     With `hang_up`, the sending side of the socket is shut after `data`.
     """
     connection = socket.create_connection(("127.0.0.1", port), timeout=timeout)
