@@ -173,8 +173,9 @@ of them loses track of which decision belongs to which.
    check has not yet returned an empty gap list (see step 4) — the
    issue is not ready and the status stays where it is. The flip is a
    Kanban visibility aid for humans, not part of readiness: it runs
-   only after the check passes, and it is still skipped where the repo
-   has no board, per "Status resolution" below. Otherwise resolve the
+   only after the check passes, and it is still skipped wherever the
+   `status` slot reports unconfigured, per "Status resolution" below.
+   Otherwise resolve the
    orchestrate-ready status name per that section, then:
 
    ```text
@@ -189,29 +190,31 @@ of them loses track of which decision belongs to which.
 7. **Final report.** State: what changed in the body (the substantive
    changes, not a diff), which side-effect issues you created and
    where, the status you set and that you confirmed it by re-reading,
-   and the issue URL. When step 6 was skipped, say instead that the
-   issue is not ready, name the gaps still open, and say the status is
-   unchanged — never report an unflipped status as a success.
+   and the issue URL. When step 6 was skipped because a gap is still
+   open, say instead that the issue is not ready, name the gaps still
+   open, and say the status is unchanged. When it was skipped only
+   because the `status` slot reports unconfigured, say the issue is
+   ready and that the repo has no status to flip. Either way, never
+   report an unflipped status as a success.
 
 ## Status resolution
 
-Read `.issues/repo-config.md` →
-`github-project.fields.status.options`:
+Ask the `issues` namespace which status options exist:
+
+```text
+/issue-field-options status
+```
+
+Apply this rule to the option names it reports:
 
 - A `Ready` option exists → use it.
 - Otherwise a `Todo` option exists → use it.
 - Otherwise → ask the user which of the configured options means
   orchestrate-ready, and use their answer.
 
-If `.issues/repo-config.md` is missing, abort with: "This repo has
-no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
-same wording the full reader contract uses for its "File missing"
-case, so the namespace's abort messages stay consistent even though
-this skill doesn't consume the whole contract).
-
-If the repo has no `github-project:` block, or the block has no
-`status` slot, there is nothing to flip: say so plainly, deliver the
-groomed body, and stop rather than inventing a status.
+If it reports the `status` slot as unconfigured, there is nothing to
+flip: say so plainly, deliver the groomed body, and stop rather than
+inventing a status.
 
 ## Non-goals
 

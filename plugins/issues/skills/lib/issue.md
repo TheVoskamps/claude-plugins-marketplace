@@ -11,8 +11,9 @@ documented here. Individual command files (`/issue-create`,
 `/issue-unset-child`,
 `/issue-sub-list`, `/issue-set-blocked-by`, `/issue-unset-blocked-by`,
 `/issue-set-blocks`, `/issue-unset-blocks`, `/issue-close`,
-`/issue-comment`, etc.) reference this doc rather than duplicating
-GraphQL templates or default-resolution logic inline.
+`/issue-comment`, `/issue-field-options`, etc.) reference this doc
+rather than duplicating GraphQL templates or default-resolution logic
+inline.
 
 The higher-level multi-issue orchestrator that drives end-to-end issue
 fixes is **not** part of this namespace and does not read this file —
@@ -164,15 +165,20 @@ The kinds:
   `gh issue edit` invocation, not GraphQL. Reads use the `kind: label`
   branch of the "Field-value read by kind" recipe.
 
-- **`kind: skip`** — the slot is explicitly declared as unused. The
-  verb warns and exits zero rather than writing anything. No other
-  keys are allowed:
+- **`kind: skip`** — the slot is explicitly declared as unused: the
+  repo does not track it. No other keys are allowed:
 
   ```yaml
   fields:
     priority:
       kind: skip
   ```
+
+  A slot **absent** from `fields:` means exactly what `kind: skip`
+  means. The two spellings are equivalent by design — `kind: skip`
+  makes "we deliberately don't track this here" visible, and omission
+  serves a repo whose author never thought about the slot — so a
+  config may use either, and there is no third "missing slot" form.
 
 - **`kind: issue-field`** — a **native GitHub Issue Field** (the
   preview feature that attaches ProjectV2-style fields directly to an
@@ -250,52 +256,9 @@ line that starts with `github-project:` at column 0. The block runs
 until the next column-0 non-blank line (a new top-level key) or EOF.
 Parse the indented YAML beneath it.
 
-### Graceful degradation when the block is missing
-
-Repos without a Project V2 board omit the `github-project:` block
-entirely. In that case:
-
-- Commands that only touch the issue itself (`/issue-create` without
-  `--type/--priority/--size/--status`, `/issue-update`,
-  `/issue-close`, `/issue-comment`, `/issue-set-parent`,
-  `/issue-unset-parent`, `/issue-set-child`, `/issue-unset-child`,
-  `/issue-sub-list`, `/issue-set-blocked-by`,
-  `/issue-unset-blocked-by`, `/issue-set-blocks`,
-  `/issue-unset-blocks`, `/issue-view`) work normally — they don't
-  need project metadata.
-- `/issue-create`'s flags that need project metadata (`--type`,
-  `--priority`, `--size`, `--status`) emit a one-line warning and skip
-  that step rather than aborting the run — the issue is still filed.
-  Example:
-
-  > `warning: no github-project: block in repo-config.md;`
-  > `skipping --status. Run /repo-config to add it.`
-
-- The set-slot verbs (`/issue-set-priority`, `/issue-set-size`,
-  `/issue-set-status`, `/issue-set-type`) **abort** with the "No
-  `github-project:` block in repo-config" catalogue entry instead (see
-  "Set-slot dispatcher"): setting the field is the whole run there, so
-  skipping it would leave nothing to do.
-
-- `/issue-view` prints whatever project fields it can read; if there's
-  no project, the project-fields section is omitted.
-
-Warn-and-skip is also what happens at the per-slot level — for the
-set-slot verbs too, which abort only on the missing block — when a
-slot is **declared as `kind: skip`** and when a slot is **absent
-entirely** from `fields:`. The two are intentionally equivalent — a
-repo author who wants to make "we deliberately don't track this here"
-visible declares `kind: skip`; one who never thinks about the slot at
-all omits it. Verbs that need the slot warn and exit zero in both
-cases. For the `kind: skip` case:
-
-> `warning: slot 'priority' is kind: skip in repo-config.md;`
-> `skipping --priority.`
-
-For the slot-absent case, the warning mentions missing-slot instead
-of `kind: skip`, but the verb's behavior is identical. Document
-either form when writing a new repo's config; don't add a third
-"missing slot" error code.
+The block is optional. A repo without a Project V2 board omits it
+entirely, and then configures no project, no `issue-types:` map and no
+slot: every slot reads as unconfigured, as if declared `kind: skip`.
 
 ## Tracker dispatch
 
@@ -355,17 +318,15 @@ per-slot create-time flag) have **no built-in default**. They resolve
 via CLI flag, then — for create-time verbs only — an interactive
 prompt (rung 2), then `fields.<slot>.default` from repo-config. If
 none of those produce a value — or if the slot is `kind: skip` or
-absent from `fields:` entirely — the slot is skipped (warning-and-skip
-per "Graceful degradation when the block is missing" above). The skill
+absent from `fields:` entirely — the slot resolves to no value. The skill
 no longer hardcodes `3` / `Todo` fallbacks; the slot's own repo-config
 is authoritative.
 
 A repo-config-level default only applies when its containing block
 exists. If `github-project:` is absent, the built-in default still
 applies for `--type`, `--assignee`, and `--labels`, but the slot flags
-cannot be set at all (warning-and-skip per "Graceful degradation when
-the block is missing" above) — no prompt either, because there is
-nothing to prompt against.
+resolve to no value — no prompt either, because there is nothing to
+prompt against.
 
 ### Interactive prompt rung (create-time slot flags)
 
@@ -401,9 +362,8 @@ Per-slot prompt content, by `fields.<slot>.kind`:
 - **`kind: number`** — render an open-ended prompt that accepts an
   integer in `[min, max]`. The recommended seed (shown as the
   prefilled / first option) is picked per the per-slot rules below.
-- **`kind: skip` or slot absent** — no prompt. The slot is
-  warning-skipped per "Graceful degradation when the block is missing"
-  exactly as if the flag were passed and the slot were unconfigured.
+- **`kind: skip` or slot absent** — no prompt; the rung does not
+  apply.
 
 Per-slot recommended-option rules (apply on top of the per-kind
 shape above):
@@ -431,7 +391,8 @@ If the user picks an option, that value resolves the slot for the
 rest of the run (as if it had been passed on the CLI). If the
 prompt is unanswered (harness times it out, or the verb is invoked
 from a non-interactive context), fall through to rung 3
-(`fields.<slot>.default`); if that is also absent, warn-and-skip.
+(`fields.<slot>.default`); if that is also absent, the slot resolves
+to no value.
 
 ## Name -> ID lookup rules
 
@@ -1038,15 +999,8 @@ The kinds are read as follows:
   whether or not the issue is on any project board — that
   board-independence is the point of the kind.
 
-- **`kind: skip`** — not displayed at all. The slot is omitted
-  entirely from the rendered output — no row, no `(none)`
-  placeholder, no "slot skipped" notice. Consumers that iterate over
-  `fields:` to build a display should skip slots whose kind is
-  `skip` before they even reach the value-formatting step.
-
-A slot that is **absent entirely** from `fields:` is also not
-displayed, mirroring the slot-absent / `kind: skip` equivalence
-documented under "Graceful degradation when the block is missing".
+- **`kind: skip`** — there is no value to read, and the recipe does
+  not apply. The same holds for a slot absent from `fields:`.
 
 ## Set-slot dispatcher
 
@@ -1054,8 +1008,9 @@ documented under "Graceful degradation when the block is missing".
 and any future per-slot setters like `/issue-set-effort`) share one
 dispatch routine. Each verb's SKILL.md picks a `<slot>` name and then
 follows this routine; the verb-specific files document only their
-slot name, their echo wording, and one fenced argument example per
-kind. The shared logic lives here so it stays in one place.
+slot name, their echo wording, what they do when the slot or its
+block is unconfigured, and one fenced argument example per kind.
+The shared logic lives here so it stays in one place.
 
 The verb takes exactly two positional arguments:
 
@@ -1074,31 +1029,22 @@ The verb takes exactly two positional arguments:
    `issues == Jira`, follow the **Jira set-slot path** in the "Jira
    backend" section ("Metadata setters (set-status / -priority /
    -size / -type)") instead of the GitHub steps below: the dispatcher
-   structure is identical (require the metadata block, re-read the
-   slot, dispatch on `kind:`, resolve `<value>`, abort-if-missing),
+   structure is identical (re-read the slot, dispatch on `kind:`,
+   resolve `<value>`, abort-if-missing),
    but the metadata block is `jira:` instead of
    `github-project:`, the slot kinds are the Jira kinds (`status`,
    `custom-field`, `label`, `skip`), and the write paths are the
-   `acli` templates. Steps 2–4 below describe the GitHub path.
+   `acli` templates. Steps 2–3 below describe the GitHub path.
 
-2. **Require `github-project:` block.** If the block is absent, abort
-   with the "No `github-project:` block in repo-config" error from the
-   catalogue. This is an abort, not a warning-and-skip — without the
-   project metadata there is no slot to set. (On the Jira branch the
-   parallel requirement is a `jira:` block, and its absence aborts the
-   same way.)
-
-3. **Re-read `github-project.fields.<slot>`** from
+2. **Re-read `github-project.fields.<slot>`** from
    `.issues/repo-config.md`. Do not assume it's already in
    context; verbs in this namespace re-read repo-config every run.
 
-4. **Dispatch on `fields.<slot>.kind`.** The cases:
+3. **Dispatch on `fields.<slot>.kind`.** The cases:
 
    - **slot absent** (no `fields.<slot>` entry) **or `kind: skip`** —
-     emit the "Slot not configured" catalogue message and exit
-     **zero**. Ignore `<value>` entirely; it is not parsed or
-     validated. The two cases are intentionally equivalent (see
-     "Graceful degradation when the block is missing").
+     there is no write path, and the routine ends here. `<value>` is
+     not parsed or validated.
 
    - **`kind: number`** — parse `<value>` as a base-10 integer. If it
      does not parse, or is outside the closed interval `[min, max]`
@@ -1260,9 +1206,9 @@ The Jira path resolves metadata against the **`jira:`** block of
 `.issues/repo-config.md` (schema in
 `skills/lib/repo-config.md` → "`jira:` block"), exactly the way the
 GitHub path resolves against `github-project:`. The block is optional
-and degrades exactly as its GitHub counterpart does, per verb and per
-case (see "Graceful degradation when the block is missing" above,
-reading `jira:` for `github-project:`).
+exactly as `github-project:` is (see "Locating the `github-project:`
+block" above), and a `kind: skip` slot or an absent one means what it
+means there.
 
 ### Preconditions (every Jira operation)
 
@@ -1309,7 +1255,7 @@ custom-field values (priority/size) from it.
     (render option name without prefix) / more-than-one (`(multiple)`)
     rules. Foreign labels in the namespace not in `options` are
     ignored for display.
-  - **`kind: skip` / slot absent** — not displayed, same as GitHub.
+  - **`kind: skip` / slot absent** — no value to read, as on GitHub.
 - **Issue type** — the work item's type name from the payload (the
   Jira analogue of `issueType { name }`).
 - **Relationships** — parent/sub-task and issue links come from the
@@ -1467,14 +1413,21 @@ resolve aborts with the actual valid list re-discovered from Jira
 work item, custom-field options via the field payload); it never
 silently writes a fallback. The catalogue entries below
 ("Slot value not in options map", "Issue-type name not in repo's
-issue-types map") apply to both backends — the wording is
-tracker-neutral; only the source of the "known options" list differs
-(the `jira:` block instead of `github-project:`).
+issue-types map") apply to both backends; only the source of the
+"known options" list differs (the `jira:` block instead of
+`github-project:`).
 
 ## Error message catalogue
 
 Use these exact wordings so the namespace presents consistent errors.
 Wrap variable parts in backticks.
+
+A wording below that names the `github-project:` block is its GitHub
+form. Under `issues: Jira` it names the `jira:` block in that place
+and is otherwise unchanged. "No `github-project:` block in
+repo-config", for one, reads under Jira:
+
+> no `jira:` block in `repo-config.md`; run `/repo-config` to add it
 
 - **Issue not found**
 
@@ -1515,22 +1468,24 @@ Wrap variable parts in backticks.
 
   > no `github-project:` block in `repo-config.md`; run `/repo-config` to add it
 
-  Emitted as an **abort** when the command **requires** project
-  metadata (e.g. `/issue-set-status` with no flags can't proceed) and
-  as a **warning-and-skip** when only a subset of flags need it (see
-  "Graceful degradation when the block is missing" above).
-
 - **No `issue-types:` map in repo-config**
 
   > issue-types map missing from `github-project:` in `repo-config.md`;
   > run `/repo-config` to add it
 
-  Emitted as an **abort** when the `github-project:` block is present
-  but carries no `issue-types:` map and the command **requires** it to
-  resolve an issue-type name (e.g. `/issue-set-type`). Distinct from
+  Describes a `github-project:` block that is present but carries no
+  `issue-types:` map. Distinct from
   "No `github-project:` block in repo-config": here the block exists
   but the issue-types map specifically is absent, so the fix is the
   same (`/repo-config`) but the diagnosis points at the missing map.
+
+- **No `github-project:` block in repo-config (warning)**
+
+  > warning: no `github-project:` block in `repo-config.md`;
+  > skipping `--<flag>`. Run `/repo-config` to add it.
+
+  The warning form of "No `github-project:` block in repo-config".
+  `<flag>` is the flag being skipped.
 
 - **`acli` not installed** (Jira branch)
 
@@ -1666,24 +1621,6 @@ Wrap variable parts in backticks.
 
   The verb echoes back the offending `<value>` verbatim and names the
   configured kind so the user can see the mismatch at a glance.
-
-- **Slot not configured**
-
-  > `/issue-set-<slot>` has nothing to do: this repo has no `<slot>`
-  > slot configured. (Run `/repo-config` to add one.)
-
-  Triggered when `fields.<slot>` is absent from the `github-project:`
-  block, **or** the slot is explicitly declared as `kind: skip`. In
-  both cases the verb exits **zero** — this is the warning-and-skip
-  behavior documented under "Graceful degradation when the block is
-  missing", not an error. Mention this entry's exact wording when the
-  verb emits its single warning line so the catalogue and the runtime
-  message stay aligned.
-
-When a command emits multiple warnings in one run (e.g. `--status`
-and `--priority` both skipped because `github-project:` is missing),
-print them on separate lines, in the order the flags appeared on the
-CLI.
 
 ## Conventions for command files
 

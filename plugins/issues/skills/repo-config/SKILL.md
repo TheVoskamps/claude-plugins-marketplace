@@ -609,9 +609,7 @@ recommendation noted below.
 
 - **Skip** (`kind: skip`):
   - Nothing to capture beyond `kind: skip`. The slot is explicitly
-    declared as unused. Verbs that target the slot warn and exit
-    zero per the "Field kinds (`fields.<slot>.kind`)" section of
-    `skills/lib/issue.md`.
+    declared as unused.
   - For the `status` slot specifically, `Skip` is allowed but
     discouraged — surface a brief note to the user that
     `/issue-set-status` and the `--status` flag will warn-and-skip,

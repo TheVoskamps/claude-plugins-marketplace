@@ -52,8 +52,7 @@ Both transitions are **gated on a configured status slot**: the repo
 must have `github-project.fields.status` (GitHub) or the Jira `status`
 slot in `.issues/repo-config.md`. If no status slot is configured,
 **warn-and-skip** — emit a one-line note that status tracking is not
-configured and continue the run. Do **not** abort; this matches how
-`/issue-set-status` itself degrades.
+configured and continue the run. Do **not** abort.
 
 **Option-name fallback.** `/issue-set-status` matches option names
 case-insensitively, so `"In Progress"` / `"In Review"` resolve to a
