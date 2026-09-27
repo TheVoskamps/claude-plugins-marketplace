@@ -133,10 +133,13 @@ case "$1 $2" in
       --request-changes) state=CHANGES_REQUESTED ;;
       *) state=COMMENTED ;;
     esac
+    # A case's `review-state` or `review-body` stands in for the state or
+    # the body GitHub recorded, instead of the ones posted.
+    state=$(val review-state "$state")
     if landed; then
       reviews=$(val reviews.json '[]')
       printf '%s\n' "$reviews" | jq --arg me "$me" --arg state "$state" \
-        --arg body "$(cat "$body_file")" \
+        --arg body "$(val review-body "$(cat "$body_file")")" \
         '. + [{id: (length + 100), user: {login: $me}, state: $state, body: $body}]' \
         >"$S/reviews.json"
     fi
@@ -439,6 +442,20 @@ run pr-review-submit 7 --verdict comment "Note"
 check "$RC" "1" "pr-review-submit: exit 1 when no new review appears"
 check "$ERR" "pr-review-submit: PR #7: the review did not land: no new review by me is on the PR" \
   "pr-review-submit: the not-landed message"
+
+new_case review-wrong-state
+echo APPROVED >"$CASE/review-state"
+run pr-review-submit 7 --verdict comment "Note"
+check "$RC" "1" "pr-review-submit: exit 1 when the new review carries another state"
+check "$ERR" "pr-review-submit: PR #7: the review did not land: review 100 has state APPROVED, not COMMENTED" \
+  "pr-review-submit: the wrong-state message"
+
+new_case review-wrong-body
+echo "Other text" >"$CASE/review-body"
+run pr-review-submit 7 --verdict comment "Note"
+check "$RC" "1" "pr-review-submit: exit 1 when the new review carries another body"
+check "$ERR" "pr-review-submit: PR #7: the review did not land: review 100's body is not the body written" \
+  "pr-review-submit: the wrong-body message"
 
 new_case review-no-verdict
 run pr-review-submit 7 "body"
