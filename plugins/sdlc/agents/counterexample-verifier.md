@@ -200,15 +200,11 @@ calls in a subagent context.
      corrected wording, not a `REFUTED`.
 
 5. **Write your report to your result file**, as your final act before
-   reporting. First write the whole report with the Write tool to
-
-   ```text
-   <session-scratchpad>/pr<PR>-verify-<theorem>-counterexample-verifier-report.md
-   ```
-
-   where `<session-scratchpad>` is the scratchpad directory the harness
-   names in your environment, and `<PR>` and `<theorem>` are your
-   brief's `--pr` and `--theorem`. If Write refuses because the file
+   reporting. First write the whole report with the Write tool to your
+   staging file, whose path the preloaded
+   `sdlc:agent-result-persist-interface` skill → "The payload:
+   `--from <path>`, or stdin" composes from the values of the `leave`
+   call below. If Write refuses because the file
    already exists — an earlier round's report for the same theorem —
    Read it, then Write again. Then hand that file to the script with
    `--from`:
@@ -218,7 +214,7 @@ calls in a subagent context.
      --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage verify \
      --agent counterexample-verifier \
-     --from <session-scratchpad>/pr<PR>-verify-<theorem>-counterexample-verifier-report.md
+     --from <staging-file>
    ```
 
    The report never travels on the command line, in a heredoc or

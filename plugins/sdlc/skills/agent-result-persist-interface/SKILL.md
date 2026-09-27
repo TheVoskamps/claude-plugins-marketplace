@@ -79,6 +79,8 @@ in one session do the same.
 
 - A `--from` path that is not an existing file is refused, non-zero,
   with a message naming the path, before anything is written.
+- A `--from` file that exists but cannot be read is refused, non-zero,
+  with a message naming that file.
 - An empty payload is refused either way. With no `--from`, empty stdin
   gets `--mode <mode> takes the <noun> on stdin, and nothing arrived`;
   an empty `--from` file gets a message naming that file.
@@ -222,8 +224,9 @@ directories.
   and a child killed mid-write would leave that fragment there for
   good. The rename is what makes the file appear complete or not at
   all, and the `-<pid>` suffix is what keeps two writers from staging
-  over each other. A refused empty report leaves nothing behind: the
-  staging file is removed before the call exits non-zero.
+  over each other. A refused report — empty, or a `--from` file that
+  could not be read — leaves nothing behind: the staging file is
+  removed before the call exits non-zero.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a `<task-notification>` it
@@ -290,8 +293,9 @@ directories.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
-  `records` or `review` refuses empty input; `anchor` renames a voided
-  round rather than removing it.
+  `records` or `review` refuses its payload as empty or as a `--from`
+  file that could not be read; `anchor` renames a voided round rather
+  than removing it.
 
 The script stamps every record's time itself: the writer owns when the
 record was made.

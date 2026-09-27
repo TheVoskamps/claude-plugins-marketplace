@@ -161,16 +161,11 @@ given, and step 7.
 
 6. **Write the theorem list to your result file**, as your final act
    before reporting. First write the whole list with the Write tool to
-
-   ```text
-   <session-scratchpad>/pr<PR>-generate-list-<agent>-report.md
-   ```
-
-   where `<session-scratchpad>` is the scratchpad directory the harness
-   names in your environment, `<PR>` is your brief's `--pr`, and
-   `<agent>` is the name your agent definition tells you to pass as
-   `--agent` on your `leave` call — one value, carried by both the file
-   name and that flag below. If Write refuses because the file already
+   your staging file, whose path the preloaded
+   `sdlc:agent-result-persist-interface` skill → "The payload:
+   `--from <path>`, or stdin" composes from the values of the `leave`
+   call below, where `<agent>` is the name your agent definition tells
+   you to pass as `--agent`. If Write refuses because the file already
    exists — an earlier round's list — Read it, then Write again. Then
    hand that file to the script with `--from`:
 
@@ -179,7 +174,7 @@ given, and step 7.
      --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem list --stage generate \
      --agent <agent> \
-     --from <session-scratchpad>/pr<PR>-generate-list-<agent>-report.md
+     --from <staging-file>
    ```
 
    The list never travels on the command line, in a heredoc or
