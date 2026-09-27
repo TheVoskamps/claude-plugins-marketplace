@@ -1,0 +1,525 @@
+#!/usr/bin/env bash
+#
+# issues-bin-test.sh -- drive every script in plugins/issues/bin/, under the
+# bash 3.2 macOS ships, against fake-gh.py: a `gh` on PATH backed by a small
+# in-memory GitHub persisted in a JSON file. Each case starts from the same
+# fixture state and its own sandbox git repo, so no case sees another's writes
+# and no case reaches the real GitHub.
+#
+# Usage: issues-bin-test.sh    (exit 0 when every case passes)
+
+set -uo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN="$TEST_DIR/../bin"
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/issues-bin-test.XXXXXX")"
+FAILURES=0
+CASES=0
+
+VERBS="issue-close issue-comment issue-create issue-field-options issue-set-blocked-by issue-set-blocks
+issue-set-child issue-set-parent issue-set-priority issue-set-size issue-set-status issue-set-type
+issue-sub-list issue-unset-blocked-by issue-unset-blocks issue-unset-child issue-unset-parent
+issue-update issue-view issue-view-tree"
+
+mkdir -p "$SANDBOX/bin"
+cat >"$SANDBOX/bin/gh" <<EOF
+#!/bin/sh
+exec python3 "$TEST_DIR/fake-gh.py" "\$@"
+EOF
+chmod +x "$SANDBOX/bin/gh"
+
+FRONT_MATTER='---
+schema-version: 7
+source-control: GitHub
+issues: GitHub
+issue-link-prefix: "#"
+default-issue-source-branch: main
+default-pr-target-branch: main
+issue-branch-naming-prefix: none
+---
+'
+
+CONFIG_MAIN="$FRONT_MATTER
+github-project:
+  project-id: PVT_1
+  fields:
+    status:
+      kind: single-select
+      id: PVTSSF_status
+      default: Backlog
+      options:
+        Backlog:     OPT_backlog
+        In progress: OPT_inprogress
+        Done:        OPT_done
+    priority:
+      kind: issue-field
+      data-type: single-select
+      field-id: IFSS_priority
+      field-name: Priority
+      default: Medium
+      options:
+        High:   IFSSO_high
+        Medium: IFSSO_medium
+        Low:    IFSSO_low
+    size:
+      kind: label
+      namespace: \"size:\"
+      default: M
+      options: [S, M, L]
+  issue-types:
+    default: Feature
+    Bug:       IT_bug
+    Feature:   IT_feature
+    Tech Debt: IT_debt
+
+# Repo Config
+
+Never hand-edit this file — re-run \`/repo-config\`."
+
+CONFIG_NUMBER="$FRONT_MATTER
+github-project:
+  project-id: PVT_1
+  fields:
+    priority:
+      kind: number
+      id: PVTF_prio
+      default: 3
+      min: 1
+      max: 9
+    size:
+      kind: skip
+  issue-types:
+    default: Bug
+    Bug:       IT_bug
+"
+
+CONFIG_NO_BLOCK="$FRONT_MATTER
+# Repo Config
+"
+
+# The fixture: acme/widgets is the current repo, acme/other a second one.
+BASE_STATE="$SANDBOX/base-state.json"
+python3 - "$BASE_STATE" "$CONFIG_MAIN" <<'PY'
+import json, sys
+path, config = sys.argv[1], sys.argv[2]
+def issue(repo, n, title, **kw):
+    d = {"id": "I_%s_%d" % (repo.replace("/", "_"), n), "number": n, "title": title, "body": "Body of %d.\n" % n,
+         "state": "OPEN", "labels": [], "assignees": [], "blockedBy": [], "projectItems": [], "issueFields": {}}
+    d.update(kw)
+    return d
+widgets = {str(n): issue("acme/widgets", n, "Widget issue %d" % n) for n in range(1, 11)}
+widgets["2"]["labels"] = ["bug", "size:S"]
+widgets["2"]["assignees"] = ["octocat"]
+widgets["2"]["issueType"] = "IT_bug"
+widgets["2"]["projectItems"] = [{"id": "PVTI_2", "project": "PVT_1",
+                                  "fields": {"PVTSSF_status": {"name": "In progress", "optionId": "OPT_inprogress"}}}]
+widgets["2"]["issueFields"] = {"IFSS_priority": {"name": "High", "optionId": "IFSSO_high"}}
+widgets["2"]["parent"] = "I_acme_widgets_1"
+widgets["2"]["blockedBy"] = ["I_acme_other_3"]
+widgets["4"]["labels"] = ["size:S", "size:L"]
+widgets["5"]["viewerCanSetFields"] = False
+# A chain 6 -> 7 -> 8 -> 9 -> 10 plus 1 -> 6: depth 5 at issue 10's child.
+for child, parent in (("6", "1"), ("7", "6"), ("8", "7"), ("9", "8"), ("10", "9")):
+    widgets[child]["parent"] = "I_acme_widgets_" + parent
+big = {}
+for n in range(100, 160):
+    big[str(n)] = issue("acme/widgets", n, "Child %d" % n, parent="I_acme_widgets_3")
+widgets.update(big)
+widgets["11"] = issue("acme/widgets", 11, "Leaf", parent="I_acme_widgets_10")
+state = {
+    "current": "acme/widgets",
+    "user": "octocat",
+    "repos": {
+        "acme/widgets": {"issues": widgets, "config": config,
+                         "validLabels": ["bug", "docs", "size:S", "size:M", "size:L"],
+                         "collaborators": ["octocat", "hubot"]},
+        "acme/other": {"issues": {"3": issue("acme/other", 3, "Other repo issue")}, "config": None,
+                       "validLabels": ["bug"], "collaborators": ["octocat"]},
+        "acme/stale": {"issues": {}, "config": "---\nschema-version: 5\n---\n", "validLabels": [],
+                       "collaborators": ["octocat"]},
+    },
+    "projectFields": ["PVTSSF_status", "PVTF_prio"],
+    "projectOptions": {"OPT_backlog": "Backlog", "OPT_inprogress": "In progress", "OPT_done": "Done"},
+    "issueFieldIds": ["IFSS_priority"],
+    "issueFieldOptions": {"IFSSO_high": "High", "IFSSO_medium": "Medium", "IFSSO_low": "Low"},
+    "issueTypes": {"IT_bug": "Bug", "IT_feature": "Feature", "IT_debt": "Tech Debt"},
+}
+json.dump(state, open(path, "w"), indent=1)
+PY
+
+# new_case <config-text or "none">: a fresh repo, state and call log.
+new_case() {
+  CASES=$((CASES + 1))
+  CASE_DIR="$SANDBOX/case-$CASES"
+  mkdir -p "$CASE_DIR/repo"
+  git -C "$CASE_DIR/repo" init -q
+  if [ "$1" != none ]; then
+    mkdir -p "$CASE_DIR/repo/.issues"
+    printf '%s\n' "$1" >"$CASE_DIR/repo/.issues/repo-config.md"
+  fi
+  cp "$BASE_STATE" "$CASE_DIR/state.json"
+  : >"$CASE_DIR/gh.log"
+}
+
+# run <verb> <args...>: run a script under /bin/bash in the case repo; sets
+# RC and OUT (stdout and stderr together).
+run() {
+  local verb=$1
+  shift
+  OUT=$(cd "$CASE_DIR/repo" &&
+    PATH="$SANDBOX/bin:$PATH" FAKE_GH_STATE="$CASE_DIR/state.json" FAKE_GH_LOG="$CASE_DIR/gh.log" \
+    XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
+    /bin/bash "$BIN/$verb" "$@" 2>&1)
+  RC=$?
+}
+
+pass() { echo "PASS  $1"; }
+failed() {
+  echo "FAIL  $1"
+  echo "      $2"
+  printf '%s\n' "$OUT" | sed 's/^/      | /'
+  FAILURES=$((FAILURES + 1))
+}
+
+# expect <name> <rc> <substring>...: RC is <rc> and OUT holds each substring.
+expect() {
+  local name=$1 rc=$2 s
+  shift 2
+  if [ "$RC" != "$rc" ]; then failed "$name" "expected exit $rc, got $RC"; return; fi
+  for s in "$@"; do
+    case "$OUT" in
+      *"$s"*) ;;
+      *) failed "$name" "missing: $s"; return ;;
+    esac
+  done
+  pass "$name"
+}
+
+# expect_absent <name> <substring>: OUT does not hold it.
+expect_absent() {
+  case "$OUT" in
+    *"$2"*) failed "$1" "unexpected: $2" ;;
+    *) pass "$1" ;;
+  esac
+}
+
+# state <jq-program>: query the case's fake GitHub.
+state() {
+  jq -r "$1" "$CASE_DIR/state.json"
+}
+
+check() {
+  if [ "$1" = "$2" ]; then pass "$3"; else OUT="expected: $2${ISS_NL}actual:   $1"; failed "$3" "state mismatch"; fi
+}
+ISS_NL='
+'
+
+args_for() {
+  case "$1" in
+    issue-field-options) echo "status" ;;
+    issue-create) echo "--title x --body-file x" ;;
+    issue-comment) echo "2 --body-file x" ;;
+    issue-update) echo "2 --title x" ;;
+    issue-set-blocked-by|issue-set-blocks|issue-unset-blocked-by|issue-unset-blocks|issue-set-child|issue-set-parent|issue-unset-child)
+      echo "2 3" ;;
+    issue-set-priority|issue-set-size|issue-set-status|issue-set-type) echo "2 x" ;;
+    *) echo 2 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Every script: the repo-config and tracker gates.
+# ---------------------------------------------------------------------------
+
+for verb in $VERBS; do
+  new_case none
+  # shellcheck disable=SC2046
+  run "$verb" $(args_for "$verb")
+  expect "$verb: missing repo-config" 1 "This repo has no \`.issues/repo-config.md\`. Run \`/repo-config\` to create one."
+
+  new_case "---
+schema-version: 5
+source-control: GitHub
+---"
+  # shellcheck disable=SC2046
+  run "$verb" $(args_for "$verb")
+  expect "$verb: stale schema-version" 1 "is at schema-version \`5\`; this skill requires \`6\`"
+
+  new_case "---
+source-control: GitHub
+---"
+  # shellcheck disable=SC2046
+  run "$verb" $(args_for "$verb")
+  expect "$verb: absent schema-version" 1 "predates schema versioning"
+
+  new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
+  # shellcheck disable=SC2046
+  run "$verb" $(args_for "$verb")
+  expect "$verb: Jira exits non-zero" 1 "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "$verb: Jira makes no gh call"
+done
+
+for verb in issue-close issue-set-status issue-set-type issue-sub-list issue-unset-parent issue-update issue-view issue-view-tree; do
+  new_case "$CONFIG_MAIN"
+  case "$verb" in
+    issue-set-status) run "$verb" 999 Done ;;
+    issue-set-type) run "$verb" 999 Bug ;;
+    issue-update) run "$verb" 999 --title x ;;
+    *) run "$verb" 999 ;;
+  esac
+  expect "$verb: issue not found" 1 "issue \`#999\` not found in \`acme/widgets\`"
+done
+
+new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issue-link-prefix.*$//')"
+run issue-view 2
+expect "incomplete front-matter names the field" 1 "is missing the canonical field \`issue-link-prefix\`"
+
+# ---------------------------------------------------------------------------
+# Reads.
+# ---------------------------------------------------------------------------
+
+new_case "$CONFIG_MAIN"
+run issue-view 2
+expect "issue-view: full block" 0 \
+  "#2 Widget issue 2    (OPEN)" "https://github.com/acme/widgets/issues/2" \
+  "Labels:     bug, size:S" "Assignees:  octocat" "Type:       Bug" \
+  "Status:     In progress" "Priority:   High" "Size:       S" \
+  "Parent:     #1 Widget issue 1" "Blocked by:${ISS_NL}  - acme/other#3 Other repo issue" \
+  "Sub-issues:${ISS_NL}  (none)" "Body:${ISS_NL}Body of 2."
+
+run issue-view 4
+expect "issue-view: two size labels read (multiple), off-board status" 0 \
+  "Size:       (multiple)" "Status:     (not on project board)" "Priority:   (none)" "Parent:     (none)"
+
+new_case "$CONFIG_NO_BLOCK"
+run issue-view 2
+expect_absent "issue-view: no github-project block omits slot rows" "Status:"
+
+new_case "$CONFIG_MAIN"
+run issue-sub-list 3
+expect "issue-sub-list: pages past 50" 0 "Sub-issues of #3 \"Widget issue 3\":" "  - #100 Child 100" "  - #159 Child 159"
+check "$(printf '%s\n' "$OUT" | grep -c '^  - ')" 60 "issue-sub-list: all 60 children listed"
+run issue-sub-list 2
+expect "issue-sub-list: none" 0 "  (none)"
+
+run issue-view-tree 1
+expect "issue-view-tree: walks and caps depth" 0 \
+  "#1 Widget issue 1  https://github.com/acme/widgets/issues/1" \
+  "  #2 Widget issue 2  " "    Blocked by:${ISS_NL}      - acme/other#3 Other repo issue" \
+  "          #10 Widget issue 10  " "            ... (depth cap)"
+expect_absent "issue-view-tree: nothing past the cap" "#11 Leaf"
+
+new_case "$CONFIG_MAIN"
+run issue-field-options
+expect "issue-field-options: every slot" 0 \
+  "status: single-select${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
+  "priority: issue-field${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" "size: label${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+run issue-field-options effort
+expect "issue-field-options: unconfigured slot" 0 "effort: unconfigured"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-field-options: makes no gh call"
+
+new_case "$CONFIG_NUMBER"
+run issue-field-options
+expect "issue-field-options: number bounds and skip" 0 "priority: number${ISS_NL}  min: 1${ISS_NL}  max: 9" "size: unconfigured"
+new_case "$CONFIG_NO_BLOCK"
+run issue-field-options
+expect "issue-field-options: no block" 0 "No fields configured."
+
+# ---------------------------------------------------------------------------
+# Set-slot verbs.
+# ---------------------------------------------------------------------------
+
+new_case "$CONFIG_MAIN"
+run issue-set-status 3 "in PROGRESS"
+expect "issue-set-status: adds to board and sets canonical name" 0 \
+  "Set status on issue #3 to In progress." "https://github.com/acme/widgets/issues/3"
+check "$(state '.repos["acme/widgets"].issues["3"].projectItems[0].fields.PVTSSF_status.name')" "In progress" \
+  "issue-set-status: value landed"
+run issue-set-status 3 Nope
+expect "issue-set-status: unknown option" 1 "value \`Nope\` is not in \`status\`'s options. Known options: \`Backlog, In progress, Done\`."
+
+run issue-set-priority 3 low
+expect "issue-set-priority issue-field: set" 0 "#3 priority set to Low."
+run issue-set-priority 3 LOW
+expect "issue-set-priority issue-field: no-op" 0 "#3 priority already set to Low."
+run issue-set-priority 3 7
+expect "issue-set-priority issue-field: number input is a kind mismatch" 1 \
+  "was called with a number, but this repo's \`priority\` is configured as \`kind: issue-field\`"
+run issue-set-priority 5 High
+expect "issue-set-priority issue-field: viewerCanSetFields false" 1 "cannot set native issue field \`Priority\` on issue \`#5\`"
+
+run issue-set-size 4 m
+expect "issue-set-size label: converges to one label" 0 "#4 size set to M (via label \`size:M\`)."
+check "$(state '.repos["acme/widgets"].issues["4"].labels | sort | join(",")')" "size:M" "issue-set-size label: extras removed"
+run issue-set-size 4 M
+expect "issue-set-size label: no-op" 0 "#4 size already set to M (via label \`size:M\`)."
+
+new_case "$CONFIG_NUMBER"
+run issue-set-priority 2 5
+expect "issue-set-priority number: set" 0 "#2 priority set to 5."
+check "$(state '.repos["acme/widgets"].issues["2"].projectItems[0].fields.PVTF_prio.number')" "5.0" "issue-set-priority number: landed"
+run issue-set-priority 2 10
+expect "issue-set-priority number: out of range" 1 "value \`10\` for \`priority\` is out of range. Expected an integer in \`[1, 9]\`."
+run issue-set-priority 2 three
+expect "issue-set-priority number: non-integer is out of range" 1 "value \`three\` for \`priority\`"
+run issue-set-size 2 M
+expect "issue-set-size: kind skip warns and exits zero" 0 \
+  "\`/issue-set-size\` has nothing to do: this repo has no \`size\` slot configured."
+run issue-set-status 2 Done
+expect "issue-set-status: absent slot warns and exits zero" 0 "has no \`status\` slot configured"
+
+new_case "$CONFIG_NO_BLOCK"
+run issue-set-priority 2 High
+expect "issue-set-priority: no block aborts" 1 "no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
+
+new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/PVTSSF_status/PVTSSF_gone/')"
+run issue-set-status 2 Done
+expect "issue-set-status: stale field ID" 1 "project field \`PVTSSF_gone\` no longer exists on project \`PVT_1\`"
+
+new_case "$CONFIG_MAIN"
+run issue-set-type 3 "tech debt"
+expect "issue-set-type: set" 0 "#3 type set to Tech Debt."
+run issue-set-type 3 "Tech Debt"
+expect "issue-set-type: no-op" 0 "#3 type already set to Tech Debt."
+run issue-set-type 3 Epic
+expect "issue-set-type: unknown type" 1 "issue type \`Epic\` not in repo's \`github-project.issue-types\`. Known types: \`Bug, Feature, Tech Debt\`"
+
+# ---------------------------------------------------------------------------
+# Relationships.
+# ---------------------------------------------------------------------------
+
+new_case "$CONFIG_MAIN"
+run issue-set-parent 5 4
+expect "issue-set-parent: link" 0 "Linked issue #5 as a sub-issue of #4." "https://github.com/acme/widgets/issues/4"
+run issue-set-child 4 5
+expect "issue-set-child: same edge is a no-op" 0 "Issue #5 is already a sub-issue of #4; no change."
+run issue-set-parent 5 3
+expect "issue-set-parent: single-parent conflict" 1 \
+  "issue \`#5\` already has parent \`#4\`; remove it first with \`/issue-unset-parent 5\` before setting a new parent"
+run issue-unset-child 3 5
+expect "issue-unset-child: other parent is a no-op" 0 "Issue #5 is not a sub-issue of #3; no change."
+run issue-unset-child 4 5
+expect "issue-unset-child: remove" 0 "Removed issue #5 as a sub-issue of #4."
+run issue-unset-parent 5
+expect "issue-unset-parent: none is a no-op" 0 "Issue #5 has no parent; no change."
+run issue-unset-parent 2
+expect "issue-unset-parent: remove" 0 "Removed issue #2 as a sub-issue of #1." "https://github.com/acme/widgets/issues/2"
+
+run issue-set-blocked-by 4 acme/other#3
+expect "issue-set-blocked-by: cross-repo" 0 "Marked issue #4 as blocked by acme/other#3."
+run issue-set-blocks acme/other#3 4
+expect "issue-set-blocks: same edge is a no-op" 0 "Issue acme/other#3 already blocks #4; no change."
+run issue-unset-blocks acme/other#3 4
+expect "issue-unset-blocks: remove" 0 "Removed blocking relationship: issue acme/other#3 no longer blocks #4."
+run issue-unset-blocked-by 4 acme/other#3
+expect "issue-unset-blocked-by: absent edge is a no-op" 0 "Issue #4 is not blocked by acme/other#3; no change."
+run issue-set-blocked-by 4 acme/other#99
+expect "issue-set-blocked-by: operand not found names its repo" 1 "issue \`#99\` not found in \`acme/other\`"
+
+# ---------------------------------------------------------------------------
+# Comment, close, update.
+# ---------------------------------------------------------------------------
+
+new_case "$CONFIG_MAIN"
+printf '  \n\t\n' >"$CASE_DIR/repo/blank.md"
+run issue-comment 2 --body-file blank.md
+expect "issue-comment: whitespace-only body refused" 1 "is empty or whitespace-only"
+check "$(grep -c '"comment"' "$CASE_DIR/gh.log")" 0 "issue-comment: nothing posted for a blank body"
+printf 'Looks good.\n' >"$CASE_DIR/repo/body.md"
+run issue-comment 2 --body-file body.md
+expect "issue-comment: posted" 0 "Commented on issue #2 \"Widget issue 2\"." "#issuecomment-"
+
+run issue-close 2 --comment "Done here; fixes #7 and Resolves #8."
+expect "issue-close: comment then close, closing-keyword note" 0 \
+  "Closed issue #2 \"Widget issue 2\"." "comment: posted" "state:   CLOSED" \
+  "note: your comment contained closing keyword(s) referencing #7, #8"
+check "$(state '.repos["acme/widgets"].issues["2"].state')" CLOSED "issue-close: closed"
+
+new_case "$CONFIG_MAIN"
+run issue-update 3 --prepend "first" --append "last one"
+expect "issue-update: prepend and append" 0 "body:            appended 1 line(s), prepended 1 line(s)"
+check "$(state '.repos["acme/widgets"].issues["3"].body')" "first${ISS_NL}Body of 3.${ISS_NL}last one" "issue-update: body composed"
+run issue-update 3 --body-file x --append y
+expect "issue-update: --body-file with --append refused" 2 "cannot be combined"
+run issue-update 3 --add-labels "docs,nosuch" --add-assignees "hubot,ghost"
+expect "issue-update: mismatches reported and exit non-zero" 1 \
+  "labels added:    docs" "labels requested but not added: nosuch (not a valid label on this repo)" \
+  "assignees added: hubot" "assignees requested but not added: ghost"
+run issue-update 3 --add-assignees @default-assignee
+expect "issue-update: @default-assignee falls back to the gh user" 0 "assignees added: octocat"
+mkdir -p "$CASE_DIR/repo/.issues"
+printf -- '---\nschema-version: 1\ndefault-assignee: hubot\n---\n' >"$CASE_DIR/repo/.issues/user-config.md"
+run issue-update 4 --add-assignees @default-assignee
+expect "issue-update: @default-assignee from the repo-level user-config" 0 "assignees added: hubot"
+printf -- '---\ndefault-assignee: hubot\n---\n' >"$CASE_DIR/repo/.issues/user-config.md"
+run issue-update 4 --add-assignees @default-assignee
+expect "issue-update: unversioned user-config aborts" 1 "predates user-config schema versioning"
+
+# ---------------------------------------------------------------------------
+# Create.
+# ---------------------------------------------------------------------------
+
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create --title "Make it" --body-file new.md --type bug --priority low --status Done --labels docs --parent 1
+expect "issue-create: fully configured" 0 \
+  "Created issue #160 \"Make it\"" "  type:       Bug" "  priority:   Low" "  size:       M" \
+  "  status:     Done" "  assignee:   octocat" "  parent:     #1" "https://github.com/acme/widgets/issues/160"
+check "$(state '.repos["acme/widgets"].issues["160"] | [.issueType, .issueFields.IFSS_priority.name, (.labels|sort|join(",")), .projectItems[0].fields.PVTSSF_status.name, .parent] | join(" ")')" \
+  "IT_bug Low docs,size:M Done I_acme_widgets_1" "issue-create: every write landed"
+run issue-create --title "Bad" --body-file new.md --priority Extreme
+expect "issue-create: invalid value refused before creating" 1 "value \`Extreme\` is not in \`priority\`'s options"
+check "$(state '.repos["acme/widgets"].issues | has("161")')" false "issue-create: nothing created on a bad value"
+
+new_case "$CONFIG_NUMBER"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create --title "Plain" --body-file new.md
+expect "issue-create: skip and absent slots" 0 \
+  "  type:       Bug" "  priority:   3" "  size:       skipped: slot kind: skip" "  status:     skipped: slot absent from fields:" \
+  "warning: slot 'size' is kind: skip in repo-config.md; skipping --size." \
+  "warning: slot 'status' is missing from fields: in repo-config.md; skipping --status."
+
+new_case "$CONFIG_NO_BLOCK"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create --title "Plain" --body-file new.md --repo acme/widgets
+expect "issue-create --repo: target config used" 0 "  type:       Feature" "  priority:   Medium" "  status:     Backlog"
+run issue-create --title "Elsewhere" --body-file new.md --repo acme/other --labels bug
+expect "issue-create --repo: target without repo-config" 0 \
+  "Created issue acme/other#4 \"Elsewhere\"" "  type:       skipped: target repo has no repo-config" \
+  "note: project fields skipped: \`acme/other\` has no \`.issues/repo-config.md\`." "https://github.com/acme/other/issues/4"
+check "$(state '.repos["acme/other"].issues["4"].labels | join(",")')" bug "issue-create --repo: labels applied"
+run issue-create --title "Stale" --body-file new.md --repo acme/stale
+expect "issue-create --repo: stale target schema aborts" 1 \
+  "target repo \`acme/stale\`: This repo's \`.issues/repo-config.md\` is at schema-version \`5\`"
+check "$(state '.repos["acme/stale"].issues | length')" 0 "issue-create --repo: nothing created in a stale target"
+
+# ---------------------------------------------------------------------------
+# Every write is re-read: with writes dropped, each write verb fails.
+# ---------------------------------------------------------------------------
+
+export FAKE_GH_DROP_WRITES=1
+new_case "$CONFIG_MAIN"
+printf 'Hi.\n' >"$CASE_DIR/repo/body.md"
+for call in "issue-set-status 2 Done" "issue-set-priority 3 Low" "issue-set-size 3 L" "issue-set-type 3 Feature" \
+            "issue-set-parent 5 4" "issue-set-child 4 5" "issue-unset-parent 2" "issue-unset-child 1 2" \
+            "issue-set-blocked-by 5 4" "issue-set-blocks 4 5" "issue-unset-blocked-by 2 acme/other#3" \
+            "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-comment 3 --body-file body.md" \
+            "issue-update 3 --title Renamed" "issue-create --title T --body-file body.md"; do
+  # shellcheck disable=SC2086
+  run $call
+  case "$call" in
+    issue-update*) expect "${call%% *}: a dropped write exits non-zero" 1 "did not land" ;;
+    issue-create*) expect "${call%% *}: a dropped write exits non-zero" 1 "the run stopped before finishing" ;;
+    *) expect "${call%% *}: a dropped write exits non-zero" 1 "the write did not land" ;;
+  esac
+done
+unset FAKE_GH_DROP_WRITES
+
+echo
+if [ "$FAILURES" -eq 0 ]; then
+  echo "all cases passed"
+  rm -rf "$SANDBOX"
+  exit 0
+fi
+echo "$FAILURES failure(s); sandbox left at $SANDBOX"
+exit 1

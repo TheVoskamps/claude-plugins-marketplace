@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# GraphQL variables and jq programs are single-quoted on purpose.
+# shellcheck disable=SC2016
+# Walk an issue tree downward through sub-issues, listing each node's
+# blocked-by and blocking edges inline, depth-capped at 5. The contract is
+# plugins/issues/skills/issue-view-tree/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+readonly MAX_DEPTH=5
+readonly SEL='number title url repository { nameWithOwner }
+subIssues(first: 50) { nodes { number repository { nameWithOwner } } }
+blockedBy(first: 50) { nodes { number title repository { nameWithOwner } } }
+blocking(first: 50) { nodes { number title repository { nameWithOwner } } }'
+
+# print_relation <indent> <label> <field>: one relationship section of the
+# node in ISS_ISSUE.
+print_relation() {
+  local indent=$1 label=$2 field=$3 rows
+  rows=$(iss_jq --arg f "$field" '.[$f].nodes[] | [.repository.nameWithOwner, (.number | tostring), .title] | join("\t")')
+  if [ -z "$rows" ]; then
+    printf '%s%s: (none)\n' "$indent" "$label"
+    return
+  fi
+  printf '%s%s:\n' "$indent" "$label"
+  printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r nwo number title; do
+    printf '%s  - %s %s\n' "$indent" "$(iss_ref_nwo "$nwo" "$number")" "$title"
+  done
+}
+
+# walk <owner> <repo> <number> <depth>
+walk() {
+  local owner=$1 repo=$2 number=$3 depth=$4 indent children child
+  indent=$(printf '%*s' $((depth * 2)) '')
+  if [ "$depth" -eq 0 ]; then
+    iss_lookup "$owner" "$repo" "$number" "$SEL"
+  elif ! iss_try_lookup "$owner" "$repo" "$number" "$SEL"; then
+    printf '%s%s (not found)\n' "$indent" "$(iss_ref "$owner" "$repo" "$number")"
+    return
+  fi
+  printf '%s%s %s  %s\n' "$indent" "$(iss_ref "$owner" "$repo" "$number")" "$(iss_jq .title)" "$(iss_jq .url)"
+  print_relation "$indent  " "Blocked by" blockedBy
+  print_relation "$indent  " "Blocking" blocking
+  children=$(iss_jq '.subIssues.nodes[] | .repository.nameWithOwner + "#" + (.number | tostring)')
+  [ -n "$children" ] || return
+  if [ "$depth" -ge "$MAX_DEPTH" ]; then
+    printf '%s  ... (depth cap)\n' "$indent"
+    return
+  fi
+  for child in $children; do
+    walk "${child%%/*}" "$(printf '%s' "${child#*/}" | cut -d'#' -f1)" "${child##*#}" $((depth + 1))
+  done
+}
+
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-view-tree <issue-number>"
+iss_init
+iss_parse_operand "$1" local-only
+walk "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" 0

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Set the priority slot on one issue. The contract is
+# plugins/issues/skills/issue-set-priority/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+iss_set_slot_verb priority "$@"

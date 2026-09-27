@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# GraphQL variables and jq programs are single-quoted on purpose.
+# shellcheck disable=SC2016
+# Print one issue's body, labels, assignees, type, configured field slots and
+# every relationship in one block. The contract is
+# plugins/issues/skills/issue-view/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+readonly SEL="number title url state body
+labels(first: 100) { nodes { name } }
+assignees(first: 50) { nodes { login } }
+issueType { name }
+parent { number title repository { nameWithOwner } }
+subIssues(first: 50) { nodes { number title repository { nameWithOwner } } }
+blockedBy(first: 50) { nodes { number title repository { nameWithOwner } } }
+blocking(first: 50) { nodes { number title repository { nameWithOwner } } }
+$ISS_SEL_PROJECT_ITEMS
+$ISS_SEL_ISSUE_FIELDS"
+
+# row <label> <value>: one inline field, the value column at 12.
+row() {
+  local value=${2:-(none)}
+  if [ "${#1}" -ge 11 ]; then
+    printf '%s: %s\n' "$1" "$value"
+  else
+    printf '%-12s%s\n' "$1:" "$value"
+  fi
+}
+
+# list_section <heading> <field>
+list_section() {
+  local rows
+  printf '%s:\n' "$1"
+  rows=$(iss_jq --arg f "$2" '.[$f].nodes[] | [.repository.nameWithOwner, (.number | tostring), .title] | join("\t")')
+  if [ -z "$rows" ]; then
+    printf '  (none)\n'
+    return
+  fi
+  printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r nwo number title; do
+    printf '  - %s %s\n' "$(iss_ref_nwo "$nwo" "$number")" "$title"
+  done
+}
+
+# slot_row <slot>: the slot's row, or nothing for kind: skip.
+slot_row() {
+  local slot=$1 kind label value present count
+  kind=$(iss_slot_kind "$slot")
+  label="$(printf '%s' "${slot%"${slot#?}"}" | tr '[:lower:]' '[:upper:]')${slot#?}"
+  case "$kind" in
+    skip) return ;;
+    number|single-select)
+      if [ -z "$(iss_project_item)" ]; then
+        value="(not on project board)"
+      else
+        value=$(iss_slot_read "$slot" "$kind")
+      fi
+      ;;
+    issue-field)
+      value=$(iss_slot_read "$slot" "$kind")
+      ;;
+    label)
+      present=$(iss_slot_labels_present "$slot" "$(iss_cfg_get fields "$slot" namespace)")
+      count=$(printf '%s' "$present" | awk 'NF' | wc -l | tr -d ' ')
+      if [ "$count" -gt 1 ]; then value="(multiple)"; else value=$present; fi
+      ;;
+    *) value="(unknown kind: $kind)" ;;
+  esac
+  row "$label" "$value"
+}
+
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-view <issue-number>"
+iss_init
+iss_parse_operand "$1" local-only
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+
+printf '%s %s    (%s)\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$(iss_jq .title)" "$(iss_jq .state)"
+iss_jq .url
+printf '\n'
+row Labels "$(iss_jq '[.labels.nodes[].name] | join(", ")')"
+row Assignees "$(iss_jq '[.assignees.nodes[].login] | join(", ")')"
+row Type "$(iss_jq '.issueType.name // empty')"
+
+if [ "$ISS_HAS_GP" = 1 ]; then
+  slots=$(iss_cfg_children fields)
+  has_priority=no
+  printf '%s\n' "$slots" | grep -qx priority && has_priority=yes
+  # Slots print in file order, except that size follows priority when both
+  # are configured.
+  while IFS= read -r slot; do
+    [ -n "$slot" ] || continue
+    if [ "$slot" = size ] && [ "$has_priority" = yes ]; then continue; fi
+    slot_row "$slot"
+    if [ "$slot" = priority ] && printf '%s\n' "$slots" | grep -qx size; then slot_row size; fi
+  done <<EOF
+$slots
+EOF
+fi
+
+printf '\n'
+if [ "$(iss_jq '.parent != null')" = true ]; then
+  row Parent "$(iss_ref_nwo "$(iss_jq .parent.repository.nameWithOwner)" "$(iss_jq .parent.number)") $(iss_jq .parent.title)"
+else
+  row Parent ""
+fi
+printf '\n'
+list_section Sub-issues subIssues
+printf '\n'
+list_section "Blocked by" blockedBy
+printf '\n'
+list_section Blocking blocking
+printf '\nBody:\n'
+iss_jq '.body // ""'

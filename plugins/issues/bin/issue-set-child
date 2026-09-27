@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Make one issue a sub-issue of another, named from the parent's end. The
+# contract is plugins/issues/skills/issue-set-child/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-child <parent-N> <child-N>"
+iss_init
+iss_add_sub_issue "$1" "$2"

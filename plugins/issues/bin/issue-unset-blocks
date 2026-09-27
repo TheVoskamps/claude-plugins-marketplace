@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Clear a blocked-by edge, named from the blocker's end. The contract is
+# plugins/issues/skills/issue-unset-blocks/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 2 ] || iss_usage_die "usage: issue-unset-blocks <N> <blocked-N>"
+iss_init
+iss_blocked_by_edge remove "$2" "$1" blocker
+if [ "$EDGE_RESULT" = noop ]; then
+  printf 'Issue %s does not block %s; no change.\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED"
+else
+  printf 'Removed blocking relationship: issue %s no longer blocks %s.\n%s\n' \
+    "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$EDGE_URL"
+fi

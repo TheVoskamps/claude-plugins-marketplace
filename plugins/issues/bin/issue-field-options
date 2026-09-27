@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Report what repo-config says a field slot accepts, or every slot's when none
+# is named. Reads only the config; makes no gh call. The contract is
+# plugins/issues/skills/issue-field-options/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+# report <slot-as-named> [<configured-key>]
+report() {
+  local name=$1 key=${2:-} kind bound
+  if [ -z "$key" ]; then
+    printf '%s: unconfigured\n' "$name"
+    return
+  fi
+  kind=$(iss_slot_kind "$key")
+  case "$kind" in
+    skip)
+      printf '%s: unconfigured\n' "$key"
+      ;;
+    number)
+      printf '%s: number\n' "$key"
+      for bound in min max; do
+        if iss_cfg_get fields "$key" "$bound" >/dev/null 2>&1; then
+          printf '  %s: %s\n' "$bound" "$(iss_cfg_get fields "$key" "$bound")"
+        fi
+      done
+      ;;
+    *)
+      printf '%s: %s\n' "$key" "$kind"
+      iss_cfg_children fields "$key" options | sed 's/^/  /'
+      ;;
+  esac
+}
+
+[ "$#" -le 1 ] || iss_usage_die "usage: issue-field-options [<slot>]"
+iss_load_config
+
+if [ "$#" -eq 1 ]; then
+  key=
+  [ "$ISS_HAS_GP" = 1 ] && key=$(iss_resolve_name all "$1" fields)
+  report "$1" "$key"
+  exit 0
+fi
+
+if [ "$ISS_HAS_GP" != 1 ] || [ -z "$(iss_cfg_children fields)" ]; then
+  printf 'No fields configured.\n'
+  exit 0
+fi
+first=1
+while IFS= read -r key; do
+  [ -n "$key" ] || continue
+  [ "$first" = 1 ] || printf '\n'
+  first=0
+  report "$key" "$key"
+done <<EOF
+$(iss_cfg_children fields)
+EOF
