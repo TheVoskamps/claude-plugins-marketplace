@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+#
+# ch-capture -- launch Claude Code through the ch-proxy.py logging proxy,
+# so every request the session sends and every response it receives is
+# written to disk verbatim.
+#
+# `cr()`-shaped, as plugins/claude-vm/bin/claude-vm is: move to the repo
+# root, derive the repo name from `origin`, and name the session from the
+# leading args or a date stamp. Unlike claude-vm, a directory with no repo
+# or no `origin` is fine: the repo name is then `(local)`.
+#
+# Usage:
+#   ch-capture [name suffix words...] [-- claude args...]
+#
+# Words before `--` are the session-name suffix; everything after `--`
+# reaches `claude` verbatim, except that a `--name` among them gets
+# ` [harness-proxy]` appended to its value. A trailing `--name` with no
+# value is dropped, and when no `--name` among them carries a value, one
+# carrying the computed session name is appended.
+#
+# Portable to the bash 3.2 macOS ships: no associative arrays, no
+# `${var,,}`, and empty arrays expanded through `${a[@]+"${a[@]}"}`.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROXY="$SCRIPT_DIR/ch-proxy.py"
+NAME_TAG="[harness-proxy]"
+PROXY_START_TIMEOUT_TENTHS=100
+
+if ! command -v claude >/dev/null 2>&1; then
+  echo "ch-capture: 'claude' not found on PATH." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------
+# 1. Repo root and repo name. The repo name is the `origin` URL's last
+#    path segment minus `.git`, or `(local)` without a repo or origin.
+# ---------------------------------------------------------------------
+REPO_NAME="(local)"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  cd "$(git rev-parse --show-toplevel)"
+  ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+  if [ -n "$ORIGIN_URL" ]; then
+    REPO_NAME="${ORIGIN_URL##*/}"
+    REPO_NAME="${REPO_NAME%.git}"
+  fi
+fi
+
+# ---------------------------------------------------------------------
+# 2. Split the arguments at the first `--`: before it the name suffix,
+#    after it the claude argv.
+# ---------------------------------------------------------------------
+SUFFIX_WORDS=()
+CLAUDE_ARGS=()
+SEEN_SEPARATOR=0
+for arg in "$@"; do
+  if [ "$SEEN_SEPARATOR" -eq 1 ]; then
+    CLAUDE_ARGS=(${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} "$arg")
+  elif [ "$arg" = "--" ]; then
+    SEEN_SEPARATOR=1
+  else
+    SUFFIX_WORDS=(${SUFFIX_WORDS[@]+"${SUFFIX_WORDS[@]}"} "$arg")
+  fi
+done
+
+if [ "${#SUFFIX_WORDS[@]}" -gt 0 ]; then
+  SUFFIX="${SUFFIX_WORDS[*]}"
+else
+  SUFFIX="$(date '+%b%d-%H:%M')"
+fi
+SESSION_NAME="$SUFFIX $REPO_NAME $NAME_TAG"
+
+# ---------------------------------------------------------------------
+# 3. A caller-supplied `--name <v>` or `--name=<v>` wins over the
+#    computed name: its value is tagged in place and nothing is added.
+# ---------------------------------------------------------------------
+HAS_NAME=0
+NEXT_IS_NAME_VALUE=0
+TAGGED_ARGS=()
+for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
+  if [ "$NEXT_IS_NAME_VALUE" -eq 1 ]; then
+    arg="$arg $NAME_TAG"
+    SESSION_NAME="$arg"
+    HAS_NAME=1
+    NEXT_IS_NAME_VALUE=0
+  else
+    case "$arg" in
+      --name=*)
+        SESSION_NAME="${arg#--name=} $NAME_TAG"
+        arg="--name=$SESSION_NAME"
+        HAS_NAME=1
+        ;;
+      --name)
+        NEXT_IS_NAME_VALUE=1
+        ;;
+    esac
+  fi
+  TAGGED_ARGS=(${TAGGED_ARGS[@]+"${TAGGED_ARGS[@]}"} "$arg")
+done
+# A trailing `--name` with no value supplies no name, so it is dropped.
+# An earlier `--name` that did carry a value still counts; only without
+# one does the computed name take its place.
+if [ "$NEXT_IS_NAME_VALUE" -eq 1 ]; then
+  unset 'TAGGED_ARGS[${#TAGGED_ARGS[@]}-1]'
+fi
+CLAUDE_ARGS=(${TAGGED_ARGS[@]+"${TAGGED_ARGS[@]}"})
+if [ "$HAS_NAME" -eq 0 ]; then
+  CLAUDE_ARGS=(${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} --name "$SESSION_NAME")
+fi
+
+# ---------------------------------------------------------------------
+# 4. Upstream and session directory. The directory name is fixed here,
+#    before claude starts, from a millisecond UTC stamp and the slugified
+#    session name.
+# ---------------------------------------------------------------------
+UPSTREAM="${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
+CAPTURE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/claude-harness-tools/captures"
+STAMP="$(python3 -c 'import datetime; n = datetime.datetime.now(datetime.timezone.utc); print(n.strftime("%Y%m%dT%H%M%S.") + "%03dZ" % (n.microsecond // 1000))')"
+SLUG="$(printf '%s' "$SESSION_NAME" | tr '[:upper:]' '[:lower:]' \
+  | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//')"
+SESSION_DIR="$CAPTURE_ROOT/$STAMP-$SLUG"
+mkdir -p "$CAPTURE_ROOT"
+mkdir "$SESSION_DIR"
+
+# ---------------------------------------------------------------------
+# 5. Start the proxy and read its bound port, then run claude against it.
+# ---------------------------------------------------------------------
+PROXY_PID=""
+PORT_FILE="$(mktemp "${TMPDIR:-/tmp}/ch-capture.XXXXXX")"
+
+# The one and only trap: a second `trap` on any of these signals would
+# replace this handler rather than add to it, so every teardown step lives
+# in this one string. It runs once, disarming itself first, and exits with
+# the status in force when it fired.
+TEARDOWN='CH_CAPTURE_RC=$?
+trap - EXIT INT TERM
+if [ -n "$PROXY_PID" ]; then
+  kill "$PROXY_PID" 2>/dev/null || true
+  wait "$PROXY_PID" 2>/dev/null || true
+fi
+rm -f "$PORT_FILE"
+exit "$CH_CAPTURE_RC"'
+trap "$TEARDOWN" EXIT INT TERM
+
+"$PROXY" --upstream "$UPSTREAM" --capture-dir "$SESSION_DIR" \
+  --name "$SESSION_NAME" --cwd "$PWD" --repo "$REPO_NAME" \
+  -- claude ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} \
+  >"$PORT_FILE" 2>>"$SESSION_DIR/proxy.log" &
+PROXY_PID=$!
+
+PORT=""
+WAITED=0
+while [ -z "$PORT" ]; do
+  if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+    echo "ch-capture: the proxy exited before binding a port; see $SESSION_DIR/proxy.log" >&2
+    exit 1
+  fi
+  if [ "$WAITED" -ge "$PROXY_START_TIMEOUT_TENTHS" ]; then
+    echo "ch-capture: the proxy did not report a port; see $SESSION_DIR/proxy.log" >&2
+    exit 1
+  fi
+  sleep 0.1
+  WAITED=$((WAITED + 1))
+  PORT="$(head -n 1 "$PORT_FILE")"
+done
+
+echo "ch-capture: launching '$SESSION_NAME' via 127.0.0.1:$PORT -> $UPSTREAM" >&2
+echo "ch-capture: capturing to $SESSION_DIR" >&2
+
+# The prefix assignment sets ANTHROPIC_BASE_URL in the claude child's
+# environment only; this script's own environment, and the caller's, keep
+# whatever value they had.
+set +e
+ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" claude ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}
+CLAUDE_RC=$?
+set -e
+exit "$CLAUDE_RC"

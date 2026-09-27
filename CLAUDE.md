@@ -75,7 +75,7 @@ convention and its rationale; drop the enforcement story.
 
 ## MD041 on a SKILL.md is convention, not debt
 
-`npx markdownlint-cli2` reports `MD041/first-line-heading/first-line-h1`
+`npx --no-install markdownlint-cli2` reports `MD041/first-line-heading/first-line-h1`
 on a `plugins/*/skills/**/SKILL.md` whose body opens with an instruction
 rather than an H1. Both openings are in use, within a plugin as well as
 between, so run the linter rather than predicting a hit from the

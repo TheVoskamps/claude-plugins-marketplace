@@ -25,6 +25,20 @@ Run `bash -c '. <lib>; <func> <args>'` or `bash <script>` instead.
 Better still, run the committed test file, which is already a `bash`
 invocation — hand-rolling a source-and-call reproduces the trap.
 
+## Run markdownlint as `npx --no-install markdownlint-cli2`
+
+The repo has no `package.json` and no `node_modules/`, so there is no
+lockfile install to run, and a bare `npx markdownlint-cli2` that misses
+the npx cache fetches the package into the home directory — an
+on-own-initiative host install. Checking the cache first is not an
+option either: a read of `~/.npm/_npx` is refused as outside the
+repository.
+
+`npx --no-install markdownlint-cli2 <file>...` from the worktree root
+is its own probe. It either lints the named files against
+`.markdownlint.jsonc` or reports the package absent, and the absent
+case is a stop-and-report, not an install.
+
 ## `awk` rejects the `--` end-of-options separator
 
 `awk 'prog' -- "$file"` fails with `awk: can't open file --`. The BSD
