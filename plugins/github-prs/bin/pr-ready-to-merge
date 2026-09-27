@@ -44,9 +44,9 @@ attempt=1
 waits="10 30"
 while :; do
   report=$(read_pr) || exit $?
-  # shellcheck disable=SC2046 # the header is four space-separated enum words
-  set -- $(printf '%s\n' "$report" | head -n 1)
-  pr_state=$1 mergeable=$2 merge_state=$3 review=$4
+  read -r pr_state mergeable merge_state review <<EOF
+$report
+EOF
 
   if [ "$pr_state" != OPEN ]; then
     gp_fail 1 "PR #$pr is $pr_state, not open. Merge readiness is only computed for an open PR."

@@ -111,14 +111,13 @@ rather than re-finding the contradiction. This is not an escalation.
 
 ## The PR description is a doc surface
 
-A PR body goes stale like a README, nothing tests it, and a hand-listed
-count or an unjustified "the list is closed because …" survives there
-longest. Read it with `/github-prs:pr-view <N> --json body --jq .body`,
-edit a scratch copy, pass it back with `/github-prs:pr-update <N>
---body-file <path>`. Three bounds, and only
-three: the closing keyword survives byte for byte, nothing else on the
-PR is in scope, and no edit lands during a `/sdlc:orchestrate` loop —
-there the body is frozen, and `pr-finalizer` amends it at the end.
+A PR body goes stale like a README, nothing tests it, and a hand-listed count
+or an unjustified "the list is closed because …" survives there longest. Read
+it with `/github-prs:pr-view <N> --json body --jq .body`, edit a scratch copy,
+pass it back with `/github-prs:pr-update <N> --body-file <path>`. Three bounds,
+and only three: the closing keyword survives byte for byte, nothing else on the
+PR is in scope, and no edit lands during a `/sdlc:orchestrate` loop — there the
+body is frozen, and `pr-finalizer` amends it at the end.
 
 ## The rebase automation can move a PR branch mid-session
 

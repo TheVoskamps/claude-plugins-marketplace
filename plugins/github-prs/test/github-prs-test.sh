@@ -311,8 +311,7 @@ check "$ERR" "pr-draft: PR #7: the draft flip did not land: the re-read still re
   "pr-draft: the not-landed message"
 
 # --- pr-update -----------------------------------------------------------
-# shellcheck disable=SC2016 # the backtick and $ are the bytes under test
-printf 'New body with `ticks` and $dollar\n' >"$SANDBOX/new-body.md"
+printf '%s\n' "New body with \`ticks\` and \$dollar" >"$SANDBOX/new-body.md"
 new_case update
 echo "old" >"$CASE/body"
 run pr-update 7 --body-file "$SANDBOX/new-body.md"
@@ -424,13 +423,11 @@ check "$OUT" "PR #7: verdict approve, review state approved, body inline" \
 
 new_case review-self
 echo me >"$CASE/author"
-# shellcheck disable=SC2016 # the backtick and $ are the bytes under test
-printf 'Finding with `ticks` and $HOME\n' >"$SANDBOX/review.md"
+printf '%s\n' "Finding with \`ticks\` and \$HOME" >"$SANDBOX/review.md"
 run pr-review-submit 7 --verdict request_changes --body-file "$SANDBOX/review.md"
 check "$RC" "0" "pr-review-submit: a self-review exits 0"
 check "$(call_line 4)" "pr review 7 --comment --body-file -" "pr-review-submit: a self-review posts with --comment"
-# shellcheck disable=SC2016 # the backtick and $ are the bytes under test
-check "$(cat "$CASE/stdin")" "$(printf 'CHANGES_REQUESTED\n\nFinding with `ticks` and $HOME')" \
+check "$(cat "$CASE/stdin")" "$(printf 'CHANGES_REQUESTED\n\n%s' "Finding with \`ticks\` and \$HOME")" \
   "pr-review-submit: a downgraded review keeps its verdict line, and the file's bytes reach gh"
 check "$(cat "$SANDBOX/review.md")" "Finding with \`ticks\` and \$HOME" "pr-review-submit: the caller's file is untouched"
 check "$OUT" "PR #7: verdict request_changes, review state commented, body file" \
