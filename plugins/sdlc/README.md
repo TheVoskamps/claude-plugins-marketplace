@@ -283,15 +283,23 @@ meets a stale section before the current one.
 An issue's acceptance section is the ceiling of the fix loop, not
 its floor. A review finding whose fix lies outside it, or a diff that
 already reaches past it, is the human's to admit or refuse, and the
-orchestrator never admits one on its own. That boundary is enforced by
-slots that must be filled rather than by prose asking for judgment, and
-each slot has one owner:
+orchestrator never admits one on its own. The converse holds below the
+ceiling: a finding the acceptance section covers is the orchestrator's
+to brief, and nothing the reviewer attaches to it — an offered
+rejection, a request to confirm intent — turns it into a question for
+the human, because the verification stage already closed that question
+and the scope ruling answers the rest. Rejecting a verified finding is
+the human's unprompted move, never one the review invites. That
+boundary is enforced by slots that must be filled rather than by prose
+asking for judgment, and each slot has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The `Scope:` block that ends the developer's report | `agents/issue-developer.md` |
 | The gate that reads that block before the first review round | `skills/orchestrate/SKILL.md` |
 | The ruling every finding line of a fixer brief ends in — a scope ruling, or the human's answer on a finding the orchestrator put to them — and what it is derived from | `skills/orchestrate/SKILL.md` |
+| The cases in which a finding is put to the human at all, and that an in-scope finding is never one of them | `skills/orchestrate/SKILL.md` |
+| That a finding carries one recommendation, the fix, and no rejection alternative or intent question of its own | `agents/theorem-based-pr-reviewer.md` |
 | What a fixer does with a ruled finding line, and with one that has no ruling | `agents/issue-fixer.md` |
 | The rule that a finding class recurring on consecutive rounds is a design question | `skills/orchestrate/SKILL.md` |
 | The grading of an issue body's structural instruction against the repo | `skills/orchestrate/SKILL.md` |
