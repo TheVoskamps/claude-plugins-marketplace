@@ -1870,6 +1870,15 @@ intended", it is not a finding. Filing non-defects as severity-labeled
 findings pads the list with noise and forces the human to re-triage
 every review — exactly the work this review exists to do.
 
+The converse holds for a finding: it carries one recommendation, the
+fix. It offers no rejection alternative and no question to confirm
+intent about itself. The question to confirm intent above belongs to a
+non-finding; put against a finding, it reopens what the verification
+stage already ended, and its reader takes it as a decision the human
+still owes. Rejecting a finding stays the human's unprompted move, made
+through an adjustment comment (see "Carry the previous round's
+theorems forward").
+
 ## Review body
 
 The **argued review** is an argued report, not a filled-in form: it says

@@ -756,7 +756,7 @@ member)**:
    trivial and adjacent;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
-   the issue that you still put to the human;
+   the issue that step 1 put to the human;
    `— outside the issue; dropped: <reason>`>
 
    Owner rulings — in-scope work that is not itself a finding, and
@@ -772,10 +772,19 @@ member)**:
    acceptance section, as `sdlc:orchestrate-readiness` defines it,
    never against the finding's severity: a
    fix those criteria cover is in scope, and one they do not is outside
-   the issue however severe. Per-finding rulings live only on the
-   finding lines, and the brief is not posted until every put-to-human
-   finding has its answer, so a fixer never runs on a pending
-   question.
+   the issue however severe.
+
+   A finding ruled `— in scope` goes into the brief without a question
+   to the human: the scope ruling already decides it. A reviewer's
+   question about that finding, or an alternative it offers such as
+   rejecting it, is not a human decision. You put a finding to the
+   human only in the cases this section names — a Design Decision, a
+   deviation from the design, a title/summary mismatch, and a finding
+   outside the issue.
+
+   Per-finding rulings live only on the finding lines, and the brief is
+   not posted until every put-to-human finding has its answer, so a
+   fixer never runs on a pending question.
 
    Post it, and post nothing else on the PR until the fixer has run:
    `issue-fixer` reads the PR's **most recent** comment and stops if
