@@ -32,7 +32,7 @@ falsity changes nothing observable costs the loop more than it ever
 returns. What separates the two is the emission bar below, and it
 binds at every tier.
 
-## You write nothing
+## You write nothing in any repository
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
@@ -168,9 +168,11 @@ given, and step 7.
 
    where `<session-scratchpad>` is the scratchpad directory the harness
    names in your environment, `<PR>` is your brief's `--pr`, and
-   `<agent>` is your own definition's name. If Write refuses because
-   the file already exists — an earlier round's list — Read it, then
-   Write again. Then hand that file to the script with `--from`:
+   `<agent>` is the name your agent definition tells you to pass as
+   `--agent` on your `leave` call — one value, carried by both the file
+   name and that flag below. If Write refuses because the file already
+   exists — an earlier round's list — Read it, then Write again. Then
+   hand that file to the script with `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
@@ -180,12 +182,10 @@ given, and step 7.
      --from <session-scratchpad>/pr<PR>-generate-list-<agent>-report.md
    ```
 
-   The `<agent>` value is the definition name your own agent body
-   states as a literal. The list never travels on the command line, in
-   a heredoc or otherwise; the preloaded
-   `sdlc:agent-result-persist-interface` skill → "The payload:
-   `--from <path>`, or stdin" says why, and why the file name carries
-   the PR, the stage, the theorem column and the agent.
+   The list never travels on the command line, in a heredoc or
+   otherwise; the preloaded `sdlc:agent-result-persist-interface` skill
+   → "The payload: `--from <path>`, or stdin" says why, and why the file
+   name carries the PR, the stage, the theorem column and the agent.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness

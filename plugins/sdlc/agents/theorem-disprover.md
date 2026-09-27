@@ -51,7 +51,7 @@ your report rather than guessing at one.
 If the brief carries two claims, or none, stop and say so rather than
 inventing the missing one.
 
-## You write nothing
+## You write nothing in any repository
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first

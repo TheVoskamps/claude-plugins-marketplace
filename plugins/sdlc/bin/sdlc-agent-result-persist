@@ -270,7 +270,10 @@ store_payload() {
   noun=$2
   staged="$target.partial-$$"
   if [ -n "$from" ]; then
-    cat -- "$from" > "$staged"
+    if ! cat -- "$from" > "$staged"; then
+      rm -f -- "$staged"
+      die "--mode $mode takes the $noun from --from, and $from could not be read"
+    fi
     if [ ! -s "$staged" ]; then
       rm -f -- "$staged"
       die "--mode $mode takes the $noun from --from, and $from is empty"

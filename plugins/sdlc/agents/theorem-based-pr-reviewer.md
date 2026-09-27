@@ -81,8 +81,10 @@ body spelled into a double-quoted `--body "<body>"` is read by the
 shell, backtick and `$` alike, so a file is the route in every case.
 
 The agents you spawn — the `theorem-generator` variants,
-`theorem-disprover`, and `counterexample-verifier` — carry no `Write`
-or `Edit` tool at all.
+`theorem-disprover`, and `counterexample-verifier` — carry no `Edit`
+tool, and carry `Write` for one purpose only: staging their own report
+in the session scratchpad for `sdlc-agent-result-persist` to read. None
+of them names a path in a repository.
 
 The one thing you do publish is the review itself, posted through
 `/github-prs:pr-review-submit`. That is a PR artifact, not a change to
