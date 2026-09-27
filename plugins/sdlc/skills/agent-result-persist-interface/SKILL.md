@@ -31,7 +31,7 @@ generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
 each write their own `enter` and `leave`. **Every log record is a
 single atomic append**, so no two writers can be ordered wrongly and no
 call has to know what the log already holds. The records file and the
-review file are not records: each arrives whole on stdin and replaces
+review file are not records: each arrives whole as a payload and replaces
 whatever the round held before, so a resumed instance that re-derives
 the round stores its own version over its predecessor's rather than
 adding to it.
@@ -49,6 +49,43 @@ Spell the command as a bare name, never by path: the rule that lets a
 child run it unattended — `Bash(sdlc-agent-result-persist:*)` — is
 keyed on that spelling, and it lives in the caller's own settings
 because this plugin ships no permission rules.
+
+## The payload: `--from <path>`, or stdin
+
+`leave`, `records` and `review` each store a **payload** — a report, a
+round's records, a round's review. The payload is read from the file
+`--from <path>` names, or from **stdin** when no `--from` is passed.
+With both present, `--from` wins and stdin is not read. Every other mode
+refuses `--from`, since it has no payload to store.
+
+Pass the payload with `--from`, naming a file you wrote with the Write
+tool. The harness's worktree-isolation guard grades a heredoc on the
+text it carries, and refuses the call when that text names `git`
+anywhere — so a report that quotes a `git log` line or a
+path under `.git/` cannot travel in a heredoc, and quoting it changes
+nothing. The guard does not read a Write tool's content, and it never
+sees the file's bytes on the persist call.
+
+A child stages its `leave` payload in the session scratchpad the
+harness names in its environment, at
+`<session-scratchpad>/pr<pr>-<stage>-<theorem>-<agent>-report.md`,
+filling in the `--pr`, `--stage`, `--theorem` and `--agent` values of
+its own `leave` call, `pr<pr>` spelled as the state directory spells
+it. Every child in a fan-out shares that one scratchpad, so a name
+missing the stage, the theorem or the agent would let two concurrent
+children stage over each other's reports; and theorem ids restart at
+`T1` on every PR, so a name missing the PR would let two PRs' fan-outs
+in one session do the same.
+
+- A `--from` path that is not an existing file is refused, non-zero,
+  with a message naming the path, before anything is written.
+- A `--from` file that exists but cannot be read is refused, non-zero,
+  with a message naming that file.
+- An empty payload is refused either way. With no `--from`, empty stdin
+  gets `--mode <mode> takes the <noun> on stdin, and nothing arrived`;
+  an empty `--from` file gets a message naming that file.
+- The file is read, never moved or removed: it stays where its writer
+  put it.
 
 ## The identifying flags
 
@@ -171,7 +208,7 @@ directories.
   `--stage`. A child's first act, before it does any work. The script
   derives the agent id from the child's own worktree and composes the
   transcript path, so nothing is passed in.
-- **`leave`** — writes the child's report, read from **stdin**, to that
+- **`leave`** — writes the child's report, read as its payload, to that
   child's result file, then appends one `leave` record naming the file.
   A child's final act. `--agent` is half the file's name. The report is
   stored byte for byte: no size limit, no encoding, no quoting. Empty
@@ -180,15 +217,16 @@ directories.
   the two leaves the report readable rather than a record pointing at
   nothing.
 
-  Stdin lands first in `<result-file>.partial-<pid>` and is renamed into
+  The payload lands first in `<result-file>.partial-<pid>` and is renamed into
   place only once it is whole, because a result file's mere existence
   settles its theorem: a report streamed straight to its own name would
   settle the theorem from a fragment the moment the first byte landed,
   and a child killed mid-write would leave that fragment there for
   good. The rename is what makes the file appear complete or not at
   all, and the `-<pid>` suffix is what keeps two writers from staging
-  over each other. A refused empty report leaves nothing behind: the
-  staging file is removed before the call exits non-zero.
+  over each other. A refused report — empty, or a `--from` file that
+  could not be read — leaves nothing behind: the staging file is
+  removed before the call exits non-zero.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a `<task-notification>` it
@@ -209,8 +247,8 @@ directories.
   does not exist, which means neither the round's `anchor` call nor any
   child's `enter` has run — the fresh-round case the reviewer branches
   on before spawning anything.
-- **`records`** — writes the round's theorem records, read from
-  **stdin**, to the round's `records` file. The reviewer's, once per
+- **`records`** — writes the round's theorem records, read as its
+  payload, to the round's `records` file. The reviewer's, once per
   round that reaches disposition, an empty-delta round included; and
   the orchestrator's once, at `--round 0`, for the ruled seed. Empty
   input is refused, and the bytes land in a staging name and are renamed
@@ -218,7 +256,7 @@ directories.
   takes the file's existence as the round's records, and half a file
   would carry half a round's theorems into the next round with nothing
   saying so.
-- **`review`** — writes the round's argued review, read from **stdin**,
+- **`review`** — writes the round's argued review, read as its payload,
   to the round's `review` file, on the same terms as `records`.
 - **`print-records`** — writes to stdout the records of the
   **highest-numbered** round that holds a records file, ignoring the
@@ -255,8 +293,9 @@ directories.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
-  `records` or `review` refuses empty input; `anchor` renames a voided
-  round rather than removing it.
+  `records` or `review` refuses its payload as empty or as a `--from`
+  file that could not be read; `anchor` renames a voided round rather
+  than removing it.
 
 The script stamps every record's time itself: the writer owns when the
 record was made.

@@ -81,8 +81,10 @@ body spelled into a double-quoted `--body "<body>"` is read by the
 shell, backtick and `$` alike, so a file is the route in every case.
 
 The agents you spawn — the `theorem-generator` variants,
-`theorem-disprover`, and `counterexample-verifier` — carry no `Write`
-or `Edit` tool at all.
+`theorem-disprover`, and `counterexample-verifier` — carry no `Edit`
+tool, and carry `Write` for one purpose only: staging their own report
+in the session scratchpad for `sdlc-agent-result-persist` to read. None
+of them names a path in a repository.
 
 The one thing you do publish is the review itself, posted through
 `/github-prs:pr-review-submit`. That is a PR artifact, not a change to
@@ -1580,16 +1582,16 @@ step from here to the posted review is mechanical.
 Store the round's own output under XDG state **before** you post
 anything, so a run that dies between the two leaves the round readable
 rather than announced. Stage each file with `Write` under
-`.claude/tmp/<task-slug>/` and hand it to the script on stdin:
+`.claude/tmp/<task-slug>/` and hand it to the script with `--from`:
 
 ```bash
 sdlc-agent-result-persist --mode records \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
-  < .claude/tmp/<task-slug>/records.md
+  --from .claude/tmp/<task-slug>/records.md
 
 sdlc-agent-result-persist --mode review \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
-  < .claude/tmp/<task-slug>/review.md
+  --from .claude/tmp/<task-slug>/review.md
 ```
 
 The records file carries every recorded theorem, in id order, retired

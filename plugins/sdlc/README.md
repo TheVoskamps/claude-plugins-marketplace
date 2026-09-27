@@ -34,6 +34,7 @@ restate the fact.
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
+| How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
@@ -415,6 +416,16 @@ PR that adds or removes one of these edits this list, the same
 convention "Executables" above sets. Which mode writes each, and the
 record grammar the log holds, are part of that contract and are owned
 by `skills/agent-result-persist-interface/SKILL.md`.
+
+The script never takes a payload — a child's report, a round's records
+or review — on its command line. The writer stages it with the `Write`
+tool in the session scratchpad and names that file with `--from`; the
+staging file is the pipeline's one write outside XDG state, it lies
+outside every repository as well, and it dies with the session. That
+staging is why the theorem children carry `Write` while the review
+pipeline stays non-mutating. Why a file rather than a heredoc, and how
+the staging path is named so that concurrent children never stage over
+each other, are owned by `skills/agent-result-persist-interface/SKILL.md`.
 
 `pr-finalizer` reads that state and writes none of it. The orchestrator
 writes exactly one of these files, round 0's `records` — the seed

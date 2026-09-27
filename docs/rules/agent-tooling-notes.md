@@ -294,10 +294,16 @@ it is handed, so `bash <script>`, `bash -n <script>` and
 guardrails permission gate is not the refuser: it defers on
 `bash <script>`.
 
-Name each script by its own literal path, one invocation per statement
-rather than a loop. A `PATH=…` prefix on that invocation is not
-refused, so that is how to steer which interpreter the script's shebang
-resolves.
+A program the guard does recognize is refused the same way when an
+operand is a runtime value: a `sed -i` on a loop variable is refused as
+"sed with a value computed at runtime", and a single `find "$D" …`
+whose root sits in a shell variable as "runs find with a value computed
+at runtime (the variable D) in a plain command".
+
+Name each script and each operand by its own literal path, one
+invocation per statement rather than a loop or a variable. A `PATH=…`
+prefix on that invocation is not refused, so that is how to steer which
+interpreter the script's shebang resolves.
 
 `awk` is graded the same way. `awk 'prog' <file>` and
 `awk -v x=y 'prog' <file>` pass, while `awk -f <prog-file>` and

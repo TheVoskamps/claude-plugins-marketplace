@@ -1026,13 +1026,15 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
   they confirm in the Final Report.
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
-  you never use `Edit`, `Write` or `NotebookEdit`; never author a
-  review finding, a severity or a review body, or run `gh pr review`
-  in any spelling; never run `git rebase` or `git merge` or
-  hand-edit conflict markers in the primary clone; and never delete,
-  transfer or rewrite a captured memory entry. Doing any of it to save
-  a spawn is not a saving — see "Token Efficiency". The one review
-  file you write is the round-0 records file, and it is
+  you never use `Edit` or `NotebookEdit`, and `Write` for one file
+  only, named below; never author a review finding, a severity or a
+  review body, or run `gh pr review` in any spelling; never run
+  `git rebase` or `git merge` or hand-edit conflict markers in the
+  primary clone; and never delete, transfer or rewrite a captured
+  memory entry. Doing any of it to save a spawn is not a saving — see
+  "Token Efficiency". The one file you write is the round-0 records
+  file, staged with `Write` in the session scratchpad for the persist
+  script to read, and nothing else goes through `Write`. It is
   **transcription**: every claim in it is the generator's or the
   human's, and every state on it is a ruling the human gave.
 - **Never write a closing keyword immediately before an issue
