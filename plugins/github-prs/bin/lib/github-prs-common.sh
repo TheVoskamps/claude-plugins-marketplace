@@ -11,17 +11,21 @@
 #   1  the verb's own negative outcome: a change that did not land on
 #      the re-read, a PR that is not open, a merge state still UNKNOWN
 #   2  a usage error; nothing was sent to GitHub
-#   3  a `gh` call failed; gh's own stderr is passed through above the
-#      catalogue line
+#   3  a `gh` or `git` call failed; the tool's own stderr is passed
+#      through above the catalogue line
 #   4  .issues/repo-config.md is missing or lacks a key the verb reads
 
 GP_PROGRAM=${0##*/}
 
+# gp_fail <status> <message> -- print the catalogue line for <message>,
+# prefixed with the verb's name, and exit with <status>.
 gp_fail() {
   printf '%s: %s\n' "$GP_PROGRAM" "$2" >&2
   exit "$1"
 }
 
+# gp_usage_error <message> -- the exit-2 failure. When the verb defines
+# a `usage` function, its synopsis follows the message on stderr.
 gp_usage_error() {
   printf '%s: %s\n' "$GP_PROGRAM" "$1" >&2
   if command -v usage >/dev/null 2>&1; then
@@ -30,6 +34,8 @@ gp_usage_error() {
   exit 2
 }
 
+# gp_not_landed <pr> <what> <why> -- the exit-1 failure for a mutation
+# whose re-read does not show it: "PR #<pr>: <what> did not land: <why>".
 gp_not_landed() {
   gp_fail 1 "PR #$1: $2 did not land: $3"
 }

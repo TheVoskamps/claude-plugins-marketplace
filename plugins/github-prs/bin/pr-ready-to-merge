@@ -76,6 +76,8 @@ case "$merge_state" in
   *) meaning= ;;
 esac
 
+# check_list <R|N> <label> -- the report's check lines carrying that
+# tag, indented under "<label>:", or "<label>: none" when there are none.
 check_list() {
   local lines
   lines=$(printf '%s\n' "$report" | sed -n "s/^$1 /  /p")

@@ -5,8 +5,10 @@
 # records each call's argv, keeps the PR's state in files so a mutating
 # verb's re-read sees what the mutation left, and applies a call's
 # `--jq` expression with the real `jq`, so the scripts' own filters run.
-# A case that touches `noop` makes every mutation report success while
-# changing nothing, which is how a change that did not land is staged.
+# A case that touches `noop` makes every mutation report success without
+# landing as asked -- a create opens a PR that is not a draft, a comment
+# carries other text, and every other mutation changes nothing -- which
+# is how a change that did not land is staged.
 #
 # Needs jq and git on PATH. Reaches no network.
 #
@@ -108,6 +110,8 @@ case "$1 $2" in
     if landed; then cat "$body_file" >"$S/body"; fi
     ;;
   "pr create")
+    # Positional: pr-create passes `--draft --base <base> --head <head>`
+    # first. A case's `base-override` stands in for the base GitHub kept.
     printf '%s\n' "$(val base-override "$5")" >"$S/base"
     printf '%s\n' "$7" >"$S/head"
     if landed; then echo true >"$S/draft"; else echo false >"$S/draft"; fi
