@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# GraphQL variables and jq programs are single-quoted on purpose.
-# shellcheck disable=SC2016
 # Print one issue's body, labels, assignees, type, configured field slots and
 # every relationship in one block. The contract is
 # plugins/issues/skills/issue-view/SKILL.md.
+#
+# GraphQL variables and jq programs are single-quoted on purpose.
+# shellcheck disable=SC2016
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"

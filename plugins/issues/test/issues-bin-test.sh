@@ -2,9 +2,10 @@
 #
 # issues-bin-test.sh -- drive every script in plugins/issues/bin/, under the
 # bash 3.2 macOS ships, against fake-gh.py: a `gh` on PATH backed by a small
-# in-memory GitHub persisted in a JSON file. Each case starts from the same
-# fixture state and its own sandbox git repo, so no case sees another's writes
-# and no case reaches the real GitHub.
+# in-memory GitHub persisted in a JSON file. Each new_case starts from the same
+# fixture state and its own sandbox git repo, so no case sees another case's
+# writes and no case reaches the real GitHub; the runs inside one case share
+# its state and build on each other.
 #
 # Usage: issues-bin-test.sh    (exit 0 when every case passes)
 
@@ -118,7 +119,8 @@ widgets["2"]["parent"] = "I_acme_widgets_1"
 widgets["2"]["blockedBy"] = ["I_acme_other_3"]
 widgets["4"]["labels"] = ["size:S", "size:L"]
 widgets["5"]["viewerCanSetFields"] = False
-# A chain 6 -> 7 -> 8 -> 9 -> 10 plus 1 -> 6: depth 5 at issue 10's child.
+# A parent-to-child chain 1 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11: walked from 1,
+# issue 10 sits at depth 5, so its child 11 falls past the depth cap.
 for child, parent in (("6", "1"), ("7", "6"), ("8", "7"), ("9", "8"), ("10", "9")):
     widgets[child]["parent"] = "I_acme_widgets_" + parent
 big = {}
@@ -208,12 +210,15 @@ state() {
   jq -r "$1" "$CASE_DIR/state.json"
 }
 
+# check <actual> <expected> <name>: the two strings are equal.
 check() {
   if [ "$1" = "$2" ]; then pass "$3"; else OUT="expected: $2${ISS_NL}actual:   $1"; failed "$3" "state mismatch"; fi
 }
 ISS_NL='
 '
 
+# args_for <verb>: arguments that pass the verb's usage check, so a gate case
+# reaches the repo-config read rather than stopping at usage.
 args_for() {
   case "$1" in
     issue-field-options) echo "status" ;;

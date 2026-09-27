@@ -6,7 +6,9 @@ operations the issue-verb scripts use.
 Every invocation is appended to $FAKE_GH_LOG as one JSON argv array, so a
 test can assert which calls were made, or that none was. With
 $FAKE_GH_DROP_WRITES=1 every write reports success and changes nothing, which
-is how a test drives a script's re-read check.
+is how a test drives a script's re-read check. `issue create` is the one
+exception: the issue itself is still created, without its labels or
+assignees, so a script can reach the writes that follow it.
 """
 import base64
 import json

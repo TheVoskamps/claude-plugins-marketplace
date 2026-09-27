@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
+# File one issue with its type, field slots, parent, assignees and labels set,
+# in this repo or, with --repo, in another. The type, slot and parent values
+# are validated before the issue is created; the type, parent, slot and
+# assignee writes are re-read after it. The contract is
+# plugins/issues/skills/issue-create/SKILL.md.
+#
 # The <slot>_line and <slot>_value variables are written and read through eval,
 # and backticks in single quotes are literal Markdown.
 # shellcheck disable=SC2016,SC2034
-# File one issue with its type, field slots, parent, assignees and labels set,
-# in this repo or, with --repo, in another. Every value is validated before
-# the issue is created, and every write is re-read after it. The contract is
-# plugins/issues/skills/issue-create/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -285,6 +287,8 @@ fi
 printf '\n%s\n' "$created_url"
 
 if [ -n "${missing:-}" ]; then
+  # The summary above already reports the issue, so the exit trap's
+  # partial-run report is silenced.
   created_url=
   iss_die "assignee(s) $missing did not land on issue \`$ref\`"
 fi

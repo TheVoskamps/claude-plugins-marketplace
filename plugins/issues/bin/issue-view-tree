@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# GraphQL variables and jq programs are single-quoted on purpose.
-# shellcheck disable=SC2016
 # Walk an issue tree downward through sub-issues, listing each node's
 # blocked-by and blocking edges inline, depth-capped at 5. The contract is
 # plugins/issues/skills/issue-view-tree/SKILL.md.
+#
+# GraphQL variables and jq programs are single-quoted on purpose.
+# shellcheck disable=SC2016
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -29,7 +30,9 @@ print_relation() {
   done
 }
 
-# walk <owner> <repo> <number> <depth>
+# walk <owner> <repo> <number> <depth>: print one node, then recurse into its
+# sub-issues. Only the root aborts on not-found; a sub-issue that does not
+# resolve prints as "(not found)" and the walk goes on.
 walk() {
   local owner=$1 repo=$2 number=$3 depth=$4 indent children child
   indent=$(printf '%*s' $((depth * 2)) '')

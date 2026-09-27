@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Set the status slot on one issue's project-board entry, adding the issue to
-# the board when it is not on it yet. The contract is
+# Set the status slot on one issue. When the slot is a project-board field and
+# the issue is not on the board yet, the issue is added first. The contract is
 # plugins/issues/skills/issue-set-status/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh

@@ -126,6 +126,7 @@ iss_lc() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
+# A decimal integer, optionally negative.
 iss_is_int() {
   case "$1" in
     ''|*[!0-9-]*|?*-*|-) return 1 ;;
@@ -164,6 +165,9 @@ iss_require_tools() {
 # message when the tracker is Jira — before any gh call.
 # ---------------------------------------------------------------------------
 
+# iss_frontmatter <text>: print the lines between the opening "---" and the
+# next one, skipping blank lines before the opener. Returns non-zero when the
+# text opens with anything else or the block never closes.
 iss_frontmatter() {
   awk '
     !started { if ($0 ~ /^[ \t]*$/) next; if ($0 == "---") { started = 1; next } exit 2 }
@@ -175,6 +179,7 @@ $1
 EOF
 }
 
+# iss_body <text>: print everything after the front matter's closing "---".
 iss_body() {
   awk '
     !started { if ($0 ~ /^[ \t]*$/) next; if ($0 == "---") { started = 1; next } }
@@ -246,6 +251,9 @@ $1
 EOF
 }
 
+# iss_fm_get <front-matter> <key>: print a top-level key's value, unquoted,
+# with a trailing "# comment" stripped from an unquoted value. Returns 1 when
+# the key is absent.
 iss_fm_get() {
   awk -v k="$2" '
     {
@@ -322,6 +330,7 @@ iss_cfg_path() {
   printf '%s' "$p"
 }
 
+# Print the value at a path; returns 1 when the path is absent.
 iss_cfg_get() {
   local p
   p=$(iss_cfg_path "$@")
@@ -349,9 +358,10 @@ iss_slot_kind() {
   iss_cfg_get fields "$1" kind 2>/dev/null || printf 'skip'
 }
 
-# Resolve a name against the keys under a path, case-insensitively. Prints
-# the canonical key; exits non-zero when nothing matches. The key "default"
-# is skipped when $1 is "skip-default".
+# iss_resolve_name <all|skip-default> <name> <path...>: resolve a name
+# against the keys under a path, case-insensitively. Prints the canonical
+# key; returns non-zero when nothing matches. With skip-default, the key
+# "default" never matches.
 iss_resolve_name() {
   local mode=$1 want key
   shift
@@ -591,6 +601,8 @@ iss_project_item() {
   iss_jq --arg p "$(iss_cfg_get project-id)" '[.projectItems.nodes[] | select(.project.id == $p)][0].id // empty'
 }
 
+# Whether the last failed iss_gql call's message reads as a node ID that no
+# longer resolves, the symptom of an ID cached in repo-config going stale.
 iss_is_stale_id_error() {
   case "$(iss_lc "$ISS_GQL_ERR $ISS_GQL_OUT")" in
     *"could not resolve to a node"*|*"not found"*|*"does not exist"*) return 0 ;;
@@ -644,7 +656,8 @@ EOF
 # iss_slot_write <slot> <owner> <repo> <number> <precheck>: write SLOT_VALUE
 # (from iss_slot_resolve) to the slot, then re-read it and abort when the
 # re-read does not show it. Sets SLOT_RESULT to "set" or, when <precheck> is
-# "precheck" and the value was already there, "noop". Sets SLOT_URL.
+# "precheck", the kind is not number, and the value was already there,
+# "noop"; a number slot is always written. Sets SLOT_URL.
 iss_slot_write() {
   local slot=$1 owner=$2 repo=$3 number=$4 precheck=$5
   local kind=$SLOT_KIND sel current item issue_id fid oid ns add remove opt ref

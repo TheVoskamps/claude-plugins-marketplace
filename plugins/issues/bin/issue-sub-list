@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# GraphQL variables and jq programs are single-quoted on purpose.
-# shellcheck disable=SC2016
 # List every direct sub-issue of one parent, paging past GitHub's 50-per-page
 # cap. The contract is plugins/issues/skills/issue-sub-list/SKILL.md.
+#
+# GraphQL variables and jq programs are single-quoted on purpose.
+# shellcheck disable=SC2016
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
