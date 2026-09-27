@@ -304,9 +304,24 @@ The state the brief names sets the remedy:
   any fix is.
 
 A rebase that stops on a conflict, on any state, is resolved by the
-first of these that settles each conflicting file — resolve it so,
-`git add` it, and `git rebase --continue`, then push with
-`--force-with-lease`:
+first of the conditions below that settles each conflicting file —
+resolve it so and
+`git add` it. Once every file the stop reports is added, commit the
+resolution yourself, then let the rebase walk on; repeat at each stop,
+then push with `--force-with-lease`:
+
+```bash
+git add <resolved-paths>
+git commit --no-edit    # lands the stopped commit under its original message
+git rebase --continue   # finds nothing left to commit, so opens no editor
+```
+
+A bare `git rebase --continue` over staged resolutions opens an editor
+for the commit message, and completes unattended only where the
+environment happens to set `GIT_EDITOR` to a no-op; the commit step is
+what makes the sequence independent of it.
+
+The conditions, in order:
 
 1. **A ruling that names the conflict.** Resolve it exactly as the
    ruling says. For the conflicts it names, a ruling takes precedence
