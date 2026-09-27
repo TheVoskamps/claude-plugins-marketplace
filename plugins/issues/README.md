@@ -1,9 +1,10 @@
 # issues
 
 Issue-tracker verbs — create, view, update, link, and set fields on an
-issue — over a GitHub or Jira backend, dispatched on the `issues:`
-value in the repo's config. The skills under `skills/` are the roster;
-`skills/lib/` holds the contracts they share.
+issue, and report what a field accepts — over a GitHub or Jira
+backend, dispatched on the `issues:` value in the repo's config. The
+skills under `skills/` are the roster; `skills/lib/` holds the
+contracts they share.
 
 ## Why you would want it
 
@@ -43,11 +44,14 @@ metadata degrade differently without a `github-project:` block:
 `/issue-create`'s `--type`, `--priority`, `--size` and `--status` warn
 and skip the flag, so the issue is still filed, while the dedicated
 `/issue-set-type`, `/issue-set-priority`, `/issue-set-size` and
-`/issue-set-status` abort instead, pointing at `/repo-config`. Why
-each verb degrades the way it does is in `skills/lib/issue.md` →
-"Graceful degradation when the block is missing". Everything that
-touches only the issue itself — bodies, comments, labels, assignees,
-parents and blocked-by edges — works unchanged.
+`/issue-set-status` abort instead, pointing at `/repo-config`, because
+setting the field is the whole run there and skipping it would leave
+nothing to do. A slot the config declares `kind: skip`, or leaves out
+of `fields:`, is one the repo does not track: a verb that would set it
+exits zero with a warning, and `/issue-field-options` reports it as
+unconfigured. Everything that touches only the issue itself — bodies,
+comments, labels, assignees, parents and blocked-by edges — works
+unchanged.
 
 Personal defaults — `default-assignee`, for one — are optional too,
 and live in a user-config file written by `/issues:user-config` (this
@@ -78,6 +82,19 @@ the config records. A name that matches nothing is an error, never a
 guess. A slot the config declares as `kind: number` takes a number
 instead; `skills/lib/issue.md` carries the per-kind rules.
 
+When a caller has to **choose** a value rather than set one it already
+holds — a grooming skill deciding which status means "ready", say —
+`/issue-field-options` reports each slot's kind and option names in
+the config's own order, so nothing outside this plugin parses
+`.issues/repo-config.md` to learn what a slot accepts:
+
+```text
+/issue-field-options status
+```
+
+It reads only the config and writes nothing, so it runs the same under
+either backend, without a project board, and without `acli`.
+
 ## Skills
 
 Every verb addresses **one** issue, by number on GitHub or by key on
@@ -97,6 +114,7 @@ skill's own `SKILL.md`.
 | `/issue-set-priority <N> <value>` | Set the priority slot |
 | `/issue-set-size <N> <value>` | Set the size slot |
 | `/issue-set-type <N> <type>` | Set the issue type |
+| `/issue-field-options [<slot>]` | Report a slot's configured kind and options, or every slot's when none is named |
 | `/issue-set-parent <child-N> <parent-N>` | Make one issue a sub-issue of another |
 | `/issue-set-child <parent-N> <child-N>` | The same edge, named from the parent's end |
 | `/issue-unset-parent <child-N>` | Detach an issue from its parent |
