@@ -8,10 +8,6 @@
 # Runs under bash 3.2 and depends on nothing beyond gh, jq and the base
 # userland (awk, grep, sed, tr, mktemp): no associative arrays, no ${var,,},
 # no mapfile.
-#
-# GraphQL documents and jq programs are single-quoted on purpose, and the
-# result globals are read by the sourcing script.
-# shellcheck disable=SC2016,SC2034
 
 ISS_PROGRAM=${0##*/}
 
@@ -509,47 +505,47 @@ readonly ISS_SEL_ISSUE_FIELDS='issueFieldValues(first: 20) {
 
 readonly ISS_SEL_LABELS='labels(first: 100) { nodes { name } }'
 
-readonly ISS_DOC_ADD_PROJECT_ITEM='mutation($projectId: ID!, $contentId: ID!) {
-  addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } }
-}'
+readonly ISS_DOC_ADD_PROJECT_ITEM="mutation(\$projectId: ID!, \$contentId: ID!) {
+  addProjectV2ItemById(input: { projectId: \$projectId, contentId: \$contentId }) { item { id } }
+}"
 
-readonly ISS_DOC_SET_NUMBER='mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
+readonly ISS_DOC_SET_NUMBER="mutation(\$projectId: ID!, \$itemId: ID!, \$fieldId: ID!, \$value: Float!) {
   updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: { number: $value }
+    projectId: \$projectId, itemId: \$itemId, fieldId: \$fieldId, value: { number: \$value }
   }) { projectV2Item { id } }
-}'
+}"
 
-readonly ISS_DOC_SET_SINGLE_SELECT='mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+readonly ISS_DOC_SET_SINGLE_SELECT="mutation(\$projectId: ID!, \$itemId: ID!, \$fieldId: ID!, \$optionId: String!) {
   updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: { singleSelectOptionId: $optionId }
+    projectId: \$projectId, itemId: \$itemId, fieldId: \$fieldId, value: { singleSelectOptionId: \$optionId }
   }) { projectV2Item { id } }
-}'
+}"
 
-readonly ISS_DOC_SET_ISSUE_FIELD='mutation($issueId: ID!, $fieldId: ID!, $optionId: ID!) {
+readonly ISS_DOC_SET_ISSUE_FIELD="mutation(\$issueId: ID!, \$fieldId: ID!, \$optionId: ID!) {
   setIssueFieldValue(input: {
-    issueId: $issueId, issueFields: [{ fieldId: $fieldId, singleSelectOptionId: $optionId }]
+    issueId: \$issueId, issueFields: [{ fieldId: \$fieldId, singleSelectOptionId: \$optionId }]
   }) { issue { id } }
-}'
+}"
 
-readonly ISS_DOC_SET_TYPE='mutation($issueId: ID!, $issueTypeId: ID!) {
-  updateIssueIssueType(input: { issueId: $issueId, issueTypeId: $issueTypeId }) { issue { id } }
-}'
+readonly ISS_DOC_SET_TYPE="mutation(\$issueId: ID!, \$issueTypeId: ID!) {
+  updateIssueIssueType(input: { issueId: \$issueId, issueTypeId: \$issueTypeId }) { issue { id } }
+}"
 
-readonly ISS_DOC_ADD_SUB_ISSUE='mutation($parentId: ID!, $childId: ID!) {
-  addSubIssue(input: { issueId: $parentId, subIssueId: $childId }) { issue { id } }
-}'
+readonly ISS_DOC_ADD_SUB_ISSUE="mutation(\$parentId: ID!, \$childId: ID!) {
+  addSubIssue(input: { issueId: \$parentId, subIssueId: \$childId }) { issue { id } }
+}"
 
-readonly ISS_DOC_REMOVE_SUB_ISSUE='mutation($parentId: ID!, $childId: ID!) {
-  removeSubIssue(input: { issueId: $parentId, subIssueId: $childId }) { issue { id } }
-}'
+readonly ISS_DOC_REMOVE_SUB_ISSUE="mutation(\$parentId: ID!, \$childId: ID!) {
+  removeSubIssue(input: { issueId: \$parentId, subIssueId: \$childId }) { issue { id } }
+}"
 
-readonly ISS_DOC_ADD_BLOCKED_BY='mutation($issueId: ID!, $blockingIssueId: ID!) {
-  addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingIssueId }) { issue { id } }
-}'
+readonly ISS_DOC_ADD_BLOCKED_BY="mutation(\$issueId: ID!, \$blockingIssueId: ID!) {
+  addBlockedBy(input: { issueId: \$issueId, blockingIssueId: \$blockingIssueId }) { issue { id } }
+}"
 
-readonly ISS_DOC_REMOVE_BLOCKED_BY='mutation($issueId: ID!, $blockingIssueId: ID!) {
-  removeBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingIssueId }) { issue { id } }
-}'
+readonly ISS_DOC_REMOVE_BLOCKED_BY="mutation(\$issueId: ID!, \$blockingIssueId: ID!) {
+  removeBlockedBy(input: { issueId: \$issueId, blockingIssueId: \$blockingIssueId }) { issue { id } }
+}"
 
 # ---------------------------------------------------------------------------
 # Set-slot. One routine serves /issue-set-priority, /issue-set-size,
@@ -598,7 +594,7 @@ iss_slot_resolve() {
 # The project item on the configured board, from ISS_ISSUE; empty when the
 # issue is not on it.
 iss_project_item() {
-  iss_jq --arg p "$(iss_cfg_get project-id)" '[.projectItems.nodes[] | select(.project.id == $p)][0].id // empty'
+  iss_jq --arg p "$(iss_cfg_get project-id)" "[.projectItems.nodes[] | select(.project.id == \$p)][0].id // empty"
 }
 
 # Whether the last failed iss_gql call's message reads as a node ID that no
@@ -619,17 +615,17 @@ iss_slot_read() {
     number)
       fid=$(iss_cfg_get fields "$slot" id)
       iss_jq --arg p "$(iss_cfg_get project-id)" --arg f "$fid" \
-        '[.projectItems.nodes[] | select(.project.id == $p) | .fieldValues.nodes[] | select(.field.id? == $f) | .number][0]
-         | if . == null then empty elif . == floor then floor else . end'
+        "[.projectItems.nodes[] | select(.project.id == \$p) | .fieldValues.nodes[] | select(.field.id? == \$f) | .number][0]
+         | if . == null then empty elif . == floor then floor else . end"
       ;;
     single-select)
       fid=$(iss_cfg_get fields "$slot" id)
       iss_jq --arg p "$(iss_cfg_get project-id)" --arg f "$fid" \
-        '[.projectItems.nodes[] | select(.project.id == $p) | .fieldValues.nodes[] | select(.field.id? == $f) | .name][0] // empty'
+        "[.projectItems.nodes[] | select(.project.id == \$p) | .fieldValues.nodes[] | select(.field.id? == \$f) | .name][0] // empty"
       ;;
     issue-field)
       fid=$(iss_cfg_get fields "$slot" field-id)
-      iss_jq --arg f "$fid" '[.issueFieldValues.nodes[] | select(.field.id? == $f) | .name][0] // empty'
+      iss_jq --arg f "$fid" "[.issueFieldValues.nodes[] | select(.field.id? == \$f) | .name][0] // empty"
       ;;
     label)
       ns=$(iss_cfg_get fields "$slot" namespace)
@@ -657,7 +653,8 @@ EOF
 # (from iss_slot_resolve) to the slot, then re-read it and abort when the
 # re-read does not show it. Sets SLOT_RESULT to "set" or, when <precheck> is
 # "precheck", the kind is not number, and the value was already there,
-# "noop"; a number slot is always written. Sets SLOT_URL.
+# "noop"; a number slot is always written. Leaves the issue, with its url, in
+# ISS_ISSUE.
 iss_slot_write() {
   local slot=$1 owner=$2 repo=$3 number=$4 precheck=$5
   local kind=$SLOT_KIND sel current item issue_id fid oid ns add remove opt ref
@@ -668,7 +665,6 @@ iss_slot_write() {
     label) sel="id url $ISS_SEL_LABELS" ;;
   esac
   iss_lookup "$owner" "$repo" "$number" "$sel"
-  SLOT_URL=$(iss_jq .url)
   issue_id=$(iss_jq .id)
   SLOT_RESULT='set'
 
@@ -750,7 +746,7 @@ EOF
 # The "<slot>: nothing to do" warning for a set-slot verb whose slot is
 # unconfigured. Exits zero.
 iss_slot_unconfigured_exit() {
-  printf '`/issue-set-%s` has nothing to do: this repo has no `%s` slot configured. (Run `/repo-config` to add one.)\n' "$1" "$1"
+  printf "\`/issue-set-%s\` has nothing to do: this repo has no \`%s\` slot configured. (Run \`/repo-config\` to add one.)\n" "$1" "$1"
   exit 0
 }
 
@@ -775,6 +771,15 @@ iss_set_slot_verb() {
   fi
 }
 
+# iss_type_write <owner> <repo> <number> <issue-id> <type-id> <type-name>: set
+# the issue type, then re-read it and abort when the re-read does not show it.
+iss_type_write() {
+  iss_gql -f query="$ISS_DOC_SET_TYPE" -f issueId="$4" -f issueTypeId="$5" || iss_gql_fail
+  iss_lookup "$1" "$2" "$3" "issueType { id name }"
+  [ "$(iss_jq '.issueType.id // empty')" = "$5" ] ||
+    iss_err_write_not_landed type "$(iss_ref "$1" "$2" "$3")" "$6" "$(iss_jq '.issueType.name // "(none)"')"
+}
+
 # ---------------------------------------------------------------------------
 # Relationships.
 # ---------------------------------------------------------------------------
@@ -784,8 +789,9 @@ iss_set_slot_verb() {
 # Resolves both operands, reads the edge from the named side, and adds or
 # removes it unless it already is in the requested state; then re-reads the
 # side and aborts when the edge is not in the requested state. Sets
-# EDGE_RESULT (changed|noop), EDGE_URL (the named side's URL), EDGE_BLOCKED
-# and EDGE_BLOCKER (display references).
+# EDGE_BLOCKED and EDGE_BLOCKER (display references) and leaves the named
+# side, with its url, in ISS_ISSUE. Returns 1 when the edge already was in the
+# requested state.
 iss_blocked_by_edge() {
   local action=$1 side=$4 bo br bn xo xr xn blocked_id blocker_id side_sel list want present doc sref
   iss_parse_operand "$2"; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
@@ -805,21 +811,18 @@ iss_blocked_by_edge() {
     iss_lookup "$xo" "$xr" "$xn" "$side_sel"; blocker_id=$(iss_jq .id)
     want=$blocked_id
   fi
-  EDGE_URL=$(iss_jq .url)
-  present=$(iss_jq --arg w "$want" --arg l "$list" 'any(.[$l].nodes[]; .id == $w)')
+  present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
   if { [ "$action" = add ] && [ "$present" = true ]; } || { [ "$action" = remove ] && [ "$present" != true ]; }; then
-    EDGE_RESULT=noop
-    return 0
+    return 1
   fi
   if [ "$action" = add ]; then doc=$ISS_DOC_ADD_BLOCKED_BY; else doc=$ISS_DOC_REMOVE_BLOCKED_BY; fi
   iss_gql -f query="$doc" -f issueId="$blocked_id" -f blockingIssueId="$blocker_id" || iss_gql_fail
-  EDGE_RESULT=changed
   if [ "$side" = blocked ]; then
     iss_lookup "$bo" "$br" "$bn" "$side_sel"; sref=$EDGE_BLOCKED
   else
     iss_lookup "$xo" "$xr" "$xn" "$side_sel"; sref=$EDGE_BLOCKER
   fi
-  present=$(iss_jq --arg w "$want" --arg l "$list" 'any(.[$l].nodes[]; .id == $w)')
+  present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
   if [ "$action" = add ] && [ "$present" != true ]; then
     iss_err_write_not_landed "the blocked-by edge" "$sref" "blocked by $EDGE_BLOCKER" "no such edge"
   fi

@@ -22,9 +22,5 @@ if [ "$(iss_jq '.issueType.id // empty')" = "$type_id" ]; then
   exit 0
 fi
 
-iss_gql -f query="$ISS_DOC_SET_TYPE" -f issueId="$(iss_jq .id)" -f issueTypeId="$type_id" || iss_gql_fail
-
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "id issueType { id name }"
-[ "$(iss_jq '.issueType.id // empty')" = "$type_id" ] ||
-  iss_err_write_not_landed type "$ref" "$type_name" "$(iss_jq '.issueType.name // "(none)"')"
+iss_type_write "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$(iss_jq .id)" "$type_id" "$type_name"
 printf '%s type set to %s.\n' "$ref" "$type_name"

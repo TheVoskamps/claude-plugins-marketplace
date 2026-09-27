@@ -7,10 +7,9 @@ set -uo pipefail
 
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-unset-blocks <N> <blocked-N>"
 iss_init
-iss_blocked_by_edge remove "$2" "$1" blocker
-if [ "$EDGE_RESULT" = noop ]; then
-  printf 'Issue %s does not block %s; no change.\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED"
-else
+if iss_blocked_by_edge remove "$2" "$1" blocker; then
   printf 'Removed blocking relationship: issue %s no longer blocks %s.\n%s\n' \
-    "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$EDGE_URL"
+    "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$(iss_jq .url)"
+else
+  printf 'Issue %s does not block %s; no change.\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED"
 fi

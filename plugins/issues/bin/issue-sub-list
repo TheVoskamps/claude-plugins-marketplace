@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # List every direct sub-issue of one parent, paging past GitHub's 50-per-page
 # cap. The contract is plugins/issues/skills/issue-sub-list/SKILL.md.
-#
-# GraphQL variables and jq programs are single-quoted on purpose.
-# shellcheck disable=SC2016
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -12,10 +9,10 @@ set -uo pipefail
 iss_init
 iss_parse_operand "$1" local-only
 
-sel='title subIssues(first: 50, after: $after) {
+sel="title subIssues(first: 50, after: \$after) {
   pageInfo { hasNextPage endCursor }
   nodes { number title repository { nameWithOwner } }
-}'
+}"
 doc="query(\$owner: String!, \$repo: String!, \$number: Int!, \$after: String) {
   repository(owner: \$owner, name: \$repo) {
     issue(number: \$number) { $sel }

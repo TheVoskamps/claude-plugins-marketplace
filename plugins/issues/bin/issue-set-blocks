@@ -7,9 +7,8 @@ set -uo pipefail
 
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-blocks <N> <blocked-N>"
 iss_init
-iss_blocked_by_edge add "$2" "$1" blocker
-if [ "$EDGE_RESULT" = noop ]; then
-  printf 'Issue %s already blocks %s; no change.\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED"
+if iss_blocked_by_edge add "$2" "$1" blocker; then
+  printf 'Marked issue %s as blocking %s.\n%s\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$(iss_jq .url)"
 else
-  printf 'Marked issue %s as blocking %s.\n%s\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$EDGE_URL"
+  printf 'Issue %s already blocks %s; no change.\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED"
 fi

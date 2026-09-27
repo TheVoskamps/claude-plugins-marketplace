@@ -4,10 +4,6 @@
 # are validated before the issue is created; the type, parent, slot and
 # assignee writes are re-read after it. The contract is
 # plugins/issues/skills/issue-create/SKILL.md.
-#
-# The <slot>_line and <slot>_value variables are written and read through eval,
-# and backticks in single quotes are literal Markdown.
-# shellcheck disable=SC2016,SC2034
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -138,23 +134,25 @@ else
   fi
 fi
 
-# resolve_slot <slot> <passed yes|no> <value>: sets <slot>_line and
-# <slot>_value (the canonical value to write, empty when skipped).
+# resolve_slot <slot> <passed yes|no> <value>: sets slot_line and slot_value
+# (the canonical value to write, empty when skipped).
 resolve_slot() {
-  local slot=$1 passed=$2 value=$3 kind line='' resolved=''
+  local slot=$1 passed=$2 value=$3 kind
+  slot_line=
+  slot_value=
   if [ "$no_target_config" = yes ]; then
-    line="skipped: target repo has no repo-config"
+    slot_line="skipped: target repo has no repo-config"
   elif [ "$ISS_HAS_GP" != 1 ]; then
-    line="skipped: no github-project block in repo-config"
+    slot_line="skipped: no github-project block in repo-config"
     warn "warning: no \`github-project:\` block in \`repo-config.md\`; skipping \`--$slot\`. Run \`/repo-config\` to add it."
   else
     kind=$(iss_slot_kind "$slot")
     if [ "$kind" = skip ]; then
       if iss_cfg_get fields "$slot" >/dev/null 2>&1; then
-        line="skipped: slot kind: skip"
+        slot_line="skipped: slot kind: skip"
         warn "warning: slot '$slot' is kind: skip in repo-config.md; skipping --$slot."
       else
-        line="skipped: slot absent from fields:"
+        slot_line="skipped: slot absent from fields:"
         warn "warning: slot '$slot' is missing from fields: in repo-config.md; skipping --$slot."
       fi
     else
@@ -162,20 +160,21 @@ resolve_slot() {
         value=$(iss_cfg_get fields "$slot" default 2>/dev/null) || value=
       fi
       if [ -z "$value" ]; then
-        line="skipped: flag not passed and no default"
+        slot_line="skipped: flag not passed and no default"
       else
         iss_slot_resolve "$slot" "$value"
-        resolved=$SLOT_VALUE
-        line=$SLOT_VALUE
+        slot_value=$SLOT_VALUE
+        slot_line=$SLOT_VALUE
       fi
     fi
   fi
-  eval "${slot}_line=\$line; ${slot}_value=\$resolved"
 }
-priority_line=; priority_value=; size_line=; size_value=; status_line=; status_value=
 resolve_slot priority "$priority_set" "$priority_arg"
+priority_line=$slot_line; priority_value=$slot_value
 resolve_slot size "$size_set" "$size_arg"
+size_line=$slot_line; size_value=$slot_value
 resolve_slot status "$status_set" "$status_arg"
+status_line=$slot_line; status_value=$slot_value
 
 parent_id=
 parent_ref=
@@ -234,10 +233,7 @@ if [ "$ISS_HAS_GP" = 1 ] && iss_cfg_get project-id >/dev/null 2>&1 && [ -z "$(is
 fi
 
 if [ -n "$type_id" ]; then
-  iss_gql -f query="$ISS_DOC_SET_TYPE" -f issueId="$issue_id" -f issueTypeId="$type_id" || iss_gql_fail
-  iss_lookup "$owner" "$repo" "$number" "issueType { id name }"
-  [ "$(iss_jq '.issueType.id // empty')" = "$type_id" ] ||
-    iss_err_write_not_landed type "$ref" "$type_name" "$(iss_jq '.issueType.name // "(none)"')"
+  iss_type_write "$owner" "$repo" "$number" "$issue_id" "$type_id" "$type_name"
   step_done "type"
 fi
 
@@ -249,13 +245,17 @@ if [ -n "$parent_id" ]; then
   step_done "parent"
 fi
 
-for slot in priority size status; do
-  eval "value=\$${slot}_value"
-  [ -n "$value" ] || continue
-  iss_slot_resolve "$slot" "$value"
-  iss_slot_write "$slot" "$owner" "$repo" "$number" always
-  step_done "$slot"
-done
+# write_slot <slot> <value>: write the resolved value; an empty one was
+# skipped.
+write_slot() {
+  [ -n "$2" ] || return 0
+  iss_slot_resolve "$1" "$2"
+  iss_slot_write "$1" "$owner" "$repo" "$number" always
+  step_done "$1"
+}
+write_slot priority "$priority_value"
+write_slot size "$size_value"
+write_slot status "$status_value"
 
 assignee_line="skipped: no --assignee passed and no built-in default applies"
 if [ -n "$assignees" ]; then
@@ -281,7 +281,7 @@ printf '  status:     %s\n' "$status_line"
 printf '  assignee:   %s\n' "$assignee_line"
 [ -z "$parent_ref" ] || printf '  parent:     %s\n' "$parent_ref"
 if [ "$no_target_config" = yes ]; then
-  printf '\nnote: project fields skipped: %s has no %s.\n' "\`$owner/$repo\`" '`.issues/repo-config.md`'
+  printf '\nnote: project fields skipped: %s has no %s.\n' "\`$owner/$repo\`" "\`.issues/repo-config.md\`"
 fi
 [ -z "$warnings" ] || printf '\n%s' "$warnings"
 printf '\n%s\n' "$created_url"

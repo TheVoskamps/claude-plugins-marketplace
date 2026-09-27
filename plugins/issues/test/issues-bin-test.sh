@@ -217,18 +217,18 @@ check() {
 ISS_NL='
 '
 
-# args_for <verb>: arguments that pass the verb's usage check, so a gate case
-# reaches the repo-config read rather than stopping at usage.
+# args_for <verb>: sets ARGS to arguments that pass the verb's usage check,
+# so a gate case reaches the repo-config read rather than stopping at usage.
 args_for() {
   case "$1" in
-    issue-field-options) echo "status" ;;
-    issue-create) echo "--title x --body-file x" ;;
-    issue-comment) echo "2 --body-file x" ;;
-    issue-update) echo "2 --title x" ;;
+    issue-field-options) ARGS=(status) ;;
+    issue-create) ARGS=(--title x --body-file x) ;;
+    issue-comment) ARGS=(2 --body-file x) ;;
+    issue-update) ARGS=(2 --title x) ;;
     issue-set-blocked-by|issue-set-blocks|issue-unset-blocked-by|issue-unset-blocks|issue-set-child|issue-set-parent|issue-unset-child)
-      echo "2 3" ;;
-    issue-set-priority|issue-set-size|issue-set-status|issue-set-type) echo "2 x" ;;
-    *) echo 2 ;;
+      ARGS=(2 3) ;;
+    issue-set-priority|issue-set-size|issue-set-status|issue-set-type) ARGS=(2 x) ;;
+    *) ARGS=(2) ;;
   esac
 }
 
@@ -238,28 +238,28 @@ args_for() {
 
 for verb in $VERBS; do
   new_case none
-  # shellcheck disable=SC2046
-  run "$verb" $(args_for "$verb")
+  args_for "$verb"
+  run "$verb" "${ARGS[@]}"
   expect "$verb: missing repo-config" 1 "This repo has no \`.issues/repo-config.md\`. Run \`/repo-config\` to create one."
 
   new_case "---
 schema-version: 5
 source-control: GitHub
 ---"
-  # shellcheck disable=SC2046
-  run "$verb" $(args_for "$verb")
+  args_for "$verb"
+  run "$verb" "${ARGS[@]}"
   expect "$verb: stale schema-version" 1 "is at schema-version \`5\`; this skill requires \`6\`"
 
   new_case "---
 source-control: GitHub
 ---"
-  # shellcheck disable=SC2046
-  run "$verb" $(args_for "$verb")
+  args_for "$verb"
+  run "$verb" "${ARGS[@]}"
   expect "$verb: absent schema-version" 1 "predates schema versioning"
 
   new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
-  # shellcheck disable=SC2046
-  run "$verb" $(args_for "$verb")
+  args_for "$verb"
+  run "$verb" "${ARGS[@]}"
   expect "$verb: Jira exits non-zero" 1 "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
   check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "$verb: Jira makes no gh call"
 done
@@ -510,7 +510,6 @@ for call in "issue-set-status 2 Done" "issue-set-priority 3 Low" "issue-set-size
             "issue-set-blocked-by 5 4" "issue-set-blocks 4 5" "issue-unset-blocked-by 2 acme/other#3" \
             "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-comment 3 --body-file body.md" \
             "issue-update 3 --title Renamed" "issue-create --title T --body-file body.md"; do
-  # shellcheck disable=SC2086
   run $call
   case "$call" in
     issue-update*) expect "${call%% *}: a dropped write exits non-zero" 1 "did not land" ;;
