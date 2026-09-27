@@ -285,7 +285,34 @@ store_payload() {
       die "--mode $mode takes the $noun on stdin, and nothing arrived"
     fi
   fi
+  if [ "$mode" = leave ]; then
+    check_report_theorem "$staged"
+  fi
   mv -- "$staged" "$target"
+}
+
+# A disprover's or verifier's report names the theorem it answers on its
+# THEOREM: line, and the stored file is named for --theorem, so a report
+# handed over from another child would settle a theorem it never
+# answered. The check runs on the staged copy, before the rename and
+# before the leave record, so a refused report leaves neither behind. A
+# generator's report is a theorem list and carries no such line.
+check_report_theorem() {
+  case "$stage" in
+    disprove|verify) ;;
+    *) return 0 ;;
+  esac
+  answered=$(awk '/^THEOREM:/ {
+      sub(/^THEOREM:[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit
+    }' "$1")
+  if [ -z "$answered" ]; then
+    rm -f -- "$1"
+    die "--mode leave --stage $stage stores a report for --theorem $theorem, and the report has no THEOREM: line naming one"
+  fi
+  if [ "$answered" != "$theorem" ]; then
+    rm -f -- "$1"
+    die "--mode leave --stage $stage was given --theorem $theorem, and the report's THEOREM: line names $answered"
+  fi
 }
 
 # Every mode that writes writes into the same directory; the reading

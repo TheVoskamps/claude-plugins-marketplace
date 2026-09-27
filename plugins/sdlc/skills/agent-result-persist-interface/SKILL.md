@@ -224,9 +224,22 @@ directories.
   and a child killed mid-write would leave that fragment there for
   good. The rename is what makes the file appear complete or not at
   all, and the `-<pid>` suffix is what keeps two writers from staging
-  over each other. A refused report — empty, or a `--from` file that
-  could not be read — leaves nothing behind: the staging file is
-  removed before the call exits non-zero.
+  over each other. A refused report — empty, a `--from` file that
+  could not be read, or a `THEOREM:` mismatch below — leaves nothing
+  behind: the staging file is removed before the call exits non-zero,
+  and no `leave` record is appended.
+
+  With `--stage disprove` or `--stage verify`, the report must answer
+  the theorem it is filed under. The first line of the report that
+  starts `THEOREM:` names that theorem, and the call is refused,
+  non-zero, when no such line names one or when it names a theorem
+  other than `--theorem`; the message names the `--theorem` value and,
+  on a mismatch, the one the report named. A result file is named for
+  `--theorem`, and its existence settles that theorem, so a report
+  handed over from another child would otherwise settle a theorem it
+  never answered. `--stage generate` is not checked: its report is the
+  theorem list, filed under `--theorem list`, and carries no `THEOREM:`
+  line.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a `<task-notification>` it
@@ -294,7 +307,8 @@ directories.
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
   `records` or `review` refuses its payload as empty or as a `--from`
-  file that could not be read; `anchor` renames a voided round rather
+  file that could not be read, or `leave` refuses a report whose
+  `THEOREM:` line does not name `--theorem`; `anchor` renames a voided round rather
   than removing it.
 
 The script stamps every record's time itself: the writer owns when the
