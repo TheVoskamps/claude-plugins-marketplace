@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Shared code for the scripts in plugins/issues/bin/: the
-# .issues/repo-config.md read and its checks, operand parsing, node-ID and field/option ID
-# resolution, the GraphQL documents, the set-slot write paths, and the
-# canonical error catalogue. Every script sources this file and nothing else,
+# .issues/repo-config.md read and its checks, operand parsing, node-ID and
+# field/option ID resolution, the GraphQL documents, the set-slot write paths,
+# and the canonical error catalogue. Every script sources this file and nothing else,
 # so each of these is written exactly once.
 #
 # Runs under bash 3.2 and depends on nothing beyond gh, jq and the base

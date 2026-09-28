@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Write the current repo's .issues/repo-config.md from a drafted file, after
-# the validity checks the issue verbs apply when they read one. The contract is
-# plugins/issues/skills/repo-config/SKILL.md, Step 5.
+# the validity checks the issue verbs apply when they read one, less their
+# refusal of a Jira config. The contract is the "Write the file" step of
+# plugins/issues/skills/repo-config/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
