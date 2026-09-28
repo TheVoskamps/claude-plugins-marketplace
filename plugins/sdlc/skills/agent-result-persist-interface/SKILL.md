@@ -272,8 +272,10 @@ directories.
   saying so.
 
   **With `--carry`, the script builds the records file itself** rather
-  than taking one whole. The reviewer's form, on every round from 1 on;
-  the plain form above stays the orchestrator's round-0 write. The
+  than taking one whole. The reviewer's form, on every round that
+  carried records forward; the plain form above stays the orchestrator's
+  round-0 write and a reviewer fallback round's, which carried nothing
+  forward. The
   build is a transform and makes no decision: which state a record
   takes, and what a new record says, arrive already decided.
 
