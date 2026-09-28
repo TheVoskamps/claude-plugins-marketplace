@@ -21,7 +21,8 @@ usage() {
 
 # config_value <key> -- one front-matter value from the repo's
 # .issues/repo-config.md, with surrounding quotes removed. Only the
-# front matter is read: the block between the first two `---` lines.
+# front matter is read: the block a `---` first line opens and the next
+# `---` line closes. A file whose first line is not `---` has none.
 # It lives here rather than in the common helper because this is the
 # one verb that reads repo-config.
 config_value() {
