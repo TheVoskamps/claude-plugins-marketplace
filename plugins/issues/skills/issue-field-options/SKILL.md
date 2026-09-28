@@ -1,13 +1,13 @@
 ---
 name: issue-field-options
-description: Report a slot's configured kind and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named — in this repo or, with --repo, in another. Read-only.
+description: Report a slot's configured kind, default, and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named — in this repo or, with --repo, in another. Read-only.
 ---
 
-Report what repo-config says a field slot accepts: its `kind:` and its
-option names, in configured order. This is the verb a caller uses when
-it has to **choose** an option rather than set one it already has —
-`/issue-set-<slot>` resolves a name the caller brings, and says nothing
-about which names exist.
+Report what repo-config says a field slot accepts: its `kind:`, its
+`default:`, and its option names, in configured order. This is the
+verb a caller uses when it has to **choose** an option rather than set
+one it already has — `/issue-set-<slot>` resolves a name the caller
+brings, and says nothing about which names exist.
 
 ## Invocation
 
@@ -43,13 +43,18 @@ and stop.
 
 ## Output
 
-One block per slot, separated by a blank line. An option-carrying
-slot prints its kind, then one option name per line, in the config's
-own order and with its own capitalization; an option's ID is never
-printed:
+One block per slot, separated by a blank line. The block's first line
+is the slot and its kind, followed — when the slot declares a
+`default:` — by a space and `(default: <value>)`; a slot with no
+`default:` has no suffix. An
+option-carrying slot then prints one option name per line, indented two
+spaces, in the config's own order and with its own capitalization; an
+option's ID is never printed. The default is printed in its option's
+capitalization when it names one, and as the config spells it
+otherwise:
 
 ```text
-status: single-select
+status: single-select (default: Backlog)
   Backlog
   Ready
   In progress
@@ -61,7 +66,7 @@ A `kind: number` slot prints the bounds it declares instead of
 options:
 
 ```text
-priority: number
+priority: number (default: 3)
   min: 1
   max: 9
 ```

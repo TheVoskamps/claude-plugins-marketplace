@@ -335,26 +335,34 @@ expect_absent "issue-view-tree: nothing past the cap" "#11 Leaf"
 new_case "$CONFIG_MAIN"
 run issue-field-options
 expect "issue-field-options: every slot" 0 \
-  "status: single-select${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
-  "priority: issue-field${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" "size: label${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+  "status: single-select (default: Backlog)${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
+  "priority: issue-field (default: Medium)${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" \
+  "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
 run issue-field-options effort
 expect "issue-field-options: unconfigured slot" 0 "effort: unconfigured"
 check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-field-options: makes no gh call"
 
+new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed -e 's/default: Backlog/default: in PROGRESS/' -e '/default: Medium/d')"
+run issue-field-options
+expect "issue-field-options: a default in the options' own capitalization" 0 \
+  "status: single-select (default: In progress)${ISS_NL}  Backlog" "priority: issue-field${ISS_NL}  High"
+expect_absent "issue-field-options: no default reported for a slot without one" "priority: issue-field ("
+
 new_case "$CONFIG_NUMBER"
 run issue-field-options
-expect "issue-field-options: number bounds and skip" 0 "priority: number${ISS_NL}  min: 1${ISS_NL}  max: 9" "size: unconfigured"
+expect "issue-field-options: number bounds and skip" 0 "priority: number (default: 3)${ISS_NL}  min: 1${ISS_NL}  max: 9" "size: unconfigured"
 new_case "$CONFIG_NO_BLOCK"
 run issue-field-options
 expect "issue-field-options: no block" 0 "No fields configured."
 run issue-field-options --repo acme/widgets
 expect "issue-field-options --repo: the target's slots, not this repo's" 0 \
-  "status: single-select${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
-  "priority: issue-field${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" "size: label${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+  "status: single-select (default: Backlog)${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
+  "priority: issue-field (default: Medium)${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" \
+  "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
 check "$(grep -c '"repos/acme/widgets/contents/.issues/repo-config.md"' "$CASE_DIR/gh.log")" 1 \
   "issue-field-options --repo: reads the target's repo-config"
 run issue-field-options --repo acme/widgets size
-expect "issue-field-options --repo: one slot, flag first" 0 "size: label${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+expect "issue-field-options --repo: one slot, flag first" 0 "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
 expect_absent "issue-field-options --repo: only the named slot" "status:"
 run issue-field-options --repo acme/other
 expect "issue-field-options --repo: target without repo-config" 0 "No fields configured."
@@ -374,10 +382,10 @@ expect "issue-field-options: two slots is a usage error" 2 "usage: issue-field-o
 new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
 run issue-field-options status --repo acme/widgets
 expect "issue-field-options --repo: the invoking repo's tracker is not read" 0 \
-  "status: single-select${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done"
+  "status: single-select (default: Backlog)${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done"
 new_case none
 run issue-field-options priority --repo acme/widgets
-expect "issue-field-options --repo: no local repo-config needed" 0 "priority: issue-field${ISS_NL}  High"
+expect "issue-field-options --repo: no local repo-config needed" 0 "priority: issue-field (default: Medium)${ISS_NL}  High"
 
 # ---------------------------------------------------------------------------
 # Set-slot verbs.

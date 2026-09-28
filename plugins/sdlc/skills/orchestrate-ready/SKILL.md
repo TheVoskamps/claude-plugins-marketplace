@@ -205,7 +205,9 @@ Ask the `issues` namespace which status options exist:
 /issue-field-options status
 ```
 
-Apply this rule to the option names it reports:
+Apply this rule to the option names it reports — the indented lines
+under the slot's first line, which carries only the kind and any
+`(default: …)`:
 
 - A `Ready` option exists → use it.
 - Otherwise a `Todo` option exists → use it.

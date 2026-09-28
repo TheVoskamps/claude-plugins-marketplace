@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
-# Report what repo-config says a field slot accepts, or every slot's when none
-# is named — this repo's, or with --repo another's. Only --repo makes a gh
-# call. The contract is
+# Report what repo-config says a field slot accepts and defaults to, or every
+# slot's when none is named — this repo's, or with --repo another's. Only
+# --repo makes a gh call. The contract is
 # plugins/issues/skills/issue-field-options/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+# The slot's default: in the options' own capitalization when it names one,
+# otherwise as the config spells it; nothing when the slot declares none.
+default_suffix() {
+  local key=$1 kind=$2 value canonical
+  value=$(iss_cfg_get fields "$key" default 2>/dev/null) || return 0
+  [ -n "$value" ] || return 0
+  if [ "$kind" != number ] && canonical=$(iss_resolve_name all "$value" fields "$key" options); then
+    value=$canonical
+  fi
+  printf ' (default: %s)' "$value"
+}
 
 # report <slot-as-named> [<configured-key>]
 report() {
@@ -20,7 +32,7 @@ report() {
       printf '%s: unconfigured\n' "$key"
       ;;
     number)
-      printf '%s: number\n' "$key"
+      printf '%s: number%s\n' "$key" "$(default_suffix "$key" number)"
       for bound in min max; do
         if iss_cfg_get fields "$key" "$bound" >/dev/null 2>&1; then
           printf '  %s: %s\n' "$bound" "$(iss_cfg_get fields "$key" "$bound")"
@@ -28,7 +40,7 @@ report() {
       done
       ;;
     *)
-      printf '%s: %s\n' "$key" "$kind"
+      printf '%s: %s%s\n' "$key" "$kind" "$(default_suffix "$key" "$kind")"
       iss_cfg_children fields "$key" options | sed 's/^/  /'
       ;;
   esac

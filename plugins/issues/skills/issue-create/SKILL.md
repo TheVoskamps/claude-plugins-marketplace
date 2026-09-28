@@ -63,18 +63,22 @@ is fully configured before its URL is printed.
    the user with `AskUserQuestion` — one question per slot, or up to
    four combined in one call. Under `--repo`, run
    `/issue-field-options <slot> --repo <owner/repo>` instead, so every
-   option and bound offered is the target repo's; nothing in this step
-   reads the current repo's repo-config. The options are the slot's
-   option names in configured order; a `kind: number` slot gets an
-   open-ended integer prompt in `[min, max]`. The first option is the
-   recommendation and carries `(Recommended)`:
+   option, bound and default offered is the target repo's; this step
+   reads no repo-config itself. The options are the slot's option
+   names — the indented lines under its first line — in configured
+   order; a `kind: number` slot gets an open-ended integer prompt in
+   `[min, max]`. The first option is the recommendation and carries
+   `(Recommended)`:
 
    - **size** — evaluate the issue body per "Size evaluation
      heuristic" below and put that pick first; the rest follow in
      configured order.
-   - **priority**, **status** — the slot's `default:` from repo-config,
-     echoed back first. Under `--repo`, or with no `default:`,
-     recommend nothing and keep the configured order.
+   - **priority**, **status** — the default `/issue-field-options`
+     reports on the slot's first line, `(default: <value>)`, put first;
+     the rest follow in configured order. Under `--repo` that is the
+     target's default, exactly as a local create recommends the local
+     one. With no default reported, recommend nothing and keep the
+     configured order.
 
    An answer resolves the slot exactly as if its flag had been passed.
    An unanswered prompt — a timeout, or a non-interactive caller —
