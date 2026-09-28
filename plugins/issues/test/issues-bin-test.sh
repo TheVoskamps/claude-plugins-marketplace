@@ -347,6 +347,37 @@ expect "issue-field-options: number bounds and skip" 0 "priority: number${ISS_NL
 new_case "$CONFIG_NO_BLOCK"
 run issue-field-options
 expect "issue-field-options: no block" 0 "No fields configured."
+run issue-field-options --repo acme/widgets
+expect "issue-field-options --repo: the target's slots, not this repo's" 0 \
+  "status: single-select${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
+  "priority: issue-field${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" "size: label${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+check "$(grep -c '"repos/acme/widgets/contents/.issues/repo-config.md"' "$CASE_DIR/gh.log")" 1 \
+  "issue-field-options --repo: reads the target's repo-config"
+run issue-field-options --repo acme/widgets size
+expect "issue-field-options --repo: one slot, flag first" 0 "size: label${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+expect_absent "issue-field-options --repo: only the named slot" "status:"
+run issue-field-options --repo acme/other
+expect "issue-field-options --repo: target without repo-config" 0 "No fields configured."
+run issue-field-options status --repo acme/other
+expect "issue-field-options --repo: a slot in a target without repo-config" 0 "status: unconfigured"
+run issue-field-options --repo acme/stale
+expect "issue-field-options --repo: stale target schema aborts" 1 \
+  "target repo \`acme/stale\`: This repo's \`.issues/repo-config.md\` is at schema-version \`5\`"
+run issue-field-options --repo acme/jira
+expect "issue-field-options --repo: Jira target exits non-zero" 1 \
+  "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+run issue-field-options --repo widgets
+expect "issue-field-options --repo: not owner/repo" 2 "\`--repo\` takes owner/repo"
+run issue-field-options status priority
+expect "issue-field-options: two slots is a usage error" 2 "usage: issue-field-options"
+
+new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
+run issue-field-options status --repo acme/widgets
+expect "issue-field-options --repo: the invoking repo's tracker is not read" 0 \
+  "status: single-select${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done"
+new_case none
+run issue-field-options priority --repo acme/widgets
+expect "issue-field-options --repo: no local repo-config needed" 0 "priority: issue-field${ISS_NL}  High"
 
 # ---------------------------------------------------------------------------
 # Set-slot verbs.

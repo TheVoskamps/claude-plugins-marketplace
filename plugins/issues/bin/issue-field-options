@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Report what repo-config says a field slot accepts, or every slot's when none
-# is named. Reads only the config; makes no gh call. The contract is
+# is named — this repo's, or with --repo another's. Only --repo makes a gh
+# call. The contract is
 # plugins/issues/skills/issue-field-options/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
@@ -33,13 +34,38 @@ report() {
   esac
 }
 
-[ "$#" -le 1 ] || iss_usage_die "usage: issue-field-options [<slot>]"
-iss_load_config
+usage='usage: issue-field-options [<slot>] [--repo owner/repo]'
+slot=
+slot_set=no
+target=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo)
+      [ "$#" -ge 2 ] && [ -z "$target" ] || iss_usage_die "$usage"
+      target=$2
+      shift 2
+      ;;
+    -*) iss_usage_die "$usage" ;;
+    *)
+      [ "$slot_set" = no ] || iss_usage_die "$usage"
+      slot=$1
+      slot_set=yes
+      shift
+      ;;
+  esac
+done
 
-if [ "$#" -eq 1 ]; then
+if [ -z "$target" ]; then
+  iss_load_config
+else
+  # A target with no repo-config leaves every slot unconfigured.
+  iss_load_target_config "$target" || :
+fi
+
+if [ "$slot_set" = yes ]; then
   key=
-  [ "$ISS_HAS_GP" = 1 ] && key=$(iss_resolve_name all "$1" fields)
-  report "$1" "$key"
+  [ "$ISS_HAS_GP" = 1 ] && key=$(iss_resolve_name all "$slot" fields)
+  report "$slot" "$key"
   exit 0
 fi
 

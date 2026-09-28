@@ -299,6 +299,40 @@ iss_load_config() {
   iss_parse_config_text "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
 }
 
+# iss_load_target_config <owner/repo>: read a --repo target's
+# .issues/repo-config.md from its default branch and parse it as
+# iss_parse_config_text does, each message prefixed with the target. Reads
+# nothing from the current repo's repo-config. Sets ISS_TARGET_OWNER and
+# ISS_TARGET_REPO, exiting with a usage error on any other shape than
+# owner/repo. Returns 1 when the target has no repo-config, with ISS_HAS_GP=0
+# so every slot reads as unconfigured.
+iss_load_target_config() {
+  local errf content text err nwo
+  case "$1" in
+    */*) ISS_TARGET_OWNER=${1%%/*}; ISS_TARGET_REPO=${1#*/} ;;
+    *) iss_usage_die "\`--repo\` takes owner/repo" ;;
+  esac
+  case "$ISS_TARGET_REPO" in ''|*/*) iss_usage_die "\`--repo\` takes owner/repo" ;; esac
+  iss_require_tools
+  nwo=$ISS_TARGET_OWNER/$ISS_TARGET_REPO
+  errf=$(mktemp "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX")
+  if content=$(gh api "repos/$nwo/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
+    rm -f "$errf"
+    text=$(printf '%s' "$content" | tr -d '\n' | base64 --decode) ||
+      iss_die "could not decode \`$nwo\`'s \`.issues/repo-config.md\`"
+    iss_parse_config_text "$text" "target repo \`$nwo\`: "
+  elif grep -q 'HTTP 404' "$errf"; then
+    rm -f "$errf"
+    ISS_HAS_GP=0
+    ISS_GP=
+    ISS_LINK_PREFIX='#'
+    return 1
+  else
+    err=$(cat "$errf"); rm -f "$errf"
+    iss_die "could not read \`$nwo\`'s \`.issues/repo-config.md\`: $err"
+  fi
+}
+
 # Resolve the current repo as owner and name. Sets ISS_OWNER, ISS_REPO.
 iss_current_repo() {
   local nwo

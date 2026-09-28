@@ -1,6 +1,6 @@
 ---
 name: issue-field-options
-description: Report a slot's configured kind and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named. Read-only.
+description: Report a slot's configured kind and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named — in this repo or, with --repo, in another. Read-only.
 ---
 
 Report what repo-config says a field slot accepts: its `kind:` and its
@@ -12,7 +12,7 @@ about which names exist.
 ## Invocation
 
 ```text
-/issue-field-options [<slot>]
+/issue-field-options [<slot>] [--repo owner/repo]
 ```
 
 - `<slot>` (optional): a key under the tracker block's `fields:` map —
@@ -20,6 +20,11 @@ about which names exist.
   Matched case-insensitively against the configured keys. With a slot,
   report that slot only; without one, report every slot under
   `fields:`, in the order the keys appear in the file.
+- `--repo` (optional): report `owner/repo`'s slots instead of the
+  current repo's. The script reads that repo's `.issues/repo-config.md`
+  from its default branch and reads nothing from the current repo's
+  repo-config. A target with no repo-config reports every slot as
+  unconfigured; a target at an unsupported schema-version aborts.
 
 ## Execution
 
@@ -27,12 +32,14 @@ Run the `issue-field-options` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-field-options [<slot>]
+issue-field-options [<slot>] [--repo <owner/repo>]
 ```
 
-It reads only `.issues/repo-config.md` and makes no `gh` call, so it
-works without a project board. It writes nothing. Print its stdout as
-it stands; on a non-zero exit, relay its stderr verbatim and stop.
+Without `--repo` it reads only `.issues/repo-config.md` and makes no
+`gh` call; with it, its one `gh` call reads the target's repo-config.
+Either way it works without a project board and writes nothing. Print
+its stdout as it stands; on a non-zero exit, relay its stderr verbatim
+and stop.
 
 ## Output
 
@@ -72,7 +79,8 @@ With no slot named and no tracker block, the whole output is
 ## Jira backend
 
 The script reads the `github-project:` block only. Under
-`issues: Jira` it exits non-zero with its fixed Jira message; read the
-`jira:` block of `.issues/repo-config.md` instead — its `fields:` map
-has the same shape (`skills/lib/repo-config.md` → "`jira:` block") —
+`issues: Jira` — in the repo-config it reads, the target's under
+`--repo` — it exits non-zero with its fixed Jira message; read the
+`jira:` block of that `.issues/repo-config.md` instead — its `fields:`
+map has the same shape (`skills/lib/repo-config.md` → "`jira:` block") —
 and render the same output from it. Nothing here needs `acli`.

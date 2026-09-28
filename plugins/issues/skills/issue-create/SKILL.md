@@ -36,8 +36,9 @@ is fully configured before its URL is printed.
   whose meaning depends on the slot's `kind:` in repo-config — an
   integer within `min`/`max` for `kind: number`, an option name
   matched case-insensitively for `kind: single-select`,
-  `kind: issue-field` and `kind: label`. Run `/issue-field-options`
-  to see what a slot accepts. A slot with no value resolves through
+  `kind: issue-field` and `kind: label`. Run `/issue-field-options`,
+  with the same `--repo` when filing elsewhere, to see what a slot
+  accepts. A slot with no value resolves through
   Step 2 below, then the slot's `default:`; there is no built-in
   default.
 - `--repo` (optional): file the issue in `owner/repo` instead of the
@@ -60,17 +61,20 @@ is fully configured before its URL is printed.
    `priority`, `size`, `status` whose flag was not passed, and which
    `/issue-field-options <slot>` does not report as unconfigured, ask
    the user with `AskUserQuestion` — one question per slot, or up to
-   four combined in one call. The options are the slot's option names
-   in configured order; a `kind: number` slot gets an open-ended
-   integer prompt in `[min, max]`. The first option is the
+   four combined in one call. Under `--repo`, run
+   `/issue-field-options <slot> --repo <owner/repo>` instead, so every
+   option and bound offered is the target repo's; nothing in this step
+   reads the current repo's repo-config. The options are the slot's
+   option names in configured order; a `kind: number` slot gets an
+   open-ended integer prompt in `[min, max]`. The first option is the
    recommendation and carries `(Recommended)`:
 
    - **size** — evaluate the issue body per "Size evaluation
      heuristic" below and put that pick first; the rest follow in
      configured order.
    - **priority**, **status** — the slot's `default:` from repo-config,
-     echoed back first. With no `default:`, recommend nothing and keep
-     the configured order.
+     echoed back first. Under `--repo`, or with no `default:`,
+     recommend nothing and keep the configured order.
 
    An answer resolves the slot exactly as if its flag had been passed.
    An unanswered prompt — a timeout, or a non-interactive caller —

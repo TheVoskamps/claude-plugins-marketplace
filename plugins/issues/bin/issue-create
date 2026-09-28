@@ -60,30 +60,12 @@ if [ -z "$target" ]; then
   owner=$ISS_OWNER
   repo=$ISS_REPO
 else
-  case "$target" in
-    */*) owner=${target%%/*}; repo=${target#*/} ;;
-    *) iss_usage_die "\`--repo\` takes owner/repo" ;;
-  esac
-  case "$repo" in ''|*/*) iss_usage_die "\`--repo\` takes owner/repo" ;; esac
+  iss_load_target_config "$target" || no_target_config=yes
+  owner=$ISS_TARGET_OWNER
+  repo=$ISS_TARGET_REPO
   # The current repo only anchors a relative --body-file; its repo-config is
   # never read, since the target's alone governs.
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ISS_REPO_ROOT=
-  errf=$(mktemp "${TMPDIR:-/tmp}/issue-create.XXXXXX")
-  if content=$(gh api "repos/$owner/$repo/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
-    rm -f "$errf"
-    text=$(printf '%s' "$content" | tr -d '\n' | base64 --decode) ||
-      iss_die "could not decode \`$owner/$repo\`'s \`.issues/repo-config.md\`"
-    iss_parse_config_text "$text" "target repo \`$owner/$repo\`: "
-  elif grep -q 'HTTP 404' "$errf"; then
-    rm -f "$errf"
-    no_target_config=yes
-    ISS_HAS_GP=0
-    ISS_GP=
-    ISS_LINK_PREFIX='#'
-  else
-    err=$(cat "$errf"); rm -f "$errf"
-    iss_die "could not read \`$owner/$repo\`'s \`.issues/repo-config.md\`: $err"
-  fi
   # References print as #N for the current repo and owner/repo#N elsewhere,
   # so the current repo is resolved when there is one.
   if nwo=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name' 2>/dev/null); then
