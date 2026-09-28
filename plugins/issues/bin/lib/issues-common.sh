@@ -478,8 +478,7 @@ iss_try_lookup() {
   [ "$ISS_ISSUE" != null ]
 }
 
-# iss_jq <jq args...>: run `jq -r` over ISS_ISSUE, so it reads whichever issue
-# the last iss_lookup or iss_try_lookup fetched.
+# iss_jq <jq args...>: run `jq -r` over whatever ISS_ISSUE currently holds.
 iss_jq() {
   printf '%s' "$ISS_ISSUE" | jq -r "$@"
 }
