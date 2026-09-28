@@ -75,28 +75,48 @@ def brief(nwo, issue):
     }
 
 
-def render(state, nwo, issue, after=None):
+CONNECTIONS = ("labels", "assignees", "subIssues", "blockedBy", "blocking", "projectItems", "issueFieldValues")
+
+
+def paginate(query, name, nodes, after):
+    """The page of `nodes` the query's `name(first: N[, after: $after])`
+    selects, as a connection with pageInfo; None when the query does not
+    select `name`. A cursor is the offset of the first node after the page
+    it ends."""
+    m = re.search(r"\b%s\(first: (\d+)(, after: \$after)?\)" % name, query)
+    if m is None:
+        return None
+    first = int(m.group(1))
+    offset = int(after) if m.group(2) and after else 0
+    page = nodes[offset:offset + first]
+    has_next = offset + first < len(nodes)
+    return {"pageInfo": {"hasNextPage": has_next, "endCursor": str(offset + len(page)) if page else None},
+            "nodes": page}
+
+
+def field_values(item):
+    values = [{"__typename": "ProjectV2ItemFieldTextValue"}]
+    for fid, value in item["fields"].items():
+        if "number" in value:
+            values.append({"__typename": "ProjectV2ItemFieldNumberValue", "field": {"id": fid},
+                           "number": value["number"]})
+        else:
+            values.append({"__typename": "ProjectV2ItemFieldSingleSelectValue", "field": {"id": fid},
+                           "name": value["name"], "optionId": value["optionId"]})
+    return values
+
+
+def render(state, nwo, issue, query, after=None):
     parent = None
     if issue.get("parent"):
         pnwo, p = by_id(state, issue["parent"])
         parent = brief(pnwo, p)
     children = [brief(n, i) for n, i in all_issues(state) if i.get("parent") == issue["id"]]
-    offset = int(after) if after else 0
-    page = children[offset:offset + 50]
-    has_next = offset + 50 < len(children)
     blocked_by = [brief(*by_id(state, b)) for b in issue.get("blockedBy", [])]
     blocking = [brief(n, i) for n, i in all_issues(state) if issue["id"] in i.get("blockedBy", [])]
-    items = []
-    for item in issue.get("projectItems", []):
-        values = [{"__typename": "ProjectV2ItemFieldTextValue"}]
-        for fid, value in item["fields"].items():
-            if "number" in value:
-                values.append({"__typename": "ProjectV2ItemFieldNumberValue", "field": {"id": fid},
-                               "number": value["number"]})
-            else:
-                values.append({"__typename": "ProjectV2ItemFieldSingleSelectValue", "field": {"id": fid},
-                               "name": value["name"], "optionId": value["optionId"]})
-        items.append({"id": item["id"], "project": {"id": item["project"]}, "fieldValues": {"nodes": values}})
+    items = [{"id": item["id"], "project": {"id": item["project"]},
+              "fieldValues": paginate(query, "fieldValues", field_values(item), None)}
+             for item in issue.get("projectItems", [])]
     issue_fields = [{"__typename": "IssueFieldSingleSelectValue", "name": v["name"], "optionId": v["optionId"],
                      "field": {"id": fid}} for fid, v in issue.get("issueFields", {}).items()]
     issue_type = None
@@ -106,18 +126,23 @@ def render(state, nwo, issue, after=None):
     out.update({
         "state": issue.get("state", "OPEN"),
         "body": issue.get("body", ""),
-        "labels": {"nodes": [{"name": n} for n in issue.get("labels", [])]},
-        "assignees": {"nodes": [{"login": n} for n in issue.get("assignees", [])]},
         "issueType": issue_type,
         "parent": parent,
-        "subIssues": {"pageInfo": {"hasNextPage": has_next, "endCursor": str(offset + 50) if has_next else None},
-                      "nodes": page},
-        "blockedBy": {"nodes": blocked_by},
-        "blocking": {"nodes": blocking},
-        "projectItems": {"nodes": items},
-        "issueFieldValues": {"nodes": issue_fields},
         "viewerCanSetFields": issue.get("viewerCanSetFields", True),
     })
+    lists = {
+        "labels": [{"name": n} for n in issue.get("labels", [])],
+        "assignees": [{"login": n} for n in issue.get("assignees", [])],
+        "subIssues": children,
+        "blockedBy": blocked_by,
+        "blocking": blocking,
+        "projectItems": items,
+        "issueFieldValues": issue_fields,
+    }
+    for name in CONNECTIONS:
+        connection = paginate(query, name, lists[name], after)
+        if connection is not None:
+            out[name] = connection
     return out
 
 
@@ -168,6 +193,15 @@ def graphql(state, args):
     query = fields.pop("query")
     mutation = query.lstrip().startswith("mutation")
 
+    if not mutation and "item" in fields:
+        for _, issue in all_issues(state):
+            for item in issue["projectItems"]:
+                if item["id"] == fields["item"]:
+                    page = paginate(query, "fieldValues", field_values(item), fields.get("after"))
+                    print(json.dumps({"data": {"node": {"fieldValues": page}}}))
+                    return
+        fail("Could not resolve to a node with the global id of '%s'" % fields["item"])
+
     if not mutation:
         nwo = fields["owner"] + "/" + fields["repo"]
         issue = by_number(state, nwo, fields["number"])
@@ -175,7 +209,7 @@ def graphql(state, args):
             fail("Could not resolve to an Issue with the number of %s." % fields["number"],
                  {"data": {"repository": {"issue": None}},
                   "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to an Issue"}]})
-        print(json.dumps({"data": {"repository": {"issue": render(state, nwo, issue, fields.get("after"))}}}))
+        print(json.dumps({"data": {"repository": {"issue": render(state, nwo, issue, query, fields.get("after"))}}}))
         return
 
     name = re.search(r"\{\s*(\w+)\s*\(", query).group(1)

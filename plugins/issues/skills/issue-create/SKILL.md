@@ -42,8 +42,9 @@ is fully configured before its URL is printed.
   default.
 - `--repo` (optional): file the issue in `owner/repo` instead of the
   current repo. The script reads that repo's `.issues/repo-config.md`
-  from its default branch and uses it exactly as a local create uses
-  the local one. A target with no repo-config gets a plain issue —
+  from its default branch, validates it and uses it exactly as a local
+  create uses the local one, and reads nothing from the current repo's
+  repo-config. A target with no repo-config gets a plain issue —
   title, body, labels, and any `--assignee` or `--parent` passed — and
   one output line saying the project fields were skipped. A target
   whose repo-config is at an unsupported schema-version aborts before
@@ -302,8 +303,9 @@ note: project fields skipped: `<owner>/<repo>` has no `.issues/repo-config.md`.
 
 ## Jira backend
 
-The script serves the GitHub backend only. Under `issues: Jira` — in
-the current repo, or in a `--repo` target — it exits non-zero with its
-fixed Jira message before filing anything; follow
+The script serves the GitHub backend only. Under `issues: Jira` in
+the repo-config that governs the create — the current repo's, or with
+`--repo` the target's alone — it exits non-zero with its fixed Jira
+message before filing anything; follow
 `skills/lib/issue.md` → "Jira backend" → "Create" instead, running
 Step 2's prompts the same way and producing the same checklist.

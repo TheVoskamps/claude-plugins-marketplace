@@ -441,7 +441,8 @@ iss_gql_fail() {
 }
 
 # iss_lookup <owner> <repo> <number> <selection>: fetch one issue with the
-# given field selection. Sets ISS_ISSUE to the issue object's JSON. Aborts
+# given field selection, whose connections are spelled by iss_conn, and page
+# each of them to its end. Sets ISS_ISSUE to the issue object's JSON. Aborts
 # with the catalogue's not-found wording when the issue does not exist.
 iss_lookup() {
   local doc
@@ -458,6 +459,7 @@ iss_lookup() {
   fi
   ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
   [ "$ISS_ISSUE" != null ] || iss_err_not_found "$1" "$2" "$3"
+  iss_page_rest "$1" "$2" "$3"
 }
 
 # Same as iss_lookup, but returns 1 instead of aborting on not-found.
@@ -475,7 +477,45 @@ iss_try_lookup() {
     iss_gql_fail
   fi
   ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
-  [ "$ISS_ISSUE" != null ]
+  [ "$ISS_ISSUE" != null ] || return 1
+  iss_page_rest "$1" "$2" "$3"
+}
+
+# iss_page_rest <owner> <repo> <number>: page every connection in ISS_ISSUE,
+# and every project item's fieldValues, to its end, appending each later
+# page's nodes, so no read sees a truncated list.
+iss_page_rest() {
+  local ref conn doc cursor page i item
+  ref=$(iss_ref "$1" "$2" "$3")
+  for conn in $(iss_jq 'to_entries[] | select((.value | type) == "object" and .value.pageInfo.hasNextPage? == true) | .key'); do
+    doc="query(\$owner: String!, \$repo: String!, \$number: Int!, \$after: String!) {
+  repository(owner: \$owner, name: \$repo) {
+    issue(number: \$number) { $(iss_conn "$conn" after) }
+  }
+}"
+    while [ "$(iss_jq --arg c "$conn" ".[\$c].pageInfo.hasNextPage")" = true ]; do
+      cursor=$(iss_jq --arg c "$conn" ".[\$c].pageInfo.endCursor")
+      iss_gql -f query="$doc" -f owner="$1" -f repo="$2" -F number="$3" -f after="$cursor" || iss_gql_fail
+      page=$(printf '%s' "$ISS_GQL_OUT" | jq -c --arg c "$conn" '.data.repository.issue[$c] // empty')
+      [ -n "$page" ] || iss_die "the next page of \`$conn\` on issue \`$ref\` came back empty"
+      ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" |
+        jq -c --arg c "$conn" --argjson p "$page" '.[$c].nodes += $p.nodes | .[$c].pageInfo = $p.pageInfo')
+    done
+  done
+  doc="query(\$item: ID!, \$after: String!) {
+  node(id: \$item) { ... on ProjectV2Item { $(iss_conn fieldValues after) } }
+}"
+  for i in $(iss_jq '.projectItems.nodes // [] | to_entries[] | select(.value.fieldValues.pageInfo.hasNextPage == true) | .key'); do
+    item=$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].id")
+    while [ "$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].fieldValues.pageInfo.hasNextPage")" = true ]; do
+      cursor=$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].fieldValues.pageInfo.endCursor")
+      iss_gql -f query="$doc" -f item="$item" -f after="$cursor" || iss_gql_fail
+      page=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.node.fieldValues // empty')
+      [ -n "$page" ] || iss_die "the next page of a project item's field values on issue \`$ref\` came back empty"
+      ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" | jq -c --argjson i "$i" --argjson p "$page" \
+        '.projectItems.nodes[$i].fieldValues.nodes += $p.nodes | .projectItems.nodes[$i].fieldValues.pageInfo = $p.pageInfo')
+    done
+  done
 }
 
 # iss_jq <jq args...>: run `jq -r` over whatever ISS_ISSUE currently holds.
@@ -483,28 +523,41 @@ iss_jq() {
   printf '%s' "$ISS_ISSUE" | jq -r "$@"
 }
 
-readonly ISS_SEL_PROJECT_ITEMS='projectItems(first: 20) {
-  nodes {
-    id
-    project { id }
-    fieldValues(first: 50) {
-      nodes {
-        __typename
-        ... on ProjectV2ItemFieldNumberValue { field { ... on ProjectV2FieldCommon { id } } number }
-        ... on ProjectV2ItemFieldSingleSelectValue { field { ... on ProjectV2FieldCommon { id } } name optionId }
-      }
-    }
-  }
-}'
+# The page size of every connection read; 100 is GitHub's maximum.
+readonly ISS_PAGE_SIZE=100
 
-readonly ISS_SEL_ISSUE_FIELDS='issueFieldValues(first: 20) {
-  nodes {
-    __typename
-    ... on IssueFieldSingleSelectValue { name optionId field { ... on IssueFieldSingleSelect { id } } }
-  }
-}'
+readonly ISS_FIELD_VALUE_NODES='__typename
+    ... on ProjectV2ItemFieldNumberValue { field { ... on ProjectV2FieldCommon { id } } number }
+    ... on ProjectV2ItemFieldSingleSelectValue { field { ... on ProjectV2FieldCommon { id } } name optionId }'
 
-readonly ISS_SEL_LABELS='labels(first: 100) { nodes { name } }'
+# iss_conn_nodes <connection>: the node selection read from each connection.
+iss_conn_nodes() {
+  case "$1" in
+    labels) printf 'name' ;;
+    assignees) printf 'login' ;;
+    subIssues|blockedBy|blocking) printf 'id number title repository { nameWithOwner }' ;;
+    projectItems) printf 'id project { id } %s' "$(iss_conn fieldValues)" ;;
+    fieldValues) printf '%s' "$ISS_FIELD_VALUE_NODES" ;;
+    issueFieldValues)
+      printf '%s' '__typename
+    ... on IssueFieldSingleSelectValue { name optionId field { ... on IssueFieldSingleSelect { id } } }'
+      ;;
+    *) iss_die "no node selection is defined for the connection \`$1\`" ;;
+  esac
+}
+
+# iss_conn <connection> [after]: the connection's selection, carrying the
+# pageInfo iss_page_rest follows. With "after", it reads the page after $after.
+iss_conn() {
+  local args="first: $ISS_PAGE_SIZE"
+  [ "${2:-}" = after ] && args="$args, after: \$after"
+  printf '%s(%s) {\n  pageInfo { hasNextPage endCursor }\n  nodes {\n    %s\n  }\n}' "$1" "$args" "$(iss_conn_nodes "$1")"
+}
+
+ISS_SEL_PROJECT_ITEMS=$(iss_conn projectItems)
+ISS_SEL_ISSUE_FIELDS=$(iss_conn issueFieldValues)
+ISS_SEL_LABELS=$(iss_conn labels)
+readonly ISS_SEL_PROJECT_ITEMS ISS_SEL_ISSUE_FIELDS ISS_SEL_LABELS
 
 readonly ISS_DOC_ADD_PROJECT_ITEM="mutation(\$projectId: ID!, \$contentId: ID!) {
   addProjectV2ItemById(input: { projectId: \$projectId, contentId: \$contentId }) { item { id } }
@@ -802,13 +855,13 @@ iss_blocked_by_edge() {
   if [ "$side" = blocked ]; then
     list=blockedBy
     iss_lookup "$xo" "$xr" "$xn" id; blocker_id=$(iss_jq .id)
-    side_sel="id url blockedBy(first: 100) { nodes { id } }"
+    side_sel="id url $(iss_conn blockedBy)"
     iss_lookup "$bo" "$br" "$bn" "$side_sel"; blocked_id=$(iss_jq .id)
     want=$blocker_id
   else
     list=blocking
     iss_lookup "$bo" "$br" "$bn" id; blocked_id=$(iss_jq .id)
-    side_sel="id url blocking(first: 100) { nodes { id } }"
+    side_sel="id url $(iss_conn blocking)"
     iss_lookup "$xo" "$xr" "$xn" "$side_sel"; blocker_id=$(iss_jq .id)
     want=$blocked_id
   fi

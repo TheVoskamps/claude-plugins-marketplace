@@ -6,16 +6,17 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-readonly SEL="number title url state body
-labels(first: 100) { nodes { name } }
-assignees(first: 50) { nodes { login } }
+SEL="number title url state body
+$ISS_SEL_LABELS
+$(iss_conn assignees)
 issueType { name }
 parent { number title repository { nameWithOwner } }
-subIssues(first: 50) { nodes { number title repository { nameWithOwner } } }
-blockedBy(first: 50) { nodes { number title repository { nameWithOwner } } }
-blocking(first: 50) { nodes { number title repository { nameWithOwner } } }
+$(iss_conn subIssues)
+$(iss_conn blockedBy)
+$(iss_conn blocking)
 $ISS_SEL_PROJECT_ITEMS
 $ISS_SEL_ISSUE_FIELDS"
+readonly SEL
 
 # row <label> <value>: one inline field, the value column at 12.
 row() {

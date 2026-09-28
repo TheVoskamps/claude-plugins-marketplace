@@ -86,7 +86,8 @@ EOF
 add_assignees=$(resolve_assignees "$add_assignees") || exit 1
 remove_assignees=$(resolve_assignees "$remove_assignees") || exit 1
 
-readonly SEL='url title body labels(first: 100) { nodes { name } } assignees(first: 50) { nodes { login } }'
+SEL="url title body $ISS_SEL_LABELS $(iss_conn assignees)"
+readonly SEL
 iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
 url=$(iss_jq .url)
 pre_labels=$(iss_jq '.labels.nodes[].name')

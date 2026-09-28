@@ -7,10 +7,11 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
 readonly MAX_DEPTH=5
-readonly SEL='number title url repository { nameWithOwner }
-subIssues(first: 50) { nodes { number repository { nameWithOwner } } }
-blockedBy(first: 50) { nodes { number title repository { nameWithOwner } } }
-blocking(first: 50) { nodes { number title repository { nameWithOwner } } }'
+SEL="number title url repository { nameWithOwner }
+$(iss_conn subIssues)
+$(iss_conn blockedBy)
+$(iss_conn blocking)"
+readonly SEL
 
 # print_relation <indent> <label> <field>: one relationship section of the
 # node in ISS_ISSUE.
@@ -43,7 +44,7 @@ walk() {
   print_relation "$indent  " "Blocked by" blockedBy
   print_relation "$indent  " "Blocking" blocking
   children=$(iss_jq '.subIssues.nodes[] | .repository.nameWithOwner + "#" + (.number | tostring)')
-  [ -n "$children" ] || return
+  [ -n "$children" ] || return 0
   if [ "$depth" -ge "$MAX_DEPTH" ]; then
     printf '%s  ... (depth cap)\n' "$indent"
     return

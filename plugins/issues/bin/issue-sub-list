@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# List every direct sub-issue of one parent, paging past GitHub's 50-per-page
-# cap. The contract is plugins/issues/skills/issue-sub-list/SKILL.md.
+# List every direct sub-issue of one parent. The contract is
+# plugins/issues/skills/issue-sub-list/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -9,43 +9,15 @@ set -uo pipefail
 iss_init
 iss_parse_operand "$1" local-only
 
-sel="title subIssues(first: 50, after: \$after) {
-  pageInfo { hasNextPage endCursor }
-  nodes { number title repository { nameWithOwner } }
-}"
-doc="query(\$owner: String!, \$repo: String!, \$number: Int!, \$after: String) {
-  repository(owner: \$owner, name: \$repo) {
-    issue(number: \$number) { $sel }
-  }
-}"
-
-lines=
-title=
-cursor=
-while :; do
-  if [ -z "$cursor" ]; then
-    iss_gql -f query="$doc" -f owner="$OP_OWNER" -f repo="$OP_REPO" -F number="$OP_NUMBER"
-  else
-    iss_gql -f query="$doc" -f owner="$OP_OWNER" -f repo="$OP_REPO" -F number="$OP_NUMBER" -f after="$cursor"
-  fi || {
-    [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repository.issue == null' 2>/dev/null)" = true ] &&
-      iss_err_not_found "$OP_OWNER" "$OP_REPO" "$OP_NUMBER"
-    iss_gql_fail
-  }
-  ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
-  [ "$ISS_ISSUE" != null ] || iss_err_not_found "$OP_OWNER" "$OP_REPO" "$OP_NUMBER"
-  [ -n "$title" ] || title=$(iss_jq .title)
-  page=$(iss_jq '.subIssues.nodes[] | [.repository.nameWithOwner, (.number | tostring), .title] | join("\t")')
-  [ -z "$page" ] || lines="$lines$page$ISS_NEWLINE"
-  [ "$(iss_jq .subIssues.pageInfo.hasNextPage)" = true ] || break
-  cursor=$(iss_jq .subIssues.pageInfo.endCursor)
-done
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title $(iss_conn subIssues)"
+title=$(iss_jq .title)
+lines=$(iss_jq '.subIssues.nodes[] | [.repository.nameWithOwner, (.number | tostring), .title] | join("\t")')
 
 printf 'Sub-issues of %s "%s":\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$title"
 if [ -z "$lines" ]; then
   printf '  (none)\n'
   exit 0
 fi
-printf '%s' "$lines" | while IFS="$(printf '\t')" read -r nwo number child_title; do
+printf '%s\n' "$lines" | while IFS="$(printf '\t')" read -r nwo number child_title; do
   printf '  - %s %s\n' "$(iss_ref_nwo "$nwo" "$number")" "$child_title"
 done

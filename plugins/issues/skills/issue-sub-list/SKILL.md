@@ -4,9 +4,9 @@ description: List all direct sub-issues of a parent issue, paginated.
 ---
 
 List the direct sub-issues (one level down only — no recursion) of a
-given parent. The script pages through GitHub's 50-per-page limit, so a
-parent with more children is listed in full; `/issue-view-tree` is the
-verb for recursive walks.
+given parent. The script pages through GitHub's per-page limit, so a
+parent with more children than one page is listed in full;
+`/issue-view-tree` is the verb for recursive walks.
 
 ## Invocation
 

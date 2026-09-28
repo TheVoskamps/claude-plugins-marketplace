@@ -100,9 +100,9 @@ CONFIG_NO_BLOCK="$FRONT_MATTER
 
 # The fixture: acme/widgets is the current repo, acme/other a second one.
 BASE_STATE="$SANDBOX/base-state.json"
-python3 - "$BASE_STATE" "$CONFIG_MAIN" <<'PY'
+python3 - "$BASE_STATE" "$CONFIG_MAIN" "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')" <<'PY'
 import json, sys
-path, config = sys.argv[1], sys.argv[2]
+path, config, jira_config = sys.argv[1], sys.argv[2], sys.argv[3]
 def issue(repo, n, title, **kw):
     d = {"id": "I_%s_%d" % (repo.replace("/", "_"), n), "number": n, "title": title, "body": "Body of %d.\n" % n,
          "state": "OPEN", "labels": [], "assignees": [], "blockedBy": [], "projectItems": [], "issueFields": {}}
@@ -123,24 +123,42 @@ widgets["5"]["viewerCanSetFields"] = False
 # issue 10 sits at depth 5, so its child 11 falls past the depth cap.
 for child, parent in (("6", "1"), ("7", "6"), ("8", "7"), ("9", "8"), ("10", "9")):
     widgets[child]["parent"] = "I_acme_widgets_" + parent
+# Every connection a script reads runs past one page of 100 somewhere: issue 3
+# has 110 sub-issues; issue 12 has 120 labels, 105 assignees, 110 blocked-by
+# and 110 blocking edges, 105 project items on other boards before the one on
+# PVT_1, 110 field values on that item before its status, and 105 native field
+# values before its priority. Each value the tests read sits past page one.
 big = {}
-for n in range(100, 160):
-    big[str(n)] = issue("acme/widgets", n, "Child %d" % n, parent="I_acme_widgets_3")
+for n in range(100, 210):
+    big[str(n)] = issue("acme/widgets", n, "Child %d" % n, parent="I_acme_widgets_3", blockedBy=["I_acme_widgets_12"])
 widgets.update(big)
 widgets["11"] = issue("acme/widgets", 11, "Leaf", parent="I_acme_widgets_10")
+many_fields = {"PVTF_other%d" % n: {"number": n} for n in range(110)}
+many_fields["PVTSSF_status"] = {"name": "In progress", "optionId": "OPT_inprogress"}
+many_issue_fields = {"IFSS_other%d" % n: {"name": "x", "optionId": "IFSSO_x"} for n in range(105)}
+many_issue_fields["IFSS_priority"] = {"name": "High", "optionId": "IFSSO_high"}
+widgets["12"] = issue(
+    "acme/widgets", 12, "Many of everything",
+    labels=["lbl-%03d" % n for n in range(119)] + ["size:L"],
+    assignees=["user-%03d" % n for n in range(1, 106)],
+    blockedBy=["I_acme_widgets_%d" % n for n in range(100, 210)],
+    projectItems=[{"id": "PVTI_12_%d" % n, "project": "PVT_other%d" % n, "fields": {}} for n in range(105)]
+    + [{"id": "PVTI_12", "project": "PVT_1", "fields": many_fields}],
+    issueFields=many_issue_fields)
 state = {
     "current": "acme/widgets",
     "user": "octocat",
     "repos": {
         "acme/widgets": {"issues": widgets, "config": config,
                          "validLabels": ["bug", "docs", "size:S", "size:M", "size:L"],
-                         "collaborators": ["octocat", "hubot"]},
+                         "collaborators": ["octocat", "hubot"] + ["user-%03d" % n for n in range(1, 106)]},
         "acme/other": {"issues": {"3": issue("acme/other", 3, "Other repo issue")}, "config": None,
                        "validLabels": ["bug"], "collaborators": ["octocat"]},
         "acme/stale": {"issues": {}, "config": "---\nschema-version: 5\n---\n", "validLabels": [],
                        "collaborators": ["octocat"]},
+        "acme/jira": {"issues": {}, "config": jira_config, "validLabels": [], "collaborators": ["octocat"]},
     },
-    "projectFields": ["PVTSSF_status", "PVTF_prio"],
+    "projectFields": ["PVTSSF_status", "PVTF_prio"] + list(many_fields),
     "projectOptions": {"OPT_backlog": "Backlog", "OPT_inprogress": "In progress", "OPT_done": "Done"},
     "issueFieldIds": ["IFSS_priority"],
     "issueFieldOptions": {"IFSSO_high": "High", "IFSSO_medium": "Medium", "IFSSO_low": "Low"},
@@ -302,8 +320,8 @@ expect_absent "issue-view: no github-project block omits slot rows" "Status:"
 
 new_case "$CONFIG_MAIN"
 run issue-sub-list 3
-expect "issue-sub-list: pages past 50" 0 "Sub-issues of #3 \"Widget issue 3\":" "  - #100 Child 100" "  - #159 Child 159"
-check "$(printf '%s\n' "$OUT" | grep -c '^  - ')" 60 "issue-sub-list: all 60 children listed"
+expect "issue-sub-list: pages past one page" 0 "Sub-issues of #3 \"Widget issue 3\":" "  - #100 Child 100" "  - #209 Child 209"
+check "$(printf '%s\n' "$OUT" | grep -c '^  - ')" 110 "issue-sub-list: all 110 children listed"
 run issue-sub-list 2
 expect "issue-sub-list: none" 0 "  (none)"
 
@@ -468,13 +486,13 @@ new_case "$CONFIG_MAIN"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
 run issue-create --title "Make it" --body-file new.md --type bug --priority low --status Done --labels docs --parent 1
 expect "issue-create: fully configured" 0 \
-  "Created issue #160 \"Make it\"" "  type:       Bug" "  priority:   Low" "  size:       M" \
-  "  status:     Done" "  assignee:   octocat" "  parent:     #1" "https://github.com/acme/widgets/issues/160"
-check "$(state '.repos["acme/widgets"].issues["160"] | [.issueType, .issueFields.IFSS_priority.name, (.labels|sort|join(",")), .projectItems[0].fields.PVTSSF_status.name, .parent] | join(" ")')" \
+  "Created issue #210 \"Make it\"" "  type:       Bug" "  priority:   Low" "  size:       M" \
+  "  status:     Done" "  assignee:   octocat" "  parent:     #1" "https://github.com/acme/widgets/issues/210"
+check "$(state '.repos["acme/widgets"].issues["210"] | [.issueType, .issueFields.IFSS_priority.name, (.labels|sort|join(",")), .projectItems[0].fields.PVTSSF_status.name, .parent] | join(" ")')" \
   "IT_bug Low docs,size:M Done I_acme_widgets_1" "issue-create: every write landed"
 run issue-create --title "Bad" --body-file new.md --priority Extreme
 expect "issue-create: invalid value refused before creating" 1 "value \`Extreme\` is not in \`priority\`'s options"
-check "$(state '.repos["acme/widgets"].issues | has("161")')" false "issue-create: nothing created on a bad value"
+check "$(state '.repos["acme/widgets"].issues | has("211")')" false "issue-create: nothing created on a bad value"
 
 new_case "$CONFIG_NUMBER"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
@@ -498,20 +516,65 @@ expect "issue-create --repo: stale target schema aborts" 1 \
   "target repo \`acme/stale\`: This repo's \`.issues/repo-config.md\` is at schema-version \`5\`"
 check "$(state '.repos["acme/stale"].issues | length')" 0 "issue-create --repo: nothing created in a stale target"
 
+run issue-create --title "Tracked elsewhere" --body-file new.md --repo acme/jira
+expect "issue-create --repo: Jira target exits non-zero" 1 \
+  "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+check "$(state '.repos["acme/jira"].issues | length')" 0 "issue-create --repo: nothing created in a Jira target"
+
 new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
-run issue-create --title "Elsewhere" --body-file new.md --repo acme/other
-expect "issue-create --repo: invoking repo on Jira exits non-zero" 1 \
-  "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
-check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create --repo: invoking repo on Jira makes no gh call"
+run issue-create --title "Elsewhere" --body-file new.md --repo acme/widgets
+expect "issue-create --repo: the invoking repo's tracker is not read" 0 \
+  "Created issue #210 \"Elsewhere\"" "  type:       Feature" "  status:     Backlog"
 
 new_case "$CONFIG_MAIN"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
 run issue-create --title "Labelled" --body-file new.md --labels docs,nosuch
 expect "issue-create: a dropped label exits non-zero" 1 \
   "  labels:     docs, size:M (requested docs,nosuch; nosuch did not land)" \
-  "label(s) nosuch did not land on issue \`#160\`"
+  "label(s) nosuch did not land on issue \`#210\`"
 expect_absent "issue-create: a dropped label is not a partial run" "the run stopped before finishing"
+
+# ---------------------------------------------------------------------------
+# Paging: every connection read runs to its end (see the fixture's #3, #12).
+# ---------------------------------------------------------------------------
+
+new_case "$CONFIG_MAIN"
+run issue-view 12
+expect "issue-view: labels, assignees and every slot read past page one" 0 \
+  "lbl-118, size:L" "user-104, user-105" "Status:     In progress" "Priority:   High" "Size:       L"
+check "$(printf '%s\n' "$OUT" | grep -c '^  - #')" 220 "issue-view: all 110 blocked-by and 110 blocking rows"
+check "$(printf '%s\n' "$OUT" | grep -c '^  - #209 Child 209$')" 2 "issue-view: the last edge on each side"
+run issue-view 3
+check "$(printf '%s\n' "$OUT" | grep -c '^  - #')" 110 "issue-view: all 110 sub-issues"
+run issue-view-tree 3
+expect "issue-view-tree: walks every sub-issue" 0 "  #209 Child 209  "
+check "$(printf '%s\n' "$OUT" | grep -c '^  #[0-9]* Child ')" 110 "issue-view-tree: 110 children walked"
+
+run issue-set-size 12 L
+expect "issue-set-size: a label past page one is already set" 0 "#12 size already set to L (via label \`size:L\`)."
+run issue-set-priority 12 high
+expect "issue-set-priority: a native field past page one is already set" 0 "#12 priority already set to High."
+run issue-set-size 12 S
+expect "issue-set-size: converges past page one" 0 "#12 size set to S (via label \`size:S\`)."
+check "$(state '.repos["acme/widgets"].issues["12"].labels | map(select(startswith("size:"))) | join(",")')" "size:S" \
+  "issue-set-size: the label past page one was removed"
+run issue-set-status 12 Done
+expect "issue-set-status: the board item past page one is written" 0 "Set status on issue #12 to Done."
+check "$(state '.repos["acme/widgets"].issues["12"].projectItems | [length, (.[-1].fields.PVTSSF_status.name)] | map(tostring) | join(" ")')" \
+  "106 Done" "issue-set-status: no second board item added"
+
+run issue-update 12 --add-labels docs --remove-assignees user-105
+expect "issue-update: a re-read past page one sees the change" 0 "labels added:    docs" "assignees removed: user-105"
+
+run issue-unset-blocked-by 12 209
+expect "issue-unset-blocked-by: an edge past page one is present" 0 "no longer blocked by #209"
+check "$(state '.repos["acme/widgets"].issues["12"].blockedBy | length')" 109 "issue-unset-blocked-by: edge removed"
+run issue-set-blocked-by 12 5
+expect "issue-set-blocked-by: a write landing past page one is seen" 0 "Marked issue #12 as blocked by #5."
+run issue-unset-blocks 12 209
+expect "issue-unset-blocks: an edge past page one is present" 0 \
+  "Removed blocking relationship: issue #12 no longer blocks #209."
 
 # ---------------------------------------------------------------------------
 # Every write is re-read: with writes dropped, each write verb fails.
