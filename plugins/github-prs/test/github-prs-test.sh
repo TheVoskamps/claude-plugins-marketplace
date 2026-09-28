@@ -111,16 +111,19 @@ case "$1 $2" in
     ;;
   "pr create")
     # Positional: pr-create passes `--draft --base <base> --head <head>`
-    # first. A case's `base-override` stands in for the base GitHub kept.
+    # first. A case's `base-override` or `body-override` stands in for
+    # the base or the body GitHub kept, and its `create-url` for what gh
+    # printed.
     printf '%s\n' "$(val base-override "$5")" >"$S/base"
     printf '%s\n' "$7" >"$S/head"
     if landed; then echo true >"$S/draft"; else echo false >"$S/draft"; fi
-    cat "$body_file" >"$S/body"
-    echo "https://github.com/o/r/pull/7"
+    if [ -f "$S/body-override" ]; then cat "$S/body-override" >"$S/body"; else cat "$body_file" >"$S/body"; fi
+    printf '%s\n' "$(val create-url "https://github.com/o/r/pull/7")"
     ;;
   "pr comment")
+    # A case's `comment-url` stands in for what gh printed.
     if landed; then cat "$body_file" >"$S/comment-555"; else echo other >"$S/comment-555"; fi
-    echo "https://github.com/o/r/pull/7#issuecomment-555"
+    printf '%s\n' "$(val comment-url "https://github.com/o/r/pull/7#issuecomment-555")"
     ;;
   "pr review")
     me=$(val me me)
@@ -351,6 +354,14 @@ check "$RC" "1" "pr-comment: exit 1 when the posted body differs"
 check "$ERR" "pr-comment: PR #7: the comment did not land: comment 555's body differs from $SANDBOX/new-body.md" \
   "pr-comment: the not-landed message"
 
+new_case comment-no-id
+echo "https://github.com/o/r/pull/7" >"$CASE/comment-url"
+run pr-comment 7 --body-file "$SANDBOX/new-body.md"
+check "$RC" "1" "pr-comment: exit 1 when gh's URL names no comment id"
+check "$ERR" "pr-comment: PR #7: the comment did not land: gh reported \`https://github.com/o/r/pull/7\`, which names no comment id" \
+  "pr-comment: the no-comment-id message"
+check "$(calls | grep -c '^api')" "0" "pr-comment: a URL with no comment id is not re-read"
+
 # --- pr-link-issue -------------------------------------------------------
 new_case link
 printf 'Summary\n\nCloses #3\n' >"$CASE/body"
@@ -393,12 +404,30 @@ new_case create-mismatch
 echo main >"$CASE/base-override"
 run pr-create --head issue-3-4-x --title T --body-file "$SANDBOX/summary.md" 3
 check "$RC" "1" "pr-create: exit 1 when the PR is not on the configured base"
-check_contains "$ERR" "PR #7: the draft PR did not land" "pr-create: the not-landed message"
+check "$ERR" "pr-create: PR #7: the draft PR did not land: the re-read reports isDraft, base and head as \`true main issue-3-4-x\`, not \`true integ issue-3-4-x\`" \
+  "pr-create: the wrong-base message"
 
 new_case create-not-draft
 touch "$CASE/noop"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
 check "$RC" "1" "pr-create: exit 1 when the PR is not a draft"
+check "$ERR" "pr-create: PR #7: the draft PR did not land: the re-read reports isDraft, base and head as \`false integ b\`, not \`true integ b\`" \
+  "pr-create: the not-draft message"
+
+new_case create-wrong-body
+echo "Other text" >"$CASE/body-override"
+run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
+check "$RC" "1" "pr-create: exit 1 when the PR carries another body"
+check "$ERR" "pr-create: PR #7: the PR body did not land: the re-read body is not the body written" \
+  "pr-create: the wrong-body message"
+
+new_case create-no-pr-in-url
+echo "https://github.com/o/r/pulls" >"$CASE/create-url"
+run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
+check "$RC" "1" "pr-create: exit 1 when gh's URL names no PR number"
+check "$ERR" "pr-create: gh pr create reported \`https://github.com/o/r/pulls\`, which names no PR number" \
+  "pr-create: the no-PR-number message"
+check "$(calls | grep -c '^pr view')" "0" "pr-create: a URL with no PR number is not re-read"
 
 new_case create-no-issue
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md"
