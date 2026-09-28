@@ -273,12 +273,15 @@ https://github.com/<owner>/<repo>/issues/1042
   `no github-project block in repo-config`,
   `no issue-types map in repo-config`, and
   `target repo has no repo-config`.
+- `labels:` appears only when `--labels` was passed, and reads like
+  the assignee line below.
 - `parent:` appears only when `--parent` was passed.
 - An issue filed in another repo prints as `owner/repo#N`.
 - The assignee line is the re-read set. When a requested login did not
   land — GitHub accepts an invalid login on create without an error —
   it reads `<landed> (requested <all>; <missing> did not land)` and the
-  script exits non-zero after printing the checklist.
+  script exits non-zero after printing the checklist. A requested label
+  that did not land is reported and exits the same way.
 
 A flag skipped for missing project metadata also prints one warning
 line before the URL, for `--type`, `--priority`, `--size` and

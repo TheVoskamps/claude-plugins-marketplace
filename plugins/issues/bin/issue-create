@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # File one issue with its type, field slots, parent, assignees and labels set,
 # in this repo or, with --repo, in another. The type, slot and parent values
-# are validated before the issue is created; the type, parent, slot and
-# assignee writes are re-read after it. The contract is
+# are validated before the issue is created; the type, parent, slot, assignee
+# and label writes are re-read after it. The contract is
 # plugins/issues/skills/issue-create/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
@@ -66,6 +66,13 @@ else
   esac
   case "$repo" in ''|*/*) iss_usage_die "\`--repo\` takes owner/repo" ;; esac
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ISS_REPO_ROOT=
+  # The invoking repo's tracker is checked before any gh call; only its
+  # `issues:` value is read, since the target's repo-config governs the rest.
+  if [ -n "$ISS_REPO_ROOT" ] && [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] &&
+     local_fm=$(iss_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")") &&
+     [ "$(iss_fm_get "$local_fm" issues)" = Jira ]; then
+    iss_err_jira
+  fi
   errf=$(mktemp "${TMPDIR:-/tmp}/issue-create.XXXXXX")
   if content=$(gh api "repos/$owner/$repo/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
     rm -f "$errf"
@@ -257,19 +264,45 @@ write_slot priority "$priority_value"
 write_slot size "$size_value"
 write_slot status "$status_value"
 
+# requested_missing <requested-csv> <landed-lines>: print the requested names
+# the re-read does not show, comma-joined; matching ignores case.
+requested_missing() {
+  local item landed_lc out=
+  landed_lc=$(printf '%s\n' "$2" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    printf '%s\n' "$landed_lc" | grep -Fxq -- "$(iss_lc "$item")" || out="${out:+$out, }$item"
+  done <<EOF
+$(printf '%s\n' "$1" | tr ',' '\n')
+EOF
+  printf '%s' "$out"
+}
+
+missing=
+missing_labels=
+if [ -n "$assignees" ] || [ -n "$labels" ]; then
+  iss_lookup "$owner" "$repo" "$number" "assignees(first: 50) { nodes { login } } $ISS_SEL_LABELS"
+fi
+
 assignee_line="skipped: no --assignee passed and no built-in default applies"
 if [ -n "$assignees" ]; then
-  iss_lookup "$owner" "$repo" "$number" "assignees(first: 50) { nodes { login } }"
   have=$(iss_jq '.assignees.nodes[].login')
-  have_lc=$(printf '%s\n' "$have" | tr '[:upper:]' '[:lower:]')
-  missing=
-  for login in $(printf '%s' "$assignees" | tr ',' ' '); do
-    printf '%s\n' "$have_lc" | grep -Fxq -- "$(iss_lc "$login")" || missing="${missing:+$missing, }$login"
-  done
+  missing=$(requested_missing "$assignees" "$have")
   if [ -n "$missing" ]; then
     assignee_line="$(printf '%s' "$have" | iss_join_lines) (requested $assignees; $missing did not land)"
   else
     assignee_line=$(printf '%s' "$have" | iss_join_lines)
+  fi
+fi
+
+labels_line=
+if [ -n "$labels" ]; then
+  have=$(iss_jq '.labels.nodes[].name')
+  missing_labels=$(requested_missing "$labels" "$have")
+  if [ -n "$missing_labels" ]; then
+    labels_line="$(printf '%s' "$have" | iss_join_lines) (requested $labels; $missing_labels did not land)"
+  else
+    labels_line=$(printf '%s' "$have" | iss_join_lines)
   fi
 fi
 
@@ -279,6 +312,7 @@ printf '  priority:   %s\n' "$priority_line"
 printf '  size:       %s\n' "$size_line"
 printf '  status:     %s\n' "$status_line"
 printf '  assignee:   %s\n' "$assignee_line"
+[ -z "$labels" ] || printf '  labels:     %s\n' "$labels_line"
 [ -z "$parent_ref" ] || printf '  parent:     %s\n' "$parent_ref"
 if [ "$no_target_config" = yes ]; then
   printf '\nnote: project fields skipped: %s has no %s.\n' "\`$owner/$repo\`" "\`.issues/repo-config.md\`"
@@ -286,9 +320,12 @@ fi
 [ -z "$warnings" ] || printf '\n%s' "$warnings"
 printf '\n%s\n' "$created_url"
 
-if [ -n "${missing:-}" ]; then
+if [ -n "$missing" ] || [ -n "$missing_labels" ]; then
   # The summary above already reports the issue, so the exit trap's
   # partial-run report is silenced.
   created_url=
-  iss_die "assignee(s) $missing did not land on issue \`$ref\`"
+  dropped=
+  [ -z "$missing" ] || dropped="assignee(s) $missing"
+  [ -z "$missing_labels" ] || dropped="${dropped:+$dropped and }label(s) $missing_labels"
+  iss_die "$dropped did not land on issue \`$ref\`"
 fi

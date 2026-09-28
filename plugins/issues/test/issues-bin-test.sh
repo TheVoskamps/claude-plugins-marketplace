@@ -498,6 +498,21 @@ expect "issue-create --repo: stale target schema aborts" 1 \
   "target repo \`acme/stale\`: This repo's \`.issues/repo-config.md\` is at schema-version \`5\`"
 check "$(state '.repos["acme/stale"].issues | length')" 0 "issue-create --repo: nothing created in a stale target"
 
+new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create --title "Elsewhere" --body-file new.md --repo acme/other
+expect "issue-create --repo: invoking repo on Jira exits non-zero" 1 \
+  "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create --repo: invoking repo on Jira makes no gh call"
+
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create --title "Labelled" --body-file new.md --labels docs,nosuch
+expect "issue-create: a dropped label exits non-zero" 1 \
+  "  labels:     docs, size:M (requested docs,nosuch; nosuch did not land)" \
+  "label(s) nosuch did not land on issue \`#160\`"
+expect_absent "issue-create: a dropped label is not a partial run" "the run stopped before finishing"
+
 # ---------------------------------------------------------------------------
 # Every write is re-read: with writes dropped, each write verb fails.
 # ---------------------------------------------------------------------------

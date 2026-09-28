@@ -610,7 +610,7 @@ iss_is_stale_id_error() {
 # must carry the selection the kind reads. Prints the canonical value, or
 # nothing when unset.
 iss_slot_read() {
-  local slot=$1 kind=$2 fid ns opt
+  local slot=$1 kind=$2 fid ns
   case "$kind" in
     number)
       fid=$(iss_cfg_get fields "$slot" id)
