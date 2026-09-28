@@ -172,8 +172,9 @@ iss_require_tools() {
 # config gets wrong (iss_check_slots).
 #
 # iss_validate_config_text <text> runs the same checks without the Jira
-# refusal: it is what repo-config-write accepts before writing a file, and a
-# Jira config is one it writes.
+# refusal, and runs iss_check_slots over a jira: block as well: it is what
+# repo-config-write accepts before writing a file, and a Jira config is one it
+# writes.
 # ---------------------------------------------------------------------------
 
 # iss_frontmatter <text>: print the lines between the opening "---" and the
@@ -201,13 +202,14 @@ $1
 EOF
 }
 
-# Flatten the github-project: block of a repo-config body. The block starts at
-# a column-0 "github-project:" line and runs to the next column-0 non-blank
-# line. Mappings nest by indentation; a flow list "[a, b]" or a block list of
+# iss_flatten_block <block> <body>: flatten a column-0 block of a repo-config
+# body -- github-project: or jira: -- with every path rooted at <block>. The
+# block starts at a column-0 "<block>:" line and runs to the next column-0
+# non-blank line. Mappings nest by indentation; a flow list "[a, b]" or a block list of
 # "- a" lines becomes an identity map (a -> a) so every option list reads the
 # same way.
-iss_flatten_gp() {
-  awk -v SEP="$ISS_SEP" '
+iss_flatten_block() {
+  awk -v SEP="$ISS_SEP" -v BLK="$1" '
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
     function unquote(s) {
       s = trim(s)
@@ -216,7 +218,7 @@ iss_flatten_gp() {
       return trim(s)
     }
     function path(   p, i) {
-      p = "github-project"
+      p = BLK
       for (i = 1; i <= sp; i++) p = p SEP skey[i]
       return p
     }
@@ -230,7 +232,7 @@ iss_flatten_gp() {
       }
     }
     BEGIN { inblk = 0; sp = 0 }
-    /^github-project:[ \t]*$/ { inblk = 1; sp = 0; print "github-project\t"; next }
+    $0 ~ "^" BLK ":[ \t]*$" { inblk = 1; sp = 0; print BLK "\t"; next }
     !inblk { next }
     /^[ \t]*$/ { next }
     /^[^ \t]/ { inblk = 0; next }
@@ -258,7 +260,7 @@ iss_flatten_gp() {
       emit(path(), unquote(val))
     }
   ' <<EOF
-$1
+$2
 EOF
 }
 
@@ -290,6 +292,7 @@ iss_parse_config_text() {
 iss_validate_config_text() {
   iss_config_frontmatter "$1" "${2:-}"
   iss_config_github_project "$1" "${2:-}"
+  iss_config_jira "$1" "${2:-}"
 }
 
 # iss_config_frontmatter <text> [<message-prefix>]: the schema-version and
@@ -319,9 +322,18 @@ iss_config_frontmatter() {
 # iss_config_github_project <text> [<message-prefix>]: flatten the
 # github-project: block into ISS_GP and ISS_HAS_GP, and check its slots.
 iss_config_github_project() {
-  ISS_GP=$(iss_flatten_gp "$(iss_body "$1")")
+  ISS_GP=$(iss_flatten_block github-project "$(iss_body "$1")")
   if [ -n "$ISS_GP" ]; then ISS_HAS_GP=1; else ISS_HAS_GP=0; fi
   [ "$ISS_HAS_GP" = 0 ] || iss_check_slots "${2:-}"
+}
+
+# iss_config_jira <text> [<message-prefix>]: check the jira: block's slots.
+# The accessors read ISS_GP below ISS_CFG_ROOT, so both are shadowed here and
+# the github-project: block's flattening survives the call.
+iss_config_jira() {
+  local ISS_GP ISS_CFG_ROOT=jira
+  ISS_GP=$(iss_flatten_block jira "$(iss_body "$1")")
+  [ -z "$ISS_GP" ] || iss_check_slots "${2:-}"
 }
 
 # iss_check_slots [<message-prefix>]: abort when a kind: number slot's range
@@ -341,7 +353,7 @@ iss_check_slots() {
           iss_err_invalid_default "$slot" "$value" "an integer in \`[$ISS_NUM_MIN, $ISS_NUM_MAX]\`" "$prefix"
         fi
         ;;
-      single-select|label|issue-field)
+      single-select|label|issue-field|status|custom-field)
         [ -z "$value" ] || iss_resolve_name all "$value" fields "$slot" options >/dev/null ||
           iss_err_invalid_default "$slot" "$value" "one of its options: \`$(iss_slot_options "$slot")\`" "$prefix"
         ;;
@@ -433,11 +445,12 @@ iss_init() {
 
 # ---------------------------------------------------------------------------
 # Flattened-config accessors. Arguments are path components below
-# github-project, e.g. iss_cfg_get fields status kind.
+# ISS_CFG_ROOT -- github-project unless iss_config_jira sets it -- e.g.
+# iss_cfg_get fields status kind.
 # ---------------------------------------------------------------------------
 
 iss_cfg_path() {
-  local p=github-project c
+  local p=${ISS_CFG_ROOT:-github-project} c
   for c in "$@"; do p="$p$ISS_SEP$c"; done
   printf '%s' "$p"
 }

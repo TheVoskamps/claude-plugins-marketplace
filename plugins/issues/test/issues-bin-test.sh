@@ -510,6 +510,59 @@ run repo-config-write "$CASE_DIR/draft.md"
 expect "repo-config-write: a Jira draft replaces the config" 0 "Wrote "
 check "$(grep -c '^issues: Jira$' "$CASE_DIR/repo/.issues/repo-config.md")" 1 "repo-config-write: the Jira file landed"
 
+# A jira: block's slot defaults and number ranges get the github-project:
+# block's checks.
+CONFIG_JIRA="$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')
+jira:
+  project-key: SET
+  fields:
+    status:
+      kind: status
+      default: Backlog
+      options:
+        Backlog: Backlog
+        In Progress: In Progress
+    priority:
+      kind: custom-field
+      field-id: customfield_10031
+      default: Medium
+      options:
+        Low: Low
+        Medium: Medium
+    size:
+      kind: label
+      namespace: \"size:\"
+      default: M
+      options: [S, M, L]
+    estimate:
+      kind: number
+      min: 1
+      max: 9
+      default: 3
+  issue-types:
+    default: Task
+    Task: Task"
+
+new_case "$CONFIG_NUMBER"
+printf '%s\n' "$CONFIG_JIRA" >"$CASE_DIR/draft.md"
+run repo-config-write "$CASE_DIR/draft.md"
+expect "repo-config-write: a Jira draft with valid jira: slots is written" 0 "Wrote "
+check "$(cmp "$CASE_DIR/draft.md" "$CASE_DIR/repo/.issues/repo-config.md" && echo same)" same \
+  "repo-config-write: the Jira file is the draft, byte for byte"
+
+refuse_write "Jira status default outside the options" \
+  "$(printf '%s\n' "$CONFIG_JIRA" | sed 's/default: Backlog$/default: Done/')" \
+  "sets \`status\`'s \`default:\` to \`Done\`, which is not one of its options: \`Backlog, In Progress\`"
+refuse_write "Jira custom-field default outside the options" \
+  "$(printf '%s\n' "$CONFIG_JIRA" | sed 's/default: Medium$/default: High/')" \
+  "sets \`priority\`'s \`default:\` to \`High\`, which is not one of its options: \`Low, Medium\`"
+refuse_write "Jira label default outside the options" \
+  "$(printf '%s\n' "$CONFIG_JIRA" | sed 's/default: M$/default: XL/')" \
+  "sets \`size\`'s \`default:\` to \`XL\`, which is not one of its options: \`S, M, L\`"
+refuse_write "Jira min above max" \
+  "$(printf '%s\n' "$CONFIG_JIRA" | sed -e 's/min: 1$/min: 9/' -e 's/max: 9$/max: 1/')" \
+  "sets \`estimate\`'s range to \`[9, 1]\`"
+
 # ---------------------------------------------------------------------------
 # Set-slot verbs.
 # ---------------------------------------------------------------------------
