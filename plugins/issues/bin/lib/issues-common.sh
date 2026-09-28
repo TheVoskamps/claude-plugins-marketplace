@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# Shared code for the issue-verb scripts in plugins/issues/bin/: the
-# .issues/repo-config.md read, operand parsing, node-ID and field/option ID
+# Shared code for the scripts in plugins/issues/bin/: the
+# .issues/repo-config.md read and its checks, operand parsing, node-ID and field/option ID
 # resolution, the GraphQL documents, the set-slot write paths, and the
 # canonical error catalogue. Every script sources this file and nothing else,
 # so each of these is written exactly once.
@@ -56,6 +56,11 @@ iss_err_frontmatter_incomplete() {
 iss_err_invalid_default() {
   # $1 slot, $2 the configured default, $3 what the slot accepts, $4 message prefix
   iss_die "${4:-}This repo's \`.issues/repo-config.md\` sets \`$1\`'s \`default:\` to \`$2\`, which is not $3. Run \`/repo-config\` to fix it."
+}
+
+iss_err_invalid_range() {
+  # $1 slot, $2 min, $3 max, $4 message prefix
+  iss_die "${4:-}This repo's \`.issues/repo-config.md\` sets \`$1\`'s range to \`[$2, $3]\`, which is not an integer range with \`min:\` at most \`max:\`. Run \`/repo-config\` to fix it."
 }
 
 iss_err_jira() {
@@ -163,8 +168,12 @@ iss_require_tools() {
 #                                     path components joined by ISS_SEP
 #   ISS_HAS_GP                        1 when the block is present, else 0
 # It aborts with the canonical repo-config messages, with the fixed Jira
-# message when the tracker is Jira — before any gh call — and on a slot
-# default: the slot would refuse (iss_check_slot_defaults).
+# message when the tracker is Jira — before any gh call — and on a slot the
+# config gets wrong (iss_check_slots).
+#
+# iss_validate_config_text <text> runs the same checks without the Jira
+# refusal: it is what repo-config-write accepts before writing a file, and a
+# Jira config is one it writes.
 # ---------------------------------------------------------------------------
 
 # iss_frontmatter <text>: print the lines between the opening "---" and the
@@ -273,7 +282,20 @@ EOF
 }
 
 iss_parse_config_text() {
-  local text=$1 prefix=${2:-} fm version field body
+  iss_config_frontmatter "$1" "${2:-}"
+  [ "$ISS_ISSUES" != Jira ] || iss_err_jira
+  iss_config_github_project "$1" "${2:-}"
+}
+
+iss_validate_config_text() {
+  iss_config_frontmatter "$1" "${2:-}"
+  iss_config_github_project "$1" "${2:-}"
+}
+
+# iss_config_frontmatter <text> [<message-prefix>]: the schema-version and
+# canonical-field checks; sets ISS_ISSUES and ISS_LINK_PREFIX.
+iss_config_frontmatter() {
+  local text=$1 prefix=${2:-} fm version field
   if ! fm=$(iss_frontmatter "$text"); then
     iss_err_schema_absent "$prefix"
   fi
@@ -289,46 +311,67 @@ iss_parse_config_text() {
   ISS_ISSUES=$(iss_fm_get "$fm" issues)
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix)
   case "$ISS_ISSUES" in
-    GitHub) ;;
-    Jira) iss_err_jira ;;
+    GitHub|Jira) ;;
     *) iss_die "${prefix}unsupported \`issues:\` value \`$ISS_ISSUES\` in \`.issues/repo-config.md\`" ;;
   esac
-  body=$(iss_body "$text")
-  ISS_GP=$(iss_flatten_gp "$body")
-  if [ -n "$ISS_GP" ]; then ISS_HAS_GP=1; else ISS_HAS_GP=0; fi
-  [ "$ISS_HAS_GP" = 0 ] || iss_check_slot_defaults "$prefix"
 }
 
-# iss_check_slot_defaults [<message-prefix>]: abort when a slot's default: is
-# a value the slot itself would refuse -- not an integer in min/max for kind:
-# number, not among the options for any other kind -- so no script recommends
-# or applies it. A slot of kind skip, or of a kind not listed here, is left to
-# the verbs that read it.
-iss_check_slot_defaults() {
-  local prefix=${1:-} slot kind value min max
+# iss_config_github_project <text> [<message-prefix>]: flatten the
+# github-project: block into ISS_GP and ISS_HAS_GP, and check its slots.
+iss_config_github_project() {
+  ISS_GP=$(iss_flatten_gp "$(iss_body "$1")")
+  if [ -n "$ISS_GP" ]; then ISS_HAS_GP=1; else ISS_HAS_GP=0; fi
+  [ "$ISS_HAS_GP" = 0 ] || iss_check_slots "${2:-}"
+}
+
+# iss_check_slots [<message-prefix>]: abort when a kind: number slot's range
+# makes no sense, or when a slot's default: is a value the slot itself would
+# refuse -- not an integer in min/max for kind: number, not among the options
+# for any other kind -- so no script recommends or applies it. A slot of kind
+# skip, or of a kind not listed here, is left to the verbs that read it.
+iss_check_slots() {
+  local prefix=${1:-} slot kind value
   while IFS= read -r slot; do
     [ -n "$slot" ] || continue
-    value=$(iss_cfg_get fields "$slot" default 2>/dev/null) || continue
-    [ -n "$value" ] || continue
+    value=$(iss_cfg_get fields "$slot" default 2>/dev/null) || value=
     kind=$(iss_slot_kind "$slot")
     case "$kind" in
       number)
-        min=$(iss_cfg_get fields "$slot" min 2>/dev/null) || min=
-        max=$(iss_cfg_get fields "$slot" max 2>/dev/null) || max=
-        if ! iss_is_int "$value" ||
-           { [ -n "$min" ] && [ "$value" -lt "$min" ]; } ||
-           { [ -n "$max" ] && [ "$value" -gt "$max" ]; }; then
-          iss_err_invalid_default "$slot" "$value" "an integer in \`[${min:--inf}, ${max:-inf}]\`" "$prefix"
+        if ! iss_number_check "$slot" "$value" "$prefix" && [ -n "$value" ]; then
+          iss_err_invalid_default "$slot" "$value" "an integer in \`[$ISS_NUM_MIN, $ISS_NUM_MAX]\`" "$prefix"
         fi
         ;;
       single-select|label|issue-field)
-        iss_resolve_name all "$value" fields "$slot" options >/dev/null ||
+        [ -z "$value" ] || iss_resolve_name all "$value" fields "$slot" options >/dev/null ||
           iss_err_invalid_default "$slot" "$value" "one of its options: \`$(iss_slot_options "$slot")\`" "$prefix"
         ;;
     esac
   done <<EOF
 $(iss_cfg_children fields)
 EOF
+}
+
+# iss_number_check <slot> <value> [<message-prefix>]: whether <value> is an
+# integer within the kind: number slot's min:/max:, either of which may be
+# absent. Aborts, naming the slot, when the bounds themselves make no sense:
+# a bound that is not an integer, which test(1) would reject with an error
+# that reads as "in range", or min: above max:. Sets ISS_NUM_MIN and
+# ISS_NUM_MAX to the bounds as a message prints them, "-inf" and "inf" for an
+# absent one.
+iss_number_check() {
+  local slot=$1 value=$2 min max
+  min=$(iss_cfg_get fields "$slot" min 2>/dev/null) || min=
+  max=$(iss_cfg_get fields "$slot" max 2>/dev/null) || max=
+  ISS_NUM_MIN=${min:--inf}
+  ISS_NUM_MAX=${max:-inf}
+  if { [ -n "$min" ] && ! iss_is_int "$min"; } ||
+     { [ -n "$max" ] && ! iss_is_int "$max"; } ||
+     { [ -n "$min" ] && [ -n "$max" ] && [ "$min" -gt "$max" ]; }; then
+    iss_err_invalid_range "$slot" "$ISS_NUM_MIN" "$ISS_NUM_MAX" "${3:-}"
+  fi
+  iss_is_int "$value" || return 1
+  [ -z "$min" ] || [ "$value" -ge "$min" ] || return 1
+  [ -z "$max" ] || [ "$value" -le "$max" ]
 }
 
 # Read the current repo's .issues/repo-config.md.
@@ -690,17 +733,12 @@ iss_slot_options() {
 # for kind: number). Aborts with the catalogue wording on a bad value. The
 # caller has already handled kind: skip and an absent slot.
 iss_slot_resolve() {
-  local slot=$1 value=$2 min max canonical
+  local slot=$1 value=$2 canonical
   SLOT_KIND=$(iss_slot_kind "$slot")
   case "$SLOT_KIND" in
     number)
-      min=$(iss_cfg_get fields "$slot" min 2>/dev/null) || min=
-      max=$(iss_cfg_get fields "$slot" max 2>/dev/null) || max=
-      if ! iss_is_int "$value" ||
-         { [ -n "$min" ] && [ "$value" -lt "$min" ]; } ||
-         { [ -n "$max" ] && [ "$value" -gt "$max" ]; }; then
-        iss_err_out_of_range "${value:-<empty>}" "$slot" "${min:--inf}" "${max:-inf}"
-      fi
+      iss_number_check "$slot" "$value" ||
+        iss_err_out_of_range "${value:-<empty>}" "$slot" "$ISS_NUM_MIN" "$ISS_NUM_MAX"
       SLOT_VALUE=$value
       ;;
     single-select|label|issue-field)

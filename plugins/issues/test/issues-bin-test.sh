@@ -418,9 +418,34 @@ bad_default "issue-field" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/default: Medi
 bad_default "label" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/default: M$/default: XL/')" \
   size XL "one of its options: \`S, M, L\`"
 
+bad_default "number a float" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/default: 3/default: 3.5/')" \
+  priority 3.5 "an integer in \`[1, 9]\`"
+
 new_case "$(printf '%s\n' "$CONFIG_NUMBER" | sed -e 's/default: 3/default: 9/')"
 run issue-field-options
 expect "valid default: a number default at max is accepted" 0 "priority: number (default: 9)"
+
+# bad_range <name> <config> <min> <max>: every script refuses a number slot
+# whose range makes no sense, with the one error naming the slot.
+bad_range() {
+  local name=$1 config=$2 msg
+  msg="sets \`priority\`'s range to \`[$3, $4]\`, which is not an integer range with \`min:\` at most \`max:\`."
+  new_case "$config"
+  run issue-field-options
+  expect "invalid range, $name: issue-field-options refuses it" 1 "$msg"
+  run issue-set-priority 2 3
+  expect "invalid range, $name: issue-set-priority refuses it" 1 "$msg"
+  run issue-view 2
+  expect "invalid range, $name: issue-view refuses it" 1 "$msg"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "invalid range, $name: no gh call"
+}
+bad_range "float min" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/min: 1$/min: 0.5/')" 0.5 9
+bad_range "float max" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/max: 9$/max: 9.5/')" 1 9.5
+bad_range "min above max" "$(printf '%s\n' "$CONFIG_NUMBER" | sed -e 's/min: 1$/min: 9/' -e 's/max: 9$/max: 1/')" 9 1
+bad_range "float bound, no default" \
+  "$(printf '%s\n' "$CONFIG_NUMBER" | sed -e '/default: 3/d' -e 's/max: 9$/max: 9.5/')" 1 9.5
+bad_range "float bound, other bound absent" \
+  "$(printf '%s\n' "$CONFIG_NUMBER" | sed -e '/max: 9$/d' -e 's/min: 1$/min: 1.5/')" 1.5 inf
 
 new_case none
 jq '.repos["acme/widgets"].config |= sub("default: M\n"; "default: XL\n")' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
@@ -431,6 +456,59 @@ expect "invalid default --repo: issue-field-options refuses the target's config"
 run issue-create --title x --body-file x --repo acme/widgets
 expect "invalid default --repo: issue-create refuses the target's config" 1 \
   "target repo \`acme/widgets\`: This repo's \`.issues/repo-config.md\` sets \`size\`'s \`default:\` to \`XL\`"
+
+# ---------------------------------------------------------------------------
+# repo-config-write: a draft is written only when it passes the loader checks.
+# ---------------------------------------------------------------------------
+
+# refuse_write <name> <draft> <substring>: the writer refuses the draft with
+# the substring, and the repo keeps the config it had.
+refuse_write() {
+  new_case "$CONFIG_MAIN"
+  printf '%s\n' "$2" >"$CASE_DIR/draft.md"
+  run repo-config-write "$CASE_DIR/draft.md"
+  expect "repo-config-write, $1: refused" 1 "refusing to write the draft" "$3"
+  check "$(cat "$CASE_DIR/repo/.issues/repo-config.md")" "$CONFIG_MAIN" "repo-config-write, $1: config unchanged"
+  check "$(ls -A "$CASE_DIR/repo/.issues")" "repo-config.md" "repo-config-write, $1: no file left behind"
+}
+refuse_write "float min" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/min: 1$/min: 0.5/')" \
+  "sets \`priority\`'s range to \`[0.5, 9]\`"
+refuse_write "float max" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/max: 9$/max: 9.5/')" \
+  "sets \`priority\`'s range to \`[1, 9.5]\`"
+refuse_write "min above max" "$(printf '%s\n' "$CONFIG_NUMBER" | sed -e 's/min: 1$/min: 9/' -e 's/max: 9$/max: 1/')" \
+  "sets \`priority\`'s range to \`[9, 1]\`"
+refuse_write "float default" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/default: 3/default: 3.5/')" \
+  "sets \`priority\`'s \`default:\` to \`3.5\`"
+refuse_write "number default out of range" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/default: 3/default: 12/')" \
+  "sets \`priority\`'s \`default:\` to \`12\`, which is not an integer in \`[1, 9]\`"
+refuse_write "default outside the options" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/default: M$/default: XL/')" \
+  "sets \`size\`'s \`default:\` to \`XL\`, which is not one of its options: \`S, M, L\`"
+refuse_write "stale schema" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^schema-version: 7$/schema-version: 5/')" \
+  "is at schema-version \`5\`"
+refuse_write "missing front-matter field" "$(printf '%s\n' "$CONFIG_MAIN" | sed '/^issue-branch-naming-prefix:/d')" \
+  "missing the canonical field \`issue-branch-naming-prefix\`"
+
+new_case none
+run repo-config-write "$CASE_DIR/nosuch.md"
+expect "repo-config-write: a missing draft is refused" 1 "draft \`$CASE_DIR/nosuch.md\` does not exist"
+check "$(ls -A "$CASE_DIR/repo")" ".git" "repo-config-write: nothing written for a missing draft"
+run repo-config-write
+expect "repo-config-write: usage" 2 "usage: repo-config-write <draft-path>"
+
+new_case none
+printf '%s\n' "$CONFIG_NUMBER" >"$CASE_DIR/draft.md"
+run repo-config-write "$CASE_DIR/draft.md"
+expect "repo-config-write: a valid draft is written" 0 "Wrote "
+check "$(cmp "$CASE_DIR/draft.md" "$CASE_DIR/repo/.issues/repo-config.md" && echo same)" same \
+  "repo-config-write: the file is the draft, byte for byte"
+run issue-field-options priority
+expect "repo-config-write: the written file reads" 0 "priority: number (default: 3)${ISS_NL}  min: 1${ISS_NL}  max: 9"
+
+new_case "$CONFIG_NUMBER"
+printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/' >"$CASE_DIR/draft.md"
+run repo-config-write "$CASE_DIR/draft.md"
+expect "repo-config-write: a Jira draft replaces the config" 0 "Wrote "
+check "$(grep -c '^issues: Jira$' "$CASE_DIR/repo/.issues/repo-config.md")" 1 "repo-config-write: the Jira file landed"
 
 # ---------------------------------------------------------------------------
 # Set-slot verbs.
@@ -469,6 +547,9 @@ run issue-set-priority 2 10
 expect "issue-set-priority number: out of range" 1 "value \`10\` for \`priority\` is out of range. Expected an integer in \`[1, 9]\`."
 run issue-set-priority 2 three
 expect "issue-set-priority number: non-integer is out of range" 1 "value \`three\` for \`priority\`"
+run issue-set-priority 3 2.5
+expect "issue-set-priority number: a float is out of range" 1 \
+  "value \`2.5\` for \`priority\` is out of range. Expected an integer in \`[1, 9]\`."
 run issue-set-size 2 M
 expect "issue-set-size: kind skip warns and exits zero" 0 \
   "\`/issue-set-size\` has nothing to do: this repo has no \`size\` slot configured."

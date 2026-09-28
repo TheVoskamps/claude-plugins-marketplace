@@ -252,6 +252,18 @@ Variable parts are wrapped in backticks.
   invalid as a whole, so the read aborts before any slot is used,
   whichever slot the caller wanted.
 
+- **Slot range invalid**
+
+  > This repo's `.issues/repo-config.md` sets `<slot>`'s range to
+  > `[<min>, <max>]`, which is not an integer range with `min:` at
+  > most `max:`. Run `/repo-config` to fix it.
+
+  Triggered when a `kind: number` slot's `min` or `max` is not an
+  integer, or `min` is greater than `max`, whether or not the slot
+  has a `default:`; an absent bound is printed as `-inf` or `inf`.
+  Checked before the slot's default, and, like it, aborts the read
+  whichever slot the caller wanted.
+
 Readers should not invent additional abort messages for the same
 failure shapes. If a new failure shape arises, document it in this
 catalogue rather than ad-hoc wording in the reader.

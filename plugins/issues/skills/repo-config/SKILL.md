@@ -551,15 +551,15 @@ recommendation noted below.
 
 - **Number field** (`kind: number`):
   - Capture the field `id` (`PVTF_...`) from the enumeration.
-  - Ask for `default` (integer or float). Recommend the carried-over
-    `default` if present; otherwise no built-in recommendation — the
-    user owns the value.
-  - Ask for `min` (integer or float). Recommend the carried-over
-    `min` if present; otherwise no built-in recommendation — the user
-    owns the range.
-  - Ask for `max` (integer or float). Recommend the carried-over
-    `max` if present; otherwise no built-in recommendation — the user
-    owns the range.
+  - Ask for `min` (an integer). Recommend the carried-over `min` if
+    present; otherwise no built-in recommendation — the user owns the
+    range.
+  - Ask for `max` (an integer, at least `min`). Recommend the
+    carried-over `max` if present; otherwise no built-in
+    recommendation — the user owns the range.
+  - Ask for `default` (an integer within `min`/`max`). Recommend the
+    carried-over `default` if present; otherwise no built-in
+    recommendation — the user owns the value.
 
 - **Single-select field** (`kind: single-select`):
   - Capture the field `id` (`PVTSSF_...`) and the full option
@@ -1101,7 +1101,26 @@ in this step.
 
 ## Step 5: Write the file
 
-Use the `Write` tool to replace the entire file in a single call.
+The `repo-config-write` script, which this plugin puts on `PATH`,
+writes the file; you never write `.issues/repo-config.md` yourself.
+Write the approved content from Step 4 to a draft file under
+`.claude/tmp/`, then run the script with the Bash tool from inside the
+repo's working tree:
+
+```bash
+repo-config-write <draft-path>
+```
+
+The script applies the validity checks the issue verbs apply when
+they read the file — among them that a `kind: number` slot's `min`, `max` and
+`default` are integers with `min` at most `max`, and that every slot's
+`default` is a value the slot accepts — and refuses a draft that fails
+one, leaving any existing file untouched. Otherwise it replaces
+`<repo-root>/.issues/repo-config.md` whole with the draft's bytes,
+creating `.issues/` when it is missing. On a non-zero exit, relay its
+stderr verbatim, loop back to the interview step that owns the value
+it names, and show the corrected file in Step 4 again before retrying.
+
 This applies whether the file existed before or not — `/repo-config`
 is a full-rewrite tool, and the user already saw the full proposed
 contents in Step 4 before approving.
@@ -1114,13 +1133,7 @@ values carried over from the previous file as recommended defaults
 (Step 2). The carry-over influences the interview, not the write
 mechanism: the write always emits a fresh full file.
 
-In a brand-new repo `.issues/` may not exist yet. The Claude Code
-`Write` tool creates missing parent directories automatically, so
-calling `Write` on `.issues/repo-config.md` when the directory does
-not exist is safe. If you are using a different tool path that does
-not auto-create parents, run `mkdir -p .issues` first.
-
-Compose the file in this order:
+Compose the draft in this order:
 
 1. The resolved YAML front-matter (the canonical seven-key block
    from Step 4 — `schema-version: 7` followed by the six
@@ -1150,7 +1163,8 @@ Never hand-edit this file — re-run `/repo-config`.
 
 ### Verification
 
-After the `Write` call, re-read the file with `Read` and confirm:
+After the script exits zero, re-read the file with `Read` and
+confirm:
 
 - The front-matter parses as YAML and contains exactly the seven
   canonical keys: `schema-version: 7` (first) followed by the six
@@ -1203,13 +1217,14 @@ After the file is written, report back:
   into the new file — the carry-over feeds the interview, the write is
   always a fresh full file built from this run's answers.
 - **Never edit anything outside the target repo.** The skill writes
-  exactly one file: `<repo-root>/.issues/repo-config.md`.
+  one draft under `.claude/tmp/`, and through `repo-config-write` one
+  file: `<repo-root>/.issues/repo-config.md`.
 - **Never run destructive git commands.** This skill does not
   commit, push, branch, reset, or otherwise change git state. The
   user commits the new file themselves.
-- **Always go through `Write`** so the user sees the new contents
-  applied as a single diff. Do not use `Edit` to rewrite regions
-  of the prior file — the file is always replaced in full.
+- **Always go through `repo-config-write`**, never `Write` or `Edit`
+  on `.issues/repo-config.md`: the script is what refuses a file the
+  issue verbs would reject, and it replaces the file in full.
 - **Do not validate remote branch existence** — out of scope.
 - **Run the tracker-matching interview, never both.** Step 3b
   (`github-project:`) runs only under `issues: GitHub`; Step 3c
