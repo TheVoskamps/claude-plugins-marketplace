@@ -1,6 +1,6 @@
 ---
 name: pr-merge-readiness
-description: Drives one blessed PR to a merge-ready state. Given a PR number, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND, or on DIRTY once a ruling is in hand, posts the fixer brief, spawns issue-fixer and then agent-memory-scrubber, and runs the gate again; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
+description: Drives one blessed PR to a merge-ready state. Given a PR number, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer and then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
 tools: Read, Write, Glob, Grep, Bash, Agent, Skill
 model: opus
 effort: medium
@@ -53,8 +53,9 @@ You must be given:
 - The branch name (`<branch-name>`).
 - Optionally, a **ruling**: the human's answer to the question a
   previous spawn of this agent returned with, and the state and the
-  cause that question named. On a `DIRTY`, or a `BEHIND` whose fixer
-  escalated, it is the resolution for each conflict; on any other
+  cause that question named. On a `BEHIND` or a `DIRTY` whose fixer
+  escalated, it is the resolution for each conflict the fixer reported
+  unresolved; on any other
   question it names the state to proceed as, the check to stop waiting
   on, or the remedy to run, per "A carried ruling answers only the
   question it was asked" below.
@@ -83,7 +84,7 @@ unnamed state. Act on the row of the table the state lands in:
 | `CLEAN` | mergeable | leave the loop; return with this state |
 | `UNSTABLE` | non-required checks failing | as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
 | `BEHIND` | branch is behind the base | do not ask: announce that it is rebasing, post the fixer brief, run the remedy spawns, run the gate again |
-| `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>` on every landing here, ruling or not: its output is what the question and the fixer brief both carry. With no ruling on `DIRTY`: return with that output as the question. With one: post the fixer brief, run the remedy spawns, run the gate again |
+| `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>` on every landing here, ruling or not: its output is what the fixer brief carries, and the question when the fixer escalates. Then do not ask, as on `BEHIND`: post the fixer brief, run the remedy spawns, run the gate again. The fixer resolves every conflict a ruling or its resolvability conditions settle, and escalates the rest |
 | `BLOCKED` | required checks or reviews not satisfied | when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green and none still running, the missing required review is the only cause, and the ready flip that follows the close-out is what requests that review — as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the report does not account for — is a stop cause: return with the report as the question. A running check is neither: when the gate lists one and none of this row's stop causes, wait for it per "A running check is waited on" below; a report that lists one alongside a stop cause is returned on, not waited on |
 
 The loop runs on a draft PR, before any review has been requested, so
@@ -130,17 +131,19 @@ below. On every other state a state name alone is not a match: a
 "proceed as `CLEAN`" given on one failing check was not given on
 another. When the gate reports any other state, or that state with a
 cause the human did not judge, the ruling is discarded: it travels in
-no fixer brief, and the row the gate landed in runs as with no ruling,
-so a new cause goes back as a fresh question. That discards a `BEHIND`
-ruling when the unchanged branch comes back `DIRTY` with the same
-conflicts, and the human is asked twice — the accepted cost of the
-rule, since a `BEHIND` question and a `DIRTY` question are different
-questions. Name a discarded ruling in your report. Every question this
+no fixer brief, and the row the gate landed in runs as with no ruling —
+on `BEHIND` or `DIRTY` a fixer round with no ruling, on any other state
+a fresh question. That discards a `BEHIND` ruling when the unchanged
+branch comes back `DIRTY` with the same conflicts, and the fixer
+escalates on them again, so the human is asked twice — the accepted
+cost of the rule, since a `BEHIND` question and a `DIRTY` question are
+different questions. Name a discarded ruling in your report. Every question this
 loop can return has its arm:
 
-- **A `DIRTY`**: the ruling is the resolution for each conflict, and
-  the `DIRTY` row's with-a-ruling arm is the whole of it — the ruling
-  travels in the fixer brief.
+- **A `DIRTY`**: the fixer escalated on the conflicts it could not
+  resolve, and the ruling is the resolution for each. It travels in the
+  `DIRTY` row's fixer brief, and the fixer applies it ahead of its
+  resolvability conditions for the conflicts it names.
 - **A `BEHIND`**: the fixer escalated on the rebase, and the ruling is
   the resolution for each conflict it reported. A `BEHIND` reported
   again always forwards it: it travels in the `BEHIND` row's fixer
@@ -173,8 +176,8 @@ human sees what it did not settle rather than the identical question.
 
 ## The fixer brief, and the remedy spawns
 
-**The fixer brief** — posted on a `BEHIND`, on a `DIRTY` with a
-ruling, and on any state whose ruling names a remedy — is a PR comment
+**The fixer brief** — posted on a `BEHIND`, on a `DIRTY`, and on any
+state whose ruling names a remedy — is a PR comment
 whose first line is the marker `<!-- sdlc:fixer-brief -->` — the
 literal by which `issue-fixer` recognizes a brief, spelled in every
 `sdlc` file that writes or reads it, so a change to it sweeps every file
@@ -183,9 +186,9 @@ report **verbatim** — the state and, for `DIRTY`, the
 `pr-merge-conflicts` output — followed by the ruling when your brief
 carries one the gate's report consumes, and nothing you authored. The
 brief is the only route by which a ruling reaches the fixer, and a
-`BEHIND` whose fixer escalated comes back with one just as a `DIRTY`
-does, so a brief that dropped it on any state would send the fixer back
-to the same question. Write the body to a file under
+`BEHIND` or a `DIRTY` whose fixer escalated comes back with one, so a
+brief that dropped it on any state would send the fixer back to the
+same question. Write the body to a file under
 `.claude/tmp/<task-slug>/` and post it with `gh pr comment <PR>
 --body-file <path>`: the report quotes check names and hunks, and a
 body spelled into `--body "…"` is read by the shell, backtick and `$`
@@ -211,8 +214,9 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    and what you didn't.
    ```
 
-   A fixer that returns without having pushed — a conflict the ruling
-   did not settle, an aborted rebase — has escalated: return with the
+   A fixer that returns without having pushed — a conflict neither a
+   ruling nor its resolvability conditions settle, an aborted rebase —
+   has escalated: return with the
    question shaped as "Report back" states it — the gate's report
    verbatim and, for `DIRTY`, the `pr-merge-conflicts` output, with
    the fixer's report verbatim beneath them — and run neither the
@@ -258,8 +262,9 @@ Your report carries:
   instead — or one the fixer's report named as unconsumed, whatever
   state its brief named, quoted as it did.
 - **Every `issue-fixer` round you ran**: the state that drove it, the
-  base the fixer rebased onto, each conflict and how the ruling had it
-  resolved, and the new head SHA, as the fixer reported them.
+  base the fixer rebased onto, each conflict and what settled it — the
+  ruling, or the repo rule or the combination of both sides the fixer
+  named — and the new head SHA, as the fixer reported them.
 - **The scrubber's per-entry and per-cut lines**, as it wrote them, for
   every scrubber pass you ran — they are the record of a destructive
   operation, and the human reviews them.

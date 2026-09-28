@@ -265,7 +265,13 @@ party in a position to put a question to the human, so a state that
 needs a ruling ends the agent's run: it returns with the gate's report
 verbatim as its question, the orchestrator relays the question, and on
 the answer spawns the agent again with the ruling in the brief, keyed
-to the state and cause the question named. A ruling answers only that
+to the state and cause the question named. A merge conflict is not by
+itself such a state: `BEHIND` and `DIRTY` both go to the fixer first,
+ruling or not, because a conflict a repo rule already settles — a
+plugin `version` line under the version-bump rule — would otherwise
+cost the human a turn to restate that rule. Only a conflict the fixer
+could not settle comes back as a question, with the fixer's report
+naming it. A ruling answers only that
 question: the re-spawn runs the gate afresh, and a ruling the new
 report does not consume is discarded and named in the agent's report,
 so the human learns that an earlier answer lapsed rather than took
@@ -501,7 +507,7 @@ spawns or that the orchestrator spawns after it.
 | Agent | Purpose |
 | ------- | --------- |
 | `issue-developer` | Implements one batch of issues on one branch |
-| `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving the conflicts the brief lists — to an open PR's branch |
+| `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving each conflict a ruling or its own resolvability conditions settle and escalating the rest — to an open PR's branch |
 | `code-documenter` | Adds or corrects the comments the style guides require in a round's code, before its review |
 | `style-checker` | Reports a round's style-guide violations, which the orchestrator sends to a fixer before its review |
 | `docs-writer` | Writes a PR's documentation once, after its review loop ends |

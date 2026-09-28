@@ -241,11 +241,6 @@ permission gate refuses it by shape. The local route needs no fetch:
    cross-check files against the index to prove no branch-side entry
    was.
 
-Bonus tell: replayed conflict commits can carry literal `# Conflicts:`
-blocks in their final messages, because `git commit --no-edit` uses
-cleanup=whitespace and keeps `#` lines. That is both commit-message
-noise and a free map of exactly which commits needed resolution.
-
 ## Grade a between-rounds delta formula in a throwaway rebase lab
 
 A mechanism that asks "what changed on this PR since I last looked"
