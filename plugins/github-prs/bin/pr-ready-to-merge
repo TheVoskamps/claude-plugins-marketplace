@@ -41,6 +41,9 @@ read_pr() {
 }
 
 attempt=1
+# One delay per retry after the first read. The progress line below
+# spells the total attempt count, which must stay one more than the
+# delays listed here.
 waits="10 30"
 while :; do
   report=$(read_pr) || exit $?
