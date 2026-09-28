@@ -362,11 +362,13 @@ latest_records_round() {
 }
 
 # Builds the round's records file from the carried round's records, the
-# --edits lines and the payload's new records, and prints it on stdout.
-# Every refusal is decided before a byte is printed, so a refused build
-# prints nothing and exits 2 with the reason on stderr. A carried record
-# no edit names is re-emitted line for line, and an edited one changes
-# only on the lines its edits name.
+# --edits lines and the new records in the file $1 names (- for stdin),
+# and prints it on stdout. The carried round is the one
+# latest_records_round last selected, so that has to have run and found
+# one. Every refusal is decided before a byte is printed, so a refused
+# build prints nothing and exits 2 with the reason on stderr. A carried
+# record no edit names is re-emitted line for line, and an edited one
+# changes only on the lines its edits name.
 carry_records() {
   if [ -n "$from" ]; then
     payload_name=--from

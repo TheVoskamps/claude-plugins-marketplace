@@ -68,8 +68,9 @@ seed() {
   persist --mode records --round "$1" --from "$(stage "seed-$PR_N-$1")"
 }
 
-# Runs a refused carry into round 2 over a round-1 seed, and checks that
-# it exits non-zero, names what it refused, and leaves round 2 unwritten.
+# Runs a carry into round 2 over whatever the case seeded, and checks
+# that it exits non-zero, names what it refused, and leaves round 2
+# unwritten. A trailing --round overrides the round it carries into.
 check_refused() {
   label=$1
   expected=$2
@@ -298,7 +299,7 @@ output=$(persist --mode review --round 2 --carry </dev/null 2>&1)
 check "$?" 2 "--carry outside records: exits non-zero"
 check_contains "$output" "--carry is not accepted in --mode review" "--carry outside records: names the refusal"
 
-# --- the plain form is unchanged --------------------------------------------
+# --- the plain form stores its payload whole --------------------------------
 
 new_pr
 printf 'anything at all\n' | persist --mode records --round 3
