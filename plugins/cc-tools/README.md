@@ -33,7 +33,11 @@ Each of these gets worse the longer you leave it:
 
 - **`gh`, authenticated.** The skills that report on upstream Claude
   Code read `anthropics/claude-code` through it, and memory curation
-  aimed at a PR resolves that PR's branch through it.
+  aimed at a PR resolves that PR's branch through the `github-prs`
+  plugin's PR-view verb — which is why `plugin.json` declares a
+  `dependencies` edge on `github-prs`. The edge guarantees that verb
+  is installed and enabled wherever this plugin runs; it grants no
+  access to `github-prs`' files.
 - **A `~/.claude/CLAUDE.md`**, if you want rule-loading to have
   anything to load.
 - **Agents that declare `memory: project`**, if you want anything to

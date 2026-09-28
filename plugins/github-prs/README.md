@@ -1,12 +1,15 @@
 # github-prs
 
 GitHub-only skills for the operations a pull request goes through:
-create it (as a draft, closing its own issue set), fetch its diff,
-submit a review with a verdict, flip it between draft and
+create it (as a draft, closing its own issue set), read it, fetch its
+diff, list the PRs a branch has opened, submit a review with a verdict,
+comment on it, replace its body, flip it between draft and
 ready-for-review, report whether it can be merged and enumerate the
 conflicts when it cannot, link it to the issues it resolves via one
 closing keyword each in the PR body, and read those closing lines back
-to say which issues it closes.
+to say which issues it closes. Every verb is a bundled script the skill
+runs, so no model assembles a `gh pr` call by hand (see "Every verb is
+a script" below).
 
 These skills serve the `/sdlc:orchestrate` flow and its agents. The
 `issue-developer` opens the PR. The
@@ -24,6 +27,58 @@ issues it flips to In Review and flip the PR draft → ready.
 `pr-monitor` keeps reading the merge readiness while the PR waits for
 its merge. Each skill is still a standalone verb usable by a human or
 any caller.
+
+## Every verb is a script
+
+Each skill runs an executable of the same name under `bin/`, on the
+agent's `PATH` once the plugin is enabled, and the SKILL.md says only
+when to call the verb, how to invoke the script, and what its output
+and exit status mean. No SKILL.md carries an inline `gh` procedure.
+The point is ownership: a model that assembles a `gh pr` call from a
+prose recipe assembles it slightly differently each time, so the
+call's shape, the check that it did what it says, and the wording of
+its failures had no single owner. Now the script owns all three, and a
+caller elsewhere in the marketplace goes through the skill rather than
+spelling a `gh pr` call of its own — which is also what would let a
+permission gate refuse raw `gh pr` use later without breaking a caller.
+
+The scripts share one sourced helper, `bin/lib/github-prs-common.sh`,
+which holds the error catalogue and the `gh` call wrapper. A script
+reports a failure by calling a catalogue entry and never spells a
+message of its own, so an exit status means the same thing whichever
+verb returned it:
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | the verb did what it says |
+| 1 | the verb's own negative outcome: a change that did not land on the re-read, a PR that is not open, a merge state still `UNKNOWN` |
+| 2 | a usage error; nothing was sent to GitHub |
+| 3 | a `gh` call — or, for `pr-merge-conflicts`, a `git` step — failed, with the tool's own stderr passed through above the catalogue line |
+| 4 | `.issues/repo-config.md` is missing or lacks a key the verb reads |
+
+A verb that changes a PR **re-reads it afterwards** and exits 1 when
+the change is not there — `pr-create` checks the draft flag, base, head
+and body it asked for; `pr-ready` and `pr-draft` check `isDraft`;
+`pr-update` and `pr-link-issue` check the body; `pr-comment` re-reads
+the comment by the id GitHub gave it; `pr-review-submit` checks that a
+new review exists with the state and body it posted. The re-read lives
+in the script, so a skill never has to tell its caller to verify. The
+read-only verbs re-read nothing.
+
+A body reaches `gh` by file path or on stdin (`--body-file -`), never
+as a command-line argument: a review summary or a PR body full of
+backticks and `$` would otherwise be read by the shell first. That is
+why every body-taking verb accepts `--body-file <path>`, and why
+`pr-review-submit` composes the posted body in memory rather than
+writing a scratch copy beside the caller's file.
+
+Every script runs under the bash 3.2 that macOS ships. The suite at
+`test/github-prs-test.sh` runs each script against a stub `gh` that
+keeps a PR's state in files and applies `--jq` filters with the real
+`jq`, checking the call shape each script issues, the re-read after
+each mutation — including a mode in which the mutation does not land,
+so every exit-1 path is exercised — and the error wording; no test
+posts anything to GitHub.
 
 ## One PR, one issue set
 
@@ -98,9 +153,9 @@ deferred.
 
 Every skill but `pr-create` takes everything it needs as arguments
 and reads no configuration at all. Only `pr-create` reads repo-config —
-`default-pr-target-branch` and `issue-link-prefix` — and it does so
-**internally**, via a lightweight inline parse of just those two
-front-matter lines, not the `issues` plugin's full
+`default-pr-target-branch` and `issue-link-prefix` — and its script
+does so **internally**, via a lightweight inline parse of just those
+two front-matter lines, not the `issues` plugin's full
 `skills/lib/repo-config.md` reader contract (that lib lives inside the
 `issues` plugin and isn't reachable across the plugin sandbox
 boundary). Neither `pr-create` nor `pr-link-issue`
@@ -115,17 +170,24 @@ hand-roll a raw `gh pr create`/`gh pr diff`/`gh pr review`.
 
 ## Skills
 
+Each row's script is `bin/<verb>`; the last column is the `gh` call
+that script makes.
+
 | Skill | Purpose | Underlying command |
 | ------- | --------- | -------------------- |
 | `/pr-create <issue>… <branch>` | Open a draft PR for a branch against the right base, closing its own issue set | `gh pr create --draft --base <target>` |
+| `/pr-view <PR> [--json <fields> [--jq <expr>]]` | Print a PR — a fixed dump, or the named fields | `gh pr view <PR> [--json …]` |
 | `/pr-diff <PR>` | Fetch a PR's full diff | `gh pr diff <PR>` |
+| `/pr-list --head <branch> [--state <state>]` | List the PRs opened from a head branch, as a JSON array | `gh pr list --head <branch> --state <state>` |
 | `/pr-review-submit <PR> --verdict <verdict> <body>` or `--body-file <path>` | Post a single PR review carrying a verdict, with the body inline or from a file | `gh pr review <PR>` |
+| `/pr-comment <PR> --body-file <path>` | Post one comment on a PR from a file | `gh pr comment <PR> --body-file <path>` |
+| `/pr-update <PR> --body-file <path>` | Replace a PR's whole body with a file's contents | `gh pr edit <PR> --body-file <path>` |
 | `/pr-ready <N>` | Mark a draft PR ready for review (draft → ready) | `gh pr ready <N>` |
 | `/pr-draft <N>` | Convert a ready PR back to a draft (ready → draft) | `gh pr ready <N> --undo` |
 | `/pr-ready-to-merge <PR>` | Report an open PR's merge readiness — `mergeable`, `mergeStateStatus`, review decision and check rollup — retrying while GitHub is still computing it | `gh pr view <PR> --json mergeable,mergeStateStatus,…` |
 | `/pr-merge-conflicts <PR>` | Enumerate a PR's actual merge conflicts with its base — files and hunks — by a trial merge that is aborted afterwards | `git merge --no-commit --no-ff` in a throwaway worktree |
 | `/pr-link-issue <PR> <issue>…` | Ensure the PR body links & closes every issue in its own set | verify/append the missing `Closes #<issue>` lines in the PR body |
-| `/pr-closing-issues <PR>` | Report which issues the PR body closes | `gh pr view <PR> --json number,body` |
+| `/pr-closing-issues <PR>` | Report which issues the PR body closes | `gh pr view <PR> --json body` |
 
 ### `/pr-create <issue>… <branch>`
 
@@ -144,6 +206,16 @@ under-delivery. On the no-safe-resolution outcome the skill opens no
 PR at all. See the skill for the closing-keyword rule (PR body only,
 own issue set only, never a commit).
 
+### `/pr-view <PR> [--json <fields> [--jq <expr>]]`
+
+Reads one PR. With no flags it prints a fixed dump a human can read;
+with `--json` it prints exactly the fields named, as `gh pr view --json`
+spells them, optionally reduced by a `--jq` expression, for a caller
+that needs the body, the reviews, the comments, the state or the refs.
+This is the read behind every "look at the PR" step elsewhere in the
+marketplace, so a field list a caller used to pass to a raw
+`gh pr view` passes through unchanged.
+
 ### `/pr-diff <PR>`
 
 Fetches the full unified diff of a pull request via `gh pr diff <PR>`.
@@ -151,6 +223,16 @@ This is the diff-fetch that every `theorem-generator` variant,
 `theorem-disprover`, `counterexample-verifier`, `issue-fixer`, `code-documenter`,
 `style-checker`, and `docs-writer` need
 before they read a PR's changes.
+
+### `/pr-list --head <branch> [--state <state>]`
+
+Lists the PRs opened from one head branch as a JSON array, one object
+per PR with its number, title, state, refs, merge and close times and
+URL; an empty array is the normal "none" answer, not an error. The
+match is by branch **name**, not by commit, so a branch deleted and
+recreated under the same name matches the PRs of both lives — a caller
+gating a deletion on "this branch has a merged PR" needs a second check
+on the commits themselves.
 
 ### `/pr-review-submit <PR> --verdict <verdict> <body>` / `--body-file <path>`
 
@@ -171,9 +253,34 @@ review summary under `.claude/tmp/<task-slug>/` and posts it by path,
 because that summary carries a backticked state-relative detail path on
 every theorem and finding line, under the
 `${XDG_STATE_HOME:-$HOME/.local/state}` root it names once, and the
-inline form hands every backtick and `$` in it to the shell. In the
-file form the skill composes a **new** file carrying the verdict line
-ahead of the caller's text, leaving the caller's own file untouched.
+inline form hands every backtick and `$` in it to the shell. In either
+form the script composes the posted body — the verdict line, a blank
+line, the caller's text — and hands it to `gh` on stdin, leaving the
+caller's own file untouched and writing no scratch copy.
+
+The script does not read the reviewer's login to predict the
+self-review refusal. It posts with the verdict's own action and only
+re-posts as a comment when that call fails with GitHub's refusal for
+**that** action; any other failure stays a failure. Predicting from a
+login would have to agree with GitHub about who the author is, and the
+server's own answer is the one that counts.
+
+### `/pr-comment <PR> --body-file <path>`
+
+Posts one comment on a PR from a file, then re-reads that comment by
+the id GitHub returned and checks its text is the file's. A comment
+that did not land as written is reported rather than re-posted, because
+a second post would leave two comments if the first did land after
+all. The file form is the only form: a comment that quotes a check
+name, a hunk or a path carries the characters the shell would read.
+
+### `/pr-update <PR> --body-file <path>`
+
+Replaces a PR's whole body with a file's contents and re-reads the body
+to confirm it. Which callers may edit a body, and when — the freeze an
+orchestrated run puts on it, the closing lines that must survive — is
+the caller's rule, not this verb's; the verb only guarantees that what
+GitHub holds afterwards is the file.
 
 ### `/pr-ready <N>`
 
