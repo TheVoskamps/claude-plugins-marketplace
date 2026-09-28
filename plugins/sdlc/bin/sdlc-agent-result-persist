@@ -213,6 +213,8 @@ if [ -n "$from" ]; then
   [ -f "$from" ] || die "--from names no file: $from"
 fi
 
+# --carry changes only how --mode records writes, and --edits feeds only
+# that build, so either one anywhere else is refused rather than ignored.
 if [ -n "$carry" ] && [ "$mode" != records ]; then
   die "--carry is not accepted in --mode $mode"
 fi
@@ -579,6 +581,9 @@ case "$mode" in
     else
       latest_records_round
       [ -n "$best" ] || die "--mode records --carry found no round under $pr_dir holding a records file to carry"
+      # A round no lower than --round holds this round's own stored
+      # output or a later round's, and carrying it would take that as
+      # this round's predecessor and apply the edits over it again.
       [ "$best_round" -lt "$round" ] ||
         die "--mode records --carry would carry round $best_round's records, which is not lower than --round $round"
       # With --carry the payload is only the round's new records, and a
