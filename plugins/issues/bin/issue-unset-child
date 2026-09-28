@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Remove one named child from a parent's sub-issues. The contract is
+# plugins/issues/skills/issue-unset-child/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 2 ] || iss_usage_die "usage: issue-unset-child <parent-N> <child-N>"
+iss_init
+iss_parse_operand "$1" local-only
+pref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+parent_nwo="$OP_OWNER/$OP_REPO"
+parent_number=$OP_NUMBER
+iss_parse_operand "$2" local-only
+cref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$ISS_SEL_PARENT"
+parent_id=$(iss_jq '.parent.id // empty')
+# A child under some other parent, or under none, already satisfies "not under
+# this parent", so both are a no-op rather than an error.
+if [ -z "$parent_id" ] ||
+   [ "$(iss_jq .parent.number)" != "$parent_number" ] ||
+   [ "$(iss_lc "$(iss_jq .parent.repository.nameWithOwner)")" != "$(iss_lc "$parent_nwo")" ]; then
+  printf 'Issue %s is not a sub-issue of %s; no change.\n' "$cref" "$pref"
+  exit 0
+fi
+child_id=$(iss_jq .id)
+parent_url=$(iss_jq .parent.url)
+
+iss_remove_sub_issue "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$child_id" "$parent_id" "$cref" "$pref"
+printf 'Removed issue %s as a sub-issue of %s.\n%s\n' "$cref" "$pref" "$parent_url"

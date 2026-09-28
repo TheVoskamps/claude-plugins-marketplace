@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Detach one issue from whatever parent it has. The contract is
+# plugins/issues/skills/issue-unset-parent/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-unset-parent <child-N>"
+iss_init
+iss_parse_operand "$1" local-only
+cref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$ISS_SEL_PARENT"
+parent_id=$(iss_jq '.parent.id // empty')
+if [ -z "$parent_id" ]; then
+  printf 'Issue %s has no parent; no change.\n' "$cref"
+  exit 0
+fi
+child_id=$(iss_jq .id)
+child_url=$(iss_jq .url)
+pref=$(iss_ref_nwo "$(iss_jq .parent.repository.nameWithOwner)" "$(iss_jq .parent.number)")
+
+iss_remove_sub_issue "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$child_id" "$parent_id" "$cref" "$pref"
+printf 'Removed issue %s as a sub-issue of %s.\n%s\n' "$cref" "$pref" "$child_url"

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Set the status slot on one issue. When the slot is a project-board field and
+# the issue is not on the board yet, the issue is added first. The contract is
+# plugins/issues/skills/issue-set-status/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-status <N> <status-name>"
+iss_init
+[ "$ISS_HAS_GP" = 1 ] || iss_err_no_block
+[ "$(iss_slot_kind status)" != skip ] || iss_slot_unconfigured_exit status
+iss_parse_operand "$1" local-only
+iss_slot_resolve status "$2"
+iss_slot_write status "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" always
+printf 'Set status on issue %s to %s.\n%s\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$SLOT_VALUE" "$(iss_jq .url)"

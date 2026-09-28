@@ -3,19 +3,9 @@ name: issue-set-blocks
 description: Declare that one issue blocks another (blocked-by edge from the blocker's side). Sugar for /issue-set-blocked-by with inverted args.
 ---
 
-Add a blocking relationship: "issue N blocks issue B". This is the
-blocker's-side view of the same edge that `/issue-set-blocked-by`
-exposes — both verbs write that one edge with the `addBlockedBy`
-template; which CLI argument names the blocker is what differs.
-
-See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, the "One edge, two sides" pattern, and error wording. This
-file documents only what is specific to `/issue-set-blocks`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
+Record "issue N blocks issue B". This is the blocker's-end view of the
+edge `/issue-set-blocked-by` writes: `set-blocks N B` is the same edge
+as `set-blocked-by B N`.
 
 ## Invocation
 
@@ -23,51 +13,27 @@ canonical read sequence and abort messages for
 /issue-set-blocks <N> <blocked-N>
 ```
 
-- `<N>` (required): the **blocker** (the prerequisite).
+- `<N>` (required): the **blocker**, the prerequisite.
 - `<blocked-N>` (required): the issue being **blocked** by N.
 
-Mnemonic: "set blocks of N to B" — "N blocks B". Same edge as
-`set-blocked-by B N`.
+Either operand may be `N`, `#N`, or `owner/repo#N`; the last names an
+issue in another GitHub repo, so the two issues need not share a repo.
+Mnemonic: "set blocks of N to B" — "N blocks B".
 
-Either operand may be `N`, `#N`, or `owner/repo#N` — the last names
-an issue in another GitHub repo, so the two issues need not share a
-repo. See "Operand resolution" in `skills/lib/issue.md`.
+## Execution
 
-## Tracker dispatch
+Run the `issue-set-blocks` script, which this plugin puts on `PATH`,
+with the Bash tool from inside the repo's working tree:
 
-Apply the standard `issues:` switch from `skills/lib/issue.md`.
-Under `issues == Jira`, follow the Jira backend path documented
-there (`skills/lib/issue.md` → "Jira backend"), which talks to Jira
-via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
+```bash
+issue-set-blocks <N> <blocked-N>
+```
 
-## Execution (GitHub backend)
-
-1. **Look up node IDs for both issues.** Resolve each operand per
-   "Operand resolution" in `skills/lib/issue.md`, then run the
-   node-ID lookup template from the same file for each, trimmed to
-   `id` plus, on the blocker side, `url` and
-   `blocking(first: 50) { nodes { id } }` (to detect an existing
-   relationship for the idempotency check).
-   If the blocker issue might already be blocking more than 50 other
-   issues, the idempotency check may miss an existing edge and the
-   mutation will then no-op on the server side; the mutation itself
-   is safe to retry, so this is acceptable.
-
-2. **Idempotency check.** If the blocked issue's resolved node ID is
-   already among the blocker's `blocking.nodes` IDs, no-op: print one
-   line (`Issue <N> already blocks <B>; no change.`) and exit zero.
-   Match on the node ID, never on `number`: either list can carry an
-   issue from another repo.
-
-3. **Create the edge** via the `addBlockedBy` template from
-   `skills/lib/issue.md`, with the two roles **inverted** vs.
-   `/issue-set-blocked-by`: `<blocked-N>` is the **blocked** issue and
-   `<N>` — the first CLI argument — is the **blocker**. Supply each as
-   its node ID; the lib's call-site mapping states the same inversion.
-
-4. **Issue not found**: if either node-ID lookup returns
-   `repository.issue: null`, emit the "Issue not found" error from
-   the catalogue and abort.
+The script resolves each operand in the repo it names, is a no-op when
+the edge already exists, and otherwise creates it and re-reads the
+blocker, exiting non-zero when the edge is not there. Print its stdout
+as it stands. On a non-zero exit, relay its stderr verbatim and stop;
+an operand that does not resolve is reported against its own repo.
 
 ## Output
 
@@ -76,7 +42,13 @@ Marked issue <N> as blocking <B>.
 <url of the blocker>
 ```
 
-`<N>` and `<B>` print as `#<N>` for an issue in the current repo and
-as `owner/repo#N` for an issue in another repo, per "Operand
-resolution" in `skills/lib/issue.md`. The URL is the `url` the
-blocker's lookup returned.
+The no-op prints `Issue <N> already blocks <B>; no change.` and exits
+zero. An issue prints as `#<N>` in the current repo and as
+`owner/repo#N` in another.
+
+## Jira backend
+
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Relationships" instead,
+where an `owner/repo#N` operand is refused.

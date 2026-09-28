@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Change one issue's title, body, labels or assignees, then re-read the issue
+# and report what actually landed. The contract is
+# plugins/issues/skills/issue-update/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+usage='usage: issue-update <N> [--title "..."] [--body-file PATH] [--append "line"]... [--prepend "line"]...
+                    [--add-labels a,b] [--remove-labels a,b] [--add-assignees u1] [--remove-assignees u2]'
+
+number_arg=
+title=
+has_title=no
+body_file=
+appends=
+append_count=0
+prepends=
+prepend_count=0
+add_labels=
+remove_labels=
+add_assignees=
+remove_assignees=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --title|--body-file|--append|--prepend|--add-labels|--remove-labels|--add-assignees|--remove-assignees)
+      [ "$#" -ge 2 ] || iss_usage_die "$usage"
+      ;;
+  esac
+  case "$1" in
+    --title) title=$2; has_title=yes ;;
+    --body-file) body_file=$2 ;;
+    --append) appends="$appends$2$ISS_NEWLINE"; append_count=$((append_count + 1)) ;;
+    --prepend) prepends="$prepends$2$ISS_NEWLINE"; prepend_count=$((prepend_count + 1)) ;;
+    --add-labels) add_labels=$2 ;;
+    --remove-labels) remove_labels=$2 ;;
+    --add-assignees) add_assignees=$2 ;;
+    --remove-assignees) remove_assignees=$2 ;;
+    -*) iss_usage_die "$usage" ;;
+    *)
+      [ -z "$number_arg" ] || iss_usage_die "$usage"
+      number_arg=$1
+      shift
+      continue
+      ;;
+  esac
+  shift 2
+done
+[ -n "$number_arg" ] || iss_usage_die "$usage"
+if [ "$has_title" = no ] && [ -z "$body_file$appends$prepends$add_labels$remove_labels$add_assignees$remove_assignees" ]; then
+  iss_usage_die "$usage"
+fi
+if [ -n "$body_file" ] && [ -n "$appends$prepends" ]; then
+  iss_usage_die "\`--body-file\` cannot be combined with \`--append\` or \`--prepend\` (full-replace vs. line-additive). Run them in separate invocations."
+fi
+
+iss_init
+iss_parse_operand "$number_arg" local-only
+ref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+
+if [ -n "$body_file" ]; then
+  case "$body_file" in
+    /*) ;;
+    *) [ -f "$body_file" ] || body_file="$ISS_REPO_ROOT/$body_file" ;;
+  esac
+  [ -r "$body_file" ] || iss_die "body file \`$body_file\` does not exist or is not readable"
+fi
+
+# split_csv <csv>: one trimmed item per line.
+split_csv() {
+  printf '%s' "$1" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | awk 'NF'
+}
+
+# Resolve @default-assignee before anything is sent.
+resolve_assignees() {
+  local item out=
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    if [ "$item" = @default-assignee ]; then item=$(iss_default_assignee) || exit 1; fi
+    out="$out$item$ISS_NEWLINE"
+  done <<EOF
+$(split_csv "$1")
+EOF
+  printf '%s' "$out" | awk 'NF' | paste -sd, -
+}
+add_assignees=$(resolve_assignees "$add_assignees") || exit 1
+remove_assignees=$(resolve_assignees "$remove_assignees") || exit 1
+
+SEL="url title body $ISS_SEL_LABELS $(iss_conn assignees)"
+readonly SEL
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+url=$(iss_jq .url)
+pre_labels=$(iss_jq '.labels.nodes[].name')
+pre_assignees=$(iss_jq '.assignees.nodes[].login')
+
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/issue-update.XXXXXX")
+trap 'rm -rf "$scratch"' EXIT
+
+new_body_file=
+if [ -n "$body_file" ]; then
+  new_body_file=$body_file
+elif [ -n "$appends$prepends" ]; then
+  new_body_file="$scratch/body.md"
+  current=$(printf '%s' "$ISS_ISSUE" | jq -j '.body // ""'; printf x)
+  current=${current%?}
+  current=${current%"$ISS_NEWLINE"}
+  {
+    printf '%s' "$prepends"
+    printf '%s' "$current"
+    if [ -n "$current" ]; then printf '\n'; fi
+    printf '%s' "$appends"
+  } >"$new_body_file"
+fi
+
+set -- issue edit "$OP_NUMBER" --repo "$OP_OWNER/$OP_REPO"
+[ "$has_title" = yes ] && set -- "$@" --title "$title"
+[ -n "$new_body_file" ] && set -- "$@" --body-file "$new_body_file"
+[ -n "$add_labels" ] && set -- "$@" --add-label "$add_labels"
+[ -n "$remove_labels" ] && set -- "$@" --remove-label "$remove_labels"
+[ -n "$add_assignees" ] && set -- "$@" --add-assignee "$add_assignees"
+[ -n "$remove_assignees" ] && set -- "$@" --remove-assignee "$remove_assignees"
+gh "$@" >/dev/null || iss_die "\`gh issue edit\` failed on issue \`$ref\`"
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+post_labels=$(iss_jq '.labels.nodes[].name')
+post_assignees=$(iss_jq '.assignees.nodes[].login')
+
+landed=yes
+
+# in_set <item> <newline-list>: case-insensitive membership.
+in_set() {
+  printf '%s\n' "$2" | tr '[:upper:]' '[:lower:]' | grep -Fxq -- "$(iss_lc "$1")"
+}
+
+printf 'Updated issue %s:\n' "$ref"
+
+if [ "$has_title" = yes ]; then
+  if [ "$(iss_jq .title)" = "$title" ]; then
+    printf '  title:           %s\n' "$title"
+  else
+    printf '  title requested but not set: %s (the issue reads %s)\n' "$title" "$(iss_jq .title)"
+    landed=no
+  fi
+fi
+
+if [ -n "$new_body_file" ]; then
+  # Command substitution drops trailing newlines, and GitHub may store a
+  # body with CRLF line ends, so both sides are compared without either.
+  want=$(tr -d '\r' <"$new_body_file")
+  have=$(iss_jq '.body // ""' | tr -d '\r')
+  if [ "$want" = "$have" ]; then
+    if [ -n "$body_file" ]; then
+      printf '  body:            replaced (%s lines)\n' "$(awk 'END { print NR }' "$new_body_file")"
+    else
+      printf '  body:            appended %s line(s), prepended %s line(s)\n' "$append_count" "$prepend_count"
+    fi
+  else
+    printf '  body requested but not set: the re-read body differs from the one sent\n'
+    landed=no
+  fi
+fi
+
+# report <requested-csv> <pre> <post> <direction add|remove> <noun> <hint>
+report() {
+  local item ok='' failed=''
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    if [ "$4" = add ]; then
+      if in_set "$item" "$3" && ! in_set "$item" "$2"; then
+        ok="$ok$item$ISS_NEWLINE"
+      elif ! in_set "$item" "$3"; then
+        failed="$failed$item$ISS_NEWLINE"
+      fi
+    else
+      if in_set "$item" "$2" && ! in_set "$item" "$3"; then
+        ok="$ok$item$ISS_NEWLINE"
+      elif in_set "$item" "$3"; then
+        failed="$failed$item$ISS_NEWLINE"
+      fi
+    fi
+  done <<EOF
+$(split_csv "$1")
+EOF
+  if [ -n "$ok" ]; then
+    printf '  %-16s %s\n' "$5 $([ "$4" = add ] && echo added || echo removed):" "$(printf '%s' "$ok" | iss_join_lines)"
+  fi
+  if [ -n "$failed" ]; then
+    printf '  %s requested but not %s: %s %s\n' "$5" "$([ "$4" = add ] && echo added || echo removed)" \
+      "$(printf '%s' "$failed" | iss_join_lines)" "$6"
+    return 1
+  fi
+  return 0
+}
+
+report "$add_labels" "$pre_labels" "$post_labels" add labels "(not a valid label on this repo)" || landed=no
+report "$remove_labels" "$pre_labels" "$post_labels" remove labels \
+  "(label is on the issue but could not be removed — permission denied, or label-management is restricted)" || landed=no
+report "$add_assignees" "$pre_assignees" "$post_assignees" add assignees \
+  "(not a valid assignee on this repo, or permission denied)" || landed=no
+report "$remove_assignees" "$pre_assignees" "$post_assignees" remove assignees \
+  "(assignee is on the issue but could not be removed — permission denied, or some other gh-side filter)" || landed=no
+
+printf '\n%s\n' "$url"
+[ "$landed" = yes ] || iss_die "some requested changes did not land on issue \`$ref\`; see the lines above"

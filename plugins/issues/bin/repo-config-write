@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Write the current repo's .issues/repo-config.md from a drafted file, after
+# the validity checks the issue verbs apply when they read one, less their
+# refusal of a Jira config, and with their slot checks run over a jira: block
+# as well as a github-project: one. The contract is the "Write the file" step of
+# plugins/issues/skills/repo-config/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+usage="usage: repo-config-write <draft-path>"
+[ "$#" -eq 1 ] && [ -n "$1" ] || iss_usage_die "$usage"
+case "$1" in -*) iss_usage_die "$usage" ;; esac
+draft=$1
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
+[ -f "$draft" ] || iss_die "draft \`$draft\` does not exist"
+[ -r "$draft" ] || iss_die "draft \`$draft\` is not readable"
+
+iss_validate_config_text "$(cat "$draft")" "refusing to write the draft \`$draft\`: "
+
+target=$root/.issues/repo-config.md
+mkdir -p "$root/.issues" || iss_die "could not create \`$root/.issues\`"
+# Not mktemp, whose 0600 file would become the config's mode: cp gives the
+# new file the draft's mode, less the umask.
+tmp=$root/.issues/.repo-config.md.$$
+if ! cp "$draft" "$tmp" || ! mv -f "$tmp" "$target"; then
+  rm -f "$tmp"
+  iss_die "could not write \`$target\`"
+fi
+cmp -s "$draft" "$target" || iss_die "the write did not land: \`$target\` does not match the draft \`$draft\`"
+
+printf 'Wrote %s.\n' "$target"

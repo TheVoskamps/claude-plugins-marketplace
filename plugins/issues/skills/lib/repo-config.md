@@ -234,6 +234,36 @@ Variable parts are wrapped in backticks.
   rewrites the file from scratch with all canonical fields
   present.
 
+- **Slot default invalid**
+
+  > This repo's `.issues/repo-config.md` sets `<slot>`'s
+  > `default:` to `<value>`, which is not \<accepts\>. Run
+  > `/repo-config` to fix it.
+
+  Triggered when a `fields.<slot>.default` is a value the slot
+  itself would refuse: for `kind: number`, not an integer within
+  the slot's `min`/`max`, and \<accepts\> reads ``an integer in
+  `[<min>, <max>]` ``, an absent bound printed as `-inf` or `inf`;
+  for any kind whose slot carries `options:`, not among those
+  options (matched case-insensitively), and \<accepts\>
+  reads ``one of its options: `<options>` ``, the options
+  comma-separated in the config's order. A slot of `kind: skip` is
+  not checked. The file is
+  invalid as a whole, so the read aborts before any slot is used,
+  whichever slot the caller wanted.
+
+- **Slot range invalid**
+
+  > This repo's `.issues/repo-config.md` sets `<slot>`'s range to
+  > `[<min>, <max>]`, which is not an integer range with `min:` at
+  > most `max:`. Run `/repo-config` to fix it.
+
+  Triggered when a `kind: number` slot's `min` or `max` is not an
+  integer, or `min` is greater than `max`, whether or not the slot
+  has a `default:`; an absent bound is printed as `-inf` or `inf`.
+  Checked before the slot's default, and, like it, aborts the read
+  whichever slot the caller wanted.
+
 Readers should not invent additional abort messages for the same
 failure shapes. If a new failure shape arises, document it in this
 catalogue rather than ad-hoc wording in the reader.
@@ -454,10 +484,11 @@ readers sit outside this contract altogether: they parse the one or
 two fields they need inline, reuse at most this library's "File
 missing" abort wording, and check neither `schema-version` nor any
 other part of the read sequence. The user-facing `/issue-*` namespace
-is migrated: its shared `skills/lib/issue.md` "Repo-config parsing"
-section and each `/issue-*` SKILL.md pin schema-version 6 and defer
-here (migrated in #114). Remaining reader migrations land in their
-own follow-up issues.
+is migrated: its scripts pin schema-version 6 as a constant in
+`bin/lib/issues-common.sh` and emit this library's abort messages, and
+its Jira path pins the same version in `skills/lib/issue.md`
+"Repo-config parsing". Remaining reader migrations land in their own
+follow-up issues.
 
 When migrating a reader:
 

@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Close one issue, optionally posting a summary comment first. The contract is
+# plugins/issues/skills/issue-close/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+usage='usage: issue-close <issue-number> [--comment "summary"]'
+number_arg=
+comment=
+has_comment=no
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --comment)
+      [ "$#" -ge 2 ] || iss_usage_die "$usage"
+      comment=$2
+      has_comment=yes
+      shift 2
+      ;;
+    -*) iss_usage_die "$usage" ;;
+    *)
+      [ -z "$number_arg" ] || iss_usage_die "$usage"
+      number_arg=$1
+      shift
+      ;;
+  esac
+done
+[ -n "$number_arg" ] || iss_usage_die "$usage"
+
+iss_init
+iss_parse_operand "$number_arg" local-only
+ref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title url"
+title=$(iss_jq .title)
+url=$(iss_jq .url)
+
+# Comment first, so a failed close still leaves the summary on the issue; a
+# failed comment stops the run before the close.
+posted="not posted"
+if [ "$has_comment" = yes ]; then
+  gh issue comment "$OP_NUMBER" --repo "$OP_OWNER/$OP_REPO" --body "$comment" >/dev/null ||
+    iss_die "\`gh issue comment\` failed on issue \`$ref\`; the issue was not closed"
+  posted=posted
+fi
+
+gh issue close "$OP_NUMBER" --repo "$OP_OWNER/$OP_REPO" >/dev/null ||
+  iss_die "\`gh issue close\` failed on issue \`$ref\`"
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "state"
+state=$(iss_jq .state)
+[ "$state" = CLOSED ] || iss_err_write_not_landed state "$ref" CLOSED "$state"
+
+printf 'Closed issue %s "%s".\n' "$ref" "$title"
+printf '  comment: %s\n' "$posted"
+printf '  state:   %s\n' "$state"
+printf '%s\n' "$url"
+
+if [ "$has_comment" = yes ]; then
+  closing=$(printf '%s\n' "$comment" |
+    grep -oiE '(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*#[0-9]+' |
+    grep -oE '#[0-9]+' | awk '!seen[$0]++' | iss_join_lines)
+  if [ -n "$closing" ]; then
+    printf 'note: your comment contained closing keyword(s) referencing %s, which will auto-close that/those issue(s).\n' "$closing"
+  fi
+fi

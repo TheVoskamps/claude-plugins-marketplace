@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# List every direct sub-issue of one parent. The contract is
+# plugins/issues/skills/issue-sub-list/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-sub-list <parent-N>"
+iss_init
+iss_parse_operand "$1" local-only
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title $(iss_conn subIssues)"
+title=$(iss_jq .title)
+lines=$(iss_jq '.subIssues.nodes[] | [.repository.nameWithOwner, (.number | tostring), .title] | join("\t")')
+
+printf 'Sub-issues of %s "%s":\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$title"
+if [ -z "$lines" ]; then
+  printf '  (none)\n'
+  exit 0
+fi
+printf '%s\n' "$lines" | while IFS="$(printf '\t')" read -r nwo number child_title; do
+  printf '  - %s %s\n' "$(iss_ref_nwo "$nwo" "$number")" "$child_title"
+done

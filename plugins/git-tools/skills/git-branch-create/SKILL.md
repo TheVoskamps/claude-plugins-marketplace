@@ -144,10 +144,11 @@ an error naming the offending value:
    - Caller supplied one → validate it per "Validation" and use it
      verbatim.
    - Exactly one issue number and no slug → derive it from the issue
-     title:
+     title, which is the first line of `/issues:issue-view <N>`'s
+     output, after the `#<N>` and before the `(<state>)`:
 
-     ```bash
-     gh issue view <N> --json title
+     ```text
+     /issues:issue-view <N>
      ```
 
      Lowercase, kebab-case, at most five words (e.g. `Orchestrator

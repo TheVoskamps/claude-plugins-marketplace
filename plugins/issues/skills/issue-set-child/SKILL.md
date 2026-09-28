@@ -3,20 +3,9 @@ name: issue-set-child
 description: Link a parent issue to a child (sub-issue edge) by adding the child as a sub-issue of the parent. Sugar for /issue-set-parent with inverted argument order.
 ---
 
-Add a child issue as a sub-issue of a parent issue. This is the
-"parent side" of the same sub-issue edge that `/issue-set-parent`
-exposes — both verbs make the same `addSubIssue` call with the same
-parent and the same child; they differ only in the order the CLI takes
-them.
-
-See `skills/lib/issue.md` for the shared GraphQL templates, tracker
-dispatch, the "One edge, two sides" pattern, and error wording. This
-file documents only what is specific to `/issue-set-child`.
-
-Read `skills/lib/repo-config.md` for the repo-config read contract;
-this skill requires **schema-version 6** and uses that library's
-canonical read sequence and abort messages for
-`.issues/repo-config.md`.
+Make one issue a sub-issue of another, named from the parent's end.
+This is the edge `/issue-set-parent` writes, with the arguments the
+other way round.
 
 ## Invocation
 
@@ -24,50 +13,43 @@ canonical read sequence and abort messages for
 /issue-set-child <parent-N> <child-N>
 ```
 
-- `<parent-N>` (required): issue number of the parent.
-- `<child-N>` (required): issue number of the child to add as a
-  sub-issue.
+- `<parent-N>` (required): the containing issue.
+- `<child-N>` (required): the issue becoming a sub-issue.
 
-Mnemonic: argument order matches the verb — "set child of P to C"
-reads left-to-right. Same edge as `set-parent C P`.
+Both are issue numbers in the current repo, with or without a leading
+`#`. Mnemonic: "set child of P to C" reads left-to-right; the same
+edge as `set-parent C P`.
 
-## Tracker dispatch
+## Execution
 
-Apply the standard `issues:` switch from `skills/lib/issue.md`.
-Under `issues == Jira`, follow the Jira backend path documented
-there (`skills/lib/issue.md` → "Jira backend"), which talks to Jira
-via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
+Run the `issue-set-child` script, which this plugin puts on `PATH`,
+with the Bash tool from inside the repo's working tree:
 
-## Execution (GitHub backend)
+```bash
+issue-set-child <parent-N> <child-N>
+```
 
-1. **Look up node IDs for both issues** using the node-ID lookup
-   template from `skills/lib/issue.md`, trimmed to `id` plus
-   `parent { id number title }` on the child side (to detect an
-   existing different-parent conflict).
-
-2. **Idempotency check.** If the child's existing `parent.number`
-   already equals `<parent-N>`, no-op: print one line (`Issue #<C>
-   is already a sub-issue of #<P>; no change.`) and exit zero.
-
-3. **Single-parent conflict check.** If the child already has a
-   parent and that parent is **not** `<parent-N>`, abort with:
-
-   > issue `#<C>` already has parent `#<existing-P>`; remove it first
-   > with `/issue-unset-parent <C>` before setting a new parent
-
-4. **Create the edge** via the `addSubIssue` template from
-   `skills/lib/issue.md`, supplying the node ID of `<parent-N>` as the
-   parent and the node ID of `<child-N>` as the child.
-
-5. **Issue not found**: if either node-ID lookup returns
-   `repository.issue: null`, emit the "Issue not found" error from
-   the catalogue and abort, identifying which issue was missing.
+An issue has at most one parent. The script is a no-op when the child
+is already under that parent, refuses when it is under a different
+one, and otherwise links it and re-reads the child's parent, exiting
+non-zero when the re-read does not show the link. Print its stdout as
+it stands. On a non-zero exit, relay its stderr verbatim and stop.
 
 ## Output
-
-Print one confirmation line and the parent's URL:
 
 ```text
 Linked issue #<C> as a sub-issue of #<P>.
 https://github.com/<owner>/<repo>/issues/<P>
 ```
+
+The no-op prints `Issue #<C> is already a sub-issue of #<P>; no
+change.` and exits zero. A child under another parent is an error:
+
+> issue `#<C>` already has parent `#<existing-P>`; remove it first
+> with `/issue-unset-parent <C>` before setting a new parent
+
+## Jira backend
+
+The script serves the GitHub backend only. Under `issues: Jira` it
+exits non-zero with its fixed Jira message before any call; follow
+`skills/lib/issue.md` → "Jira backend" → "Relationships" instead.

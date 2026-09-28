@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Post one comment on one issue, the body read from a file. The contract is
+# plugins/issues/skills/issue-comment/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+usage="usage: issue-comment <issue-number> --body-file PATH"
+number_arg=
+body_file=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --body-file)
+      [ "$#" -ge 2 ] || iss_usage_die "$usage"
+      body_file=$2
+      shift 2
+      ;;
+    -*) iss_usage_die "$usage" ;;
+    *)
+      [ -z "$number_arg" ] || iss_usage_die "$usage"
+      number_arg=$1
+      shift
+      ;;
+  esac
+done
+[ -n "$number_arg" ] && [ -n "$body_file" ] || iss_usage_die "$usage"
+
+iss_init
+iss_parse_operand "$number_arg" local-only
+ref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+
+case "$body_file" in
+  /*) ;;
+  *) [ -f "$body_file" ] || body_file="$ISS_REPO_ROOT/$body_file" ;;
+esac
+[ -f "$body_file" ] || iss_die "body file \`$body_file\` does not exist"
+[ -r "$body_file" ] || iss_die "body file \`$body_file\` is not readable"
+grep -q '[^[:space:]]' "$body_file" || iss_die "body file \`$body_file\` is empty or whitespace-only; no comment posted"
+
+iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title"
+title=$(iss_jq .title)
+
+comment_url=$(gh issue comment "$OP_NUMBER" --repo "$OP_OWNER/$OP_REPO" --body-file "$body_file") ||
+  iss_die "\`gh issue comment\` failed on issue \`$ref\`"
+comment_url=$(printf '%s\n' "$comment_url" | grep -o 'https://[^[:space:]]*' | tail -n 1)
+
+# Re-read the comment the URL names and confirm it sits on this issue.
+comment_id=${comment_url##*issuecomment-}
+iss_is_digits "$comment_id" || iss_err_write_not_landed comment "$ref" "a new comment" "no comment URL from \`gh issue comment\`"
+issue_url=$(gh api "repos/$OP_OWNER/$OP_REPO/issues/comments/$comment_id" --jq .issue_url 2>/dev/null) ||
+  iss_err_write_not_landed comment "$ref" "comment $comment_id" "no such comment"
+[ "${issue_url##*/}" = "$OP_NUMBER" ] ||
+  iss_err_write_not_landed comment "$ref" "comment $comment_id" "the comment on another issue"
+
+printf 'Commented on issue %s "%s".\n%s\n' "$ref" "$title" "$comment_url"
