@@ -151,10 +151,10 @@ of them loses track of which decision belongs to which.
    one issue; it does not carry to the next.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.
-   - **In another repo** → `/issue-create` files into the current
-     repo only, so there is no skill for this. File it with
-     `gh issue create --repo <owner>/<repo> --title "…"
-     --body-file <path>`. This is a write outside the current
+   - **In another repo** →
+     `/issue-create --repo <owner>/<repo> --title "…" --body-file <path>`,
+     which applies that repo's own repo-config, or files a plain issue
+     and says so when it has none. This is a write outside the current
      repository, which is why the explicit per-issue yes is the gate
      rather than a formality.
 
