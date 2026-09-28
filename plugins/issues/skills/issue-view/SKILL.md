@@ -1,6 +1,6 @@
 ---
 name: issue-view
-description: Dump a single issue with body, all project fields, and parent/sub-issues/blockedBy/blocking relationships in one shot.
+description: Dump a single issue with body, every configured field slot, and parent/sub-issues/blockedBy/blocking relationships in one shot.
 ---
 
 Print everything about a single issue in one pass — title, body,
