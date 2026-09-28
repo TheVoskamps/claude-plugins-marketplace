@@ -21,8 +21,9 @@ usage() {
 
 # config_value <key> -- one front-matter value from the repo's
 # .issues/repo-config.md, with surrounding quotes removed. Only the
-# front matter is read: the block a `---` first line opens and the next
-# `---` line closes. A file whose first line is not `---` has none.
+# front matter is read: the block a `---` first non-blank line opens and
+# the next `---` line closes. A file whose first non-blank line is not
+# `---` has none.
 # It lives here rather than in the common helper because this is the
 # one verb that reads repo-config.
 config_value() {
@@ -31,7 +32,8 @@ config_value() {
   file="$root/.issues/repo-config.md"
   [ -f "$file" ] || gp_err_no_config
   value=$(awk -v key="$1" '
-    NR == 1 && $0 == "---" { inside = 1; next }
+    !opened && /^[ \t]*$/ { next }
+    !opened { opened = 1; if ($0 == "---") { inside = 1; next }; exit }
     inside && $0 == "---" { exit }
     inside && index($0, key ":") == 1 {
       v = substr($0, length(key) + 2)

@@ -455,6 +455,23 @@ check "$ERR" "pr-create: This repo has no \`.issues/repo-config.md\`. Run \`/rep
   "pr-create: the missing-config message"
 check "$(calls)" "" "pr-create: a missing repo-config opens no PR"
 
+new_case create-blank-lead
+mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
+{ printf '\n  \n'; cat "$SANDBOX/repo-config.md"; } >"$REPO/.issues/repo-config.md"
+run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
+mv "$SANDBOX/repo-config.md" "$REPO/.issues/repo-config.md"
+check "$RC" "0" "pr-create: blank lines before the opening --- still open the front matter"
+check "$(call_line 1)" "pr create --draft --base integ --head b --title T --body-file -" \
+  "pr-create: reads the base from front matter behind blank lines"
+
+new_case create-no-front-matter
+mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
+{ printf 'Preamble\n'; cat "$SANDBOX/repo-config.md"; } >"$REPO/.issues/repo-config.md"
+run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
+mv "$SANDBOX/repo-config.md" "$REPO/.issues/repo-config.md"
+check "$RC" "4" "pr-create: a first non-blank line other than --- leaves no front matter"
+check "$(calls)" "" "pr-create: a repo-config with no front matter opens no PR"
+
 # --- pr-review-submit ----------------------------------------------------
 new_case review-approve
 run pr-review-submit 7 --verdict approve "Looks good"
