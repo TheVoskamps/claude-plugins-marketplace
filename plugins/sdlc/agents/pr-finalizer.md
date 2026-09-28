@@ -305,6 +305,23 @@ into a brief.
    that stderr, rather than trying again on top of a body you have not
    verified.
 
+   An exit 2 is a usage error: nothing reached GitHub, so the body is
+   still the one step 1 read and there is nothing to restore. Report
+   the failure, quoting the stderr, and post nothing further — the
+   fault is in the invocation or the file step 6 built, and rebuilding
+   either is not a guess to make unattended. An exit 3 is a failed
+   `gh` call, and the stderr names which one: a failed edit may or may
+   not have changed the body, and a failed re-read follows an edit
+   that went through unverified. Either way the body is one nobody
+   verified, so handle it as a byte-level difference: restore the body
+   you saved in step 1 and report the failure, quoting that stderr.
+
+   A restore is a `/github-prs:pr-update` call too. When it exits
+   anything but 0, do not try it again: report that the body is in a
+   state nothing verified, quoting the stderr of both the amendment
+   and the restore, so the human puts the step-1 body back from the
+   PR's edit history.
+
 9. **Report back**: how many detail comments you posted and what they
    covered — or that a previous run's chain was already complete and
    you posted none — what you wrote, in outline, whether it replaced a
