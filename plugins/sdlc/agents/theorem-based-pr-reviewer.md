@@ -657,9 +657,13 @@ round".
 If that `round <n>` names **this** round's own number, an earlier
 instance of this same round stored its records before it managed to
 post: they are this round's own output rather than a predecessor
-round's. Do not carry them forward as last round's — take the arm "You
-are re-entrant" gives for what the log holds, re-derive the
-dispositions, store them again, and post.
+round's, and they stand. Do not carry them forward as last round's, and
+do not store them again — `--mode records --carry` refuses a round no
+lower than the one it would carry from, and a moved head would have
+voided the round, records and all, so what is stored was derived from
+this head's result files. Take the arm "You are re-entrant" gives for
+what the log holds, derive the dispositions and verdicts from those
+result files, store the review, and post.
 
 **The previously reviewed head.** It is the `anchor` line's head SHA in
 `<prev-round>`'s own log:
@@ -748,18 +752,33 @@ changes a record. That marker is spelled in every `sdlc` file that
 writes or reads it, this one included; a change to the literal sweeps
 all of them.
 
-Apply each remaining comment to the carried records:
+Apply each remaining comment to the carried records. What you decide
+here lands in one of the two files "Persist the round's records and
+review" hands the script — an **edits file**, one line per field you set
+on a carried record, and a **new-records file** holding each record this
+round adds — and the script assembles the round's records file from
+them. Stage both with `Write` under `.claude/tmp/<task-slug>/` as the
+round goes; neither is ever built by a program you write.
 
-- **A rejected finding** — its theorem retires as *human-refuted*. A
+- **A rejected finding** — its theorem retires as *human-refuted*: edit
+  lines setting its `state` to `retired`, its `state-detail` to
+  `human-refuted` and its `settled-at` to this round's head SHA. A
   human who changes their mind posts a missed defect instead, which
   mints a new theorem under a new id.
 - **A scope-dropped finding** — a `dropped (scope ruling)` line — its
-  theorem retires as *scope-dropped*. The ruling is the orchestrator's,
+  theorem retires as *scope-dropped*, by the same three edit lines with
+  `state-detail` `scope-dropped`. The ruling is the orchestrator's,
   not the human's, and the label is what keeps the two apart.
-- **A severity override** — it writes `severity-override: <value>` on
-  that theorem's record.
+- **A severity override** — an edit line setting `severity-override`
+  to `<value>` on that theorem's record.
 - **A missed defect** — it mints a **new** theorem, continuing the id
-  sequence, live until it survives a round.
+  sequence, live until it survives a round. Its record goes in the
+  new-records file.
+
+An edit line is `<id><tab><field><tab><value>`; the
+`sdlc:agent-result-persist-interface` skill → "The modes", under
+`records`, owns the grammar and every refusal, among them a second edit
+to one field of one record.
 
 A minted record still has to satisfy the theorem contract, and the
 comment the orchestrator posts carries only the defect and a
@@ -1037,8 +1056,11 @@ nothing there is judged either.
 
 On a delta round the report may also carry a `RETIREMENTS` list: ids
 of carried theorems whose subject the delta removed. Stamp each named
-record `retired`, with `state-detail: subject removed`, and drop it
-from the live list. A retirement that names an id absent from the
+record `retired`, with `state-detail: subject removed` and `settled-at`
+this round's head SHA — three lines of the edits file — and drop it
+from the live list. Each new theorem the generator emitted goes in the
+new-records file, field for field as it emitted it. A retirement that
+names an id absent from the
 carried records, or an id the generator also emitted as a new theorem,
 is malformed — ask for a re-emit rather than guessing which was
 meant.
@@ -1571,11 +1593,21 @@ verifier-malformed and no-verifier-verdict rows are stamped
 the two unsettled rows `unsettled`; all of them are live again next
 round, so none retires.
 
+Stamping writes the stamp down, in the files "Carry the previous round's
+theorems forward" staged. A **carried** theorem's stamp is three lines of
+the edits file — `state`, `state-detail` and `settled-at` — with an
+empty value for a `state-detail` the row gives none, so a detail left
+from an earlier round does not outlive the state it described. A **new**
+theorem — the generator's, or one an adjustment comment minted — carries
+its stamp in its own record in the new-records file. You decide each
+state; the script only applies it.
+
 A theorem that got no disprover this round — a retired one on a
-default round — keeps the state and the head SHA it already had. Do
-not restate it as survived-this-round: the record says which head it
-was settled against, and re-stamping it would claim a check that never
-ran.
+default round — keeps the state and the head SHA it already had, and
+gets no edit line: the script writes back a record no edit names
+exactly as it was carried. Do not restate it as survived-this-round:
+the record says which head it was settled against, and re-stamping it
+would claim a check that never ran.
 
 Then derive the verdicts per "Per-issue verdicts, one overall" and
 "Verdict follows from findings" below. A carried-forward theorem
@@ -1587,28 +1619,55 @@ step from here to the posted review is mechanical.
 
 Store the round's own output under XDG state **before** you post
 anything, so a run that dies between the two leaves the round readable
-rather than announced. Stage each file with `Write` under
-`.claude/tmp/<task-slug>/` and hand it to the script with `--from`:
+rather than announced. Every file below is staged with `Write` under
+`.claude/tmp/<task-slug>/` and handed to the script by path.
+
+**The records file is the script's to assemble, not yours.** On every
+round that carried records forward, hand it the edits file and the
+new-records file "Carry the previous round's theorems forward" and
+"Derive each theorem's disposition" staged, and it builds the round's
+records file from the carried round's:
 
 ```bash
-sdlc-agent-result-persist --mode records \
+sdlc-agent-result-persist --mode records --carry \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
-  --from .claude/tmp/<task-slug>/records.md
+  --edits .claude/tmp/<task-slug>/edits.tsv \
+  --from .claude/tmp/<task-slug>/new-records.md
+```
 
+Either file may be empty — an empty-delta round has neither edits nor
+new records, and a round that only retires has no new records — and
+the call still runs. You write no program to build, merge or reorder
+records, on this round or any other: the two staged files are the whole
+of what you write. A refused call names what it refused; fix that line
+of your staged file and run the call again.
+
+A **fallback round** carried nothing forward, so it has nothing for
+`--carry` to read: store its records with the plain form, `--mode
+records --from <file>`, the file holding each theorem the generator
+emitted as it emitted it, with the stamp "Derive each theorem's
+disposition" gave it.
+
+Then store the review:
+
+```bash
 sdlc-agent-result-persist --mode review \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
   --from .claude/tmp/<task-slug>/review.md
 ```
 
-The records file carries every recorded theorem, in id order, retired
-ones included, per "The theorem records file" below. The review file
-carries the eight argued sections of "Review body" below, in full — the
-quoted counterexamples and the argued findings among them.
+The stored records file carries every recorded theorem, in id order,
+retired ones included, per "The theorem records file" below. The review
+file carries the eight argued sections of "Review body" below, in full
+— the quoted counterexamples and the argued findings among them.
 
 **Both calls run on every round that reaches disposition**, an
 empty-delta round included: that round's records and verdicts carry
 forward unchanged, and a round that stored neither would leave the next
-one carrying forward from an older round than the one that ran.
+one carrying forward from an older round than the one that ran. The one
+exception is an instance that found this round's own records already
+stored, which stores only the review, per "Carry the previous round's
+theorems forward".
 
 Neither file is capped, quoted, or truncated. The 64 KB ceiling that
 once bounded what a round could persist was a property of a PR comment,
@@ -1752,9 +1811,9 @@ across rounds.
 The fields *you* add — `state`, `state-detail`, `settled-at`, and
 `severity-override` — are not the generator's to emit. You stamp the
 first three in "Derive each theorem's disposition" and the last in
-"Carry the previous round's theorems forward", and write them into the
-records file; a generator that emits any of them has misread its
-brief.
+"Carry the previous round's theorems forward", as edit lines or in a
+new record, per "Persist the round's records and review"; a generator
+that emits any of them has misread its brief.
 
 The generation skill (`sdlc:theorem-generation`) owns *what* theorems
 to generate. This section owns only the record shape you read.
@@ -2043,8 +2102,10 @@ it to the PR once, when the loop concludes.
 
 ### The theorem records file
 
-Write one records file per round, per "Persist the round's records and
-review" above, holding every recorded theorem in id order:
+Each round stores one records file, per "Persist the round's records
+and review" above, holding every recorded theorem in id order. This is
+the shape the script's carry form reads and writes, and the shape each
+record in the new-records file takes:
 
 ```markdown
 T1
@@ -2107,8 +2168,9 @@ included. **Ids are never reused**: a round that mints new theorems
 continues the sequence, so `T7` means the same claim in every round of
 the PR's life.
 
-Store the file even on an empty-delta round, carrying the records
-forward unchanged. A round that stores none leaves the next round
+Store the file even on an empty-delta round, where the carry form with
+no edits and no new records writes the records forward unchanged. A
+round that stores none leaves the next round
 carrying forward from an older round than the one that ran, which is
 silently wrong in a way nothing downstream can detect.
 

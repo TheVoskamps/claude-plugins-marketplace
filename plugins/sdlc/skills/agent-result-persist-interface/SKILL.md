@@ -31,10 +31,10 @@ generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
 each write their own `enter` and `leave`. **Every log record is a
 single atomic append**, so no two writers can be ordered wrongly and no
 call has to know what the log already holds. The records file and the
-review file are not records: each arrives whole as a payload and replaces
-whatever the round held before, so a resumed instance that re-derives
-the round stores its own version over its predecessor's rather than
-adding to it.
+review file are not records: each is written whole — the review as its
+payload arrived, the records either so or built by `--mode records
+--carry` from the carried round and the caller's edits — and replaces
+whatever the round held before, rather than being added to.
 
 ## Invocation
 
@@ -81,9 +81,10 @@ in one session do the same.
   with a message naming the path, before anything is written.
 - A `--from` file that exists but cannot be read is refused, non-zero,
   with a message naming that file.
-- An empty payload is refused either way. With no `--from`, empty stdin
-  gets `--mode <mode> takes the <noun> on stdin, and nothing arrived`;
-  an empty `--from` file gets a message naming that file.
+- An empty payload is refused either way, except by `records --carry`,
+  whose payload is only the round's new records. With no `--from`,
+  empty stdin gets `--mode <mode> takes the <noun> on stdin, and nothing
+  arrived`; an empty `--from` file gets a message naming that file.
 - The file is read, never moved or removed: it stays where its writer
   put it.
 
@@ -269,6 +270,55 @@ directories.
   takes the file's existence as the round's records, and half a file
   would carry half a round's theorems into the next round with nothing
   saying so.
+
+  **With `--carry`, the script builds the records file itself** rather
+  than taking one whole. The reviewer's form, on every round from 1 on;
+  the plain form above stays the orchestrator's round-0 write. The
+  build is a transform and makes no decision: which state a record
+  takes, and what a new record says, arrive already decided.
+
+  1. It reads the records `print-records` would print — the
+     highest-numbered non-voided round holding a records file — and
+     refuses when that round is not lower than `--round`.
+  2. It applies the edits file `--edits <path>`, if one is named: one
+     edit per line, `<id><tab><field><tab><value>`, where `<value>` is
+     the rest of the line after the second tab and may be empty, and an
+     empty line is skipped. `<field>` is one of `state`, `state-detail`,
+     `settled-at` and `severity-override`. An edit replaces that field's
+     line on that record, or adds it when the record lacks it, ahead of
+     the first of those four fields that follows it in that order. Only
+     `state` is validated, and must be `disproved`, `unsettled` or
+     `retired`; the other three are stored verbatim.
+  3. It appends the new records in the payload, `--from <path>` or
+     stdin, each in the record shape `sdlc:theorem-based-pr-reviewer` →
+     "The theorem records file" gives, separated by blank lines. The
+     payload may be empty — an empty-delta round and a round that only
+     retires both have no new record — and stdin is not read when it is
+     a terminal.
+  4. It writes the result in id order, each record separated from the
+     next by one blank line, through the same staging-then-rename.
+
+  A carried record no edit names is written back line for line, and an
+  edited one changes only on the lines its edits name: **the script sets
+  no field an edit does not name.**
+
+  Each refusal exits non-zero, writes nothing — no round directory, no
+  staging file — and says what it refused, quoting the offending line
+  when one line is at fault:
+
+  - an edit naming an id no carried record has;
+  - an edit naming a field outside the four;
+  - a `state` value outside the three;
+  - two edits to the same field of the same record;
+  - a new record whose id is already carried, or that does not continue
+    the id sequence the carried records ended at — the first new record
+    is `T<n+1>` after a carried `T<n>`, and each after it the next;
+  - a result that leaves any record without `state`, naming every such
+    id — every round from 1 on stamps one on every record, so a carried
+    round-0 seed record left unstamped is what this catches;
+  - `--carry` with no round holding a records file to carry;
+  - `--carry` in any mode but `records`, `--edits` without `--carry`,
+    and an `--edits` path that is not an existing file.
 - **`review`** — writes the round's argued review, read as its payload,
   to the round's `review` file, on the same terms as `records`.
 - **`print-records`** — writes to stdout the records of the

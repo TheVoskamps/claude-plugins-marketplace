@@ -36,6 +36,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
+                [--carry [--edits <path>]]
 EOF
 }
 
@@ -55,11 +56,18 @@ tokens=
 tools=
 ms=
 from=
+carry=
+edits=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from)
+    --carry)
+      carry=1
+      shift
+      continue
+      ;;
+    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -89,6 +97,7 @@ while [ "$#" -gt 0 ]; do
     --tools)      tools=$value ;;
     --ms)         ms=$value ;;
     --from)       from=$value ;;
+    --edits)      edits=$value ;;
   esac
 done
 
@@ -204,6 +213,14 @@ if [ -n "$from" ]; then
   [ -f "$from" ] || die "--from names no file: $from"
 fi
 
+if [ -n "$carry" ] && [ "$mode" != records ]; then
+  die "--carry is not accepted in --mode $mode"
+fi
+if [ -n "$edits" ]; then
+  [ -n "$carry" ] || die "--edits is accepted only with --carry: $edits"
+  [ -f "$edits" ] || die "--edits names no file: $edits"
+fi
+
 for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
   name=${pair%%:*}
   given=${pair#*:}
@@ -315,10 +332,177 @@ check_report_theorem() {
   fi
 }
 
+# The records to carry forward are the most recent ones there are: the
+# highest-numbered round holding a records file. A voided round's
+# directory carries its records with it under the .voided- name, and is
+# skipped for the same reason its result files are — it describes a
+# tree that no longer exists. Sets best and best_round, both empty when
+# no round qualifies.
+latest_records_round() {
+  best=
+  best_round=
+  for candidate in "$pr_dir"/round*; do
+    [ -d "$candidate" ] || continue
+    base=${candidate##*/}
+    case "$base" in
+      *.voided-*) continue ;;
+    esac
+    n=${base#round}
+    case "$n" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    [ -f "$candidate/records" ] || continue
+    if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
+      best_round=$n
+      best=$candidate
+    fi
+  done
+}
+
+# Builds the round's records file from the carried round's records, the
+# --edits lines and the payload's new records, and prints it on stdout.
+# Every refusal is decided before a byte is printed, so a refused build
+# prints nothing and exits 2 with the reason on stderr. A carried record
+# no edit names is re-emitted line for line, and an edited one changes
+# only on the lines its edits name.
+carry_records() {
+  if [ -n "$from" ]; then
+    payload_name=--from
+  else
+    payload_name=stdin
+  fi
+  awk -v prog="$PROGRAM" -v round="$round" -v source="$payload_name" '
+    function fail(msg) {
+      print prog ": " msg | "cat 1>&2"
+      failed = 1
+      exit 2
+    }
+    function key_of(text,    k) {
+      k = text
+      sub(/:.*/, "", k)
+      return k
+    }
+    BEGIN {
+      rank["state"] = 1
+      rank["state-detail"] = 2
+      rank["settled-at"] = 3
+      rank["severity-override"] = 4
+      order[1] = "state"; order[2] = "state-detail"
+      order[3] = "settled-at"; order[4] = "severity-override"
+      n = 0
+      last = 0
+    }
+    FNR == 1 { open = 0 }
+    part == "carried" || part == "new" {
+      if ($0 ~ /^[ \t\r]*$/) { open = 0; next }
+      if (open) {
+        lines[n]++
+        line[n, lines[n]] = $0
+        next
+      }
+      id = $0
+      sub(/[ \t\r]+$/, "", id)
+      if (part == "carried") {
+        if (id !~ /^T[0-9]+$/)
+          fail("the records of carried round " carried_round " hold a record whose id line is not T<n>: " $0)
+      } else {
+        where = source " line " FNR " (" $0 ")"
+        if (id !~ /^T[0-9]+$/)
+          fail(where " starts a new record whose id is not T<n>")
+        if (id in idx && src[idx[id]] == "carried")
+          fail(where " starts a new record whose id is already carried")
+        if (substr(id, 2) + 0 != last + 1)
+          fail(where " does not continue the id sequence, whose next id is T" (last + 1))
+      }
+      n++
+      ids[n] = id
+      num[n] = substr(id, 2) + 0
+      src[n] = part
+      lines[n] = 0
+      idx[id] = n
+      if (num[n] > last) last = num[n]
+      open = 1
+      next
+    }
+    part == "edits" {
+      if ($0 == "") next
+      where = "--edits line " FNR " (" $0 ")"
+      t1 = index($0, "\t")
+      if (!t1) fail(where " is not <id><tab><field><tab><value>")
+      eid = substr($0, 1, t1 - 1)
+      rest = substr($0, t1 + 1)
+      t2 = index(rest, "\t")
+      if (!t2) fail(where " is not <id><tab><field><tab><value>")
+      field = substr(rest, 1, t2 - 1)
+      value = substr(rest, t2 + 1)
+      if (!(eid in idx))
+        fail(where " names " eid ", which no carried record has")
+      if (!(field in rank))
+        fail(where " names field " field ", which is not state, state-detail, settled-at or severity-override")
+      if (field == "state" && value != "disproved" && value != "unsettled" && value != "retired")
+        fail(where " sets state " value ", which is not disproved, unsettled or retired")
+      if ((eid, field) in edit)
+        fail(where " is a second edit to " field " of " eid)
+      edit[eid, field] = value
+      next
+    }
+    END {
+      if (failed) exit 2
+      for (r = 1; r <= n; r++) {
+        for (o = 1; o <= 4; o++) {
+          f = order[o]
+          if (!((ids[r], f) in edit)) continue
+          v = edit[ids[r], f]
+          text = (v == "") ? f ":" : f ": " v
+          at = 0
+          for (j = 1; j <= lines[r]; j++)
+            if (key_of(line[r, j]) == f) { at = j; break }
+          if (at) { line[r, at] = text; continue }
+          # A field the record lacks goes in ahead of the first stamped
+          # field that follows it in the records-file order.
+          at = lines[r] + 1
+          for (j = 1; j <= lines[r]; j++) {
+            k = key_of(line[r, j])
+            if ((k in rank) && rank[k] > rank[f]) { at = j; break }
+          }
+          for (j = lines[r]; j >= at; j--) line[r, j + 1] = line[r, j]
+          line[r, at] = text
+          lines[r]++
+        }
+      }
+      missing = ""
+      for (r = 1; r <= n; r++) {
+        has = 0
+        for (j = 1; j <= lines[r]; j++)
+          if (key_of(line[r, j]) == "state") { has = 1; break }
+        if (!has) missing = missing (missing == "" ? "" : ", ") ids[r]
+      }
+      if (missing != "")
+        fail("round " round " would leave " missing " without a state, and every round from 1 on stamps one on every record")
+      for (r = 1; r <= n; r++) sorted[r] = r
+      for (r = 2; r <= n; r++) {
+        s = sorted[r]
+        for (j = r - 1; j >= 1 && num[sorted[j]] > num[s]; j--) sorted[j + 1] = sorted[j]
+        sorted[j + 1] = s
+      }
+      for (r = 1; r <= n; r++) {
+        s = sorted[r]
+        if (r > 1) print ""
+        print ids[s]
+        for (j = 1; j <= lines[s]; j++) print line[s, j]
+      }
+    }
+  ' carried_round="$best_round" part=carried "$best/records" \
+    part=edits "${edits:-/dev/null}" \
+    part=new "$1"
+}
+
 # Every mode that writes writes into the same directory; the reading
-# modes and delete create nothing.
+# modes and delete create nothing. A carried records write creates it
+# only once its build has passed every refusal.
 case "$mode" in
   print|print-records|print-round-records|print-review|list|delete) ;;
+  records) [ -n "$carry" ] || mkdir -p "$dir" ;;
   *) mkdir -p "$dir" ;;
 esac
 
@@ -390,36 +574,39 @@ case "$mode" in
     done
     ;;
   records)
-    store_payload "$records_file" records
+    if [ -z "$carry" ]; then
+      store_payload "$records_file" records
+    else
+      latest_records_round
+      [ -n "$best" ] || die "--mode records --carry found no round under $pr_dir holding a records file to carry"
+      [ "$best_round" -lt "$round" ] ||
+        die "--mode records --carry would carry round $best_round's records, which is not lower than --round $round"
+      # With --carry the payload is only the round's new records, and a
+      # round that mints none has none to send, so an absent one is
+      # empty rather than refused. Stdin is not read from a terminal,
+      # where nothing would ever arrive.
+      payload=-
+      if [ -n "$from" ]; then
+        payload=$from
+      elif [ -t 0 ]; then
+        payload=/dev/null
+      fi
+      # The build is held in a variable, not streamed to the staging
+      # name, so a refused one leaves no directory and no file behind.
+      built=$(carry_records "$payload") || exit 2
+      mkdir -p "$dir"
+      staged="$records_file.partial-$$"
+      printf '%s\n' "$built" > "$staged"
+      mv -- "$staged" "$records_file"
+    fi
     ;;
   review)
     store_payload "$review_file" review
     ;;
   print-records)
-    # The caller names no round: the records to carry forward are the
-    # most recent ones there are, and which round wrote them is what the
-    # first line of the output says. A voided round's directory carries
-    # its records with it under the .voided- name, and is skipped here
-    # for the same reason its result files are — it describes a tree
-    # that no longer exists.
-    best=
-    best_round=
-    for candidate in "$pr_dir"/round*; do
-      [ -d "$candidate" ] || continue
-      base=${candidate##*/}
-      case "$base" in
-        *.voided-*) continue ;;
-      esac
-      n=${base#round}
-      case "$n" in
-        ''|*[!0-9]*) continue ;;
-      esac
-      [ -f "$candidate/records" ] || continue
-      if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
-        best_round=$n
-        best=$candidate
-      fi
-    done
+    # The caller names no round, and which round wrote the records is
+    # what the first line of the output says.
+    latest_records_round
     [ -n "$best" ] || die "no round under $pr_dir holds a records file"
     printf 'round %s\n' "$best_round"
     cat -- "$best/records"
