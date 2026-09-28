@@ -1,6 +1,6 @@
 ---
 name: cleanup-interim-work
-description: Index the interim work sdlc runs leave behind in this repo — .claude/tmp/ scratch, the harness scratchpads, subagent worktrees, and local and remote branches — grade each item, ask the human which to remove, and remove only those. --index-only reports the index and removes nothing.
+description: Index the interim work sdlc runs leave behind in this repo — .claude/tmp/ scratch, the harness scratchpads, subagent worktrees, and local and remote branches — grade each item, ask the human which to remove, and remove only those. --index-only reports the index and removes none of it.
 ---
 
 # Cleanup Interim Work
@@ -23,7 +23,10 @@ a subagent cannot.
 ```
 
 `--index-only` is the only argument. It runs "Index" and prints the
-report, then stops: it asks nothing and removes nothing. Any other
+report, then stops: it asks nothing and removes no item it indexes.
+It is not free of writes: "Index" opens with `git fetch --all --prune`,
+which updates the remote-tracking refs and deletes those whose branch
+is gone from `origin`. Any other
 token in `$ARGUMENTS` is not one this skill knows: say so and stop,
 rather than guessing what was meant.
 
@@ -67,7 +70,7 @@ categories below. Each item gets one verdict:
   human needs to decide: its path, its size (`du -sh`), when it was
   last modified, and its top-level entries.
 
-Nothing in this section removes anything.
+Past that fetch, nothing in this section removes anything.
 
 ### Local branches
 

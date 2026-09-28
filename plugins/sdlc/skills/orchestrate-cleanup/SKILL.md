@@ -1,6 +1,6 @@
 ---
 name: orchestrate-cleanup
-description: Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then index the interim work runs leave behind — scratch, scratchpads, worktrees, branches — and remove what the human approves. --dry-run reports the verdicts and the index and deletes nothing.
+description: Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then index the interim work runs leave behind — scratch, scratchpads, worktrees, branches — and remove what the human approves. --dry-run reports the verdicts and the index, and deletes no review state and no indexed item.
 ---
 
 # Orchestrate Cleanup
@@ -30,10 +30,12 @@ what the CLI reported.
 not one this skill knows: say so and stop, rather than guessing what
 was meant.
 
-**`--dry-run` deletes nothing.** It reports the same per-directory
-verdicts without calling `--mode delete`, and runs the interim-work
-pass with `--index-only`, so that pass reports its index and removes
-nothing either.
+**`--dry-run` deletes no review state and no indexed item.** It
+reports the same per-directory verdicts without calling
+`--mode delete`, and runs the interim-work pass with `--index-only`,
+so that pass reports its index and removes none of it. The one write
+left is that pass's opening `git fetch --all --prune`, which deletes
+the remote-tracking refs of branches already gone from `origin`.
 
 ## Process
 
