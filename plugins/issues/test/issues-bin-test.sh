@@ -123,11 +123,11 @@ widgets["5"]["viewerCanSetFields"] = False
 # issue 10 sits at depth 5, so its child 11 falls past the depth cap.
 for child, parent in (("6", "1"), ("7", "6"), ("8", "7"), ("9", "8"), ("10", "9")):
     widgets[child]["parent"] = "I_acme_widgets_" + parent
-# Every connection a script reads runs past one page of 100 somewhere: issue 3
-# has 110 sub-issues; issue 12 has 120 labels, 105 assignees, 110 blocked-by
-# and 110 blocking edges, 105 project items on other boards before the one on
-# PVT_1, 110 field values on that item before its status, and 105 native field
-# values before its priority. Each value the tests read sits past page one.
+# Every connection a script reads runs past one page of 100 somewhere: issue
+# 3's sub-issues; issue 12's labels, assignees, blocked-by and blocking edges,
+# its project items on other boards before the one on PVT_1, that item's field
+# values before its status, and its native field values before its priority.
+# Each value the tests read sits past page one.
 big = {}
 for n in range(100, 210):
     big[str(n)] = issue("acme/widgets", n, "Child %d" % n, parent="I_acme_widgets_3", blockedBy=["I_acme_widgets_12"])

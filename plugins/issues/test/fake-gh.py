@@ -107,6 +107,9 @@ def field_values(item):
 
 
 def render(state, nwo, issue, query, after=None):
+    """The issue object `query` reads. As on GitHub, a connection is present
+    only when the query selects it; `after` applies to every selected
+    connection, since a query that pages one selects no other."""
     parent = None
     if issue.get("parent"):
         pnwo, p = by_id(state, issue["parent"])
@@ -193,6 +196,8 @@ def graphql(state, args):
     query = fields.pop("query")
     mutation = query.lstrip().startswith("mutation")
 
+    # A query carrying $item is the node query that pages one project item's
+    # fieldValues; every other query addresses an issue by owner/repo/number.
     if not mutation and "item" in fields:
         for _, issue in all_issues(state):
             for item in issue["projectItems"]:
