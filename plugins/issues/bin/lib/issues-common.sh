@@ -53,6 +53,11 @@ iss_err_frontmatter_incomplete() {
   iss_die "${3:-}This repo's \`.issues/repo-config.md\` is at schema-version \`$1\` but is missing the canonical field \`$2\`. Run \`/repo-config\` to regenerate it."
 }
 
+iss_err_invalid_default() {
+  # $1 slot, $2 the configured default, $3 what the slot accepts, $4 message prefix
+  iss_die "${4:-}This repo's \`.issues/repo-config.md\` sets \`$1\`'s \`default:\` to \`$2\`, which is not $3. Run \`/repo-config\` to fix it."
+}
+
 iss_err_jira() {
   iss_die "\`issues: Jira\` is configured, and this script serves only the GitHub backend. Follow the Jira backend path in the skill's SKILL.md instead."
 }
@@ -157,8 +162,9 @@ iss_require_tools() {
 #                                     one "<path><TAB><value>" line per node,
 #                                     path components joined by ISS_SEP
 #   ISS_HAS_GP                        1 when the block is present, else 0
-# It aborts with the canonical repo-config messages, and with the fixed Jira
-# message when the tracker is Jira — before any gh call.
+# It aborts with the canonical repo-config messages, with the fixed Jira
+# message when the tracker is Jira — before any gh call — and on a slot
+# default: the slot would refuse (iss_check_slot_defaults).
 # ---------------------------------------------------------------------------
 
 # iss_frontmatter <text>: print the lines between the opening "---" and the
@@ -290,6 +296,39 @@ iss_parse_config_text() {
   body=$(iss_body "$text")
   ISS_GP=$(iss_flatten_gp "$body")
   if [ -n "$ISS_GP" ]; then ISS_HAS_GP=1; else ISS_HAS_GP=0; fi
+  [ "$ISS_HAS_GP" = 0 ] || iss_check_slot_defaults "$prefix"
+}
+
+# iss_check_slot_defaults [<message-prefix>]: abort when a slot's default: is
+# a value the slot itself would refuse -- not an integer in min/max for kind:
+# number, not among the options for any other kind -- so no script recommends
+# or applies it. A slot of kind skip, or of a kind not listed here, is left to
+# the verbs that read it.
+iss_check_slot_defaults() {
+  local prefix=${1:-} slot kind value min max
+  while IFS= read -r slot; do
+    [ -n "$slot" ] || continue
+    value=$(iss_cfg_get fields "$slot" default 2>/dev/null) || continue
+    [ -n "$value" ] || continue
+    kind=$(iss_slot_kind "$slot")
+    case "$kind" in
+      number)
+        min=$(iss_cfg_get fields "$slot" min 2>/dev/null) || min=
+        max=$(iss_cfg_get fields "$slot" max 2>/dev/null) || max=
+        if ! iss_is_int "$value" ||
+           { [ -n "$min" ] && [ "$value" -lt "$min" ]; } ||
+           { [ -n "$max" ] && [ "$value" -gt "$max" ]; }; then
+          iss_err_invalid_default "$slot" "$value" "an integer in \`[${min:--inf}, ${max:-inf}]\`" "$prefix"
+        fi
+        ;;
+      single-select|label|issue-field)
+        iss_resolve_name all "$value" fields "$slot" options >/dev/null ||
+          iss_err_invalid_default "$slot" "$value" "one of its options: \`$(iss_slot_options "$slot")\`" "$prefix"
+        ;;
+    esac
+  done <<EOF
+$(iss_cfg_children fields)
+EOF
 }
 
 # Read the current repo's .issues/repo-config.md.

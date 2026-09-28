@@ -388,6 +388,51 @@ run issue-field-options priority --repo acme/widgets
 expect "issue-field-options --repo: no local repo-config needed" 0 "priority: issue-field (default: Medium)${ISS_NL}  High"
 
 # ---------------------------------------------------------------------------
+# A slot default: the slot would refuse is an invalid repo-config.
+# ---------------------------------------------------------------------------
+
+# bad_default <name> <config> <slot> <default> <accepts>: every script refuses
+# the config with the one error, before any gh call.
+bad_default() {
+  local name=$1 config=$2 msg
+  msg="sets \`$3\`'s \`default:\` to \`$4\`, which is not $5. Run \`/repo-config\` to fix it."
+  new_case "$config"
+  run issue-field-options
+  expect "invalid default, $name: issue-field-options refuses it" 1 "$msg"
+  run issue-create --title x --body-file x
+  expect "invalid default, $name: issue-create refuses it" 1 "$msg"
+  run issue-view 2
+  expect "invalid default, $name: issue-view refuses it" 1 "$msg"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "invalid default, $name: no gh call"
+}
+bad_default "number above max" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/default: 3/default: 12/')" \
+  priority 12 "an integer in \`[1, 9]\`"
+bad_default "number below min" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/default: 3/default: 0/')" \
+  priority 0 "an integer in \`[1, 9]\`"
+bad_default "number not an integer" "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/default: 3/default: three/')" \
+  priority three "an integer in \`[1, 9]\`"
+bad_default "single-select" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/default: Backlog/default: Blocked/')" \
+  status Blocked "one of its options: \`Backlog, In progress, Done\`"
+bad_default "issue-field" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/default: Medium/default: Urgent/')" \
+  priority Urgent "one of its options: \`High, Medium, Low\`"
+bad_default "label" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/default: M$/default: XL/')" \
+  size XL "one of its options: \`S, M, L\`"
+
+new_case "$(printf '%s\n' "$CONFIG_NUMBER" | sed -e 's/default: 3/default: 9/')"
+run issue-field-options
+expect "valid default: a number default at max is accepted" 0 "priority: number (default: 9)"
+
+new_case none
+jq '.repos["acme/widgets"].config |= sub("default: M\n"; "default: XL\n")' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+  mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-field-options --repo acme/widgets
+expect "invalid default --repo: issue-field-options refuses the target's config" 1 \
+  "target repo \`acme/widgets\`: This repo's \`.issues/repo-config.md\` sets \`size\`'s \`default:\` to \`XL\`"
+run issue-create --title x --body-file x --repo acme/widgets
+expect "invalid default --repo: issue-create refuses the target's config" 1 \
+  "target repo \`acme/widgets\`: This repo's \`.issues/repo-config.md\` sets \`size\`'s \`default:\` to \`XL\`"
+
+# ---------------------------------------------------------------------------
 # Set-slot verbs.
 # ---------------------------------------------------------------------------
 

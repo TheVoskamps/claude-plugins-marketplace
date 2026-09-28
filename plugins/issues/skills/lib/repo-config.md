@@ -234,6 +234,24 @@ Variable parts are wrapped in backticks.
   rewrites the file from scratch with all canonical fields
   present.
 
+- **Slot default invalid**
+
+  > This repo's `.issues/repo-config.md` sets `<slot>`'s
+  > `default:` to `<value>`, which is not \<accepts\>. Run
+  > `/repo-config` to fix it.
+
+  Triggered when a `fields.<slot>.default` is a value the slot
+  itself would refuse: for `kind: number`, not an integer within
+  the slot's `min`/`max`, and \<accepts\> reads ``an integer in
+  `[<min>, <max>]` ``, an absent bound printed as `-inf` or `inf`;
+  for `kind: single-select`, `issue-field` or `label`, not among
+  the slot's `options:` (matched case-insensitively), and \<accepts\>
+  reads ``one of its options: `<options>` ``, the options
+  comma-separated in the config's order. A slot of `kind: skip` is
+  not checked. The file is
+  invalid as a whole, so the read aborts before any slot is used,
+  whichever slot the caller wanted.
+
 Readers should not invent additional abort messages for the same
 failure shapes. If a new failure shape arises, document it in this
 catalogue rather than ad-hoc wording in the reader.
