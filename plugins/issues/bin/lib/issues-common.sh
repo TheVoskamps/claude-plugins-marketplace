@@ -2,8 +2,8 @@
 # Shared code for the scripts in plugins/issues/bin/: the
 # .issues/repo-config.md read and its checks, operand parsing, node-ID and
 # field/option ID resolution, the GraphQL documents, the set-slot write paths,
-# and the canonical error catalogue. Every script sources this file and nothing else,
-# so each of these is written exactly once.
+# and the canonical error catalogue. Every script sources this file and
+# nothing else, so each of these is written exactly once.
 #
 # Runs under bash 3.2 and depends on nothing beyond gh, jq and the base
 # userland (awk, grep, sed, tr, mktemp): no associative arrays, no ${var,,},
@@ -205,9 +205,9 @@ EOF
 # iss_flatten_block <block> <body>: flatten a column-0 block of a repo-config
 # body -- github-project: or jira: -- with every path rooted at <block>. The
 # block starts at a column-0 "<block>:" line and runs to the next column-0
-# non-blank line. Mappings nest by indentation; a flow list "[a, b]" or a block list of
-# "- a" lines becomes an identity map (a -> a) so every option list reads the
-# same way.
+# non-blank line. Mappings nest by indentation; a flow list "[a, b]" or a
+# block list of "- a" lines becomes an identity map (a -> a) so every option
+# list reads the same way.
 iss_flatten_block() {
   awk -v SEP="$ISS_SEP" -v BLK="$1" '
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
