@@ -339,8 +339,9 @@ iss_config_jira() {
 # iss_check_slots [<message-prefix>]: abort when a kind: number slot's range
 # makes no sense, or when a slot's default: is a value the slot itself would
 # refuse -- not an integer in min/max for kind: number, not among the options
-# for any other kind -- so no script recommends or applies it. A slot of kind
-# skip, or of a kind not listed here, is left to the verbs that read it.
+# for a kind that carries them -- so no script recommends or applies it. A
+# slot of kind skip, or of a kind not listed here, is left to the verbs that
+# read it.
 iss_check_slots() {
   local prefix=${1:-} slot kind value
   while IFS= read -r slot; do
