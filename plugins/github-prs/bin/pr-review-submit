@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
 # pr-review-submit -- post one review on a pull request carrying both a
-# verdict and a body, the body opening with the verdict word. When the
-# authenticated user is the PR's author, GitHub refuses both verdict
-# flags, so those two post with --comment instead. Then re-read the new
-# review and fail unless it has the expected state and body.
+# verdict and a body, the body opening with the verdict word. GitHub
+# refuses both verdict flags on the PR's own author, so when it refuses
+# one for that reason the review posts again with --comment. Then re-read
+# the newest review and fail unless it is new and has the expected state
+# and body.
 #
 # The contract is plugins/github-prs/skills/pr-review-submit/SKILL.md.
 set -euo pipefail
@@ -54,9 +55,15 @@ done
 [ "$verdicts_seen" -gt 0 ] ||
   gp_err_no_verdict
 case "$verdict" in
-  approve) flag=--approve line=APPROVED state=APPROVED ;;
-  request_changes) flag=--request-changes line=CHANGES_REQUESTED state=CHANGES_REQUESTED ;;
-  comment) flag=--comment line=COMMENTED state=COMMENTED ;;
+  approve)
+    flag=--approve line=APPROVED state=APPROVED
+    refusal='Can not approve your own pull request'
+    ;;
+  request_changes)
+    flag=--request-changes line=CHANGES_REQUESTED state=CHANGES_REQUESTED
+    refusal='Can not request changes on your own pull request'
+    ;;
+  comment) flag=--comment line=COMMENTED state=COMMENTED refusal= ;;
   *) gp_err_bad_verdict "$verdict" ;;
 esac
 if [ "$inline_seen" -gt 0 ] && [ "$file_seen" -gt 0 ]; then
@@ -81,35 +88,30 @@ wanted="$line
 
 $text"
 
-# Both logins come from REST, which spells an App's bot `<slug>[bot]`.
-# `gh pr view --json author` spells the same bot `app/<slug>`, so it
-# would never equal `api user`.
-me=$(gp_gh api user --jq .login) || exit $?
-author=$(gp_gh api "$(gp_repo_path "pulls/$pr")" --jq .user.login) || exit $?
-if [ "$me" = "$author" ]; then
-  flag=--comment
-  state=COMMENTED
-fi
-
 reviews_path=$(gp_repo_path "pulls/$pr/reviews")
-# The id of the newest review $me has left on the PR, or nothing. The
-# login is compared here rather than spliced into the jq filter, which
-# would have to escape whatever characters a login may carry.
-last_own_review() {
-  gp_gh api --paginate "$reviews_path" --jq '.[] | "\(.id) \(.user.login)"' |
-    while read -r id login; do
-      if [ "$login" = "$me" ]; then
-        printf '%s\n' "$id"
-      fi
-    done | tail -n 1
+# The id of the newest review on the PR, whoever left it, or nothing.
+newest_review() {
+  gp_gh api --paginate "$reviews_path" --jq '.[].id' | tail -n 1
 }
 
-before=$(last_own_review) || exit $?
-printf '%s\n' "$wanted" | gp_gh pr review "$pr" "$flag" --body-file - >/dev/null
-after=$(last_own_review) || exit $?
+before=$(newest_review) || exit $?
+rc=0
+err=$({ printf '%s\n' "$wanted" | gh pr review "$pr" "$flag" --body-file - >/dev/null; } 2>&1) || rc=$?
+if [ "$rc" -ne 0 ]; then
+  if [ -z "$refusal" ] || [ "${err#*"$refusal"}" = "$err" ]; then
+    printf '%s\n' "$err" >&2
+    gp_err_gh "pr review" "$rc"
+  fi
+  # GitHub refused the verdict because this is the author's own PR. The
+  # refused call left nothing on the PR, so the comment is the only review.
+  flag=--comment
+  state=COMMENTED
+  printf '%s\n' "$wanted" | gp_gh pr review "$pr" "$flag" --body-file - >/dev/null
+fi
+after=$(newest_review) || exit $?
 
 if [ -z "$after" ] || [ "$after" = "$before" ]; then
-  gp_err_review_missing "$pr" "$me"
+  gp_err_review_missing "$pr"
 fi
 landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
 landed_state=$(printf '%s\n' "$landed" | head -n 1)

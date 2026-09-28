@@ -159,9 +159,9 @@ gp_err_comment_no_id() {
 gp_err_comment_not_landed() {
   gp_not_landed "$1" "the comment" "comment $2's body differs from $3"
 }
-# gp_err_review_missing <pr> <login>
+# gp_err_review_missing <pr>
 gp_err_review_missing() {
-  gp_not_landed "$1" "the review" "no new review by $2 is on the PR"
+  gp_not_landed "$1" "the review" "no new review is on the PR"
 }
 # gp_err_review_state <pr> <review id> <state read back> <state wanted>
 gp_err_review_state() {

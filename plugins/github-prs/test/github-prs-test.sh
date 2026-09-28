@@ -132,9 +132,18 @@ case "$1 $2" in
     ;;
   "pr review")
     me=$(val me me)
-    if [ "$me" = "$(val author someone)" ] && [ "$4" != --comment ]; then
-      echo "failed to create review: Can not approve your own pull request" >&2
-      exit 1
+    # GitHub's refusal of a verdict on the author's own PR, as gh prints it.
+    if [ "$me" = "$(val author someone)" ]; then
+      case "$4" in
+        --approve)
+          echo "GraphQL: Review Can not approve your own pull request (addPullRequestReview)" >&2
+          exit 1
+          ;;
+        --request-changes)
+          echo "GraphQL: Review Can not request changes on your own pull request (addPullRequestReview)" >&2
+          exit 1
+          ;;
+      esac
     fi
     case "$4" in
       --approve) state=APPROVED ;;
@@ -152,8 +161,6 @@ case "$1 $2" in
         >"$S/reviews.json"
     fi
     ;;
-  "api user") jq -n --arg me "$(val me me)" '{login: $me}' | out ;;
-  "api repos/{owner}/{repo}/pulls/7") jq -n --arg author "$(val author someone)" '{user: {login: $author}}' | out ;;
   "api --paginate") val reviews.json '[]' | out ;;
   "api repos/{owner}/{repo}/issues/comments/555")
     jq -n --arg body "$(cat "$S/comment-555")" '{body: $body}' | out
@@ -452,9 +459,8 @@ check "$(calls)" "" "pr-create: a missing repo-config opens no PR"
 new_case review-approve
 run pr-review-submit 7 --verdict approve "Looks good"
 check "$RC" "0" "pr-review-submit: exit 0 when the review lands"
-check "$(call_line 1)" "api user --jq .login" "pr-review-submit: reads the authenticated login"
-check "$(call_line 2)" "api repos/{owner}/{repo}/pulls/7 --jq .user.login" "pr-review-submit: reads the PR's author over REST"
-check "$(call_line 4)" "pr review 7 --approve --body-file -" "pr-review-submit: approve posts with --approve"
+check "$(call_line 2)" "pr review 7 --approve --body-file -" "pr-review-submit: approve posts with --approve"
+check "$(grep -c '^pr review' "$CASE/calls")" "1" "pr-review-submit: a review GitHub accepts posts once"
 check "$(cat "$CASE/stdin")" "$(printf 'APPROVED\n\nLooks good')" "pr-review-submit: the body opens with the verdict word"
 check "$OUT" "PR #7: verdict approve, review state approved, body inline" \
   "pr-review-submit: reports the state created and the body form"
@@ -464,29 +470,43 @@ echo me >"$CASE/author"
 printf '%s\n' "Finding with \`ticks\` and \$HOME" >"$SANDBOX/review.md"
 run pr-review-submit 7 --verdict request_changes --body-file "$SANDBOX/review.md"
 check "$RC" "0" "pr-review-submit: a self-review exits 0"
-check "$(call_line 4)" "pr review 7 --comment --body-file -" "pr-review-submit: a self-review posts with --comment"
+check "$(call_line 2)" "pr review 7 --request-changes --body-file -" "pr-review-submit: a self-review first posts its verdict"
+check "$(call_line 3)" "pr review 7 --comment --body-file -" "pr-review-submit: GitHub's refusal reposts with --comment"
+check "$ERR" "" "pr-review-submit: the refusal it handled is not reported"
 check "$(cat "$CASE/stdin")" "$(printf 'CHANGES_REQUESTED\n\n%s' "Finding with \`ticks\` and \$HOME")" \
   "pr-review-submit: a downgraded review keeps its verdict line, and the file's bytes reach gh"
 check "$(cat "$SANDBOX/review.md")" "Finding with \`ticks\` and \$HOME" "pr-review-submit: the caller's file is untouched"
 check "$OUT" "PR #7: verdict request_changes, review state commented, body file" \
   "pr-review-submit: a downgraded review reports commented"
 
-new_case review-self-bot
-echo 'claude-bot[bot]' >"$CASE/me"
-echo 'claude-bot[bot]' >"$CASE/author"
-echo '[{"id": 90, "user": {"login": "claude-bot"}, "state": "COMMENTED", "body": "x"}]' >"$CASE/reviews.json"
+new_case review-self-approve
+echo me >"$CASE/author"
 run pr-review-submit 7 --verdict approve "Looks good"
-check "$RC" "0" "pr-review-submit: a bot's self-review exits 0"
-check "$(call_line 4)" "pr review 7 --comment --body-file -" "pr-review-submit: a bot's self-review posts with --comment"
+check "$RC" "0" "pr-review-submit: a self-approval exits 0"
+check "$(call_line 3)" "pr review 7 --comment --body-file -" "pr-review-submit: a refused approval reposts with --comment"
 check "$OUT" "PR #7: verdict approve, review state commented, body inline" \
-  "pr-review-submit: a bot login matches only its own [bot] reviews"
+  "pr-review-submit: a refused approval reports commented"
+
+new_case review-post-fails
+echo "pr review" >"$CASE/fail"
+run pr-review-submit 7 --verdict approve "Looks good"
+check "$RC" "3" "pr-review-submit: any other gh failure exits 3"
+check "$ERR" "$(printf '%s\n%s' "stub gh: pr review refused" "pr-review-submit: gh pr review failed (exit 1)")" \
+  "pr-review-submit: gh's own error, then the catalogue line"
+check "$(grep -c '^pr review' "$CASE/calls")" "1" "pr-review-submit: any other gh failure posts no comment"
 
 new_case review-noop
 touch "$CASE/noop"
 run pr-review-submit 7 --verdict comment "Note"
 check "$RC" "1" "pr-review-submit: exit 1 when no new review appears"
-check "$ERR" "pr-review-submit: PR #7: the review did not land: no new review by me is on the PR" \
+check "$ERR" "pr-review-submit: PR #7: the review did not land: no new review is on the PR" \
   "pr-review-submit: the not-landed message"
+
+new_case review-noop-identical
+touch "$CASE/noop"
+printf '%s\n' '[{"id": 90, "user": {"login": "me"}, "state": "COMMENTED", "body": "COMMENTED\n\nNote"}]' >"$CASE/reviews.json"
+run pr-review-submit 7 --verdict comment "Note"
+check "$RC" "1" "pr-review-submit: an earlier review with the same body does not pass for the new one"
 
 new_case review-wrong-state
 echo APPROVED >"$CASE/review-state"

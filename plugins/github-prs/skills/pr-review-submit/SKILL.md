@@ -113,25 +113,23 @@ untouched.
 
 **Both** verdict actions are refused when the reviewer is the PR
 author. The refusal is GitHub's, not a client-side check: the server
-returns it on the `addPullRequestReview` mutation, around this text:
+returns it on the `addPullRequestReview` mutation, and `gh` prints it
+as, for example:
 
 ```text
-Can not approve your own pull request
-Can not request changes on your own pull request
+GraphQL: Review Can not approve your own pull request (addPullRequestReview)
 ```
 
-The failed call leaves nothing on the PR, so a caller that learned of the
-block from the error would have posted no review at all. The script
-therefore settles which case it is in **before** posting: it compares
-the authenticated login with the PR author's login, by plain equality.
-Both are read from the REST API, which spells a GitHub App's bot
-`<slug>[bot]` in either place; `gh pr view --json author` spells the
-same bot `app/<slug>`, so the author is never read from there.
-
-When they are equal, `approve` and `request_changes` alike post as a
-comment — everything else about the call, the verdict line included,
-is unchanged, which is what carries the verdict a blocked action would
-have carried. `comment` is unaffected.
+The script reads no login to predict this. It posts with the verdict's
+own action, and only when that call fails with the refusal for **that**
+action — `Can not approve your own pull request` for `approve`,
+`Can not request changes on your own pull request` for
+`request_changes` — does it post again as a comment. The refused call
+leaves nothing on the PR, so the comment is the only review. Everything
+else about the second call, the verdict line included, is unchanged,
+which is what carries the verdict the refused action would have
+carried. `comment` is never refused this way. Any other failure of the
+first call stays a failure: nothing is reposted, and it exits 3.
 
 Handling the downgrade here is why `sdlc:theorem-based-pr-reviewer`
 can hand this skill any verdict unconditionally: reviewer and author
@@ -140,9 +138,10 @@ blocking verdict has to travel in the comment body.
 
 ## Output and exit status
 
-After posting, the script re-reads the newest review the authenticated
-user has on the PR and checks it is a new one, with the expected state
-and the body it posted.
+After posting, the script re-reads the newest review on the PR,
+whoever left it, and checks it is not the one that was newest before
+the post, and that it carries the expected state and the body it
+posted. A review someone else leaves in between fails that check.
 
 - **Exit 0** — stdout is one line: the PR number, the verdict
   requested, the GitHub review state the call actually created
