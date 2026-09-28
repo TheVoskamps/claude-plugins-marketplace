@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# pr-update -- replace a pull request's body with the contents of a
+# file, then re-read the body and fail unless it is that file.
+#
+# The contract is plugins/github-prs/skills/pr-update/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR> --body-file <path>"
+}
+
+[ "$#" -eq 3 ] && [ "$2" = --body-file ] ||
+  gp_err_pr_and_body_file
+pr=$(gp_pr_number "$1") || exit $?
+body_file=$3
+[ -f "$body_file" ] && [ -r "$body_file" ] ||
+  gp_err_unreadable "$body_file"
+
+gp_gh pr edit "$pr" --body-file "$body_file" >/dev/null
+
+# Both sides pass through a command substitution, which drops trailing
+# newlines; `--jq .body` adds one of its own that the stored body lacks.
+wanted=$(cat "$body_file")
+landed=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
+[ "$landed" = "$wanted" ] ||
+  gp_err_body_file_not_landed "$pr" "$body_file"
+
+echo "PR #$pr body replaced from $body_file"

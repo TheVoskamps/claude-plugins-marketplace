@@ -74,8 +74,11 @@ entry, not just tracked ones.
 
 With a PR number, check out its head branch:
 
+```text
+/github-prs:pr-view <PR-number> --json headRefName
+```
+
 ```bash
-gh pr view <PR-number> --json headRefName
 git fetch origin
 git checkout <headRefName>
 ```

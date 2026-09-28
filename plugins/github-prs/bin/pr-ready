@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# pr-ready -- flip a draft pull request to ready for review, then
+# re-read it and fail unless it is no longer a draft.
+#
+# The contract is plugins/github-prs/skills/pr-ready/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR>"
+}
+
+[ "$#" -eq 1 ] || gp_err_one_pr
+pr=$(gp_pr_number "$1") || exit $?
+
+gp_gh pr ready "$pr" >/dev/null
+
+is_draft=$(gp_gh pr view "$pr" --json isDraft --jq .isDraft) || exit $?
+[ "$is_draft" = false ] ||
+  gp_err_flip_not_landed "$pr" ready "$is_draft"
+
+echo "PR #$pr is ready for review"

@@ -15,8 +15,8 @@ including the config read.
 A branch carrying one issue is the k=1 case of the same shape: one
 closing line, exactly as before.
 
-This skill is **GitHub-only by design**. It is built directly on
-`gh pr create`; there is no CodeCommit (or other source-control)
+This skill is **GitHub-only by design**. Its script opens the PR
+through `gh`; there is no CodeCommit (or other source-control)
 branch, and none is planned here — CodeCommit is deliberately out of
 scope for this plugin.
 
@@ -38,9 +38,10 @@ whatever precedes it.
 
 ## Repo-config
 
-This skill reads two values from `.issues/repo-config.md`
-**internally** — the caller does not pass them. It reads them with a
-lightweight **inline** parse of just these two front-matter lines,
+This skill's script reads two values from `.issues/repo-config.md`
+**internally** — neither the caller nor this skill passes them. It
+reads them with a lightweight **inline** parse of just these two
+front-matter lines,
 not the full reader contract in the `issues` plugin's
 `skills/lib/repo-config.md`: that lib file lives inside the `issues`
 plugin, and plugins are file-sandboxed (a bare `Read` from another
@@ -50,11 +51,11 @@ plugin, or inventing a cross-plugin `Read`, would either
 reproduce the exact coupling issue #143 removed from `sdlc` or simply
 not work; a two-field inline parse avoids both.
 
-If `.issues/repo-config.md` is missing, abort with: "This repo has
-no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
-same wording the full reader contract uses for its "File missing"
-case, so the namespace's abort messages stay consistent even though
-this skill doesn't consume the whole contract).
+If `.issues/repo-config.md` is missing, the script aborts with exit 4
+and the wording the full reader contract uses for its "File missing"
+case, pointing at `/repo-config`, so the namespace's abort messages
+stay consistent even though this skill doesn't consume the whole
+contract.
 
 The values consumed:
 
@@ -63,7 +64,7 @@ The values consumed:
   issue number in the closing keyword (`#` on GitHub, so each line
   reads `Closes #<N>`).
 
-Re-read the file every run; do not cache across invocations.
+The script re-reads the file on every run.
 
 Nothing about the **branch name** is read here.
 `git-tools:git-issues-from-branch`, which step 1 invokes, does its own
@@ -105,46 +106,59 @@ the resolution.
    get no closing line, and the refusal is named in the report-back
    rather than silently swallowed.
 
-2. **Open the PR as a draft**, targeting the configured base, with one
-   closing keyword line per member of `<N…>` in the body:
+2. **Write the body's summary to a file** under
+   `.claude/tmp/<task-slug>/`, where `<task-slug>` is your own scratch
+   slug, with the Write tool. If the caller supplies title/body text,
+   use it; otherwise synthesize a concise imperative title and a short
+   `## Summary` of what changed and why. Leave the closing lines out of
+   the file — the script writes them.
+
+   When step 1 reported **branch members not claimed** — a member was
+   dropped mid-flight — say so in the summary: name the deferred issue
+   and why it is not in this PR, so the reviewer and the human can tell
+   a sanctioned deferral from a silent under-delivery.
+
+3. **Open the PR as a draft** with the bundled script, spelled as a
+   bare name, passing every member of `<N…>`:
 
    ```bash
-   gh pr create --draft --base <default-pr-target-branch> \
-     --head <branch> \
-     --title "<Imperative description>" \
-     --body "## Summary
-   <what changed and why>
-
-   Closes <issue-link-prefix><N1>
-   Closes <issue-link-prefix><N2>"
+   pr-create --head <branch> --title "<Imperative description>" \
+     --body-file .claude/tmp/<task-slug>/pr-body.md <N1> <N2>
    ```
+
+   The script opens the PR as a draft against
+   `default-pr-target-branch`, with the file's text followed by a blank
+   line and one `Closes <issue-link-prefix><N>` line per issue, then
+   re-reads the PR and checks it is a draft on that base and head
+   carrying that body.
 
    - **One keyword per line, one line per issue.** GitHub links only a
      reference that carries its own keyword immediately before it, so
      `Closes #196, #201` links `#196` only and silently leaves `#201`
      unlinked. Repeating the keyword is what makes every member link
      and auto-close.
-   - `--draft` is REQUIRED: every PR is born as a draft. A draft PR
-     cannot be auto-merged (the repo's auto-merge workflow filters
-     `isDraft == false`), so it stays inert until an
-     orchestrator/human flips it ready. The closing keyword only fires
-     on merge to the default branch, so it too stays inert while the
-     PR is draft.
+   - **Every PR is born as a draft.** A draft PR cannot be auto-merged
+     (the repo's auto-merge workflow filters `isDraft == false`), so it
+     stays inert until an orchestrator/human flips it ready. The
+     closing keyword only fires on merge to the default branch, so it
+     too stays inert while the PR is draft.
    - The closing lines belong in the **PR body**, never in a commit
      message — that is how the PR gets its Development-sidebar links
      AND how each issue auto-closes on merge. Never aim a closing
      keyword at an issue outside the branch's set, and never write one
      into a commit message.
-   - If the caller supplies title/body text, use it; otherwise
-     synthesize a concise imperative title and a short summary. Always
-     ensure a `Closes <issue-link-prefix><N>` line is present for every
-     member of `<N…>`.
-   - When step 1 reported **branch members not claimed** — a member
-     was dropped mid-flight — say so in the body: name the deferred
-     issue and why it is not in this PR, so the reviewer and the human
-     can tell a sanctioned deferral from a silent under-delivery.
 
-3. Report back a single line: the PR URL, the branch, and the issue
+   | Exit | Meaning |
+   | --- | --- |
+   | 0 | the draft PR is open with the body written; stdout is its URL |
+   | 1 | the PR did not land as asked — not a draft, the wrong base or head, or a different body — or `gh pr create` succeeded but printed no URL naming a PR number, so nothing was re-read and a PR may exist all the same; stderr names which |
+   | 2 | a usage error; no PR was opened |
+   | 3 | the `gh` call failed; gh's own error is on stderr above the script's line |
+   | 4 | `.issues/repo-config.md` is missing or lacks one of the two keys |
+
+   On any non-zero exit, surface stderr verbatim in the report-back.
+
+4. Report back a single line: the PR URL, the branch, and the issue
    set `<N…>` the PR closes. Name any unclaimed branch member and any
    caller-supplied number refused for sitting outside the branch's
    set, as step 1 reported them. If step 1 gave no safe resolution,

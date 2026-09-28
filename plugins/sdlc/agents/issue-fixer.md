@@ -9,6 +9,7 @@ memory: project
 skills:
   - issue-view
   - github-prs:pr-diff
+  - github-prs:pr-view
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
 ---
@@ -66,9 +67,8 @@ from its issue.
    comment, and its first line is the literal marker
    `<!-- sdlc:fixer-brief -->`:
 
-   ```bash
-   gh pr view <PR_number> --json comments \
-     --jq '.comments | sort_by(.createdAt) | last | .body'
+   ```text
+   /github-prs:pr-view <PR_number> --json comments --jq '.comments | sort_by(.createdAt) | last | .body'
    ```
 
    **Proceed only if that comment carries the marker.** If the most
@@ -270,8 +270,8 @@ it was asked, so one that reaches you was given on the state the brief
 names. Such a brief names no findings and carries no branch line; take
 the head and base branches from the PR:
 
-```bash
-gh pr view <PR_number> --json headRefName,baseRefName
+```text
+/github-prs:pr-view <PR_number> --json headRefName,baseRefName
 ```
 
 The state the brief names sets the remedy:
@@ -388,8 +388,8 @@ the findings you were given, and report it either way.
 
 ## The PR body is not yours to edit
 
-Never run `gh pr edit --body` or `--body-file`, and never change the
-PR description by any other route, however squarely a finding lands on
+Never run `/github-prs:pr-update`, and never change the PR description
+by any other route, however squarely a finding lands on
 it. The body is **frozen for the duration of the review loop**: it is
 written once when the PR opens and amended only by the `pr-finalizer`
 agent, after the loop ends.

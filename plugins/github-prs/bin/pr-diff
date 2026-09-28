@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# pr-diff -- print a pull request's full unified diff, verbatim.
+# Read-only.
+#
+# The contract is plugins/github-prs/skills/pr-diff/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR>"
+}
+
+[ "$#" -eq 1 ] || gp_err_one_pr
+pr=$(gp_pr_number "$1") || exit $?
+
+gp_gh pr diff "$pr"

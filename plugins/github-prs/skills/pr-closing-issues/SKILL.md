@@ -22,8 +22,8 @@ on the result; none re-derives the result itself.
 `github-prs:pr-create` is not a consumer: it *writes* closing lines
 from a set it was given, and never reads them back.
 
-This skill is **GitHub-only by design**. It is built directly on
-`gh pr view`, and the syntax below is GitHub's; there is no CodeCommit
+This skill is **GitHub-only by design**. Its script reads the body
+through `gh`, and the syntax below is GitHub's; there is no CodeCommit
 (or other source-control) branch, and none is planned here.
 
 ## Invocation
@@ -40,10 +40,9 @@ once per PR.
 
 ## Repo-config
 
-This skill reads no repo-config. `gh pr view` needs only the PR number
-and the current repo, both of which `gh` resolves on its own, and the
-closing-keyword syntax below is GitHub's rather than anything the repo
-configures.
+This skill reads no repo-config. The body needs only the PR number and
+the current repo, and the closing-keyword syntax below is GitHub's
+rather than anything the repo configures.
 
 ## The syntax
 
@@ -75,11 +74,17 @@ forms are `#N`, `owner/repo#N`, `GH-N`, and a full issue URL
 
 ## Execution
 
-1. Fetch the PR body:
+1. Fetch the PR body with the bundled script, spelled as a bare name:
 
    ```bash
-   gh pr view <PR> --json number,body
+   pr-closing-issues <pr-number>
    ```
+
+   On exit 0 its stdout is the body, verbatim. Exit 2 is a usage error.
+   Exit 3 means the `gh` call failed (e.g. the PR number does not exist
+   in this repo), with gh's own error on stderr above the script's
+   line: surface it verbatim rather than inventing a replacement
+   message, and stop.
 
 2. Scan the body for every keyword-then-reference occurrence per "The
    syntax" above, and collect the issue numbers as a **set** — a body
@@ -91,10 +96,6 @@ forms are `#N`, `owner/repo#N`, `GH-N`, and a full issue URL
    needs the set checked against the branch's own issue set gets that
    from `/git-tools:git-issues-from-branch`, which owns the
    reconciliation rule.
-
-4. If `gh pr view` errors (e.g. the PR number does not exist in this
-   repo), surface the `gh` error verbatim rather than inventing a
-   replacement message.
 
 ## Output
 

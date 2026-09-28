@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# pr-view -- print one pull request: a fixed dump by default, or the
+# fields a caller names, passed through to `gh pr view --json`, with an
+# optional `--jq` expression over them. Read-only.
+#
+# The contract is plugins/github-prs/skills/pr-view/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR> [--json <fields> [--jq <expression>]]"
+}
+
+[ "$#" -ge 1 ] || gp_err_no_pr
+pr=$(gp_pr_number "$1") || exit $?
+shift
+
+fields=
+jq_expr=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json)
+      [ "$#" -ge 2 ] || gp_err_needs_value --json "a field list"
+      fields=$2
+      shift 2
+      ;;
+    --jq)
+      [ "$#" -ge 2 ] || gp_err_needs_value --jq "an expression"
+      jq_expr=$2
+      shift 2
+      ;;
+    *) gp_err_unknown_arg "$1" ;;
+  esac
+done
+
+if [ -n "$jq_expr" ] && [ -z "$fields" ]; then
+  gp_err_jq_needs_json
+fi
+
+if [ -n "$fields" ]; then
+  if [ -n "$jq_expr" ]; then
+    gp_gh pr view "$pr" --json "$fields" --jq "$jq_expr"
+  else
+    gp_gh pr view "$pr" --json "$fields"
+  fi
+  exit 0
+fi
+
+gp_gh pr view "$pr" \
+  --json number,title,state,isDraft,author,headRefName,baseRefName,url,body \
+  --jq '"#\(.number) \(.title) (\(.state)\(if .isDraft then ", draft" else "" end))",
+        .url,
+        "author: \(.author.login)",
+        "head:   \(.headRefName)",
+        "base:   \(.baseRefName)",
+        "",
+        .body'

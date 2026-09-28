@@ -8,6 +8,9 @@ isolation: worktree
 skills:
   - sdlc:agent-result-persist-interface
   - github-prs:pr-closing-issues
+  - github-prs:pr-view
+  - github-prs:pr-update
+  - github-prs:pr-comment
 ---
 
 # PR Finalizer
@@ -75,8 +78,8 @@ no other PR or issue, and no comment other than the detail chain under
 "Post the run's assembled detail" below — you edit nobody else's
 comment and delete none.
 
-You commit nothing and push nothing. `gh pr edit` writes to GitHub,
-not to the branch.
+You commit nothing and push nothing. `/github-prs:pr-update` writes to
+GitHub, not to the branch.
 
 ## Inputs
 
@@ -106,8 +109,13 @@ into a brief.
 
    ```bash
    mkdir -p .claude/tmp/<task-slug>
-   gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body.md
    ```
+
+   ```text
+   /github-prs:pr-view <PR> --json body --jq .body
+   ```
+
+   with its output saved to `.claude/tmp/<task-slug>/body.md`.
 
    The base is everything above the first line that is the opening
    marker `<!-- sdlc:pr-finalizer-report -->`, or the whole body when
@@ -138,7 +146,7 @@ into a brief.
    ```
 
    Keep `body.md` as well: it is what you restore if the amendment
-   damages the body in step 8.
+   fails in step 8.
 
    Then read which issues the body closes, as it stands now, and keep
    the set: it is the other half of what step 8 verifies. Applying the
@@ -187,7 +195,7 @@ into a brief.
 
 3. **Read what changed in response.** The commits on the branch are
    the record of it. Take the base branch from
-   `gh pr view <PR> --json baseRefName`, then:
+   `/github-prs:pr-view <PR> --json baseRefName`, then:
 
    ```bash
    git fetch origin
@@ -259,28 +267,19 @@ into a brief.
 7. **Amend the body** by path, so the shell never reads the section's
    own backticks and `$`:
 
-   ```bash
-   gh pr edit <PR> --body-file .claude/tmp/<task-slug>/body-final.md
+   ```text
+   /github-prs:pr-update <PR> --body-file .claude/tmp/<task-slug>/body-final.md
    ```
 
-8. **Verify the amendment landed and cost nothing.** Re-read the body
-   and confirm it is byte for byte the file you posted — which step 6
-   built as the base you cut in step 1, your section, and the tail you
-   cut, so one comparison settles all three. Compare the whole body
-   rather than only its prefix: a `gh pr edit` that failed or no-op'd
-   leaves the body equal to what it was, and a base-is-still-a-prefix
-   test passes on exactly that. Strip trailing newlines from both
-   sides first: `gh ... -q .body` terminates its output with a newline
-   of its own, on top of whatever the stored body ends with, so a raw
-   comparison fails on that one byte alone:
-
-   ```bash
-   gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body-after.md
-   diff <(printf '%s' "$(cat .claude/tmp/<task-slug>/body-final.md)") \
-        <(printf '%s' "$(cat .claude/tmp/<task-slug>/body-after.md)")
-   ```
-
-   An empty `diff` is the byte-level pass. Then read the closing set
+8. **Verify the amendment landed and cost nothing.**
+   `/github-prs:pr-update` re-reads the body and exits 0 only when it is
+   the file you posted, trailing newlines aside — which step 6 built as
+   the base you cut in step 1, your section, and the tail you cut, so
+   one comparison settles all three. It compares the whole body rather
+   than only its prefix: an edit that failed or no-op'd leaves the body
+   equal to what it was, and a base-is-still-a-prefix test passes on
+   exactly that. Its exit 0 is the byte-level pass, and its exit 1 is a
+   byte-level difference. Then read the closing set
    again, the same way step 1 did, and compare it with the set step 1
    kept:
 
@@ -292,24 +291,36 @@ into a brief.
    auto-close — a closing line that sat where the cut did not preserve
    it, inside a previous section rather than below its closing marker
    — or gained one it never had. Either way, restore the body you
-   saved in step 1 and report the failure, naming the issues that
+   saved in step 1 — `/github-prs:pr-update <PR> --body-file
+   .claude/tmp/<task-slug>/body.md`, here and wherever else this step
+   restores it — and report the failure, naming the issues that
    differ: the bytes matched, so the body is exactly what you built,
    and what you built is wrong.
 
-   On a byte-level difference, ask which of the two failures you are
-   in — whether the base survived:
+   On a byte-level difference, do not read the body back to work out
+   what happened: the re-read is `/github-prs:pr-update`'s, and its
+   stderr is the account of it. Whether the edit never took or landed
+   damaged, restore the body you saved in step 1 — a write that changes
+   nothing when the edit never took — and report the failure, quoting
+   that stderr, rather than trying again on top of a body you have not
+   verified.
 
-   ```bash
-   head -c "$(wc -c < .claude/tmp/<task-slug>/base.md)" \
-     .claude/tmp/<task-slug>/body-after.md \
-     | diff - .claude/tmp/<task-slug>/base.md
-   ```
+   An exit 2 is a usage error: nothing reached GitHub, so the body is
+   still the one step 1 read and there is nothing to restore. Report
+   the failure, quoting the stderr, and post nothing further — the
+   fault is in the invocation or the file step 6 built, and rebuilding
+   either is not a guess to make unattended. An exit 3 is a failed
+   `gh` call, and the stderr names which one: a failed edit may or may
+   not have changed the body, and a failed re-read follows an edit
+   that went through unverified. Either way the body is one nobody
+   verified, so handle it as a byte-level difference: restore the body
+   you saved in step 1 and report the failure, quoting that stderr.
 
-   Empty here means the base is intact and your section never landed:
-   the amendment did not take, so report the failure with nothing to
-   restore. A difference means you have damaged the body outside your
-   markers: restore the body you saved in step 1 and report the failure
-   rather than trying again on top of a damaged body.
+   A restore is a `/github-prs:pr-update` call too. When it exits
+   anything but 0, do not try it again: report that the body is in a
+   state nothing verified, quoting the stderr of both the amendment
+   and the restore, so the human puts the step-1 body back from the
+   PR's edit history.
 
 9. **Report back**: how many detail comments you posted and what they
    covered — or that a previous run's chain was already complete and
@@ -402,10 +413,8 @@ twice, under a rule that lets you delete neither. Before posting, read
 the first line of every comment on the PR and collect the chunk
 markers:
 
-```bash
-gh pr view <PR> --json comments \
-  --jq '.comments[].body | split("\n")[0]' \
-  | grep '^<!-- sdlc:theorem-records [0-9]*/[0-9]* -->'
+```text
+/github-prs:pr-view <PR> --json comments --jq '.comments[].body | split("\n")[0] | select(test("^<!-- sdlc:theorem-records [0-9]*/[0-9]* -->"))'
 ```
 
 A chain is complete when, for one total `N`, every position `1/N`
@@ -433,8 +442,8 @@ boundary or, when it is one piece alone, handled as "A single piece
 larger than the cap" below says; it is never posted over the cap and
 never trimmed. Then post each by path, in order, one call per chunk:
 
-```bash
-gh pr comment <PR> --body-file .claude/tmp/<task-slug>/detail-<i>.md
+```text
+/github-prs:pr-comment <PR> --body-file .claude/tmp/<task-slug>/detail-<i>.md
 ```
 
 Post by path, never inline: the detail quotes code throughout, and an

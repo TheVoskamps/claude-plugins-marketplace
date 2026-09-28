@@ -5,6 +5,7 @@ tools: Read, Bash, Skill
 model: sonnet
 effort: low
 skills:
+  - github-prs:pr-view
   - github-prs:pr-ready-to-merge
 ---
 
@@ -39,8 +40,8 @@ Ask if any is missing.
 Poll the PR every **`<interval>` seconds**, announcing every poll and
 the state it found. Each poll reads the PR's state:
 
-```bash
-gh pr view <PR> --json state,mergedAt,closedAt
+```text
+/github-prs:pr-view <PR> --json state,mergedAt,closedAt
 ```
 
 and, while the PR is still open, runs the gate:

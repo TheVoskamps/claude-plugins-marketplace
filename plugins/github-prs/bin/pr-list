@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# pr-list -- list the pull requests whose head is one branch, as a JSON
+# array. Read-only.
+#
+# The contract is plugins/github-prs/skills/pr-list/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM --head <branch> [--state open|closed|merged|all]"
+}
+
+head_ref=
+state=open
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --head)
+      [ "$#" -ge 2 ] || gp_err_needs_value --head "a branch name"
+      head_ref=$2
+      shift 2
+      ;;
+    --state)
+      [ "$#" -ge 2 ] || gp_err_needs_value --state "a value"
+      state=$2
+      shift 2
+      ;;
+    *) gp_err_unknown_arg "$1" ;;
+  esac
+done
+
+[ -n "$head_ref" ] || gp_err_missing "\`--head\` branch"
+case "$state" in
+  open | closed | merged | all) ;;
+  *) gp_err_bad_state "$state" ;;
+esac
+
+gp_gh pr list --head "$head_ref" --state "$state" \
+  --json number,title,state,headRefName,baseRefName,mergedAt,closedAt,url

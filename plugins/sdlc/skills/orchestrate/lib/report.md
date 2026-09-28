@@ -12,11 +12,13 @@ summary, invoke the whole-repo sweep exactly once, with no scoping
 added — its own skip-and-report conditions are the scope:
 
 ```text
-/git-tools:git-cleanup-branches-and-worktrees
+/sdlc:cleanup-interim-work
 ```
 
-Report what it reports, in its own words, and add nothing — no count of
-your own, no list of what you expected it to find.
+It asks the human which items to remove before it removes any; that
+answer is the human's, so the tail waits on it. Report what the skill
+reports, in its own words, and add nothing — no count of your own, no
+list of what you expected it to find.
 
 Then bring the primary clone back to the default branch, current with
 the remote and with its stale tracking refs gone:

@@ -17,8 +17,10 @@ and the `issues` verbs work against Jira with nothing else to learn.
 
 ## Prerequisites
 
-- **The `issues` plugin.** This plugin is a backend for it and declares
-  it as a dependency; it does nothing on its own.
+- **The `issues` plugin.** This plugin is a backend for it and does
+  nothing on its own, yet declares no dependency on it: a plugin
+  dependency records that one plugin invokes another, and this one
+  invokes nothing — the invocation runs the other way. Install both.
 - **`acli`**, the Atlassian CLI, installed on the host and on `PATH`.
   The verbs detect its absence and stop; none installs it.
 - **`acli jira auth login --web` completed.** What the verbs do when

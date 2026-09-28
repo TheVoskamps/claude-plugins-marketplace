@@ -354,7 +354,8 @@ Each piece has one owner:
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then sweep merged branches and stale worktrees; `--dry-run` reports the verdicts and deletes nothing | main session |
+| `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then run the interim-work sweep; `--dry-run` reports the verdicts and the sweep's index, and deletes no review state and no indexed item | main session |
+| `/sdlc:cleanup-interim-work [--index-only]` | Index what runs leave behind in this repo — `.claude/tmp/` scratch, the harness scratchpads, subagent worktrees, orphan `worktree-*` refs, nested worktrees, local and remote branches — grade each item, ask the human which to remove, and remove only those; `--index-only` prints the index and removes none of it | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
@@ -399,8 +400,23 @@ why grooming is interactive rather than an agent is owned by
 `/sdlc:orchestrate-cleanup` is the pass behind the flow, and
 `/sdlc:orchestrate` does not invoke it either: a run's review state
 outlives the run, and the human runs the cleanup once that evidence is
-no longer wanted. Its verdicts, its report, and what `--dry-run` skips
-are owned by `skills/orchestrate-cleanup/SKILL.md`.
+no longer wanted. Its verdicts, its report, and what `--dry-run` still
+writes are owned by `skills/orchestrate-cleanup/SKILL.md`.
+
+`/sdlc:cleanup-interim-work` is the sweep both that pass and the
+orchestrator's post-merge tail end in, and it lives in this plugin
+because what it removes is what an `sdlc` run creates: task scratch,
+session scratchpads, the worktrees `isolation: worktree` teammates ran
+in, and the issue branches its PRs were opened from, locally and on
+`origin`. Two decisions shape it. It grades before it acts — every item
+is **clean**, **keep** or **ask** against a gate, and a gate that cannot
+be evaluated (a `rev-list` that errors) reads as keep, never as an
+empty list — and it removes nothing until the human names what goes,
+re-running each item's gate just before its action because a subagent
+may have committed or pushed since the index was taken. That question
+is why it runs in the main session rather than as an agent, and why
+`--index-only` exists: a caller that may not ask, such as a `--dry-run`,
+still gets the full index.
 
 ## Executables
 
@@ -561,10 +577,21 @@ value — which is what keeps a model change a one-file edit.
 cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, the PR verbs, `agent-memory-inbox-capture`,
-and `agent-memory-inbox-cleanup`.
-The same `git-tools` edge also covers
-`git-cleanup-branches-and-worktrees`, which the orchestrator's
-post-merge tail invokes once and `/sdlc:orchestrate-cleanup` invokes
-after its state-directory pass. The edge coordinates
-install and enablement, not file access: plugins are file-sandboxed,
-so nothing here reads another plugin's files.
+and `agent-memory-inbox-cleanup`. The edge coordinates install and
+enablement, not file access: plugins are file-sandboxed, so nothing
+here reads another plugin's files.
+
+Every PR read or write an agent, a skill or a lib file in this plugin
+makes goes through the `github-prs` verb that has one; none of those
+files spells a `gh pr` or `gh api …pulls…` call of its own. That is a
+policy this plugin chose, not a harness limit: a raw call works, but
+then the call's shape and its failure wording have an owner per call
+site, and a permission gate could never refuse raw `gh pr` use without
+breaking one. The `github-prs` edge is what makes the policy safe to
+hold. The executables under `bin/` are outside it: a script is already
+the single owner of the call it makes.
+
+The `github-prs` edge is also why the interim-work sweep lives here
+rather than in `git-tools`: its branch gate asks GitHub whether a
+branch's PR merged, `github-prs` already depends on `git-tools`, and
+an edge back would be a cycle.

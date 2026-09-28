@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+#
+# pr-review-submit -- post one review on a pull request carrying both a
+# verdict and a body, the body opening with the verdict word. GitHub
+# refuses both verdict flags on the PR's own author, so when it refuses
+# one for that reason the review posts again with --comment. Then re-read
+# the newest review and fail unless it is new and has the expected state
+# and body.
+#
+# The contract is plugins/github-prs/skills/pr-review-submit/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR> --verdict approve|request_changes|comment <body>"
+  echo "       $GP_PROGRAM <PR> --verdict approve|request_changes|comment --body-file <path>"
+}
+
+[ "$#" -ge 1 ] || gp_err_no_pr
+pr=$(gp_pr_number "$1") || exit $?
+shift
+
+verdict=
+verdicts_seen=0
+inline_body=
+inline_seen=0
+body_file=
+file_seen=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --verdict)
+      [ "$#" -ge 2 ] || gp_err_needs_value --verdict "a value"
+      verdicts_seen=$((verdicts_seen + 1))
+      if [ "$verdicts_seen" -eq 2 ]; then
+        gp_err_verdict_twice "$verdict" "$2"
+      fi
+      verdict=$2
+      shift 2
+      ;;
+    --body-file)
+      [ "$#" -ge 2 ] || gp_err_needs_value --body-file "a path"
+      file_seen=$((file_seen + 1))
+      body_file=$2
+      shift 2
+      ;;
+    *)
+      inline_seen=$((inline_seen + 1))
+      inline_body=$1
+      shift
+      ;;
+  esac
+done
+
+[ "$verdicts_seen" -gt 0 ] ||
+  gp_err_no_verdict
+case "$verdict" in
+  approve)
+    flag=--approve line=APPROVED state=APPROVED
+    refusal='Can not approve your own pull request'
+    ;;
+  request_changes)
+    flag=--request-changes line=CHANGES_REQUESTED state=CHANGES_REQUESTED
+    refusal='Can not request changes on your own pull request'
+    ;;
+  comment) flag=--comment line=COMMENTED state=COMMENTED refusal= ;;
+  *) gp_err_bad_verdict "$verdict" ;;
+esac
+if [ "$inline_seen" -gt 0 ] && [ "$file_seen" -gt 0 ]; then
+  gp_err_both_bodies
+fi
+if [ "$inline_seen" -eq 0 ] && [ "$file_seen" -eq 0 ]; then
+  gp_err_no_body
+fi
+[ "$inline_seen" -le 1 ] && [ "$file_seen" -le 1 ] ||
+  gp_err_many_bodies
+
+if [ "$file_seen" -eq 1 ]; then
+  [ -f "$body_file" ] && [ -r "$body_file" ] ||
+    gp_err_unreadable "$body_file"
+  text=$(cat "$body_file")
+  form='file'
+else
+  text=$inline_body
+  form='inline'
+fi
+wanted="$line
+
+$text"
+
+reviews_path=$(gp_repo_path "pulls/$pr/reviews")
+# The id of the newest review on the PR, whoever left it, or nothing.
+newest_review() {
+  gp_gh api --paginate "$reviews_path" --jq '.[].id' | tail -n 1
+}
+
+before=$(newest_review) || exit $?
+rc=0
+err=$({ printf '%s\n' "$wanted" | gh pr review "$pr" "$flag" --body-file - >/dev/null; } 2>&1) || rc=$?
+if [ "$rc" -ne 0 ]; then
+  if [ -z "$refusal" ] || [ "${err#*"$refusal"}" = "$err" ]; then
+    printf '%s\n' "$err" >&2
+    gp_err_gh "pr review" "$rc"
+  fi
+  # GitHub refused the verdict because this is the author's own PR. The
+  # refused call left nothing on the PR, so the comment is the only review.
+  flag=--comment
+  state=COMMENTED
+  printf '%s\n' "$wanted" | gp_gh pr review "$pr" "$flag" --body-file - >/dev/null
+fi
+after=$(newest_review) || exit $?
+
+if [ -z "$after" ] || [ "$after" = "$before" ]; then
+  gp_err_review_missing "$pr"
+fi
+landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
+landed_state=$(printf '%s\n' "$landed" | head -n 1)
+landed_body=$(printf '%s\n' "$landed" | tail -n +2)
+[ "$landed_state" = "$state" ] ||
+  gp_err_review_state "$pr" "$after" "$landed_state" "$state"
+[ "$landed_body" = "$wanted" ] ||
+  gp_err_review_body "$pr" "$after"
+
+printf 'PR #%s: verdict %s, review state %s, body %s\n' \
+  "$pr" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"

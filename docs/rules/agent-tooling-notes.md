@@ -108,7 +108,7 @@ the file form needs no quoting at all: stage the text with `Write`
 under `<repo-root>/.claude/tmp/<task-slug>/` and name the path.
 `sdlc:theorem-based-pr-reviewer` posts every review that way, through
 `/github-prs:pr-review-submit --body-file`, and `sdlc:pr-finalizer`
-posts each detail chunk with `gh pr comment --body-file`.
+posts each detail chunk with `/github-prs:pr-comment --body-file`.
 
 ## `gh pr create` is GraphQL and can fail while REST is healthy
 
@@ -307,6 +307,15 @@ it is handed, so `bash <script>`, `bash -n <script>` and
 `bash --version`, is refused as "runs bash in a plain command". The
 guardrails permission gate is not the refuser: it defers on
 `bash <script>`.
+
+A loop that runs a program the guard knows over literal words passes —
+`for d in plugins/sdlc plugins/issues; do ls $d; done` runs — until the
+text contains the substring `git` anywhere. The same loop over
+`plugins/github-prs` is refused as "names git in a form too complex to
+verify that it stays inside the worktree" though no `git` runs, so a
+loop over any path under `github-prs` or `git-tools` draws that
+refusal. A `cd`, a `&&` chain or a plain `$VAR` over the same path
+passes.
 
 A program the guard does recognize is refused the same way when an
 operand is a runtime value: a `sed -i` on a loop variable is refused as
