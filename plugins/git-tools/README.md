@@ -35,8 +35,11 @@ of re-deriving that rule.
   of the round trip strip and add the same thing. Either skill aborts
   pointing back at `/repo-config` when the file is missing.
   `test-generate` does not read it.
-- **An authenticated `gh`.** `/git-branch-create` derives a
-  single-issue slug from the issue's title through it.
+- **An authenticated `gh`, and the `issues` plugin.**
+  `/git-branch-create` derives a single-issue slug from the issue's
+  title, which it reads through `/issues:issue-view` rather than a
+  `gh issue view` of its own, so this plugin declares `issues` as a
+  dependency.
 
 `test-generate` needs none of these: it works on the code in front of
 it.
