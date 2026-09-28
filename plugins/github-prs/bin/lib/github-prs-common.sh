@@ -124,6 +124,10 @@ gp_err_many_bodies() { gp_usage_error "More than one review body was supplied. P
 gp_err_not_open() {
   gp_fail 1 "PR #$1 is $2, not open. Merge readiness is only computed for an open PR."
 }
+# gp_err_still_unknown <pr> <reads made>
+gp_err_still_unknown() {
+  gp_fail 1 "PR #$1: mergeable is still UNKNOWN after $2 reads. GitHub has not finished computing the merge state."
+}
 # gp_err_no_pr_in_url <what gh printed> -- gh pr create succeeded but
 # named no PR number, so there is nothing to re-read.
 gp_err_no_pr_in_url() {

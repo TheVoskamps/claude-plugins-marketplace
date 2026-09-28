@@ -79,10 +79,15 @@ pr_json() {
   mergeable=$(sed -n "${views}p" "$S/mergeable-seq" 2>/dev/null)
   [ -n "$mergeable" ] || mergeable=$(tail -n 1 "$S/mergeable-seq" 2>/dev/null)
   [ -n "$mergeable" ] || mergeable=MERGEABLE
+  # gh spells a bot author `app/<slug>` where REST spells it `<slug>[bot]`.
+  author=$(val author someone)
+  case "$author" in
+    *'[bot]') author="app/${author%\[bot\]}" ;;
+  esac
   jq -n \
     --arg body "$(val body '')" \
     --argjson draft "$(val draft true)" \
-    --arg author "$(val author someone)" \
+    --arg author "$author" \
     --arg state "$(val state OPEN)" \
     --arg head "$(val head feature)" \
     --arg base "$(val base main)" \
@@ -148,6 +153,7 @@ case "$1 $2" in
     fi
     ;;
   "api user") jq -n --arg me "$(val me me)" '{login: $me}' | out ;;
+  "api repos/{owner}/{repo}/pulls/7") jq -n --arg author "$(val author someone)" '{user: {login: $author}}' | out ;;
   "api --paginate") val reviews.json '[]' | out ;;
   "api repos/{owner}/{repo}/issues/comments/555")
     jq -n --arg body "$(cat "$S/comment-555")" '{body: $body}' | out
@@ -447,7 +453,7 @@ new_case review-approve
 run pr-review-submit 7 --verdict approve "Looks good"
 check "$RC" "0" "pr-review-submit: exit 0 when the review lands"
 check "$(call_line 1)" "api user --jq .login" "pr-review-submit: reads the authenticated login"
-check "$(call_line 2)" "pr view 7 --json author --jq .author.login" "pr-review-submit: reads the PR's author"
+check "$(call_line 2)" "api repos/{owner}/{repo}/pulls/7 --jq .user.login" "pr-review-submit: reads the PR's author over REST"
 check "$(call_line 4)" "pr review 7 --approve --body-file -" "pr-review-submit: approve posts with --approve"
 check "$(cat "$CASE/stdin")" "$(printf 'APPROVED\n\nLooks good')" "pr-review-submit: the body opens with the verdict word"
 check "$OUT" "PR #7: verdict approve, review state approved, body inline" \
@@ -464,6 +470,16 @@ check "$(cat "$CASE/stdin")" "$(printf 'CHANGES_REQUESTED\n\n%s' "Finding with \
 check "$(cat "$SANDBOX/review.md")" "Finding with \`ticks\` and \$HOME" "pr-review-submit: the caller's file is untouched"
 check "$OUT" "PR #7: verdict request_changes, review state commented, body file" \
   "pr-review-submit: a downgraded review reports commented"
+
+new_case review-self-bot
+echo 'claude-bot[bot]' >"$CASE/me"
+echo 'claude-bot[bot]' >"$CASE/author"
+echo '[{"id": 90, "user": {"login": "claude-bot"}, "state": "COMMENTED", "body": "x"}]' >"$CASE/reviews.json"
+run pr-review-submit 7 --verdict approve "Looks good"
+check "$RC" "0" "pr-review-submit: a bot's self-review exits 0"
+check "$(call_line 4)" "pr review 7 --comment --body-file -" "pr-review-submit: a bot's self-review posts with --comment"
+check "$OUT" "PR #7: verdict approve, review state commented, body inline" \
+  "pr-review-submit: a bot login matches only its own [bot] reviews"
 
 new_case review-noop
 touch "$CASE/noop"
@@ -560,6 +576,8 @@ check "$RC" "1" "pr-ready-to-merge: still UNKNOWN after three reads exits 1"
 check "$(calls | grep -c '^pr view')" "3" "pr-ready-to-merge: gives up after three reads"
 check_contains "$OUT" "mergeable UNKNOWN, mergeStateStatus UNKNOWN — still computing after the whole retry schedule" \
   "pr-ready-to-merge: reports UNKNOWN rather than a guess"
+check "$ERR" "pr-ready-to-merge: PR #7: mergeable is still UNKNOWN after 3 reads. GitHub has not finished computing the merge state." \
+  "pr-ready-to-merge: the still-unknown message"
 
 new_case merge-closed
 echo MERGED >"$CASE/state"
@@ -592,10 +610,14 @@ git -C "$SEED" commit -q -am feature
 git -C "$SEED" checkout -q -b clean main
 echo more >>"$SEED/other.txt"
 git -C "$SEED" commit -q -am clean
+git -C "$SEED" checkout -q --orphan unrelated
+git -C "$SEED" rm -q -rf .
+echo alone >"$SEED/alone.txt"
+git -C "$SEED" add . && git -C "$SEED" commit -q -m unrelated
 git -C "$SEED" checkout -q main
 printf 'one\nMAIN\nthree\n' >"$SEED/file.txt"
 git -C "$SEED" commit -q -am main
-git -C "$SEED" push -q origin main feature clean
+git -C "$SEED" push -q origin main feature clean unrelated
 git clone -q "$ORIGIN" "$CLONE"
 echo ".claude/" >"$CLONE/.git/info/exclude"
 
@@ -627,6 +649,16 @@ echo clean >"$CASE/head"
 run_conflicts 7
 check "$RC" "0" "pr-merge-conflicts: a clean trial merge exits 0"
 check_contains "$OUT" "The trial merge is clean: no conflicts with origin/main." "pr-merge-conflicts: says the merge is clean"
+
+new_case conflicts-merge-refused
+echo feature >"$CASE/head"
+echo unrelated >"$CASE/base"
+run_conflicts 7
+check "$RC" "3" "pr-merge-conflicts: a merge that fails without a conflict exits 3"
+check "$ERR" "fatal: refusing to merge unrelated histories
+pr-merge-conflicts: the trial merge of origin/unrelated failed without leaving a conflicted file" \
+  "pr-merge-conflicts: git's own error precedes the catalogue line"
+check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" "pr-merge-conflicts: a refused merge's worktree is removed"
 
 new_case conflicts-leftover
 echo feature >"$CASE/head"

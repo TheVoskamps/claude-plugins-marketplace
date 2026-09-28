@@ -54,8 +54,11 @@ trap cleanup EXIT
 
 echo "PR #$pr: head $head_ref, base $base_ref"
 
-if git -C "$tree" -c user.name=pr-merge-conflicts -c user.email=pr-merge-conflicts@localhost \
-  merge -q --no-commit --no-ff "origin/$base_ref" >/dev/null 2>&1; then
+# git's stderr is held back rather than discarded: a conflict is the
+# expected outcome and its noise stays off the report, but a merge that
+# failed for another reason prints it above the catalogue line.
+if merge_err=$(git -C "$tree" -c user.name=pr-merge-conflicts -c user.email=pr-merge-conflicts@localhost \
+  merge -q --no-commit --no-ff "origin/$base_ref" 2>&1 >/dev/null); then
   echo "The trial merge is clean: no conflicts with origin/$base_ref."
   exit 0
 fi
@@ -63,6 +66,7 @@ fi
 files=$(git -C "$tree" diff --name-only --diff-filter=U) ||
   gp_err_git "git diff listing the conflicted files"
 if [ -z "$files" ]; then
+  [ -z "$merge_err" ] || printf '%s\n' "$merge_err" >&2
   gp_err_merge_no_conflict "$base_ref"
 fi
 

@@ -74,7 +74,8 @@ wrong.
 - **Exit 1** — either the PR is not open, and stderr says so and names
   the state it is in, or the third read still returned `mergeable: UNKNOWN`,
   and stdout is the block above reporting `UNKNOWN` — never a guessed
-  state. Report either as a failure.
+  state — while stderr says the state is still uncomputed. Report
+  either as a failure.
 - **Exit 2** — a usage error; nothing was read.
 - **Exit 3** — the `gh` call failed, and gh's own error is on stderr
   above the script's line. Surface it verbatim.

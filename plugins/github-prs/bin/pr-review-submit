@@ -81,19 +81,27 @@ wanted="$line
 
 $text"
 
+# Both logins come from REST, which spells an App's bot `<slug>[bot]`.
+# `gh pr view --json author` spells the same bot `app/<slug>`, so it
+# would never equal `api user`.
 me=$(gp_gh api user --jq .login) || exit $?
-author=$(gp_gh pr view "$pr" --json author --jq .author.login) || exit $?
+author=$(gp_gh api "$(gp_repo_path "pulls/$pr")" --jq .user.login) || exit $?
 if [ "$me" = "$author" ]; then
   flag=--comment
   state=COMMENTED
 fi
 
 reviews_path=$(gp_repo_path "pulls/$pr/reviews")
-# The id of the newest review $me has left on the PR, or nothing. A
-# login is letters, digits and hyphens, so it is safe inside the filter.
+# The id of the newest review $me has left on the PR, or nothing. The
+# login is compared here rather than spliced into the jq filter, which
+# would have to escape whatever characters a login may carry.
 last_own_review() {
-  gp_gh api --paginate "$reviews_path" \
-    --jq ".[] | select(.user.login == \"$me\") | .id" | tail -n 1
+  gp_gh api --paginate "$reviews_path" --jq '.[] | "\(.id) \(.user.login)"' |
+    while read -r id login; do
+      if [ "$login" = "$me" ]; then
+        printf '%s\n' "$id"
+      fi
+    done | tail -n 1
 }
 
 before=$(last_own_review) || exit $?

@@ -123,9 +123,10 @@ Can not request changes on your own pull request
 The failed call leaves nothing on the PR, so a caller that learned of the
 block from the error would have posted no review at all. The script
 therefore settles which case it is in **before** posting: it compares
-the authenticated login with the PR author's login, by plain equality —
-the identity acting here is an ordinary GitHub user account, so there
-is no `[bot]` suffix or other App-installation shape to normalize away.
+the authenticated login with the PR author's login, by plain equality.
+Both are read from the REST API, which spells a GitHub App's bot
+`<slug>[bot]` in either place; `gh pr view --json author` spells the
+same bot `app/<slug>`, so the author is never read from there.
 
 When they are equal, `approve` and `request_changes` alike post as a
 comment — everything else about the call, the verdict line included,
