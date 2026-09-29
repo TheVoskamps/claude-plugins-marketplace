@@ -44,7 +44,8 @@ check_contains() {
   esac
 }
 
-# Each case gets a PR of its own, so no case reads another's rounds.
+# A case that stores a round gets a PR of its own, so no case reads
+# another's rounds. Refusal cases write nothing and may share one.
 new_pr() {
   PR_N=$((PR_N + 1))
 }
