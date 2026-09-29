@@ -466,12 +466,13 @@ records_of() {
 }
 
 # The named fields of one theorem's record, verbatim. $1 records text,
-# $2 theorem id, $3 an awk regex alternation of field names.
+# $2 theorem id, $3 an awk regex alternation of field names. A field
+# with nothing after its colon holds no value, and is skipped.
 record_lines() {
   printf '%s\n' "$1" | awk -v id="$2" -v want="$3" '
     /^T[0-9]+$/ {inside = ($0 == id); next}
     /^$/ {inside = 0}
-    inside && $0 ~ ("^(" want "):") {print}'
+    inside && $0 ~ ("^(" want "):") && $0 !~ ("^(" want "):[ \t]*$") {print}'
 }
 
 # A result file's path, as the round's print output named it.
