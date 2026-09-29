@@ -299,6 +299,13 @@ output=$(persist --mode review --round 2 --carry </dev/null 2>&1)
 check "$?" 2 "--carry outside records: exits non-zero"
 check_contains "$output" "--carry is not accepted in --mode review" "--carry outside records: names the refusal"
 
+output=$(persist --mode review --round 2 \
+  --edits "$(printf 'T1\tstate\tretired\n' | stage refuse-editsmode)" </dev/null 2>&1)
+check "$?" 2 "--edits outside records: exits non-zero"
+check_contains "$output" "--edits is not accepted in --mode review" "--edits outside records: names the refusal"
+
+check_refused "an empty --edits value" "--edits names no file" --edits "" </dev/null
+
 # --- the plain form stores its payload whole --------------------------------
 
 new_pr

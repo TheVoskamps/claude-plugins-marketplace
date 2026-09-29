@@ -58,6 +58,7 @@ ms=
 from=
 carry=
 edits=
+edits_given=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
@@ -97,7 +98,7 @@ while [ "$#" -gt 0 ]; do
     --tools)      tools=$value ;;
     --ms)         ms=$value ;;
     --from)       from=$value ;;
-    --edits)      edits=$value ;;
+    --edits)      edits=$value; edits_given=1 ;;
   esac
 done
 
@@ -215,10 +216,13 @@ fi
 
 # --carry changes only how --mode records writes, and --edits feeds only
 # that build, so either one anywhere else is refused rather than ignored.
+# --edits is tested on edits_given rather than on its value, so an empty
+# value is refused as naming no file instead of passing for an absent flag.
 if [ -n "$carry" ] && [ "$mode" != records ]; then
   die "--carry is not accepted in --mode $mode"
 fi
-if [ -n "$edits" ]; then
+if [ -n "$edits_given" ]; then
+  [ "$mode" = records ] || die "--edits is not accepted in --mode $mode: $edits"
   [ -n "$carry" ] || die "--edits is accepted only with --carry: $edits"
   [ -f "$edits" ] || die "--edits names no file: $edits"
 fi

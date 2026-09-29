@@ -1622,11 +1622,12 @@ anything, so a run that dies between the two leaves the round readable
 rather than announced. Every file below is staged with `Write` under
 `.claude/tmp/<task-slug>/` and handed to the script by path.
 
-**The records file is the script's to assemble, not yours.** On every
-round that carried records forward, hand it the edits file and the
-new-records file "Carry the previous round's theorems forward" and
-"Derive each theorem's disposition" staged, and it builds the round's
-records file from the carried round's:
+**The records file is the script's to assemble, not yours**, with the
+one exception of a fallback round, below. On every round that carried
+records forward, hand it the edits file and the new-records file
+"Carry the previous round's theorems forward" and "Derive each
+theorem's disposition" staged, and it builds the round's records file
+from the carried round's:
 
 ```bash
 sdlc-agent-result-persist --mode records --carry \
@@ -1638,12 +1639,14 @@ sdlc-agent-result-persist --mode records --carry \
 Either file may be empty — an empty-delta round has neither edits nor
 new records, and a round that only retires has no new records — and
 the call still runs. You write no program to build, merge or reorder
-records, on this round or any other: the two staged files are the whole
-of what you write. A refused call names what it refused; fix that line
-of your staged file and run the call again.
+records, on this round or any other, and on a round that carried
+records forward the two staged files are the whole of what you write.
+A refused call names what it refused; fix that line of your staged
+file and run the call again.
 
-A **fallback round** carried nothing forward, so it has nothing for
-`--carry` to read: store its records with the plain form, `--mode
+The one exception is a **fallback round**. It carried nothing forward,
+so it has nothing for `--carry` to read, and it alone hands the script
+a whole records file: store its records with the plain form, `--mode
 records --from <file>`, the file holding each theorem the generator
 emitted as it emitted it, with the stamp "Derive each theorem's
 disposition" gave it.

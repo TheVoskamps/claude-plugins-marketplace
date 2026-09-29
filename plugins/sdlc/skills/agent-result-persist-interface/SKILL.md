@@ -319,8 +319,9 @@ directories.
     id — every round from 1 on stamps one on every record, so a carried
     round-0 seed record left unstamped is what this catches;
   - `--carry` with no round holding a records file to carry;
-  - `--carry` in any mode but `records`, `--edits` without `--carry`,
-    and an `--edits` path that is not an existing file.
+  - `--carry` or `--edits` in any mode but `records`, `--edits` without
+    `--carry`, and an `--edits` path that is not an existing file, an
+    empty one included.
 - **`review`** — writes the round's argued review, read as its payload,
   to the round's `review` file, on the same terms as `records`.
 - **`print-records`** — writes to stdout the records of the
@@ -358,8 +359,9 @@ directories.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
-  `records` or `review` refuses its payload as empty or as a `--from`
-  file that could not be read, or `leave` refuses a report whose
+  `records` without `--carry` or `review` refuses its payload as empty
+  or as a `--from` file that could not be read, or `leave` refuses a
+  report whose
   `THEOREM:` line does not name `--theorem`; `anchor` renames a voided round rather
   than removing it.
 
