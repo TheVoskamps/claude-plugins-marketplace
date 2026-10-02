@@ -48,11 +48,13 @@ under `agents/` owns:
   findings or none; findings go to `issue-fixer`, and only a finding
   its rule cannot settle pauses the loop for the human, per "The
   style-fix loop"
-- `docs-writer` — writes the PR's documentation once, after the
-  human's end-of-loop confirmation, from the diff and the deferred
-  edits the implementing agents reported. When it returns, the branch
-  carries a documentation commit if the change needed one, and its
-  report lists every file it changed with a one-line reason
+- `docs-writer` — writes the PR's documentation after the human's
+  end-of-loop confirmation, from the diff and the deferred edits the
+  implementing agents reported. You spawn it once; `pr-merge-readiness`
+  spawns it again after a fixer round of its own that deferred an edit.
+  When it returns, the branch carries a documentation commit if the
+  change needed one, and its report lists every file it changed with a
+  one-line reason
 - `theorem-based-pr-reviewer` — reviews one PR, carrying the whole
   review procedure in its own definition and spawning the generator
   and both fan-outs from inside itself. When it returns, one review is

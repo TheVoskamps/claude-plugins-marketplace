@@ -20,4 +20,4 @@ alone:
 Claude reads instruction Markdown into its context, so a change to one
 changes what an agent does. That is why it is implemented, fixed,
 style-checked, and reviewed exactly as code is, inside the review loop,
-while documentation is written once, by `docs-writer`, after it.
+while documentation is written by `docs-writer`, after it.

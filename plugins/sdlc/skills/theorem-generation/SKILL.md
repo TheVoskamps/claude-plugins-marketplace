@@ -318,10 +318,10 @@ warrants — which restatement of a fact the issue moves must move with
 it, where the change has to sit, what second source of truth it must
 not create.
 
-The files-affected section is a floor. A listed path grounds a theorem
-about that path and nothing about the rest of the tree: never emit a
-claim that the change touches only the listed paths, or that a path
-the section does not list stays untouched.
+A path the files-affected section lists grounds a theorem about that
+path and nothing about the rest of the tree: never emit a claim that
+the change touches only the listed paths, or that a path the section
+does not list stays untouched.
 A pointer names the issue text the claim comes from, or the file in
 the current tree it is about; nothing else exists to point at.
 
