@@ -31,26 +31,32 @@ under `agents/` owns:
 
 - `issue-developer` — implements one **batch** (an ordered set of one
   or more issues). When it returns, a pushed branch and an open draft
-  PR exist for the members it landed
+  PR exist for the members it landed, and its `Deferred to
+  docs-writer:` line names the edits it left to `docs-writer`
 - `issue-fixer` — addresses PR review feedback, or a merge-readiness
   remedy. When it returns, the branch carries new commits for the
   review to see again — or, on a merge-readiness brief, has been
-  rebased for the gate to see again. You spawn it on review feedback;
-  `pr-merge-readiness` spawns it on a merge-readiness brief
+  rebased for the gate to see again. Its `Deferred to docs-writer:`
+  line names the edits it left to `docs-writer`. You spawn it on review
+  feedback; `pr-merge-readiness` spawns it on a merge-readiness brief
 - `code-documenter` — adds or corrects the comments the style guides
   require in the code files a PR's diff touched. When it returns, the
   branch carries at most one new comment commit, and `style-checker`
   runs next
-- `style-checker` — checks those code files against the rules under
-  `## For Authors and Checkers` of each style guide that reaches it.
+- `style-checker` — checks the code and instruction-Markdown files a
+  PR's diff touched against the rules under `## For Authors and
+  Checkers` of the style guides its definition assigns each class.
   When it returns, the branch is unchanged and its report carries
   findings or none; findings go to `issue-fixer`, and only a finding
   its rule cannot settle pauses the loop for the human, per "The
   style-fix loop"
-- `docs-writer` — writes the PR's documentation once, after the
-  human's end-of-loop confirmation. When it returns, the branch carries
-  a documentation commit if the change needed one, and its report lists
-  every file it changed with a one-line reason
+- `docs-writer` — writes the PR's documentation, and the instruction
+  Markdown no issue's files-affected section lists, after the human's
+  end-of-loop confirmation, making every deferred edit the run
+  collected. When it returns, the branch carries its commit if the
+  change needed one, and its report lists every file it changed with a
+  one-line reason; a commit that touched instruction Markdown gets one
+  review pass, per the PR-lifecycle file
 - `theorem-based-pr-reviewer` — reviews one PR, carrying the whole
   review procedure in its own definition and spawning the generator
   and both fan-outs from inside itself. When it returns, one review is
@@ -70,10 +76,11 @@ under `agents/` owns:
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty. You spawn it
-  once, after `docs-writer`; `pr-merge-readiness` spawns it after
-  every `issue-fixer` round of its own
+  after `docs-writer`, and again after a review pass over
+  `docs-writer`'s commit that spawned a teammate; `pr-merge-readiness`
+  spawns it after every `issue-fixer` round of its own
 - `pr-merge-readiness` — drives one blessed PR through the
-  merge-readiness gate, spawning `issue-fixer` and
+  merge-readiness gate, spawning `issue-fixer`, `docs-writer` and
   `agent-memory-scrubber` for the remedies. When it returns, either
   the PR is in a state the close-out proceeds from, or its report
   carries a question with the gate's output verbatim, which you relay
@@ -269,12 +276,12 @@ Do not:
   less than its definition already permitted, with nothing in the
   report saying why. When a scope constraint is genuinely needed,
   state the constraint rather than the prohibition: *"change what the
-  rule requires, not which files it governs"*. The documentation
-  boundary on `issue-developer` and `issue-fixer` is the one named
-  exception to "Restate anything already durable": their spawn prompts
-  state it although their definitions do too, because it is your split
-  of the work between them and `docs-writer` — a scope ruling, which
-  is what a brief carries.
+  rule requires, not which files it governs"*. The ownership boundary
+  on `issue-developer` and `issue-fixer` is the one named exception to
+  "Restate anything already durable": their spawn prompts state it
+  although their definitions do too, because it is your split of the
+  work between them and `docs-writer` — a scope ruling, which is what
+  a brief carries.
 - **Carry a brief forward.** Write each one from the task, never by
   editing its predecessor. Adding a constraint feels free and removing
   one feels risky, so an edited brief's constraint block only ever
@@ -432,15 +439,16 @@ Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
 
-Edit no documentation file as the sdlc:documentation-definition skill
-defines it; docs-writer writes the PR's documentation after the review
-loop.
+Edit code, and instruction Markdown that a files-affected section of
+these issues lists, as sdlc:documentation-definition assigns them;
+every other edit the change needs goes on your `Deferred to
+docs-writer:` line, for docs-writer to make after the review loop.
 
 Implement the batch end-to-end per your agent definition. Report back:
 PR URL (or equivalent), the issue set the PR closes, branch name, and
 per issue what you implemented, its commit, and its test result — plus
-any member you had to drop and why, and any design decision you stopped
-on, with its options.
+any member you had to drop and why, any design decision you stopped
+on, with its options, and your `Deferred to docs-writer:` line.
 ```
 
 The template carries identifiers and decisions and nothing else — no
@@ -477,13 +485,17 @@ auto-accept`, of the generator's list as emitted — not authored review
 content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
-round. A plugin the issue's title and body do not name, or a rename,
-deletion, or shared-helper edit the issue does not specify goes to the
-human now, with pulling it out of the PR stated as one of the
-options; the question ends your turn, and nothing else is spawned for
-the PR until it is answered. This is the gate before round 1: the
-issue is the ceiling of the loop, and a diff that already reaches past
-it is the human's to admit or refuse, never yours.
+round. Exactly two things go to the human now: a plugin the issues'
+titles and bodies do not name, and a rename or deletion the issues do
+not specify. Put each with pulling it out of the PR stated as one of
+the options; the question ends your turn, and nothing else is spawned
+for the PR until it is answered. A touched path the issues'
+files-affected sections do not list is not a trigger: that list is a
+floor, as `sdlc:orchestrate-readiness` defines it.
+
+Hold the developer's `Deferred to docs-writer:` entries for the PR's
+`docs-writer` brief. They are handoffs the ownership rule made, so
+none of them goes to the human.
 
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
@@ -515,9 +527,9 @@ touched and the commit you pushed.
 PR <PR_N> has new commits on it.
 Branch: <branch-name>
 
-Check the code against the rules under `## For Authors and Checkers`
-per your agent definition. Report back your findings, or that there
-are none.
+Check the code and instruction Markdown against the rules under
+`## For Authors and Checkers` per your agent definition. Report back
+your findings, or that there are none.
 ```
 
 #### The style-fix loop
@@ -800,12 +812,14 @@ member)**:
    ```text
    PR <PR_N> has a fixer brief waiting on it.
 
-   Edit no documentation file as the sdlc:documentation-definition
-   skill defines it; docs-writer writes the PR's documentation after
-   the review loop.
+   Edit code, and instruction Markdown that a files-affected section of
+   an issue this PR closes lists, as sdlc:documentation-definition
+   assigns them; every other edit a finding needs goes on your
+   `Deferred to docs-writer:` line, for docs-writer to make after the
+   review loop.
 
    Address it per your agent definition. Report back what you fixed
-   and what you didn't.
+   and what you didn't, and your `Deferred to docs-writer:` line.
    ```
 
 3. After issue-fixer returns, read its report — a line per finding and
@@ -815,7 +829,10 @@ member)**:
    or declined — is yours to judge and act on now, not to carry
    silently into another round. Check the rulings too: the review
    round that follows re-checks only the findings, so an unreported
-   ruling is one nothing else will catch.
+   ruling is one nothing else will catch. Its `Deferred to
+   docs-writer:` entries are not unfixed findings: hold them with the
+   developer's for the PR's `docs-writer` brief, and raise none of
+   them to the human.
 4. Run `code-documenter` and `style-checker` against the branch, the
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping
@@ -951,9 +968,11 @@ hand or by the repo's auto-merge, and the monitor loop only watches
 for it.
 
 1. **The pre-readiness spawns** — `docs-writer`, then
-   `agent-memory-scrubber`, each with the brief the PR-lifecycle file
-   carries. Both put commits on the branch, which is why they run
-   before the gate that grades those commits.
+   `agent-memory-scrubber`, then the review pass over `docs-writer`'s
+   commit when that commit touched instruction Markdown, each as the
+   PR-lifecycle file carries it. All of them can put commits on the
+   branch, which is why they run before the gate that grades those
+   commits.
 
 2. **Spawn `pr-merge-readiness`**, with the brief the PR-lifecycle
    file carries: the PR number, the branch, and no ruling on the first
@@ -1071,7 +1090,8 @@ definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
   reviewer spawn that posted no review — an in-progress return or a
   broken call — is not a round; a spawn that returned without a
   verdict block having posted a review anyway counts, because the
-  review is there.
+  review is there. The review pass over `docs-writer`'s commit is one
+  round by construction and runs whatever count the loop reached.
 
 What you do yourself is orchestration mechanics:
 

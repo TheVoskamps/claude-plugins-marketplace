@@ -379,9 +379,10 @@ commit list, not a diff, so computing it does not breach this.
 ## Documentation is outside the review
 
 Documentation files, as the preloaded `sdlc:documentation-definition`
-skill defines them, are not reviewed: `docs-writer` writes them once the
-loop has ended, and no round runs over that commit. So the diff you hand
-the generator and the disprovers excludes them. From the paths "Read the
+skill defines them, are not reviewed, and nothing else is excluded:
+instruction Markdown is reviewed as code, whichever agent wrote it. So
+the diff you hand the generator and the disprovers excludes
+documentation and only documentation. From the paths "Read the
 PR's shape" lists, collect those the definition calls documentation, and
 name them in the generator's brief and in every disprover's brief as
 paths to leave out of every diff the child reads. Omit that line when
@@ -412,6 +413,11 @@ spawns you, and a standalone invocation passes the same flags.
   carried records, retired ones included and only a human-rejected one
   excepted, with full briefs. See "The `--full` round" below. Absent,
   the round is a default round and the live list is delta-sized.
+- `--exclude-commits <oid…>` (optional) — commits to leave out of the
+  round's delta, space-separated. "Carry the previous round's theorems
+  forward" drops each from the rev-list's output; an oid the rev-list
+  did not return is ignored. Absent, the delta is the rev-list's output
+  whole.
 
 No other parameter exists. In particular there is no effort or model
 parameter for the generator: its tier IS the definition spawned, and the
@@ -681,6 +687,10 @@ git fetch origin
 git rev-list --right-only --cherry-pick <prev-head>...<headRefOid> \
   ^origin/<baseRefName>
 ```
+
+With `--exclude-commits`, remove each named oid from that output; what
+remains is the delta, and an exclusion that empties it makes the round
+an empty-delta one like any other.
 
 The `^origin/<baseRefName>` term is what makes the delta the PR's own
 commits, and it is not optional. A rebase that advances the base makes
@@ -1870,6 +1880,10 @@ The non-finding homes are:
 - **An out-of-scope observation** → a "Follow-up suggestion" and, if
   warranted, a recommendation to file a new issue. Not a finding on
   this PR.
+- **A touched path no issue's files-affected section lists** → not a
+  finding at all, and nothing to remark on. The section is a lower
+  bound on what the change touches, as `sdlc:orchestrate-readiness`
+  defines it, so a path outside it is evidence of nothing.
 
 Litmus test: if the recommendation is "no action" or "confirm this was
 intended", it is not a finding. Filing non-defects as severity-labeled

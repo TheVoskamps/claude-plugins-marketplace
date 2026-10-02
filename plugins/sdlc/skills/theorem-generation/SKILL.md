@@ -204,6 +204,12 @@ defines them, are outside the review — invoke that skill for the
 definition. No theorem is about one, and none names one as a stale
 restatement.
 
+An issue's files-affected section, as `sdlc:orchestrate-readiness`
+defines it, is a lower bound on what the change touches. A listed path
+grounds a theorem about that path and says nothing about the rest of
+the tree: no theorem claims that the change touches only the listed
+paths, or that a path the section does not list is left untouched.
+
 ### 1. Acceptance criteria
 
 Every criterion of every member issue becomes a theorem: "the diff
@@ -295,7 +301,8 @@ Both hold only where the pointer or the prose sits in code.
   already lives somewhere, no parallel implementation of an existing
   mechanism.
 - "The change stays within the union of the members' scopes" — nothing
-  in the diff serves an issue outside `--issues`.
+  in the diff serves an issue outside `--issues`. A member's scope is
+  what it asks for, never its files-affected list.
 
 These are `semantic` by nature. State them against named files, not in
 the abstract, or the disprover has nowhere to start.

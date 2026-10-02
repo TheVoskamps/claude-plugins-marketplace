@@ -240,14 +240,19 @@ owns — but never a finding, a location, or an implementation shape.
     design decision you stopped on, with its options. (The worktree
     path isn't something you need to surface.)
 
-    End the report with a fixed `Scope:` block of three labelled
-    lines, in this order:
+    Then a fixed `Deferred to docs-writer:` line, one entry per file
+    your change made wrong that you do not own (see "Rules" below), in
+    the form `<path> — <what is now wrong>`, or `none`. An entry is a
+    handoff, not open work: it is not a design decision, a drop, or an
+    escalation.
+
+    End the report with a fixed `Scope:` block of two labelled lines,
+    in this order:
 
     ```text
     Scope:
     Plugins touched: <one entry per plugin whose files the diff touches>
     Renamed or deleted: <one entry per file renamed or deleted>
-    Shared helpers edited: <one entry per helper or type edited that code outside the issue's files calls>
     ```
 
     A line with no entries reads `none`; a line is never omitted.
@@ -311,10 +316,15 @@ and the theorem that catches it costs a full round trip.
   unrelated code, and do not let one member's fix quietly grow to
   cover another's scope — the review pipeline grades each member
   separately.
-- Never edit a documentation file, as the preloaded
-  `sdlc:documentation-definition` skill defines one. Documentation is
-  `docs-writer`'s, once the review loop has ended. When your change
-  makes a documentation file wrong, say so in your report-back.
+- Edit only the files the preloaded `sdlc:documentation-definition`
+  skill makes yours: code, and instruction Markdown that a
+  files-affected section of an issue in your batch lists. Never edit
+  documentation or unlisted instruction Markdown; when your change
+  makes such a file wrong, name it on your `Deferred to docs-writer:`
+  line.
+- An issue's files-affected section is a lower bound, not a fence.
+  Touching a code path it does not list is expected, and is never a
+  design decision, a drop-protocol trigger, or an item to report.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.

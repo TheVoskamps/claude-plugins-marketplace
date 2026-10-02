@@ -10,6 +10,7 @@ skills:
   - issue-view
   - github-prs:pr-diff
   - github-prs:pr-view
+  - github-prs:pr-closing-issues
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
 ---
@@ -220,6 +221,13 @@ from its issue.
       do, or why you did not act on it. A ruling has no finding to
       report it under, so it gets its own line or it goes unreported.
     - Test results
+    - A fixed `Deferred to docs-writer:` line, one entry per file your
+      work needs changed that you do not own (see "Rules" below), in
+      the form `<path> — <what is now wrong>`, or `none`. A finding
+      whose remedy is such an edit is reported here, quoting the
+      finding, and not as unfixed: the edit is `docs-writer`'s by
+      design, so the entry is a handoff rather than open work, a design
+      decision, or an escalation.
 
 ## Before you write a remedy
 
@@ -417,11 +425,17 @@ cannot be confused by it.
 - Address the review's findings as each one's scope ruling directs,
   and the brief's owner rulings — or the merge-readiness remedy the
   brief names — and nothing else. Do not refactor unrelated code.
-- Never edit a documentation file, as the preloaded
-  `sdlc:documentation-definition` skill defines one. Documentation is
-  `docs-writer`'s, once the review loop has ended. A finding whose
-  remedy is a documentation edit is reported as not fixed, for that
-  reason.
+- Edit only the files the preloaded `sdlc:documentation-definition`
+  skill makes yours: code, and instruction Markdown that a
+  files-affected section of an issue the PR closes lists. Take that
+  issue set from `/github-prs:pr-closing-issues <PR_number>`, and read
+  each member's files-affected section via `/issue-view` before you
+  edit an instruction-Markdown file. Never edit documentation or
+  unlisted instruction Markdown; name each such edit on your
+  `Deferred to docs-writer:` line.
+- An issue's files-affected section is a lower bound, not a fence.
+  Touching a code path it does not list is expected, and is never a
+  design decision, an escalation, or an item to report.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.

@@ -90,8 +90,8 @@ You must be given:
 - The scope notes the run settled — deferrals, dropped members,
   rulings the human made that the rounds do not carry, every claim in
   the PR body the run made stale, quoted, with what is true now, and
-  `docs-writer`'s per-file list of the documentation it changed after
-  the last round. May be "none".
+  `docs-writer`'s per-file list of the files it changed after the
+  review loop. May be "none".
 
 If the PR number is missing, ask before proceeding.
 
@@ -487,9 +487,9 @@ and ending with the closing marker line. It carries:
   it is not in this PR, a finding the human rejected and on what
   grounds, a finding dropped on the orchestrator's scope ruling — worded
   as that ruling, never as the human's rejection — a deferral to a
-  follow-up issue, and the documentation
-  `docs-writer` changed, which no review round checked — its per-file
-  list as your brief carries it. Take these from your
+  follow-up issue, and the files
+  `docs-writer` changed, whose documentation no review round checked —
+  its per-file list as your brief carries it. Take these from your
   brief and from the non-brief PR comments, never from your own
   reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your

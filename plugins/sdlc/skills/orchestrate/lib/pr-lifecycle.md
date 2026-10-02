@@ -3,10 +3,9 @@
 What the orchestrator does to a PR from the moment its developer
 reports it open to the moment it is flipped ready: the link to its
 issues, the round-0 write that follows it, the body freeze that holds
-through the review loop, the two
-spawns that run on the human's end-of-loop confirmation, the close-out,
-and the briefs for the two agents that carry the loops on either side
-of the close-out.
+through the review loop, the spawns that run on the human's
+end-of-loop confirmation, the close-out, and the briefs for the two
+agents that carry the loops on either side of the close-out.
 
 ## Link the PR to its issues, once the developer reports back
 
@@ -98,19 +97,23 @@ with what is true now. The fix lands once, at the end.
 
 ## The pre-readiness spawns, on the human's end-of-loop confirmation
 
-Two teammates still put commits on the branch after the loop ends,
-and both run before the merge-readiness loop so that what the gate
-grades is what the human blesses. Spawn them in this order, and wait
-for each to return.
+Teammates still put commits on the branch after the loop ends, and all
+of them run before the merge-readiness loop so that what the gate
+grades is what the human blesses. Run these steps in this order, and
+wait for each spawn to return.
 
-1. **Spawn `docs-writer` to write the PR's documentation.** It runs
-   once per PR, here, and no review round runs over its commit. Give it
-   the PR number, the issue set the PR closes, and the branch name:
+1. **Spawn `docs-writer` to write the PR's documentation.** Give it the
+   PR number, the issue set the PR closes, the branch name, and every
+   `Deferred to docs-writer:` entry the run's `issue-developer` and
+   `issue-fixer` reports carried — each as the agent wrote it:
 
    ```text
    PR <PR_N> for issues <link-prefix><issue_N1>,
    <link-prefix><issue_N2>, … has finished its review loop.
    Branch: <branch-name>
+   Deferred edits:
+   <every collected `Deferred to docs-writer:` entry, as written — or
+   "none">
 
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the
@@ -119,15 +122,16 @@ for each to return.
    ```
 
    Its per-file list is the summary's `Doc Changes` cell, and it goes
-   verbatim into the scope notes you hand `pr-finalizer`. A
+   verbatim into the scope notes you hand `pr-finalizer`, together with
+   the per-file list of every later `docs-writer` spawn on the PR. A
    documentation change the human wants after reading it is a manual
-   round, not a loop: this flow spawns `docs-writer` once.
+   round, not a loop.
 
 2. **Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
    By now every teammate that writes memory has captured into the
    session's inbox for this branch, so one pass grades the whole run's
-   entries; the scrubber's commit is the last one on the branch before
-   the gate runs. Give it the PR number and the branch name:
+   entries, and its commit lands before the gate runs. Give it the PR
+   number and the branch name:
 
    ```text
    PR <PR_N> has settled its review loop. Branch: <branch-name>
@@ -145,11 +149,55 @@ for each to return.
    A memory-declaring teammate spawned after the scrubber last ran
    leaves entries the scrubber has not seen, and none of them reports a
    *successful* capture back, so a spawn is the only evidence that
-   entries may be waiting. Past this point the only such spawn is the
-   `issue-fixer` a merge-readiness remedy runs, and `pr-merge-readiness`
-   runs the scrubber itself after every one of those, so you spawn it
-   here once. The only wrong placement is spawning it *early*, while
-   more branch work is still expected.
+   entries may be waiting. Past this point such a spawn is one the
+   review pass in step 3 makes, after which step 3 runs the scrubber
+   again, or one a merge-readiness remedy runs, after every one of
+   which `pr-merge-readiness` runs the scrubber itself. The only wrong
+   placement is spawning it *early*, while more branch work is still
+   expected.
+
+3. **Review `docs-writer`'s commit when it touched instruction
+   Markdown.** Read the paths `docs-writer`'s commit changed; when none
+   is instruction Markdown, as `sdlc:documentation-definition` defines
+   it, skip this step. Otherwise run exactly one review round over that
+   commit — instruction Markdown is reviewed as code, whoever wrote it.
+   The scrubber's commits are outside the pass: they never trigger it,
+   and the reviewer leaves them out of its delta. Spawn
+   `theorem-based-pr-reviewer` as "Run the review pipeline" in the
+   skill body does, adding the scrubber's pushed commits:
+
+   ```text
+   --pr <PR_N> --issues <issue_N1> <issue_N2> … --branch <branch-name>
+   --exclude-commits <every commit agent-memory-scrubber pushed since
+   the loop's last review round, space-separated — or omit the line
+   when it pushed none>
+
+   Review this PR per your agent definition. Report back its verdicts,
+   findings, severity counts, and theorem tally.
+   ```
+
+   Judge the report as "Handling review findings — the fix loop" in the
+   skill body says, through the scope ruling and any question to the
+   human. Then split what is to be fixed by who owns the edit, per
+   `sdlc:documentation-definition`:
+
+   - A finding whose remedy is an edit `docs-writer` owns is ruled for
+     `docs-writer`; it goes into no fixer brief.
+   - Every other finding to fix goes into a fixer brief posted on the
+     PR in the fix loop's shape, and `issue-fixer` is spawned with that
+     loop's spawn prompt. Its `Deferred to docs-writer:` entries join
+     the findings ruled for `docs-writer`.
+
+   When anything is ruled for `docs-writer`, spawn it again — after the
+   fixer, when one ran — with the step 1 brief, its `Deferred edits:`
+   carrying each finding ruled for it, quoted, and each entry the fixer
+   deferred. When this step spawned any teammate, spawn
+   `agent-memory-scrubber` again with the step 2 brief.
+
+   The pass is one round: no review runs over what the fixer, a
+   re-spawned `docs-writer` or the scrubber commits here, and
+   `code-documenter` and `style-checker` do not run. Those commits go
+   to the merge-readiness loop as they stand.
 
 ## The brief for `pr-merge-readiness`
 

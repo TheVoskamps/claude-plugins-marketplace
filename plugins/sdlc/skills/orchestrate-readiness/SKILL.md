@@ -69,7 +69,10 @@ can trigger that stop. The items:
   bullet, in a bullet's shape, or in what a bullet's tag asserts about
   the tree at check time. The list is a floor and not a fence: the
   implementer may touch paths outside it, and a listed path the change
-  ends up not touching is not a failure. Before any developer runs,
+  ends up not touching is not a failure. Listing an
+  instruction-Markdown file is what makes it the implementer's
+  deliverable rather than `docs-writer`'s, per
+  `sdlc:documentation-definition`. Before any developer runs,
   the theorem generator reads that list in place of a diff, so a body
   without it leaves the generator nothing to key on.
 
