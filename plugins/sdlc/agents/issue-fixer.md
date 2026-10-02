@@ -220,6 +220,13 @@ from its issue.
       do, or why you did not act on it. A ruling has no finding to
       report it under, so it gets its own line or it goes unreported.
     - Test results
+    - A fixed `Deferred to docs-writer:` line, one entry per
+      documentation file your change made wrong or a finding's remedy
+      would edit, each as `<path> — <what is now wrong>`, or `none`. A
+      finding whose remedy is a documentation edit is reported here,
+      not as not fixed: the edit is `docs-writer`'s by design, so the
+      entry is a handoff rather than open work, and never a design
+      decision or an escalation.
 
 ## Before you write a remedy
 
@@ -350,9 +357,10 @@ brief named, the base you rebased onto, each conflict and what settled
 it — for one a ruling named, the ruling; for one you resolved without
 a ruling, the repo rule, quoted, or the combination of both sides you
 kept — any ruling the rebase did not need, quoted, the new head SHA,
-and the test result.
-`pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
-again on your return; no review round follows a merge-readiness brief.
+the test result, and the `Deferred to docs-writer:` line.
+`pr-merge-readiness` runs `docs-writer` on any deferred edit you
+report, then `agent-memory-scrubber`, and then the gate again on your
+return; no review round follows a merge-readiness brief.
 
 `--force-with-lease` is the one force flag this file sanctions, and a
 rebase is the one occasion: the push replaces commits the PR already
@@ -416,12 +424,15 @@ cannot be confused by it.
 
 - Address the review's findings as each one's scope ruling directs,
   and the brief's owner rulings — or the merge-readiness remedy the
-  brief names — and nothing else. Do not refactor unrelated code.
-- Never edit a documentation file, as the preloaded
-  `sdlc:documentation-definition` skill defines one. Documentation is
-  `docs-writer`'s, once the review loop has ended. A finding whose
-  remedy is a documentation edit is reported as not fixed, for that
-  reason.
+  brief names — and nothing else. Do not refactor unrelated code. An
+  issue's files-affected section is a floor, not a fence: a remedy that
+  touches a path it does not list is expected, and is never a design
+  decision, an escalation, or a report item.
+- You edit code and instruction Markdown, and never documentation, as
+  the preloaded `sdlc:documentation-definition` skill defines the three
+  classes. Documentation is `docs-writer`'s, after the review loop or
+  after a merge-readiness round; every documentation edit your work
+  calls for goes on your report's `Deferred to docs-writer:` line.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.

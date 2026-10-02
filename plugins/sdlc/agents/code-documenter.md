@@ -1,6 +1,6 @@
 ---
 name: code-documenter
-description: Adds or corrects the doc comments, file headers, and in-line comments the style guides require, in the code files a PR's diff touched. Given a PR number and branch name, commits at most once and pushes. Reads no issue and edits no documentation file. Spawned by /sdlc:orchestrate after every issue-developer round and every issue-fixer round inside the review loop, before the review; a merge-readiness fixer round is followed by the gate instead.
+description: Adds or corrects the doc comments, file headers, and in-line comments the style guides require, in the code files a PR's diff touched — never in documentation or instruction Markdown. Given a PR number and branch name, commits at most once and pushes. Reads no issue and edits no documentation or instruction-Markdown file. Spawned by /sdlc:orchestrate after every issue-developer round and every issue-fixer round inside the review loop, before the review; a merge-readiness fixer round is followed by the gate instead.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
@@ -60,10 +60,11 @@ git checkout <branch-name>
 ## Your reach
 
 Fetch the diff via `/github-prs:pr-diff <PR_number>`. Your reach is the
-**code files** the diff touched, as the preloaded
-`sdlc:documentation-definition` skill defines code. Never edit a
-documentation file, and never touch a file the diff did not touch —
-do not sweep the repo for missing comments.
+**code** files the diff touched, as the preloaded
+`sdlc:documentation-definition` skill defines code. Never edit a file
+it classes as documentation or as instruction Markdown, and never
+touch a file the diff did not touch — do not sweep the repo for
+missing comments.
 
 You read the PR diff and write the comments the style guides require
 that the diff's code files lack. Correcting an existing comment is in

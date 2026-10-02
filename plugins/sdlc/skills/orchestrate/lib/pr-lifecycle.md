@@ -103,14 +103,21 @@ and both run before the merge-readiness loop so that what the gate
 grades is what the human blesses. Spawn them in this order, and wait
 for each to return.
 
-1. **Spawn `docs-writer` to write the PR's documentation.** It runs
-   once per PR, here, and no review round runs over its commit. Give it
-   the PR number, the issue set the PR closes, and the branch name:
+1. **Spawn `docs-writer` to write the PR's documentation.** You spawn
+   it once per PR, here, and no review round runs over its commit. Give
+   it the PR number, the issue set the PR closes, the branch name, and
+   the deferred edits — every entry on the `Deferred to docs-writer:`
+   line of the developer's report and of every fixer round's report on
+   this PR, verbatim. Collect those entries as each report returns, and
+   raise none of them to the human: each is a documentation edit the
+   class rules hand to `docs-writer`, not open work.
 
    ```text
    PR <PR_N> for issues <link-prefix><issue_N1>,
    <link-prefix><issue_N2>, … has finished its review loop.
    Branch: <branch-name>
+   Deferred to docs-writer:
+   <every collected entry, verbatim, one per line — or "none">
 
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the
@@ -121,7 +128,10 @@ for each to return.
    Its per-file list is the summary's `Doc Changes` cell, and it goes
    verbatim into the scope notes you hand `pr-finalizer`. A
    documentation change the human wants after reading it is a manual
-   round, not a loop: this flow spawns `docs-writer` once.
+   round, not a loop: you spawn `docs-writer` once. The one later
+   spawn is `pr-merge-readiness`'s, for a merge-readiness fixer round
+   that deferred an edit; the per-file lists that loop relays join the
+   `Doc Changes` cell and the scope notes the same way.
 
 2. **Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
    By now every teammate that writes memory has captured into the
@@ -173,8 +183,9 @@ and cause, with the gate's report verbatim; any ruling this brief
 carried that went unconsumed — by the gate's report, with what the
 gate reported instead, or by the fixer's rebase on whatever state its
 brief named, as the fixer reported it — quoted; every issue-fixer
-round you ran; the scrubber's per-entry and per-cut lines as it wrote
-them; and every wait you took on a running check, with the checks it
+round you ran; docs-writer's per-file list for every docs-writer spawn
+you ran; the scrubber's per-entry and per-cut lines as it wrote them;
+and every wait you took on a running check, with the checks it
 named.
 ```
 

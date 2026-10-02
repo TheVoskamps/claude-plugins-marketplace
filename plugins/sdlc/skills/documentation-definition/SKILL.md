@@ -1,16 +1,23 @@
 ---
 name: documentation-definition
-description: What counts as documentation in an sdlc run, as opposed to code. Preloaded into the sdlc agents that decide which files they may edit or review; not invoked from the user's slash menu.
+description: The three file classes of an sdlc run — documentation, instruction Markdown, and code — and the path rules that sort a file into one. Preloaded into the sdlc agents that decide which files they may edit, check, or review; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
-# What Counts as Documentation
+# The Three File Classes
 
-Documentation is any `README.md`, and any file under a `docs/`
-directory, at any depth in the repo, that is not under that
-directory's `rules/`.
+Every file in the repo is in exactly one class, decided by its path
+alone:
 
-Everything else is code, including `CLAUDE.md` at any depth,
-`.claude/rules/**`, `**/docs/rules/**`, every `SKILL.md`, and every agent
-definition. Claude reads those into its context, so a change to one
-changes what an agent does, and it is reviewed as code.
+- **Documentation** — any `README.md`, and any file under a `docs/`
+  directory, at any depth in the repo, that is not under that
+  directory's `rules/`.
+- **Instruction Markdown** — `CLAUDE.md` at any depth,
+  `.claude/rules/**`, `**/docs/rules/**`, every `SKILL.md`, every agent
+  definition, and every output style.
+- **Code** — everything else.
+
+Claude reads instruction Markdown into its context, so a change to one
+changes what an agent does. That is why it is implemented, fixed,
+style-checked, and reviewed exactly as code is, inside the review loop,
+while documentation is written once, by `docs-writer`, after it.

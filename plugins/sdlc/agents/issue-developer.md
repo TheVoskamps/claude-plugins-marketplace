@@ -63,7 +63,10 @@ You must be given:
 
 Nothing of the issues' *content* is an input. You read each issue
 yourself in step 1, and you derive the files a fix touches yourself;
-neither arrives in the brief. This list is the required minimum, so a
+neither arrives in the brief. An issue's files-affected section is a
+floor, not a fence: touching a path it does not list is expected, and
+is never a design decision, a drop-protocol trigger, or a report
+item. This list is the required minimum, so a
 brief may carry a further decision or scope ruling the orchestrator
 owns — but never a finding, a location, or an implementation shape.
 
@@ -240,14 +243,18 @@ owns — but never a finding, a location, or an implementation shape.
     design decision you stopped on, with its options. (The worktree
     path isn't something you need to surface.)
 
-    End the report with a fixed `Scope:` block of three labelled
-    lines, in this order:
+    Then a fixed `Deferred to docs-writer:` line, one entry per
+    documentation file your change made wrong, each as `<path> — <what
+    is now wrong>`, or `none`. A deferred edit is a handoff, not a
+    failure: it is never a design decision, an escalation, or a drop.
+
+    End the report with a fixed `Scope:` block of two labelled lines,
+    in this order:
 
     ```text
     Scope:
     Plugins touched: <one entry per plugin whose files the diff touches>
     Renamed or deleted: <one entry per file renamed or deleted>
-    Shared helpers edited: <one entry per helper or type edited that code outside the issue's files calls>
     ```
 
     A line with no entries reads `none`; a line is never omitted.
@@ -311,10 +318,11 @@ and the theorem that catches it costs a full round trip.
   unrelated code, and do not let one member's fix quietly grow to
   cover another's scope — the review pipeline grades each member
   separately.
-- Never edit a documentation file, as the preloaded
-  `sdlc:documentation-definition` skill defines one. Documentation is
-  `docs-writer`'s, once the review loop has ended. When your change
-  makes a documentation file wrong, say so in your report-back.
+- You edit code and instruction Markdown, and never documentation, as
+  the preloaded `sdlc:documentation-definition` skill defines the three
+  classes. Documentation is `docs-writer`'s, once the review loop has
+  ended. When your change makes a documentation file wrong, put it on
+  your report's `Deferred to docs-writer:` line.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.

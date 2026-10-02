@@ -387,6 +387,12 @@ name them in the generator's brief and in every disprover's brief as
 paths to leave out of every diff the child reads. Omit that line when
 there are none.
 
+The exclusion covers documentation and nothing else. Code and
+instruction Markdown, as the same skill defines them, are reviewed
+alike, and whether an issue's files-affected section lists a path
+changes neither: that section is a floor, so never derive a finding
+from a touched path being absent from it.
+
 ## Inputs
 
 Your brief carries double-dash parameters. One vocabulary serves every
