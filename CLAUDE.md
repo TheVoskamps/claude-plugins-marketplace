@@ -84,8 +84,7 @@ changes the payload the model receives. When you edit one, re-lint the
 base and compare counts to confirm you introduced no **new** error
 class, and say so in the PR body.
 
-`lib/*.md` under a plugin's `skills/` are ordinary documents, carry an
-H1, and lint clean.
+`lib/*.md` under a plugin's `skills/` carry an H1 and lint clean.
 
 ## Grade a repo statement an issue contradicts, don't pick a side
 

@@ -13,8 +13,11 @@ alone:
   directory, at any depth in the repo, that is not under that
   directory's `rules/`.
 - **Instruction Markdown** — `CLAUDE.md` at any depth,
-  `.claude/rules/**`, `**/docs/rules/**`, every `SKILL.md`, every agent
-  definition, and every output style.
+  `.claude/rules/**`, `**/docs/rules/**`, and every Markdown file other
+  than a `README.md` under a plugin's `skills/`, `agents/`, `commands/`
+  or `output-styles/` directory, at any depth below it. Markdown under
+  a plugin's `payload/` is not instruction Markdown: it is a template
+  rendered into another repo.
 - **Code** — everything else.
 
 Claude reads instruction Markdown into its context, so a change to one
