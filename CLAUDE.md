@@ -4,7 +4,8 @@
 
 A PR that modifies any file under `plugins/<name>/` MUST also bump that
 plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`, in
-the same PR. The bump is a separate, deliberate edit.
+the same PR, as a separate, deliberate edit — a post-review README edit
+included; an agent barred from `plugin.json` reports the bump as owed.
 
 After rebasing such a branch, re-read each touched plugin's `version`
 against the default branch and bump again if they now match. When both
