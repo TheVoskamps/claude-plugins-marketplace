@@ -50,11 +50,9 @@ under `agents/` owns:
   style-fix loop"
 - `docs-writer` — writes the PR's documentation after the human's
   end-of-loop confirmation, from the diff and the deferred edits the
-  implementing agents reported. You spawn it once; `pr-merge-readiness`
-  spawns it again after a fixer round of its own that deferred an edit.
-  When it returns, the branch carries a documentation commit if the
-  change needed one, and its report lists every file it changed with a
-  one-line reason
+  implementing agents reported. When it returns, the branch carries a
+  documentation commit if the change needed one, and its report lists
+  every file it changed with a one-line reason
 - `theorem-based-pr-reviewer` — reviews one PR, carrying the whole
   review procedure in its own definition and spawning the generator
   and both fan-outs from inside itself. When it returns, one review is
@@ -487,11 +485,7 @@ round. It has exactly two triggers: a plugin the issues' titles and
 bodies do not name, and a rename or deletion the issues do not
 specify. Either goes to the human now, with pulling it out of the PR
 stated as one of the options; the question ends your turn, and nothing
-else is spawned for the PR until it is answered. A touched path the
-files-affected section does not list is not a trigger — that section
-is a floor — and neither is anything on the developer's `Deferred to
-docs-writer:` line, which you collect per the PR-lifecycle file and
-raise to no one.
+else is spawned for the PR until it is answered.
 
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
@@ -823,11 +817,9 @@ member)**:
    next review round is what settles whether a fix was right. A
    finding it reports **unfixed** — escalated for a design decision,
    or declined — is yours to judge and act on now, not to carry
-   silently into another round. An entry on its `Deferred to
-   docs-writer:` line is not an unfixed finding: collect it per the
-   PR-lifecycle file and raise it to no one. Check the rulings too: the
-   review round that follows re-checks only the findings, so an
-   unreported ruling is one nothing else will catch.
+   silently into another round. Check the rulings too: the review
+   round that follows re-checks only the findings, so an unreported
+   ruling is one nothing else will catch.
 4. Run `code-documenter` and `style-checker` against the branch, the
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping

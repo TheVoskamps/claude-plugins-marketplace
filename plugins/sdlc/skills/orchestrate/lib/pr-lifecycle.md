@@ -128,10 +128,7 @@ for each to return.
    Its per-file list is the summary's `Doc Changes` cell, and it goes
    verbatim into the scope notes you hand `pr-finalizer`. A
    documentation change the human wants after reading it is a manual
-   round, not a loop: you spawn `docs-writer` once. The one later
-   spawn is `pr-merge-readiness`'s, for a merge-readiness fixer round
-   that deferred an edit; the per-file lists that loop relays join the
-   `Doc Changes` cell and the scope notes the same way.
+   round, not a loop.
 
 2. **Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
    By now every teammate that writes memory has captured into the
