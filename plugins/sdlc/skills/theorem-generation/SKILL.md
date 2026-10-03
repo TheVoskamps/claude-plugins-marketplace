@@ -301,6 +301,11 @@ instruction Markdown.
 These are `semantic` by nature. State them against named files, not in
 the abstract, or the disprover has nowhere to start.
 
+On every brief, a path an issue's files-affected section lists grounds
+a theorem about that path and nothing about the rest of the tree:
+never emit a claim that the change touches only the listed paths, or
+that a path the section does not list stays untouched.
+
 Style is not a theorem source: `code-documenter` and `style-checker`
 own it, before the review runs, so no theorem states a style-guide
 rule.
@@ -317,11 +322,6 @@ and emit the theorems that description
 warrants — which restatement of a fact the issue moves must move with
 it, where the change has to sit, what second source of truth it must
 not create.
-
-A path the files-affected section lists grounds a theorem about that
-path and nothing about the rest of the tree: never emit a claim that
-the change touches only the listed paths, or that a path the section
-does not list stays untouched.
 A pointer names the issue text the claim comes from, or the file in
 the current tree it is about; nothing else exists to point at.
 

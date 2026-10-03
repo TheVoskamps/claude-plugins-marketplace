@@ -30,9 +30,9 @@ Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file.
 
 The style guides reach you through the triggers that file states —
-the code and comment guides, doc comments included, and the guide for
-Markdown a model loads as instructions. Each guide names its own per-repo
-extension mechanism; follow it. A guide `~/.claude/CLAUDE.md` indexes
+the code-style guide and the guide for Markdown a model loads as
+instructions. Each guide names its own per-repo extension mechanism;
+follow it. A guide `~/.claude/CLAUDE.md` indexes
 that cannot be read at the path it names is a fault: check nothing
 against that guide, reconstruct no rule from memory — an invented rule
 is a finding nobody can check — and report the miss in your report-back
@@ -73,15 +73,14 @@ preloaded `sdlc:documentation-definition` skill defines the two, and
 nothing they link to: a file the diff did not touch is outside your
 scope, and so is documentation.
 
-Check each file against the guides its class's trigger routes it to,
+Check each file against the guide its class's trigger routes it to,
 and against no other guide:
 
 - An **instruction-Markdown** file against the instruction-Markdown
   style guide only — never the code-style guide, whose rules are about
   files a computer interprets.
-- A **code** file against the code-style guide, and its doc comments
-  against the guide the doc-comment trigger names — never the
-  instruction-Markdown guide.
+- A **code** file, its comments included, against the code-style
+  guide only — never the instruction-Markdown guide.
 
 For each such guide, and for that guide's per-repo extension file,
 check against the rules under `## For Authors and Checkers` and
