@@ -21,9 +21,11 @@ agents it spawns — every `theorem-generator` variant,
 `code-documenter`, `style-checker`, and `docs-writer`. The orchestrator
 keeps PRs draft through the review/fix loop; once the human blesses a
 PR at end-of-loop, `pr-merge-readiness` gates the close-out on the PR's
-merge readiness, enumerating the conflicts when the branch has any, and
-only then does the orchestrator read those same closing lines for the
-issues it flips to In Review and flip the PR draft → ready.
+merge readiness, enumerating the conflicts when the branch has any and
+reading the closing lines for the issue set it briefs `docs-writer`
+with after a remedy, and only then does the orchestrator read those
+same closing lines for the issues it flips to In Review and flip the
+PR draft → ready.
 `pr-monitor` keeps reading the merge readiness while the PR waits for
 its merge. Each skill is still a standalone verb usable by a human or
 any caller.
