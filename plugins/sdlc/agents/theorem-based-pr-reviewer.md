@@ -389,8 +389,7 @@ there are none.
 
 The exclusion covers documentation and nothing else. Code and
 instruction Markdown, as the same skill defines them, are reviewed
-alike. Never derive a finding from a touched path being absent from an
-issue's files-affected section.
+alike.
 
 ## Inputs
 
