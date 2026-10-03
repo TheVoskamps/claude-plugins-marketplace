@@ -264,10 +264,10 @@ order:
 2. Ask whether this diff changes that fact. If it does not, emit
    nothing for that section, however many of its named files the diff
    touches. If it does, emit one theorem naming the specific surfaces
-   that restate it in code and must have moved with it. A restatement
-   in a documentation file is `docs-writer`'s to repair once the loop
-   has ended, and warrants no theorem; when every surface the section
-   names is documentation, emit nothing for it.
+   that restate it in code or instruction Markdown and must have moved
+   with it. A restatement in a documentation file is `docs-writer`'s to
+   repair once the loop has ended, and warrants no theorem; when every
+   surface the section names is documentation, emit nothing for it.
 
 Sweep sections often say this themselves — that rebuilding a file in
 place mirrors nothing, that a given surface takes the edit only when a
@@ -285,7 +285,8 @@ Further reliable members of this class:
 - **Restated counts and enumerations.** Prose that says how many arms,
   cases, or surfaces something has is a claim the code settles.
 
-Both hold only where the pointer or the prose sits in code.
+Both hold only where the pointer or the prose sits in code or
+instruction Markdown.
 
 ### 4. Design shape
 
@@ -299,6 +300,11 @@ Both hold only where the pointer or the prose sits in code.
 
 These are `semantic` by nature. State them against named files, not in
 the abstract, or the disprover has nowhere to start.
+
+On every brief, a path an issue's files-affected section lists grounds
+a theorem about that path and nothing about the rest of the tree:
+never emit a claim that the change touches only the listed paths, or
+that a path the section does not list stays untouched.
 
 Style is not a theorem source: `code-documenter` and `style-checker`
 own it, before the review runs, so no theorem states a style-guide

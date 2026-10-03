@@ -34,6 +34,7 @@ restate the fact.
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
+| Which file class a path falls in — documentation, instruction Markdown, or code — and which stage of the run edits each | `skills/documentation-definition/SKILL.md` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
@@ -250,10 +251,13 @@ remedy is a teammate's. Neither the orchestrator nor a loop agent runs
 clone. A branch the gate finds `BEHIND` or `DIRTY` is handed by
 `pr-merge-readiness` to `issue-fixer` through the same fixer-brief
 comment the review loop uses, carrying the gate's report verbatim, and
-the fixer's return is followed by the memory scrub and the gate again
-rather than a review round — so `issue-fixer` performs merge-readiness
+the fixer's return is followed by `docs-writer` when the fixer deferred
+a documentation edit, then the memory scrub, then the gate again rather
+than a review round — so `issue-fixer` performs merge-readiness
 remedies as well as review fixes, and the two kinds of brief are told
-apart by whether the brief carries findings. What each state drives is
+apart by whether the brief carries findings. A `docs-writer` commit
+needs no review round in either place, since documentation is the one
+class no round reviews. What each state drives is
 owned by that loop agent's own file. The merge-readiness loop's wait
 bounds are that file's too; the monitor loop's poll interval and
 unchanged-poll bound reach it in its brief, as config keys whose
@@ -287,9 +291,18 @@ meets a stale section before the current one.
 ## The issue is the ceiling of the fix loop
 
 An issue's acceptance section is the ceiling of the fix loop, not
-its floor. A review finding whose fix lies outside it, or a diff that
-already reaches past it, is the human's to admit or refuse, and the
-orchestrator never admits one on its own. The converse holds below the
+its floor. A review finding whose fix lies outside it is the human's to
+admit or refuse, and so is a developer's diff that reaches a plugin the
+issue does not name or renames or deletes a file the issue does not
+specify; the orchestrator never admits either on its own. The issue's
+files-affected section is no ceiling at all. It is a floor: the
+implementer is expected to touch paths it does not list, so an
+unlisted path is not a gate trigger, not a design decision, not a
+theorem about what the change left alone, and not a report item — a
+listed path grounds a claim about that path and nothing about the rest
+of the tree. Treating the list as a fence produced "Needs Your
+Attention" rows, escalations and theorems over work that was simply
+part of the fix. The converse holds below the
 ceiling: a finding the acceptance section covers is the orchestrator's
 to brief, and nothing the reviewer attaches to it — an offered
 rejection, a request to confirm intent — turns it into a question for
@@ -311,6 +324,8 @@ asking for judgment, and each slot has one owner:
 | The grading of an issue body's structural instruction against the repo | `skills/orchestrate/SKILL.md` |
 | How a finding dropped on a scope ruling reaches the next round and retires | `agents/theorem-based-pr-reviewer.md` |
 | How a finding dropped on a scope ruling is worded in the PR's final section | `agents/pr-finalizer.md` |
+| That the files-affected list is a floor, and that listing a path changes nothing about its class, owner, or review | `skills/orchestrate-readiness/SKILL.md` |
+| That a listed path grounds no theorem about the rest of the tree | `skills/theorem-generation/SKILL.md` |
 
 The reviewer's own scope theorem, in `skills/theorem-generation/SKILL.md`,
 is unchanged by any of this: the slots make the orchestrator act on
@@ -319,6 +334,42 @@ produced. A scope ruling is the orchestrator's judgment, never the
 human's, and the reviewer keeps the two apart by retiring a
 scope-dropped theorem under its own label rather than as
 human-refuted.
+
+## A documentation edit an implementer owes is a handoff, not a failure
+
+Every file in a run is in one of the classes
+`skills/documentation-definition/SKILL.md` names, and the class alone
+decides who edits it: `issue-developer` and `issue-fixer` edit code and
+instruction Markdown inside the review loop, and `docs-writer` edits
+documentation after it. Instruction Markdown — `CLAUDE.md`, rules
+files, skill bodies, agent definitions — is a class of its own rather
+than a kind of code because the style guides grade it by its own
+guide, yet it is implemented, fixed, checked and reviewed exactly as
+code is: a change to one changes what an agent does, so it cannot
+wait for the unreviewed pass documentation gets. Whether an issue's
+files-affected list names a file never moves it between classes.
+
+The split leaves the implementers with edits they are barred from
+making. A code change that makes a README wrong, or a review finding
+whose remedy is a documentation edit, used to come back as "not
+fixed" or as a design decision, and the orchestrator put each one to
+the human — an escalation over work that was already assigned, by
+design, to a later stage. So each implementer report carries a fixed
+`Deferred to docs-writer:` line, `none` when empty, and the
+orchestrator collects every entry into the `docs-writer` brief and
+raises none of them. The same line runs through a merge-readiness
+remedy: a fixer round there may defer an edit too, and
+`pr-merge-readiness` spawns `docs-writer` for the entries before the
+gate runs again, in place of returning them as a question. Each
+piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| The `Deferred to docs-writer:` line in the developer's report | `agents/issue-developer.md` |
+| The same line in the fixer's report, and that a documentation-remedy finding goes there rather than under not fixed | `agents/issue-fixer.md` |
+| Collecting the entries into the end-of-loop `docs-writer` brief | `skills/orchestrate/lib/pr-lifecycle.md` |
+| The `docs-writer` spawn after a merge-readiness fixer round, and the issue set it carries | `agents/pr-merge-readiness.md` |
+| How `docs-writer` treats the entries alongside the diff | `agents/docs-writer.md` |
 
 ## The theorem set is seeded from the issues before the developer runs
 
@@ -363,7 +414,7 @@ Each piece has one owner:
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
-| `sdlc:documentation-definition` | What counts as documentation rather than code | preloaded into the agents that decide which files they may edit or review |
+| `sdlc:documentation-definition` | The file classes of a run — documentation, instruction Markdown, code — and the path rules that sort a file into one | preloaded into the agents that decide which files they may edit, check, or review |
 | `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
 
 The rows with no leading slash are not user verbs — each declares
@@ -524,11 +575,11 @@ spawns or that the orchestrator spawns after it.
 | ------- | --------- |
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving each conflict a ruling or its own resolvability conditions settle and escalating the rest — to an open PR's branch |
-| `code-documenter` | Adds or corrects the comments the style guides require in a round's code, before its review |
-| `style-checker` | Reports a round's style-guide violations, which the orchestrator sends to a fixer before its review |
-| `docs-writer` | Writes a PR's documentation once, after its review loop ends |
+| `code-documenter` | Adds or corrects the comments the code-style guide requires in a round's code files, before its review |
+| `style-checker` | Reports a round's style-guide violations in its code and instruction Markdown, each file graded against its own class's guide, which the orchestrator sends to a fixer before its review |
+| `docs-writer` | Writes a PR's documentation after its review loop ends, and again after a merge-readiness fixer round that deferred a documentation edit to it |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` and then `agent-memory-scrubber` for each remedy, and returns a state that needs a ruling as a question |
+| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer`, then `docs-writer` when the fixer deferred a documentation edit, then `agent-memory-scrubber` for each remedy, and returns a state that needs a ruling as a question |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, replacing the one an earlier run left |
 | `pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |

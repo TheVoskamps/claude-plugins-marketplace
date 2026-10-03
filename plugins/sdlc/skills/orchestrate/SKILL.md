@@ -37,19 +37,21 @@ under `agents/` owns:
   review to see again — or, on a merge-readiness brief, has been
   rebased for the gate to see again. You spawn it on review feedback;
   `pr-merge-readiness` spawns it on a merge-readiness brief
-- `code-documenter` — adds or corrects the comments the style guides
-  require in the code files a PR's diff touched. When it returns, the
-  branch carries at most one new comment commit, and `style-checker`
-  runs next
-- `style-checker` — checks those code files against the rules under
-  `## For Authors and Checkers` of each style guide that reaches it.
+- `code-documenter` — adds or corrects the comments the code-style
+  guide requires in the code files a PR's diff touched. When it
+  returns, the branch carries at most one new comment commit, and
+  `style-checker` runs next
+- `style-checker` — checks the code and instruction-Markdown files a
+  PR's diff touched against the rules under `## For Authors and
+  Checkers` of the style guide each file's class routes to.
   When it returns, the branch is unchanged and its report carries
   findings or none; findings go to `issue-fixer`, and only a finding
   its rule cannot settle pauses the loop for the human, per "The
   style-fix loop"
-- `docs-writer` — writes the PR's documentation once, after the
-  human's end-of-loop confirmation. When it returns, the branch carries
-  a documentation commit if the change needed one, and its report lists
+- `docs-writer` — writes the PR's documentation after the human's
+  end-of-loop confirmation, from the diff and the deferred edits the
+  implementing agents reported. When it returns, the branch carries a
+  documentation commit if the change needed one, and its report lists
   every file it changed with a one-line reason
 - `theorem-based-pr-reviewer` — reviews one PR, carrying the whole
   review procedure in its own definition and spawning the generator
@@ -73,12 +75,12 @@ under `agents/` owns:
   once, after `docs-writer`; `pr-merge-readiness` spawns it after
   every `issue-fixer` round of its own
 - `pr-merge-readiness` — drives one blessed PR through the
-  merge-readiness gate, spawning `issue-fixer` and
-  `agent-memory-scrubber` for the remedies. When it returns, either
-  the PR is in a state the close-out proceeds from, or its report
-  carries a question with the gate's output verbatim, which you relay
-  to the human and answer by re-spawning it with the ruling in the
-  brief
+  merge-readiness gate, spawning `issue-fixer`, `docs-writer` when the
+  fixer deferred a documentation edit, and `agent-memory-scrubber` for
+  the remedies. When it returns, either the PR is in a state the
+  close-out proceeds from, or its report carries a question with the
+  gate's output verbatim, which you relay to the human and answer by
+  re-spawning it with the ruling in the brief
 - `pr-finalizer` — posts the run's assembled review detail as chained
   PR comments and writes the run's final section into the PR body,
   once the loop is over, replacing the section an earlier run left.
@@ -269,12 +271,12 @@ Do not:
   less than its definition already permitted, with nothing in the
   report saying why. When a scope constraint is genuinely needed,
   state the constraint rather than the prohibition: *"change what the
-  rule requires, not which files it governs"*. The documentation
-  boundary on `issue-developer` and `issue-fixer` is the one named
-  exception to "Restate anything already durable": their spawn prompts
-  state it although their definitions do too, because it is your split
-  of the work between them and `docs-writer` — a scope ruling, which
-  is what a brief carries.
+  rule requires, not which files it governs"*. The ownership rule on
+  `issue-developer` and `issue-fixer` is the one named exception to
+  "Restate anything already durable": their spawn prompts state it
+  although their definitions do too, because it is your split of the
+  work between them and `docs-writer` — a scope ruling, which is what a
+  brief carries.
 - **Carry a brief forward.** Write each one from the task, never by
   editing its predecessor. Adding a constraint feels free and removing
   one feels risky, so an edited brief's constraint block only ever
@@ -432,9 +434,11 @@ Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
 
-Edit no documentation file as the sdlc:documentation-definition skill
-defines it; docs-writer writes the PR's documentation after the review
-loop.
+Edit code and instruction Markdown, and no documentation, as the
+sdlc:documentation-definition skill defines the three classes;
+docs-writer writes the PR's documentation after the review loop, from
+the documentation edits you report on your Deferred to docs-writer:
+line.
 
 Implement the batch end-to-end per your agent definition. Report back:
 PR URL (or equivalent), the issue set the PR closes, branch name, and
@@ -477,13 +481,11 @@ auto-accept`, of the generator's list as emitted — not authored review
 content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
-round. A plugin the issue's title and body do not name, or a rename,
-deletion, or shared-helper edit the issue does not specify goes to the
-human now, with pulling it out of the PR stated as one of the
-options; the question ends your turn, and nothing else is spawned for
-the PR until it is answered. This is the gate before round 1: the
-issue is the ceiling of the loop, and a diff that already reaches past
-it is the human's to admit or refuse, never yours.
+round. It has exactly two triggers: a plugin the issues' titles and
+bodies do not name, and a rename or deletion the issues do not
+specify. Either goes to the human now, with pulling it out of the PR
+stated as one of the options; the question ends your turn, and nothing
+else is spawned for the PR until it is answered.
 
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
@@ -515,9 +517,9 @@ touched and the commit you pushed.
 PR <PR_N> has new commits on it.
 Branch: <branch-name>
 
-Check the code against the rules under `## For Authors and Checkers`
-per your agent definition. Report back your findings, or that there
-are none.
+Check the code and instruction Markdown against the rules under
+`## For Authors and Checkers` per your agent definition. Report back
+your findings, or that there are none.
 ```
 
 #### The style-fix loop
@@ -800,9 +802,11 @@ member)**:
    ```text
    PR <PR_N> has a fixer brief waiting on it.
 
-   Edit no documentation file as the sdlc:documentation-definition
-   skill defines it; docs-writer writes the PR's documentation after
-   the review loop.
+   Edit code and instruction Markdown, and no documentation, as the
+   sdlc:documentation-definition skill defines the three classes;
+   docs-writer writes the PR's documentation after the review loop,
+   from the documentation edits you report on your Deferred to
+   docs-writer: line.
 
    Address it per your agent definition. Report back what you fixed
    and what you didn't.
@@ -820,8 +824,8 @@ member)**:
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping
    them is what lets a fixer's commits reach the review without the
-   comments the style guides require of them, and unchecked against
-   the `## For Authors and Checkers` rules.
+   comments the code-style guide requires of them, and unchecked
+   against the `## For Authors and Checkers` rules.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
@@ -976,9 +980,10 @@ for it.
    question or the state it returned with, so the human knows the
    earlier answer lapsed rather than took effect.
    Count each `issue-fixer` round its report names, with the state
-   that drove it, toward the summary's `Readiness Remedies` cell, and
-   pass the scrubber lines it relays through to the human as it wrote
-   them.
+   that drove it, toward the summary's `Readiness Remedies` cell, add
+   each `docs-writer` per-file list it relays to the `Doc Changes` cell
+   and the finalizer's scope notes, and pass the scrubber lines it
+   relays through to the human as it wrote them.
 
 3. **The close-out**, per the PR-lifecycle file: the In Review flips
    for every issue the PR closes, `pr-finalizer`, then the ready flip.

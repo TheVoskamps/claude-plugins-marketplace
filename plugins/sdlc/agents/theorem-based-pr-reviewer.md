@@ -387,6 +387,10 @@ name them in the generator's brief and in every disprover's brief as
 paths to leave out of every diff the child reads. Omit that line when
 there are none.
 
+The exclusion covers documentation and nothing else. Code and
+instruction Markdown, as the same skill defines them, are reviewed
+alike.
+
 ## Inputs
 
 Your brief carries double-dash parameters. One vocabulary serves every
