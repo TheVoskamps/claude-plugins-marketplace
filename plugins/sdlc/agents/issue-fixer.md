@@ -357,10 +357,9 @@ brief named, the base you rebased onto, each conflict and what settled
 it — for one a ruling named, the ruling; for one you resolved without
 a ruling, the repo rule, quoted, or the combination of both sides you
 kept — any ruling the rebase did not need, quoted, the new head SHA,
-the test result, and the `Deferred to docs-writer:` line.
-`pr-merge-readiness` runs `docs-writer` on any deferred edit you
-report, then `agent-memory-scrubber`, and then the gate again on your
-return; no review round follows a merge-readiness brief.
+and the test result.
+`pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
+again on your return; no review round follows a merge-readiness brief.
 
 `--force-with-lease` is the one force flag this file sanctions, and a
 rebase is the one occasion: the push replaces commits the PR already
@@ -431,8 +430,7 @@ cannot be confused by it.
 - You edit code and instruction Markdown, and never documentation, as
   the preloaded `sdlc:documentation-definition` skill defines the three
   classes. Documentation is `docs-writer`'s, after the review loop or
-  after a merge-readiness round; every documentation edit your work
-  calls for goes on your report's `Deferred to docs-writer:` line.
+  after a merge-readiness round.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.

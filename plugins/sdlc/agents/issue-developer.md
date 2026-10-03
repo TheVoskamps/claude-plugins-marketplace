@@ -321,8 +321,7 @@ and the theorem that catches it costs a full round trip.
 - You edit code and instruction Markdown, and never documentation, as
   the preloaded `sdlc:documentation-definition` skill defines the three
   classes. Documentation is `docs-writer`'s, once the review loop has
-  ended. When your change makes a documentation file wrong, put it on
-  your report's `Deferred to docs-writer:` line.
+  ended.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.
