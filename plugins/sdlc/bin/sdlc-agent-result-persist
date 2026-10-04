@@ -336,13 +336,17 @@ check_report_theorem() {
 
 # The records to carry forward are the most recent ones there are, so
 # this sets best_round and best to the highest-numbered round holding a
-# records file, and leaves both empty when none does. A voided round's
-# directory carries its records with it under the .voided- name, and is
-# skipped for the same reason its result files are — it describes a
-# tree that no longer exists.
+# records file, and leaves both empty when none does. Given a round
+# number, it considers only the rounds below that one, and sets
+# above_round to the highest round above it holding a records file,
+# leaving it empty when none does. A voided round's directory carries
+# its records with it under the .voided- name, and is skipped for the
+# same reason its result files are — it describes a tree that no longer
+# exists.
 latest_records_round() {
   best=
   best_round=
+  above_round=
   for candidate in "$pr_dir"/round*; do
     [ -d "$candidate" ] || continue
     base=${candidate##*/}
@@ -354,6 +358,12 @@ latest_records_round() {
       ''|*[!0-9]*) continue ;;
     esac
     [ -f "$candidate/records" ] || continue
+    if [ -n "${1-}" ] && [ "$n" -ge "$1" ]; then
+      if [ "$n" -gt "$1" ] && { [ -z "$above_round" ] || [ "$n" -gt "$above_round" ]; }; then
+        above_round=$n
+      fi
+      continue
+    fi
     if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
       best_round=$n
       best=$candidate
@@ -547,10 +557,16 @@ case "$mode" in
     if [ -z "$carry" ]; then
       store_payload "$records_file" records
     else
-      latest_records_round
-      [ -n "$best" ] || die "--carry found no round under $pr_dir holding a records file"
-      [ "$best_round" -lt "$round" ] \
-        || die "--carry would carry round $best_round's records into --round $round, which is not later"
+      # The carried round is the one below --round, so a resumed reviewer
+      # whose earlier instance already stored this round's records
+      # rebuilds them from the same input rather than from its own
+      # output. A round above --round holding records means --round is
+      # not the round under way: that round's records were built from the
+      # ones this call would replace.
+      latest_records_round "$round"
+      [ -z "$above_round" ] \
+        || die "--carry into --round $round refused: round $above_round, above it, holds a records file"
+      [ -n "$best" ] || die "--carry found no round below --round $round under $pr_dir holding a records file"
       # The new records may be empty, so the payload is read whole into a
       # file of its own rather than through store_payload, which refuses
       # an empty one. The result is built beside it and copied into the

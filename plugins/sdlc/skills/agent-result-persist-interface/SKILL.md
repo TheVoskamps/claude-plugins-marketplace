@@ -33,10 +33,10 @@ single atomic append**, so no two writers can be ordered wrongly and no
 call has to know what the log already holds. The records file and the
 review file are not records: each is written whole and replaces
 whatever the round held before, so a resumed instance that re-derives
-the round's review stores its own version over its predecessor's rather
-than adding to it. The records file is the exception on a resume: the
-carry form below refuses to carry a round into itself, so records an
-earlier instance stored for the round stand.
+the round stores its own version over its predecessor's rather than
+adding to it. The carry form below builds the records from the round
+below `--round`, never from the round's own, so the resumed instance's
+records are rebuilt from the same input its predecessor's were.
 
 ## Invocation
 
@@ -286,8 +286,14 @@ directories.
   taking one whole, and makes no decision while doing so — what each
   record's new state is arrives as an edit:
 
-  1. It reads the records `print-records` would print, and refuses when
-     the round they come from is not lower than `--round`.
+  1. It reads the records of the highest-numbered round **below**
+     `--round` that holds a records file, skipping the
+     `.voided-<instant>` directories as `print-records` does. A records
+     file at `--round` itself is not read: `--round` may be the latest
+     round holding records, and the carry then rebuilds that round's
+     file from the round below, so a resumed reviewer stores its round's
+     records again and gets the same file from the same edits. It
+     refuses when any round **above** `--round` holds a records file.
   2. It applies the **edits file** `--edits <path>`, one edit per line:
      `<id>`, a tab, `<field>`, a tab, `<value>`. `<value>` is the rest
      of the line and may be empty; an empty line is skipped. `<field>`
@@ -323,7 +329,8 @@ directories.
   - a result that leaves any record without `state` — a round-0 seed
     record carried into round 1 unstamped is the case this catches —
     naming each such id;
-  - `--carry` when no round under the PR holds a records file;
+  - `--carry` when no round below `--round` holds a records file, or
+    when a round above it does, naming that round;
   - `--edits` without `--carry`, and `--carry` in any mode but
     `records`.
 - **`review`** — writes the round's argued review, read as its payload,

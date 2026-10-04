@@ -663,10 +663,13 @@ round".
 If that `round <n>` names **this** round's own number, an earlier
 instance of this same round stored its records before it managed to
 post: they are this round's own output rather than a predecessor
-round's. Do not carry them forward as last round's — take the arm "You
-are re-entrant" gives for what the log holds, re-derive the
-dispositions, store the review, and post. The stored records stand, per
-"Persist the round's records and review".
+round's. Do not carry them forward as last round's. The carried records
+are the round below's — read them with `--mode print-round-records
+--round <k>` for `<k>` from this round's number minus one downward,
+until a call exits zero, and call that `<k>` `<prev-round>`. Then take
+the arm "You are re-entrant" gives for what the log holds, re-derive
+the dispositions, and store the records and the review again, per
+"Persist the round's records and review", before you post.
 
 **The previously reviewed head.** It is the `anchor` line's head SHA in
 `<prev-round>`'s own log:
@@ -1633,17 +1636,19 @@ program, a script or a pipeline you wrote to transform records:
 On a **fallback round** nothing is carried, so the new-records file is
 the whole round: store it with `--mode records` and `--from`, without
 `--carry` or `--edits`. When `--mode print-records` already named
-**this** round, an earlier instance stored this round's records, and
-`--carry` refuses to carry a round into itself: those records stand,
-so store only the review.
+**this** round, an earlier instance stored this round's records: store
+them again through the same `--carry` call, with the edits and new
+records you re-derived against `<prev-round>`'s. `--carry` reads the
+round below `--round`, never the round's own records, so it rebuilds
+the file from the input the earlier instance's was built from.
 
 The records file carries every recorded theorem, in id order, retired
 ones included, per "The theorem records file" below. The review file
 carries the eight argued sections of "Review body" below, in full — the
 quoted counterexamples and the argued findings among them.
 
-**Both calls run on every round that reaches disposition**, the resume
-above aside, an empty-delta round included — `--carry` with neither
+**Both calls run on every round that reaches disposition**, a resumed
+one included, and an empty-delta round too — `--carry` with neither
 `--edits` nor `--from`: that round's records and verdicts carry
 forward unchanged, and a round that stored neither would leave the next
 one carrying forward from an older round than the one that ran.

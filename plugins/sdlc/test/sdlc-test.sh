@@ -269,16 +269,67 @@ refused "--edits without --carry" "--edits is accepted only with --carry" \
 new_case no-carried-round
 persist --mode records --round 1 --carry
 check "$RC" "2" "refusal: --carry with no carried round exits non-zero"
-check_contains "$ERR" "found no round under" "refusal: --carry with no carried round says so"
+check_contains "$ERR" "found no round below --round 1 under" "refusal: --carry with no carried round says so"
 check "$(round_records 1)" "" "refusal: --carry with no carried round writes nothing"
 
-new_case not-later
-seed_round 0 "$SEED"
+new_case no-round-below
 seed_round 1 "$ROUND1"
 persist --mode records --round 1 --carry
-check "$RC" "2" "refusal: carrying a round into itself exits non-zero"
-check_contains "$ERR" "carry round 1's records into --round 1" "refusal: carrying a round into itself names both rounds"
-check "$(round_records 1)" "$ROUND1" "refusal: carrying a round into itself leaves its records as they were"
+check "$RC" "2" "refusal: --carry with records only at --round exits non-zero"
+check_contains "$ERR" "found no round below --round 1" "refusal: --carry with records only at --round says so"
+check "$(round_records 1)" "$ROUND1" "refusal: --carry with records only at --round leaves them as they were"
+
+# A resumed reviewer whose earlier instance stored this round's records
+# stores them again: the carry reads the round below, never the round's
+# own records, so the same edits rebuild the same file.
+new_case resume-restore
+seed_round 0 "$SEED"
+printf 'T1\tstate\tdisproved\nT1\tstate-detail\tfinding 1, High\nT1\tsettled-at\taaa\n' >"$CASE/edits"
+persist --mode records --round 1 --carry --edits "$CASE/edits"
+check "$RC" "0" "resume: the first instance's carry is written"
+persist --mode records --round 1 --carry --edits "$CASE/edits"
+check "$RC" "0" "resume: a carry into the latest records round is accepted"
+check "$(round_records 1)" "$ROUND1" "resume: the re-stored round is rebuilt from the round below, unchanged"
+check "$(round_records 0)" "$SEED" "resume: the round below is left as it was"
+
+printf 'T1\tstate\tunsettled\nT1\tstate-detail\t\nT1\tsettled-at\tbbb\n' >"$CASE/edits"
+persist --mode records --round 1 --carry --edits "$CASE/edits"
+check "$RC" "0" "resume: a carry with different edits is accepted"
+check "$(round_records 1)" 'T1
+claim: the seed claim
+issues: #1
+settle-mode: semantic
+pointers: a.md
+state: unsettled
+state-detail:
+settled-at: bbb
+
+T2
+claim: the rejected seed claim
+issues: #1
+settle-mode: mechanical
+pointers: b.md
+state: retired
+state-detail: human-refuted' "resume: the edits apply to the round below, not to the round's stored records"
+
+new_case above-round
+seed_round 0 "$SEED"
+seed_round 1 "$ROUND1"
+seed_round 2 "$ROUND1"
+persist --mode records --round 1 --carry
+check "$RC" "2" "refusal: carrying below a round holding records exits non-zero"
+check_contains "$ERR" "--carry into --round 1 refused: round 2, above it, holds a records file" \
+  "refusal: carrying below a round holding records names both rounds"
+check "$(round_records 1)" "$ROUND1" "refusal: carrying below a round holding records leaves its records as they were"
+
+new_case above-round-voided
+seed_round 0 "$SEED"
+seed_round 2 "$ROUND1"
+mv "$XDG_STATE_HOME/sdlc/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/o/r/pr7/round2.voided-20260101T000000Z"
+printf 'T1\tstate\tdisproved\nT1\tstate-detail\tfinding 1, High\nT1\tsettled-at\taaa\n' >"$CASE/edits"
+persist --mode records --round 1 --carry --edits "$CASE/edits"
+check "$RC" "0" "voided: a voided round above --round does not refuse the carry"
+check "$(round_records 1)" "$ROUND1" "voided: the carry reads the round below"
 
 new_case carry-other-mode
 persist --mode review --round 1 --carry
