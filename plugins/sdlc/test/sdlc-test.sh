@@ -6,7 +6,7 @@
 # carried round, an edits file and the new records, and each refusal the
 # carry form makes.
 #
-# Needs only bash and awk. Reaches no network.
+# Needs only bash and the POSIX utilities. Reaches no network.
 #
 # Usage: sdlc-test.sh    (exit 0 when every case passes)
 

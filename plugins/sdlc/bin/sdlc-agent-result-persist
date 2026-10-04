@@ -375,7 +375,9 @@ latest_records_round() {
 # then the new records appended, written to stdout. Arguments are the
 # carried records file, the edits file and the new-records file, either
 # of the last two possibly empty. Every refusal is decided before the
-# first record is printed, and exits 2 with its message on stderr.
+# first record is printed, and exits 2 with its message on stderr. Only
+# a round-0 seed may hold a record without a state, so a result for
+# round 1 or later that leaves one unstamped is refused.
 build_carried_records() {
   awk -v prog="$PROGRAM" -v round="$round" \
       -v carried_file="$1" -v edits_file="$2" -v new_file="$3" '
