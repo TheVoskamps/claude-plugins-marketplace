@@ -197,7 +197,9 @@ within one session. Never ask which session wrote a record.
 same way a first one does**: `--mode print-records` reads them off disk,
 so "Carry the previous round's theorems forward" runs identically
 whichever instance you are, and nothing about the carry turns on a
-review being readable on the PR.
+review being readable on the PR. The generator, not you, reads them for
+generation: a delta round's brief carries no records, and the generator
+runs that read itself.
 
 **Derive what to do from the log, and hold nothing across a turn that
 is not written down.** Run `--mode print`, then take whichever arm the
@@ -972,14 +974,14 @@ to your result file and report it back in the theorem-record format that
 skill defines, and nothing else.
 ```
 
-On a **delta round**, the brief adds the carried records and the
-round's delta commits, and the generator emits only what those imply:
+On a **delta round**, the brief adds the round's delta commits; the
+generator reads the carried records out of state itself, and emits only
+what the delta implies that they do not cover:
 
 ```text
 --pr <PR_N>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
---carried-records <the --mode print-records output, verbatim>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
 --owner <owner>
 --repo <repo>
