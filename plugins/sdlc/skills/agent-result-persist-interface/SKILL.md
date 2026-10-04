@@ -31,10 +31,12 @@ generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
 each write their own `enter` and `leave`. **Every log record is a
 single atomic append**, so no two writers can be ordered wrongly and no
 call has to know what the log already holds. The records file and the
-review file are not records: each arrives whole as a payload and replaces
+review file are not records: each is written whole and replaces
 whatever the round held before, so a resumed instance that re-derives
 the round stores its own version over its predecessor's rather than
-adding to it.
+adding to it. The carry form below builds the records from the round
+below `--round`, never from the round's own, so the resumed instance's
+records are rebuilt from the same input its predecessor's were.
 
 ## Invocation
 
@@ -81,7 +83,8 @@ in one session do the same.
   with a message naming the path, before anything is written.
 - A `--from` file that exists but cannot be read is refused, non-zero,
   with a message naming that file.
-- An empty payload is refused either way. With no `--from`, empty stdin
+- An empty payload is refused either way, except by `records --carry`,
+  whose payload is only the round's new records. With no `--from`, empty stdin
   gets `--mode <mode> takes the <noun> on stdin, and nothing arrived`;
   an empty `--from` file gets a message naming that file.
 - The file is read, never moved or removed: it stays where its writer
@@ -91,10 +94,11 @@ in one session do the same.
 
 These four go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
-refuses it: `print-records` selects the round itself and `delete`
-removes the whole PR's directory, so both refuse `--round`, and `list`
-reads across every PR of the repo, so it refuses `--pr` and `--round`
-alike.
+refuses it: `delete` removes the whole PR's directory, so it refuses
+`--round`, and `list` reads across every PR of the repo, so it refuses
+`--pr` and `--round` alike. `print-records` selects the round itself,
+so `--round` is optional there and bounds that selection rather than
+naming a round.
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
@@ -260,29 +264,96 @@ directories.
   does not exist, which means neither the round's `anchor` call nor any
   child's `enter` has run — the fresh-round case the reviewer branches
   on before spawning anything.
-- **`records`** — writes the round's theorem records, read as its
-  payload, to the round's `records` file. The reviewer's, once per
-  round that reaches disposition, an empty-delta round included; and
-  the orchestrator's once, at `--round 0`, for the ruled seed. Empty
-  input is refused, and the bytes land in a staging name and are renamed
-  into place only once whole, for the reason `leave` gives: a reader
-  takes the file's existence as the round's records, and half a file
-  would carry half a round's theorems into the next round with nothing
-  saying so.
+- **`records`** — writes the round's theorem records to the round's
+  `records` file. Without `--carry` it stores its payload whole: the
+  orchestrator's once, at `--round 0`, for the ruled seed, and the
+  reviewer's on a round with nothing to carry. With `--carry`, below, it
+  builds the file from the carried round: the reviewer's on every other
+  round that reaches disposition, an empty-delta round included. In the
+  plain form empty input is refused, and in both the bytes land in a
+  staging name and are renamed into place only once whole, for the
+  reason `leave` gives: a reader takes the file's existence as the
+  round's records, and half a file would carry half a round's theorems
+  into the next round with nothing saying so.
+
+  A records file is a sequence of records in id order, separated by one
+  blank line. Each opens with its id, `T<n>`, on a line of its own,
+  followed by one `key: value` line per field: `claim`, `issues`,
+  `settle-mode`, `pointers`, then, when present, `state`,
+  `state-detail`, `settled-at`, `severity-override`, in that order. Ids
+  are never reused.
+
+  **With `--carry` the script builds the file itself** rather than
+  taking one whole, and makes no decision while doing so — what each
+  record's new state is arrives as an edit:
+
+  1. It reads the records of the highest-numbered round **below**
+     `--round` that holds a records file, skipping the
+     `.voided-<instant>` directories as `print-records` does. A records
+     file at `--round` itself is not read: `--round` may be the latest
+     round holding records, and the carry then rebuilds that round's
+     file from the round below, so a resumed reviewer stores its round's
+     records again and gets the same file from the same edits. It
+     refuses when any round **above** `--round` holds a records file.
+  2. It applies the **edits file** `--edits <path>`, one edit per line:
+     `<id>`, a tab, `<field>`, a tab, `<value>`. `<value>` is the rest
+     of the line and may be empty; an empty line is skipped. `<field>`
+     is one of `state`, `state-detail`, `settled-at` and
+     `severity-override`. An edit to a field the record has replaces its
+     line in place; an edit to a field it lacks adds the line after the
+     record's other fields, the added lines in that same order. Only
+     `state` is validated — it is `disproved`, `unsettled` or `retired`
+     — and the other three are stored verbatim. `--edits` is optional:
+     a round that changes no carried record passes none.
+  3. It appends the **new records** read as its payload, in the record
+     shape above. Their ids, in payload order, are exactly `T<m+1>`,
+     `T<m+2>`, … where `T<m>` is the highest carried id. The payload may
+     be empty here, so an empty-delta round and a round that only
+     retires are both written.
+  4. It writes the result in id order, staged and renamed into place as
+     the plain form is.
+
+  No carried record gains or changes a field that no edit names. Every
+  round from 1 on stamps a `state` on every record, so the result must
+  hold one on each.
+
+  Each of these is refused, non-zero, writing nothing and creating no
+  round directory, with a message naming the offending line or id:
+
+  - an edit line that is not three tab-separated parts;
+  - an edit naming an id no carried record has;
+  - an edit to a field outside the four;
+  - a `state` value outside the three;
+  - a second edit to the same field of the same record;
+  - a new record whose id a carried record already holds, or that is not
+    the next id in the `T<m+1>`, `T<m+2>`, … sequence;
+  - a result that leaves any record without `state` — a round-0 seed
+    record carried into round 1 unstamped is the case this catches —
+    naming each such id;
+  - `--carry` when no round below `--round` holds a records file, or
+    when a round above it does, naming that round;
+  - `--edits` without `--carry`, and `--carry` in any mode but
+    `records`.
 - **`review`** — writes the round's argued review, read as its payload,
   to the round's `review` file, on the same terms as `records`.
 - **`print-records`** — writes to stdout the records of the
   **highest-numbered** round that holds a records file, ignoring the
   `.voided-<instant>` directories, whose records describe a tree that no
-  longer exists. It takes **no `--round`** — the round to carry forward
-  is the most recent one there is, not one a caller names, and a
-  `--round` passed anyway is refused rather than ignored. Its first line
-  is `round <n>`, naming the round it selected, so a reader that needs
-  the rest of that round's state — its `anchor` line's head SHA, its
-  review file — has the number to ask for it with; the records follow
-  from the second line on. Exits non-zero when no round under the PR
-  holds a records file — a PR whose round 1 has no round-0 seed to
-  read.
+  longer exists. The round to carry forward is the most recent one
+  there is, not one a caller names. A `--round <n>` bounds the
+  selection to the rounds **below** `<n>`, and `<n>` need not hold
+  records itself: a round under way passes its own number, so it reads
+  the round it carries from even when an earlier instance of it already
+  stored this round's records. With `--round <n>` it exits non-zero,
+  printing no records, when any round **above** `<n>` holds a records
+  file — the condition `--carry` refuses on, decided by the same code —
+  so a stale `--round` fails at this read rather than at the carry
+  that follows it. Its first line is `round <n>`, naming the
+  round it selected, so a reader that needs the rest of that round's
+  state — its `anchor` line's head SHA, its review file — has the number
+  to ask for it with; the records follow from the second line on. Exits
+  non-zero when no round it considers holds a records file — a PR whose
+  round 1 has no round-0 seed to read.
 - **`print-round-records`** — writes the named round's records file
   to stdout, byte for byte, with no `round <n>` line in front: the
   caller named the round. It is the read for a caller that walks every

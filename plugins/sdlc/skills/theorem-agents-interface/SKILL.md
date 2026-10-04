@@ -47,14 +47,14 @@ whole workflow:
   `--repo`, `--round`, and the documentation-paths line when the PR
   changes a documentation file. The generator reads the whole diff and
   emits the full list.
-- The **delta brief** — the whole-PR brief plus `--carried-records`
-  and `--delta-commits`. The generator emits only what the delta
-  implies that the carried records do not cover.
+- The **delta brief** — the whole-PR brief plus `--delta-commits`.
+  The generator reads the carried records out of the PR's state itself
+  and emits only what the delta implies that they do not cover.
 - The **issues-only brief** — `--issues` and `--branch` **only**. No
   PR exists yet: `--branch` names the repo's default issue source
   branch rather than a PR head, and the brief carries no `--pr`,
-  `--owner`, `--repo`, `--round`, `--carried-records`, `--delta-commits`
-  and no documentation-paths line, because none of those exists. The
+  `--owner`, `--repo`, `--round`, `--delta-commits` and no
+  documentation-paths line, because none of those exists. The
   generator reads the issue bodies and that branch's tree, emits the
   acceptance-criterion theorems and the theorems the issues' design
   and file lists warrant, and points into the issue text or the
@@ -97,32 +97,19 @@ whole workflow:
   gets read.
 - `--pointers <text>` — the generator's pointers, verbatim: the files,
   regions, or symbols to start from.
-- `--carried-records <text>` — the previous round's theorem records,
-  verbatim as `sdlc-agent-result-persist --mode print-records` printed
-  them: a `round <n>` line naming the round they came from, then every
-  recorded theorem with its id, claim, issues, settle mode, pointers,
-  the state it held — absent on a round-0 seed theorem no round has
-  attacked — the head SHA it was settled against, and, on a
-  theorem an adjustment comment overrode, its `severity-override`. They come
-  off the PR's XDG state directory, never out of a review body, so a
-  withdrawn or edited review costs a round nothing. Only a generator
-  receives it, and only on the **delta-round brief**, which
-  `sdlc:theorem-based-pr-reviewer` → "Spawn the theorem generator"
-  writes and its "Carry the previous round's theorems forward" decides
-  the rounds for — more than one round
-  kind sends that brief, so read the round taxonomy there rather than
-  inferring it from this parameter. It is what the generator
-  must not re-emit — a carried theorem is already recorded, so
-  restating it would mint a duplicate under a new id.
 - `--delta-commits <oid…>` — the round's change, as the list of this
   PR's **own** commits that have no patch-equivalent commit in the head
   the previous round reviewed. `sdlc:theorem-based-pr-reviewer` →
   "Carry the previous round's theorems forward" computes it and
   bounds it to the PR's own commits, so a rebase that advanced the base
-  cannot put the base branch's commits in it. Paired with `--carried-records`, and
-  present on the same brief. A clean rebase leaves the list **empty**,
-  and so does an adjustment-only round: an empty value is a delta of
-  nothing, not a missing parameter.
+  cannot put the base branch's commits in it. Only a generator
+  receives it, and its presence is what makes a brief the delta brief;
+  more than one round kind sends that brief, and the reviewer's "Carry
+  the previous round's theorems forward" decides which, so read the
+  round taxonomy there rather than inferring it from this parameter. A
+  clean rebase leaves the list **empty**, and so does an
+  adjustment-only round: an empty value is a delta of nothing, not a
+  missing parameter.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, as its result file holds it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and

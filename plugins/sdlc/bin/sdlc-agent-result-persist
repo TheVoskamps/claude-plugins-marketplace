@@ -36,6 +36,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
+                [--carry [--edits <path>]]
 EOF
 }
 
@@ -55,14 +56,21 @@ tokens=
 tools=
 ms=
 from=
+carry=
+edits=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from)
+    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
+      ;;
+    --carry)
+      carry=1
+      shift
+      continue
       ;;
     -h|--help)
       usage
@@ -89,6 +97,7 @@ while [ "$#" -gt 0 ]; do
     --tools)      tools=$value ;;
     --ms)         ms=$value ;;
     --from)       from=$value ;;
+    --edits)      edits=$value ;;
   esac
 done
 
@@ -116,17 +125,21 @@ for pair in "owner:$owner" "repo:$repo"; do
   esac
 done
 
-# A mode refuses an identifying flag it does not act at: print-records
-# selects the round itself, delete removes a whole PR's directory, and
-# list reads above every PR's, so a caller passing one would be naming a
-# round or a PR the mode is not going to touch.
+# A mode refuses an identifying flag it does not act at: delete removes
+# a whole PR's directory, and list reads above every PR's, so a caller
+# passing one would be naming a round or a PR the mode is not going to
+# touch. print-records selects the round itself, so a --round given to
+# it bounds that selection from above rather than naming the round.
 for pair in "pr:$pr" "round:$round"; do
   name=${pair%%:*}
   given=${pair#*:}
   case "$name:$mode" in
-    round:print-records|round:delete|round:list|pr:list)
+    round:delete|round:list|pr:list)
       [ -z "$given" ] || die "--$name is not accepted in --mode $mode: $given"
       continue
+      ;;
+    round:print-records)
+      [ -n "$given" ] || continue
       ;;
   esac
   [ -n "$given" ] || die "--$name is required"
@@ -204,6 +217,16 @@ if [ -n "$from" ]; then
   [ -f "$from" ] || die "--from names no file: $from"
 fi
 
+# --carry is the records form that builds the round's file itself, and
+# --edits is that form's input alone.
+if [ -n "$carry" ] && [ "$mode" != records ]; then
+  die "--carry is not accepted in --mode $mode"
+fi
+if [ -n "$edits" ]; then
+  [ -n "$carry" ] || die "--edits is accepted only with --carry: $edits"
+  [ -f "$edits" ] || die "--edits names no file: $edits"
+fi
+
 for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
   name=${pair%%:*}
   given=${pair#*:}
@@ -258,43 +281,63 @@ transcript_path() {
   printf '%s\n' "$HOME/.claude/projects/$project/$session/subagents/agent-$(this_agent_id).jsonl"
 }
 
-# A payload, read from the --from file when one is named and from stdin
-# otherwise, lands in a staging name and is renamed into place only once
-# it is whole, because a stored file's mere existence is what a reader
-# takes as settled: a file streamed straight to its own name would read
-# as complete the moment the first byte landed, and a writer killed
-# mid-write would leave that fragment there for good. The -$$ suffix is
-# what keeps two writers from staging over each other.
-store_payload() {
-  target=$1
-  noun=$2
-  staged="$target.partial-$$"
+# Scratch for a payload on its way into state, removed on exit.
+work=
+make_work() {
+  work=$(mktemp -d "${TMPDIR:-/tmp}/$PROGRAM.XXXXXX")
+  trap 'rm -rf -- "$work"' EXIT
+}
+
+# read_payload <dest> <noun>: copies the payload, from the --from file
+# when one is named and from stdin otherwise, to <dest>.
+read_payload() {
   if [ -n "$from" ]; then
-    if ! cat -- "$from" > "$staged"; then
-      rm -f -- "$staged"
-      die "--mode $mode takes the $noun from --from, and $from could not be read"
-    fi
-    if [ ! -s "$staged" ]; then
-      rm -f -- "$staged"
-      die "--mode $mode takes the $noun from --from, and $from is empty"
-    fi
+    cat -- "$from" > "$1" \
+      || die "--mode $mode takes the $2 from --from, and $from could not be read"
   else
-    cat > "$staged"
-    if [ ! -s "$staged" ]; then
-      rm -f -- "$staged"
-      die "--mode $mode takes the $noun on stdin, and nothing arrived"
+    cat > "$1"
+  fi
+}
+
+# install_whole <source> <target>: the way every file stored whole — a
+# result file, the records, the review — reaches its name, unlike the
+# log, which grows by appends. It lands in a staging name and is renamed
+# into place only once it is whole, because a stored file's mere
+# existence is what a reader takes as settled: a file streamed straight
+# to its own name would read as complete the moment the first byte
+# landed, and a writer killed mid-write would leave that fragment there
+# for good. The -$$ suffix is what keeps two writers from staging over
+# each other.
+install_whole() {
+  staged="$2.partial-$$"
+  if ! cp -- "$1" "$staged"; then
+    rm -f -- "$staged"
+    die "could not stage $2"
+  fi
+  mv -- "$staged" "$2"
+}
+
+# store_payload <target> <noun>: stores the payload whole at <target>,
+# refusing an empty one.
+store_payload() {
+  make_work
+  read_payload "$work/payload" "$2"
+  if [ ! -s "$work/payload" ]; then
+    if [ -n "$from" ]; then
+      die "--mode $mode takes the $2 from --from, and $from is empty"
     fi
+    die "--mode $mode takes the $2 on stdin, and nothing arrived"
   fi
   if [ "$mode" = leave ]; then
-    check_report_theorem "$staged"
+    check_report_theorem "$work/payload"
   fi
-  mv -- "$staged" "$target"
+  install_whole "$work/payload" "$1"
 }
 
 # A disprover's or verifier's report names the theorem it answers on its
 # THEOREM: line, and the stored file is named for --theorem, so a report
 # handed over from another child would settle a theorem it never
-# answered. The check runs on the staged copy, before the rename and
+# answered. The check runs on the read copy, before it is installed and
 # before the leave record, so a refused report leaves neither behind. A
 # generator's report is a theorem list and carries no such line.
 check_report_theorem() {
@@ -315,10 +358,171 @@ check_report_theorem() {
   fi
 }
 
+# The records to carry forward are the most recent ones there are, so
+# this sets best_round and best to the highest-numbered round holding a
+# records file, and leaves both empty when none does. Given a round
+# number, it considers only the rounds below that one, and sets
+# above_round to the highest round above it holding a records file,
+# leaving it empty when none does. A voided round's directory carries
+# its records with it under the .voided- name, and is skipped for the
+# same reason its result files are — it describes a tree that no longer
+# exists.
+latest_records_round() {
+  best=
+  best_round=
+  above_round=
+  for candidate in "$pr_dir"/round*; do
+    [ -d "$candidate" ] || continue
+    base=${candidate##*/}
+    case "$base" in
+      *.voided-*) continue ;;
+    esac
+    n=${base#round}
+    case "$n" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    [ -f "$candidate/records" ] || continue
+    if [ -n "${1-}" ] && [ "$n" -ge "$1" ]; then
+      if [ "$n" -gt "$1" ] && { [ -z "$above_round" ] || [ "$n" -gt "$above_round" ]; }; then
+        above_round=$n
+      fi
+      continue
+    fi
+    if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
+      best_round=$n
+      best=$candidate
+    fi
+  done
+}
+
+# The rounds below --round, for a call that reads records from there:
+# sets best_round and best as latest_records_round does, and refuses when
+# a round above --round holds records. Such a round was built from the
+# records below it, so --round is not the round under way and what the
+# rounds below hold is no longer the latest state.
+records_below_round() {
+  latest_records_round "$round"
+  [ -z "$above_round" ] \
+    || die "--mode $mode${carry:+ --carry} --round $round refused: round $above_round, above it, holds a records file"
+}
+
+# The carry form: the carried records with the edits applied, then the
+# new records appended, written to stdout. An edit to a field a record
+# already holds rewrites that line where it stands; an edit to a field
+# it lacks appends the line after the record's others, in the order
+# state, state-detail, settled-at, severity-override. Arguments are the
+# carried records file, the edits file and the new-records file, either
+# of the last two possibly empty. Every refusal is decided before the
+# first record is printed, and exits 2 with its message on stderr. Only
+# a round-0 seed may hold a record without a state, so a result for
+# round 1 or later that leaves one unstamped is refused.
+build_carried_records() {
+  awk -v prog="$PROGRAM" -v round="$round" \
+      -v carried_file="$1" -v edits_file="$2" -v new_file="$3" '
+    function refuse(msg) {
+      printf "%s: %s\n", prog, msg | "cat 1>&2"
+      failed = 1
+      exit 2
+    }
+    BEGIN {
+      canon[1] = "state"; canon[2] = "state-detail"
+      canon[3] = "settled-at"; canon[4] = "severity-override"
+      for (i = 1; i <= 4; i++) editable[canon[i]] = 1
+    }
+    FNR == 1 { open = 0 }
+    FILENAME == carried_file {
+      if ($0 == "") { open = 0; next }
+      if (!open) {
+        if ($0 !~ /^T[0-9]+$/)
+          refuse("the carried records file has a record opening with \"" $0 "\" rather than its id")
+        open = 1
+        cur = substr($0, 2) + 0
+        carried[$0] = cur
+        present[cur] = 1
+        if (cur > max) max = cur
+      }
+      lines[cur, ++count[cur]] = $0
+      next
+    }
+    FILENAME == edits_file {
+      if ($0 == "") next
+      tab = index($0, "\t")
+      rest = substr($0, tab + 1)
+      tab2 = index(rest, "\t")
+      if (!tab || !tab2)
+        refuse("--edits line " FNR " is not <id><tab><field><tab><value>: " $0)
+      id = substr($0, 1, tab - 1)
+      field = substr(rest, 1, tab2 - 1)
+      value = substr(rest, tab2 + 1)
+      if (!(id in carried))
+        refuse("--edits line " FNR " names " id ", which no carried record has: " $0)
+      if (!(field in editable))
+        refuse("--edits line " FNR " names field " field ", which is not state, state-detail, settled-at or severity-override: " $0)
+      if (field == "state" && value !~ /^(disproved|unsettled|retired)$/)
+        refuse("--edits line " FNR " sets state " value ", which is not disproved, unsettled or retired: " $0)
+      if ((id, field) in edit)
+        refuse("--edits line " FNR " edits " field " of " id " a second time: " $0)
+      edit[id, field] = value
+      next
+    }
+    FILENAME == new_file {
+      if ($0 == "") { open = 0; next }
+      if (!open) {
+        if ($0 in carried)
+          refuse("the new record " $0 " has an id a carried record already holds")
+        want = "T" (max + added + 1)
+        if ($0 != want)
+          refuse("the new record " $0 " is not the next id in sequence, which is " want)
+        open = 1
+        added++
+        cur = substr($0, 2) + 0
+        present[cur] = 1
+      }
+      lines[cur, ++count[cur]] = $0
+    }
+    END {
+      if (failed) exit 2
+      last = max + added
+      for (n = 1; n <= last; n++) {
+        if (!(n in present)) continue
+        id = "T" n
+        stamped = 0
+        for (i = 2; i <= count[n]; i++) {
+          key = lines[n, i]
+          sub(/:.*/, "", key)
+          if (key == "state") stamped = 1
+          if ((id, key) in edit) {
+            done[id, key] = 1
+            lines[n, i] = key ":" (edit[id, key] == "" ? "" : " " edit[id, key])
+          }
+        }
+        for (j = 1; j <= 4; j++) {
+          key = canon[j]
+          if (!((id, key) in edit) || ((id, key) in done)) continue
+          if (key == "state") stamped = 1
+          lines[n, ++count[n]] = key ":" (edit[id, key] == "" ? "" : " " edit[id, key])
+        }
+        if (round >= 1 && !stamped) unstamped = unstamped " " id
+      }
+      if (unstamped != "")
+        refuse("round " round " would leave these records without a state:" unstamped)
+      sep = ""
+      for (n = 1; n <= last; n++) {
+        if (!(n in present)) continue
+        printf "%s", sep
+        for (i = 1; i <= count[n]; i++) print lines[n, i]
+        sep = "\n"
+      }
+    }
+  ' "$1" "$2" "$3"
+}
+
 # Every mode that writes writes into the same directory; the reading
-# modes and delete create nothing.
+# modes and delete create nothing, and neither does a refused carry,
+# which creates the directory only once its file is built.
 case "$mode" in
   print|print-records|print-round-records|print-review|list|delete) ;;
+  records) [ -n "$carry" ] || mkdir -p "$dir" ;;
   *) mkdir -p "$dir" ;;
 esac
 
@@ -390,37 +594,44 @@ case "$mode" in
     done
     ;;
   records)
-    store_payload "$records_file" records
+    if [ -z "$carry" ]; then
+      store_payload "$records_file" records
+    else
+      # The carried round is the one below --round, so a resumed reviewer
+      # whose earlier instance already stored this round's records
+      # rebuilds them from the same input rather than from its own
+      # output.
+      records_below_round
+      [ -n "$best" ] || die "--carry found no round below --round $round under $pr_dir holding a records file"
+      # The new records may be empty, so the payload is read rather than
+      # stored through store_payload, which refuses an empty one. The
+      # result is built beside it and installed into the round's
+      # directory only once nothing refused it.
+      make_work
+      read_payload "$work/new" "new records"
+      build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" > "$work/records" \
+        || exit 2
+      mkdir -p "$dir"
+      install_whole "$work/records" "$records_file"
+    fi
     ;;
   review)
     store_payload "$review_file" review
     ;;
   print-records)
-    # The caller names no round: the records to carry forward are the
-    # most recent ones there are, and which round wrote them is what the
-    # first line of the output says. A voided round's directory carries
-    # its records with it under the .voided- name, and is skipped here
-    # for the same reason its result files are — it describes a tree
-    # that no longer exists.
-    best=
-    best_round=
-    for candidate in "$pr_dir"/round*; do
-      [ -d "$candidate" ] || continue
-      base=${candidate##*/}
-      case "$base" in
-        *.voided-*) continue ;;
-      esac
-      n=${base#round}
-      case "$n" in
-        ''|*[!0-9]*) continue ;;
-      esac
-      [ -f "$candidate/records" ] || continue
-      if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
-        best_round=$n
-        best=$candidate
-      fi
-    done
-    [ -n "$best" ] || die "no round under $pr_dir holds a records file"
+    # The caller does not name the round to read, and which round wrote
+    # the records is what the first line of the output says. A --round bounds the
+    # selection to the rounds below it, because a round whose records an
+    # earlier instance of it already stored carries the round below's,
+    # not its own. The bound refuses as the carry does, so a stale
+    # --round fails at this read rather than at the carry that follows.
+    if [ -n "$round" ]; then
+      records_below_round
+      [ -n "$best" ] || die "no round below --round $round under $pr_dir holds a records file"
+    else
+      latest_records_round
+      [ -n "$best" ] || die "no round under $pr_dir holds a records file"
+    fi
     printf 'round %s\n' "$best_round"
     cat -- "$best/records"
     ;;

@@ -398,6 +398,54 @@ Each piece has one owner:
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
 | The files-affected section the seed generator reads in place of a diff | `skills/orchestrate-readiness/SKILL.md` |
 
+## Carried records move through state, not a brief or an agent-built file
+
+From round 1 on, `bin/sdlc-agent-result-persist` assembles the round's
+records file; the reviewer never does. Its carry form reads the round
+below the one under way, applies the reviewer's edits, appends the
+records the round minted, and writes the result, and the reviewer
+stages only its decisions — an edits file and a new-records file, each
+written with `Write`. Building the whole file was a mechanical
+transform the reviewer used to perform with a program of its own, and
+the auto-mode classifier denies a per-instance program, so a round
+whose build was denied stored nothing and posted nothing. The script
+makes no decision: a carried record changes only where an edit names
+it, and which state each theorem takes stays the reviewer's judgment.
+Round 0's seed is the one records file still stored whole, because it
+has nothing to carry.
+
+The generator reads the carried records out of the PR's state itself,
+on a delta round, with the owner, repo, PR and round its brief already
+carries; no brief carries the records. An inline copy grew with every
+round, and a brief that outgrew its room handed the generator something
+other than the records verbatim — a reused id, a missed retirement, a
+theorem a human had rejected minted again.
+
+Both reads are bounded by the round under way: the generator's read and
+the carry pick the highest round **below** that number holding records,
+through one selection function, so they can never disagree. The bound
+is what lets a resumed reviewer store its round again through the same
+call — it rebuilds from the input its predecessor built from, never
+from its predecessor's output — and it is what makes a stale round
+number fail at the read, before anything is generated against the
+rounds below. A round whose previous head can no longer be fetched
+still carries: its delta becomes the whole branch, but its ids continue
+the sequence and its retired theorems stay retired. Each piece has one
+owner:
+
+| Slot | Owner |
+| --- | --- |
+| The carry form — its inputs, the edits grammar, the records-file shape, and each refusal | `skills/agent-result-persist-interface/SKILL.md` |
+| The bounded read, and the refusal that bounds it | `skills/agent-result-persist-interface/SKILL.md` |
+| What the reviewer stages as edits and as new records, and which form a fallback round stores through | `agents/theorem-based-pr-reviewer.md` |
+| That `--delta-commits` alone marks a delta brief | `skills/theorem-agents-interface/SKILL.md` |
+| The generator's own read, and the stop when it fails or prints no records | `skills/theorem-generation/SKILL.md` |
+
+`test/sdlc-test.sh` drives the script's records modes against a state
+root of its own — the seed write, the carry form, each refusal it
+makes, and the bounded read — needing only bash and the POSIX
+utilities, and reaching no network.
+
 ## Skills
 
 | Skill | Purpose | Where it runs |
@@ -499,8 +547,10 @@ record grammar the log holds, are part of that contract and are owned
 by `skills/agent-result-persist-interface/SKILL.md`.
 
 The script never takes a payload — a child's report, a round's records
-or review — on its command line. The writer stages it with the `Write`
-tool in the session scratchpad and names that file with `--from`; the
+or review, the edits and new records a carried round is built from —
+on its command line. The writer stages it with the `Write` tool in the
+session scratchpad and names that file by path, with `--from` or, for
+the carry form's edits, `--edits`; the
 staging file is the pipeline's one write outside XDG state, it lies
 outside every repository as well, and it dies with the session. That
 staging is why the theorem children carry `Write` while the review
@@ -529,7 +579,7 @@ the round's own directory:
 | ------- | --------------- |
 | `<round-dir>/log` | the round log |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
-| `<round-dir>/records` | the round's theorem records, which the next round carries forward; round 0's is the ruled seed |
+| `<round-dir>/records` | the round's theorem records, which the next round carries forward — built by the script from the round below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
 | `<round-dir>/review` | the round's argued review, which the posted review summarises and `pr-finalizer` posts in full once the loop concludes |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 

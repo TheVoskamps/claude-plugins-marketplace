@@ -79,7 +79,7 @@ You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
 `--branch`, `--owner`, `--repo`, `--round`, and — on a re-review only —
-`--carried-records` and `--delta-commits`. When the PR changes a
+`--delta-commits`. When the PR changes a
 documentation file, the brief also carries the documentation-paths
 line that skill describes; apply it as it says.
 
@@ -98,14 +98,13 @@ fetch the diff and the body with it.
 it, so do not re-derive it, do not parse the branch name, and do not
 add or remove a member.
 
-`--carried-records` and `--delta-commits` arrive together or not at
-all, and which of the two cases you are in decides your whole
-workflow — see "On a re-review, generate from the delta" below. Absent
-both, with `--pr` present, you are generating the whole-PR list: the
-whole diff, the full list. A `--delta-commits` that arrives carrying
-**no oids** is a re-review whose delta is empty, not a whole-PR brief:
-`--carried-records` is present beside it, and everything the records
-hold is the pipeline's to carry.
+Whether `--delta-commits` is present decides your whole workflow.
+Present, you are on a re-review — see "On a re-review, generate from
+the delta" below. Absent, with `--pr` present, you are generating the
+whole-PR list: the whole diff, the full list. A `--delta-commits` that
+arrives carrying **no oids** is a re-review whose delta is empty, not
+a whole-PR brief: everything the carried records hold is the
+pipeline's to carry.
 
 ## Workflow
 
@@ -427,16 +426,41 @@ a later run.
 
 ## On a re-review, generate from the delta
 
-When your brief carries `--carried-records` and `--delta-commits`, the
-theorem list already exists and you are extending it, not rebuilding
-it. The pipeline persists the records under the PR's own state
-directory, outside every repository, so a theorem stated in round 1 is
-still on the books in round 5 under the same id.
+When your brief carries `--delta-commits`, the theorem list already
+exists and you are extending it, not rebuilding it. The pipeline
+persists the records under the PR's own state directory, outside every
+repository, so a theorem stated in round 1 is still on the books in
+round 5 under the same id.
 
-Read the carried records first. The `round <n>` line they open with says
-which round wrote them; the records themselves follow. They are the
-claims already made about this PR. Then read the round's change, one
-delta commit at a time:
+Read the carried records first, yourself, with the `--owner`, `--repo`,
+`--pr` and `--round` values from your brief. The mode selects the
+highest-numbered round **below** that `--round` holding records, so an
+earlier instance of this round that already stored its records does not
+hand you this round's own output, and it refuses, printing no records,
+when a round **above** `--round` holds records, so a stale `--round`
+fails here:
+
+```bash
+sdlc-agent-result-persist --mode print-records \
+  --owner <owner> --repo <repo> --pr <PR> --round <round>
+```
+
+Its first line is `round <n>`, naming the round that wrote the records;
+every recorded theorem follows, retired ones included, with its id,
+claim, issues, settle mode and pointers, the state it holds — absent on
+a round-0 seed theorem no round has attacked — what settled it, the
+head SHA it was settled against, and, on a theorem an adjustment
+comment overrode, its `severity-override`. They come off the PR's state
+directory, never out of a review body, so a withdrawn or edited review
+costs a round nothing. They are the claims already made about this PR.
+
+**Stop and report rather than generate** when the call exits non-zero,
+or when it prints no record after the `round <n>` line. Report the command and
+its output verbatim. A delta round generated without the carried
+records would reuse an id, miss a retired theorem, or re-mint one a
+human rejected.
+
+Then read the round's change, one delta commit at a time:
 
 ```bash
 git show <oid>   # once per oid in --delta-commits

@@ -197,7 +197,9 @@ within one session. Never ask which session wrote a record.
 same way a first one does**: `--mode print-records` reads them off disk,
 so "Carry the previous round's theorems forward" runs identically
 whichever instance you are, and nothing about the carry turns on a
-review being readable on the PR.
+review being readable on the PR. The generator, not you, reads them for
+generation: a delta round's brief carries no records, and the generator
+runs that read itself.
 
 **Derive what to do from the log, and hold nothing across a turn that
 is not written down.** Run `--mode print`, then take whichever arm the
@@ -621,16 +623,23 @@ Read the following, in this order.
 
 ```bash
 sdlc-agent-result-persist --mode print-records \
-  --owner <owner> --repo <repo> --pr <PR_N>
+  --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number>
 ```
 
-The mode names no round and refuses one: the records to carry are the
-most recent there are, not a round you pick. Its first line is
-`round <n>`, naming the round they came from — call that
-`<prev-round>` — and the records follow, each with its id, claim,
-issues, settle mode, pointers, and the state it held last round. Parse
-those into the carried list. A non-zero exit means no round under this PR has
-stored records, which is the first fallback trigger below.
+The mode selects the round itself: the records to carry are the most
+recent ones below this round, not a round you pick. Passing this
+round's number is what keeps an earlier instance of this same round,
+which stored its records before it managed to post, from handing you
+its own output as last round's. Its first line is `round <n>`, naming
+the round they came from — call that `<prev-round>` — and the records
+follow, each with its id, claim, issues, settle mode, pointers, and the
+state it held last round. Parse those into the carried list. A non-zero
+exit is one of two refusals, told apart by its message. One saying no
+round below `--round` holds a records file is the first fallback
+trigger below. One naming a round **above** this one that holds
+records means this round's number is stale, so stop and report the
+command and its output verbatim rather than review: it printed no
+records, and nothing may be generated against the rounds below.
 
 If that `round <n>` names **round 0**, the carried records are the
 seed: the theorem list the orchestrator generated from the issues
@@ -657,13 +666,6 @@ place of the ones it derives from `<prev-round>`'s log. The whole
 branch is never an empty delta, so round 1 always fans out. A
 `human-refuted` seed record is retired for good, per "The `--full`
 round".
-
-If that `round <n>` names **this** round's own number, an earlier
-instance of this same round stored its records before it managed to
-post: they are this round's own output rather than a predecessor
-round's. Do not carry them forward as last round's — take the arm "You
-are re-entrant" gives for what the log holds, re-derive the
-dispositions, store them again, and post.
 
 **The previously reviewed head.** It is the `anchor` line's head SHA in
 `<prev-round>`'s own log:
@@ -810,16 +812,24 @@ retired theorem still appears in every later round's records file,
 carrying the head SHA it settled at.
 
 **Fall back to whole-diff behavior** — a **fallback round**: full
-generation from the whole diff, every theorem live — when either of
-these holds, and say which in the Review method section:
+generation from the whole diff — when either of these holds, and say
+which in the Review method section:
 
-- `--mode print-records` exits non-zero, so no round under this PR has
-  stored records — a PR with no round-0 seed, which is one reviewed
+- `--mode print-records` exits non-zero because no round below this one
+  has stored records — a PR with no round-0 seed, which is one reviewed
   outside the orchestrate loop or one whose seed was lost with the
-  session that took it. Say in the Review method section that the
-  round ran without seed records, so the missing gate is visible;
+  session that took it. Nothing is carried and every theorem is live.
+  Say in the Review method section that the round ran without seed
+  records, so the missing gate is visible;
 - `<prev-head>`'s objects are not fetchable, so no delta can be
-  computed.
+  computed. The records were read, and they still carry: take the
+  merge-base the round-0 seed paragraph above computes as `<prev-head>`,
+  so the delta is the whole branch. The rest of this section, and every
+  later step, then reads as for a delta round — the generator reads the
+  whole diff on the delta brief, a carried record keeps its state,
+  retired and human-refuted ones included, and new ids continue the
+  carried sequence. Dropping the records here would restart ids at T1
+  and let a theorem a human rejected be minted again.
 
 Those two are the whole list. A previous review that was withdrawn,
 edited, or posted by an older pipeline is **not** a trigger: the records
@@ -953,7 +963,7 @@ Otherwise spawn the definition "Pick the generator tier" settled on,
 with the `Agent` tool, passing the resolved set from "Identify the issue
 set" — not the caller's claim.
 
-On a **fallback round**, the brief is the whole PR:
+On a **fallback round** that read no records, the brief is the whole PR:
 
 ```text
 --pr <PR_N>
@@ -971,14 +981,15 @@ to your result file and report it back in the theorem-record format that
 skill defines, and nothing else.
 ```
 
-On a **delta round**, the brief adds the carried records and the
-round's delta commits, and the generator emits only what those imply:
+On a **delta round**, and on a fallback round that carries records, the
+brief adds the round's delta commits; the
+generator reads the carried records out of state itself, and emits only
+what the delta implies that they do not cover:
 
 ```text
 --pr <PR_N>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
---carried-records <the --mode print-records output, verbatim>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
 --owner <owner>
 --repo <repo>
@@ -1050,8 +1061,9 @@ meant.
 ### Assemble the round's live list
 
 The **live list** is the set of theorems that get a disprover this
-round. On a fallback round it is every theorem the
-generator emitted. On a delta round it is exactly:
+round. On a fallback round that read no records it is every theorem the
+generator emitted. On a delta round, and on a fallback round that
+carries records, it is exactly:
 
 - every carried record holding **no `state`** — round 0's accepted and
   re-moded seed theorems, and the record each merge minted, none of
@@ -1591,26 +1603,60 @@ step from here to the posted review is mechanical.
 
 Store the round's own output under XDG state **before** you post
 anything, so a run that dies between the two leaves the round readable
-rather than announced. Stage each file with `Write` under
-`.claude/tmp/<task-slug>/` and hand it to the script with `--from`:
+rather than announced. Stage each input with `Write` under
+`.claude/tmp/<task-slug>/` and hand it to the script by path:
 
 ```bash
-sdlc-agent-result-persist --mode records \
+sdlc-agent-result-persist --mode records --carry \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
-  --from .claude/tmp/<task-slug>/records.md
+  --edits .claude/tmp/<task-slug>/edits.tsv \
+  --from .claude/tmp/<task-slug>/new-records.md
 
 sdlc-agent-result-persist --mode review \
   --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
   --from .claude/tmp/<task-slug>/review.md
 ```
 
-The records file carries every recorded theorem, in id order, retired
-ones included, per "The theorem records file" below. The review file
+**The script builds the records file; you never assemble it.** With
+`--carry` it reads the carried records, applies your edits, appends your
+new records and writes the result in id order, per the preloaded
+`sdlc:agent-result-persist-interface` skill → "The modes". What you
+stage is your decisions and nothing else, each with `Write` — never a
+program, a script or a pipeline you wrote to transform records:
+
+- **The edits file** — one line per field this round sets on a carried
+  record, in the line shape that skill gives it. That is the state,
+  `state-detail` and `settled-at` "Derive each theorem's disposition"
+  stamps on a carried theorem it re-attacked, a retirement an adjustment
+  comment or the generator's `RETIREMENTS` caused, and a
+  `severity-override`. A field the record carries that this round's
+  state leaves without a value — the `state-detail` naming a finding on
+  a theorem now `unsettled`, say — is edited to the empty value. A
+  carried theorem that got no disprover gets no line. Leave `--edits`
+  out when no line remains.
+- **The new-records file** — every theorem first recorded this round,
+  the generator's and the ones adjustment comments minted, in id order,
+  each carrying the fields of "The theorem contract" and the state this
+  round stamped. Leave `--from` out when there are none.
+
+When `--mode print-records` read no records — a fallback round on the
+first condition — nothing is carried, so the new-records file is the
+whole round: store it with `--mode records` and `--from`, without
+`--carry` or `--edits`. Whenever it read records, store with `--carry`.
+A resumed instance whose predecessor already stored this round's
+records stores them again through the same call: `--carry` reads the
+round below `--round`, never the round's own records, so it rebuilds
+the file from the input the earlier instance's was built from, and the
+plain form replaces the earlier file whole.
+
+The records file carries every recorded theorem, retired ones
+included, per "The theorem records file" below. The review file
 carries the eight argued sections of "Review body" below, in full — the
 quoted counterexamples and the argued findings among them.
 
-**Both calls run on every round that reaches disposition**, an
-empty-delta round included: that round's records and verdicts carry
+**Both calls run on every round that reaches disposition**, a resumed
+one included, and an empty-delta round too — `--carry` with neither
+`--edits` nor `--from`: that round's records and verdicts carry
 forward unchanged, and a round that stored neither would leave the next
 one carrying forward from an older round than the one that ran.
 
@@ -1756,8 +1802,8 @@ across rounds.
 The fields *you* add — `state`, `state-detail`, `settled-at`, and
 `severity-override` — are not the generator's to emit. You stamp the
 first three in "Derive each theorem's disposition" and the last in
-"Carry the previous round's theorems forward", and write them into the
-records file; a generator that emits any of them has misread its
+"Carry the previous round's theorems forward", and hand them to the
+script as edits or new records; a generator that emits any of them has misread its
 brief.
 
 The generation skill (`sdlc:theorem-generation`) owns *what* theorems
@@ -1915,7 +1961,8 @@ sections, in this order:
    Say which **kind of round** this was, because the rest of the body is
    read differently for each: a fallback round (naming which condition
    in "Carry the previous round's theorems forward" fired, and saying
-   it ran without seed records when that was the condition), a delta
+   it ran without seed records when that was the condition, or naming
+   `<prev-round>` as the round it carried from when it was the other), a delta
    round (naming `<prev-head>`, and naming round 0 as the source of the
    live list when the carried records were the seed's), an
    adjustment-only round (naming what the adjustment comments changed),
@@ -2047,31 +2094,13 @@ it to the PR once, when the loop concludes.
 
 ### The theorem records file
 
-Write one records file per round, per "Persist the round's records and
-review" above, holding every recorded theorem in id order:
+Every round stores one records file, per "Persist the round's records
+and review" above, holding every recorded theorem. Its layout — the
+record shape and the order of its fields — is the preloaded
+`sdlc:agent-result-persist-interface` skill's, under `records` in "The
+modes"; a new record you stage follows it.
 
-```markdown
-T1
-claim: The diff satisfies acceptance criterion "…" of #206.
-issues: #206
-settle-mode: semantic
-pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, "Fan out the disprovers"
-state: retired
-state-detail: survived
-settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
-
-T2
-claim: …
-issues: #206
-settle-mode: mechanical
-pointers: …
-state: disproved
-state-detail: finding 1, Low
-settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
-severity-override: Low
-```
-
-Field rules, on top of the record shape "The theorem contract" already
+Field rules, on top of the fields "The theorem contract" already
 owns:
 
 - **`state`** — one of `disproved`, `unsettled`, or `retired`. A record
