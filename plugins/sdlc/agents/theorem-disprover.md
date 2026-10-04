@@ -152,10 +152,9 @@ calls in a subagent context.
    staging file, whose path the preloaded
    `sdlc:agent-result-persist-interface` skill → "The payload:
    `--from <path>`, or stdin" composes from the values of the `leave`
-   call below. If Write refuses because the file
-   already exists — an earlier round's report for the same theorem —
-   Read it, then Write again. Then hand that file to the script with
-   `--from`:
+   call below. If Write refuses because the file already exists —
+   staged by an earlier attempt at the same `leave` call — Read it,
+   then Write again. Then hand that file to the script with `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \

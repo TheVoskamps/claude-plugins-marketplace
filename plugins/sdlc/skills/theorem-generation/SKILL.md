@@ -165,8 +165,9 @@ given, and step 7.
    `--from <path>`, or stdin" composes from the values of the `leave`
    call below, where `<agent>` is the name your agent definition tells
    you to pass as `--agent`. If Write refuses because the file already
-   exists — an earlier round's list — Read it, then Write again. Then
-   hand that file to the script with `--from`:
+   exists — staged by an earlier attempt at the same `leave` call —
+   Read it, then Write again. Then hand that file to the script with
+   `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
