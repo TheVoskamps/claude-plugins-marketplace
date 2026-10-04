@@ -151,14 +151,16 @@ pointers: b.md
 state: retired
 state-detail: human-refuted' "retirement: edited fields change in place and nothing else does"
 
+# All four fields are added to a record holding none, from edits in the
+# reverse of the canonical order, so a swap of any adjacent pair fails.
 new_case added-field-order
 seed_round 0 "$SEED"
-seed_round 1 "$ROUND1"
-printf 'T2\tseverity-override\tLow\nT2\tsettled-at\tbbb\n' >"$CASE/edits"
-persist --mode records --round 2 --carry --edits "$CASE/edits"
-check "$(round_records 2 | sed -n '14,$p')" 'pointers: b.md
-state: retired
-state-detail: human-refuted
+printf 'T1\tseverity-override\tLow\nT1\tsettled-at\tbbb\nT1\tstate-detail\tfinding 1, High\nT1\tstate\tdisproved\n' >"$CASE/edits"
+persist --mode records --round 1 --carry --edits "$CASE/edits"
+check "$RC" "0" "added fields: round 1 is written"
+check "$(round_records 1 | sed -n '5,9p')" 'pointers: a.md
+state: disproved
+state-detail: finding 1, High
 settled-at: bbb
 severity-override: Low' "added fields: lines a record lacks are appended in the canonical order"
 
@@ -330,6 +332,30 @@ printf 'T1\tstate\tdisproved\nT1\tstate-detail\tfinding 1, High\nT1\tsettled-at\
 persist --mode records --round 1 --carry --edits "$CASE/edits"
 check "$RC" "0" "voided: a voided round above --round does not refuse the carry"
 check "$(round_records 1)" "$ROUND1" "voided: the carry reads the round below"
+
+# --- print-records -----------------------------------------------------
+
+# print_records <args...>: runs print-records, leaving stdout in OUT.
+print_records() {
+  OUT=$("$PERSIST" --owner o --repo r --pr 7 --mode print-records "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+new_case print-records
+seed_round 0 "$SEED"
+seed_round 1 "$ROUND1"
+print_records
+check "$OUT" "round 1
+$ROUND1" "print-records: with no --round, the latest round's records are printed"
+print_records --round 1
+check "$OUT" "round 0
+$SEED" "print-records: --round selects the latest round below it"
+print_records --round 5
+check "$(printf '%s\n' "$OUT" | sed -n 1p)" "round 1" "print-records: --round need not name a round holding records"
+print_records --round 0
+check "$RC" "2" "print-records: no round below --round exits non-zero"
+check_contains "$ERR" "no round below --round 0" "print-records: no round below --round says so"
 
 new_case carry-other-mode
 persist --mode review --round 1 --carry

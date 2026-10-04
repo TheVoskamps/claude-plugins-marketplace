@@ -94,10 +94,11 @@ in one session do the same.
 
 These four go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
-refuses it: `print-records` selects the round itself and `delete`
-removes the whole PR's directory, so both refuse `--round`, and `list`
-reads across every PR of the repo, so it refuses `--pr` and `--round`
-alike.
+refuses it: `delete` removes the whole PR's directory, so it refuses
+`--round`, and `list` reads across every PR of the repo, so it refuses
+`--pr` and `--round` alike. `print-records` selects the round itself,
+so `--round` is optional there and bounds that selection rather than
+naming a round.
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
@@ -338,15 +339,17 @@ directories.
 - **`print-records`** — writes to stdout the records of the
   **highest-numbered** round that holds a records file, ignoring the
   `.voided-<instant>` directories, whose records describe a tree that no
-  longer exists. It takes **no `--round`** — the round to carry forward
-  is the most recent one there is, not one a caller names, and a
-  `--round` passed anyway is refused rather than ignored. Its first line
-  is `round <n>`, naming the round it selected, so a reader that needs
-  the rest of that round's state — its `anchor` line's head SHA, its
-  review file — has the number to ask for it with; the records follow
-  from the second line on. Exits non-zero when no round under the PR
-  holds a records file — a PR whose round 1 has no round-0 seed to
-  read.
+  longer exists. The round to carry forward is the most recent one
+  there is, not one a caller names. A `--round <n>` bounds the
+  selection to the rounds **below** `<n>`, and `<n>` need not hold
+  records itself: a round under way passes its own number, so it reads
+  the round it carries from even when an earlier instance of it already
+  stored this round's records. Its first line is `round <n>`, naming the
+  round it selected, so a reader that needs the rest of that round's
+  state — its `anchor` line's head SHA, its review file — has the number
+  to ask for it with; the records follow from the second line on. Exits
+  non-zero when no round it considers holds a records file — a PR whose
+  round 1 has no round-0 seed to read.
 - **`print-round-records`** — writes the named round's records file
   to stdout, byte for byte, with no `round <n>` line in front: the
   caller named the round. It is the read for a caller that walks every
