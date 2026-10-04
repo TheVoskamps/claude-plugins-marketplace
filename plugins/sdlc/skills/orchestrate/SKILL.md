@@ -369,7 +369,7 @@ members are In Progress, and it is three moves.
 **Spawn the generator on the issues-only brief.** The brief carries
 the batch's resolved issue set and repo-config's
 `default-issue-source-branch`, and nothing else — no PR, owner, repo
-or round, no carried records or delta, and no documentation-paths
+or round, no delta commits, and no documentation-paths
 line, because none of those exists yet. What that brief means to the
 generator is the `sdlc:theorem-agents-interface` skill's to own; the
 generator reads the issue bodies and the source branch's tree and

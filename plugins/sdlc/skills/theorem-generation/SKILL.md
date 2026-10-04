@@ -432,13 +432,15 @@ persists the records under the PR's own state directory, outside every
 repository, so a theorem stated in round 1 is still on the books in
 round 5 under the same id.
 
-Read the carried records first, yourself, with the `--owner`, `--repo`
-and `--pr` values from your brief and no `--round` — the mode refuses
-one, and selects the highest-numbered round holding records itself:
+Read the carried records first, yourself, with the `--owner`, `--repo`,
+`--pr` and `--round` values from your brief. The mode selects the
+highest-numbered round **below** that `--round` holding records, so an
+earlier instance of this round that already stored its records does not
+hand you this round's own output:
 
 ```bash
 sdlc-agent-result-persist --mode print-records \
-  --owner <owner> --repo <repo> --pr <PR>
+  --owner <owner> --repo <repo> --pr <PR> --round <round>
 ```
 
 Its first line is `round <n>`, naming the round that wrote the records;
@@ -451,9 +453,7 @@ directory, never out of a review body, so a withdrawn or edited review
 costs a round nothing. They are the claims already made about this PR.
 
 **Stop and report rather than generate** when the call exits non-zero,
-when it prints no record after the `round <n>` line, or when `<n>` is
-not lower than your brief's `--round` — records from this round or a
-later one are not the ones this round carries. Report the command and
+or when it prints no record after the `round <n>` line. Report the command and
 its output verbatim. A delta round generated without the carried
 records would reuse an id, miss a retired theorem, or re-mint one a
 human rejected.
