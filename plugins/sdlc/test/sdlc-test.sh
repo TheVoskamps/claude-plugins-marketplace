@@ -320,7 +320,7 @@ seed_round 1 "$ROUND1"
 seed_round 2 "$ROUND1"
 persist --mode records --round 1 --carry
 check "$RC" "2" "refusal: carrying below a round holding records exits non-zero"
-check_contains "$ERR" "--carry into --round 1 refused: round 2, above it, holds a records file" \
+check_contains "$ERR" "--mode records --carry --round 1 refused: round 2, above it, holds a records file" \
   "refusal: carrying below a round holding records names both rounds"
 check "$(round_records 1)" "$ROUND1" "refusal: carrying below a round holding records leaves its records as they were"
 
@@ -353,9 +353,31 @@ check "$OUT" "round 0
 $SEED" "print-records: --round selects the latest round below it"
 print_records --round 5
 check "$(printf '%s\n' "$OUT" | sed -n 1p)" "round 1" "print-records: --round need not name a round holding records"
+
+new_case print-records-none-below
+seed_round 0 "$SEED"
 print_records --round 0
 check "$RC" "2" "print-records: no round below --round exits non-zero"
 check_contains "$ERR" "no round below --round 0" "print-records: no round below --round says so"
+
+new_case print-records-above-round
+seed_round 0 "$SEED"
+seed_round 1 "$ROUND1"
+seed_round 2 "$ROUND1"
+print_records --round 1
+check "$RC" "2" "print-records: a round above --round holding records exits non-zero"
+check "$OUT" "" "print-records: a round above --round holding records prints no records"
+check_contains "$ERR" "--mode print-records --round 1 refused: round 2, above it, holds a records file" \
+  "print-records: a round above --round holding records names both rounds"
+
+new_case print-records-above-round-voided
+seed_round 0 "$SEED"
+seed_round 2 "$ROUND1"
+mv "$XDG_STATE_HOME/sdlc/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/o/r/pr7/round2.voided-20260101T000000Z"
+print_records --round 1
+check "$RC" "0" "print-records: a voided round above --round does not refuse the read"
+check "$OUT" "round 0
+$SEED" "print-records: past a voided round above, --round reads the round below"
 
 new_case carry-other-mode
 persist --mode review --round 1 --carry

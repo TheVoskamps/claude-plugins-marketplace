@@ -395,6 +395,17 @@ latest_records_round() {
   done
 }
 
+# The rounds below --round, for a call that reads records from there:
+# sets best_round and best as latest_records_round does, and refuses when
+# a round above --round holds records. Such a round was built from the
+# records below it, so --round is not the round under way and what the
+# rounds below hold is no longer the latest state.
+records_below_round() {
+  latest_records_round "$round"
+  [ -z "$above_round" ] \
+    || die "--mode $mode${carry:+ --carry} --round $round refused: round $above_round, above it, holds a records file"
+}
+
 # The carry form: the carried records with the edits applied in place,
 # then the new records appended, written to stdout. Arguments are the
 # carried records file, the edits file and the new-records file, either
@@ -586,12 +597,8 @@ case "$mode" in
       # The carried round is the one below --round, so a resumed reviewer
       # whose earlier instance already stored this round's records
       # rebuilds them from the same input rather than from its own
-      # output. A round above --round holding records means --round is
-      # not the round under way: that round's records were built from the
-      # ones this call would replace.
-      latest_records_round "$round"
-      [ -z "$above_round" ] \
-        || die "--carry into --round $round refused: round $above_round, above it, holds a records file"
+      # output.
+      records_below_round
       [ -n "$best" ] || die "--carry found no round below --round $round under $pr_dir holding a records file"
       # The new records may be empty, so the payload is read rather than
       # stored through store_payload, which refuses an empty one. The
@@ -613,9 +620,10 @@ case "$mode" in
     # what the first line of the output says. A --round bounds the
     # selection to the rounds below it, because a round whose records an
     # earlier instance of it already stored carries the round below's,
-    # not its own.
+    # not its own. The bound refuses as the carry does, so a stale
+    # --round fails at this read rather than at the carry that follows.
     if [ -n "$round" ]; then
-      latest_records_round "$round"
+      records_below_round
       [ -n "$best" ] || die "no round below --round $round under $pr_dir holds a records file"
     else
       latest_records_round

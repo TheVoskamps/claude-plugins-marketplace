@@ -634,8 +634,12 @@ its own output as last round's. Its first line is `round <n>`, naming
 the round they came from — call that `<prev-round>` — and the records
 follow, each with its id, claim, issues, settle mode, pointers, and the
 state it held last round. Parse those into the carried list. A non-zero
-exit means no round below this one has stored records, which is the
-first fallback trigger below.
+exit is one of two refusals, told apart by its message. One saying no
+round below `--round` holds a records file is the first fallback
+trigger below. One naming a round **above** this one that holds
+records means this round's number is stale, so stop and report the
+command and its output verbatim rather than review: it printed no
+records, and nothing may be generated against the rounds below.
 
 If that `round <n>` names **round 0**, the carried records are the
 seed: the theorem list the orchestrator generated from the issues
@@ -811,8 +815,8 @@ carrying the head SHA it settled at.
 generation from the whole diff — when either of these holds, and say
 which in the Review method section:
 
-- `--mode print-records` exits non-zero, so no round below this one has
-  stored records — a PR with no round-0 seed, which is one reviewed
+- `--mode print-records` exits non-zero because no round below this one
+  has stored records — a PR with no round-0 seed, which is one reviewed
   outside the orchestrate loop or one whose seed was lost with the
   session that took it. Nothing is carried and every theorem is live.
   Say in the Review method section that the round ran without seed

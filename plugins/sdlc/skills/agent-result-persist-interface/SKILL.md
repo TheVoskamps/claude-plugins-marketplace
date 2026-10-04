@@ -344,7 +344,11 @@ directories.
   selection to the rounds **below** `<n>`, and `<n>` need not hold
   records itself: a round under way passes its own number, so it reads
   the round it carries from even when an earlier instance of it already
-  stored this round's records. Its first line is `round <n>`, naming the
+  stored this round's records. With `--round <n>` it exits non-zero,
+  printing no records, when any round **above** `<n>` holds a records
+  file — the condition `--carry` refuses on, decided by the same code —
+  so a stale `--round` fails at this read rather than at the carry
+  that follows it. Its first line is `round <n>`, naming the
   round it selected, so a reader that needs the rest of that round's
   state — its `anchor` line's head SHA, its review file — has the number
   to ask for it with; the records follow from the second line on. Exits

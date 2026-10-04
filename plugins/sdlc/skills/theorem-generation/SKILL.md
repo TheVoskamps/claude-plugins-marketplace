@@ -436,7 +436,9 @@ Read the carried records first, yourself, with the `--owner`, `--repo`,
 `--pr` and `--round` values from your brief. The mode selects the
 highest-numbered round **below** that `--round` holding records, so an
 earlier instance of this round that already stored its records does not
-hand you this round's own output:
+hand you this round's own output, and it refuses, printing no records,
+when a round **above** `--round` holds records, so a stale `--round`
+fails here:
 
 ```bash
 sdlc-agent-result-persist --mode print-records \
