@@ -406,8 +406,11 @@ records_below_round() {
     || die "--mode $mode${carry:+ --carry} --round $round refused: round $above_round, above it, holds a records file"
 }
 
-# The carry form: the carried records with the edits applied in place,
-# then the new records appended, written to stdout. Arguments are the
+# The carry form: the carried records with the edits applied, then the
+# new records appended, written to stdout. An edit to a field a record
+# already holds rewrites that line where it stands; an edit to a field
+# it lacks appends the line after the record's others, in the order
+# state, state-detail, settled-at, severity-override. Arguments are the
 # carried records file, the edits file and the new-records file, either
 # of the last two possibly empty. Every refusal is decided before the
 # first record is printed, and exits 2 with its message on stderr. Only
@@ -616,8 +619,8 @@ case "$mode" in
     store_payload "$review_file" review
     ;;
   print-records)
-    # The caller names no round, and which round wrote the records is
-    # what the first line of the output says. A --round bounds the
+    # The caller does not name the round to read, and which round wrote
+    # the records is what the first line of the output says. A --round bounds the
     # selection to the rounds below it, because a round whose records an
     # earlier instance of it already stored carries the round below's,
     # not its own. The bound refuses as the carry does, so a stale

@@ -3,8 +3,8 @@
 # sdlc-test.sh -- drive plugins/sdlc/bin/sdlc-agent-result-persist's
 # records modes against a state root of its own: the round-0 seed write,
 # the carry form that builds a later round's records file from the
-# carried round, an edits file and the new records, and each refusal the
-# carry form makes.
+# carried round, an edits file and the new records, each refusal the
+# carry form makes, and print-records with and without a --round bound.
 #
 # Needs only bash and the POSIX utilities. Reaches no network.
 #
