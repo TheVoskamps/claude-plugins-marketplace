@@ -164,9 +164,8 @@ given, and step 7.
    `sdlc:agent-result-persist-interface` skill → "The payload:
    `--from <path>`, or stdin" composes from the values of the `leave`
    call below, where `<agent>` is the name your agent definition tells
-   you to pass as `--agent`. If Write refuses because the file already
-   exists — an earlier round's list — Read it, then Write again. Then
-   hand that file to the script with `--from`:
+   you to pass as `--agent`. Then hand that file to the script with
+   `--from`:
 
    ```bash
    sdlc-agent-result-persist --mode leave \
@@ -178,8 +177,7 @@ given, and step 7.
 
    The list never travels on the command line, in a heredoc or
    otherwise; the preloaded `sdlc:agent-result-persist-interface` skill
-   → "The payload: `--from <path>`, or stdin" says why, and why the file
-   name carries the PR, the stage, the theorem column and the agent.
+   → "The payload: `--from <path>`, or stdin" says why.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness

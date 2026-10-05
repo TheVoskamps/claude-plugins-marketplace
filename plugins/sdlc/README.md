@@ -555,8 +555,8 @@ staging file is the pipeline's one write outside XDG state, it lies
 outside every repository as well, and it dies with the session. That
 staging is why the theorem children carry `Write` while the review
 pipeline stays non-mutating. Why a file rather than a heredoc, and how
-the staging path is named so that concurrent children never stage over
-each other, are owned by `skills/agent-result-persist-interface/SKILL.md`.
+the staging path is named, are owned by
+`skills/agent-result-persist-interface/SKILL.md`.
 
 `pr-finalizer` reads that state and writes none of it. The orchestrator
 writes exactly one of these files, round 0's `records` — the seed

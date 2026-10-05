@@ -70,14 +70,20 @@ sees the file's bytes on the persist call.
 
 A child stages its `leave` payload in the session scratchpad the
 harness names in its environment, at
-`<session-scratchpad>/pr<pr>-<stage>-<theorem>-<agent>-report.md`,
-filling in the `--pr`, `--stage`, `--theorem` and `--agent` values of
-its own `leave` call, `pr<pr>` spelled as the state directory spells
-it. Every child in a fan-out shares that one scratchpad, so a name
-missing the stage, the theorem or the agent would let two concurrent
-children stage over each other's reports; and theorem ids restart at
-`T1` on every PR, so a name missing the PR would let two PRs' fan-outs
-in one session do the same.
+`<session-scratchpad>/pr<pr>-r<round>-<stage>-<theorem>-<agent>-report.md`,
+filling in the `--pr`, `--round`, `--stage`, `--theorem` and `--agent`
+values of its own `leave` call, `pr<pr>` spelled as the state directory
+spells it. Every child in a fan-out shares that one scratchpad, so a
+name missing the stage, the theorem or the agent would let two
+concurrent children stage over each other's reports; theorem ids
+restart at `T1` on every PR, so a name missing the PR would let two
+PRs' fan-outs in one session do the same; and the persist script never
+removes the file, so a name missing the round would leave an earlier
+round of the same PR in the same session holding the path a later
+round's child stages at.
+
+If Write refuses because a file already exists at that path, Read it,
+then Write again.
 
 - A `--from` path that is not an existing file is refused, non-zero,
   with a message naming the path, before anything is written.
