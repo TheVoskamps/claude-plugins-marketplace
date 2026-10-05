@@ -409,8 +409,9 @@ directories, and `repos` for what it lists across the state root.
   relative to `sdlc/`. Every directory holding a `repo.yml` is read
   from that file: `repo` when the file names the directory's own path,
   `mismatch` when it names another, the repository being the file's
-  `<host>/<owner>/<repo>` either way. A directory without one, two
-  levels down, is old-layout state: `old <owner>/<repo> <owner>/<repo>`,
+  `<host>/<owner>/<repo>` either way. A directory two levels down
+  that has no `repo.yml` in it or one level down, and holds
+  `pr<n>/` directories directly, is old-layout state: `old <owner>/<repo> <owner>/<repo>`,
   its host unknown. It takes **no `--repo`, no `--pr` and no
   `--round`**, refuses each, moves nothing, and prints nothing for a
   state root that does not exist.

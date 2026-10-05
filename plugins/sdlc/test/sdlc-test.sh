@@ -463,6 +463,29 @@ old old/one old/one" "repos: each directory by its repo.yml, a mismatch, and old
 "$PERSIST" --mode repos --repo h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "repos: --repo is refused"
 
+# A current-layout <host>/<owner> directory with no repo.yml beneath it,
+# empty or holding a repository directory, holds no pr<n> directory of its
+# own, and is not old-layout state.
+new_case repos-no-repo-yml
+mkdir -p "$XDG_STATE_HOME/sdlc/hostx/acme" "$XDG_STATE_HOME/sdlc/hostx/beta/r1"
+OUT=$("$PERSIST" --mode repos 2>"$CASE/err" </dev/null)
+check "$OUT" "" "repos: a <host>/<owner> directory without repo.yml is not reported old"
+"$PERSIST" --repo h.example/hostx/acme --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$([ -d "$XDG_STATE_HOME/sdlc/hostx/acme" ] && echo kept || echo moved)" "kept" \
+  "migration: a <host>/<owner> directory without repo.yml is not moved"
+
+# A move that fails leaves no empty <host>/<owner> directory behind.
+migrate_case migrate-mv-fails
+mkdir -p "$CASE/fakebin"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/fakebin/mv"
+chmod +x "$CASE/fakebin/mv"
+PATH="$CASE/fakebin:$PATH" "$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "migration: a failed move is refused"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example" ] && echo left || echo removed)" "removed" \
+  "migration: a failed move leaves no empty <host> directory"
+check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || echo moved)" "kept" \
+  "migration: a failed move leaves the old state where it was"
+
 echo
 echo
 if [ "$FAILURES" -eq 0 ]; then

@@ -112,16 +112,23 @@ readonly state_root="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc"
 
 # is_old_layout <dir>: whether a directory two levels below the state
 # root is a repository's state from before the host was part of the
-# path. Such a directory is <owner>/<repo> by position and carries no
-# repo.yml; a <host>/<owner> directory of the current layout sits at the
-# same depth and carries a repo.yml one level down, in each repository.
+# path. Such a directory is <owner>/<repo> by position, carries no
+# repo.yml, and holds its pr<n> directories directly. A <host>/<owner>
+# directory of the current layout sits at the same depth and holds
+# repositories, so it is never old, with or without a repo.yml beneath it.
 is_old_layout() {
   [ -d "$1" ] || return 1
   [ -e "$1/repo.yml" ] && return 1
   for found in "$1"/*/repo.yml; do
     [ -e "$found" ] && return 1
   done
-  return 0
+  for found in "$1"/pr*; do
+    case "${found##*/}" in
+      pr|pr*[!0-9]*) continue ;;
+    esac
+    [ -d "$found" ] && return 0
+  done
+  return 1
 }
 
 # repos reads across every repository the state root holds, so it takes
@@ -321,7 +328,12 @@ migrate_old_layout() {
   [ ! -e "$repo_dir" ] \
     || die "state for $repo_ref is at both $old and $repo_dir; move one aside before running again"
   mkdir -p -- "${repo_dir%/*}"
-  mv -- "$old" "$repo_dir"
+  if ! mv -- "$old" "$repo_dir"; then
+    # A failed move leaves no empty <host> or <host>/<owner> directory
+    # behind; rmdir removes neither when it holds anything.
+    rmdir -- "${repo_dir%/*}" 2>/dev/null && rmdir -- "$state_root/$host" 2>/dev/null || :
+    die "could not move state for $repo_ref from $old to $repo_dir"
+  fi
   rmdir -- "$state_root/$owner" 2>/dev/null || :
   write_repo_yml
 }
