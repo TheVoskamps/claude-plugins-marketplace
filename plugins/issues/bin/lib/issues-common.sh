@@ -431,8 +431,8 @@ iss_load_target_config() {
 
 # ---------------------------------------------------------------------------
 # Repositories. A repository is a host, an owner and a name, and every gh
-# call names the host of the repository it acts on: gh sends a host-less call
-# to its own default host, whatever host the checkout's remote is on. An
+# call that names a repository names its host too: gh resolves a host-less
+# name on its own default host, whatever host the checkout's remote is on. An
 # empty host stands for that default host; it is what a repository named
 # owner/repo gets where there is no current repository.
 # ---------------------------------------------------------------------------
@@ -471,8 +471,8 @@ iss_current_repo() {
 # iss_try_current_repo: the same, for a verb that also runs where there is no
 # current repository. Outside a git checkout, or where gh cannot resolve the
 # checkout's repository, it leaves ISS_HOST, ISS_OWNER and ISS_REPO empty and
-# returns 1; outside a checkout it makes no gh call. Only the first resolution
-# in a run, by either function, calls gh; a later call returns its answer.
+# returns 1; outside a checkout it makes no gh call. Once either function
+# has run, this one makes no gh call and returns the answer already held.
 iss_try_current_repo() {
   if [ -n "${ISS_CURRENT_TRIED:-}" ]; then
     [ -n "$ISS_OWNER" ]
