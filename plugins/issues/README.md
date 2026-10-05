@@ -150,8 +150,8 @@ the verb is carried out from the prose Jira path in
 and error wording the scripts otherwise own. The surface is the same
 either way; only the calls underneath differ.
 
-`/issue-create` and `/issue-field-options` take `--repo owner/repo` to
-act on another GitHub repo. The script reads that repo's
+`/issue-create` and `/issue-field-options` take a leading positional
+`<repo>` to act on another GitHub repo. The script reads that repo's
 `.issues/repo-config.md` from its default branch through the read-only
 contents API and reads nothing from the current repo's, since the
 target's alone governs what a slot accepts there. A target whose config
@@ -177,7 +177,41 @@ run, by whoever runs it.
 every call — which is how a test asserts that the Jira refusal made
 none. Its write-dropping mode is the negative control: every write
 reports success and changes nothing, and every write path must exit
-non-zero on it. No test reaches GitHub.
+non-zero on it. The fake gives each repository a host and resolves a
+repository, node or comment only on its own host, so a call that drops
+the host fails the verb rather than only the call-log check. No test
+reaches GitHub.
+
+## Every call names its host
+
+A repository is a host, an owner and a name, and the scripts treat the
+host as part of the repository's identity rather than as a property of
+the machine. `gh` resolves a host-less `owner/repo` on its own default
+host — github.com, unless `GH_HOST` says otherwise — even inside a
+checkout whose `origin` is on a GitHub Enterprise host, so a verb that
+named repositories as `owner/repo` queried the wrong host there and
+failed. Each script resolves the current repository once, from the
+URL `gh repo view` reports for the checkout, and every `gh api` call
+goes through one of two wrappers in `issues-common.sh` — `iss_gql` for
+GraphQL, `iss_rest` for REST — that take the target host as their first
+argument and pass it as `--hostname`; every `gh issue` call carries the
+host in `--repo`. The host travels per call and is never exported as
+`GH_HOST`, because one session works across several organizations and
+hosts and an environment variable would pick one for all of them.
+
+That is also why a repository argument has a grammar rather than a
+single `owner/repo` shape: `repo` alone, `owner/repo`, `host/owner/repo`
+and the repository's `https://` URL each resolve against the current
+repository, so a caller supplies only the part that differs from where
+it stands. Every printed issue reference uses the shortest of those
+forms that resolves back to the same issue — `#N` here, `repo#N` under
+the same owner, `owner/repo#N` on the same host, `host/owner/repo#N`
+elsewhere — and the blocked-by verbs accept each form back, so a
+reference copied out of one verb's output is an operand for the next.
+`skills/lib/issue.md` owns the grammar and the resolution
+rules. Outside a git checkout there is no current repository to resolve
+against: a bare `repo` is a usage error, and `owner/repo` goes to `gh`'s
+default host.
 
 ## Skills
 
@@ -187,7 +221,7 @@ skill's own `SKILL.md`.
 
 | Skill | What it does |
 | ------- | -------------- |
-| `/issue-create [--repo owner/repo]` | File a new issue with title, body, type, fields, parent, assignees and labels in one invocation, here or in another repo |
+| `/issue-create [<repo>]` | File a new issue with title, body, type, fields, parent, assignees and labels in one invocation, here or in another repo |
 | `/issue-view <N>` | Print one issue's body, project fields and every relationship in one shot |
 | `/issue-view-tree <N>` | Walk an issue tree downward through sub-issues, depth-capped at 5 |
 | `/issue-sub-list <parent-N>` | List a parent's direct sub-issues |
@@ -198,7 +232,7 @@ skill's own `SKILL.md`.
 | `/issue-set-priority <N> <value>` | Set the priority slot |
 | `/issue-set-size <N> <value>` | Set the size slot |
 | `/issue-set-type <N> <type>` | Set the issue type |
-| `/issue-field-options [<slot>] [--repo owner/repo]` | Report a slot's configured kind, default and options, or every slot's when none is named, here or for another repo |
+| `/issue-field-options [[<repo>] <slot>]`, `/issue-field-options [<repo>] --all` | Report a slot's configured kind, default and options, or every slot's with `--all` or with nothing named, here or for another repo |
 | `/issue-set-parent <child-N> <parent-N>` | Make one issue a sub-issue of another |
 | `/issue-set-child <parent-N> <child-N>` | The same edge, named from the parent's end |
 | `/issue-unset-parent <child-N>` | Detach an issue from its parent |
@@ -218,15 +252,16 @@ edges: users think about a link from either end, so the namespace lets
 them say it either way.
 
 An `<issue>`, `<blocker>` or `<blocked>` operand of a blocked-by verb
-is `N`, `#N`, or `owner/repo#N`, so a blocked-by edge can join an
-issue in this repo to one filed in another GitHub repo — the case a
-grooming pass hits when the work an issue depends on belongs
+is `N`, `#N`, or `<repository>#N` with the repository in any form the
+grammar above takes, so a blocked-by edge can join an issue in this
+repo to one filed in another GitHub repo, on this host or another —
+the case a grooming pass hits when the work an issue depends on belongs
 elsewhere. Nothing new is needed on the GitHub side for this: the
 mutation takes two node IDs, which are global, so an edge between
 repos is the same edge as one within a repo, and each verb resolves
 each operand in the repo it names. The form is GitHub-only, because a
 Jira key is already globally unique and needs no repo qualifier; under
-a Jira backend an `owner/repo#N` operand aborts before any call is
+a Jira backend a `<repository>#N` operand aborts before any call is
 made.
 
 ## What it deliberately does not do

@@ -58,14 +58,14 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--settle-mode`,
-`--pointers`, `--counterexample`, `--owner`, `--repo`, and `--round`.
+`--pointers`, `--counterexample`, `--repo`, and `--round`.
 
 Without `--branch` you have no tree to check the quote against.
 
 `--counterexample` is the one parameter only you receive: it is the
 thing you attack.
 
-Without `--owner`, `--repo` and `--round` you can still settle the
+Without `--repo` and `--round` you can still settle the
 counterexample but cannot record that you started or what you found —
 say so in your report rather than guessing at one.
 
@@ -102,7 +102,7 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode enter \
-     --owner <owner> --repo <repo> \
+     --repo <host>/<owner>/<repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage verify
    ```
 
@@ -208,7 +208,7 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode leave \
-     --owner <owner> --repo <repo> \
+     --repo <host>/<owner>/<repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage verify \
      --agent counterexample-verifier \
      --from <staging-file>

@@ -4,7 +4,9 @@
 # records modes against a state root of its own: the round-0 seed write,
 # the carry form that builds a later round's records file from the
 # carried round, an edits file and the new records, each refusal the
-# carry form makes, and print-records with and without a --round bound.
+# carry form makes, print-records with and without a --round bound, and
+# the repository's state directory: its repo.yml, the move of state from
+# the layout that predates the host segment, and --mode repos.
 #
 # Needs only bash and the POSIX utilities. Reaches no network.
 #
@@ -50,16 +52,16 @@ new_case() {
   export XDG_STATE_HOME="$CASE/state"
 }
 
-# persist <args...>: runs the script against PR 7 of o/r, leaving the
-# exit status in RC and stderr in ERR.
+# persist <args...>: runs the script against PR 7 of h.example/o/r,
+# leaving the exit status in RC and stderr in ERR.
 persist() {
-  "$PERSIST" --owner o --repo r --pr 7 "$@" >/dev/null 2>"$CASE/err" </dev/null
+  "$PERSIST" --repo h.example/o/r --pr 7 "$@" >/dev/null 2>"$CASE/err" </dev/null
   RC=$?
   ERR=$(cat "$CASE/err")
 }
 
 round_records() {
-  cat "$XDG_STATE_HOME/sdlc/o/r/pr7/round$1/records" 2>/dev/null
+  cat "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$1/records" 2>/dev/null
 }
 
 SEED='T1
@@ -123,7 +125,7 @@ persist --mode records --round 1 --carry
 check "$RC" "2" "seed carry: a seed record left without state is refused"
 check_contains "$ERR" "without a state: T1" "seed carry: the refusal names the unstamped id"
 check "$(round_records 1)" "" "seed carry: a refused carry writes nothing"
-check "$([ -d "$XDG_STATE_HOME/sdlc/o/r/pr7/round1" ] && echo made || echo absent)" "absent" \
+check "$([ -d "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1" ] && echo made || echo absent)" "absent" \
   "seed carry: a refused carry creates no round directory"
 
 # --- a carried round with a retirement edit ----------------------------
@@ -327,7 +329,7 @@ check "$(round_records 1)" "$ROUND1" "refusal: carrying below a round holding re
 new_case above-round-voided
 seed_round 0 "$SEED"
 seed_round 2 "$ROUND1"
-mv "$XDG_STATE_HOME/sdlc/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/o/r/pr7/round2.voided-20260101T000000Z"
+mv "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2.voided-20260101T000000Z"
 printf 'T1\tstate\tdisproved\nT1\tstate-detail\tfinding 1, High\nT1\tsettled-at\taaa\n' >"$CASE/edits"
 persist --mode records --round 1 --carry --edits "$CASE/edits"
 check "$RC" "0" "voided: a voided round above --round does not refuse the carry"
@@ -337,7 +339,7 @@ check "$(round_records 1)" "$ROUND1" "voided: the carry reads the round below"
 
 # print_records <args...>: runs print-records, leaving stdout in OUT.
 print_records() {
-  OUT=$("$PERSIST" --owner o --repo r --pr 7 --mode print-records "$@" 2>"$CASE/err" </dev/null)
+  OUT=$("$PERSIST" --repo h.example/o/r --pr 7 --mode print-records "$@" 2>"$CASE/err" </dev/null)
   RC=$?
   ERR=$(cat "$CASE/err")
 }
@@ -373,7 +375,7 @@ check_contains "$ERR" "--mode print-records --round 1 refused: round 2, above it
 new_case print-records-above-round-voided
 seed_round 0 "$SEED"
 seed_round 2 "$ROUND1"
-mv "$XDG_STATE_HOME/sdlc/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/o/r/pr7/round2.voided-20260101T000000Z"
+mv "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2.voided-20260101T000000Z"
 print_records --round 1
 check "$RC" "0" "print-records: a voided round above --round does not refuse the read"
 check "$OUT" "round 0
@@ -384,6 +386,107 @@ persist --mode review --round 1 --carry
 check "$RC" "2" "refusal: --carry outside --mode records exits non-zero"
 check_contains "$ERR" "--carry is not accepted in --mode review" "refusal: --carry outside --mode records says so"
 
+# --- the repository's state directory ------------------------------------
+
+REPO_YML='schema-version: 1
+host: h.example
+owner: o
+repo: r'
+
+new_case repo-yml-new
+seed_round 0 "$SEED"
+check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_YML" \
+  "state layout: a new state directory gets repo.yml naming its repository"
+
+new_case repo-without-host
+"$PERSIST" --repo o/r --pr 7 --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: --repo without a host is a usage error"
+check_contains "$(cat "$CASE/err")" "--repo takes <host>/<owner>/<repo>: o/r" "refusal: the usage error names the form"
+
+new_case repo-dot-segment
+"$PERSIST" --repo h.example/../r --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: a .. segment in --repo is refused"
+
+# migrate_case <name>: a state root holding round 0 of PR 7 in the layout
+# that predates the host segment, at sdlc/o/r/.
+migrate_case() {
+  new_case "$1"
+  mkdir -p "$XDG_STATE_HOME/sdlc/o/r/pr7/round0"
+  printf '%s\n' "$SEED" >"$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records"
+}
+
+migrate_case migrate-on-read
+OUT=$("$PERSIST" --repo h.example/o/r --pr 7 --mode print-records 2>"$CASE/err" </dev/null)
+check "$?" "0" "migration: a read of old-layout state succeeds"
+check "$OUT" "round 0
+$SEED" "migration: the read sees the moved records"
+check "$([ -e "$XDG_STATE_HOME/sdlc/o" ] && echo present || echo gone)" "gone" \
+  "migration: the old directory is gone"
+check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_YML" \
+  "migration: the moved directory gets repo.yml"
+
+migrate_case migrate-on-list
+OUT=$("$PERSIST" --repo h.example/o/r --mode list 2>"$CASE/err" </dev/null)
+check "$OUT" "7" "migration: list moves old-layout state and lists it"
+
+migrate_case migrate-conflict
+mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r"
+"$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "migration: state at both paths is refused"
+check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || echo moved)" "kept" \
+  "migration: a refused move leaves the old state where it was"
+
+# A <host>/<owner> directory of the current layout sits at the same depth
+# as old-layout state, and is not mistaken for it.
+new_case migrate-not-host-dir
+"$PERSIST" --repo o/r/x --pr 7 --round 0 --mode records --from /dev/stdin >/dev/null 2>&1 <<EOF
+$SEED
+EOF
+"$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "0" "migration: a run beside a current-layout <host>/<owner> directory succeeds"
+check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/x/repo.yml" ] && echo kept || echo moved)" "kept" \
+  "migration: a current-layout <host>/<owner> directory is not moved"
+
+# --mode repos names every repository directory from its repo.yml, a
+# directory whose repo.yml disagrees with its path, and old-layout state.
+migrate_case repos
+seed_round 0 "$SEED"
+"$PERSIST" --repo h.example/o/x --pr 7 --round 0 --mode records --from /dev/stdin >/dev/null 2>&1 <<EOF
+$SEED
+EOF
+mkdir -p "$XDG_STATE_HOME/sdlc/old/one/pr3"
+mv "$XDG_STATE_HOME/sdlc/h.example/o/x" "$XDG_STATE_HOME/sdlc/h.example/o/moved"
+OUT=$("$PERSIST" --mode repos 2>"$CASE/err" </dev/null)
+check "$OUT" "mismatch h.example/o/x h.example/o/moved
+repo h.example/o/r h.example/o/r
+old old/one old/one" "repos: each directory by its repo.yml, a mismatch, and old-layout state"
+"$PERSIST" --mode repos --repo h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "repos: --repo is refused"
+
+# A current-layout <host>/<owner> directory with no repo.yml beneath it,
+# empty or holding a repository directory, holds no pr<n> directory of its
+# own, and is not old-layout state.
+new_case repos-no-repo-yml
+mkdir -p "$XDG_STATE_HOME/sdlc/hostx/acme" "$XDG_STATE_HOME/sdlc/hostx/beta/r1"
+OUT=$("$PERSIST" --mode repos 2>"$CASE/err" </dev/null)
+check "$OUT" "" "repos: a <host>/<owner> directory without repo.yml is not reported old"
+"$PERSIST" --repo h.example/hostx/acme --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$([ -d "$XDG_STATE_HOME/sdlc/hostx/acme" ] && echo kept || echo moved)" "kept" \
+  "migration: a <host>/<owner> directory without repo.yml is not moved"
+
+# A move that fails leaves no empty <host>/<owner> directory behind.
+migrate_case migrate-mv-fails
+mkdir -p "$CASE/fakebin"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/fakebin/mv"
+chmod +x "$CASE/fakebin/mv"
+PATH="$CASE/fakebin:$PATH" "$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "migration: a failed move is refused"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example" ] && echo left || echo removed)" "removed" \
+  "migration: a failed move leaves no empty <host> directory"
+check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || echo moved)" "kept" \
+  "migration: a failed move leaves the old state where it was"
+
+echo
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all passed"

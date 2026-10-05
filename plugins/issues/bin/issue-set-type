@@ -10,17 +10,17 @@ iss_init
 [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block
 iss_cfg_get issue-types >/dev/null 2>&1 || iss_err_no_issue_types
 iss_parse_operand "$1" local-only
-ref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
 type_name=$(iss_resolve_name skip-default "$2" issue-types) ||
   iss_err_type_not_known "$2" "$(iss_cfg_children issue-types | grep -vx default | iss_join_lines)"
 type_id=$(iss_cfg_get issue-types "$type_name")
 
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "id issueType { id name }"
+iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "id issueType { id name }"
 if [ "$(iss_jq '.issueType.id // empty')" = "$type_id" ]; then
   printf '%s type already set to %s.\n' "$ref" "$type_name"
   exit 0
 fi
 
-iss_type_write "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$(iss_jq .id)" "$type_id" "$type_name"
+iss_type_write "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$(iss_jq .id)" "$type_id" "$type_name"
 printf '%s type set to %s.\n' "$ref" "$type_name"

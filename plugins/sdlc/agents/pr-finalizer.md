@@ -160,19 +160,19 @@ into a brief.
 2. **Read the review rounds out of state.** Each round wrote its
    argued review — verdicts, findings, counterexamples and all — to a
    file of its own, and the last round to reach disposition wrote the
-   run's theorem records. Resolve the owner and repo, then walk the
-   rounds from 1 upward:
+   run's theorem records. Resolve `--repo` from the URL below, then walk
+   the rounds from 1 upward:
 
    ```bash
-   gh repo view --json owner,name --jq '.owner.login + " " + .name'
+   gh repo view --json url --jq .url
 
    sdlc-agent-result-persist --mode print \
-     --owner <owner> --repo <repo> --pr <PR> --round <n>
+     --repo <host>/<owner>/<repo> --pr <PR> --round <n>
    sdlc-agent-result-persist --mode print-review \
-     --owner <owner> --repo <repo> --pr <PR> --round <n>
+     --repo <host>/<owner>/<repo> --pr <PR> --round <n>
 
    sdlc-agent-result-persist --mode print-records \
-     --owner <owner> --repo <repo> --pr <PR>
+     --repo <host>/<owner>/<repo> --pr <PR>
    ```
 
    **The walk ends at the first round whose `--mode print` fails**: no
@@ -453,7 +453,7 @@ inline body is read by the shell.
 chunk of its own; if it still will not fit, the chunk carries the
 piece's name and the path of each file in it, relative to the PR's
 state root
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR>/`
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<PR>/`
 instead, and says it was too large to post. A silently cut report
 reads exactly like a complete one, which is the failure this whole
 design exists to remove.

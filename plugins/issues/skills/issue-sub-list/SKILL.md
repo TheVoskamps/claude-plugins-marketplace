@@ -40,8 +40,8 @@ Sub-issues of #<parent-N> "<title>":
   - #<N> <title>
 ```
 
-No URLs are printed. A sub-issue in another repo prints as
-`owner/repo#N`.
+No URLs are printed. A sub-issue prints as
+`skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend
 

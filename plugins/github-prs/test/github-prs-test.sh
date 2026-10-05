@@ -73,6 +73,22 @@ out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
 landed() { [ ! -f "$S/noop" ]; }
 val() { if [ -f "$S/$1" ]; then cat "$S/$1"; else printf '%s' "$2"; fi; }
 
+# The repo lives on a case's `host`, github.com by default. As gh does, an
+# api call reaches the host its --hostname names and github.com without
+# one, and finds nothing on any other host.
+if [ "$1" = api ]; then
+  api_host=github.com
+  if [ "$2" = --hostname ]; then
+    api_host=$3
+    shift 3
+    set -- api "$@"
+  fi
+  if [ "$api_host" != "$(val host github.com)" ]; then
+    echo "stub gh: HTTP 404: Not Found (https://$api_host/api/v3/$2)" >&2
+    exit 1
+  fi
+fi
+
 pr_json() {
   views=$(($(val views 0) + 1))
   echo "$views" >"$S/views"
@@ -103,6 +119,7 @@ pr_json() {
 }
 
 case "$1 $2" in
+  "repo view") jq -n --arg url "https://$(val host github.com)/o/r" '{url: $url}' | out ;;
   "pr view") pr_json | out ;;
   "pr diff") echo "diff --git a/x b/x" ;;
   "pr list") val list.json '[]' | out ;;
@@ -355,10 +372,18 @@ check "$(calls)" "" "pr-update: a usage error calls no gh"
 new_case comment
 run pr-comment 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-comment: exit 0 when the comment lands"
-check "$(call_line 1)" "pr comment 7 --body-file $SANDBOX/new-body.md" "pr-comment: posts by path"
-check "$(call_line 2)" "api repos/{owner}/{repo}/issues/comments/555 --jq .body" \
-  "pr-comment: re-reads the comment by the id gh reported"
+check "$(call_line 1)" "repo view --json url --jq .url" "pr-comment: resolves the repository's host first"
+check "$(call_line 2)" "pr comment 7 --body-file $SANDBOX/new-body.md" "pr-comment: posts by path"
+check "$(call_line 3)" "api --hostname github.com repos/{owner}/{repo}/issues/comments/555 --jq .body" \
+  "pr-comment: re-reads the comment by the id gh reported, on the repository's host"
 check "$OUT" "https://github.com/o/r/pull/7#issuecomment-555" "pr-comment: prints the comment URL"
+
+new_case comment-ghe
+echo ghe.example.com >"$CASE/host"
+run pr-comment 7 --body-file "$SANDBOX/new-body.md"
+check "$RC" "0" "pr-comment: exit 0 in a GitHub Enterprise checkout"
+check "$(call_line 3)" "api --hostname ghe.example.com repos/{owner}/{repo}/issues/comments/555 --jq .body" \
+  "pr-comment: the re-read carries the checkout's host as --hostname"
 
 new_case comment-noop
 touch "$CASE/noop"
@@ -476,19 +501,30 @@ check "$(calls)" "" "pr-create: a repo-config with no front matter opens no PR"
 new_case review-approve
 run pr-review-submit 7 --verdict approve "Looks good"
 check "$RC" "0" "pr-review-submit: exit 0 when the review lands"
-check "$(call_line 2)" "pr review 7 --approve --body-file -" "pr-review-submit: approve posts with --approve"
+check "$(call_line 3)" "pr review 7 --approve --body-file -" "pr-review-submit: approve posts with --approve"
 check "$(grep -c '^pr review' "$CASE/calls")" "1" "pr-review-submit: a review GitHub accepts posts once"
 check "$(cat "$CASE/stdin")" "$(printf 'APPROVED\n\nLooks good')" "pr-review-submit: the body opens with the verdict word"
 check "$OUT" "PR #7: verdict approve, review state approved, body inline" \
   "pr-review-submit: reports the state created and the body form"
+check "$(grep '^api' "$CASE/calls" | grep -vc '^api --hostname github.com ')" "0" \
+  "pr-review-submit: every api call carries the repository's host as --hostname"
+
+new_case review-ghe
+echo ghe.example.com >"$CASE/host"
+run pr-review-submit 7 --verdict approve "Looks good"
+check "$RC" "0" "pr-review-submit: exit 0 in a GitHub Enterprise checkout"
+check "$(grep -c '^api --hostname ghe.example.com ' "$CASE/calls")" "3" \
+  "pr-review-submit: its three api reads carry the checkout's host as --hostname"
+check "$(grep '^api' "$CASE/calls" | grep -vc '^api --hostname ghe.example.com ')" "0" \
+  "pr-review-submit: no api call goes to another host"
 
 new_case review-self
 echo me >"$CASE/author"
 printf '%s\n' "Finding with \`ticks\` and \$HOME" >"$SANDBOX/review.md"
 run pr-review-submit 7 --verdict request_changes --body-file "$SANDBOX/review.md"
 check "$RC" "0" "pr-review-submit: a self-review exits 0"
-check "$(call_line 2)" "pr review 7 --request-changes --body-file -" "pr-review-submit: a self-review first posts its verdict"
-check "$(call_line 3)" "pr review 7 --comment --body-file -" "pr-review-submit: GitHub's refusal reposts with --comment"
+check "$(call_line 3)" "pr review 7 --request-changes --body-file -" "pr-review-submit: a self-review first posts its verdict"
+check "$(call_line 4)" "pr review 7 --comment --body-file -" "pr-review-submit: GitHub's refusal reposts with --comment"
 check "$ERR" "" "pr-review-submit: the refusal it handled is not reported"
 check "$(cat "$CASE/stdin")" "$(printf 'CHANGES_REQUESTED\n\n%s' "Finding with \`ticks\` and \$HOME")" \
   "pr-review-submit: a downgraded review keeps its verdict line, and the file's bytes reach gh"
@@ -500,7 +536,7 @@ new_case review-self-approve
 echo me >"$CASE/author"
 run pr-review-submit 7 --verdict approve "Looks good"
 check "$RC" "0" "pr-review-submit: a self-approval exits 0"
-check "$(call_line 3)" "pr review 7 --comment --body-file -" "pr-review-submit: a refused approval reposts with --comment"
+check "$(call_line 4)" "pr review 7 --comment --body-file -" "pr-review-submit: a refused approval reposts with --comment"
 check "$OUT" "PR #7: verdict approve, review state commented, body inline" \
   "pr-review-submit: a refused approval reports commented"
 

@@ -1,8 +1,9 @@
 # `/issue-*` shared reference (`skills/lib/issue.md`)
 
-This file holds what the `/issue-*` verbs share that is not code: the
-schema of the `github-project:` block in `.issues/repo-config.md`, and
-the Jira backend.
+This file holds what the `/issue-*` verbs share that is not code: how
+a GitHub repository and an issue reference are written, the schema of
+the `github-project:` block in `.issues/repo-config.md`, and the Jira
+backend.
 
 The GitHub backend of every verb is a script in this plugin's `bin/`,
 named after the verb, and every script sources
@@ -13,6 +14,27 @@ error wording. A verb's `SKILL.md` says when to run its script, with
 which arguments, and what the output means. Under `issues: Jira` every
 script exits non-zero with one fixed message before any call, and the
 verb follows "Jira backend" below instead.
+
+## Repositories and issue references
+
+A verb argument that names a GitHub repository takes one of these
+forms, resolved against the current repository — the one the
+checkout's remote names, on that remote's host:
+
+| Form | Repository |
+| --- | --- |
+| `repo` | `repo` under the current repository's owner, on its host |
+| `owner/repo` | that repository, on the current repository's host |
+| `host/owner/repo` | that repository, on that host |
+| `https://host/owner/repo` | the same as `host/owner/repo`; a trailing `/` is ignored |
+
+Outside a git checkout there is no current repository: `repo` is a
+usage error, and `owner/repo` goes to `gh`'s default host.
+
+A printed issue reference takes the shortest form that names the
+issue back through the forms above: `#N` in the current repository,
+`repo#N` under its owner on its host, `owner/repo#N` on its host, and
+`host/owner/repo#N` on another host.
 
 ## Repo-config parsing
 
@@ -318,8 +340,10 @@ against the tracker block:
 `unset-child P C` on a child whose parent is not `P` is a no-op, since
 the end state already holds.
 
-An operand of a blocked-by verb may be `N`, `#N`, or `owner/repo#N`.
-The last form is GitHub-only, because a Jira key is already globally
+An operand of a blocked-by verb may be `N`, `#N`, or `<repository>#N`
+with the repository in any form "Repositories and issue references"
+lists, so every printed reference is accepted back. The last form is
+GitHub-only, because a Jira key is already globally
 unique: under `issues: Jira` it aborts with the "Cross-repo operand
 under Jira" wording below, before the "Preconditions" run and so before
 any `acli` call.

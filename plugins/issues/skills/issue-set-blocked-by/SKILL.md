@@ -17,8 +17,10 @@ the blocker's end.
   the blocker is done.
 - `<blocker-N>` (required): the **blocker**, the prerequisite.
 
-Either operand may be `N`, `#N`, or `owner/repo#N`; the last names an
-issue in another GitHub repo, so the two issues need not share a repo.
+Either operand may be `N`, `#N`, or `<repository>#N` with the repository
+in any form `skills/lib/issue.md` → "Repositories and issue references"
+lists; the last names an issue in another GitHub repo, so the two issues
+need not share a repo.
 Mnemonic: "set blocked-by of N to B" reads left-to-right.
 
 ## Execution
@@ -45,12 +47,12 @@ Marked issue <N> as blocked by <B>.
 ```
 
 The no-op prints `Issue <N> is already blocked by <B>; no change.` and
-exits zero. An issue prints as `#<N>` in the current repo and as
-`owner/repo#N` in another.
+exits zero. An issue reference prints as
+`skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
 exits non-zero with its fixed Jira message before any call; follow
 `skills/lib/issue.md` → "Jira backend" → "Relationships" instead,
-where an `owner/repo#N` operand is refused.
+where a `<repository>#N` operand is refused.

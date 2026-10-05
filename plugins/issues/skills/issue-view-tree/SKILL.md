@@ -53,7 +53,8 @@ then its children:
   cycle, since GitHub does not prevent one.
 - A descendant that no longer resolves prints `#<N> (not found)` and
   its subtree is skipped; a root that does not resolve is an error.
-- A related issue in another repo prints as `owner/repo#N`.
+- A related issue prints as `skills/lib/issue.md` → "Repositories and
+  issue references" states.
 
 ## Jira backend
 

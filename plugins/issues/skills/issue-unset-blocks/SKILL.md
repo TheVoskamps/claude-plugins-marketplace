@@ -16,8 +16,9 @@ removal as `unset-blocked-by B N`.
 - `<N>` (required): the former blocker.
 - `<blocked-N>` (required): the formerly blocked issue.
 
-Either operand may be `N`, `#N`, or `owner/repo#N`; the last names an
-issue in another GitHub repo.
+Either operand may be `N`, `#N`, or `<repository>#N` with the repository
+in any form `skills/lib/issue.md` → "Repositories and issue references"
+lists; the last names an issue in another GitHub repo.
 
 ## Execution
 
@@ -42,12 +43,12 @@ Removed blocking relationship: issue <N> no longer blocks <B>.
 ```
 
 The no-op prints `Issue <N> does not block <B>; no change.` and exits
-zero. An issue prints as `#<N>` in the current repo and as
-`owner/repo#N` in another.
+zero. An issue reference prints as
+`skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
 exits non-zero with its fixed Jira message before any call; follow
 `skills/lib/issue.md` → "Jira backend" → "Relationships" instead,
-where an `owner/repo#N` operand is refused.
+where a `<repository>#N` operand is refused.

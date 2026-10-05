@@ -98,7 +98,9 @@ CONFIG_NO_BLOCK="$FRONT_MATTER
 # Repo Config
 "
 
-# The fixture: acme/widgets is the current repo, acme/other a second one.
+# The fixture: acme/widgets is the current repo, acme/other a second one
+# under its owner, octo/lib one under another owner, and corp/tools one on a
+# GitHub Enterprise host; every other repo is on github.com.
 BASE_STATE="$SANDBOX/base-state.json"
 python3 - "$BASE_STATE" "$CONFIG_MAIN" "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')" <<'PY'
 import json, sys
@@ -157,6 +159,10 @@ state = {
         "acme/stale": {"issues": {}, "config": "---\nschema-version: 5\n---\n", "validLabels": [],
                        "collaborators": ["octocat"]},
         "acme/jira": {"issues": {}, "config": jira_config, "validLabels": [], "collaborators": ["octocat"]},
+        "octo/lib": {"issues": {"5": issue("octo/lib", 5, "Library issue")}, "config": None,
+                     "validLabels": [], "collaborators": ["octocat"]},
+        "corp/tools": {"host": "ghe.example.com", "issues": {}, "config": None, "validLabels": ["bug"],
+                       "collaborators": ["octocat"]},
     },
     "projectFields": ["PVTSSF_status", "PVTF_prio"] + list(many_fields),
     "projectOptions": {"OPT_backlog": "Backlog", "OPT_inprogress": "In progress", "OPT_done": "Done"},
@@ -184,9 +190,14 @@ new_case() {
 # run <verb> <args...>: run a script under /bin/bash in the case repo; sets
 # RC and OUT (stdout and stderr together).
 run() {
-  local verb=$1
-  shift
-  OUT=$(cd "$CASE_DIR/repo" &&
+  run_in "$CASE_DIR/repo" "$@"
+}
+
+# run_in <dir> <verb> <args...>: the same, from <dir>.
+run_in() {
+  local dir=$1 verb=$2
+  shift 2
+  OUT=$(cd "$dir" &&
     PATH="$SANDBOX/bin:$PATH" FAKE_GH_STATE="$CASE_DIR/state.json" FAKE_GH_LOG="$CASE_DIR/gh.log" \
     XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
     /bin/bash "$BIN/$verb" "$@" 2>&1)
@@ -307,7 +318,7 @@ expect "issue-view: full block" 0 \
   "#2 Widget issue 2    (OPEN)" "https://github.com/acme/widgets/issues/2" \
   "Labels:     bug, size:S" "Assignees:  octocat" "Type:       Bug" \
   "Status:     In progress" "Priority:   High" "Size:       S" \
-  "Parent:     #1 Widget issue 1" "Blocked by:${ISS_NL}  - acme/other#3 Other repo issue" \
+  "Parent:     #1 Widget issue 1" "Blocked by:${ISS_NL}  - other#3 Other repo issue" \
   "Sub-issues:${ISS_NL}  (none)" "Body:${ISS_NL}Body of 2."
 
 run issue-view 4
@@ -328,7 +339,7 @@ expect "issue-sub-list: none" 0 "  (none)"
 run issue-view-tree 1
 expect "issue-view-tree: walks and caps depth" 0 \
   "#1 Widget issue 1  https://github.com/acme/widgets/issues/1" \
-  "  #2 Widget issue 2  " "    Blocked by:${ISS_NL}      - acme/other#3 Other repo issue" \
+  "  #2 Widget issue 2  " "    Blocked by:${ISS_NL}      - other#3 Other repo issue" \
   "          #10 Widget issue 10  " "            ... (depth cap)"
 expect_absent "issue-view-tree: nothing past the cap" "#11 Leaf"
 
@@ -340,6 +351,12 @@ expect "issue-field-options: every slot" 0 \
   "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
 run issue-field-options effort
 expect "issue-field-options: unconfigured slot" 0 "effort: unconfigured"
+run issue-field-options size
+expect "issue-field-options: one slot of the current repository" 0 "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+expect_absent "issue-field-options: only that slot" "status:"
+run issue-field-options --all
+expect "issue-field-options --all: every slot of the current repository" 0 \
+  "status: single-select (default: Backlog)" "size: label (default: M)"
 check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-field-options: makes no gh call"
 
 new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed -e 's/default: Backlog/default: in PROGRESS/' -e '/default: Medium/d')"
@@ -354,38 +371,51 @@ expect "issue-field-options: number bounds and skip" 0 "priority: number (defaul
 new_case "$CONFIG_NO_BLOCK"
 run issue-field-options
 expect "issue-field-options: no block" 0 "No fields configured."
-run issue-field-options --repo acme/widgets
-expect "issue-field-options --repo: the target's slots, not this repo's" 0 \
+run issue-field-options acme/widgets --all
+expect "issue-field-options <repo> --all: the target's slots, not this repo's" 0 \
   "status: single-select (default: Backlog)${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done" \
   "priority: issue-field (default: Medium)${ISS_NL}  High${ISS_NL}  Medium${ISS_NL}  Low" \
   "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
 check "$(grep -c '"repos/acme/widgets/contents/.issues/repo-config.md"' "$CASE_DIR/gh.log")" 1 \
-  "issue-field-options --repo: reads the target's repo-config"
-run issue-field-options --repo acme/widgets size
-expect "issue-field-options --repo: one slot, flag first" 0 "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
-expect_absent "issue-field-options --repo: only the named slot" "status:"
-run issue-field-options --repo acme/other
-expect "issue-field-options --repo: target without repo-config" 0 "No fields configured."
-run issue-field-options status --repo acme/other
-expect "issue-field-options --repo: a slot in a target without repo-config" 0 "status: unconfigured"
-run issue-field-options --repo acme/stale
-expect "issue-field-options --repo: stale target schema aborts" 1 \
+  "issue-field-options <repo>: reads the target's repo-config"
+run issue-field-options --all widgets
+expect "issue-field-options --all <repo>: the repo form names a repo under the current owner" 0 \
+  "status: single-select (default: Backlog)"
+run issue-field-options acme/widgets size
+expect "issue-field-options <repo> <slot>: one slot" 0 "size: label (default: M)${ISS_NL}  S${ISS_NL}  M${ISS_NL}  L"
+expect_absent "issue-field-options <repo> <slot>: only the named slot" "status:"
+run issue-field-options acme/other --all
+expect "issue-field-options <repo>: target without repo-config" 0 "No fields configured."
+run issue-field-options acme/other status
+expect "issue-field-options <repo>: a slot in a target without repo-config" 0 "status: unconfigured"
+run issue-field-options acme/stale --all
+expect "issue-field-options <repo>: stale target schema aborts" 1 \
   "target repo \`acme/stale\`: This repo's \`.issues/repo-config.md\` is at schema-version \`5\`"
-run issue-field-options --repo acme/jira
-expect "issue-field-options --repo: Jira target exits non-zero" 1 \
+run issue-field-options acme/jira --all
+expect "issue-field-options <repo>: Jira target exits non-zero" 1 \
   "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
-run issue-field-options --repo widgets
-expect "issue-field-options --repo: not owner/repo" 2 "\`--repo\` takes owner/repo"
-run issue-field-options status priority
-expect "issue-field-options: two slots is a usage error" 2 "usage: issue-field-options"
+run issue-field-options a//b status
+expect "issue-field-options <repo>: a malformed repository is a usage error" 2 "\`a//b\` is not a repository"
+run issue-field-options --repo acme/widgets
+expect "issue-field-options --repo: a usage error naming the positional form" 2 \
+  "\`--repo\` is not an issue-field-options flag; name the repository positionally: issue-field-options <repo> <slot>"
+run issue-field-options acme/widgets status priority
+expect "issue-field-options: three positionals is a usage error" 2 "usage: issue-field-options"
+run issue-field-options acme/widgets status --all
+expect "issue-field-options: --all with a slot is a usage error" 2 "\`--all\` reports every slot, so it takes no slot"
 
 new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
-run issue-field-options status --repo acme/widgets
-expect "issue-field-options --repo: the invoking repo's tracker is not read" 0 \
+run issue-field-options acme/widgets status
+expect "issue-field-options <repo>: the invoking repo's tracker is not read" 0 \
   "status: single-select (default: Backlog)${ISS_NL}  Backlog${ISS_NL}  In progress${ISS_NL}  Done"
 new_case none
-run issue-field-options priority --repo acme/widgets
-expect "issue-field-options --repo: no local repo-config needed" 0 "priority: issue-field (default: Medium)${ISS_NL}  High"
+run issue-field-options acme/widgets priority
+expect "issue-field-options <repo>: no local repo-config needed" 0 "priority: issue-field (default: Medium)${ISS_NL}  High"
+run issue-field-options ghe.example.com/corp/tools --all
+expect "issue-field-options host/owner/repo: a target on another host" 0 "No fields configured."
+check "$(jq -c 'select(.[0] == "api")' "$CASE_DIR/gh.log" | tail -n 1)" \
+  '["api","--hostname","ghe.example.com","repos/corp/tools/contents/.issues/repo-config.md","--jq",".content"]' \
+  "issue-field-options host/owner/repo: reads the target's repo-config on its host"
 
 # ---------------------------------------------------------------------------
 # A slot default: the slot would refuse is an invalid repo-config.
@@ -450,11 +480,11 @@ bad_range "float bound, other bound absent" \
 new_case none
 jq '.repos["acme/widgets"].config |= sub("default: M\n"; "default: XL\n")' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
   mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
-run issue-field-options --repo acme/widgets
-expect "invalid default --repo: issue-field-options refuses the target's config" 1 \
+run issue-field-options acme/widgets --all
+expect "invalid default <repo>: issue-field-options refuses the target's config" 1 \
   "target repo \`acme/widgets\`: This repo's \`.issues/repo-config.md\` sets \`size\`'s \`default:\` to \`XL\`"
-run issue-create --title x --body-file x --repo acme/widgets
-expect "invalid default --repo: issue-create refuses the target's config" 1 \
+run issue-create acme/widgets --title x --body-file x
+expect "invalid default <repo>: issue-create refuses the target's config" 1 \
   "target repo \`acme/widgets\`: This repo's \`.issues/repo-config.md\` sets \`size\`'s \`default:\` to \`XL\`"
 
 # ---------------------------------------------------------------------------
@@ -647,15 +677,40 @@ run issue-unset-parent 2
 expect "issue-unset-parent: remove" 0 "Removed issue #2 as a sub-issue of #1." "https://github.com/acme/widgets/issues/2"
 
 run issue-set-blocked-by 4 acme/other#3
-expect "issue-set-blocked-by: cross-repo" 0 "Marked issue #4 as blocked by acme/other#3."
+expect "issue-set-blocked-by: cross-repo, a repo under the same owner prints as repo#N" 0 \
+  "Marked issue #4 as blocked by other#3."
 run issue-set-blocks acme/other#3 4
-expect "issue-set-blocks: same edge is a no-op" 0 "Issue acme/other#3 already blocks #4; no change."
+expect "issue-set-blocks: same edge is a no-op" 0 "Issue other#3 already blocks #4; no change."
 run issue-unset-blocks acme/other#3 4
-expect "issue-unset-blocks: remove" 0 "Removed blocking relationship: issue acme/other#3 no longer blocks #4."
+expect "issue-unset-blocks: remove" 0 "Removed blocking relationship: issue other#3 no longer blocks #4."
 run issue-unset-blocked-by 4 acme/other#3
-expect "issue-unset-blocked-by: absent edge is a no-op" 0 "Issue #4 is not blocked by acme/other#3; no change."
+expect "issue-unset-blocked-by: absent edge is a no-op" 0 "Issue #4 is not blocked by other#3; no change."
+run issue-set-blocked-by 4 octo/lib#5
+expect "issue-set-blocked-by: a repo under another owner prints as owner/repo#N" 0 \
+  "Marked issue #4 as blocked by octo/lib#5."
 run issue-set-blocked-by 4 acme/other#99
 expect "issue-set-blocked-by: operand not found names its repo" 1 "issue \`#99\` not found in \`acme/other\`"
+
+# A printed reference is accepted back as an operand, in each of its forms.
+run issue-set-blocked-by 4 other#3
+expect "issue-set-blocked-by: a printed repo#N operand" 0 "Marked issue #4 as blocked by other#3."
+run issue-unset-blocks other#3 4
+expect "issue-unset-blocks: a printed repo#N operand" 0 "issue other#3 no longer blocks #4."
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create ghe.example.com/corp/tools --title "Elsewhere" --body-file new.md
+expect "issue-create: an issue on another host" 0 "Created issue ghe.example.com/corp/tools#1 \"Elsewhere\""
+run issue-unset-blocked-by 4 ghe.example.com/corp/tools#1
+expect "issue-unset-blocked-by: a printed host/owner/repo#N operand" 0 \
+  "Issue #4 is not blocked by ghe.example.com/corp/tools#1; no change."
+run issue-unset-blocks https://ghe.example.com/corp/tools#1 4
+expect "issue-unset-blocks: a URL-form operand reaches its host" 0 "ghe.example.com/corp/tools#1"
+run issue-view other#3
+expect "issue-view: a repo#N operand is refused" 2 "\`other#3\`: this verb takes an issue number in the current repo"
+run issue-set-blocked-by 4 'other#x'
+expect "issue-set-blocked-by: a non-numeric issue part is a usage error" 2 \
+  "\`other#x\` is not an issue reference (expected N, #N or <repository>#N)"
+run issue-set-blocked-by 4 'a/b/c/d#3'
+expect "issue-set-blocked-by: a malformed repository part is a usage error" 2 "\`a/b/c/d\` is not a repository"
 
 # ---------------------------------------------------------------------------
 # Comment, close, update.
@@ -722,28 +777,130 @@ expect "issue-create: skip and absent slots" 0 \
 
 new_case "$CONFIG_NO_BLOCK"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
-run issue-create --title "Plain" --body-file new.md --repo acme/widgets
-expect "issue-create --repo: target config used" 0 "  type:       Feature" "  priority:   Medium" "  status:     Backlog"
-run issue-create --title "Elsewhere" --body-file new.md --repo acme/other --labels bug
-expect "issue-create --repo: target without repo-config" 0 \
-  "Created issue acme/other#4 \"Elsewhere\"" "  type:       skipped: target repo has no repo-config" \
+run issue-create acme/widgets --title "Plain" --body-file new.md
+expect "issue-create <repo>: target config used" 0 "  type:       Feature" "  priority:   Medium" "  status:     Backlog"
+run issue-create acme/other --title "Elsewhere" --body-file new.md --labels bug
+expect "issue-create <repo>: target without repo-config" 0 \
+  "Created issue other#4 \"Elsewhere\"" "  type:       skipped: target repo has no repo-config" \
   "note: project fields skipped: \`acme/other\` has no \`.issues/repo-config.md\`." "https://github.com/acme/other/issues/4"
-check "$(state '.repos["acme/other"].issues["4"].labels | join(",")')" bug "issue-create --repo: labels applied"
-run issue-create --title "Stale" --body-file new.md --repo acme/stale
-expect "issue-create --repo: stale target schema aborts" 1 \
+check "$(state '.repos["acme/other"].issues["4"].labels | join(",")')" bug "issue-create <repo>: labels applied"
+run issue-create acme/stale --title "Stale" --body-file new.md
+expect "issue-create <repo>: stale target schema aborts" 1 \
   "target repo \`acme/stale\`: This repo's \`.issues/repo-config.md\` is at schema-version \`5\`"
-check "$(state '.repos["acme/stale"].issues | length')" 0 "issue-create --repo: nothing created in a stale target"
+check "$(state '.repos["acme/stale"].issues | length')" 0 "issue-create <repo>: nothing created in a stale target"
 
-run issue-create --title "Tracked elsewhere" --body-file new.md --repo acme/jira
-expect "issue-create --repo: Jira target exits non-zero" 1 \
+run issue-create acme/jira --title "Tracked elsewhere" --body-file new.md
+expect "issue-create <repo>: Jira target exits non-zero" 1 \
   "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
-check "$(state '.repos["acme/jira"].issues | length')" 0 "issue-create --repo: nothing created in a Jira target"
+check "$(state '.repos["acme/jira"].issues | length')" 0 "issue-create <repo>: nothing created in a Jira target"
 
 new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
-run issue-create --title "Elsewhere" --body-file new.md --repo acme/widgets
-expect "issue-create --repo: the invoking repo's tracker is not read" 0 \
+run issue-create acme/widgets --title "Elsewhere" --body-file new.md
+expect "issue-create <repo>: the invoking repo's tracker is not read" 0 \
   "Created issue #210 \"Elsewhere\"" "  type:       Feature" "  status:     Backlog"
+
+# The repository grammar: each form names its repository, and a printed
+# reference takes the shortest form that names the issue back.
+new_case "$CONFIG_NO_BLOCK"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create other --title "Sibling" --body-file new.md
+expect "issue-create repo: a repo under the current owner, on its host" 0 \
+  "Created issue other#4 \"Sibling\"" "https://github.com/acme/other/issues/4"
+run issue-create octo/lib --title "Elsewhere" --body-file new.md
+expect "issue-create owner/repo: on the current host" 0 \
+  "Created issue octo/lib#6 \"Elsewhere\"" "https://github.com/octo/lib/issues/6"
+run issue-create ghe.example.com/corp/tools --title "Enterprise" --body-file new.md --labels bug
+expect "issue-create host/owner/repo: on that host" 0 \
+  "Created issue ghe.example.com/corp/tools#1 \"Enterprise\"" "https://ghe.example.com/corp/tools/issues/1"
+check "$(state '.repos["corp/tools"].issues["1"].labels | join(",")')" bug "issue-create host/owner/repo: labels applied"
+run issue-create https://ghe.example.com/corp/tools/ --title "By URL" --body-file new.md
+expect "issue-create https://host/owner/repo/: the same repository" 0 \
+  "Created issue ghe.example.com/corp/tools#2 \"By URL\""
+check "$(jq -c 'select(.[0] == "issue" and .[1] == "create") | .[3]' "$CASE_DIR/gh.log" | tr '\n' ' ')" \
+  '"github.com/acme/other" "github.com/octo/lib" "ghe.example.com/corp/tools" "ghe.example.com/corp/tools" ' \
+  "issue-create: every gh issue create carries the target's host in --repo"
+check "$(jq -c 'select(.[0] == "api") | .[2]' "$CASE_DIR/gh.log" | sort -u | tr '\n' ' ')" \
+  '"ghe.example.com" "github.com" ' "issue-create: every gh api call carries --hostname"
+run issue-create --repo acme/other --title x --body-file new.md
+expect "issue-create --repo: a usage error naming the positional form" 2 \
+  "\`--repo\` is not an issue-create flag; name the repository as the first argument: issue-create <repo>"
+run issue-create acme/other acme/widgets --title x --body-file new.md
+expect "issue-create: two repositories is a usage error" 2 "usage: issue-create [<repo>]"
+run issue-create acme/x/y/z --title x --body-file new.md
+expect "issue-create: a malformed repository is a usage error" 2 "\`acme/x/y/z\` is not a repository"
+
+# Outside a git checkout there is no current repository.
+new_case none
+mkdir -p "$CASE_DIR/outside"
+printf 'New body.\n' >"$CASE_DIR/outside/new.md"
+run_in "$CASE_DIR/outside" issue-create other --title x --body-file "$CASE_DIR/outside/new.md"
+expect "issue-create repo outside a checkout: a usage error" 2 "there is no current repository"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create repo outside a checkout: no gh call"
+run_in "$CASE_DIR/outside" issue-create acme/other --title "Default host" --body-file "$CASE_DIR/outside/new.md"
+expect "issue-create owner/repo outside a checkout: filed on gh's default host" 0 \
+  "Created issue acme/other#4 \"Default host\""
+check "$(jq -c 'select(.[0] == "issue") | .[3]' "$CASE_DIR/gh.log")" '"acme/other"' \
+  "issue-create owner/repo outside a checkout: --repo carries owner/repo"
+check "$(jq -c 'select(.[0] == "api" and index("--hostname") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "issue-create owner/repo outside a checkout: no gh api call carries --hostname"
+check "$(jq -c 'select(.[0] == "repo")' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "issue-create outside a checkout: no gh repo view"
+
+# A checkout whose origin is on a GitHub Enterprise host: every gh api call
+# carries that host as --hostname and every gh issue call carries it in
+# --repo. The fake resolves nothing on github.com here, so a call that drops
+# the host fails the verb as well as the log check.
+new_case "$CONFIG_MAIN"
+jq '.repos |= with_entries(.value.host = "ghe.example.com")' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+  mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-view 2
+expect "GHE: issue-view" 0 "#2 Widget issue 2    (OPEN)" "https://ghe.example.com/acme/widgets/issues/2" \
+  "Blocked by:${ISS_NL}  - other#3 Other repo issue"
+run issue-view-tree 1
+expect "GHE: issue-view-tree" 0 "  #2 Widget issue 2  https://ghe.example.com/acme/widgets/issues/2"
+run issue-sub-list 1
+expect "GHE: issue-sub-list" 0 "  - #2 Widget issue 2"
+run issue-set-status 3 Done
+expect "GHE: issue-set-status" 0 "Set status on issue #3 to Done."
+run issue-set-priority 3 low
+expect "GHE: issue-set-priority" 0 "#3 priority set to Low."
+run issue-set-size 4 M
+expect "GHE: issue-set-size, through gh issue edit" 0 "#4 size set to M (via label \`size:M\`)."
+run issue-set-type 3 Bug
+expect "GHE: issue-set-type" 0 "#3 type set to Bug."
+run issue-set-parent 5 4
+expect "GHE: issue-set-parent" 0 "Linked issue #5 as a sub-issue of #4."
+run issue-unset-child 4 5
+expect "GHE: issue-unset-child" 0 "Removed issue #5 as a sub-issue of #4."
+run issue-unset-parent 2
+expect "GHE: issue-unset-parent" 0 "Removed issue #2 as a sub-issue of #1."
+run issue-set-blocked-by 4 acme/other#3
+expect "GHE: issue-set-blocked-by, an operand in another repo on the same host" 0 "Marked issue #4 as blocked by other#3."
+run issue-unset-blocks acme/other#3 4
+expect "GHE: issue-unset-blocks" 0 "issue other#3 no longer blocks #4."
+run issue-comment 3 --body-file new.md
+expect "GHE: issue-comment" 0 "Commented on issue #3 \"Widget issue 3\"." "https://ghe.example.com/acme/widgets/issues/3#issuecomment-"
+run issue-update 3 --title Renamed --add-labels docs --add-assignees @default-assignee
+expect "GHE: issue-update" 0 "labels added:    docs" "assignees added: octocat"
+run issue-close 3 --comment "Done."
+expect "GHE: issue-close" 0 "Closed issue #3 \"Renamed\"." "comment: posted"
+run issue-create --title "Here" --body-file new.md --parent 1 --labels docs
+expect "GHE: issue-create in the current repository" 0 "Created issue #210 \"Here\"" "  parent:     #1" \
+  "https://ghe.example.com/acme/widgets/issues/210"
+run issue-create other --title "There" --body-file new.md
+expect "GHE: issue-create repo, on the current host" 0 "Created issue other#4 \"There\""
+run issue-field-options other --all
+expect "GHE: issue-field-options repo, on the current host" 0 "No fields configured."
+check "$(jq -c 'select(.[0] == "api" and .[1] != "--hostname")' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "GHE: every gh api call names a host"
+check "$(jq -r 'select(.[0] == "api") | .[2]' "$CASE_DIR/gh.log" | sort -u)" ghe.example.com \
+  "GHE: that host is the checkout's"
+check "$(jq -r 'select(.[0] == "issue") | .[index("--repo") + 1] | split("/")[0]' "$CASE_DIR/gh.log" | sort -u)" \
+  ghe.example.com "GHE: every gh issue call carries the host in --repo"
+check "$(jq -c 'select(.[0] == "issue")' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 8 \
+  "GHE: the gh issue calls the run made (three edits, two comments, a close, two creates)"
 
 new_case "$CONFIG_MAIN"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"

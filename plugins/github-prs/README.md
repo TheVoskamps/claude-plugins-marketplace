@@ -45,9 +45,9 @@ spelling a `gh pr` call of its own — which is also what would let a
 permission gate refuse raw `gh pr` use later without breaking a caller.
 
 The scripts share one sourced helper, `bin/lib/github-prs-common.sh`,
-which holds the error catalogue and the `gh` call wrapper. A script
-reports a failure by calling a catalogue entry and never spells a
-message of its own, so an exit status means the same thing whichever
+which holds the error catalogue and the `gh` call wrapper, `gp_gh`. A
+script reports a failure by calling a catalogue entry and never spells
+a message of its own, so an exit status means the same thing whichever
 verb returned it:
 
 | Exit | Meaning |
@@ -74,13 +74,26 @@ why every body-taking verb accepts `--body-file <path>`, and why
 `pr-review-submit` composes the posted body in memory rather than
 writing a scratch copy beside the caller's file.
 
+A `gh api` call goes to `gh`'s default host whatever host the
+checkout's remote is on — github.com unless `GH_HOST` says otherwise,
+even with the `{owner}/{repo}` placeholders in the path — so inside a
+checkout on a GitHub Enterprise host it would query the wrong host and
+fail. `gp_gh` therefore adds `--hostname "$GP_HOST"` to every `api`
+call, and a verb that makes one first sets `GP_HOST` from the URL
+`gh repo view` reports for the checkout. `gh pr` subcommands take the
+host from the remote already and get no flag. The host travels per call
+rather than as an exported `GH_HOST`, because one session works across
+several hosts.
+
 Every script runs under the bash 3.2 that macOS ships. The suite at
 `test/github-prs-test.sh` runs each script against a stub `gh` that
 keeps a PR's state in files and applies `--jq` filters with the real
 `jq`, checking the call shape each script issues, the re-read after
 each mutation — including a mode in which the mutation does not land,
-so every exit-1 path is exercised — and the error wording; no test
-posts anything to GitHub.
+so every exit-1 path is exercised — and the error wording. The stub
+resolves an `api` call only on the host the case gives the checkout, so
+a call that drops `--hostname` fails the verb; no test posts anything
+to GitHub.
 
 ## One PR, one issue set
 
@@ -322,6 +335,13 @@ leaves nothing for the next one to trip on. The primary clone's
 `git status` reads the same before and after. It reports the
 conflicts and nothing else; what to do about each is the caller's to
 decide.
+
+The hunks carry a merge's side labels: `<<<<<<< HEAD` is the PR's
+head and the lower side is the base. A caller that remedies by
+rebasing sees them inverted, since during a rebase `HEAD` is the base
+and the lower side is the branch commit being replayed. Resolve a
+rebase stop by content, never by the side label this report showed —
+keeping "the HEAD side" there drops the branch's change.
 
 ### `/pr-link-issue <PR> <issue>…`
 

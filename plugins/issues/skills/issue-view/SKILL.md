@@ -72,7 +72,8 @@ Body:
   one of its own labels. `/issue-set-<slot>` converges that last state;
   this verb is read-only.
 - Every other empty section reads `(none)`.
-- A related issue in another repo prints as `owner/repo#N`.
+- A related issue prints as `skills/lib/issue.md` → "Repositories and
+  issue references" states.
 - Lists keep GitHub's order, and the body is printed verbatim.
 
 ## Jira backend

@@ -6,14 +6,14 @@
 # heard back, and so the next round reads its predecessor's records off
 # disk rather than off the PR. It also lists the PRs a repo holds state
 # for and deletes one PR's state whole, which is the only way any of it
-# is ever removed.
+# is ever removed, and lists the repositories the state root holds.
 #
-# Every path is composed here and nowhere else — the round log, each
-# result file, the records file, the review file, and each child's
-# harness transcript — so no agent ever opens one of these files by a
-# path string of its own, to mistype or to carry across a turn
-# boundary. An agent that names the state root in prose, to point a
-# human at the directory, is doing something else.
+# Every path is composed here and nowhere else — the repository's
+# repo.yml, the round log, each result file, the records file, the
+# review file, and each child's harness transcript — so no agent ever
+# opens one of these files by a path string of its own, to mistype or
+# to carry across a turn boundary. An agent that names the state root
+# in prose, to point a human at the directory, is doing something else.
 #
 # The contract this implements — modes, flags, paths, line grammar — is
 # plugins/sdlc/skills/agent-result-persist-interface/SKILL.md.
@@ -31,18 +31,18 @@ usage() {
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |records|review|print-records|print-round-records
                        |print-review|list|delete
-                --owner <owner> --repo <repo> [--pr <n>] [--round <n>]
+                --repo <host>/<owner>/<repo> [--pr <n>] [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
                 [--carry [--edits <path>]]
+       $PROGRAM --mode repos
 EOF
 }
 
 mode=
-owner=
-repo=
+repo_ref=
 pr=
 round=
 head_sha=
@@ -62,7 +62,7 @@ edits=
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
+    --mode|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -82,8 +82,7 @@ while [ "$#" -gt 0 ]; do
   esac
   case "$flag" in
     --mode)       mode=$value ;;
-    --owner)      owner=$value ;;
-    --repo)       repo=$value ;;
+    --repo)       repo_ref=$value ;;
     --pr)         pr=$value ;;
     --round)      round=$value ;;
     --head-sha)   head_sha=$value ;;
@@ -104,24 +103,82 @@ done
 case "$mode" in
   anchor|spawn|enter|leave|return|stopped|print) ;;
   records|review|print-records|print-round-records|print-review) ;;
-  list|delete) ;;
+  list|delete|repos) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
 
-# A / in an identifying value would silently add a directory level to
-# the composed path, which is why owner and repo stay separate flags
-# rather than arriving as one owner/name token. A value of . or .. names
-# no directory of its own: .. climbs out of the level it stands at, and
-# . lets the other value climb further, so either could compose a path
-# outside the state root that every mode reads, writes or deletes under.
-for pair in "owner:$owner" "repo:$repo"; do
-  name=${pair%%:*}
-  given=${pair#*:}
-  [ -n "$given" ] || die "--$name is required"
+readonly state_root="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc"
+
+# is_old_layout <dir>: whether a directory two levels below the state
+# root is a repository's state from before the host was part of the
+# path. Such a directory is <owner>/<repo> by position, carries no
+# repo.yml, and holds its pr<n> directories directly. A <host>/<owner>
+# directory of the current layout sits at the same depth and holds
+# repositories, so it is never old, with or without a repo.yml beneath it.
+is_old_layout() {
+  [ -d "$1" ] || return 1
+  [ -e "$1/repo.yml" ] && return 1
+  for found in "$1"/*/repo.yml; do
+    [ -e "$found" ] && return 1
+  done
+  for found in "$1"/pr*; do
+    case "${found##*/}" in
+      pr|pr*[!0-9]*) continue ;;
+    esac
+    [ -d "$found" ] && return 0
+  done
+  return 1
+}
+
+# repos reads across every repository the state root holds, so it takes
+# no identifying flag. It reads each repository from its repo.yml, and
+# names a directory of the old layout, which has none, by its path.
+if [ "$mode" = repos ]; then
+  for pair in "repo:$repo_ref" "pr:$pr" "round:$round"; do
+    [ -z "${pair#*:}" ] || die "--${pair%%:*} is not accepted in --mode repos: ${pair#*:}"
+  done
+  [ -d "$state_root" ] || exit 0
+  find "$state_root" -name repo.yml -type f | sort | while IFS= read -r yml; do
+    at=${yml%/repo.yml}
+    at=${at#"$state_root"/}
+    named=$(awk -F': *' '$1=="host"{h=$2} $1=="owner"{o=$2} $1=="repo"{r=$2} END{print h "/" o "/" r}' "$yml")
+    if [ "$named" = "$at" ]; then
+      printf 'repo %s %s\n' "$named" "$at"
+    else
+      printf 'mismatch %s %s\n' "$named" "$at"
+    fi
+  done
+  for at in "$state_root"/*/*; do
+    is_old_layout "$at" || continue
+    printf 'old %s %s\n' "${at#"$state_root"/}" "${at#"$state_root"/}"
+  done
+  exit 0
+fi
+
+# --repo names the repository as host/owner/repo, each segment one level
+# of the composed path. The host is part of it because one machine holds
+# state for repositories on several hosts, and the same owner/repo on two
+# of them is two repositories. A segment holding anything but letters,
+# digits, ., _ and - could add a directory level, and a segment of . or
+# .. names no directory of its own: .. climbs out of the level it stands
+# at, and . lets another segment climb further, so either could compose a
+# path outside the state root that every mode reads, writes or deletes
+# under.
+[ -n "$repo_ref" ] || die "--repo is required"
+case "$repo_ref" in
+  */*/*/*|*//*|/*|*/) die "--repo takes <host>/<owner>/<repo>: $repo_ref" ;;
+  ?*/?*/?*) ;;
+  *) die "--repo takes <host>/<owner>/<repo>: $repo_ref" ;;
+esac
+host=${repo_ref%%/*}
+owner=${repo_ref#*/}
+owner=${owner%/*}
+repo=${repo_ref##*/}
+for given in "$host" "$owner" "$repo"; do
   case "$given" in
     *[!A-Za-z0-9._-]*|.|..)
-      die "--$name may hold only letters, digits, ., _ and -, and must not be . or ..: $given" ;;
+      die "--repo segments may hold only letters, digits, ., _ and -, and none may be . or ..: $repo_ref" ;;
   esac
 done
 
@@ -239,7 +296,7 @@ done
 # The round gets a directory of its own under XDG state, composed from
 # the identifying flags alone: no session is part of the path, so a
 # round interrupted by a session ending is resumed from the same one.
-readonly repo_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$owner/$repo"
+readonly repo_dir="$state_root/$host/$owner/$repo"
 readonly pr_dir="$repo_dir/pr$pr"
 readonly dir="$pr_dir/round$round"
 readonly file="$dir/log"
@@ -249,6 +306,36 @@ readonly review_file="$dir/review"
 
 now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+# The repository's state directory carries repo.yml naming the repository
+# it holds, so a reader identifies the directory from the file rather than
+# from its path. write_repo_yml writes it into a directory that lacks one.
+write_repo_yml() {
+  [ -e "$repo_dir/repo.yml" ] && return 0
+  printf 'schema-version: 1\nhost: %s\nowner: %s\nrepo: %s\n' "$host" "$owner" "$repo" \
+    > "$repo_dir/repo.yml.partial-$$"
+  mv -- "$repo_dir/repo.yml.partial-$$" "$repo_dir/repo.yml"
+}
+
+# State written before the host was part of the path sits at
+# sdlc/<owner>/<repo>/. It moves to this repository's directory, host from
+# --repo, before any mode reads or writes, so no reader falls back to the
+# old path.
+migrate_old_layout() {
+  old="$state_root/$owner/$repo"
+  is_old_layout "$old" || return 0
+  [ ! -e "$repo_dir" ] \
+    || die "state for $repo_ref is at both $old and $repo_dir; move one aside before running again"
+  mkdir -p -- "${repo_dir%/*}"
+  if ! mv -- "$old" "$repo_dir"; then
+    # A failed move leaves no empty <host> or <host>/<owner> directory
+    # behind; rmdir removes neither when it holds anything.
+    rmdir -- "${repo_dir%/*}" 2>/dev/null && rmdir -- "$state_root/$host" 2>/dev/null || :
+    die "could not move state for $repo_ref from $old to $repo_dir"
+  fi
+  rmdir -- "$state_root/$owner" 2>/dev/null || :
+  write_repo_yml
 }
 
 # The harness names an isolation: worktree worktree agent-<agent-id>,
@@ -517,13 +604,20 @@ build_carried_records() {
   ' "$1" "$2" "$3"
 }
 
-# Every mode that writes writes into the same directory; the reading
-# modes and delete create nothing, and neither does a refused carry,
-# which creates the directory only once its file is built.
+migrate_old_layout
+
+# Every mode that writes writes into the same directory, with its
+# repo.yml; past migrate_old_layout's move, the reading modes and delete
+# create nothing, and neither does a refused carry, which creates the
+# directory only once its file is built.
+make_dir() {
+  mkdir -p "$dir"
+  write_repo_yml
+}
 case "$mode" in
   print|print-records|print-round-records|print-review|list|delete) ;;
-  records) [ -n "$carry" ] || mkdir -p "$dir" ;;
-  *) mkdir -p "$dir" ;;
+  records) [ -n "$carry" ] || make_dir ;;
+  *) make_dir ;;
 esac
 
 case "$mode" in
@@ -611,7 +705,7 @@ case "$mode" in
       read_payload "$work/new" "new records"
       build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" > "$work/records" \
         || exit 2
-      mkdir -p "$dir"
+      make_dir
       install_whole "$work/records" "$records_file"
     fi
     ;;

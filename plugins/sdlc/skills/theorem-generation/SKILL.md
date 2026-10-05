@@ -78,7 +78,7 @@ mirrored fact, not merely touch a file the section mentions.
 You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
-`--branch`, `--owner`, `--repo`, `--round`, and — on a re-review only —
+`--branch`, `--repo`, `--round`, and — on a re-review only —
 `--delta-commits`. When the PR changes a
 documentation file, the brief also carries the documentation-paths
 line that skill describes; apply it as it says.
@@ -88,7 +88,7 @@ issues-only brief that skill defines: no PR exists, `--branch` is the
 default issue source branch, and you generate from the issue bodies
 and that branch's tree — see "On an issues-only brief, generate from
 the issues" below. That is the one brief without `--pr`. On any other
-brief, without `--owner`, `--repo` and `--round` you can still generate
+brief, without `--repo` and `--round` you can still generate
 the list but cannot record that you started or write it where a
 resumed reviewer would find it — say so in your report rather than
 guessing at one. `--pr` is what you generate *from*: steps 2 and 4
@@ -119,7 +119,7 @@ given, and step 7.
 
    ```bash
    sdlc-agent-result-persist --mode enter \
-     --owner <owner> --repo <repo> \
+     --repo <host>/<owner>/<repo> \
      --pr <PR> --round <round> --theorem list --stage generate
    ```
 
@@ -169,7 +169,7 @@ given, and step 7.
 
    ```bash
    sdlc-agent-result-persist --mode leave \
-     --owner <owner> --repo <repo> \
+     --repo <host>/<owner>/<repo> \
      --pr <PR> --round <round> --theorem list --stage generate \
      --agent <agent> \
      --from <staging-file>
@@ -430,8 +430,8 @@ persists the records under the PR's own state directory, outside every
 repository, so a theorem stated in round 1 is still on the books in
 round 5 under the same id.
 
-Read the carried records first, yourself, with the `--owner`, `--repo`,
-`--pr` and `--round` values from your brief. The mode selects the
+Read the carried records first, yourself, with the `--repo`, `--pr`
+and `--round` values from your brief. The mode selects the
 highest-numbered round **below** that `--round` holding records, so an
 earlier instance of this round that already stored its records does not
 hand you this round's own output, and it refuses, printing no records,
@@ -440,7 +440,7 @@ fails here:
 
 ```bash
 sdlc-agent-result-persist --mode print-records \
-  --owner <owner> --repo <repo> --pr <PR> --round <round>
+  --repo <host>/<owner>/<repo> --pr <PR> --round <round>
 ```
 
 Its first line is `round <n>`, naming the round that wrote the records;

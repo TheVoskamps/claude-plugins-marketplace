@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # Shared code for the scripts in plugins/issues/bin/: the
-# .issues/repo-config.md read and its checks, operand parsing, node-ID and
+# .issues/repo-config.md read and its checks, the repository grammar, the
+# wrappers every API call goes through, operand parsing, node-ID and
 # field/option ID resolution, the GraphQL documents, the set-slot write paths,
 # and the canonical error catalogue. Every script sources this file and
 # nothing else, so each of these is written exactly once.
@@ -10,6 +11,12 @@
 # no mapfile.
 
 ISS_PROGRAM=${0##*/}
+
+# The current repository, empty until iss_current_repo or iss_try_current_repo
+# resolves it.
+ISS_HOST=
+ISS_OWNER=
+ISS_REPO=
 
 # The minimum repo-config schema-version these scripts read. A newer file is
 # read as this version; its additions are ignored.
@@ -68,7 +75,8 @@ iss_err_jira() {
 }
 
 iss_err_not_found() {
-  iss_die "issue \`#$3\` not found in \`$1/$2\`"
+  # $1 host, $2 owner, $3 repo, $4 number
+  iss_die "issue \`#$4\` not found in \`$(iss_repo_name "$1" "$2" "$3")\`"
 }
 
 iss_err_no_block() {
@@ -394,28 +402,21 @@ iss_load_config() {
   iss_parse_config_text "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
 }
 
-# iss_load_target_config <owner/repo>: read a --repo target's
+# iss_load_target_config <host> <owner> <repo>: read a target repo's
 # .issues/repo-config.md from its default branch and parse it as
 # iss_parse_config_text does, each message prefixed with the target. Reads
-# nothing from the current repo's repo-config. Sets ISS_TARGET_OWNER and
-# ISS_TARGET_REPO, exiting with a usage error on any other shape than
-# owner/repo. Returns 1 when the target has no repo-config, with ISS_HAS_GP=0
-# so every slot reads as unconfigured.
+# nothing from the current repo's repo-config. Returns 1 when the target has
+# no repo-config, with ISS_HAS_GP=0 so every slot reads as unconfigured.
 iss_load_target_config() {
-  local errf content text err nwo
-  case "$1" in
-    */*) ISS_TARGET_OWNER=${1%%/*}; ISS_TARGET_REPO=${1#*/} ;;
-    *) iss_usage_die "\`--repo\` takes owner/repo" ;;
-  esac
-  case "$ISS_TARGET_REPO" in ''|*/*) iss_usage_die "\`--repo\` takes owner/repo" ;; esac
+  local errf content text err name
   iss_require_tools
-  nwo=$ISS_TARGET_OWNER/$ISS_TARGET_REPO
+  name=$(iss_repo_name "$1" "$2" "$3")
   errf=$(mktemp "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX")
-  if content=$(gh api "repos/$nwo/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
+  if content=$(iss_rest "$1" "repos/$2/$3/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
     rm -f "$errf"
     text=$(printf '%s' "$content" | tr -d '\n' | base64 --decode) ||
-      iss_die "could not decode \`$nwo\`'s \`.issues/repo-config.md\`"
-    iss_parse_config_text "$text" "target repo \`$nwo\`: "
+      iss_die "could not decode \`$name\`'s \`.issues/repo-config.md\`"
+    iss_parse_config_text "$text" "target repo \`$name\`: "
   elif grep -q 'HTTP 404' "$errf"; then
     rm -f "$errf"
     ISS_HAS_GP=0
@@ -424,17 +425,134 @@ iss_load_target_config() {
     return 1
   else
     err=$(cat "$errf"); rm -f "$errf"
-    iss_die "could not read \`$nwo\`'s \`.issues/repo-config.md\`: $err"
+    iss_die "could not read \`$name\`'s \`.issues/repo-config.md\`: $err"
   fi
 }
 
-# Resolve the current repo as owner and name. Sets ISS_OWNER, ISS_REPO.
+# ---------------------------------------------------------------------------
+# Repositories. A repository is a host, an owner and a name, and every gh
+# call that names a repository names its host too: gh resolves a host-less
+# name on its own default host, whatever host the checkout's remote is on. An
+# empty host stands for that default host; it is what a repository named
+# owner/repo gets where there is no current repository.
+# ---------------------------------------------------------------------------
+
+# iss_split_url <url>: split https://host/owner/repo, a trailing / ignored,
+# into URL_HOST, URL_OWNER and URL_REPO. Returns 1 on any other shape.
+iss_split_url() {
+  local rest=${1%/}
+  case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
+  case "$rest" in */*/*/*|*//*|/*|*/) return 1 ;; ?*/?*/?*) ;; *) return 1 ;; esac
+  URL_HOST=${rest%%/*}
+  rest=${rest#*/}
+  URL_OWNER=${rest%/*}
+  URL_REPO=${rest#*/}
+}
+
+# iss_view_current_repo: the one `gh repo view` call, which takes the host
+# from the checkout's remote. Sets URL_HOST, URL_OWNER and URL_REPO; returns 1
+# when gh cannot resolve the repository, gh's stderr passed through.
+iss_view_current_repo() {
+  local url
+  url=$(gh repo view --json url --jq .url) && iss_split_url "$url"
+}
+
+# iss_current_repo: resolve the current repository. Sets ISS_HOST, ISS_OWNER
+# and ISS_REPO, and aborts when it cannot.
 iss_current_repo() {
-  local nwo
-  nwo=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name') ||
+  iss_view_current_repo ||
     iss_die "could not resolve the current GitHub repository with \`gh repo view\`"
-  ISS_OWNER=${nwo%%/*}
-  ISS_REPO=${nwo#*/}
+  ISS_CURRENT_TRIED=yes
+  ISS_HOST=$URL_HOST
+  ISS_OWNER=$URL_OWNER
+  ISS_REPO=$URL_REPO
+}
+
+# iss_try_current_repo: the same, for a verb that also runs where there is no
+# current repository. Outside a git checkout, or where gh cannot resolve the
+# checkout's repository, it leaves ISS_HOST, ISS_OWNER and ISS_REPO empty and
+# returns 1; outside a checkout it makes no gh call. Once either function
+# has run, this one makes no gh call and returns the answer already held.
+iss_try_current_repo() {
+  if [ -n "${ISS_CURRENT_TRIED:-}" ]; then
+    [ -n "$ISS_OWNER" ]
+    return
+  fi
+  ISS_CURRENT_TRIED=yes
+  ISS_HOST=
+  ISS_OWNER=
+  ISS_REPO=
+  git rev-parse --show-toplevel >/dev/null 2>&1 || return 1
+  iss_view_current_repo 2>/dev/null || return 1
+  ISS_HOST=$URL_HOST
+  ISS_OWNER=$URL_OWNER
+  ISS_REPO=$URL_REPO
+}
+
+# iss_parse_repo <reference>: the one parser of the repository grammar. Sets
+# RP_HOST, RP_OWNER and RP_REPO from
+#   repo                     that repo under the current repository's owner,
+#                            on its host
+#   owner/repo               that repository, on the current repository's host
+#   host/owner/repo          that repository, on that host
+#   https://host/owner/repo  the same as host/owner/repo; a trailing / is
+#                            ignored
+# A malformed reference is a usage error before any gh call; a form without a
+# host resolves the current repository with iss_try_current_repo. With no
+# current repository, repo is a usage error and owner/repo gets the empty
+# host.
+iss_parse_repo() {
+  local ref=$1 rest bad
+  bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
+  case "$ref" in
+    *://*)
+      iss_split_url "$ref" || iss_usage_die "$bad"
+      RP_HOST=$URL_HOST
+      RP_OWNER=$URL_OWNER
+      RP_REPO=$URL_REPO
+      return 0
+      ;;
+  esac
+  rest=${ref%/}
+  case "$rest" in ''|*//*|/*|*/*/*/*|-*) iss_usage_die "$bad" ;; esac
+  case "$rest" in */*/*) ;; *) iss_try_current_repo || : ;; esac
+  case "$rest" in
+    */*/*)
+      RP_HOST=${rest%%/*}
+      rest=${rest#*/}
+      RP_OWNER=${rest%/*}
+      RP_REPO=${rest#*/}
+      ;;
+    */*)
+      RP_HOST=$ISS_HOST
+      RP_OWNER=${rest%/*}
+      RP_REPO=${rest#*/}
+      ;;
+    *)
+      [ -n "$ISS_OWNER" ] ||
+        iss_usage_die "\`$ref\` names a repository under the current repository's owner, and there is no current repository"
+      RP_HOST=$ISS_HOST
+      RP_OWNER=$ISS_OWNER
+      RP_REPO=$rest
+      ;;
+  esac
+}
+
+# iss_same_host <host>: whether <host> is the current repository's host.
+iss_same_host() {
+  [ "$(iss_lc "$1")" = "$(iss_lc "$ISS_HOST")" ]
+}
+
+# iss_repo_arg <host> <owner> <repo>: the value of a `gh issue` call's
+# --repo, host/owner/repo, or owner/repo for gh's default host.
+iss_repo_arg() {
+  if [ -n "$1" ]; then printf '%s/%s/%s' "$1" "$2" "$3"; else printf '%s/%s' "$2" "$3"; fi
+}
+
+# iss_repo_name <host> <owner> <repo>: a repository as a message names it,
+# owner/repo, with its host in front when that is not the current one.
+iss_repo_name() {
+  if iss_same_host "$1"; then printf '%s/%s' "$2" "$3"; else printf '%s/%s/%s' "$1" "$2" "$3"; fi
 }
 
 # The common opening of every verb: tools, config, tracker, repo.
@@ -510,56 +628,84 @@ EOF
 # Operands.
 # ---------------------------------------------------------------------------
 
-# iss_parse_operand <operand> [local-only]: sets OP_OWNER, OP_REPO,
-# OP_NUMBER from N, #N or owner/repo#N; N may also carry the repo-config's
-# issue-link-prefix. With local-only, the owner/repo#N form is a usage error.
+# iss_parse_operand <operand> [local-only]: sets OP_HOST, OP_OWNER, OP_REPO,
+# OP_NUMBER from N or #N in the current repository, N optionally carrying the
+# repo-config's issue-link-prefix, or from <repository>#N with its repository
+# part in any form iss_parse_repo takes, so every reference iss_ref prints is
+# accepted back. With local-only, the <repository>#N form is a usage error.
 iss_parse_operand() {
-  local op=$1 nwo num
-  case "$op" in
-    */*'#'*)
-      [ "${2:-}" = local-only ] && iss_usage_die "\`$op\`: this verb takes an issue number in the current repo"
-      nwo=${op%%#*}
-      num=${op#*#}
-      OP_OWNER=${nwo%%/*}
-      OP_REPO=${nwo#*/}
-      case "$OP_REPO" in */*|'') iss_usage_die "\`$op\` is not an issue reference (expected N, #N or owner/repo#N)" ;; esac
-      [ -n "$OP_OWNER" ] || iss_usage_die "\`$op\` is not an issue reference (expected N, #N or owner/repo#N)"
-      ;;
-    *)
-      num=${op#"$ISS_LINK_PREFIX"}
-      num=${num#'#'}
-      OP_OWNER=$ISS_OWNER
-      OP_REPO=$ISS_REPO
-      ;;
-  esac
-  iss_is_digits "$num" || iss_usage_die "\`$op\` is not an issue reference (expected N, #N or owner/repo#N)"
+  local op=$1 num bad
+  bad="\`$op\` is not an issue reference (expected N, #N or <repository>#N)"
+  num=${op#"$ISS_LINK_PREFIX"}
+  num=${num#'#'}
+  if iss_is_digits "$num"; then
+    OP_HOST=$ISS_HOST
+    OP_OWNER=$ISS_OWNER
+    OP_REPO=$ISS_REPO
+  else
+    case "$op" in ?*'#'*) ;; *) iss_usage_die "$bad" ;; esac
+    [ "${2:-}" = local-only ] && iss_usage_die "\`$op\`: this verb takes an issue number in the current repo"
+    num=${op#*'#'}
+    iss_is_digits "$num" || iss_usage_die "$bad"
+    iss_parse_repo "${op%%'#'*}"
+    OP_HOST=$RP_HOST
+    OP_OWNER=$RP_OWNER
+    OP_REPO=$RP_REPO
+  fi
   OP_NUMBER=$num
 }
 
-# Print an issue reference as #N in the current repo, owner/repo#N elsewhere.
+# iss_ref <host> <owner> <repo> <number>: an issue reference in the shortest
+# form the repository grammar resolves back to the same issue: #N in the
+# current repository, repo#N under its owner on its host, owner/repo#N on its
+# host, host/owner/repo#N on another.
 iss_ref() {
-  if [ "$(iss_lc "$1/$2")" = "$(iss_lc "$ISS_OWNER/$ISS_REPO")" ]; then
-    printf '#%s' "$3"
+  if ! iss_same_host "$1"; then
+    printf '%s/%s/%s#%s' "$1" "$2" "$3" "$4"
+  elif [ "$(iss_lc "$2")" != "$(iss_lc "$ISS_OWNER")" ]; then
+    printf '%s/%s#%s' "$2" "$3" "$4"
+  elif [ "$(iss_lc "$3")" != "$(iss_lc "$ISS_REPO")" ]; then
+    printf '%s#%s' "$3" "$4"
   else
-    printf '%s/%s#%s' "$1" "$2" "$3"
+    printf '#%s' "$4"
   fi
 }
 
-# Same, from a nameWithOwner string.
+# iss_ref_nwo <host> <nameWithOwner> <number>: the same, from the
+# nameWithOwner a GraphQL read on <host> returns.
 iss_ref_nwo() {
-  iss_ref "${1%%/*}" "${1#*/}" "$2"
+  iss_ref "$1" "${2%%/*}" "${2#*/}" "$3"
 }
 
 # ---------------------------------------------------------------------------
-# GraphQL.
+# The gh api wrappers, the only place this plugin calls `gh api`. Each takes
+# the host of the repository the call acts on first and passes it as
+# --hostname; an empty host leaves the call on gh's default host.
 # ---------------------------------------------------------------------------
 
-# iss_gql <gh api graphql args...>: runs the call and sets ISS_GQL_OUT and
-# ISS_GQL_ERR. Returns gh's exit status.
+# iss_rest <host> <gh api args...>: a REST call, stdout and stderr passed
+# through. Returns gh's exit status.
+iss_rest() {
+  local host=$1
+  shift
+  if [ -n "$host" ]; then
+    gh api --hostname "$host" "$@"
+  else
+    gh api "$@"
+  fi
+}
+
+# iss_gql <host> <gh api graphql args...>: a GraphQL call; sets ISS_GQL_OUT
+# and ISS_GQL_ERR. Returns gh's exit status.
 iss_gql() {
-  local errf rc
+  local host=$1 errf rc
+  shift
   errf=$(mktemp "${TMPDIR:-/tmp}/issues-gql.XXXXXX")
-  ISS_GQL_OUT=$(gh api graphql "$@" 2>"$errf")
+  if [ -n "$host" ]; then
+    ISS_GQL_OUT=$(gh api --hostname "$host" graphql "$@" 2>"$errf")
+  else
+    ISS_GQL_OUT=$(gh api graphql "$@" 2>"$errf")
+  fi
   rc=$?
   ISS_GQL_ERR=$(cat "$errf")
   rm -f "$errf"
@@ -570,26 +716,26 @@ iss_gql_fail() {
   iss_die "GitHub GraphQL call failed: ${ISS_GQL_ERR:-$ISS_GQL_OUT}"
 }
 
-# iss_lookup <owner> <repo> <number> <selection>: fetch one issue with the
-# given field selection, whose connections are spelled by iss_conn, and page
-# each of them to its end. Sets ISS_ISSUE to the issue object's JSON. Aborts
-# with the catalogue's not-found wording when the issue does not exist.
+# iss_lookup <host> <owner> <repo> <number> <selection>: fetch one issue with
+# the given field selection, whose connections are spelled by iss_conn, and
+# page each of them to its end. Sets ISS_ISSUE to the issue object's JSON.
+# Aborts with the catalogue's not-found wording when the issue does not exist.
 iss_lookup() {
   local doc
   doc="query(\$owner: String!, \$repo: String!, \$number: Int!) {
   repository(owner: \$owner, name: \$repo) {
-    issue(number: \$number) { $4 }
+    issue(number: \$number) { $5 }
   }
 }"
-  if ! iss_gql -f query="$doc" -f owner="$1" -f repo="$2" -F number="$3"; then
+  if ! iss_gql "$1" -f query="$doc" -f owner="$2" -f repo="$3" -F number="$4"; then
     if [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repository.issue == null' 2>/dev/null)" = true ]; then
-      iss_err_not_found "$1" "$2" "$3"
+      iss_err_not_found "$1" "$2" "$3" "$4"
     fi
     iss_gql_fail
   fi
   ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
-  [ "$ISS_ISSUE" != null ] || iss_err_not_found "$1" "$2" "$3"
-  iss_page_rest "$1" "$2" "$3"
+  [ "$ISS_ISSUE" != null ] || iss_err_not_found "$1" "$2" "$3" "$4"
+  iss_page_rest "$1" "$2" "$3" "$4"
 }
 
 # Same as iss_lookup, but returns 1 instead of aborting on not-found.
@@ -597,10 +743,10 @@ iss_try_lookup() {
   local doc
   doc="query(\$owner: String!, \$repo: String!, \$number: Int!) {
   repository(owner: \$owner, name: \$repo) {
-    issue(number: \$number) { $4 }
+    issue(number: \$number) { $5 }
   }
 }"
-  if ! iss_gql -f query="$doc" -f owner="$1" -f repo="$2" -F number="$3"; then
+  if ! iss_gql "$1" -f query="$doc" -f owner="$2" -f repo="$3" -F number="$4"; then
     if [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repository.issue == null' 2>/dev/null)" = true ]; then
       return 1
     fi
@@ -608,15 +754,15 @@ iss_try_lookup() {
   fi
   ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
   [ "$ISS_ISSUE" != null ] || return 1
-  iss_page_rest "$1" "$2" "$3"
+  iss_page_rest "$1" "$2" "$3" "$4"
 }
 
-# iss_page_rest <owner> <repo> <number>: page every connection in ISS_ISSUE,
-# and every project item's fieldValues, to its end, appending each later
-# page's nodes, so no read sees a truncated list.
+# iss_page_rest <host> <owner> <repo> <number>: page every connection in
+# ISS_ISSUE, and every project item's fieldValues, to its end, appending each
+# later page's nodes, so no read sees a truncated list.
 iss_page_rest() {
   local ref conn doc cursor page i item
-  ref=$(iss_ref "$1" "$2" "$3")
+  ref=$(iss_ref "$1" "$2" "$3" "$4")
   for conn in $(iss_jq 'to_entries[] | select((.value | type) == "object" and .value.pageInfo.hasNextPage? == true) | .key'); do
     doc="query(\$owner: String!, \$repo: String!, \$number: Int!, \$after: String!) {
   repository(owner: \$owner, name: \$repo) {
@@ -625,7 +771,7 @@ iss_page_rest() {
 }"
     while [ "$(iss_jq --arg c "$conn" ".[\$c].pageInfo.hasNextPage")" = true ]; do
       cursor=$(iss_jq --arg c "$conn" ".[\$c].pageInfo.endCursor")
-      iss_gql -f query="$doc" -f owner="$1" -f repo="$2" -F number="$3" -f after="$cursor" || iss_gql_fail
+      iss_gql "$1" -f query="$doc" -f owner="$2" -f repo="$3" -F number="$4" -f after="$cursor" || iss_gql_fail
       page=$(printf '%s' "$ISS_GQL_OUT" | jq -c --arg c "$conn" '.data.repository.issue[$c] // empty')
       [ -n "$page" ] || iss_die "the next page of \`$conn\` on issue \`$ref\` came back empty"
       ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" |
@@ -639,7 +785,7 @@ iss_page_rest() {
     item=$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].id")
     while [ "$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].fieldValues.pageInfo.hasNextPage")" = true ]; do
       cursor=$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].fieldValues.pageInfo.endCursor")
-      iss_gql -f query="$doc" -f item="$item" -f after="$cursor" || iss_gql_fail
+      iss_gql "$1" -f query="$doc" -f item="$item" -f after="$cursor" || iss_gql_fail
       page=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.node.fieldValues // empty')
       [ -n "$page" ] || iss_die "the next page of a project item's field values on issue \`$ref\` came back empty"
       ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" | jq -c --argjson i "$i" --argjson p "$page" \
@@ -828,22 +974,22 @@ $(iss_cfg_children fields "$slot" options)
 EOF
 }
 
-# iss_slot_write <slot> <owner> <repo> <number> <precheck>: write SLOT_VALUE
-# (from iss_slot_resolve) to the slot, then re-read it and abort when the
-# re-read does not show it. Sets SLOT_RESULT to "set" or, when <precheck> is
-# "precheck", the kind is not number, and the value was already there,
-# "noop"; a number slot is always written. Leaves the issue, with its url, in
-# ISS_ISSUE.
+# iss_slot_write <slot> <host> <owner> <repo> <number> <precheck>: write
+# SLOT_VALUE (from iss_slot_resolve) to the slot, then re-read it and abort
+# when the re-read does not show it. Sets SLOT_RESULT to "set" or, when
+# <precheck> is "precheck", the kind is not number, and the value was already
+# there, "noop"; a number slot is always written. Leaves the issue, with its
+# url, in ISS_ISSUE.
 iss_slot_write() {
-  local slot=$1 owner=$2 repo=$3 number=$4 precheck=$5
-  local kind=$SLOT_KIND sel current item issue_id fid oid ns add remove opt ref
-  ref=$(iss_ref "$owner" "$repo" "$number")
+  local slot=$1 host=$2 owner=$3 repo=$4 number=$5 precheck=$6
+  local kind=$SLOT_KIND sel current item issue_id fid oid ns add remove opt ref repo_arg
+  ref=$(iss_ref "$host" "$owner" "$repo" "$number")
   case "$kind" in
     number|single-select) sel="id url $ISS_SEL_PROJECT_ITEMS" ;;
     issue-field) sel="id url viewerCanSetFields $ISS_SEL_ISSUE_FIELDS" ;;
     label) sel="id url $ISS_SEL_LABELS" ;;
   esac
-  iss_lookup "$owner" "$repo" "$number" "$sel"
+  iss_lookup "$host" "$owner" "$repo" "$number" "$sel"
   issue_id=$(iss_jq .id)
   SLOT_RESULT='set'
 
@@ -864,16 +1010,16 @@ iss_slot_write() {
       fid=$(iss_cfg_get fields "$slot" id)
       item=$(iss_project_item)
       if [ -z "$item" ]; then
-        iss_gql -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" -f contentId="$issue_id" ||
-          iss_gql_fail
+        iss_gql "$host" -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" \
+          -f contentId="$issue_id" || iss_gql_fail
         item=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.addProjectV2ItemById.item.id')
       fi
       if [ "$kind" = number ]; then
-        iss_gql -f query="$ISS_DOC_SET_NUMBER" -f projectId="$(iss_cfg_get project-id)" \
+        iss_gql "$host" -f query="$ISS_DOC_SET_NUMBER" -f projectId="$(iss_cfg_get project-id)" \
           -f itemId="$item" -f fieldId="$fid" -F value="$SLOT_VALUE"
       else
         oid=$(iss_cfg_get fields "$slot" options "$SLOT_VALUE")
-        iss_gql -f query="$ISS_DOC_SET_SINGLE_SELECT" -f projectId="$(iss_cfg_get project-id)" \
+        iss_gql "$host" -f query="$ISS_DOC_SET_SINGLE_SELECT" -f projectId="$(iss_cfg_get project-id)" \
           -f itemId="$item" -f fieldId="$fid" -f optionId="$oid"
       fi || {
         iss_is_stale_id_error && iss_err_stale_project_field "$fid" "$(iss_cfg_get project-id)"
@@ -883,9 +1029,11 @@ iss_slot_write() {
     issue-field)
       fid=$(iss_cfg_get fields "$slot" field-id)
       oid=$(iss_cfg_get fields "$slot" options "$SLOT_VALUE")
-      iss_gql -f query="$ISS_DOC_SET_ISSUE_FIELD" -f issueId="$issue_id" -f fieldId="$fid" -f optionId="$oid" || {
+      iss_gql "$host" -f query="$ISS_DOC_SET_ISSUE_FIELD" -f issueId="$issue_id" -f fieldId="$fid" \
+        -f optionId="$oid" || {
         iss_is_stale_id_error &&
-          iss_err_stale_issue_field "$(iss_cfg_get fields "$slot" field-name)" "$fid" "$owner/$repo"
+          iss_err_stale_issue_field "$(iss_cfg_get fields "$slot" field-name)" "$fid" \
+            "$(iss_repo_name "$host" "$owner" "$repo")"
         iss_gql_fail
       }
       ;;
@@ -902,17 +1050,18 @@ $current
 EOF
       printf '%s\n' "$current" | grep -Fxq -- "$SLOT_VALUE" || add="$ns$SLOT_VALUE"
       remove=$(printf '%s' "$remove" | LC_ALL=C sort | awk 'NF' | paste -sd, -)
+      repo_arg=$(iss_repo_arg "$host" "$owner" "$repo")
       if [ -n "$add" ] && [ -n "$remove" ]; then
-        gh issue edit "$number" --repo "$owner/$repo" --add-label "$add" --remove-label "$remove" >/dev/null
+        gh issue edit "$number" --repo "$repo_arg" --add-label "$add" --remove-label "$remove" >/dev/null
       elif [ -n "$add" ]; then
-        gh issue edit "$number" --repo "$owner/$repo" --add-label "$add" >/dev/null
+        gh issue edit "$number" --repo "$repo_arg" --add-label "$add" >/dev/null
       elif [ -n "$remove" ]; then
-        gh issue edit "$number" --repo "$owner/$repo" --remove-label "$remove" >/dev/null
+        gh issue edit "$number" --repo "$repo_arg" --remove-label "$remove" >/dev/null
       fi || iss_die "\`gh issue edit\` failed on issue \`$ref\`"
       ;;
   esac
 
-  iss_lookup "$owner" "$repo" "$number" "$sel"
+  iss_lookup "$host" "$owner" "$repo" "$number" "$sel"
   current=$(iss_slot_read "$slot" "$kind")
   if [ "$kind" = number ]; then
     awk -v a="$current" -v b="$SLOT_VALUE" 'BEGIN { exit (a != "" && a + 0 == b + 0) ? 0 : 1 }' ||
@@ -939,8 +1088,8 @@ iss_set_slot_verb() {
   [ "$(iss_slot_kind "$slot")" != skip ] || iss_slot_unconfigured_exit "$slot"
   iss_parse_operand "$1" local-only
   iss_slot_resolve "$slot" "$2"
-  iss_slot_write "$slot" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" precheck
-  ref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+  iss_slot_write "$slot" "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" precheck
+  ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
   label=
   [ "$SLOT_KIND" = label ] && label=" (via label \`$(iss_cfg_get fields "$slot" namespace)$SLOT_VALUE\`)"
   if [ "$SLOT_RESULT" = noop ]; then
@@ -950,13 +1099,14 @@ iss_set_slot_verb() {
   fi
 }
 
-# iss_type_write <owner> <repo> <number> <issue-id> <type-id> <type-name>: set
-# the issue type, then re-read it and abort when the re-read does not show it.
+# iss_type_write <host> <owner> <repo> <number> <issue-id> <type-id>
+# <type-name>: set the issue type, then re-read it and abort when the re-read
+# does not show it.
 iss_type_write() {
-  iss_gql -f query="$ISS_DOC_SET_TYPE" -f issueId="$4" -f issueTypeId="$5" || iss_gql_fail
-  iss_lookup "$1" "$2" "$3" "issueType { id name }"
-  [ "$(iss_jq '.issueType.id // empty')" = "$5" ] ||
-    iss_err_write_not_landed type "$(iss_ref "$1" "$2" "$3")" "$6" "$(iss_jq '.issueType.name // "(none)"')"
+  iss_gql "$1" -f query="$ISS_DOC_SET_TYPE" -f issueId="$5" -f issueTypeId="$6" || iss_gql_fail
+  iss_lookup "$1" "$2" "$3" "$4" "issueType { id name }"
+  [ "$(iss_jq '.issueType.id // empty')" = "$6" ] ||
+    iss_err_write_not_landed type "$(iss_ref "$1" "$2" "$3" "$4")" "$7" "$(iss_jq '.issueType.name // "(none)"')"
 }
 
 # ---------------------------------------------------------------------------
@@ -972,22 +1122,22 @@ iss_type_write() {
 # side, with its url, in ISS_ISSUE. Returns 1 when the edge already was in the
 # requested state.
 iss_blocked_by_edge() {
-  local action=$1 side=$4 bo br bn xo xr xn blocked_id blocker_id side_sel list want present doc sref
-  iss_parse_operand "$2"; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
-  iss_parse_operand "$3"; xo=$OP_OWNER; xr=$OP_REPO; xn=$OP_NUMBER
-  EDGE_BLOCKED=$(iss_ref "$bo" "$br" "$bn")
-  EDGE_BLOCKER=$(iss_ref "$xo" "$xr" "$xn")
+  local action=$1 side=$4 bh bo br bn xh xo xr xn blocked_id blocker_id side_sel list want present doc sref
+  iss_parse_operand "$2"; bh=$OP_HOST; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
+  iss_parse_operand "$3"; xh=$OP_HOST; xo=$OP_OWNER; xr=$OP_REPO; xn=$OP_NUMBER
+  EDGE_BLOCKED=$(iss_ref "$bh" "$bo" "$br" "$bn")
+  EDGE_BLOCKER=$(iss_ref "$xh" "$xo" "$xr" "$xn")
   if [ "$side" = blocked ]; then
     list=blockedBy
-    iss_lookup "$xo" "$xr" "$xn" id; blocker_id=$(iss_jq .id)
+    iss_lookup "$xh" "$xo" "$xr" "$xn" id; blocker_id=$(iss_jq .id)
     side_sel="id url $(iss_conn blockedBy)"
-    iss_lookup "$bo" "$br" "$bn" "$side_sel"; blocked_id=$(iss_jq .id)
+    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"; blocked_id=$(iss_jq .id)
     want=$blocker_id
   else
     list=blocking
-    iss_lookup "$bo" "$br" "$bn" id; blocked_id=$(iss_jq .id)
+    iss_lookup "$bh" "$bo" "$br" "$bn" id; blocked_id=$(iss_jq .id)
     side_sel="id url $(iss_conn blocking)"
-    iss_lookup "$xo" "$xr" "$xn" "$side_sel"; blocker_id=$(iss_jq .id)
+    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"; blocker_id=$(iss_jq .id)
     want=$blocked_id
   fi
   present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
@@ -995,11 +1145,11 @@ iss_blocked_by_edge() {
     return 1
   fi
   if [ "$action" = add ]; then doc=$ISS_DOC_ADD_BLOCKED_BY; else doc=$ISS_DOC_REMOVE_BLOCKED_BY; fi
-  iss_gql -f query="$doc" -f issueId="$blocked_id" -f blockingIssueId="$blocker_id" || iss_gql_fail
+  iss_gql "$bh" -f query="$doc" -f issueId="$blocked_id" -f blockingIssueId="$blocker_id" || iss_gql_fail
   if [ "$side" = blocked ]; then
-    iss_lookup "$bo" "$br" "$bn" "$side_sel"; sref=$EDGE_BLOCKED
+    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"; sref=$EDGE_BLOCKED
   else
-    iss_lookup "$xo" "$xr" "$xn" "$side_sel"; sref=$EDGE_BLOCKER
+    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"; sref=$EDGE_BLOCKER
   fi
   present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
   if [ "$action" = add ] && [ "$present" != true ]; then
@@ -1015,14 +1165,14 @@ readonly ISS_SEL_PARENT='id url parent { id number url repository { nameWithOwne
 # iss_add_sub_issue <parent-operand> <child-operand>: the body of
 # /issue-set-parent and /issue-set-child. Prints the verb's output.
 iss_add_sub_issue() {
-  local po pr pn co cr cn parent_id parent_url child_id cur_id cur_num cur_nwo cref pref
-  iss_parse_operand "$1" local-only; po=$OP_OWNER; pr=$OP_REPO; pn=$OP_NUMBER
-  iss_parse_operand "$2" local-only; co=$OP_OWNER; cr=$OP_REPO; cn=$OP_NUMBER
-  pref=$(iss_ref "$po" "$pr" "$pn")
-  cref=$(iss_ref "$co" "$cr" "$cn")
-  iss_lookup "$po" "$pr" "$pn" "id url"
+  local ph po pr pn ch co cr cn parent_id parent_url child_id cur_id cur_num cur_nwo cref pref
+  iss_parse_operand "$1" local-only; ph=$OP_HOST; po=$OP_OWNER; pr=$OP_REPO; pn=$OP_NUMBER
+  iss_parse_operand "$2" local-only; ch=$OP_HOST; co=$OP_OWNER; cr=$OP_REPO; cn=$OP_NUMBER
+  pref=$(iss_ref "$ph" "$po" "$pr" "$pn")
+  cref=$(iss_ref "$ch" "$co" "$cr" "$cn")
+  iss_lookup "$ph" "$po" "$pr" "$pn" "id url"
   parent_id=$(iss_jq .id); parent_url=$(iss_jq .url)
-  iss_lookup "$co" "$cr" "$cn" "$ISS_SEL_PARENT"
+  iss_lookup "$ch" "$co" "$cr" "$cn" "$ISS_SEL_PARENT"
   child_id=$(iss_jq .id)
   cur_id=$(iss_jq '.parent.id // empty')
   if [ "$cur_id" = "$parent_id" ]; then
@@ -1032,24 +1182,24 @@ iss_add_sub_issue() {
   if [ -n "$cur_id" ]; then
     cur_num=$(iss_jq .parent.number)
     cur_nwo=$(iss_jq .parent.repository.nameWithOwner)
-    iss_die "issue \`$cref\` already has parent \`$(iss_ref_nwo "$cur_nwo" "$cur_num")\`; remove it first with \`/issue-unset-parent $cn\` before setting a new parent"
+    iss_die "issue \`$cref\` already has parent \`$(iss_ref_nwo "$ch" "$cur_nwo" "$cur_num")\`; remove it first with \`/issue-unset-parent $cn\` before setting a new parent"
   fi
-  iss_gql -f query="$ISS_DOC_ADD_SUB_ISSUE" -f parentId="$parent_id" -f childId="$child_id" || iss_gql_fail
-  iss_lookup "$co" "$cr" "$cn" "$ISS_SEL_PARENT"
+  iss_gql "$ch" -f query="$ISS_DOC_ADD_SUB_ISSUE" -f parentId="$parent_id" -f childId="$child_id" || iss_gql_fail
+  iss_lookup "$ch" "$co" "$cr" "$cn" "$ISS_SEL_PARENT"
   cur_id=$(iss_jq '.parent.id // empty')
   [ "$cur_id" = "$parent_id" ] || iss_err_write_not_landed "the parent" "$cref" "$pref" "${cur_id:-(none)}"
   printf 'Linked issue %s as a sub-issue of %s.\n%s\n' "$cref" "$pref" "$parent_url"
 }
 
-# iss_remove_sub_issue <owner> <repo> <child-number> <child-id> <parent-id>
-# <child-ref> <parent-ref>: remove the edge, then re-read the child and abort
-# when it still has that parent.
+# iss_remove_sub_issue <host> <owner> <repo> <child-number> <child-id>
+# <parent-id> <child-ref> <parent-ref>: remove the edge, then re-read the
+# child and abort when it still has that parent.
 iss_remove_sub_issue() {
   local cur_id
-  iss_gql -f query="$ISS_DOC_REMOVE_SUB_ISSUE" -f parentId="$5" -f childId="$4" || iss_gql_fail
-  iss_lookup "$1" "$2" "$3" "$ISS_SEL_PARENT"
+  iss_gql "$1" -f query="$ISS_DOC_REMOVE_SUB_ISSUE" -f parentId="$6" -f childId="$5" || iss_gql_fail
+  iss_lookup "$1" "$2" "$3" "$4" "$ISS_SEL_PARENT"
   cur_id=$(iss_jq '.parent.id // empty')
-  [ "$cur_id" != "$5" ] || iss_err_write_not_landed "the parent" "$6" "(none)" "$7"
+  [ "$cur_id" != "$6" ] || iss_err_write_not_landed "the parent" "$7" "(none)" "$8"
 }
 
 # ---------------------------------------------------------------------------
@@ -1071,14 +1221,14 @@ iss_user_config_get() {
   iss_fm_get "$fm" "$key" || return 3
 }
 
-# iss_default_assignee [global-only]: default-assignee from the repo-level
-# user-config, then the user-global one, then the authenticated gh user.
-# With global-only, the repo-level file is not consulted. Callers run it in a
-# command substitution and exit on a non-zero status, which is an abort
-# already reported on stderr.
+# iss_default_assignee <host> [global-only]: default-assignee from the
+# repo-level user-config, then the user-global one, then the user gh is
+# authenticated as on <host>. With global-only, the repo-level file is not
+# consulted. Callers run it in a command substitution and exit on a non-zero
+# status, which is an abort already reported on stderr.
 iss_default_assignee() {
-  local v rc
-  if [ "${1:-}" != global-only ] && [ -n "${ISS_REPO_ROOT:-}" ]; then
+  local host=$1 v rc
+  if [ "${2:-}" != global-only ] && [ -n "${ISS_REPO_ROOT:-}" ]; then
     v=$(iss_user_config_get "$ISS_REPO_ROOT/.issues/user-config.md" /user-config default-assignee)
     rc=$?
     [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || exit 1
@@ -1094,5 +1244,5 @@ iss_default_assignee() {
     printf '%s' "$v"
     return 0
   fi
-  gh api user --jq .login || iss_die "could not resolve the authenticated GitHub user with \`gh api user\`"
+  iss_rest "$host" user --jq .login || iss_die "could not resolve the authenticated GitHub user${host:+ on \`$host\`}"
 }

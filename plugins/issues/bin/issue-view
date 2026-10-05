@@ -38,7 +38,7 @@ list_section() {
     return
   fi
   printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r nwo number title; do
-    printf '  - %s %s\n' "$(iss_ref_nwo "$nwo" "$number")" "$title"
+    printf '  - %s %s\n' "$(iss_ref_nwo "$OP_HOST" "$nwo" "$number")" "$title"
   done
 }
 
@@ -72,9 +72,9 @@ slot_row() {
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-view <issue-number>"
 iss_init
 iss_parse_operand "$1" local-only
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
 
-printf '%s %s    (%s)\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$(iss_jq .title)" "$(iss_jq .state)"
+printf '%s %s    (%s)\n' "$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$(iss_jq .title)" "$(iss_jq .state)"
 iss_jq .url
 printf '\n'
 row Labels "$(iss_jq '[.labels.nodes[].name] | join(", ")')"
@@ -99,7 +99,7 @@ fi
 
 printf '\n'
 if [ "$(iss_jq '.parent != null')" = true ]; then
-  row Parent "$(iss_ref_nwo "$(iss_jq .parent.repository.nameWithOwner)" "$(iss_jq .parent.number)") $(iss_jq .parent.title)"
+  row Parent "$(iss_ref_nwo "$OP_HOST" "$(iss_jq .parent.repository.nameWithOwner)" "$(iss_jq .parent.number)") $(iss_jq .parent.title)"
 else
   row Parent ""
 fi

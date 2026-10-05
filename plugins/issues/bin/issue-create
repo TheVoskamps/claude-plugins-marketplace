@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # File one issue with its type, field slots, parent, assignees and labels set,
-# in this repo or, with --repo, in another. The type, slot and parent values
-# are validated before the issue is created; the type, parent, slot, assignee
-# and label writes are re-read after it. The contract is
+# in this repo or in the one a positional <repo> names. The type, slot and
+# parent values are validated before the issue is created; the type, parent,
+# slot, assignee and label writes are re-read after it. The contract is
 # plugins/issues/skills/issue-create/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage='usage: issue-create --title "..." --body-file PATH [--type T] [--labels a,b,c] [--assignee u1,u2]
-                    [--parent N] [--priority V] [--size V] [--status S] [--repo owner/repo]'
+usage='usage: issue-create [<repo>] --title "..." --body-file PATH [--type T] [--labels a,b,c] [--assignee u1,u2]
+                    [--parent N] [--priority V] [--size V] [--status S]'
 
 title=
 body_file=
@@ -18,6 +18,7 @@ labels=
 assignee_arg=
 parent_arg=
 target=
+target_set=no
 priority_arg=
 size_arg=
 status_arg=
@@ -26,10 +27,20 @@ size_set=no
 status_set=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --title|--body-file|--type|--labels|--assignee|--parent|--priority|--size|--status|--repo)
+    --title|--body-file|--type|--labels|--assignee|--parent|--priority|--size|--status)
       [ "$#" -ge 2 ] || iss_usage_die "$usage"
       ;;
-    *) iss_usage_die "$usage" ;;
+    --repo)
+      iss_usage_die "\`--repo\` is not an issue-create flag; name the repository as the first argument: issue-create <repo> --title \"...\" --body-file PATH"
+      ;;
+    -*) iss_usage_die "$usage" ;;
+    *)
+      [ "$target_set" = no ] || iss_usage_die "$usage"
+      target=$1
+      target_set=yes
+      shift
+      continue
+      ;;
   esac
   case "$1" in
     --title) title=$2 ;;
@@ -38,7 +49,6 @@ while [ "$#" -gt 0 ]; do
     --labels) labels=$2 ;;
     --assignee) assignee_arg=$2 ;;
     --parent) parent_arg=$2 ;;
-    --repo) target=$2 ;;
     --priority) priority_arg=$2; priority_set=yes ;;
     --size) size_arg=$2; size_set=yes ;;
     --status) status_arg=$2; status_set=yes ;;
@@ -54,27 +64,23 @@ iss_require_tools
 # ---------------------------------------------------------------------------
 
 no_target_config=no
-if [ -z "$target" ]; then
+if [ "$target_set" = no ]; then
   iss_load_config
   iss_current_repo
+  host=$ISS_HOST
   owner=$ISS_OWNER
   repo=$ISS_REPO
 else
-  iss_load_target_config "$target" || no_target_config=yes
-  owner=$ISS_TARGET_OWNER
-  repo=$ISS_TARGET_REPO
-  # The current repo only anchors a relative --body-file; its repo-config is
-  # never read, since the target's alone governs.
+  # The current repo anchors a relative --body-file, completes a target named
+  # without its host or owner, and decides how references print; its
+  # repo-config is never read, since the target's alone governs.
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ISS_REPO_ROOT=
-  # References print as #N for the current repo and owner/repo#N elsewhere,
-  # so the current repo is resolved when there is one.
-  if nwo=$(gh repo view --json owner,name --jq '.owner.login + "/" + .name' 2>/dev/null); then
-    ISS_OWNER=${nwo%%/*}
-    ISS_REPO=${nwo#*/}
-  else
-    ISS_OWNER=
-    ISS_REPO=
-  fi
+  iss_parse_repo "$target"
+  iss_try_current_repo || :
+  host=$RP_HOST
+  owner=$RP_OWNER
+  repo=$RP_REPO
+  iss_load_target_config "$host" "$owner" "$repo" || no_target_config=yes
 fi
 
 case "$body_file" in
@@ -166,17 +172,17 @@ if [ -n "$parent_arg" ]; then
   num=${parent_arg#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   iss_is_digits "$num" || iss_usage_die "\`--parent\` takes an issue number"
-  iss_lookup "$owner" "$repo" "$num" id
+  iss_lookup "$host" "$owner" "$repo" "$num" id
   parent_id=$(iss_jq .id)
-  parent_ref=$(iss_ref "$owner" "$repo" "$num")
+  parent_ref=$(iss_ref "$host" "$owner" "$repo" "$num")
 fi
 
 assignees=$assignee_arg
 if [ -z "$assignees" ] && [ "$no_target_config" = no ]; then
-  if [ -n "$target" ]; then
-    assignees=$(iss_default_assignee global-only) || exit 1
+  if [ "$target_set" = yes ]; then
+    assignees=$(iss_default_assignee "$host" global-only) || exit 1
   else
-    assignees=$(iss_default_assignee) || exit 1
+    assignees=$(iss_default_assignee "$host") || exit 1
   fi
 fi
 
@@ -197,33 +203,34 @@ on_exit() {
 trap on_exit EXIT
 step_done() { completed="${completed:+$completed, }$1"; }
 
-set -- issue create --repo "$owner/$repo" --title "$title" --body-file "$body_file"
+set -- issue create --repo "$(iss_repo_arg "$host" "$owner" "$repo")" --title "$title" \
+  --body-file "$body_file"
 [ -n "$labels" ] && set -- "$@" --label "$labels"
 [ -n "$assignees" ] && set -- "$@" --assignee "$assignees"
 out=$(gh "$@") || iss_die "\`gh issue create\` failed; no issue was created"
 created_url=$(printf '%s\n' "$out" | grep -o 'https://[^[:space:]]*/issues/[0-9][0-9]*' | tail -n 1)
 [ -n "$created_url" ] || iss_die "\`gh issue create\` printed no issue URL: $out"
 number=${created_url##*/}
-ref=$(iss_ref "$owner" "$repo" "$number")
+ref=$(iss_ref "$host" "$owner" "$repo" "$number")
 step_done create
 
-iss_lookup "$owner" "$repo" "$number" "id $ISS_SEL_PROJECT_ITEMS"
+iss_lookup "$host" "$owner" "$repo" "$number" "id $ISS_SEL_PROJECT_ITEMS"
 issue_id=$(iss_jq .id)
 
 if [ "$ISS_HAS_GP" = 1 ] && iss_cfg_get project-id >/dev/null 2>&1 && [ -z "$(iss_project_item)" ]; then
-  iss_gql -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" -f contentId="$issue_id" ||
-    iss_gql_fail
+  iss_gql "$host" -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" \
+    -f contentId="$issue_id" || iss_gql_fail
   step_done "added to project"
 fi
 
 if [ -n "$type_id" ]; then
-  iss_type_write "$owner" "$repo" "$number" "$issue_id" "$type_id" "$type_name"
+  iss_type_write "$host" "$owner" "$repo" "$number" "$issue_id" "$type_id" "$type_name"
   step_done "type"
 fi
 
 if [ -n "$parent_id" ]; then
-  iss_gql -f query="$ISS_DOC_ADD_SUB_ISSUE" -f parentId="$parent_id" -f childId="$issue_id" || iss_gql_fail
-  iss_lookup "$owner" "$repo" "$number" "$ISS_SEL_PARENT"
+  iss_gql "$host" -f query="$ISS_DOC_ADD_SUB_ISSUE" -f parentId="$parent_id" -f childId="$issue_id" || iss_gql_fail
+  iss_lookup "$host" "$owner" "$repo" "$number" "$ISS_SEL_PARENT"
   [ "$(iss_jq '.parent.id // empty')" = "$parent_id" ] ||
     iss_err_write_not_landed parent "$ref" "$parent_ref" "(none)"
   step_done "parent"
@@ -234,7 +241,7 @@ fi
 write_slot() {
   [ -n "$2" ] || return 0
   iss_slot_resolve "$1" "$2"
-  iss_slot_write "$1" "$owner" "$repo" "$number" always
+  iss_slot_write "$1" "$host" "$owner" "$repo" "$number" always
   step_done "$1"
 }
 write_slot priority "$priority_value"
@@ -258,7 +265,7 @@ EOF
 missing=
 missing_labels=
 if [ -n "$assignees" ] || [ -n "$labels" ]; then
-  iss_lookup "$owner" "$repo" "$number" "$(iss_conn assignees) $ISS_SEL_LABELS"
+  iss_lookup "$host" "$owner" "$repo" "$number" "$(iss_conn assignees) $ISS_SEL_LABELS"
 fi
 
 assignee_line="skipped: no --assignee passed and no built-in default applies"
@@ -292,7 +299,7 @@ printf '  assignee:   %s\n' "$assignee_line"
 [ -z "$labels" ] || printf '  labels:     %s\n' "$labels_line"
 [ -z "$parent_ref" ] || printf '  parent:     %s\n' "$parent_ref"
 if [ "$no_target_config" = yes ]; then
-  printf '\nnote: project fields skipped: %s has no %s.\n' "\`$owner/$repo\`" "\`.issues/repo-config.md\`"
+  printf '\nnote: project fields skipped: %s has no %s.\n' "\`$(iss_repo_name "$host" "$owner" "$repo")\`" "\`.issues/repo-config.md\`"
 fi
 [ -z "$warnings" ] || printf '\n%s' "$warnings"
 printf '\n%s\n' "$created_url"

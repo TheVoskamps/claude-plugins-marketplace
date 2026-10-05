@@ -43,8 +43,8 @@ them as well.
 A generator receives one of three briefs, and which one decides its
 whole workflow:
 
-- The **whole-PR brief** — `--pr`, `--issues`, `--branch`, `--owner`,
-  `--repo`, `--round`, and the documentation-paths line when the PR
+- The **whole-PR brief** — `--pr`, `--issues`, `--branch`, `--repo`,
+  `--round`, and the documentation-paths line when the PR
   changes a documentation file. The generator reads the whole diff and
   emits the full list.
 - The **delta brief** — the whole-PR brief plus `--delta-commits`.
@@ -53,7 +53,7 @@ whole workflow:
 - The **issues-only brief** — `--issues` and `--branch` **only**. No
   PR exists yet: `--branch` names the repo's default issue source
   branch rather than a PR head, and the brief carries no `--pr`,
-  `--owner`, `--repo`, `--round`, `--delta-commits` and no
+  `--repo`, `--round`, `--delta-commits` and no
   documentation-paths line, because none of those exists. The
   generator reads the issue bodies and that branch's tree, emits the
   acceptance-criterion theorems and the theorems the issues' design
@@ -116,11 +116,11 @@ whole workflow:
   `CONSEQUENCE-CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
-- `--owner <owner>` — the repository owner.
-- `--repo <repo>` — the repository name, separate from the owner.
+- `--repo <host>/<owner>/<repo>` — the PR's repository, its host
+  included.
 - `--round <n>` — the review round, as the reviewer numbers it.
 
-Those three say nothing about the claim, and **every** theorem agent
+Those two say nothing about the claim, and **every** theorem agent
 receives them, the generator included — on every brief but the
 issues-only one, which has no PR to key a path on. Each passes them
 straight back —

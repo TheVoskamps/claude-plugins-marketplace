@@ -45,12 +45,31 @@ gp_not_landed() {
 # gh's stderr has already reached ours; add the catalogue line naming
 # the call and exit 3. Call it as `out=$(gp_gh ...) || exit $?`, since
 # an exit inside a command substitution leaves only its subshell.
+#
+# A `gh api` call goes to gh's default host whatever host the checkout's
+# remote is on, so an `api` call here carries --hostname "$GP_HOST",
+# which a verb sets with gp_resolve_host before its first one. `gh pr`
+# takes the host from the remote and needs nothing.
 gp_gh() {
-  local rc=0
-  gh "$@" || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    gp_err_gh "$1 $2" "$rc"
+  local rc=0 call="$1 $2"
+  if [ "$1" = api ]; then
+    shift
+    gh api --hostname "$GP_HOST" "$@" || rc=$?
+  else
+    gh "$@" || rc=$?
   fi
+  if [ "$rc" -ne 0 ]; then
+    gp_err_gh "$call" "$rc"
+  fi
+}
+
+# gp_resolve_host -- set GP_HOST to the current repository's host, from
+# the URL `gh repo view` reports for it. Exits 3 when gh cannot say.
+gp_resolve_host() {
+  local url
+  url=$(gp_gh repo view --json url --jq .url) || exit $?
+  url=${url#https://}
+  GP_HOST=${url%%/*}
 }
 
 # gp_pr_number <arg> -- the PR number with any leading `#` stripped, or
@@ -75,7 +94,8 @@ gp_issue_number() {
 }
 
 # gp_repo_path <suffix> -- a REST path under the current repo, with
-# gh's own {owner}/{repo} placeholders left for gh to resolve.
+# gh's own {owner}/{repo} placeholders left for gh to resolve from the
+# checkout; the host is gp_gh's --hostname.
 gp_repo_path() {
   printf 'repos/{owner}/{repo}/%s\n' "$1"
 }

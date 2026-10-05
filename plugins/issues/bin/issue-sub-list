@@ -9,15 +9,15 @@ set -uo pipefail
 iss_init
 iss_parse_operand "$1" local-only
 
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title $(iss_conn subIssues)"
+iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title $(iss_conn subIssues)"
 title=$(iss_jq .title)
 lines=$(iss_jq '.subIssues.nodes[] | [.repository.nameWithOwner, (.number | tostring), .title] | join("\t")')
 
-printf 'Sub-issues of %s "%s":\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$title"
+printf 'Sub-issues of %s "%s":\n' "$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$title"
 if [ -z "$lines" ]; then
   printf '  (none)\n'
   exit 0
 fi
 printf '%s\n' "$lines" | while IFS="$(printf '\t')" read -r nwo number child_title; do
-  printf '  - %s %s\n' "$(iss_ref_nwo "$nwo" "$number")" "$child_title"
+  printf '  - %s %s\n' "$(iss_ref_nwo "$OP_HOST" "$nwo" "$number")" "$child_title"
 done
