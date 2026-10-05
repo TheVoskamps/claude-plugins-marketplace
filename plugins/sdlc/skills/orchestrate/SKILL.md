@@ -636,13 +636,12 @@ the PR's XDG state directory, and that is where you read them when you
 brief the human on a round or write a fixer brief:
 
 ```bash
-gh repo view --json url --jq .url
-
 sdlc-agent-result-persist --mode print-review \
   --repo <host>/<owner>/<repo> --pr <PR_N> --round <N>
 ```
 
-`--repo` is that URL less its `https://`, host included.
+Resolve `--repo` as `sdlc:agent-result-persist-interface` → "The
+identifying flags" says.
 
 The round that has just posted is numbered by the PR's current review
 count. A finding whose child report you need — the disprover's or the

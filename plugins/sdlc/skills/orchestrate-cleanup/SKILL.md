@@ -42,15 +42,10 @@ remote-tracking refs of branches already gone from `origin`.
 
 ## Process
 
-1. **Resolve the repo.**
-
-   ```bash
-   gh repo view --json url --jq .url
-   ```
-
-   The URL less its `https://` is `<host>/<owner>/<repo>`. If the call
-   fails, quote its error and stop: without it there is no state
-   directory to name.
+1. **Resolve the repo** — `<host>/<owner>/<repo>`, as
+   `sdlc:agent-result-persist-interface` → "The identifying flags"
+   says for `--repo`. If the call that resolves it fails, quote its
+   error and stop: without it there is no state directory to name.
 
 2. **List the PR directories.**
 
@@ -105,7 +100,7 @@ remote-tracking refs of branches already gone from `origin`.
    - **`mismatch`** — the file names another repository than the path
      does. The file wins: the directory holds that repository's state.
      Report the mismatch, both names quoted, and change nothing.
-   - **`old`** — a directory without `repo.yml`, from before the host
+   - **`old`** — a directory of the old layout, from before the host
      was part of the path, read as `<owner>/<repo>` by position. Ask
      the human which host that repository is on, offering
      `github.com`, one question per directory. On an answer, run

@@ -28,10 +28,9 @@ cheaply; read what it reports back rather than assuming the no-op.
 
 Once the PR is linked, and before `code-documenter` and the first
 reviewer spawn, write the ruled seed as round 0 — the PR number now
-exists to key the path on. Resolve `--repo` with
-`gh repo view --json url --jq .url`: it is the URL
-`https://<host>/<owner>/<repo>` less its `https://`, host included.
-Write the file with the Write tool to
+exists to key the path on. Resolve `--repo` as the
+`sdlc:agent-result-persist-interface` skill → "The identifying flags"
+says. Write the file with the Write tool to
 
 ```text
 <session-scratchpad>/pr<PR_N>-round0-records.md
