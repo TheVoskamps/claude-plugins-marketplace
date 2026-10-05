@@ -415,7 +415,7 @@ Round 0's seed is the one records file still stored whole, because it
 has nothing to carry.
 
 The generator reads the carried records out of the PR's state itself,
-on a delta round, with the owner, repo, PR and round its brief already
+on a delta round, with the repository, PR and round its brief already
 carries; no brief carries the records. An inline copy grew with every
 round, and a brief that outgrew its room handed the generator something
 other than the records verbatim — a reused id, a missed retirement, a
@@ -453,7 +453,7 @@ utilities, and reaching no network.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, then run the interim-work sweep; `--dry-run` reports the verdicts and the sweep's index, and deletes no review state and no indexed item | main session |
+| `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, identify every other repository's state directory from its `repo.yml` and move each old-layout one under the host the human names, then run the interim-work sweep; `--dry-run` reports the verdicts and the sweep's index, asks no host, and deletes no review state and no indexed item | main session |
 | `/sdlc:cleanup-interim-work [--index-only]` | Index what runs leave behind in this repo — `.claude/tmp/` scratch, the harness scratchpads, subagent worktrees, orphan `worktree-*` refs, nested worktrees, local and remote branches — grade each item, ask the human which to remove, and remove only those; `--index-only` prints the index and removes none of it | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
@@ -571,12 +571,14 @@ with `/cc-tools:agent-memory-inbox-capture`, each of them but
 `agent-memory-scrubber` commits what `/cc-tools:agent-memory-inbox-cleanup`
 transfers.
 
-Write `<round-dir>` for
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>`,
-the round's own directory:
+Write `<repo-dir>` for
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>`, the
+PR's repository's directory, and `<round-dir>` for
+`<repo-dir>/pr<pr>/round<round>`, the round's own directory:
 
 | File | What it holds |
 | ------- | --------------- |
+| `<repo-dir>/repo.yml` | the host, owner and name of the repository whose state the directory holds, written when the directory is created |
 | `<round-dir>/log` | the round log |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round carries forward — built by the script from the round below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
@@ -592,6 +594,27 @@ in-progress return, and equally a spawn from a later session, such as
 `agents/theorem-based-pr-reviewer.md` → "Read the round log, then
 anchor the round", which it runs on every spawn; no caller looks for
 the log on its behalf.
+
+The host keys the path above the owner because one machine holds state
+for repositories on several GitHub hosts, and the same `owner/repo` on
+two of them is two repositories. Every caller hands the script the PR's
+repository as one `--repo <host>/<owner>/<repo>` value, resolved from
+the URL `gh repo view` reports for the checkout, and a value without a
+host is refused. The directory's `repo.yml` is what identifies it, not
+its path: a reader that derived the repository from segment position
+would misread the directory the next time a segment was added, and
+where the file and the path disagree the file wins. State written
+before the host was part of the path, at `sdlc/<owner>/<repo>/`, is
+moved lazily — the first run of the script for that repository moves it
+into place, host from `--repo`, and writes its `repo.yml`, so no host is
+guessed and no network call is made. The script's `--mode repos` lists
+every repository directory under the state root as its `repo.yml` names
+it, and a directory of the old layout, which has none, as such; it is
+how `/sdlc:orchestrate-cleanup` finds state
+for repositories other than the current one, and asks the human for the
+host of each old-layout directory rather than assuming one. The
+identifying flags, `repo.yml`, the move and the mode are owned by
+`skills/agent-result-persist-interface/SKILL.md`.
 
 The `enter` record also carries a path outside that directory,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
