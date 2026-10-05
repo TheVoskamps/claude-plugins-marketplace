@@ -177,8 +177,7 @@ given, and step 7.
 
    The list never travels on the command line, in a heredoc or
    otherwise; the preloaded `sdlc:agent-result-persist-interface` skill
-   → "The payload: `--from <path>`, or stdin" says why, and why the file
-   name carries the PR, the stage, the theorem column and the agent.
+   → "The payload: `--from <path>`, or stdin" says why.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness
