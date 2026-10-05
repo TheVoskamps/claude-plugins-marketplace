@@ -495,7 +495,6 @@ iss_try_current_repo() {
 # host resolves the current repository with iss_try_current_repo. With no
 # current repository, repo is a usage error and owner/repo gets the empty
 # host.
-# shellcheck disable=SC2034 # RP_* are the output, read by the scripts.
 iss_parse_repo() {
   local ref=$1 rest bad
   bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"

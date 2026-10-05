@@ -166,8 +166,7 @@ gh repo view --json url --jq .url
 /github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
 ```
 
-The first gives `--repo`: the URL `https://<host>/<owner>/<repo>` less
-its `https://`, host included; `--pr` is the PR under review;
+The first resolves `--repo`; `--pr` is the PR under review;
 `--round` is that review count **plus one**, so a first round is `1`.
 Your own review lands only at "Post one review", so the count holds
 across the round. Resolving them is what reaches the log, on the terms

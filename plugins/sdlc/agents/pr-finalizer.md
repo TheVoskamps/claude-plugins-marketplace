@@ -160,8 +160,8 @@ into a brief.
 2. **Read the review rounds out of state.** Each round wrote its
    argued review — verdicts, findings, counterexamples and all — to a
    file of its own, and the last round to reach disposition wrote the
-   run's theorem records. Resolve `--repo` — the URL below less its
-   `https://`, host included — then walk the rounds from 1 upward:
+   run's theorem records. Resolve `--repo` from the URL below, then walk
+   the rounds from 1 upward:
 
    ```bash
    gh repo view --json url --jq .url
