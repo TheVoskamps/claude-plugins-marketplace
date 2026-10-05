@@ -82,6 +82,9 @@ removes the file, so a name missing the round would leave an earlier
 round of the same PR in the same session holding the path a later
 round's child stages at.
 
+If Write refuses because a file already exists at that path, Read it,
+then Write again.
+
 - A `--from` path that is not an existing file is refused, non-zero,
   with a message naming the path, before anything is written.
 - A `--from` file that exists but cannot be read is refused, non-zero,
