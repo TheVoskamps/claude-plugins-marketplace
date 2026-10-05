@@ -52,8 +52,8 @@ new_case() {
   export XDG_STATE_HOME="$CASE/state"
 }
 
-# persist <args...>: runs the script against PR 7 of h.example/o/r, leaving the
-# exit status in RC and stderr in ERR.
+# persist <args...>: runs the script against PR 7 of h.example/o/r,
+# leaving the exit status in RC and stderr in ERR.
 persist() {
   "$PERSIST" --repo h.example/o/r --pr 7 "$@" >/dev/null 2>"$CASE/err" </dev/null
   RC=$?

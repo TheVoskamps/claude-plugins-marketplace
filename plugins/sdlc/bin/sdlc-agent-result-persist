@@ -8,9 +8,9 @@
 # for and deletes one PR's state whole, which is the only way any of it
 # is ever removed, and lists the repositories the state root holds.
 #
-# Every path is composed here and nowhere else — the round log, each
-# result file, the records file, the review file, and each child's
-# harness transcript — so no agent ever opens one of these files by a
+# Every path is composed here and nowhere else — the repository's
+# repo.yml, the round log, each result file, the records file, the
+# review file, and each child's harness transcript — so no agent ever opens one of these files by a
 # path string of its own, to mistype or to carry across a turn
 # boundary. An agent that names the state root in prose, to point a
 # human at the directory, is doing something else.
