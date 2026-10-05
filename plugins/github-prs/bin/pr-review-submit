@@ -87,6 +87,7 @@ fi
 wanted="$line
 
 $text"
+gp_resolve_host
 
 reviews_path=$(gp_repo_path "pulls/$pr/reviews")
 # The id of the newest review on the PR, whoever left it, or nothing.

@@ -19,6 +19,7 @@ pr=$(gp_pr_number "$1") || exit $?
 body_file=$3
 [ -f "$body_file" ] && [ -r "$body_file" ] ||
   gp_err_unreadable "$body_file"
+gp_resolve_host
 
 url=$(gp_gh pr comment "$pr" --body-file "$body_file") || exit $?
 
