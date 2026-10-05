@@ -125,7 +125,8 @@ is_old_layout() {
 }
 
 # repos reads across every repository the state root holds, so it takes
-# no identifying flag, and it reads each repository from its repo.yml.
+# no identifying flag. It reads each repository from its repo.yml, and
+# names a directory of the old layout, which has none, by its path.
 if [ "$mode" = repos ]; then
   for pair in "repo:$repo_ref" "pr:$pr" "round:$round"; do
     [ -z "${pair#*:}" ] || die "--${pair%%:*} is not accepted in --mode repos: ${pair#*:}"
@@ -593,9 +594,10 @@ build_carried_records() {
 
 migrate_old_layout
 
-# Every mode that writes writes into the same directory; the reading
-# modes and delete create nothing, and neither does a refused carry,
-# which creates the directory only once its file is built.
+# Every mode that writes writes into the same directory, with its
+# repo.yml; past migrate_old_layout's move, the reading modes and delete
+# create nothing, and neither does a refused carry, which creates the
+# directory only once its file is built.
 make_dir() {
   mkdir -p "$dir"
   write_repo_yml
