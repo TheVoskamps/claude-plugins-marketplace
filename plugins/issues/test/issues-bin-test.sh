@@ -691,6 +691,27 @@ expect "issue-set-blocked-by: a repo under another owner prints as owner/repo#N"
 run issue-set-blocked-by 4 acme/other#99
 expect "issue-set-blocked-by: operand not found names its repo" 1 "issue \`#99\` not found in \`acme/other\`"
 
+# A printed reference is accepted back as an operand, in each of its forms.
+run issue-set-blocked-by 4 other#3
+expect "issue-set-blocked-by: a printed repo#N operand" 0 "Marked issue #4 as blocked by other#3."
+run issue-unset-blocks other#3 4
+expect "issue-unset-blocks: a printed repo#N operand" 0 "issue other#3 no longer blocks #4."
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create ghe.example.com/corp/tools --title "Elsewhere" --body-file new.md
+expect "issue-create: an issue on another host" 0 "Created issue ghe.example.com/corp/tools#1 \"Elsewhere\""
+run issue-unset-blocked-by 4 ghe.example.com/corp/tools#1
+expect "issue-unset-blocked-by: a printed host/owner/repo#N operand" 0 \
+  "Issue #4 is not blocked by ghe.example.com/corp/tools#1; no change."
+run issue-unset-blocks https://ghe.example.com/corp/tools#1 4
+expect "issue-unset-blocks: a URL-form operand reaches its host" 0 "ghe.example.com/corp/tools#1"
+run issue-view other#3
+expect "issue-view: a repo#N operand is refused" 2 "\`other#3\`: this verb takes an issue number in the current repo"
+run issue-set-blocked-by 4 'other#x'
+expect "issue-set-blocked-by: a non-numeric issue part is a usage error" 2 \
+  "\`other#x\` is not an issue reference (expected N, #N or <repository>#N)"
+run issue-set-blocked-by 4 'a/b/c/d#3'
+expect "issue-set-blocked-by: a malformed repository part is a usage error" 2 "\`a/b/c/d\` is not a repository"
+
 # ---------------------------------------------------------------------------
 # Comment, close, update.
 # ---------------------------------------------------------------------------

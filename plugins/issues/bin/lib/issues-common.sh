@@ -449,13 +449,20 @@ iss_split_url() {
   URL_REPO=${rest#*/}
 }
 
-# iss_current_repo: resolve the current repository with `gh repo view`, which
-# takes the host from the checkout's remote. Sets ISS_HOST, ISS_OWNER and
-# ISS_REPO, and aborts when it cannot.
-iss_current_repo() {
+# iss_view_current_repo: the one `gh repo view` call, which takes the host
+# from the checkout's remote. Sets URL_HOST, URL_OWNER and URL_REPO; returns 1
+# when gh cannot resolve the repository, gh's stderr passed through.
+iss_view_current_repo() {
   local url
-  { url=$(gh repo view --json url --jq .url) && iss_split_url "$url"; } ||
+  url=$(gh repo view --json url --jq .url) && iss_split_url "$url"
+}
+
+# iss_current_repo: resolve the current repository. Sets ISS_HOST, ISS_OWNER
+# and ISS_REPO, and aborts when it cannot.
+iss_current_repo() {
+  iss_view_current_repo ||
     iss_die "could not resolve the current GitHub repository with \`gh repo view\`"
+  ISS_CURRENT_TRIED=yes
   ISS_HOST=$URL_HOST
   ISS_OWNER=$URL_OWNER
   ISS_REPO=$URL_REPO
@@ -464,10 +471,9 @@ iss_current_repo() {
 # iss_try_current_repo: the same, for a verb that also runs where there is no
 # current repository. Outside a git checkout, or where gh cannot resolve the
 # checkout's repository, it leaves ISS_HOST, ISS_OWNER and ISS_REPO empty and
-# returns 1; outside a checkout it makes no gh call. Only the first call in a
-# run resolves anything; a later one returns its answer.
+# returns 1; outside a checkout it makes no gh call. Only the first resolution
+# in a run, by either function, calls gh; a later call returns its answer.
 iss_try_current_repo() {
-  local url
   if [ -n "${ISS_CURRENT_TRIED:-}" ]; then
     [ -n "$ISS_OWNER" ]
     return
@@ -477,7 +483,7 @@ iss_try_current_repo() {
   ISS_OWNER=
   ISS_REPO=
   git rev-parse --show-toplevel >/dev/null 2>&1 || return 1
-  { url=$(gh repo view --json url --jq .url 2>/dev/null) && iss_split_url "$url"; } || return 1
+  iss_view_current_repo 2>/dev/null || return 1
   ISS_HOST=$URL_HOST
   ISS_OWNER=$URL_OWNER
   ISS_REPO=$URL_REPO
@@ -623,30 +629,29 @@ EOF
 # ---------------------------------------------------------------------------
 
 # iss_parse_operand <operand> [local-only]: sets OP_HOST, OP_OWNER, OP_REPO,
-# OP_NUMBER from N, #N or owner/repo#N, each on the current repository's
-# host; N may also carry the repo-config's issue-link-prefix. With
-# local-only, the owner/repo#N form is a usage error.
+# OP_NUMBER from N or #N in the current repository, N optionally carrying the
+# repo-config's issue-link-prefix, or from <repository>#N with its repository
+# part in any form iss_parse_repo takes, so every reference iss_ref prints is
+# accepted back. With local-only, the <repository>#N form is a usage error.
 iss_parse_operand() {
-  local op=$1 nwo num
-  OP_HOST=$ISS_HOST
-  case "$op" in
-    */*'#'*)
-      [ "${2:-}" = local-only ] && iss_usage_die "\`$op\`: this verb takes an issue number in the current repo"
-      nwo=${op%%#*}
-      num=${op#*#}
-      OP_OWNER=${nwo%%/*}
-      OP_REPO=${nwo#*/}
-      case "$OP_REPO" in */*|'') iss_usage_die "\`$op\` is not an issue reference (expected N, #N or owner/repo#N)" ;; esac
-      [ -n "$OP_OWNER" ] || iss_usage_die "\`$op\` is not an issue reference (expected N, #N or owner/repo#N)"
-      ;;
-    *)
-      num=${op#"$ISS_LINK_PREFIX"}
-      num=${num#'#'}
-      OP_OWNER=$ISS_OWNER
-      OP_REPO=$ISS_REPO
-      ;;
-  esac
-  iss_is_digits "$num" || iss_usage_die "\`$op\` is not an issue reference (expected N, #N or owner/repo#N)"
+  local op=$1 num bad
+  bad="\`$op\` is not an issue reference (expected N, #N or <repository>#N)"
+  num=${op#"$ISS_LINK_PREFIX"}
+  num=${num#'#'}
+  if iss_is_digits "$num"; then
+    OP_HOST=$ISS_HOST
+    OP_OWNER=$ISS_OWNER
+    OP_REPO=$ISS_REPO
+  else
+    case "$op" in ?*'#'*) ;; *) iss_usage_die "$bad" ;; esac
+    [ "${2:-}" = local-only ] && iss_usage_die "\`$op\`: this verb takes an issue number in the current repo"
+    num=${op#*'#'}
+    iss_is_digits "$num" || iss_usage_die "$bad"
+    iss_parse_repo "${op%%'#'*}"
+    OP_HOST=$RP_HOST
+    OP_OWNER=$RP_OWNER
+    OP_REPO=$RP_REPO
+  fi
   OP_NUMBER=$num
 }
 

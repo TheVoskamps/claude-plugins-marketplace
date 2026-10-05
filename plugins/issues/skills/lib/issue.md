@@ -340,8 +340,10 @@ against the tracker block:
 `unset-child P C` on a child whose parent is not `P` is a no-op, since
 the end state already holds.
 
-An operand of a blocked-by verb may be `N`, `#N`, or `owner/repo#N`.
-The last form is GitHub-only, because a Jira key is already globally
+An operand of a blocked-by verb may be `N`, `#N`, or `<repository>#N`
+with the repository in any form "Repositories and issue references"
+lists, so every printed reference is accepted back. The last form is
+GitHub-only, because a Jira key is already globally
 unique: under `issues: Jira` it aborts with the "Cross-repo operand
 under Jira" wording below, before the "Preconditions" run and so before
 any `acli` call.
