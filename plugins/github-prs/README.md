@@ -336,6 +336,13 @@ leaves nothing for the next one to trip on. The primary clone's
 conflicts and nothing else; what to do about each is the caller's to
 decide.
 
+The hunks carry a merge's side labels: `<<<<<<< HEAD` is the PR's
+head and the lower side is the base. A caller that remedies by
+rebasing sees them inverted, since during a rebase `HEAD` is the base
+and the lower side is the branch commit being replayed. Resolve a
+rebase stop by content, never by the side label this report showed —
+keeping "the HEAD side" there drops the branch's change.
+
 ### `/pr-link-issue <PR> <issue>…`
 
 Set-idempotent verify/append. Asks `/pr-closing-issues` what the body
