@@ -1,6 +1,6 @@
 ---
 name: issue-field-options
-description: Report a slot's configured kind, default, and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named — in this repo or, with --repo, in another. Read-only.
+description: Report a slot's configured kind, default, and options, or range bounds for a number slot (status, priority, size, or any configured slot), or every slot's when none is named — in this repo or, named positionally, in another. Read-only.
 ---
 
 Report what repo-config says a field slot accepts: its `kind:`, its
@@ -12,19 +12,28 @@ brings, and says nothing about which names exist.
 ## Invocation
 
 ```text
-/issue-field-options [<slot>] [--repo owner/repo]
+/issue-field-options                   every slot, current repository
+/issue-field-options <slot>            one slot, current repository
+/issue-field-options <repo> <slot>     one slot, that repository
+/issue-field-options [<repo>] --all    every slot, the current or that repository
 ```
 
-- `<slot>` (optional): a key under the tracker block's `fields:` map —
-  `status`, `priority`, `size`, or any other slot the repo declares.
-  Matched case-insensitively against the configured keys. With a slot,
-  report that slot only; without one, report every slot under
-  `fields:`, in the order the keys appear in the file.
-- `--repo` (optional): report `owner/repo`'s slots instead of the
-  current repo's. The script reads that repo's `.issues/repo-config.md`
-  from its default branch and reads nothing from the current repo's
-  repo-config. A target with no repo-config reports every slot as
-  unconfigured; a target at an unsupported schema-version aborts.
+- `<slot>`: a key under the tracker block's `fields:` map — `status`,
+  `priority`, `size`, or any other slot the repo declares. Matched
+  case-insensitively against the configured keys. Every slot is
+  reported in the order the keys appear in the file.
+- `<repo>`: report this repository's slots instead of the current
+  one's, written in any form `skills/lib/issue.md` → "Repositories and
+  issue references" lists. The script reads that repo's
+  `.issues/repo-config.md` from its default branch and reads nothing
+  from the current repo's repo-config. A target with no repo-config
+  reports every slot as unconfigured; a target at an unsupported
+  schema-version aborts.
+
+Without `--all`, one positional is a slot and two are `<repo> <slot>`.
+With `--all`, at most one positional is accepted and it is the
+repository; `--all` with a slot is a usage error. There is no `--repo`
+flag; passing one is a usage error.
 
 ## Execution
 
@@ -32,11 +41,12 @@ Run the `issue-field-options` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-field-options [<slot>] [--repo <owner/repo>]
+issue-field-options [[<repo>] <slot>]
+issue-field-options [<repo>] --all
 ```
 
-Without `--repo` it reads only `.issues/repo-config.md` and makes no
-`gh` call; with it, its one `gh` call reads the target's repo-config.
+Without a `<repo>` it reads only `.issues/repo-config.md` and makes no
+`gh` call; with one, it reads the target's repo-config through `gh`.
 Either way it works without a project board and writes nothing. Print
 its stdout as it stands; on a non-zero exit, relay its stderr verbatim
 and stop.
@@ -84,8 +94,8 @@ With no slot named and no tracker block, the whole output is
 ## Jira backend
 
 The script reads the `github-project:` block only. Under
-`issues: Jira` — in the repo-config it reads, the target's under
-`--repo` — it exits non-zero with its fixed Jira message; read the
+`issues: Jira` — in the repo-config it reads, the target's when a
+`<repo>` is named — it exits non-zero with its fixed Jira message; read the
 `jira:` block of that `.issues/repo-config.md` instead — its `fields:`
 map has the same shape (`skills/lib/repo-config.md` → "`jira:` block") —
 and render the same output from it. Nothing here needs `acli`.

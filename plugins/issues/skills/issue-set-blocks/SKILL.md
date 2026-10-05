@@ -43,8 +43,8 @@ Marked issue <N> as blocking <B>.
 ```
 
 The no-op prints `Issue <N> already blocks <B>; no change.` and exits
-zero. An issue prints as `#<N>` in the current repo and as
-`owner/repo#N` in another.
+zero. An issue reference prints as
+`skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend
 

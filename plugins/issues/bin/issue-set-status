@@ -12,5 +12,5 @@ iss_init
 [ "$(iss_slot_kind status)" != skip ] || iss_slot_unconfigured_exit status
 iss_parse_operand "$1" local-only
 iss_slot_resolve status "$2"
-iss_slot_write status "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" always
-printf 'Set status on issue %s to %s.\n%s\n' "$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$SLOT_VALUE" "$(iss_jq .url)"
+iss_slot_write status "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" always
+printf 'Set status on issue %s to %s.\n%s\n' "$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$SLOT_VALUE" "$(iss_jq .url)"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Report what repo-config says a field slot accepts and defaults to, or every
-# slot's when none is named — this repo's, or with --repo another's. Only
-# --repo makes a gh call. The contract is
+# slot's when none is named — this repo's, or the one a positional <repo>
+# names. Only a named repo makes a gh call. The contract is
 # plugins/issues/skills/issue-field-options/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
@@ -46,32 +46,54 @@ report() {
   esac
 }
 
-usage='usage: issue-field-options [<slot>] [--repo owner/repo]'
-slot=
-slot_set=no
-target=
+usage='usage: issue-field-options [[<repo>] <slot>]
+       issue-field-options [<repo>] --all'
+all=no
+positionals=0
+first_arg=
+second_arg=
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --all) all=yes ;;
     --repo)
-      [ "$#" -ge 2 ] && [ -z "$target" ] || iss_usage_die "$usage"
-      target=$2
-      shift 2
+      iss_usage_die "\`--repo\` is not an issue-field-options flag; name the repository positionally: issue-field-options <repo> <slot>, or issue-field-options <repo> --all"
       ;;
     -*) iss_usage_die "$usage" ;;
     *)
-      [ "$slot_set" = no ] || iss_usage_die "$usage"
-      slot=$1
-      slot_set=yes
-      shift
+      positionals=$((positionals + 1))
+      case "$positionals" in
+        1) first_arg=$1 ;;
+        2) second_arg=$1 ;;
+        *) iss_usage_die "$usage" ;;
+      esac
       ;;
   esac
+  shift
 done
 
-if [ -z "$target" ]; then
+# Without --all, one positional is a slot and two are <repo> <slot>; with it,
+# the one positional it accepts is the repository.
+target=
+target_set=no
+slot=
+slot_set=no
+if [ "$all" = yes ]; then
+  [ "$positionals" -le 1 ] ||
+    iss_usage_die "\`--all\` reports every slot, so it takes no slot; $usage"
+  [ "$positionals" -eq 0 ] || { target=$first_arg; target_set=yes; }
+else
+  case "$positionals" in
+    1) slot=$first_arg; slot_set=yes ;;
+    2) target=$first_arg; target_set=yes; slot=$second_arg; slot_set=yes ;;
+  esac
+fi
+
+if [ "$target_set" = no ]; then
   iss_load_config
 else
+  iss_parse_repo "$target"
   # A target with no repo-config leaves every slot unconfigured.
-  iss_load_target_config "$target" || :
+  iss_load_target_config "$RP_HOST" "$RP_OWNER" "$RP_REPO" || :
 fi
 
 if [ "$slot_set" = yes ]; then

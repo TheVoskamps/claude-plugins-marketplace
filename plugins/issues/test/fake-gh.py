@@ -9,6 +9,12 @@ $FAKE_GH_DROP_WRITES=1 every write reports success and changes nothing, which
 is how a test drives a script's re-read check. `issue create` is the one
 exception: the issue itself is still created, without its labels or
 assignees, so a script can reach the writes that follow it.
+
+Each repo lives on a host, its "host" key, github.com when absent. As gh
+does, a call reaches the host its `--hostname` (for `gh api`) or a
+host/owner/repo `--repo` (for `gh issue`) names, and github.com when it names
+none; a repo or node looked up on another host than its own does not
+resolve.
 """
 import base64
 import json
@@ -17,6 +23,7 @@ import re
 import sys
 
 STATE_PATH = os.environ["FAKE_GH_STATE"]
+DEFAULT_HOST = "github.com"
 
 
 def load():
@@ -51,6 +58,10 @@ def all_issues(state):
             yield nwo, issue
 
 
+def host_of(state, nwo):
+    return state["repos"][nwo].get("host", DEFAULT_HOST)
+
+
 def by_id(state, node_id):
     for nwo, issue in all_issues(state):
         if issue["id"] == node_id:
@@ -65,12 +76,16 @@ def by_number(state, nwo, number):
     return repo["issues"].get(str(number))
 
 
-def brief(nwo, issue):
+def issue_url(state, nwo, number):
+    return "https://%s/%s/issues/%d" % (host_of(state, nwo), nwo, number)
+
+
+def brief(state, nwo, issue):
     return {
         "id": issue["id"],
         "number": issue["number"],
         "title": issue["title"],
-        "url": "https://github.com/%s/issues/%d" % (nwo, issue["number"]),
+        "url": issue_url(state, nwo, issue["number"]),
         "repository": {"nameWithOwner": nwo},
     }
 
@@ -113,10 +128,10 @@ def render(state, nwo, issue, query, after=None):
     parent = None
     if issue.get("parent"):
         pnwo, p = by_id(state, issue["parent"])
-        parent = brief(pnwo, p)
-    children = [brief(n, i) for n, i in all_issues(state) if i.get("parent") == issue["id"]]
-    blocked_by = [brief(*by_id(state, b)) for b in issue.get("blockedBy", [])]
-    blocking = [brief(n, i) for n, i in all_issues(state) if issue["id"] in i.get("blockedBy", [])]
+        parent = brief(state, pnwo, p)
+    children = [brief(state, n, i) for n, i in all_issues(state) if i.get("parent") == issue["id"]]
+    blocked_by = [brief(state, *by_id(state, b)) for b in issue.get("blockedBy", [])]
+    blocking = [brief(state, n, i) for n, i in all_issues(state) if issue["id"] in i.get("blockedBy", [])]
     items = [{"id": item["id"], "project": {"id": item["project"]},
               "fieldValues": paginate(query, "fieldValues", field_values(item), None)}
              for item in issue.get("projectItems", [])]
@@ -125,7 +140,7 @@ def render(state, nwo, issue, query, after=None):
     issue_type = None
     if issue.get("issueType"):
         issue_type = {"id": issue["issueType"], "name": state["issueTypes"][issue["issueType"]]}
-    out = brief(nwo, issue)
+    out = brief(state, nwo, issue)
     out.update({
         "state": issue.get("state", "OPEN"),
         "body": issue.get("body", ""),
@@ -183,7 +198,7 @@ def csv(value):
 # ---------------------------------------------------------------------------
 
 
-def graphql(state, args):
+def graphql(state, host, args):
     fields = {}
     i = 0
     while i < len(args):
@@ -199,9 +214,9 @@ def graphql(state, args):
     # A query carrying $item is the node query that pages one project item's
     # fieldValues; every other query addresses an issue by owner/repo/number.
     if not mutation and "item" in fields:
-        for _, issue in all_issues(state):
+        for inwo, issue in all_issues(state):
             for item in issue["projectItems"]:
-                if item["id"] == fields["item"]:
+                if item["id"] == fields["item"] and host_of(state, inwo) == host:
                     page = paginate(query, "fieldValues", field_values(item), fields.get("after"))
                     print(json.dumps({"data": {"node": {"fieldValues": page}}}))
                     return
@@ -209,6 +224,10 @@ def graphql(state, args):
 
     if not mutation:
         nwo = fields["owner"] + "/" + fields["repo"]
+        if not repo_on(state, nwo, host):
+            fail("Could not resolve to a Repository with the name '%s'." % nwo,
+                 {"data": {"repository": None},
+                  "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a Repository"}]})
         issue = by_number(state, nwo, fields["number"])
         if issue is None:
             fail("Could not resolve to an Issue with the number of %s." % fields["number"],
@@ -221,7 +240,7 @@ def graphql(state, args):
 
     def node(key):
         nwo, issue = by_id(state, fields[key])
-        if issue is None:
+        if issue is None or host_of(state, nwo) != host:
             fail("Could not resolve to a node with the global id of '%s'" % fields[key])
         return nwo, issue
 
@@ -236,9 +255,9 @@ def graphql(state, args):
         if fid not in state["projectFields"]:
             fail("Could not resolve to a node with the global id of '%s'" % fid)
         target = None
-        for _, issue in all_issues(state):
+        for inwo, issue in all_issues(state):
             for item in issue["projectItems"]:
-                if item["id"] == fields["itemId"]:
+                if item["id"] == fields["itemId"] and host_of(state, inwo) == host:
                     target = item
         if target is None:
             fail("Could not resolve to a node with the global id of '%s'" % fields["itemId"])
@@ -307,33 +326,50 @@ def opts(args):
     return positional, flags
 
 
+def repo_on(state, nwo, host):
+    """Whether `nwo` is a repo on `host`."""
+    return nwo in state["repos"] and host_of(state, nwo) == host
+
+
 def main():
     args = sys.argv[1:]
     with open(os.environ["FAKE_GH_LOG"], "a") as log:
         log.write(json.dumps(args) + "\n")
     state = load()
 
+    host = DEFAULT_HOST
+    if args[:1] == ["api"] and "--hostname" in args:
+        i = args.index("--hostname")
+        host = args[i + 1]
+        args = args[:i] + args[i + 2:]
+
     if args[:2] == ["repo", "view"]:
-        print(state["current"])
+        print("https://%s/%s" % (host_of(state, state["current"]), state["current"]))
     elif args[:2] == ["api", "user"]:
         print(state["user"])
     elif args[:2] == ["api", "graphql"]:
-        graphql(state, args[2:])
+        graphql(state, host, args[2:])
     elif args[0] == "api" and "/contents/" in args[1]:
         nwo = "/".join(args[1].split("/")[1:3])
-        config = state["repos"].get(nwo, {}).get("config")
+        config = state["repos"][nwo].get("config") if repo_on(state, nwo, host) else None
         if config is None:
             fail("Not Found (HTTP 404)")
         print(base64.b64encode(config.encode()).decode())
     elif args[0] == "api" and "/issues/comments/" in args[1]:
+        nwo = "/".join(args[1].split("/")[1:3])
         comment = state.get("comments", {}).get(args[1].rsplit("/", 1)[1])
-        if comment is None:
+        if comment is None or comment["repo"] != nwo or not repo_on(state, nwo, host):
             fail("Not Found (HTTP 404)")
-        print("https://api.github.com/repos/%s/issues/%d" % (comment["repo"], comment["number"]))
+        print("https://api.%s/repos/%s/issues/%d" % (host, comment["repo"], comment["number"]))
     elif args[0] == "issue":
         verb = args[1]
         positional, flags = opts(args[2:])
-        nwo = flags.get("repo", state["current"])
+        parts = flags.get("repo", state["current"]).split("/")
+        if len(parts) == 3:
+            host = parts[0]
+        nwo = "/".join(parts[-2:])
+        if not repo_on(state, nwo, host):
+            fail("Could not resolve to a Repository with the name '%s'." % nwo)
         if verb == "create":
             with open(flags["body-file"]) as f:
                 body = f.read()
@@ -342,7 +378,7 @@ def main():
                 apply_labels(state, nwo, issue, csv(flags.get("label", "")), [])
                 apply_assignees(state, nwo, issue, csv(flags.get("assignee", "")), [])
             save(state)
-            print("https://github.com/%s/issues/%d" % (nwo, issue["number"]))
+            print(issue_url(state, nwo, issue["number"]))
             return
         issue = by_number(state, nwo, positional[0])
         if issue is None:
@@ -358,7 +394,7 @@ def main():
                 apply_assignees(state, nwo, issue, csv(flags.get("add-assignee", "")),
                                 csv(flags.get("remove-assignee", "")))
             save(state)
-            print("https://github.com/%s/issues/%d" % (nwo, issue["number"]))
+            print(issue_url(state, nwo, issue["number"]))
         elif verb == "comment":
             comments = state.setdefault("comments", {})
             cid = str(1000 + len(comments))
@@ -370,7 +406,7 @@ def main():
             if not dropping():
                 comments[cid] = {"repo": nwo, "number": issue["number"], "body": body}
             save(state)
-            print("https://github.com/%s/issues/%d#issuecomment-%s" % (nwo, issue["number"], cid))
+            print("%s#issuecomment-%s" % (issue_url(state, nwo, issue["number"]), cid))
         elif verb == "close":
             if not dropping():
                 issue["state"] = "CLOSED"

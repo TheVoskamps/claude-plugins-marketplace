@@ -8,13 +8,13 @@ set -uo pipefail
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-unset-child <parent-N> <child-N>"
 iss_init
 iss_parse_operand "$1" local-only
-pref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+pref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 parent_nwo="$OP_OWNER/$OP_REPO"
 parent_number=$OP_NUMBER
 iss_parse_operand "$2" local-only
-cref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+cref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$ISS_SEL_PARENT"
+iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$ISS_SEL_PARENT"
 parent_id=$(iss_jq '.parent.id // empty')
 # A child under some other parent, or under none, already satisfies "not under
 # this parent", so both are a no-op rather than an error.
@@ -27,5 +27,5 @@ fi
 child_id=$(iss_jq .id)
 parent_url=$(iss_jq .parent.url)
 
-iss_remove_sub_issue "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$child_id" "$parent_id" "$cref" "$pref"
+iss_remove_sub_issue "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$child_id" "$parent_id" "$cref" "$pref"
 printf 'Removed issue %s as a sub-issue of %s.\n%s\n' "$cref" "$pref" "$parent_url"

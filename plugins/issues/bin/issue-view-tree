@@ -24,23 +24,24 @@ print_relation() {
   fi
   printf '%s%s:\n' "$indent" "$label"
   printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r nwo number title; do
-    printf '%s  - %s %s\n' "$indent" "$(iss_ref_nwo "$nwo" "$number")" "$title"
+    printf '%s  - %s %s\n' "$indent" "$(iss_ref_nwo "$OP_HOST" "$nwo" "$number")" "$title"
   done
 }
 
-# walk <owner> <repo> <number> <depth>: print one node, then recurse into its
-# sub-issues. Only the root aborts on not-found; a sub-issue that does not
-# resolve prints as "(not found)" and the walk goes on.
+# walk <host> <owner> <repo> <number> <depth>: print one node, then recurse
+# into its sub-issues, which GitHub keeps on the parent's host. Only the root
+# aborts on not-found; a sub-issue that does not resolve prints as
+# "(not found)" and the walk goes on.
 walk() {
-  local owner=$1 repo=$2 number=$3 depth=$4 indent children child
+  local host=$1 owner=$2 repo=$3 number=$4 depth=$5 indent children child
   indent=$(printf '%*s' $((depth * 2)) '')
   if [ "$depth" -eq 0 ]; then
-    iss_lookup "$owner" "$repo" "$number" "$SEL"
-  elif ! iss_try_lookup "$owner" "$repo" "$number" "$SEL"; then
-    printf '%s%s (not found)\n' "$indent" "$(iss_ref "$owner" "$repo" "$number")"
+    iss_lookup "$host" "$owner" "$repo" "$number" "$SEL"
+  elif ! iss_try_lookup "$host" "$owner" "$repo" "$number" "$SEL"; then
+    printf '%s%s (not found)\n' "$indent" "$(iss_ref "$host" "$owner" "$repo" "$number")"
     return
   fi
-  printf '%s%s %s  %s\n' "$indent" "$(iss_ref "$owner" "$repo" "$number")" "$(iss_jq .title)" "$(iss_jq .url)"
+  printf '%s%s %s  %s\n' "$indent" "$(iss_ref "$host" "$owner" "$repo" "$number")" "$(iss_jq .title)" "$(iss_jq .url)"
   print_relation "$indent  " "Blocked by" blockedBy
   print_relation "$indent  " "Blocking" blocking
   children=$(iss_jq '.subIssues.nodes[] | .repository.nameWithOwner + "#" + (.number | tostring)')
@@ -50,11 +51,11 @@ walk() {
     return
   fi
   for child in $children; do
-    walk "${child%%/*}" "$(printf '%s' "${child#*/}" | cut -d'#' -f1)" "${child##*#}" $((depth + 1))
+    walk "$host" "${child%%/*}" "$(printf '%s' "${child#*/}" | cut -d'#' -f1)" "${child##*#}" $((depth + 1))
   done
 }
 
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-view-tree <issue-number>"
 iss_init
 iss_parse_operand "$1" local-only
-walk "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" 0
+walk "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" 0

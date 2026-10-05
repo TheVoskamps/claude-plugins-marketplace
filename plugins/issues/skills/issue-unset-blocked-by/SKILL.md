@@ -42,8 +42,8 @@ Removed blocked-by relationship: issue <N> is no longer blocked by <B>.
 ```
 
 The no-op prints `Issue <N> is not blocked by <B>; no change.` and
-exits zero. An issue prints as `#<N>` in the current repo and as
-`owner/repo#N` in another.
+exits zero. An issue reference prints as
+`skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend
 

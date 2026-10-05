@@ -56,7 +56,7 @@ fi
 
 iss_init
 iss_parse_operand "$number_arg" local-only
-ref=$(iss_ref "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
 if [ -n "$body_file" ]; then
   case "$body_file" in
@@ -76,7 +76,7 @@ resolve_assignees() {
   local item out=
   while IFS= read -r item; do
     [ -n "$item" ] || continue
-    if [ "$item" = @default-assignee ]; then item=$(iss_default_assignee) || exit 1; fi
+    if [ "$item" = @default-assignee ]; then item=$(iss_default_assignee "$OP_HOST") || exit 1; fi
     out="$out$item$ISS_NEWLINE"
   done <<EOF
 $(split_csv "$1")
@@ -88,7 +88,7 @@ remove_assignees=$(resolve_assignees "$remove_assignees") || exit 1
 
 SEL="url title body $ISS_SEL_LABELS $(iss_conn assignees)"
 readonly SEL
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
 url=$(iss_jq .url)
 pre_labels=$(iss_jq '.labels.nodes[].name')
 pre_assignees=$(iss_jq '.assignees.nodes[].login')
@@ -112,7 +112,7 @@ elif [ -n "$appends$prepends" ]; then
   } >"$new_body_file"
 fi
 
-set -- issue edit "$OP_NUMBER" --repo "$OP_OWNER/$OP_REPO"
+set -- issue edit "$OP_NUMBER" --repo "$(iss_repo_arg "$OP_HOST" "$OP_OWNER" "$OP_REPO")"
 [ "$has_title" = yes ] && set -- "$@" --title "$title"
 [ -n "$new_body_file" ] && set -- "$@" --body-file "$new_body_file"
 [ -n "$add_labels" ] && set -- "$@" --add-label "$add_labels"
@@ -121,7 +121,7 @@ set -- issue edit "$OP_NUMBER" --repo "$OP_OWNER/$OP_REPO"
 [ -n "$remove_assignees" ] && set -- "$@" --remove-assignee "$remove_assignees"
 gh "$@" >/dev/null || iss_die "\`gh issue edit\` failed on issue \`$ref\`"
 
-iss_lookup "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
 post_labels=$(iss_jq '.labels.nodes[].name')
 post_assignees=$(iss_jq '.assignees.nodes[].login')
 

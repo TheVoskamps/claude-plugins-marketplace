@@ -1,23 +1,37 @@
 ---
 name: issue-create
-description: Create a new issue end-to-end (title, body, type, priority, size, status, parent, assignees, labels) in a single invocation, in this repo or, with --repo, in another.
+description: Create a new issue end-to-end (title, body, type, priority, size, status, parent, assignees, labels) in a single invocation, in this repo or, named positionally, in another.
 ---
 
 Create a new issue with all metadata set in one shot: title, body,
 issue type, parent link, priority, size, status, assignees, and
-labels — in the current repo, or with `--repo` in another. The issue
-is fully configured before its URL is printed.
+labels — in the current repo, or in the repo a leading `<repo>`
+argument names. The issue is fully configured before its URL is
+printed.
 
 ## Invocation
 
 ```text
-/issue-create --title "..." --body-file PATH
+/issue-create [<repo>] --title "..." --body-file PATH
               [--type T] [--labels a,b,c] [--assignee u1,u2]
               [--parent N]
               [--priority V] [--size V] [--status S]
-              [--repo owner/repo]
 ```
 
+- `<repo>` (optional): file the issue in this repository instead of
+  the current one, written in any form `skills/lib/issue.md` →
+  "Repositories and issue references" lists — `repo`, `owner/repo`,
+  `host/owner/repo` or `https://host/owner/repo`. The script reads
+  that repo's `.issues/repo-config.md` from its default branch,
+  validates it and uses it exactly as a local create uses the local
+  one, and reads nothing from the current repo's repo-config. A target
+  with no repo-config gets a plain issue — title, body, labels, and any
+  `--assignee` or `--parent` passed — and one output line saying the
+  project fields were skipped. A target whose repo-config is at an
+  unsupported schema-version aborts before anything is filed. The
+  repo-level user-config is this repo's, so a cross-repo default
+  assignee comes from the user-global one only. There is no `--repo`
+  flag; passing one is a usage error.
 - `--title` (required): issue title.
 - `--body-file` (required): a file whose contents become the body
   verbatim, so long Markdown survives the CLI unchanged.
@@ -37,20 +51,10 @@ is fully configured before its URL is printed.
   integer within `min`/`max` for `kind: number`, an option name
   matched case-insensitively for `kind: single-select`,
   `kind: issue-field` and `kind: label`. Run `/issue-field-options`,
-  with the same `--repo` when filing elsewhere, to see what a slot
+  naming the same `<repo>` when filing elsewhere, to see what a slot
   accepts. A slot with no value resolves through
   Step 2 below, then the slot's `default:`; there is no built-in
   default.
-- `--repo` (optional): file the issue in `owner/repo` instead of the
-  current repo. The script reads that repo's `.issues/repo-config.md`
-  from its default branch, validates it and uses it exactly as a local
-  create uses the local one, and reads nothing from the current repo's
-  repo-config. A target with no repo-config gets a plain issue —
-  title, body, labels, and any `--assignee` or `--parent` passed — and
-  one output line saying the project fields were skipped. A target
-  whose repo-config is at an unsupported schema-version aborts before
-  anything is filed. The repo-level user-config is this repo's, so a
-  cross-repo default assignee comes from the user-global one only.
 
 ## Execution
 
@@ -61,8 +65,8 @@ is fully configured before its URL is printed.
    `priority`, `size`, `status` whose flag was not passed, and which
    `/issue-field-options <slot>` does not report as unconfigured, ask
    the user with `AskUserQuestion` — one question per slot, or up to
-   four combined in one call. Under `--repo`, run
-   `/issue-field-options <slot> --repo <owner/repo>` instead, so every
+   four combined in one call. With a `<repo>`, run
+   `/issue-field-options <repo> <slot>` instead, so every
    option, bound and default offered is the target repo's; this step
    reads no repo-config itself. The options are the slot's option
    names — the indented lines under its first line — in configured
@@ -75,7 +79,7 @@ is fully configured before its URL is printed.
      configured order.
    - **priority**, **status** — the default `/issue-field-options`
      reports on the slot's first line, `(default: <value>)`, put first;
-     the rest follow in configured order. Under `--repo` that is the
+     the rest follow in configured order. With a `<repo>` that is the
      target's default, exactly as a local create recommends the local
      one. With no default reported, recommend nothing and keep the
      configured order.
@@ -92,8 +96,8 @@ is fully configured before its URL is printed.
    passing the flags from steps 1 and 2 and no empty values:
 
    ```bash
-   issue-create --title "<title>" --body-file <path> [--type <T>] [--labels <a,b>] \
-     [--assignee <u1,u2>] [--parent <N>] [--priority <V>] [--size <V>] [--status <S>] [--repo <owner/repo>]
+   issue-create [<repo>] --title "<title>" --body-file <path> [--type <T>] [--labels <a,b>] \
+     [--assignee <u1,u2>] [--parent <N>] [--priority <V>] [--size <V>] [--status <S>]
    ```
 
    The script validates every value against repo-config before it
@@ -285,7 +289,8 @@ https://github.com/<owner>/<repo>/issues/1042
 - `labels:` appears only when `--labels` was passed, and reads like
   the assignee line below.
 - `parent:` appears only when `--parent` was passed.
-- An issue filed in another repo prints as `owner/repo#N`.
+- The issue prints as `skills/lib/issue.md` → "Repositories and issue
+  references" states.
 - The assignee line is the re-read set. When a requested login did not
   land — GitHub accepts an invalid login on create without an error —
   it reads `<landed> (requested <all>; <missing> did not land)` and the
@@ -303,7 +308,7 @@ warning: slot 'status' is missing from fields: in repo-config.md; skipping --sta
 warning: no `github-project:` block in `repo-config.md`; skipping `--priority`. Run `/repo-config` to add it.
 ```
 
-A `--repo` target without a repo-config prints, instead of warnings:
+A `<repo>` target without a repo-config prints, instead of warnings:
 
 ```text
 note: project fields skipped: `<owner>/<repo>` has no `.issues/repo-config.md`.
@@ -313,7 +318,7 @@ note: project fields skipped: `<owner>/<repo>` has no `.issues/repo-config.md`.
 
 The script serves the GitHub backend only. Under `issues: Jira` in
 the repo-config that governs the create — the current repo's, or with
-`--repo` the target's alone — it exits non-zero with its fixed Jira
+a `<repo>` the target's alone — it exits non-zero with its fixed Jira
 message before filing anything; follow
 `skills/lib/issue.md` → "Jira backend" → "Create" instead, running
 Step 2's prompts the same way and producing the same checklist.
