@@ -70,7 +70,7 @@ reason the config one is. `~/.local/state/auto-mode-tools/` and
 
 Below that directory the plugin keys on whatever identifies the thing
 the state is about, and on nothing that identifies the run that wrote
-it. `sdlc/<owner>/<repo>/pr<n>/round<n>/` is keyed on a PR and a round,
+it. `sdlc/<host>/<owner>/<repo>/pr<n>/round<n>/` is keyed on a PR and a round,
 which is what lets a later session pick a round up where an interrupted
 one left it; a session id in the path would have made the same records
 unreachable. The harness's per-session scratchpad is the opposite

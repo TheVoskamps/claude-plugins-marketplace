@@ -42,9 +42,10 @@ records are rebuilt from the same input its predecessor's were.
 
 ```text
 sdlc-agent-result-persist --mode <mode> \
-  --owner <owner> --repo <repo> --pr <n> [--round <n>] \
+  --repo <host>/<owner>/<repo> --pr <n> [--round <n>] \
   [mode-specific flags]
-sdlc-agent-result-persist --mode list --owner <owner> --repo <repo>
+sdlc-agent-result-persist --mode list --repo <host>/<owner>/<repo>
+sdlc-agent-result-persist --mode repos
 ```
 
 Spell the command as a bare name, never by path: the rule that lets a
@@ -98,18 +99,21 @@ then Write again.
 
 ## The identifying flags
 
-These four go on **every** call, and "The paths" below says what they
+These three go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
 refuses it: `delete` removes the whole PR's directory, so it refuses
-`--round`, and `list` reads across every PR of the repo, so it refuses
-`--pr` and `--round` alike. `print-records` selects the round itself,
+`--round`, `list` reads across every PR of the repo, so it refuses
+`--pr` and `--round` alike, and `repos` reads across every repository,
+so it refuses all three. `print-records` selects the round itself,
 so `--round` is optional there and bounds that selection rather than
 naming a round.
 
-- `--owner <owner>` and `--repo <repo>` — two values, not one
-  `owner/name` token, whose `/` would add a directory level to the
-  path. Each may hold only letters, digits, `.`, `_` and `-`, and
-  neither may be `.` or `..`.
+- `--repo <host>/<owner>/<repo>` — the PR's repository, host
+  included, since one machine holds state for repositories on several
+  hosts. Resolve it from `gh repo view --json url --jq .url`, whose
+  `https://<host>/<owner>/<repo>` it is less the scheme. A value
+  without a host is a usage error. Each segment may hold only letters,
+  digits, `.`, `_` and `-`, and none may be `.` or `..`.
 - `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
   from 1, and **`--round 0` is valid**: the pre-loop seed, settled by
   the orchestrator before any implementer ran.
@@ -129,7 +133,7 @@ files through the print modes named for them rather than by path at
 all.
 
 A caller does spell the PR's state root
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/` in
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/` in
 prose that points a **human** at the directory: the posted review
 summary names it once and hangs a round-relative path off each theorem
 and finding line, and every file that tells a reader where a round's
@@ -140,7 +144,7 @@ The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
 Every one of them is a fact about the PR under review, which is what
 makes a round survive the session that opened it: a reviewer resumed in
-a session that never saw the first one holds all four already, composes
+a session that never saw the first one holds all three already, composes
 the same path, and reads the same log. The state variable is used when
 set and non-empty and `$HOME/.local/state` otherwise, and the script
 spells that fallback once. This directory is where the whole of a
@@ -149,7 +153,7 @@ records that the next round carries forward, and the argued review it
 composed, are files here rather than text on the PR.
 
 ```text
-${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>/log
+${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/round<round>/log
 <the same directory>/<theorem>-<agent>
 <the same directory>/records
 <the same directory>/review
@@ -176,6 +180,26 @@ With any of those unavailable the record still lands, carrying `-` in
 the transcript column. A missing path is worth less than a missing
 record.
 
+The repository's directory, `sdlc/<host>/<owner>/<repo>/`, carries a
+`repo.yml` naming the repository it holds, which the script writes when
+it creates the directory:
+
+```yaml
+schema-version: 1
+host: github.com
+owner: <owner>
+repo: <repo>
+```
+
+The file is what identifies the directory; no reader derives the
+repository from the path's depth or segment names, and where the file
+and the path disagree the file wins. State written before the host was
+part of the path sits at `sdlc/<owner>/<repo>/`. Every run, of every
+mode but `repos`, first moves that directory to `sdlc/<host>/<owner>/<repo>/`,
+host from `--repo`, and writes its `repo.yml`; no mode reads the old
+path afterwards. A run that finds state at both paths refuses, non-zero,
+naming both, and moves nothing.
+
 **Nothing here is deleted but by `--mode delete`, and that mode is
 called only by `/sdlc:orchestrate-cleanup`, a pass the human invokes.**
 A round's files are the evidence a stalled or voided round is diagnosed
@@ -187,8 +211,8 @@ no longer wanted, which is the one exception this policy makes.
 
 One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
-round, and `list` and `delete` for what they do across a repo's PR
-directories.
+round, `list` and `delete` for what they do across a repo's PR
+directories, and `repos` for what it lists across the state root.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`.
   One call per round, and **idempotent**, which is what lets the
@@ -370,7 +394,7 @@ directories.
   Exits non-zero when that round holds none.
 - **`list`** — writes to stdout one bare PR number per line, in
   ascending order, one per `pr<n>/` directory under the repo's
-  `<owner>/<repo>/` state directory, and nothing else on the line; an
+  `<host>/<owner>/<repo>/` state directory, and nothing else on the line; an
   entry whose name is not `pr` followed by digits, or that is not a
   directory, is skipped. It takes **no `--pr` and no `--round`**, and
   refuses either. A repo no review has run against has no directory,
@@ -380,6 +404,16 @@ directories.
   refuses one, and it refuses a missing `--pr` with the usual
   `--pr is required` message. A directory already absent is the state
   the call asks for, so it exits zero and prints nothing.
+- **`repos`** — writes to stdout one line per repository directory the
+  state root holds, `<kind> <repository> <directory>`, the directory
+  relative to `sdlc/`. Every directory holding a `repo.yml` is read
+  from that file: `repo` when the file names the directory's own path,
+  `mismatch` when it names another, the repository being the file's
+  `<host>/<owner>/<repo>` either way. A directory without one, two
+  levels down, is old-layout state: `old <owner>/<repo> <owner>/<repo>`,
+  its host unknown. It takes **no `--repo`, no `--pr` and no
+  `--round`**, refuses each, moves nothing, and prints nothing for a
+  state root that does not exist.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,

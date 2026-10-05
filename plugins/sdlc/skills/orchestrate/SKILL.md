@@ -591,8 +591,8 @@ This round's number is the one the reviewer composes its round
 directory from: the PR's review count immediately before the round's
 first reviewer spawn, plus one. Nothing remembers it across a re-spawn
 or a session — the PR and the round's own state re-derive it, with `C`
-the current review count and `--owner`/`--repo` resolved as "Reading a
-round's detail" below shows:
+the current review count and `--repo` resolved as "Reading a round's
+detail" below shows:
 
 ```text
 /github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
@@ -600,7 +600,7 @@ round's detail" below shows:
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --owner <owner> --repo <repo> --pr <PR_N> --round <C+1>
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round <C+1>
 ```
 
 A `print` that succeeds means a round above the count has begun and
@@ -636,11 +636,13 @@ the PR's XDG state directory, and that is where you read them when you
 brief the human on a round or write a fixer brief:
 
 ```bash
-gh repo view --json owner,name --jq '.owner.login + " " + .name'
+gh repo view --json url --jq .url
 
 sdlc-agent-result-persist --mode print-review \
-  --owner <owner> --repo <repo> --pr <PR_N> --round <N>
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round <N>
 ```
+
+`--repo` is that URL less its `https://`, host included.
 
 The round that has just posted is numbered by the PR's current review
 count. A finding whose child report you need — the disprover's or the

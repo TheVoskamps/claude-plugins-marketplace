@@ -88,7 +88,7 @@ skill computes.
    argued reviews and theorem records to the PR once the fix loop
    concludes; a review run from here concludes no loop, so nothing posts
    them. The records, the argued review and every child's report stay under
-   `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR_N>/`,
+   `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<PR_N>/`,
    where `sdlc-agent-result-persist --mode print-review` and
    `--mode print` reach them, and the PR carries the summary alone. That
    is accepted rather than a gap to close here: the detail is on disk in

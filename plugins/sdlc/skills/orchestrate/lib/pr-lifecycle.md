@@ -28,9 +28,10 @@ cheaply; read what it reports back rather than assuming the no-op.
 
 Once the PR is linked, and before `code-documenter` and the first
 reviewer spawn, write the ruled seed as round 0 — the PR number now
-exists to key the path on. Resolve `--owner` and `--repo`
-with `gh repo view --json owner,name --jq '.owner.login + " " +
-.name'`. Write the file with the Write tool to
+exists to key the path on. Resolve `--repo` with
+`gh repo view --json url --jq .url`: it is the URL
+`https://<host>/<owner>/<repo>` less its `https://`, host included.
+Write the file with the Write tool to
 
 ```text
 <session-scratchpad>/pr<PR_N>-round0-records.md
@@ -41,7 +42,7 @@ names in your environment, then hand it to the script with `--from`:
 
 ```bash
 sdlc-agent-result-persist --mode records \
-  --owner <owner> --repo <repo> --pr <PR_N> --round 0 \
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round 0 \
   --from <session-scratchpad>/pr<PR_N>-round0-records.md
 ```
 

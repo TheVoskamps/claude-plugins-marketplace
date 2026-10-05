@@ -11,7 +11,10 @@
 # in the report, and every row it would have backed is left out.
 #
 # Read-only: nothing here writes a file or mutates anything on GitHub,
-# which is why every intermediate result lives in a shell variable.
+# which is why every intermediate result lives in a shell variable. The
+# one change a run can cause is sdlc-agent-result-persist moving this
+# repository's state out of the layout that predates the host segment,
+# which any run of that script does first.
 set -euo pipefail
 
 readonly PROGRAM=${0##*/}
@@ -43,10 +46,21 @@ command -v gh >/dev/null 2>&1 || die "gh is required and is not on PATH"
 command -v sdlc-agent-result-persist >/dev/null 2>&1 \
   || die "sdlc-agent-result-persist is required and is not on PATH"
 
-nwo=$(gh repo view --json owner,name --jq '.owner.login + " " + .name' 2>/dev/null) \
-  || die "cannot resolve this repository's owner and name with gh repo view"
-owner=${nwo%% *}
-repo=${nwo#* }
+# The URL carries the host the checkout's remote is on, which every gh api
+# call below names: gh sends a host-less one to its own default host.
+url=$(gh repo view --json url --jq .url 2>/dev/null) \
+  || die "cannot resolve this repository with gh repo view"
+nwo=${url#https://}
+nwo=${nwo%/}
+case "$nwo" in
+  */*/*/*|*//*|/*) die "gh repo view reported a URL that is not https://<host>/<owner>/<repo>: $url" ;;
+  ?*/?*/?*) ;;
+  *) die "gh repo view reported a URL that is not https://<host>/<owner>/<repo>: $url" ;;
+esac
+host=${nwo%%/*}
+owner=${nwo#*/}
+owner=${owner%/*}
+repo=${nwo##*/}
 
 missing=
 note_missing() {
@@ -54,7 +68,7 @@ note_missing() {
 }
 
 persist() {
-  sdlc-agent-result-persist --owner "$owner" --repo "$repo" --pr "$pr" "$@"
+  sdlc-agent-result-persist --repo "$host/$owner/$repo" --pr "$pr" "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -178,8 +192,8 @@ fi
 
 gh_events=
 pr_url=
-if pr_url=$(gh api "repos/$owner/$repo/pulls/$pr" --jq .html_url 2>/dev/null) \
-  && gh_events=$(gh api --paginate "repos/$owner/$repo/issues/$pr/timeline" \
+if pr_url=$(gh api --hostname "$host" "repos/$owner/$repo/pulls/$pr" --jq .html_url 2>/dev/null) \
+  && gh_events=$(gh api --hostname "$host" --paginate "repos/$owner/$repo/issues/$pr/timeline" \
        --jq '.[] | {event, t: ((.created_at // .submitted_at // "") | sub("\\.[0-9]+Z$"; "Z")), body: (.body // "")} | @json' 2>/dev/null); then
   :
 else

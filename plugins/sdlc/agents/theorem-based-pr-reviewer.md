@@ -155,18 +155,19 @@ file's path out of the log you just printed, then read the file with
 returned disprovers uncrossed-off and burned a round's budget on
 theorems that had already reported (issue #351).
 
-**Resolve the four identifying values at the top of the round, and
+**Resolve the three identifying values at the top of the round, and
 again on every resume** rather than trusting a remembered one:
 
 ```bash
-gh repo view --json owner,name --jq '.owner.login + " " + .name'
+gh repo view --json url --jq .url
 ```
 
 ```text
 /github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
 ```
 
-The first gives `--owner` and `--repo`; `--pr` is the PR under review;
+The first gives `--repo`: the URL `https://<host>/<owner>/<repo>` less
+its `https://`, host included; `--pr` is the PR under review;
 `--round` is that review count **plus one**, so a first round is `1`.
 Your own review lands only at "Post one review", so the count holds
 across the round. Resolving them is what reaches the log, on the terms
@@ -356,8 +357,9 @@ rather than the status.
 
 **The message names a flag.** The call you
 built is malformed, so the script wrote nothing and no fan-out of yours
-is under way — an empty `--owner` or `--repo`, where the `gh repo view`
-read at the top of the round gave you nothing, is the one to expect.
+is under way — an empty `--repo`, or one without its host, where the
+`gh repo view` read at the top of the round gave you nothing or you
+dropped the host, is the one to expect.
 Repair the flag and call again; when you cannot, report the failure
 with the message verbatim and stop. **Never report a malformed call as an
 in-progress status**: it would send your caller to the escalation for a
@@ -495,12 +497,12 @@ your context" above.
 
 ### Read the round log, then anchor the round
 
-Resolve the four identifying values per "The round log" above, then read
+Resolve the three identifying values per "The round log" above, then read
 the log before you decide anything:
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --owner <owner> --repo <repo> \
+  --repo <host>/<owner>/<repo> \
   --pr <PR_N> --round <this round's number>
 ```
 
@@ -511,7 +513,7 @@ whether a child has written first:
 
 ```bash
 sdlc-agent-result-persist --mode anchor \
-  --owner <owner> --repo <repo> \
+  --repo <host>/<owner>/<repo> \
   --pr <PR_N> --round <this round's number> --head-sha <headRefOid>
 ```
 
@@ -623,7 +625,7 @@ Read the following, in this order.
 
 ```bash
 sdlc-agent-result-persist --mode print-records \
-  --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number>
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round <this round's number>
 ```
 
 The mode selects the round itself: the records to carry are the most
@@ -672,7 +674,7 @@ round".
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --owner <owner> --repo <repo> --pr <PR_N> --round <prev-round>
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round <prev-round>
 ```
 
 Call it `<prev-head>`. Taking it from state rather than from a review
@@ -943,7 +945,7 @@ spawn the replacement, whose own `enter` starts a fresh deadline:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
-  --owner <owner> --repo <repo> \
+  --repo <host>/<owner>/<repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem list --stage generate
 ```
@@ -969,8 +971,7 @@ On a **fallback round** that read no records, the brief is the whole PR:
 --pr <PR_N>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
---owner <owner>
---repo <repo>
+--repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Leave these documentation paths out of every diff you read: <the paths
@@ -991,8 +992,7 @@ what the delta implies that they do not cover:
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
---owner <owner>
---repo <repo>
+--repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Leave these documentation paths out of every diff and delta commit you
@@ -1010,7 +1010,7 @@ tier is:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
-  --owner <owner> --repo <repo> \
+  --repo <host>/<owner>/<repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem list --stage generate \
   --agent <the definition you spawned> --model default --effort default
@@ -1152,7 +1152,7 @@ record per child you spawned:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
-  --owner <owner> --repo <repo> \
+  --repo <host>/<owner>/<repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem T4 --stage disprove --agent theorem-disprover \
   --model <haiku, or default where you named none> --effort default
@@ -1204,8 +1204,7 @@ Each disprover's brief is one theorem and nothing more:
 --issues <the member(s) the theorem is tagged to>
 --settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
---owner <owner>
---repo <repo>
+--repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Leave these documentation paths out of every diff you read: <the paths
@@ -1217,7 +1216,7 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-The last three, with the `--pr` at the top, are the four identifying
+The last two, with the `--pr` at the top, are the three identifying
 values the `--mode anchor` call carried. Pass them unchanged or the
 child's records and its report land in a round you never read.
 
@@ -1253,7 +1252,7 @@ past every result whose own notification was lost.
 
    ```bash
    sdlc-agent-result-persist --mode print \
-     --owner <owner> --repo <repo> \
+     --repo <host>/<owner>/<repo> \
      --pr <PR_N> --round <this round's number>
    ```
 
@@ -1337,7 +1336,7 @@ child is never yours to stop — you record the stop and leave it alone:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
-  --owner <owner> --repo <repo> \
+  --repo <host>/<owner>/<repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem T7 --stage disprove
 ```
@@ -1417,8 +1416,7 @@ Each verifier's brief is one counterexample and nothing more:
 --settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
---owner <owner>
---repo <repo>
+--repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Try to refute this one counterexample per your agent definition.
@@ -1608,12 +1606,12 @@ rather than announced. Stage each input with `Write` under
 
 ```bash
 sdlc-agent-result-persist --mode records --carry \
-  --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round <this round's number> \
   --edits .claude/tmp/<task-slug>/edits.tsv \
   --from .claude/tmp/<task-slug>/new-records.md
 
 sdlc-agent-result-persist --mode review \
-  --owner <owner> --repo <repo> --pr <PR_N> --round <this round's number> \
+  --repo <host>/<owner>/<repo> --pr <PR_N> --round <this round's number> \
   --from .claude/tmp/<task-slug>/review.md
 ```
 
@@ -2067,7 +2065,7 @@ body names once so a reader composes it once:
 
 ```markdown
 Detail for this round is under
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR_N>/`.
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<PR_N>/`.
 
 Theorems
 
