@@ -1,6 +1,6 @@
 ---
 name: theorem-disprover
-description: Tries to disprove exactly one theorem about a pull request. Given one claim, its pointers, and the PR number, it either produces a verbatim-quoted counterexample or reports that the claim survived. It reviews nothing else, suggests nothing, and posts nothing.
+description: Tries to disprove exactly one theorem about a pull request. Given one claim, its pointers, and the PR's canonical host/owner/repo#N reference, it either produces a verbatim-quoted counterexample or reports that the claim survived. It reviews nothing else, suggests nothing, and posts nothing.
 tools: Read, Write, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: sonnet
 effort: medium
