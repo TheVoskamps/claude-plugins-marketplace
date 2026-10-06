@@ -35,20 +35,22 @@ skill computes.
 
 ## Process
 
-1. **Resolve the PR number.** The first positional token in
-   `$ARGUMENTS` is the PR number to review, with or without a leading
-   `#`. Any `--generator <name>` and `--full` tokens alongside it are
-   the human overrides above; they are not part of the PR number and
-   pass through to the reviewer spawn in step 2 unchanged. If
-   `$ARGUMENTS` carries no positional token, ask the user which PR to
-   review before proceeding.
+1. **Take the PR.** The first positional token in `$ARGUMENTS` is the
+   PR to review, in any form `/github-prs:pr-view` accepts — a number,
+   `#N`, a `host/owner/repo#N` reference or a PR URL among them. Any
+   `--generator <name>` and `--full` tokens alongside it are the human
+   overrides above; they are not part of the PR and pass through to
+   the reviewer spawn in step 2 unchanged. If `$ARGUMENTS` carries no
+   positional token, ask the user which PR to review before
+   proceeding.
 
 2. **Spawn the reviewer agent** with the `Agent` tool, using the
    `subagent_type` `sdlc:theorem-based-pr-reviewer`, and give it the
-   PR number as the reviewer's own `--pr` parameter:
+   PR, as you were given it, as the reviewer's own `--pr` parameter;
+   the reviewer resolves it:
 
    ```text
-   --pr <PR_N>
+   --pr <PR>
 
    Review this PR per your agent definition. Report back its
    verdicts, findings, severity counts, and theorem tally.
@@ -88,7 +90,7 @@ skill computes.
    argued reviews and theorem records to the PR once the fix loop
    concludes; a review run from here concludes no loop, so nothing posts
    them. The records, the argued review and every child's report stay under
-   `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<PR_N>/`,
+   `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
    where `sdlc-agent-result-persist --mode print-review` and
    `--mode print` reach them, and the PR carries the summary alone. That
    is accepted rather than a gap to close here: the detail is on disk in

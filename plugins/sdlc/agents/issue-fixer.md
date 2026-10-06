@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves each conflict a ruling or a resolvability condition settles, escalating the rest — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
+description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR reference alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves each conflict a ruling or a resolvability condition settles, escalating the rest — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -40,12 +40,12 @@ fixer brief names (see "Inputs" below).
 
 You must be given:
 
-- PR number (or equivalent)
+- PR reference (or equivalent)
 
 That is the whole list. The **fixer brief** — the findings to address,
 the scope ruling on each, the owner rulings, the issue set, and the
 branch name — does not travel in the spawn prompt: it is a comment on
-the PR, and step 1 below reads it. If the PR number is missing, ask
+the PR, and step 1 below reads it. If the PR reference is missing, ask
 before proceeding.
 
 The brief lives on the PR so that what a fixer was told stays readable

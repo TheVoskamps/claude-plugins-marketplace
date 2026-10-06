@@ -29,20 +29,20 @@ through `gh`, and the syntax below is GitHub's; there is no CodeCommit
 ## Invocation
 
 ```text
-/pr-closing-issues <pr-number>
+/pr-closing-issues <PR>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 
-A single-PR primitive. A caller holding several PR numbers invokes it
+A single-PR primitive. A caller holding several PRs invokes it
 once per PR.
 
 ## Repo-config
 
-This skill reads no repo-config. The body needs only the PR number and
-the current repo, and the closing-keyword syntax below is GitHub's
-rather than anything the repo configures.
+This skill reads no repo-config. The body needs only the PR, and the
+closing-keyword syntax below is GitHub's rather than anything the repo
+configures.
 
 ## The syntax
 
@@ -77,14 +77,13 @@ forms are `#N`, `owner/repo#N`, `GH-N`, and a full issue URL
 1. Fetch the PR body with the bundled script, spelled as a bare name:
 
    ```bash
-   pr-closing-issues <pr-number>
+   pr-closing-issues <PR>
    ```
 
    On exit 0 its stdout is the body, verbatim. Exit 2 is a usage error.
-   Exit 3 means the `gh` call failed (e.g. the PR number does not exist
-   in this repo), with gh's own error on stderr above the script's
-   line: surface it verbatim rather than inventing a replacement
-   message, and stop.
+   Exit 3 means the `gh` call failed (e.g. the PR does not exist),
+   with gh's own error on stderr above the script's line: surface it
+   verbatim rather than inventing a replacement message, and stop.
 
 2. Scan the body for every keyword-then-reference occurrence per "The
    syntax" above, and collect the issue numbers as a **set** — a body

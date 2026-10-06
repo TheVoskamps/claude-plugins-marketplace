@@ -14,18 +14,18 @@ PR cannot be auto-merged.
 ## Invocation
 
 ```text
-/pr-draft <pr-number>
+/pr-draft <PR>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 
 ## Execution
 
 Run the bundled script, spelled as a bare name:
 
 ```bash
-pr-draft <pr-number>
+pr-draft <PR>
 ```
 
 The script converts the PR, then re-reads it. A PR that is already a
@@ -35,7 +35,7 @@ so the script is safe to run more than once.
 ## Output and exit status
 
 - **Exit 0** — the re-read shows the PR a draft. Stdout is one line,
-  `PR #<N> is now a draft`; report it back.
+  `PR <PR> is now a draft`; report it back.
 - **Exit 1** — the conversion did not land: the re-read still shows
   the PR ready. Stderr says so; report it.
 - **Exit 2** — a usage error; nothing was sent to GitHub.

@@ -1,6 +1,6 @@
 ---
 name: agent-memory-scrubber
-description: Curates the agent memory a PR's run accumulated. Given a PR number and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate once on the human's end-of-loop confirmation for a PR, after docs-writer, and by pr-merge-readiness after every issue-fixer round it runs — whenever a memory-declaring teammate was spawned after the scrubber last ran.
+description: Curates the agent memory a PR's run accumulated. Given a PR reference and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate once on the human's end-of-loop confirmation for a PR, after docs-writer, and by pr-merge-readiness after every issue-fixer round it runs — whenever a memory-declaring teammate was spawned after the scrubber last ran.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
@@ -48,7 +48,7 @@ inbox and the checked-out tree.
 
 ## Inputs
 
-You must be given a PR number and a branch name (`<branch-name>`). The
+You must be given a PR reference and a branch name (`<branch-name>`). The
 issue number is not an input: you work from what the run's agents
 captured, not from what the issue asked for. Ask if either is missing,
 and assume you inherit no cwd, branch, or context from a parent agent.

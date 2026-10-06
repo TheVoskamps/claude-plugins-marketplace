@@ -17,13 +17,14 @@ it.
 /sdlc:orchestrate-analysis <PR>
 ```
 
-`<PR>` is the PR number, with or without a leading `#`. If `$ARGUMENTS`
-carries none, ask which PR before running anything.
+`<PR>` is the PR in any form `/github-prs:pr-view` accepts — a number,
+`#N`, a `host/owner/repo#N` reference or a PR URL among them. Pass it
+as given; the script resolves it. If `$ARGUMENTS` carries none, ask
+which PR before running anything.
 
 ## Process
 
-1. Run the script from the repository the PR belongs to, spelled as a
-   bare name:
+1. Run the script, spelled as a bare name:
 
    ```bash
    sdlc-orchestrate-analysis <PR>

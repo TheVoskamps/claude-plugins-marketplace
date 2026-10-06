@@ -1,6 +1,6 @@
 ---
 name: code-documenter
-description: Adds or corrects the doc comments, file headers, and in-line comments the code-style guide requires, in the code files a PR's diff touched — never in documentation or instruction Markdown. Given a PR number and branch name, commits at most once and pushes. Reads no issue and edits no documentation or instruction-Markdown file. Spawned by /sdlc:orchestrate after every issue-developer round and every issue-fixer round inside the review loop, before the review; a merge-readiness fixer round is followed by the gate instead.
+description: Adds or corrects the doc comments, file headers, and in-line comments the code-style guide requires, in the code files a PR's diff touched — never in documentation or instruction Markdown. Given a PR reference and branch name, commits at most once and pushes. Reads no issue and edits no documentation or instruction-Markdown file. Spawned by /sdlc:orchestrate after every issue-developer round and every issue-fixer round inside the review loop, before the review; a merge-readiness fixer round is followed by the gate instead.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
@@ -45,7 +45,7 @@ extension file that is absent contributes nothing, silently.
 
 You must be given:
 
-- PR number (for the diff fetch via `/github-prs:pr-diff`)
+- PR reference (for the diff fetch via `/github-prs:pr-diff`)
 - Branch name (`<branch-name>`) — you check this out before making changes
 
 If either is missing, ask before proceeding.

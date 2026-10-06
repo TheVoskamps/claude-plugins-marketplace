@@ -6,9 +6,12 @@
 # carried round, an edits file and the new records, each refusal the
 # carry form makes, print-records with and without a --round bound, and
 # the repository's state directory: its repo.yml, the move of state from
-# the layout that predates the host segment, and --mode repos.
+# the layout that predates the host segment, and --mode repos. It also
+# drives the --pr reference and its refusals, --mode list's repository
+# operand against a stub gh, and sdlc-orchestrate-analysis's resolution of
+# its PR against a stub pr-view.
 #
-# Needs only bash and the POSIX utilities. Reaches no network.
+# Needs bash, jq and the POSIX utilities. Reaches no network.
 #
 # Usage: sdlc-test.sh    (exit 0 when every case passes)
 
@@ -55,7 +58,7 @@ new_case() {
 # persist <args...>: runs the script against PR 7 of h.example/o/r,
 # leaving the exit status in RC and stderr in ERR.
 persist() {
-  "$PERSIST" --repo h.example/o/r --pr 7 "$@" >/dev/null 2>"$CASE/err" </dev/null
+  "$PERSIST" --pr 'h.example/o/r#7' "$@" >/dev/null 2>"$CASE/err" </dev/null
   RC=$?
   ERR=$(cat "$CASE/err")
 }
@@ -339,7 +342,7 @@ check "$(round_records 1)" "$ROUND1" "voided: the carry reads the round below"
 
 # print_records <args...>: runs print-records, leaving stdout in OUT.
 print_records() {
-  OUT=$("$PERSIST" --repo h.example/o/r --pr 7 --mode print-records "$@" 2>"$CASE/err" </dev/null)
+  OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print-records "$@" 2>"$CASE/err" </dev/null)
   RC=$?
   ERR=$(cat "$CASE/err")
 }
@@ -399,13 +402,45 @@ check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_
   "state layout: a new state directory gets repo.yml naming its repository"
 
 new_case repo-without-host
-"$PERSIST" --repo o/r --pr 7 --mode list >/dev/null 2>"$CASE/err" </dev/null
-check "$?" "2" "refusal: --repo without a host is a usage error"
-check_contains "$(cat "$CASE/err")" "--repo takes <host>/<owner>/<repo>: o/r" "refusal: the usage error names the form"
+"$PERSIST" --pr 'o/r#7' --round 1 --mode print >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: --pr without a host is a usage error"
+check_contains "$(cat "$CASE/err")" "--pr takes <host>/<owner>/<repo>#<n>: o/r#7" "refusal: the usage error names the form"
+
+new_case pr-bare-number
+"$PERSIST" --pr 7 --round 1 --mode print >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: a bare --pr number is a usage error"
+check_contains "$(cat "$CASE/err")" "--pr takes <host>/<owner>/<repo>#<n>: 7" "refusal: a bare number gets the form"
+
+new_case pr-hash-number
+"$PERSIST" --pr '#7' --round 1 --mode print >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: a --pr of #N is a usage error"
+
+new_case pr-no-number
+"$PERSIST" --pr 'h.example/o/r#' --round 1 --mode print >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: a --pr without its number is a usage error"
+
+new_case repo-flag-gone
+"$PERSIST" --repo h.example/o/r --pr 'h.example/o/r#7' --round 1 --mode print >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: there is no --repo flag"
+
+for dots in '../o/r#7' 'h.example/../r#7' 'h.example/o/..#7' './o/r#7' 'h.example/./r#7' 'h.example/o/.#7'; do
+  new_case "pr-dots-$(printf '%s' "$dots" | tr -c 'A-Za-z0-9' '_')"
+  "$PERSIST" --pr "$dots" --mode delete >/dev/null 2>"$CASE/err" </dev/null
+  check "$?" "2" "refusal: --pr $dots is refused"
+  check_contains "$(cat "$CASE/err")" "none may be . or ..: ${dots%#*}" "refusal: --pr $dots names the repository"
+done
+
+# A canonical --pr <host>/<owner>/<repo>#<n> reads its state from
+# sdlc/<host>/<owner>/<repo>/pr<n>/.
+new_case pr-same-directory
+mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+OUT=$("$PERSIST" --pr 'h.example/o/r#7' --round 1 --mode print 2>"$CASE/err" </dev/null)
+check "$OUT" "anchor 2026-01-01T00:00:00Z abc" "canonical --pr: reads the state directory sdlc/<host>/<owner>/<repo>/pr<n>/"
 
 new_case repo-dot-segment
-"$PERSIST" --repo h.example/../r --mode list >/dev/null 2>"$CASE/err" </dev/null
-check "$?" "2" "refusal: a .. segment in --repo is refused"
+"$PERSIST" --mode list h.example/../r >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: a .. segment in list's repository is refused"
 
 # migrate_case <name>: a state root holding round 0 of PR 7 in the layout
 # that predates the host segment, at sdlc/o/r/.
@@ -416,7 +451,7 @@ migrate_case() {
 }
 
 migrate_case migrate-on-read
-OUT=$("$PERSIST" --repo h.example/o/r --pr 7 --mode print-records 2>"$CASE/err" </dev/null)
+OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print-records 2>"$CASE/err" </dev/null)
 check "$?" "0" "migration: a read of old-layout state succeeds"
 check "$OUT" "round 0
 $SEED" "migration: the read sees the moved records"
@@ -426,12 +461,12 @@ check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_
   "migration: the moved directory gets repo.yml"
 
 migrate_case migrate-on-list
-OUT=$("$PERSIST" --repo h.example/o/r --mode list 2>"$CASE/err" </dev/null)
-check "$OUT" "7" "migration: list moves old-layout state and lists it"
+OUT=$("$PERSIST" --mode list h.example/o/r 2>"$CASE/err" </dev/null)
+check "$OUT" "h.example/o/r#7" "migration: list moves old-layout state and lists it"
 
 migrate_case migrate-conflict
 mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r"
-"$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+"$PERSIST" --mode list h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "migration: state at both paths is refused"
 check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || echo moved)" "kept" \
   "migration: a refused move leaves the old state where it was"
@@ -439,10 +474,10 @@ check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || ec
 # A <host>/<owner> directory of the current layout sits at the same depth
 # as old-layout state, and is not mistaken for it.
 new_case migrate-not-host-dir
-"$PERSIST" --repo o/r/x --pr 7 --round 0 --mode records --from /dev/stdin >/dev/null 2>&1 <<EOF
+"$PERSIST" --pr 'o/r/x#7' --round 0 --mode records --from /dev/stdin >/dev/null 2>&1 <<EOF
 $SEED
 EOF
-"$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+"$PERSIST" --mode list h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "0" "migration: a run beside a current-layout <host>/<owner> directory succeeds"
 check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/x/repo.yml" ] && echo kept || echo moved)" "kept" \
   "migration: a current-layout <host>/<owner> directory is not moved"
@@ -451,7 +486,7 @@ check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/x/repo.yml" ] && echo kept || echo moved
 # directory whose repo.yml disagrees with its path, and old-layout state.
 migrate_case repos
 seed_round 0 "$SEED"
-"$PERSIST" --repo h.example/o/x --pr 7 --round 0 --mode records --from /dev/stdin >/dev/null 2>&1 <<EOF
+"$PERSIST" --pr 'h.example/o/x#7' --round 0 --mode records --from /dev/stdin >/dev/null 2>&1 <<EOF
 $SEED
 EOF
 mkdir -p "$XDG_STATE_HOME/sdlc/old/one/pr3"
@@ -460,8 +495,10 @@ OUT=$("$PERSIST" --mode repos 2>"$CASE/err" </dev/null)
 check "$OUT" "mismatch h.example/o/x h.example/o/moved
 repo h.example/o/r h.example/o/r
 old old/one old/one" "repos: each directory by its repo.yml, a mismatch, and old-layout state"
-"$PERSIST" --mode repos --repo h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
-check "$?" "2" "repos: --repo is refused"
+"$PERSIST" --mode repos --pr 'h.example/o/r#7' >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "repos: --pr is refused"
+"$PERSIST" --mode repos h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "repos: a repository operand is refused"
 
 # A current-layout <host>/<owner> directory with no repo.yml beneath it,
 # empty or holding a repository directory, holds no pr<n> directory of its
@@ -470,7 +507,7 @@ new_case repos-no-repo-yml
 mkdir -p "$XDG_STATE_HOME/sdlc/hostx/acme" "$XDG_STATE_HOME/sdlc/hostx/beta/r1"
 OUT=$("$PERSIST" --mode repos 2>"$CASE/err" </dev/null)
 check "$OUT" "" "repos: a <host>/<owner> directory without repo.yml is not reported old"
-"$PERSIST" --repo h.example/hostx/acme --mode list >/dev/null 2>"$CASE/err" </dev/null
+"$PERSIST" --mode list h.example/hostx/acme >/dev/null 2>"$CASE/err" </dev/null
 check "$([ -d "$XDG_STATE_HOME/sdlc/hostx/acme" ] && echo kept || echo moved)" "kept" \
   "migration: a <host>/<owner> directory without repo.yml is not moved"
 
@@ -479,12 +516,107 @@ migrate_case migrate-mv-fails
 mkdir -p "$CASE/fakebin"
 printf '#!/bin/sh\nexit 1\n' >"$CASE/fakebin/mv"
 chmod +x "$CASE/fakebin/mv"
-PATH="$CASE/fakebin:$PATH" "$PERSIST" --repo h.example/o/r --mode list >/dev/null 2>"$CASE/err" </dev/null
+PATH="$CASE/fakebin:$PATH" "$PERSIST" --mode list h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "migration: a failed move is refused"
 check "$([ -e "$XDG_STATE_HOME/sdlc/h.example" ] && echo left || echo removed)" "removed" \
   "migration: a failed move leaves no empty <host> directory"
 check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || echo moved)" "kept" \
   "migration: a failed move leaves the old state where it was"
+
+# --- list's repository operand -------------------------------------------
+
+# list_case <name>: a state root holding PR 7's state for the current
+# repository, gh.example/acme/r, PR 9's for acme/other, and PRs 8, 9 and
+# 10 for elsewhere/r on that host, with a stub gh that reports the current
+# repository and records each call.
+list_case() {
+  new_case "$1"
+  for at in acme/r/pr7 acme/other/pr9 elsewhere/r/pr10 elsewhere/r/pr9 elsewhere/r/pr8; do
+    mkdir -p "$XDG_STATE_HOME/sdlc/gh.example/$at"
+  done
+  mkdir -p "$CASE/bin"
+  printf '#!/bin/sh\necho "$*" >>"%s/calls"\necho https://gh.example/acme/r\n' "$CASE" >"$CASE/bin/gh"
+  chmod +x "$CASE/bin/gh"
+}
+
+# list <operand...>: runs --mode list with the stub gh on PATH, leaving
+# stdout in OUT and the gh calls in CALLS.
+list() {
+  OUT=$(PATH="$CASE/bin:$PATH" "$PERSIST" --mode list "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+  CALLS=$(cat "$CASE/calls" 2>/dev/null)
+}
+
+list_case list-current
+list
+check "$RC:$OUT" "0:gh.example/acme/r#7" "list: no operand lists the current repository, each PR as its --pr reference"
+check "$CALLS" "repo view --json url --jq .url" "list: the current repository comes from gh repo view"
+
+list_case list-repo
+list other
+check "$OUT" "gh.example/acme/other#9" "list: <repo> is under the current repository's owner, on its host"
+
+list_case list-owner-repo
+list elsewhere/r
+check "$OUT" "gh.example/elsewhere/r#8
+gh.example/elsewhere/r#9
+gh.example/elsewhere/r#10" "list: <owner>/<repo> is on the current repository's host, in ascending PR order"
+
+list_case list-host-owner-repo
+list gh.example/elsewhere/r
+check "$OUT:$CALLS" "gh.example/elsewhere/r#8
+gh.example/elsewhere/r#9
+gh.example/elsewhere/r#10:" "list: <host>/<owner>/<repo> needs no gh call"
+
+list_case list-url
+list https://gh.example/elsewhere/r/
+check "$OUT:$CALLS" "gh.example/elsewhere/r#8
+gh.example/elsewhere/r#9
+gh.example/elsewhere/r#10:" "list: a repository URL is the same as <host>/<owner>/<repo>"
+
+list_case list-bad
+for bad in 'a/b/c/d' '/r' 'o//r' 'http://gh.example/o/r' 'https://gh.example/o'; do
+  list "$bad"
+  check "$RC" "2" "list: \`$bad\` is refused"
+done
+list one two
+check "$RC" "2" "list: two repositories are refused"
+check_contains "$ERR" "--mode list takes at most one repository" "list: two repositories say so"
+
+list_case list-pr-refused
+list --pr 'gh.example/acme/r#7'
+check "$RC" "2" "list: --pr is refused"
+
+list_case list-gh-fails
+printf '#!/bin/sh\necho "gh: no remote" >&2\nexit 1\n' >"$CASE/bin/gh"
+list r
+check "$RC" "2" "list: a current repository gh cannot resolve is refused"
+check_contains "$ERR" "cannot resolve the current repository with gh repo view" "list: the refusal names the lookup"
+
+# --- sdlc-orchestrate-analysis's PR ----------------------------------------
+
+# Every form of the PR reaches the same state: the script resolves it with
+# pr-view --ref, stubbed here to resolve every form to h.example/o/r#7.
+for given in 7 '#7' 'https://h.example/o/r/pull/7'; do
+  new_case "analysis-$(printf '%s' "$given" | tr -c 'A-Za-z0-9' '_')"
+  mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+  printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+  printf '#!/bin/sh\necho "pr-view $*" >>"%s/calls"\necho "h.example/o/r#7"\n' "$CASE" >"$CASE/bin/pr-view"
+  printf '#!/bin/sh\necho "gh $*" >>"%s/calls"\nexit 1\n' "$CASE" >"$CASE/bin/gh"
+  ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+  chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+  OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" "$given" 2>"$CASE/err" </dev/null)
+  check "$?" "0" "analysis $given: exit 0"
+  check "$(sed -n 1p "$CASE/calls")" "pr-view $given --ref" "analysis $given: resolves the PR once with pr-view --ref"
+  check_contains "$OUT" "| 1 | whole round | 2026-01-01T00:00:00Z |" "analysis $given: reports the canonical reference's round"
+  check_contains "$(cat "$CASE/calls")" "gh api --hostname h.example repos/o/r/pulls/7" \
+    "analysis $given: reads the timeline on the reference's host and repository"
+done
+
+new_case operand-other-mode
+"$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "refusal: a mode other than list takes no repository operand"
 
 echo
 echo

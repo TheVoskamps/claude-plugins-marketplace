@@ -73,9 +73,10 @@ out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
 landed() { [ ! -f "$S/noop" ]; }
 val() { if [ -f "$S/$1" ]; then cat "$S/$1"; else printf '%s' "$2"; fi; }
 
-# The repo lives on a case's `host`, github.com by default. As gh does, an
-# api call reaches the host its --hostname names and github.com without
-# one, and finds nothing on any other host.
+# The checkout's repo lives on a case's `host`, github.com by default,
+# and the PR on its `api-host`, the checkout's host unless the case names
+# another. As gh does, an api call reaches the host its --hostname names
+# and github.com without one, and finds nothing on any other host.
 if [ "$1" = api ]; then
   api_host=github.com
   if [ "$2" = --hostname ]; then
@@ -83,7 +84,7 @@ if [ "$1" = api ]; then
     shift 3
     set -- api "$@"
   fi
-  if [ "$api_host" != "$(val host github.com)" ]; then
+  if [ "$api_host" != "$(val api-host "$(val host github.com)")" ]; then
     echo "stub gh: HTTP 404: Not Found (https://$api_host/api/v3/$2)" >&2
     exit 1
   fi
@@ -111,15 +112,18 @@ pr_json() {
     --arg mss "$(val merge-state CLEAN)" \
     --arg review "$(val review-decision '')" \
     --argjson rollup "$(val rollup '[]')" \
+    --arg url "$(val pr-url https://github.com/o/r/pull/7)" \
+    --arg head_repo "$(val head-repo o/r)" \
     '{number: 7, title: "A title", state: $state, isDraft: $draft,
       author: {login: $author}, headRefName: $head, baseRefName: $base,
-      url: "https://github.com/o/r/pull/7", body: $body,
+      headRepository: {nameWithOwner: $head_repo},
+      url: $url, body: $body,
       mergeable: $mergeable, mergeStateStatus: $mss,
       reviewDecision: $review, statusCheckRollup: $rollup}'
 }
 
 case "$1 $2" in
-  "repo view") jq -n --arg url "https://$(val host github.com)/o/r" '{url: $url}' | out ;;
+  "repo view") jq -n --arg url "https://$(val host github.com)/$(val cur-repo o/r)" '{url: $url}' | out ;;
   "pr view") pr_json | out ;;
   "pr diff") echo "diff --git a/x b/x" ;;
   "pr list") val list.json '[]' | out ;;
@@ -179,10 +183,10 @@ case "$1 $2" in
     fi
     ;;
   "api --paginate") val reviews.json '[]' | out ;;
-  "api repos/{owner}/{repo}/issues/comments/555")
+  "api repos/"*"/issues/comments/555")
     jq -n --arg body "$(cat "$S/comment-555")" '{body: $body}' | out
     ;;
-  "api repos/{owner}/{repo}/pulls/7/reviews/"*)
+  "api repos/"*"/pulls/7/reviews/"*)
     id=${2##*/}
     val reviews.json '[]' | jq ".[] | select(.id == $id)" | out
     ;;
@@ -246,8 +250,75 @@ check "$RC" "0" "pr-view: exit 0"
 check_contains "$(call_line 1)" \
   "pr view 7 --json number,title,state,isDraft,author,headRefName,baseRefName,url,body --jq" \
   "pr-view: the default dump asks gh for the fixed field list, with the leading # stripped"
-check "$(printf '%s\n' "$OUT" | head -n 1)" "#7 A title (OPEN, draft)" "pr-view: the dump opens with number, title, state and draft"
+check "$(printf '%s\n' "$OUT" | head -n 1)" "github.com/o/r#7 A title (OPEN, draft)" \
+  "pr-view: the dump opens with the canonical reference, title, state and draft"
 check "$(printf '%s\n' "$OUT" | tail -n 1)" "the body" "pr-view: the dump ends with the body"
+
+new_case view-ref
+run pr-view 7 --ref
+check "$RC" "0" "pr-view --ref: exit 0"
+check "$(calls)" "pr view 7 --json number,url --jq ((.url | ltrimstr(\"https://\") | sub(\"/pull/[0-9]+/?\$\"; \"\")) + \"#\\(.number)\")" \
+  "pr-view --ref: reads the number and URL alone"
+check "$OUT" "github.com/o/r#7" "pr-view --ref: prints <host>/<owner>/<repo>#<N>"
+
+new_case view-ref-fork
+echo https://ghe.example.com/base-o/base-r/pull/7 >"$CASE/pr-url"
+echo fork-o/base-r >"$CASE/head-repo"
+echo ghe.example.com >"$CASE/host"
+run pr-view 7 --ref
+check "$OUT" "ghe.example.com/base-o/base-r#7" "pr-view --ref: a fork PR prints its base repository, on its host"
+
+new_case view-ref-json
+run pr-view 7 --ref --json body
+check "$RC" "2" "pr-view: --ref with --json is a usage error"
+check "$(calls)" "" "pr-view: --ref with --json calls no gh"
+
+# --- PR references -------------------------------------------------------
+# Each form is driven through pr-diff, whose `pr diff` call shows where
+# the reference sent it; the api host is pr-comment's below.
+
+new_case ref-hash
+run pr-diff '#7'
+check "$(calls)" "pr diff 7" "reference #N: the current repository's PR, with no --repo"
+
+new_case ref-repo
+echo acme/r >"$CASE/cur-repo"
+echo ghe.example.com >"$CASE/host"
+run pr-diff 'r2#7'
+check "$RC" "0" "reference repo#N: exit 0"
+check "$(calls)" "repo view --json url --jq .url
+pr diff 7 --repo ghe.example.com/acme/r2" "reference repo#N: under the current repository's owner, on its host"
+
+new_case ref-owner-repo
+echo ghe.example.com >"$CASE/host"
+run pr-diff 'o2/r2#7'
+check "$(calls)" "repo view --json url --jq .url
+pr diff 7 --repo ghe.example.com/o2/r2" "reference owner/repo#N: that repository, on the current repository's host"
+
+new_case ref-host-owner-repo
+run pr-diff 'ghe.example.com/o2/r2#7'
+check "$(calls)" "pr diff 7 --repo ghe.example.com/o2/r2" "reference host/owner/repo#N: that repository on that host, with no lookup"
+
+new_case ref-url
+run pr-diff 'https://ghe.example.com/o2/r2/pull/7'
+check "$(calls)" "pr diff 7 --repo ghe.example.com/o2/r2" "reference PR URL: the same as host/owner/repo#N"
+
+new_case ref-url-slash
+run pr-diff 'https://ghe.example.com/o2/r2/pull/7/'
+check "$(calls)" "pr diff 7 --repo ghe.example.com/o2/r2" "reference PR URL: a trailing / is ignored"
+
+new_case ref-issue-url
+run pr-diff 'https://ghe.example.com/o2/r2/issues/7'
+check "$RC" "2" "reference issue URL: a usage error"
+check_contains "$ERR" "pr-diff: \`https://ghe.example.com/o2/r2/issues/7\` is not a PR. Pass N, #N, repo#N, owner/repo#N, host/owner/repo#N, or https://host/owner/repo/pull/N." \
+  "reference issue URL: the usage error names the accepted forms"
+check "$(calls)" "" "reference issue URL: calls no gh"
+
+for bad in 'h/o/r/x#7' 'o/r#' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
+  new_case "ref-malformed-$(printf '%s' "$bad" | tr -c 'A-Za-z0-9' '_')"
+  run pr-diff "$bad"
+  check "$RC:$(calls)" "2:" "reference \`$bad\`: a usage error that calls no gh"
+done
 
 new_case view-json
 run pr-view 7 --json reviews --jq '.reviews | length'
@@ -265,7 +336,7 @@ check "$(calls)" "" "pr-view: a usage error calls no gh"
 new_case view-bad-pr
 run pr-view seven
 check "$RC" "2" "pr-view: a non-numeric PR is a usage error"
-check_contains "$ERR" "pr-view: \`seven\` is not a PR number." "pr-view: the usage error names the bad value"
+check_contains "$ERR" "pr-view: \`seven\` is not a PR." "pr-view: the usage error names the bad value"
 
 new_case view-gh-fails
 echo "pr view" >"$CASE/fail"
@@ -331,6 +402,14 @@ check "$RC" "1" "pr-ready: exit 1 when the re-read is still a draft"
 check "$ERR" "pr-ready: PR #7: the ready flip did not land: the re-read still reports isDraft true" \
   "pr-ready: the not-landed message"
 
+new_case ready-other-repo
+echo true >"$CASE/draft"
+run pr-ready 'o2/r2#7'
+check "$RC" "0" "pr-ready: exit 0 for a PR in another repository"
+check "$(call_line 2)" "pr ready 7 --repo github.com/o2/r2" "pr-ready: flips the PR in the repository the reference names"
+check "$(call_line 3)" "pr view 7 --json isDraft --jq .isDraft --repo github.com/o2/r2" "pr-ready: re-reads it there"
+check "$OUT" "PR github.com/o2/r2#7 is ready for review" "pr-ready: names the PR by its reference"
+
 new_case draft
 echo false >"$CASE/draft"
 run pr-draft 7
@@ -384,6 +463,16 @@ run pr-comment 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-comment: exit 0 in a GitHub Enterprise checkout"
 check "$(call_line 3)" "api --hostname ghe.example.com repos/{owner}/{repo}/issues/comments/555 --jq .body" \
   "pr-comment: the re-read carries the checkout's host as --hostname"
+
+new_case comment-other-host
+echo ghe.example.com >"$CASE/api-host"
+run pr-comment 'ghe.example.com/o2/r2#7' --body-file "$SANDBOX/new-body.md"
+check "$RC" "0" "pr-comment: exit 0 for a PR on another host"
+check "$(call_line 1)" "pr comment 7 --body-file $SANDBOX/new-body.md --repo ghe.example.com/o2/r2" \
+  "pr-comment: posts to the repository the reference names"
+check "$(call_line 2)" "api --hostname ghe.example.com repos/o2/r2/issues/comments/555 --jq .body" \
+  "pr-comment: the re-read goes to the reference's host and repository, not the checkout's"
+check "$(calls | grep -c '^repo view')" "0" "pr-comment: a reference with a host needs no repository lookup"
 
 new_case comment-noop
 touch "$CASE/noop"
@@ -517,6 +606,17 @@ check "$(grep -c '^api --hostname ghe.example.com ' "$CASE/calls")" "3" \
   "pr-review-submit: its three api reads carry the checkout's host as --hostname"
 check "$(grep '^api' "$CASE/calls" | grep -vc '^api --hostname ghe.example.com ')" "0" \
   "pr-review-submit: no api call goes to another host"
+
+new_case review-other-repo
+echo ghe.example.com >"$CASE/api-host"
+run pr-review-submit 'https://ghe.example.com/o2/r2/pull/7' --verdict approve "Looks good"
+check "$RC" "0" "pr-review-submit: exit 0 for a PR in another repository"
+check "$(call_line 2)" "pr review 7 --approve --body-file - --repo ghe.example.com/o2/r2" \
+  "pr-review-submit: the review posts to the repository the reference names"
+check "$(grep -c '^api --hostname ghe.example.com .*repos/o2/r2/pulls/7/reviews' "$CASE/calls")" "3" \
+  "pr-review-submit: its api reads go to the reference's host and repository"
+check "$OUT" "PR ghe.example.com/o2/r2#7: verdict approve, review state approved, body inline" \
+  "pr-review-submit: the report names the PR by its reference"
 
 new_case review-self
 echo me >"$CASE/author"
@@ -748,6 +848,77 @@ git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/pr-merge-conf
 rm -rf "$CLONE/.claude/worktrees/pr-merge-conflicts-7"
 run_conflicts 7
 check "$RC" "0" "pr-merge-conflicts: a registration whose directory is gone is pruned"
+
+# A PR of another repository is fetched from that repository's URL, which
+# the clone's insteadOf points at a bare repository standing in for it.
+OTHER="$SANDBOX/other.git"
+git clone -q --bare "$ORIGIN" "$OTHER"
+git -C "$CLONE" config url."$OTHER".insteadOf https://other.example/o2/r2.git
+new_case conflicts-other-repo
+echo feature >"$CASE/head"
+origin_refs=$(git -C "$CLONE" for-each-ref refs/remotes)
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "0" "pr-merge-conflicts: exit 0 for a PR of another repository"
+check "$(call_line 1)" "pr view 7 --json headRefName,baseRefName --jq \"\\(.headRefName) \\(.baseRefName)\" --repo other.example/o2/r2" \
+  "pr-merge-conflicts: reads head and base from the repository the reference names"
+check_contains "$OUT" "  file.txt" "pr-merge-conflicts: another repository's conflicts are reported"
+check "$(git -C "$CLONE" for-each-ref refs/pr-merge-conflicts)" "" \
+  "pr-merge-conflicts: the refs fetched from another repository are deleted"
+check "$(git -C "$CLONE" for-each-ref refs/remotes)" "$origin_refs" \
+  "pr-merge-conflicts: no remote-tracking ref changes for another repository's PR"
+
+# Two other repositories' PR 7 must not fetch into the same refs, or one
+# run's cleanup deletes the other's. A post-checkout hook, which the
+# worktree add fires, records the refs each run holds at that point.
+new_case conflicts-two-other-repos
+echo feature >"$CASE/head"
+git -C "$CLONE" config url."$OTHER".insteadOf https://third.example/o3/r3.git --add
+mkdir -p "$CASE/hooks"
+printf '#!/bin/sh\ngit for-each-ref --format="%%(refname)" refs/pr-merge-conflicts >>"%s"\n' \
+  "$CASE/refs-seen" >"$CASE/hooks/post-checkout"
+chmod +x "$CASE/hooks/post-checkout"
+git -C "$CLONE" config core.hooksPath "$CASE/hooks"
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "0" "pr-merge-conflicts: one other repository's PR 7 runs"
+mv "$CASE/refs-seen" "$CASE/refs-other"
+run_conflicts 'third.example/o3/r3#7'
+check "$RC" "0" "pr-merge-conflicts: a second other repository's PR 7 runs"
+git -C "$CLONE" config --unset core.hooksPath
+check "$(cat "$CASE/refs-other" "$CASE/refs-seen" | wc -l | tr -d ' ')" "4" \
+  "pr-merge-conflicts: each run holds its head and base refs at the worktree add"
+check "$(sort "$CASE/refs-other" "$CASE/refs-seen" | uniq -d)" "" \
+  "pr-merge-conflicts: two other repositories' PR 7 fetch into distinct refs"
+
+new_case conflicts-other-repo-clean
+echo clean >"$CASE/head"
+run_conflicts 'other.example/o2/r2#7'
+check_contains "$OUT" "The trial merge is clean: no conflicts with main of other.example/o2/r2." \
+  "pr-merge-conflicts: names another repository's base"
+
+new_case conflicts-other-repo-own-leftover
+echo feature >"$CASE/head"
+git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/pr-merge-conflicts-7" origin/feature
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "0" "pr-merge-conflicts: another repository's PR 7 runs beside the checkout's own"
+check "$([ -e "$CLONE/.claude/worktrees/pr-merge-conflicts-7" ] && echo kept || echo removed)" "kept" \
+  "pr-merge-conflicts: another repository's PR 7 leaves the checkout's own PR 7 worktree alone"
+git -C "$CLONE" worktree remove --force "$CLONE/.claude/worktrees/pr-merge-conflicts-7"
+
+new_case conflicts-other-repo-leftover-fails
+echo feature >"$CASE/head"
+mkdir -p "$CLONE/.claude/worktrees/pr-merge-conflicts-other.example+o2+r2-7"
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "3" "pr-merge-conflicts: a leftover that is not a worktree fails the removal"
+check "$(git -C "$CLONE" for-each-ref refs/pr-merge-conflicts)" "" \
+  "pr-merge-conflicts: a failed leftover removal still deletes the refs fetched from another repository"
+rmdir "$CLONE/.claude/worktrees/pr-merge-conflicts-other.example+o2+r2-7"
+
+new_case conflicts-own-repo-by-reference
+echo feature >"$CASE/head"
+run_conflicts 'github.com/o/r#7'
+check "$RC" "0" "pr-merge-conflicts: a reference naming the checkout's own repository merges from origin"
+check "$(git -C "$CLONE" for-each-ref refs/pr-merge-conflicts)" "" \
+  "pr-merge-conflicts: the checkout's own repository fetches no refs of the verb's own"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

@@ -15,14 +15,14 @@ usage() {
 }
 
 [ "$#" -eq 1 ] || gp_err_one_pr
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 
 # One read yields a header line -- state, mergeable, mergeStateStatus,
 # reviewDecision -- then one line per status check that is running (R)
 # or not green (N). A CheckRun carries status and conclusion, a
 # StatusContext carries state.
 read_pr() {
-  gp_gh pr view "$pr" \
+  gp_pr view \
     --json number,state,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup \
     --jq '
       ([.state, .mergeable, .mergeStateStatus,
@@ -52,14 +52,14 @@ $report
 EOF
 
   if [ "$pr_state" != OPEN ]; then
-    gp_err_not_open "$pr" "$pr_state"
+    gp_err_not_open "$pr_state"
   fi
   [ "$mergeable" = UNKNOWN ] || break
   [ -n "$waits" ] || break
 
   delay=${waits%% *}
   attempt=$((attempt + 1))
-  echo "PR #$pr: merge state still computing, attempt $attempt of 3 — waiting $delay s."
+  echo "PR $GP_PR_NAME: merge state still computing, attempt $attempt of 3 — waiting $delay s."
   sleep "$delay"
   case "$waits" in
     *' '*) waits=${waits#* } ;;
@@ -91,9 +91,9 @@ check_list() {
   fi
 }
 
-echo "PR #$pr: mergeable $mergeable, mergeStateStatus $merge_state$meaning"
+echo "PR $GP_PR_NAME: mergeable $mergeable, mergeStateStatus $merge_state$meaning"
 echo "reviewDecision: $review"
 check_list R "checks running"
 check_list N "checks not green"
 
-[ "$mergeable" != UNKNOWN ] || gp_err_still_unknown "$pr" "$attempt"
+[ "$mergeable" != UNKNOWN ] || gp_err_still_unknown "$attempt"

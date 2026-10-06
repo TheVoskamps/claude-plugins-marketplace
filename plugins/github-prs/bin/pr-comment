@@ -15,13 +15,13 @@ usage() {
 
 [ "$#" -eq 3 ] && [ "$2" = --body-file ] ||
   gp_err_pr_and_body_file
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 body_file=$3
 [ -f "$body_file" ] && [ -r "$body_file" ] ||
   gp_err_unreadable "$body_file"
 gp_resolve_host
 
-url=$(gp_gh pr comment "$pr" --body-file "$body_file") || exit $?
+url=$(gp_pr comment --body-file "$body_file") || exit $?
 
 # gh prints the new comment's URL, which ends #issuecomment-<id>.
 case "$url" in
@@ -30,13 +30,13 @@ case "$url" in
 esac
 case "$comment_id" in
   '' | *[!0-9]*)
-    gp_err_comment_no_id "$pr" "$url"
+    gp_err_comment_no_id "$url"
     ;;
 esac
 
 wanted=$(cat "$body_file")
 landed=$(gp_gh api "$(gp_repo_path "issues/comments/$comment_id")" --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_err_comment_not_landed "$pr" "$comment_id" "$body_file"
+  gp_err_comment_not_landed "$comment_id" "$body_file"
 
 echo "$url"

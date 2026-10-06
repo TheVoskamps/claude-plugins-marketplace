@@ -382,7 +382,7 @@ list the human already owns. That seed is **round 0**: rounds count
 implementer passes from 1, and 0 is the pre-loop stage. The generator
 runs on an issues-only brief and its return is held, not persisted —
 every path `bin/sdlc-agent-result-persist` composes is keyed on a PR
-number, and none exists yet — until the developer's PR is open and
+reference, and none exists yet — until the developer's PR is open and
 linked, when the ruled list is written as round 0's records file.
 Round 0 holds that one file, so a walk that starts at round 1 never
 sees it, and a PR with no round 0 — one reviewed outside the
@@ -453,9 +453,9 @@ utilities, and reaching no network.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `/sdlc:orchestrate-cleanup [--dry-run]` | Delete the review state of this repo's merged and closed PRs, keep it for open or unresolvable ones, identify every other repository's state directory from its `repo.yml` and move each old-layout one under the host the human names, then run the interim-work sweep; `--dry-run` reports the verdicts and the sweep's index, asks no host, and deletes no review state and no indexed item | main session |
+| `/sdlc:orchestrate-cleanup [<repository>] [--dry-run]` | Delete the review state of this repo's — or the named repository's — merged and closed PRs, keep it for open or unresolvable ones, identify every other repository's state directory from its `repo.yml` and move each old-layout one under the host the human names, then run the interim-work sweep; `--dry-run` reports the verdicts and the sweep's index, asks no host, and deletes no review state and no indexed item | main session |
 | `/sdlc:cleanup-interim-work [--index-only]` | Index what runs leave behind in this repo — `.claude/tmp/` scratch, the harness scratchpads, subagent worktrees, orphan `worktree-*` refs, nested worktrees, local and remote branches — grade each item, ask the human which to remove, and remove only those; `--index-only` prints the index and removes none of it | main session, interactive |
-| `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` and presents its output unchanged | main session |
+| `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
 | `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
@@ -597,23 +597,36 @@ the log on its behalf.
 
 The host keys the path above the owner because one machine holds state
 for repositories on several GitHub hosts, and the same `owner/repo` on
-two of them is two repositories. Every caller hands the script the PR's
-repository as one `--repo <host>/<owner>/<repo>` value, resolved from
-the URL `gh repo view` reports for the checkout, and a value without a
-host is refused. The directory's `repo.yml` is what identifies it, not
-its path: a reader that derived the repository from segment position
-would misread the directory the next time a segment was added, and
-where the file and the path disagree the file wins. State written
-before the host was part of the path, at `sdlc/<owner>/<repo>/`, is
-moved lazily — the first run of the script for that repository moves it
-into place, host from `--repo`, and writes its `repo.yml`, so no host is
-guessed and no network call is made. The script's `--mode repos` lists
-every repository directory under the state root as its `repo.yml` names
-it, and a directory of the old layout, which has none, as such; it is
-how `/sdlc:orchestrate-cleanup` finds state
-for repositories other than the current one, and asks the human for the
-host of each old-layout directory rather than assuming one. The
-identifying flags, `repo.yml`, the move and the mode are owned by
+two of them is two repositories. Every caller hands the script the PR
+as one canonical reference, `--pr <host>/<owner>/<repo>#<N>` — the form
+`/github-prs:pr-view <PR> --ref` prints — and a bare number or a
+reference without a host is refused. The orchestrator resolves that
+reference once, when the PR is created, and every brief it writes
+carries it; the standalone reviewer resolves whatever form it was given
+at the top of each round. No caller resolves the repository itself, so
+no agent runs `gh repo view` only to hand the script what the reference
+already says, and a PR of a repository the checkout's remote does not
+name is addressed the same way as the checkout's own. The directory's
+`repo.yml` is what identifies it, not its path: a reader that derived
+the repository from segment position would misread the directory the
+next time a segment was added, and where the file and the path disagree
+the file wins. State written before the host was part of the path, at
+`sdlc/<owner>/<repo>/`, is moved lazily — the first run of the script
+for that repository moves it into place, host from `--pr` or from the
+repository `--mode list` is given, and writes its `repo.yml`, so no
+host is guessed and no network call is made. `--mode list` takes its
+repository as an optional operand — `<host>/<owner>/<repo>`, its URL,
+or a shorter form filled in from the current repository, which is also
+what an omitted operand means — and prints each PR as the reference
+`--pr` takes, so `/sdlc:orchestrate-cleanup` hands each line on to
+`/github-prs:pr-view` and `--mode delete` without composing one. The
+script's `--mode repos` lists every repository directory under the
+state root as its `repo.yml` names it, and a directory of the old
+layout, which has none, as such; it is how `/sdlc:orchestrate-cleanup`
+finds state for repositories other than the one it was pointed at, and
+asks the human for the host of each old-layout directory rather than
+assuming one. The identifying flag, the `list` operand, `repo.yml`, the
+move and the modes are owned by
 `skills/agent-result-persist-interface/SKILL.md`.
 
 The `enter` record also carries a path outside that directory,

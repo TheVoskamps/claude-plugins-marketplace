@@ -30,11 +30,11 @@ a scan of this one's own (see step 2 of "Execution").
 ## Invocation
 
 ```text
-/pr-link-issue <pr-number> <issue-number>…
+/pr-link-issue <PR> <issue-number>…
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 - `<issue-number>…` (required): one or more issue numbers the PR
   resolves — members of the branch's **own** issue set only, separated
   by spaces or commas. See "Own issue set only" below.
@@ -88,7 +88,7 @@ reads no config of its own.
    `<issues>` in that set are already linked and are left alone; the
    rest are the missing ones.
 
-   - **Every member already linked** → no-op. Report `PR #<PR> already
+   - **Every member already linked** → no-op. Report `PR <PR> already
      closes <issues>` and stop. Do not append a duplicate keyword.
 
 3. **Append the missing ones** with the bundled script, spelled as a

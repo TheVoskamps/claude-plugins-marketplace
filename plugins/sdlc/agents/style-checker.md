@@ -1,6 +1,6 @@
 ---
 name: style-checker
-description: Checks the code and instruction-Markdown files a PR's diff touched, each against the rules under `## For Authors and Checkers` of the style guide its class routes to, and reports each violation, quoting the rule and the offending lines. Given a PR number and branch name. Commits nothing and posts nothing. Spawned by /sdlc:orchestrate after code-documenter, before the review.
+description: Checks the code and instruction-Markdown files a PR's diff touched, each against the rules under `## For Authors and Checkers` of the style guide its class routes to, and reports each violation, quoting the rule and the offending lines. Given a PR reference and branch name. Commits nothing and posts nothing. Spawned by /sdlc:orchestrate after code-documenter, before the review.
 tools: Read, Glob, Grep, Bash, Skill
 model: sonnet
 effort: medium
@@ -43,7 +43,7 @@ is absent contributes nothing, silently.
 
 You must be given:
 
-- PR number (for the diff fetch via `/github-prs:pr-diff`)
+- PR reference (for the diff fetch via `/github-prs:pr-diff`)
 - Branch name (`<branch-name>`)
 
 If either is missing, ask before proceeding.

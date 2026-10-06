@@ -13,6 +13,6 @@ usage() {
 }
 
 [ "$#" -eq 1 ] || gp_err_one_pr
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 
-gp_gh pr diff "$pr"
+gp_pr diff

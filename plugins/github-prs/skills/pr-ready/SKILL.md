@@ -12,18 +12,18 @@ becomes mergeable; keep a PR draft until it is meant to be.
 ## Invocation
 
 ```text
-/pr-ready <pr-number>
+/pr-ready <PR>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 
 ## Execution
 
 Run the bundled script, spelled as a bare name:
 
 ```bash
-pr-ready <pr-number>
+pr-ready <PR>
 ```
 
 The script flips the PR, then re-reads it. A PR that is already ready
@@ -33,7 +33,7 @@ script is safe to run more than once.
 ## Output and exit status
 
 - **Exit 0** — the re-read shows the PR ready for review. Stdout is one
-  line, `PR #<N> is ready for review`; report it back.
+  line, `PR <PR> is ready for review`; report it back.
 - **Exit 1** — the flip did not land: the re-read still shows a draft.
   Stderr says so; report it.
 - **Exit 2** — a usage error; nothing was sent to GitHub.
