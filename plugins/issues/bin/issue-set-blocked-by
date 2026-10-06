@@ -5,7 +5,7 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-[ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-blocked-by <N> <blocker-N>"
+[ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-blocked-by <issue> <blocker-issue>"
 iss_init
 if iss_blocked_by_edge add "$1" "$2" blocked; then
   printf 'Marked issue %s as blocked by %s.\n%s\n' "$EDGE_BLOCKED" "$EDGE_BLOCKER" "$(iss_jq .url)"

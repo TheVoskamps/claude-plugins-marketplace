@@ -10,11 +10,11 @@ removal as `unset-blocked-by B N`.
 ## Invocation
 
 ```text
-/issue-unset-blocks <N> <blocked-N>
+/issue-unset-blocks <issue> <blocked-issue>
 ```
 
-- `<N>` (required): the former blocker.
-- `<blocked-N>` (required): the formerly blocked issue.
+- `<issue>` (required): the former blocker.
+- `<blocked-issue>` (required): the formerly blocked issue.
 
 Each operand is `N` or `#N` in the current repo, or `repo#N`,
 `owner/repo#N`, `host/owner/repo#N` or
@@ -28,7 +28,7 @@ Run the `issue-unset-blocks` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-unset-blocks <N> <blocked-N>
+issue-unset-blocks <issue> <blocked-issue>
 ```
 
 The script resolves each operand in the repo it names, is a no-op when

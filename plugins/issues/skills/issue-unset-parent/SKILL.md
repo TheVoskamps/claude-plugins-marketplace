@@ -9,10 +9,10 @@ at most one parent, so the script looks the parent up.
 ## Invocation
 
 ```text
-/issue-unset-parent <child-N>
+/issue-unset-parent <child-issue>
 ```
 
-- `<child-N>` (required): the child: `N` or `#N` in the current repo, or
+- `<child-issue>` (required): the child: `N` or `#N` in the current repo, or
   `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
   `https://host/owner/repo/issues/N` in another, as
   `skills/lib/issue.md` → "Repositories and issue references" resolves
@@ -24,7 +24,7 @@ Run the `issue-unset-parent` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-unset-parent <child-N>
+issue-unset-parent <child-issue>
 ```
 
 The script is a no-op when the issue has no parent, and otherwise

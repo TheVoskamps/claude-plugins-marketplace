@@ -10,11 +10,11 @@ way round.
 ## Invocation
 
 ```text
-/issue-set-parent <child-N> <parent-N>
+/issue-set-parent <child-issue> <parent-issue>
 ```
 
-- `<child-N>` (required): the issue becoming a sub-issue.
-- `<parent-N>` (required): the containing issue.
+- `<child-issue>` (required): the issue becoming a sub-issue.
+- `<parent-issue>` (required): the containing issue.
 
 Each is `N` or `#N` in the current repo, or `repo#N`, `owner/repo#N`,
 `host/owner/repo#N` or `https://host/owner/repo/issues/N` in another, as
@@ -28,7 +28,7 @@ Run the `issue-set-parent` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-parent <child-N> <parent-N>
+issue-set-parent <child-issue> <parent-issue>
 ```
 
 An issue has at most one parent. The script is a no-op when the child

@@ -12,10 +12,10 @@ issue field, or a label.
 ## Invocation
 
 ```text
-/issue-set-priority <N> <value>
+/issue-set-priority <issue> <value>
 ```
 
-- `<N>` (required): the issue: `N` or `#N` in the current repo, or
+- `<issue>` (required): the issue: `N` or `#N` in the current repo, or
   `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
   `https://host/owner/repo/issues/N` in another, as
   `skills/lib/issue.md` → "Repositories and issue references" resolves
@@ -39,7 +39,7 @@ Run the `issue-set-priority` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-priority <N> "<value>"
+issue-set-priority <issue> "<value>"
 ```
 
 The script validates the value, skips the write when the slot already

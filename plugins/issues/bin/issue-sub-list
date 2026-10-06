@@ -5,7 +5,7 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-[ "$#" -eq 1 ] || iss_usage_die "usage: issue-sub-list <parent-N>"
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-sub-list <parent-issue>"
 iss_init
 iss_operand "$1"
 

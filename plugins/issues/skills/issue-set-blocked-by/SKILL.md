@@ -10,12 +10,12 @@ the blocker's end.
 ## Invocation
 
 ```text
-/issue-set-blocked-by <N> <blocker-N>
+/issue-set-blocked-by <issue> <blocker-issue>
 ```
 
-- `<N>` (required): the **blocked** issue, which can't proceed until
+- `<issue>` (required): the **blocked** issue, which can't proceed until
   the blocker is done.
-- `<blocker-N>` (required): the **blocker**, the prerequisite.
+- `<blocker-issue>` (required): the **blocker**, the prerequisite.
 
 Each operand is `N` or `#N` in the current repo, or `repo#N`,
 `owner/repo#N`, `host/owner/repo#N` or
@@ -29,7 +29,7 @@ Run the `issue-set-blocked-by` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-blocked-by <N> <blocker-N>
+issue-set-blocked-by <issue> <blocker-issue>
 ```
 
 The script resolves each operand in the repo it names, is a no-op when

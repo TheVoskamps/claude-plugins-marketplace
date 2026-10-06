@@ -1,6 +1,6 @@
 ---
 name: issue-close
-description: Close an issue by number; optionally post a summary comment first. Dispatches by repo's `issues:` tracker.
+description: Close an issue by its reference, in this repo or another; optionally post a summary comment first. Dispatches by repo's `issues:` tracker.
 ---
 
 Close one issue, identified by its reference. Optionally post a summary

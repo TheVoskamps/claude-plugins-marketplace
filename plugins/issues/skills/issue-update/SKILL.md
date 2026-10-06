@@ -11,7 +11,7 @@ in conversation when editing multiple issues.
 ## Invocation
 
 ```text
-/issue-update <N>
+/issue-update <issue>
               [--title "..."]
               [--body-file PATH]
               [--append "line to append"]
@@ -20,7 +20,7 @@ in conversation when editing multiple issues.
               [--add-assignees u1] [--remove-assignees u2]
 ```
 
-- `<N>` (required): the issue: `N` or `#N` in the current repo, or
+- `<issue>` (required): the issue: `N` or `#N` in the current repo, or
   `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
   `https://host/owner/repo/issues/N` in another, as
   `skills/lib/issue.md` → "Repositories and issue references" resolves
@@ -54,7 +54,7 @@ the Bash tool from inside the repo's working tree, passing only the
 flags the user asked for:
 
 ```bash
-issue-update <N> [--title "..."] [--body-file PATH] [--append "..."]... [--prepend "..."]... \
+issue-update <issue> [--title "..."] [--body-file PATH] [--append "..."]... [--prepend "..."]... \
   [--add-labels a,b] [--remove-labels a,b] [--add-assignees u1] [--remove-assignees u2]
 ```
 

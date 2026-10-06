@@ -6,7 +6,7 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage='usage: issue-update <N> [--title "..."] [--body-file PATH] [--append "line"]... [--prepend "line"]...
+usage='usage: issue-update <issue> [--title "..."] [--body-file PATH] [--append "line"]... [--prepend "line"]...
                     [--add-labels a,b] [--remove-labels a,b] [--add-assignees u1] [--remove-assignees u2]'
 
 number_arg=

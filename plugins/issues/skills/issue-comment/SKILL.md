@@ -1,6 +1,6 @@
 ---
 name: issue-comment
-description: Add a comment to an issue by number, with the body read from a file. Dispatches by repo's `issues:` tracker.
+description: Add a comment to an issue by its reference, in this repo or another, with the body read from a file. Dispatches by repo's `issues:` tracker.
 ---
 
 Post a single comment to one issue, identified by its reference. The
@@ -66,4 +66,4 @@ same body-file rules.
   `--body-file`.
 - **Never close the issue from this skill.** Closing is
   `/issue-close`'s job; for comment-then-close, invoke
-  `/issue-close <N> --comment "..."` instead.
+  `/issue-close <issue> --comment "..."` instead.
