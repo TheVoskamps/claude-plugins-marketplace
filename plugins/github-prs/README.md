@@ -14,7 +14,7 @@ a script" below).
 These skills serve the `/sdlc:orchestrate` flow and its agents. The
 `issue-developer` opens the PR. The
 `theorem-based-pr-reviewer` posts the single review that carries the
-verdict, and — when run standalone on a bare PR number — reads the
+verdict, and — when run standalone on a PR reference — reads the
 PR's closing lines to learn which issues it claims; the
 agents it spawns — every `theorem-generator` variant,
 `theorem-disprover`, and `counterexample-verifier` — fetch the diff, as do the `issue-fixer`,
@@ -45,7 +45,8 @@ spelling a `gh pr` call of its own — which is also what would let a
 permission gate refuse raw `gh pr` use later without breaking a caller.
 
 The scripts share one sourced helper, `bin/lib/github-prs-common.sh`,
-which holds the error catalogue and the `gh` call wrapper, `gp_gh`. A
+which holds the error catalogue, the `gh` call wrapper, `gp_gh`, and
+the parser of the PR reference every PR verb takes, `gp_parse_pr`. A
 script reports a failure by calling a catalogue entry and never spells
 a message of its own, so an exit status means the same thing whichever
 verb returned it:
@@ -74,16 +75,44 @@ why every body-taking verb accepts `--body-file <path>`, and why
 `pr-review-submit` composes the posted body in memory rather than
 writing a scratch copy beside the caller's file.
 
-A `gh api` call goes to `gh`'s default host whatever host the
-checkout's remote is on — github.com unless `GH_HOST` says otherwise,
-even with the `{owner}/{repo}` placeholders in the path — so inside a
-checkout on a GitHub Enterprise host it would query the wrong host and
-fail. `gp_gh` therefore adds `--hostname "$GP_HOST"` to every `api`
-call, and a verb that makes one first sets `GP_HOST` from the URL
-`gh repo view` reports for the checkout. `gh pr` subcommands take the
-host from the remote already and get no flag. The host travels per call
-rather than as an exported `GH_HOST`, because one session works across
-several hosts.
+## One PR reference
+
+A PR number is unique only within its repository, so every verb that
+takes a PR takes it as one argument that may name the repository too —
+a bare number for the checkout's own PR, a reference such as
+`owner/repo#N` or `host/owner/repo#N`, or the PR's URL — and
+`gp_parse_pr` is the one place that grammar is parsed. The grammar
+itself is owned by `skills/lib/pr-reference.md`. A malformed reference,
+an issue URL included, is a usage error before any `gh` call, so a
+caller that pasted the wrong link learns so without a network round
+trip.
+
+The **canonical reference** is `host/owner/repo#N`, taken from the
+PR's own URL rather than from `headRepository`: a fork PR's head
+repository is the fork, but the PR lives on its base, and the URL names
+the base. `/pr-view <PR> --ref` prints it, and the default dump opens
+with it, because it names the same PR from any checkout on any host —
+the form to carry a PR onward in rather than a number that means
+something different in every repository.
+
+A reference that names a repository sends every `gh` call there. A
+`gh api` call goes to `gh`'s default host whatever host the checkout's
+remote is on — github.com unless `GH_HOST` says otherwise, even with the
+`{owner}/{repo}` placeholders in the path — so inside a checkout on a
+GitHub Enterprise host it would query the wrong host and fail. `gp_gh`
+therefore adds `--hostname "$GP_HOST"` to every `api` call, with
+`GP_HOST` the host the reference named, or else the host of the URL
+`gh repo view` reports for the checkout, looked up once per run; a
+reference that names a repository also replaces the placeholders in
+the `api` path with that owner and repository. A `gh pr` subcommand
+takes the host from the remote when the reference named no repository,
+and carries `--repo host/owner/repo` when it did, which is what `gp_pr`
+adds. The host travels per call rather than as an exported `GH_HOST`,
+because one session works across several hosts.
+
+A message that names the PR spells it `#N` when the argument named no
+repository, and by its canonical reference otherwise, so a caller
+reading the report sees the PR as it addressed it.
 
 Every script runs under the bash 3.2 that macOS ships. The suite at
 `test/github-prs-test.sh` runs each script against a stub `gh` that
@@ -91,9 +120,11 @@ keeps a PR's state in files and applies `--jq` filters with the real
 `jq`, checking the call shape each script issues, the re-read after
 each mutation — including a mode in which the mutation does not land,
 so every exit-1 path is exercised — and the error wording. The stub
-resolves an `api` call only on the host the case gives the checkout, so
-a call that drops `--hostname` fails the verb; no test posts anything
-to GitHub.
+resolves an `api` call only on the host the case gives the checkout or
+the reference names, so a call that drops `--hostname` fails the verb;
+no test posts anything to GitHub, and a test of another repository's
+PR for `pr-merge-conflicts` reaches a local stand-in through git's
+`insteadOf`.
 
 ## One PR, one issue set
 
@@ -191,14 +222,14 @@ that script makes.
 | Skill | Purpose | Underlying command |
 | ------- | --------- | -------------------- |
 | `/pr-create <issue>… <branch>` | Open a draft PR for a branch against the right base, closing its own issue set | `gh pr create --draft --base <target>` |
-| `/pr-view <PR> [--json <fields> [--jq <expr>]]` | Print a PR — a fixed dump, or the named fields | `gh pr view <PR> [--json …]` |
+| `/pr-view <PR> [--ref \| --json <fields> [--jq <expr>]]` | Print a PR — a fixed dump, its canonical reference, or the named fields | `gh pr view <PR> [--json …]` |
 | `/pr-diff <PR>` | Fetch a PR's full diff | `gh pr diff <PR>` |
 | `/pr-list --head <branch> [--state <state>]` | List the PRs opened from a head branch, as a JSON array | `gh pr list --head <branch> --state <state>` |
 | `/pr-review-submit <PR> --verdict <verdict> <body>` or `--body-file <path>` | Post a single PR review carrying a verdict, with the body inline or from a file | `gh pr review <PR>` |
 | `/pr-comment <PR> --body-file <path>` | Post one comment on a PR from a file | `gh pr comment <PR> --body-file <path>` |
 | `/pr-update <PR> --body-file <path>` | Replace a PR's whole body with a file's contents | `gh pr edit <PR> --body-file <path>` |
-| `/pr-ready <N>` | Mark a draft PR ready for review (draft → ready) | `gh pr ready <N>` |
-| `/pr-draft <N>` | Convert a ready PR back to a draft (ready → draft) | `gh pr ready <N> --undo` |
+| `/pr-ready <PR>` | Mark a draft PR ready for review (draft → ready) | `gh pr ready <PR>` |
+| `/pr-draft <PR>` | Convert a ready PR back to a draft (ready → draft) | `gh pr ready <PR> --undo` |
 | `/pr-ready-to-merge <PR>` | Report an open PR's merge readiness — `mergeable`, `mergeStateStatus`, review decision and check rollup — retrying while GitHub is still computing it | `gh pr view <PR> --json mergeable,mergeStateStatus,…` |
 | `/pr-merge-conflicts <PR>` | Enumerate a PR's actual merge conflicts with its base — files and hunks — by a trial merge that is aborted afterwards | `git merge --no-commit --no-ff` in a throwaway worktree |
 | `/pr-link-issue <PR> <issue>…` | Ensure the PR body links & closes every issue in its own set | verify/append the missing `Closes #<issue>` lines in the PR body |
@@ -221,14 +252,18 @@ under-delivery. On the no-safe-resolution outcome the skill opens no
 PR at all. See the skill for the closing-keyword rule (PR body only,
 own issue set only, never a commit).
 
-### `/pr-view <PR> [--json <fields> [--jq <expr>]]`
+### `/pr-view <PR> [--ref | --json <fields> [--jq <expr>]]`
 
-Reads one PR. With no flags it prints a fixed dump a human can read;
-with `--json` it prints exactly the fields named, as `gh pr view --json`
-spells them, optionally reduced by a `--jq` expression, for a caller
-that needs the body, the reviews, the comments, the state or the refs.
-This is the read behind every "look at the PR" step elsewhere in the
-marketplace, so a field list a caller used to pass to a raw
+Reads one PR. With no flags it prints a fixed dump a human can read,
+opening with the PR's canonical reference; with `--ref` it prints that
+reference alone, `<host>/<owner>/<repo>#<N>`, which is how a PR given
+in any form is turned into the one form to pass onward (see "One PR
+reference" above); with `--json` it prints exactly the fields named, as
+`gh pr view --json` spells them, optionally reduced by a `--jq`
+expression, for a caller that needs the body, the reviews, the
+comments, the state or the refs. `--ref` and `--json` exclude each
+other. This is the read behind every "look at the PR" step elsewhere in
+the marketplace, so a field list a caller used to pass to a raw
 `gh pr view` passes through unchanged.
 
 ### `/pr-diff <PR>`
@@ -297,7 +332,7 @@ orchestrated run puts on it, the closing lines that must survive — is
 the caller's rule, not this verb's; the verb only guarantees that what
 GitHub holds afterwards is the file.
 
-### `/pr-ready <N>`
+### `/pr-ready <PR>`
 
 Flips a draft PR into ready-for-review. A draft PR cannot be
 auto-merged (the repo's auto-merge workflow filters `isDraft ==
@@ -305,7 +340,7 @@ false`), so the flip is the point at which a PR becomes mergeable, and
 keeping a PR draft until then is what keeps it inert. Safe to run more
 than once — `gh` no-ops if the PR is already ready.
 
-### `/pr-draft <N>`
+### `/pr-draft <PR>`
 
 Converts a ready PR back to a draft, re-arming that safety gate. Used
 manually when a PR that looked ready turns out to still need work.
@@ -335,6 +370,17 @@ leaves nothing for the next one to trip on. The primary clone's
 `git status` reads the same before and after. It reports the
 conflicts and nothing else; what to do about each is the caller's to
 decide.
+
+A PR of the checkout's own repository is fetched from `origin`, so the
+`origin/*` refs of its head and base move. A PR of another repository —
+the reference named one the checkout's remote does not — is fetched
+from that repository's `https://` URL into refs of the verb's own,
+under `refs/pr-merge-conflicts/`, keyed on the lowercased host, owner
+and repository so two repositories' PR N never share a ref or a
+worktree path, and deleted on every exit; no remote-tracking ref of the
+checkout changes for it. The fetch authenticates as `git` does for that
+URL, which is why the verb runs from any git checkout rather than only
+from the PR's repository.
 
 The hunks carry a merge's side labels: `<<<<<<< HEAD` is the PR's
 head and the lower side is the base. A caller that remedies by
