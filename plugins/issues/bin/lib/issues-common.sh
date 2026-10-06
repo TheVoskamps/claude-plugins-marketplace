@@ -734,9 +734,9 @@ iss_operand() {
 # iss_check_repo <host> <owner> <repo> [<host> <owner> <repo>]: for a
 # repository other than the second one — the current repository when it is
 # not given, whose repo-config the verb has read already — read its
-# repo-config with iss_load_target_config and abort as that does: on an
-# unsupported schema, or with the fixed Jira message under issues: Jira. A
-# repository with no repo-config passes. The read runs in a subshell, so the
+# repo-config with iss_load_target_config and abort wherever that does: on a
+# repo-config it cannot read or that fails validation, and with the fixed Jira
+# message under issues: Jira. A repository with no repo-config passes. The read runs in a subshell, so the
 # repo-config the verb itself reads is left as it was.
 iss_check_repo() {
   if [ "$#" -eq 6 ]; then

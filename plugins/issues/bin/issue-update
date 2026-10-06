@@ -72,8 +72,8 @@ split_csv() {
 }
 
 # Resolve @default-assignee before anything is sent. The repo-level
-# user-config belongs to the current repository, so an issue in another one
-# takes its default from the user-global user-config only.
+# user-config belongs to the current repository, so for an issue in another
+# one iss_default_assignee skips it.
 scope=
 iss_same_repo "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO" || scope=global-only
 resolve_assignees() {

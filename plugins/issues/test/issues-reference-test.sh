@@ -6,9 +6,9 @@
 # refused with. The current repository is github.com/acme/widgets, held as
 # already resolved, so no case calls gh.
 #
-# The accepted forms include every form the github-prs PR-reference parser
-# accepts -- N, #N, repo#N, owner/repo#N, host/owner/repo#N and a URL -- with
-# the URL's pull segment read as issues.
+# The accepted forms are those the github-prs PR-reference parser accepts --
+# N, #N, repo#N, owner/repo#N, host/owner/repo#N and a URL -- except that the
+# URL carries an issues segment; a pull segment is refused.
 #
 # Usage: issues-reference-test.sh    (exit 0 when every case passes)
 
