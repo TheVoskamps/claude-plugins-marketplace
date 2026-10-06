@@ -30,7 +30,9 @@ tree="$root/.claude/worktrees/pr-merge-conflicts-$GP_PR"
 # A PR of the checkout's own repository merges from origin. A PR of
 # another repository has its two branches fetched from that repository's
 # URL into refs of this verb's own, which the cleanup below deletes, so
-# no remote-tracking ref of the checkout changes.
+# no remote-tracking ref of the checkout changes. GitHub matches host,
+# owner and repository names without regard to case, so the comparison
+# lowercases both sides.
 foreign=
 if [ -n "$GP_REPO_ARG" ]; then
   gp_current_repo

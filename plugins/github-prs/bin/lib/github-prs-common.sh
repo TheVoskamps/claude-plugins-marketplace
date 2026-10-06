@@ -182,8 +182,9 @@ gp_pr() {
   fi
 }
 
-# gp_issue_number <arg> -- the same for an issue number, which may also
-# arrive with a trailing comma from a comma-separated list.
+# gp_issue_number <arg> -- the issue number with any leading `#` and
+# any trailing comma from a comma-separated list stripped, or a usage
+# error when what is left is not all digits.
 gp_issue_number() {
   local n=${1#\#}
   n=${n%,}

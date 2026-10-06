@@ -171,9 +171,10 @@ if [ "$mode" = repos ]; then
   exit 0
 fi
 
-# split_repo <host/owner/repo> <message>: sets host, owner and repo, each
-# segment one level of the composed path, or dies with <message> when
-# the reference is not three segments. The host is part of it because
+# split_repo <host/owner/repo> <message>: sets repo_ref to the reference
+# whole and host, owner and repo to its segments, each one level of the
+# composed path, or dies with <message> when the reference is not three
+# segments. The host is part of it because
 # one machine holds state for repositories on several hosts, and the same
 # owner/repo on two of them is two repositories. A segment holding
 # anything but letters, digits, ., _ and - could add a directory level,
@@ -384,8 +385,8 @@ write_repo_yml() {
 
 # State written before the host was part of the path sits at
 # sdlc/<owner>/<repo>/. It moves to this repository's directory, host from
-# --repo, before any mode reads or writes, so no reader falls back to the
-# old path.
+# the repository split_repo parsed, before any mode reads or writes, so no
+# reader falls back to the old path.
 migrate_old_layout() {
   old="$state_root/$owner/$repo"
   is_old_layout "$old" || return 0
