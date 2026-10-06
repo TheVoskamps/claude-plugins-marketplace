@@ -3,18 +3,21 @@ name: issue-comment
 description: Add a comment to an issue by number, with the body read from a file. Dispatches by repo's `issues:` tracker.
 ---
 
-Post a single comment to one issue, identified by its number. The
+Post a single comment to one issue, identified by its reference. The
 comment body is read from a file the caller provides — never composed
 inline by this skill.
 
 ## Invocation
 
 ```text
-/issue-comment <issue-number> --body-file PATH
+/issue-comment <issue> --body-file PATH
 ```
 
-- `<issue-number>` — required. The issue number, with or without a
-  leading `#`.
+- `<issue>` — required. The issue: `N` or `#N` in the current repo, or
+  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+  `https://host/owner/repo/issues/N` in another, as
+  `skills/lib/issue.md` → "Repositories and issue references" resolves
+  them.
 - `--body-file PATH` — required. A file whose contents are posted
   verbatim as the comment body; a relative path resolves against the
   current directory, then the repo root. Markdown passes through
@@ -32,7 +35,7 @@ Run the `issue-comment` script, which this plugin puts on `PATH`, with
 the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-comment <N> --body-file <PATH>
+issue-comment <issue> --body-file <PATH>
 ```
 
 The script refuses a body file that is missing, unreadable, or empty
@@ -57,8 +60,8 @@ same body-file rules.
 
 ## Hard constraints
 
-- **Never comment on an issue you weren't given by number.** The
-  number is the only input that identifies the target.
+- **Never comment on an issue you weren't given.** The `<issue>`
+  operand is the only input that identifies the target.
 - **Never compose the body inline.** The body always comes from
   `--body-file`.
 - **Never close the issue from this skill.** Closing is

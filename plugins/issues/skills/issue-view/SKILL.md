@@ -11,11 +11,13 @@ commands.
 ## Invocation
 
 ```text
-/issue-view <issue-number>
+/issue-view <issue>
 ```
 
-A single positional argument: the issue number in the current repo,
-with or without a leading `#`. No flags.
+A single positional argument, the issue: `N` or `#N` in the current
+repo, or `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+`https://host/owner/repo/issues/N` in another, as `skills/lib/issue.md`
+→ "Repositories and issue references" resolves them. No flags.
 
 ## Execution
 
@@ -23,7 +25,7 @@ Run the `issue-view` script, which this plugin puts on `PATH`, with
 the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-view <N>
+issue-view <issue>
 ```
 
 Print its stdout to the user as it stands. On a non-zero exit, relay
@@ -64,7 +66,9 @@ Body:
   `.issues/repo-config.md`, in the order the file lists the slots,
   except that `Size:` follows `Priority:` when both are configured. A
   slot declared `kind: skip` or absent from `fields:` has no row, and
-  with no `github-project:` block there are no slot rows at all.
+  with no `github-project:` block there are no slot rows at all. For
+  an issue in another repo the rows follow that repo's repo-config,
+  and a repo with none prints no slot rows.
 - A row reads `(none)` when the value is unset,
   `(not on project board)` for a project-field slot (`kind: number`
   or `kind: single-select`) on an issue that is not on the configured
@@ -72,8 +76,8 @@ Body:
   one of its own labels. `/issue-set-<slot>` converges that last state;
   this verb is read-only.
 - Every other empty section reads `(none)`.
-- A related issue prints as `skills/lib/issue.md` → "Repositories and
-  issue references" states.
+- The issue and every related issue print as `skills/lib/issue.md` →
+  "Repositories and issue references" states.
 - Lists keep GitHub's order, and the body is printed verbatim.
 
 ## Jira backend

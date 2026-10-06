@@ -16,9 +16,11 @@ from the blocker's end.
 - `<N>` (required): the formerly blocked issue.
 - `<blocker-N>` (required): the blocker to detach.
 
-Either operand may be `N`, `#N`, or `<repository>#N` with the repository
-in any form `skills/lib/issue.md` → "Repositories and issue references"
-lists; the last names an issue in another GitHub repo.
+Each operand is `N` or `#N` in the current repo, or `repo#N`,
+`owner/repo#N`, `host/owner/repo#N` or
+`https://host/owner/repo/issues/N` in another, as `skills/lib/issue.md`
+→ "Repositories and issue references" resolves them, so the two need not
+share a repo.
 
 ## Execution
 

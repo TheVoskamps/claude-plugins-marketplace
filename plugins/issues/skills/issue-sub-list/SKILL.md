@@ -14,8 +14,11 @@ parent with more children than one page is listed in full;
 /issue-sub-list <parent-N>
 ```
 
-- `<parent-N>` (required): the parent's issue number, with or without
-  a leading `#`.
+- `<parent-N>` (required): the parent: `N` or `#N` in the current repo,
+  or `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+  `https://host/owner/repo/issues/N` in another, as
+  `skills/lib/issue.md` → "Repositories and issue references" resolves
+  them.
 
 ## Execution
 
@@ -40,7 +43,7 @@ Sub-issues of #<parent-N> "<title>":
   - #<N> <title>
 ```
 
-No URLs are printed. A sub-issue prints as
+No URLs are printed. The parent and each sub-issue print as
 `skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend

@@ -11,11 +11,15 @@ issue is added to the board first when it is not on it yet.
 ## Invocation
 
 ```text
-/issue-set-status <issue-number> <status-name>
+/issue-set-status <issue> <status-name>
 ```
 
-- `<issue-number>` (required): issue number in the current repo, with
-  or without a leading `#`.
+- `<issue>` (required): the issue: `N` or `#N` in the current repo, or
+  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+  `https://host/owner/repo/issues/N` in another, as
+  `skills/lib/issue.md` → "Repositories and issue references" resolves
+  them. In another repo the slot is that repo's own, as the same section
+  states.
 - `<status-name>` (required): a human-readable status name (e.g.
   `Todo`, `In Progress`, `Done`), matched case-insensitively against
   the slot's configured options. Whitespace inside a name is
@@ -29,7 +33,7 @@ Run the `issue-set-status` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-status <N> "<status-name>"
+issue-set-status <issue> "<status-name>"
 ```
 
 The script resolves the name, writes it, and re-reads the status; it

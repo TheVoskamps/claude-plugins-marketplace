@@ -16,8 +16,11 @@ way round.
 - `<child-N>` (required): the issue becoming a sub-issue.
 - `<parent-N>` (required): the containing issue.
 
-Both are issue numbers in the current repo, with or without a leading
-`#`. Mnemonic: "set parent of C to P" reads left-to-right.
+Each is `N` or `#N` in the current repo, or `repo#N`, `owner/repo#N`,
+`host/owner/repo#N` or `https://host/owner/repo/issues/N` in another, as
+`skills/lib/issue.md` → "Repositories and issue references" resolves
+them, so the two need not share a repo. Mnemonic: "set parent of C to P"
+reads left-to-right.
 
 ## Execution
 
@@ -45,7 +48,7 @@ The no-op prints `Issue #<C> is already a sub-issue of #<P>; no
 change.` and exits zero. A child under another parent is an error:
 
 > issue `#<C>` already has parent `#<existing-P>`; remove it first
-> with `/issue-unset-parent <C>` before setting a new parent
+> with `/issue-unset-parent #<C>` before setting a new parent
 
 ## Jira backend
 

@@ -7,7 +7,7 @@ set -uo pipefail
 
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-unset-parent <child-N>"
 iss_init
-iss_parse_operand "$1" local-only
+iss_operand "$1"
 cref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$ISS_SEL_PARENT"

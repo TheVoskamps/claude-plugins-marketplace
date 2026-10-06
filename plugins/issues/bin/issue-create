@@ -9,7 +9,7 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
 usage='usage: issue-create [<repo>] --title "..." --body-file PATH [--type T] [--labels a,b,c] [--assignee u1,u2]
-                    [--parent N] [--priority V] [--size V] [--status S]'
+                    [--parent <issue>] [--priority V] [--size V] [--status S]'
 
 title=
 body_file=
@@ -169,12 +169,18 @@ status_line=$slot_line; status_value=$slot_value
 parent_id=
 parent_ref=
 if [ -n "$parent_arg" ]; then
-  num=${parent_arg#"$ISS_LINK_PREFIX"}
-  num=${num#'#'}
-  iss_is_digits "$num" || iss_usage_die "\`--parent\` takes an issue number"
-  iss_lookup "$host" "$owner" "$repo" "$num" id
+  # A bare N names an issue in the repo the issue is filed in, whose
+  # repo-config supplied the issue-link-prefix it may carry.
+  iss_parse_operand "$parent_arg"
+  if [ "$OP_LOCAL" = yes ]; then
+    OP_HOST=$host
+    OP_OWNER=$owner
+    OP_REPO=$repo
+  fi
+  iss_check_repo "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$host" "$owner" "$repo"
+  iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" id
   parent_id=$(iss_jq .id)
-  parent_ref=$(iss_ref "$host" "$owner" "$repo" "$num")
+  parent_ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 fi
 
 assignees=$assignee_arg

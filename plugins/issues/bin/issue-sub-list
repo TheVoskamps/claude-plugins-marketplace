@@ -7,7 +7,7 @@ set -uo pipefail
 
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-sub-list <parent-N>"
 iss_init
-iss_parse_operand "$1" local-only
+iss_operand "$1"
 
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title $(iss_conn subIssues)"
 title=$(iss_jq .title)

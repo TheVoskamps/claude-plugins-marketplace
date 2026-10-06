@@ -20,8 +20,11 @@ in conversation when editing multiple issues.
               [--add-assignees u1] [--remove-assignees u2]
 ```
 
-- `<N>` (required): issue number in the current repo, with or without
-  a leading `#`.
+- `<N>` (required): the issue: `N` or `#N` in the current repo, or
+  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+  `https://host/owner/repo/issues/N` in another, as
+  `skills/lib/issue.md` → "Repositories and issue references" resolves
+  them.
 - `--title` (optional): replace the title.
 - `--body-file` (optional): replace the whole body with the file's
   contents.
@@ -34,7 +37,8 @@ in conversation when editing multiple issues.
 - `--add-assignees` / `--remove-assignees` (optional): comma-separated
   GitHub logins. Either also accepts the literal token
   `@default-assignee`, which the script resolves to `default-assignee`
-  from the repo-level user-config, then the user-global one
+  from the repo-level user-config — for an issue in the current repo
+  only — then the user-global one
   (`skills/lib/user-config.md`), then the authenticated GitHub user.
   A user-config file that exists but predates schema-version `1`
   aborts rather than being skipped.

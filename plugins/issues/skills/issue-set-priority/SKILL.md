@@ -15,8 +15,12 @@ issue field, or a label.
 /issue-set-priority <N> <value>
 ```
 
-- `<N>` (required): issue number in the current repo, with or without
-  a leading `#`.
+- `<N>` (required): the issue: `N` or `#N` in the current repo, or
+  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+  `https://host/owner/repo/issues/N` in another, as
+  `skills/lib/issue.md` → "Repositories and issue references" resolves
+  them. In another repo the slot is that repo's own, as the same section
+  states.
 - `<value>` (required): one argument, quoted when it has spaces. By the
   slot's kind:
   - **`kind: number`** — an integer within the slot's `min`/`max`.

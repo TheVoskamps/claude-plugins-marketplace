@@ -69,9 +69,12 @@ slot_row() {
   row "$label" "$value"
 }
 
-[ "$#" -eq 1 ] || iss_usage_die "usage: issue-view <issue-number>"
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-view <issue>"
 iss_init
-iss_parse_operand "$1" local-only
+iss_parse_operand "$1"
+# A repository with no repo-config prints no slot rows, as one with no
+# github-project: block does.
+iss_operand_config "$OP_HOST" "$OP_OWNER" "$OP_REPO" || :
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
 
 printf '%s %s    (%s)\n' "$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$(iss_jq .title)" "$(iss_jq .state)"

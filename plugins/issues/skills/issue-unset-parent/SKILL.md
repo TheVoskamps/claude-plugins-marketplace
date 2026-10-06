@@ -12,8 +12,11 @@ at most one parent, so the script looks the parent up.
 /issue-unset-parent <child-N>
 ```
 
-- `<child-N>` (required): issue number in the current repo, with or
-  without a leading `#`.
+- `<child-N>` (required): the child: `N` or `#N` in the current repo, or
+  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
+  `https://host/owner/repo/issues/N` in another, as
+  `skills/lib/issue.md` → "Repositories and issue references" resolves
+  them.
 
 ## Execution
 

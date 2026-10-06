@@ -7,9 +7,9 @@ set -uo pipefail
 
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-type <N> <type-name>"
 iss_init
-[ "$ISS_HAS_GP" = 1 ] || iss_err_no_block
-iss_cfg_get issue-types >/dev/null 2>&1 || iss_err_no_issue_types
-iss_parse_operand "$1" local-only
+iss_parse_operand "$1"
+iss_operand_board_config
+iss_cfg_get issue-types >/dev/null 2>&1 || iss_err_no_issue_types "$ISS_CFG_PREFIX"
 ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
 type_name=$(iss_resolve_name skip-default "$2" issue-types) ||

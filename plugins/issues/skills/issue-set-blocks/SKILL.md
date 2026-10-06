@@ -16,11 +16,11 @@ as `set-blocked-by B N`.
 - `<N>` (required): the **blocker**, the prerequisite.
 - `<blocked-N>` (required): the issue being **blocked** by N.
 
-Either operand may be `N`, `#N`, or `<repository>#N` with the repository
-in any form `skills/lib/issue.md` → "Repositories and issue references"
-lists; the last names an issue in another GitHub repo, so the two issues
-need not share a repo.
-Mnemonic: "set blocks of N to B" — "N blocks B".
+Each operand is `N` or `#N` in the current repo, or `repo#N`,
+`owner/repo#N`, `host/owner/repo#N` or
+`https://host/owner/repo/issues/N` in another, as `skills/lib/issue.md`
+→ "Repositories and issue references" resolves them, so the two need not
+share a repo. Mnemonic: "set blocks of N to B" — "N blocks B".
 
 ## Execution
 

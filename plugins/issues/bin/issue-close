@@ -5,7 +5,7 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage='usage: issue-close <issue-number> [--comment "summary"]'
+usage='usage: issue-close <issue> [--comment "summary"]'
 number_arg=
 comment=
 has_comment=no
@@ -28,7 +28,7 @@ done
 [ -n "$number_arg" ] || iss_usage_die "$usage"
 
 iss_init
-iss_parse_operand "$number_arg" local-only
+iss_operand "$number_arg"
 ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 repo_arg=$(iss_repo_arg "$OP_HOST" "$OP_OWNER" "$OP_REPO")
 

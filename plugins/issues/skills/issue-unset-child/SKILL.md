@@ -16,8 +16,10 @@ sub-issues are untouched.
 - `<child-N>` (required): the child to remove. Required because a
   parent may have many children.
 
-Both are issue numbers in the current repo, with or without a leading
-`#`.
+Each is `N` or `#N` in the current repo, or `repo#N`, `owner/repo#N`,
+`host/owner/repo#N` or `https://host/owner/repo/issues/N` in another, as
+`skills/lib/issue.md` → "Repositories and issue references" resolves
+them, so the two need not share a repo.
 
 ## Execution
 
