@@ -222,6 +222,10 @@ def graphql(state, host, args):
                     return
         fail("Could not resolve to a node with the global id of '%s'" % fields["item"])
 
+    if not mutation and re.search(r"\b(repositoryOwner|viewer|issueFields|issueTypes)\b", query):
+        discovery(state, host, query, fields)
+        return
+
     if not mutation:
         nwo = fields["owner"] + "/" + fields["repo"]
         if not repo_on(state, nwo, host):
@@ -307,6 +311,67 @@ def graphql(state, host, args):
     print(json.dumps({"data": {name: result}}))
 
 
+def login_on(state, host):
+    """The user gh is authenticated as on `host`."""
+    return state.get("hostUsers", {}).get(host, state["user"])
+
+
+def discovery(state, host, query, fields):
+    """The issues-discover lookups: an owner's boards and one board's fields
+    through repositoryOwner, a repo's native issue fields and issue types, and
+    the viewer. An owner's "projects" live in state["owners"], on its own
+    "host" (github.com when absent); a host listed in state["scopeless"] has a
+    token without read:project, so any board query there fails as GitHub
+    fails it."""
+    if re.search(r"\bviewer\b", query):
+        print(json.dumps({"data": {"viewer": {"login": login_on(state, host)}}}))
+        return
+
+    if "repositoryOwner" in query:
+        if host in state.get("scopeless", []):
+            message = ("Your token has not been granted the required scopes to execute this query. The 'projectsV2' "
+                       "field requires one of the following scopes: ['read:project'], but your token has only been "
+                       "granted the: ['repo'] scopes. Please modify your token's scopes at: "
+                       "https://%s/settings/tokens." % host)
+            fail(message, {"data": {"repositoryOwner": None},
+                           "errors": [{"type": "INSUFFICIENT_SCOPES", "message": message}]})
+        owner = state.get("owners", {}).get(fields["owner"])
+        if owner is None or owner.get("host", DEFAULT_HOST) != host:
+            print(json.dumps({"data": {"repositoryOwner": None}}))
+            return
+        projects = owner["projects"]
+        if "projectsV2(" in query:
+            brief_projects = [{"number": p["number"], "title": p["title"], "id": p["id"]} for p in projects]
+            conn = paginate(query, "projectsV2", brief_projects, fields.get("after"))
+            print(json.dumps({"data": {"repositoryOwner": {"projectsV2": conn}}}))
+            return
+        match = [p for p in projects if str(p["number"]) == fields["number"]]
+        if not match:
+            print(json.dumps({"data": {"repositoryOwner": {"projectV2": None}}}))
+            return
+        project = match[0]
+        if "fields(" in query:
+            out = {"fields": paginate(query, "fields", project["fields"], fields.get("after"))}
+        else:
+            out = {"number": project["number"], "title": project["title"], "id": project["id"]}
+        print(json.dumps({"data": {"repositoryOwner": {"projectV2": out}}}))
+        return
+
+    nwo = fields["owner"] + "/" + fields["repo"]
+    if not repo_on(state, nwo, host):
+        fail("Could not resolve to a Repository with the name '%s'." % nwo,
+             {"data": {"repository": None},
+              "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a Repository"}]})
+    repo = state["repos"][nwo]
+    name = "issueFields" if re.search(r"\bissueFields\b", query) else "issueTypes"
+    nodes = repo.get(name)
+    if nodes == "absent":
+        message = "Field '%s' doesn't exist on type 'Repository'" % name
+        fail(message, {"errors": [{"message": message, "extensions": {"code": "undefinedField"}}]})
+    conn = None if nodes is None else paginate(query, name, nodes, fields.get("after"))
+    print(json.dumps({"data": {"repository": {name: conn}}}))
+
+
 # ---------------------------------------------------------------------------
 # Other subcommands.
 # ---------------------------------------------------------------------------
@@ -346,7 +411,7 @@ def main():
     if args[:2] == ["repo", "view"]:
         print("https://%s/%s" % (host_of(state, state["current"]), state["current"]))
     elif args[:2] == ["api", "user"]:
-        print(state["user"])
+        print(login_on(state, host))
     elif args[:2] == ["api", "graphql"]:
         graphql(state, host, args[2:])
     elif args[0] == "api" and "/contents/" in args[1]:

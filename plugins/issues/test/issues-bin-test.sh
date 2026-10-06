@@ -170,6 +170,34 @@ state = {
     "issueFieldOptions": {"IFSSO_high": "High", "IFSSO_medium": "Medium", "IFSSO_low": "Low"},
     "issueTypes": {"IT_bug": "Bug", "IT_feature": "Feature", "IT_debt": "Tech Debt"},
 }
+# What issues-discover reads: acme's boards, the fields of board 1 -- the
+# number and single-select ones past a first page of text fields -- and
+# acme/widgets' native issue fields and issue types, each list mixing in the
+# kinds the script filters out.
+board_fields = [{"id": "PVTF_text%d" % n, "name": "Text %d" % n, "dataType": "TEXT"} for n in range(105)]
+board_fields += [
+    {"id": "PVTF_title", "name": "Title", "dataType": "TITLE"},
+    {"id": "PVTSSF_status", "name": "Status", "dataType": "SINGLE_SELECT",
+     "options": [{"id": "OPT_backlog", "name": "Backlog"}, {"id": "OPT_done", "name": "Done"}]},
+    {"id": "PVTF_prio", "name": "Priority", "dataType": "NUMBER"},
+    {"id": "PVTIF_sprint", "name": "Sprint", "dataType": "ITERATION"},
+]
+state["owners"] = {"acme": {"projects": [
+    {"number": 1, "title": "Roadmap", "id": "PVT_1", "fields": board_fields},
+    {"number": 2, "title": "Ops", "id": "PVT_2", "fields": []},
+]}}
+state["repos"]["acme/widgets"]["issueFields"] = [
+    {"__typename": "IssueFieldSingleSelect", "name": "Priority", "dataType": "SINGLE_SELECT", "id": "IFSS_priority",
+     "options": [{"id": "IFSSO_high", "name": "High"}, {"id": "IFSSO_low", "name": "Low"}]},
+    {"__typename": "IssueFieldDate", "name": "Due", "dataType": "DATE"},
+    {"__typename": "IssueFieldSingleSelect", "name": "Effort", "dataType": "SINGLE_SELECT", "id": "IFSS_effort",
+     "options": [{"id": "IFSSO_e_low", "name": "Low"}]},
+]
+state["repos"]["acme/widgets"]["issueTypes"] = [
+    {"id": "IT_bug", "name": "Bug", "isEnabled": True},
+    {"id": "IT_legacy", "name": "Legacy", "isEnabled": False},
+    {"id": "IT_feature", "name": "Feature", "isEnabled": True},
+]
 json.dump(state, open(path, "w"), indent=1)
 PY
 
@@ -950,6 +978,88 @@ expect "issue-set-blocked-by: a write landing past page one is seen" 0 "Marked i
 run issue-unset-blocks 12 209
 expect "issue-unset-blocks: an edge past page one is present" 0 \
   "Removed blocking relationship: issue #12 no longer blocks #209."
+
+# ---------------------------------------------------------------------------
+# issues-discover: the interviews' live lookups, on the origin's host, with no
+# repo-config needed.
+# ---------------------------------------------------------------------------
+
+DISC_PROJECTS='[{"number":1,"title":"Roadmap","id":"PVT_1"},{"number":2,"title":"Ops","id":"PVT_2"}]'
+DISC_FIELDS='[{"id":"PVTSSF_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"OPT_backlog","name":"Backlog"},{"id":"OPT_done","name":"Done"}]},{"id":"PVTF_prio","name":"Priority","dataType":"NUMBER"}]'
+DISC_ISSUE_FIELDS='[{"id":"IFSS_priority","name":"Priority","options":[{"id":"IFSSO_high","name":"High"},{"id":"IFSSO_low","name":"Low"}]},{"id":"IFSS_effort","name":"Effort","options":[{"id":"IFSSO_e_low","name":"Low"}]}]'
+DISC_ISSUE_TYPES='[{"id":"IT_bug","name":"Bug"},{"id":"IT_feature","name":"Feature"}]'
+
+# discover_all <host> <login>: every subcommand prints what the fixture holds,
+# and every gh api call it made carries <host> as --hostname.
+discover_all() {
+  run issues-discover projects
+  check "$RC $OUT" "0 $DISC_PROJECTS" "issues-discover on $1: projects"
+  run issues-discover project 2
+  check "$RC $OUT" '0 {"number":2,"title":"Ops","id":"PVT_2"}' "issues-discover on $1: project"
+  run issues-discover fields 1
+  check "$RC $OUT" "0 $DISC_FIELDS" "issues-discover on $1: fields, number and single-select only, past page one"
+  run issues-discover issue-fields
+  check "$RC $OUT" "0 $DISC_ISSUE_FIELDS" "issues-discover on $1: issue-fields, single-select nodes only"
+  run issues-discover issue-types
+  check "$RC $OUT" "0 $DISC_ISSUE_TYPES" "issues-discover on $1: issue-types, enabled only"
+  run issues-discover viewer
+  check "$RC $OUT" "0 {\"host\":\"$1\",\"owner\":\"acme\",\"repo\":\"widgets\",\"login\":\"$2\"}" \
+    "issues-discover on $1: viewer"
+  check "$(jq -c 'select(.[0] == "api") | .[1:3]' "$CASE_DIR/gh.log" | sort -u)" "[\"--hostname\",\"$1\"]" \
+    "issues-discover on $1: every gh api call carries the origin's host"
+}
+
+new_case none
+discover_all github.com octocat
+
+# On a GitHub Enterprise origin the fake resolves nothing on github.com, and
+# the user gh is authenticated as there is another one.
+new_case none
+jq '(.repos, .owners) |= with_entries(.value.host = "ghe.example.com") | .hostUsers = {"ghe.example.com": "ghe-octo"}' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+discover_all ghe.example.com ghe-octo
+
+new_case none
+run issues-discover project 9
+expect "issues-discover: an unknown board" 1 "no project \`9\` under \`acme\` on \`github.com\`"
+run issues-discover fields 9
+expect "issues-discover: fields of an unknown board" 1 "no project \`9\` under \`acme\` on \`github.com\`"
+
+# issue-fields prints [] with a note when the repo has none to offer.
+for variant in null '[]' '"absent"'; do
+  new_case none
+  jq --argjson v "$variant" '.repos["acme/widgets"].issueFields = $v' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+    mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+  run issues-discover issue-fields
+  case "$variant" in
+    '"absent"') expect "issues-discover: issue-fields absent from the schema" 0 "\`issueFields\` is not in the schema on \`github.com\`" ;;
+    *) expect "issues-discover: issue-fields $variant" 0 "\`acme/widgets\` has no single-select native issue fields" ;;
+  esac
+  check "$(printf '%s\n' "$OUT" | tail -n 1)" '[]' "issues-discover: issue-fields $variant prints []"
+done
+
+new_case none
+jq '.scopeless = ["ghe.example.com"] | (.repos, .owners) |= with_entries(.value.host = "ghe.example.com")' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+for sub in projects "project 1" "fields 1"; do
+  run issues-discover $sub
+  expect "issues-discover: $sub without read:project names the scope and the host" 1 \
+    "the gh token for \`ghe.example.com\` lacks the \`read:project\` scope this lookup needs"
+done
+
+new_case none
+jq '.repos["acme/widgets"].issueTypes = "absent"' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+  mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issues-discover issue-types
+expect "issues-discover: any other failure passes gh's error through" 1 \
+  "GitHub GraphQL call failed: gh: Field 'issueTypes' doesn't exist on type 'Repository'"
+
+new_case none
+for call in "" "boards" "project" "project x" "fields 1 2" "projects 1" "viewer extra"; do
+  run issues-discover $call
+  expect "issues-discover: usage error for '$call'" 2 "usage: issues-discover projects | project <number>"
+done
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issues-discover: a usage error makes no gh call"
 
 # ---------------------------------------------------------------------------
 # Every write is re-read: with writes dropped, each write verb fails.

@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# The live lookups the issues skills' interviews make, on the host the current
+# repository's origin is on: the owner's project boards, one board's fields,
+# the repository's native issue fields and issue types, and the authenticated
+# user. Each subcommand prints JSON on stdout. Reads no repo-config, since
+# /repo-config runs it before one exists.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+usage="usage: issues-discover projects | project <number> | fields <number> | issue-fields | issue-types | viewer"
+
+case "${1:-}" in
+  projects|issue-fields|issue-types|viewer)
+    [ "$#" -eq 1 ] || iss_usage_die "$usage"
+    ;;
+  project|fields)
+    { [ "$#" -eq 2 ] && iss_is_digits "$2"; } || iss_usage_die "$usage"
+    ;;
+  *)
+    iss_usage_die "$usage"
+    ;;
+esac
+
+# The scope a subcommand's query needs, named when the token lacks one and
+# gh's error does not say which.
+case "$1" in projects|project|fields) scope=read:project ;; *) scope=repo ;; esac
+
+iss_require_tools
+iss_current_repo
+
+# A failed iss_gql call: a missing scope names the scope and the host whose
+# token lacks it; anything else passes gh's error through.
+disc_fail() {
+  local err needed
+  err="$ISS_GQL_ERR $ISS_GQL_OUT"
+  case "$err" in
+    *INSUFFICIENT_SCOPES*|*"required scopes"*|*"missing required scope"*)
+      needed=$(printf '%s' "$err" | sed -n \
+        -e "s/.*following scopes: \[[\"']\([^\"']*\)[\"'].*/\1/p" \
+        -e 's/.*missing required scopes* \[\([^], ]*\).*/\1/p' | head -n 1)
+      iss_die "the gh token for \`$ISS_HOST\` lacks the \`${needed:-$scope}\` scope this lookup needs: ${ISS_GQL_ERR:-$ISS_GQL_OUT}"
+      ;;
+  esac
+  iss_gql_fail
+}
+
+# disc_nodes <doc> <jq-path> <gh args...>: run <doc>, whose connection at
+# <jq-path> takes $after, page it to its end, and set DISC_NODES to every node
+# as one JSON array, or to "null" when the connection is null. Returns 1 when
+# a call fails, ISS_GQL_OUT and ISS_GQL_ERR holding its output.
+disc_nodes() {
+  local doc=$1 path=$2 conn cursor=
+  shift 2
+  DISC_NODES=[]
+  while :; do
+    if [ -n "$cursor" ]; then
+      iss_gql "$ISS_HOST" -f query="$doc" "$@" -f after="$cursor" || return 1
+    else
+      iss_gql "$ISS_HOST" -f query="$doc" "$@" || return 1
+    fi
+    conn=$(printf '%s' "$ISS_GQL_OUT" | jq -c "$path")
+    if [ "$conn" = null ]; then
+      [ -n "$cursor" ] || { DISC_NODES=null; return 0; }
+      iss_die "the next page of \`$path\` came back empty"
+    fi
+    DISC_NODES=$(jq -cn --argjson a "$DISC_NODES" --argjson c "$conn" '$a + $c.nodes')
+    [ "$(printf '%s' "$conn" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
+    cursor=$(printf '%s' "$conn" | jq -r .pageInfo.endCursor)
+  done
+}
+
+conn_args="first: $ISS_PAGE_SIZE, after: \$after"
+page_info='pageInfo { hasNextPage endCursor }'
+
+case "$1" in
+  projects)
+    doc="query(\$owner: String!, \$after: String) {
+  repositoryOwner(login: \$owner) {
+    ... on ProjectV2Owner { projectsV2($conn_args) { $page_info nodes { number title id } } }
+  }
+}"
+    disc_nodes "$doc" .data.repositoryOwner.projectsV2 -f owner="$ISS_OWNER" || disc_fail
+    printf '%s\n' "$DISC_NODES" | jq -c '. // []'
+    ;;
+  project)
+    doc="query(\$owner: String!, \$number: Int!) {
+  repositoryOwner(login: \$owner) {
+    ... on ProjectV2Owner { projectV2(number: \$number) { number title id } }
+  }
+}"
+    iss_gql "$ISS_HOST" -f query="$doc" -f owner="$ISS_OWNER" -F number="$2" || disc_fail
+    out=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repositoryOwner.projectV2')
+    [ "$out" != null ] || iss_die "no project \`$2\` under \`$ISS_OWNER\` on \`$ISS_HOST\`"
+    printf '%s\n' "$out"
+    ;;
+  fields)
+    doc="query(\$owner: String!, \$number: Int!, \$after: String) {
+  repositoryOwner(login: \$owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: \$number) {
+        fields($conn_args) {
+          $page_info
+          nodes {
+            ... on ProjectV2Field             { id name dataType }
+            ... on ProjectV2SingleSelectField { id name dataType options { id name } }
+            ... on ProjectV2IterationField    { id name dataType }
+          }
+        }
+      }
+    }
+  }
+}"
+    disc_nodes "$doc" .data.repositoryOwner.projectV2.fields -f owner="$ISS_OWNER" -F number="$2" || disc_fail
+    [ "$DISC_NODES" != null ] || iss_die "no project \`$2\` under \`$ISS_OWNER\` on \`$ISS_HOST\`"
+    printf '%s\n' "$DISC_NODES" | jq -c '[.[] | select(.dataType == "NUMBER" or .dataType == "SINGLE_SELECT")
+      | if .dataType == "SINGLE_SELECT" then {id, name, dataType, options} else {id, name, dataType} end]'
+    ;;
+  issue-fields)
+    doc="query(\$owner: String!, \$repo: String!, \$after: String) {
+  repository(owner: \$owner, name: \$repo) {
+    issueFields($conn_args) {
+      $page_info
+      nodes {
+        __typename
+        ... on IssueFieldCommon { name dataType }
+        ... on IssueFieldSingleSelect { id options { id name } }
+      }
+    }
+  }
+}"
+    if ! disc_nodes "$doc" .data.repository.issueFields -f owner="$ISS_OWNER" -f repo="$ISS_REPO"; then
+      case "$ISS_GQL_ERR $ISS_GQL_OUT" in
+        *issueFields*"doesn't exist"*|*undefinedField*|*IssueField*"No such type"*|*"No such type"*IssueField*|*undefinedType*)
+          printf "%s: \`issueFields\` is not in the schema on \`%s\`, so there are no native issue fields\n" \
+            "$ISS_PROGRAM" "$ISS_HOST" >&2
+          printf '[]\n'
+          exit 0
+          ;;
+      esac
+      disc_fail
+    fi
+    out=$(printf '%s\n' "$DISC_NODES" |
+      jq -c '[(. // [])[] | select(.__typename == "IssueFieldSingleSelect") | {id, name, options}]')
+    [ "$out" != '[]' ] ||
+      printf "%s: \`%s/%s\` has no single-select native issue fields\n" "$ISS_PROGRAM" "$ISS_OWNER" "$ISS_REPO" >&2
+    printf '%s\n' "$out"
+    ;;
+  issue-types)
+    doc="query(\$owner: String!, \$repo: String!, \$after: String) {
+  repository(owner: \$owner, name: \$repo) {
+    issueTypes($conn_args) { $page_info nodes { id name isEnabled } }
+  }
+}"
+    disc_nodes "$doc" .data.repository.issueTypes -f owner="$ISS_OWNER" -f repo="$ISS_REPO" || disc_fail
+    printf '%s\n' "$DISC_NODES" | jq -c '[(. // [])[] | select(.isEnabled == true) | {id, name}]'
+    ;;
+  viewer)
+    iss_gql "$ISS_HOST" -f query='query { viewer { login } }' || disc_fail
+    login=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.viewer.login // empty')
+    [ -n "$login" ] || iss_die "could not resolve the authenticated GitHub user on \`$ISS_HOST\`"
+    jq -cn --arg host "$ISS_HOST" --arg owner "$ISS_OWNER" --arg repo "$ISS_REPO" --arg login "$login" \
+      '{host: $host, owner: $owner, repo: $repo, login: $login}'
+    ;;
+esac

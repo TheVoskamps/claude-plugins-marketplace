@@ -63,12 +63,13 @@ printed path against cwd (symlinks like macOS `/tmp` →
 `/private/tmp` would mis-flag a legitimate repo root).
 
 Also determine whether the user owns this repo (for the `.gitignore`
-note in Step 5). Run `git remote get-url origin` and parse
-`owner/repo`; compare `owner` against the current GitHub user
-(`gh api user --jq .login`, if `gh` is available). This is advisory
-only — used to phrase the `.gitignore` consequence note, not to gate
-anything. If `gh` is unavailable, skip the comparison and use the
-neutral phrasing in Step 5.
+note in Step 5). Run `issues-discover viewer`, which this plugin puts
+on `PATH`; it prints `{ host, owner, repo, login }`, where `login` is
+the user `gh` is authenticated as on the repository's own host, and
+compare `owner` against `login`. This is advisory only — used to
+phrase the `.gitignore` consequence note, not to gate anything. If
+the call exits non-zero, skip the comparison and use the neutral
+phrasing in Step 5.
 
 ## Step 2: Detect existing config and read it for merge
 
