@@ -1,6 +1,6 @@
 ---
 name: pr-merge-conflicts
-description: Enumerate a GitHub pull request's actual merge conflicts against its base — the conflicting files and hunks — by trial-merging in a throwaway worktree that is aborted and removed afterwards. Resolves, commits and pushes nothing; in the primary clone it fetches the head and base into the origin/* refs and runs git worktree prune, and leaves its tracked files and index as it found them.
+description: Enumerate a GitHub pull request's actual merge conflicts against its base — the conflicting files and hunks — by trial-merging in a throwaway worktree that is aborted and removed afterwards. Resolves, commits and pushes nothing; in the primary clone it fetches the head and base into the origin/* refs — or, for another repository's PR, into refs of its own that it deletes — and runs git worktree prune, and leaves its tracked files and index as it found them.
 ---
 
 # PR Merge Conflicts
@@ -14,22 +14,28 @@ nothing, pushes nothing, and leaves the primary clone's tracked files
 and index as it found them; what it does change there is the fetched
 `origin/*` refs and the `git worktree prune` described below.
 
+A PR of another repository than the checkout's is fetched from that
+repository's `https://<host>/<owner>/<repo>.git` into
+`refs/pr-merge-conflicts/<N>/`, which the script deletes on every exit,
+so no `origin/*` ref changes for it. The fetch authenticates as `git`
+does for that URL.
+
 ## Invocation
 
 ```text
-/pr-merge-conflicts <pr-number>
+/pr-merge-conflicts <PR>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 
 ## Execution
 
-Run the bundled script from the repository the PR belongs to, spelled
-as a bare name:
+Run the bundled script from inside a git checkout, spelled as a bare
+name:
 
 ```bash
-pr-merge-conflicts <pr-number>
+pr-merge-conflicts <PR>
 ```
 
 The script reads the PR's head and base branches, fetches both, and

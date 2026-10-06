@@ -10,8 +10,20 @@ of the close-out.
 
 ## Link the PR to its issues, once the developer reports back
 
-Before spawning the follow-up agents, call `/github-prs:pr-link-issue
-<PR> <issues>` for the PR the developer just reported, passing the set
+First resolve the PR the developer reported, by its URL, to its
+canonical reference, once:
+
+```text
+/github-prs:pr-view <PR URL> --ref
+```
+
+What it prints, `<host>/<owner>/<repo>#<N>`, is `<PR_REF>`: every
+brief you write from here on names the PR by it, and every
+`github-prs` verb and `sdlc-agent-result-persist --pr` call takes it as
+it stands. Never resolve the repository yourself.
+
+Then, before spawning the follow-up agents, call
+`/github-prs:pr-link-issue <PR_REF> <issues>`, passing the set
 the PR **actually closes** — for a batch that dropped a member, a
 subset of the branch's set. It is an idempotent safety-net that
 normally no-ops, and running it unconditionally guarantees every
@@ -19,30 +31,29 @@ member carries its own closing keyword. The skill reconciles your
 claim against the branch name itself; your job is not to ask it to
 re-add a deliberately deferred member.
 
-The PR number and the branch name the developer reported are
+`<PR_REF>` and the branch name the developer reported are
 load-bearing — every follow-up agent and the review pipeline are
-addressed with them. This call is where a wrong PR number surfaces
+addressed with them. This call is where a wrong PR surfaces
 cheaply; read what it reports back rather than assuming the no-op.
 
 ## Write the ruled seed as round 0 of the PR's state
 
 Once the PR is linked, and before `code-documenter` and the first
-reviewer spawn, write the ruled seed as round 0 — the PR number now
-exists to key the path on. Resolve `--repo` as the
-`sdlc:agent-result-persist-interface` skill → "The identifying flags"
-says. Write the file with the Write tool to
+reviewer spawn, write the ruled seed as round 0 — the PR now exists to
+key the path on. Write the file with the Write tool to
 
 ```text
-<session-scratchpad>/pr<PR_N>-round0-records.md
+<session-scratchpad>/pr<N>-round0-records.md
 ```
 
-where `<session-scratchpad>` is the scratchpad directory the harness
-names in your environment, then hand it to the script with `--from`:
+where `<N>` is the number after the `#` of `<PR_REF>` and
+`<session-scratchpad>` is the scratchpad directory the harness names in
+your environment, then hand it to the script with `--from`:
 
 ```bash
 sdlc-agent-result-persist --mode records \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round 0 \
-  --from <session-scratchpad>/pr<PR_N>-round0-records.md
+  --pr <PR_REF> --round 0 \
+  --from <session-scratchpad>/pr<N>-round0-records.md
 ```
 
 The records never travel on the command line, in a heredoc or
@@ -105,7 +116,7 @@ for each to return.
 
 1. **Spawn `docs-writer` to write the PR's documentation.** You spawn
    it once per PR, here, and no review round runs over its commit. Give
-   it the PR number, the issue set the PR closes, the branch name, and
+   it the PR reference, the issue set the PR closes, the branch name, and
    the deferred edits — every entry on the `Deferred to docs-writer:`
    line of the developer's report and of every fixer round's report on
    this PR, verbatim. Collect those entries as each report returns, and
@@ -113,7 +124,7 @@ for each to return.
    class rules hand to `docs-writer`, not open work.
 
    ```text
-   PR <PR_N> for issues <link-prefix><issue_N1>,
+   PR <PR_REF> for issues <link-prefix><issue_N1>,
    <link-prefix><issue_N2>, … has finished its review loop.
    Branch: <branch-name>
    Deferred to docs-writer:
@@ -134,10 +145,10 @@ for each to return.
    By now every teammate that writes memory has captured into the
    session's inbox for this branch, so one pass grades the whole run's
    entries; the scrubber's commit is the last one on the branch before
-   the gate runs. Give it the PR number and the branch name:
+   the gate runs. Give it the PR reference and the branch name:
 
    ```text
-   PR <PR_N> has settled its review loop. Branch: <branch-name>
+   PR <PR_REF> has settled its review loop. Branch: <branch-name>
 
    Curate the PR's agent memory per your agent definition. Report back
    what was transferred, what was deleted, and what was cut from or
@@ -160,7 +171,7 @@ for each to return.
 
 ## The brief for `pr-merge-readiness`
 
-Give it the PR number and the branch name, and — on a re-spawn after
+Give it the PR reference and the branch name, and — on a re-spawn after
 it returned with a question — the human's ruling, with the state and
 the cause the question named, both copied from the `Question:` line of
 the report that asked it: a ruling answers only the question it was
@@ -168,7 +179,7 @@ asked, and the state and cause together are how the re-spawn tells
 whether the gate is still asking it:
 
 ```text
-PR <PR_N> has been blessed. Branch: <branch-name>
+PR <PR_REF> has been blessed. Branch: <branch-name>
 Ruling on <STATE> (<cause>): <the human's answer, quoted, to the
 question your last spawn returned with; <STATE> and <cause> are the
 state and the cause that question named — or omit the line on the
@@ -192,7 +203,7 @@ Reached only when `pr-merge-readiness` returns with a terminal state,
 and linear:
 
 1. **Set every issue the PR closes to In Review.** The authoritative
-   list of those issues is what `/github-prs:pr-closing-issues <PR>`
+   list of those issues is what `/github-prs:pr-closing-issues <PR_REF>`
    reports — the one skill that reads a PR body's closing lines. Ask
    it rather than reusing the batch's planned membership: neither
    `/pr-create` nor `/pr-link-issue` writes a closing line for a
@@ -208,12 +219,12 @@ and linear:
    loop runs; the finalizer posts it as a chain of PR comments and
    writes one section summarising the review rounds, the changes made
    in response, and any scope notes the run settled, replacing the
-   section a previous run of this close-out left. Give it the PR
-   number, the branch name, and the scope notes the run settled that
+   section a previous run of this close-out left. Give it `<PR_REF>`,
+   the branch name, and the scope notes the run settled that
    the rounds themselves do not carry:
 
    ```text
-   PR <PR_N> has finished its review loop. Branch: <branch-name>
+   PR <PR_REF> has finished its review loop. Branch: <branch-name>
 
    Scope notes this run settled, for the final section:
    <the deferrals, dropped members, and rulings the human made that
@@ -231,7 +242,7 @@ and linear:
 3. **Flip the PR draft → ready:**
 
    ```text
-   /github-prs:pr-ready <PR>
+   /github-prs:pr-ready <PR_REF>
    ```
 
    This is the single point where the PR becomes mergeable; do **not**
@@ -245,13 +256,13 @@ one, and the ready flip no-ops on a PR already ready.
 
 ## The brief for `pr-monitor`
 
-Give it the PR number, the branch name, and the resolved
+Give it the PR reference, the branch name, and the resolved
 `merge-poll-interval-seconds` and `merge-max-unchanged-polls` from
 pre-flight, on every spawn — the first, and each re-spawn after a
 `BEHIND` or `DIRTY` remedy or a yes to keep waiting:
 
 ```text
-PR <PR_N> is ready for review. Branch: <branch-name>
+PR <PR_REF> is ready for review. Branch: <branch-name>
 Poll interval: <merge-poll-interval-seconds> seconds
 Unchanged-poll bound: <merge-max-unchanged-polls>
 

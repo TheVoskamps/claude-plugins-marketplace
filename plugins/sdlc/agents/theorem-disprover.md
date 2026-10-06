@@ -38,13 +38,13 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--settle-mode`,
-`--pointers`, `--repo`, and `--round`. When the PR changes a
+`--pointers`, and `--round`. When the PR changes a
 documentation file, it also carries the documentation-paths line that
 skill describes; apply it as it says.
 
 Without `--branch` you have no branch to settle the claim against.
 
-Without `--repo` and `--round` you can still settle the
+Without `--pr` and `--round` you can still settle the
 claim but cannot record that you started or what you found — say so in
 your report rather than guessing at one.
 
@@ -82,7 +82,6 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode enter \
-     --repo <host>/<owner>/<repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage disprove
    ```
 
@@ -156,7 +155,6 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode leave \
-     --repo <host>/<owner>/<repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage disprove \
      --agent theorem-disprover \
      --from <staging-file>

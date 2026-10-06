@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# pr-view -- print one pull request: a fixed dump by default, or the
-# fields a caller names, passed through to `gh pr view --json`, with an
-# optional `--jq` expression over them. Read-only.
+# pr-view -- print one pull request: a fixed dump by default, its
+# canonical reference alone with --ref, or the fields a caller names,
+# passed through to `gh pr view --json`, with an optional `--jq`
+# expression over them. Read-only.
 #
 # The contract is plugins/github-prs/skills/pr-view/SKILL.md.
 set -euo pipefail
@@ -10,15 +11,21 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
 
 usage() {
-  echo "usage: $GP_PROGRAM <PR> [--json <fields> [--jq <expression>]]"
+  echo "usage: $GP_PROGRAM <PR> [--ref | --json <fields> [--jq <expression>]]"
 }
 
+# The canonical reference, <host>/<owner>/<repo>#<N>, read off the PR's
+# URL, which names the base repository: a fork PR's head repository is
+# the fork, but the PR lives on its base.
+ref_jq='((.url | ltrimstr("https://") | sub("/pull/[0-9]+/?$"; "")) + "#\(.number)")'
+
 [ "$#" -ge 1 ] || gp_err_no_pr
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 shift
 
 fields=
 jq_expr=
+ref=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --json)
@@ -31,6 +38,10 @@ while [ "$#" -gt 0 ]; do
       jq_expr=$2
       shift 2
       ;;
+    --ref)
+      ref=yes
+      shift
+      ;;
     *) gp_err_unknown_arg "$1" ;;
   esac
 done
@@ -38,19 +49,27 @@ done
 if [ -n "$jq_expr" ] && [ -z "$fields" ]; then
   gp_err_jq_needs_json
 fi
+if [ -n "$ref" ] && [ -n "$fields" ]; then
+  gp_err_ref_alone
+fi
+
+if [ -n "$ref" ]; then
+  gp_pr view --json number,url --jq "$ref_jq"
+  exit 0
+fi
 
 if [ -n "$fields" ]; then
   if [ -n "$jq_expr" ]; then
-    gp_gh pr view "$pr" --json "$fields" --jq "$jq_expr"
+    gp_pr view --json "$fields" --jq "$jq_expr"
   else
-    gp_gh pr view "$pr" --json "$fields"
+    gp_pr view --json "$fields"
   fi
   exit 0
 fi
 
-gp_gh pr view "$pr" \
+gp_pr view \
   --json number,title,state,isDraft,author,headRefName,baseRefName,url,body \
-  --jq '"#\(.number) \(.title) (\(.state)\(if .isDraft then ", draft" else "" end))",
+  --jq "$ref_jq"' + " \(.title) (\(.state)\(if .isDraft then ", draft" else "" end))",
         .url,
         "author: \(.author.login)",
         "head:   \(.headRefName)",

@@ -23,26 +23,25 @@ this plugin.
 ## Invocation
 
 ```text
-/pr-diff <pr-number>
+/pr-diff <PR>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 
 ## Repo-config
 
-This skill reads no repo-config. The PR number and the current repo
-are all the diff needs. (The `source-control` value that a caller
-would previously have read to choose between `gh` and CodeCommit is
-not consulted — this plugin is GitHub-only, so there is nothing to
-branch on.)
+This skill reads no repo-config. The PR is all the diff needs. (The
+`source-control` value that a caller would previously have read to
+choose between `gh` and CodeCommit is not consulted — this plugin is
+GitHub-only, so there is nothing to branch on.)
 
 ## Execution
 
 Run the bundled script, spelled as a bare name:
 
 ```bash
-pr-diff <pr-number>
+pr-diff <PR>
 ```
 
 ## Output and exit status
@@ -51,7 +50,6 @@ pr-diff <pr-number>
   read. Do not summarize or truncate it — the caller decides what to
   do with the full diff.
 - **Exit 2** — a usage error; nothing was read.
-- **Exit 3** — the `gh` call failed (e.g. the PR number does not exist
-  in this repo), and gh's own error is on stderr above the script's
-  line. Surface it verbatim rather than inventing a replacement
-  message.
+- **Exit 3** — the `gh` call failed (e.g. the PR does not exist), and
+  gh's own error is on stderr above the script's line. Surface it
+  verbatim rather than inventing a replacement message.

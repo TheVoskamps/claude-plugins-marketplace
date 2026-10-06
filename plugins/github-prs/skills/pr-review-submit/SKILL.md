@@ -24,12 +24,12 @@ this plugin.
 ## Invocation
 
 ```text
-/pr-review-submit <pr-number> --verdict <approve|request_changes|comment> <body>
-/pr-review-submit <pr-number> --verdict <approve|request_changes|comment> --body-file <path>
+/pr-review-submit <PR> --verdict <approve|request_changes|comment> <body>
+/pr-review-submit <PR> --verdict <approve|request_changes|comment> --body-file <path>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 - `--verdict <value>` (required, exactly once): one of `approve`,
   `request_changes`, or `comment`. These are GitHub's own review
   actions, in the skill's spelling; nothing else is a verdict here.
@@ -57,11 +57,11 @@ Both forms work for every verdict.
 
 ## Repo-config
 
-This skill reads no repo-config. The PR number, verdict, and body are
-all supplied by the caller, and the current repo is resolved on its
-own. (The `source-control` value a caller would previously have read to
-choose between `gh` and CodeCommit is not consulted — this plugin is
-GitHub-only, so there is nothing to branch on.)
+This skill reads no repo-config. The PR, verdict, and body are all
+supplied by the caller. (The `source-control` value a caller would
+previously have read to choose between `gh` and CodeCommit is not
+consulted — this plugin is GitHub-only, so there is nothing to branch
+on.)
 
 ## Execution
 
@@ -71,8 +71,8 @@ it holds a single quote, a backtick or a `$` — write it to a file with
 the Write tool and pass that path instead:
 
 ```bash
-pr-review-submit <pr-number> --verdict <verdict> '<body>'
-pr-review-submit <pr-number> --verdict <verdict> --body-file <path>
+pr-review-submit <PR> --verdict <verdict> '<body>'
+pr-review-submit <PR> --verdict <verdict> --body-file <path>
 ```
 
 The script checks its arguments before posting anything, and every
@@ -143,7 +143,7 @@ whoever left it, and checks it is not the one that was newest before
 the post, and that it carries the expected state and the body it
 posted. A review someone else leaves in between fails that check.
 
-- **Exit 0** — stdout is one line: the PR number, the verdict
+- **Exit 0** — stdout is one line: the PR, the verdict
   requested, the GitHub review state the call actually created
   (`approved`, `changes_requested`, or `commented`), and which body
   form carried it. Report it back. The state is what a caller gating on

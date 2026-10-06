@@ -155,19 +155,18 @@ file's path out of the log you just printed, then read the file with
 returned disprovers uncrossed-off and burned a round's budget on
 theorems that had already reported (issue #351).
 
-**Resolve the three identifying values at the top of the round, and
+**Resolve the two identifying values at the top of the round, and
 again on every resume** rather than trusting a remembered one:
 
-```bash
-gh repo view --json url --jq .url
-```
-
 ```text
+/github-prs:pr-view <PR> --ref
 /github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
 ```
 
-The first resolves `--repo`; `--pr` is the PR under review;
-`--round` is that review count **plus one**, so a first round is `1`.
+The first prints `<PR_REF>`, the PR's canonical reference
+`<host>/<owner>/<repo>#<N>`, which every `--pr` below carries — the
+reference your brief gave you, when it gave you one; `--round` is the
+review count **plus one**, so a first round is `1`.
 Your own review lands only at "Post one review", so the count holds
 across the round. Resolving them is what reaches the log, on the terms
 the preloaded `sdlc:agent-result-persist-interface` skill → "The paths"
@@ -356,9 +355,9 @@ rather than the status.
 
 **The message names a flag.** The call you
 built is malformed, so the script wrote nothing and no fan-out of yours
-is under way — an empty `--repo`, or one without its host, where the
-`gh repo view` read at the top of the round gave you nothing or you
-dropped the host, is the one to expect.
+is under way — a `--pr` that is not `<PR_REF>` as `pr-view --ref`
+printed it at the top of the round, a bare number or a reference
+stripped of its host, is the one to expect.
 Repair the flag and call again; when you cannot, report the failure
 with the message verbatim and stop. **Never report a malformed call as an
 in-progress status**: it would send your caller to the escalation for a
@@ -400,8 +399,10 @@ Your brief carries double-dash parameters. One vocabulary serves every
 entry path: the orchestrator writes exactly these tokens when it
 spawns you, and a standalone invocation passes the same flags.
 
-- `--pr <N>` (required) — the pull request to review. With no `--pr`,
-  stop and report that your caller named no PR rather than guessing one.
+- `--pr <PR>` (required) — the pull request to review, in any form
+  `/github-prs:pr-view` accepts; the orchestrator passes its canonical
+  reference. With no `--pr`, stop and report that your caller named no
+  PR rather than guessing one.
 - `--issues <N…>` (optional) — the issue numbers this PR closes, space-
   or comma-separated, each with or without a leading `#`. This is the
   **claim**, not the answer: "Identify the issue set" reconciles it
@@ -471,11 +472,12 @@ quotes that name, so inserting a section renames nothing.
 /github-prs:pr-view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
 ```
 
-Then read the paths the diff touches, with `<owner>` and `<repo>`
-resolved per "The round log" above:
+Then read the paths the diff touches, with `<host>`, `<owner>`,
+`<repo>` and `<N>` the parts of `<PR_REF>`, resolved per "The round log"
+above:
 
 ```bash
-gh api graphql --paginate -F owner=<owner> -F repo=<repo> -F pr=<PR> \
+gh api graphql --hostname <host> --paginate -F owner=<owner> -F repo=<repo> -F pr=<N> \
   -f query='query($owner:String!, $repo:String!, $pr:Int!, $endCursor:String) { repository(owner:$owner, name:$repo) { pullRequest(number:$pr) { files(first:100, after:$endCursor) { nodes { path additions deletions changeType } pageInfo { hasNextPage endCursor } } } } }' \
   --jq '.data.repository.pullRequest.files.nodes[].path'
 ```
@@ -496,13 +498,12 @@ your context" above.
 
 ### Read the round log, then anchor the round
 
-Resolve the three identifying values per "The round log" above, then read
+Resolve the two identifying values per "The round log" above, then read
 the log before you decide anything:
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --repo <host>/<owner>/<repo> \
-  --pr <PR_N> --round <this round's number>
+  --pr <PR_REF> --round <this round's number>
 ```
 
 Take the arm "You are re-entrant" names for what it printed. Then anchor
@@ -512,8 +513,7 @@ whether a child has written first:
 
 ```bash
 sdlc-agent-result-persist --mode anchor \
-  --repo <host>/<owner>/<repo> \
-  --pr <PR_N> --round <this round's number> --head-sha <headRefOid>
+  --pr <PR_REF> --round <this round's number> --head-sha <headRefOid>
 ```
 
 One anchor per round, here and nowhere else. A child's own deadline
@@ -624,7 +624,7 @@ Read the following, in this order.
 
 ```bash
 sdlc-agent-result-persist --mode print-records \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round <this round's number>
+  --pr <PR_REF> --round <this round's number>
 ```
 
 The mode selects the round itself: the records to carry are the most
@@ -673,7 +673,7 @@ round".
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round <prev-round>
+  --pr <PR_REF> --round <prev-round>
 ```
 
 Call it `<prev-head>`. Taking it from state rather than from a review
@@ -944,8 +944,7 @@ spawn the replacement, whose own `enter` starts a fresh deadline:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
-  --repo <host>/<owner>/<repo> \
-  --pr <PR_N> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> \
   --theorem list --stage generate
 ```
 
@@ -967,10 +966,9 @@ set" — not the caller's claim.
 On a **fallback round** that read no records, the brief is the whole PR:
 
 ```text
---pr <PR_N>
+--pr <PR_REF>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
---repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Leave these documentation paths out of every diff you read: <the paths
@@ -987,11 +985,10 @@ generator reads the carried records out of state itself, and emits only
 what the delta implies that they do not cover:
 
 ```text
---pr <PR_N>
+--pr <PR_REF>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
---repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Leave these documentation paths out of every diff and delta commit you
@@ -1009,8 +1006,7 @@ tier is:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
-  --repo <host>/<owner>/<repo> \
-  --pr <PR_N> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> \
   --theorem list --stage generate \
   --agent <the definition you spawned> --model default --effort default
 ```
@@ -1151,8 +1147,7 @@ record per child you spawned:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
-  --repo <host>/<owner>/<repo> \
-  --pr <PR_N> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> \
   --theorem T4 --stage disprove --agent theorem-disprover \
   --model <haiku, or default where you named none> --effort default
 ```
@@ -1194,7 +1189,7 @@ mechanical spawn simply runs at that default: costlier, never wrong.
 Each disprover's brief is one theorem and nothing more:
 
 ```text
---pr <PR_N>
+--pr <PR_REF>
 --branch <headRefName>
 --head-sha <headRefOid>
 --fetched yes
@@ -1203,7 +1198,6 @@ Each disprover's brief is one theorem and nothing more:
 --issues <the member(s) the theorem is tagged to>
 --settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
---repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Leave these documentation paths out of every diff you read: <the paths
@@ -1215,8 +1209,8 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-The last two, with the `--pr` at the top, are the three identifying
-values the `--mode anchor` call carried. Pass them unchanged or the
+The last line and the `--pr` at the top are the two identifying values
+the `--mode anchor` call carried. Pass them unchanged or the
 child's records and its report land in a round you never read.
 
 What each parameter means is owned by the
@@ -1251,8 +1245,7 @@ past every result whose own notification was lost.
 
    ```bash
    sdlc-agent-result-persist --mode print \
-     --repo <host>/<owner>/<repo> \
-     --pr <PR_N> --round <this round's number>
+     --pr <PR_REF> --round <this round's number>
    ```
 
    You write no verdict here: each disprover appended its own `leave`
@@ -1335,8 +1328,7 @@ child is never yours to stop — you record the stop and leave it alone:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
-  --repo <host>/<owner>/<repo> \
-  --pr <PR_N> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> \
   --theorem T7 --stage disprove
 ```
 
@@ -1405,7 +1397,7 @@ got.
 Each verifier's brief is one counterexample and nothing more:
 
 ```text
---pr <PR_N>
+--pr <PR_REF>
 --branch <headRefName>
 --head-sha <headRefOid>
 --fetched yes
@@ -1415,7 +1407,6 @@ Each verifier's brief is one counterexample and nothing more:
 --settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
---repo <host>/<owner>/<repo>
 --round <this round's number>
 
 Try to refute this one counterexample per your agent definition.
@@ -1605,12 +1596,12 @@ rather than announced. Stage each input with `Write` under
 
 ```bash
 sdlc-agent-result-persist --mode records --carry \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> \
   --edits .claude/tmp/<task-slug>/edits.tsv \
   --from .claude/tmp/<task-slug>/new-records.md
 
 sdlc-agent-result-persist --mode review \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> \
   --from .claude/tmp/<task-slug>/review.md
 ```
 
@@ -2064,7 +2055,8 @@ body names once so a reader composes it once:
 
 ```markdown
 Detail for this round is under
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<PR_N>/`.
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
+each part taken from `<PR_REF>`.
 
 Theorems
 

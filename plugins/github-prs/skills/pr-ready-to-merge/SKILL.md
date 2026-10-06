@@ -21,18 +21,18 @@ that has to decide whether a PR can move forward.
 ## Invocation
 
 ```text
-/pr-ready-to-merge <pr-number>
+/pr-ready-to-merge <PR>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 
 ## Execution
 
 Run the bundled script, spelled as a bare name:
 
 ```bash
-pr-ready-to-merge <pr-number>
+pr-ready-to-merge <PR>
 ```
 
 **A PR that is not open is refused.** GitHub stops computing merge
@@ -50,7 +50,7 @@ further **30 s**, announcing every wait on stdout before taking it so
 the human can tell a wait from a hang:
 
 ```text
-PR #<N>: merge state still computing, attempt 2 of 3 — waiting 10 s.
+PR <PR>: merge state still computing, attempt 2 of 3 — waiting 10 s.
 ```
 
 It stops as soon as `mergeable` is anything other than `UNKNOWN`. The
@@ -64,7 +64,7 @@ wrong.
   stdout is one block:
 
   ```text
-  PR #<N>: mergeable <MERGEABLE|CONFLICTING>, mergeStateStatus <STATE> — <meaning>
+  PR <PR>: mergeable <MERGEABLE|CONFLICTING>, mergeStateStatus <STATE> — <meaning>
   reviewDecision: <REVIEW_REQUIRED|APPROVED|CHANGES_REQUESTED|(none)>
   checks running: <none, or one indented line per entry>
   checks not green: <none, or one indented line per entry>

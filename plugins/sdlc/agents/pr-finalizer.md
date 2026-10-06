@@ -1,6 +1,6 @@
 ---
 name: pr-finalizer
-description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — what the review rounds found, what changed in response, and the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR number, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
+description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — what the review rounds found, what changed in response, and the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR's canonical host/owner/repo#N reference, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
 tools: Read, Write, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
@@ -85,7 +85,8 @@ GitHub, not to the branch.
 
 You must be given:
 
-- PR number
+- The PR, by its canonical reference `<host>/<owner>/<repo>#<N>` — the
+  `<PR>` every step below passes on as it stands
 - Branch name
 - The scope notes the run settled — deferrals, dropped members,
   rulings the human made that the rounds do not carry, every claim in
@@ -93,7 +94,7 @@ You must be given:
   `docs-writer`'s per-file list of the documentation it changed after
   the last round. May be "none".
 
-If the PR number is missing, ask before proceeding.
+If the PR is missing, ask before proceeding.
 
 Everything else you gather yourself. The review rounds are under the
 PR's state directory and what changed in response is on the branch, and
@@ -160,19 +161,16 @@ into a brief.
 2. **Read the review rounds out of state.** Each round wrote its
    argued review — verdicts, findings, counterexamples and all — to a
    file of its own, and the last round to reach disposition wrote the
-   run's theorem records. Resolve `--repo` from the URL below, then walk
-   the rounds from 1 upward:
+   run's theorem records. Walk the rounds from 1 upward:
 
    ```bash
-   gh repo view --json url --jq .url
-
    sdlc-agent-result-persist --mode print \
-     --repo <host>/<owner>/<repo> --pr <PR> --round <n>
+     --pr <PR> --round <n>
    sdlc-agent-result-persist --mode print-review \
-     --repo <host>/<owner>/<repo> --pr <PR> --round <n>
+     --pr <PR> --round <n>
 
    sdlc-agent-result-persist --mode print-records \
-     --repo <host>/<owner>/<repo> --pr <PR>
+     --pr <PR>
    ```
 
    **The walk ends at the first round whose `--mode print` fails**: no
@@ -453,10 +451,10 @@ inline body is read by the shell.
 chunk of its own; if it still will not fit, the chunk carries the
 piece's name and the path of each file in it, relative to the PR's
 state root
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<PR>/`
-instead, and says it was too large to post. A silently cut report
-reads exactly like a complete one, which is the failure this whole
-design exists to remove.
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
+each part taken from the PR's reference, instead, and says it was too
+large to post. A silently cut report reads exactly like a complete one,
+which is the failure this whole design exists to remove.
 
 **Post nothing when there is nothing to assemble.** A PR whose state
 directory holds no round — a run whose rounds predate this design, say —

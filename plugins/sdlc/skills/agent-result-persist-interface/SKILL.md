@@ -42,9 +42,9 @@ records are rebuilt from the same input its predecessor's were.
 
 ```text
 sdlc-agent-result-persist --mode <mode> \
-  --repo <host>/<owner>/<repo> --pr <n> [--round <n>] \
+  --pr <host>/<owner>/<repo>#<n> [--round <n>] \
   [mode-specific flags]
-sdlc-agent-result-persist --mode list --repo <host>/<owner>/<repo>
+sdlc-agent-result-persist --mode list [<repository>]
 sdlc-agent-result-persist --mode repos
 ```
 
@@ -74,11 +74,12 @@ harness names in its environment, at
 `<session-scratchpad>/pr<pr>-r<round>-<stage>-<theorem>-<agent>-report.md`,
 filling in the `--pr`, `--round`, `--stage`, `--theorem` and `--agent`
 values of its own `leave` call, `pr<pr>` spelled as the state directory
-spells it. Every child in a fan-out shares that one scratchpad, so a
-name missing the stage, the theorem or the agent would let two
-concurrent children stage over each other's reports; theorem ids
-restart at `T1` on every PR, so a name missing the PR would let two
-PRs' fan-outs in one session do the same; and the persist script never
+spells it — the number after the `#` of `--pr`. Every child in a
+fan-out shares that one scratchpad, so a name missing the stage, the
+theorem or the agent would let two concurrent children stage over each
+other's reports; theorem ids restart at `T1` on every PR, so a name
+missing the PR would let two PRs' fan-outs in one session do the same;
+and the persist script never
 removes the file, so a name missing the round would leave an earlier
 round of the same PR in the same session holding the path a later
 round's child stages at.
@@ -99,24 +100,35 @@ then Write again.
 
 ## The identifying flags
 
-These three go on **every** call, and "The paths" below says what they
+These two go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
 refuses it: `delete` removes the whole PR's directory, so it refuses
-`--round`, `list` reads across every PR of the repo, so it refuses
-`--pr` and `--round` alike, and `repos` reads across every repository,
-so it refuses all three. `print-records` selects the round itself,
-so `--round` is optional there and bounds that selection rather than
-naming a round.
+`--round`, `list` reads across every PR of a repository, so it refuses
+`--pr` and `--round` alike and takes the repository instead, and
+`repos` reads across every repository, so it refuses both and takes no
+repository. `print-records` selects the round itself, so `--round` is
+optional there and bounds that selection rather than naming a round.
 
-- `--repo <host>/<owner>/<repo>` — the PR's repository, host
-  included, since one machine holds state for repositories on several
-  hosts. Resolve it from `gh repo view --json url --jq .url`, whose
-  `https://<host>/<owner>/<repo>` it is less the scheme. A value
-  without a host is a usage error. Each segment may hold only letters,
-  digits, `.`, `_` and `-`, and none may be `.` or `..`.
-- `--pr <n>` and `--round <n>` — numbers. Rounds count review passes
-  from 1, and **`--round 0` is valid**: the pre-loop seed, settled by
-  the orchestrator before any implementer ran.
+- `--pr <host>/<owner>/<repo>#<n>` — the PR, by the canonical
+  reference `/github-prs:pr-view <PR> --ref` prints: its repository,
+  host included, since one machine holds state for repositories on
+  several hosts and the same owner/repo on two of them is two
+  repositories, then `#` and its number. Pass the reference you were
+  given; never resolve the repository yourself. A bare number, or a
+  reference without a host, is a usage error. Each of host, owner and
+  repo may hold only letters, digits, `.`, `_` and `-`, and none may be
+  `.` or `..`.
+- `--round <n>` — a number. Rounds count review passes from 1, and
+  **`--round 0` is valid**: the pre-loop seed, settled by the
+  orchestrator before any implementer ran.
+
+`list`'s repository is an optional operand, never a flag:
+`<host>/<owner>/<repo>`, `https://<host>/<owner>/<repo>`, or a shorter
+`<owner>/<repo>` or `<repo>`. Omitted, it is the current repository —
+the one the checkout's remote names — and a shorter form takes the
+segments it omits from the current repository. The script resolves the
+current repository itself; pass the operand as you were given it, or
+none.
 
 **One round is one log.** There is no per-fan-out file and no `--agent`
 in the path: the `stage` column below says which fan-out a record
@@ -142,10 +154,10 @@ nothing composes it to open a file with.
 
 The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
-Every one of them is a fact about the PR under review, which is what
-makes a round survive the session that opened it: a reviewer resumed in
-a session that never saw the first one holds all three already, composes
-the same path, and reads the same log. The state variable is used when
+Each is a fact about the PR under review, which is what makes a round
+survive the session that opened it: a reviewer resumed in a session
+that never saw the first one holds both already, composes the same
+path, and reads the same log. The state variable is used when
 set and non-empty and `$HOME/.local/state` otherwise, and the script
 spells that fallback once. This directory is where the whole of a
 round's output lives: the theorem
@@ -196,9 +208,9 @@ repository from the path's depth or segment names, and where the file
 and the path disagree the file wins. State written before the host was
 part of the path sits at `sdlc/<owner>/<repo>/`. Every run, of every
 mode but `repos`, first moves that directory to `sdlc/<host>/<owner>/<repo>/`,
-host from `--repo`, and writes its `repo.yml`; no mode reads the old
-path afterwards. A run that finds state at both paths refuses, non-zero,
-naming both, and moves nothing.
+host from `--pr` or from `list`'s repository, and writes its
+`repo.yml`; no mode reads the old path afterwards. A run that finds
+state at both paths refuses, non-zero, naming both, and moves nothing.
 
 **Nothing here is deleted but by `--mode delete`, and that mode is
 called only by `/sdlc:orchestrate-cleanup`, a pass the human invokes.**
@@ -392,13 +404,16 @@ directories, and `repos` for what it lists across the state root.
   file.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
-- **`list`** — writes to stdout one bare PR number per line, in
-  ascending order, one per `pr<n>/` directory under the repo's
+- **`list`** — writes to stdout one PR per line, as the
+  `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
+  order of `<n>`, one per `pr<n>/` directory under the repository's
   `<host>/<owner>/<repo>/` state directory, and nothing else on the line; an
   entry whose name is not `pr` followed by digits, or that is not a
-  directory, is skipped. It takes **no `--pr` and no `--round`**, and
-  refuses either. A repo no review has run against has no directory,
-  so the output is empty and the exit zero; the mode creates nothing.
+  directory, is skipped. The repository is the operand "The identifying
+  flags" describes. It takes **no `--pr` and no `--round`**, and
+  refuses either, and refuses a second operand. A repository no review
+  has run against has no directory, so the output is empty and the exit
+  zero; the mode creates nothing.
 - **`delete`** — removes `pr<n>/` recursively, every round under it
   and every voided round with them. It takes **no `--round`** and
   refuses one, and it refuses a missing `--pr` with the usual
@@ -412,7 +427,7 @@ directories, and `repos` for what it lists across the state root.
   `<host>/<owner>/<repo>` either way. A directory two levels down
   that has no `repo.yml` in it or one level down, and holds
   `pr<n>/` directories directly, is old-layout state: `old <owner>/<repo> <owner>/<repo>`,
-  its host unknown. It takes **no `--repo`, no `--pr` and no
+  its host unknown. It takes **no repository, no `--pr` and no
   `--round`**, refuses each, moves nothing, and prints nothing for a
   state root that does not exist.
 

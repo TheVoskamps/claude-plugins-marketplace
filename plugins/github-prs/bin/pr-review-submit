@@ -18,7 +18,7 @@ usage() {
 }
 
 [ "$#" -ge 1 ] || gp_err_no_pr
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 shift
 
 verdict=
@@ -89,7 +89,7 @@ wanted="$line
 $text"
 gp_resolve_host
 
-reviews_path=$(gp_repo_path "pulls/$pr/reviews")
+reviews_path=$(gp_repo_path "pulls/$GP_PR/reviews")
 # The id of the newest review on the PR, whoever left it, or nothing.
 newest_review() {
   gp_gh api --paginate "$reviews_path" --jq '.[].id' | tail -n 1
@@ -97,7 +97,8 @@ newest_review() {
 
 before=$(newest_review) || exit $?
 rc=0
-err=$({ printf '%s\n' "$wanted" | gh pr review "$pr" "$flag" --body-file - >/dev/null; } 2>&1) || rc=$?
+err=$({ printf '%s\n' "$wanted" |
+  gh pr review "$GP_PR" "$flag" --body-file - ${GP_REPO_ARG:+--repo "$GP_REPO_ARG"} >/dev/null; } 2>&1) || rc=$?
 if [ "$rc" -ne 0 ]; then
   if [ -z "$refusal" ] || [ "${err#*"$refusal"}" = "$err" ]; then
     printf '%s\n' "$err" >&2
@@ -107,20 +108,20 @@ if [ "$rc" -ne 0 ]; then
   # refused call left nothing on the PR, so the comment is the only review.
   flag=--comment
   state=COMMENTED
-  printf '%s\n' "$wanted" | gp_gh pr review "$pr" "$flag" --body-file - >/dev/null
+  printf '%s\n' "$wanted" | gp_pr review "$flag" --body-file - >/dev/null
 fi
 after=$(newest_review) || exit $?
 
 if [ -z "$after" ] || [ "$after" = "$before" ]; then
-  gp_err_review_missing "$pr"
+  gp_err_review_missing "$GP_PR_NAME"
 fi
 landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
 landed_state=$(printf '%s\n' "$landed" | head -n 1)
 landed_body=$(printf '%s\n' "$landed" | tail -n +2)
 [ "$landed_state" = "$state" ] ||
-  gp_err_review_state "$pr" "$after" "$landed_state" "$state"
+  gp_err_review_state "$GP_PR_NAME" "$after" "$landed_state" "$state"
 [ "$landed_body" = "$wanted" ] ||
-  gp_err_review_body "$pr" "$after"
+  gp_err_review_body "$GP_PR_NAME" "$after"
 
-printf 'PR #%s: verdict %s, review state %s, body %s\n' \
-  "$pr" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"
+printf 'PR %s: verdict %s, review state %s, body %s\n' \
+  "$GP_PR_NAME" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"

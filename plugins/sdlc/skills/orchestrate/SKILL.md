@@ -231,7 +231,7 @@ Pass what the agent cannot derive:
   run. These are the highest-value content a brief carries.
 - **The identifiers that name the work**: the batch's issue numbers in
   implementation order, the compound slug (when the batch has two or
-  more members), branch name, PR number, head SHA — whichever the task
+  more members), branch name, PR reference, head SHA — whichever the task
   needs.
 - **Review findings to act on**, tagged with the member each came
   from. A pipeline finding is the case the cut half above does not
@@ -390,7 +390,7 @@ delta. The output is low or medium and nothing else. A tier the human
 named at the plan confirm wins outright.
 
 The seed spawn is not persisted through `sdlc-agent-result-persist`:
-every path it composes is keyed on a PR number, and none exists.
+every path it composes is keyed on a PR, and none exists.
 Hold the generator's return in your scratchpad. Its worktree is left
 for the post-merge tail's cleanup sweep, like every other worktree you
 spawn.
@@ -467,15 +467,16 @@ confirmation, the close-out, and the briefs for `pr-merge-readiness`
 and `pr-monitor`.
 
 Before spawning the follow-up agents, make that file's link step for
-the PR the developer just reported, passing the set the PR **actually
-closes** — for a batch that dropped a member, a subset of the branch's
-set. The PR number and the branch name the developer reported are
-load-bearing, and that call is where a wrong PR number surfaces
+the PR the developer just reported: resolve its canonical reference,
+`<PR_REF>`, once, and pass the set the PR **actually closes** — for a
+batch that dropped a member, a subset of the branch's set. Every brief
+names the PR by `<PR_REF>`. It and the branch name the developer
+reported are load-bearing, and that call is where a wrong PR surfaces
 cheaply. From the moment it returns, the PR body is frozen.
 
 **Then write the ruled seed as round 0 of the PR's state**, per that
 file, before `code-documenter` and before the first reviewer spawn —
-the PR number now exists to key the path on. That write is
+the PR now exists to key the path on. That write is
 transcription of the human's rulings — or, under `seed-review:
 auto-accept`, of the generator's list as emitted — not authored review
 content, per "Your own boundary".
@@ -498,12 +499,12 @@ final state of the PR's code, including the comment commit and any
 style fix; if either pass runs after the review, the review covers an
 incomplete PR.
 
-**code-documenter spawn prompt** — give it PR number and branch name.
+**code-documenter spawn prompt** — give it PR reference and branch name.
 The same prompt serves every round, and no issue set is passed: the
 agent works from the PR diff and reads no issue:
 
 ```text
-PR <PR_N> has new commits on it.
+PR <PR_REF> has new commits on it.
 Branch: <branch-name>
 
 Document the code per your agent definition. Report back the files you
@@ -514,7 +515,7 @@ touched and the commit you pushed.
 `code-documenter` has returned:
 
 ```text
-PR <PR_N> has new commits on it.
+PR <PR_REF> has new commits on it.
 Branch: <branch-name>
 
 Check the code and instruction Markdown against the rules under
@@ -570,7 +571,7 @@ report it in the Final Report summary.
 
 Review is a teammate spawn like any other. Spawn
 `theorem-based-pr-reviewer` with the `Agent` tool, giving it the
-reviewer's own double-dash parameters — the PR number, the issue set,
+reviewer's own double-dash parameters — the PR reference, the issue set,
 and the branch name (`--pr`, `--issues`, `--branch`). That is the one
 vocabulary both this path and a standalone `/sdlc:git-review-pr` use.
 
@@ -581,7 +582,7 @@ out, the reviewer falls back to reading the PR body itself, which is
 the standalone path rather than this one:
 
 ```text
---pr <PR_N> --issues <issue_N1> <issue_N2> … --branch <branch-name>
+--pr <PR_REF> --issues <issue_N1> <issue_N2> … --branch <branch-name>
 
 Review this PR per your agent definition. Report back its verdicts,
 findings, severity counts, and theorem tally.
@@ -591,16 +592,15 @@ This round's number is the one the reviewer composes its round
 directory from: the PR's review count immediately before the round's
 first reviewer spawn, plus one. Nothing remembers it across a re-spawn
 or a session — the PR and the round's own state re-derive it, with `C`
-the current review count and `--repo` resolved as "Reading a round's
-detail" below shows:
+the current review count:
 
 ```text
-/github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
+/github-prs:pr-view <PR_REF> --json reviews --jq '.reviews | length'
 ```
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round <C+1>
+  --pr <PR_REF> --round <C+1>
 ```
 
 A `print` that succeeds means a round above the count has begun and
@@ -637,11 +637,8 @@ brief the human on a round or write a fixer brief:
 
 ```bash
 sdlc-agent-result-persist --mode print-review \
-  --repo <host>/<owner>/<repo> --pr <PR_N> --round <N>
+  --pr <PR_REF> --round <N>
 ```
-
-Resolve `--repo` as `sdlc:agent-result-persist-interface` → "The
-identifying flags" says.
 
 The round that has just posted is numbered by the PR's current review
 count. A finding whose child report you need — the disprover's or the
@@ -734,7 +731,7 @@ member)**:
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
 2. **Post the fix instructions as a PR comment**, then spawn an
-   `issue-fixer` with the PR number and nothing else.
+   `issue-fixer` with the PR reference and nothing else.
 
    The comment is the authoritative brief. Write it after you have
    judged the reviewer's report and consulted the human wherever the
@@ -749,7 +746,7 @@ member)**:
 
    ```text
    <!-- sdlc:fixer-brief -->
-   PR <PR_N> for issues <link-prefix><issue_N1>,
+   PR <PR_REF> for issues <link-prefix><issue_N1>,
    <link-prefix><issue_N2>, … received review feedback.
    Branch: <branch-name>
 
@@ -801,7 +798,7 @@ member)**:
    The spawn prompt then restates none of it:
 
    ```text
-   PR <PR_N> has a fixer brief waiting on it.
+   PR <PR_REF> has a fixer brief waiting on it.
 
    Edit code and instruction Markdown, and no documentation, as the
    sdlc:documentation-definition skill defines the three classes;
@@ -961,7 +958,7 @@ for it.
    before the gate that grades those commits.
 
 2. **Spawn `pr-merge-readiness`**, with the brief the PR-lifecycle
-   file carries: the PR number, the branch, and no ruling on the first
+   file carries: the PR reference, the branch, and no ruling on the first
    spawn. It runs the merge-readiness gate, and the remedies, until
    the PR reaches a state the close-out proceeds from, and it never
    asks: a state that needs a ruling comes back as its report's

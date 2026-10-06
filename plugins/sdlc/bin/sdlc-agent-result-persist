@@ -30,19 +30,22 @@ usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |records|review|print-records|print-round-records
-                       |print-review|list|delete
-                --repo <host>/<owner>/<repo> [--pr <n>] [--round <n>]
+                       |print-review|delete
+                --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
                 [--carry [--edits <path>]]
+       $PROGRAM --mode list [((<host>/)<owner>/)<repo> | https://<host>/<owner>/<repo>]
        $PROGRAM --mode repos
 EOF
 }
 
 mode=
-repo_ref=
+pr_ref=
+operand=
+operands=0
 pr=
 round=
 head_sha=
@@ -62,7 +65,7 @@ edits=
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
+    --mode|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -76,14 +79,19 @@ while [ "$#" -gt 0 ]; do
       usage
       exit 0
       ;;
-    *)
+    -*)
       die "unknown argument: $flag"
+      ;;
+    *)
+      operand=$flag
+      operands=$((operands + 1))
+      shift
+      continue
       ;;
   esac
   case "$flag" in
     --mode)       mode=$value ;;
-    --repo)       repo_ref=$value ;;
-    --pr)         pr=$value ;;
+    --pr)         pr_ref=$value ;;
     --round)      round=$value ;;
     --head-sha)   head_sha=$value ;;
     --theorem)    theorem=$value ;;
@@ -131,11 +139,18 @@ is_old_layout() {
   return 1
 }
 
+# An operand names a repository, which list alone takes in that form:
+# every other mode is named by its PR, and repos by nothing.
+if [ "$operands" -gt 0 ]; then
+  [ "$mode" = list ] || die "--mode $mode takes no operand: $operand"
+  [ "$operands" -eq 1 ] || die "--mode list takes at most one repository"
+fi
+
 # repos reads across every repository the state root holds, so it takes
 # no identifying flag. It reads each repository from its repo.yml, and
 # names a directory of the old layout, which has none, by its path.
 if [ "$mode" = repos ]; then
-  for pair in "repo:$repo_ref" "pr:$pr" "round:$round"; do
+  for pair in "pr:$pr_ref" "round:$round"; do
     [ -z "${pair#*:}" ] || die "--${pair%%:*} is not accepted in --mode repos: ${pair#*:}"
   done
   [ -d "$state_root" ] || exit 0
@@ -156,54 +171,103 @@ if [ "$mode" = repos ]; then
   exit 0
 fi
 
-# --repo names the repository as host/owner/repo, each segment one level
-# of the composed path. The host is part of it because one machine holds
-# state for repositories on several hosts, and the same owner/repo on two
-# of them is two repositories. A segment holding anything but letters,
-# digits, ., _ and - could add a directory level, and a segment of . or
-# .. names no directory of its own: .. climbs out of the level it stands
-# at, and . lets another segment climb further, so either could compose a
-# path outside the state root that every mode reads, writes or deletes
-# under.
-[ -n "$repo_ref" ] || die "--repo is required"
-case "$repo_ref" in
-  */*/*/*|*//*|/*|*/) die "--repo takes <host>/<owner>/<repo>: $repo_ref" ;;
-  ?*/?*/?*) ;;
-  *) die "--repo takes <host>/<owner>/<repo>: $repo_ref" ;;
-esac
-host=${repo_ref%%/*}
-owner=${repo_ref#*/}
-owner=${owner%/*}
-repo=${repo_ref##*/}
-for given in "$host" "$owner" "$repo"; do
-  case "$given" in
-    *[!A-Za-z0-9._-]*|.|..)
-      die "--repo segments may hold only letters, digits, ., _ and -, and none may be . or ..: $repo_ref" ;;
+# split_repo <host/owner/repo> <message>: sets host, owner and repo, each
+# segment one level of the composed path, or dies with <message> when
+# the reference is not three segments. The host is part of it because
+# one machine holds state for repositories on several hosts, and the same
+# owner/repo on two of them is two repositories. A segment holding
+# anything but letters, digits, ., _ and - could add a directory level,
+# and a segment of . or .. names no directory of its own: .. climbs out
+# of the level it stands at, and . lets another segment climb further, so
+# either could compose a path outside the state root that every mode
+# reads, writes or deletes under.
+split_repo() {
+  case "$1" in
+    */*/*/*|*//*|/*|*/) die "$2" ;;
+    ?*/?*/?*) ;;
+    *) die "$2" ;;
   esac
-done
+  repo_ref=$1
+  host=${1%%/*}
+  owner=${1#*/}
+  owner=${owner%/*}
+  repo=${1##*/}
+  for given in "$host" "$owner" "$repo"; do
+    case "$given" in
+      *[!A-Za-z0-9._-]*|.|..)
+        die "a repository's segments may hold only letters, digits, ., _ and -, and none may be . or ..: $repo_ref" ;;
+    esac
+  done
+}
+
+# current_repo: the current repository as host/owner/repo, from the URL
+# gh reports for the checkout, whose remote names the host.
+current_repo() {
+  url=$(gh repo view --json url --jq .url) \
+    || die "cannot resolve the current repository with gh repo view"
+  url=${url#https://}
+  printf '%s\n' "${url%/}"
+}
+
+# list names its repository by the operand: host/owner/repo, an
+# https://host/owner/repo URL, or a shorter form whose missing leading
+# segments come from the current repository, which no operand names
+# whole. Every other mode names its PR by --pr, host/owner/repo#n, the
+# host included and nothing taken from the checkout.
+if [ "$mode" = list ]; then
+  [ -z "$pr_ref" ] || die "--pr is not accepted in --mode list: $pr_ref"
+  bad_operand="--mode list takes ((<host>/)<owner>/)<repo> or https://<host>/<owner>/<repo>: $operand"
+  case "$operand" in
+    https://*)
+      given=${operand#https://}
+      given=${given%/}
+      ;;
+    *://*|-*) die "$bad_operand" ;;
+    */*/*) given=$operand ;;
+    */*)
+      [ -n "${operand%%/*}" ] || die "$bad_operand"
+      here=$(current_repo)
+      given=${here%%/*}/$operand
+      ;;
+    '') given=$(current_repo) ;;
+    *)
+      here=$(current_repo)
+      given=${here%/*}/$operand
+      ;;
+  esac
+  split_repo "$given" "$bad_operand"
+else
+  [ -n "$pr_ref" ] || die "--pr is required"
+  bad_pr="--pr takes <host>/<owner>/<repo>#<n>: $pr_ref"
+  case "$pr_ref" in
+    *'#'*) ;;
+    *) die "$bad_pr" ;;
+  esac
+  pr=${pr_ref##*'#'}
+  case "$pr" in
+    ''|*[!0-9]*) die "$bad_pr" ;;
+  esac
+  split_repo "${pr_ref%'#'*}" "$bad_pr"
+fi
 
 # A mode refuses an identifying flag it does not act at: delete removes
 # a whole PR's directory, and list reads above every PR's, so a caller
-# passing one would be naming a round or a PR the mode is not going to
-# touch. print-records selects the round itself, so a --round given to
-# it bounds that selection from above rather than naming the round.
-for pair in "pr:$pr" "round:$round"; do
-  name=${pair%%:*}
-  given=${pair#*:}
-  case "$name:$mode" in
-    round:delete|round:list|pr:list)
-      [ -z "$given" ] || die "--$name is not accepted in --mode $mode: $given"
-      continue
-      ;;
-    round:print-records)
-      [ -n "$given" ] || continue
-      ;;
-  esac
-  [ -n "$given" ] || die "--$name is required"
-  case "$given" in
-    *[!0-9]*) die "--$name must be a number: $given" ;;
-  esac
-done
+# passing one would be naming a round the mode is not going to touch.
+# print-records selects the round itself, so a --round given to it
+# bounds that selection from above rather than naming the round.
+case "$mode" in
+  delete|list)
+    [ -z "$round" ] || die "--round is not accepted in --mode $mode: $round"
+    ;;
+  print-records)
+    ;;
+  *)
+    [ -n "$round" ] || die "--round is required"
+    ;;
+esac
+case "$round" in
+  *[!0-9]*) die "--round must be a number: $round" ;;
+esac
 
 # Every column of every record is whitespace-separated, so a value
 # carrying whitespace would shift the columns of its line and
@@ -739,7 +803,8 @@ case "$mode" in
     ;;
   list)
     # A repo no review has run against has no directory, which is an
-    # empty list rather than an error.
+    # empty list rather than an error. Each PR prints as the reference
+    # --pr takes, so a caller hands it on without composing one.
     for found in "$repo_dir"/pr*; do
       [ -d "$found" ] || continue
       n=${found##*/pr}
@@ -747,7 +812,9 @@ case "$mode" in
         ''|*[!0-9]*) continue ;;
       esac
       printf '%s\n' "$n"
-    done | sort -n
+    done | sort -n | while IFS= read -r n; do
+      printf '%s#%s\n' "$repo_ref" "$n"
+    done
     ;;
   delete)
     # The one mode that deletes. A directory already gone is the state

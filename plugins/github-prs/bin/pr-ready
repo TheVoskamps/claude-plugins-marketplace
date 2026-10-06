@@ -13,12 +13,12 @@ usage() {
 }
 
 [ "$#" -eq 1 ] || gp_err_one_pr
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 
-gp_gh pr ready "$pr" >/dev/null
+gp_pr ready >/dev/null
 
-is_draft=$(gp_gh pr view "$pr" --json isDraft --jq .isDraft) || exit $?
+is_draft=$(gp_pr view --json isDraft --jq .isDraft) || exit $?
 [ "$is_draft" = false ] ||
-  gp_err_flip_not_landed "$pr" ready "$is_draft"
+  gp_err_flip_not_landed "$GP_PR_NAME" ready "$is_draft"
 
-echo "PR #$pr is ready for review"
+echo "PR $GP_PR_NAME is ready for review"

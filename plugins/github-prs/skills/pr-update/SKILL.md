@@ -19,11 +19,11 @@ other source-control) branch.
 ## Invocation
 
 ```text
-/pr-update <pr-number> --body-file <path>
+/pr-update <PR> --body-file <path>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 - `--body-file <path>` (required): a file holding the complete new
   body.
 
@@ -32,7 +32,7 @@ other source-control) branch.
 Run the bundled script, spelled as a bare name:
 
 ```bash
-pr-update <pr-number> --body-file <path>
+pr-update <PR> --body-file <path>
 ```
 
 The script writes the body, then re-reads it from GitHub and compares

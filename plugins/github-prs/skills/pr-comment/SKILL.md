@@ -16,11 +16,11 @@ other source-control) branch.
 ## Invocation
 
 ```text
-/pr-comment <pr-number> --body-file <path>
+/pr-comment <PR> --body-file <path>
 ```
 
-- `<pr-number>` (required): the pull-request number in the current
-  repo, with or without a leading `#`.
+- `<PR>` (required): the pull request, in any form
+  `skills/lib/pr-reference.md` lists.
 - `--body-file <path>` (required): a file holding the comment's text.
 
 ## Execution
@@ -28,7 +28,7 @@ other source-control) branch.
 Run the bundled script, spelled as a bare name:
 
 ```bash
-pr-comment <pr-number> --body-file <path>
+pr-comment <PR> --body-file <path>
 ```
 
 The script posts the comment, then re-reads that one comment by the id

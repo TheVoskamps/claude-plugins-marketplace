@@ -14,18 +14,18 @@ usage() {
 
 [ "$#" -eq 3 ] && [ "$2" = --body-file ] ||
   gp_err_pr_and_body_file
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 body_file=$3
 [ -f "$body_file" ] && [ -r "$body_file" ] ||
   gp_err_unreadable "$body_file"
 
-gp_gh pr edit "$pr" --body-file "$body_file" >/dev/null
+gp_pr edit --body-file "$body_file" >/dev/null
 
 # Both sides pass through a command substitution, which drops trailing
 # newlines; `--jq .body` adds one of its own that the stored body lacks.
 wanted=$(cat "$body_file")
-landed=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
+landed=$(gp_pr view --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_err_body_file_not_landed "$pr" "$body_file"
+  gp_err_body_file_not_landed "$GP_PR_NAME" "$body_file"
 
-echo "PR #$pr body replaced from $body_file"
+echo "PR $GP_PR_NAME body replaced from $body_file"

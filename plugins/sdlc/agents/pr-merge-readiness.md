@@ -1,6 +1,6 @@
 ---
 name: pr-merge-readiness
-description: Drives one blessed PR to a merge-ready state. Given a PR number, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then docs-writer when the fixer deferred a documentation edit, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
+description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then docs-writer when the fixer deferred a documentation edit, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
 tools: Read, Write, Glob, Grep, Bash, Agent, Skill
 model: opus
 effort: medium
@@ -51,7 +51,7 @@ strings as written rather than a bare name you reconstruct.
 
 You must be given:
 
-- The PR number.
+- The PR reference, `<host>/<owner>/<repo>#<N>` — the `<PR>` below.
 - The branch name (`<branch-name>`).
 - Optionally, a **ruling**: the human's answer to the question a
   previous spawn of this agent returned with, and the state and the
@@ -62,7 +62,7 @@ You must be given:
   on, or the remedy to run, per "A carried ruling answers only the
   question it was asked" below.
 
-Ask for the PR number or the branch if either is missing. A ruling is
+Ask for the PR reference or the branch if either is missing. A ruling is
 absent on the first spawn, and that is not a gap.
 
 ## The loop
@@ -202,11 +202,11 @@ comment is not a fixer brief.
 
 Then run the remedy spawns, sequentially, waiting for each to return:
 
-1. **`sdlc:issue-fixer`**, with the PR number and nothing else about
+1. **`sdlc:issue-fixer`**, with the PR reference and nothing else about
    the work — the brief on the PR is its instructions:
 
    ```text
-   PR <PR_N> has a fixer brief waiting on it.
+   PR <PR> has a fixer brief waiting on it.
 
    Edit code and instruction Markdown, and no documentation, as the
    sdlc:documentation-definition skill defines the three classes;
@@ -228,12 +228,12 @@ Then run the remedy spawns, sequentially, waiting for each to return:
 2. **`sdlc:docs-writer`**, only when the fixer's `Deferred to
    docs-writer:` line is not `none`. Those entries are a handoff, not a
    question: raise none of them, and run this spawn rather than
-   returning on them. Give it the PR number, the issue set the PR
+   returning on them. Give it the PR reference, the issue set the PR
    closes — what `/github-prs:pr-closing-issues <PR>` reports — the
    branch name, and the fixer's entries verbatim:
 
    ```text
-   PR <PR_N> for issues <issue_N1>, <issue_N2>, … has settled a
+   PR <PR> for issues <issue_N1>, <issue_N2>, … has settled a
    merge-readiness remedy.
    Branch: <branch-name>
    Deferred to docs-writer:
@@ -247,14 +247,14 @@ Then run the remedy spawns, sequentially, waiting for each to return:
 
    `docs-writer` declares memory, so it runs before the scrubber.
 
-3. **`sdlc:agent-memory-scrubber`**, with the PR number and the branch
+3. **`sdlc:agent-memory-scrubber`**, with the PR reference and the branch
    name. `issue-fixer` and `docs-writer` declare memory, so their
    entries wait in the session's inbox until this pass, and the
    scrubber's commit has to be on the branch before the gate grades
    it — never run the gate between the two:
 
    ```text
-   PR <PR_N> has settled a merge-readiness remedy. Branch: <branch-name>
+   PR <PR> has settled a merge-readiness remedy. Branch: <branch-name>
 
    Curate the PR's agent memory per your agent definition. Report back
    what was transferred, what was deleted, and what was cut from or

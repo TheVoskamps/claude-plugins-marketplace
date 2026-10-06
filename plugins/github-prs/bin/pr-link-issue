@@ -16,7 +16,7 @@ usage() {
 }
 
 [ "$#" -ge 2 ] || gp_err_pr_and_issues
-pr=$(gp_pr_number "$1") || exit $?
+gp_parse_pr "$1"
 shift
 
 closing=
@@ -28,7 +28,7 @@ done
 closing=${closing%
 }
 
-existing=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
+existing=$(gp_pr view --json body --jq .body) || exit $?
 if [ -n "$existing" ]; then
   wanted="$existing
 
@@ -37,10 +37,10 @@ else
   wanted=$closing
 fi
 
-printf '%s\n' "$wanted" | gp_gh pr edit "$pr" --body-file - >/dev/null
+printf '%s\n' "$wanted" | gp_pr edit --body-file - >/dev/null
 
-landed=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
+landed=$(gp_pr view --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_err_body_not_landed "$pr" "the closing lines"
+  gp_err_body_not_landed "$GP_PR_NAME" "the closing lines"
 
-printf 'PR #%s: appended %s\n' "$pr" "$(printf '%s' "$closing" | tr '\n' ',' | sed 's/,/, /g')"
+printf 'PR %s: appended %s\n' "$GP_PR_NAME" "$(printf '%s' "$closing" | tr '\n' ',' | sed 's/,/, /g')"

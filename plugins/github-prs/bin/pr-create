@@ -108,10 +108,10 @@ esac
 landed=$(gp_gh pr view "$pr" --json isDraft,baseRefName,headRefName \
   --jq '"\(.isDraft) \(.baseRefName) \(.headRefName)"') || exit $?
 [ "$landed" = "true $base $head_ref" ] ||
-  gp_err_draft_pr_not_landed "$pr" "$landed" "true $base $head_ref"
+  gp_err_draft_pr_not_landed "#$pr" "$landed" "true $base $head_ref"
 
 landed_body=$(gp_gh pr view "$pr" --json body --jq .body) || exit $?
 [ "$landed_body" = "$wanted" ] ||
-  gp_err_body_not_landed "$pr" "the PR body"
+  gp_err_body_not_landed "#$pr" "the PR body"
 
 echo "$url"
