@@ -767,7 +767,8 @@ expect "issue-view host/owner/repo#N: the issue on that host" 0 \
 run issue-view https://ghe.example.com/corp/tools/issues/1
 expect "issue-view an issue URL: the issue on that host" 0 "ghe.example.com/corp/tools#1 On GHE    (OPEN)"
 run issue-view https://github.com/acme/widgets/pull/2
-expect "issue-view: a pull request's URL is a usage error" 2 "is a pull request; the issue verbs take issues only"
+expect "issue-view: a pull request's URL is refused as a pull request" 1 \
+  "\`https://github.com/acme/widgets/pull/2\` is a pull request; the issue verbs take issues only"
 
 run issue-sub-list octo/lib#5
 expect "issue-sub-list owner/repo#N" 0 "Sub-issues of octo/lib#5 \"Library issue\":"

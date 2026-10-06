@@ -171,12 +171,7 @@ parent_ref=
 if [ -n "$parent_arg" ]; then
   # A bare N names an issue in the repo the issue is filed in, whose
   # repo-config supplied the issue-link-prefix it may carry.
-  iss_parse_operand "$parent_arg"
-  if [ "$OP_LOCAL" = yes ]; then
-    OP_HOST=$host
-    OP_OWNER=$owner
-    OP_REPO=$repo
-  fi
+  iss_parse_operand "$parent_arg" "$host" "$owner" "$repo"
   iss_check_repo "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$host" "$owner" "$repo"
   iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" id
   parent_id=$(iss_jq .id)

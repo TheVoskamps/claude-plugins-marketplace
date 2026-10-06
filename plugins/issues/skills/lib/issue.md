@@ -42,9 +42,9 @@ and `/issue-create --parent` — takes one of these forms:
 
 Each part of a repository is letters, digits, `.`, `_` and `-`.
 
-The verbs take issues only. A `https://host/owner/repo/pull/N` operand
-is a usage error, and a number that names a pull request aborts naming
-it as one.
+The verbs take issues only. An operand that names a pull request — a
+`https://host/owner/repo/pull/N` URL before any call, a number once it
+is read — aborts with exit 1, naming it as a pull request.
 
 A verb acts on an operand in its own repository, on its own host. Apart
 from `/issue-create <repo>`, which reads the target's alone, every run

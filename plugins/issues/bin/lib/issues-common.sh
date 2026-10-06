@@ -98,6 +98,8 @@ iss_err_no_target_config() {
 }
 
 iss_err_pull_request() {
+  # $1 the operand. One exit status whether iss_parse_operand finds the
+  # pull request in a URL or iss_try_lookup finds it behind a number.
   iss_die "\`$1\` is a pull request; the issue verbs take issues only"
 }
 
@@ -665,33 +667,31 @@ EOF
 # Operands.
 # ---------------------------------------------------------------------------
 
-# iss_parse_operand <operand>: the one parser of the issue-reference grammar.
-# Sets OP_HOST, OP_OWNER, OP_REPO and OP_NUMBER from
-#   N, #N                          issue N in the current repository; N may
+# iss_parse_operand <operand> [<host> <owner> <repo>]: the one parser of the
+# issue-reference grammar. Sets OP_HOST, OP_OWNER, OP_REPO and OP_NUMBER from
+#   N, #N                          issue N in the given repository, or in the
+#                                  current one when none is given; N may
 #                                  carry the repo-config's issue-link-prefix
 #   <repository>#N                 issue N in the repository, its part before
 #                                  the last # in any form iss_parse_repo takes
 #   https://host/owner/repo/issues/N
 #                                  the same as host/owner/repo#N; a trailing /
 #                                  is ignored
-# so every reference iss_ref prints is accepted back. OP_LOCAL is yes for the
-# N and #N forms, no otherwise. A pull request's URL, and any other malformed
-# operand, is a usage error before any gh call.
+# so every reference iss_ref prints is accepted back. A pull request's URL is
+# refused with iss_err_pull_request, and any other malformed operand is a usage
+# error, both before any gh call.
 iss_parse_operand() {
   local op=$1 num rest kind bad
   bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
   num=${op#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   if iss_is_digits "$num"; then
-    OP_LOCAL=yes
-    OP_HOST=$ISS_HOST
-    OP_OWNER=$ISS_OWNER
-    OP_REPO=$ISS_REPO
+    OP_HOST=${2-$ISS_HOST}
+    OP_OWNER=${3-$ISS_OWNER}
+    OP_REPO=${4-$ISS_REPO}
     OP_NUMBER=$num
     return 0
   fi
-  # shellcheck disable=SC2034 # issue-create reads OP_LOCAL
-  OP_LOCAL=no
   case "$op" in
     *'#'*)
       num=${op##*'#'}
@@ -709,7 +709,7 @@ iss_parse_operand() {
         iss_usage_die "$bad"
       case "$kind" in
         issues) ;;
-        pull) iss_usage_die "\`$op\` is a pull request; the issue verbs take issues only" ;;
+        pull) iss_err_pull_request "$op" ;;
         *) iss_usage_die "$bad" ;;
       esac
       RP_HOST=$URL_HOST
@@ -1253,7 +1253,7 @@ iss_slot_unconfigured_exit() {
 iss_set_slot_verb() {
   local slot=$1 ref label
   shift
-  [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-$slot <N> <value>"
+  [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-$slot <issue> <value>"
   iss_init
   iss_parse_operand "$1"
   iss_operand_board_config
