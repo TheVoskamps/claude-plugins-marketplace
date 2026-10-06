@@ -12,9 +12,9 @@
 #
 # Read-only: nothing here writes a file or mutates anything on GitHub,
 # which is why every intermediate result lives in a shell variable. The
-# one change a run can cause is sdlc-agent-result-persist moving this
-# repository's state out of the layout that predates the host segment,
-# which any run of that script does first.
+# one change a run can cause is sdlc-agent-result-persist moving the
+# PR's repository's state out of the layout that predates the host
+# segment, which any run of that script does first.
 set -euo pipefail
 
 readonly PROGRAM=${0##*/}
