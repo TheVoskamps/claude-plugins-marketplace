@@ -97,6 +97,9 @@ newest_review() {
 
 before=$(newest_review) || exit $?
 rc=0
+# gh runs directly here, not through gp_pr: gp_gh exits on a failure, and
+# the author refusal below is told apart by gh's stderr, so this call
+# keeps that stderr and adds the reference's --repo itself.
 err=$({ printf '%s\n' "$wanted" |
   gh pr review "$GP_PR" "$flag" --body-file - ${GP_REPO_ARG:+--repo "$GP_REPO_ARG"} >/dev/null; } 2>&1) || rc=$?
 if [ "$rc" -ne 0 ]; then
