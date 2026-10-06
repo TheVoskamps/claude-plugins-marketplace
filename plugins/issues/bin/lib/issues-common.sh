@@ -85,10 +85,12 @@ iss_err_repo_not_found() {
 }
 
 iss_err_no_block() {
+  # $1 message prefix
   iss_die "${1:-}no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
 }
 
 iss_err_no_issue_types() {
+  # $1 message prefix
   iss_die "${1:-}issue-types map missing from \`github-project:\` in \`repo-config.md\`; run \`/repo-config\` to add it"
 }
 
@@ -98,8 +100,9 @@ iss_err_no_target_config() {
 }
 
 iss_err_pull_request() {
-  # $1 the operand. One exit status whether iss_parse_operand finds the
-  # pull request in a URL or iss_try_lookup finds it behind a number.
+  # $1 the pull request, as the operand spelled it or as iss_ref prints it.
+  # One exit status whether iss_parse_operand finds the pull request in a URL
+  # or iss_try_lookup finds it behind a number.
   iss_die "\`$1\` is a pull request; the issue verbs take issues only"
 }
 
@@ -736,8 +739,9 @@ iss_operand() {
 # not given, whose repo-config the verb has read already — read its
 # repo-config with iss_load_target_config and abort wherever that does: on a
 # repo-config it cannot read or that fails validation, and with the fixed Jira
-# message under issues: Jira. A repository with no repo-config passes. The read runs in a subshell, so the
-# repo-config the verb itself reads is left as it was.
+# message under issues: Jira. A repository with no repo-config passes. The
+# read runs in a subshell, so the repo-config the verb itself reads is left as
+# it was.
 iss_check_repo() {
   if [ "$#" -eq 6 ]; then
     iss_same_repo "$@" && return 0

@@ -50,8 +50,8 @@ accepts() {
   fi
 }
 
-# rejects <status> <operand> <substring> [<owner>]: an exit with <status>,
-# naming the operand.
+# rejects <status> <operand> <substring> [<owner>]: an exit with <status> and
+# an error containing <substring>, with <owner> as parse takes it.
 rejects() {
   parse '#' "${4-acme}" "$2"
   case "$RC $OUT" in
@@ -65,7 +65,8 @@ rejects() {
   esac
 }
 
-# refuses <operand> <substring> [<owner>]: a usage error, exit 2, naming it.
+# refuses <operand> <substring> [<owner>]: rejects with the usage error's exit
+# status, 2.
 refuses() {
   rejects 2 "$@"
 }
