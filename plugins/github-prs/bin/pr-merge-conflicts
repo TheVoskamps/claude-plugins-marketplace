@@ -24,39 +24,59 @@ refs=$(gp_pr view --json headRefName,baseRefName \
 head_ref=${refs% *}
 base_ref=${refs#* }
 
-root=$(git rev-parse --show-toplevel) || gp_err_not_a_repo
-tree="$root/.claude/worktrees/pr-merge-conflicts-$GP_PR"
-
 # A PR of the checkout's own repository merges from origin. A PR of
 # another repository has its two branches fetched from that repository's
 # URL into refs of this verb's own, which the cleanup below deletes, so
 # no remote-tracking ref of the checkout changes. GitHub matches host,
 # owner and repository names without regard to case, so the comparison
 # lowercases both sides.
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 foreign=
 if [ -n "$GP_REPO_ARG" ]; then
   gp_current_repo
-  lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
   [ "$(lc "$GP_REPO_ARG")" = "$(lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO")" ] ||
     foreign=yes
 fi
+
+# Another repository's PR has its repository in the worktree path, so
+# its PR N and the checkout's own PR N never share one. `+` joins the
+# names because none of them can contain one, and they are lowercased
+# for the reason the comparison above is.
+root=$(git rev-parse --show-toplevel) || gp_err_not_a_repo
 if [ -z "$foreign" ]; then
+  tree="$root/.claude/worktrees/pr-merge-conflicts-$GP_PR"
   head_start="origin/$head_ref"
   base_start="origin/$base_ref"
   base_label=$base_start
-  git fetch -q origin "$base_ref" "$head_ref" ||
-    gp_err_git "git fetch origin $base_ref $head_ref"
 else
+  tree="$root/.claude/worktrees/pr-merge-conflicts-$(lc "$GP_HOST+$GP_OWNER+$GP_REPO")-$GP_PR"
   head_start="refs/pr-merge-conflicts/$GP_PR/head"
   base_start="refs/pr-merge-conflicts/$GP_PR/base"
   base_label="$base_ref of $GP_REPO_ARG"
-  url="https://$GP_REPO_ARG.git"
-  if ! git fetch -q --no-tags "$url" \
-    "+refs/heads/$base_ref:$base_start" "+refs/heads/$head_ref:$head_start"; then
+fi
+
+# Installed before the fetch, so every exit after it deletes the refs a
+# fetch from another repository wrote, whichever step failed.
+cleanup() {
+  # No merge in progress -- a head already up to date with the base --
+  # makes the abort fail, which is not a failure here.
+  git -C "$tree" merge --abort >/dev/null 2>&1 || true
+  git worktree remove --force "$tree" >/dev/null 2>&1 || true
+  if [ -n "$foreign" ]; then
     git update-ref -d "$head_start" >/dev/null 2>&1 || true
     git update-ref -d "$base_start" >/dev/null 2>&1 || true
-    gp_err_git "git fetch $url $base_ref $head_ref"
   fi
+}
+trap cleanup EXIT
+
+if [ -z "$foreign" ]; then
+  git fetch -q origin "$base_ref" "$head_ref" ||
+    gp_err_git "git fetch origin $base_ref $head_ref"
+else
+  url="https://$GP_REPO_ARG.git"
+  git fetch -q --no-tags "$url" \
+    "+refs/heads/$base_ref:$base_start" "+refs/heads/$head_ref:$head_start" ||
+    gp_err_git "git fetch $url $base_ref $head_ref"
 fi
 
 # A path left behind holds an interrupted run's merge in progress, which
@@ -69,18 +89,6 @@ if [ -e "$tree" ]; then
     gp_err_git "git worktree remove of the leftover $tree"
 fi
 git worktree prune || gp_err_git "git worktree prune"
-
-cleanup() {
-  # No merge in progress -- a head already up to date with the base --
-  # makes the abort fail, which is not a failure here.
-  git -C "$tree" merge --abort >/dev/null 2>&1 || true
-  git worktree remove --force "$tree" >/dev/null 2>&1 || true
-  if [ -n "$foreign" ]; then
-    git update-ref -d "$head_start" >/dev/null 2>&1 || true
-    git update-ref -d "$base_start" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
 
 git worktree add -q --detach "$tree" "$head_start" ||
   gp_err_git "git worktree add at $head_start"

@@ -873,6 +873,24 @@ run_conflicts 'other.example/o2/r2#7'
 check_contains "$OUT" "The trial merge is clean: no conflicts with main of other.example/o2/r2." \
   "pr-merge-conflicts: names another repository's base"
 
+new_case conflicts-other-repo-own-leftover
+echo feature >"$CASE/head"
+git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/pr-merge-conflicts-7" origin/feature
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "0" "pr-merge-conflicts: another repository's PR 7 runs beside the checkout's own"
+check "$([ -e "$CLONE/.claude/worktrees/pr-merge-conflicts-7" ] && echo kept || echo removed)" "kept" \
+  "pr-merge-conflicts: another repository's PR 7 leaves the checkout's own PR 7 worktree alone"
+git -C "$CLONE" worktree remove --force "$CLONE/.claude/worktrees/pr-merge-conflicts-7"
+
+new_case conflicts-other-repo-leftover-fails
+echo feature >"$CASE/head"
+mkdir -p "$CLONE/.claude/worktrees/pr-merge-conflicts-other.example+o2+r2-7"
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "3" "pr-merge-conflicts: a leftover that is not a worktree fails the removal"
+check "$(git -C "$CLONE" for-each-ref refs/pr-merge-conflicts)" "" \
+  "pr-merge-conflicts: a failed leftover removal still deletes the refs fetched from another repository"
+rmdir "$CLONE/.claude/worktrees/pr-merge-conflicts-other.example+o2+r2-7"
+
 new_case conflicts-own-repo-by-reference
 echo feature >"$CASE/head"
 run_conflicts 'github.com/o/r#7'

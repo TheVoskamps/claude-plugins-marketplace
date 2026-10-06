@@ -40,8 +40,10 @@ pr-merge-conflicts <PR>
 
 The script reads the PR's head and base branches, fetches both, and
 adds a detached worktree at the head under
-`.claude/worktrees/pr-merge-conflicts-<N>`, so no branch claim is taken
-and nothing lands in the primary clone's working tree. It trial-merges
+`.claude/worktrees/pr-merge-conflicts-<N>` — for another repository's
+PR, `.claude/worktrees/pr-merge-conflicts-<host>+<owner>+<repo>-<N>`,
+lowercased — so no branch claim is taken and nothing lands in the
+primary clone's working tree. It trial-merges
 the base there without committing, collects the conflicting files and
 each one's hunks, then aborts the merge and removes the worktree on
 every exit, so a failed run leaves nothing for the next one to trip

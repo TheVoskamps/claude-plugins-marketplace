@@ -80,6 +80,7 @@ gp_current_repo() {
   GP_CUR_HOST=${url%%/*}
   url=${url#*/}
   GP_CUR_OWNER=${url%/*}
+  # shellcheck disable=SC2034 # read by the verbs that source this file
   GP_CUR_REPO=${url##*/}
 }
 
@@ -168,6 +169,7 @@ gp_parse_pr() {
   GP_OWNER=${repo%/*}
   GP_REPO=${repo#*/}
   GP_REPO_ARG="$GP_HOST/$GP_OWNER/$GP_REPO"
+  # shellcheck disable=SC2034 # read by the verbs that source this file
   GP_PR_NAME="$GP_REPO_ARG#$n"
 }
 
