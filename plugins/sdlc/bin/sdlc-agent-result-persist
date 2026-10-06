@@ -201,7 +201,8 @@ split_repo() {
 }
 
 # current_repo: the current repository as host/owner/repo, from the URL
-# gh reports for the checkout, whose remote names the host.
+# gh reports for the checkout, whose remote names the host. Dies when gh
+# cannot resolve it.
 current_repo() {
   url=$(gh repo view --json url --jq .url) \
     || die "cannot resolve the current repository with gh repo view"

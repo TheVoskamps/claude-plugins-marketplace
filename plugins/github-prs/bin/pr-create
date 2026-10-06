@@ -104,6 +104,8 @@ pr=${url##*/}
 case "$pr" in
   '' | *[!0-9]*) gp_err_no_pr_in_url "$url" ;;
 esac
+# The catalogue names the PR through GP_PR_NAME, which gp_parse_pr sets
+# for every other verb; this one takes no reference to parse.
 GP_PR_NAME="#$pr"
 
 landed=$(gp_gh pr view "$pr" --json isDraft,baseRefName,headRefName \
