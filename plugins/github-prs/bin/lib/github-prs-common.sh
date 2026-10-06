@@ -1,9 +1,11 @@
 # shellcheck shell=bash
 #
 # github-prs-common.sh -- sourced by every script in plugins/github-prs/bin/.
-# It holds the error catalogue every verb reports through and the `gh`
-# call wrapper every verb calls through, so one message and one exit
-# status mean the same thing whichever verb printed it. A verb reports
+# It holds the error catalogue every verb reports through, the `gh`
+# call wrapper every verb calls through, and the parser of the PR
+# reference every PR verb takes, so one message and one exit status
+# mean the same thing whichever verb printed it, and one reference
+# names the same PR whichever verb received it. A verb reports
 # a failure by calling a catalogue entry below and never spells a
 # message of its own. Runs under the bash 3.2 macOS ships.
 #
@@ -195,9 +197,9 @@ gp_issue_number() {
 }
 
 # gp_repo_path <suffix> -- a REST path under the PR's repository: the
-# one the reference named, or else the current one, with gh's own
-# {owner}/{repo} placeholders left for gh to resolve from the checkout.
-# The host is gp_gh's --hostname.
+# owner and repository the reference named, or else gh's own
+# {owner}/{repo} placeholders, left for gh to resolve to the current
+# repository from the checkout. The host is gp_gh's --hostname.
 gp_repo_path() {
   if [ -n "$GP_REPO_ARG" ]; then
     printf 'repos/%s/%s/%s\n' "$GP_OWNER" "$GP_REPO" "$1"

@@ -274,8 +274,8 @@ check "$RC" "2" "pr-view: --ref with --json is a usage error"
 check "$(calls)" "" "pr-view: --ref with --json calls no gh"
 
 # --- PR references -------------------------------------------------------
-# Each form is driven through pr-diff, whose one gh call shows where the
-# reference sent it; the api host is pr-comment's below.
+# Each form is driven through pr-diff, whose `pr diff` call shows where
+# the reference sent it; the api host is pr-comment's below.
 
 new_case ref-hash
 run pr-diff '#7'

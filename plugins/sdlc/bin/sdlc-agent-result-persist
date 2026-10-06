@@ -174,14 +174,13 @@ fi
 # split_repo <host/owner/repo> <message>: sets repo_ref to the reference
 # whole and host, owner and repo to its segments, each one level of the
 # composed path, or dies with <message> when the reference is not three
-# segments. The host is part of it because
-# one machine holds state for repositories on several hosts, and the same
-# owner/repo on two of them is two repositories. A segment holding
-# anything but letters, digits, ., _ and - could add a directory level,
-# and a segment of . or .. names no directory of its own: .. climbs out
-# of the level it stands at, and . lets another segment climb further, so
-# either could compose a path outside the state root that every mode
-# reads, writes or deletes under.
+# segments. The host is a segment because one machine holds state for
+# repositories on several hosts, and the same owner/repo on two of them
+# is two repositories. A segment holding anything but letters, digits,
+# ., _ and - could add a directory level, and a segment of . or .. names
+# no directory of its own: .. climbs out of the level it stands at, and
+# . lets another segment climb further, so either could compose a path
+# outside the state root that every mode reads, writes or deletes under.
 split_repo() {
   case "$1" in
     */*/*/*|*//*|/*|*/) die "$2" ;;
@@ -212,9 +211,10 @@ current_repo() {
 
 # list names its repository by the operand: host/owner/repo, an
 # https://host/owner/repo URL, or a shorter form whose missing leading
-# segments come from the current repository, which no operand names
-# whole. Every other mode names its PR by --pr, host/owner/repo#n, the
-# host included and nothing taken from the checkout.
+# segments come from the current repository; with no operand, list reads
+# the current repository itself. Every other mode names its PR by --pr,
+# host/owner/repo#n, the host included and nothing taken from the
+# checkout.
 if [ "$mode" = list ]; then
   [ -z "$pr_ref" ] || die "--pr is not accepted in --mode list: $pr_ref"
   bad_operand="--mode list takes ((<host>/)<owner>/)<repo> or https://<host>/<owner>/<repo>: $operand"
