@@ -867,6 +867,28 @@ check "$(git -C "$CLONE" for-each-ref refs/pr-merge-conflicts)" "" \
 check "$(git -C "$CLONE" for-each-ref refs/remotes)" "$origin_refs" \
   "pr-merge-conflicts: no remote-tracking ref changes for another repository's PR"
 
+# Two other repositories' PR 7 must not fetch into the same refs, or one
+# run's cleanup deletes the other's. A post-checkout hook, which the
+# worktree add fires, records the refs each run holds at that point.
+new_case conflicts-two-other-repos
+echo feature >"$CASE/head"
+git -C "$CLONE" config url."$OTHER".insteadOf https://third.example/o3/r3.git --add
+mkdir -p "$CASE/hooks"
+printf '#!/bin/sh\ngit for-each-ref --format="%%(refname)" refs/pr-merge-conflicts >>"%s"\n' \
+  "$CASE/refs-seen" >"$CASE/hooks/post-checkout"
+chmod +x "$CASE/hooks/post-checkout"
+git -C "$CLONE" config core.hooksPath "$CASE/hooks"
+run_conflicts 'other.example/o2/r2#7'
+check "$RC" "0" "pr-merge-conflicts: one other repository's PR 7 runs"
+mv "$CASE/refs-seen" "$CASE/refs-other"
+run_conflicts 'third.example/o3/r3#7'
+check "$RC" "0" "pr-merge-conflicts: a second other repository's PR 7 runs"
+git -C "$CLONE" config --unset core.hooksPath
+check "$(cat "$CASE/refs-other" "$CASE/refs-seen" | wc -l | tr -d ' ')" "4" \
+  "pr-merge-conflicts: each run holds its head and base refs at the worktree add"
+check "$(sort "$CASE/refs-other" "$CASE/refs-seen" | uniq -d)" "" \
+  "pr-merge-conflicts: two other repositories' PR 7 fetch into distinct refs"
+
 new_case conflicts-other-repo-clean
 echo clean >"$CASE/head"
 run_conflicts 'other.example/o2/r2#7'

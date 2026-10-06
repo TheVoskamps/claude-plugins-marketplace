@@ -27,21 +27,17 @@ base_ref=${refs#* }
 # A PR of the checkout's own repository merges from origin. A PR of
 # another repository has its two branches fetched from that repository's
 # URL into refs of this verb's own, which the cleanup below deletes, so
-# no remote-tracking ref of the checkout changes. GitHub matches host,
-# owner and repository names without regard to case, so the comparison
-# lowercases both sides.
-lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+# no remote-tracking ref of the checkout changes.
 foreign=
-if [ -n "$GP_REPO_ARG" ]; then
-  gp_current_repo
-  [ "$(lc "$GP_REPO_ARG")" = "$(lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO")" ] ||
-    foreign=yes
+if gp_names_other_repo; then
+  foreign=yes
 fi
 
-# Another repository's PR has its repository in the worktree path, so
-# its PR N and the checkout's own PR N never share one. `+` joins the
-# names because none of them can contain one, and they are lowercased
-# for the reason the comparison above is.
+# Another repository's PR has its repository in the worktree path and in
+# the fetched refs, so its PR N shares neither with the checkout's own
+# PR N nor with a third repository's PR N. `+` joins the names because
+# none of them can contain one, and they are lowercased because GitHub
+# matches them without regard to case.
 root=$(git rev-parse --show-toplevel) || gp_err_not_a_repo
 if [ -z "$foreign" ]; then
   tree="$root/.claude/worktrees/pr-merge-conflicts-$GP_PR"
@@ -49,9 +45,10 @@ if [ -z "$foreign" ]; then
   base_start="origin/$base_ref"
   base_label=$base_start
 else
-  tree="$root/.claude/worktrees/pr-merge-conflicts-$(lc "$GP_HOST+$GP_OWNER+$GP_REPO")-$GP_PR"
-  head_start="refs/pr-merge-conflicts/$GP_PR/head"
-  base_start="refs/pr-merge-conflicts/$GP_PR/base"
+  repo_key=$(gp_lc "$GP_HOST+$GP_OWNER+$GP_REPO")
+  tree="$root/.claude/worktrees/pr-merge-conflicts-$repo_key-$GP_PR"
+  head_start="refs/pr-merge-conflicts/$repo_key/$GP_PR/head"
+  base_start="refs/pr-merge-conflicts/$repo_key/$GP_PR/base"
   base_label="$base_ref of $GP_REPO_ARG"
 fi
 

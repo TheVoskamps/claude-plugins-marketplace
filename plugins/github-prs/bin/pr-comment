@@ -30,13 +30,13 @@ case "$url" in
 esac
 case "$comment_id" in
   '' | *[!0-9]*)
-    gp_err_comment_no_id "$GP_PR_NAME" "$url"
+    gp_err_comment_no_id "$url"
     ;;
 esac
 
 wanted=$(cat "$body_file")
 landed=$(gp_gh api "$(gp_repo_path "issues/comments/$comment_id")" --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_err_comment_not_landed "$GP_PR_NAME" "$comment_id" "$body_file"
+  gp_err_comment_not_landed "$comment_id" "$body_file"
 
 echo "$url"

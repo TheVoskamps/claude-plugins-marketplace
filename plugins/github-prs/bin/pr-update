@@ -26,6 +26,6 @@ gp_pr edit --body-file "$body_file" >/dev/null
 wanted=$(cat "$body_file")
 landed=$(gp_pr view --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_err_body_file_not_landed "$GP_PR_NAME" "$body_file"
+  gp_err_body_file_not_landed "$body_file"
 
 echo "PR $GP_PR_NAME body replaced from $body_file"

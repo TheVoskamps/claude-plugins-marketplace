@@ -19,6 +19,6 @@ gp_pr ready >/dev/null
 
 is_draft=$(gp_pr view --json isDraft --jq .isDraft) || exit $?
 [ "$is_draft" = false ] ||
-  gp_err_flip_not_landed "$GP_PR_NAME" ready "$is_draft"
+  gp_err_flip_not_landed ready "$is_draft"
 
 echo "PR $GP_PR_NAME is ready for review"

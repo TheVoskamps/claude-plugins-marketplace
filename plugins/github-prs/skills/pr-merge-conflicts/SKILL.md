@@ -16,9 +16,10 @@ and index as it found them; what it does change there is the fetched
 
 A PR of another repository than the checkout's is fetched from that
 repository's `https://<host>/<owner>/<repo>.git` into
-`refs/pr-merge-conflicts/<N>/`, which the script deletes on every exit,
-so no `origin/*` ref changes for it. The fetch authenticates as `git`
-does for that URL.
+`refs/pr-merge-conflicts/<host>+<owner>+<repo>/<N>/`, the names
+lowercased, which the script deletes on every exit, so no `origin/*`
+ref changes for it. The fetch authenticates as `git` does for that
+URL.
 
 ## Invocation
 

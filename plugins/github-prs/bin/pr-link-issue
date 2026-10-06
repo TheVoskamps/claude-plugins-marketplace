@@ -41,6 +41,6 @@ printf '%s\n' "$wanted" | gp_pr edit --body-file - >/dev/null
 
 landed=$(gp_pr view --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
-  gp_err_body_not_landed "$GP_PR_NAME" "the closing lines"
+  gp_err_body_not_landed "the closing lines"
 
 printf 'PR %s: appended %s\n' "$GP_PR_NAME" "$(printf '%s' "$closing" | tr '\n' ',' | sed 's/,/, /g')"

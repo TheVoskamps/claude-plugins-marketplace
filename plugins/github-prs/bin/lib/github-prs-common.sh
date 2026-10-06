@@ -37,12 +37,12 @@ gp_usage_error() {
   exit 2
 }
 
-# gp_not_landed <pr> <what> <why> -- the exit-1 failure for a mutation
-# whose re-read does not show it: "PR <pr>: <what> did not land: <why>".
-# <pr> here and in every catalogue entry below is the PR as GP_PR_NAME
-# spells it.
+# gp_not_landed <what> <why> -- the exit-1 failure for a mutation whose
+# re-read does not show it: "PR <pr>: <what> did not land: <why>". <pr>,
+# here and in every catalogue entry below that names the PR, is the PR
+# as GP_PR_NAME spells it.
 gp_not_landed() {
-  gp_fail 1 "PR $1: $2 did not land: $3"
+  gp_fail 1 "PR $GP_PR_NAME: $1 did not land: $2"
 }
 
 # gp_gh <gh args...> -- run gh, passing its stdout through. On failure
@@ -80,7 +80,6 @@ gp_current_repo() {
   GP_CUR_HOST=${url%%/*}
   url=${url#*/}
   GP_CUR_OWNER=${url%/*}
-  # shellcheck disable=SC2034 # read by the verbs that source this file
   GP_CUR_REPO=${url##*/}
 }
 
@@ -169,8 +168,20 @@ gp_parse_pr() {
   GP_OWNER=${repo%/*}
   GP_REPO=${repo#*/}
   GP_REPO_ARG="$GP_HOST/$GP_OWNER/$GP_REPO"
-  # shellcheck disable=SC2034 # read by the verbs that source this file
   GP_PR_NAME="$GP_REPO_ARG#$n"
+}
+
+# gp_lc <string> -- <string> lowercased. GitHub matches host, owner and
+# repository names without regard to case, so a comparison or a name
+# built from them lowercases them first.
+gp_lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# gp_names_other_repo -- succeed when gp_parse_pr's reference named a
+# repository other than the current one, compared through gp_lc.
+gp_names_other_repo() {
+  [ -n "$GP_REPO_ARG" ] || return 1
+  gp_current_repo
+  [ "$(gp_lc "$GP_REPO_ARG")" != "$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO")" ]
 }
 
 # gp_pr <subcommand> <args...> -- `gh pr <subcommand> <PR> <args...>`
@@ -255,56 +266,55 @@ gp_err_no_body() {
 gp_err_many_bodies() { gp_usage_error "More than one review body was supplied. Pass exactly one."; }
 
 # Exit 1: the verb's own negative outcomes.
-# gp_err_not_open <pr> <state>
+# gp_err_not_open <state>
 gp_err_not_open() {
-  gp_fail 1 "PR $1 is $2, not open. Merge readiness is only computed for an open PR."
+  gp_fail 1 "PR $GP_PR_NAME is $1, not open. Merge readiness is only computed for an open PR."
 }
-# gp_err_still_unknown <pr> <reads made>
+# gp_err_still_unknown <reads made>
 gp_err_still_unknown() {
-  gp_fail 1 "PR $1: mergeable is still UNKNOWN after $2 reads. GitHub has not finished computing the merge state."
+  gp_fail 1 "PR $GP_PR_NAME: mergeable is still UNKNOWN after $1 reads. GitHub has not finished computing the merge state."
 }
 # gp_err_no_pr_in_url <what gh printed> -- gh pr create succeeded but
 # named no PR number, so there is nothing to re-read.
 gp_err_no_pr_in_url() {
   gp_fail 1 "gh pr create reported \`$1\`, which names no PR number"
 }
-# gp_err_flip_not_landed <pr> <ready|draft> <isDraft read back>
+# gp_err_flip_not_landed <ready|draft> <isDraft read back>
 gp_err_flip_not_landed() {
-  gp_not_landed "$1" "the $2 flip" "the re-read still reports isDraft $3"
+  gp_not_landed "the $1 flip" "the re-read still reports isDraft $2"
 }
-# gp_err_draft_pr_not_landed <pr> <read back> <wanted>, each spelled
+# gp_err_draft_pr_not_landed <read back> <wanted>, each spelled
 # "<isDraft> <base> <head>".
 gp_err_draft_pr_not_landed() {
-  gp_not_landed "$1" "the draft PR" \
-    "the re-read reports isDraft, base and head as \`$2\`, not \`$3\`"
+  gp_not_landed "the draft PR" \
+    "the re-read reports isDraft, base and head as \`$1\`, not \`$2\`"
 }
-# gp_err_body_not_landed <pr> <what was written into the body>
+# gp_err_body_not_landed <what was written into the body>
 gp_err_body_not_landed() {
-  gp_not_landed "$1" "$2" "the re-read body is not the body written"
+  gp_not_landed "$1" "the re-read body is not the body written"
 }
-# gp_err_body_file_not_landed <pr> <body file>
+# gp_err_body_file_not_landed <body file>
 gp_err_body_file_not_landed() {
-  gp_not_landed "$1" "the body edit" "the re-read body differs from $2"
+  gp_not_landed "the body edit" "the re-read body differs from $1"
 }
-# gp_err_comment_no_id <pr> <what gh printed>
+# gp_err_comment_no_id <what gh printed>
 gp_err_comment_no_id() {
-  gp_not_landed "$1" "the comment" "gh reported \`$2\`, which names no comment id"
+  gp_not_landed "the comment" "gh reported \`$1\`, which names no comment id"
 }
-# gp_err_comment_not_landed <pr> <comment id> <body file>
+# gp_err_comment_not_landed <comment id> <body file>
 gp_err_comment_not_landed() {
-  gp_not_landed "$1" "the comment" "comment $2's body differs from $3"
+  gp_not_landed "the comment" "comment $1's body differs from $2"
 }
-# gp_err_review_missing <pr>
 gp_err_review_missing() {
-  gp_not_landed "$1" "the review" "no new review is on the PR"
+  gp_not_landed "the review" "no new review is on the PR"
 }
-# gp_err_review_state <pr> <review id> <state read back> <state wanted>
+# gp_err_review_state <review id> <state read back> <state wanted>
 gp_err_review_state() {
-  gp_not_landed "$1" "the review" "review $2 has state $3, not $4"
+  gp_not_landed "the review" "review $1 has state $2, not $3"
 }
-# gp_err_review_body <pr> <review id>
+# gp_err_review_body <review id>
 gp_err_review_body() {
-  gp_not_landed "$1" "the review" "review $2's body is not the body written"
+  gp_not_landed "the review" "review $1's body is not the body written"
 }
 
 # Exit 3: a gh or git call failed.

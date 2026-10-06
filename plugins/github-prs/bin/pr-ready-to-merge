@@ -52,7 +52,7 @@ $report
 EOF
 
   if [ "$pr_state" != OPEN ]; then
-    gp_err_not_open "$GP_PR_NAME" "$pr_state"
+    gp_err_not_open "$pr_state"
   fi
   [ "$mergeable" = UNKNOWN ] || break
   [ -n "$waits" ] || break
@@ -96,4 +96,4 @@ echo "reviewDecision: $review"
 check_list R "checks running"
 check_list N "checks not green"
 
-[ "$mergeable" != UNKNOWN ] || gp_err_still_unknown "$GP_PR_NAME" "$attempt"
+[ "$mergeable" != UNKNOWN ] || gp_err_still_unknown "$attempt"

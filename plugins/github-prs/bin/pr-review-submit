@@ -113,15 +113,15 @@ fi
 after=$(newest_review) || exit $?
 
 if [ -z "$after" ] || [ "$after" = "$before" ]; then
-  gp_err_review_missing "$GP_PR_NAME"
+  gp_err_review_missing
 fi
 landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
 landed_state=$(printf '%s\n' "$landed" | head -n 1)
 landed_body=$(printf '%s\n' "$landed" | tail -n +2)
 [ "$landed_state" = "$state" ] ||
-  gp_err_review_state "$GP_PR_NAME" "$after" "$landed_state" "$state"
+  gp_err_review_state "$after" "$landed_state" "$state"
 [ "$landed_body" = "$wanted" ] ||
-  gp_err_review_body "$GP_PR_NAME" "$after"
+  gp_err_review_body "$after"
 
 printf 'PR %s: verdict %s, review state %s, body %s\n' \
   "$GP_PR_NAME" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"
