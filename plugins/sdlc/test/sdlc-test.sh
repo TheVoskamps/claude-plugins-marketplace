@@ -430,8 +430,8 @@ for dots in '../o/r#7' 'h.example/../r#7' 'h.example/o/..#7' './o/r#7' 'h.exampl
   check_contains "$(cat "$CASE/err")" "none may be . or ..: ${dots%#*}" "refusal: --pr $dots names the repository"
 done
 
-# A canonical --pr composes the directory the host/owner/repo and number
-# composed before the reference carried both, so existing state is found.
+# A canonical --pr <host>/<owner>/<repo>#<n> reads its state from
+# sdlc/<host>/<owner>/<repo>/pr<n>/.
 new_case pr-same-directory
 mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
 printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
