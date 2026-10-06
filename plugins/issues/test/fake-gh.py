@@ -312,7 +312,8 @@ def graphql(state, host, args):
 
 
 def login_on(state, host):
-    """The user gh is authenticated as on `host`."""
+    """The user gh is authenticated as on `host`: its entry in
+    state["hostUsers"], else state["user"]."""
     return state.get("hostUsers", {}).get(host, state["user"])
 
 
@@ -322,7 +323,9 @@ def discovery(state, host, query, fields):
     the viewer. An owner's "projects" live in state["owners"], on its own
     "host" (github.com when absent); a host listed in state["scopeless"] has a
     token without read:project, so any board query there fails as GitHub
-    fails it."""
+    fails it. A repo's "issueFields" or "issueTypes" of "absent" stands for a
+    schema without that field, which fails the query, and null for a null
+    connection."""
     if re.search(r"\bviewer\b", query):
         print(json.dumps({"data": {"viewer": {"login": login_on(state, host)}}}))
         return

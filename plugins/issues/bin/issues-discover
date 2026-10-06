@@ -48,7 +48,8 @@ disc_fail() {
 # disc_nodes <doc> <jq-path> <gh args...>: run <doc>, whose connection at
 # <jq-path> takes $after, page it to its end, and set DISC_NODES to every node
 # as one JSON array, or to "null" when the connection is null. Returns 1 when
-# a call fails, ISS_GQL_OUT and ISS_GQL_ERR holding its output.
+# a call fails, ISS_GQL_OUT and ISS_GQL_ERR holding its output, and exits when
+# a page past the first comes back null.
 disc_nodes() {
   local doc=$1 path=$2 conn cursor=
   shift 2
