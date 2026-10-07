@@ -269,7 +269,8 @@ gp_joined() {
 # #0 closes nothing. The PR's repository is the one gp_parse_pr
 # resolved, or the current one, looked up only when a reference names a
 # repository. That lookup runs in a pipeline subshell, so a failed one
-# returns 3 rather than exiting the caller: call it as
+# returns 3 rather than exiting the caller, and only under the pipefail
+# every verb sets, without which sort's 0 masks it: call it as
 # `out=$(gp_closing_issues ...) || exit $?`.
 gp_closing_issues() {
   local rest want='' ref n kw='close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved'
