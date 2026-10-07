@@ -35,8 +35,9 @@ disc_repo_null() {
   [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '(.data // {}) | has("repository") and .repository == null' 2>/dev/null)" = true ]
 }
 
-# A failed iss_gql call: a missing scope names the scope and the host whose
-# token lacks it; anything else passes gh's error through.
+# disc_fail: abort on the last iss_gql call's failure, never returning. A
+# missing scope names the scope and the host whose token lacks it; anything
+# else passes gh's error through.
 disc_fail() {
   local err needed=$scope
   local listed="following scopes: \[[\"']([^\"']*)[\"']" missing='missing required scopes? \[([^], ]*)'
