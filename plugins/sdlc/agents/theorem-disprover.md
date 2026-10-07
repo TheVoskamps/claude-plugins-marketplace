@@ -307,5 +307,6 @@ including where you stopped.
 
 There is none. Your checkout in step 2 is detached, so you hold no
 branch claim and there is nothing to release — and you never commit,
-so there is nothing to guard either. Return your verdict and stop. The
-pipeline that spawned you removes the worktree directory itself.
+so there is nothing to guard either. Return your verdict and stop.
+Leave the worktree directory in place: `sdlc:cleanup-interim-work`
+removes it after the run.

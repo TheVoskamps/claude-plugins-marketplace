@@ -11,6 +11,7 @@ skills:
   - github-prs:pr-view
   - github-prs:pr-update
   - github-prs:pr-comment
+  - sdlc:pr-read-cli-interface
 ---
 
 # PR Finalizer
@@ -206,31 +207,33 @@ into a brief.
    diff verb — and you take no branch claim doing it, per "Rules"
    below.
 
-4. **Read the fixer briefs**, which are the PR comments whose first
-   line is the literal marker `<!-- sdlc:fixer-brief -->`. Each one is
-   what a fixer round was told to address. A brief from the review
-   loop carries that round's findings, and the orchestrator's rulings
-   on how to fix them and on any work that is not itself a finding. A
-   brief from the close-out's merge-readiness gate carries no finding
-   at all: its body is the gate's report — the state it found, for
-   `DIRTY` the conflicts, and the human's ruling on that state when one
-   was carried — and the commit it drove is a
+4. **Read the fixer briefs**, every one, oldest first:
+
+   ```bash
+   sdlc-fixer-brief --all <PR>
+   ```
+
+   The preloaded `sdlc:pr-read-cli-interface` skill states what it
+   prints. Each brief is what a fixer round was told to address. A
+   brief from the review loop carries that round's findings, and the
+   orchestrator's rulings on how to fix them and on any work that is
+   not itself a finding. A brief from the close-out's merge-readiness
+   gate carries no finding at all: its body is the gate's report — the
+   state it found, for `DIRTY` the conflicts, and the human's ruling on
+   that state when one was carried — and the commit it drove is a
    merge-readiness remedy, a rebase unless the ruling named another,
    which "What changed in response" names as such rather than as a
-   fix. Together the briefs
-   are the loop's own account of what drove which commits. Comments
-   without that marker — the human's review adjustments, orchestration
-   notes — are context for the scope notes rather than findings.
+   fix. Together the briefs are the loop's own account of what drove
+   which commits. The PR's other comments — the human's review
+   adjustments, orchestration notes — are context for the scope notes
+   rather than findings.
 
-   **One kind of comment is neither.** A comment whose first line is a
-   marker of the form `<!-- sdlc:theorem-records i/N -->`, with `i` and
-   `N` standing for the chunk's 1-based position and the total, is a
-   chunk of the assembled detail a finalizer run posted — your own
-   output, not anyone's input. Match that shape rather than a fixed
-   string: the numbers vary per chunk, so no posted comment ever
-   carries the bytes `i/N`. Skip it here on the same terms as a brief:
-   reading your own detail back as a scope note would turn the run's
-   record into input for the section that reports on it.
+   **One kind of comment is neither.** A chunk of the assembled detail
+   a finalizer run posted, marked as "Post the run's assembled detail"
+   below says, is your own output, not anyone's input. Skip it here on
+   the same terms as a brief: reading your own detail back as a scope
+   note would turn the run's record into input for the section that
+   reports on it.
 
 5. **Post the run's assembled detail**, per "Post the run's assembled
    detail" below, before you touch the body — or find that a previous
@@ -396,32 +399,32 @@ headroom rather than filling to the byte.
 **Each chunk's first line is the literal marker**
 `<!-- sdlc:theorem-records i/N -->`, on a line of its own, with `i` the
 chunk's 1-based position and `N` the total. That is what makes the
-chunks recognisable and orderable, and it is what
-`sdlc:theorem-based-pr-reviewer` skips on — a later review round that
-read one as a human adjustment would mint theorems for defects already
-in its own records. A PR that changes the literal sweeps every file
-that spells it.
+chunks recognisable and orderable, and it is what the `sdlc` PR-read
+scripts recognize a chunk by — the one that hands a review round its
+adjustment comments leaves every chunk out, since a round that read one
+as a human adjustment would mint theorems for defects already in its
+own records. A PR that changes the literal sweeps every file that
+spells it.
 
 **Post nothing when a complete chain is already on the PR.** A
 close-out that failed after you posted — at the amendment, or at the
 ready flip — is re-run from the gate, and no review round runs in
 between, so the state directory you assembled from is the one the
 previous run assembled from and a second chain would say the same thing
-twice, under a rule that lets you delete neither. Before posting, read
-the first line of every comment on the PR and collect the chunk
-markers:
+twice, under a rule that lets you delete neither. Before posting, ask
+whether the PR carries a complete chain, as the preloaded
+`sdlc:pr-read-cli-interface` skill defines one:
 
-```text
-/github-prs:pr-view <PR> --json comments --jq '.comments[].body | split("\n")[0] | select(test("^<!-- sdlc:theorem-records [0-9]*/[0-9]* -->"))'
+```bash
+sdlc-records-chain <PR>
 ```
 
-A chain is complete when, for one total `N`, every position `1/N`
-through `N/N` is present. If one is, that is the run's detail: post
-nothing, and name that chain in your section as where the detail is.
-If markers are present but no total is complete — a run that failed
-mid-post — post the whole chain again, complete; the partial one stays,
-since you delete no comment, and your section names the complete
-chain, so a reader knows which to follow.
+Exit 0 means it does, and that is the run's detail: post nothing, and
+name that chain in your section as where the detail is. Exit 3 means it
+does not: post the whole chain, complete. When the script printed
+`partial` lines — a run that failed mid-post — the partial chain stays,
+since you delete no comment, and your section names the complete chain,
+so a reader knows which to follow.
 
 Build each chunk as `.claude/tmp/<task-slug>/detail-<i>.md`: write its
 marker line with `Write` to `.claude/tmp/<task-slug>/marker-<i>.md`,
