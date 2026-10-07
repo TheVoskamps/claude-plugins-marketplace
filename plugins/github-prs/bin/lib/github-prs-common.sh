@@ -93,6 +93,55 @@ gp_resolve_host() {
   GP_HOST=$GP_CUR_HOST
 }
 
+# gp_valid_name <name> -- succeed when <name> is a repository name
+# GitHub allows: 1 to 100 ASCII letters, digits, ".", "-" and "_", any
+# of them first.
+gp_valid_name() {
+  case "$1" in
+    '' | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 100 ]
+}
+
+# gp_valid_owner <owner> -- succeed when <owner> is an owner GitHub
+# allows: 1 to 39 ASCII letters, digits and "-", not starting with "-"
+# and with no "--".
+gp_valid_owner() {
+  case "$1" in
+    '' | -* | *--* | *[!A-Za-z0-9-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 39 ]
+}
+
+# gp_valid_host <host> -- succeed when <host> is a DNS hostname: at
+# most 253 characters of "."-separated labels, each 1 to 63 ASCII
+# letters, digits and "-", neither starting nor ending with "-".
+gp_valid_host() {
+  local rest=$1. label
+  [ "${#1}" -le 253 ] || return 1
+  while [ -n "$rest" ]; do
+    label=${rest%%.*}
+    case "$label" in
+      '' | -* | *- | *[!A-Za-z0-9-]*) return 1 ;;
+    esac
+    [ "${#label}" -le 63 ] || return 1
+    rest=${rest#*.}
+  done
+}
+
+# gp_valid_path <path> -- succeed when each part of repo, owner/repo or
+# host/owner/repo is valid for its place, by gp_valid_host,
+# gp_valid_owner and gp_valid_name. iss_parse_operand in the issues
+# plugin validates by the same rules.
+gp_valid_path() {
+  case "$1" in
+    */*/*/*) return 1 ;;
+    */*/*) gp_valid_host "${1%%/*}" && gp_valid_path "${1#*/}" ;;
+    */*) gp_valid_owner "${1%/*}" && gp_valid_name "${1#*/}" ;;
+    *) gp_valid_name "$1" ;;
+  esac
+}
+
 # gp_parse_pr <ref> -- the one parser of the PR-reference grammar that
 # skills/lib/pr-reference.md states. Sets
 #   GP_PR        the PR number
@@ -107,7 +156,7 @@ GP_OWNER=
 GP_REPO=
 GP_REPO_ARG=
 gp_parse_pr() {
-  local ref=$1 repo n rest
+  local ref=$1 repo n
   case "$ref" in
     https://*/pull/*)
       repo=${ref#https://}
@@ -123,10 +172,6 @@ gp_parse_pr() {
     *'#'*)
       repo=${ref%'#'*}
       n=${ref##*'#'}
-      # A repository part opening with a dash is refused: no owner or
-      # host may open with one, and a lone repository name is held to
-      # the same rule.
-      case "$repo" in -*) gp_err_not_pr_ref "$ref" ;; esac
       ;;
     *)
       repo=
@@ -139,16 +184,7 @@ gp_parse_pr() {
   case "$repo" in
     */*/*/* | *//* | /* | */) gp_err_not_pr_ref "$ref" ;;
   esac
-  rest=$repo
-  while [ -n "$rest" ]; do
-    case "${rest%%/*}" in
-      *[!A-Za-z0-9._-]*) gp_err_not_pr_ref "$ref" ;;
-    esac
-    case "$rest" in
-      */*) rest=${rest#*/} ;;
-      *) rest= ;;
-    esac
-  done
+  [ -z "$repo" ] || gp_valid_path "$repo" || gp_err_not_pr_ref "$ref"
   GP_PR=$n
   if [ -z "$repo" ]; then
     GP_PR_NAME="#$n"

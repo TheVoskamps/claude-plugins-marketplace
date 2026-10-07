@@ -513,15 +513,45 @@ iss_try_current_repo() {
   ISS_REPO=$URL_REPO
 }
 
-# iss_valid_parts <path>: whether every /-separated part of <path> is
-# non-empty and made of letters, digits, ".", "_" and "-".
-iss_valid_parts() {
-  local rest=$1/ part
+# iss_valid_name <name>: whether <name> is a repository name GitHub allows: 1
+# to 100 ASCII letters, digits, ".", "-" and "_", any of them first.
+iss_valid_name() {
+  case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "${#1}" -le 100 ]
+}
+
+# iss_valid_owner <owner>: whether <owner> is an owner GitHub allows: 1 to 39
+# ASCII letters, digits and "-", not starting with "-" and with no "--".
+iss_valid_owner() {
+  case "$1" in ''|-*|*--*|*[!A-Za-z0-9-]*) return 1 ;; esac
+  [ "${#1}" -le 39 ]
+}
+
+# iss_valid_host <host>: whether <host> is a DNS hostname: at most 253
+# characters of "."-separated labels, each 1 to 63 ASCII letters, digits and
+# "-", neither starting nor ending with "-".
+iss_valid_host() {
+  local rest=$1. label
+  [ "${#1}" -le 253 ] || return 1
   while [ -n "$rest" ]; do
-    part=${rest%%/*}
-    case "$part" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
-    rest=${rest#*/}
+    label=${rest%%.*}
+    case "$label" in ''|-*|*-|*[!A-Za-z0-9-]*) return 1 ;; esac
+    [ "${#label}" -le 63 ] || return 1
+    rest=${rest#*.}
   done
+}
+
+# iss_valid_path <path>: whether each part of repo, owner/repo or
+# host/owner/repo is valid for its place, by iss_valid_host, iss_valid_owner
+# and iss_valid_name. gp_parse_pr in the github-prs plugin validates by the
+# same rules.
+iss_valid_path() {
+  case "$1" in
+    */*/*/*) return 1 ;;
+    */*/*) iss_valid_host "${1%%/*}" && iss_valid_path "${1#*/}" ;;
+    */*) iss_valid_owner "${1%/*}" && iss_valid_name "${1#*/}" ;;
+    *) iss_valid_name "$1" ;;
+  esac
 }
 
 # iss_parse_repo <reference>: the one parser of the repository grammar. Sets
@@ -532,7 +562,7 @@ iss_valid_parts() {
 #   host/owner/repo          that repository, on that host
 #   https://host/owner/repo  the same as host/owner/repo; a trailing / is
 #                            ignored
-# Each part is letters, digits, ".", "_" and "-". A malformed reference is a
+# Each part is checked by iss_valid_path. A malformed reference is a
 # usage error before any gh call; a form without a host resolves the current
 # repository with iss_try_current_repo. With no current repository, repo is a
 # usage error and owner/repo gets the empty host.
@@ -541,7 +571,7 @@ iss_parse_repo() {
   bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
   case "$ref" in
     *://*)
-      { iss_split_url "$ref" && iss_valid_parts "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
+      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
       RP_HOST=$URL_HOST
       RP_OWNER=$URL_OWNER
       RP_REPO=$URL_REPO
@@ -549,8 +579,8 @@ iss_parse_repo() {
       ;;
   esac
   rest=${ref%/}
-  case "$rest" in ''|*//*|/*|*/*/*/*|-*) iss_usage_die "$bad" ;; esac
-  iss_valid_parts "$rest" || iss_usage_die "$bad"
+  case "$rest" in ''|*//*|/*|*/*/*/*) iss_usage_die "$bad" ;; esac
+  iss_valid_path "$rest" || iss_usage_die "$bad"
   case "$rest" in */*/*) ;; *) iss_try_current_repo || : ;; esac
   case "$rest" in
     */*/*)
@@ -743,7 +773,7 @@ iss_parse_operand() {
       rest=${rest%/*}
       kind=${rest##*/}
       rest=${rest%/*}
-      { iss_is_digits "$num" && iss_split_url "$rest" && iss_valid_parts "$URL_HOST/$URL_OWNER/$URL_REPO"; } ||
+      { iss_is_digits "$num" && iss_split_url "$rest" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } ||
         iss_usage_die "$bad"
       case "$kind" in
         issues) ;;

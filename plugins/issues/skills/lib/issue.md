@@ -41,7 +41,12 @@ and `/issue-create --parent` — takes one of these forms:
 | `repo#N`, `owner/repo#N`, `host/owner/repo#N` | issue `N` in the repository, in any form above |
 | `https://host/owner/repo/issues/N` | the same as `host/owner/repo#N`; a trailing `/` is ignored |
 
-Each part of a repository is letters, digits, `.`, `_` and `-`.
+Each part of a repository is held to what GitHub and DNS allow there,
+and any other part is a usage error: a repository name is 1 to 100
+ASCII letters, digits, `.`, `-` and `_`, any of them first; an owner
+is 1 to 39 ASCII letters, digits and `-`, not starting with `-` and
+with no `--`; a host is a DNS hostname, of `.`-separated labels that
+neither start nor end with `-`.
 
 The verbs take issues only. An operand that names a pull request — a
 `https://host/owner/repo/pull/N` URL before any call, a number once it
