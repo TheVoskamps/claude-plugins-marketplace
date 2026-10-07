@@ -139,10 +139,13 @@ it.
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's
 closing lines and reports which issues the PR closes, so
-`github-prs:pr-link-issue`'s idempotency check,
-`sdlc:theorem-based-pr-reviewer` running standalone, and
+`sdlc:theorem-based-pr-reviewer` running standalone and
 `/sdlc:orchestrate`'s end-of-loop status flip
-each invoke it instead of describing the scan again.
+each invoke it instead of describing the scan again. Inside
+`github-prs` the parse is a shared function instead —
+`gp_closing_issues`, which the `pr-link-issue` script's idempotency
+check calls directly — since a script in the same plugin needs no
+skill invocation to reach it.
 
 A **path literal** is the residue the remedy leaves behind. Several
 plugins name `.issues/repo-config.md` verbatim, and no mechanism
