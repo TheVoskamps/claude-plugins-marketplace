@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# sdlc-fixer-brief -- print the fixer brief a PR carries: its most recent
+# comment, when that comment's first line is the fixer-brief marker, or
+# with --all every comment whose first line is, oldest first. Read-only.
+#
+# The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
+
+usage() {
+  echo "usage: $SP_PROGRAM [--all] <host>/<owner>/<repo>#<n>"
+}
+
+all=
+ref=
+refs=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --all) all=yes ;;
+    -*) sp_usage_error "\`$1\` is not an argument $SP_PROGRAM takes." ;;
+    *)
+      ref=$1
+      refs=$((refs + 1))
+      ;;
+  esac
+  shift
+done
+[ "$refs" -eq 1 ] || sp_usage_error "Pass exactly one PR."
+sp_parse_pr "$ref"
+
+json=$(sp_pr_view comments) || exit $?
+
+if [ -n "$all" ]; then
+  jq -r --arg brief "$SP_FIXER_BRIEF_MARKER" "$SP_FIRST_LINE_JQ"'
+    .comments | sort_by(.createdAt)[]
+    | select((.body | first_line) == $brief)
+    | "--- comment \(.createdAt) ---\n\(.body)"' <<<"$json"
+  exit 0
+fi
+
+count=$(jq '.comments | length' <<<"$json")
+if [ "$count" -eq 0 ]; then
+  sp_fail 3 "PR $SP_REF has no comment, so no fixer brief."
+fi
+first=$(jq -r "$SP_FIRST_LINE_JQ"'.comments | sort_by(.createdAt) | last | .body | first_line' <<<"$json")
+if [ "$first" != "$SP_FIXER_BRIEF_MARKER" ]; then
+  sp_fail 3 "PR $SP_REF's most recent comment is not a fixer brief. Its first line is: $first"
+fi
+jq -r '.comments | sort_by(.createdAt) | last | .body' <<<"$json"

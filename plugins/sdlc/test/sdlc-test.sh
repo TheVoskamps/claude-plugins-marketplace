@@ -9,7 +9,11 @@
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution of
-# its PR against a stub pr-view.
+# its PR against a stub pr-view and its reading of a fixer brief. It
+# checks that a command either script does not handle exits through the
+# script's own failure exit, and drives sdlc-pr-round,
+# sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
+# stub gh serving a PR's reviews and comments.
 #
 # Needs bash, jq and the POSIX utilities. Reaches no network.
 #
@@ -612,11 +616,236 @@ for given in 7 '#7' 'https://h.example/o/r/pull/7'; do
   check_contains "$OUT" "| 1 | whole round | 2026-01-01T00:00:00Z |" "analysis $given: reports the canonical reference's round"
   check_contains "$(cat "$CASE/calls")" "gh api --hostname h.example repos/o/r/pulls/7" \
     "analysis $given: reads the timeline on the reference's host and repository"
+  check "$(cat "$CASE/err")" "" "analysis $given: the sources it finds missing cost no line on stderr"
 done
+
+# A timeline carrying a fixer brief: the report names it as one, and
+# lists the finding it rules on.
+new_case analysis-fixer-brief
+mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '[{"event": "commented", "created_at": "2026-01-01T00:05:00Z", "body": "%s"}]\n' \
+  '<!-- sdlc:fixer-brief -->\nFindings to address:\n- T1: the defect — in scope' >"$CASE/timeline.json"
+cat >"$CASE/bin/gh" <<STUB
+#!/usr/bin/env bash
+expr=
+prev=
+for a in "\$@"; do
+  [ "\$prev" = --jq ] && expr=\$a
+  prev=\$a
+done
+case "\$*" in
+  *pulls/7*) echo https://h.example/o/r/pull/7 ;;
+  *timeline*) jq -r "\$expr" "$CASE/timeline.json" ;;
+  *) exit 1 ;;
+esac
+STUB
+ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: a timeline with a fixer brief exits 0"
+check_contains "$OUT" "| fixer brief posted |" "analysis: the brief's timeline row names it a fixer brief"
+check_contains "$OUT" "Accepted into the fixer brief posted 2026-01-01T00:05:00Z:" \
+  "analysis: the brief's finding is listed as a ruling"
 
 new_case operand-other-mode
 "$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "refusal: a mode other than list takes no repository operand"
+
+# --- unhandled failures in the existing scripts ---------------------------
+# A command a script does not handle exits through the script's own
+# failure exit, naming the command, and never with the command's status.
+
+new_case persist-unhandled
+printf 'not a directory\n' >"$CASE/state-file"
+XDG_STATE_HOME="$CASE/state-file" "$PERSIST" --pr 'h.example/o/r#7' --mode anchor --round 1 --head-sha abc \
+  >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "persist: an unwritable state root exits 2, not mkdir's status"
+check_contains "$(cat "$CASE/err")" "sdlc-agent-result-persist: \`mkdir -p \"\$dir\"\` failed (exit 1)" \
+  "persist: the message names the failed command"
+
+new_case analysis-unhandled
+mkdir -p "$CASE/bin"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+printf '#!/bin/sh\nexit 9\n' >"$CASE/bin/sort"
+ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh" "$CASE/bin/sort"
+PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "analysis: a failing sort exits 2, not sort's 9"
+check_contains "$(cat "$CASE/err")" "failed (exit 9)" "analysis: the message names the failed command's status"
+
+# --- sdlc's PR reads -------------------------------------------------------
+# A stub gh serves a case's pr.json for every `gh pr view` and records the
+# call; a case that touches `gh-fails` makes it fail. A recording
+# sdlc-agent-result-persist hands every call to the real one.
+
+# pr_case <name> <json>: a case whose PR is <json>.
+pr_case() {
+  new_case "$1"
+  mkdir -p "$CASE/bin"
+  printf '%s\n' "$2" >"$CASE/pr.json"
+  cat >"$CASE/bin/gh" <<STUB
+#!/bin/sh
+echo "gh \$*" >>"$CASE/calls"
+if [ -f "$CASE/gh-fails" ]; then echo "stub gh: refused" >&2; exit 1; fi
+cat "$CASE/pr.json"
+STUB
+  cat >"$CASE/bin/sdlc-agent-result-persist" <<STUB
+#!/bin/sh
+echo "persist \$*" >>"$CASE/calls"
+exec "$PERSIST" "\$@"
+STUB
+  chmod +x "$CASE/bin/gh" "$CASE/bin/sdlc-agent-result-persist"
+}
+
+# pr_read <script> <args...>: runs one of the scripts with the stubs on
+# PATH, leaving OUT, ERR, RC and CALLS.
+pr_read() {
+  local script=$1
+  shift
+  OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/$script" "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+  CALLS=$(cat "$CASE/calls" 2>/dev/null)
+}
+
+for script in sdlc-pr-round sdlc-pr-adjustments sdlc-fixer-brief sdlc-records-chain; do
+  check "$([ -x "$TEST_DIR/../bin/$script" ] && echo yes)" "yes" "$script is executable"
+done
+
+pr_case round-two '{"reviews": [{"submittedAt": "2026-01-01T00:00:00Z"}, {"submittedAt": "2026-01-02T00:00:00Z"}]}'
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:3" "pr-round: two reviews make round 3"
+check "$CALLS" "gh pr view 7 --repo h.example/o/r --json reviews" "pr-round: reads the reviews of the reference's PR"
+
+pr_case round-none '{"reviews": []}'
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:1" "pr-round: no review makes round 1"
+
+pr_case round-refs '{"reviews": []}'
+for bad in 7 '#7' 'o/r#7' 'https://h.example/o/r/pull/7' 'h.example/o/r/x#7' 'h.example/o/..#7' 'h.example/o/r#'; do
+  pr_read sdlc-pr-round "$bad"
+  check "$RC:$CALLS" "2:" "pr-round: \`$bad\` is a usage error that reads nothing"
+done
+
+pr_case round-gh-fails '{"reviews": []}'
+touch "$CASE/gh-fails"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC" "1" "pr-round: a failed gh read exits 1"
+check_contains "$ERR" "stub gh: refused" "pr-round: gh's own error passes through"
+check_contains "$ERR" "sdlc-pr-round: gh pr view of h.example/o/r#7 failed (exit 1)" "pr-round: the script's line names the read"
+
+pr_case round-unhandled '{"reviews": []}'
+printf '#!/bin/sh\nexit 9\n' >"$CASE/bin/jq"
+chmod +x "$CASE/bin/jq"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "1:" "pr-round: an unhandled failure exits 1, not the command's 9"
+check_contains "$ERR" "failed (exit 9)" "pr-round: the message names the failed command's status"
+
+# Comments out of order, so every read must sort them by createdAt.
+BRIEF_OLD='<!-- sdlc:fixer-brief -->\nPR h.example/o/r#7, round 1.\nFindings to address: one'
+BRIEF_NEW='<!-- sdlc:fixer-brief -->\r\nPR h.example/o/r#7, round 2.'
+pr_case brief "{\"comments\": [
+  {\"createdAt\": \"2026-01-03T00:00:00Z\", \"body\": \"$BRIEF_NEW\"},
+  {\"createdAt\": \"2026-01-01T00:00:00Z\", \"body\": \"$BRIEF_OLD\"},
+  {\"createdAt\": \"2026-01-02T00:00:00Z\", \"body\": \"A human remark\"}]}"
+pr_read sdlc-fixer-brief 'h.example/o/r#7'
+check "$RC" "0" "fixer-brief: exit 0 when the most recent comment is a brief"
+check "$OUT" "$(printf '<!-- sdlc:fixer-brief -->\r\nPR h.example/o/r#7, round 2.')" \
+  "fixer-brief: prints that comment's body, a web-form carriage return and all"
+check "$CALLS" "gh pr view 7 --repo h.example/o/r --json comments" "fixer-brief: reads the PR's comments"
+
+pr_read sdlc-fixer-brief --all 'h.example/o/r#7'
+check "$RC" "0" "fixer-brief --all: exit 0"
+check "$OUT" "$(printf -- '--- comment 2026-01-01T00:00:00Z ---\n<!-- sdlc:fixer-brief -->\nPR h.example/o/r#7, round 1.\nFindings to address: one\n--- comment 2026-01-03T00:00:00Z ---\n<!-- sdlc:fixer-brief -->\r\nPR h.example/o/r#7, round 2.')" \
+  "fixer-brief --all: every brief, oldest first, each under its comment line"
+
+pr_case brief-not-last "{\"comments\": [
+  {\"createdAt\": \"2026-01-01T00:00:00Z\", \"body\": \"$BRIEF_OLD\"},
+  {\"createdAt\": \"2026-01-02T00:00:00Z\", \"body\": \"Review adjustments for round 1:\\n- T3 rejected\"}]}"
+pr_read sdlc-fixer-brief 'h.example/o/r#7'
+check "$RC:$OUT" "3:" "fixer-brief: exit 3 and nothing on stdout when the most recent comment is no brief"
+check_contains "$ERR" "Its first line is: Review adjustments for round 1:" "fixer-brief: stderr quotes that comment's first line"
+
+pr_case brief-no-comment '{"comments": []}'
+pr_read sdlc-fixer-brief 'h.example/o/r#7'
+check "$RC:$OUT" "3:" "fixer-brief: exit 3 on a PR with no comment"
+pr_read sdlc-fixer-brief --all 'h.example/o/r#7'
+check "$RC:$OUT" "0:" "fixer-brief --all: no brief prints nothing and exits 0"
+
+pr_case brief-usage '{"comments": []}'
+pr_read sdlc-fixer-brief --every 'h.example/o/r#7'
+check "$RC:$CALLS" "2:" "fixer-brief: an unknown flag is a usage error that reads nothing"
+
+chunk() { printf '{"createdAt": "2026-01-0%sT00:00:00Z", "body": "<!-- sdlc:theorem-records %s -->\\ndetail"}' "$1" "$2"; }
+pr_case chain-complete "{\"comments\": [$(chunk 4 3/3), $(chunk 2 1/3), $(chunk 1 2/3), $(chunk 3 1/2),
+  {\"createdAt\": \"2026-01-05T00:00:00Z\", \"body\": \"<!-- sdlc:theorem-records i/N --> prose\"}]}"
+pr_read sdlc-records-chain 'h.example/o/r#7'
+check "$RC:$OUT" "0:complete${TAB}3" "records-chain: markers covering 1..N print complete and exit 0"
+
+pr_case chain-partial "{\"comments\": [$(chunk 2 2/3), $(chunk 1 1/3)]}"
+pr_read sdlc-records-chain 'h.example/o/r#7'
+check "$RC" "3" "records-chain: an incomplete chain exits 3"
+check "$OUT" "partial${TAB}1/3
+partial${TAB}2/3" "records-chain: one partial line per marker, oldest first"
+
+pr_case chain-none '{"comments": [{"createdAt": "2026-01-01T00:00:00Z", "body": "hello"}]}'
+pr_read sdlc-records-chain 'h.example/o/r#7'
+check "$RC:$OUT" "3:" "records-chain: no marker prints nothing and exits 3"
+
+# The adjustment cut. Each case's PR carries a comment before the cut, a
+# fixer brief and a records chunk after it, and one adjustment after it.
+adjust_json() {
+  printf '{"createdAt": "2026-01-01T00:00:00Z", "reviews": %s, "comments": [
+    {"createdAt": "2026-01-05T00:00:00Z", "body": "Review adjustments for round 1:\\n- T2 rejected"},
+    {"createdAt": "2026-01-04T00:00:00Z", "body": "<!-- sdlc:fixer-brief -->\\nFindings"},
+    {"createdAt": "2026-01-04T12:00:00Z", "body": "<!-- sdlc:theorem-records 1/1 -->\\ndetail"},
+    {"createdAt": "2026-01-02T00:00:00Z", "body": "%s"}]}' "$1" "$2"
+}
+ADJUSTMENT="--- comment 2026-01-05T00:00:00Z ---
+Review adjustments for round 1:
+- T2 rejected"
+
+pr_case adjust-review "$(adjust_json '[{"submittedAt": "2026-01-03T00:00:00Z"}, {"submittedAt": "2026-01-02T12:00:00Z"}]' 'before the review')"
+pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 3
+check "$RC" "0" "pr-adjustments: exit 0"
+check "$OUT" "$ADJUSTMENT" "pr-adjustments: cuts at the newest review, and returns no marker comment"
+check "$CALLS" "gh pr view 7 --repo h.example/o/r --json reviews,comments,createdAt" \
+  "pr-adjustments: with a review, reads the PR alone"
+
+pr_case adjust-log "$(adjust_json '[]' 'before the log ends')"
+mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+printf 'anchor 2026-01-02T06:00:00Z abc\nspawn T1 disprove 2026-01-03T00:00:00Z theorem-disprover default default\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 2
+check "$OUT" "$ADJUSTMENT" "pr-adjustments: with no review, cuts at the newest instant in the round below's log"
+check_contains "$CALLS" "persist --mode print --pr h.example/o/r#7 --round 1" \
+  "pr-adjustments: reads that log through sdlc-agent-result-persist --mode print"
+
+pr_case adjust-seed "$(adjust_json '[]' 'after the PR opened')"
+pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 1
+check "$RC" "0" "pr-adjustments: round 1 with no review exits 0"
+check "$OUT" "--- comment 2026-01-02T00:00:00Z ---
+after the PR opened
+$ADJUSTMENT" "pr-adjustments: with no review and no log below, cuts at the PR's createdAt"
+
+pr_case adjust-empty-log "$(adjust_json '[]' 'after the PR opened')"
+mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+: >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 2
+check "$OUT" "--- comment 2026-01-02T00:00:00Z ---
+after the PR opened
+$ADJUSTMENT" "pr-adjustments: an empty log below cuts at the PR's createdAt"
+
+pr_case adjust-usage "$(adjust_json '[]' 'x')"
+for args in "--pr h.example/o/r#7" "--round 2" "--pr h.example/o/r#7 --round 0" "--pr h.example/o/r#7 --round two" \
+  "--pr 7 --round 2" "--pr h.example/o/r#7 --round 2 --full"; do
+  # shellcheck disable=SC2086 # each case is a word list
+  pr_read sdlc-pr-adjustments $args
+  check "$RC:$CALLS" "2:" "pr-adjustments: \`$args\` is a usage error that reads nothing"
+done
 
 echo
 echo

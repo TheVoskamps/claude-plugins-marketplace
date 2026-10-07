@@ -26,6 +26,15 @@ die() {
   exit 2
 }
 
+# A command that fails where the script does not handle it dies like
+# every other failure here, naming the command, and never exits with the
+# tool's own status. `set -E` carries the trap into functions and command
+# substitutions; a substitution whose failure the script handles ends in
+# `|| exit` inside it, so the trap stays quiet in the substitution's own
+# shell.
+set -E
+trap 'die "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
@@ -204,7 +213,7 @@ split_repo() {
 # gh reports for the checkout, whose remote names the host. Dies when gh
 # cannot resolve it.
 current_repo() {
-  url=$(gh repo view --json url --jq .url) \
+  url=$(gh repo view --json url --jq .url || exit) \
     || die "cannot resolve the current repository with gh repo view"
   url=${url#https://}
   printf '%s\n' "${url%/}"
@@ -228,12 +237,12 @@ if [ "$mode" = list ]; then
     */*/*) given=$operand ;;
     */*)
       [ -n "${operand%%/*}" ] || die "$bad_operand"
-      here=$(current_repo)
+      here=$(current_repo) || exit $?
       given=${here%%/*}/$operand
       ;;
-    '') given=$(current_repo) ;;
+    '') given=$(current_repo) || exit $? ;;
     *)
-      here=$(current_repo)
+      here=$(current_repo) || exit $?
       given=${here%/*}/$operand
       ;;
   esac
@@ -419,7 +428,7 @@ this_agent_id() {
 # the common git dir rather than from $PWD. Any part of that being
 # unavailable yields a dash: the record is worth more than the path.
 transcript_path() {
-  common=$(git rev-parse --git-common-dir 2>/dev/null) || { printf -- '-\n'; return; }
+  common=$(git rev-parse --git-common-dir 2>/dev/null || exit) || { printf -- '-\n'; return; }
   case "$common" in
     /*) ;;
     *) common=$PWD/$common ;;

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# sdlc-pr-round -- print the number of the review round under way on a
+# PR: its review count plus one. Read-only.
+#
+# The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
+
+usage() {
+  echo "usage: $SP_PROGRAM <host>/<owner>/<repo>#<n>"
+}
+
+[ "$#" -eq 1 ] || sp_usage_error "Pass exactly one PR."
+sp_parse_pr "$1"
+
+json=$(sp_pr_view reviews) || exit $?
+count=$(jq '.reviews | length' <<<"$json")
+printf '%s\n' "$((count + 1))"
