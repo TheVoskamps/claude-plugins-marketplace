@@ -16,11 +16,9 @@ other way round.
 - `<parent-issue>` (required): the containing issue.
 - `<child-issue>` (required): the issue becoming a sub-issue.
 
-Each is `N` or `#N` in the current repo, or `repo#N`, `owner/repo#N`,
-`host/owner/repo#N` or `https://host/owner/repo/issues/N` in another, as
-`skills/lib/issue.md` → "Repositories and issue references" resolves
-them, so the two need not share a repo. Mnemonic: "set child of P to C"
-reads left-to-right; the same edge as `set-parent C P`.
+Each is an issue reference, and the two need not share a repo.
+Mnemonic: "set child of P to C" reads left-to-right; the same edge as
+`set-parent C P`.
 
 ## Execution
 

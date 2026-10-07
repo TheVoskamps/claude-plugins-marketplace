@@ -15,12 +15,8 @@ creation time; this verb sets it afterwards.
 /issue-set-type <issue> <type-name>
 ```
 
-- `<issue>` (required): the issue: `N` or `#N` in the current repo, or
-  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-  `https://host/owner/repo/issues/N` in another, as
-  `skills/lib/issue.md` → "Repositories and issue references" resolves
-  them. In another repo the `issue-types:` map is that repo's own, as
-  the same section states.
+- `<issue>` (required): an issue reference. In another repo the
+  `issue-types:` map is that repo's own.
 - `<type-name>` (required): a human-readable issue-type name (e.g.
   `Task`, `Bug`, `Feature`), matched case-insensitively against the
   `issue-types:` keys; a multi-word name is one quoted argument.

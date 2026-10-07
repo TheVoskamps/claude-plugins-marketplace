@@ -13,11 +13,7 @@ inline by this skill.
 /issue-comment <issue> --body-file PATH
 ```
 
-- `<issue>` — required. The issue: `N` or `#N` in the current repo, or
-  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-  `https://host/owner/repo/issues/N` in another, as
-  `skills/lib/issue.md` → "Repositories and issue references" resolves
-  them.
+- `<issue>` — required. An issue reference.
 - `--body-file PATH` — required. A file whose contents are posted
   verbatim as the comment body; a relative path resolves against the
   current directory, then the repo root. Markdown passes through

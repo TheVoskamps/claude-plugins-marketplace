@@ -16,11 +16,7 @@ from the blocker's end.
 - `<issue>` (required): the formerly blocked issue.
 - `<blocker-issue>` (required): the blocker to detach.
 
-Each operand is `N` or `#N` in the current repo, or `repo#N`,
-`owner/repo#N`, `host/owner/repo#N` or
-`https://host/owner/repo/issues/N` in another, as `skills/lib/issue.md`
-→ "Repositories and issue references" resolves them, so the two need not
-share a repo.
+Each operand is an issue reference, and the two need not share a repo.
 
 ## Execution
 

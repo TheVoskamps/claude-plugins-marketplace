@@ -14,11 +14,7 @@ parent with more children than one page is listed in full;
 /issue-sub-list <parent-issue>
 ```
 
-- `<parent-issue>` (required): the parent: `N` or `#N` in the current repo,
-  or `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-  `https://host/owner/repo/issues/N` in another, as
-  `skills/lib/issue.md` → "Repositories and issue references" resolves
-  them.
+- `<parent-issue>` (required): the parent, as an issue reference.
 
 ## Execution
 

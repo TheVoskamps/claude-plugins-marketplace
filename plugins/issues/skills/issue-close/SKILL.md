@@ -12,11 +12,7 @@ comment **before** closing it.
 /issue-close <issue> [--comment "summary"]
 ```
 
-- `<issue>` — required. The issue: `N` or `#N` in the current repo, or
-  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-  `https://host/owner/repo/issues/N` in another, as
-  `skills/lib/issue.md` → "Repositories and issue references" resolves
-  them.
+- `<issue>` — required. An issue reference.
 - `--comment "summary"` — optional. Posted verbatim as a new comment
   before the issue is closed.
 

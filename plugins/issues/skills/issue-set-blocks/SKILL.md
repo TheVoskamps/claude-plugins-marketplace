@@ -16,11 +16,8 @@ as `set-blocked-by B N`.
 - `<issue>` (required): the **blocker**, the prerequisite.
 - `<blocked-issue>` (required): the issue being **blocked** by `<issue>`.
 
-Each operand is `N` or `#N` in the current repo, or `repo#N`,
-`owner/repo#N`, `host/owner/repo#N` or
-`https://host/owner/repo/issues/N` in another, as `skills/lib/issue.md`
-→ "Repositories and issue references" resolves them, so the two need not
-share a repo. Mnemonic: "set blocks of N to B" — "N blocks B".
+Each operand is an issue reference, and the two need not share a repo.
+Mnemonic: "set blocks of N to B" — "N blocks B".
 
 ## Execution
 

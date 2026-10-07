@@ -20,11 +20,7 @@ in conversation when editing multiple issues.
               [--add-assignees u1] [--remove-assignees u2]
 ```
 
-- `<issue>` (required): the issue: `N` or `#N` in the current repo, or
-  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-  `https://host/owner/repo/issues/N` in another, as
-  `skills/lib/issue.md` → "Repositories and issue references" resolves
-  them.
+- `<issue>` (required): an issue reference.
 - `--title` (optional): replace the title.
 - `--body-file` (optional): replace the whole body with the file's
   contents.

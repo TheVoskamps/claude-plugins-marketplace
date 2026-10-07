@@ -44,12 +44,9 @@ printed.
   user-global one (`skills/lib/user-config.md`), then the
   authenticated GitHub user. A user-config file that exists but
   predates schema-version `1` aborts rather than being skipped.
-- `--parent` (optional): the parent issue, which the new issue
-  becomes a sub-issue of — `repo#N`, `owner/repo#N`,
-  `host/owner/repo#N` or `https://host/owner/repo/issues/N`, as
-  `skills/lib/issue.md` → "Repositories and issue references"
-  resolves them, or a bare `N` or `#N` for an issue in the repo the
-  issue is filed in.
+- `--parent` (optional): the parent issue, as an issue
+  reference; the new issue becomes its sub-issue. A reference that
+  names no repository resolves in the repo the issue is filed in.
 - `--priority`, `--size`, `--status` (optional): one value per slot,
   whose meaning depends on the slot's `kind:` in repo-config — an
   integer within `min`/`max` for `kind: number`, an option name

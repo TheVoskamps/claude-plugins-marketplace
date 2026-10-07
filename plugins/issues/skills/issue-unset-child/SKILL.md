@@ -16,10 +16,7 @@ sub-issues are untouched.
 - `<child-issue>` (required): the child to remove. Required because a
   parent may have many children.
 
-Each is `N` or `#N` in the current repo, or `repo#N`, `owner/repo#N`,
-`host/owner/repo#N` or `https://host/owner/repo/issues/N` in another, as
-`skills/lib/issue.md` → "Repositories and issue references" resolves
-them, so the two need not share a repo.
+Each is an issue reference, and the two need not share a repo.
 
 ## Execution
 

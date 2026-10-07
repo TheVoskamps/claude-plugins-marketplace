@@ -14,12 +14,8 @@ issue is added to the board first when it is not on it yet.
 /issue-set-status <issue> <status-name>
 ```
 
-- `<issue>` (required): the issue: `N` or `#N` in the current repo, or
-  `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-  `https://host/owner/repo/issues/N` in another, as
-  `skills/lib/issue.md` → "Repositories and issue references" resolves
-  them. In another repo the slot is that repo's own, as the same section
-  states.
+- `<issue>` (required): an issue reference. In another repo the slot is that
+  repo's own.
 - `<status-name>` (required): a human-readable status name (e.g.
   `Todo`, `In Progress`, `Done`), matched case-insensitively against
   the slot's configured options. Whitespace inside a name is

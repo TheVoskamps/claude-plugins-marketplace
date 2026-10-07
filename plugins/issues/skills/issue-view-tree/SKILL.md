@@ -14,10 +14,8 @@ bounded.
 /issue-view-tree <issue>
 ```
 
-A single positional argument, the root issue: `N` or `#N` in the current
-repo, or `repo#N`, `owner/repo#N`, `host/owner/repo#N` or
-`https://host/owner/repo/issues/N` in another, as `skills/lib/issue.md`
-→ "Repositories and issue references" resolves them. No flags.
+A single positional argument: the root issue, as an issue reference.
+No flags.
 
 ## Execution
 
