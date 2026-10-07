@@ -19,8 +19,7 @@ body=$(gp_pr view --json body --jq .body) || exit $?
 closed=$(gp_closing_issues "$body") || exit $?
 
 if [ -n "$closed" ]; then
-  # shellcheck disable=SC2086 # split the issue list into words
-  printf 'PR %s closes issues %s\n' "$GP_PR_NAME" "$(gp_joined $closed)"
+  printf 'PR %s closes issues %s\n' "$GP_PR_NAME" "$(gp_joined "$closed")"
 else
   printf 'PR %s closes no issues\n' "$GP_PR_NAME"
 fi

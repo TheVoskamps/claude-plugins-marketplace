@@ -45,8 +45,7 @@ for issue in $issues; do
 done
 
 if [ -z "$closing" ]; then
-  # shellcheck disable=SC2086 # split the issue list into words
-  printf 'PR %s already closes %s\n' "$GP_PR_NAME" "$(gp_joined $linked)"
+  printf 'PR %s already closes %s\n' "$GP_PR_NAME" "$(gp_joined "$linked")"
   exit 0
 fi
 closing=${closing%
@@ -68,8 +67,7 @@ landed=$(gp_pr view --json body --jq .body) || exit $?
 
 appended=$(printf '%s\n' "$closing" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
 if [ -n "$linked" ]; then
-  # shellcheck disable=SC2086 # split the issue list into words
-  printf 'PR %s already closes %s; appended %s\n' "$GP_PR_NAME" "$(gp_joined $linked)" "$appended"
+  printf 'PR %s already closes %s; appended %s\n' "$GP_PR_NAME" "$(gp_joined "$linked")" "$appended"
 else
   printf 'PR %s: appended %s\n' "$GP_PR_NAME" "$appended"
 fi

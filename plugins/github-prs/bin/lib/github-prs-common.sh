@@ -249,10 +249,11 @@ gp_issue_number() {
   printf '%s\n' "$n"
 }
 
-# gp_joined <word>... -- the words as one comma-separated list.
+# gp_joined <list> -- the words of <list>, separated by any whitespace,
+# as one comma-separated list.
 gp_joined() {
-  local IFS=,
-  printf '%s' "$*" | sed 's/,/, /g'
+  printf '%s\n' "$1" |
+    awk '{ for (i = 1; i <= NF; i++) printf "%s%s", (n++ ? ", " : ""), $i }'
 }
 
 # gp_closing_issues <body> -- the one closing-line recognizer: print the
