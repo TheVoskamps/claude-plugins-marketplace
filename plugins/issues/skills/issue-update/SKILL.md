@@ -97,7 +97,8 @@ state is neither a change nor a failure.
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Update" instead, resolving
 `@default-assignee` the same way with the `acli` account as the last
 fallback.

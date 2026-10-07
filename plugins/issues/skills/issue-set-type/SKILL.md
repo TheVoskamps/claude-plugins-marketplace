@@ -50,5 +50,6 @@ One line using the map key's canonical capitalization; no URL:
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Metadata setters" instead.
