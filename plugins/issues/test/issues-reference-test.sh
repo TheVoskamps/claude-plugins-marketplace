@@ -37,7 +37,9 @@ parse() {
   RC=$?
 }
 
-# accepts <operand> <expected "host owner repo number"> [<link-prefix>]
+# accepts <operand> <expected "host owner repo number"> [<link-prefix>]: an
+# exit 0 with <expected>, under <link-prefix> as the issue-link-prefix, # when
+# not given.
 accepts() {
   parse "${3:-#}" acme "$1"
   if [ "$RC" = 0 ] && [ "$OUT" = "$2" ]; then
