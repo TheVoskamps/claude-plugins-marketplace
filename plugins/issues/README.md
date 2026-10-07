@@ -121,8 +121,10 @@ Each GitHub-backed skill runs an executable of the same name under
 `bin/`, on the agent's `PATH` once the plugin is enabled, and its
 SKILL.md says only when to run the verb, which arguments to pass, and
 what the output means. No SKILL.md carries a `gh` command or a GraphQL
-document, and a caller elsewhere in the marketplace reaches an issue
-through the skill rather than spelling a `gh issue` call of its own.
+document — the interviews included, whose live lookups run through
+`issues-discover` — and a caller elsewhere in the marketplace reaches
+an issue through the skill rather than spelling a `gh issue` call of
+its own.
 
 The scripts share one sourced helper, `bin/lib/issues-common.sh`, and
 it is the only statement of the GitHub calls: the repo-config read and
@@ -172,6 +174,25 @@ refuses a draft that fails one, leaving any existing file untouched. A
 config the verbs would reject is otherwise discovered on the first verb
 run, by whoever runs it.
 
+The interviews' live lookups are `issues-discover`, one script with a
+subcommand per lookup, each printing JSON: `projects` and
+`project <number>` for the owner's boards, `fields <number>` for one
+board's fields, `issue-fields` and `issue-types` for the repository's
+native issue fields and enabled issue types, and `viewer` for the
+authenticated user alongside the repository's host, owner and name.
+It reads no repo-config, because `/repo-config` runs it before one
+exists. Each list is already filtered to what a slot can be backed by
+— number and single-select board fields, single-select native fields,
+enabled types — so the skill reads the result rather than filtering
+it, and every paged connection is read to its end. `issue-fields`
+prints an empty array with a note on stderr when the repository has no
+single-select native fields or the host's schema has no `issueFields`
+at all, since either means only that there is no `issue-field` option
+to offer; a token lacking the scope a lookup needs is reported with
+the scope and the host, because `gh`'s own wording does not always
+name the scope. Board lookups go through `repositoryOwner`, so one
+query serves an organization and a user.
+
 `test/issues-bin-test.sh` runs every script under `/bin/bash` against
 `test/fake-gh.py`, an in-memory GitHub on `PATH` as `gh` that logs
 every call — which is how a test asserts that the Jira refusal made
@@ -179,7 +200,15 @@ none. Its write-dropping mode is the negative control: every write
 reports success and changes nothing, and every write path must exit
 non-zero on it. The fake gives each repository a host and resolves a
 repository, node or comment only on its own host, so a call that drops
-the host fails the verb rather than only the call-log check. No test
+the host fails the verb rather than only the call-log check. The
+discovery lookups have their own state: an owner's boards live under
+`owners`, each owner on its own host; `hostUsers` gives each host its
+own authenticated login, so a `viewer` test can tell which host was
+asked; a host listed in `scopeless` has a token without `read:project`
+and fails every board query as GitHub does; a repository's
+`issueFields` or `issueTypes` set to `"absent"` stands for a schema
+without that field, and `null` for a null connection; and a repository
+named in `nullRepos` resolves to null without an error. No test
 reaches GitHub.
 
 ## Every call names its host
@@ -198,6 +227,19 @@ argument and pass it as `--hostname`; every `gh issue` call carries the
 host in `--repo`. The host travels per call and is never exported as
 `GH_HOST`, because one session works across several organizations and
 hosts and an environment variable would pick one for all of them.
+
+The interviews reach the host the same way, and could not otherwise.
+`/repo-config` and `/user-config` once had the model run `gh project`
+and `gh api` commands of their own, host-less, so a GitHub Enterprise
+checkout was queried on github.com — a board lookup failed there for
+want of `read:project`, and the ownership check silently compared the
+owner against the github.com login. The two ways
+a model could add a host to such a command, a `GH_HOST=` prefix and
+`gh api --hostname`, are each a credential-redirect that guardrails'
+permission gate denies; the gate classifies the command the model
+runs, not the calls inside a plugin script. So the lookups moved into
+`issues-discover`, which resolves the host from the checkout as every
+verb does.
 
 That is also why a repository argument has a grammar rather than a
 single `owner/repo` shape: `repo` alone, `owner/repo`, `host/owner/repo`

@@ -258,43 +258,41 @@ untouched.
 
 ### 3b.2 — Pick the owner and project
 
-Auto-discover the repo's owner from the local remote:
+Every live lookup in Step 3b goes through `issues-discover`, which this
+plugin puts on `PATH`. It resolves the repository's host, owner and
+name from the checkout itself and sends each query to that host, so a
+checkout whose `origin` is on a GitHub Enterprise host is queried
+there. Run it from inside the repo's working tree; on a non-zero exit
+it prints gh's error, or the missing scope and the host whose token
+lacks it, on stderr.
+
+List the projects of the repository's owner, an organization or a
+user alike:
 
 ```bash
-git remote get-url origin
+issues-discover projects
 ```
 
-Parse the `owner/repo` from the URL (both SSH and HTTPS forms; strip
-any trailing `.git`). The owner is typically a GitHub organization but
-may be a user; both work as `--owner` arguments to `gh project list`.
-
-List accessible projects for that owner:
-
-```bash
-gh project list --owner <owner> --format json
-```
-
-Parse the JSON. The shape is `{ projects: [ { number, title, id,
-... } ] }`. Each project's `id` is the ProjectV2 node ID (`PVT_...`),
-which is the literal value that goes into `project-id`.
+It prints a JSON array of `{ number, title, id }`. Each project's `id`
+is the ProjectV2 node ID (`PVT_...`), which is the literal value that
+goes into `project-id`.
 
 Show the user the discovered projects with their numbers and titles,
 plus options:
 
 - One option per discovered project (label: `<number>: <title>`).
-- `Other` to type a project number by hand (useful when the project
-  belongs to an upstream org `gh project list` can't see, or when the
-  list is truncated by `--limit`).
+- `Other` to type a number of one of the owner's projects by hand.
 - `Skip` to abandon the github-project block. On `Skip`, jump to
   3b.6 to record the skip marker.
 
 Common failure modes to handle gracefully:
 
-- `gh project list` exits non-zero or returns an empty list. Surface
-  the error/empty result and offer `Other` (manual entry) or `Skip`.
-- The user picks `Other` and enters a project number. Resolve its
-  node ID by running `gh project view <number> --owner <owner>
-  --format json` and reading `.id` (also `.title` for the summary).
+- `issues-discover projects` exits non-zero or prints an empty array.
+  Surface the error/empty result and offer `Other` (manual entry) or
+  `Skip`.
+- The user picks `Other` and enters a project number. Resolve it with
+  `issues-discover project <number>`, which prints that board's
+  `{ number, title, id }`; read `.id` (and `.title` for the summary).
 
 If the project node ID does not start with `PVT_`, treat the response
 as invalid and let the user retry or skip.
@@ -315,62 +313,23 @@ different slot (e.g. `effort`) has no supported path to add one today.
 #### 3b.3.a — Enumerate project fields once
 
 Before asking about any slot, enumerate the project's fields a single
-time and keep the result in memory for the per-slot loop below. The
-goal is one unified list of `(id, name, kind, options?)` tuples where
-`kind` is one of `number` or `single-select` — the only two kinds that
-correspond to project fields. Iteration, text, date, and built-in
-fields (Title, Assignees, Labels, Milestone, etc.) are filtered out:
-they are not surfaceable as slot backings.
-
-Detecting which fields are number-typed is the tricky part. The
-`gh project field-list` JSON returns `type == "ProjectV2Field"` for
-**every** non-single-select, non-iteration field — Title, Assignees,
-Labels, Milestone, Repository, Reviewers, Parent issue, Sub-issues
-progress, Estimate, Start date, Target date, Priority, and any
-custom text/number/date field the user has added. The `type`
-discriminator alone is not enough to identify a number field. Use the
-GraphQL `dataType` probe as the canonical discriminator:
+time and keep the result in memory for the per-slot loop below.
 
 ```bash
-gh api graphql -F number=<project-number> -F owner=<owner> -f query='
-query($owner: String!, $number: Int!) {
-  # Replace `organization(login:)` with `user(login:)` if the owner
-  # is a user account, not an organization.
-  organization(login: $owner) {
-    projectV2(number: $number) {
-      fields(first: 100) {
-        nodes {
-          ... on ProjectV2Field             { id name dataType }
-          ... on ProjectV2SingleSelectField { id name dataType
-            options { id name } }
-          ... on ProjectV2IterationField    { id name dataType }
-        }
-      }
-    }
-  }
-}'
+issues-discover fields <project-number>
 ```
 
-`dataType` is one of `NUMBER`, `TEXT`, `DATE`, `SINGLE_SELECT`,
-`ITERATION`, `TITLE`, `ASSIGNEES`, `LABELS`, `MILESTONE`,
-`REPOSITORY`, `REVIEWERS`, `LINKED_PULL_REQUESTS`, `TRACKS`,
-`TRACKED_BY`.
+It prints a JSON array of the fields a slot can be backed by, each
+`{ id, name, dataType }` with `options` added on a single-select one.
+From it, build two lists for the per-slot loop:
 
-From the response, build two lists for the per-slot loop:
-
-- **Number fields**: every node with `dataType == "NUMBER"`. Capture
+- **Number fields**: every entry with `dataType == "NUMBER"`. Capture
   `id` (`PVTF_...`) and `name`. No options.
-- **Single-select fields**: every node with `dataType == "SINGLE_SELECT"`.
+- **Single-select fields**: every entry with `dataType == "SINGLE_SELECT"`.
   Capture `id` (`PVTSSF_...`), `name`, and the full `options` list
   (each `{ id, name }`). The option IDs are short hex strings, not
   `PVT_*`-prefixed node IDs — that is correct for single-select option
   IDs in ProjectV2.
-
-`gh project field-list <project-number> --owner <owner> --format json`
-also works as a fallback for the name/type pass when the GraphQL probe
-is unavailable, but it cannot distinguish number from text/date and
-does not expose option IDs, so prefer the GraphQL form when both are
-available.
 
 ##### Enumerate native Issue Fields (for the `issue-field` kind)
 
@@ -378,46 +337,27 @@ Separately from the project fields above, enumerate the repo's
 **native GitHub Issue Fields** — the preview feature that attaches
 ProjectV2-style fields directly to issues, independent of any project
 board. These back the `kind: issue-field` slot (see "Field kinds
-(`fields.<slot>.kind`)" in `skills/lib/issue.md`). Query the
+(`fields.<slot>.kind`)" in `skills/lib/issue.md`). These belong to the
 repository, not the project:
 
 ```bash
-gh api graphql -F owner=<owner> -F repo=<repo> -f query='
-query($owner: String!, $repo: String!) {
-  repository(owner: $owner, name: $repo) {
-    issueFields(first: 20) {
-      nodes {
-        __typename
-        ... on IssueFieldCommon { name dataType }
-        ... on IssueFieldSingleSelect {
-          id
-          options { id name }
-        }
-      }
-    }
-  }
-}'
+issues-discover issue-fields
 ```
 
-The `kind: issue-field` backing consumes the **single-select** native
-fields only: keep every node whose `__typename` is
-`IssueFieldSingleSelect` (`dataType == SINGLE_SELECT`), capturing its
-`id` (`IFSS_...`), `name`, and the full `options` list (each
-`{ id, name }`, with `IFSSO_...` option IDs). GitHub ships two such
-single-select native fields today — `Priority` (options `Urgent` /
-`High` / `Medium` / `Low`), the `priority`-slot backing, and `Effort`
-(options `High` / `Medium` / `Low`), the `size`-slot backing — so both
-are surfaced by this enumeration and offered to the matching slot in
-the per-slot loop. Filter out the `IssueFieldDate` /
-`IssueFieldNumber` / `IssueFieldText` / `IssueFieldMultiSelect` nodes —
-those data-types have no slot kind yet.
+It prints a JSON array of the native fields a `kind: issue-field`
+slot can be backed by, each `{ id, name, options }`, with an
+`IFSS_...` field `id` and each option an `{ id, name }` carrying an
+`IFSSO_...` ID. GitHub ships two such native fields today —
+`Priority` (options `Urgent` / `High` / `Medium` / `Low`), the
+`priority`-slot backing, and `Effort` (options `High` / `Medium` /
+`Low`), the `size`-slot backing — so both are offered to the matching
+slot in the per-slot loop.
 
-If `issueFields` is `null` or empty (the preview is not enabled for
-this repo, or no native fields are defined), there are simply no
-`issue-field` options to offer in the per-slot loop — skip that
-option. The query failing outright (e.g. the field is not in the
-schema for this `gh`/GHES version) is also non-fatal: proceed without
-the `issue-field` option and note it to the user.
+An empty array means there are no `issue-field` options to offer in
+the per-slot loop — skip that option. When the script prints one, it
+explains why in a note on stderr; pass that note on to the user. Any other
+non-zero exit is also non-fatal: proceed without the `issue-field`
+option and note the error to the user.
 
 #### 3b.3.b — Per-slot interview
 
@@ -656,29 +596,24 @@ or edit the file from inside this loop.
 
 ### 3b.4 — Discover issue types
 
-GitHub Issue Types are an org-level (and now repo-scoped) enum. There
-is no `gh issue-type` command yet; query via GraphQL:
+GitHub Issue Types are an org-level (and now repo-scoped) enum:
 
 ```bash
-gh api graphql -F owner=<owner> -F repo=<repo> -f query='
-query($owner: String!, $repo: String!) {
-  repository(owner: $owner, name: $repo) {
-    issueTypes(first: 50) {
-      nodes { id name isEnabled }
-    }
-  }
-}'
+issues-discover issue-types
 ```
 
-Filter to `isEnabled: true`. Each enabled type contributes
-`<Name>: <id>` to the `issue-types:` map (preserve the capitalization
-GitHub returns). Skip types that are disabled.
+It prints a JSON array of the repository's enabled issue types, each
+`{ id, name }`. Each one contributes `<Name>: <id>` to the
+`issue-types:` map (preserve the capitalization GitHub returns).
 
-If the query returns an empty list or the field is `null` (older repos
-without issue types enabled), ask the user whether to:
+If it prints an empty array (older repos without issue types enabled),
+ask the user whether to:
 
 - `Skip issue-types` — omit the `issue-types:` sub-block entirely.
 - `Other` — manually enter `Name: IT_...` pairs.
+
+A non-zero exit is non-fatal too: note its stderr to the user, then
+offer the same two choices as for an empty array.
 
 Ask the user which type should be the **default**. Recommend the
 carried-over `issue-types.default` (parsed in Step 2) if present in
@@ -1235,7 +1170,7 @@ After the file is written, report back:
 - **Never invent project IDs, field IDs, option IDs, issue type IDs,
   Jira project keys, custom-field ids, status names, or type names.**
   All identifiers written to the `github-project:` block must come
-  from a live `gh` query in Step 3b, and all identifiers written to
+  from a live `issues-discover` lookup in Step 3b, and all identifiers written to
   the `jira:` block must come from a live `acli` query in Step 3c (or,
   in either case, with explicit user override via `Other`, from values
   the user typed in). Do not copy identifiers from the schema examples
