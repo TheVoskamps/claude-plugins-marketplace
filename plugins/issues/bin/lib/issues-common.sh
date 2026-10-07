@@ -597,11 +597,46 @@ iss_repo_name() {
   if iss_same_host "$1"; then printf '%s/%s' "$2" "$3"; else printf '%s/%s/%s' "$1" "$2" "$3"; fi
 }
 
-# The common opening of every verb: tools, config, tracker, repo.
+# iss_init <operand>...: the common opening of every verb that acts on
+# existing issues -- tools, the working tree, and the current repository. Only
+# the repo-config of an operand's own repository governs the verb on it, so the
+# current repository's is read here, before any gh call, only when an operand
+# names no repository of its own (iss_names_repo). An operand that does name
+# one is gated by iss_check_repo or iss_operand_config once it is parsed.
 iss_init() {
+  local op
   iss_require_tools
-  iss_load_config
+  ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
+  iss_peek_link_prefix
+  for op in "$@"; do
+    iss_names_repo "$op" && continue
+    iss_load_config
+    break
+  done
   iss_current_repo
+}
+
+# iss_peek_link_prefix: set ISS_LINK_PREFIX from the current repo-config's
+# front matter without iss_load_config's checks, so that iss_names_repo can
+# tell a prefixed N apart before any repo-config is gated on; # when the file
+# or the key is absent.
+iss_peek_link_prefix() {
+  local fm
+  ISS_LINK_PREFIX='#'
+  [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || return 0
+  fm=$(iss_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")") || return 0
+  ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix) || ISS_LINK_PREFIX='#'
+}
+
+# iss_names_repo <operand>: whether the operand names a repository of its own
+# -- a URL, or a repository part before a # -- rather than being N or #N, with
+# or without ISS_LINK_PREFIX. A malformed operand with neither names none.
+iss_names_repo() {
+  local num=${1#"$ISS_LINK_PREFIX"}
+  num=${num#'#'}
+  iss_is_digits "$num" && return 1
+  case "$1" in https://*|?*'#'*) return 0 ;; esac
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -734,19 +769,21 @@ iss_operand() {
   iss_check_repo "$OP_HOST" "$OP_OWNER" "$OP_REPO"
 }
 
-# iss_check_repo <host> <owner> <repo> [<host> <owner> <repo>]: for a
-# repository other than the second one — the current repository when it is
-# not given, whose repo-config the verb has read already — read its
-# repo-config with iss_load_target_config and abort wherever that does: on a
+# iss_check_repo <host> <owner> <repo> [<host> <owner> <repo>]: gate the verb
+# on the first repository's repo-config. The second repository, when given, is
+# one whose repo-config the verb has read already, and passes. Without it, the
+# current repository's is read with iss_load_config. Any other repository's
+# is read with iss_load_target_config, aborting wherever that does: on a
 # repo-config it cannot read or that fails validation, and with the fixed Jira
-# message under issues: Jira. A repository with no repo-config passes. The
+# message under issues: Jira. A repository with no repo-config passes. That
 # read runs in a subshell, so the repo-config the verb itself reads is left as
 # it was.
 iss_check_repo() {
   if [ "$#" -eq 6 ]; then
     iss_same_repo "$@" && return 0
-  else
-    iss_same_repo "$1" "$2" "$3" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO" && return 0
+  elif iss_same_repo "$1" "$2" "$3" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"; then
+    iss_load_config
+    return 0
   fi
   (iss_load_target_config "$1" "$2" "$3" || :) || exit 1
 }
@@ -1246,10 +1283,18 @@ EOF
   fi
 }
 
-# The "<slot>: nothing to do" warning for a set-slot verb whose slot is
-# unconfigured. Exits zero.
+# iss_slot_unconfigured_exit <slot> <host> <owner> <repo>: the "nothing to do"
+# warning for a set-slot verb whose slot the operand's repository leaves
+# unconfigured, naming that repository when it is not the current one. Exits
+# zero.
 iss_slot_unconfigured_exit() {
-  printf "\`/issue-set-%s\` has nothing to do: this repo has no \`%s\` slot configured. (Run \`/repo-config\` to add one.)\n" "$1" "$1"
+  local name
+  if iss_same_repo "$2" "$3" "$4" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"; then
+    printf "\`/issue-set-%s\` has nothing to do: this repo has no \`%s\` slot configured. (Run \`/repo-config\` to add one.)\n" "$1" "$1"
+  else
+    name=$(iss_repo_name "$2" "$3" "$4")
+    printf "\`/issue-set-%s\` has nothing to do: \`%s\` has no \`%s\` slot configured. (Run \`/repo-config\` in \`%s\` to add one.)\n" "$1" "$name" "$1" "$name"
+  fi
   exit 0
 }
 
@@ -1258,10 +1303,10 @@ iss_set_slot_verb() {
   local slot=$1 ref label
   shift
   [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-$slot <issue> <value>"
-  iss_init
+  iss_init "$1"
   iss_parse_operand "$1"
   iss_operand_board_config
-  [ "$(iss_slot_kind "$slot")" != skip ] || iss_slot_unconfigured_exit "$slot"
+  [ "$(iss_slot_kind "$slot")" != skip ] || iss_slot_unconfigured_exit "$slot" "$OP_HOST" "$OP_OWNER" "$OP_REPO"
   iss_slot_resolve "$slot" "$2"
   iss_slot_write "$slot" "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" precheck
   ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")

@@ -11,9 +11,10 @@ named after the verb, and every script sources
 GitHub calls: the repo-config read, node-ID and field/option ID
 resolution, the GraphQL documents, the post-write re-reads, and the
 error wording. A verb's `SKILL.md` says when to run its script, with
-which arguments, and what the output means. Under `issues: Jira` every
-script exits non-zero with one fixed message before any call, and the
-verb follows "Jira backend" below instead.
+which arguments, and what the output means. When the repo-config that
+governs a run says `issues: Jira`, the script exits non-zero with one
+fixed message before it reads or writes an issue, and the verb follows
+"Jira backend" below instead.
 
 ## Repositories and issue references
 
@@ -46,10 +47,13 @@ The verbs take issues only. An operand that names a pull request — a
 `https://host/owner/repo/pull/N` URL before any call, a number once it
 is read — aborts with exit 1, naming it as a pull request.
 
-A verb acts on an operand in its own repository, on its own host. Apart
-from `/issue-create <repo>`, which reads the target's alone, every run
-reads the current repository's repo-config first. For an operand
-in another repository, the repo-config that governs it is that
+A verb acts on an operand in its own repository, on its own host, and
+only that repository's repo-config governs it. A run reads the current
+repository's repo-config only when it acts there: an operand in the
+current repository, or `/issue-create` and `/issue-field-options` with
+no `<repo>`. A Jira-tracked checkout, or one with no repo-config, stops
+a verb on its own issues and not on another repository's. For an
+operand in another repository, the repo-config that governs it is that
 repository's `.issues/repo-config.md`, read from its default branch:
 
 - under `issues: Jira` the verb exits with the fixed Jira message
@@ -68,7 +72,8 @@ issue back through the forms above: `#N` in the current repository,
 
 ## Repo-config parsing
 
-Every `/issue-*` verb reads `<repo-root>/.issues/repo-config.md`
+Every `/issue-*` verb reads a repo-config —
+`<repo-root>/.issues/repo-config.md`, or another repository's —
 following the read contract in `skills/lib/repo-config.md`, and
 requires **schema-version 6**. The scripts do so in
 `issues-common.sh`; the Jira path runs that library's canonical read

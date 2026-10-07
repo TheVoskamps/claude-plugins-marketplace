@@ -855,6 +855,45 @@ done
 check "$(jq -c 'select(.[0] == "issue" or index("graphql") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
   "an operand in a Jira repository: no issue read or write"
 
+# Only the operand's repository's repo-config governs a verb on it: a checkout
+# that is Jira-tracked, or has none, stops a verb on its own issues and not one
+# on another repository's.
+for checkout in jira none; do
+  if [ "$checkout" = jira ]; then
+    new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
+    local_refusal="\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+  else
+    new_case none
+    local_refusal="This repo has no \`.issues/repo-config.md\`. Run \`/repo-config\` to create one."
+  fi
+  set_repo octo/lib ".config = $(jq -Rs . <<<"$(printf '%s\n' "$CONFIG_MAIN" | sed 's/PVT_1/PVT_lib/')") | .validLabels = [\"size:L\"]"
+  run issue-set-priority octo/lib#5 low
+  expect "issue-set-priority owner/repo#N from a $checkout checkout: the operand's repo-config governs" 0 \
+    "octo/lib#5 priority set to Low."
+  run issue-set-status octo/lib#5 Done
+  expect "issue-set-status owner/repo#N from a $checkout checkout" 0 "Set status on issue octo/lib#5 to Done."
+  run issue-view octo/lib#5
+  expect "issue-view owner/repo#N from a $checkout checkout" 0 "Priority:   Low" "Status:     Done"
+  run issue-set-blocked-by octo/lib#5 acme/other#3
+  expect "issue-set-blocked-by across two other repositories from a $checkout checkout" 0 \
+    "Marked issue octo/lib#5 as blocked by other#3."
+  for call in "issue-set-priority 2 low" "issue-view acme/widgets#2" "issue-set-blocked-by octo/lib#5 2"; do
+    run $call
+    expect "${call%% *}: an operand in a $checkout checkout's own repository is still refused" 1 "$local_refusal"
+  done
+done
+
+# A slot the operand's repository leaves unconfigured is reported against that
+# repository.
+new_case "$CONFIG_MAIN"
+set_repo octo/lib ".config = $(jq -Rs . <<<"$CONFIG_NUMBER")"
+run issue-set-size octo/lib#5 M
+expect "issue-set-size owner/repo#N: an unconfigured slot names the repository" 0 \
+  "\`/issue-set-size\` has nothing to do: \`octo/lib\` has no \`size\` slot configured. (Run \`/repo-config\` in \`octo/lib\` to add one.)"
+run issue-set-status octo/lib#5 Done
+expect "issue-set-status owner/repo#N: an unconfigured slot names the repository" 0 \
+  "\`/issue-set-status\` has nothing to do: \`octo/lib\` has no \`status\` slot configured. (Run \`/repo-config\` in \`octo/lib\` to add one.)"
+
 # ---------------------------------------------------------------------------
 # Comment, close, update.
 # ---------------------------------------------------------------------------

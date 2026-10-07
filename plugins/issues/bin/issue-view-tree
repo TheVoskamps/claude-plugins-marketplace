@@ -56,6 +56,6 @@ walk() {
 }
 
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-view-tree <issue>"
-iss_init
+iss_init "$1"
 iss_operand "$1"
 walk "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" 0

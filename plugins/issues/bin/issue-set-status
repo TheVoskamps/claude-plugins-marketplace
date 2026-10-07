@@ -7,10 +7,10 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-status <issue> <status-name>"
-iss_init
+iss_init "$1"
 iss_parse_operand "$1"
 iss_operand_board_config
-[ "$(iss_slot_kind status)" != skip ] || iss_slot_unconfigured_exit status
+[ "$(iss_slot_kind status)" != skip ] || iss_slot_unconfigured_exit status "$OP_HOST" "$OP_OWNER" "$OP_REPO"
 iss_slot_resolve status "$2"
 iss_slot_write status "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" always
 printf 'Set status on issue %s to %s.\n%s\n' "$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$SLOT_VALUE" "$(iss_jq .url)"

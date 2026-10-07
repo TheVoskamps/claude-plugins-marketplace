@@ -6,7 +6,7 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-type <issue> <type-name>"
-iss_init
+iss_init "$1"
 iss_parse_operand "$1"
 iss_operand_board_config
 iss_cfg_get issue-types >/dev/null 2>&1 || iss_err_no_issue_types "$ISS_CFG_PREFIX"

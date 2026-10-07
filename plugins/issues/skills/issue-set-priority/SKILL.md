@@ -68,6 +68,9 @@ error:
 > `/issue-set-priority` has nothing to do: this repo has no `priority`
 > slot configured. (Run `/repo-config` to add one.)
 
+For an issue in another repository, the line names that repository in
+place of `this repo`, and says to run `/repo-config` in it.
+
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it

@@ -70,7 +70,7 @@ slot_row() {
 }
 
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-view <issue>"
-iss_init
+iss_init "$1"
 iss_parse_operand "$1"
 # A repository with no repo-config prints no slot rows, as one with no
 # github-project: block does.

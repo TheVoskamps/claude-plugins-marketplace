@@ -6,7 +6,7 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
 [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-blocks <issue> <blocked-issue>"
-iss_init
+iss_init "$1" "$2"
 if iss_blocked_by_edge add "$2" "$1" blocker; then
   printf 'Marked issue %s as blocking %s.\n%s\n' "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$(iss_jq .url)"
 else

@@ -54,7 +54,7 @@ if [ -n "$body_file" ] && [ -n "$appends$prepends" ]; then
   iss_usage_die "\`--body-file\` cannot be combined with \`--append\` or \`--prepend\` (full-replace vs. line-additive). Run them in separate invocations."
 fi
 
-iss_init
+iss_init "$number_arg"
 iss_operand "$number_arg"
 ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 

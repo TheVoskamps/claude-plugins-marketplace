@@ -6,7 +6,7 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
 [ "$#" -eq 1 ] || iss_usage_die "usage: issue-sub-list <parent-issue>"
-iss_init
+iss_init "$1"
 iss_operand "$1"
 
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title $(iss_conn subIssues)"

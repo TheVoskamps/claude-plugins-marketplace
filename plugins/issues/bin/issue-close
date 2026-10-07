@@ -27,7 +27,7 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$number_arg" ] || iss_usage_die "$usage"
 
-iss_init
+iss_init "$number_arg"
 iss_operand "$number_arg"
 ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 repo_arg=$(iss_repo_arg "$OP_HOST" "$OP_OWNER" "$OP_REPO")
