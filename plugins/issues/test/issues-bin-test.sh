@@ -1044,6 +1044,16 @@ for variant in null '[]' '"absent"'; do
   check "$(printf '%s\n' "$OUT" | tail -n 1)" '[]' "issues-discover: issue-fields $variant prints []"
 done
 
+# A null repository is a failure, not a repository with no fields or types.
+new_case none
+jq '.nullRepos = ["acme/widgets"]' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+  mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+for sub in issue-fields issue-types; do
+  run issues-discover $sub
+  expect "issues-discover: $sub of a null repository names it and the host" 1 \
+    "repository \`acme/widgets\` not found on \`github.com\`"
+done
+
 new_case none
 jq '.scopeless = ["ghe.example.com"] | (.repos, .owners) |= with_entries(.value.host = "ghe.example.com")' \
   "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"

@@ -29,6 +29,12 @@ case "$1" in projects|project|fields) scope=read:project ;; *) scope=repo ;; esa
 iss_require_tools
 iss_current_repo
 
+# disc_repo_null: succeed when the last iss_gql call's response holds a null
+# `repository` -- one the host does not resolve, not one with nothing to list.
+disc_repo_null() {
+  [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '(.data // {}) | has("repository") and .repository == null' 2>/dev/null)" = true ]
+}
+
 # A failed iss_gql call: a missing scope names the scope and the host whose
 # token lacks it; anything else passes gh's error through.
 disc_fail() {
@@ -106,6 +112,7 @@ case "$1" in
       esac
       disc_fail
     fi
+    [ "$DISC_NODES" != null ] || ! disc_repo_null || iss_err_repo_not_found "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"
     out=$(printf '%s\n' "$DISC_NODES" |
       jq -c '[(. // [])[] | select(.__typename == "IssueFieldSingleSelect") | {id, name, options}]')
     [ "$out" != '[]' ] ||
@@ -115,6 +122,7 @@ case "$1" in
   issue-types)
     disc_nodes "$ISS_DOC_DISCOVER_ISSUE_TYPES" .data.repository.issueTypes \
       -f owner="$ISS_OWNER" -f repo="$ISS_REPO" || disc_fail
+    [ "$DISC_NODES" != null ] || ! disc_repo_null || iss_err_repo_not_found "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"
     printf '%s\n' "$DISC_NODES" | jq -c '[(. // [])[] | select(.isEnabled == true) | {id, name}]'
     ;;
   viewer)

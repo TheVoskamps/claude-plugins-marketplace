@@ -325,7 +325,8 @@ def discovery(state, host, query, fields):
     token without read:project, so any board query there fails as GitHub
     fails it. A repo's "issueFields" or "issueTypes" of "absent" stands for a
     schema without that field, which fails the query, and null for a null
-    connection."""
+    connection. A repo named in state["nullRepos"] comes back as a null
+    repository with no error."""
     if "repositoryOwner" in query:
         if host in state.get("scopeless", []):
             message = ("Your token has not been granted the required scopes to execute this query. The 'projectsV2' "
@@ -357,6 +358,9 @@ def discovery(state, host, query, fields):
         return
 
     nwo = fields["owner"] + "/" + fields["repo"]
+    if nwo in state.get("nullRepos", []):
+        print(json.dumps({"data": {"repository": None}}))
+        return
     if not repo_on(state, nwo, host):
         fail("Could not resolve to a Repository with the name '%s'." % nwo,
              {"data": {"repository": None},

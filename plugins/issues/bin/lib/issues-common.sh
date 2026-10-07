@@ -79,6 +79,11 @@ iss_err_not_found() {
   iss_die "issue \`#$4\` not found in \`$(iss_repo_name "$1" "$2" "$3")\`"
 }
 
+iss_err_repo_not_found() {
+  # $1 host, $2 owner, $3 repo
+  iss_die "repository \`$2/$3\` not found on \`$1\`"
+}
+
 iss_err_no_block() {
   iss_die "no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
 }
