@@ -262,10 +262,14 @@ gp_joined() {
 # resolved, any case), as a whole word and optionally followed by a
 # colon, is followed by whitespace and then immediately by a reference
 # to it: #N, repo#N, owner/repo#N, host/owner/repo#N, or
-# https://host/owner/repo/issues/N, naming the PR's repository. Each
-# reference needs its own keyword; any other form counts as not closed.
-# The PR's repository is the one gp_parse_pr resolved, or the current
-# one, looked up only when a reference names a repository.
+# https://host/owner/repo/issues/N, naming the PR's repository, and
+# ending where a word would. Each reference needs its own keyword; any
+# other form counts as not closed. N prints without leading zeros, and
+# #0 closes nothing. The PR's repository is the one gp_parse_pr
+# resolved, or the current one, looked up only when a reference names a
+# repository. That lookup runs in a pipeline subshell, so a failed one
+# returns 3 rather than exiting the caller: call it as
+# `out=$(gp_closing_issues ...) || exit $?`.
 gp_closing_issues() {
   local rest want='' ref n kw='close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved'
   local re="(^|[^a-z0-9_])($kw):?[[:space:]]+(https://([^[:space:]/]+/[^[:space:]/]+/[^[:space:]/]+)/issues/([0-9]+)|(([a-z0-9._-]+/){0,2}[a-z0-9._-]+)?#([0-9]+))([^a-z0-9_]|$)"
