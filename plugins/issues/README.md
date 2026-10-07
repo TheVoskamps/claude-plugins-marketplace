@@ -21,8 +21,8 @@ These verbs move that lookup to setup time and record the answers in
 the repo's config. Afterwards `/issue-create` files a fully configured
 issue in one invocation, `/issue-view` prints one issue's body, fields
 and relationships without a follow-up command, and the relationship
-verbs set and clear edges by issue number from whichever end you are
-thinking from. The flags do not change when the tracker does: the same
+verbs set and clear edges by issue reference from whichever end you
+are thinking from. The flags do not change when the tracker does: the same
 verbs serve a Jira backend, and only the calls underneath differ.
 
 Recording the IDs was not enough on its own. A verb whose procedure is
@@ -41,16 +41,19 @@ only when to run it.
 - **`.issues/repo-config.md`, written by `/issues:repo-config`.** This
   is the one prerequisite with a setup step: the interview asks which
   VCS and tracker the repo uses, discovers the project board's field
-  and option IDs, and writes them down. Every issue verb reads the
-  file and aborts pointing back at `/repo-config` when it is missing,
-  when its `schema-version` is older than the reader requires, or when
-  a slot's `default:` is a value the slot itself would refuse — an
-  option name not among its `options:`, or for `kind: number` a bound
-  or default that is not an integer with `min` at most `max`. That last
-  abort comes whichever slot the verb wanted, because the file is
-  invalid as a whole. The config verbs write config rather than
-  requiring it. It is team-shared and committed, so one person runs
-  the interview per repo.
+  and option IDs, and writes them down. A verb acting on an issue here
+  reads the file and aborts pointing back at `/repo-config` when it is
+  missing, when its `schema-version` is older than the reader requires,
+  or when a slot's `default:` is a value the slot itself would refuse —
+  an option name not among its `options:`, or for `kind: number` a
+  bound or default that is not an integer with `min` at most `max`.
+  That last abort comes whichever slot the verb wanted, because the
+  file is invalid as a whole. A verb whose every operand names another
+  repository reads that repository's config instead and never opens
+  the local file, so a checkout with none, or one tracked in Jira, does
+  not stop work on another repo's issues. The config verbs write config
+  rather than requiring it. It is team-shared and committed, so one
+  person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` and `jq` for the
   GitHub backend — the scripts run under the bash 3.2 that macOS ships
   and call nothing else; `acli` for Jira, plus the `issues-jira`
@@ -152,19 +155,27 @@ the verb is carried out from the prose Jira path in
 and error wording the scripts otherwise own. The surface is the same
 either way; only the calls underneath differ.
 
-`/issue-create` and `/issue-field-options` take a leading positional
-`<repo>` to act on another GitHub repo. The script reads that repo's
-`.issues/repo-config.md` from its default branch through the read-only
-contents API and reads nothing from the current repo's, since the
-target's alone governs what a slot accepts there. A target whose config
-is present and supported is used exactly as a local one. A target with
-none gets a plain issue — title, body, labels, assignees — with a
-`note:` line saying project fields were skipped, and
-`/issue-field-options` reports every slot there as unconfigured. A
-target at an unsupported schema version aborts with the canonical
-schema-version wording before anything is filed. A cross-repo default
-assignee comes from the user-global user-config only, because the
-repo-level one belongs to the current repo.
+Every verb acts in the repository its operand names: `/issue-create`
+and `/issue-field-options` take a leading positional `<repo>`, and
+every other verb's issue operand carries its repository in the
+reference itself. The repo-config that governs the run is the
+operand's repository's own: for another repo the script reads that
+repo's `.issues/repo-config.md` from its default branch through the
+read-only contents API and reads nothing from the current repo's,
+since the target's alone governs which tracker it is on and what a
+slot accepts there. A target whose config is present and supported is
+used exactly as a local one; one tracked in Jira stops the verb with
+the fixed Jira message, and one at an unsupported schema version
+aborts with the canonical schema-version wording, in each case before
+an issue is read or written. A target with none degrades by verb:
+`/issue-create` files a plain issue — title, body, labels, assignees —
+with a `note:` line saying project fields were skipped,
+`/issue-field-options` reports every slot there as unconfigured,
+`/issue-view` prints the issue with no slot rows, a setter aborts
+naming the repository, and everything that touches only the issue
+itself proceeds. A cross-repo default assignee comes from the
+user-global user-config only, because the repo-level one belongs to
+the current repo.
 
 `/issues:repo-config` writes the file through `repo-config-write`, the
 one writer of `.issues/repo-config.md`. It runs the same validity
@@ -208,8 +219,19 @@ asked; a host listed in `scopeless` has a token without `read:project`
 and fails every board query as GitHub does; a repository's
 `issueFields` or `issueTypes` set to `"absent"` stands for a schema
 without that field, and `null` for a null connection; and a repository
-named in `nullRepos` resolves to null without an error. No test
-reaches GitHub.
+named in `nullRepos` resolves to null without an error. A pull request
+is an entry in a repository's issues carrying `pullRequest: true`,
+since the two share one number sequence on GitHub, which is how a test
+asserts that a verb refuses one. No test reaches GitHub.
+
+`test/issues-reference-test.sh` is the parser's own suite: it runs
+`iss_parse_operand` alone under `/bin/bash`, with the current
+repository held as already resolved and any `gh` call fatal, over
+every accepted reference form, a round trip of each form a verb
+prints, a pull-request URL and each malformed shape. The forms it
+accepts are the ones `github-prs`' PR-reference parser accepts, so a
+reference copied between the two plugins' verbs parses to the same
+host, owner, repository and number.
 
 ## Every call names its host
 
@@ -248,41 +270,58 @@ repository, so a caller supplies only the part that differs from where
 it stands. Every printed issue reference uses the shortest of those
 forms that resolves back to the same issue — `#N` here, `repo#N` under
 the same owner, `owner/repo#N` on the same host, `host/owner/repo#N`
-elsewhere — and the blocked-by verbs accept each form back, so a
-reference copied out of one verb's output is an operand for the next.
-`skills/lib/issue.md` owns the grammar and the resolution
-rules. Outside a git checkout there is no current repository to resolve
-against: a bare `repo` is a usage error, and `owner/repo` goes to `gh`'s
-default host.
+elsewhere — and every verb's issue operand, `/issue-create --parent`
+included, accepts each form back, and the issue's `https://` URL
+besides, so a reference copied out of one verb's output, or out of a
+browser, is an operand for the next. `skills/lib/issue.md` owns the
+grammar and the resolution rules. Outside a git checkout there is no
+current repository to resolve against: a bare `repo` is a usage error,
+and `owner/repo` goes to `gh`'s default host.
+
+The grammar is the one `github-prs` parses for a PR, with `issues` in
+the URL where a PR has `pull`, so a reference carried between the two
+plugins' verbs means the same repository in each. Plugins cannot share
+a file, so each carries its own parser, and a change to the grammar
+edits both — the repository part of each is validated per part, by
+what GitHub allows an owner and a repository name and DNS allows a
+host, rather than by one character class over the whole path, so a
+repository name may start with `-` while an owner may not. A single
+leading `-` on an argument is therefore not an unknown flag to these
+verbs, whose flags are all `--long`; it reaches the parser as an
+operand. The verbs take issues only: a `pull` URL is a usage error
+before any call, and a number that turns out to be a pull request
+aborts once read, naming it as one, because GitHub's issue endpoints
+accept a pull request's number and a verb must not act on one by
+accident.
 
 ## Skills
 
-Every verb addresses **one** issue, by number on GitHub or by key on
-Jira. Per-verb detail — flags, defaults, echo formats — lives in each
-skill's own `SKILL.md`.
+Every verb addresses **one** issue — an issue reference on GitHub, a
+key on Jira. Per-verb detail — flags, defaults, echo formats — lives in
+each skill's own `SKILL.md`.
 
 | Skill | What it does |
 | ------- | -------------- |
-| `/issue-create [<repo>]` | File a new issue with title, body, type, fields, parent, assignees and labels in one invocation, here or in another repo |
-| `/issue-view <N>` | Print one issue's body, project fields and every relationship in one shot |
-| `/issue-view-tree <N>` | Walk an issue tree downward through sub-issues, depth-capped at 5 |
-| `/issue-sub-list <parent-N>` | List a parent's direct sub-issues |
-| `/issue-update <N>` | Change a title, body, labels or assignees |
-| `/issue-comment <N> --body-file PATH` | Add a comment, body read from a file |
-| `/issue-close <N>` | Close an issue, optionally commenting first |
-| `/issue-set-status <N> <status>` | Set the status field on the issue's project item |
-| `/issue-set-priority <N> <value>` | Set the priority slot |
-| `/issue-set-size <N> <value>` | Set the size slot |
-| `/issue-set-type <N> <type>` | Set the issue type |
+| `/issue-create [<repo>] [--parent <issue>]` | File a new issue with title, body, type, fields, parent, assignees and labels in one invocation, here or in another repo |
+| `/issue-view <issue>` | Print one issue's body, project fields and every relationship in one shot |
+| `/issue-view-tree <issue>` | Walk an issue tree downward through sub-issues, depth-capped at 5 |
+| `/issue-sub-list <parent-issue>` | List a parent's direct sub-issues |
+| `/issue-update <issue>` | Change a title, body, labels or assignees |
+| `/issue-comment <issue> --body-file PATH` | Add a comment, body read from a file |
+| `/issue-close <issue>` | Close an issue, optionally commenting first |
+| `/issue-set-status <issue> <status>` | Set the status field on the issue's project item |
+| `/issue-set-priority <issue> <value>` | Set the priority slot |
+| `/issue-set-size <issue> <value>` | Set the size slot |
+| `/issue-set-type <issue> <type>` | Set the issue type |
 | `/issue-field-options [[<repo>] <slot>]`, `/issue-field-options [<repo>] --all` | Report a slot's configured kind, default and options, or every slot's with `--all` or with nothing named, here or for another repo |
-| `/issue-set-parent <child-N> <parent-N>` | Make one issue a sub-issue of another |
-| `/issue-set-child <parent-N> <child-N>` | The same edge, named from the parent's end |
-| `/issue-unset-parent <child-N>` | Detach an issue from its parent |
-| `/issue-unset-child <parent-N> <child-N>` | The same removal, named from the parent's end |
-| `/issue-set-blocked-by <issue> <blocker>` | Record that an issue is blocked |
-| `/issue-set-blocks <issue> <blocked>` | The same edge, named from the blocker's end |
-| `/issue-unset-blocked-by <issue> <blocker>` | Clear a blocked-by edge |
-| `/issue-unset-blocks <issue> <blocked>` | The same removal, named from the blocker's end |
+| `/issue-set-parent <child-issue> <parent-issue>` | Make one issue a sub-issue of another |
+| `/issue-set-child <parent-issue> <child-issue>` | The same edge, named from the parent's end |
+| `/issue-unset-parent <child-issue>` | Detach an issue from its parent |
+| `/issue-unset-child <parent-issue> <child-issue>` | The same removal, named from the parent's end |
+| `/issue-set-blocked-by <issue> <blocker-issue>` | Record that an issue is blocked |
+| `/issue-set-blocks <issue> <blocked-issue>` | The same edge, named from the blocker's end |
+| `/issue-unset-blocked-by <issue> <blocker-issue>` | Clear a blocked-by edge |
+| `/issue-unset-blocks <issue> <blocked-issue>` | The same removal, named from the blocker's end |
 | `/issues:repo-config` | Interview the repo's team-shared config into existence, or rewrite it whole |
 | `/issues:user-config` | Merge-update this user's private per-repo settings, and keep the file ignored |
 | `/issues:global-user-config` | Merge-update this user's machine-wide settings |
@@ -293,23 +332,26 @@ The two-verb pairs above are two views of **one** edge each, not two
 edges: users think about a link from either end, so the namespace lets
 them say it either way.
 
-An `<issue>`, `<blocker>` or `<blocked>` operand of a blocked-by verb
-is `N`, `#N`, or `<repository>#N` with the repository in any form the
-grammar above takes, so a blocked-by edge can join an issue in this
-repo to one filed in another GitHub repo, on this host or another —
-the case a grooming pass hits when the work an issue depends on belongs
-elsewhere. Nothing new is needed on the GitHub side for this: the
-mutation takes two node IDs, which are global, so an edge between
-repos is the same edge as one within a repo, and each verb resolves
-each operand in the repo it names. The form is GitHub-only, because a
-Jira key is already globally unique and needs no repo qualifier; under
-a Jira backend a `<repository>#N` operand aborts before any call is
-made.
+Every `<…issue>` operand, and `--parent`'s value, is an issue
+reference: `N` or `#N` for an issue here, `<repository>#N` with the
+repository in any form the grammar above takes, or the issue's
+`https://` URL. So a verb acts on an issue filed in another GitHub
+repo, on this host or another, and a relationship verb's two operands
+need not share a repo: a blocked-by or sub-issue edge can join an
+issue here to one elsewhere — the case a grooming pass hits when the
+work an issue depends on belongs elsewhere. Nothing new is needed on
+the GitHub side for this: each mutation takes node IDs, which are
+global, so an edge between repos is the same edge as one within a
+repo, and each verb resolves each operand in the repo it names, under
+that repo's own repo-config. The form is GitHub-only, because a Jira
+key is already globally unique and needs no repo qualifier; an operand
+whose repository is tracked in Jira aborts with the fixed Jira message
+before the issue is read, whatever tracker the checkout itself is on.
 
 ## What it deliberately does not do
 
 - **No search or list-the-backlog verb.** Every verb takes an issue
-  you already have the number of; a caller holding several loops.
+  you already have a reference to; a caller holding several loops.
 - **No branch, commit or PR handling.** Naming an issue's branch,
   opening its PR, and writing the closing keywords belong to
   `git-tools` and `github-prs`; the multi-issue orchestrator that

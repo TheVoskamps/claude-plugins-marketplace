@@ -85,7 +85,13 @@ a bare number for the checkout's own PR, a reference such as
 itself is owned by `skills/lib/pr-reference.md`. A malformed reference,
 an issue URL included, is a usage error before any `gh` call, so a
 caller that pasted the wrong link learns so without a network round
-trip.
+trip. The repository part is validated per part — an owner and a
+repository name by what GitHub allows each, a host by DNS's label
+rules — rather than by one character class over the whole path, so a
+repository name may start with `-` while an owner may not. The
+`issues` plugin's issue references carry the same repository grammar
+under the same rules, and plugins cannot share a file, so the parser
+exists once per plugin and a change to the grammar edits both.
 
 The **canonical reference** is `host/owner/repo#N`, taken from the
 PR's own URL rather than from `headRepository`: a fork PR's head
