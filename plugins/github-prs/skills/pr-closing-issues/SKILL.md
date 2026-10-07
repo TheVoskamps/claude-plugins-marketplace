@@ -54,10 +54,10 @@ configures.
    ```
 
    On exit 0 its stdout is the one-line report "Output" shows. Exit 2
-   is a usage error. Exit 3 means a `gh` call failed (e.g. the PR does
-   not exist), with gh's own error on stderr above the script's line:
-   surface it verbatim rather than inventing a replacement message, and
-   stop.
+   is a usage error. Exit 3 means a command the script ran failed, such
+   as the `gh` call for a PR that does not exist, with its own error on
+   stderr above the script's line: surface it verbatim rather than
+   inventing a replacement message, and stop.
 
 2. Relay the script's line as it stands, and nothing else: this skill
    applies no syntax of its own and makes no decision about whether the

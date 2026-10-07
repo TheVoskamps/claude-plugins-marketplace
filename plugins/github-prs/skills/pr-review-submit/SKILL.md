@@ -155,5 +155,5 @@ posted. A review someone else leaves in between fails that check.
   which. Report the failure rather than posting again.
 - **Exit 2** — a usage error, one of the refusals above; nothing was
   posted.
-- **Exit 3** — a `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
+- **Exit 3** — a command the script ran failed, such as a `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.

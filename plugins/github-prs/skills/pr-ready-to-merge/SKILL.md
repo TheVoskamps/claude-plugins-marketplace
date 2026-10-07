@@ -77,8 +77,8 @@ wrong.
   state — while stderr says the state is still uncomputed. Report
   either as a failure.
 - **Exit 2** — a usage error; nothing was read.
-- **Exit 3** — the `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
+- **Exit 3** — a command the script ran failed, such as the `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.
 
 `reviewDecision` is `(none)` when the base's rules require no review.
 Each check line names an entry of `statusCheckRollup` with the values it

@@ -8,7 +8,7 @@
 # The contract is plugins/github-prs/skills/pr-ready-to-merge/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR>"
@@ -83,7 +83,7 @@ esac
 # tag, indented under "<label>:", or "<label>: none" when there are none.
 check_list() {
   local lines
-  lines=$(printf '%s\n' "$report" | sed -n "s/^$1 /  /p")
+  lines=$(sed -n "s/^$1 /  /p" <<<"$report")
   if [ -n "$lines" ]; then
     printf '%s\n%s\n' "$2:" "$lines"
   else

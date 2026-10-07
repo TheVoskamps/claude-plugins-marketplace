@@ -6,7 +6,7 @@
 # The contract is plugins/github-prs/skills/pr-closing-issues/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR>"
@@ -19,7 +19,8 @@ body=$(gp_pr view --json body --jq .body) || exit $?
 closed=$(gp_closing_issues "$body") || exit $?
 
 if [ -n "$closed" ]; then
-  printf 'PR %s closes issues %s\n' "$GP_PR_NAME" "$(gp_joined "$closed")"
+  joined=$(gp_joined "$closed") || exit $?
+  printf 'PR %s closes issues %s\n' "$GP_PR_NAME" "$joined"
 else
   printf 'PR %s closes no issues\n' "$GP_PR_NAME"
 fi

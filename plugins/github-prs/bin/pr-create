@@ -13,7 +13,7 @@
 # The contract is plugins/github-prs/skills/pr-create/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM --head <branch> --title <title> --body-file <path> <issue>..."
@@ -28,7 +28,7 @@ usage() {
 # one verb that reads repo-config.
 config_value() {
   local root file value
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=.
+  root=$(git rev-parse --show-toplevel 2>/dev/null || exit) || root=.
   file="$root/.issues/repo-config.md"
   [ -f "$file" ] || gp_err_no_config
   value=$(awk -v key="$1" '
@@ -96,10 +96,9 @@ else
   wanted=$closing
 fi
 
-url=$(printf '%s\n' "$wanted" |
-  gp_gh pr create --draft --base "$base" --head "$head_ref" \
-    --title "$title" --body-file -) || exit $?
-url=$(printf '%s\n' "$url" | tail -n 1)
+url=$(gp_gh pr create --draft --base "$base" --head "$head_ref" \
+  --title "$title" --body-file - <<<"$wanted") || exit $?
+url=${url##*$'\n'}
 pr=${url##*/}
 case "$pr" in
   '' | *[!0-9]*) gp_err_no_pr_in_url "$url" ;;

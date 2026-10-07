@@ -8,7 +8,9 @@
 # A case that touches `noop` makes every mutation report success without
 # landing as asked -- a create opens a PR that is not a draft, a comment
 # carries other text, and every other mutation changes nothing -- which
-# is how a change that did not land is staged.
+# is how a change that did not land is staged. A fixture sourcing the
+# common helper, and a git that fails under pr-merge-conflicts, check that
+# a command no verb handles exits 3 wherever it fails.
 #
 # Needs jq and git on PATH. Reaches no network.
 #
@@ -54,9 +56,15 @@ printf '%s\n' "$*" >>"$S/calls"
 jq_expr=
 prev=
 body_file=
+query=
+paginate=
 for a in "$@"; do
   [ "$prev" = --jq ] && jq_expr=$a
   [ "$prev" = --body-file ] && body_file=$a
+  case "$prev $a" in
+    "-f query="*) query=${a#query=} ;;
+  esac
+  [ "$a" = --paginate ] && paginate=yes
   prev=$a
 done
 if [ "$body_file" = - ]; then
@@ -183,6 +191,31 @@ case "$1 $2" in
     fi
     ;;
   "api --paginate") val reviews.json '[]' | out ;;
+  "api graphql")
+    # A PR's files connection, a case's `files-count` files long and
+    # served 100 to a page, the file at index i being `dir/f<i>.txt`.
+    # As gh does, only --paginate over a query that pages on $endCursor
+    # and asks for pageInfo reaches past the first page, and --jq
+    # applies to every page.
+    case "$query" in
+      *'after: $endCursor'*'pageInfo { hasNextPage endCursor }'*) ;;
+      *) paginate= ;;
+    esac
+    total=$(val files-count 0)
+    start=0
+    while :; do
+      end=$((start + 100))
+      [ "$end" -le "$total" ] || end=$total
+      next=false
+      [ "$end" -lt "$total" ] && next=true
+      jq -n --argjson s "$start" --argjson e "$end" --argjson next "$next" \
+        '{data: {repository: {pullRequest: {files: {
+           nodes: [range($s; $e) | {path: "dir/f\(.).txt", additions: ., deletions: 1, changeType: "MODIFIED"}],
+           pageInfo: {hasNextPage: $next, endCursor: "c\($e)"}}}}}}' | out
+      [ -n "$paginate" ] && [ "$next" = true ] || break
+      start=$end
+    done
+    ;;
   "api repos/"*"/issues/comments/555")
     jq -n --arg body "$(cat "$S/comment-555")" '{body: $body}' | out
     ;;
@@ -392,6 +425,65 @@ echo "pr diff" >"$CASE/fail"
 run pr-diff 7
 check "$RC" "3" "pr-diff: a failed gh call exits 3"
 check_contains "$ERR" "stub gh: pr diff refused" "pr-diff: gh's error passes through verbatim"
+
+# --- pr-files ------------------------------------------------------------
+new_case files
+echo 250 >"$CASE/files-count"
+run pr-files 7
+check "$RC" "0" "pr-files: exit 0"
+check_contains "$(calls)" "api --hostname github.com graphql --paginate -f owner=o -f repo=r -F pr=7 -f query=" \
+  "pr-files: pages the GraphQL files connection of the current repository's PR, on its host"
+check "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" "250" "pr-files: prints every file of a PR with more than 100"
+check "$(printf '%s\n' "$OUT" | head -n 1)" "$(printf 'MODIFIED\t0\t1\tdir/f0.txt')" \
+  "pr-files: one changeType, additions, deletions and path line per file, tab-separated"
+check "$(printf '%s\n' "$OUT" | tail -n 1)" "$(printf 'MODIFIED\t249\t1\tdir/f249.txt')" \
+  "pr-files: the last page's last file is there"
+
+new_case files-other-repo
+echo 3 >"$CASE/files-count"
+echo ghe.example.com >"$CASE/api-host"
+run pr-files 'ghe.example.com/o2/r2#7'
+check "$RC" "0" "pr-files: exit 0 for a PR in another repository"
+check_contains "$(calls)" "api --hostname ghe.example.com graphql --paginate -f owner=o2 -f repo=r2 -F pr=7" \
+  "pr-files: asks the host, owner and repository the reference names"
+check "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" "3" "pr-files: prints that PR's files"
+
+new_case files-fails
+echo "api --hostname" >"$CASE/fail"
+run pr-files 7
+check "$RC" "3" "pr-files: a failed gh call exits 3"
+check_contains "$ERR" "pr-files: gh api graphql failed (exit 1)" "pr-files: the catalogue line names the failed call"
+
+new_case files-two-prs
+run pr-files 7 8
+check "$RC:$(calls)" "2:" "pr-files: more than one PR is a usage error that calls no gh"
+
+# --- the ERR trap ---------------------------------------------------------
+# A command a verb does not handle exits 3 with the catalogue line naming
+# it, never with the command's own status -- wherever it fails.
+cat >"$SANDBOX/trap-fixture" <<FIXTURE
+#!/usr/bin/env bash
+set -euo pipefail
+. "$BIN/lib/github-prs-common.sh"
+fails() { sh -c 'exit 7'; echo "the function went on"; }
+case "\$1" in
+  top) sh -c 'exit 7' ;;
+  function) fails ;;
+  substitution) out=\$(echo before; sh -c 'exit 7'; echo after) ;;
+  function-in-substitution) out=\$(fails) || exit \$? ;;
+esac
+echo "the script went on"
+FIXTURE
+for where in top function substitution function-in-substitution; do
+  new_case "trap-$where"
+  OUT=$(/bin/bash "$SANDBOX/trap-fixture" "$where" 2>"$CASE/stderr")
+  RC=$?
+  ERR=$(cat "$CASE/stderr")
+  check "$RC" "3" "ERR trap, failure $where: exits 3, not the command's 7"
+  check_contains "$ERR" "trap-fixture: \`sh -c 'exit 7'\` failed (exit 7)" \
+    "ERR trap, failure $where: the catalogue line names the failed command and its status"
+  check "$OUT" "" "ERR trap, failure $where: nothing after the failure runs"
+done
 
 # --- pr-closing-issues ---------------------------------------------------
 new_case closing
@@ -871,8 +963,10 @@ git -C "$SEED" push -q origin main feature clean unrelated
 git clone -q "$ORIGIN" "$CLONE"
 echo ".claude/" >"$CLONE/.git/info/exclude"
 
+# run_conflicts <args...> -- run pr-merge-conflicts from $CLONE, with a
+# case's own bin/ ahead of the stubs when it has one.
 run_conflicts() {
-  OUT=$(cd "$CLONE" && PATH="$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
+  OUT=$(cd "$CLONE" && PATH="$CASE/bin:$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
     /bin/bash "$BIN/pr-merge-conflicts" "$@" 2>"$CASE/stderr")
   RC=$?
   ERR=$(cat "$CASE/stderr")
@@ -893,6 +987,26 @@ check "$([ -e "$CLONE/.claude/worktrees/pr-merge-conflicts-7" ] && echo left || 
   "pr-merge-conflicts: the throwaway worktree is removed"
 check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" "pr-merge-conflicts: no worktree stays registered"
 check "$(git -C "$CLONE" status --porcelain)" "$before" "pr-merge-conflicts: the clone's status is unchanged"
+
+# A git whose per-file `diff` fails: a command the verb runs without
+# handling it, inside a loop, after the worktree exists.
+new_case conflicts-diff-fails
+echo feature >"$CASE/head"
+mkdir -p "$CASE/bin"
+cat >"$CASE/bin/git" <<STUB
+#!/usr/bin/env bash
+case " \$* " in
+  *' diff -- '*) echo "stub git: diff refused" >&2; exit 9 ;;
+esac
+exec "$(command -v git)" "\$@"
+STUB
+chmod +x "$CASE/bin/git"
+run_conflicts 7
+check "$RC" "3" "pr-merge-conflicts: an unhandled git failure exits 3, not git's 9"
+check_contains "$ERR" "pr-merge-conflicts: \`git -C \"\$tree\" diff -- \"\$file\"\` failed (exit 9)" \
+  "pr-merge-conflicts: the catalogue line names the failed git command"
+check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" \
+  "pr-merge-conflicts: the worktree is removed after an unhandled failure too"
 
 new_case conflicts-clean
 echo clean >"$CASE/head"

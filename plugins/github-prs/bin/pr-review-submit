@@ -10,7 +10,7 @@
 # The contract is plugins/github-prs/skills/pr-review-submit/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR> --verdict approve|request_changes|comment <body>"
@@ -89,19 +89,21 @@ wanted="$line
 $text"
 gp_resolve_host
 
-reviews_path=$(gp_repo_path "pulls/$GP_PR/reviews")
+reviews_path=$(gp_repo_path "pulls/$GP_PR/reviews") || exit $?
 # The id of the newest review on the PR, whoever left it, or nothing.
 newest_review() {
-  gp_gh api --paginate "$reviews_path" --jq '.[].id' | tail -n 1
+  local ids
+  ids=$(gp_gh api --paginate "$reviews_path" --jq '.[].id') || exit $?
+  printf '%s\n' "${ids##*$'\n'}"
 }
 
 before=$(newest_review) || exit $?
 rc=0
-# The subshell catches gp_gh's exit, and err holds gh's stderr followed by
-# gp_gh's own failure line, so the author refusal below is told apart by
-# gh's words and any other failure is reported as gp_gh worded it.
-err=$({ printf '%s\n' "$wanted" |
-  gp_pr review "$flag" --body-file - >/dev/null; } 2>&1) || rc=$?
+# The substitution catches gp_gh's exit, and err holds gh's stderr
+# followed by gp_gh's own failure line, so the author refusal below is
+# told apart by gh's words and any other failure is reported as gp_gh
+# worded it.
+err=$(gp_pr review "$flag" --body-file - <<<"$wanted" 2>&1 >/dev/null) || rc=$?
 if [ "$rc" -ne 0 ]; then
   if [ -z "$refusal" ] || [ "${err#*"$refusal"}" = "$err" ]; then
     printf '%s\n' "$err" >&2
@@ -111,7 +113,7 @@ if [ "$rc" -ne 0 ]; then
   # refused call left nothing on the PR, so the comment is the only review.
   flag=--comment
   state=COMMENTED
-  printf '%s\n' "$wanted" | gp_pr review "$flag" --body-file - >/dev/null
+  gp_pr review "$flag" --body-file - >/dev/null <<<"$wanted"
 fi
 after=$(newest_review) || exit $?
 
@@ -119,12 +121,16 @@ if [ -z "$after" ] || [ "$after" = "$before" ]; then
   gp_err_review_missing
 fi
 landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
-landed_state=$(printf '%s\n' "$landed" | head -n 1)
-landed_body=$(printf '%s\n' "$landed" | tail -n +2)
+landed_state=${landed%%$'\n'*}
+case "$landed" in
+  *$'\n'*) landed_body=${landed#*$'\n'} ;;
+  *) landed_body= ;;
+esac
 [ "$landed_state" = "$state" ] ||
   gp_err_review_state "$after" "$landed_state" "$state"
 [ "$landed_body" = "$wanted" ] ||
   gp_err_review_body "$after"
 
+state_word=$(gp_lc "$state") || exit $?
 printf 'PR %s: verdict %s, review state %s, body %s\n' \
-  "$GP_PR_NAME" "$verdict" "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')" "$form"
+  "$GP_PR_NAME" "$verdict" "$state_word" "$form"

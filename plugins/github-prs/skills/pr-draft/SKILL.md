@@ -39,5 +39,5 @@ so the script is safe to run more than once.
 - **Exit 1** — the conversion did not land: the re-read still shows
   the PR ready. Stderr says so; report it.
 - **Exit 2** — a usage error; nothing was sent to GitHub.
-- **Exit 3** — the `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
+- **Exit 3** — a command the script ran failed, such as the `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.

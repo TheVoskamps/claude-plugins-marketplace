@@ -6,7 +6,7 @@
 # The contract is plugins/github-prs/skills/pr-diff/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR>"

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# pr-files -- print every file a pull request changes, one
+# `<changeType>\t<additions>\t<deletions>\t<path>` line each, in the
+# order GitHub lists them. `gh pr view --json files` stops at the first
+# 100, so this pages through the GraphQL connection until GitHub reports
+# no next page. Read-only.
+#
+# The contract is plugins/github-prs/skills/pr-files/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
+
+usage() {
+  echo "usage: $GP_PROGRAM <PR>"
+}
+
+[ "$#" -eq 1 ] || gp_err_one_pr
+gp_parse_pr "$1"
+gp_resolve_host
+if [ -n "$GP_REPO_ARG" ]; then
+  owner=$GP_OWNER
+  repo=$GP_REPO
+else
+  gp_current_repo
+  owner=$GP_CUR_OWNER
+  repo=$GP_CUR_REPO
+fi
+
+# `--paginate` feeds each page's endCursor back as $endCursor until
+# pageInfo.hasNextPage is false, and applies --jq to every page.
+# shellcheck disable=SC2016 # the $-names are GraphQL variables
+query='query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      files(first: 100, after: $endCursor) {
+        nodes { path additions deletions changeType }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}'
+
+gp_gh api graphql --paginate -f owner="$owner" -f repo="$repo" -F pr="$GP_PR" \
+  -f query="$query" \
+  --jq '.data.repository.pullRequest.files.nodes[] | "\(.changeType)\t\(.additions)\t\(.deletions)\t\(.path)"'

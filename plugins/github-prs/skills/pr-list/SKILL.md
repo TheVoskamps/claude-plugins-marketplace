@@ -38,5 +38,5 @@ pr-list --head <branch> [--state <state>]
   means no PR matched, which is a normal outcome rather than an error.
 - **Exit 2** — a usage error, such as a missing `--head` or an unknown
   state; nothing was read.
-- **Exit 3** — the `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
+- **Exit 3** — a command the script ran failed, such as the `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.

@@ -14,11 +14,35 @@
 #   1  the verb's own negative outcome: a change that did not land on
 #      the re-read, a PR that is not open, a merge state still UNKNOWN
 #   2  a usage error; nothing was sent to GitHub
-#   3  a `gh` or `git` call failed; the tool's own stderr is passed
+#   3  a command the verb ran failed; the tool's own stderr is passed
 #      through above the catalogue line
 #   4  .issues/repo-config.md is missing or lacks a key the verb reads
+#
+# Exit 3 covers a failure the verb does not handle as well as one it
+# does: the ERR trap below, which `set -E` passes to every function,
+# command substitution and pipeline element, turns any failed command
+# into gp_err_command's catalogue line and exit 3, so no verb exits with
+# a wrapped tool's own status. Under bash 3.2 the trap cannot see a
+# failure in these, so no verb uses them:
+#   - a command substitution anywhere but as the whole right-hand side
+#     of a plain `name=$(...)` assignment -- not in an argument, a test,
+#     a `for` or `case` word, a here-document, or `local name=$(...)`;
+#   - a `( ... )` subshell, or a `<( ... )` process substitution;
+#   - a function called as a condition (`if f`, `f ||`, `! f`), unless
+#     every command in it handles its own failure;
+#   - `|| exit $?` after an external command, which hands the verb that
+#     command's own status as a condition the trap never sees fail.
+# Inside a command substitution the trap runs in the substitution's own
+# shell, and prints there. A substitution whose failure the verb handles
+# -- a fallback, or an `if` -- therefore ends in `|| exit` inside it, so
+# its command fails as a condition and the trap stays quiet; one that
+# calls a function ends in `|| exit $?` outside it, so the status the
+# function's catalogue entry chose is the verb's.
 
 GP_PROGRAM=${0##*/}
+
+set -E
+trap 'gp_err_command "$BASH_COMMAND" "$?"' ERR
 
 # gp_fail <status> <message> -- print <message>, prefixed with the
 # verb's name, and exit with <status>.
@@ -216,12 +240,23 @@ gp_parse_pr() {
 # built from them lowercases them first.
 gp_lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
-# gp_names_other_repo -- succeed when gp_parse_pr's reference named a
-# repository other than the current one, compared through gp_lc.
-gp_names_other_repo() {
-  [ -n "$GP_REPO_ARG" ] || return 1
+# gp_check_other_repo -- set GP_OTHER_REPO to `yes` when gp_parse_pr's
+# reference named a repository other than the current one, compared
+# through gp_lc, and to nothing otherwise. It sets a variable rather
+# than returning a status because a function called as a condition runs
+# outside the ERR trap.
+GP_OTHER_REPO=
+gp_check_other_repo() {
+  local named current
+  GP_OTHER_REPO=
+  [ -n "$GP_REPO_ARG" ] || return 0
   gp_current_repo
-  [ "$(gp_lc "$GP_REPO_ARG")" != "$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO")" ]
+  named=$(gp_lc "$GP_REPO_ARG") || exit $?
+  current=$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO") || exit $?
+  if [ "$named" != "$current" ]; then
+    # shellcheck disable=SC2034 # read by the verb that calls this
+    GP_OTHER_REPO=yes
+  fi
 }
 
 # gp_pr <subcommand> <args...> -- `gh pr <subcommand> <PR> <args...>`
@@ -275,7 +310,7 @@ gp_joined() {
 gp_closing_issues() {
   local rest want='' ref n kw='close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved'
   local re="(^|[^a-z0-9_])($kw):?[[:space:]]+(https://([^[:space:]/]+/[^[:space:]/]+/[^[:space:]/]+)/issues/([0-9]+)|(([a-z0-9._-]+/){0,2}[a-z0-9._-]+)?#([0-9]+))([^a-z0-9_]|$)"
-  rest=$(gp_lc "$1")
+  rest=$(gp_lc "$1") || exit $?
   # A match is context-free once it carries the character after the
   # reference, so its first occurrence is where it matched; one that
   # ends at the end of the text has nothing after it to scan.
@@ -295,10 +330,10 @@ gp_closing_issues() {
     if [ -n "$ref" ]; then
       if [ -z "$want" ]; then
         if [ -n "$GP_REPO_ARG" ]; then
-          want=$(gp_lc "$GP_HOST/$GP_OWNER/$GP_REPO")
+          want=$(gp_lc "$GP_HOST/$GP_OWNER/$GP_REPO") || exit $?
         else
           gp_current_repo
-          want=$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO")
+          want=$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO") || exit $?
         fi
       fi
       case "$ref" in
@@ -421,7 +456,10 @@ gp_err_review_body() {
   gp_not_landed "the review" "review $1's body is not the body written"
 }
 
-# Exit 3: a gh or git call failed.
+# Exit 3: a command the verb ran failed.
+# gp_err_command <command> <its exit status> -- the ERR trap's entry,
+# for a failure the verb did not handle.
+gp_err_command() { gp_fail 3 "\`$1\` failed (exit $2)"; }
 # gp_err_gh <gh subcommand> <gh's exit status>
 gp_err_gh() { gp_fail 3 "gh $1 failed (exit $2)"; }
 # gp_err_git <the git call, as the message names it>
