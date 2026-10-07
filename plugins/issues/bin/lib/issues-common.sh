@@ -648,8 +648,8 @@ iss_init() {
 
 # iss_peek_link_prefix: set ISS_LINK_PREFIX from the current repo-config's
 # front matter without iss_load_config's checks, so that iss_names_repo can
-# tell a prefixed N apart before any repo-config is gated on; # when the file
-# or the key is absent.
+# tell a prefixed N apart before any repo-config is gated on. It is '#' when
+# the file or the key is absent.
 iss_peek_link_prefix() {
   local fm
   ISS_LINK_PREFIX='#'
@@ -805,9 +805,9 @@ iss_operand() {
 # current repository's is read with iss_load_config. Any other repository's
 # is read with iss_load_target_config, aborting wherever that does: on a
 # repo-config it cannot read or that fails validation, and with the fixed Jira
-# message under issues: Jira. A repository with no repo-config passes. That
-# read runs in a subshell, so the repo-config the verb itself reads is left as
-# it was.
+# message under issues: Jira. That read runs in a subshell, so the repo-config
+# the verb itself reads is left as it was. A repository it finds no repo-config
+# in passes; iss_load_config instead aborts on a missing one.
 iss_check_repo() {
   if [ "$#" -eq 6 ]; then
     iss_same_repo "$@" && return 0
