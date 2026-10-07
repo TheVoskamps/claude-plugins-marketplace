@@ -33,7 +33,7 @@ while [ "$#" -gt 0 ]; do
     --repo)
       iss_usage_die "\`--repo\` is not an issue-create flag; name the repository as the first argument: issue-create <repo> --title \"...\" --body-file PATH"
       ;;
-    -*) iss_usage_die "$usage" ;;
+    --*) iss_usage_die "$usage" ;;
     *)
       [ "$target_set" = no ] || iss_usage_die "$usage"
       target=$1

@@ -17,7 +17,7 @@ while [ "$#" -gt 0 ]; do
       has_comment=yes
       shift 2
       ;;
-    -*) iss_usage_die "$usage" ;;
+    --*) iss_usage_die "$usage" ;;
     *)
       [ -z "$number_arg" ] || iss_usage_die "$usage"
       number_arg=$1

@@ -15,7 +15,7 @@ while [ "$#" -gt 0 ]; do
       body_file=$2
       shift 2
       ;;
-    -*) iss_usage_die "$usage" ;;
+    --*) iss_usage_die "$usage" ;;
     *)
       [ -z "$number_arg" ] || iss_usage_die "$usage"
       number_arg=$1

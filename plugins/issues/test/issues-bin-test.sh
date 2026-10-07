@@ -739,6 +739,34 @@ expect "issue-set-blocked-by: a non-numeric issue part is a usage error" 2 \
 run issue-set-blocked-by 4 'a/b/c/d#3'
 expect "issue-set-blocked-by: a malformed repository part is a usage error" 2 "\`a/b/c/d\` is not a repository"
 
+# Every flag is a --long one, so an argument with a single leading - is an
+# operand, and the parser accepts or refuses it.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+for verb in issue-close issue-comment issue-update; do
+  case "$verb" in
+    issue-comment) set -- --body-file new.md ;;
+    issue-update) set -- --title x ;;
+    *) set -- ;;
+  esac
+  run "$verb" -7 "$@"
+  expect "$verb: a single-dash operand reaches the parser" 2 "\`-7\` is not an issue reference"
+  run "$verb" -a/b#7 "$@"
+  expect "$verb: a single-dash repository part reaches the parser" 2 "\`-a/b\` is not a repository"
+  run "$verb" 2 --bogus "$@"
+  expect "$verb: an unknown --flag is a usage error" 2 "usage: $verb"
+done
+run issue-create -a/b --title x --body-file new.md
+expect "issue-create: a single-dash repository reaches the parser" 2 "\`-a/b\` is not a repository"
+run issue-create --bogus --title x --body-file new.md
+expect "issue-create: an unknown --flag is a usage error" 2 "usage: issue-create"
+run issue-field-options -a/b status
+expect "issue-field-options: a single-dash repository reaches the parser" 2 "\`-a/b\` is not a repository"
+run issue-field-options -a/b --all
+expect "issue-field-options --all: a single-dash repository reaches the parser" 2 "\`-a/b\` is not a repository"
+run issue-field-options --bogus
+expect "issue-field-options: an unknown --flag is a usage error" 2 "usage: issue-field-options"
+
 # ---------------------------------------------------------------------------
 # Every verb takes an issue in another repository, in each operand form.
 # ---------------------------------------------------------------------------
