@@ -374,11 +374,14 @@ against the tracker block:
 
 #### Issue operands
 
-An issue operand that names a repository — every form "Repositories
-and issue references" lists but `N` and `#N` — is GitHub-only, because
-a Jira key is already globally unique: under `issues: Jira` it aborts
-with the "Cross-repo operand under Jira" wording below, before the
-"Preconditions" run and so before any `acli` call.
+This path acts only on issues of the current repository, the one whose
+`jira:` block it reads: an operand naming that repository in any form
+"Repositories and issue references" lists is issue `N` there, normalized
+as "Preconditions" step 3 says. An operand in another repository is
+governed by that repository's repo-config, never by this one's, so this
+path cannot act on it: it aborts with the "Operand in another
+repository" wording below, before the "Preconditions" run and so before
+any `acli` call.
 
 #### One edge, two sides
 
@@ -585,9 +588,10 @@ scripts emit. Variable parts are in backticks.
 
   > issue `<KEY>` not found in project `<project-key>`
 
-- **Cross-repo operand under Jira**
+- **Operand in another repository**
 
-  > `owner/repo#N` operands are GitHub-only
+  > `<operand>` is in another repository, which this repo's `jira:`
+  > block does not govern
 
 - **Slot value not in options map**
 
