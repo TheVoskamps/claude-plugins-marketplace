@@ -123,6 +123,10 @@ gp_parse_pr() {
     *'#'*)
       repo=${ref%'#'*}
       n=${ref##*'#'}
+      # A repository part opening with a dash is refused: no owner or
+      # host may open with one, and a lone repository name is held to
+      # the same rule.
+      case "$repo" in -*) gp_err_not_pr_ref "$ref" ;; esac
       ;;
     *)
       repo=

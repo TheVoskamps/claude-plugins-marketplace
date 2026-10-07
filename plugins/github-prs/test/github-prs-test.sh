@@ -314,7 +314,7 @@ check_contains "$ERR" "pr-diff: \`https://ghe.example.com/o2/r2/issues/7\` is no
   "reference issue URL: the usage error names the accepted forms"
 check "$(calls)" "" "reference issue URL: calls no gh"
 
-for bad in 'h/o/r/x#7' 'o/r#' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
+for bad in 'h/o/r/x#7' 'o/r#' '-o/r#7' '-r#7' '-h/o/r#7' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
   new_case "ref-malformed-$(printf '%s' "$bad" | tr -c 'A-Za-z0-9' '_')"
   run pr-diff "$bad"
   check "$RC:$(calls)" "2:" "reference \`$bad\`: a usage error that calls no gh"
