@@ -887,24 +887,29 @@ readonly ISS_DOC_REMOVE_BLOCKED_BY="mutation(\$issueId: ID!, \$blockingIssueId: 
   removeBlockedBy(input: { issueId: \$issueId, blockingIssueId: \$blockingIssueId }) { issue { id } }
 }"
 
-# The issues-discover lookups: an owner's boards, one board, one board's
-# fields, and a repository's native issue fields and issue types. Each paged
-# connection reads the page after $after.
-ISS_DOC_DISCOVER_PROJECTS="query(\$owner: String!, \$after: String) {
+# The issues-discover lookups, each printing its document: an owner's boards,
+# one board, one board's fields, and a repository's native issue fields and
+# issue types. Each paged connection reads the page after $after.
+iss_doc_discover_projects() {
+  printf '%s' "query(\$owner: String!, \$after: String) {
   repositoryOwner(login: \$owner) {
     ... on ProjectV2Owner {
       projectsV2(first: $ISS_PAGE_SIZE, after: \$after) { pageInfo { hasNextPage endCursor } nodes { number title id } }
     }
   }
 }"
+}
 
-ISS_DOC_DISCOVER_PROJECT="query(\$owner: String!, \$number: Int!) {
+iss_doc_discover_project() {
+  printf '%s' "query(\$owner: String!, \$number: Int!) {
   repositoryOwner(login: \$owner) {
     ... on ProjectV2Owner { projectV2(number: \$number) { number title id } }
   }
 }"
+}
 
-ISS_DOC_DISCOVER_FIELDS="query(\$owner: String!, \$number: Int!, \$after: String) {
+iss_doc_discover_fields() {
+  printf '%s' "query(\$owner: String!, \$number: Int!, \$after: String) {
   repositoryOwner(login: \$owner) {
     ... on ProjectV2Owner {
       projectV2(number: \$number) {
@@ -920,8 +925,10 @@ ISS_DOC_DISCOVER_FIELDS="query(\$owner: String!, \$number: Int!, \$after: String
     }
   }
 }"
+}
 
-ISS_DOC_DISCOVER_ISSUE_FIELDS="query(\$owner: String!, \$repo: String!, \$after: String) {
+iss_doc_discover_issue_fields() {
+  printf '%s' "query(\$owner: String!, \$repo: String!, \$after: String) {
   repository(owner: \$owner, name: \$repo) {
     issueFields(first: $ISS_PAGE_SIZE, after: \$after) {
       pageInfo { hasNextPage endCursor }
@@ -933,15 +940,15 @@ ISS_DOC_DISCOVER_ISSUE_FIELDS="query(\$owner: String!, \$repo: String!, \$after:
     }
   }
 }"
+}
 
-ISS_DOC_DISCOVER_ISSUE_TYPES="query(\$owner: String!, \$repo: String!, \$after: String) {
+iss_doc_discover_issue_types() {
+  printf '%s' "query(\$owner: String!, \$repo: String!, \$after: String) {
   repository(owner: \$owner, name: \$repo) {
     issueTypes(first: $ISS_PAGE_SIZE, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id name isEnabled } }
   }
 }"
-# shellcheck disable=SC2034 # read only by a script that sources this file
-readonly ISS_DOC_DISCOVER_PROJECTS ISS_DOC_DISCOVER_PROJECT ISS_DOC_DISCOVER_FIELDS \
-  ISS_DOC_DISCOVER_ISSUE_FIELDS ISS_DOC_DISCOVER_ISSUE_TYPES
+}
 
 # ---------------------------------------------------------------------------
 # Set-slot. One routine serves /issue-set-priority, /issue-set-size,

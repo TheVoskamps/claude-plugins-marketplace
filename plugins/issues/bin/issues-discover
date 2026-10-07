@@ -81,27 +81,27 @@ disc_nodes() {
 
 case "$1" in
   projects)
-    disc_nodes "$ISS_DOC_DISCOVER_PROJECTS" .data.repositoryOwner.projectsV2 -f owner="$ISS_OWNER" || disc_fail
+    disc_nodes "$(iss_doc_discover_projects)" .data.repositoryOwner.projectsV2 -f owner="$ISS_OWNER" || disc_fail
     # Every repository owner is a ProjectV2Owner, so a null connection is an
     # owner the host does not resolve.
     [ "$DISC_NODES" != null ] || iss_die "no owner \`$ISS_OWNER\` on \`$ISS_HOST\`"
     printf '%s\n' "$DISC_NODES"
     ;;
   project)
-    iss_gql "$ISS_HOST" -f query="$ISS_DOC_DISCOVER_PROJECT" -f owner="$ISS_OWNER" -F number="$2" || disc_fail
+    iss_gql "$ISS_HOST" -f query="$(iss_doc_discover_project)" -f owner="$ISS_OWNER" -F number="$2" || disc_fail
     out=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repositoryOwner.projectV2')
     [ "$out" != null ] || iss_die "no project \`$2\` under \`$ISS_OWNER\` on \`$ISS_HOST\`"
     printf '%s\n' "$out"
     ;;
   fields)
-    disc_nodes "$ISS_DOC_DISCOVER_FIELDS" .data.repositoryOwner.projectV2.fields \
+    disc_nodes "$(iss_doc_discover_fields)" .data.repositoryOwner.projectV2.fields \
       -f owner="$ISS_OWNER" -F number="$2" || disc_fail
     [ "$DISC_NODES" != null ] || iss_die "no project \`$2\` under \`$ISS_OWNER\` on \`$ISS_HOST\`"
     printf '%s\n' "$DISC_NODES" | jq -c '[.[] | select(.dataType == "NUMBER" or .dataType == "SINGLE_SELECT")
       | if .dataType == "SINGLE_SELECT" then {id, name, dataType, options} else {id, name, dataType} end]'
     ;;
   issue-fields)
-    if ! disc_nodes "$ISS_DOC_DISCOVER_ISSUE_FIELDS" .data.repository.issueFields \
+    if ! disc_nodes "$(iss_doc_discover_issue_fields)" .data.repository.issueFields \
       -f owner="$ISS_OWNER" -f repo="$ISS_REPO"; then
       case "$ISS_GQL_ERR $ISS_GQL_OUT" in
         *issueFields*"doesn't exist"*|*undefinedField*|*IssueField*"No such type"*|*"No such type"*IssueField*|*undefinedType*)
@@ -121,7 +121,7 @@ case "$1" in
     printf '%s\n' "$out"
     ;;
   issue-types)
-    disc_nodes "$ISS_DOC_DISCOVER_ISSUE_TYPES" .data.repository.issueTypes \
+    disc_nodes "$(iss_doc_discover_issue_types)" .data.repository.issueTypes \
       -f owner="$ISS_OWNER" -f repo="$ISS_REPO" || disc_fail
     [ "$DISC_NODES" != null ] || ! disc_repo_null || iss_err_repo_not_found "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"
     printf '%s\n' "$DISC_NODES" | jq -c '[(. // [])[] | select(.isEnabled == true) | {id, name}]'

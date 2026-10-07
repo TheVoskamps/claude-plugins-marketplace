@@ -612,6 +612,9 @@ ask the user whether to:
 - `Skip issue-types` — omit the `issue-types:` sub-block entirely.
 - `Other` — manually enter `Name: IT_...` pairs.
 
+A non-zero exit is non-fatal too: note its stderr to the user, then
+offer the same two choices as for an empty array.
+
 Ask the user which type should be the **default**. Recommend the
 carried-over `issue-types.default` (parsed in Step 2) if present in
 the enumerated list; otherwise, in order: `Feature` (if present,
