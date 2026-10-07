@@ -1,6 +1,6 @@
 ---
 name: pr-closing-issues
-description: Report the set of issues a GitHub pull request's body closes, by relaying the line the bundled script prints. The way every skill and agent outside github-prs reads a body's closing set.
+description: Report the set of issues a GitHub pull request's body closes, by relaying the line the bundled script prints. The parse is gp_closing_issues, shared by the pr-closing-issues and pr-link-issue scripts; every skill and agent outside github-prs reads a body's closing set by invoking this skill.
 ---
 
 # PR Closing Issues
