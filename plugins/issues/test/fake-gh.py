@@ -222,7 +222,7 @@ def graphql(state, host, args):
                     return
         fail("Could not resolve to a node with the global id of '%s'" % fields["item"])
 
-    if not mutation and re.search(r"\b(repositoryOwner|viewer|issueFields|issueTypes)\b", query):
+    if not mutation and re.search(r"\b(repositoryOwner|issueFields|issueTypes)\b", query):
         discovery(state, host, query, fields)
         return
 
@@ -319,17 +319,13 @@ def login_on(state, host):
 
 def discovery(state, host, query, fields):
     """The issues-discover lookups: an owner's boards and one board's fields
-    through repositoryOwner, a repo's native issue fields and issue types, and
-    the viewer. An owner's "projects" live in state["owners"], on its own
+    through repositoryOwner, and a repo's native issue fields and issue
+    types. An owner's "projects" live in state["owners"], on its own
     "host" (github.com when absent); a host listed in state["scopeless"] has a
     token without read:project, so any board query there fails as GitHub
     fails it. A repo's "issueFields" or "issueTypes" of "absent" stands for a
     schema without that field, which fails the query, and null for a null
     connection."""
-    if re.search(r"\bviewer\b", query):
-        print(json.dumps({"data": {"viewer": {"login": login_on(state, host)}}}))
-        return
-
     if "repositoryOwner" in query:
         if host in state.get("scopeless", []):
             message = ("Your token has not been granted the required scopes to execute this query. The 'projectsV2' "

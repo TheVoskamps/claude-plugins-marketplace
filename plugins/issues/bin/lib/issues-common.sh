@@ -124,6 +124,11 @@ iss_err_write_not_landed() {
   iss_die "the write did not land: $1 on issue \`$2\` should read \`$3\`, but a re-read shows \`$4\`"
 }
 
+iss_err_missing_scope() {
+  # $1 host, $2 scope, $3 gh's error
+  iss_die "the gh token for \`$1\` lacks the \`$2\` scope this lookup needs: $3"
+}
+
 iss_err_user_config_absent() {
   iss_die "\`$1\` predates user-config schema versioning. Run \`$2\` to migrate."
 }
@@ -877,6 +882,62 @@ readonly ISS_DOC_REMOVE_BLOCKED_BY="mutation(\$issueId: ID!, \$blockingIssueId: 
   removeBlockedBy(input: { issueId: \$issueId, blockingIssueId: \$blockingIssueId }) { issue { id } }
 }"
 
+# The issues-discover lookups: an owner's boards, one board, one board's
+# fields, and a repository's native issue fields and issue types. Each paged
+# connection reads the page after $after.
+ISS_DOC_DISCOVER_PROJECTS="query(\$owner: String!, \$after: String) {
+  repositoryOwner(login: \$owner) {
+    ... on ProjectV2Owner {
+      projectsV2(first: $ISS_PAGE_SIZE, after: \$after) { pageInfo { hasNextPage endCursor } nodes { number title id } }
+    }
+  }
+}"
+
+ISS_DOC_DISCOVER_PROJECT="query(\$owner: String!, \$number: Int!) {
+  repositoryOwner(login: \$owner) {
+    ... on ProjectV2Owner { projectV2(number: \$number) { number title id } }
+  }
+}"
+
+ISS_DOC_DISCOVER_FIELDS="query(\$owner: String!, \$number: Int!, \$after: String) {
+  repositoryOwner(login: \$owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: \$number) {
+        fields(first: $ISS_PAGE_SIZE, after: \$after) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            ... on ProjectV2Field             { id name dataType }
+            ... on ProjectV2SingleSelectField { id name dataType options { id name } }
+            ... on ProjectV2IterationField    { id name dataType }
+          }
+        }
+      }
+    }
+  }
+}"
+
+ISS_DOC_DISCOVER_ISSUE_FIELDS="query(\$owner: String!, \$repo: String!, \$after: String) {
+  repository(owner: \$owner, name: \$repo) {
+    issueFields(first: $ISS_PAGE_SIZE, after: \$after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        __typename
+        ... on IssueFieldCommon { name dataType }
+        ... on IssueFieldSingleSelect { id options { id name } }
+      }
+    }
+  }
+}"
+
+ISS_DOC_DISCOVER_ISSUE_TYPES="query(\$owner: String!, \$repo: String!, \$after: String) {
+  repository(owner: \$owner, name: \$repo) {
+    issueTypes(first: $ISS_PAGE_SIZE, after: \$after) { pageInfo { hasNextPage endCursor } nodes { id name isEnabled } }
+  }
+}"
+# shellcheck disable=SC2034 # read only by a script that sources this file
+readonly ISS_DOC_DISCOVER_PROJECTS ISS_DOC_DISCOVER_PROJECT ISS_DOC_DISCOVER_FIELDS \
+  ISS_DOC_DISCOVER_ISSUE_FIELDS ISS_DOC_DISCOVER_ISSUE_TYPES
+
 # ---------------------------------------------------------------------------
 # Set-slot. One routine serves /issue-set-priority, /issue-set-size,
 # /issue-set-status and /issue-create's slot flags.
@@ -1244,5 +1305,15 @@ iss_default_assignee() {
     printf '%s' "$v"
     return 0
   fi
-  iss_rest "$host" user --jq .login || iss_die "could not resolve the authenticated GitHub user${host:+ on \`$host\`}"
+  iss_viewer_login "$host"
+}
+
+# iss_viewer_login <host>: print the login of the user gh is authenticated as
+# on <host>. Callers run it in a command substitution and exit on a non-zero
+# status, which is an abort already reported on stderr.
+iss_viewer_login() {
+  local login
+  { login=$(iss_rest "$1" user --jq .login) && [ -n "$login" ]; } ||
+    iss_die "could not resolve the authenticated GitHub user${1:+ on \`$1\`}"
+  printf '%s' "$login"
 }

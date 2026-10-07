@@ -1025,6 +1025,12 @@ expect "issues-discover: an unknown board" 1 "no project \`9\` under \`acme\` on
 run issues-discover fields 9
 expect "issues-discover: fields of an unknown board" 1 "no project \`9\` under \`acme\` on \`github.com\`"
 
+# An owner the host does not resolve is a failure, not an owner with no boards.
+new_case none
+jq '.owners = {}' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issues-discover projects
+expect "issues-discover: projects of an owner the host does not resolve" 1 "no owner \`acme\` on \`github.com\`"
+
 # issue-fields prints [] with a note when the repo has none to offer.
 for variant in null '[]' '"absent"'; do
   new_case none

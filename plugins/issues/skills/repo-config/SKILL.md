@@ -313,21 +313,15 @@ different slot (e.g. `effort`) has no supported path to add one today.
 #### 3b.3.a — Enumerate project fields once
 
 Before asking about any slot, enumerate the project's fields a single
-time and keep the result in memory for the per-slot loop below. The
-goal is one unified list of `(id, name, kind, options?)` tuples where
-`kind` is one of `number` or `single-select` — the only two kinds that
-correspond to project fields. Iteration, text, date, and built-in
-fields (Title, Assignees, Labels, Milestone, etc.) are filtered out:
-they are not surfaceable as slot backings.
+time and keep the result in memory for the per-slot loop below.
 
 ```bash
 issues-discover fields <project-number>
 ```
 
-It prints a JSON array of the board's number and single-select fields
-only, each `{ id, name, dataType }` with `options` added on a
-single-select one; every other field is already filtered out. From it,
-build two lists for the per-slot loop:
+It prints a JSON array of the fields a slot can be backed by, each
+`{ id, name, dataType }` with `options` added on a single-select one.
+From it, build two lists for the per-slot loop:
 
 - **Number fields**: every entry with `dataType == "NUMBER"`. Capture
   `id` (`PVTF_...`) and `name`. No options.
@@ -350,22 +344,18 @@ repository, not the project:
 issues-discover issue-fields
 ```
 
-The `kind: issue-field` backing consumes the **single-select** native
-fields only, and the script prints just those: a JSON array of
-`{ id, name, options }`, with an `IFSS_...` field `id` and each option
-an `{ id, name }` carrying an `IFSSO_...` ID. GitHub ships two such
-single-select native fields today — `Priority` (options `Urgent` /
-`High` / `Medium` / `Low`), the `priority`-slot backing, and `Effort`
-(options `High` / `Medium` / `Low`), the `size`-slot backing — so both
-are surfaced by this enumeration and offered to the matching slot in
-the per-slot loop. Native fields of the other data-types (date, number,
-text, multi-select) have no slot kind yet and are not printed.
+It prints a JSON array of the native fields a `kind: issue-field`
+slot can be backed by, each `{ id, name, options }`, with an
+`IFSS_...` field `id` and each option an `{ id, name }` carrying an
+`IFSSO_...` ID. GitHub ships two such native fields today —
+`Priority` (options `Urgent` / `High` / `Medium` / `Low`), the
+`priority`-slot backing, and `Effort` (options `High` / `Medium` /
+`Low`), the `size`-slot backing — so both are offered to the matching
+slot in the per-slot loop.
 
 An empty array means there are no `issue-field` options to offer in
-the per-slot loop — skip that option. The script prints one when the
-preview is not enabled for this repo, when it defines no single-select
-native field, and when the host's schema has no native issue fields at
-all, each with a note on stderr; pass that note on to the user. Any other
+the per-slot loop — skip that option. When the script prints one, it
+explains why in a note on stderr; pass that note on to the user. Any other
 non-zero exit is also non-fatal: proceed without the `issue-field`
 option and note the error to the user.
 
@@ -613,9 +603,8 @@ issues-discover issue-types
 ```
 
 It prints a JSON array of the repository's enabled issue types, each
-`{ id, name }`; disabled types are already filtered out. Each one
-contributes `<Name>: <id>` to the `issue-types:` map (preserve the
-capitalization GitHub returns).
+`{ id, name }`. Each one contributes `<Name>: <id>` to the
+`issue-types:` map (preserve the capitalization GitHub returns).
 
 If it prints an empty array (older repos without issue types enabled),
 ask the user whether to:

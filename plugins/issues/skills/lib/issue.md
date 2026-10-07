@@ -90,9 +90,8 @@ The read resolves **two sections**:
    ```
 
    The IDs shown are illustrative. Per-repo IDs are populated by
-   `/repo-config` (which discovers them via `gh project list`,
-   `gh project field-list`, and a GraphQL query for issue types) and
-   are stable for the life of the project board.
+   `/repo-config` (which discovers them with the `issues-discover`
+   script) and are stable for the life of the project board.
 
 ### Field kinds (`fields.<slot>.kind`)
 
