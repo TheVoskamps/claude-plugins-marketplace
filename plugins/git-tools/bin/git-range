@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+#
+# git-range -- fetch origin once, check that a branch on origin still
+# points at the head a caller is about to read, then print the merge
+# base of that head with a base branch and the head's own commits that
+# have no patch-equivalent in a previous head. Read-only apart from the
+# fetch.
+#
+# The contract is plugins/git-tools/skills/git-range/SKILL.md.
+#
+# Exit statuses:
+#   0  the range is on stdout
+#   1  a command failed, or a ref or commit the range needs is missing;
+#      stderr names it
+#   2  a usage error; nothing was run
+#   3  origin/<head-ref> is not --head; stdout is empty
+set -euo pipefail
+
+PROGRAM=${0##*/}
+
+# fail <status> <message> -- print <message>, prefixed with the
+# program's name, and exit with <status>.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+usage() {
+  echo "usage: $PROGRAM --base <base-ref> --head-ref <head-ref> --head <sha> [--prev-head <sha>]"
+}
+
+usage_error() {
+  printf '%s: %s\n' "$PROGRAM" "$1" >&2
+  usage >&2
+  exit 2
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command, never with git's own status. `set -E` carries the
+# trap into functions and command substitutions; a substitution whose
+# failure is handled ends in `|| exit` inside it, so the trap stays quiet
+# in the substitution's own shell.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+# object_name <flag> <value> -- a usage error unless <value> is a full
+# object name: 40 hex digits, or 64 in a SHA-256 repository.
+object_name() {
+  case "$2" in
+    *[!0-9a-f]*) usage_error "\`$1\` needs a full commit SHA, not \`$2\`." ;;
+  esac
+  case "${#2}" in
+    40 | 64) ;;
+    *) usage_error "\`$1\` needs a full commit SHA, not \`$2\`." ;;
+  esac
+}
+
+base=
+head_ref=
+head=
+prev=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --base | --head-ref | --head | --prev-head)
+      [ "$#" -ge 2 ] || usage_error "\`$1\` needs a value."
+      case "$1" in
+        --base) base=$2 ;;
+        --head-ref) head_ref=$2 ;;
+        --head) head=$2 ;;
+        --prev-head) prev=$2 ;;
+      esac
+      shift 2
+      ;;
+    *) usage_error "\`$1\` is not an argument $PROGRAM takes." ;;
+  esac
+done
+
+[ -n "$base" ] || usage_error "No \`--base\` was supplied."
+[ -n "$head_ref" ] || usage_error "No \`--head-ref\` was supplied."
+[ -n "$head" ] || usage_error "No \`--head\` was supplied."
+object_name --head "$head"
+if [ -n "$prev" ]; then
+  object_name --prev-head "$prev"
+fi
+
+git fetch -q origin || fail 1 "git fetch origin failed"
+
+actual=$(git rev-parse -q --verify "refs/remotes/origin/$head_ref^{commit}" || exit) ||
+  fail 1 "origin/$head_ref does not exist after the fetch"
+if [ "$actual" != "$head" ]; then
+  fail 3 "origin/$head_ref is at $actual, not at --head $head: the branch moved"
+fi
+git rev-parse -q --verify "refs/remotes/origin/$base^{commit}" >/dev/null ||
+  fail 1 "origin/$base does not exist after the fetch"
+
+merge_base=$(git merge-base "$head" "refs/remotes/origin/$base" || exit) ||
+  fail 1 "$head and origin/$base have no merge base"
+if [ -n "$prev" ]; then
+  git cat-file -e "$prev^{commit}" 2>/dev/null ||
+    fail 1 "--prev-head $prev is not a commit in this repository"
+else
+  prev=$merge_base
+fi
+
+# The ^origin/<base> term keeps out every commit the base gained: after a
+# rebase that advances the base, those are reachable from the head and
+# not from the previous head, and would otherwise read as the branch's.
+commits=$(git rev-list --right-only --cherry-pick "$prev...$head" "^refs/remotes/origin/$base")
+
+printf 'merge-base\t%s\n' "$merge_base"
+if [ -n "$commits" ]; then
+  while IFS= read -r commit; do
+    printf 'commit\t%s\n' "$commit"
+  done <<EOF
+$commits
+EOF
+fi
