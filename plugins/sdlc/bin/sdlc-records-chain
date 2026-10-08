@@ -22,9 +22,9 @@ json=$(sp_pr_view comments) || exit $?
 # Every marker as {i, n}, oldest first. A total is complete when its
 # markers hold every position 1..N; when more than one is, the one whose
 # newest marker is newest is the chain to follow.
-report=$(jq -r --arg re "$SP_RECORDS_MARKER_RE" "$SP_FIRST_LINE_JQ"'
+report=$(jq -r "$(sp_jq_prelude)"'
   [.comments | sort_by(.createdAt)[] | .body | first_line
-   | capture($re)? | {i: (.i | tonumber), n: (.n | tonumber)}] as $m
+   | capture($records)? | {i: (.i | tonumber), n: (.n | tonumber)}] as $m
   | [$m[] | .n] | unique
   | map(. as $n | select(([range(1; $n + 1)] - [$m[] | select(.n == $n) | .i]) == [])) as $complete
   | if ($complete | length) > 0

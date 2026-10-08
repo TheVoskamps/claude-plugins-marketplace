@@ -842,8 +842,8 @@ $ADJUSTMENT" "pr-adjustments: an empty log below cuts at the PR's createdAt"
 pr_case adjust-usage "$(adjust_json '[]' 'x')"
 for args in "--pr h.example/o/r#7" "--round 2" "--pr h.example/o/r#7 --round 0" "--pr h.example/o/r#7 --round two" \
   "--pr 7 --round 2" "--pr h.example/o/r#7 --round 2 --full"; do
-  # shellcheck disable=SC2086 # each case is a word list
-  pr_read sdlc-pr-adjustments $args
+  read -r -a argv <<<"$args"
+  pr_read sdlc-pr-adjustments "${argv[@]}"
   check "$RC:$CALLS" "2:" "pr-adjustments: \`$args\` is a usage error that reads nothing"
 done
 

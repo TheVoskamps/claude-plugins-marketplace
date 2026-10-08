@@ -17,12 +17,10 @@
 SP_PROGRAM=${0##*/}
 
 # The first line of a brief to issue-fixer.
-# shellcheck disable=SC2034 # read by the scripts that source this
 SP_FIXER_BRIEF_MARKER='<!-- sdlc:fixer-brief -->'
 # The first line of one chunk of the review detail pr-finalizer posts,
 # <!-- sdlc:theorem-records <i>/<N> -->, as a jq regex capturing the
 # chunk's position as `i` and the total as `n`.
-# shellcheck disable=SC2034 # read by the scripts that source this
 SP_RECORDS_MARKER_RE='^<!-- sdlc:theorem-records (?<i>[0-9]+)/(?<n>[0-9]+) -->$'
 
 # sp_fail <status> <message> -- print <message>, prefixed with the
@@ -103,8 +101,21 @@ sp_pr_view() {
   [ "$rc" -eq 0 ] || sp_fail 1 "gh pr view of $SP_REF failed (exit $rc)"
 }
 
-# A jq definition, `first_line`: a comment body's first line, without
-# the trailing carriage return a body posted from GitHub's web form
-# carries.
-# shellcheck disable=SC2034 # read by the scripts that source this
-SP_FIRST_LINE_JQ='def first_line: (split("\n") | .[0] // "") | rtrimstr("\r");'
+# sp_jq_prelude -- print the text a jq filter over PR comments starts
+# with: it defines `first_line`, a comment body's first line without the
+# trailing carriage return a body posted from GitHub's web form carries,
+# and binds the two markers above as $brief and $records. Call it as
+# `jq "$(sp_jq_prelude)"'<filter>'`.
+sp_jq_prelude() {
+  printf '%s' 'def first_line: (split("\n") | .[0] // "") | rtrimstr("\r"); '
+  sp_jq_string "$SP_FIXER_BRIEF_MARKER"
+  printf '%s' " as \$brief | "
+  sp_jq_string "$SP_RECORDS_MARKER_RE"
+  printf '%s' " as \$records | "
+}
+
+# sp_jq_string <text> -- print <text> as a jq string literal.
+sp_jq_string() {
+  local s=${1//\\/\\\\}
+  printf '"%s"' "${s//\"/\\\"}"
+}

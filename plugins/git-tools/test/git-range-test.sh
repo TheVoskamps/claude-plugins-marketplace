@@ -179,8 +179,8 @@ check "$RC" "1" "outside a repository: exit 1"
 for args in "--head-ref feature --head $CLEAN" "--base main --head $CLEAN" "--base main --head-ref feature" \
   "--base main --head-ref feature --head abc123" "--base main --head-ref feature --head $CLEAN --prev-head HEAD" \
   "--base main --head-ref feature --head $CLEAN --bogus x" "--base"; do
-  # shellcheck disable=SC2086 # each case is a word list
-  run $args
+  read -r -a argv <<<"$args"
+  run "${argv[@]}"
   check "$RC:$OUT" "2:" "usage: \`$args\` exits 2 with nothing on stdout"
 done
 

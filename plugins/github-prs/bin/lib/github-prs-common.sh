@@ -247,22 +247,19 @@ gp_parse_pr() {
 # built from them lowercases them first.
 gp_lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
-# gp_check_other_repo -- set GP_OTHER_REPO to `yes` when gp_parse_pr's
-# reference named a repository other than the current one, compared
-# through gp_lc, and to nothing otherwise. It sets a variable rather
-# than returning a status because a function called as a condition runs
-# outside the ERR trap.
-GP_OTHER_REPO=
-gp_check_other_repo() {
+# gp_other_repo -- print `yes` when gp_parse_pr's reference named a
+# repository other than the current one, compared through gp_lc, and
+# nothing otherwise. Call it as `x=$(gp_other_repo) || exit $?`: it
+# prints rather than returning a status because a function called as a
+# condition runs outside the ERR trap.
+gp_other_repo() {
   local named current
-  GP_OTHER_REPO=
   [ -n "$GP_REPO_ARG" ] || return 0
   gp_current_repo
   named=$(gp_lc "$GP_REPO_ARG") || exit $?
   current=$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO") || exit $?
   if [ "$named" != "$current" ]; then
-    # shellcheck disable=SC2034 # read by the verb that calls this
-    GP_OTHER_REPO=yes
+    echo yes
   fi
 }
 

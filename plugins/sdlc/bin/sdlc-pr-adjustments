@@ -70,8 +70,7 @@ if [ -z "$cut" ]; then
   cut=$(jq -r .createdAt <<<"$json")
 fi
 
-jq -r --arg cut "$cut" --arg brief "$SP_FIXER_BRIEF_MARKER" --arg records "$SP_RECORDS_MARKER_RE" \
-  "$SP_FIRST_LINE_JQ"'
+jq -r --arg cut "$cut" "$(sp_jq_prelude)"'
   .comments | sort_by(.createdAt)[]
   | select(.createdAt > $cut)
   | (.body | first_line) as $first

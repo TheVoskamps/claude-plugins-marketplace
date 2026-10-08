@@ -29,17 +29,16 @@ fi
 
 # `--paginate` feeds each page's endCursor back as $endCursor until
 # pageInfo.hasNextPage is false, and applies --jq to every page.
-# shellcheck disable=SC2016 # the $-names are GraphQL variables
-query='query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $pr) {
-      files(first: 100, after: $endCursor) {
+query="query(\$owner: String!, \$repo: String!, \$pr: Int!, \$endCursor: String) {
+  repository(owner: \$owner, name: \$repo) {
+    pullRequest(number: \$pr) {
+      files(first: 100, after: \$endCursor) {
         nodes { path additions deletions changeType }
         pageInfo { hasNextPage endCursor }
       }
     }
   }
-}'
+}"
 
 gp_gh api graphql --paginate -f owner="$owner" -f repo="$repo" -F pr="$GP_PR" \
   -f query="$query" \

@@ -28,8 +28,7 @@ base_ref=${refs#* }
 # another repository has its two branches fetched from that repository's
 # URL into refs of this verb's own, which the cleanup below deletes, so
 # no remote-tracking ref of the checkout changes.
-gp_check_other_repo
-foreign=$GP_OTHER_REPO
+foreign=$(gp_other_repo) || exit $?
 
 # Another repository's PR has its repository in the worktree path and in
 # the fetched refs, so its PR N shares neither with the checkout's own

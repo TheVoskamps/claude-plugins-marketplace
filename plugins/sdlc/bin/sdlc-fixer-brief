@@ -33,7 +33,7 @@ sp_parse_pr "$ref"
 json=$(sp_pr_view comments) || exit $?
 
 if [ -n "$all" ]; then
-  jq -r --arg brief "$SP_FIXER_BRIEF_MARKER" "$SP_FIRST_LINE_JQ"'
+  jq -r "$(sp_jq_prelude)"'
     .comments | sort_by(.createdAt)[]
     | select((.body | first_line) == $brief)
     | "--- comment \(.createdAt) ---\n\(.body)"' <<<"$json"
@@ -44,7 +44,7 @@ count=$(jq '.comments | length' <<<"$json")
 if [ "$count" -eq 0 ]; then
   sp_fail 3 "PR $SP_REF has no comment, so no fixer brief."
 fi
-first=$(jq -r "$SP_FIRST_LINE_JQ"'.comments | sort_by(.createdAt) | last | .body | first_line' <<<"$json")
+first=$(jq -r "$(sp_jq_prelude)"'.comments | sort_by(.createdAt) | last | .body | first_line' <<<"$json")
 if [ "$first" != "$SP_FIXER_BRIEF_MARKER" ]; then
   sp_fail 3 "PR $SP_REF's most recent comment is not a fixer brief. Its first line is: $first"
 fi
