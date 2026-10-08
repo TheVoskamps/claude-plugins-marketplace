@@ -656,11 +656,26 @@ script cuts at the PR's `createdAt` on its own. The whole branch is
 never an empty delta, so round 1 always fans out. A `human-refuted`
 seed record is retired for good, per "The `--full` round".
 
-**`git-range` exiting 3**, here or in "Fan out the disprovers", means
-the branch moved since "Read the PR's shape" took `<headRefOid>`:
-re-read "Read the PR's shape" and restart the review from "Identify the
-issue set" against the new head, rather than reviewing a mix of two
-trees.
+**`git-range` exiting non-zero**, at any of its calls in this section
+or in "Fan out the disprovers", is read by its status and message:
+
+- **Exit 3** means the branch moved since "Read the PR's shape" took
+  `<headRefOid>`: re-read "Read the PR's shape" and restart the review
+  from "Identify the issue set" against the new head, rather than
+  reviewing a mix of two trees.
+- **Exit 1 saying `--prev-head` is not a commit in this repository** is
+  the fallback trigger below. Only the delta read passes `--prev-head`,
+  so no other call can exit this way.
+- **Any other exit 1** — the fetch failed, `origin/<baseRefName>` or
+  `origin/<headRefName>` does not exist, the head and the base share no
+  merge base, or another command the script ran failed — means the
+  branch cannot be read: stop and report the
+  command and its output verbatim rather than review. It printed no
+  range, and no delta may be assumed in its place.
+- **Exit 2** is a call you built wrongly, most likely a `--head` or
+  `--prev-head` that is not a full SHA: repair it and call again,
+  as "When a call fails" says; when you cannot, stop and report the
+  command and its output verbatim.
 
 **The previously reviewed head.** It is the `anchor` line's head SHA in
 `<prev-round>`'s own log:
@@ -1101,8 +1116,8 @@ a delta, and repeating it costs nothing:
 ```
 
 Exit 0 is the check passing; the range it prints is not needed here.
-Exit 3 is the branch having moved, handled as "Carry the previous
-round's theorems forward" says.
+Any other exit — exit 3, the branch having moved, among them — is
+handled as "Carry the previous round's theorems forward" says.
 
 **Then subtract what the log already answers**, per "You are
 re-entrant" above: check the `anchor` line's head SHA against the
