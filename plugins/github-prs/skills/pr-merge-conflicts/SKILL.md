@@ -64,9 +64,9 @@ skill's own.
   Report it back as it stands: what to do about each conflict is the
   caller's to decide, and the resolution is whoever the caller hands it
   to.
-- **Exit 2** — a usage error; nothing was read or created.
-- **Exit 3** — a command the script ran failed: the PR could not be
+- **Exit 1** — a command the script ran failed: the PR could not be
   read, the fetch or the worktree add failed, the merge failed without
   leaving a conflicted file, or a later `git` step failed. Stderr
   names the step, with the tool's own error above it where the tool
   printed one. Surface it verbatim.
+- **Exit 2** — a usage error; nothing was read or created.

@@ -10,20 +10,27 @@
 # message of its own. Runs under the bash 3.2 macOS ships.
 #
 # Exit statuses, shared by every verb:
-#   0  the verb did what it says
-#   1  the verb's own negative outcome: a change that did not land on
-#      the re-read, a PR that is not open, a merge state still UNKNOWN
-#   2  a usage error; nothing was sent to GitHub
-#   3  a command the verb ran failed; the tool's own stderr is passed
-#      through above the catalogue line
-#   4  .issues/repo-config.md is missing or lacks a key the verb reads
+#   0    the verb did what it was asked, or the condition it reports holds
+#   1    a generic failure: any command or bash error; stderr says what
+#   2    a usage error; nothing was done
+#   3    the verb's own negative outcome: a change that did not land on
+#        the re-read, a PR that is not open, a merge state still UNKNOWN
+#   4    .issues/repo-config.md is missing or lacks a key the verb reads
+#   126  bash: a command the verb ran was not executable
+#   127  bash: a command the verb ran was not found
+#   128+N  killed by signal N
+# 1 is the generic failure because bash itself exits 1 on a failure no
+# trap can intercept, such as an unbound variable under `set -u`; every
+# outcome a verb reports on purpose sits from 3 up, below 126.
 #
-# Exit 3 covers a failure the verb does not handle as well as one it
+# Exit 1 covers a failure the verb does not handle as well as one it
 # does: the ERR trap below, which `set -E` passes to every function,
 # command substitution and pipeline element, turns any failed command
-# into gp_err_command's catalogue line and exit 3, so no verb exits with
-# a wrapped tool's own status. Under bash 3.2 the trap cannot see a
-# failure in these, so no verb uses them:
+# into gp_err_command's catalogue line and exit 1, so no verb exits with
+# a wrapped tool's own status -- a command that was not found or not
+# executable included, so 126 and 127 reach a caller only from where
+# the trap cannot see. Under bash 3.2 the trap cannot see a failure in
+# these, so no verb uses them:
 #   - a command substitution anywhere but as the whole right-hand side
 #     of a plain `name=$(...)` assignment -- not in an argument, a test,
 #     a `for` or `case` word, a here-document, or `local name=$(...)`;
@@ -61,17 +68,17 @@ gp_usage_error() {
   exit 2
 }
 
-# gp_not_landed <what> <why> -- the exit-1 failure for a mutation whose
+# gp_not_landed <what> <why> -- the exit-3 failure for a mutation whose
 # re-read does not show it: "PR <pr>: <what> did not land: <why>". <pr>,
 # here and in every catalogue entry below that names the PR, is the PR
 # as GP_PR_NAME spells it.
 gp_not_landed() {
-  gp_fail 1 "PR $GP_PR_NAME: $1 did not land: $2"
+  gp_fail 3 "PR $GP_PR_NAME: $1 did not land: $2"
 }
 
 # gp_gh <gh args...> -- run gh, passing its stdout through. On failure
 # gh's stderr has already reached ours; add the catalogue line naming
-# the call and exit 3. Call it as `out=$(gp_gh ...) || exit $?`, since
+# the call and exit 1. Call it as `out=$(gp_gh ...) || exit $?`, since
 # an exit inside a command substitution leaves only its subshell.
 #
 # A `gh api` call goes to gh's default host whatever host the checkout's
@@ -93,7 +100,7 @@ gp_gh() {
 
 # gp_current_repo -- set GP_CUR_HOST, GP_CUR_OWNER and GP_CUR_REPO to
 # the current repository, from the URL `gh repo view` reports for it.
-# Exits 3 when gh cannot say. Calls gh at most once per run.
+# Exits 1 when gh cannot say. Calls gh at most once per run.
 GP_CUR_HOST=
 gp_current_repo() {
   local url
@@ -304,7 +311,7 @@ gp_joined() {
 # #0 closes nothing. The PR's repository is the one gp_parse_pr
 # resolved, or the current one, looked up only when a reference names a
 # repository. That lookup runs in a pipeline subshell, so a failed one
-# returns 3 rather than exiting the caller, and only under the pipefail
+# returns 1 rather than exiting the caller, and only under the pipefail
 # every verb sets, without which sort's 0 masks it: call it as
 # `out=$(gp_closing_issues ...) || exit $?`.
 gp_closing_issues() {
@@ -404,19 +411,19 @@ gp_err_no_body() {
 }
 gp_err_many_bodies() { gp_usage_error "More than one review body was supplied. Pass exactly one."; }
 
-# Exit 1: the verb's own negative outcomes.
+# Exit 3: the verb's own negative outcomes.
 # gp_err_not_open <state>
 gp_err_not_open() {
-  gp_fail 1 "PR $GP_PR_NAME is $1, not open. Merge readiness is only computed for an open PR."
+  gp_fail 3 "PR $GP_PR_NAME is $1, not open. Merge readiness is only computed for an open PR."
 }
 # gp_err_still_unknown <reads made>
 gp_err_still_unknown() {
-  gp_fail 1 "PR $GP_PR_NAME: mergeable is still UNKNOWN after $1 reads. GitHub has not finished computing the merge state."
+  gp_fail 3 "PR $GP_PR_NAME: mergeable is still UNKNOWN after $1 reads. GitHub has not finished computing the merge state."
 }
 # gp_err_no_pr_in_url <what gh printed> -- gh pr create succeeded but
 # named no PR number, so there is nothing to re-read.
 gp_err_no_pr_in_url() {
-  gp_fail 1 "gh pr create reported \`$1\`, which names no PR number"
+  gp_fail 3 "gh pr create reported \`$1\`, which names no PR number"
 }
 # gp_err_flip_not_landed <ready|draft> <isDraft read back>
 gp_err_flip_not_landed() {
@@ -456,18 +463,18 @@ gp_err_review_body() {
   gp_not_landed "the review" "review $1's body is not the body written"
 }
 
-# Exit 3: a command the verb ran failed.
+# Exit 1: a command the verb ran failed.
 # gp_err_command <command> <its exit status> -- the ERR trap's entry,
 # for a failure the verb did not handle.
-gp_err_command() { gp_fail 3 "\`$1\` failed (exit $2)"; }
+gp_err_command() { gp_fail 1 "\`$1\` failed (exit $2)"; }
 # gp_err_gh <gh subcommand> <gh's exit status>
-gp_err_gh() { gp_fail 3 "gh $1 failed (exit $2)"; }
+gp_err_gh() { gp_fail 1 "gh $1 failed (exit $2)"; }
 # gp_err_git <the git call, as the message names it>
-gp_err_git() { gp_fail 3 "$1 failed"; }
-gp_err_not_a_repo() { gp_fail 3 "not inside a git repository"; }
+gp_err_git() { gp_fail 1 "$1 failed"; }
+gp_err_not_a_repo() { gp_fail 1 "not inside a git repository"; }
 # gp_err_merge_no_conflict <the base, as the report names it>
 gp_err_merge_no_conflict() {
-  gp_fail 3 "the trial merge of $1 failed without leaving a conflicted file"
+  gp_fail 1 "the trial merge of $1 failed without leaving a conflicted file"
 }
 
 # Exit 4: repo-config.

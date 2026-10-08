@@ -279,7 +279,7 @@ into a brief.
    one comparison settles all three. It compares the whole body rather
    than only its prefix: an edit that failed or no-op'd leaves the body
    equal to what it was, and a base-is-still-a-prefix test passes on
-   exactly that. Its exit 0 is the byte-level pass, and its exit 1 is a
+   exactly that. Its exit 0 is the byte-level pass, and its exit 3 is a
    byte-level difference. Then read the closing set
    again, the same way step 1 did, and compare it with the set step 1
    kept:
@@ -310,7 +310,7 @@ into a brief.
    still the one step 1 read and there is nothing to restore. Report
    the failure, quoting the stderr, and post nothing further — the
    fault is in the invocation or the file step 6 built, and rebuilding
-   either is not a guess to make unattended. An exit 3 is a failed
+   either is not a guess to make unattended. An exit 1 is a failed
    `gh` call, and the stderr names which one: a failed edit may or may
    not have changed the body, and a failed re-read follows an edit
    that went through unverified. Either way the body is one nobody

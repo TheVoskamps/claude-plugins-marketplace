@@ -101,9 +101,9 @@ reads no config of its own.
    | Exit | Meaning |
    | --- | --- |
    | 0 | the body closes every issue given; stdout names the ones already closed and the lines appended |
-   | 1 | the re-read body is not the body written; stderr says so |
+   | 1 | a command the script ran failed, such as a `gh` call; its own error is on stderr above the script's line |
    | 2 | a usage error; the body is untouched |
-   | 3 | a command the script ran failed, such as a `gh` call; its own error is on stderr above the script's line |
+   | 3 | the re-read body is not the body written; stderr says so |
 
    On any non-zero exit, surface stderr verbatim in the report-back.
 

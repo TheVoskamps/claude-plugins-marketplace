@@ -52,8 +52,8 @@ stdout to that path; the script writes nothing else there.
   `<host>/<owner>/<repo>#<N>`. With `--json`, stdout is gh's JSON for
   those fields, or the `--jq` result.
   Hand it to your caller unchanged.
-- **Exit 2** — a usage error; the script called nothing. Its stderr
-  names the argument at fault.
-- **Exit 3** — a command the script ran failed, such as the `gh` call,
+- **Exit 1** — a command the script ran failed, such as the `gh` call,
   and its own error is on stderr above the script's line. Surface it
   verbatim rather than inventing a replacement message.
+- **Exit 2** — a usage error; the script called nothing. Its stderr
+  names the argument at fault.

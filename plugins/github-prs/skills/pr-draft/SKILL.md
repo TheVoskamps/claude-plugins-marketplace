@@ -36,8 +36,8 @@ so the script is safe to run more than once.
 
 - **Exit 0** — the re-read shows the PR a draft. Stdout is one line,
   `PR <PR> is now a draft`; report it back.
-- **Exit 1** — the conversion did not land: the re-read still shows
-  the PR ready. Stderr says so; report it.
-- **Exit 2** — a usage error; nothing was sent to GitHub.
-- **Exit 3** — a command the script ran failed, such as the `gh` call,
+- **Exit 1** — a command the script ran failed, such as the `gh` call,
   and its own error is on stderr above the script's line. Surface it verbatim.
+- **Exit 2** — a usage error; nothing was sent to GitHub.
+- **Exit 3** — the conversion did not land: the re-read still shows
+  the PR ready. Stderr says so; report it.
