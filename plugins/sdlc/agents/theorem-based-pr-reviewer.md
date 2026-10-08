@@ -660,9 +660,9 @@ seed record is retired for good, per "The `--full` round".
 or in "Fan out the disprovers", is read by its status and message:
 
 - **Exit 3** means the branch moved since "Read the PR's shape" took
-  `<headRefOid>`: re-read "Read the PR's shape" and restart the review
-  from "Identify the issue set" against the new head, rather than
-  reviewing a mix of two trees.
+  `<headRefOid>`, and voids the round as "A moved head voids the round"
+  says: restart from "Read the PR's shape", so that "Read the round log,
+  then anchor the round" anchors the fresh round on the new head SHA.
 - **Exit 1 saying `--prev-head` is not a commit in this repository** is
   the fallback trigger below. Only the delta read passes `--prev-head`,
   so no other call can exit this way.
