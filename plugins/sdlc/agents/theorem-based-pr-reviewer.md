@@ -295,11 +295,11 @@ scheduled sweep force-rebases open PR branches and can fire mid-round.
 At the anchor step the anchor call has already set them aside, and that
 step says how to go on. At the fan-out, run the round fresh from "Read
 the PR's shape" against the new head rather than mixing verdicts from
-two trees. Then make the
-`--mode anchor` call for the fresh round carrying the new head SHA: the
-preloaded `sdlc:agent-result-persist-interface` skill → "The modes" owns
-what the script does with the stale log and the result files beside it.
-Making that call is what keeps the void from repeating — the next
+two trees. The restart reaches the anchor step, whose call carries the
+new head SHA: the preloaded `sdlc:agent-result-persist-interface` skill
+→ "The modes" owns what the script does with the stale log and the
+result files beside it. That call is what keeps the void from
+repeating — the next
 instance to arrive reads an `anchor` carrying the current head and
 resumes normally.
 
