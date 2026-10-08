@@ -486,7 +486,11 @@ wait_for() {
     '$1 != "" && $3 <= t && $3 >= floor {w = $1} END {print w}'
 }
 
-# Called only as a command substitution, whose own shell the exit leaves.
+# The theorem records of round $1, as `--mode print-round-records`
+# prints them; fails when that print fails. Every caller tests it as a
+# condition, so the `|| exit` makes a failure a condition the ERR trap
+# stays quiet on. Called only as a command substitution, whose own shell
+# the exit leaves.
 records_of() {
   persist --mode print-round-records --round "$1" 2>/dev/null || exit
 }
