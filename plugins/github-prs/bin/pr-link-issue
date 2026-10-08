@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# pr-link-issue -- append one `Closes #<issue>` line per issue named to a
-# pull request's body, keeping the existing body verbatim above them,
-# then re-read the body and fail unless it is the one written. Which
-# issues are missing is the pr-link-issue skill's decision, made before
-# this runs; this script appends every issue it is given.
+# pr-link-issue -- ensure a pull request's body closes every issue named.
+# Read the body, and append one `Closes #<issue>` line for each named
+# issue gp_closing_issues does not find it closing, keeping the existing
+# body verbatim above them; then re-read the body and fail unless it is
+# the one written. A body that already closes every issue named is left
+# unwritten.
 #
 # The contract is plugins/github-prs/skills/pr-link-issue/SKILL.md.
 set -euo pipefail
@@ -19,16 +20,37 @@ usage() {
 gp_parse_pr "$1"
 shift
 
-closing=
+issues=
 for arg in "$@"; do
   issue=$(gp_issue_number "$arg") || exit $?
-  closing="${closing}Closes #$issue
-"
+  case " $issues " in
+    *" $issue "*) ;;
+    *) issues="$issues $issue" ;;
+  esac
 done
+
+existing=$(gp_pr view --json body --jq .body) || exit $?
+closed=" $(gp_closing_issues "$existing" | tr '\n' ' ')" || exit $?
+
+linked=
+closing=
+for issue in $issues; do
+  case "$closed" in
+    *" $issue "*) linked="$linked $issue" ;;
+    *)
+      closing="${closing}Closes #$issue
+"
+      ;;
+  esac
+done
+
+if [ -z "$closing" ]; then
+  printf 'PR %s already closes %s\n' "$GP_PR_NAME" "$(gp_joined "$linked")"
+  exit 0
+fi
 closing=${closing%
 }
 
-existing=$(gp_pr view --json body --jq .body) || exit $?
 if [ -n "$existing" ]; then
   wanted="$existing
 
@@ -43,4 +65,9 @@ landed=$(gp_pr view --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
   gp_err_body_not_landed "the closing lines"
 
-printf 'PR %s: appended %s\n' "$GP_PR_NAME" "$(printf '%s' "$closing" | tr '\n' ',' | sed 's/,/, /g')"
+appended=$(printf '%s\n' "$closing" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+if [ -n "$linked" ]; then
+  printf 'PR %s already closes %s; appended %s\n' "$GP_PR_NAME" "$(gp_joined "$linked")" "$appended"
+else
+  printf 'PR %s: appended %s\n' "$GP_PR_NAME" "$appended"
+fi

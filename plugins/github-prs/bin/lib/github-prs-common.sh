@@ -249,6 +249,70 @@ gp_issue_number() {
   printf '%s\n' "$n"
 }
 
+# gp_joined <list> -- the words of <list>, separated by any whitespace,
+# as one comma-separated list.
+gp_joined() {
+  printf '%s\n' "$1" |
+    awk '{ for (i = 1; i <= NF; i++) printf "%s%s", (n++ ? ", " : ""), $i }'
+}
+
+# gp_closing_issues <body> -- the one closing-line recognizer: print the
+# issues <body> closes in the PR's repository, one per line, ascending,
+# without duplicates. An issue counts only when a closing keyword
+# (close, closes, closed, fix, fixes, fixed, resolve, resolves,
+# resolved, any case), as a whole word and optionally followed by a
+# colon, is followed by whitespace and then immediately by a reference
+# to it: #N, repo#N, owner/repo#N, host/owner/repo#N, or
+# https://host/owner/repo/issues/N, naming the PR's repository, and
+# ending where a word would. Each reference needs its own keyword; any
+# other form counts as not closed. N prints without leading zeros, and
+# #0 closes nothing. The PR's repository is the one gp_parse_pr
+# resolved, or the current one, looked up only when a reference names a
+# repository. That lookup runs in a pipeline subshell, so a failed one
+# returns 3 rather than exiting the caller, and only under the pipefail
+# every verb sets, without which sort's 0 masks it: call it as
+# `out=$(gp_closing_issues ...) || exit $?`.
+gp_closing_issues() {
+  local rest want='' ref n kw='close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved'
+  local re="(^|[^a-z0-9_])($kw):?[[:space:]]+(https://([^[:space:]/]+/[^[:space:]/]+/[^[:space:]/]+)/issues/([0-9]+)|(([a-z0-9._-]+/){0,2}[a-z0-9._-]+)?#([0-9]+))([^a-z0-9_]|$)"
+  rest=$(gp_lc "$1")
+  # A match is context-free once it carries the character after the
+  # reference, so its first occurrence is where it matched; one that
+  # ends at the end of the text has nothing after it to scan.
+  while [[ $rest =~ $re ]]; do
+    if [ -n "${BASH_REMATCH[9]}" ]; then
+      rest=${BASH_REMATCH[9]}${rest#*"${BASH_REMATCH[0]}"}
+    else
+      rest=
+    fi
+    if [ -n "${BASH_REMATCH[5]}" ]; then
+      ref=${BASH_REMATCH[4]}
+      n=${BASH_REMATCH[5]}
+    else
+      ref=${BASH_REMATCH[6]}
+      n=${BASH_REMATCH[8]}
+    fi
+    if [ -n "$ref" ]; then
+      if [ -z "$want" ]; then
+        if [ -n "$GP_REPO_ARG" ]; then
+          want=$(gp_lc "$GP_HOST/$GP_OWNER/$GP_REPO")
+        else
+          gp_current_repo
+          want=$(gp_lc "$GP_CUR_HOST/$GP_CUR_OWNER/$GP_CUR_REPO")
+        fi
+      fi
+      case "$ref" in
+        */*/*) ;;
+        */*) ref=${want%%/*}/$ref ;;
+        *) ref=${want%/*}/$ref ;;
+      esac
+      [ "$ref" = "$want" ] || continue
+    fi
+    n=${n#"${n%%[!0]*}"}
+    [ -z "$n" ] || printf '%s\n' "$n"
+  done | sort -nu
+}
+
 # gp_repo_path <suffix> -- a REST path under the PR's repository: the
 # owner and repository the reference named, or else gh's own
 # {owner}/{repo} placeholders, left for gh to resolve to the current

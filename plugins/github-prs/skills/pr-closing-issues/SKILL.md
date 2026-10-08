@@ -1,30 +1,31 @@
 ---
 name: pr-closing-issues
-description: Report the set of issues a GitHub pull request's body closes, by applying the closing-keyword syntax to the fetched body. The one closing-line parser in this marketplace.
+description: Report the set of issues a GitHub pull request's body closes, by relaying the line the bundled script prints. The parse is gp_closing_issues, shared by the pr-closing-issues and pr-link-issue scripts; every skill and agent outside github-prs reads a body's closing set by invoking this skill.
 ---
 
 # PR Closing Issues
 
-Answer one question: **which issues does this PR close?** Fetch the
-pull request's body and report every issue a closing keyword in it is
-aimed at.
+Answer one question: **which issues does this PR close?** The bundled
+script fetches the pull request's body, recognizes every issue a
+closing keyword in it is aimed at, and prints the set.
 
-This skill is the only parser of closing lines in this marketplace.
-Every skill and agent that acts on which issues a body closes — for an
-idempotency check, a standalone review's claim, a status flip, or a
-before-and-after comparison around a body edit — invokes it rather
-than describing the scan again. Skill invocation crosses the plugin
-sandbox boundary that a `Read` cannot, since an enabled plugin's
-skills are invocable from anywhere by their namespaced name while file
-access stays sandboxed per plugin. Each consumer keeps its own action
-on the result; none re-derives the result itself.
-
-`github-prs:pr-create` is not a consumer: it *writes* closing lines
-from a set it was given, and never reads them back.
+The parse is `gp_closing_issues`, in this plugin's
+`bin/lib/github-prs-common.sh`, which the `pr-closing-issues` and
+`pr-link-issue` scripts share. Every skill and agent outside
+`github-prs` that acts on which issues a body closes — for a
+standalone review's claim, a status flip, or a before-and-after
+comparison around a body edit — reads that set by invoking
+`/github-prs:pr-closing-issues` rather than scanning the body itself.
+Skill invocation crosses the plugin sandbox boundary that a `Read`
+cannot, since an enabled plugin's skills are invocable from anywhere
+by their namespaced name while file access stays sandboxed per plugin.
+Each consumer keeps its own action on the result; none re-derives the
+result itself.
 
 This skill is **GitHub-only by design**. Its script reads the body
-through `gh`, and the syntax below is GitHub's; there is no CodeCommit
-(or other source-control) branch, and none is planned here.
+through `gh` and recognizes GitHub's closing-keyword syntax; there is
+no CodeCommit (or other source-control) branch, and none is planned
+here.
 
 ## Invocation
 
@@ -41,60 +42,29 @@ once per PR.
 ## Repo-config
 
 This skill reads no repo-config. The body needs only the PR, and the
-closing-keyword syntax below is GitHub's rather than anything the repo
+closing-keyword syntax is GitHub's rather than anything the repo
 configures.
-
-## The syntax
-
-The closing-keyword syntax is GitHub's. It is applied here, once,
-so that no consumer applies it again.
-
-A **closing keyword** — `close`, `closes`, `closed`, `fix`, `fixes`,
-`fixed`, `resolve`, `resolves`, `resolved`, case-insensitive —
-**immediately followed by** an issue reference closes that issue when
-the PR merges into the repository's default branch. The reference
-forms are `#N`, `owner/repo#N`, `GH-N`, and a full issue URL
-(`https://github.com/<owner>/<repo>/issues/N`).
-
-"Immediately followed by" is the whole rule, and the whole trap:
-
-- **Each reference needs its own keyword.** `Closes #196, #201` closes
-  `#196` and leaves `#201` unlinked, so report `196` alone. This is
-  why the writers in this plugin emit one line per issue.
-- **The parser allows nothing meaningful in between.** `Closes
-  Dependabot alert #88` discards the intervening words and closes
-  issue `88` — report `88`. Words that look like they scope the
-  reference do not.
-- **A keyword with no adjacent issue reference closes nothing.** "This
-  closes a long-standing gap", `fix_bug.py`, `def resolve_path()` —
-  report nothing for any of them.
-- **A reference with no keyword before it closes nothing.**
-  `References: #42` is the canonical non-closing form and is never
-  part of the answer.
 
 ## Execution
 
-1. Fetch the PR body with the bundled script, spelled as a bare name:
+1. Run the bundled script, spelled as a bare name:
 
    ```bash
    pr-closing-issues <PR>
    ```
 
-   On exit 0 its stdout is the body, verbatim. Exit 2 is a usage error.
-   Exit 3 means the `gh` call failed (e.g. the PR does not exist),
-   with gh's own error on stderr above the script's line: surface it
-   verbatim rather than inventing a replacement message, and stop.
+   On exit 0 its stdout is the one-line report "Output" shows. Exit 2
+   is a usage error. Exit 3 means a `gh` call failed (e.g. the PR does
+   not exist), with gh's own error on stderr above the script's line:
+   surface it verbatim rather than inventing a replacement message, and
+   stop.
 
-2. Scan the body for every keyword-then-reference occurrence per "The
-   syntax" above, and collect the issue numbers as a **set** — a body
-   that closes the same issue on two lines closes it once, so report
-   it once.
-
-3. Report per "Output" below. Report nothing else: this skill makes no
-   decision about whether the set is the right one. A caller that
-   needs the set checked against the branch's own issue set gets that
-   from `/git-tools:git-issues-from-branch`, which owns the
-   reconciliation rule.
+2. Relay the script's line as it stands, and nothing else: this skill
+   applies no syntax of its own and makes no decision about whether the
+   set is the right one. A caller that needs the set checked against
+   the branch's own issue set gets that from
+   `/git-tools:git-issues-from-branch`, which owns the reconciliation
+   rule.
 
 ## Output
 

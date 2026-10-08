@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
-# pr-closing-issues -- print the body a pull request carries, which is
-# the text the pr-closing-issues skill applies GitHub's closing-keyword
-# syntax to. Read-only.
+# pr-closing-issues -- report the set of issues a pull request's body
+# closes, as gp_closing_issues recognizes them. Read-only.
 #
 # The contract is plugins/github-prs/skills/pr-closing-issues/SKILL.md.
 set -euo pipefail
@@ -16,4 +15,11 @@ usage() {
 [ "$#" -eq 1 ] || gp_err_one_pr
 gp_parse_pr "$1"
 
-gp_pr view --json body --jq .body
+body=$(gp_pr view --json body --jq .body) || exit $?
+closed=$(gp_closing_issues "$body") || exit $?
+
+if [ -n "$closed" ]; then
+  printf 'PR %s closes issues %s\n' "$GP_PR_NAME" "$(gp_joined "$closed")"
+else
+  printf 'PR %s closes no issues\n' "$GP_PR_NAME"
+fi

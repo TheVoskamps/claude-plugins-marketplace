@@ -22,10 +22,10 @@ auto-close-on-merge is the behavior we want.
 
 Each issue needs **its own keyword**, so this skill writes one
 `Closes #<issue>` line per issue rather than one line listing several.
-The syntax that makes that necessary is stated once, in
-`github-prs:pr-closing-issues` → "The syntax" — and reading a body back for
-the lines it already carries goes through that same skill rather than
-a scan of this one's own (see step 2 of "Execution").
+The bundled script reads the body back for the lines it already
+carries before writing, through `gp_closing_issues` — the parse the
+`pr-closing-issues` script shares — so it appends only what is missing
+and is idempotent on its own.
 
 ## Invocation
 
@@ -82,40 +82,34 @@ reads no config of its own.
    never get a closing line, and the refusal is named in the
    report-back.
 
-2. **Idempotent check.** Invoke `/github-prs:pr-closing-issues <PR>` —
-   the one skill that reads a PR body's closing lines — and take the
-   set it reports as what the body already closes. Members of
-   `<issues>` in that set are already linked and are left alone; the
-   rest are the missing ones.
-
-   - **Every member already linked** → no-op. Report `PR <PR> already
-     closes <issues>` and stop. Do not append a duplicate keyword.
-
-3. **Append the missing ones** with the bundled script, spelled as a
-   bare name, passing each member step 2 found missing — and only
-   those:
+2. **Ensure the lines** with the bundled script, spelled as a bare
+   name, passing every member of `<issues>`:
 
    ```bash
    pr-link-issue <PR> <issueA> <issueB>
    ```
 
-   The script keeps the existing body verbatim, appends one
-   `Closes #<issue>` line per issue after a blank line, writes the body
-   back, and re-reads it. It appends every issue it is given, so what
-   it is given decides what it writes: never pass an issue outside the
+   The script reads the body and the issues it already closes. Members
+   already closed are left alone; for the rest it keeps the existing
+   body verbatim, appends one `Closes #<issue>` line per issue after a
+   blank line, writes the body back, and re-reads it. When every member
+   is already closed it writes nothing and prints
+   `PR <PR> already closes <issues>`. Every issue it is given that the
+   body does not close gets a line, so never pass an issue outside the
    branch's set, and never write the keyword into a commit message.
 
    | Exit | Meaning |
    | --- | --- |
-   | 0 | the lines landed; stdout names the lines appended |
+   | 0 | the body closes every issue given; stdout names the ones already closed and the lines appended |
    | 1 | the re-read body is not the body written; stderr says so |
    | 2 | a usage error; the body is untouched |
    | 3 | a `gh` call failed; gh's own error is on stderr above the script's line |
 
    On any non-zero exit, surface stderr verbatim in the report-back.
 
-4. Report back a single line: which members were already linked and
-   which had a `Closes #<issue>` line appended, naming `<PR>`, plus
+3. Report back a single line: which members were already linked and
+   which had a `Closes #<issue>` line appended, as the script's stdout
+   names them, naming `<PR>`, plus
    any caller-supplied number step 1 reported as sitting outside the
    branch's set. If step 1 gave no safe resolution, the body is
    unchanged — report that outcome instead, with both sets.

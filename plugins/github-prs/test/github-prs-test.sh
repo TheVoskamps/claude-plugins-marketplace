@@ -397,8 +397,45 @@ check_contains "$ERR" "stub gh: pr diff refused" "pr-diff: gh's error passes thr
 new_case closing
 printf 'Summary\n\nCloses #3\n' >"$CASE/body"
 run pr-closing-issues 7
-check "$(calls)" "pr view 7 --json body --jq .body" "pr-closing-issues: reads the body"
-check "$OUT" "$(printf 'Summary\n\nCloses #3')" "pr-closing-issues: prints the body"
+check "$RC" "0" "pr-closing-issues: exit 0"
+check "$(calls)" "pr view 7 --json body --jq .body" \
+  "pr-closing-issues: reads the body, and needs no repository lookup for #N"
+check "$OUT" "PR #7 closes issues 3" "pr-closing-issues: reports the set"
+
+# closing_case <name> <body> <expected stdout> -- run pr-closing-issues
+# on PR 7 of the checkout's repository, github.com/o/r, with <body>.
+closing_case() {
+  new_case "closing-$1"
+  printf '%s\n' "$2" >"$CASE/body"
+  run pr-closing-issues 7
+  check "$OUT" "$3" "pr-closing-issues: $1"
+}
+
+closing_case "#N" 'Closes #3' "PR #7 closes issues 3"
+closing_case "repo#N" 'Fixes r#4' "PR #7 closes issues 4"
+closing_case "owner/repo#N" 'Resolves o/r#5' "PR #7 closes issues 5"
+closing_case "host/owner/repo#N" 'closed github.com/o/r#6' "PR #7 closes issues 6"
+closing_case "an issue URL" 'Closes https://github.com/o/r/issues/8' "PR #7 closes issues 8"
+closing_case "any case, a colon, one keyword per reference" \
+  "$(printf 'FIXES: #9\nresolve O/R#10 and Closed #11\nCloses #12, #13')" "PR #7 closes issues 9, 10, 11, 12"
+closing_case "an issue closed twice is reported once, in ascending order" \
+  "$(printf 'Closes #21\nCloses #3\nCloses #21')" "PR #7 closes issues 3, 21"
+closing_case "a bare N closes nothing" 'Closes 14' "PR #7 closes no issues"
+closing_case "GH-N closes nothing" 'Closes GH-15' "PR #7 closes no issues"
+closing_case "a word between keyword and reference closes nothing" \
+  'Closes Dependabot alert #16' "PR #7 closes no issues"
+closing_case "a reference naming another repository closes nothing" \
+  "$(printf 'Closes x/r#17\nCloses https://github.com/o/x/issues/18\nCloses ghe.example.com/o/r#19')" \
+  "PR #7 closes no issues"
+closing_case "a keyword inside a word, or with no space before the reference, closes nothing" \
+  "$(printf 'prefix #20\nfix_bug.py\ncloses:#22\nReferences: #23')" "PR #7 closes no issues"
+closing_case "a reference running into a word closes nothing" 'Closes #24abc' "PR #7 closes no issues"
+
+new_case closing-other-repo
+printf 'Closes #3\nCloses o2/r2#4\nCloses o/r#5\n' >"$CASE/body"
+run pr-closing-issues 'o2/r2#7'
+check "$OUT" "PR github.com/o2/r2#7 closes issues 3, 4" \
+  "pr-closing-issues: a PR in another repository closes that repository's issues"
 
 # --- pr-ready / pr-draft -------------------------------------------------
 new_case ready
@@ -519,6 +556,31 @@ check "$OUT" "PR #7: appended Closes #4, Closes #5" "pr-link-issue: reports what
 new_case link-empty
 run pr-link-issue 7 4
 check "$(cat "$CASE/stdin")" "Closes #4" "pr-link-issue: an empty body gets the lines alone"
+
+new_case link-all-linked
+printf 'Summary\n\nCloses #3\nFixes o/r#4\n' >"$CASE/body"
+run pr-link-issue 7 4 3
+check "$RC" "0" "pr-link-issue: exit 0 when the body already closes every issue"
+check "$(calls | grep -c '^pr edit')" "0" "pr-link-issue: a body already closing every issue is not written"
+check "$OUT" "PR #7 already closes 4, 3" "pr-link-issue: reports the issues already closed"
+
+new_case link-some-linked
+printf 'Summary\n\nCloses #3\n' >"$CASE/body"
+run pr-link-issue 7 3 4 4
+check "$RC" "0" "pr-link-issue: exit 0 when the missing lines land"
+check "$(cat "$CASE/stdin")" "$(printf 'Summary\n\nCloses #3\n\nCloses #4')" \
+  "pr-link-issue: appends only the issues the body does not close, once each"
+check "$OUT" "PR #7 already closes 3; appended Closes #4" \
+  "pr-link-issue: names both the issues already closed and the lines appended"
+
+new_case link-twice
+echo "Summary" >"$CASE/body"
+run pr-link-issue 7 3 4
+run pr-link-issue 7 3 4
+check "$(calls | grep -c '^pr edit')" "1" "pr-link-issue: a second run writes nothing"
+check "$(cat "$CASE/body")" "$(printf 'Summary\n\nCloses #3\nCloses #4')" \
+  "pr-link-issue: two runs leave one closing line per issue"
+check "$OUT" "PR #7 already closes 3, 4" "pr-link-issue: the second run reports the issues already closed"
 
 new_case link-noop
 echo "Summary" >"$CASE/body"
