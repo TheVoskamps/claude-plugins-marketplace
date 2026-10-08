@@ -779,6 +779,8 @@ pr_case brief-usage '{"comments": []}'
 pr_read sdlc-fixer-brief --every 'h.example/o/r#7'
 check "$RC:$CALLS" "2:" "fixer-brief: an unknown flag is a usage error that reads nothing"
 
+# chunk <day> <i>/<N>: prints one comment's JSON, created on 2026-01-0<day>,
+# whose first line is the records marker for chunk <i> of <N>.
 chunk() { printf '{"createdAt": "2026-01-0%sT00:00:00Z", "body": "<!-- sdlc:theorem-records %s -->\\ndetail"}' "$1" "$2"; }
 pr_case chain-complete "{\"comments\": [$(chunk 4 3/3), $(chunk 2 1/3), $(chunk 1 2/3), $(chunk 3 1/2),
   {\"createdAt\": \"2026-01-05T00:00:00Z\", \"body\": \"<!-- sdlc:theorem-records i/N --> prose\"}]}"
@@ -798,6 +800,9 @@ check "$RC:$OUT" "3:" "records-chain: no marker prints nothing and exits 3"
 # The adjustment cut. Each case's PR carries a fixer brief, a records
 # chunk and one adjustment, all after the cut, and one other comment,
 # which falls before the cut in some cases and after it in others.
+
+# adjust_json <reviews> <other body>: prints such a PR's JSON, its reviews
+# the JSON array <reviews> and its other comment's body <other body>.
 adjust_json() {
   printf '{"createdAt": "2026-01-01T00:00:00Z", "reviews": %s, "comments": [
     {"createdAt": "2026-01-05T00:00:00Z", "body": "Review adjustments for round 1:\\n- T2 rejected"},
