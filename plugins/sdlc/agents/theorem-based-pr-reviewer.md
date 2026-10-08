@@ -504,15 +504,20 @@ sdlc-agent-result-persist --mode print \
   --pr <PR_REF> --round <this round's number>
 ```
 
-Take the arm "You are re-entrant" names for what it printed. Then anchor
-the round, whichever arm you are on — the call is idempotent, so it is
-the same call on a fresh round and on a resume, and nothing turns on
-whether a child has written first:
+Then anchor the round, whatever it printed — the call is idempotent, so
+it is the same call on a fresh round and on a resume, and nothing turns
+on whether a child has written first:
 
 ```bash
 sdlc-agent-result-persist --mode anchor \
   --pr <PR_REF> --round <this round's number> --head-sha <headRefOid>
 ```
+
+Take the arm "You are re-entrant" names for what the `print` call
+printed, unless its `anchor` line named a head SHA other than
+`<headRefOid>`: then the anchor call voided the round, and what you
+printed describes the old head. Run the `print` call again and take the
+arm for what it prints now.
 
 One anchor per round, here and nowhere else. A child's own deadline
 comes from its `enter` record rather than from anything written here.
@@ -658,8 +663,8 @@ seed record is retired for good, per "The `--full` round".
 or in "Fan out the disprovers", is read by its status and message:
 
 - **Exit 3** means the branch moved since "Read the PR's shape" took
-  `<headRefOid>`, and voids the round as "A moved head voids the round"
-  says: restart from "Read the PR's shape", so that "Read the round log,
+  `<headRefOid>`, and voids the round as "You are re-entrant" says of a
+  moved head: restart from "Read the PR's shape", so that "Read the round log,
   then anchor the round" anchors the fresh round on the new head SHA.
 - **Exit 1 saying `--prev-head` is not a commit in this repository** is
   the fallback trigger below. Only the delta read passes `--prev-head`,
