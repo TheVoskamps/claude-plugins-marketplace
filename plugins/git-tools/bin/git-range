@@ -29,6 +29,7 @@ usage() {
   echo "usage: $PROGRAM --base <base-ref> --head-ref <head-ref> --head <sha> [--prev-head <sha>]"
 }
 
+# usage_error <message> -- print <message> and the synopsis, and exit 2.
 usage_error() {
   printf '%s: %s\n' "$PROGRAM" "$1" >&2
   usage >&2

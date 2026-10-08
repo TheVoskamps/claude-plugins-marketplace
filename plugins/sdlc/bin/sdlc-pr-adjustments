@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # sdlc-pr-adjustments -- print the comments posted on a PR since its
-# previous review round, less the ones sdlc itself posted: each comment
-# verbatim, oldest first, under a `--- comment <createdAt> ---` line.
+# previous review round, less the fixer briefs and review-detail chunks
+# sdlc posts: each comment verbatim, oldest first, under a
+# `--- comment <createdAt> ---` line.
 # What a comment asks for is the reader's to decide. Read-only.
 #
 # The cut instant is the newest review's submittedAt; with no review,

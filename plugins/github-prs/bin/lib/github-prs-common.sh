@@ -21,7 +21,7 @@
 #   128+N  killed by signal N
 # 1 is the generic failure because bash itself exits 1 on a failure no
 # trap can intercept, such as an unbound variable under `set -u`; every
-# outcome a verb reports on purpose sits from 3 up, below 126.
+# outcome a verb reports on purpose sits from 2 up, below 126.
 #
 # Exit 1 covers a failure the verb does not handle as well as one it
 # does: the ERR trap below, which `set -E` passes to every function,

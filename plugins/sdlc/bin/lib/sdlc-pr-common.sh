@@ -87,6 +87,8 @@ sp_parse_pr() {
   SP_PR=$n
 }
 
+# sp_err_not_pr_ref <ref> -- the usage error for a reference sp_parse_pr
+# refuses.
 sp_err_not_pr_ref() {
   sp_usage_error "\`$1\` is not a PR reference. Pass <host>/<owner>/<repo>#<n>, as \`pr-view <PR> --ref\` prints it."
 }
