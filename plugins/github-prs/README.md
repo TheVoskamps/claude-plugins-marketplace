@@ -2,7 +2,8 @@
 
 GitHub-only skills for the operations a pull request goes through:
 create it (as a draft, closing its own issue set), read it, fetch its
-diff, list the PRs a branch has opened, submit a review with a verdict,
+diff, list every file it changes, list the PRs a branch has opened,
+submit a review with a verdict,
 comment on it, replace its body, flip it between draft and
 ready-for-review, report whether it can be merged and enumerate the
 conflicts when it cannot, link it to the issues it resolves via one
@@ -45,21 +46,38 @@ spelling a `gh pr` call of its own — which is also what would let a
 permission gate refuse raw `gh pr` use later without breaking a caller.
 
 The scripts share one sourced helper, `bin/lib/github-prs-common.sh`,
-which holds the error catalogue, the `gh` call wrapper, `gp_gh`, and
-the parser of the PR reference every PR verb takes, `gp_parse_pr`. A
-script reports a failure by calling a catalogue entry and never spells
-a message of its own, so an exit status means the same thing whichever
-verb returned it:
+which holds the error catalogue, the `gh` call wrapper, `gp_gh`, the
+parser of the PR reference every PR verb takes, `gp_parse_pr`, and the
+ERR trap every verb runs under. A script reports a failure by calling a
+catalogue entry and never spells a message of its own, so an exit
+status means the same thing whichever verb returned it:
 
 | Exit | Meaning |
 | --- | --- |
 | 0 | the verb did what it says |
-| 1 | the verb's own negative outcome: a change that did not land on the re-read, a PR that is not open, a merge state still `UNKNOWN` |
+| 1 | a generic failure: a command the verb ran failed, or bash itself did, with the tool's own stderr passed through above the catalogue line |
 | 2 | a usage error; nothing was sent to GitHub |
-| 3 | a `gh` call — or, for `pr-merge-conflicts`, a `git` step — failed, with the tool's own stderr passed through above the catalogue line |
+| 3 | the verb's own negative outcome: a change that did not land on the re-read, a PR that is not open, a merge state still `UNKNOWN` |
 | 4 | `.issues/repo-config.md` is missing or lacks a key the verb reads |
+| 126 | bash: a command the verb ran was not executable |
+| 127 | bash: a command the verb ran was not found |
+| 128+N | killed by signal N |
 
-A verb that changes a PR **re-reads it afterwards** and exits 1 when
+Exit 1 is the generic failure because bash itself exits 1 on a failure
+no trap can intercept, such as an unbound variable, so every status a
+verb chooses for itself sits from 2 up and below 126. The trap is what
+makes 1 cover a failure the verb did not handle as well as one it did:
+the helper sets `set -E` and an ERR trap, so a failed `gh` call, a
+failed `git` step in `pr-merge-conflicts`, or any other command that
+fails where the verb has no handling exits 1 with a catalogue line
+naming the command and its status — never with the tool's own status,
+so no raw status escapes to a caller. Under bash 3.2 the trap cannot
+see into some constructs — a command substitution anywhere but the
+right-hand side of a plain assignment, a subshell, a function called as
+a condition — so the verbs are written without them, and 126 and 127
+reach a caller only from where the trap cannot look.
+
+A verb that changes a PR **re-reads it afterwards** and exits 3 when
 the change is not there — `pr-create` checks the draft flag, base, head
 and body it asked for; `pr-ready` and `pr-draft` check `isDraft`;
 `pr-update` and `pr-link-issue` check the body; `pr-comment` re-reads
@@ -125,12 +143,19 @@ Every script runs under the bash 3.2 that macOS ships. The suite at
 keeps a PR's state in files and applies `--jq` filters with the real
 `jq`, checking the call shape each script issues, the re-read after
 each mutation — including a mode in which the mutation does not land,
-so every exit-1 path is exercised — and the error wording. The stub
+so every exit-3 path is exercised — and the error wording. The stub
 resolves an `api` call only on the host the case gives the checkout or
 the reference names, so a call that drops `--hostname` fails the verb;
-no test posts anything to GitHub, and a test of another repository's
-PR for `pr-merge-conflicts` reaches a local stand-in through git's
-`insteadOf`.
+it pages a GraphQL query only under `--paginate` and only when the
+query takes `$endCursor`, so `pr-files` is proven to walk every page of
+a PR with more files than one page holds; no test posts anything to
+GitHub, and a test of another repository's PR for `pr-merge-conflicts`
+reaches a local stand-in through git's `insteadOf`. The ERR trap is
+proven on a fixture that sources the helper and fails a command at top
+level, inside a function, inside a command substitution, and inside a
+function called from one — each exits 1 with the catalogue line and
+runs nothing after the failure — and on an unhandled `git` failure
+inside `pr-merge-conflicts`.
 
 ## One PR, one issue set
 
@@ -244,6 +269,7 @@ that script makes.
 | `/pr-create <issue>… <branch>` | Open a draft PR for a branch against the right base, closing its own issue set | `gh pr create --draft --base <target>` |
 | `/pr-view <PR> [--ref \| --json <fields> [--jq <expr>]]` | Print a PR — a fixed dump, its canonical reference, or the named fields | `gh pr view <PR> [--json …]` |
 | `/pr-diff <PR>` | Fetch a PR's full diff | `gh pr diff <PR>` |
+| `/pr-files <PR>` | List every file a PR changes — change type, additions, deletions and path, one line each — past the 100 `pr-view --json files` stops at | `gh api graphql --paginate` over the PR's `files` connection |
 | `/pr-list --head <branch> [--state <state>]` | List the PRs opened from a head branch, as a JSON array | `gh pr list --head <branch> --state <state>` |
 | `/pr-review-submit <PR> --verdict <verdict> <body>` or `--body-file <path>` | Post a single PR review carrying a verdict, with the body inline or from a file | `gh pr review <PR>` |
 | `/pr-comment <PR> --body-file <path>` | Post one comment on a PR from a file | `gh pr comment <PR> --body-file <path>` |
@@ -293,6 +319,17 @@ This is the diff-fetch that every `theorem-generator` variant,
 `theorem-disprover`, `counterexample-verifier`, `issue-fixer`, `code-documenter`,
 `style-checker`, and `docs-writer` need
 before they read a PR's changes.
+
+### `/pr-files <PR>`
+
+Lists every file a PR changes, one tab-separated line each — GitHub's
+change type, additions, deletions and path — in the order GitHub lists
+them. The `files` field of `gh pr view --json` returns the first 100
+files and no more, silently, so a caller that decides anything from the
+whole list — which of a PR's paths a review grades, say — reads this
+verb rather than that field. The script pages the GraphQL `files`
+connection until GitHub reports no next page, so the list is complete
+whatever the PR's size. Read-only.
 
 ### `/pr-list --head <branch> [--state <state>]`
 
