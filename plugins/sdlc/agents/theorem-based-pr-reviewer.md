@@ -483,8 +483,6 @@ Then read the files the diff touches:
 /github-prs:pr-files <PR_REF>
 ```
 
-It lists every file however many the PR changes — the `files` field
-`/github-prs:pr-view` can ask for stops at the first 100.
 "Documentation is outside the review" reads the paths on that list; it
 is a file list, not the diff.
 
