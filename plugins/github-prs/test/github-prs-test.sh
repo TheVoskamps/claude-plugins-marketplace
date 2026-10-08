@@ -529,6 +529,16 @@ run pr-closing-issues 'o2/r2#7'
 check "$OUT" "PR github.com/o2/r2#7 closes issues 3, 4" \
   "pr-closing-issues: a PR in another repository closes that repository's issues"
 
+new_case closing-lookup-fails
+printf 'Closes o/r#5\n' >"$CASE/body"
+echo "repo view" >"$CASE/fail"
+run pr-closing-issues 7
+check "$RC" "1" "pr-closing-issues: a failed repository lookup exits 1"
+check "$(printf '%s\n' "$ERR" | grep -c '^pr-closing-issues: ')" "1" \
+  "pr-closing-issues: a failed repository lookup leaves exactly one catalogue line"
+check "$ERR" "$(printf '%s\n%s' "stub gh: repo view refused" "pr-closing-issues: gh repo view failed (exit 1)")" \
+  "pr-closing-issues: a failed repository lookup leaves gh's own error, then the line naming the lookup"
+
 # --- pr-ready / pr-draft -------------------------------------------------
 new_case ready
 echo true >"$CASE/draft"
