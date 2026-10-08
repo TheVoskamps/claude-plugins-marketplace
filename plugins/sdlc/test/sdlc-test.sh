@@ -795,8 +795,9 @@ pr_case chain-none '{"comments": [{"createdAt": "2026-01-01T00:00:00Z", "body": 
 pr_read sdlc-records-chain 'h.example/o/r#7'
 check "$RC:$OUT" "3:" "records-chain: no marker prints nothing and exits 3"
 
-# The adjustment cut. Each case's PR carries a comment before the cut, a
-# fixer brief and a records chunk after it, and one adjustment after it.
+# The adjustment cut. Each case's PR carries a fixer brief, a records
+# chunk and one adjustment, all after the cut, and one other comment,
+# which falls before the cut in some cases and after it in others.
 adjust_json() {
   printf '{"createdAt": "2026-01-01T00:00:00Z", "reviews": %s, "comments": [
     {"createdAt": "2026-01-05T00:00:00Z", "body": "Review adjustments for round 1:\\n- T2 rejected"},
