@@ -168,11 +168,25 @@ reference that carries a keyword immediately before it, so
 `Closes #196, #201` links `#196` and silently leaves `#201` unlinked.
 Both skills therefore write one `Closes #<issue>` line per issue.
 
-Reading those lines back belongs to `/pr-closing-issues` alone: it is
-the one skill in this marketplace that parses a PR body's closing
-lines, so every skill and agent that acts on which issues a body
-closes invokes it instead of scanning the body itself. `/pr-create` is
-not a consumer — it writes closing lines and never reads them.
+Reading those lines back is one pattern match, `gp_closing_issues` in
+`bin/lib/github-prs-common.sh`, which the `pr-closing-issues` and
+`pr-link-issue` scripts share: the first reports the set it finds, and
+the second appends a line only for an issue outside that set, so a
+direct call of either script is as idempotent as the skill over it.
+The parse used to be prose the skill applied by eye; a pattern match
+belongs in code, once, where the test suite can pin it. An issue counts
+as closed only when a closing keyword — as a whole word, optionally
+followed by a colon — is followed by whitespace and then immediately by
+a reference naming the PR's own repository: `#N`, `repo#N`,
+`owner/repo#N`, `host/owner/repo#N`, or the issue's URL. The
+recognizer is deliberately stricter than GitHub's linker: a bare
+number, `GH-N`, a word between keyword and reference, or a reference
+to another repository counts as not closed, so a miss costs one extra
+`Closes` line and never a missing one. Every skill and agent outside
+this plugin reads a body's closing set by invoking
+`/pr-closing-issues` rather than scanning the body itself.
+`/pr-create` is not a consumer — it writes closing lines and never
+reads them.
 
 ## Readiness is reported, never remedied
 
@@ -397,10 +411,14 @@ keeping "the HEAD side" there drops the branch's change.
 
 ### `/pr-link-issue <PR> <issue>…`
 
-Set-idempotent verify/append. Asks `/pr-closing-issues` what the body
-already closes; members already covered are left alone, the missing
+Set-idempotent verify/append. The script reads the body and the issues
+it already closes; members already covered are left alone, the missing
 ones get a `Closes #<issue>` line appended, and a body that already
-covers every member is a no-op. A closing keyword in the PR body is
+covers every member is a no-op that writes nothing. The check is the
+script's own (see "One PR, one issue set" above), so a direct
+`pr-link-issue` call cannot duplicate a line either, and its report
+names the members already closed and the lines it appended. A closing
+keyword in the PR body is
 GitHub's sanctioned mechanism for both the Development-sidebar "linked
 pull request" **and** the auto-close-on-merge to the default branch.
 
@@ -413,11 +431,10 @@ deliberately deferred member stays un-closed.
 
 ### `/pr-closing-issues <PR>`
 
-Fetches the PR body and reports the set of issues it closes, applying
-the closing-keyword-immediately-before-reference syntax. It is
-the one place in this marketplace that syntax is applied to a PR body,
-so every skill and agent that acts on which issues a body closes — for
-an idempotency check, a standalone review's claim, a status flip, or a
-before-and-after comparison around a body edit — invokes it rather
-than scanning a body itself. A single-PR primitive: a caller holding
-several PRs loops.
+Fetches the PR body and reports, on one line, the set of issues it
+closes as `gp_closing_issues` recognizes them (see "One PR, one issue
+set" above). The skill relays the script's line and applies no syntax
+of its own; it is how every skill and agent outside this plugin — for
+a standalone review's claim, a status flip, or a before-and-after
+comparison around a body edit — learns the set rather than scanning a
+body itself. A single-PR primitive: a caller holding several PRs loops.
