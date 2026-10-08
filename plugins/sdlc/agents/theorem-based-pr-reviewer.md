@@ -730,17 +730,12 @@ Reading every comment on the PR instead is what you must not do: an
 adjustment that already minted a theorem would mint it a second time
 under a new id.
 
-**Not every comment is an adjustment, and the script prints only those
-that can be.** It leaves out the two kinds `sdlc` posts itself, and
-neither is an input to you. A chunk of the run's assembled detail,
-which `pr-finalizer` posts once the fix loop has concluded, is your own
-output coming back at you. A fixer brief — the orchestrator's, or
-`pr-merge-readiness`'s — is an instruction to `issue-fixer`, not to you:
-a review-loop brief carries findings *you* filed last round, so applying
-it would mint theorems for defects already in your records, and it is
-no reason to fan out either. A brief is still worth reading as context
-for what the fixer was told — `sdlc-fixer-brief --all <PR_REF>` prints
-every one — but nothing in it changes a record.
+**A fixer brief is context, never an adjustment.** It is an
+instruction to `issue-fixer`, not to you: a review-loop brief carries
+findings *you* filed last round, so applying it would mint theorems for
+defects already in your records, and it is no reason to fan out either.
+`sdlc-fixer-brief --all <PR_REF>` prints every brief when you want to
+see what the fixer was told, but nothing in one changes a record.
 
 Apply each comment the script prints to the carried records:
 
