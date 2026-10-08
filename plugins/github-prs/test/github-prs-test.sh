@@ -10,7 +10,9 @@
 # carries other text, and every other mutation changes nothing -- which
 # is how a change that did not land is staged. A fixture sourcing the
 # common helper, and a git that fails under pr-merge-conflicts, check that
-# a command no verb handles exits 1 wherever it fails.
+# a command no verb handles exits 1 wherever it fails; a sort that fails
+# under pr-closing-issues, that its pipeline exits 1 whatever sort's
+# status.
 #
 # Needs jq and git on PATH. Reaches no network.
 #
@@ -256,11 +258,12 @@ new_case() {
   mkdir -p "$CASE"
 }
 
-# run <verb> <args...> -- run one script from $REPO; leaves OUT, ERR, RC.
+# run <verb> <args...> -- run one script from $REPO, with a case's own
+# bin/ ahead of the stubs when it has one; leaves OUT, ERR, RC.
 run() {
   local verb=$1
   shift
-  OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
+  OUT=$(cd "$REPO" && PATH="$CASE/bin:$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
     /bin/bash "$BIN/$verb" "$@" 2>"$CASE/stderr")
   RC=$?
   ERR=$(cat "$CASE/stderr")
@@ -538,6 +541,21 @@ check "$(printf '%s\n' "$ERR" | grep -c '^pr-closing-issues: ')" "1" \
   "pr-closing-issues: a failed repository lookup leaves exactly one catalogue line"
 check "$ERR" "$(printf '%s\n%s' "stub gh: repo view refused" "pr-closing-issues: gh repo view failed (exit 1)")" \
   "pr-closing-issues: a failed repository lookup leaves gh's own error, then the line naming the lookup"
+
+# A sort that fails with a status of its own: the verb exits with the
+# generic failure, not sort's 7.
+new_case closing-sort-fails
+printf 'Closes #3\n' >"$CASE/body"
+mkdir -p "$CASE/bin"
+cat >"$CASE/bin/sort" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+echo "stub sort: refused" >&2
+exit 7
+STUB
+chmod +x "$CASE/bin/sort"
+run pr-closing-issues 7
+check "$RC" "1" "pr-closing-issues: a failed sort exits 1, not sort's 7"
 
 # --- pr-ready / pr-draft -------------------------------------------------
 new_case ready
