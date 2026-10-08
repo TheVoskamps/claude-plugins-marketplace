@@ -653,7 +653,7 @@ new_case operand-other-mode
 "$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "refusal: a mode other than list takes no repository operand"
 
-# --- unhandled failures in the existing scripts ---------------------------
+# --- unhandled failures in the persist and analysis scripts ---------------
 # A command a script does not handle exits through the script's own
 # failure exit, naming the command, and never with the command's status.
 
