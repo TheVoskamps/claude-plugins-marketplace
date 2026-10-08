@@ -284,13 +284,18 @@ the theorem is unanswered and re-spawnable, and it has no child in
 flight until a new `enter` arrives.
 
 **A moved head voids the round.** The `anchor` line carries the head SHA
-the round's theorems were generated against. Compare it against
-`origin/<headRefName>` after the fetch in "Fan out the disprovers". On a
-mismatch, the records describe a tree that no longer exists: discard
-them, say so in the Review method section, and run the round fresh from
-"Read the PR's shape" against the new head rather than mixing verdicts
-from two trees. This is not hypothetical — a scheduled sweep
-force-rebases open PR branches and can fire mid-round. Then make the
+the round's theorems were generated against. A moved head is detected
+in two places: at "Read the round log, then anchor the round", when the
+printed `anchor` line names a head SHA other than `<headRefOid>`; and
+after the fetch in "Fan out the disprovers", when it names one other
+than `origin/<headRefName>`. Either way the records describe a tree
+that no longer exists: they are set aside, and the Review method
+section says so, naming both SHAs. This is not hypothetical — a
+scheduled sweep force-rebases open PR branches and can fire mid-round.
+At the anchor step the anchor call has already set them aside, and that
+step says how to go on. At the fan-out, run the round fresh from "Read
+the PR's shape" against the new head rather than mixing verdicts from
+two trees. Then make the
 `--mode anchor` call for the fresh round carrying the new head SHA: the
 preloaded `sdlc:agent-result-persist-interface` skill → "The modes" owns
 what the script does with the stale log and the result files beside it.
