@@ -74,11 +74,9 @@ from its issue.
    sdlc-fixer-brief <PR_REF>
    ```
 
-   **Proceed only on exit 0**, which prints the brief. Exit 3 means the
-   most recent comment is anything else — a review-adjustments comment,
-   an orchestration note, a human's remark: stop and report that you
-   found no fixer brief, quoting the comment's first line from the
-   script's stderr. Do not fall back to the second-most-recent comment,
+   **Proceed only on exit 0.** On exit 3, stop and report that you
+   found no fixer brief, quoting the first line the script's stderr
+   gives. Do not fall back to the second-most-recent comment,
    and do not improvise a brief from the posted review: a stray comment
    silently becoming your instructions is the failure this check exists
    to prevent, and picking the review instead would put your own reading

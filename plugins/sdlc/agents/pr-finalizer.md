@@ -419,12 +419,11 @@ whether the PR carries a complete chain, as the preloaded
 sdlc-records-chain <PR>
 ```
 
-Exit 0 means it does, and that is the run's detail: post nothing, and
-name that chain in your section as where the detail is. Exit 3 means it
-does not: post the whole chain, complete. When the script printed
-`partial` lines — a run that failed mid-post — the partial chain stays,
-since you delete no comment, and your section names the complete chain,
-so a reader knows which to follow.
+On exit 0, post nothing, and name that chain in your section as where
+the run's detail is. On exit 3, post the whole chain, complete; any
+partial chain the script reported stays, since you delete no comment,
+and your section names the complete chain, so a reader knows which to
+follow.
 
 Build each chunk as `.claude/tmp/<task-slug>/detail-<i>.md`: write its
 marker line with `Write` to `.claude/tmp/<task-slug>/marker-<i>.md`,
