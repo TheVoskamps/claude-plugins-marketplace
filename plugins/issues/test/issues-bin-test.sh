@@ -135,6 +135,7 @@ for n in range(100, 210):
     big[str(n)] = issue("acme/widgets", n, "Child %d" % n, parent="I_acme_widgets_3", blockedBy=["I_acme_widgets_12"])
 widgets.update(big)
 widgets["11"] = issue("acme/widgets", 11, "Leaf", parent="I_acme_widgets_10")
+widgets["50"] = issue("acme/widgets", 50, "A pull request", pullRequest=True)
 many_fields = {"PVTF_other%d" % n: {"number": n} for n in range(110)}
 many_fields["PVTSSF_status"] = {"name": "In progress", "optionId": "OPT_inprogress"}
 many_issue_fields = {"IFSS_other%d" % n: {"name": "x", "optionId": "IFSSO_x"} for n in range(105)}
@@ -694,7 +695,7 @@ run issue-set-child 4 5
 expect "issue-set-child: same edge is a no-op" 0 "Issue #5 is already a sub-issue of #4; no change."
 run issue-set-parent 5 3
 expect "issue-set-parent: single-parent conflict" 1 \
-  "issue \`#5\` already has parent \`#4\`; remove it first with \`/issue-unset-parent 5\` before setting a new parent"
+  "issue \`#5\` already has parent \`#4\`; remove it first with \`/issue-unset-parent #5\` before setting a new parent"
 run issue-unset-child 3 5
 expect "issue-unset-child: other parent is a no-op" 0 "Issue #5 is not a sub-issue of #3; no change."
 run issue-unset-child 4 5
@@ -732,13 +733,194 @@ expect "issue-unset-blocked-by: a printed host/owner/repo#N operand" 0 \
   "Issue #4 is not blocked by ghe.example.com/corp/tools#1; no change."
 run issue-unset-blocks https://ghe.example.com/corp/tools#1 4
 expect "issue-unset-blocks: a URL-form operand reaches its host" 0 "ghe.example.com/corp/tools#1"
-run issue-view other#3
-expect "issue-view: a repo#N operand is refused" 2 "\`other#3\`: this verb takes an issue number in the current repo"
 run issue-set-blocked-by 4 'other#x'
 expect "issue-set-blocked-by: a non-numeric issue part is a usage error" 2 \
-  "\`other#x\` is not an issue reference (expected N, #N or <repository>#N)"
+  "\`other#x\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
 run issue-set-blocked-by 4 'a/b/c/d#3'
 expect "issue-set-blocked-by: a malformed repository part is a usage error" 2 "\`a/b/c/d\` is not a repository"
+
+# Every flag is a --long one, so an argument with a single leading - is an
+# operand, and the parser accepts or refuses it.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+for verb in issue-close issue-comment issue-update; do
+  case "$verb" in
+    issue-comment) set -- --body-file new.md ;;
+    issue-update) set -- --title x ;;
+    *) set -- ;;
+  esac
+  run "$verb" -7 "$@"
+  expect "$verb: a single-dash operand reaches the parser" 2 "\`-7\` is not an issue reference"
+  run "$verb" -a/b#7 "$@"
+  expect "$verb: a single-dash repository part reaches the parser" 2 "\`-a/b\` is not a repository"
+  run "$verb" 2 --bogus "$@"
+  expect "$verb: an unknown --flag is a usage error" 2 "usage: $verb"
+done
+run issue-create -a/b --title x --body-file new.md
+expect "issue-create: a single-dash repository reaches the parser" 2 "\`-a/b\` is not a repository"
+run issue-create --bogus --title x --body-file new.md
+expect "issue-create: an unknown --flag is a usage error" 2 "usage: issue-create"
+run issue-field-options -a/b status
+expect "issue-field-options: a single-dash repository reaches the parser" 2 "\`-a/b\` is not a repository"
+run issue-field-options -a/b --all
+expect "issue-field-options --all: a single-dash repository reaches the parser" 2 "\`-a/b\` is not a repository"
+run issue-field-options --bogus
+expect "issue-field-options: an unknown --flag is a usage error" 2 "usage: issue-field-options"
+
+# ---------------------------------------------------------------------------
+# Every verb takes an issue in another repository, in each operand form.
+# ---------------------------------------------------------------------------
+
+# set_repo <nwo> <jq-update>: change one fixture repo in the case's state.
+set_repo() {
+  jq --arg r "$1" ".repos[\$r] |= ($2)" "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+    mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+}
+
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-view other#3
+expect "issue-view repo#N: the issue under the current owner" 0 \
+  "other#3 Other repo issue    (OPEN)" "https://github.com/acme/other/issues/3" "Type:       (none)"
+expect_absent "issue-view repo#N: a repository with no repo-config prints no slot rows" "Status:"
+run issue-view octo/lib#5
+expect "issue-view owner/repo#N: the other repository's issue" 0 \
+  "octo/lib#5 Library issue    (OPEN)" "https://github.com/octo/lib/issues/5"
+run issue-view https://github.com/octo/lib/issues/5/
+expect "issue-view https://host/owner/repo/issues/N: the same issue" 0 "octo/lib#5 Library issue    (OPEN)"
+run issue-create ghe.example.com/corp/tools --title "On GHE" --body-file new.md
+run issue-view ghe.example.com/corp/tools#1
+expect "issue-view host/owner/repo#N: the issue on that host" 0 \
+  "ghe.example.com/corp/tools#1 On GHE    (OPEN)" "https://ghe.example.com/corp/tools/issues/1"
+run issue-view https://ghe.example.com/corp/tools/issues/1
+expect "issue-view an issue URL: the issue on that host" 0 "ghe.example.com/corp/tools#1 On GHE    (OPEN)"
+run issue-view https://github.com/acme/widgets/pull/2
+expect "issue-view: a pull request's URL is refused as a pull request" 1 \
+  "\`https://github.com/acme/widgets/pull/2\` is a pull request; the issue verbs take issues only"
+
+run issue-sub-list octo/lib#5
+expect "issue-sub-list owner/repo#N" 0 "Sub-issues of octo/lib#5 \"Library issue\":"
+run issue-view-tree other#3
+expect "issue-view-tree repo#N" 0 "other#3 Other repo issue  https://github.com/acme/other/issues/3"
+run issue-update octo/lib#5 --add-assignees octocat
+expect "issue-update owner/repo#N: add" 0 "Updated issue octo/lib#5:" "assignees added: octocat"
+run issue-update octo/lib#5 --remove-assignees octocat
+expect "issue-update owner/repo#N: remove" 0 "assignees removed: octocat"
+check "$(state '.repos["octo/lib"].issues["5"].assignees | length')" 0 "issue-update owner/repo#N: the assignee is gone"
+run issue-comment octo/lib#5 --body-file new.md
+expect "issue-comment owner/repo#N" 0 "Commented on issue octo/lib#5 \"Library issue\"." \
+  "https://github.com/octo/lib/issues/5#issuecomment-"
+run issue-set-parent 4 octo/lib#5
+expect "issue-set-parent: a parent in another repository" 0 "Linked issue #4 as a sub-issue of octo/lib#5."
+check "$(state '.repos["acme/widgets"].issues["4"].parent')" I_octo_lib_5 "issue-set-parent: the cross-repo edge landed"
+run issue-unset-child octo/lib#5 4
+expect "issue-unset-child: a parent in another repository" 0 "Removed issue #4 as a sub-issue of octo/lib#5."
+run issue-create --title "Child" --body-file new.md --parent octo/lib#5
+expect "issue-create --parent owner/repo#N" 0 "  parent:     octo/lib#5"
+check "$(state '.repos["acme/widgets"].issues["210"].parent')" I_octo_lib_5 "issue-create --parent owner/repo#N: landed"
+run issue-create other --title "Sibling child" --body-file new.md --parent 3
+expect "issue-create <repo> --parent N: N is in the repo the issue is filed in" 0 "  parent:     other#3"
+run issue-close octo/lib#5
+expect "issue-close owner/repo#N" 0 "Closed issue octo/lib#5 \"Library issue\"."
+check "$(state '.repos["octo/lib"].issues["5"].state')" CLOSED "issue-close owner/repo#N: closed"
+
+# A board slot is written with the operand's repository's repo-config.
+for call in "issue-set-status octo/lib#5 Done" "issue-set-priority octo/lib#5 low" "issue-set-size octo/lib#5 L" \
+            "issue-set-type octo/lib#5 bug"; do
+  run $call
+  expect "${call%% *} owner/repo#N: a repository with no repo-config is refused by name" 1 \
+    "\`octo/lib\` has no \`.issues/repo-config.md\`, and this verb reads its \`github-project:\` block"
+done
+set_repo octo/lib ".config = $(jq -Rs . <<<"$CONFIG_NO_BLOCK")"
+run issue-set-status octo/lib#5 Done
+expect "issue-set-status owner/repo#N: no github-project block, named" 1 \
+  "target repo \`octo/lib\`: no \`github-project:\` block in \`repo-config.md\`"
+set_repo octo/lib ".config = $(jq -Rs . <<<"$(printf '%s\n' "$CONFIG_MAIN" | sed 's/PVT_1/PVT_lib/')") | .validLabels = [\"size:L\"]"
+run issue-set-status octo/lib#5 "done"
+expect "issue-set-status owner/repo#N: the other repository's board" 0 "Set status on issue octo/lib#5 to Done."
+check "$(state '.repos["octo/lib"].issues["5"].projectItems[0] | .project + " " + .fields.PVTSSF_status.name')" \
+  "PVT_lib Done" "issue-set-status owner/repo#N: written on the board its repo-config names"
+run issue-set-priority octo/lib#5 low
+expect "issue-set-priority owner/repo#N" 0 "octo/lib#5 priority set to Low."
+run issue-set-size octo/lib#5 L
+expect "issue-set-size owner/repo#N" 0 "octo/lib#5 size set to L (via label \`size:L\`)."
+run issue-set-type octo/lib#5 bug
+expect "issue-set-type owner/repo#N" 0 "octo/lib#5 type set to Bug."
+run issue-view octo/lib#5
+expect "issue-view owner/repo#N: slot rows from that repository's repo-config" 0 \
+  "Status:     Done" "Priority:   Low" "Size:       L"
+check "$(grep -c '"repos/octo/lib/contents/.issues/repo-config.md"' "$CASE_DIR/gh.log")" 20 \
+  "every verb on octo/lib#5 read that repository's repo-config"
+
+# A pull request is refused by every verb, by name.
+for call in "issue-view 50" "issue-view-tree 50" "issue-sub-list 50" "issue-close 50" "issue-comment 50 --body-file new.md" \
+            "issue-update 50 --title x" "issue-set-status 50 Done" "issue-set-priority 50 Low" "issue-set-size 50 M" \
+            "issue-set-type 50 Bug" "issue-set-parent 50 1" "issue-set-child 1 50" "issue-unset-parent 50" \
+            "issue-unset-child 1 50" "issue-set-blocked-by 50 1" "issue-set-blocks 1 50" "issue-unset-blocked-by 50 1" \
+            "issue-unset-blocks 1 50"; do
+  run $call
+  expect "${call%% *}: a pull request's number is refused" 1 "\`#50\` is a pull request; the issue verbs take issues only"
+done
+run issue-create --title "Under a PR" --body-file new.md --parent 50
+expect "issue-create --parent: a pull request is refused" 1 "\`#50\` is a pull request"
+check "$(state '.repos["acme/widgets"].issues | has("211")')" false "issue-create --parent: nothing created under a pull request"
+check "$(jq -c 'select(.[0] == "issue" and .[1] != "create")' "$CASE_DIR/gh.log" | jq -r '.[2]' | grep -c '^50$')" 0 \
+  "no gh issue call reached the pull request"
+
+# An operand in a Jira-tracked repository gets the fixed Jira message.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+for call in "issue-view jira#1" "issue-view-tree jira#1" "issue-sub-list jira#1" "issue-close jira#1" \
+            "issue-comment jira#1 --body-file new.md" "issue-update jira#1 --title x" "issue-set-status jira#1 Done" \
+            "issue-set-priority jira#1 Low" "issue-set-size jira#1 M" "issue-set-type jira#1 Bug" \
+            "issue-set-parent 2 jira#1" "issue-set-child jira#1 2" "issue-unset-parent jira#1" "issue-unset-child 2 jira#1" \
+            "issue-set-blocked-by 2 jira#1" "issue-set-blocks jira#1 2" "issue-unset-blocked-by 2 jira#1" \
+            "issue-unset-blocks jira#1 2" "issue-create --title x --body-file new.md --parent jira#1"; do
+  run $call
+  expect "${call%% *}: an operand in a Jira repository exits non-zero" 1 \
+    "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+done
+check "$(jq -c 'select(.[0] == "issue" or index("graphql") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "an operand in a Jira repository: no issue read or write"
+
+# Only the operand's repository's repo-config governs a verb on it: a checkout
+# that is Jira-tracked, or has none, stops a verb on its own issues and not one
+# on another repository's.
+for checkout in jira none; do
+  if [ "$checkout" = jira ]; then
+    new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')"
+    local_refusal="\`issues: Jira\` is configured, and this script serves only the GitHub backend."
+  else
+    new_case none
+    local_refusal="This repo has no \`.issues/repo-config.md\`. Run \`/repo-config\` to create one."
+  fi
+  set_repo octo/lib ".config = $(jq -Rs . <<<"$(printf '%s\n' "$CONFIG_MAIN" | sed 's/PVT_1/PVT_lib/')") | .validLabels = [\"size:L\"]"
+  run issue-set-priority octo/lib#5 low
+  expect "issue-set-priority owner/repo#N from a $checkout checkout: the operand's repo-config governs" 0 \
+    "octo/lib#5 priority set to Low."
+  run issue-set-status octo/lib#5 Done
+  expect "issue-set-status owner/repo#N from a $checkout checkout" 0 "Set status on issue octo/lib#5 to Done."
+  run issue-view octo/lib#5
+  expect "issue-view owner/repo#N from a $checkout checkout" 0 "Priority:   Low" "Status:     Done"
+  run issue-set-blocked-by octo/lib#5 acme/other#3
+  expect "issue-set-blocked-by across two other repositories from a $checkout checkout" 0 \
+    "Marked issue octo/lib#5 as blocked by other#3."
+  for call in "issue-set-priority 2 low" "issue-view acme/widgets#2" "issue-set-blocked-by octo/lib#5 2"; do
+    run $call
+    expect "${call%% *}: an operand in a $checkout checkout's own repository is still refused" 1 "$local_refusal"
+  done
+done
+
+# A slot the operand's repository leaves unconfigured is reported against that
+# repository.
+new_case "$CONFIG_MAIN"
+set_repo octo/lib ".config = $(jq -Rs . <<<"$CONFIG_NUMBER")"
+run issue-set-size octo/lib#5 M
+expect "issue-set-size owner/repo#N: an unconfigured slot names the repository" 0 \
+  "\`/issue-set-size\` has nothing to do: \`octo/lib\` has no \`size\` slot configured. (Run \`/repo-config\` in \`octo/lib\` to add one.)"
+run issue-set-status octo/lib#5 Done
+expect "issue-set-status owner/repo#N: an unconfigured slot names the repository" 0 \
+  "\`/issue-set-status\` has nothing to do: \`octo/lib\` has no \`status\` slot configured. (Run \`/repo-config\` in \`octo/lib\` to add one.)"
 
 # ---------------------------------------------------------------------------
 # Comment, close, update.
@@ -886,6 +1068,8 @@ printf 'New body.\n' >"$CASE_DIR/repo/new.md"
 run issue-view 2
 expect "GHE: issue-view" 0 "#2 Widget issue 2    (OPEN)" "https://ghe.example.com/acme/widgets/issues/2" \
   "Blocked by:${ISS_NL}  - other#3 Other repo issue"
+run issue-view acme/other#3
+expect "GHE: issue-view owner/repo#N reads on the checkout's host" 0 "https://ghe.example.com/acme/other/issues/3"
 run issue-view-tree 1
 expect "GHE: issue-view-tree" 0 "  #2 Widget issue 2  https://ghe.example.com/acme/widgets/issues/2"
 run issue-sub-list 1

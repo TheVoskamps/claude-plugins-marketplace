@@ -11,7 +11,7 @@ in conversation when editing multiple issues.
 ## Invocation
 
 ```text
-/issue-update <N>
+/issue-update <issue>
               [--title "..."]
               [--body-file PATH]
               [--append "line to append"]
@@ -20,8 +20,7 @@ in conversation when editing multiple issues.
               [--add-assignees u1] [--remove-assignees u2]
 ```
 
-- `<N>` (required): issue number in the current repo, with or without
-  a leading `#`.
+- `<issue>` (required): an issue reference.
 - `--title` (optional): replace the title.
 - `--body-file` (optional): replace the whole body with the file's
   contents.
@@ -34,7 +33,8 @@ in conversation when editing multiple issues.
 - `--add-assignees` / `--remove-assignees` (optional): comma-separated
   GitHub logins. Either also accepts the literal token
   `@default-assignee`, which the script resolves to `default-assignee`
-  from the repo-level user-config, then the user-global one
+  from the repo-level user-config — for an issue in the current repo
+  only — then the user-global one
   (`skills/lib/user-config.md`), then the authenticated GitHub user.
   A user-config file that exists but predates schema-version `1`
   aborts rather than being skipped.
@@ -50,7 +50,7 @@ the Bash tool from inside the repo's working tree, passing only the
 flags the user asked for:
 
 ```bash
-issue-update <N> [--title "..."] [--body-file PATH] [--append "..."]... [--prepend "..."]... \
+issue-update <issue> [--title "..."] [--body-file PATH] [--append "..."]... [--prepend "..."]... \
   [--add-labels a,b] [--remove-labels a,b] [--add-assignees u1] [--remove-assignees u2]
 ```
 
@@ -97,7 +97,8 @@ state is neither a change nor a failure.
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Update" instead, resolving
 `@default-assignee` the same way with the `acli` account as the last
 fallback.

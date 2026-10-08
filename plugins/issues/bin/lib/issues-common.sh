@@ -85,11 +85,25 @@ iss_err_repo_not_found() {
 }
 
 iss_err_no_block() {
-  iss_die "no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
+  # $1 message prefix
+  iss_die "${1:-}no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
 }
 
 iss_err_no_issue_types() {
-  iss_die "issue-types map missing from \`github-project:\` in \`repo-config.md\`; run \`/repo-config\` to add it"
+  # $1 message prefix
+  iss_die "${1:-}issue-types map missing from \`github-project:\` in \`repo-config.md\`; run \`/repo-config\` to add it"
+}
+
+iss_err_no_target_config() {
+  # $1 host, $2 owner, $3 repo
+  iss_die "\`$(iss_repo_name "$1" "$2" "$3")\` has no \`.issues/repo-config.md\`, and this verb reads its \`github-project:\` block"
+}
+
+iss_err_pull_request() {
+  # $1 the pull request, as the operand spelled it or as iss_ref prints it.
+  # One exit status whether iss_parse_operand finds the pull request in a URL
+  # or iss_try_lookup finds it behind a number.
+  iss_die "\`$1\` is a pull request; the issue verbs take issues only"
 }
 
 iss_err_type_not_known() {
@@ -499,6 +513,47 @@ iss_try_current_repo() {
   ISS_REPO=$URL_REPO
 }
 
+# iss_valid_name <name>: whether <name> is a repository name GitHub allows: 1
+# to 100 ASCII letters, digits, ".", "-" and "_", any of them first.
+iss_valid_name() {
+  case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "${#1}" -le 100 ]
+}
+
+# iss_valid_owner <owner>: whether <owner> is an owner GitHub allows: 1 to 39
+# ASCII letters, digits and "-", not starting with "-" and with no "--".
+iss_valid_owner() {
+  case "$1" in ''|-*|*--*|*[!A-Za-z0-9-]*) return 1 ;; esac
+  [ "${#1}" -le 39 ]
+}
+
+# iss_valid_host <host>: whether <host> is a DNS hostname: at most 253
+# characters of "."-separated labels, each 1 to 63 ASCII letters, digits and
+# "-", neither starting nor ending with "-".
+iss_valid_host() {
+  local rest=$1. label
+  [ "${#1}" -le 253 ] || return 1
+  while [ -n "$rest" ]; do
+    label=${rest%%.*}
+    case "$label" in ''|-*|*-|*[!A-Za-z0-9-]*) return 1 ;; esac
+    [ "${#label}" -le 63 ] || return 1
+    rest=${rest#*.}
+  done
+}
+
+# iss_valid_path <path>: whether each part of repo, owner/repo or
+# host/owner/repo is valid for its place, by iss_valid_host, iss_valid_owner
+# and iss_valid_name. gp_parse_pr in the github-prs plugin validates by the
+# same rules.
+iss_valid_path() {
+  case "$1" in
+    */*/*/*) return 1 ;;
+    */*/*) iss_valid_host "${1%%/*}" && iss_valid_path "${1#*/}" ;;
+    */*) iss_valid_owner "${1%/*}" && iss_valid_name "${1#*/}" ;;
+    *) iss_valid_name "$1" ;;
+  esac
+}
+
 # iss_parse_repo <reference>: the one parser of the repository grammar. Sets
 # RP_HOST, RP_OWNER and RP_REPO from
 #   repo                     that repo under the current repository's owner,
@@ -507,16 +562,16 @@ iss_try_current_repo() {
 #   host/owner/repo          that repository, on that host
 #   https://host/owner/repo  the same as host/owner/repo; a trailing / is
 #                            ignored
-# A malformed reference is a usage error before any gh call; a form without a
-# host resolves the current repository with iss_try_current_repo. With no
-# current repository, repo is a usage error and owner/repo gets the empty
-# host.
+# Each part is checked by iss_valid_path. A malformed reference is a
+# usage error before any gh call; a form without a host resolves the current
+# repository with iss_try_current_repo. With no current repository, repo is a
+# usage error and owner/repo gets the empty host.
 iss_parse_repo() {
   local ref=$1 rest bad
   bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
   case "$ref" in
     *://*)
-      iss_split_url "$ref" || iss_usage_die "$bad"
+      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
       RP_HOST=$URL_HOST
       RP_OWNER=$URL_OWNER
       RP_REPO=$URL_REPO
@@ -524,7 +579,8 @@ iss_parse_repo() {
       ;;
   esac
   rest=${ref%/}
-  case "$rest" in ''|*//*|/*|*/*/*/*|-*) iss_usage_die "$bad" ;; esac
+  case "$rest" in ''|*//*|/*|*/*/*/*) iss_usage_die "$bad" ;; esac
+  iss_valid_path "$rest" || iss_usage_die "$bad"
   case "$rest" in */*/*) ;; *) iss_try_current_repo || : ;; esac
   case "$rest" in
     */*/*)
@@ -553,6 +609,12 @@ iss_same_host() {
   [ "$(iss_lc "$1")" = "$(iss_lc "$ISS_HOST")" ]
 }
 
+# iss_same_repo <host> <owner> <repo> <host> <owner> <repo>: whether the two
+# name one repository; GitHub matches each part without regard to case.
+iss_same_repo() {
+  [ "$(iss_lc "$1/$2/$3")" = "$(iss_lc "$4/$5/$6")" ]
+}
+
 # iss_repo_arg <host> <owner> <repo>: the value of a `gh issue` call's
 # --repo, host/owner/repo, or owner/repo for gh's default host.
 iss_repo_arg() {
@@ -565,11 +627,46 @@ iss_repo_name() {
   if iss_same_host "$1"; then printf '%s/%s' "$2" "$3"; else printf '%s/%s/%s' "$1" "$2" "$3"; fi
 }
 
-# The common opening of every verb: tools, config, tracker, repo.
+# iss_init <operand>...: the common opening of every verb that acts on
+# existing issues -- tools, the working tree, and the current repository. Only
+# the repo-config of an operand's own repository governs the verb on it, so the
+# current repository's is read here, before any gh call, only when an operand
+# names no repository of its own (iss_names_repo). An operand that does name
+# one is gated by iss_check_repo or iss_operand_config once it is parsed.
 iss_init() {
+  local op
   iss_require_tools
-  iss_load_config
+  ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
+  iss_peek_link_prefix
+  for op in "$@"; do
+    iss_names_repo "$op" && continue
+    iss_load_config
+    break
+  done
   iss_current_repo
+}
+
+# iss_peek_link_prefix: set ISS_LINK_PREFIX from the current repo-config's
+# front matter without iss_load_config's checks, so that iss_names_repo can
+# tell a prefixed N apart before any repo-config is gated on. It is '#' when
+# the file or the key is absent.
+iss_peek_link_prefix() {
+  local fm
+  ISS_LINK_PREFIX='#'
+  [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || return 0
+  fm=$(iss_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")") || return 0
+  ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix) || ISS_LINK_PREFIX='#'
+}
+
+# iss_names_repo <operand>: whether the operand names a repository of its own
+# -- a URL, or a repository part before a # -- rather than being N or #N, with
+# or without ISS_LINK_PREFIX. A malformed operand with neither names none.
+iss_names_repo() {
+  local num=${1#"$ISS_LINK_PREFIX"}
+  num=${num#'#'}
+  iss_is_digits "$num" && return 1
+  case "$1" in https://*|?*'#'*) return 0 ;; esac
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -638,31 +735,112 @@ EOF
 # Operands.
 # ---------------------------------------------------------------------------
 
-# iss_parse_operand <operand> [local-only]: sets OP_HOST, OP_OWNER, OP_REPO,
-# OP_NUMBER from N or #N in the current repository, N optionally carrying the
-# repo-config's issue-link-prefix, or from <repository>#N with its repository
-# part in any form iss_parse_repo takes, so every reference iss_ref prints is
-# accepted back. With local-only, the <repository>#N form is a usage error.
+# iss_parse_operand <operand> [<host> <owner> <repo>]: the one parser of the
+# issue-reference grammar. Sets OP_HOST, OP_OWNER, OP_REPO and OP_NUMBER from
+#   N, #N                          issue N in the given repository, or in the
+#                                  current one when none is given; N may
+#                                  carry the repo-config's issue-link-prefix
+#   <repository>#N                 issue N in the repository, its part before
+#                                  the last # in any form iss_parse_repo takes
+#   https://host/owner/repo/issues/N
+#                                  the same as host/owner/repo#N; a trailing /
+#                                  is ignored
+# so every reference iss_ref prints is accepted back. A pull request's URL is
+# refused with iss_err_pull_request, and any other malformed operand is a usage
+# error, both before any gh call.
 iss_parse_operand() {
-  local op=$1 num bad
-  bad="\`$op\` is not an issue reference (expected N, #N or <repository>#N)"
+  local op=$1 num rest kind bad
+  bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
   num=${op#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   if iss_is_digits "$num"; then
-    OP_HOST=$ISS_HOST
-    OP_OWNER=$ISS_OWNER
-    OP_REPO=$ISS_REPO
-  else
-    case "$op" in ?*'#'*) ;; *) iss_usage_die "$bad" ;; esac
-    [ "${2:-}" = local-only ] && iss_usage_die "\`$op\`: this verb takes an issue number in the current repo"
-    num=${op#*'#'}
-    iss_is_digits "$num" || iss_usage_die "$bad"
-    iss_parse_repo "${op%%'#'*}"
-    OP_HOST=$RP_HOST
-    OP_OWNER=$RP_OWNER
-    OP_REPO=$RP_REPO
+    OP_HOST=${2-$ISS_HOST}
+    OP_OWNER=${3-$ISS_OWNER}
+    OP_REPO=${4-$ISS_REPO}
+    OP_NUMBER=$num
+    return 0
   fi
+  case "$op" in
+    *'#'*)
+      num=${op##*'#'}
+      rest=${op%'#'*}
+      { [ -n "$rest" ] && iss_is_digits "$num"; } || iss_usage_die "$bad"
+      iss_parse_repo "$rest"
+      ;;
+    https://*)
+      rest=${op%/}
+      num=${rest##*/}
+      rest=${rest%/*}
+      kind=${rest##*/}
+      rest=${rest%/*}
+      { iss_is_digits "$num" && iss_split_url "$rest" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } ||
+        iss_usage_die "$bad"
+      case "$kind" in
+        issues) ;;
+        pull) iss_err_pull_request "$op" ;;
+        *) iss_usage_die "$bad" ;;
+      esac
+      RP_HOST=$URL_HOST
+      RP_OWNER=$URL_OWNER
+      RP_REPO=$URL_REPO
+      ;;
+    *) iss_usage_die "$bad" ;;
+  esac
+  OP_HOST=$RP_HOST
+  OP_OWNER=$RP_OWNER
+  OP_REPO=$RP_REPO
   OP_NUMBER=$num
+}
+
+# iss_operand <operand>: iss_parse_operand, then iss_check_repo on the
+# operand's repository.
+iss_operand() {
+  iss_parse_operand "$1"
+  iss_check_repo "$OP_HOST" "$OP_OWNER" "$OP_REPO"
+}
+
+# iss_check_repo <host> <owner> <repo> [<host> <owner> <repo>]: gate the verb
+# on the first repository's repo-config. The second repository, when given, is
+# one whose repo-config the verb has read already, and passes. Without it, the
+# current repository's is read with iss_load_config. Any other repository's
+# is read with iss_load_target_config, aborting wherever that does: on a
+# repo-config it cannot read or that fails validation, and with the fixed Jira
+# message under issues: Jira. That read runs in a subshell, so the repo-config
+# the verb itself reads is left as it was. A repository it finds no repo-config
+# in passes; iss_load_config instead aborts on a missing one.
+iss_check_repo() {
+  if [ "$#" -eq 6 ]; then
+    iss_same_repo "$@" && return 0
+  elif iss_same_repo "$1" "$2" "$3" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"; then
+    iss_load_config
+    return 0
+  fi
+  (iss_load_target_config "$1" "$2" "$3" || :) || exit 1
+}
+
+# iss_operand_config <host> <owner> <repo>: make the repo-config of the
+# operand's repository the one the accessors read — the local file for the
+# current repository, the repository's own, through iss_load_target_config,
+# for any other — and set ISS_CFG_PREFIX to the message prefix naming that
+# other repository, empty for the current one. Returns 1 when the other
+# repository has no repo-config.
+iss_operand_config() {
+  if iss_same_repo "$1" "$2" "$3" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"; then
+    ISS_CFG_PREFIX=
+    iss_load_config
+  else
+    ISS_CFG_PREFIX="target repo \`$(iss_repo_name "$1" "$2" "$3")\`: "
+    iss_load_target_config "$1" "$2" "$3"
+  fi
+}
+
+# iss_operand_board_config: iss_operand_config for OP_HOST, OP_OWNER and
+# OP_REPO, for a verb that writes a project-board slot or the issue type, so
+# it aborts naming the repository when that has no repo-config or no
+# github-project: block.
+iss_operand_board_config() {
+  iss_operand_config "$OP_HOST" "$OP_OWNER" "$OP_REPO" || iss_err_no_target_config "$OP_HOST" "$OP_OWNER" "$OP_REPO"
+  [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block "$ISS_CFG_PREFIX"
 }
 
 # iss_ref <host> <owner> <repo> <number>: an issue reference in the shortest
@@ -729,41 +907,32 @@ iss_gql_fail() {
 # iss_lookup <host> <owner> <repo> <number> <selection>: fetch one issue with
 # the given field selection, whose connections are spelled by iss_conn, and
 # page each of them to its end. Sets ISS_ISSUE to the issue object's JSON.
-# Aborts with the catalogue's not-found wording when the issue does not exist.
+# Aborts with the catalogue's not-found wording when the number names nothing,
+# and with its pull-request wording when it names a pull request.
 iss_lookup() {
-  local doc
-  doc="query(\$owner: String!, \$repo: String!, \$number: Int!) {
-  repository(owner: \$owner, name: \$repo) {
-    issue(number: \$number) { $5 }
-  }
-}"
-  if ! iss_gql "$1" -f query="$doc" -f owner="$2" -f repo="$3" -F number="$4"; then
-    if [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repository.issue == null' 2>/dev/null)" = true ]; then
-      iss_err_not_found "$1" "$2" "$3" "$4"
-    fi
-    iss_gql_fail
-  fi
-  ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
-  [ "$ISS_ISSUE" != null ] || iss_err_not_found "$1" "$2" "$3" "$4"
-  iss_page_rest "$1" "$2" "$3" "$4"
+  iss_try_lookup "$@" || iss_err_not_found "$1" "$2" "$3" "$4"
 }
 
-# Same as iss_lookup, but returns 1 instead of aborting on not-found.
+# Same as iss_lookup, but returns 1 instead of aborting on not-found. The read
+# goes through issueOrPullRequest, since issue(number:) reads a pull request's
+# number as not-found too.
 iss_try_lookup() {
   local doc
   doc="query(\$owner: String!, \$repo: String!, \$number: Int!) {
   repository(owner: \$owner, name: \$repo) {
-    issue(number: \$number) { $5 }
+    issueOrPullRequest(number: \$number) { __typename ... on Issue { $5 } }
   }
 }"
   if ! iss_gql "$1" -f query="$doc" -f owner="$2" -f repo="$3" -F number="$4"; then
-    if [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repository.issue == null' 2>/dev/null)" = true ]; then
+    if [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repository.issueOrPullRequest == null' 2>/dev/null)" = true ]; then
       return 1
     fi
     iss_gql_fail
   fi
-  ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issue')
+  ISS_ISSUE=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repository.issueOrPullRequest')
   [ "$ISS_ISSUE" != null ] || return 1
+  [ "$(iss_jq .__typename)" = Issue ] || iss_err_pull_request "$(iss_ref "$1" "$2" "$3" "$4")"
+  ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" | jq -c 'del(.__typename)')
   iss_page_rest "$1" "$2" "$3" "$4"
 }
 
@@ -1144,10 +1313,18 @@ EOF
   fi
 }
 
-# The "<slot>: nothing to do" warning for a set-slot verb whose slot is
-# unconfigured. Exits zero.
+# iss_slot_unconfigured_exit <slot> <host> <owner> <repo>: the "nothing to do"
+# warning for a set-slot verb whose slot the operand's repository leaves
+# unconfigured, naming that repository when it is not the current one. Exits
+# zero.
 iss_slot_unconfigured_exit() {
-  printf "\`/issue-set-%s\` has nothing to do: this repo has no \`%s\` slot configured. (Run \`/repo-config\` to add one.)\n" "$1" "$1"
+  local name
+  if iss_same_repo "$2" "$3" "$4" "$ISS_HOST" "$ISS_OWNER" "$ISS_REPO"; then
+    printf "\`/issue-set-%s\` has nothing to do: this repo has no \`%s\` slot configured. (Run \`/repo-config\` to add one.)\n" "$1" "$1"
+  else
+    name=$(iss_repo_name "$2" "$3" "$4")
+    printf "\`/issue-set-%s\` has nothing to do: \`%s\` has no \`%s\` slot configured. (Run \`/repo-config\` in \`%s\` to add one.)\n" "$1" "$name" "$1" "$name"
+  fi
   exit 0
 }
 
@@ -1155,11 +1332,11 @@ iss_slot_unconfigured_exit() {
 iss_set_slot_verb() {
   local slot=$1 ref label
   shift
-  [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-$slot <N> <value>"
-  iss_init
-  [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block
-  [ "$(iss_slot_kind "$slot")" != skip ] || iss_slot_unconfigured_exit "$slot"
-  iss_parse_operand "$1" local-only
+  [ "$#" -eq 2 ] || iss_usage_die "usage: issue-set-$slot <issue> <value>"
+  iss_init "$1"
+  iss_parse_operand "$1"
+  iss_operand_board_config
+  [ "$(iss_slot_kind "$slot")" != skip ] || iss_slot_unconfigured_exit "$slot" "$OP_HOST" "$OP_OWNER" "$OP_REPO"
   iss_slot_resolve "$slot" "$2"
   iss_slot_write "$slot" "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" precheck
   ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
@@ -1196,8 +1373,8 @@ iss_type_write() {
 # requested state.
 iss_blocked_by_edge() {
   local action=$1 side=$4 bh bo br bn xh xo xr xn blocked_id blocker_id side_sel list want present doc sref
-  iss_parse_operand "$2"; bh=$OP_HOST; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
-  iss_parse_operand "$3"; xh=$OP_HOST; xo=$OP_OWNER; xr=$OP_REPO; xn=$OP_NUMBER
+  iss_operand "$2"; bh=$OP_HOST; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
+  iss_operand "$3"; xh=$OP_HOST; xo=$OP_OWNER; xr=$OP_REPO; xn=$OP_NUMBER
   EDGE_BLOCKED=$(iss_ref "$bh" "$bo" "$br" "$bn")
   EDGE_BLOCKER=$(iss_ref "$xh" "$xo" "$xr" "$xn")
   if [ "$side" = blocked ]; then
@@ -1239,8 +1416,8 @@ readonly ISS_SEL_PARENT='id url parent { id number url repository { nameWithOwne
 # /issue-set-parent and /issue-set-child. Prints the verb's output.
 iss_add_sub_issue() {
   local ph po pr pn ch co cr cn parent_id parent_url child_id cur_id cur_num cur_nwo cref pref
-  iss_parse_operand "$1" local-only; ph=$OP_HOST; po=$OP_OWNER; pr=$OP_REPO; pn=$OP_NUMBER
-  iss_parse_operand "$2" local-only; ch=$OP_HOST; co=$OP_OWNER; cr=$OP_REPO; cn=$OP_NUMBER
+  iss_operand "$1"; ph=$OP_HOST; po=$OP_OWNER; pr=$OP_REPO; pn=$OP_NUMBER
+  iss_operand "$2"; ch=$OP_HOST; co=$OP_OWNER; cr=$OP_REPO; cn=$OP_NUMBER
   pref=$(iss_ref "$ph" "$po" "$pr" "$pn")
   cref=$(iss_ref "$ch" "$co" "$cr" "$cn")
   iss_lookup "$ph" "$po" "$pr" "$pn" "id url"
@@ -1255,7 +1432,7 @@ iss_add_sub_issue() {
   if [ -n "$cur_id" ]; then
     cur_num=$(iss_jq .parent.number)
     cur_nwo=$(iss_jq .parent.repository.nameWithOwner)
-    iss_die "issue \`$cref\` already has parent \`$(iss_ref_nwo "$ch" "$cur_nwo" "$cur_num")\`; remove it first with \`/issue-unset-parent $cn\` before setting a new parent"
+    iss_die "issue \`$cref\` already has parent \`$(iss_ref_nwo "$ch" "$cur_nwo" "$cur_num")\`; remove it first with \`/issue-unset-parent $cref\` before setting a new parent"
   fi
   iss_gql "$ch" -f query="$ISS_DOC_ADD_SUB_ISSUE" -f parentId="$parent_id" -f childId="$child_id" || iss_gql_fail
   iss_lookup "$ch" "$co" "$cr" "$cn" "$ISS_SEL_PARENT"

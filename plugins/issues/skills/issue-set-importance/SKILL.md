@@ -8,5 +8,5 @@ is `priority`. Follow `skills/issue-set-priority/SKILL.md`, which runs
 the `issue-set-priority` script:
 
 ```bash
-issue-set-priority <N> "<value>"
+issue-set-priority <issue> "<value>"
 ```

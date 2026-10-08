@@ -10,16 +10,13 @@ as `set-blocked-by B N`.
 ## Invocation
 
 ```text
-/issue-set-blocks <N> <blocked-N>
+/issue-set-blocks <issue> <blocked-issue>
 ```
 
-- `<N>` (required): the **blocker**, the prerequisite.
-- `<blocked-N>` (required): the issue being **blocked** by N.
+- `<issue>` (required): the **blocker**, the prerequisite.
+- `<blocked-issue>` (required): the issue being **blocked** by `<issue>`.
 
-Either operand may be `N`, `#N`, or `<repository>#N` with the repository
-in any form `skills/lib/issue.md` → "Repositories and issue references"
-lists; the last names an issue in another GitHub repo, so the two issues
-need not share a repo.
+Each operand is an issue reference, and the two need not share a repo.
 Mnemonic: "set blocks of N to B" — "N blocks B".
 
 ## Execution
@@ -28,7 +25,7 @@ Run the `issue-set-blocks` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-blocks <N> <blocked-N>
+issue-set-blocks <issue> <blocked-issue>
 ```
 
 The script resolves each operand in the repo it names, is a no-op when
@@ -51,6 +48,6 @@ zero. An issue reference prints as
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
-`skills/lib/issue.md` → "Jira backend" → "Relationships" instead,
-where a `<repository>#N` operand is refused.
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
+`skills/lib/issue.md` → "Jira backend" → "Relationships" instead.

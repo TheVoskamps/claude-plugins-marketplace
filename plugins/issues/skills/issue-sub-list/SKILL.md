@@ -11,11 +11,10 @@ parent with more children than one page is listed in full;
 ## Invocation
 
 ```text
-/issue-sub-list <parent-N>
+/issue-sub-list <parent-issue>
 ```
 
-- `<parent-N>` (required): the parent's issue number, with or without
-  a leading `#`.
+- `<parent-issue>` (required): the parent, as an issue reference.
 
 ## Execution
 
@@ -23,7 +22,7 @@ Run the `issue-sub-list` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-sub-list <parent-N>
+issue-sub-list <parent-issue>
 ```
 
 Print its stdout as it stands. On a non-zero exit, relay its stderr
@@ -35,17 +34,18 @@ A header naming the parent, then one bullet per direct sub-issue in
 the order GitHub returns them, or `(none)`:
 
 ```text
-Sub-issues of #<parent-N> "<title>":
+Sub-issues of <parent-issue> "<title>":
   - #<N> <title>
   - #<N> <title>
 ```
 
-No URLs are printed. A sub-issue prints as
+No URLs are printed. The parent and each sub-issue print as
 `skills/lib/issue.md` → "Repositories and issue references" states.
 
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Read / view" instead, which
 lists every sub-task with a JQL search.

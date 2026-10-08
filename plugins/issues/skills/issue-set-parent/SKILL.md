@@ -10,14 +10,14 @@ way round.
 ## Invocation
 
 ```text
-/issue-set-parent <child-N> <parent-N>
+/issue-set-parent <child-issue> <parent-issue>
 ```
 
-- `<child-N>` (required): the issue becoming a sub-issue.
-- `<parent-N>` (required): the containing issue.
+- `<child-issue>` (required): the issue becoming a sub-issue.
+- `<parent-issue>` (required): the containing issue.
 
-Both are issue numbers in the current repo, with or without a leading
-`#`. Mnemonic: "set parent of C to P" reads left-to-right.
+Each is an issue reference, and the two need not share a repo.
+Mnemonic: "set parent of C to P" reads left-to-right.
 
 ## Execution
 
@@ -25,7 +25,7 @@ Run the `issue-set-parent` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-parent <child-N> <parent-N>
+issue-set-parent <child-issue> <parent-issue>
 ```
 
 An issue has at most one parent. The script is a no-op when the child
@@ -45,10 +45,11 @@ The no-op prints `Issue #<C> is already a sub-issue of #<P>; no
 change.` and exits zero. A child under another parent is an error:
 
 > issue `#<C>` already has parent `#<existing-P>`; remove it first
-> with `/issue-unset-parent <C>` before setting a new parent
+> with `/issue-unset-parent #<C>` before setting a new parent
 
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Relationships" instead.

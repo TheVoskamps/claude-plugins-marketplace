@@ -303,14 +303,12 @@ The harness's worktree-isolation guard refuses a command whose name is
 into a program it does not know (`for e in …; do <bin> < $e; done`),
 because neither "can be shown not to run git". It reads the shell text
 it is handed, so `bash <script>`, `bash -n <script>` and
-`bash -c '…'` pass as statements of their own, while the same
-invocation chained by `&&` or a pipe to another command is refused, and
-a `bash` with nothing to read, such as `bash --version`, is refused as
-"runs bash in a plain command". To read a script's output, redirect it
-to a log under `.claude/tmp/<task-slug>/` and grep the log in a second
-call. The
-guardrails permission gate is not the refuser: it defers on
-`bash <script>`.
+`bash -c '…'` pass, and so does `bash <script>` piped to `grep` or
+`tail`, chained by `&&`, or redirected to a log ahead of a `;`: read a
+test suite's output as `bash <suite> 2>&1 | grep …` in one call. A
+`bash` with nothing to read, such as `bash --version`, is refused as
+"runs bash in a plain command". The guardrails permission gate is not
+the refuser: it defers on `bash <script>`.
 
 A loop that runs a program the guard knows over literal words passes —
 `for d in plugins/sdlc plugins/issues; do ls $d; done` runs — until the

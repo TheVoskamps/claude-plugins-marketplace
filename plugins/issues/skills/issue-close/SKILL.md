@@ -1,25 +1,24 @@
 ---
 name: issue-close
-description: Close an issue by number; optionally post a summary comment first. Dispatches by repo's `issues:` tracker.
+description: Close an issue by its reference, in this repo or another; optionally post a summary comment first. Dispatches by repo's `issues:` tracker.
 ---
 
-Close one issue, identified by its number. Optionally post a summary
+Close one issue, identified by its reference. Optionally post a summary
 comment **before** closing it.
 
 ## Invocation
 
 ```text
-/issue-close <issue-number> [--comment "summary"]
+/issue-close <issue> [--comment "summary"]
 ```
 
-- `<issue-number>` — required. The issue number, with or without a
-  leading `#`.
+- `<issue>` — required. An issue reference.
 - `--comment "summary"` — optional. Posted verbatim as a new comment
   before the issue is closed.
 
-If `<issue-number>` is missing, ask the user for it. Do not search for
+If `<issue>` is missing, ask the user for it. Do not search for
 "relevant issues" by title or by recent work — this skill closes
-exactly the issue whose number was passed.
+exactly the issue that was passed.
 
 ## Execution
 
@@ -27,7 +26,7 @@ Run the `issue-close` script, which this plugin puts on `PATH`, with
 the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-close <N> [--comment "<summary>"]
+issue-close <issue> [--comment "<summary>"]
 ```
 
 The script posts the comment first and stops without closing when the
@@ -61,13 +60,14 @@ passes through verbatim either way.
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Close" instead, with the
 same comment-then-close order and the same closing-keyword note.
 
 ## Hard constraints
 
-- **Never close an issue you weren't given by number.** The number is
+- **Never close an issue you weren't given.** The `<issue>` operand is
   the only input that identifies the target.
 - **Never place a closing keyword before an issue reference in a
   comment you write.** A closing keyword immediately followed by an

@@ -11,11 +11,11 @@ bounded.
 ## Invocation
 
 ```text
-/issue-view-tree <issue-number>
+/issue-view-tree <issue>
 ```
 
-A single positional argument: the root issue number, with or without
-a leading `#`. No flags.
+A single positional argument: the root issue, as an issue reference.
+No flags.
 
 ## Execution
 
@@ -23,7 +23,7 @@ Run the `issue-view-tree` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-view-tree <N>
+issue-view-tree <issue>
 ```
 
 Print its stdout as it stands. On a non-zero exit, relay its stderr
@@ -53,12 +53,13 @@ then its children:
   cycle, since GitHub does not prevent one.
 - A descendant that no longer resolves prints `#<N> (not found)` and
   its subtree is skipped; a root that does not resolve is an error.
-- A related issue prints as `skills/lib/issue.md` → "Repositories and
-  issue references" states.
+- Every node and related issue prints as `skills/lib/issue.md` →
+  "Repositories and issue references" states.
 
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Read / view" instead, and
 render the same shape.

@@ -12,11 +12,11 @@ creation time; this verb sets it afterwards.
 ## Invocation
 
 ```text
-/issue-set-type <issue-number> <type-name>
+/issue-set-type <issue> <type-name>
 ```
 
-- `<issue-number>` (required): issue number in the current repo, with
-  or without a leading `#`.
+- `<issue>` (required): an issue reference. In another repo the
+  `issue-types:` map is that repo's own.
 - `<type-name>` (required): a human-readable issue-type name (e.g.
   `Task`, `Bug`, `Feature`), matched case-insensitively against the
   `issue-types:` keys; a multi-word name is one quoted argument.
@@ -27,7 +27,7 @@ Run the `issue-set-type` script, which this plugin puts on `PATH`,
 with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-set-type <N> "<type-name>"
+issue-set-type <issue> "<type-name>"
 ```
 
 The script resolves the name, skips the write when the issue already
@@ -50,5 +50,6 @@ One line using the map key's canonical capitalization; no URL:
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Metadata setters" instead.

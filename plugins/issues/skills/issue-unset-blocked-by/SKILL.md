@@ -10,15 +10,13 @@ from the blocker's end.
 ## Invocation
 
 ```text
-/issue-unset-blocked-by <N> <blocker-N>
+/issue-unset-blocked-by <issue> <blocker-issue>
 ```
 
-- `<N>` (required): the formerly blocked issue.
-- `<blocker-N>` (required): the blocker to detach.
+- `<issue>` (required): the formerly blocked issue.
+- `<blocker-issue>` (required): the blocker to detach.
 
-Either operand may be `N`, `#N`, or `<repository>#N` with the repository
-in any form `skills/lib/issue.md` → "Repositories and issue references"
-lists; the last names an issue in another GitHub repo.
+Each operand is an issue reference, and the two need not share a repo.
 
 ## Execution
 
@@ -26,7 +24,7 @@ Run the `issue-unset-blocked-by` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-unset-blocked-by <N> <blocker-N>
+issue-unset-blocked-by <issue> <blocker-issue>
 ```
 
 The script resolves each operand in the repo it names, is a no-op when
@@ -49,6 +47,6 @@ exits zero. An issue reference prints as
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
-`skills/lib/issue.md` → "Jira backend" → "Relationships" instead,
-where a `<repository>#N` operand is refused.
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
+`skills/lib/issue.md` → "Jira backend" → "Relationships" instead.

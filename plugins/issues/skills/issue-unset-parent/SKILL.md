@@ -9,11 +9,10 @@ at most one parent, so the script looks the parent up.
 ## Invocation
 
 ```text
-/issue-unset-parent <child-N>
+/issue-unset-parent <child-issue>
 ```
 
-- `<child-N>` (required): issue number in the current repo, with or
-  without a leading `#`.
+- `<child-issue>` (required): the child, as an issue reference.
 
 ## Execution
 
@@ -21,7 +20,7 @@ Run the `issue-unset-parent` script, which this plugin puts on
 `PATH`, with the Bash tool from inside the repo's working tree:
 
 ```bash
-issue-unset-parent <child-N>
+issue-unset-parent <child-issue>
 ```
 
 The script is a no-op when the issue has no parent, and otherwise
@@ -44,5 +43,6 @@ zero.
 ## Jira backend
 
 The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before any call; follow
+exits non-zero with its fixed Jira message before it reads or writes an
+issue; follow
 `skills/lib/issue.md` → "Jira backend" → "Relationships" instead.

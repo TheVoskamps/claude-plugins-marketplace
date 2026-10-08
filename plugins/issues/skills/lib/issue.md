@@ -11,9 +11,10 @@ named after the verb, and every script sources
 GitHub calls: the repo-config read, node-ID and field/option ID
 resolution, the GraphQL documents, the post-write re-reads, and the
 error wording. A verb's `SKILL.md` says when to run its script, with
-which arguments, and what the output means. Under `issues: Jira` every
-script exits non-zero with one fixed message before any call, and the
-verb follows "Jira backend" below instead.
+which arguments, and what the output means. When the repo-config that
+governs a run says `issues: Jira`, the script exits non-zero with one
+fixed message before it reads or writes an issue, and the verb follows
+"Jira backend" below instead.
 
 ## Repositories and issue references
 
@@ -31,6 +32,44 @@ checkout's remote names, on that remote's host:
 Outside a git checkout there is no current repository: `repo` is a
 usage error, and `owner/repo` goes to `gh`'s default host.
 
+An argument that names an existing issue — every verb's issue operand,
+and `/issue-create --parent` — takes one of these forms:
+
+| Form | Issue |
+| --- | --- |
+| `N`, `#N` | issue `N` in the current repository; `N` may carry the repo-config's `issue-link-prefix` |
+| `repo#N`, `owner/repo#N`, `host/owner/repo#N` | issue `N` in the repository, in any form above |
+| `https://host/owner/repo/issues/N` | the same as `host/owner/repo#N`; a trailing `/` is ignored |
+
+Each part of a repository is held to what GitHub and DNS allow there,
+and any other part is a usage error: a repository name is 1 to 100
+ASCII letters, digits, `.`, `-` and `_`, any of them first; an owner
+is 1 to 39 ASCII letters, digits and `-`, not starting with `-` and
+with no `--`; a host is a DNS hostname, of `.`-separated labels that
+neither start nor end with `-`.
+
+The verbs take issues only. An operand that names a pull request — a
+`https://host/owner/repo/pull/N` URL before any call, a number once it
+is read — aborts with exit 1, naming it as a pull request.
+
+A verb acts on an operand in its own repository, on its own host, and
+only that repository's repo-config governs it. A run reads the current
+repository's repo-config only when it acts there: an operand in the
+current repository, or `/issue-create` and `/issue-field-options` with
+no `<repo>`. A Jira-tracked checkout, or one with no repo-config, stops
+a verb on its own issues and not on another repository's. For an
+operand in another repository, the repo-config that governs it is that
+repository's `.issues/repo-config.md`, read from its default branch:
+
+- under `issues: Jira` the verb exits with the fixed Jira message
+  before it reads or writes the issue, and at an unsupported
+  schema-version with the canonical schema wording;
+- a verb that reads a project-board slot or the issue-types map reads
+  that repository's `github-project:` block. Where the repository has
+  no repo-config, or no such block, a setter aborts naming the
+  repository, and `/issue-view` prints no slot rows;
+- with no repo-config there, every other verb proceeds.
+
 A printed issue reference takes the shortest form that names the
 issue back through the forms above: `#N` in the current repository,
 `repo#N` under its owner on its host, `owner/repo#N` on its host, and
@@ -38,7 +77,8 @@ issue back through the forms above: `#N` in the current repository,
 
 ## Repo-config parsing
 
-Every `/issue-*` verb reads `<repo-root>/.issues/repo-config.md`
+Every `/issue-*` verb reads a repo-config —
+`<repo-root>/.issues/repo-config.md`, or another repository's —
 following the read contract in `skills/lib/repo-config.md`, and
 requires **schema-version 6**. The scripts do so in
 `issues-common.sh`; the Jira path runs that library's canonical read
@@ -332,20 +372,23 @@ against the tracker block:
   "Slot value not in options map" or "Issue-type name not in repo's
   issue-types map" wording below.
 
+#### Issue operands
+
+This path acts only on issues of the current repository, the one whose
+`jira:` block it reads: an operand naming that repository in any form
+"Repositories and issue references" lists is issue `N` there, normalized
+as "Preconditions" step 3 says. An operand in another repository is
+governed by that repository's repo-config, never by this one's, so this
+path cannot act on it: it aborts with the "Operand in another
+repository" wording below, before the "Preconditions" run and so before
+any `acli` call.
+
 #### One edge, two sides
 
 `set-blocked-by N B` and `set-blocks B N` write one edge, as do
 `set-parent C P` and `set-child P C`; the `unset-` verbs mirror them.
 `unset-child P C` on a child whose parent is not `P` is a no-op, since
 the end state already holds.
-
-An operand of a blocked-by verb may be `N`, `#N`, or `<repository>#N`
-with the repository in any form "Repositories and issue references"
-lists, so every printed reference is accepted back. The last form is
-GitHub-only, because a Jira key is already globally
-unique: under `issues: Jira` it aborts with the "Cross-repo operand
-under Jira" wording below, before the "Preconditions" run and so before
-any `acli` call.
 
 #### Label-slot update
 
@@ -545,9 +588,10 @@ scripts emit. Variable parts are in backticks.
 
   > issue `<KEY>` not found in project `<project-key>`
 
-- **Cross-repo operand under Jira**
+- **Operand in another repository**
 
-  > `owner/repo#N` operands are GitHub-only
+  > `<operand>` is in another repository, which this repo's `jira:`
+  > block does not govern
 
 - **Slot value not in options map**
 

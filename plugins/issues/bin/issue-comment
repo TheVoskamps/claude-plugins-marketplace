@@ -5,7 +5,7 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage="usage: issue-comment <issue-number> --body-file PATH"
+usage="usage: issue-comment <issue> --body-file PATH"
 number_arg=
 body_file=
 while [ "$#" -gt 0 ]; do
@@ -15,7 +15,7 @@ while [ "$#" -gt 0 ]; do
       body_file=$2
       shift 2
       ;;
-    -*) iss_usage_die "$usage" ;;
+    --*) iss_usage_die "$usage" ;;
     *)
       [ -z "$number_arg" ] || iss_usage_die "$usage"
       number_arg=$1
@@ -25,8 +25,8 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$number_arg" ] && [ -n "$body_file" ] || iss_usage_die "$usage"
 
-iss_init
-iss_parse_operand "$number_arg" local-only
+iss_init "$number_arg"
+iss_operand "$number_arg"
 ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
 case "$body_file" in

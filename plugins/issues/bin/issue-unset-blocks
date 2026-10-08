@@ -5,8 +5,8 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-[ "$#" -eq 2 ] || iss_usage_die "usage: issue-unset-blocks <N> <blocked-N>"
-iss_init
+[ "$#" -eq 2 ] || iss_usage_die "usage: issue-unset-blocks <issue> <blocked-issue>"
+iss_init "$1" "$2"
 if iss_blocked_by_edge remove "$2" "$1" blocker; then
   printf 'Removed blocking relationship: issue %s no longer blocks %s.\n%s\n' \
     "$EDGE_BLOCKER" "$EDGE_BLOCKED" "$(iss_jq .url)"

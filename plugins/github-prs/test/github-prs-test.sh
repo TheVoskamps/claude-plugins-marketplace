@@ -314,7 +314,22 @@ check_contains "$ERR" "pr-diff: \`https://ghe.example.com/o2/r2/issues/7\` is no
   "reference issue URL: the usage error names the accepted forms"
 check "$(calls)" "" "reference issue URL: calls no gh"
 
-for bad in 'h/o/r/x#7' 'o/r#' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
+new_case ref-dash-repo
+run pr-diff 'ghe.example.com/o2/-r#7'
+check "$(calls)" "pr diff 7 --repo ghe.example.com/o2/-r" "reference: a repository name may start with -"
+
+new_case ref-dash-lone-repo
+echo acme/r >"$CASE/cur-repo"
+echo ghe.example.com >"$CASE/host"
+run pr-diff '-r#7'
+check "$(calls)" "repo view --json url --jq .url
+pr diff 7 --repo ghe.example.com/acme/-r" "reference: a lone repository name may start with -"
+
+new_case ref-long-parts
+run pr-diff 'h-1.hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.com/ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7'
+check "$(calls)" "pr diff 7 --repo h-1.hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.com/ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr" "reference: a 63-character host label, a 39-character owner and a 100-character repository name"
+
+for bad in 'h/o/r/x#7' 'o/r#' '-o/r#7' '-h/o/r#7' 'h-/o/r#7' 'h..x/o/r#7' 'h_x/o/r#7' 'o--p/r#7' 'o_p/r#7' 'o.p/r#7' 'oooooooooooooooooooooooooooooooooooooooo/r#7' 'o/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7' 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.x/o/r#7' 'o/r+s#7' 'https://-h/o/r/pull/7' 'https://h/-o/r/pull/7' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
   new_case "ref-malformed-$(printf '%s' "$bad" | tr -c 'A-Za-z0-9' '_')"
   run pr-diff "$bad"
   check "$RC:$(calls)" "2:" "reference \`$bad\`: a usage error that calls no gh"

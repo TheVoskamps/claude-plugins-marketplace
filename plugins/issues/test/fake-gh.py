@@ -10,6 +10,9 @@ is how a test drives a script's re-read check. `issue create` is the one
 exception: the issue itself is still created, without its labels or
 assignees, so a script can reach the writes that follow it.
 
+A pull request is an entry in a repo's "issues" carrying "pullRequest": true,
+since the two share one number sequence.
+
 Each repo lives on a host, its "host" key, github.com when absent. As gh
 does, a call reaches the host its `--hostname` (for `gh api`) or a
 host/owner/repo `--repo` (for `gh issue`) names, and github.com when it names
@@ -233,7 +236,21 @@ def graphql(state, host, args):
                  {"data": {"repository": None},
                   "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a Repository"}]})
         issue = by_number(state, nwo, fields["number"])
-        if issue is None:
+        # As on GitHub, issueOrPullRequest names a pull request's type, and
+        # issue(number:) reads a pull request's number as not found.
+        if "issueOrPullRequest(" in query:
+            if issue is None:
+                fail("Could not resolve to an issue or pull request with the number of %s." % fields["number"],
+                     {"data": {"repository": {"issueOrPullRequest": None}},
+                      "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to an IssueOrPullRequest"}]})
+            if issue.get("pullRequest"):
+                print(json.dumps({"data": {"repository": {"issueOrPullRequest": {"__typename": "PullRequest"}}}}))
+                return
+            out = render(state, nwo, issue, query, fields.get("after"))
+            out["__typename"] = "Issue"
+            print(json.dumps({"data": {"repository": {"issueOrPullRequest": out}}}))
+            return
+        if issue is None or issue.get("pullRequest"):
             fail("Could not resolve to an Issue with the number of %s." % fields["number"],
                  {"data": {"repository": {"issue": None}},
                   "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to an Issue"}]})

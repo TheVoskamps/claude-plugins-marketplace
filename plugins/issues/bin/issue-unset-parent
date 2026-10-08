@@ -5,9 +5,9 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-[ "$#" -eq 1 ] || iss_usage_die "usage: issue-unset-parent <child-N>"
-iss_init
-iss_parse_operand "$1" local-only
+[ "$#" -eq 1 ] || iss_usage_die "usage: issue-unset-parent <child-issue>"
+iss_init "$1"
+iss_operand "$1"
 cref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$ISS_SEL_PARENT"
