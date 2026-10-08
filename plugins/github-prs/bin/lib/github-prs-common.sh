@@ -38,9 +38,7 @@
 #   - a function called as a condition (`if f`, `f ||`, `! f`), unless
 #     every command in it handles its own failure;
 #   - `|| exit $?` after an external command, which hands the verb that
-#     command's own status as a condition the trap never sees fail --
-#     save gp_closing_issues's `... | sort -nu`, whose failure is the
-#     lookup's, already on the catalogue, and which ends so for that.
+#     command's own status as a condition the trap never sees fail.
 # Inside a command substitution the trap runs in the substitution's own
 # shell, and prints there. A substitution whose failure the verb handles
 # -- a fallback, or an `if` -- therefore ends in `|| exit` inside it, so
@@ -312,9 +310,10 @@ gp_joined() {
 # repository. That lookup runs in a pipeline subshell, so a failed one
 # prints its catalogue line there and fails the pipeline -- only under
 # the pipefail every verb sets, without which sort's 0 masks it. The
-# pipeline's `|| exit $?` keeps the trap from printing a second line
-# for it, and exits its substitution's shell with the lookup's 1: call
-# it as `out=$(gp_closing_issues ...) || exit $?`.
+# pipeline's `|| exit 1` keeps the trap from printing a second line
+# for it, and exits its substitution's shell with the generic failure
+# whichever element failed: call it as
+# `out=$(gp_closing_issues ...) || exit $?`.
 gp_closing_issues() {
   local rest want='' ref n kw='close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved'
   local re="(^|[^a-z0-9_])($kw):?[[:space:]]+(https://([^[:space:]/]+/[^[:space:]/]+/[^[:space:]/]+)/issues/([0-9]+)|(([a-z0-9._-]+/){0,2}[a-z0-9._-]+)?#([0-9]+))([^a-z0-9_]|$)"
@@ -353,7 +352,7 @@ gp_closing_issues() {
     fi
     n=${n#"${n%%[!0]*}"}
     [ -z "$n" ] || printf '%s\n' "$n"
-  done | sort -nu || exit $?
+  done | sort -nu || exit 1
 }
 
 # gp_repo_path <suffix> -- a REST path under the PR's repository: the
