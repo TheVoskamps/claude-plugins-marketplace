@@ -104,6 +104,8 @@ esac
 
 pieces=0
 
+# new_piece: starts an empty piece and makes it the one add_file appends
+# to.
 new_piece() {
   pieces=$((pieces + 1))
   : >"$work/piece-$pieces"

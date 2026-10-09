@@ -14,8 +14,9 @@
 #      through above the script's line
 #   2  a usage error; nothing was read
 #   3  the script's own negative outcome, which its contract names
-# sdlc-pr-post-theorem-records shares 0 to 2 and names its own exits
-# from 3 on, in its header.
+# sdlc-pr-post-theorem-records shares 0 and 2, widens 1 to any
+# unexpected failure, including ones no command reported, and names its
+# own exits from 3 on, in its header.
 
 SP_PROGRAM=${0##*/}
 
