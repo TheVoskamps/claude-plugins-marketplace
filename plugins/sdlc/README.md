@@ -30,7 +30,8 @@ restate the fact.
 | Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
-| How the finalizer reaches a round's review state, and where it stages and sizes the detail it posts | `agents/pr-finalizer.md` |
+| How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
+| In what order the review detail is assembled, how it is chunked under GitHub's comment cap, and what a piece too large for one comment becomes | `bin/sdlc-pr-post-theorem-records` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
@@ -598,14 +599,18 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log, else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
 
-The PR-read scripts share one sourced helper, `bin/lib/sdlc-pr-common.sh`,
-which is not itself callable: it parses the canonical PR reference they
-take, makes the one `gh pr view` read they share, and spells the two
-comment markers sdlc writes — the fixer brief's first line and the
-review-detail chunk's — as the only place under `bin/` that does, so
-every script that filters on a marker reads it from there and the agent
-that writes each marker is the one other place it appears. The scripts
+The PR-read scripts and the detail poster share one sourced helper,
+`bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
+canonical PR reference they take, makes the one `gh pr view` read the
+PR-read scripts share, and spells the two comment markers sdlc writes —
+the fixer brief's first line, and the review-detail chunk's in both the
+regex that filters on it and the printf form that writes it — as the
+only place under `bin/` that does, so every script that filters on or
+writes a marker reads it from there. The detail chunk's marker is
+written nowhere else; the brief's is spelled once more, by whatever
+writes a brief. The PR-read scripts
 read and cut and decide nothing: whether an adjustment is a rejection,
 an override, a scope drop or a missed defect, and what a brief asks,
 stay the reading agent's judgment. They exist as scripts because each
@@ -619,15 +624,18 @@ executable's concern.
 
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,
-never the tool's own status — the PR-read scripts exit 1, the persist
-script and the time report route it through their existing exit 2 — so
-a caller branching on an exit sees only the statuses each contract
-documents.
+never the tool's own status — the PR-read scripts and the detail poster
+exit 1, the persist script and the time report route it through their
+existing exit 2 — so a caller branching on an exit sees only the
+statuses each contract documents.
 
-The time report composes no state path of its own: it reaches round
-logs, result files and transcripts only through the paths
-`sdlc-agent-result-persist`'s read modes print, so a change to where
-that state lives is a change to one executable. A source it cannot
+The time report and the detail poster compose no state path of their
+own: each reaches round logs, result files and transcripts only through
+the paths `sdlc-agent-result-persist`'s read modes print, so a change
+to where that state lives is a change to one executable. The detail
+poster posts through github-prs' `pr-comment` executable, called by
+name off `PATH`, so each chunk is re-read after it lands without the
+poster spelling a `gh` call of its own. A source the time report cannot
 reach is named in the report as missing, and no row that source would
 have backed is printed — the report never reads a substitute, so a
 missing row is evidence that a source is gone, not a guess about what
@@ -679,7 +687,7 @@ PR's repository's directory, and `<round-dir>` for
 | `<round-dir>/log` | the round log |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round carries forward — built by the script from the round below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
-| `<round-dir>/review` | the round's argued review, which the posted review summarises and `pr-finalizer` posts in full once the loop concludes |
+| `<round-dir>/review` | the round's argued review, which the posted review summarises; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 
 The PR number keys the path because a PR is worked by one orchestrate
@@ -814,7 +822,9 @@ value — which is what keeps a model change a one-file edit.
 cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, `git-range`, the PR verbs,
-`agent-memory-inbox-capture`, and `agent-memory-inbox-cleanup`. The
+`agent-memory-inbox-capture`, and `agent-memory-inbox-cleanup` — and
+that the `pr-comment` executable the detail poster calls off `PATH` is
+there to call. The
 edge coordinates install and enablement, not file access: plugins are
 file-sandboxed, so nothing here reads another plugin's files.
 
