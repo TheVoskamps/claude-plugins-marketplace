@@ -502,6 +502,7 @@ store_payload() {
   fi
   if [ "$mode" = leave ]; then
     check_report_theorem "$work/payload"
+    check_report_ids "$work/payload"
   fi
   install_whole "$work/payload" "$1"
 }
@@ -527,6 +528,59 @@ check_report_theorem() {
   if [ "$answered" != "$theorem" ]; then
     rm -f -- "$1"
     die "--mode leave --stage $stage was given --theorem $theorem, and the report's THEOREM: line names $answered"
+  fi
+}
+
+# The rule every new theorem id is held to, as awk source both the carry
+# form and a generator's leave load: new_id_refusal returns why <id>
+# cannot be the next new record's id — one a carried record holds, or
+# one out of sequence — naming the id expected instead, or returns empty
+# and counts the id as added. The caller keeps the carried ids in
+# carried[], the highest carried number in max, and the ids accepted so
+# far in added.
+readonly new_id_rule='
+  function new_id_refusal(id,    want) {
+    want = "T" (max + added + 1)
+    if (id in carried)
+      return "the new record " id " has an id a carried record already holds; the next id in sequence is " want
+    if (id != want)
+      return "the new record " id " is not the next id in sequence, which is " want
+    added++
+    return ""
+  }'
+
+# A generator's report is the round's new theorems, and an id it gives
+# one must continue the records the round carries: the round below
+# --round that print-records would read, or none, which makes the list
+# start at T1. The ids are the lines holding nothing but T<n> above any
+# RETIREMENTS line, checked in order against new_id_rule before the
+# report is installed, so a refused list leaves no result file and no
+# leave record behind.
+check_report_ids() {
+  [ "$stage" = generate ] || return 0
+  records_below_round
+  carried_file=/dev/null
+  [ -z "$best" ] || carried_file=$best/records
+  refusal=$(awk -v carried_file="$carried_file" "$new_id_rule"'
+    FNR == 1 { open = 0 }
+    FILENAME == carried_file {
+      if ($0 == "") { open = 0; next }
+      if (!open) {
+        open = 1
+        carried[$0] = 1
+        if (substr($0, 2) + 0 > max) max = substr($0, 2) + 0
+      }
+      next
+    }
+    { line = $0; sub(/[ \t\r]+$/, "", line) }
+    line == "RETIREMENTS" { exit }
+    line ~ /^T[0-9]+$/ {
+      msg = new_id_refusal(line)
+      if (msg != "") { print msg; exit }
+    }' "$carried_file" "$1" || exit) || die "could not read the ids of the report for --round $round"
+  if [ -n "$refusal" ]; then
+    rm -f -- "$1"
+    die "--mode leave --stage generate --round $round refused: $refusal"
   fi
 }
 
@@ -590,7 +644,7 @@ records_below_round() {
 # round 1 or later that leaves one unstamped is refused.
 build_carried_records() {
   awk -v prog="$PROGRAM" -v round="$round" \
-      -v carried_file="$1" -v edits_file="$2" -v new_file="$3" '
+      -v carried_file="$1" -v edits_file="$2" -v new_file="$3" "$new_id_rule"'
     function refuse(msg) {
       printf "%s: %s\n", prog, msg | "cat 1>&2"
       failed = 1
@@ -640,13 +694,9 @@ build_carried_records() {
     FILENAME == new_file {
       if ($0 == "") { open = 0; next }
       if (!open) {
-        if ($0 in carried)
-          refuse("the new record " $0 " has an id a carried record already holds")
-        want = "T" (max + added + 1)
-        if ($0 != want)
-          refuse("the new record " $0 " is not the next id in sequence, which is " want)
+        msg = new_id_refusal($0)
+        if (msg != "") refuse(msg)
         open = 1
-        added++
         cur = substr($0, 2) + 0
         present[cur] = 1
       }

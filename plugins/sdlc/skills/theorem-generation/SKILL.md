@@ -189,8 +189,10 @@ given, and step 7.
    `sdlc:agent-result-persist-interface` skill → "A child's hand-back".
    When it succeeded, the hand-back's first line is the result-file path
    the call printed, followed by the theorem list in the record format
-   below, the same text step 6 wrote. When it failed, hand back the
-   failure report that section shows, carrying no theorems — never the
+   below, the same text step 6 wrote. When it failed — on an id refusal,
+   once the retries "On a re-review, generate from the delta" allows are
+   spent — hand back the failure report that section shows, carrying no
+   theorems — never the
    list the file was meant to hold. On the issues-only brief there is no
    `leave` call and no path line: the hand-back is the theorem list
    alone, and the only copy there is. Nothing else goes in your report.
@@ -490,6 +492,17 @@ You emit exactly two things, and nothing else:
   keep. Number them **continuing the carried sequence**: if the
   records end at `T9`, your first new theorem is `T10`. Never reuse an
   id, and never renumber a carried one.
+
+  The `leave` call in step 6 holds your ids to that sequence and refuses
+  a list that breaks it, naming the offending id and the expected next
+  id. On that refusal, renumber from the expected next id the message
+  names: the offending record takes that id and every record after it
+  the ids that follow, each claim kept in its order and the
+  `RETIREMENTS` lines left as they are. Write the staging file again
+  and call `leave` again in the same turn. Make
+  at most three `leave` calls in total: after a third refusal, hand back
+  the failure report step 7 describes, carrying no theorems. Any other
+  refusal gets no retry.
 - **Retirements of carried theorems whose subject the delta removed.**
   When the delta deletes the file, section, or symbol a carried
   theorem is about, say so as a retirement line naming the id and the

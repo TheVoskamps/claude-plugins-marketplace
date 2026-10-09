@@ -1002,6 +1002,10 @@ what the delta implies that they do not cover:
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
 --round <this round's number>
 
+Your first command after your enter record reads the carried records:
+
+sdlc-agent-result-persist --mode print-records --pr <PR_REF> --round <this round's number>
+
 Leave these documentation paths out of every diff and delta commit you
 read: <the paths "Documentation is outside the review" collected>
 

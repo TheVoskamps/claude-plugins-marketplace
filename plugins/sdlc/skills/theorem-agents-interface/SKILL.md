@@ -47,9 +47,12 @@ whole workflow:
   `--round`, and the documentation-paths line when the PR
   changes a documentation file. The generator reads the whole diff and
   emits the full list.
-- The **delta brief** — the whole-PR brief plus `--delta-commits`.
+- The **delta brief** — the whole-PR brief plus `--delta-commits`,
+  and a line naming the `print-records` command, `--pr` and `--round`
+  filled in, that the generator runs first after its `enter` record.
   The generator reads the carried records out of the PR's state itself
-  and emits only what the delta implies that they do not cover.
+  with it and emits only what the delta implies that they do not
+  cover.
 - The **issues-only brief** — `--issues` and `--branch` **only**. No
   PR exists yet: `--branch` names the repo's default issue source
   branch rather than a PR head, and the brief carries no `--pr`,

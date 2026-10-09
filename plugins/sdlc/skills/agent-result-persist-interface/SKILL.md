@@ -274,8 +274,8 @@ directories, and `repos` for what it lists across the state root.
   good. The rename is what makes the file appear complete or not at
   all, and the `-<pid>` suffix is what keeps two writers from staging
   over each other. A refused report — empty, a `--from` file that
-  could not be read, or a `THEOREM:` mismatch below — leaves nothing
-  behind: the staging file is removed before the call exits non-zero,
+  could not be read, a `THEOREM:` mismatch or an id refusal below —
+  leaves nothing behind: the staging file is removed before the call exits non-zero,
   and no `leave` record is appended.
 
   With `--stage disprove` or `--stage verify`, the report must answer
@@ -286,9 +286,19 @@ directories, and `repos` for what it lists across the state root.
   on a mismatch, the one the report named. A result file is named for
   `--theorem`, and its existence settles that theorem, so a report
   handed over from another child would otherwise settle a theorem it
-  never answered. `--stage generate` is not checked: its report is the
-  theorem list, filed under `--theorem list`, and carries no `THEOREM:`
-  line.
+  never answered.
+
+  With `--stage generate` the report is the theorem list, filed under
+  `--theorem list`, and its new ids must continue the records the round
+  carries: those `print-records --round <round>` would print, or none
+  when no round below `--round` holds records — round 0 included — so
+  the list then starts at `T1`. Its ids are the lines holding nothing
+  but `T<n>`, above any `RETIREMENTS` line, in order, and each is held
+  to the rule the carry form holds a new record to: a new id a carried
+  record already holds, or one that is not the next id in sequence, is
+  refused, non-zero, with a message naming that id and the expected
+  next one. The call is refused as `print-records` would be, too, when
+  a round above `--round` holds records.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a `<task-notification>` it
@@ -452,7 +462,8 @@ directories, and `repos` for what it lists across the state root.
   thing any other mode removes is its own staging file, when `leave`,
   `records` or `review` refuses its payload as empty or as a `--from`
   file that could not be read, or `leave` refuses a report whose
-  `THEOREM:` line does not name `--theorem`; `anchor` renames a voided round rather
+  `THEOREM:` line does not name `--theorem` or a theorem list whose ids
+  do not continue the carried records; `anchor` renames a voided round rather
   than removing it.
 
 The script stamps every record's time itself: the writer owns when the

@@ -6,7 +6,8 @@
 # carried round, an edits file and the new records, each refusal the
 # carry form makes, print-records with and without a --round bound, the
 # path leave prints, stopped's --agent-id and print-in-flight's matching
-# of a stopped to its child, and the repository's state directory: its repo.yml, the move of state from
+# of a stopped to its child, a generator's leave refused for ids that do
+# not continue the carried records, and the repository's state directory: its repo.yml, the move of state from
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution of
@@ -466,6 +467,62 @@ printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' >"$CASE/report"
 as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/report"
 check "$RC:$OUT" "0:$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover" \
   "leave: prints the result file's path"
+
+# --- a generator's ids against the carried records --------------------------
+
+# theorem_list <first> <last>: prints a generator's list of the theorems
+# T<first> to T<last>, with its closing count and a retirement.
+theorem_list() {
+  for n in $(seq "$1" "$2"); do
+    printf 'T%s\nclaim: claim %s\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\n' "$n" "$n"
+  done
+  printf 'Total: %s semantic\n\nRETIREMENTS\nT1 — removed by the delta.\n' "$(($2 - $1 + 1))"
+}
+
+# Round 1's records hold T1 to T17.
+SEVENTEEN=$(for n in $(seq 1 17); do
+  [ "$n" -eq 1 ] || printf '\n'
+  printf 'T%s\nclaim: claim %s\nissues: #1\nsettle-mode: semantic\npointers: a.md\nstate: retired\n' "$n" "$n"
+done)
+
+new_case generate-collides
+seed_round 1 "$SEVENTEEN"
+theorem_list 1 2 >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC:$OUT" "2:" "generate ids: a list opening at T1 over records holding T1 to T17 is refused"
+check_contains "$ERR" "the new record T1 has an id a carried record already holds; the next id in sequence is T18" \
+  "generate ids: the refusal names the colliding id and the expected next id"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/list-theorem-generator" ] && echo written || echo none)" "none" \
+  "generate ids: a refused list writes no result file"
+check "$(round_log 2 | grep -c '^leave')" "0" "generate ids: a refused list appends no leave record"
+
+new_case generate-continues
+seed_round 1 "$SEVENTEEN"
+theorem_list 18 19 >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "0" "generate ids: a list opening at T18 over records holding T1 to T17 is stored"
+check "$(round_log 2 | grep -c '^leave list generate')" "1" "generate ids: the stored list's leave record is appended"
+
+new_case generate-skips
+seed_round 1 "$SEVENTEEN"
+printf 'T18\nclaim: a\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\nT20\nclaim: b\nissues: #1\nsettle-mode: semantic\npointers: a.md\n' \
+  >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "2" "generate ids: a list skipping an id is refused"
+check_contains "$ERR" "the new record T20 is not the next id in sequence, which is T19" \
+  "generate ids: the refusal names the out-of-sequence id and the expected next id"
+
+new_case generate-round0
+theorem_list 2 3 >"$CASE/list"
+as_child G --mode leave --round 0 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "2" "generate ids: a round-0 list opening at T2 is refused"
+check_contains "$ERR" "the new record T2 is not the next id in sequence, which is T1" \
+  "generate ids: a round-0 list must open at T1"
+
+new_case generate-no-records
+theorem_list 1 2 >"$CASE/list"
+as_child G --mode leave --round 1 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "0" "generate ids: a round with no records below it accepts a list opening at T1"
 
 # --- the repository's state directory ------------------------------------
 
