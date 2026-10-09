@@ -85,7 +85,9 @@ at its end. Read with `--mode print` on every resume before deciding.
 `--mode return` is **telemetry, not evidence**: nothing you derive reads
 it, and a notification that names no agent id gets no record. A child
 has finished only when the skill → "What the reader derives" counts its
-theorem settled, never because you heard from it.
+theorem settled, never because you heard from it: a theorem whose child
+wrote no result file has no verdict, and writing one down because the
+round needs one is the failure this rule prevents.
 
 Never create the log with `Write`, never hold a path — read a result
 file's path out of the log you just printed — and never reconstruct a
@@ -693,11 +695,6 @@ child of the stage rather than the one that woke you:
 
 The disprovers' wait is this loop over the `disprove` stage.
 
-**A notification is a wake-up, not evidence.** A theorem whose child
-wrote no result file has no verdict — not `SURVIVED`, not anything — and
-writing one down because the round needs one is the failure this rule
-prevents; the disposition table has a row for it.
-
 A turn you end while any live theorem has no verdict is an
 **in-progress status**, returned as "Report back" defines it.
 
@@ -753,12 +750,12 @@ spawn the verifiers in waves, each with a `--mode spawn` record under
 in your closing turn text.
 
 **The verifiers' wait is the same loop over the `verify` stage**, under
-the same wake-up rule, in-progress status and shared pass
-count. A disproved theorem still without a verifier verdict when the
-loop exits takes **disproved, unverified**: no finding, no severity,
-named in the review and its summary, live again next round. The round
-moves on when every disproved theorem has a verifier verdict or has
-been recorded unverified.
+the same in-progress status and shared pass count. A disproved theorem
+still without a verifier verdict when the loop exits takes **disproved,
+unverified**: no finding, no severity, named in the review and its
+summary, live again next round. The round moves on when every
+disproved theorem has a verifier verdict or has been recorded
+unverified.
 
 ### Derive each theorem's disposition
 
@@ -773,14 +770,10 @@ This step is a **derivation, not a judgment**:
 | `DISPROVED` | no verdict once the resume-pass loop exits | **disproved, unverified** — no finding, no severity |
 | malformed | not spawned | **could not be settled**, no severity |
 | no verdict once the resume-pass loop exits | not spawned | **could not be settled**, no severity |
-| a verdict carried by no result file | not spawned | **inadmissible** — not a verdict at all; the theorem takes the no-disprover-verdict row above |
 
-The **inadmissible** row is not a disposition: that verdict was
-inferred, not read. While the loop runs the turn ends again; once it
-exits the theorem is unsettled. "Could not be settled" and "unsettled"
-are one disposition. **Disproved, unverified** is stamped `disproved`,
-the claim having been broken, yet files no finding, nobody having
-checked the counterexample.
+"Could not be settled" and "unsettled" are one disposition.
+**Disproved, unverified** is stamped `disproved`, the claim having been
+broken, yet files no finding, nobody having checked the counterexample.
 
 A standing finding uses the format under "Findings must quote, not
 paraphrase", its `**Evidence:**` block the disprover's quote
