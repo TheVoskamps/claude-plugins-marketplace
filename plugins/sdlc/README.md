@@ -431,27 +431,86 @@ from its predecessor's output — and it is what makes a stale round
 number fail at the read, before anything is generated against the
 rounds below. A round whose previous head can no longer be fetched
 still carries: its delta becomes the whole branch, but its ids continue
-the sequence and its retired theorems stay retired. Each piece has one
-owner:
+the sequence and its retired theorems stay retired.
+
+The ids a generator gives its new theorems are checked at its `leave`,
+against the same carried records its read returned, and a list whose
+ids collide with a carried record or skip ahead of the sequence is
+refused before any of it is stored. The carry form already refused such
+a list, but it runs in the reviewer after the generator has returned,
+so the generator that numbered from `T1` without reading the records
+had already cost a round. Refusing at `leave` puts the check at the
+one moment the generator can still renumber and try again, and the
+refusal names the expected next id so that renumbering is mechanical.
+The id rule is one implementation inside the script, loaded by the
+`leave` check and the carry form alike, so the two cannot drift apart.
+Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The carry form — its inputs, the edits grammar, the records-file shape, and each refusal | `skills/agent-result-persist-interface/SKILL.md` |
 | The bounded read, and the refusal that bounds it | `skills/agent-result-persist-interface/SKILL.md` |
+| The id check a generator's `leave` makes, and what its refusal names | `skills/agent-result-persist-interface/SKILL.md` |
 | What the reviewer stages as edits and as new records, and which form a fallback round stores through | `agents/theorem-based-pr-reviewer.md` |
-| That `--delta-commits` alone marks a delta brief | `skills/theorem-agents-interface/SKILL.md` |
+| That `--delta-commits` alone marks a delta brief, and the `print-records` line it carries | `skills/theorem-agents-interface/SKILL.md` |
 | The generator's own read, and the stop when it fails or prints no records | `skills/theorem-generation/SKILL.md` |
+| The generator's renumbering on an id refusal, and the bound on its retries | `skills/theorem-generation/SKILL.md` |
 
-`test/sdlc-test.sh` drives the script's records modes against a state
-root of its own — the seed write, the carry form, each refusal it
-makes, and the bounded read. The same suite drives the PR-read scripts
-against a stub `gh` that serves a PR's reviews and comments — each
-script's output and exits, every case of the adjustment cut, and that
-the adjustments read reaches the previous round's log through the
-persist script and nothing else — and checks that a command any
-executable under `bin/` does not handle exits through that executable's
-own failure status. It needs only bash, `jq` and the POSIX utilities,
-and reaches no network.
+## A child's hand-back is evidence of its `leave`, never a substitute
+
+A child the reviewer spawns on a PR settles its theorem only through
+the result file its `leave` call writes; its hand-back to the reviewer
+carries the same text, but the reviewer never grades from it. That
+rule left a gap: nothing tied the hand-back to the write, so a child
+could end its turn with a verdict in its message and no file, and the
+reviewer could not tell that child from one still running. It waited
+out the child's deadline, wrote it off, and spawned a replacement, at
+the cost of the whole deadline per occurrence. The repair ties the two
+together. A child makes its `leave` call before it composes its
+hand-back, the call prints the result file's path only once both the
+file and the record have landed, and that path is the hand-back's
+first line; a child whose call failed hands back a failure report
+carrying no verdict, so nothing in it can be mistaken for the file
+that was never written. Because the record lands before the child
+returns, a `<task-notification>` arriving for a child the log still
+shows in flight is final rather than a race, and the reviewer writes
+that child off at once and re-spawns its theorem.
+
+Which children are in flight is the script's answer, through
+`--mode print-in-flight`, rather than something the reviewer derives
+from the log itself. The derivation used to be an `awk` snippet in the
+interface skill, run by the reviewer by hand, which the suite could not
+drive; it now lives beside the rest of the state logic, where the suite
+does. Moving it into the script also fixed how a `stopped` record is
+matched to a child: it names the child's agent id, and a `stopped` is
+matched to the `enter` carrying that id, never to whichever `enter` of
+the theorem it happens to follow. A `stopped` keyed on the theorem
+alone wrote off whichever child the theorem had when the record
+landed — an original child's late `stopped` wrote off its replacement.
+A `stopped` record written before the id was part of the record names
+no child and so matches none; a child written off that way stays in
+flight until its deadline comes round again, when the next `stopped`
+names it. Each piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off | `skills/agent-result-persist-interface/SKILL.md` |
+| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed | `skills/agent-result-persist-interface/SKILL.md` |
+| That each child calls `leave` before composing its hand-back | that child's own file under `agents/`, and `skills/theorem-generation/SKILL.md` for the generator variants |
+| The immediate write-off of a child that handed back without a `leave`, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
+
+`test/sdlc-test.sh` drives the script's records and round-log modes
+against a state root of its own — the seed write, the carry form, each
+refusal it makes, the bounded read, the generator's id check at
+`leave`, the path `leave` prints, and the in-flight derivation with a
+`stopped` landing after its replacement's `enter`. The same suite
+drives the PR-read scripts against a stub `gh` that serves a PR's
+reviews and comments — each script's output and exits, every case of
+the adjustment cut, and that the adjustments read reaches the previous
+round's log through the persist script and nothing else — and checks
+that a command any executable under `bin/` does not handle exits
+through that executable's own failure status. It needs only bash,
+`jq` and the POSIX utilities, and reaches no network.
 
 ## Skills
 
