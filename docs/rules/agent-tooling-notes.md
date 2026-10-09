@@ -97,7 +97,8 @@ a double-quoted word — `gh pr review <PR> --approve --body "<body>"` —
 has every backtick and `$` in it read by the shell before `gh` sees a
 byte, and the bodies these agents post are Markdown carrying backticks
 throughout: `sdlc:pr-finalizer`'s detail chunks reproduce each child's
-result file verbatim, quoted code included, and even a review summary
+result file verbatim, quoted code included, except a piece too large for one
+comment, whose chunk names its files by path instead, and even a review summary
 carries backticked state-relative paths and a `${…}` state root. A
 26 KB review body posted on this repo, back when the argued detail still
 travelled in the review, carried backticks on 97 of its lines.
