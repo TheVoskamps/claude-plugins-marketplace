@@ -85,9 +85,9 @@ at its end. Read with `--mode print` on every resume before deciding.
 `--mode return` is **telemetry, not evidence**: nothing you derive reads
 it, and a notification that names no agent id gets no record. A child
 has finished only when the skill → "What the reader derives" counts its
-theorem settled, never because you heard from it: a theorem whose child
-wrote no result file has no verdict, and writing one down because the
-round needs one is the failure this rule prevents.
+theorem settled, never because you heard from it: a theorem that
+derivation does not count settled has no verdict, and writing one down
+because the round needs one is the failure this rule prevents.
 
 Never create the log with `Write`, never hold a path — read a result
 file's path out of the log you just printed — and never reconstruct a
@@ -116,21 +116,26 @@ Your caller's remedy for an in-progress return is to spawn you again
 with the same parameters, so you routinely arrive at a round an earlier
 instance, in this session or another, partly settled. Never ask which
 session wrote a record. **Derive what to do from the log, and hold
-nothing across a turn that is not written down.** Run `--mode print`,
-then take the arm the records name:
+nothing across a turn that is not written down.** Which theorems are
+**settled**, **in flight** and **outstanding** in a stage is derived per
+the skill → "What the reader derives", and every check here and below
+names those sets rather than the records behind them. Run `--mode
+print`, then take the arm the records name:
 
 - **The call fails saying there is no round log** — nothing has run.
   Anchor the round and start from "Read the PR's shape".
-- **The theorem list is not settled** — the generate stage has no
-  `leave` and no result file. Wait on a generator still in flight, and
-  spawn one only when none is, per "Spawn the theorem generator".
-- **Disprovers are missing** — a live theorem with no `leave` in the
-  `disprove` stage, no result file, and no child in flight. Spawn those,
-  per "Fan out the disprovers".
-- **Every disprover has left** — spawn a verifier for each theorem whose
-  report says `DISPROVED`, per "Fan out the verifiers".
-- **Every verifier has left** — derive the dispositions and post, per
-  "Derive each theorem's disposition".
+- **The theorem list is not settled** — `list` is outstanding in the
+  `generate` stage. Wait on a generator in flight, and spawn one only
+  when none is, per "Spawn the theorem generator".
+- **Disprovers are missing** — a live theorem neither settled nor in
+  flight in the `disprove` stage. Spawn those, per "Fan out the
+  disprovers".
+- **Every live theorem is settled in the `disprove` stage** — spawn a
+  verifier for each theorem whose report says `DISPROVED`, per "Fan out
+  the verifiers".
+- **Every theorem given a verifier is settled in the `verify` stage** —
+  derive the dispositions and post, per "Derive each theorem's
+  disposition".
 - **The call fails naming a flag** — see "When a call fails" below.
 
 Whichever arm you take, run the sections before it that read the PR:
@@ -140,11 +145,9 @@ you are in, and none may.
 
 **Keep the barrier between the stages**: no verifier spawns while any
 disprover is outstanding, and nothing is derived while any verifier is.
-Which theorems are **settled** in a stage and which have a child **in
-flight** — a `stopped` and a duplicate `leave` included — are derived
-per the skill → "What the reader derives". **Keep what is
-settled, re-run the rest**: before every spawn, subtract the settled and
-the in-flight theorems, and spawn every other outstanding theorem.
+**Keep what is settled, re-run the rest**: before every spawn, subtract
+the settled and the in-flight theorems, and spawn every other
+outstanding theorem.
 
 **One child per theorem per stage is an invariant.** The deadline
 replacement is no exception — its predecessor was recorded `stopped`
@@ -167,10 +170,10 @@ only queues children, which makes a start time unpredictable.
 **A child's deadline is 15 minutes after its own most recent `enter`
 record**, in every stage — five times the worst case measured on a
 32-theorem round, where every disprover reported inside three minutes;
-the other stages reuse it unmeasured. A child with no `enter`, or one
-already `stopped`, is never overdue. **At a deadline, and only there,
-take the deadline arm**: `TaskStop` the child if **you** spawned it, and
-append its stop either way, leaving the theorem outstanding:
+the other stages reuse it unmeasured. Only a child in flight is ever
+overdue. **At a deadline, and only there, take the deadline arm**:
+`TaskStop` the child if **you** spawned it, and append its stop either
+way:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -185,13 +188,13 @@ child you did not spawn** — several sessions run against one repo, so
 act only on ids you spawned.
 
 **A deadline is a reason to take a resume pass, not to give up.** A
-**resume pass** is one round of re-spawning the children the log shows
-unsettled, waiting for them, and re-reading the log; each replacement's
-`enter` starts a fresh deadline. Many turn resumes happen inside one
-pass, and only a pass spawns anything. **One count spans all three
-stages.** Take another pass only while the last one settled at least
-one theorem the log did not already have, and stop at 7 passes whatever
-happened. Either exit is an escalation, returned as an in-progress
+**resume pass** is one round of spawning a child for every outstanding
+theorem with none in flight, waiting for them, and re-reading the log;
+each replacement's `enter` starts a fresh deadline. Many turn resumes
+happen inside one pass, and only a pass spawns anything. **One count
+spans all three stages.** Take another pass only while the last one
+settled at least one theorem the log did not already have, and stop at
+7 passes whatever happened. Either exit is an escalation, returned as an in-progress
 status per "Report back". The count is your own instance's; your caller
 bounds how many instances a PR gets.
 
@@ -505,10 +508,10 @@ named for, never your spawn choice; where it differs from the last
 
 ### Spawn the theorem generator
 
-**The generate stage may already be settled.** On a `leave` or a
-`result` line for the theorem `list`, take the list from the result
-file of the agent the **last** `spawn` record for `list` names, rather
-than spawning, so a theorem id denotes one claim across instances.
+**The generate stage may already be settled.** When `list` is settled
+in the `generate` stage, take the list from the result file of the
+agent the **last** `spawn` record for `list` names, rather than
+spawning, so a theorem id denotes one claim across instances.
 
 **A generator may instead be in flight.** Wait on it, running the loop
 "Fan out the verifiers" defines over the `generate` stage. A
@@ -683,9 +686,10 @@ child of the stage rather than the one that woke you:
    with its agent id and whatever token, tool-call and duration figures
    it gave.
 2. **Derive the stage's position** — settled, in flight, outstanding,
-   per "You are re-entrant" — and read each settled theorem's report out
-   of the result file its `leave` or `result` line names. Then read the
-   clock and compare it against each in-flight child's deadline:
+   per `sdlc:agent-result-persist-interface` → "What the reader
+   derives" — and read each settled theorem's report out of its result
+   file. Then read the clock and compare it against each in-flight
+   child's deadline:
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ
