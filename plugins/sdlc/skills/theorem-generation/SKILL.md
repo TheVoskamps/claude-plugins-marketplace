@@ -184,9 +184,16 @@ given, and step 7.
    theorem id denote the same claim for every instance that ever reads
    the round. So write it in full, and write it before you report.
 
-7. **Emit the theorem list** in the record format below, the same text
-   step 6 wrote where it ran. Nothing else goes in your report — on the
-   issues-only brief the report is the only copy there is.
+7. **Hand back only once the `leave` call has returned**, and compose
+   the hand-back from what it did, per the preloaded
+   `sdlc:agent-result-persist-interface` skill → "A child's hand-back".
+   When it succeeded, the hand-back's first line is the result-file path
+   the call printed, followed by the theorem list in the record format
+   below, the same text step 6 wrote. When it failed, hand back the
+   failure report that section shows, carrying no theorems — never the
+   list the file was meant to hold. On the issues-only brief there is no
+   `leave` call and no path line: the hand-back is the theorem list
+   alone, and the only copy there is. Nothing else goes in your report.
 
 ## Theorem sources
 
@@ -511,8 +518,9 @@ reaching back into the whole diff for something to say.
 
 ## Output format
 
-Emit a numbered list and nothing else — no preamble, no summary, no
-recommendations, no severity labels. One record per theorem:
+Emit a numbered list, under the result-file path line step 7 opens
+the hand-back with where step 6 ran, and nothing else — no preamble, no
+summary, no recommendations, no severity labels. One record per theorem:
 
 ```text
 T1

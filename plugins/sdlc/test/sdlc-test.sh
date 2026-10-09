@@ -4,8 +4,9 @@
 # records modes against a state root of its own: the round-0 seed write,
 # the carry form that builds a later round's records file from the
 # carried round, an edits file and the new records, each refusal the
-# carry form makes, print-records with and without a --round bound, and
-# the repository's state directory: its repo.yml, the move of state from
+# carry form makes, print-records with and without a --round bound, the
+# path leave prints, stopped's --agent-id and print-in-flight's matching
+# of a stopped to its child, and the repository's state directory: its repo.yml, the move of state from
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution of
@@ -392,6 +393,79 @@ new_case carry-other-mode
 persist --mode review --round 1 --carry
 check "$RC" "2" "refusal: --carry outside --mode records exits non-zero"
 check_contains "$ERR" "--carry is not accepted in --mode review" "refusal: --carry outside --mode records says so"
+
+# --- a child's records, and which child is in flight -----------------------
+
+round_log() {
+  cat "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$1/log" 2>/dev/null
+}
+
+# as_child <agent-id> <args...>: runs the script from a directory named
+# agent-<agent-id>, the way a child's worktree names its agent id, leaving
+# stdout in OUT, stderr in ERR and the exit status in RC.
+as_child() {
+  local id=$1
+  shift
+  mkdir -p "$CASE/agent-$id"
+  OUT=$(cd "$CASE/agent-$id" && "$PERSIST" --pr 'h.example/o/r#7' "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# in_flight <stage> <agent>: runs print-in-flight, leaving stdout in OUT.
+in_flight() {
+  OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print-in-flight --round 1 --stage "$1" --agent "$2" \
+    2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+new_case stopped-needs-agent-id
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+LOG_BEFORE=$(round_log 1)
+persist --mode stopped --round 1 --theorem T1 --stage disprove
+check "$RC" "2" "stopped: without --agent-id is refused"
+check_contains "$ERR" "--agent-id is required in --mode stopped" "stopped: the refusal names the flag"
+check "$(round_log 1)" "$LOG_BEFORE" "stopped: a refused stopped appends nothing to the log"
+
+new_case stopped-carries-agent-id
+persist --mode stopped --round 1 --theorem T1 --stage disprove --agent-id A
+check "$RC" "0" "stopped: with --agent-id is written"
+check "$(round_log 1 | awk '{print $1, $2, $3, $5}')" "stopped T1 disprove A" "stopped: the record names the child it writes off"
+
+new_case in-flight-late-stop
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+as_child B --mode enter --round 1 --theorem T1 --stage disprove
+persist --mode stopped --round 1 --theorem T1 --stage disprove --agent-id A
+in_flight disprove theorem-disprover
+check "$RC" "0" "in flight: print-in-flight exits 0"
+check "$(printf '%s\n' "$OUT" | awk '{print $1, $2}')" "T1 B" \
+  "in flight: an original child's stopped landing after its replacement's enter leaves the replacement in flight"
+
+new_case in-flight-states
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+as_child B --mode enter --round 1 --theorem T2 --stage disprove
+as_child C --mode enter --round 1 --theorem T3 --stage disprove
+as_child D --mode enter --round 1 --theorem T4 --stage verify
+persist --mode stopped --round 1 --theorem T2 --stage disprove --agent-id B
+printf 'VERDICT: SURVIVED\nTHEOREM: T3\nCHECKED: x\n' >"$CASE/report"
+as_child C --mode leave --round 1 --theorem T3 --stage disprove --agent theorem-disprover --from "$CASE/report"
+in_flight disprove theorem-disprover
+check "$(printf '%s\n' "$OUT" | awk '{print $1, $2}')" "T1 A" \
+  "in flight: a stopped child, a child that left and another stage's child are not in flight"
+
+new_case in-flight-result-file
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover"
+in_flight disprove theorem-disprover
+check "$OUT" "" "in flight: a theorem whose result file exists has no child in flight"
+
+new_case leave-prints-path
+printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' >"$CASE/report"
+as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/report"
+check "$RC:$OUT" "0:$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover" \
+  "leave: prints the result file's path"
 
 # --- the repository's state directory ------------------------------------
 

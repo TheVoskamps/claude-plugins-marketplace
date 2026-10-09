@@ -38,8 +38,8 @@ trap 'die "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                       |records|review|print-records|print-round-records
-                       |print-review|delete
+                       |print-in-flight|records|review|print-records
+                       |print-round-records|print-review|delete
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
@@ -118,7 +118,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  anchor|spawn|enter|leave|return|stopped|print) ;;
+  anchor|spawn|enter|leave|return|stopped|print|print-in-flight) ;;
   records|review|print-records|print-round-records|print-review) ;;
   list|delete|repos) ;;
   '') die "--mode is required" ;;
@@ -299,6 +299,10 @@ case "$mode" in
     case "$theorem" in
       *-*) die "--theorem must carry no dash: $theorem" ;;
     esac
+    ;;
+esac
+case "$mode" in
+  spawn|enter|leave|return|stopped|print-in-flight)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
       generate|disprove|verify) ;;
@@ -308,9 +312,10 @@ case "$mode" in
 esac
 
 # The agent names which definition the record is about, and on a leave
-# it is half the result file's name.
+# it is half the result file's name, which is what print-in-flight
+# looks for.
 case "$mode" in
-  spawn|leave)
+  spawn|leave|print-in-flight)
     [ -n "$agent" ] || die "--agent is required in --mode $mode"
     single_token agent "$agent"
     ;;
@@ -327,11 +332,16 @@ fi
 
 # The agent id names which child a record is about, so a re-spawned
 # theorem's second child is told apart from the first. A child derives
-# its own from its worktree; only the caller has to pass one.
-if [ "$mode" = return ]; then
-  [ -n "$agent_id" ] || die "--agent-id is required in --mode return"
-  single_token agent-id "$agent_id"
-fi
+# its own from its worktree; only the caller has to pass one. A stopped
+# record without one could only name the theorem, and would write off
+# whichever child the theorem had when it landed — a replacement
+# included.
+case "$mode" in
+  return|stopped)
+    [ -n "$agent_id" ] || die "--agent-id is required in --mode $mode"
+    single_token agent-id "$agent_id"
+    ;;
+esac
 
 if [ "$mode" = anchor ]; then
   [ -n "$head_sha" ] || die "--head-sha is required in --mode anchor"
@@ -690,7 +700,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print|print-records|print-round-records|print-review|list|delete) ;;
+  print|print-in-flight|print-records|print-round-records|print-review|list|delete) ;;
   records) [ -n "$carry" ] || make_dir ;;
   *) make_dir ;;
 esac
@@ -739,13 +749,41 @@ case "$mode" in
     store_payload "$result_file" report
     printf 'leave %s %s %s %s %s\n' \
       "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
+    # The path is printed only once both writes landed, so a child that
+    # opens its hand-back with it is reporting a leave that happened.
+    printf '%s\n' "$result_file"
     ;;
   return)
     printf 'return %s %s %s %s tokens=%s tools=%s ms=%s\n' \
       "$theorem" "$stage" "$(now)" "$agent_id" "$tokens" "$tools" "$ms" >> "$file"
     ;;
   stopped)
-    printf 'stopped %s %s %s\n' "$theorem" "$stage" "$(now)" >> "$file"
+    printf 'stopped %s %s %s %s\n' "$theorem" "$stage" "$(now)" "$agent_id" >> "$file"
+    ;;
+  print-in-flight)
+    # A theorem is in flight in --stage when its last enter there names a
+    # child that no leave and no stopped of that theorem names, and no
+    # result file for it under --agent exists. A stopped is matched to
+    # the enter by agent id, never by position, so an original child's
+    # stopped landing after its replacement's enter writes off the
+    # original alone.
+    [ -e "$file" ] || die "no round log at $file"
+    awk -v stage="$stage" '
+      $3 != stage { next }
+      $1 == "enter" {
+        if (!($2 in child)) order[++n] = $2
+        child[$2] = $5; at[$2] = $4
+      }
+      $1 == "leave" || $1 == "stopped" { ended[$2 " " $5] = 1 }
+      END {
+        for (i = 1; i <= n; i++) {
+          t = order[i]
+          if (!((t " " child[t]) in ended)) print t, child[t], at[t]
+        }
+      }' "$file" | while read -r t id entered; do
+      [ -e "$dir/$t-$agent" ] && continue
+      printf '%s %s %s\n' "$t" "$id" "$entered"
+    done
     ;;
   print)
     [ -e "$file" ] || die "no round log at $file"

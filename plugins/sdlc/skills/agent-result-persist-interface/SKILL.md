@@ -261,7 +261,10 @@ directories, and `repos` for what it lists across the state root.
   input is refused — a `leave` exists to carry a report. The report is
   written before the record that names it, so a run that dies between
   the two leaves the report readable rather than a record pointing at
-  nothing.
+  nothing. Once both have landed, the call prints the result file's
+  path on stdout, and that line is what a child's hand-back opens with,
+  per "A child's hand-back" below; a refused `leave` prints nothing
+  there.
 
   The payload lands first in `<result-file>.partial-<pid>` and is renamed into
   place only once it is whole, because a result file's mere existence
@@ -293,10 +296,15 @@ directories, and `repos` for what it lists across the state root.
   derivation below reads it, and a stage never waits on one. An omitted
   number leaves its column empty rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
-  `--stage`. The caller's, at a child's deadline. It writes one whether
-  or not it `TaskStop`ped that child — a predecessor instance's child
-  is never its to stop, and the record is what says the child was
-  written off either way.
+  `--stage`, carrying `--agent-id`, the id of the child it writes off,
+  as that child's `enter` record names it. The caller's, when it writes
+  a child off. It writes one whether or not it `TaskStop`ped that
+  child — a predecessor instance's child is never its to stop, and the
+  record is what says the child was written off either way.
+  `--agent-id` is required: without it the call exits non-zero and
+  appends nothing, since a record naming only the theorem would write
+  off whichever child the theorem had when it landed, a replacement
+  included.
 - **`print`** — writes the round log to stdout, followed by one
   `result` line per result file present. A `.partial-<pid>` staging
   from a `leave` still in flight is **skipped**, so a report reaches a
@@ -306,6 +314,15 @@ directories, and `repos` for what it lists across the state root.
   does not exist, which means neither the round's `anchor` call nor any
   child's `enter` has run — the fresh-round case the reviewer branches
   on before spawning anything.
+- **`print-in-flight`** — writes to stdout one line per theorem with a
+  child in flight in `--stage`, `<theorem> <agent-id> <instant>`: the
+  child's agent id and the instant of its `enter`, which is what its
+  deadline runs from. `--stage` and `--agent` are required, `--agent`
+  naming the definition whose result file settles the theorem —
+  `theorem-disprover` or `counterexample-verifier`, and for the theorem
+  `list` the generator the last `spawn` record names. "What the reader
+  derives" below states what in flight means. Exits non-zero when the
+  log does not exist, as `print` does.
 - **`records`** — writes the round's theorem records to the round's
   `records` file. Without `--carry` it stores its payload whole: the
   orchestrator's once, at `--round 0`, for the ruled seed, and the
@@ -455,7 +472,7 @@ spawn   <theorem> <stage> <instant> <agent> <model> <effort>
 enter   <theorem> <stage> <instant> <agent-id> <transcript-path>
 leave   <theorem> <stage> <instant> <agent-id> <result-file>
 return  <theorem> <stage> <instant> <agent-id> tokens=<n> tools=<n> ms=<n>
-stopped <theorem> <stage> <instant>
+stopped <theorem> <stage> <instant> <agent-id>
 ```
 
 `--mode print` adds one line per result file it finds, synthesized from
@@ -531,17 +548,13 @@ log.
 **Whether an outstanding theorem has a child in flight is a second
 question, and it is keyed on the child rather than on the theorem.** A
 theorem is in flight when its **last** `enter` in that stage carries an
-agent id that no `leave` of that theorem carries, and no `stopped`
-follows that `enter`:
-
-```bash
-awk '$1=="enter"   && $3==stage {child[$2]=$5; gone[$2]=0}
-     $1=="stopped" && $3==stage {gone[$2]=1}
-     $1=="leave"   && $3==stage {done[$2" "$5]=1}
-     $1=="result"  && $3==agent {left[$2]=1}
-     END{for(t in child) if(!gone[t] && !(t in left) && !((t" "child[t]) in done)) print t}' \
-  stage=disprove agent=theorem-disprover
-```
+agent id that no `leave` and no `stopped` of that theorem carries, and
+no result file for it under `--agent` exists. `--mode print-in-flight`
+is that derivation, and the only one: ask it rather than reading the
+answer off the log yourself. A `stopped` is matched to an `enter` by
+agent id, never by where it lands, so an original child's `stopped`
+that lands after its replacement's `enter` writes off the original
+alone and leaves the replacement in flight.
 
 That is the question a deadline arm asks — an outstanding theorem with
 no child in flight has nothing to be overdue — and the one the next
@@ -570,3 +583,24 @@ them by the log rather than by the directory. Both records stay in the
 log, because the pair is evidence that a child believed dead was
 alive, and the reader reports it as such. No line is revised, so
 concurrent appends cannot collide.
+
+## A child's hand-back
+
+A child's `leave` record and result file land before the child
+returns, so by the time its `<task-notification>` reaches the caller a
+missing `leave` is final rather than a race. A child therefore makes
+its `leave` call before it composes its hand-back, and composes one only
+from what that call did:
+
+- **The call succeeded** — the hand-back's first line is the
+  result-file path the call printed, and the report the file holds
+  follows it.
+- **The call failed** — the hand-back is a failure report carrying no
+  verdict and no theorem, so nothing the caller reads from it can stand
+  in for the result file that was never written:
+
+  ```text
+  LEAVE FAILED
+  COMMAND: <the leave command, as run>
+  OUTPUT: <everything it printed, verbatim>
+  ```

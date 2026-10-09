@@ -132,13 +132,15 @@ question.
 Your half of the log is four calls, and **not one of them carries
 a verdict**: `--mode anchor` once at the top of the round,
 `--mode spawn` per child you spawn, `--mode return` when a
-`<task-notification>` reaches you, and `--mode stopped` at a child's
-deadline. Each of those appends a single line to the log and rewrites
+`<task-notification>` reaches you, and `--mode stopped` when you write a
+child off — at its deadline, or at once when it handed back without a
+`leave`. Each of those appends a single line to the log and rewrites
 nothing already there. Two further calls store the round's own output
 at the end of it, each writing a whole file rather than a log line, and
 those do carry verdicts — `--mode records` and `--mode review`, per
 "Persist the round's records and review". You read with `--mode print`,
-on every resume, before you decide anything. The anchor call is
+on every resume, before you decide anything, and ask
+`--mode print-in-flight` which children are still running. The anchor call is
 **idempotent** — it writes the anchor when none is there, no-ops on one
 naming the same head SHA, and voids the round on one naming a different
 head — so no ordering between it and a child's own first record
@@ -264,7 +266,7 @@ report, and would never arm the replacement's deadline.
 
 **A theorem with a child still in flight is not re-spawned.** Subtract
 the in-flight set as well as the settled one: a predecessor's child that
-has `enter`ed, has not `leave`d, has no `stopped` after that `enter`,
+has `enter`ed, has not `leave`d, has no `stopped` naming its agent id,
 and is not yet past its own deadline is running the theorem now, and a
 second child on the same theorem would duplicate the work. The deadline
 is the override, and the only one — an overdue child is precisely the
@@ -278,8 +280,8 @@ replacement had already reported. Both records stay in the log, the
 later child's report is the one on disk, and that later verdict is the
 theorem's.
 
-**A `stopped` after that `enter` says the child is gone, while the
-theorem stays outstanding.** A stop kills the child, not the theorem:
+**A `stopped` naming that child's agent id says the child is gone, while
+the theorem stays outstanding.** A stop kills the child, not the theorem:
 the theorem is unanswered and re-spawnable, and it has no child in
 flight until a new `enter` arrives.
 
@@ -312,8 +314,26 @@ anchored anywhere but the child's own `enter` gets wrong.
 
 **Deadlines are per child, measured from its `enter` record.** A child
 with **no** `enter` record has not started and is never overdue; a child
-whose `enter` is followed by a `stopped` has been written off and is
-never overdue again, so the deadline arm passes over both.
+a `stopped` names has been written off and is never overdue again, so
+the deadline arm passes over both.
+
+**A child that handed back without a `leave` has failed, and is written
+off at once.** A child writes its `leave` before it returns, so when its
+`<task-notification>` reaches you and `--mode print-in-flight` still
+lists its theorem under the agent id the notification names, no `leave`
+is coming — the child ended without one, a `LEAVE FAILED` report among
+the ways. Do not wait out its deadline: append its `--mode stopped` now,
+with that agent id, exactly as the deadline arm would, and re-spawn the
+theorem. There is nothing to `TaskStop`: the child has already ended.
+That re-spawn is a resume pass like any other, counted against
+the same pass count and the same hard stop below. A notification whose
+child `print-in-flight` does not list — it left, or was already
+written off — changes nothing.
+
+**Every `--mode stopped` call names the child it writes off** with
+`--agent-id`, the id `--mode print-in-flight` printed for it; the script
+refuses one without. That is what keeps a late `stopped` for an
+original child from writing off its replacement.
 
 **Loop while progress continues; hard-stop at 7 resume passes.** A
 **resume pass** is one round of re-spawning the children the log shows
@@ -919,9 +939,10 @@ picked by what it found there could review against a theorem set
 another instance never saw.
 
 **A generator may instead be in flight**, and it is subtracted like any
-other child, per "You are re-entrant" above: an `enter` for the theorem
-`list` with no `leave` and no `stopped` after it says a predecessor's
-generator is reading this PR now, and a second one would renumber the
+other child, per "You are re-entrant" above: the theorem `list` listed by
+`--mode print-in-flight` under `--stage generate`, with `--agent` the
+generator the last `spawn` record names, says a predecessor's generator
+is reading this PR now, and a second one would renumber the
 round exactly as regenerating would. Wait on it rather than spawning
 beside it — end the turn and resume on its notification, running the
 same three moves per resume that "Fan out the verifiers" defines.
@@ -934,7 +955,7 @@ spawn the replacement, whose own `enter` starts a fresh deadline:
 ```bash
 sdlc-agent-result-persist --mode stopped \
   --pr <PR_REF> --round <this round's number> \
-  --theorem list --stage generate
+  --theorem list --stage generate --agent-id <the generator's agent id>
 ```
 
 Without that override a generator that entered and died parks the round
@@ -964,8 +985,9 @@ Leave these documentation paths out of every diff you read: <the paths
 "Documentation is outside the review" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
-to your result file and report it back in the theorem-record format that
-skill defines, and nothing else.
+to your result file first, then hand back the result-file path that call
+printed and, under it, the list in the theorem-record format that skill
+defines, and nothing else.
 ```
 
 On a **delta round**, and on a fallback round that carries records, the
@@ -984,8 +1006,9 @@ Leave these documentation paths out of every diff and delta commit you
 read: <the paths "Documentation is outside the review" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
-to your result file and report it back in the theorem-record format that
-skill defines, and nothing else.
+to your result file first, then hand back the result-file path that call
+printed and, under it, the list in the theorem-record format that skill
+defines, and nothing else.
 ```
 
 Append a `spawn` record for it, exactly as you do for every other child
@@ -1191,10 +1214,11 @@ Each disprover's brief is one theorem and nothing more:
 Leave these documentation paths out of every diff you read: <the paths
 "Documentation is outside the review" collected>
 
-Try to disprove this one claim per your agent definition. Report
-DISPROVED with a verbatim-quoted counterexample, a consequence
-statement, and a proposed consequence class, or SURVIVED with what
-you checked. Nothing else.
+Try to disprove this one claim per your agent definition. Record your
+report to your result file first, then hand back the result-file path
+that call printed and, under it, DISPROVED with a verbatim-quoted
+counterexample, a consequence statement, and a proposed consequence
+class, or SURVIVED with what you checked. Nothing else.
 ```
 
 The last line and the `--pr` at the top are the two identifying values
@@ -1243,17 +1267,27 @@ past every result whose own notification was lost.
    and duration figures it gave you — that is cost telemetry, and no
    step below reads it. A notification that names no agent id gets no
    record: telemetry is never worth a refused call, and the round is
-   settled from the `leave` records either way.
+   settled from the `leave` records either way. Then ask which children
+   are still running:
+
+   ```bash
+   sdlc-agent-result-persist --mode print-in-flight \
+     --pr <PR_REF> --round <this round's number> \
+     --stage disprove --agent theorem-disprover
+   ```
+
+   When it lists the agent id the notification named, that child handed
+   back without a `leave`: write it off now, per "You are re-entrant".
 2. **Derive the round's position from that output** — which theorems
    have left, which have started, and which are still outstanding, per
    "You are re-entrant" — then read each settled theorem's report out of
    the result file its `leave` or `result` line names. Then read the
-   clock and compare it against each outstanding child's own deadline:
-   15 minutes after that theorem's most recent `enter` record. A theorem
-   with no `enter` record has no child running yet and no deadline to be
-   past, and one whose most recent `enter` is followed by a `stopped`
-   has no child left to be overdue — its child was already written off,
-   and the arm is not taken against it again.
+   clock and compare it against each in-flight child's own deadline:
+   15 minutes after the `enter` instant `--mode print-in-flight` printed
+   for it. A theorem with no `enter` record has no child running yet and
+   no deadline to be past, and one `print-in-flight` does not list has
+   no child left to be overdue — its child left or was already written
+   off, and the arm is not taken against it again.
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ
@@ -1315,7 +1349,7 @@ the stop and leave it alone:
 ```bash
 sdlc-agent-result-persist --mode stopped \
   --pr <PR_REF> --round <this round's number> \
-  --theorem T7 --stage disprove
+  --theorem T7 --stage disprove --agent-id <that child's agent id>
 ```
 
 That is `TaskStop`'s one sanctioned use on this stage: past that
@@ -1396,9 +1430,10 @@ Each verifier's brief is one counterexample and nothing more:
 --round <this round's number>
 
 Try to refute this one counterexample per your agent definition.
-Report REFUTED with the rejection reason, or STANDS with a confirmed
-or corrected consequence statement and a consequence class. Nothing
-else.
+Record your report to your result file first, then hand back the
+result-file path that call printed and, under it, REFUTED with the
+rejection reason, or STANDS with a confirmed or corrected consequence
+statement and a consequence class. Nothing else.
 ```
 
 What each parameter means is owned by the
@@ -1442,10 +1477,13 @@ State which verifiers you are waiting on in your closing turn text too.
 **The wait for the verifiers is the same resume loop**, run a second
 time, with the same three moves per resume and the same literal
 commands, reading the `verify` stage's records rather than the
-`disprove` stage's: read the log with `--mode print`, derive which
-verifiers have left and read each one's report out of its result file,
-read the clock and compare it against each outstanding verifier's own
-`enter` record, then end the turn or take the deadline arm. The
+`disprove` stage's: read the log with `--mode print`, ask
+`--mode print-in-flight` under `--stage verify` and
+`--agent counterexample-verifier`, writing off at once a verifier that
+handed back without a `leave`, derive which verifiers have left and
+read each one's report out of its result file, read the clock and
+compare it against each in-flight verifier's own `enter` instant, then
+end the turn or take the deadline arm. The
 admissible-source rule above holds unchanged here — a verifier with no
 result file has given you no verdict — and so does the resume-pass loop,
 which bounds this stage's re-spawns the same way and shares one pass
@@ -1475,7 +1513,7 @@ stays true, and live again next round.
 
 At a verifier's deadline, and only there, `TaskStop` it if **you**
 spawned it, so it is no longer mid-run, and append its stop either way
-with `--mode stopped` under `--stage verify`. That is the
+with `--mode stopped` under `--stage verify`, naming its agent id. That is the
 same single sanctioned use the generator and disprover deadlines have,
 extended to the last stage and no wider:
 past that child's own deadline, and only for a theorem already recorded
