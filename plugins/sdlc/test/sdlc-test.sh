@@ -1000,7 +1000,9 @@ POST_PATH_TAIL=/usr/bin:/bin
 PR_DIR_REL=sdlc/h.example/o/r/pr7
 
 # post_case <name> [<chain line> <chain exit>]: a case whose PR carries
-# the chain sdlc-records-chain reports, by default none.
+# the chain sdlc-records-chain reports, by default none. Its pr-comment
+# refuses the post numbered in the case's comment-fails-at file, when the
+# case writes one.
 post_case() {
   new_case "$1"
   mkdir -p "$CASE/bin" "$CASE/posted"
@@ -1101,7 +1103,7 @@ T1" "post: the records piece leaves out print-records' round line"
 check_contains "$CALLS" "pr-comment h.example/o/r#7 --body-file" "post: posts on the reference's PR by body file"
 
 # Pieces of 25,000, 40,000 (T1's two reports) and 30,000 bytes: no two
-# fit one chunk.
+# adjacent pieces fit one chunk.
 post_case post-chunks
 state_file round1/review 25000
 state_file round1/T1-theorem-disprover 20000
