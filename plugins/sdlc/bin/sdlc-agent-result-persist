@@ -38,8 +38,8 @@ trap 'die "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                       |records|review|print-records|print-round-records
-                       |print-review|delete
+                       |print-in-flight|records|review|print-records
+                       |print-round-records|print-review|delete
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
@@ -118,7 +118,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  anchor|spawn|enter|leave|return|stopped|print) ;;
+  anchor|spawn|enter|leave|return|stopped|print|print-in-flight) ;;
   records|review|print-records|print-round-records|print-review) ;;
   list|delete|repos) ;;
   '') die "--mode is required" ;;
@@ -299,6 +299,10 @@ case "$mode" in
     case "$theorem" in
       *-*) die "--theorem must carry no dash: $theorem" ;;
     esac
+    ;;
+esac
+case "$mode" in
+  spawn|enter|leave|return|stopped|print-in-flight)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
       generate|disprove|verify) ;;
@@ -308,9 +312,10 @@ case "$mode" in
 esac
 
 # The agent names which definition the record is about, and on a leave
-# it is half the result file's name.
+# it is half the result file's name, which is what print-in-flight
+# looks for.
 case "$mode" in
-  spawn|leave)
+  spawn|leave|print-in-flight)
     [ -n "$agent" ] || die "--agent is required in --mode $mode"
     single_token agent "$agent"
     ;;
@@ -327,11 +332,16 @@ fi
 
 # The agent id names which child a record is about, so a re-spawned
 # theorem's second child is told apart from the first. A child derives
-# its own from its worktree; only the caller has to pass one.
-if [ "$mode" = return ]; then
-  [ -n "$agent_id" ] || die "--agent-id is required in --mode return"
-  single_token agent-id "$agent_id"
-fi
+# its own from its worktree; only the caller has to pass one. A stopped
+# record without one could only name the theorem, and would write off
+# whichever child the theorem had when it landed — a replacement
+# included.
+case "$mode" in
+  return|stopped)
+    [ -n "$agent_id" ] || die "--agent-id is required in --mode $mode"
+    single_token agent-id "$agent_id"
+    ;;
+esac
 
 if [ "$mode" = anchor ]; then
   [ -n "$head_sha" ] || die "--head-sha is required in --mode anchor"
@@ -492,6 +502,7 @@ store_payload() {
   fi
   if [ "$mode" = leave ]; then
     check_report_theorem "$work/payload"
+    check_report_ids "$work/payload"
   fi
   install_whole "$work/payload" "$1"
 }
@@ -517,6 +528,59 @@ check_report_theorem() {
   if [ "$answered" != "$theorem" ]; then
     rm -f -- "$1"
     die "--mode leave --stage $stage was given --theorem $theorem, and the report's THEOREM: line names $answered"
+  fi
+}
+
+# The rule every new theorem id is held to, as awk source both the carry
+# form and a generator's leave load: new_id_refusal returns why <id>
+# cannot be the next new record's id — one a carried record holds, or
+# one out of sequence — naming the id expected instead, or returns empty
+# and counts the id as added. The caller keeps the carried ids in
+# carried[], the highest carried number in max, and the ids accepted so
+# far in added.
+readonly new_id_rule='
+  function new_id_refusal(id,    want) {
+    want = "T" (max + added + 1)
+    if (id in carried)
+      return "the new record " id " has an id a carried record already holds; the next id in sequence is " want
+    if (id != want)
+      return "the new record " id " is not the next id in sequence, which is " want
+    added++
+    return ""
+  }'
+
+# A generator's report is the round's new theorems, and an id it gives
+# one must continue the records the round carries: the round below
+# --round that print-records would read, or none, which makes the list
+# start at T1. The ids are the lines holding nothing but T<n> above any
+# RETIREMENTS line, checked in order against new_id_rule before the
+# report is installed, so a refused list leaves no result file and no
+# leave record behind.
+check_report_ids() {
+  [ "$stage" = generate ] || return 0
+  records_below_round
+  carried_file=/dev/null
+  [ -z "$best" ] || carried_file=$best/records
+  refusal=$(awk -v carried_file="$carried_file" "$new_id_rule"'
+    FNR == 1 { open = 0 }
+    FILENAME == carried_file {
+      if ($0 == "") { open = 0; next }
+      if (!open) {
+        open = 1
+        carried[$0] = 1
+        if (substr($0, 2) + 0 > max) max = substr($0, 2) + 0
+      }
+      next
+    }
+    { line = $0; sub(/[ \t\r]+$/, "", line) }
+    line == "RETIREMENTS" { exit }
+    line ~ /^T[0-9]+$/ {
+      msg = new_id_refusal(line)
+      if (msg != "") { print msg; exit }
+    }' "$carried_file" "$1" || exit) || die "could not read the ids of the report for --round $round"
+  if [ -n "$refusal" ]; then
+    rm -f -- "$1"
+    die "--mode leave --stage generate --round $round refused: $refusal"
   fi
 }
 
@@ -580,7 +644,7 @@ records_below_round() {
 # round 1 or later that leaves one unstamped is refused.
 build_carried_records() {
   awk -v prog="$PROGRAM" -v round="$round" \
-      -v carried_file="$1" -v edits_file="$2" -v new_file="$3" '
+      -v carried_file="$1" -v edits_file="$2" -v new_file="$3" "$new_id_rule"'
     function refuse(msg) {
       printf "%s: %s\n", prog, msg | "cat 1>&2"
       failed = 1
@@ -630,13 +694,9 @@ build_carried_records() {
     FILENAME == new_file {
       if ($0 == "") { open = 0; next }
       if (!open) {
-        if ($0 in carried)
-          refuse("the new record " $0 " has an id a carried record already holds")
-        want = "T" (max + added + 1)
-        if ($0 != want)
-          refuse("the new record " $0 " is not the next id in sequence, which is " want)
+        msg = new_id_refusal($0)
+        if (msg != "") refuse(msg)
         open = 1
-        added++
         cur = substr($0, 2) + 0
         present[cur] = 1
       }
@@ -690,7 +750,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print|print-records|print-round-records|print-review|list|delete) ;;
+  print|print-in-flight|print-records|print-round-records|print-review|list|delete) ;;
   records) [ -n "$carry" ] || make_dir ;;
   *) make_dir ;;
 esac
@@ -739,13 +799,41 @@ case "$mode" in
     store_payload "$result_file" report
     printf 'leave %s %s %s %s %s\n' \
       "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
+    # The path is printed only once both writes landed, so a child that
+    # opens its hand-back with it is reporting a leave that happened.
+    printf '%s\n' "$result_file"
     ;;
   return)
     printf 'return %s %s %s %s tokens=%s tools=%s ms=%s\n' \
       "$theorem" "$stage" "$(now)" "$agent_id" "$tokens" "$tools" "$ms" >> "$file"
     ;;
   stopped)
-    printf 'stopped %s %s %s\n' "$theorem" "$stage" "$(now)" >> "$file"
+    printf 'stopped %s %s %s %s\n' "$theorem" "$stage" "$(now)" "$agent_id" >> "$file"
+    ;;
+  print-in-flight)
+    # A theorem is in flight in --stage when its last enter there names a
+    # child that no leave and no stopped of that theorem names, and no
+    # result file for it under --agent exists. A stopped is matched to
+    # the enter by agent id, never by position, so an original child's
+    # stopped landing after its replacement's enter writes off the
+    # original alone.
+    [ -e "$file" ] || die "no round log at $file"
+    awk -v stage="$stage" '
+      $3 != stage { next }
+      $1 == "enter" {
+        if (!($2 in child)) order[++n] = $2
+        child[$2] = $5; at[$2] = $4
+      }
+      $1 == "leave" || $1 == "stopped" { ended[$2 " " $5] = 1 }
+      END {
+        for (i = 1; i <= n; i++) {
+          t = order[i]
+          if (!((t " " child[t]) in ended)) print t, child[t], at[t]
+        }
+      }' "$file" | while read -r t id entered; do
+      [ -e "$dir/$t-$agent" ] && continue
+      printf '%s %s %s\n' "$t" "$id" "$entered"
+    done
     ;;
   print)
     [ -e "$file" ] || die "no round log at $file"

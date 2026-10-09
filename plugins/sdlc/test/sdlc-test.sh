@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
 # sdlc-test.sh -- drive plugins/sdlc/bin/sdlc-agent-result-persist's
-# records modes against a state root of its own: the round-0 seed write,
-# the carry form that builds a later round's records file from the
-# carried round, an edits file and the new records, each refusal the
-# carry form makes, print-records with and without a --round bound, and
+# records and round-log modes against a state root of its own: the
+# round-0 seed write, the carry form that builds a later round's records
+# file from the carried round, an edits file and the new records, each
+# refusal the carry form makes, print-records with and without a --round
+# bound, the path leave prints, stopped's --agent-id and
+# print-in-flight's matching of a stopped to its child, a generator's
+# leave refused for ids that do not continue the carried records, and
 # the repository's state directory: its repo.yml, the move of state from
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
@@ -392,6 +395,135 @@ new_case carry-other-mode
 persist --mode review --round 1 --carry
 check "$RC" "2" "refusal: --carry outside --mode records exits non-zero"
 check_contains "$ERR" "--carry is not accepted in --mode review" "refusal: --carry outside --mode records says so"
+
+# --- a child's records, and which child is in flight -----------------------
+
+round_log() {
+  cat "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$1/log" 2>/dev/null
+}
+
+# as_child <agent-id> <args...>: runs the script from a directory named
+# agent-<agent-id>, the way a child's worktree names its agent id, leaving
+# stdout in OUT, stderr in ERR and the exit status in RC.
+as_child() {
+  local id=$1
+  shift
+  mkdir -p "$CASE/agent-$id"
+  OUT=$(cd "$CASE/agent-$id" && "$PERSIST" --pr 'h.example/o/r#7' "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# in_flight <stage> <agent>: runs print-in-flight, leaving stdout in OUT.
+in_flight() {
+  OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print-in-flight --round 1 --stage "$1" --agent "$2" \
+    2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+new_case stopped-needs-agent-id
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+LOG_BEFORE=$(round_log 1)
+persist --mode stopped --round 1 --theorem T1 --stage disprove
+check "$RC" "2" "stopped: without --agent-id is refused"
+check_contains "$ERR" "--agent-id is required in --mode stopped" "stopped: the refusal names the flag"
+check "$(round_log 1)" "$LOG_BEFORE" "stopped: a refused stopped appends nothing to the log"
+
+new_case stopped-carries-agent-id
+persist --mode stopped --round 1 --theorem T1 --stage disprove --agent-id A
+check "$RC" "0" "stopped: with --agent-id is written"
+check "$(round_log 1 | awk '{print $1, $2, $3, $5}')" "stopped T1 disprove A" "stopped: the record names the child it writes off"
+
+new_case in-flight-late-stop
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+as_child B --mode enter --round 1 --theorem T1 --stage disprove
+persist --mode stopped --round 1 --theorem T1 --stage disprove --agent-id A
+in_flight disprove theorem-disprover
+check "$RC" "0" "in flight: print-in-flight exits 0"
+check "$(printf '%s\n' "$OUT" | awk '{print $1, $2}')" "T1 B" \
+  "in flight: an original child's stopped landing after its replacement's enter leaves the replacement in flight"
+
+new_case in-flight-states
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+as_child B --mode enter --round 1 --theorem T2 --stage disprove
+as_child C --mode enter --round 1 --theorem T3 --stage disprove
+as_child D --mode enter --round 1 --theorem T4 --stage verify
+persist --mode stopped --round 1 --theorem T2 --stage disprove --agent-id B
+printf 'VERDICT: SURVIVED\nTHEOREM: T3\nCHECKED: x\n' >"$CASE/report"
+as_child C --mode leave --round 1 --theorem T3 --stage disprove --agent theorem-disprover --from "$CASE/report"
+in_flight disprove theorem-disprover
+check "$(printf '%s\n' "$OUT" | awk '{print $1, $2}')" "T1 A" \
+  "in flight: a stopped child, a child that left and another stage's child are not in flight"
+
+new_case in-flight-result-file
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover"
+in_flight disprove theorem-disprover
+check "$OUT" "" "in flight: a theorem whose result file exists has no child in flight"
+
+new_case leave-prints-path
+printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' >"$CASE/report"
+as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/report"
+check "$RC:$OUT" "0:$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover" \
+  "leave: prints the result file's path"
+
+# --- a generator's ids against the carried records --------------------------
+
+# theorem_list <first> <last>: prints a generator's list of the theorems
+# T<first> to T<last>, with its closing count and a retirement.
+theorem_list() {
+  for n in $(seq "$1" "$2"); do
+    printf 'T%s\nclaim: claim %s\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\n' "$n" "$n"
+  done
+  printf 'Total: %s semantic\n\nRETIREMENTS\nT1 — removed by the delta.\n' "$(($2 - $1 + 1))"
+}
+
+# Round 1's records hold T1 to T17.
+SEVENTEEN=$(for n in $(seq 1 17); do
+  [ "$n" -eq 1 ] || printf '\n'
+  printf 'T%s\nclaim: claim %s\nissues: #1\nsettle-mode: semantic\npointers: a.md\nstate: retired\n' "$n" "$n"
+done)
+
+new_case generate-collides
+seed_round 1 "$SEVENTEEN"
+theorem_list 1 2 >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC:$OUT" "2:" "generate ids: a list opening at T1 over records holding T1 to T17 is refused"
+check_contains "$ERR" "the new record T1 has an id a carried record already holds; the next id in sequence is T18" \
+  "generate ids: the refusal names the colliding id and the expected next id"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/list-theorem-generator" ] && echo written || echo none)" "none" \
+  "generate ids: a refused list writes no result file"
+check "$(round_log 2 | grep -c '^leave')" "0" "generate ids: a refused list appends no leave record"
+
+new_case generate-continues
+seed_round 1 "$SEVENTEEN"
+theorem_list 18 19 >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "0" "generate ids: a list opening at T18 over records holding T1 to T17 is stored"
+check "$(round_log 2 | grep -c '^leave list generate')" "1" "generate ids: the stored list's leave record is appended"
+
+new_case generate-skips
+seed_round 1 "$SEVENTEEN"
+printf 'T18\nclaim: a\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\nT20\nclaim: b\nissues: #1\nsettle-mode: semantic\npointers: a.md\n' \
+  >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "2" "generate ids: a list skipping an id is refused"
+check_contains "$ERR" "the new record T20 is not the next id in sequence, which is T19" \
+  "generate ids: the refusal names the out-of-sequence id and the expected next id"
+
+new_case generate-round0
+theorem_list 2 3 >"$CASE/list"
+as_child G --mode leave --round 0 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "2" "generate ids: a round-0 list opening at T2 is refused"
+check_contains "$ERR" "the new record T2 is not the next id in sequence, which is T1" \
+  "generate ids: a round-0 list must open at T1"
+
+new_case generate-no-records
+theorem_list 1 2 >"$CASE/list"
+as_child G --mode leave --round 1 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "0" "generate ids: a round with no records below it accepts a list opening at T1"
 
 # --- the repository's state directory ------------------------------------
 

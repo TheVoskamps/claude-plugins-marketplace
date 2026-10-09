@@ -177,8 +177,14 @@ calls in a subagent context.
    you report — a turn that ends first records nothing. There is no size
    limit and nothing to encode.
 
-6. **Report** in one of the formats below, the same text you just wrote.
-   Nothing else.
+6. **Hand back only once the `leave` call has returned**, and compose
+   the hand-back from what it did, per the preloaded
+   `sdlc:agent-result-persist-interface` skill → "A child's hand-back".
+   When it succeeded, the hand-back's first line is the result-file path
+   the call printed, followed by the report you wrote, in one of the
+   formats below. When it failed, hand back the failure report that
+   section shows, carrying no verdict — never the report the file was
+   meant to hold.
 
 ## Establishing a fact
 
@@ -255,7 +261,8 @@ and on disagreement the verifier's wins.
 
 ## Output
 
-Exactly one of these shapes, and nothing around it.
+Exactly one of these shapes, under the result-file path line step 6
+opens the hand-back with, and nothing else around it.
 
 **Disproved** — you found a counterexample:
 
