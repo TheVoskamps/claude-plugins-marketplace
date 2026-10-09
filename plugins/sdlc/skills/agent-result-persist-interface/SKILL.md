@@ -158,9 +158,8 @@ are the whole of what composes it — no session is part of the path.
 Each is a fact about the PR under review, which is what makes a round
 survive the session that opened it: a reviewer resumed in a session
 that never saw the first one holds both already, composes the same
-path, and reads the same log. The state variable is used when
-set and non-empty and `$HOME/.local/state` otherwise, and the script
-is the one sdlc script that spells that fallback. This directory is where
+path, and reads the same log. The script uses the state variable when
+set and non-empty and `$HOME/.local/state` otherwise. This directory is where
 the whole of a round's output lives: the theorem
 records that the next round carries forward, and the argued review it
 composed, are files here rather than text on the PR.
