@@ -268,9 +268,12 @@ report, and would never arm the replacement's deadline.
 the in-flight set as well as the settled one: a predecessor's child that
 has `enter`ed, has not `leave`d, has no `stopped` naming its agent id,
 and is not yet past its own deadline is running the theorem now, and a
-second child on the same theorem would duplicate the work. The deadline
-is the override, and the only one — an overdue child is precisely the
-one to replace, so record its stop and spawn the replacement. An
+second child on the same theorem would duplicate the work. Two things
+override it: the child's deadline, and its `<task-notification>`
+arriving while `--mode print-in-flight` still lists it. An overdue child
+is precisely the one to replace, so record its stop and spawn the
+replacement; a child that handed back without a `leave` is written off
+at once, as "A child that handed back without a `leave`" below says. An
 outstanding theorem with no child in flight is spawned without further
 question.
 
@@ -947,10 +950,15 @@ round exactly as regenerating would. Wait on it rather than spawning
 beside it — end the turn and resume on its notification, running the
 same three moves per resume that "Fan out the verifiers" defines.
 
-Its deadline is the same **15 minutes after its own `enter` record** the
-fan-out stages carry, and it is the only override. Past it, `TaskStop`
-the generator if **you** spawned it, append its stop either way, and
-spawn the replacement, whose own `enter` starts a fresh deadline:
+Two things override the wait, as for any child. The first is the same
+immediate write-off: a generator whose `<task-notification>` arrives
+while `--mode print-in-flight` still lists `list` under the agent id it
+names handed back without a `leave`, so append its stop now and spawn
+the replacement, with nothing to `TaskStop`. The second is its deadline,
+the same **15 minutes after its own `enter` record** the fan-out stages
+carry. Past it, `TaskStop` the generator if **you** spawned it, append
+its stop either way, and spawn the replacement, whose own `enter` starts
+a fresh deadline. Either way the stop is:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -958,7 +966,7 @@ sdlc-agent-result-persist --mode stopped \
   --theorem list --stage generate --agent-id <the generator's agent id>
 ```
 
-Without that override a generator that entered and died parks the round
+Without the deadline a generator that entered and died parks the round
 forever: no later stage runs until the list is settled, so nothing else
 would ever release it.
 
