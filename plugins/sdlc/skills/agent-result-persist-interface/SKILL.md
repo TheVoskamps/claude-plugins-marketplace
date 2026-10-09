@@ -102,9 +102,10 @@ then Write again.
 
 These two go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
-refuses it: `delete` removes the whole PR's directory, so it refuses
-`--round`, `list` reads across every PR of a repository, so it refuses
-`--pr` and `--round` alike and takes the repository instead, and
+refuses it: `delete` removes the whole PR's directory and `print-root`
+names it, so each refuses `--round`, `list` reads across every PR of a
+repository, so it refuses `--pr` and `--round` alike and takes the
+repository instead, and
 `repos` reads across every repository, so it refuses both and takes no
 repository. `print-records` selects the round itself, so `--round` is
 optional there and bounds that selection rather than naming a round.
@@ -223,8 +224,9 @@ no longer wanted, which is the one exception this policy makes.
 
 One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
-round, `list` and `delete` for what they do across a repo's PR
-directories, and `repos` for what it lists across the state root.
+round, `print-root` for the PR directory it names, `list` and `delete`
+for what they do across a repo's PR directories, and `repos` for what
+it lists across the state root.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`.
   One call per round, and **idempotent**, which is what lets the
@@ -431,6 +433,13 @@ directories, and `repos` for what it lists across the state root.
   file.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
+- **`print-root`** — writes the PR's state root to stdout as one line,
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/`
+  expanded, trailing `/` included. It is the signpost "The paths"
+  describes, composed here so a caller that names a file to a human
+  relative to the root spells no root of its own; it opens nothing. It
+  takes **no `--round`** and refuses one, creates nothing, and exits
+  zero whether or not the directory exists.
 - **`list`** — writes to stdout one PR per line, as the
   `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
   order of `<n>`, one per `pr<n>/` directory under the repository's

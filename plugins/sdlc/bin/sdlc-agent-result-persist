@@ -39,7 +39,7 @@ usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |print-in-flight|records|review|print-records
-                       |print-round-records|print-review|delete
+                       |print-round-records|print-review|print-root|delete
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
@@ -119,7 +119,7 @@ done
 
 case "$mode" in
   anchor|spawn|enter|leave|return|stopped|print|print-in-flight) ;;
-  records|review|print-records|print-round-records|print-review) ;;
+  records|review|print-records|print-round-records|print-review|print-root) ;;
   list|delete|repos) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
@@ -262,12 +262,13 @@ else
 fi
 
 # A mode refuses an identifying flag it does not act at: delete removes
-# a whole PR's directory, and list reads above every PR's, so a caller
-# passing one would be naming a round the mode is not going to touch.
-# print-records selects the round itself, so a --round given to it
-# bounds that selection from above rather than naming the round.
+# a whole PR's directory, print-root names it, and list reads above every
+# PR's, so a caller passing one would be naming a round the mode is not
+# going to touch. print-records selects the round itself, so a --round
+# given to it bounds that selection from above rather than naming the
+# round.
 case "$mode" in
-  delete|list)
+  delete|list|print-root)
     [ -z "$round" ] || die "--round is not accepted in --mode $mode: $round"
     ;;
   print-records)
@@ -750,7 +751,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print|print-in-flight|print-records|print-round-records|print-review|list|delete) ;;
+  print|print-in-flight|print-records|print-round-records|print-review|print-root|list|delete) ;;
   records) [ -n "$carry" ] || make_dir ;;
   *) make_dir ;;
 esac
@@ -899,6 +900,11 @@ case "$mode" in
   print-review)
     [ -e "$review_file" ] || die "no round review at $review_file"
     cat -- "$review_file"
+    ;;
+  print-root)
+    # The PR's state root, for a caller that names a file under it to a
+    # human relative to it; whether it exists yet is not this mode's to say.
+    printf '%s/\n' "$pr_dir"
     ;;
   list)
     # A repo no review has run against has no directory, which is an

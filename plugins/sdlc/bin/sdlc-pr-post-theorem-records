@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+#
+# sdlc-pr-post-theorem-records -- post a finished PR's review detail,
+# assembled from its state under XDG state, as a chain of comments whose
+# first lines are <!-- sdlc:theorem-records <i>/<N> -->, unless the PR
+# already carries a complete chain. pr-finalizer runs it once per
+# close-out.
+#
+#   usage: sdlc-pr-post-theorem-records <host>/<owner>/<repo>#<n>
+#
+# The detail is assembled in this order, each file headed by its path
+# relative to the PR's state root, round<n>/<file>:
+#
+#   1. the final theorem records, from --mode print-records, unless no
+#      round holds any;
+#   2. per round, from round 1 up to the first round with no log: its
+#      generator files, list-<agent>, in agent-name order; its review,
+#      when it stored one; then its children's result files grouped by
+#      theorem, in theorem-id order, a theorem's disprover report before
+#      its verifier report.
+#
+# Each of those is a piece, except that one theorem's result files in a
+# round form one piece together. A chunk breaks between pieces and never
+# inside one, and no chunk, marker line included, exceeds
+# MAX_CHUNK_BYTES. A piece too large to fit a chunk of its own becomes a
+# chunk naming its files and saying it was too large to post: nothing is
+# truncated.
+#
+# On success it exits 0 and prints exactly one of these on stdout:
+#
+#   one posted comment URL per line, in chunk order
+#   existing chain: <N> comments     a complete chain is already there
+#   nothing to assemble              the state holds no piece
+#
+# Every other exit writes its reason to stderr:
+#
+#   1  an unexpected failure not covered below
+#   2  a usage error: the argument is missing, or is not a
+#      <host>/<owner>/<repo>#<n> reference
+#   3  a required command is not on PATH; stderr names it
+#   4  sdlc-records-chain failed; the chain state is unknown and nothing
+#      was posted
+#   5  a pr-comment post failed; stderr names the chunk, and stdout still
+#      lists the URLs of the chunks already posted
+#
+# It reaches the state directory through sdlc-agent-result-persist and
+# the result-file paths that script prints, and calls it, pr-comment and
+# sdlc-records-chain by name off PATH. Runs under the bash 3.2 macOS
+# ships.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
+
+# GitHub caps a comment body at 65,536 characters. A character is at
+# least one byte, so a byte limit below that holds whatever the
+# characters are, with headroom.
+readonly MAX_CHUNK_BYTES=60000
+readonly TAB=$'\t'
+
+usage() {
+  echo "usage: $SP_PROGRAM <host>/<owner>/<repo>#<n>"
+}
+
+[ "$#" -eq 1 ] || sp_usage_error "Pass exactly one PR."
+sp_parse_pr "$1"
+
+for cmd in pr-comment sdlc-records-chain sdlc-agent-result-persist; do
+  command -v "$cmd" >/dev/null 2>&1 || sp_fail 3 "\`$cmd\` is not on PATH."
+done
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/$SP_PROGRAM.XXXXXX")
+trap 'rm -rf -- "$work"' EXIT
+
+persist() {
+  sdlc-agent-result-persist --pr "$SP_REF" "$@"
+}
+
+root=$(persist --mode print-root || exit) ||
+  sp_fail 1 "sdlc-agent-result-persist --mode print-root failed"
+
+# --- an existing chain ----------------------------------------------------
+
+rc=0
+chain=$(sdlc-records-chain "$SP_REF" 2>"$work/err" || exit) || rc=$?
+case "$rc" in
+  0)
+    case "$chain" in
+      "complete$TAB"[0-9]*) ;;
+      *) sp_fail 4 "sdlc-records-chain printed \`$chain\`, not a complete chain's total; nothing was posted." ;;
+    esac
+    printf 'existing chain: %s comments\n' "${chain#"complete$TAB"}"
+    exit 0
+    ;;
+  3) ;;
+  *)
+    cat -- "$work/err" >&2
+    sp_fail 4 "sdlc-records-chain failed (exit $rc); the chain state is unknown and nothing was posted."
+    ;;
+esac
+
+# --- the pieces -------------------------------------------------------------
+# Piece <k> is $work/piece-<k>, its files' paths relative to the state
+# root one per line in $work/piece-<k>.files.
+
+pieces=0
+
+new_piece() {
+  pieces=$((pieces + 1))
+  : >"$work/piece-$pieces"
+  : >"$work/piece-$pieces.files"
+}
+
+# add_file <relative path> <content file>: appends one file, headed by
+# its path, to the current piece.
+add_file() {
+  if [ -s "$work/piece-$pieces" ]; then
+    printf '\n' >>"$work/piece-$pieces"
+  fi
+  # shellcheck disable=SC2016
+  printf '## `%s`\n\n' "$1" >>"$work/piece-$pieces"
+  cat -- "$2" >>"$work/piece-$pieces"
+  if [ -n "$(tail -c 1 "$2")" ]; then
+    printf '\n' >>"$work/piece-$pieces"
+  fi
+  printf '%s\n' "$1" >>"$work/piece-$pieces.files"
+}
+
+# read_state <absent message> <persist args...>: runs persist into
+# $work/out. Returns 1 when it fails saying <absent message>, the file
+# being absent; any other failure is the script's.
+read_state() {
+  local absent=$1 rc=0
+  shift
+  persist "$@" >"$work/out" 2>"$work/err" || rc=$?
+  [ "$rc" -ne 0 ] || return 0
+  if grep -q -- "$absent" "$work/err"; then
+    return 1
+  fi
+  cat -- "$work/err" >&2
+  sp_fail 1 "sdlc-agent-result-persist $* failed (exit $rc)"
+}
+
+if read_state ' holds a records file' --mode print-records; then
+  records_round=$(sed -n '1s/^round //p' "$work/out")
+  sed '1d' "$work/out" >"$work/records"
+  new_piece
+  add_file "round$records_round/records" "$work/records"
+fi
+
+round=1
+while read_state 'no round log at ' --mode print --round "$round"; do
+  : >"$work/generators"
+  : >"$work/children"
+  while IFS=' ' read -r kind theorem agent path; do
+    [ "$kind" = result ] || continue
+    case "$path" in
+      "$root"*) ;;
+      *) sp_fail 1 "round $round's result file $path is not under the PR's state root $root" ;;
+    esac
+    relative=${path#"$root"}
+    if [ "$theorem" = list ]; then
+      printf '%s\t%s\t%s\n' "$agent" "$relative" "$path" >>"$work/generators"
+      continue
+    fi
+    case "$theorem" in
+      T[0-9]*) id=${theorem#T} ;;
+      *) id=999999999 ;;
+    esac
+    case "$id" in
+      *[!0-9]*) id=999999999 ;;
+    esac
+    case "$agent" in
+      theorem-disprover) rank=1 ;;
+      counterexample-verifier) rank=2 ;;
+      *) rank=3 ;;
+    esac
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$theorem" "$rank" "$agent" "$relative" "$path" >>"$work/children"
+  done <"$work/out"
+
+  LC_ALL=C sort -t "$TAB" -k1,1 "$work/generators" >"$work/sorted"
+  while IFS="$TAB" read -r agent relative path; do
+    new_piece
+    add_file "$relative" "$path"
+  done <"$work/sorted"
+
+  if read_state 'no round review at ' --mode print-review --round "$round"; then
+    new_piece
+    add_file "round$round/review" "$work/out"
+  fi
+
+  LC_ALL=C sort -t "$TAB" -k1,1n -k2,2 -k3,3n -k4,4 "$work/children" >"$work/sorted"
+  last=
+  while IFS="$TAB" read -r id theorem rank agent relative path; do
+    if [ "$theorem" != "$last" ]; then
+      new_piece
+      last=$theorem
+    fi
+    add_file "$relative" "$path"
+  done <"$work/sorted"
+
+  round=$((round + 1))
+done
+
+if [ "$pieces" -eq 0 ]; then
+  echo "nothing to assemble"
+  exit 0
+fi
+
+# --- the chunks -------------------------------------------------------------
+# A chunk is its marker line, then each of its pieces after a blank line.
+# The marker's width depends on the total, which is known only once the
+# pieces are placed, so room is reserved for a four-digit total; the size
+# check on each built chunk below catches a chain longer than that.
+
+# shellcheck disable=SC2059
+widest=$(printf "$SP_RECORDS_MARKER_FORMAT" 9999 9999)
+marker_room=$((${#widest} + 1))
+budget=$((MAX_CHUNK_BYTES - marker_room))
+chunks=0
+used=$budget
+
+# placeholder <piece> <bytes>: writes $work/piece-<piece>.placeholder, which names
+# the piece's files in place of their text.
+placeholder() {
+  {
+    printf '## Too large to post\n\n'
+    printf 'This piece is %s bytes, more than one comment carries, so it is not posted. ' "$2"
+    # shellcheck disable=SC2016
+    printf 'Its files are under the PR'\''s state root, `%s`, each part taken from `%s`:\n\n' \
+      '${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/' "$SP_REF"
+    while IFS= read -r relative; do
+      # shellcheck disable=SC2016
+      printf -- '- `%s`\n' "$relative"
+    done <"$work/piece-$1.files"
+  } >"$work/piece-$1.placeholder"
+}
+
+k=1
+while [ "$k" -le "$pieces" ]; do
+  size=$(($(wc -c <"$work/piece-$k") + 1))
+  file=$work/piece-$k
+  if [ "$size" -gt "$budget" ]; then
+    placeholder "$k" "$((size - 1))"
+    file=$work/piece-$k.placeholder
+    size=$(($(wc -c <"$file") + 1))
+    used=$budget
+  fi
+  if [ $((used + size)) -gt "$budget" ]; then
+    chunks=$((chunks + 1))
+    : >"$work/chunk-$chunks.pieces"
+    used=0
+  fi
+  printf '%s\n' "$file" >>"$work/chunk-$chunks.pieces"
+  used=$((used + size))
+  # A placeholder holds its chunk alone.
+  case "$file" in
+    *.placeholder) used=$budget ;;
+  esac
+  k=$((k + 1))
+done
+
+i=1
+while [ "$i" -le "$chunks" ]; do
+  {
+    # shellcheck disable=SC2059
+    printf "$SP_RECORDS_MARKER_FORMAT\n" "$i" "$chunks"
+    while IFS= read -r file; do
+      printf '\n'
+      cat -- "$file"
+    done <"$work/chunk-$i.pieces"
+  } >"$work/chunk-$i"
+  bytes=$(wc -c <"$work/chunk-$i")
+  [ "$bytes" -le "$MAX_CHUNK_BYTES" ] ||
+    sp_fail 1 "chunk $i of $chunks came to $bytes bytes, over $MAX_CHUNK_BYTES; nothing was posted."
+  i=$((i + 1))
+done
+
+# --- the posts --------------------------------------------------------------
+
+i=1
+while [ "$i" -le "$chunks" ]; do
+  rc=0
+  url=$(pr-comment "$SP_REF" --body-file "$work/chunk-$i" || exit) || rc=$?
+  [ "$rc" -eq 0 ] ||
+    sp_fail 5 "pr-comment failed (exit $rc) posting chunk $i of $chunks; the chunks before it are posted."
+  printf '%s\n' "$url"
+  i=$((i + 1))
+done

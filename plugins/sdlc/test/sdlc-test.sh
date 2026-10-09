@@ -16,7 +16,9 @@
 # checks that a command either script does not handle exits through the
 # script's own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
-# stub gh serving a PR's reviews and comments.
+# stub gh serving a PR's reviews and comments, and
+# sdlc-pr-post-theorem-records against a stub sdlc-records-chain and a
+# stub pr-comment.
 #
 # Needs bash, jq and the POSIX utilities. Reaches no network.
 #
@@ -983,6 +985,194 @@ for args in "--pr h.example/o/r#7" "--round 2" "--pr h.example/o/r#7 --round 0" 
   read -r -a argv <<<"$args"
   pr_read sdlc-pr-adjustments "${argv[@]}"
   check "$RC:$CALLS" "2:" "pr-adjustments: \`$args\` is a usage error that reads nothing"
+done
+
+# --- the review-detail chain ------------------------------------------------
+# sdlc-pr-post-theorem-records runs against the real
+# sdlc-agent-result-persist and a state root of the case's own, with a
+# stub sdlc-records-chain answering from the case's chain and chain-rc
+# files and a stub pr-comment that keeps each body it is handed. PATH
+# holds the stubs and the system directories alone, so no real pr-comment
+# is reachable and bash is the one /usr/bin/env finds there.
+
+POST="$TEST_DIR/../bin/sdlc-pr-post-theorem-records"
+POST_PATH_TAIL=/usr/bin:/bin
+PR_DIR_REL=sdlc/h.example/o/r/pr7
+
+# post_case <name> [<chain line> <chain exit>]: a case whose PR carries
+# the chain sdlc-records-chain reports, by default none.
+post_case() {
+  new_case "$1"
+  mkdir -p "$CASE/bin" "$CASE/posted"
+  printf '%s' "${2-}" >"$CASE/chain"
+  printf '%s' "${3-3}" >"$CASE/chain-rc"
+  cat >"$CASE/bin/sdlc-records-chain" <<STUB
+#!/bin/sh
+echo "records-chain \$*" >>"$CASE/calls"
+[ -s "$CASE/chain" ] && cat "$CASE/chain" && echo
+exit \$(cat "$CASE/chain-rc")
+STUB
+  cat >"$CASE/bin/pr-comment" <<STUB
+#!/bin/sh
+n=\$(( \$(ls "$CASE/posted" | wc -l) + 1 ))
+if [ "\$n" = "\$(cat "$CASE/comment-fails-at" 2>/dev/null)" ]; then echo "stub pr-comment: refused" >&2; exit 1; fi
+cp "\$3" "$CASE/posted/\$n"
+echo "pr-comment \$1 \$2" >>"$CASE/calls"
+echo "https://h.example/o/r/pull/7#issuecomment-\$n"
+STUB
+  ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+  chmod +x "$CASE/bin/sdlc-records-chain" "$CASE/bin/pr-comment"
+}
+
+# state_file <round>/<file> <bytes> [<first line>]: writes a state file
+# of <bytes> bytes, its last newline included, opening with <first line>
+# and filled with x, and gives its round a log.
+state_file() {
+  local at="$XDG_STATE_HOME/$PR_DIR_REL/$1" fill=$(($2 - 1))
+  mkdir -p "${at%/*}"
+  [ -e "${at%/*}/log" ] || printf 'anchor 2026-01-01T00:00:00Z abc\n' >"${at%/*}/log"
+  {
+    if [ -n "${3-}" ]; then
+      printf '%s\n' "$3"
+      fill=$((fill - ${#3} - 1))
+    fi
+    head -c "$fill" /dev/zero | tr '\0' x
+    printf '\n'
+  } >"$at"
+}
+
+# post <args...>: runs the script with the stubs on PATH, leaving OUT,
+# ERR, RC, CALLS and POSTED, the number of bodies pr-comment was handed.
+post() {
+  OUT=$(PATH="$CASE/bin:$POST_PATH_TAIL" "$POST" "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+  CALLS=$(cat "$CASE/calls" 2>/dev/null)
+  POSTED=$(find "$CASE/posted" -type f | wc -l | tr -d ' ')
+}
+
+# posted_headers <n>: the marker line and the headings of posted body <n>.
+posted_headers() {
+  grep -E '^(<!-- sdlc:theorem-records|## )' "$CASE/posted/$1"
+}
+
+check "$([ -x "$POST" ] && echo yes)" "yes" "sdlc-pr-post-theorem-records is executable"
+
+new_case print-root
+OUT=$("$PERSIST" --mode print-root --pr 'h.example/o/r#7' 2>"$CASE/err" </dev/null)
+check "$?:$OUT" "0:$XDG_STATE_HOME/$PR_DIR_REL/" "persist print-root: prints the PR's state root"
+check "$([ -e "$XDG_STATE_HOME/sdlc" ] && echo made || echo absent)" "absent" "persist print-root: creates nothing"
+"$PERSIST" --mode print-root --pr 'h.example/o/r#7' --round 1 >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "persist print-root: --round is refused"
+
+post_case post-existing "complete${TAB}2" 0
+state_file round1/review 100
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:existing chain: 2 comments" "post: a complete chain already present is reported with its total"
+check "$POSTED" "0" "post: a complete chain already present posts nothing"
+check "$CALLS" "records-chain h.example/o/r#7" "post: asks sdlc-records-chain about the reference's PR"
+
+post_case post-partial "partial${TAB}1/2" 3
+mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round0"
+printf 'T1\nclaim: seed\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round0/records"
+state_file round1/T2-theorem-disprover 50
+state_file round1/T1-counterexample-verifier 50
+state_file round1/T1-theorem-disprover 50
+state_file round1/list-theorem-generator-medium 50
+state_file round1/list-theorem-generator 50
+state_file round1/review 50
+state_file round1/records 60 T1
+state_file round2/review 50
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:https://h.example/o/r/pull/7#issuecomment-1" \
+  "post: a partial chain gets a complete chain posted, its URL printed"
+# shellcheck disable=SC2016
+check "$(posted_headers 1)" '<!-- sdlc:theorem-records 1/1 -->
+## `round1/records`
+## `round1/list-theorem-generator`
+## `round1/list-theorem-generator-medium`
+## `round1/review`
+## `round1/T1-theorem-disprover`
+## `round1/T1-counterexample-verifier`
+## `round1/T2-theorem-disprover`
+## `round2/review`' "post: the pieces in assembly order, each headed by its path under the state root"
+# shellcheck disable=SC2016
+check "$(sed -n '3,5p' "$CASE/posted/1")" '## `round1/records`
+
+T1' "post: the records piece leaves out print-records' round line"
+check_contains "$CALLS" "pr-comment h.example/o/r#7 --body-file" "post: posts on the reference's PR by body file"
+
+# Pieces of 25,000, 40,000 (T1's two reports) and 30,000 bytes: no two
+# fit one chunk.
+post_case post-chunks
+state_file round1/review 25000
+state_file round1/T1-theorem-disprover 20000
+state_file round1/T1-counterexample-verifier 20000
+state_file round1/T2-theorem-disprover 30000
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:https://h.example/o/r/pull/7#issuecomment-1
+https://h.example/o/r/pull/7#issuecomment-2
+https://h.example/o/r/pull/7#issuecomment-3" "post: several chunks print one URL each, in chunk order"
+check "$(for n in 1 2 3; do head -n 1 "$CASE/posted/$n"; done)" '<!-- sdlc:theorem-records 1/3 -->
+<!-- sdlc:theorem-records 2/3 -->
+<!-- sdlc:theorem-records 3/3 -->' "post: each chunk opens with its marker, the chain complete"
+check "$(for n in 1 2 3; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk exceeds 60,000 bytes"
+# shellcheck disable=SC2016
+check "$(posted_headers 2)" '<!-- sdlc:theorem-records 2/3 -->
+## `round1/T1-theorem-disprover`
+## `round1/T1-counterexample-verifier`' "post: a theorem's disprover and verifier reports share one chunk"
+check "$(awk '/^x+$/ { print length }' "$CASE/posted/2")" '19999
+19999' "post: neither report in the shared chunk is cut"
+
+post_case post-oversize
+state_file round1/review 100
+state_file round1/T1-theorem-disprover 70000 OVERSIZE-TOKEN
+state_file round1/T1-counterexample-verifier 100
+state_file round1/T2-theorem-disprover 100
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:3" "post: an oversize piece is posted as a chunk of its own"
+check "$(posted_headers 2)" '<!-- sdlc:theorem-records 2/3 -->
+## Too large to post' "post: the oversize piece's chunk says it was too large"
+# shellcheck disable=SC2016
+check_contains "$(cat "$CASE/posted/2")" '- `round1/T1-theorem-disprover`
+- `round1/T1-counterexample-verifier`' "post: the oversize chunk names each of the piece's files"
+check "$(cat "$CASE/posted/"* | grep -c OVERSIZE-TOKEN)" "0" "post: no part of the oversize piece is posted"
+# shellcheck disable=SC2016
+check "$(posted_headers 3)" '<!-- sdlc:theorem-records 3/3 -->
+## `round1/T2-theorem-disprover`' "post: the pieces after it are posted whole"
+
+post_case post-empty
+post 'h.example/o/r#7'
+check "$RC:$OUT:$POSTED" "0:nothing to assemble:0" "post: an empty state directory posts nothing"
+
+post_case post-no-pr-comment
+rm "$CASE/bin/pr-comment"
+state_file round1/review 100
+post 'h.example/o/r#7'
+check "$RC:$OUT" "3:" "post: a missing pr-comment exits 3"
+check_contains "$ERR" "pr-comment" "post: stderr names the missing pr-comment"
+check "$CALLS" "" "post: a missing command is found before anything is read"
+
+post_case post-chain-fails "" 1
+state_file round1/review 100
+post 'h.example/o/r#7'
+check "$RC:$OUT:$POSTED" "4::0" "post: a failed sdlc-records-chain exits 4 and posts nothing"
+
+post_case post-comment-fails
+state_file round1/review 40000
+state_file round1/T1-theorem-disprover 40000
+echo 2 >"$CASE/comment-fails-at"
+post 'h.example/o/r#7'
+check "$RC:$OUT" "5:https://h.example/o/r/pull/7#issuecomment-1" \
+  "post: a failed post exits 5, the URLs already posted on stdout"
+check_contains "$ERR" "chunk 2 of 2" "post: stderr names the chunk that failed"
+
+post_case post-usage
+for args in "" "7" "h.example/o/r#7 extra"; do
+  read -r -a argv <<<"$args"
+  post ${argv[@]+"${argv[@]}"}
+  check "$RC:$CALLS" "2:" "post: \`$args\` is a usage error that reads nothing"
 done
 
 echo

@@ -10,7 +10,6 @@ skills:
   - github-prs:pr-closing-issues
   - github-prs:pr-view
   - github-prs:pr-update
-  - github-prs:pr-comment
   - sdlc:pr-read-cli-interface
 ---
 
@@ -184,7 +183,15 @@ into a brief.
    in the body it posted, leaves exactly the same gap on disk as one
    that returned mid-round and never reached disposition.
    `--mode print` also names each child's result file, whose path you
-   read out of its `result` line and open with `Read`.
+   read out of its `result` line and open with `Read` when the section
+   needs that child's own words — a counterexample a finding rests on,
+   say. That is the whole of your access to the state directory:
+   `sdlc-agent-result-persist`, and `Read` on a path its `result` line
+   printed. Do not point `Glob` or `Grep` at it, and run no raw shell
+   listing such as `ls` or `find` there, nor any other Bash command
+   naming a path under it. Whether the gate admits a raw command there
+   turns on the operator's own configuration, so a run that leans on
+   one works on one machine and is refused on the next.
 
    The **last** round's verdict block is where the loop ended up; the
    earlier ones are how it got there. Read the verdicts from these files
@@ -228,16 +235,14 @@ into a brief.
    adjustments, orchestration notes — are context for the scope notes
    rather than findings.
 
-   **One kind of comment is neither.** A chunk of the assembled detail
-   a finalizer run posted, marked as "Post the run's assembled detail"
-   below says, is your own output, not anyone's input. Skip it here on
-   the same terms as a brief: reading your own detail back as a scope
-   note would turn the run's record into input for the section that
-   reports on it.
+   **One kind of comment is neither.** A chunk of the detail chain
+   "Post the run's assembled detail" below posts is your own output,
+   not anyone's input. Skip it here on the same terms as a brief:
+   reading your own detail back as a scope note would turn the run's
+   record into input for the section that reports on it.
 
 5. **Post the run's assembled detail**, per "Post the run's assembled
-   detail" below, before you touch the body — or find that a previous
-   run already posted it, per the same section. It lands first so the
+   detail" below, before you touch the body. It lands first so the
    section you write can name the comment chain, and so a run that
    fails at the amendment has still put the detail where a human can
    read it.
@@ -323,10 +328,10 @@ into a brief.
    and the restore, so the human puts the step-1 body back from the
    PR's edit history.
 
-9. **Report back**: how many detail comments you posted and what they
-   covered — or that a previous run's chain was already complete and
-   you posted none — what you wrote, in outline, whether it replaced a
-   previous run's section or was appended, and whether the posted body
+9. **Report back**: what the detail post reported — the comments it
+   posted, a previous run's complete chain it left alone, or that there
+   was nothing to assemble — what you wrote, in outline, whether it
+   replaced a previous run's section or was appended, and whether the posted body
    verified — base and tail intact, section present, closing set
    unchanged. Name anything you found
    that the section could not settle from the rounds and the branch
@@ -336,132 +341,35 @@ into a brief.
 ## Post the run's assembled detail
 
 The run's whole record lives under the PR's state directory, and this
-is the one time any of it reaches the PR. Assemble it in one fixed
-order, so a reader scrolling the chain reads the run forwards:
-
-1. the final theorem records, from `--mode print-records` — omitted
-   when that mode exits non-zero, since no round under this PR stored
-   any;
-2. then, per round in ascending order: that round's generator result
-   files — each named for the literal `list` its theorem column carries,
-   so `list-<agent>` — in agent-name order, which is where the round's
-   detail begins; then that round's argued review; then its children's
-   result files grouped by theorem, in theorem-id order.
-
-A round holds **more than one** generator file whenever generators of
-two names ran in it — a `theorem-generator` the round wrote off and that
-wrote its file late anyway, leaving `list-theorem-generator` beside the
-`list-theorem-generator-medium` a `--generator`-overridden replacement
-wrote. The names differ, so neither file overwrites the other: post
-every `list-` file the round holds rather than the first one you find.
-
-**A round's pieces come from the `result` lines its `--mode print`
-writes**: each `result` line names one result file of the round, and
-the pieces are those files, every `list-<agent>` generator file a
-`result list <agent>` line names included. You already open each with
-`Read` in step 2. The records and each round's review are what
-`--mode print-records` and `--mode print-review` write to stdout. That
-is the whole of your access to the state directory: reach it through
-`sdlc-agent-result-persist` and `Read` only. Do not point `Glob` or
-`Grep` at it either, and run no raw shell listing such as `ls` or
-`find` there, nor any other Bash command naming a path under it. Whether the gate
-admits a raw command there turns on the operator's own configuration,
-so a run that leans on one works on one machine and is refused on the
-next.
-
-Name each piece with the round it came from and the file it is, so a
-reader can find it on disk afterwards.
-
-**Write each piece to the scratch directory and size it there.** As you
-read a piece, write it, headed by that name, with `Write` to
-`.claude/tmp/<task-slug>/piece-<k>.md`, `<k>` its 1-based position in
-the assembly order above, and measure it:
+is the one time any of it reaches the PR. One script assembles it,
+chunks it under GitHub's comment cap, and posts it as a chain of
+comments, unless the PR already carries a complete chain — a close-out
+re-run after a failure past this step finds the one the previous run
+posted, from the same state, and a second chain would say the same
+thing twice under a rule that lets you delete neither:
 
 ```bash
-wc -c .claude/tmp/<task-slug>/piece-<k>.md
+sdlc-pr-post-theorem-records <PR>
 ```
 
-Those sizes are what you choose chunk boundaries from, per the next
-paragraph.
+On exit 0 its stdout is one of three reports, and each tells your
+section where the detail is:
 
-**Chunk the assembly at a theorem boundary, under GitHub's 64 KB
-comment cap.** These kinds of piece are whole and never split: the
-records file, each of a round's `list-<agent>` generator files, one
-round's review file, and — per round, per theorem — that theorem's
-result files, its `-theorem-disprover` report and its
-`-counterexample-verifier` report together. A chunk breaks between two
-such pieces and never inside one, so a reader never meets a theorem's
-disproof in one comment and its verification in another. Start a new
-chunk when the next piece would carry the current one past the cap; the
-cap is on the whole comment body, marker line included, so leave
-headroom rather than filling to the byte.
+- **One comment URL per line** — this run posted the chain. Name it in
+  your section by its first URL, as the complete chain. A partial
+  chain an earlier run left stays, since you delete no comment, and
+  naming the complete one tells a reader which to follow.
+- **`existing chain: N comments`** — a previous run's chain is
+  complete, and nothing was posted. Name that chain as where the
+  detail is.
+- **`nothing to assemble`** — the state directory holds nothing to
+  post. Nothing was posted, your section names no chain, and your
+  report says so.
 
-**Each chunk's first line is the literal marker**
-`<!-- sdlc:theorem-records i/N -->`, on a line of its own, with `i` the
-chunk's 1-based position and `N` the total. That is what makes the
-chunks recognisable and orderable, and it is what the `sdlc` PR-read
-scripts recognize a chunk by — the one that hands a review round its
-adjustment comments leaves every chunk out, since a round that read one
-as a human adjustment would mint theorems for defects already in its
-own records. A PR that changes the literal sweeps every file that
-spells it.
-
-**Post nothing when a complete chain is already on the PR.** A
-close-out that failed after you posted — at the amendment, or at the
-ready flip — is re-run from the gate, and no review round runs in
-between, so the state directory you assembled from is the one the
-previous run assembled from and a second chain would say the same thing
-twice, under a rule that lets you delete neither. Before posting, ask
-whether the PR carries a complete chain, as the preloaded
-`sdlc:pr-read-cli-interface` skill defines one:
-
-```bash
-sdlc-records-chain <PR>
-```
-
-On exit 0, post nothing, and name that chain in your section as where
-the run's detail is. On exit 3, post the whole chain, complete; any
-partial chain the script reported stays, since you delete no comment,
-and your section names the complete chain, so a reader knows which to
-follow.
-
-Build each chunk as `.claude/tmp/<task-slug>/detail-<i>.md`: write its
-marker line with `Write` to `.claude/tmp/<task-slug>/marker-<i>.md`,
-then concatenate the chunk's pieces after it, in assembly order:
-
-```bash
-cat .claude/tmp/<task-slug>/marker-<i>.md \
-  .claude/tmp/<task-slug>/piece-<a>.md … .claude/tmp/<task-slug>/piece-<b>.md \
-  > .claude/tmp/<task-slug>/detail-<i>.md
-wc -c .claude/tmp/<task-slug>/detail-<i>.md
-```
-
-That `wc -c` is the check against the 64 KB cap, and it runs on every
-chunk before you post any. A chunk over the cap is re-cut at a piece
-boundary or, when it is one piece alone, handled as "A single piece
-larger than the cap" below says; it is never posted over the cap and
-never trimmed. Then post each by path, in order, one call per chunk:
-
-```text
-/github-prs:pr-comment <PR> --body-file .claude/tmp/<task-slug>/detail-<i>.md
-```
-
-Post by path, never inline: the detail quotes code throughout, and an
-inline body is read by the shell.
-
-**A single piece larger than the cap is never truncated.** It gets a
-chunk of its own; if it still will not fit, the chunk carries the
-piece's name and the path of each file in it, relative to the PR's
-state root
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
-each part taken from the PR's reference, instead, and says it was too
-large to post. A silently cut report reads exactly like a complete one,
-which is the failure this whole design exists to remove.
-
-**Post nothing when there is nothing to assemble.** A PR whose state
-directory holds no round — a run whose rounds predate this design, say —
-gets no detail comments, and you say so in your report rather than
-posting an empty chain.
+On any other exit, amend nothing: report the exit status and its
+stderr verbatim, with any URLs it printed, and stop. A chain left
+partial is posted whole by the close-out's re-run, and a section
+written now would name a chain that is not there.
 
 ## The section you write
 

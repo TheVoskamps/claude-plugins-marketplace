@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 #
 # sdlc-pr-common.sh -- sourced by the sdlc scripts that read a PR's
-# reviews and comments. It spells the two comment markers sdlc writes,
+# reviews and comments, and by sdlc-pr-post-theorem-records, which posts
+# the review detail. It spells the two comment markers sdlc writes,
 # parses the canonical PR reference those scripts take, makes the one
 # `gh` read they share, and holds the failure exits, so a marker, a
 # reference and an exit status mean the same thing in every one of them.
@@ -13,6 +14,8 @@
 #      through above the script's line
 #   2  a usage error; nothing was read
 #   3  the script's own negative outcome, which its contract names
+# sdlc-pr-post-theorem-records shares 0 to 2 and names its own exits
+# from 3 on, in its header.
 
 SP_PROGRAM=${0##*/}
 
@@ -22,6 +25,10 @@ SP_FIXER_BRIEF_MARKER='<!-- sdlc:fixer-brief -->'
 # <!-- sdlc:theorem-records <i>/<N> -->, as a jq regex capturing the
 # chunk's position as `i` and the total as `n`.
 SP_RECORDS_MARKER_RE='^<!-- sdlc:theorem-records (?<i>[0-9]+)/(?<n>[0-9]+) -->$'
+# The same marker as a printf format taking <i> and <N>, for the script
+# that writes it.
+# shellcheck disable=SC2034
+SP_RECORDS_MARKER_FORMAT='<!-- sdlc:theorem-records %s/%s -->'
 
 # sp_fail <status> <message> -- print <message>, prefixed with the
 # script's name, and exit with <status>.
