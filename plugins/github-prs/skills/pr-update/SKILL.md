@@ -42,10 +42,10 @@ it with the file, trailing newlines aside.
 
 - **Exit 0** — the body GitHub holds is the file. Stdout is one line
   naming the PR and the file; report it back.
-- **Exit 1** — the edit did not land: the re-read body differs from
-  the file. Stderr says so. Report the failure; do not retry on top of
-  a body you have not read back.
+- **Exit 1** — a command the script ran failed, such as the `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.
 - **Exit 2** — a usage error, such as a path that is not a readable
   file; nothing was sent to GitHub.
-- **Exit 3** — the `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
+- **Exit 3** — the edit did not land: the re-read body differs from
+  the file. Stderr says so. Report the failure; do not retry on top of
+  a body you have not read back.

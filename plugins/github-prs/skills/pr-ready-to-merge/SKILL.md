@@ -71,14 +71,14 @@ wrong.
   ```
 
   Report it back as it stands.
-- **Exit 1** — either the PR is not open, and stderr says so and names
+- **Exit 1** — a command the script ran failed, such as the `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.
+- **Exit 2** — a usage error; nothing was read.
+- **Exit 3** — either the PR is not open, and stderr says so and names
   the state it is in, or the third read still returned `mergeable: UNKNOWN`,
   and stdout is the block above reporting `UNKNOWN` — never a guessed
   state — while stderr says the state is still uncomputed. Report
   either as a failure.
-- **Exit 2** — a usage error; nothing was read.
-- **Exit 3** — the `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
 
 `reviewDecision` is `(none)` when the base's rules require no review.
 Each check line names an entry of `statusCheckRollup` with the values it

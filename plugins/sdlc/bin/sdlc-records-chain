@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# sdlc-records-chain -- report whether a PR carries a complete chain of
+# the review-detail chunks pr-finalizer posts: `complete\t<N>` when the
+# chunk markers for one total N cover every position 1..N, or else one
+# `partial\t<i>/<N>` line per marker found, oldest first. Read-only.
+#
+# The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
+
+usage() {
+  echo "usage: $SP_PROGRAM <host>/<owner>/<repo>#<n>"
+}
+
+[ "$#" -eq 1 ] || sp_usage_error "Pass exactly one PR."
+sp_parse_pr "$1"
+
+json=$(sp_pr_view comments) || exit $?
+
+# Every marker as {i, n}, oldest first. A total is complete when its
+# markers hold every position 1..N; when more than one is, the one whose
+# newest marker is newest is the chain to follow.
+report=$(jq -r "$(sp_jq_prelude)"'
+  [.comments | sort_by(.createdAt)[] | .body | first_line
+   | capture($records)? | {i: (.i | tonumber), n: (.n | tonumber)}] as $m
+  | [$m[] | .n] | unique
+  | map(. as $n | select(([range(1; $n + 1)] - [$m[] | select(.n == $n) | .i]) == [])) as $complete
+  | if ($complete | length) > 0
+    then "complete\t\([$m[] | select(.n as $n | $complete | any(. == $n))] | last | .n)"
+    else ($m[] | "partial\t\(.i)/\(.n)")
+    end' <<<"$json")
+
+case "$report" in
+  complete*)
+    printf '%s\n' "$report"
+    exit 0
+    ;;
+esac
+[ -z "$report" ] || printf '%s\n' "$report"
+sp_fail 3 "PR $SP_REF carries no complete theorem-records chain."

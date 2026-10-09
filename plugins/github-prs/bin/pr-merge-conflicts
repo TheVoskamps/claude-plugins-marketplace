@@ -10,7 +10,7 @@
 # The contract is plugins/github-prs/skills/pr-merge-conflicts/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR>"
@@ -28,24 +28,21 @@ base_ref=${refs#* }
 # another repository has its two branches fetched from that repository's
 # URL into refs of this verb's own, which the cleanup below deletes, so
 # no remote-tracking ref of the checkout changes.
-foreign=
-if gp_names_other_repo; then
-  foreign=yes
-fi
+foreign=$(gp_other_repo) || exit $?
 
 # Another repository's PR has its repository in the worktree path and in
 # the fetched refs, so its PR N shares neither with the checkout's own
 # PR N nor with a third repository's PR N. `+` joins the names because
 # none of them can contain one, and they are lowercased because GitHub
 # matches them without regard to case.
-root=$(git rev-parse --show-toplevel) || gp_err_not_a_repo
+root=$(git rev-parse --show-toplevel || exit) || gp_err_not_a_repo
 if [ -z "$foreign" ]; then
   tree="$root/.claude/worktrees/pr-merge-conflicts-$GP_PR"
   head_start="origin/$head_ref"
   base_start="origin/$base_ref"
   base_label=$base_start
 else
-  repo_key=$(gp_lc "$GP_HOST+$GP_OWNER+$GP_REPO")
+  repo_key=$(gp_lc "$GP_HOST+$GP_OWNER+$GP_REPO") || exit $?
   tree="$root/.claude/worktrees/pr-merge-conflicts-$repo_key-$GP_PR"
   head_start="refs/pr-merge-conflicts/$repo_key/$GP_PR/head"
   base_start="refs/pr-merge-conflicts/$repo_key/$GP_PR/base"
@@ -96,22 +93,30 @@ echo "PR $GP_PR_NAME: head $head_ref, base $base_ref"
 # expected outcome and its noise stays off the report, but a merge that
 # failed for another reason prints it above the catalogue line.
 if merge_err=$(git -C "$tree" -c user.name=pr-merge-conflicts -c user.email=pr-merge-conflicts@localhost \
-  merge -q --no-commit --no-ff "$base_start" 2>&1 >/dev/null); then
+  merge -q --no-commit --no-ff "$base_start" 2>&1 >/dev/null || exit); then
   echo "The trial merge is clean: no conflicts with $base_label."
   exit 0
 fi
 
-files=$(git -C "$tree" diff --name-only --diff-filter=U) ||
+files=$(git -C "$tree" diff --name-only --diff-filter=U || exit) ||
   gp_err_git "git diff listing the conflicted files"
 if [ -z "$files" ]; then
   [ -z "$merge_err" ] || printf '%s\n' "$merge_err" >&2
   gp_err_merge_no_conflict "$base_label"
 fi
 
+# The loops read a here-document rather than a pipe, so they run in this
+# shell and a failed `git diff` meets the trap once.
 echo "Conflicting files:"
-printf '%s\n' "$files" | sed 's/^/  /'
-printf '%s\n' "$files" | while IFS= read -r file; do
+while IFS= read -r file; do
+  echo "  $file"
+done <<EOF
+$files
+EOF
+while IFS= read -r file; do
   echo
   echo "=== $file"
   git -C "$tree" diff -- "$file"
-done
+done <<EOF
+$files
+EOF

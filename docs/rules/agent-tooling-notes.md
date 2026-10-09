@@ -165,6 +165,24 @@ repo rather than a probe of the verb, so a refusal a real round hits
 is where such a string is established — do not label one
 unsourceable.
 
+## shellcheck's SC2016 exemption keys on the command word
+
+A single-quoted `$name` is exempt from SC2016 only when the command
+word is one shellcheck knows reads its own `$` syntax, such as `jq`. A
+wrapper function around `jq` loses the exemption, so a finding appears
+that the same filter never drew. Clear it without a suppression
+directive by keeping `jq` as the command word and splicing a prelude in
+front of the filter: `jq … "$(prelude)"'<filter>'`. A GraphQL document
+has no such command word: double-quote it and escape each `\$`, as
+`plugins/issues/bin/lib/issues-common.sh` does.
+
+Two neighbouring findings have restructurings of the same kind. SC2034
+on a library global that only the sourcing scripts read clears when the
+library reads it itself — a function that prints what consumers need —
+or when a setter prints its result instead of assigning a global.
+SC2086 on a loop over a word list clears by splitting once with
+`read -r -a argv <<<"$args"` and passing `"${argv[@]}"`.
+
 ## `yq` traps in the mikefarah build
 
 **`unique` does not sort.** It removes duplicates while preserving
@@ -293,7 +311,10 @@ are allowed, and so are a path that continues past that component
 line, and a `git-`-named path handed to a program other than `git`.
 
 Name the files inside such a directory rather than the directory, or
-read it with a tool other than `git`.
+read it with a tool other than `git`. When the file itself is named
+that way — `plugins/git-tools/bin/git-range` — hand `git` a quoted
+pathspec glob that spells no such component,
+`git add -- 'plugins/*-tools/bin/*-range'`, and let `git` expand it.
 
 ## The isolation guard refuses a command it cannot read the text of
 
@@ -355,7 +376,9 @@ An inline script fed on stdin is graded on its text, not on what it
 does. `python3 - <<'EOF' … EOF` is refused as "feeds python text naming
 git in a plain command" when the heredoc contains the word `git`
 anywhere — a Markdown hunk quoting `git status` inside a string literal
-is enough. Write the script to a file and run it by path,
+is enough — and a `perl -e` program naming `git` is refused the same
+way, while a `sed` or `awk` program naming it passes. Write the script
+to a file and run it by path,
 `python3 <path> <target>`; the command line then names no `git`, and
 the same script runs.
 

@@ -151,9 +151,9 @@ the resolution.
    | Exit | Meaning |
    | --- | --- |
    | 0 | the draft PR is open with the body written; stdout is its URL |
-   | 1 | the PR did not land as asked — not a draft, the wrong base or head, or a different body — or `gh pr create` succeeded but printed no URL naming a PR number, so nothing was re-read and a PR may exist all the same; stderr names which |
+   | 1 | a command the script ran failed, such as the `gh` call; its own error is on stderr above the script's line |
    | 2 | a usage error; no PR was opened |
-   | 3 | the `gh` call failed; gh's own error is on stderr above the script's line |
+   | 3 | the PR did not land as asked — not a draft, the wrong base or head, or a different body — or `gh pr create` succeeded but printed no URL naming a PR number, so nothing was re-read and a PR may exist all the same; stderr names which |
    | 4 | `.issues/repo-config.md` is missing or lacks one of the two keys |
 
    On any non-zero exit, surface stderr verbatim in the report-back.

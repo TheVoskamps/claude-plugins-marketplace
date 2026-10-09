@@ -7,7 +7,7 @@
 # The contract is plugins/github-prs/skills/pr-comment/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR> --body-file <path>"
@@ -35,7 +35,8 @@ case "$comment_id" in
 esac
 
 wanted=$(cat "$body_file")
-landed=$(gp_gh api "$(gp_repo_path "issues/comments/$comment_id")" --jq .body) || exit $?
+comment_path=$(gp_repo_path "issues/comments/$comment_id") || exit $?
+landed=$(gp_gh api "$comment_path" --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
   gp_err_comment_not_landed "$comment_id" "$body_file"
 

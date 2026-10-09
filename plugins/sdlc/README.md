@@ -36,6 +36,7 @@ restate the fact.
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | Which file class a path falls in — documentation, instruction Markdown, or code — and which stage of the run edits each | `skills/documentation-definition/SKILL.md` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
+| What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with | `skills/pr-read-cli-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
@@ -443,8 +444,14 @@ owner:
 
 `test/sdlc-test.sh` drives the script's records modes against a state
 root of its own — the seed write, the carry form, each refusal it
-makes, and the bounded read — needing only bash and the POSIX
-utilities, and reaching no network.
+makes, and the bounded read. The same suite drives the PR-read scripts
+against a stub `gh` that serves a PR's reviews and comments — each
+script's output and exits, every case of the adjustment cut, and that
+the adjustments read reaches the previous round's log through the
+persist script and nothing else — and checks that a command any
+executable under `bin/` does not handle exits through that executable's
+own failure status. It needs only bash, `jq` and the POSIX utilities,
+and reaches no network.
 
 ## Skills
 
@@ -463,6 +470,7 @@ utilities, and reaching no network.
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
 | `sdlc:documentation-definition` | The file classes of a run — documentation, instruction Markdown, code — and the path rules that sort a file into one | preloaded into the agents that decide which files they may edit, check, or review |
+| `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer` and `pr-finalizer` |
 | `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
 
 The rows with no leading slash are not user verbs — each declares
@@ -472,9 +480,10 @@ keeps it out of the human `/` menu while leaving it invocable.
 each `theorem-generator` variant through that agent's `skills:`
 frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
-`counterexample-verifier` — the same way. `theorem-based-pr-reviewer`
-reads `theorem-agents-interface` by name as well, for the class
-glosses it grades its own theorem-less findings by.
+`counterexample-verifier` — the same way, and `pr-read-cli-interface`
+into each agent that runs one of the PR-read scripts.
+`theorem-based-pr-reviewer` reads `theorem-agents-interface` by name as
+well, for the class glosses it grades its own theorem-less findings by.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
@@ -526,6 +535,35 @@ enabled. A PR that adds or removes an executable edits this roster.
 | ------- | --------- | --------------- |
 | `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
+| `bin/sdlc-pr-round` | Prints the number of the review round under way: the PR's review count plus one | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log, else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
+
+The PR-read scripts share one sourced helper, `bin/lib/sdlc-pr-common.sh`,
+which is not itself callable: it parses the canonical PR reference they
+take, makes the one `gh pr view` read they share, and spells the two
+comment markers sdlc writes — the fixer brief's first line and the
+review-detail chunk's — as the only place under `bin/` that does, so
+every script that filters on a marker reads it from there and the agent
+that writes each marker is the one other place it appears. The scripts
+read and cut and decide nothing: whether an adjustment is a rejection,
+an override, a scope drop or a missed defect, and what a brief asks,
+stay the reading agent's judgment. They exist as scripts because each
+read is fixed — a `--jq` expression, a timestamp comparison, a
+first-line match — and a model assembling one from prose assembled it
+slightly differently each time, with no owner for its shape or its
+failure wording. `sdlc-pr-adjustments` reaches the previous round's log
+only through `sdlc-agent-result-persist --mode print`, the same rule
+the time report follows, so where that state lives stays one
+executable's concern.
+
+Every executable under `bin/` turns a failure in a command it did not
+handle into its own failure status with a line naming the command,
+never the tool's own status — the PR-read scripts exit 1, the persist
+script and the time report route it through their existing exit 2 — so
+a caller branching on an exit sees only the statuses each contract
+documents.
 
 The time report composes no state path of its own: it reaches round
 logs, result files and transcripts only through the paths
@@ -655,7 +693,10 @@ Every agent but `pr-merge-readiness` and `pr-monitor` declares
 spawn. Those two declare no `isolation` and run in the orchestrator's
 primary clone, writing nothing to it: each is a loop over a gate, and
 every change to the branch a loop drives is a commit by a teammate it
-spawns or that the orchestrator spawns after it.
+spawns or that the orchestrator spawns after it. Nothing removes a
+worktree during a run: the reviewer leaves its children's worktrees
+where the harness made them, and `/sdlc:cleanup-interim-work` is the
+one sweep that removes them, after the human names which go.
 
 | Agent | Purpose |
 | ------- | --------- |
@@ -713,10 +754,10 @@ value — which is what keeps a model change a one-file edit.
 `github-prs`, and `cc-tools`. Those edges are what guarantee the
 cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
-`git-issues-from-branch`, the PR verbs, `agent-memory-inbox-capture`,
-and `agent-memory-inbox-cleanup`. The edge coordinates install and
-enablement, not file access: plugins are file-sandboxed, so nothing
-here reads another plugin's files.
+`git-issues-from-branch`, `git-range`, the PR verbs,
+`agent-memory-inbox-capture`, and `agent-memory-inbox-cleanup`. The
+edge coordinates install and enablement, not file access: plugins are
+file-sandboxed, so nothing here reads another plugin's files.
 
 Every PR read or write an agent, a skill or a lib file in this plugin
 makes goes through the `github-prs` verb that has one; none of those

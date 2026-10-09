@@ -8,7 +8,11 @@
 # A case that touches `noop` makes every mutation report success without
 # landing as asked -- a create opens a PR that is not a draft, a comment
 # carries other text, and every other mutation changes nothing -- which
-# is how a change that did not land is staged.
+# is how a change that did not land is staged. A fixture sourcing the
+# common helper, and a git that fails under pr-merge-conflicts, check that
+# a command no verb handles exits 1 wherever it fails; a sort that fails
+# under pr-closing-issues, that its pipeline exits 1 whatever sort's
+# status.
 #
 # Needs jq and git on PATH. Reaches no network.
 #
@@ -54,9 +58,15 @@ printf '%s\n' "$*" >>"$S/calls"
 jq_expr=
 prev=
 body_file=
+query=
+paginate=
 for a in "$@"; do
   [ "$prev" = --jq ] && jq_expr=$a
   [ "$prev" = --body-file ] && body_file=$a
+  case "$prev $a" in
+    "-f query="*) query=${a#query=} ;;
+  esac
+  [ "$a" = --paginate ] && paginate=yes
   prev=$a
 done
 if [ "$body_file" = - ]; then
@@ -183,6 +193,31 @@ case "$1 $2" in
     fi
     ;;
   "api --paginate") val reviews.json '[]' | out ;;
+  "api graphql")
+    # A PR's files connection, a case's `files-count` files long and
+    # served 100 to a page, the file at index i being `dir/f<i>.txt`.
+    # As gh does, only --paginate over a query that pages on $endCursor
+    # and asks for pageInfo reaches past the first page, and --jq
+    # applies to every page.
+    case "$query" in
+      *'after: $endCursor'*'pageInfo { hasNextPage endCursor }'*) ;;
+      *) paginate= ;;
+    esac
+    total=$(val files-count 0)
+    start=0
+    while :; do
+      end=$((start + 100))
+      [ "$end" -le "$total" ] || end=$total
+      next=false
+      [ "$end" -lt "$total" ] && next=true
+      jq -n --argjson s "$start" --argjson e "$end" --argjson next "$next" \
+        '{data: {repository: {pullRequest: {files: {
+           nodes: [range($s; $e) | {path: "dir/f\(.).txt", additions: ., deletions: 1, changeType: "MODIFIED"}],
+           pageInfo: {hasNextPage: $next, endCursor: "c\($e)"}}}}}}' | out
+      [ -n "$paginate" ] && [ "$next" = true ] || break
+      start=$end
+    done
+    ;;
   "api repos/"*"/issues/comments/555")
     jq -n --arg body "$(cat "$S/comment-555")" '{body: $body}' | out
     ;;
@@ -223,11 +258,12 @@ new_case() {
   mkdir -p "$CASE"
 }
 
-# run <verb> <args...> -- run one script from $REPO; leaves OUT, ERR, RC.
+# run <verb> <args...> -- run one script from $REPO, with a case's own
+# bin/ ahead of the stubs when it has one; leaves OUT, ERR, RC.
 run() {
   local verb=$1
   shift
-  OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
+  OUT=$(cd "$REPO" && PATH="$CASE/bin:$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
     /bin/bash "$BIN/$verb" "$@" 2>"$CASE/stderr")
   RC=$?
   ERR=$(cat "$CASE/stderr")
@@ -356,7 +392,7 @@ check_contains "$ERR" "pr-view: \`seven\` is not a PR." "pr-view: the usage erro
 new_case view-gh-fails
 echo "pr view" >"$CASE/fail"
 run pr-view 7
-check "$RC" "3" "pr-view: a failed gh call exits 3"
+check "$RC" "1" "pr-view: a failed gh call exits 1"
 check_contains "$ERR" "stub gh: pr view refused" "pr-view: gh's own stderr passes through"
 check_contains "$ERR" "pr-view: gh pr view failed (exit 1)" "pr-view: the catalogue line names the failed call"
 
@@ -390,8 +426,67 @@ check "$OUT" "diff --git a/x b/x" "pr-diff: prints the diff verbatim"
 new_case diff-fails
 echo "pr diff" >"$CASE/fail"
 run pr-diff 7
-check "$RC" "3" "pr-diff: a failed gh call exits 3"
+check "$RC" "1" "pr-diff: a failed gh call exits 1"
 check_contains "$ERR" "stub gh: pr diff refused" "pr-diff: gh's error passes through verbatim"
+
+# --- pr-files ------------------------------------------------------------
+new_case files
+echo 250 >"$CASE/files-count"
+run pr-files 7
+check "$RC" "0" "pr-files: exit 0"
+check_contains "$(calls)" "api --hostname github.com graphql --paginate -f owner=o -f repo=r -F pr=7 -f query=" \
+  "pr-files: pages the GraphQL files connection of the current repository's PR, on its host"
+check "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" "250" "pr-files: prints every file of a PR with more than 100"
+check "$(printf '%s\n' "$OUT" | head -n 1)" "$(printf 'MODIFIED\t0\t1\tdir/f0.txt')" \
+  "pr-files: one changeType, additions, deletions and path line per file, tab-separated"
+check "$(printf '%s\n' "$OUT" | tail -n 1)" "$(printf 'MODIFIED\t249\t1\tdir/f249.txt')" \
+  "pr-files: the last page's last file is there"
+
+new_case files-other-repo
+echo 3 >"$CASE/files-count"
+echo ghe.example.com >"$CASE/api-host"
+run pr-files 'ghe.example.com/o2/r2#7'
+check "$RC" "0" "pr-files: exit 0 for a PR in another repository"
+check_contains "$(calls)" "api --hostname ghe.example.com graphql --paginate -f owner=o2 -f repo=r2 -F pr=7" \
+  "pr-files: asks the host, owner and repository the reference names"
+check "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" "3" "pr-files: prints that PR's files"
+
+new_case files-fails
+echo "api --hostname" >"$CASE/fail"
+run pr-files 7
+check "$RC" "1" "pr-files: a failed gh call exits 1"
+check_contains "$ERR" "pr-files: gh api graphql failed (exit 1)" "pr-files: the catalogue line names the failed call"
+
+new_case files-two-prs
+run pr-files 7 8
+check "$RC:$(calls)" "2:" "pr-files: more than one PR is a usage error that calls no gh"
+
+# --- the ERR trap ---------------------------------------------------------
+# A command a verb does not handle exits 1 with the catalogue line naming
+# it, never with the command's own status -- wherever it fails.
+cat >"$SANDBOX/trap-fixture" <<FIXTURE
+#!/usr/bin/env bash
+set -euo pipefail
+. "$BIN/lib/github-prs-common.sh"
+fails() { sh -c 'exit 7'; echo "the function went on"; }
+case "\$1" in
+  top) sh -c 'exit 7' ;;
+  function) fails ;;
+  substitution) out=\$(echo before; sh -c 'exit 7'; echo after) ;;
+  function-in-substitution) out=\$(fails) || exit \$? ;;
+esac
+echo "the script went on"
+FIXTURE
+for where in top function substitution function-in-substitution; do
+  new_case "trap-$where"
+  OUT=$(/bin/bash "$SANDBOX/trap-fixture" "$where" 2>"$CASE/stderr")
+  RC=$?
+  ERR=$(cat "$CASE/stderr")
+  check "$RC" "1" "ERR trap, failure $where: exits 1, not the command's 7"
+  check_contains "$ERR" "trap-fixture: \`sh -c 'exit 7'\` failed (exit 7)" \
+    "ERR trap, failure $where: the catalogue line names the failed command and its status"
+  check "$OUT" "" "ERR trap, failure $where: nothing after the failure runs"
+done
 
 # --- pr-closing-issues ---------------------------------------------------
 new_case closing
@@ -437,6 +532,31 @@ run pr-closing-issues 'o2/r2#7'
 check "$OUT" "PR github.com/o2/r2#7 closes issues 3, 4" \
   "pr-closing-issues: a PR in another repository closes that repository's issues"
 
+new_case closing-lookup-fails
+printf 'Closes o/r#5\n' >"$CASE/body"
+echo "repo view" >"$CASE/fail"
+run pr-closing-issues 7
+check "$RC" "1" "pr-closing-issues: a failed repository lookup exits 1"
+check "$(printf '%s\n' "$ERR" | grep -c '^pr-closing-issues: ')" "1" \
+  "pr-closing-issues: a failed repository lookup leaves exactly one catalogue line"
+check "$ERR" "$(printf '%s\n%s' "stub gh: repo view refused" "pr-closing-issues: gh repo view failed (exit 1)")" \
+  "pr-closing-issues: a failed repository lookup leaves gh's own error, then the line naming the lookup"
+
+# A sort that fails with a status of its own: the verb exits with the
+# generic failure, not sort's 7.
+new_case closing-sort-fails
+printf 'Closes #3\n' >"$CASE/body"
+mkdir -p "$CASE/bin"
+cat >"$CASE/bin/sort" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+echo "stub sort: refused" >&2
+exit 7
+STUB
+chmod +x "$CASE/bin/sort"
+run pr-closing-issues 7
+check "$RC" "1" "pr-closing-issues: a failed sort exits 1, not sort's 7"
+
 # --- pr-ready / pr-draft -------------------------------------------------
 new_case ready
 echo true >"$CASE/draft"
@@ -450,7 +570,7 @@ new_case ready-noop
 echo true >"$CASE/draft"
 touch "$CASE/noop"
 run pr-ready 7
-check "$RC" "1" "pr-ready: exit 1 when the re-read is still a draft"
+check "$RC" "3" "pr-ready: exit 3 when the re-read is still a draft"
 check "$ERR" "pr-ready: PR #7: the ready flip did not land: the re-read still reports isDraft true" \
   "pr-ready: the not-landed message"
 
@@ -473,7 +593,7 @@ new_case draft-noop
 echo false >"$CASE/draft"
 touch "$CASE/noop"
 run pr-draft 7
-check "$RC" "1" "pr-draft: exit 1 when the re-read is not a draft"
+check "$RC" "3" "pr-draft: exit 3 when the re-read is not a draft"
 check "$ERR" "pr-draft: PR #7: the draft flip did not land: the re-read still reports isDraft false" \
   "pr-draft: the not-landed message"
 
@@ -490,7 +610,7 @@ new_case update-noop
 echo "old" >"$CASE/body"
 touch "$CASE/noop"
 run pr-update 7 --body-file "$SANDBOX/new-body.md"
-check "$RC" "1" "pr-update: exit 1 when the body did not change"
+check "$RC" "3" "pr-update: exit 3 when the body did not change"
 check "$ERR" "pr-update: PR #7: the body edit did not land: the re-read body differs from $SANDBOX/new-body.md" \
   "pr-update: the not-landed message"
 
@@ -529,14 +649,14 @@ check "$(calls | grep -c '^repo view')" "0" "pr-comment: a reference with a host
 new_case comment-noop
 touch "$CASE/noop"
 run pr-comment 7 --body-file "$SANDBOX/new-body.md"
-check "$RC" "1" "pr-comment: exit 1 when the posted body differs"
+check "$RC" "3" "pr-comment: exit 3 when the posted body differs"
 check "$ERR" "pr-comment: PR #7: the comment did not land: comment 555's body differs from $SANDBOX/new-body.md" \
   "pr-comment: the not-landed message"
 
 new_case comment-no-id
 echo "https://github.com/o/r/pull/7" >"$CASE/comment-url"
 run pr-comment 7 --body-file "$SANDBOX/new-body.md"
-check "$RC" "1" "pr-comment: exit 1 when gh's URL names no comment id"
+check "$RC" "3" "pr-comment: exit 3 when gh's URL names no comment id"
 check "$ERR" "pr-comment: PR #7: the comment did not land: gh reported \`https://github.com/o/r/pull/7\`, which names no comment id" \
   "pr-comment: the no-comment-id message"
 check "$(calls | grep -c '^api')" "0" "pr-comment: a URL with no comment id is not re-read"
@@ -586,7 +706,7 @@ new_case link-noop
 echo "Summary" >"$CASE/body"
 touch "$CASE/noop"
 run pr-link-issue 7 4
-check "$RC" "1" "pr-link-issue: exit 1 when the body did not change"
+check "$RC" "3" "pr-link-issue: exit 3 when the body did not change"
 check "$ERR" "pr-link-issue: PR #7: the closing lines did not land: the re-read body is not the body written" \
   "pr-link-issue: the not-landed message"
 
@@ -607,28 +727,28 @@ check "$OUT" "https://github.com/o/r/pull/7" "pr-create: prints the PR URL"
 new_case create-mismatch
 echo main >"$CASE/base-override"
 run pr-create --head issue-3-4-x --title T --body-file "$SANDBOX/summary.md" 3
-check "$RC" "1" "pr-create: exit 1 when the PR is not on the configured base"
+check "$RC" "3" "pr-create: exit 3 when the PR is not on the configured base"
 check "$ERR" "pr-create: PR #7: the draft PR did not land: the re-read reports isDraft, base and head as \`true main issue-3-4-x\`, not \`true integ issue-3-4-x\`" \
   "pr-create: the wrong-base message"
 
 new_case create-not-draft
 touch "$CASE/noop"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
-check "$RC" "1" "pr-create: exit 1 when the PR is not a draft"
+check "$RC" "3" "pr-create: exit 3 when the PR is not a draft"
 check "$ERR" "pr-create: PR #7: the draft PR did not land: the re-read reports isDraft, base and head as \`false integ b\`, not \`true integ b\`" \
   "pr-create: the not-draft message"
 
 new_case create-wrong-body
 echo "Other text" >"$CASE/body-override"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
-check "$RC" "1" "pr-create: exit 1 when the PR carries another body"
+check "$RC" "3" "pr-create: exit 3 when the PR carries another body"
 check "$ERR" "pr-create: PR #7: the PR body did not land: the re-read body is not the body written" \
   "pr-create: the wrong-body message"
 
 new_case create-no-pr-in-url
 echo "https://github.com/o/r/pulls" >"$CASE/create-url"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
-check "$RC" "1" "pr-create: exit 1 when gh's URL names no PR number"
+check "$RC" "3" "pr-create: exit 3 when gh's URL names no PR number"
 check "$ERR" "pr-create: gh pr create reported \`https://github.com/o/r/pulls\`, which names no PR number" \
   "pr-create: the no-PR-number message"
 check "$(calls | grep -c '^pr view')" "0" "pr-create: a URL with no PR number is not re-read"
@@ -720,7 +840,7 @@ check "$OUT" "PR #7: verdict approve, review state commented, body inline" \
 new_case review-post-fails
 echo "pr review" >"$CASE/fail"
 run pr-review-submit 7 --verdict approve "Looks good"
-check "$RC" "3" "pr-review-submit: any other gh failure exits 3"
+check "$RC" "1" "pr-review-submit: any other gh failure exits 1"
 check "$ERR" "$(printf '%s\n%s' "stub gh: pr review refused" "pr-review-submit: gh pr review failed (exit 1)")" \
   "pr-review-submit: gh's own error, then the catalogue line"
 check "$(grep -c '^pr review' "$CASE/calls")" "1" "pr-review-submit: any other gh failure posts no comment"
@@ -728,7 +848,7 @@ check "$(grep -c '^pr review' "$CASE/calls")" "1" "pr-review-submit: any other g
 new_case review-noop
 touch "$CASE/noop"
 run pr-review-submit 7 --verdict comment "Note"
-check "$RC" "1" "pr-review-submit: exit 1 when no new review appears"
+check "$RC" "3" "pr-review-submit: exit 3 when no new review appears"
 check "$ERR" "pr-review-submit: PR #7: the review did not land: no new review is on the PR" \
   "pr-review-submit: the not-landed message"
 
@@ -736,19 +856,19 @@ new_case review-noop-identical
 touch "$CASE/noop"
 printf '%s\n' '[{"id": 90, "user": {"login": "me"}, "state": "COMMENTED", "body": "COMMENTED\n\nNote"}]' >"$CASE/reviews.json"
 run pr-review-submit 7 --verdict comment "Note"
-check "$RC" "1" "pr-review-submit: an earlier review with the same body does not pass for the new one"
+check "$RC" "3" "pr-review-submit: an earlier review with the same body does not pass for the new one"
 
 new_case review-wrong-state
 echo APPROVED >"$CASE/review-state"
 run pr-review-submit 7 --verdict comment "Note"
-check "$RC" "1" "pr-review-submit: exit 1 when the new review carries another state"
+check "$RC" "3" "pr-review-submit: exit 3 when the new review carries another state"
 check "$ERR" "pr-review-submit: PR #7: the review did not land: review 100 has state APPROVED, not COMMENTED" \
   "pr-review-submit: the wrong-state message"
 
 new_case review-wrong-body
 echo "Other text" >"$CASE/review-body"
 run pr-review-submit 7 --verdict comment "Note"
-check "$RC" "1" "pr-review-submit: exit 1 when the new review carries another body"
+check "$RC" "3" "pr-review-submit: exit 3 when the new review carries another body"
 check "$ERR" "pr-review-submit: PR #7: the review did not land: review 100's body is not the body written" \
   "pr-review-submit: the wrong-body message"
 
@@ -822,7 +942,7 @@ new_case merge-unknown
 echo UNKNOWN >"$CASE/mergeable-seq"
 echo UNKNOWN >"$CASE/merge-state"
 run pr-ready-to-merge 7
-check "$RC" "1" "pr-ready-to-merge: still UNKNOWN after three reads exits 1"
+check "$RC" "3" "pr-ready-to-merge: still UNKNOWN after three reads exits 3"
 check "$(calls | grep -c '^pr view')" "3" "pr-ready-to-merge: gives up after three reads"
 check_contains "$OUT" "mergeable UNKNOWN, mergeStateStatus UNKNOWN — still computing after the whole retry schedule" \
   "pr-ready-to-merge: reports UNKNOWN rather than a guess"
@@ -832,7 +952,7 @@ check "$ERR" "pr-ready-to-merge: PR #7: mergeable is still UNKNOWN after 3 reads
 new_case merge-closed
 echo MERGED >"$CASE/state"
 run pr-ready-to-merge 7
-check "$RC" "1" "pr-ready-to-merge: a PR that is not open exits 1"
+check "$RC" "3" "pr-ready-to-merge: a PR that is not open exits 3"
 check "$ERR" "pr-ready-to-merge: PR #7 is MERGED, not open. Merge readiness is only computed for an open PR." \
   "pr-ready-to-merge: the not-open message"
 check "$(calls | grep -c '^pr view')" "1" "pr-ready-to-merge: a PR that is not open is read once"
@@ -871,8 +991,10 @@ git -C "$SEED" push -q origin main feature clean unrelated
 git clone -q "$ORIGIN" "$CLONE"
 echo ".claude/" >"$CLONE/.git/info/exclude"
 
+# run_conflicts <args...> -- run pr-merge-conflicts from $CLONE, with a
+# case's own bin/ ahead of the stubs when it has one.
 run_conflicts() {
-  OUT=$(cd "$CLONE" && PATH="$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
+  OUT=$(cd "$CLONE" && PATH="$CASE/bin:$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
     /bin/bash "$BIN/pr-merge-conflicts" "$@" 2>"$CASE/stderr")
   RC=$?
   ERR=$(cat "$CASE/stderr")
@@ -894,6 +1016,26 @@ check "$([ -e "$CLONE/.claude/worktrees/pr-merge-conflicts-7" ] && echo left || 
 check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" "pr-merge-conflicts: no worktree stays registered"
 check "$(git -C "$CLONE" status --porcelain)" "$before" "pr-merge-conflicts: the clone's status is unchanged"
 
+# A git whose per-file `diff` fails: a command the verb runs without
+# handling it, inside a loop, after the worktree exists.
+new_case conflicts-diff-fails
+echo feature >"$CASE/head"
+mkdir -p "$CASE/bin"
+cat >"$CASE/bin/git" <<STUB
+#!/usr/bin/env bash
+case " \$* " in
+  *' diff -- '*) echo "stub git: diff refused" >&2; exit 9 ;;
+esac
+exec "$(command -v git)" "\$@"
+STUB
+chmod +x "$CASE/bin/git"
+run_conflicts 7
+check "$RC" "1" "pr-merge-conflicts: an unhandled git failure exits 1, not git's 9"
+check_contains "$ERR" "pr-merge-conflicts: \`git -C \"\$tree\" diff -- \"\$file\"\` failed (exit 9)" \
+  "pr-merge-conflicts: the catalogue line names the failed git command"
+check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" \
+  "pr-merge-conflicts: the worktree is removed after an unhandled failure too"
+
 new_case conflicts-clean
 echo clean >"$CASE/head"
 run_conflicts 7
@@ -904,7 +1046,7 @@ new_case conflicts-merge-refused
 echo feature >"$CASE/head"
 echo unrelated >"$CASE/base"
 run_conflicts 7
-check "$RC" "3" "pr-merge-conflicts: a merge that fails without a conflict exits 3"
+check "$RC" "1" "pr-merge-conflicts: a merge that fails without a conflict exits 1"
 check "$ERR" "fatal: refusing to merge unrelated histories
 pr-merge-conflicts: the trial merge of origin/unrelated failed without leaving a conflicted file" \
   "pr-merge-conflicts: git's own error precedes the catalogue line"
@@ -985,7 +1127,7 @@ new_case conflicts-other-repo-leftover-fails
 echo feature >"$CASE/head"
 mkdir -p "$CLONE/.claude/worktrees/pr-merge-conflicts-other.example+o2+r2-7"
 run_conflicts 'other.example/o2/r2#7'
-check "$RC" "3" "pr-merge-conflicts: a leftover that is not a worktree fails the removal"
+check "$RC" "1" "pr-merge-conflicts: a leftover that is not a worktree fails the removal"
 check "$(git -C "$CLONE" for-each-ref refs/pr-merge-conflicts)" "" \
   "pr-merge-conflicts: a failed leftover removal still deletes the refs fetched from another repository"
 rmdir "$CLONE/.claude/worktrees/pr-merge-conflicts-other.example+o2+r2-7"

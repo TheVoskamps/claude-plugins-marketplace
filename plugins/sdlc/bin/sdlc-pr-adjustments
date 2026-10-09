@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#
+# sdlc-pr-adjustments -- print the comments posted on a PR since its
+# previous review round, less the fixer briefs and review-detail chunks
+# sdlc posts: each comment verbatim, oldest first, under a
+# `--- comment <createdAt> ---` line.
+# What a comment asks for is the reader's to decide. Read-only.
+#
+# The cut instant is the newest review's submittedAt; with no review,
+# the newest instant on any line `sdlc-agent-result-persist --mode print`
+# prints for the round below; and with no review and no such instant, the
+# PR's createdAt.
+#
+# The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
+
+usage() {
+  echo "usage: $SP_PROGRAM --pr <host>/<owner>/<repo>#<n> --round <n>"
+}
+
+ref=
+round=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pr | --round)
+      [ "$#" -ge 2 ] || sp_usage_error "\`$1\` needs a value."
+      case "$1" in
+        --pr) ref=$2 ;;
+        --round) round=$2 ;;
+      esac
+      shift 2
+      ;;
+    *) sp_usage_error "\`$1\` is not an argument $SP_PROGRAM takes." ;;
+  esac
+done
+[ -n "$ref" ] || sp_usage_error "No \`--pr\` was supplied."
+[ -n "$round" ] || sp_usage_error "No \`--round\` was supplied."
+case "$round" in
+  '' | *[!0-9]* | 0*) sp_usage_error "\`--round\` takes a round number from 1, not \`$round\`." ;;
+esac
+sp_parse_pr "$ref"
+
+json=$(sp_pr_view reviews,comments,createdAt) || exit $?
+
+cut=$(jq -r '[.reviews[] | .submittedAt // empty] | max // empty' <<<"$json")
+if [ -z "$cut" ]; then
+  # The round below has no log when it is round 0, which holds only the
+  # seed's records, or when no reviewer of it got as far as writing one;
+  # sdlc-agent-result-persist says so, and any other failure is one.
+  prev=$((round - 1))
+  rc=0
+  log=$(sdlc-agent-result-persist --mode print --pr "$SP_REF" --round "$prev" 2>&1 || exit) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$log" in
+      *"no round log at "*) log= ;;
+      *)
+        printf '%s\n' "$log" >&2
+        sp_fail 1 "sdlc-agent-result-persist --mode print --round $prev failed (exit $rc)"
+        ;;
+    esac
+  fi
+  cut=$(awk '{
+      for (i = 1; i <= NF; i++)
+        if ($i ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ && $i > m) m = $i
+    } END { print m }' <<<"$log")
+fi
+if [ -z "$cut" ]; then
+  cut=$(jq -r .createdAt <<<"$json")
+fi
+
+jq -r --arg cut "$cut" "$(sp_jq_prelude)"'
+  .comments | sort_by(.createdAt)[]
+  | select(.createdAt > $cut)
+  | (.body | first_line) as $first
+  | select($first != $brief and ($first | test($records) | not))
+  | "--- comment \(.createdAt) ---\n\(.body)"' <<<"$json"

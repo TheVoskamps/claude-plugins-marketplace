@@ -589,23 +589,21 @@ findings, severity counts, and theorem tally.
 ```
 
 This round's number is the one the reviewer composes its round
-directory from: the PR's review count immediately before the round's
-first reviewer spawn, plus one. Nothing remembers it across a re-spawn
-or a session — the PR and the round's own state re-derive it, with `C`
-the current review count:
-
-```text
-/github-prs:pr-view <PR_REF> --json reviews --jq '.reviews | length'
-```
+directory from: what `sdlc-pr-round` printed immediately before the
+round's first reviewer spawn. Nothing remembers it across a re-spawn
+or a session — the PR and the round's own state re-derive it, with `R`
+what `sdlc-pr-round` prints now:
 
 ```bash
+sdlc-pr-round <PR_REF>
 sdlc-agent-result-persist --mode print \
-  --pr <PR_REF> --round <C+1>
+  --pr <PR_REF> --round <R>
 ```
 
-A `print` that succeeds means a round above the count has begun and
-not posted, so this round is `C+1` and the PR carries no review of it;
-one that fails saying there is no round log means this round is `C`.
+A `print` that succeeds means a round above the PR's reviews has begun
+and not posted, so this round is `R` and the PR carries no review of
+it; one that fails saying there is no round log means this round is
+`R-1`.
 
 Pass no `--generator`, no effort, and no model. The reviewer picks the
 tier itself from the round's delta; `--generator` goes in only when
@@ -740,9 +738,9 @@ member)**:
 
    The comment's **first line is the marker**
    `<!-- sdlc:fixer-brief -->`, on a line of its own — the literal by
-   which `issue-fixer`, `theorem-based-pr-reviewer` and `pr-finalizer`
-   each recognize a brief, so a PR that changes it sweeps every file
-   `git grep -n 'sdlc:fixer-brief'` returns:
+   which the `sdlc` PR-read scripts recognize a brief, so a PR that
+   changes it sweeps every file `git grep -n 'sdlc:fixer-brief'`
+   returns:
 
    ```text
    <!-- sdlc:fixer-brief -->

@@ -10,7 +10,7 @@
 # The contract is plugins/github-prs/skills/pr-link-issue/SKILL.md.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/github-prs-common.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/github-prs-common.sh"
+. "${BASH_SOURCE[0]%/*}/lib/github-prs-common.sh"
 
 usage() {
   echo "usage: $GP_PROGRAM <PR> <issue>..."
@@ -30,7 +30,8 @@ for arg in "$@"; do
 done
 
 existing=$(gp_pr view --json body --jq .body) || exit $?
-closed=" $(gp_closing_issues "$existing" | tr '\n' ' ')" || exit $?
+closed=$(gp_closing_issues "$existing") || exit $?
+closed=" ${closed//$'\n'/ } "
 
 linked=
 closing=
@@ -45,7 +46,8 @@ for issue in $issues; do
 done
 
 if [ -z "$closing" ]; then
-  printf 'PR %s already closes %s\n' "$GP_PR_NAME" "$(gp_joined "$linked")"
+  joined=$(gp_joined "$linked") || exit $?
+  printf 'PR %s already closes %s\n' "$GP_PR_NAME" "$joined"
   exit 0
 fi
 closing=${closing%
@@ -59,15 +61,16 @@ else
   wanted=$closing
 fi
 
-printf '%s\n' "$wanted" | gp_pr edit --body-file - >/dev/null
+gp_pr edit --body-file - >/dev/null <<<"$wanted"
 
 landed=$(gp_pr view --json body --jq .body) || exit $?
 [ "$landed" = "$wanted" ] ||
   gp_err_body_not_landed "the closing lines"
 
-appended=$(printf '%s\n' "$closing" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+appended=${closing//$'\n'/, }
 if [ -n "$linked" ]; then
-  printf 'PR %s already closes %s; appended %s\n' "$GP_PR_NAME" "$(gp_joined "$linked")" "$appended"
+  joined=$(gp_joined "$linked") || exit $?
+  printf 'PR %s already closes %s; appended %s\n' "$GP_PR_NAME" "$joined" "$appended"
 else
   printf 'PR %s: appended %s\n' "$GP_PR_NAME" "$appended"
 fi

@@ -16,6 +16,9 @@
 # PR's repository's state out of the layout that predates the host
 # segment, which any run of that script does first.
 set -euo pipefail
+# For the fixer-brief marker, which the timeline is read against.
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
 
 readonly PROGRAM=${0##*/}
 readonly TAB=$'\t'
@@ -25,6 +28,14 @@ die() {
   printf '%s: %s\n' "$PROGRAM" "$1" >&2
   exit 2
 }
+
+# A command that fails where the script does not handle it dies like
+# every other failure here, naming the command, and never exits with the
+# tool's own status; this replaces the trap the sourced file installs,
+# keeping its `set -E`. A substitution whose failure the script handles
+# ends in `|| exit` inside it, so the trap stays quiet in the
+# substitution's own shell.
+trap 'die "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
 usage() {
   cat <<EOF
@@ -46,7 +57,7 @@ command -v sdlc-agent-result-persist >/dev/null 2>&1 \
 # The PR in any form pr-view accepts, resolved once to its canonical
 # <host>/<owner>/<repo>#<n>. The host is what every gh api call below
 # names: gh sends a host-less one to its own default host.
-ref=$(pr-view "$1" --ref) || die "pr-view could not resolve the PR: $1"
+ref=$(pr-view "$1" --ref || exit) || die "pr-view could not resolve the PR: $1"
 case "$ref" in
   ?*/?*/?*'#'*) ;;
   *) die "pr-view --ref reported a reference that is not <host>/<owner>/<repo>#<n>: $ref" ;;
@@ -76,14 +87,14 @@ persist() {
 # every round up to it is expected to have a log; past it, the walk stops at
 # the first round with none, which is the round not yet opened.
 
-top=$(persist --mode print-records 2>/dev/null | sed -n '1s/^round //p') || top=
+top=$(persist --mode print-records 2>/dev/null | sed -n '1s/^round //p' || exit) || top=
 [ -n "$top" ] || top=0
 
 # Each line is "<round><TAB><log line>", the log line as print wrote it.
 round_logs=
 n=1
 while :; do
-  if log=$(persist --mode print --round "$n" 2>/dev/null); then
+  if log=$(persist --mode print --round "$n" 2>/dev/null || exit); then
     round_logs="$round_logs$(printf '%s\n' "$log" | awk -v r="$n" '{print r "\t" $0}')$NL"
   elif [ "$n" -le "$top" ]; then
     note_missing "round $n log: \`sdlc-agent-result-persist --mode print --round $n\` found none; no row for round $n"
@@ -177,7 +188,7 @@ events=
 if [ -n "$transcripts" ]; then
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    if got=$(jq -n -r "$TRANSCRIPT_JQ" "$t" 2>/dev/null); then
+    if got=$(jq -n -r "$TRANSCRIPT_JQ" "$t" 2>/dev/null || exit); then
       events="$events$got$NL"
     else
       note_missing "orchestrator session transcript \`$t\`: jq could not parse it; no rows from it"
@@ -192,9 +203,9 @@ fi
 
 gh_events=
 pr_url=
-if pr_url=$(gh api --hostname "$host" "repos/$owner/$repo/pulls/$pr" --jq .html_url 2>/dev/null) \
+if pr_url=$(gh api --hostname "$host" "repos/$owner/$repo/pulls/$pr" --jq .html_url 2>/dev/null || exit) \
   && gh_events=$(gh api --hostname "$host" --paginate "repos/$owner/$repo/issues/$pr/timeline" \
-       --jq '.[] | {event, t: ((.created_at // .submitted_at // "") | sub("\\.[0-9]+Z$"; "Z")), body: (.body // "")} | @json' 2>/dev/null); then
+       --jq '.[] | {event, t: ((.created_at // .submitted_at // "") | sub("\\.[0-9]+Z$"; "Z")), body: (.body // "")} | @json' 2>/dev/null || exit); then
   :
 else
   gh_events=
@@ -323,11 +334,11 @@ if [ -n "$round_spans" ]; then
 fi
 
 if [ -n "$gh_events" ]; then
-  rows="$rows$(printf '%s\n' "$gh_events" | jq -r '
+  rows="$rows$(printf '%s\n' "$gh_events" | jq -r --arg brief "$SP_FIXER_BRIEF_MARKER" '
     .t as $t
     | (.body | split("\n") | .[0] // "") as $first
     | if .event == "reviewed" then "review posted"
-      elif .event == "commented" and ($first | startswith("<!-- sdlc:fixer-brief -->")) then "fixer brief posted"
+      elif .event == "commented" and ($first | startswith($brief)) then "fixer brief posted"
       elif .event == "commented" and ($first | test("^Review adjustments for round [0-9]+:")) then ($first | rtrimstr(":")) + " posted"
       elif .event == "head_ref_force_pushed" then "force-push"
       elif .event == "ready_for_review" then "ready flip"
@@ -426,7 +437,7 @@ rows="$rows$(printf '%s\n' "$accounting" | awk -F'\t' '$1 != "TOTAL" && $1 != ""
 # {t, kind, round, id, quote}; round is null where the comment names none.
 rulings=
 if [ -n "$gh_events" ]; then
-  rulings=$(printf '%s\n' "$gh_events" | jq -c '
+  rulings=$(printf '%s\n' "$gh_events" | jq -c --arg brief "$SP_FIXER_BRIEF_MARKER" '
     select(.event == "commented") | .t as $t | (.body | split("\n")) as $l
     | if ($l[0] // "" | test("^Review adjustments for round [0-9]+:"))
       then ($l[0] | capture("round (?<n>[0-9]+)").n | tonumber) as $r
@@ -438,7 +449,7 @@ if [ -n "$gh_events" ]; then
             else .out += (if .cur then [.cur] else [] end) | .cur = null end)
         | (.out + (if .cur then [.cur] else [] end))[]
         | {t: $t, kind: "adjust", round: $r, id, quote: (.q | join("\n"))}
-      elif ($l[0] // "") == "<!-- sdlc:fixer-brief -->"
+      elif ($l[0] // "") == $brief
       then reduce $l[1:][] as $x ({on: false, cur: null, out: []};
             if ($x | test("^Findings to address")) then .on = true
             elif ($x | test("^(Owner rulings|Address per your agent definition)")) then
@@ -475,8 +486,13 @@ wait_for() {
     '$1 != "" && $3 <= t && $3 >= floor {w = $1} END {print w}'
 }
 
+# The theorem records of round $1, as `--mode print-round-records`
+# prints them; fails when that print fails. Every caller tests it as a
+# condition, so the `|| exit` makes a failure a condition the ERR trap
+# stays quiet on. Called only as a command substitution, whose own shell
+# the exit leaves.
 records_of() {
-  persist --mode print-round-records --round "$1" 2>/dev/null
+  persist --mode print-round-records --round "$1" 2>/dev/null || exit
 }
 
 # The named fields of one theorem's record, verbatim. $1 records text,

@@ -129,7 +129,7 @@ leaves nothing on the PR, so the comment is the only review. Everything
 else about the second call, the verdict line included, is unchanged,
 which is what carries the verdict the refused action would have
 carried. `comment` is never refused this way. Any other failure of the
-first call stays a failure: nothing is reposted, and it exits 3.
+first call stays a failure: nothing is reposted, and it exits 1.
 
 Handling the downgrade here is why `sdlc:theorem-based-pr-reviewer`
 can hand this skill any verdict unconditionally: reviewer and author
@@ -150,10 +150,10 @@ posted. A review someone else leaves in between fails that check.
   the platform's view of the PR needs: a downgraded review carries
   state `commented`, so GitHub sees no blocking review whatever the
   body says.
-- **Exit 1** — the review did not land as posted: no new review
-  appeared, or it carries another state or another body. Stderr says
-  which. Report the failure rather than posting again.
+- **Exit 1** — a command the script ran failed, such as a `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.
 - **Exit 2** — a usage error, one of the refusals above; nothing was
   posted.
-- **Exit 3** — a `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.
+- **Exit 3** — the review did not land as posted: no new review
+  appeared, or it carries another state or another body. Stderr says
+  which. Report the failure rather than posting again.

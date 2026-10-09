@@ -181,11 +181,10 @@ human sees what it did not settle rather than the identical question.
 **The fixer brief** — posted on a `BEHIND`, on a `DIRTY`, and on any
 state whose ruling names a remedy — is a PR comment
 whose first line is the marker `<!-- sdlc:fixer-brief -->` — the
-literal by which `issue-fixer` recognizes a brief, spelled in every
-`sdlc` file that writes or reads it, so a change to it sweeps every file
-`git grep -n 'sdlc:fixer-brief'` returns — and whose body is the gate's
-report **verbatim** — the state and, for `DIRTY`, the
-`pr-merge-conflicts` output — followed by the ruling when your brief
+literal by which `issue-fixer`'s read recognizes a brief, so a change to
+it sweeps every file `git grep -n 'sdlc:fixer-brief'` returns — and
+whose body is the gate's report **verbatim** — the state and, for
+`DIRTY`, the `pr-merge-conflicts` output — followed by the ruling when your brief
 carries one the gate's report consumes, and nothing you authored. The
 brief is the only route by which a ruling reaches the fixer, and a
 `BEHIND` or a `DIRTY` whose fixer escalated comes back with one, so a

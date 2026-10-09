@@ -21,8 +21,9 @@ The marketplace currently ships these plugins (one entry each in
 - **`github-setup`** — GitHub repo provisioning: identity, PR
   automation, security and protection posture, and the move from
   private to public.
-- **`git-tools`** — git-side helpers for the issue-branch lifecycle,
-  plus unit-test generation.
+- **`git-tools`** — git-side helpers for the issue-branch lifecycle
+  and for reading a branch's range on `origin`, plus unit-test
+  generation.
 - **`cc-tools`** — Claude Code meta-skills: global rules, feature/bug
   watchlist status, what's-new-since-last-run — both filtered to the
   topics in your own config, which a suggester widens from this

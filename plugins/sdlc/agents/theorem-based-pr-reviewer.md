@@ -7,11 +7,14 @@ effort: medium
 isolation: worktree
 skills:
   - github-prs:pr-closing-issues
+  - github-prs:pr-files
   - github-prs:pr-review-submit
   - github-prs:pr-view
   - git-tools:git-issues-from-branch
+  - git-tools:git-range
   - sdlc:agent-result-persist-interface
   - sdlc:documentation-definition
+  - sdlc:pr-read-cli-interface
 ---
 
 # Theorem-Based PR Reviewer
@@ -160,23 +163,27 @@ again on every resume** rather than trusting a remembered one:
 
 ```text
 /github-prs:pr-view <PR> --ref
-/github-prs:pr-view <PR> --json reviews --jq '.reviews | length'
+```
+
+```bash
+sdlc-pr-round <PR_REF>
 ```
 
 The first prints `<PR_REF>`, the PR's canonical reference
 `<host>/<owner>/<repo>#<N>`, which every `--pr` below carries — the
-reference your brief gave you, when it gave you one; `--round` is the
-review count **plus one**, so a first round is `1`.
-Your own review lands only at "Post one review", so the count holds
+reference your brief gave you, when it gave you one; the second prints
+the round number every `--round` below carries, composed as the
+preloaded `sdlc:pr-read-cli-interface` skill states.
+Your own review lands only at "Post one review", so the number holds
 across the round. Resolving them is what reaches the log, on the terms
 the preloaded `sdlc:agent-result-persist-interface` skill → "The paths"
 states.
 
 The log, the result files, the records file and the review file are all
 outside every repository and you have no commit or push step, so nothing
-this writes reaches the branch. They outlive the worktrees "Clean up the
-spawned worktrees" removes, and the **records file is what the next
-round reads** — not the review you post.
+this writes reaches the branch. They outlive every worktree the round
+ran in, and the **records file is what the next round reads** — not the
+review you post.
 
 ### You are re-entrant
 
@@ -277,17 +284,22 @@ the theorem is unanswered and re-spawnable, and it has no child in
 flight until a new `enter` arrives.
 
 **A moved head voids the round.** The `anchor` line carries the head SHA
-the round's theorems were generated against. Compare it against
-`origin/<headRefName>` after the fetch in "Fan out the disprovers". On a
-mismatch, the records describe a tree that no longer exists: discard
-them, say so in the Review method section, and run the round fresh from
-"Read the PR's shape" against the new head rather than mixing verdicts
-from two trees. This is not hypothetical — a scheduled sweep
-force-rebases open PR branches and can fire mid-round. Then make the
-`--mode anchor` call for the fresh round carrying the new head SHA: the
-preloaded `sdlc:agent-result-persist-interface` skill → "The modes" owns
-what the script does with the stale log and the result files beside it.
-Making that call is what keeps the void from repeating — the next
+the round's theorems were generated against. A moved head is detected
+in two places: at "Read the round log, then anchor the round", when the
+printed `anchor` line names a head SHA other than `<headRefOid>`; and
+after the fetch in "Fan out the disprovers", when it names one other
+than `origin/<headRefName>`. Either way the records describe a tree
+that no longer exists: they are set aside, and the Review method
+section says so, naming both SHAs. This is not hypothetical — a
+scheduled sweep force-rebases open PR branches and can fire mid-round.
+At the anchor step the anchor call has already set them aside, and that
+step says how to go on. At the fan-out, run the round fresh from "Read
+the PR's shape" against the new head rather than mixing verdicts from
+two trees. The restart reaches the anchor step, whose call carries the
+new head SHA: the preloaded `sdlc:agent-result-persist-interface` skill
+→ "The modes" owns what the script does with the stale log and the
+result files beside it. That call is what keeps the void from
+repeating — the next
 instance to arrive reads an `anchor` carrying the current head and
 resumes normally.
 
@@ -323,12 +335,10 @@ count is your own instance's, and your caller bounds how many instances
 a PR gets.
 
 **Never `TaskStop` a child you did not spawn.** A resumed instance may
-stop its own children; a predecessor's are not yours to stop, and you
-use their ids from the log only for worktree cleanup ("Clean up the
-spawned worktrees"). Multiple sessions run against one repo and share
-`.claude/worktrees/`, so a blanket kill reaches into another session's
-work. Acting only on ids you spawned, or that this round's own log
-names, is what keeps the scope provably correct.
+stop its own children; a predecessor's are not yours to stop. Multiple
+sessions run against one repo, so a blanket kill reaches into another
+session's work. Acting only on ids you spawned is what keeps the scope
+provably correct.
 
 #### What this resume cannot see
 
@@ -472,29 +482,22 @@ quotes that name, so inserting a section renames nothing.
 /github-prs:pr-view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
 ```
 
-Then read the paths the diff touches, with `<host>`, `<owner>`,
-`<repo>` and `<N>` the parts of `<PR_REF>`, resolved per "The round log"
-above:
+Then read the files the diff touches:
 
-```bash
-gh api graphql --hostname <host> --paginate -F owner=<owner> -F repo=<repo> -F pr=<N> \
-  -f query='query($owner:String!, $repo:String!, $pr:Int!, $endCursor:String) { repository(owner:$owner, name:$repo) { pullRequest(number:$pr) { files(first:100, after:$endCursor) { nodes { path additions deletions changeType } pageInfo { hasNextPage endCursor } } } } }' \
-  --jq '.data.repository.pullRequest.files.nodes[].path'
+```text
+/github-prs:pr-files <PR_REF>
 ```
 
-`--paginate` follows `endCursor` until `hasNextPage` is false, so the
-list is complete however many files the PR changes — the `files` field
-`/github-prs:pr-view` can ask for stops at the first 100.
-"Documentation is outside the review" reads this list; it is a path
-list, not the diff.
+"Documentation is outside the review" reads the paths on that list; it
+is a file list, not the diff.
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed "Identify the issue
-set"; `headRefOid` feeds the single fetch in "Fan out the disprovers"
-and every disprover's and verifier's brief; `baseRefName` is what bounds
-the delta in "Carry the previous round's theorems forward" to this PR's
-own commits. Do not fetch the diff — see "Why the diff never lands in
-your context" above.
+set"; `headRefOid` and `headRefName` feed the head check in "Fan out the
+disprovers", and `headRefOid` every disprover's and verifier's brief;
+`baseRefName` is what bounds the delta in "Carry the previous round's
+theorems forward" to this PR's own commits. Do not fetch the diff — see
+"Why the diff never lands in your context" above.
 
 ### Read the round log, then anchor the round
 
@@ -506,15 +509,20 @@ sdlc-agent-result-persist --mode print \
   --pr <PR_REF> --round <this round's number>
 ```
 
-Take the arm "You are re-entrant" names for what it printed. Then anchor
-the round, whichever arm you are on — the call is idempotent, so it is
-the same call on a fresh round and on a resume, and nothing turns on
-whether a child has written first:
+Then anchor the round, whatever it printed — the call is idempotent, so
+it is the same call on a fresh round and on a resume, and nothing turns
+on whether a child has written first:
 
 ```bash
 sdlc-agent-result-persist --mode anchor \
   --pr <PR_REF> --round <this round's number> --head-sha <headRefOid>
 ```
+
+Take the arm "You are re-entrant" names for what the `print` call
+printed, unless its `anchor` line named a head SHA other than
+`<headRefOid>`: then the anchor call voided the round, and what you
+printed describes the old head. Run the `print` call again and take the
+arm for what it prints now.
 
 One anchor per round, here and nowhere else. A child's own deadline
 comes from its `enter` record rather than from anything written here.
@@ -586,20 +594,12 @@ list. Everything else you post is a disproved theorem.
 
 ### Carry the previous round's theorems forward
 
-The previous round's theorems come off disk. The **most recent PR
-Review on the PR** is still fetched, for its `submittedAt` and for
-nothing else — it is what cuts the adjustment comments. During the
-orchestrate loop that review is always one of yours; the human's own
-review lands only after the loop terminates.
-
-```text
-/github-prs:pr-view <PR> --json reviews --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
-```
+The previous round's theorems come off disk.
 
 A round's inputs are **append-only** channels, each carrying a
 timestamp you can cut against: this PR's own commits since the
 previous round's head SHA, the PR comments posted since the previous
-review's `submittedAt`, and the previous round's records file.
+round, and the previous round's records file.
 
 **The PR body is not one of them.** It can change with no commit, no
 comment and no timestamp, so nothing here diffs it: "Read the PR's
@@ -650,23 +650,40 @@ never been attacked — and a rejected or merged one is `retired` /
 `human-refuted`. This round is round 1 taking the **delta path**, not
 the whole-diff fallback: round 0 has no log and no head, so
 `<prev-head>` is the merge-base of the PR head and the base branch,
-which makes the delta the whole branch, and the adjustment cut is the
-PR's `createdAt`:
-
-```bash
-git fetch origin
-git merge-base <headRefOid> origin/<baseRefName>
-```
+which makes the delta the whole branch. Read both with no
+`--prev-head`:
 
 ```text
-/github-prs:pr-view <PR> --json createdAt --jq .createdAt
+/git-tools:git-range --base <baseRefName> --head-ref <headRefName> --head <headRefOid>
 ```
 
-The rest of this section reads unchanged with those two values in
-place of the ones it derives from `<prev-round>`'s log. The whole
-branch is never an empty delta, so round 1 always fans out. A
-`human-refuted` seed record is retired for good, per "The `--full`
-round".
+Its `merge-base` line is `<prev-head>`, and its `commit` lines are the
+delta. The rest of this section reads unchanged with those in place of
+what it derives from `<prev-round>`'s log, and the adjustment comments'
+script cuts at the PR's `createdAt` on its own. The whole branch is
+never an empty delta, so round 1 always fans out. A `human-refuted`
+seed record is retired for good, per "The `--full` round".
+
+**`git-range` exiting non-zero**, at any of its calls in this section
+or in "Fan out the disprovers", is read by its status and message:
+
+- **Exit 3** means the branch moved since "Read the PR's shape" took
+  `<headRefOid>`, and voids the round as "You are re-entrant" says of a
+  moved head: restart from "Read the PR's shape", so that "Read the round log,
+  then anchor the round" anchors the fresh round on the new head SHA.
+- **Exit 1 saying `--prev-head` is not a commit in this repository** is
+  the fallback trigger below. Only the delta read passes `--prev-head`,
+  so no other call can exit this way.
+- **Any other exit 1** — the fetch failed, `origin/<baseRefName>` or
+  `origin/<headRefName>` does not exist, the head and the base share no
+  merge base, or another command the script ran failed — means the
+  branch cannot be read: stop and report the
+  command and its output verbatim rather than review. It printed no
+  range, and no delta may be assumed in its place.
+- **Exit 2** is a call you built wrongly, most likely a `--head` or
+  `--prev-head` that is not a full SHA: repair it and call again,
+  as "When a call fails" says; when you cannot, stop and report the
+  command and its output verbatim.
 
 **The previously reviewed head.** It is the `anchor` line's head SHA in
 `<prev-round>`'s own log:
@@ -681,30 +698,17 @@ body is what makes a withdrawn, edited, or hand-deleted review cost this
 round nothing.
 
 **The round's delta.** The delta is **this PR's own commits** with no
-patch-equivalent commit in `<prev-head>`:
+patch-equivalent commit in `<prev-head>` — the `commit` lines of:
 
-```bash
-git fetch origin
-git rev-list --right-only --cherry-pick <prev-head>...<headRefOid> \
-  ^origin/<baseRefName>
+```text
+/git-tools:git-range --base <baseRefName> --head-ref <headRefName> --head <headRefOid> --prev-head <prev-head>
 ```
 
-The `^origin/<baseRefName>` term is what makes the delta the PR's own
-commits, and it is not optional. A rebase that advances the base makes
-every commit the base gained reachable from the head and unreachable
-from `<prev-head>`, so without that term those upstream commits enter
-the delta as though this PR had written them — measured on a
-reproduced base-advancing rebase, where the unbounded form returned
-both upstream commits alongside the PR's own and the bounded form
-returned only the PR commit whose patch had changed.
-
-A clean rebase onto the base branch therefore yields an **empty
-delta**: every PR commit's patch survived unchanged, so
-`--cherry-pick` drops all of them, and the base's own new commits
-never entered. A conflict-resolving rebase leaves exactly the PR
-commits whose patch changed. The delta is what the generator reads and
-what the tier rubric measures, so both are rebase-proof by
-construction.
+The range never holds a commit the base gained, so a clean rebase onto
+the base branch yields an **empty delta**, and a conflict-resolving
+rebase leaves exactly the PR commits whose patch changed. The delta is
+what the generator reads and what the tier rubric measures, so both are
+rebase-proof by construction.
 
 Patch equivalence here is git's `--cherry-pick` patch-id comparison,
 which reads context lines as part of the patch. A PR commit re-applied
@@ -720,42 +724,25 @@ finding, a severity override, a missed defect — reaches later rounds
 only as a **PR comment the orchestrator posted on the human's
 instruction**, and a finding the orchestrator dropped on its own scope
 ruling travels in the same comment. Read the comments posted since the
-previous review:
+previous round:
 
-```text
-/github-prs:pr-view <PR> --json comments --jq '.comments[] | select(.createdAt > "<prev-review-submittedAt>")'
+```bash
+sdlc-pr-adjustments --pr <PR_REF> --round <this round's number>
 ```
 
-When the PR carries **no** review to take a `submittedAt` from — one was
-withdrawn, or an earlier instance stored records without posting — cut
-against the latest instant in `<prev-round>`'s log instead. Every record
-the script writes is stamped `date -u +%Y-%m-%dT%H:%M:%SZ`, the same
-shape `createdAt` carries, so the comparison is the same one. Reading
-every comment on the PR instead is what you must not do: an adjustment
-that already minted a theorem would mint it a second time under a new
-id.
+The preloaded `sdlc:pr-read-cli-interface` skill states where it cuts.
+Reading every comment on the PR instead is what you must not do: an
+adjustment that already minted a theorem would mint it a second time
+under a new id.
 
-**Not every comment is an adjustment.** A comment whose first line is
-a marker of the form `<!-- sdlc:theorem-records i/N -->`, with `i` and
-`N` standing for the chunk's 1-based position and the total, is a chunk
-of the run's assembled detail, which `pr-finalizer` posts once the fix
-loop has concluded (see that agent's own definition). Match that shape
-rather than a fixed string: the numbers vary per chunk, so no posted
-comment ever carries the bytes `i/N`. It is your own output coming back
-at you, so skip it entirely on the same terms as the brief below. A
-comment whose first line is the literal marker
-`<!-- sdlc:fixer-brief -->` is a brief to `issue-fixer` — the
-orchestrator's, or `pr-merge-readiness`'s — not an instruction to
-you: a review-loop brief carries findings *you* filed last round, so
-applying it would mint theorems for defects already in your records.
-Skip such a comment entirely — it is neither an adjustment to apply
-nor a reason to fan out. It is still worth
-reading as context for what the fixer was told, but nothing in it
-changes a record. That marker is spelled in every `sdlc` file that
-writes or reads it, this one included; a change to the literal sweeps
-all of them.
+**A fixer brief is context, never an adjustment.** It is an
+instruction to `issue-fixer`, not to you: a review-loop brief carries
+findings *you* filed last round, so applying it would mint theorems for
+defects already in your records, and it is no reason to fan out either.
+`sdlc-fixer-brief --all <PR_REF>` prints every brief when you want to
+see what the fixer was told, but nothing in one changes a record.
 
-Apply each remaining comment to the carried records:
+Apply each comment the script prints to the carried records:
 
 - **A rejected finding** — its theorem retires as *human-refuted*. A
   human who changes their mind posts a missed defect instead, which
@@ -823,9 +810,11 @@ which in the Review method section:
   Say in the Review method section that the round ran without seed
   records, so the missing gate is visible;
 - `<prev-head>`'s objects are not fetchable, so no delta can be
-  computed. The records were read, and they still carry: take the
-  merge-base the round-0 seed paragraph above computes as `<prev-head>`,
-  so the delta is the whole branch. The rest of this section, and every
+  computed — `git-range` exits 1 saying `--prev-head` is not a commit
+  in this repository. The records were read, and they still carry: run
+  `git-range` again without `--prev-head`, as the round-0 seed paragraph
+  above does, so `<prev-head>` is the merge-base and the delta is the
+  whole branch. The rest of this section, and every
   later step, then reads as for a delta round — the generator reads the
   whole diff on the delta brief, a carried record keeps its state,
   retired and human-refuted ones included, and new ids continue the
@@ -1122,17 +1111,16 @@ that repo's single ref store — so k concurrent `git fetch origin` calls
 contend for the same `.git`, and the loser of a lock race fails rather
 than waiting. Fetch yourself, here, before you spawn anything, and
 confirm the ref carries the `<headRefOid>` the round opened on. "Carry
-the previous round's theorems forward" already fetched on a round that
-read a previous review, and repeating it costs nothing:
+the previous round's theorems forward" fetched already when it computed
+a delta, and repeating it costs nothing:
 
-```bash
-git fetch origin
-git rev-parse origin/<headRefName>   # must equal <headRefOid>
+```text
+/git-tools:git-range --base <baseRefName> --head-ref <headRefName> --head <headRefOid>
 ```
 
-If it does not match, the branch moved since the round opened: re-read
-"Read the PR's shape" and restart the review from "Identify the issue
-set" against the new head, rather than reviewing a mix of two trees.
+Exit 0 is the check passing; the range it prints is not needed here.
+Any other exit — exit 3, the branch having moved, among them — is
+handled as "Carry the previous round's theorems forward" says.
 
 **Then subtract what the log already answers**, per "You are
 re-entrant" above: check the `anchor` line's head SHA against the
@@ -1319,12 +1307,10 @@ resume pass re-spawns it first, per "You are re-entrant" above, in which
 case its new child gets its own fresh deadline from its own `enter`.
 
 At a child's deadline, and only there, `TaskStop` that disprover if
-**you** spawned it, so it is no longer mid-run and "Clean up the spawned
-worktrees" can remove its worktree. Append its stop either way — that
-record is this round's evidence that the child was written off, and
-"Clean up the spawned worktrees" finds the worktree from the child's
-`enter` record whether it was stopped or not. A predecessor instance's
-child is never yours to stop — you record the stop and leave it alone:
+**you** spawned it, so it is no longer mid-run. Append its stop either
+way — that record is this round's evidence that the child was written
+off. A predecessor instance's child is never yours to stop — you record
+the stop and leave it alone:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -1488,9 +1474,8 @@ severity, named in the round's review and its summary so the tally
 stays true, and live again next round.
 
 At a verifier's deadline, and only there, `TaskStop` it if **you**
-spawned it, so it is no longer mid-run and "Clean up the spawned
-worktrees" can remove its worktree, and append its stop either way with
-`--mode stopped` under `--stage verify`. That is the
+spawned it, so it is no longer mid-run, and append its stop either way
+with `--mode stopped` under `--stage verify`. That is the
 same single sanctioned use the generator and disprover deadlines have,
 extended to the last stage and no wider:
 past that child's own deadline, and only for a theorem already recorded
@@ -1682,77 +1667,6 @@ method section, each theorem and finding line naming the state-relative
 path of the file that holds its detail. The argued text and the records
 are not in it — "Persist the round's records and review" above put both
 under state, where the next round and `pr-finalizer` reach them.
-
-### Clean up the spawned worktrees
-
-Every generator, disprover, and verifier runs in its own
-`isolation: worktree` worktree, and none of them ever claims the PR
-branch — each checks out `origin/<branch>` detached (see their
-definitions), so there is no claim to release and no local branch to
-delete. You take no branch claim either: you never check out the PR
-branch attached. What is left is the worktree *directories*, which
-you remove as the spawner:
-
-```bash
-git worktree list
-git worktree remove <absolute-path-from-the-listing>
-```
-
-**The removal set is exactly the `agent-<agent-id>` directories this
-round's own log names in its `enter` records** — the generator's among
-them, which no earlier design recorded. That is one set, not two, and it
-is derived from the log rather than from what you remember spawning:
-your own children are in it on the same terms a predecessor's are, which
-is how a resumed instance clears what its predecessor left behind.
-Cleanup is the one thing you may do to a child you did not spawn, and
-`TaskStop` remains forbidden on it per "You are re-entrant". Multiple
-sessions share `.claude/worktrees/`, so anything wider reaches into
-another session's work: never sweep the listing by pattern, and never
-remove a worktree just because it looks like a review agent's.
-
-A child that died before writing its `enter` record is named by nothing
-in the log, so its worktree is **not** yours to remove even if you
-spawned it: a `spawn` record carries no agent id and no path, and you
-learn a child's worktree name from its own `enter` and nowhere else.
-Guessing from the listing is the pattern sweep this section forbids.
-The log does say one exists — a `spawn` record with no `enter` in that
-stage — so report the theorem and stage instead of the path you cannot
-resolve.
-
-Remove by the **absolute** path `git worktree list` prints, never by a
-short `.claude/worktrees/<name>` form. `git worktree remove` resolves a
-short argument against your cwd first and falls back to a unique suffix
-match on each registered worktree's path; you are yourself running
-inside an `isolation: worktree` worktree under the repo's
-`.claude/worktrees/`, which carries a `.claude/worktrees/` of its own —
-the very directory the agents you spawned sit in. So the short form can
-remove a *different* worktree than you meant, or match two and fail
-with an error that reads as though the worktree were already gone. The
-absolute path the listing prints is unique by construction and names
-the same worktree from any cwd, so it never reaches either trap.
-
-Remove them **serially**, never in parallel — see
-[Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
-for a parallel-cleanup data-loss bug. A round leaves one worktree per
-child it ran: the generator, k disprovers, one verifier per disproved
-theorem, and one more per theorem each resume pass re-ran — the count
-is the round's, not this instance's, which is why the log rather than
-your memory names the set. Remove them one after another once they have
-all returned or been stopped at their own deadlines.
-
-If a removal fails with `fatal: cannot remove a locked working tree`
-and the lock reason matches the harness's standard end-state shape
-(`claude agent agent-<hash> (pid NNNN)`), the agent has returned and
-left a stale lock: `git worktree unlock <path>` then remove.
-
-Unlock-then-remove is **not** allowed when the agent is still mid-run,
-when the lock reason does not match that standard shape, or when the
-worktree carries uncommitted work or unpushed commits. The last is a
-data-loss case and needs human approval — though the agents you spawn
-never commit, so it should not arise from a review round. Never reach
-for `git worktree remove -f`.
-
-Your own worktree is not yours to remove.
 
 ## The theorem contract
 
@@ -2342,10 +2256,6 @@ on an in-progress return — which loop exit you took (a pass that
 settled nothing new, or the seventh pass) and which
 theorems are still outstanding. That is what tells your caller whether
 spawning you again would buy anything.
-
-Report any child whose `spawn` record got no `enter` too, by theorem and
-stage. Its worktree is not yours to remove, per "Clean up the spawned
-worktrees", and this line is the only record that one may be left over.
 
 Also report which generator tier ran and whether the rubric or a
 `--generator` override picked it, so an override has something to

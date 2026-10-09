@@ -49,7 +49,8 @@ pr-diff <PR>
 - **Exit 0** — stdout is the diff. Emit it verbatim for the caller to
   read. Do not summarize or truncate it — the caller decides what to
   do with the full diff.
-- **Exit 2** — a usage error; nothing was read.
-- **Exit 3** — the `gh` call failed (e.g. the PR does not exist), and
-  gh's own error is on stderr above the script's line. Surface it
+- **Exit 1** — a command the script ran failed, such as the `gh` call
+  for a PR that does not exist, and its own error is on stderr above
+  the script's line. Surface it
   verbatim rather than inventing a replacement message.
+- **Exit 2** — a usage error; nothing was read.

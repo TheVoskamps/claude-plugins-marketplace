@@ -39,11 +39,11 @@ aside.
 
 - **Exit 0** — the comment is on the PR with the file's text. Stdout is
   the comment's URL; report it back.
-- **Exit 1** — the comment did not land as written: GitHub named no
+- **Exit 1** — a command the script ran failed, such as the `gh` call,
+  and its own error is on stderr above the script's line. Surface it verbatim.
+- **Exit 2** — a usage error, such as a path that is not a readable
+  file; nothing was posted.
+- **Exit 3** — the comment did not land as written: GitHub named no
   comment, or the comment it named carries different text. Stderr says
   which. Report the failure rather than posting again, since a second
   post would leave two comments if the first did land.
-- **Exit 2** — a usage error, such as a path that is not a readable
-  file; nothing was posted.
-- **Exit 3** — the `gh` call failed, and gh's own error is on stderr
-  above the script's line. Surface it verbatim.

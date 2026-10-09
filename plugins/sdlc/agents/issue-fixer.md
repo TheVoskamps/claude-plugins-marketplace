@@ -12,6 +12,7 @@ skills:
   - github-prs:pr-view
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
+  - sdlc:pr-read-cli-interface
 ---
 
 # Issue Fixer
@@ -64,26 +65,22 @@ from its issue.
 ## Workflow
 
 1. Read the fixer brief off the PR. It is the PR's **most recent**
-   comment, and its first line is the literal marker
-   `<!-- sdlc:fixer-brief -->`:
+   comment, and the preloaded `sdlc:pr-read-cli-interface` skill states
+   how the script tells one from any other comment, with `<PR_REF>` the
+   PR's canonical reference — `/github-prs:pr-view <PR> --ref` prints
+   it when your spawn prompt gave another form:
 
-   ```text
-   /github-prs:pr-view <PR_number> --json comments --jq '.comments | sort_by(.createdAt) | last | .body'
+   ```bash
+   sdlc-fixer-brief <PR_REF>
    ```
 
-   **Proceed only if that comment carries the marker.** If the most
-   recent comment is anything else — a review-adjustments comment, an
-   orchestration note, a human's remark — stop and report that you
-   found no fixer brief, quoting the comment's first line. Do not
-   fall back to the second-most-recent comment, and do not improvise a
-   brief from the posted review: a stray comment silently becoming
-   your instructions is the failure this check exists to prevent, and
-   picking the review instead would put your own reading of it where
-   the orchestrator's judgment belongs.
-
-   The marker is spelled in every `sdlc` file that writes or reads
-   it, this one included. A change to the literal sweeps all of them:
-   `git grep -n 'sdlc:fixer-brief'`.
+   **Proceed only on exit 0.** On exit 3, stop and report that you
+   found no fixer brief, quoting the first line the script's stderr
+   gives. Do not fall back to the second-most-recent comment,
+   and do not improvise a brief from the posted review: a stray comment
+   silently becoming your instructions is the failure this check exists
+   to prevent, and picking the review instead would put your own reading
+   of it where the orchestrator's judgment belongs.
 
    The brief carries the findings, each on a line that ends with its
    scope ruling — `— in scope`, `— outside the issue; put to the
