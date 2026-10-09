@@ -319,6 +319,12 @@ written by #156's identity skill).
 - **identity-key** *(optional)*: machine-local binding from this repo
   to a GitHub App private-key identity, read by #156's identity
   resolver. Usually written by the identity skill, not by hand.
+- **branch-prefix-initials** *(optional)*: the initials an
+  issue-branch name carries in front of `/` when the repo-config's
+  `issue-branch-naming-prefix` is `initials`; overrides a user-global
+  value. No `/` and no whitespace.
+- **branch-prefix-name** *(optional)*: the same, for
+  `issue-branch-naming-prefix: name`.
 - *(other keys)*: any per-user, per-repo value future skills record.
   Unknown keys are preserved on merge and ignored by readers that do
   not consume them.

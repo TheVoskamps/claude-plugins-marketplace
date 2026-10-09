@@ -203,6 +203,13 @@ preserves keys written by other skills.
 - **schema-version**: integer naming the file's schema version.
   Current version is `1`. Writers stamp it; readers (see
   `skills/lib/user-config.md`) gate on it. Do not edit by hand.
+- **branch-prefix-initials** *(optional)*: the initials an
+  issue-branch name carries in front of `/` in every repo whose
+  repo-config sets `issue-branch-naming-prefix: initials`, unless that
+  repo's repo-level user-config overrides it. No `/` and no
+  whitespace.
+- **branch-prefix-name** *(optional)*: the same, for
+  `issue-branch-naming-prefix: name`.
 - *(other keys)*: any machine-wide per-user value future skills
   record. Unknown keys are preserved on merge and ignored by readers
   that do not consume them.

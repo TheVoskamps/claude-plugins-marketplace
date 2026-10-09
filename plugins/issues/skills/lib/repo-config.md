@@ -264,6 +264,18 @@ Variable parts are wrapped in backticks.
   Checked before the slot's default, and, like it, aborts the read
   whichever slot the caller wanted.
 
+- **Branch-prefix mode invalid**
+
+  > `.issues/repo-config.md` sets `issue-branch-naming-prefix` to
+  > `<value>`, which is not one of `none`, `initials` or `name`. Run
+  > `/issues:repo-config` to fix it.
+
+  Triggered when `/issues:issue-branch-prefix` finds
+  `issue-branch-naming-prefix` set to anything other than `none`,
+  `initials` or `name`. `<value>` is the field's value as read.
+  Unlike the slot checks above, the read itself does not check this
+  field: only `/issues:issue-branch-prefix` aborts on it.
+
 Readers should not invent additional abort messages for the same
 failure shapes. If a new failure shape arises, document it in this
 catalogue rather than ad-hoc wording in the reader.
