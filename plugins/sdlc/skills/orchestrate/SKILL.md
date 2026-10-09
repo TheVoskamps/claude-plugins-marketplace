@@ -585,7 +585,7 @@ the standalone path rather than this one:
 --pr <PR_REF> --issues <issue_N1> <issue_N2> … --branch <branch-name>
 
 Review this PR per your agent definition. Report back its verdicts,
-findings, severity counts, and theorem tally.
+findings, round kind, and resume facts.
 ```
 
 This round's number is the one the reviewer composes its round
@@ -610,10 +610,10 @@ tier itself from the round's delta; `--generator` goes in only when
 the human named a tier, per "Overriding the generator tier" below.
 
 The reviewer returns every verdict line it posted, the overall
-verdict, the severity counts, the findings themselves, and the theorem
-tally; what the tally enumerates is the reviewer agent's own "Report
-back" section. Its report ends with a `Return:` line, which "Handling
-review findings — the fix loop" reads first.
+verdict, the findings themselves, the kind of round, and whether it
+resumed; the tallies stay in the posted review and the round's review
+file. Its report ends with a `Return:` line, which "Handling review
+findings — the fix loop" reads first.
 
 You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
@@ -682,7 +682,7 @@ override is something to argue for rather than a default to reach past.
 re-disproves every recorded theorem, retired ones included and only a
 human-rejected one excepted. Say in the round's report which tier ran,
 whether the rubric or an override picked it, and whether the round was
-a `--full` one.
+a `--full` one, as the round's Review method section names them.
 
 ### Handling review findings — the fix loop
 
