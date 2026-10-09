@@ -140,8 +140,7 @@ you are in, and none may.
 disprover is outstanding, and nothing is derived while any verifier is.
 Which theorems are **settled** in a stage and which have a child **in
 flight** — a `stopped` and a duplicate `leave` included — are derived
-per the skill → "What the reader derives"; the verdict is in the result
-file the record names, never inferred from the log. **Keep what is
+per the skill → "What the reader derives". **Keep what is
 settled, re-run the rest**: before every spawn, subtract the settled and
 the in-flight theorems, and spawn every other outstanding theorem.
 
@@ -694,10 +693,9 @@ child of the stage rather than the one that woke you:
 
 The disprovers' wait is this loop over the `disprove` stage.
 
-**A verdict's only admissible source is the child's own result file.** A
-notification is a wake-up, not evidence. A theorem whose child wrote no
-result file has no verdict — not `SURVIVED`, not anything — and writing
-one down because the round needs one is the failure this rule
+**A notification is a wake-up, not evidence.** A theorem whose child
+wrote no result file has no verdict — not `SURVIVED`, not anything — and
+writing one down because the round needs one is the failure this rule
 prevents; the disposition table has a row for it.
 
 A turn you end while any live theorem has no verdict is an
@@ -742,13 +740,20 @@ else.
 byte. **No retry ping-pong**: a `REFUTED` counterexample ends that
 theorem's round, with no second disprover and no second verifier.
 
+**A malformed verifier report** is one that carries no reason, or a
+reason that does not engage the counterexample it was handed, per
+`counterexample-verifier` → "Output". The finding then **stands** on the
+disposition table's verifier-malformed row — resolve toward filing,
+never toward silently dropping a counterexample that carried verbatim
+evidence.
+
 Subtract the `verify` stage's settled and in-flight theorems, then
 spawn the verifiers in waves, each with a `--mode spawn` record under
 `--stage verify` and `--agent counterexample-verifier`, and name them
 in your closing turn text.
 
 **The verifiers' wait is the same loop over the `verify` stage**, under
-the same admissible-source rule, in-progress status and shared pass
+the same wake-up rule, in-progress status and shared pass
 count. A disproved theorem still without a verifier verdict when the
 loop exits takes **disproved, unverified**: no finding, no severity,
 named in the review and its summary, live again next round. The round
