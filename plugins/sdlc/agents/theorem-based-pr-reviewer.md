@@ -190,9 +190,9 @@ unsettled, waiting for them, and re-reading the log; each replacement's
 pass, and only a pass spawns anything. **One count spans all three
 stages.** Take another pass only while the last one settled at least
 one theorem the log did not already have, and stop at 7 passes whatever
-happened. Either exit is an escalation: report an in-progress status
-naming the outstanding theorems and which exit you took. The count is
-your own instance's; your caller bounds how many instances a PR gets.
+happened. Either exit is an escalation, returned as an in-progress
+status per "Report back". The count is your own instance's; your caller
+bounds how many instances a PR gets.
 
 #### What this resume cannot see
 
@@ -448,7 +448,7 @@ A minted record takes every field from a fixed source:
 
 **Retire on survive.** A theorem that survived its round, or whose
 counterexample the verifier refuted, **retires in that same round**,
-stamped against that round's head SHA; no later default round
+with `settled-at` that round's head SHA; no later default round
 re-disproves it. Acceptance-criterion theorems included: nothing keyed
 on pointer overlap re-livens a record. A criterion theorem left
 `disproved` or `unsettled` stays live like any other. Retirement is a
@@ -701,17 +701,7 @@ one down because the round needs one is the failure this rule
 prevents; the disposition table has a row for it.
 
 A turn you end while any live theorem has no verdict is an
-**in-progress status**, and must read as one: the outstanding theorems
-named by id — never counted — with their stage, plus the resume-pass
-loop exit once one has fired, and no verdict block and no findings. The
-harness surfaces a turn-end as `status: completed`, so a partial turn
-written like a report reads as a finished review.
-
-A disprover past its deadline with no verdict is **unsettled** in this
-pass, and re-spawned as a resume pass while passes remain. The round
-moves on with it unsettled only when the loop exits: it takes the
-`could not be settled` disposition, gets no severity, is named in the
-posted review, and is live again next round.
+**in-progress status**, returned as "Report back" defines it.
 
 Each `DISPROVED` theorem, read out of the disprovers' result files, gets
 one `sdlc:counterexample-verifier`; `SURVIVED` theorems spawn none.
@@ -720,9 +710,9 @@ one `sdlc:counterexample-verifier`; `SURVIVED` theorems spawn none.
 verbatim at the PR head, the canonical instance being one taken from
 `main` or `origin/<base>` — or one asserting file topology without a
 topology command, per "Before claiming file-topology issues". It takes
-**could not be settled** and is live again next round. Never file a
-finding on a paraphrase, never drop it silently, and spawn neither a
-verifier nor a second disprover for it.
+**could not be settled**. Never file a finding on a paraphrase, never
+drop it silently, and spawn neither a verifier nor a second disprover
+for it.
 
 Route the model as for the disprovers, by settle mode, the `semantic`
 spawn taking `counterexample-verifier`'s frontmatter model, and pass
@@ -751,10 +741,6 @@ else.
 `--counterexample` is the report as its result file holds it, byte for
 byte. **No retry ping-pong**: a `REFUTED` counterexample ends that
 theorem's round, with no second disprover and no second verifier.
-
-**A malformed verifier report** — a reason `counterexample-verifier` →
-"Output" calls malformed — leaves the finding **standing**, on the
-disprover's proposed class. Spawn no second verifier.
 
 Subtract the `verify` stage's settled and in-flight theorems, then
 spawn the verifiers in waves, each with a `--mode spawn` record under
@@ -799,13 +785,12 @@ the member(s) the theorem carried. A `REFUTED` theorem is **not**
 proved: one counterexample was offered and rejected.
 
 Then stamp each theorem's record with the state this round left it in.
-The first two rows retire it **in this round**, with
-`state-detail: survived` or `state-detail: disproved-but-refuted` and
-`settled-at` this round's head SHA. The `STANDS`, verifier-malformed
-and no-verifier-verdict rows stamp `disproved` — the last with
-`state-detail: unverified` — and the two unsettled rows `unsettled`;
-none retires. A theorem that got no disprover this round keeps the
-state and head SHA it had.
+The first two rows retire it per "Retire on survive", with
+`state-detail: survived` or `state-detail: disproved-but-refuted`. The
+`STANDS`, verifier-malformed and no-verifier-verdict rows stamp
+`disproved` — the last with `state-detail: unverified` — and the two
+unsettled rows `unsettled`; none retires. A theorem that got no
+disprover this round keeps the state and head SHA it had.
 
 Then derive the verdicts per "Per-issue verdicts, one overall" and
 "Verdict follows from findings". A carried-forward theorem carries its
@@ -1110,13 +1095,13 @@ the code assigned, and you transcribe it:
 | `optional-polish` | Low |
 
 The class is the verifier's `STANDS` class, which wins over the
-disprover's per `counterexample-verifier` → "The consequence classes";
-the disprover's proposal only on a malformed verifier report.
+disprover's per `counterexample-verifier` → "The consequence classes",
+except on the disposition table's verifier-malformed row.
 
 A `CONSEQUENCE-CLASS` that is absent or not one of the four makes the
-report malformed for its sender: a `STANDS` so filed stands on the
-disprover's proposal, and a `DISPROVED` so filed reaches no verifier and
-is unsettled. You assign no class yourself and spawn no replacement:
+report malformed for its sender: a `STANDS` so filed takes the
+verifier-malformed row, and a `DISPROVED` so filed reaches no verifier
+and is unsettled. You assign no class yourself and spawn no replacement:
 everything in a record is transcribed from the agent or human that
 produced it.
 
@@ -1177,8 +1162,7 @@ posted review already lists:
   adjustment-only, empty-delta, or `--full` — since "no findings" off
   an empty-delta round is a carried-forward verdict.
 - **The resume facts** — whether the round was resumed, how many
-  theorems it inherited settled, how many resume passes it took, and on
-  an in-progress return the loop exit and the outstanding theorems.
+  theorems it inherited settled, and how many resume passes it took.
 
 **End every report with one fixed closing line**,
 `Return: <kind> — <next step>`, in exactly one of three kinds:
@@ -1190,6 +1174,10 @@ posted review already lists:
   make progress; or `Return: in progress: <outstanding theorems or
   stage> — raise it`, when another pass would settle nothing new — the
   exit "You are re-entrant" takes when a pass settled no new theorem.
+  An in-progress report names the outstanding theorems by id — never
+  counted — with their stage, and the resume-pass loop exit once one
+  has fired, and carries no verdict block and no findings: a partial
+  turn written like a report reads as a finished review.
 - `Return: broken call: <script's message verbatim> — raise it`, per
   "When a call fails".
 
