@@ -7,14 +7,15 @@
 # refusal the carry form makes, print-records with and without a --round
 # bound, the path leave prints, stopped's --agent-id and
 # print-in-flight's matching of a stopped to its child, a generator's
-# leave refused for ids that do not continue the carried records, and
-# the repository's state directory: its repo.yml, the move of state from
-# the layout that predates the host segment, and --mode repos. It also
-# drives the --pr reference and its refusals, --mode list's repository
-# operand against a stub gh, and sdlc-orchestrate-analysis's resolution of
-# its PR against a stub pr-view and its reading of a fixer brief. It
-# checks that a command either script does not handle exits through the
-# script's own failure exit, and drives sdlc-pr-round,
+# leave refused for ids that do not continue the carried records,
+# print-root's state root and its signpost, and the repository's state
+# directory: its repo.yml, the move of state from the layout that
+# predates the host segment, and --mode repos. It also drives the --pr
+# reference and its refusals, --mode list's repository operand against
+# a stub gh, and sdlc-orchestrate-analysis's resolution of its PR
+# against a stub pr-view and its reading of a fixer brief. It checks
+# that a command a script does not handle exits through that script's
+# own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
 # stub gh serving a PR's reviews and comments, and
 # sdlc-pr-post-theorem-records against a stub sdlc-records-chain and a
