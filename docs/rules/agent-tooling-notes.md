@@ -97,7 +97,8 @@ a double-quoted word — `gh pr review <PR> --approve --body "<body>"` —
 has every backtick and `$` in it read by the shell before `gh` sees a
 byte, and the bodies these agents post are Markdown carrying backticks
 throughout: `sdlc:pr-finalizer`'s detail chunks reproduce each child's
-result file verbatim, quoted code included, and even a review summary
+result file verbatim, quoted code included, except a piece too large for one
+comment, whose chunk names its files by path instead, and even a review summary
 carries backticked state-relative paths and a `${…}` state root. A
 26 KB review body posted on this repo, back when the argued detail still
 travelled in the review, carried backticks on 97 of its lines.
@@ -107,8 +108,9 @@ So pass a long body by path. `gh`'s body-carrying verbs each take
 the file form needs no quoting at all: stage the text with `Write`
 under `<repo-root>/.claude/tmp/<task-slug>/` and name the path.
 `sdlc:theorem-based-pr-reviewer` posts every review that way, through
-`/github-prs:pr-review-submit --body-file`, and `sdlc:pr-finalizer`
-posts each detail chunk with `/github-prs:pr-comment --body-file`.
+`/github-prs:pr-review-submit --body-file`, and the script
+`sdlc:pr-finalizer` runs posts each detail chunk with
+`pr-comment --body-file`.
 
 ## `gh pr create` is GraphQL and can fail while REST is healthy
 

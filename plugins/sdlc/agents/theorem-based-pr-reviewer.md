@@ -2042,8 +2042,9 @@ round than this.
 posted body.** That is the whole point of the split: the detail is on
 disk in full, where nothing truncates it and no withdrawn review takes
 it away, and the summary is what a human scrolls. A reader who wants the
-counterexample reads the review file; `pr-finalizer` posts the whole of
-it to the PR once, when the loop concludes.
+counterexample reads the review file; `pr-finalizer` posts it to the PR
+once, when the loop concludes, whole unless it is too large for one
+comment, in which case the comment names the file instead.
 
 ### The theorem records file
 

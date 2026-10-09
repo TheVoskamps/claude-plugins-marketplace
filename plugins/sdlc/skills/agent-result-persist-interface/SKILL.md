@@ -102,9 +102,10 @@ then Write again.
 
 These two go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
-refuses it: `delete` removes the whole PR's directory, so it refuses
-`--round`, `list` reads across every PR of a repository, so it refuses
-`--pr` and `--round` alike and takes the repository instead, and
+refuses it: `delete` removes the whole PR's directory and `print-root`
+names it, so each refuses `--round`, `list` reads across every PR of a
+repository, so it refuses `--pr` and `--round` alike and takes the
+repository instead, and
 `repos` reads across every repository, so it refuses both and takes no
 repository. `print-records` selects the round itself, so `--round` is
 optional there and bounds that selection rather than naming a round.
@@ -157,10 +158,9 @@ are the whole of what composes it — no session is part of the path.
 Each is a fact about the PR under review, which is what makes a round
 survive the session that opened it: a reviewer resumed in a session
 that never saw the first one holds both already, composes the same
-path, and reads the same log. The state variable is used when
-set and non-empty and `$HOME/.local/state` otherwise, and the script
-spells that fallback once. This directory is where the whole of a
-round's output lives: the theorem
+path, and reads the same log. The script uses the state variable when
+set and non-empty and `$HOME/.local/state` otherwise. This directory is where
+the whole of a round's output lives: the theorem
 records that the next round carries forward, and the argued review it
 composed, are files here rather than text on the PR.
 
@@ -223,8 +223,9 @@ no longer wanted, which is the one exception this policy makes.
 
 One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
-round, `list` and `delete` for what they do across a repo's PR
-directories, and `repos` for what it lists across the state root.
+round, `print-root` for the PR directory it names, `list` and `delete`
+for what they do across a repo's PR directories, and `repos` for what
+it lists across the state root.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`.
   One call per round, and **idempotent**, which is what lets the
@@ -431,6 +432,14 @@ directories, and `repos` for what it lists across the state root.
   file.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
+- **`print-root`** — writes the PR's state root to stdout as two lines,
+  each with its trailing `/`: first expanded, then as the signpost "The
+  paths" describes, with `<host>`, `<owner>`, `<repo>` and `<pr>` filled
+  in and the state variable and its fallback left unexpanded. It is
+  composed here so a caller that names a file to a human relative to
+  the root spells no root of its own; it opens nothing. It takes **no
+  `--round`** and refuses one, creates nothing, and exits zero whether
+  or not the directory exists.
 - **`list`** — writes to stdout one PR per line, as the
   `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
   order of `<n>`, one per `pr<n>/` directory under the repository's
