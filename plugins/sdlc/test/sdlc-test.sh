@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
 # sdlc-test.sh -- drive plugins/sdlc/bin/sdlc-agent-result-persist's
-# records modes against a state root of its own: the round-0 seed write,
-# the carry form that builds a later round's records file from the
-# carried round, an edits file and the new records, each refusal the
-# carry form makes, print-records with and without a --round bound, the
-# path leave prints, stopped's --agent-id and print-in-flight's matching
-# of a stopped to its child, a generator's leave refused for ids that do
-# not continue the carried records, and the repository's state directory: its repo.yml, the move of state from
+# records and round-log modes against a state root of its own: the
+# round-0 seed write, the carry form that builds a later round's records
+# file from the carried round, an edits file and the new records, each
+# refusal the carry form makes, print-records with and without a --round
+# bound, the path leave prints, stopped's --agent-id and
+# print-in-flight's matching of a stopped to its child, a generator's
+# leave refused for ids that do not continue the carried records, and
+# the repository's state directory: its repo.yml, the move of state from
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution of
