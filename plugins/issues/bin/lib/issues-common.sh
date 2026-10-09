@@ -360,7 +360,6 @@ iss_config_frontmatter() {
   done
   ISS_ISSUES=$(iss_fm_get "$fm" issues)
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix)
-  # shellcheck disable=SC2034 # read by issue-branch-prefix, not by this file
   ISS_BRANCH_PREFIX_MODE=$(iss_fm_get "$fm" issue-branch-naming-prefix)
   case "$ISS_ISSUES" in
     GitHub|Jira) ;;
@@ -1536,6 +1535,34 @@ iss_default_assignee() {
     *) exit 1 ;;
   esac
   iss_viewer_login "$1"
+}
+
+# iss_branch_prefix: print the "mode:" and "prefix:" lines for
+# ISS_BRANCH_PREFIX_MODE, taking the prefix from the user-config key the mode
+# names as iss_user_config_value resolves it. Aborts on a mode outside
+# none/initials/name, and on a key that is unset or whose value contains "/"
+# or whitespace.
+iss_branch_prefix() {
+  local mode=$ISS_BRANCH_PREFIX_MODE key value
+  case "$mode" in
+    none)
+      printf 'mode: none\nprefix:\n'
+      return 0
+      ;;
+    initials) key=branch-prefix-initials ;;
+    name) key=branch-prefix-name ;;
+    *) iss_err_branch_prefix_mode "$mode" ;;
+  esac
+  value=$(iss_user_config_value "$key")
+  case "$?" in
+    0) ;;
+    3) iss_err_branch_prefix_unset "$key" ;;
+    *) exit 1 ;;
+  esac
+  case "$value" in
+    */*|*[[:space:]]*) iss_err_branch_prefix_invalid "$key" "$value" ;;
+  esac
+  printf 'mode: %s\nprefix: %s/\n' "$mode" "$value"
 }
 
 # iss_viewer_login <host>: print the login of the user gh is authenticated as
