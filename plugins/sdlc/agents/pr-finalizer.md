@@ -237,9 +237,11 @@ into a brief.
 
    **One kind of comment is neither.** A chunk of the detail chain
    "Post the run's assembled detail" below posts is your own output,
-   not anyone's input. Skip it here on the same terms as a brief:
-   reading your own detail back as a scope note would turn the run's
-   record into input for the section that reports on it.
+   not anyone's input. You know one by its first line,
+   `<!-- sdlc:theorem-records <i>/<N> -->`, `<i>` and `<N>` being
+   numbers. Skip it here on the same terms as a brief: reading your own
+   detail back as a scope note would turn the run's record into input
+   for the section that reports on it.
 
 5. **Post the run's assembled detail**, per "Post the run's assembled
    detail" below, before you touch the body. It lands first so the

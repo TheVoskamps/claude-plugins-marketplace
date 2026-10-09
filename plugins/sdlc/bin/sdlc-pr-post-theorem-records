@@ -75,8 +75,12 @@ persist() {
   sdlc-agent-result-persist --pr "$SP_REF" "$@"
 }
 
-root=$(persist --mode print-root || exit) ||
+# The PR's state root, expanded to strip from a result file's path, and
+# as the signpost a placeholder chunk shows a human.
+roots=$(persist --mode print-root || exit) ||
   sp_fail 1 "sdlc-agent-result-persist --mode print-root failed"
+root=${roots%%$'\n'*}
+signpost=${roots#*$'\n'}
 
 # --- an existing chain ----------------------------------------------------
 
@@ -115,12 +119,14 @@ new_piece() {
 # add_file <relative path> <content file>: appends one file, headed by
 # its path, to the current piece.
 add_file() {
+  local final
   if [ -s "$work/piece-$pieces" ]; then
     printf '\n' >>"$work/piece-$pieces"
   fi
   printf "## \`%s\`\n\n" "$1" >>"$work/piece-$pieces"
   cat -- "$2" >>"$work/piece-$pieces"
-  if [ -n "$(tail -c 1 "$2")" ]; then
+  final=$(tail -c 1 "$2")
+  if [ -n "$final" ]; then
     printf '\n' >>"$work/piece-$pieces"
   fi
   printf '%s\n' "$1" >>"$work/piece-$pieces.files"
@@ -227,8 +233,7 @@ placeholder() {
   {
     printf '## Too large to post\n\n'
     printf 'This piece is %s bytes, more than one comment carries, so it is not posted. ' "$2"
-    printf "Its files are under the PR's state root, \`%s\`, each part taken from \`%s\`:\n\n" \
-      "\${XDG_STATE_HOME:-\$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/" "$SP_REF"
+    printf "Its files are under the PR's state root, \`%s\`:\n\n" "$signpost"
     while IFS= read -r relative; do
       printf -- "- \`%s\`\n" "$relative"
     done <"$work/piece-$1.files"

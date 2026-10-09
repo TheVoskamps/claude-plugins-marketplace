@@ -1062,7 +1062,8 @@ check "$([ -x "$POST" ] && echo yes)" "yes" "sdlc-pr-post-theorem-records is exe
 
 new_case print-root
 OUT=$("$PERSIST" --mode print-root --pr 'h.example/o/r#7' 2>"$CASE/err" </dev/null)
-check "$?:$OUT" "0:$XDG_STATE_HOME/$PR_DIR_REL/" "persist print-root: prints the PR's state root"
+check "$?:$OUT" "0:$XDG_STATE_HOME/$PR_DIR_REL/
+\${XDG_STATE_HOME:-\$HOME/.local/state}/$PR_DIR_REL/" "persist print-root: prints the PR's state root, expanded then as its signpost"
 check "$([ -e "$XDG_STATE_HOME/sdlc" ] && echo made || echo absent)" "absent" "persist print-root: creates nothing"
 "$PERSIST" --mode print-root --pr 'h.example/o/r#7' --round 1 >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "persist print-root: --round is refused"
@@ -1136,6 +1137,9 @@ check "$(posted_headers 2)" '<!-- sdlc:theorem-records 2/3 -->
 check_contains "$(cat "$CASE/posted/2")" "- \`round1/T1-theorem-disprover\`
 - \`round1/T1-counterexample-verifier\`" "post: the oversize chunk names each of the piece's files"
 check "$(cat "$CASE/posted/"* | grep -c OVERSIZE-TOKEN)" "0" "post: no part of the oversize piece is posted"
+check_contains "$(cat "$CASE/posted/2")" "\`\${XDG_STATE_HOME:-\$HOME/.local/state}/$PR_DIR_REL/\`" \
+  "post: the oversize chunk names the PR's state root as its signpost"
+check "$(grep -c -- "$XDG_STATE_HOME" "$CASE/posted/2")" "0" "post: the oversize chunk carries no expanded state path"
 check "$(posted_headers 3)" "<!-- sdlc:theorem-records 3/3 -->
 ## \`round1/T2-theorem-disprover\`" "post: the pieces after it are posted whole"
 
@@ -1150,6 +1154,14 @@ post 'h.example/o/r#7'
 check "$RC:$OUT" "3:" "post: a missing pr-comment exits 3"
 check_contains "$ERR" "pr-comment" "post: stderr names the missing pr-comment"
 check "$CALLS" "" "post: a missing command is found before anything is read"
+
+post_case post-command-fails
+state_file round1/review 100
+printf '#!/bin/sh\necho "stub tail: refused" >&2\nexit 7\n' >"$CASE/bin/tail"
+chmod +x "$CASE/bin/tail"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "1:0" "post: a failed command it does not handle exits 1 and posts nothing"
+check_contains "$ERR" "tail -c 1" "post: stderr names the command that failed"
 
 post_case post-chain-fails "" 1
 state_file round1/review 100

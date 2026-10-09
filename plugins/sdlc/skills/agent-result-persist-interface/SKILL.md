@@ -160,8 +160,8 @@ survive the session that opened it: a reviewer resumed in a session
 that never saw the first one holds both already, composes the same
 path, and reads the same log. The state variable is used when
 set and non-empty and `$HOME/.local/state` otherwise, and the script
-spells that fallback once. This directory is where the whole of a
-round's output lives: the theorem
+is the one place that spells that fallback. This directory is where
+the whole of a round's output lives: the theorem
 records that the next round carries forward, and the argued review it
 composed, are files here rather than text on the PR.
 
@@ -433,13 +433,14 @@ it lists across the state root.
   file.
 - **`print-review`** — writes the named round's review file to stdout.
   Exits non-zero when that round holds none.
-- **`print-root`** — writes the PR's state root to stdout as one line,
-  `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/`
-  expanded, trailing `/` included. It is the signpost "The paths"
-  describes, composed here so a caller that names a file to a human
-  relative to the root spells no root of its own; it opens nothing. It
-  takes **no `--round`** and refuses one, creates nothing, and exits
-  zero whether or not the directory exists.
+- **`print-root`** — writes the PR's state root to stdout as two lines,
+  each with its trailing `/`: first expanded, then as the signpost "The
+  paths" describes, with `<host>`, `<owner>`, `<repo>` and `<pr>` filled
+  in and the state variable and its fallback left unexpanded. It is
+  composed here so a caller that names a file to a human relative to
+  the root spells no root of its own; it opens nothing. It takes **no
+  `--round`** and refuses one, creates nothing, and exits zero whether
+  or not the directory exists.
 - **`list`** — writes to stdout one PR per line, as the
   `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
   order of `<n>`, one per `pr<n>/` directory under the repository's

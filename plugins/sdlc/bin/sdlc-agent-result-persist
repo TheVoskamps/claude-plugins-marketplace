@@ -125,7 +125,10 @@ case "$mode" in
   *)  die "unknown --mode: $mode" ;;
 esac
 
+# The state root as the script opens it, and as the signpost a human is
+# shown, unexpanded; the two spell the same fallback and change together.
 readonly state_root="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc"
+readonly state_root_form="\${XDG_STATE_HOME:-\$HOME/.local/state}/sdlc"
 
 # is_old_layout <dir>: whether a directory two levels below the state
 # root is a repository's state from before the host was part of the
@@ -903,8 +906,10 @@ case "$mode" in
     ;;
   print-root)
     # The PR's state root, for a caller that names a file under it to a
-    # human relative to it; whether it exists yet is not this mode's to say.
+    # human relative to it: expanded, then as the signpost a human is
+    # shown. Whether it exists yet is not this mode's to say.
     printf '%s/\n' "$pr_dir"
+    printf '%s/\n' "$state_root_form/$host/$owner/$repo/pr$pr"
     ;;
   list)
     # A repo no review has run against has no directory, which is an
