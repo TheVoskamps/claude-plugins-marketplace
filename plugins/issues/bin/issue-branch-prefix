@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Print the issue-branch prefix mode repo-config names and the literal prefix
+# it resolves to from user-config. Makes no gh call. The contract is
+# plugins/issues/skills/issue-branch-prefix/SKILL.md.
+set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
+
+[ "$#" -eq 0 ] || iss_usage_die "usage: issue-branch-prefix"
+iss_load_config frontmatter-only
+iss_branch_prefix

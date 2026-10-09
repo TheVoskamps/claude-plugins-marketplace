@@ -121,7 +121,14 @@ option, plus an "Other" branch for arbitrary keys:
    example consumer documented in `skills/lib/user-config.md`
    (self-assign issues without touching team-shared repo-config).
    Recommended: leave unset.
-3. **Other** — let the user add any `key: value` pair they want to
+3. **`branch-prefix-initials`** — the initials an issue-branch name
+   carries in front of `/` when the repo-config's
+   `issue-branch-naming-prefix` is `initials`; this repo's value
+   overrides a user-global one. No `/` and no whitespace. Recommended:
+   leave unset unless that mode is configured.
+4. **`branch-prefix-name`** — the same, for
+   `issue-branch-naming-prefix: name`.
+5. **Other** — let the user add any `key: value` pair they want to
    record as a personal per-repo setting. Capture key and value as
    strings. Repeat until the user is done.
 
@@ -312,6 +319,12 @@ written by #156's identity skill).
 - **identity-key** *(optional)*: machine-local binding from this repo
   to a GitHub App private-key identity, read by #156's identity
   resolver. Usually written by the identity skill, not by hand.
+- **branch-prefix-initials** *(optional)*: the initials an
+  issue-branch name carries in front of `/` when the repo-config's
+  `issue-branch-naming-prefix` is `initials`; overrides a user-global
+  value. No `/` and no whitespace.
+- **branch-prefix-name** *(optional)*: the same, for
+  `issue-branch-naming-prefix: name`.
 - *(other keys)*: any per-user, per-repo value future skills record.
   Unknown keys are preserved on merge and ignored by readers that do
   not consume them.

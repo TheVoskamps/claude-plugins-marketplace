@@ -21,7 +21,7 @@ ISS_REPO=
 # The minimum repo-config schema-version these scripts read. A newer file is
 # read as this version; its additions are ignored.
 readonly ISS_REPO_CONFIG_SCHEMA=6
-# The minimum user-config schema-version the default-assignee read accepts.
+# The minimum user-config schema-version every user-config read accepts.
 readonly ISS_USER_CONFIG_SCHEMA=1
 
 # Path separator inside a flattened config key: option names carry dots,
@@ -156,6 +156,19 @@ iss_err_user_config_stale() {
   iss_die "\`$1\` is at schema-version \`$3\`; this reader requires \`$ISS_USER_CONFIG_SCHEMA\`. Run \`$2\` to migrate."
 }
 
+iss_err_branch_prefix_mode() {
+  iss_die "\`.issues/repo-config.md\` sets \`issue-branch-naming-prefix\` to \`$1\`, which is not one of \`none\`, \`initials\` or \`name\`. Run \`/issues:repo-config\` to fix it."
+}
+
+iss_err_branch_prefix_unset() {
+  iss_die "user-config key \`$1\` is unset in both the repo-level and the user-global user-config. Set it with \`/issues:user-config\` (this repo) or \`/issues:global-user-config\` (this machine)."
+}
+
+iss_err_branch_prefix_invalid() {
+  # $1 key, $2 the resolved value
+  iss_die "user-config key \`$1\` resolves to \`$2\`, which contains \`/\` or whitespace; a branch prefix is a single path component. Set it with \`/issues:user-config\` (this repo) or \`/issues:global-user-config\` (this machine)."
+}
+
 # ---------------------------------------------------------------------------
 # Small helpers.
 # ---------------------------------------------------------------------------
@@ -194,7 +207,8 @@ iss_require_tools() {
 #
 # iss_parse_config_text <text> [<message-prefix>] parses a repo-config's text
 # and sets:
-#   ISS_ISSUES, ISS_LINK_PREFIX       front-matter values
+#   ISS_ISSUES, ISS_LINK_PREFIX,      front-matter values
+#   ISS_BRANCH_PREFIX_MODE
 #   ISS_GP                            the github-project: block flattened to
 #                                     one "<path><TAB><value>" line per node,
 #                                     path components joined by ISS_SEP
@@ -328,7 +342,8 @@ iss_validate_config_text() {
 }
 
 # iss_config_frontmatter <text> [<message-prefix>]: the schema-version and
-# canonical-field checks; sets ISS_ISSUES and ISS_LINK_PREFIX.
+# canonical-field checks; sets ISS_ISSUES, ISS_LINK_PREFIX and
+# ISS_BRANCH_PREFIX_MODE.
 iss_config_frontmatter() {
   local text=$1 prefix=${2:-} fm version field
   if ! fm=$(iss_frontmatter "$text"); then
@@ -345,6 +360,7 @@ iss_config_frontmatter() {
   done
   ISS_ISSUES=$(iss_fm_get "$fm" issues)
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix)
+  ISS_BRANCH_PREFIX_MODE=$(iss_fm_get "$fm" issue-branch-naming-prefix)
   case "$ISS_ISSUES" in
     GitHub|Jira) ;;
     *) iss_die "${prefix}unsupported \`issues:\` value \`$ISS_ISSUES\` in \`.issues/repo-config.md\`" ;;
@@ -419,11 +435,17 @@ iss_number_check() {
   [ -z "$max" ] || [ "$value" -le "$max" ]
 }
 
-# Read the current repo's .issues/repo-config.md.
+# iss_load_config [frontmatter-only]: read the current repo's
+# .issues/repo-config.md. With frontmatter-only, only iss_config_frontmatter's
+# checks run, so a Jira config is read rather than refused.
 iss_load_config() {
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
   [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || iss_err_file_missing
-  iss_parse_config_text "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
+  if [ "${1:-}" = frontmatter-only ]; then
+    iss_config_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
+  else
+    iss_parse_config_text "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
+  fi
 }
 
 # iss_load_target_config <host> <owner> <repo>: read a target repo's
@@ -1453,7 +1475,7 @@ iss_remove_sub_issue() {
 }
 
 # ---------------------------------------------------------------------------
-# User-config: the default-assignee read.
+# User-config reads.
 # ---------------------------------------------------------------------------
 
 # iss_user_config_get <path> <writer-skill> <key>: print the key's value from
@@ -1471,15 +1493,17 @@ iss_user_config_get() {
   iss_fm_get "$fm" "$key" || return 3
 }
 
-# iss_default_assignee <host> [global-only]: default-assignee from the
-# repo-level user-config, then the user-global one, then the user gh is
-# authenticated as on <host>. With global-only, the repo-level file is not
-# consulted. Callers run it in a command substitution and exit on a non-zero
-# status, which is an abort already reported on stderr.
-iss_default_assignee() {
-  local host=$1 v rc
+# iss_user_config_value <key> [global-only]: print the key's value from the
+# repo-level user-config, else from the user-global one; a file that sets the
+# key to an empty value counts as not setting it. The repo-level file is read
+# only when ISS_REPO_ROOT is set, and not at all with global-only. Returns 3
+# when neither file sets the key. Callers run it in a command substitution
+# and exit on any other non-zero status, which is an abort already reported
+# on stderr.
+iss_user_config_value() {
+  local key=$1 v rc
   if [ "${2:-}" != global-only ] && [ -n "${ISS_REPO_ROOT:-}" ]; then
-    v=$(iss_user_config_get "$ISS_REPO_ROOT/.issues/user-config.md" /user-config default-assignee)
+    v=$(iss_user_config_get "$ISS_REPO_ROOT/.issues/user-config.md" /user-config "$key")
     rc=$?
     [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || exit 1
     if [ "$rc" -eq 0 ] && [ -n "$v" ]; then
@@ -1487,14 +1511,58 @@ iss_default_assignee() {
       return 0
     fi
   fi
-  v=$(iss_user_config_get "${XDG_CONFIG_HOME:-$HOME/.config}/issues/user-config.md" /global-user-config default-assignee)
+  v=$(iss_user_config_get "${XDG_CONFIG_HOME:-$HOME/.config}/issues/user-config.md" /global-user-config "$key")
   rc=$?
   [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || exit 1
   if [ "$rc" -eq 0 ] && [ -n "$v" ]; then
     printf '%s' "$v"
     return 0
   fi
-  iss_viewer_login "$host"
+  return 3
+}
+
+# iss_default_assignee <host> [global-only]: default-assignee as
+# iss_user_config_value resolves it, else the user gh is authenticated as on
+# <host>. Callers run it in a command substitution and exit on a non-zero
+# status, which is an abort already reported on stderr.
+iss_default_assignee() {
+  local v rc
+  v=$(iss_user_config_value default-assignee "${2:-}")
+  rc=$?
+  case "$rc" in
+    0) printf '%s' "$v"; return 0 ;;
+    3) ;;
+    *) exit 1 ;;
+  esac
+  iss_viewer_login "$1"
+}
+
+# iss_branch_prefix: print the "mode:" and "prefix:" lines for
+# ISS_BRANCH_PREFIX_MODE, taking the prefix from the user-config key the mode
+# names as iss_user_config_value resolves it. Aborts on a mode outside
+# none/initials/name, and on a key that is unset or whose value contains "/"
+# or whitespace.
+iss_branch_prefix() {
+  local mode=$ISS_BRANCH_PREFIX_MODE key value
+  case "$mode" in
+    none)
+      printf 'mode: none\nprefix:\n'
+      return 0
+      ;;
+    initials) key=branch-prefix-initials ;;
+    name) key=branch-prefix-name ;;
+    *) iss_err_branch_prefix_mode "$mode" ;;
+  esac
+  value=$(iss_user_config_value "$key")
+  case "$?" in
+    0) ;;
+    3) iss_err_branch_prefix_unset "$key" ;;
+    *) exit 1 ;;
+  esac
+  case "$value" in
+    */*|*[[:space:]]*) iss_err_branch_prefix_invalid "$key" "$value" ;;
+  esac
+  printf 'mode: %s\nprefix: %s/\n' "$mode" "$value"
 }
 
 # iss_viewer_login <host>: print the login of the user gh is authenticated as

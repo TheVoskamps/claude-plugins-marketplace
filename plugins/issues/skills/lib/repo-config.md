@@ -264,6 +264,18 @@ Variable parts are wrapped in backticks.
   Checked before the slot's default, and, like it, aborts the read
   whichever slot the caller wanted.
 
+- **Branch-prefix mode invalid**
+
+  > `.issues/repo-config.md` sets `issue-branch-naming-prefix` to
+  > `<value>`, which is not one of `none`, `initials` or `name`. Run
+  > `/issues:repo-config` to fix it.
+
+  Triggered when `/issues:issue-branch-prefix` finds
+  `issue-branch-naming-prefix` set to anything other than `none`,
+  `initials` or `name`. `<value>` is the field's value as read.
+  Unlike the slot checks above, the read itself does not check this
+  field: only `/issues:issue-branch-prefix` aborts on it.
+
 Readers should not invent additional abort messages for the same
 failure shapes. If a new failure shape arises, document it in this
 catalogue rather than ad-hoc wording in the reader.
@@ -329,8 +341,11 @@ file. Order is fixed; `schema-version` is always first.
   `/git-tools:git-issues-from-branch`, which reads this field itself
   to strip the prefix before parsing.
 
-  When the prefix is `initials` or `name`, the agent prompts the
-  human owner for the value if the spawn context doesn't supply it.
+  The `<initials>` and `<name>` values come from the user-config keys
+  `branch-prefix-initials` and `branch-prefix-name`
+  (`skills/lib/user-config.md` → "Owned keys"), and
+  `/issues:issue-branch-prefix` resolves the mode and that value into
+  the literal prefix.
 
 ### Per-field accessor pattern
 
