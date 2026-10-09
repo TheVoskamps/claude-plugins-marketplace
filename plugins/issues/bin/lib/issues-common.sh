@@ -209,7 +209,7 @@ iss_require_tools() {
 # and sets:
 #   ISS_ISSUES, ISS_LINK_PREFIX,      front-matter values
 #   ISS_BRANCH_PREFIX_MODE
-#   ISS_GP                          the github-project: block flattened to
+#   ISS_GP                            the github-project: block flattened to
 #                                     one "<path><TAB><value>" line per node,
 #                                     path components joined by ISS_SEP
 #   ISS_HAS_GP                        1 when the block is present, else 0
