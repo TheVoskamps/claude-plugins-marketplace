@@ -1086,20 +1086,18 @@ state_file round2/review 50
 post 'h.example/o/r#7'
 check "$RC:$OUT" "0:https://h.example/o/r/pull/7#issuecomment-1" \
   "post: a partial chain gets a complete chain posted, its URL printed"
-# shellcheck disable=SC2016
-check "$(posted_headers 1)" '<!-- sdlc:theorem-records 1/1 -->
-## `round1/records`
-## `round1/list-theorem-generator`
-## `round1/list-theorem-generator-medium`
-## `round1/review`
-## `round1/T1-theorem-disprover`
-## `round1/T1-counterexample-verifier`
-## `round1/T2-theorem-disprover`
-## `round2/review`' "post: the pieces in assembly order, each headed by its path under the state root"
-# shellcheck disable=SC2016
-check "$(sed -n '3,5p' "$CASE/posted/1")" '## `round1/records`
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+## \`round1/records\`
+## \`round1/list-theorem-generator\`
+## \`round1/list-theorem-generator-medium\`
+## \`round1/review\`
+## \`round1/T1-theorem-disprover\`
+## \`round1/T1-counterexample-verifier\`
+## \`round1/T2-theorem-disprover\`
+## \`round2/review\`" "post: the pieces in assembly order, each headed by its path under the state root"
+check "$(sed -n '3,5p' "$CASE/posted/1")" "## \`round1/records\`
 
-T1' "post: the records piece leaves out print-records' round line"
+T1" "post: the records piece leaves out print-records' round line"
 check_contains "$CALLS" "pr-comment h.example/o/r#7 --body-file" "post: posts on the reference's PR by body file"
 
 # Pieces of 25,000, 40,000 (T1's two reports) and 30,000 bytes: no two
@@ -1118,10 +1116,9 @@ check "$(for n in 1 2 3; do head -n 1 "$CASE/posted/$n"; done)" '<!-- sdlc:theor
 <!-- sdlc:theorem-records 3/3 -->' "post: each chunk opens with its marker, the chain complete"
 check "$(for n in 1 2 3; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
   "post: no chunk exceeds 60,000 bytes"
-# shellcheck disable=SC2016
-check "$(posted_headers 2)" '<!-- sdlc:theorem-records 2/3 -->
-## `round1/T1-theorem-disprover`
-## `round1/T1-counterexample-verifier`' "post: a theorem's disprover and verifier reports share one chunk"
+check "$(posted_headers 2)" "<!-- sdlc:theorem-records 2/3 -->
+## \`round1/T1-theorem-disprover\`
+## \`round1/T1-counterexample-verifier\`" "post: a theorem's disprover and verifier reports share one chunk"
 check "$(awk '/^x+$/ { print length }' "$CASE/posted/2")" '19999
 19999' "post: neither report in the shared chunk is cut"
 
@@ -1134,13 +1131,11 @@ post 'h.example/o/r#7'
 check "$RC:$POSTED" "0:3" "post: an oversize piece is posted as a chunk of its own"
 check "$(posted_headers 2)" '<!-- sdlc:theorem-records 2/3 -->
 ## Too large to post' "post: the oversize piece's chunk says it was too large"
-# shellcheck disable=SC2016
-check_contains "$(cat "$CASE/posted/2")" '- `round1/T1-theorem-disprover`
-- `round1/T1-counterexample-verifier`' "post: the oversize chunk names each of the piece's files"
+check_contains "$(cat "$CASE/posted/2")" "- \`round1/T1-theorem-disprover\`
+- \`round1/T1-counterexample-verifier\`" "post: the oversize chunk names each of the piece's files"
 check "$(cat "$CASE/posted/"* | grep -c OVERSIZE-TOKEN)" "0" "post: no part of the oversize piece is posted"
-# shellcheck disable=SC2016
-check "$(posted_headers 3)" '<!-- sdlc:theorem-records 3/3 -->
-## `round1/T2-theorem-disprover`' "post: the pieces after it are posted whole"
+check "$(posted_headers 3)" "<!-- sdlc:theorem-records 3/3 -->
+## \`round1/T2-theorem-disprover\`" "post: the pieces after it are posted whole"
 
 post_case post-empty
 post 'h.example/o/r#7'

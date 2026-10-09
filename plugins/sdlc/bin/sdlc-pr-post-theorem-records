@@ -118,8 +118,7 @@ add_file() {
   if [ -s "$work/piece-$pieces" ]; then
     printf '\n' >>"$work/piece-$pieces"
   fi
-  # shellcheck disable=SC2016
-  printf '## `%s`\n\n' "$1" >>"$work/piece-$pieces"
+  printf "## \`%s\`\n\n" "$1" >>"$work/piece-$pieces"
   cat -- "$2" >>"$work/piece-$pieces"
   if [ -n "$(tail -c 1 "$2")" ]; then
     printf '\n' >>"$work/piece-$pieces"
@@ -214,8 +213,7 @@ fi
 # pieces are placed, so room is reserved for a four-digit total; the size
 # check on each built chunk below catches a chain longer than that.
 
-# shellcheck disable=SC2059
-widest=$(printf "$SP_RECORDS_MARKER_FORMAT" 9999 9999)
+widest=$(sp_records_marker 9999 9999)
 marker_room=$((${#widest} + 1))
 budget=$((MAX_CHUNK_BYTES - marker_room))
 chunks=0
@@ -227,12 +225,10 @@ placeholder() {
   {
     printf '## Too large to post\n\n'
     printf 'This piece is %s bytes, more than one comment carries, so it is not posted. ' "$2"
-    # shellcheck disable=SC2016
-    printf 'Its files are under the PR'\''s state root, `%s`, each part taken from `%s`:\n\n' \
-      '${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/' "$SP_REF"
+    printf "Its files are under the PR's state root, \`%s\`, each part taken from \`%s\`:\n\n" \
+      "\${XDG_STATE_HOME:-\$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/" "$SP_REF"
     while IFS= read -r relative; do
-      # shellcheck disable=SC2016
-      printf -- '- `%s`\n' "$relative"
+      printf -- "- \`%s\`\n" "$relative"
     done <"$work/piece-$1.files"
   } >"$work/piece-$1.placeholder"
 }
@@ -264,8 +260,8 @@ done
 i=1
 while [ "$i" -le "$chunks" ]; do
   {
-    # shellcheck disable=SC2059
-    printf "$SP_RECORDS_MARKER_FORMAT\n" "$i" "$chunks"
+    sp_records_marker "$i" "$chunks"
+    printf '\n'
     while IFS= read -r file; do
       printf '\n'
       cat -- "$file"
