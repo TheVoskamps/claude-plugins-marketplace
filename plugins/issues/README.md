@@ -76,7 +76,12 @@ unchanged.
 Personal defaults — `default-assignee`, for one — are optional too,
 and live in a user-config file written by `/issues:user-config` (this
 repo) or `/issues:global-user-config` (this machine). Neither file
-has to exist.
+has to exist, and a key set to an empty value in one scope falls
+through to the other. The one personal value a verb insists on is the
+branch prefix: a repo whose config sets `issue-branch-naming-prefix`
+to `initials` or `name` needs `branch-prefix-initials` or
+`branch-prefix-name` in one of the two scopes before
+`/issues:issue-branch-prefix` can print a prefix.
 
 ## Getting started
 
@@ -148,12 +153,18 @@ issue, its URL and the steps that completed; nothing is rolled back.
 The select-style setters skip a write whose value is already set;
 `/issue-set-status` writes without that pre-check.
 
-The scripts serve the GitHub backend only. Under `issues: Jira` a
-script exits non-zero with one fixed message before any `gh` call, and
-the verb is carried out from the prose Jira path in
+A script that reaches GitHub serves the GitHub backend only. Under
+`issues: Jira` it exits non-zero with one fixed message before any
+`gh` call, and the verb is carried out from the prose Jira path in
 `skills/lib/issue.md`, which for that reason keeps the resolution rules
 and error wording the scripts otherwise own. The surface is the same
-either way; only the calls underneath differ.
+either way; only the calls underneath differ. The refusal is keyed on
+the tracker, not on whether a `gh` call is made: `issue-field-options`
+reads only the config and still refuses Jira, because a slot's shape
+there is the `jira:` block's. The branch prefix is the one value with
+no tracker in it at all, so `issue-branch-prefix` reads a Jira-tracked
+repo exactly as a GitHub one; refusing would have left such a repo
+with no way to resolve it.
 
 Every verb acts in the repository its operand names: `/issue-create`
 and `/issue-field-options` take a leading positional `<repo>`, and
@@ -325,6 +336,7 @@ each skill's own `SKILL.md`.
 | `/issues:repo-config` | Interview the repo's team-shared config into existence, or rewrite it whole |
 | `/issues:user-config` | Merge-update this user's private per-repo settings, and keep the file ignored |
 | `/issues:global-user-config` | Merge-update this user's machine-wide settings |
+| `/issues:issue-branch-prefix` | Print the issue-branch prefix mode the repo config names and the literal prefix it resolves to for this user |
 | `/issue-add` | Deprecated alias for `/issue-create` |
 | `/issue-set-importance` | Deprecated alias for `/issue-set-priority` |
 
@@ -355,7 +367,12 @@ before the issue is read, whatever tracker the checkout itself is on.
 - **No branch, commit or PR handling.** Naming an issue's branch,
   opening its PR, and writing the closing keywords belong to
   `git-tools` and `github-prs`; the multi-issue orchestrator that
-  drives an issue end-to-end is `sdlc`.
+  drives an issue end-to-end is `sdlc`. What this plugin does own is
+  the **value** a branch name is prefixed with: the repo config names
+  a prefix mode, the user config holds the initials or name that mode
+  puts in front of `/`, and `/issues:issue-branch-prefix` resolves the
+  two into the literal prefix, so a caller that names a branch neither
+  parses `.issues/` files for it nor asks the human.
 - **No config written behind your back.** `/repo-config` is the only
   writer of the repo config, through `repo-config-write`, and it
   rewrites the whole file from an interview; no verb edits it mid-run
@@ -409,7 +426,11 @@ defect rather than a helpful expansion:
 - **Who reads repo-config.** A reader contract states what a file
   provides, never who consumes it, so neither `skills/lib/repo-config.md`
   nor `skills/repo-config/SKILL.md` names a consumer, and a new reader
-  in another plugin is no edit here.
+  in another plugin is no edit here. The one named exception is
+  `/issues:issue-branch-prefix` under `issue-branch-naming-prefix`:
+  the mode on its own is not a prefix, and a reader of the entry that
+  was not told what resolves it would go back to asking the human for
+  the value, which is the behaviour the verb exists to replace.
 - **The `$XDG_CONFIG_HOME` fallback.** `skills/lib/user-config.md` →
   "Where `$XDG_CONFIG_HOME` resolves" is the single definition of what
   an unset or empty variable resolves to; a consumer needing the rule
