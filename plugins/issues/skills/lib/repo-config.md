@@ -329,8 +329,11 @@ file. Order is fixed; `schema-version` is always first.
   `/git-tools:git-issues-from-branch`, which reads this field itself
   to strip the prefix before parsing.
 
-  When the prefix is `initials` or `name`, the agent prompts the
-  human owner for the value if the spawn context doesn't supply it.
+  The `<initials>` and `<name>` values come from the user-config keys
+  `branch-prefix-initials` and `branch-prefix-name`
+  (`skills/lib/user-config.md` → "Owned keys"), and
+  `/issues:issue-branch-prefix` resolves the mode and that value into
+  the literal prefix.
 
 ### Per-field accessor pattern
 

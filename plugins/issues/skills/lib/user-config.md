@@ -129,9 +129,17 @@ version; none are defined at version `1`.
 
 ## Owned keys
 
-At schema-version `1` the only **defined** key beyond
-`schema-version` is reserved for the first consumer:
+At schema-version `1` the **defined** keys beyond `schema-version`
+are:
 
+- **`branch-prefix-initials`** *(either scope)* — string. The value
+  an issue-branch name carries in front of `/` when the repo-config's
+  `issue-branch-naming-prefix` is `initials`. Offered by
+  `/user-config` and `/global-user-config`; resolved by
+  `/issues:issue-branch-prefix`, which makes the key mandatory under
+  that mode and refuses a value containing `/` or whitespace.
+- **`branch-prefix-name`** *(either scope)* — string. The same, for
+  `issue-branch-naming-prefix: name`.
 - **`identity-key`** *(repo-level only)* — string. A machine-local
   binding from this repo to a GitHub App private-key identity, read
   by #156's identity resolver via this contract. Owned by the
@@ -219,6 +227,9 @@ the order is **repo-level overrides user-global**:
    (`$XDG_CONFIG_HOME/issues/user-config.md`). If it exists and
    defines the key, use that value.
 3. Otherwise the key is unset — degrade per the reader's contract.
+
+A key set to an empty value counts as not set in that scope, so the
+reader falls through to the next one.
 
 Some keys are scope-specific by definition and skip this fallback.
 `identity-key` is **repo-level only**: a reader for it reads the
@@ -311,6 +322,23 @@ repo-level).
   contract declares the user-config file (or a specific key)
   mandatory, the way #156's identity reader treats a missing
   `identity-key`.
+
+- **Branch-prefix key unset** *(`/issues:issue-branch-prefix` only)*
+
+  > user-config key `<key>` is unset in both the repo-level and the
+  > user-global user-config. Set it with `/issues:user-config` (this
+  > repo) or `/issues:global-user-config` (this machine).
+
+  Triggered when the repo-config's prefix mode needs `<key>` and
+  neither scope sets it to a non-empty value.
+
+- **Branch-prefix value invalid** *(`/issues:issue-branch-prefix`
+  only)*
+
+  > user-config key `<key>` resolves to `<value>`, which contains `/`
+  > or whitespace; a branch prefix is a single path component. Set it
+  > with `/issues:user-config` (this repo) or
+  > `/issues:global-user-config` (this machine).
 
 Readers should not invent additional abort messages for the same
 failure shapes. If a new failure shape arises, document it here

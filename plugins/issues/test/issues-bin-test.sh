@@ -1262,6 +1262,99 @@ done
 check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issues-discover: a usage error makes no gh call"
 
 # ---------------------------------------------------------------------------
+# issue-branch-prefix: the prefix mode from repo-config, the value from
+# user-config, repo-level over user-global.
+# ---------------------------------------------------------------------------
+
+# branch_case <mode>: a new case whose repo-config names <mode>.
+branch_case() {
+  new_case "$(printf '%s\n' "$FRONT_MATTER" | sed "s/^issue-branch-naming-prefix: none\$/issue-branch-naming-prefix: $1/")"
+}
+
+# user_config <repo|global> <front-matter lines>: write that scope's user-config.
+user_config() {
+  local path=$CASE_DIR/repo/.issues/user-config.md
+  [ "$1" = repo ] || { mkdir -p "$CASE_DIR/xdg/issues"; path=$CASE_DIR/xdg/issues/user-config.md; }
+  printf -- '---\n%s\n---\n' "$2" >"$path"
+}
+
+new_case none
+run issue-branch-prefix
+expect "issue-branch-prefix: missing repo-config" 1 "This repo has no \`.issues/repo-config.md\`. Run \`/repo-config\` to create one."
+new_case "---
+schema-version: 5
+source-control: GitHub
+---"
+run issue-branch-prefix
+expect "issue-branch-prefix: stale schema-version" 1 "is at schema-version \`5\`; this skill requires \`6\`"
+new_case "$(printf '%s\n' "$FRONT_MATTER" | sed '/^issue-branch-naming-prefix:/d')"
+run issue-branch-prefix
+expect "issue-branch-prefix: missing key" 1 "is missing the canonical field \`issue-branch-naming-prefix\`"
+
+# Under none, an unversioned user-config in either scope would abort if read.
+branch_case none
+user_config repo 'branch-prefix-initials: ev'
+user_config global 'branch-prefix-name: edwin'
+run issue-branch-prefix
+expect "issue-branch-prefix: none prints an empty prefix" 0 "mode: none${ISS_NL}prefix:"
+check "$OUT" "mode: none${ISS_NL}prefix:" "issue-branch-prefix: none prints exactly two lines"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-branch-prefix: makes no gh call"
+
+branch_case initials
+user_config global $'schema-version: 1\nbranch-prefix-initials: ev'
+run issue-branch-prefix
+check "$OUT" "mode: initials${ISS_NL}prefix: ev/" "issue-branch-prefix: initials from the user-global user-config"
+user_config repo $'schema-version: 1\nbranch-prefix-initials: jd'
+run issue-branch-prefix
+check "$OUT" "mode: initials${ISS_NL}prefix: jd/" "issue-branch-prefix: the repo-level value overrides the user-global one"
+user_config repo $'schema-version: 1\nbranch-prefix-initials: ""'
+run issue-branch-prefix
+check "$OUT" "mode: initials${ISS_NL}prefix: ev/" "issue-branch-prefix: an empty repo-level value falls through to the user-global one"
+
+branch_case name
+user_config repo $'schema-version: 1\nbranch-prefix-name: edwin'
+user_config global $'schema-version: 1\nbranch-prefix-name: someone'
+run issue-branch-prefix
+check "$OUT" "mode: name${ISS_NL}prefix: edwin/" "issue-branch-prefix: name from the repo-level user-config"
+user_config repo $'schema-version: 1\nbranch-prefix-initials: ev'
+user_config global $'schema-version: 1\nbranch-prefix-initials: ev'
+run issue-branch-prefix
+expect "issue-branch-prefix: unset key names it and both writers" 1 \
+  "user-config key \`branch-prefix-name\` is unset" "\`/issues:user-config\`" "\`/issues:global-user-config\`"
+
+branch_case initials
+run issue-branch-prefix
+expect "issue-branch-prefix: no user-config at all is the unset-key error" 1 "user-config key \`branch-prefix-initials\` is unset"
+user_config repo $'schema-version: 1\nbranch-prefix-initials:'
+user_config global $'schema-version: 1\nbranch-prefix-initials: ""'
+run issue-branch-prefix
+expect "issue-branch-prefix: an empty value is the unset-key error" 1 "user-config key \`branch-prefix-initials\` is unset"
+user_config repo 'branch-prefix-initials: ev'
+run issue-branch-prefix
+expect "issue-branch-prefix: an unversioned user-config aborts" 1 "predates user-config schema versioning"
+for bad in 'e/v' '"e v"' "\"e$(printf '\t')v\""; do
+  user_config repo "schema-version: 1${ISS_NL}branch-prefix-initials: $bad"
+  run issue-branch-prefix
+  expect "issue-branch-prefix: value $bad names the key" 1 \
+    "user-config key \`branch-prefix-initials\` resolves to" "contains \`/\` or whitespace"
+done
+
+branch_case Initials
+run issue-branch-prefix
+expect "issue-branch-prefix: an unknown mode quotes it" 1 \
+  "sets \`issue-branch-naming-prefix\` to \`Initials\`, which is not one of" "\`/issues:repo-config\`"
+
+# The prefix is not a tracker property: a Jira-tracked repo resolves it too.
+new_case "$(printf '%s\n' "$FRONT_MATTER" | sed -e 's/^issues: GitHub$/issues: Jira/' \
+  -e 's/^issue-branch-naming-prefix: none$/issue-branch-naming-prefix: initials/')"
+user_config repo $'schema-version: 1\nbranch-prefix-initials: ev'
+run issue-branch-prefix
+check "$OUT" "mode: initials${ISS_NL}prefix: ev/" "issue-branch-prefix: a Jira-tracked repo is read, not refused"
+
+run issue-branch-prefix extra
+expect "issue-branch-prefix: takes no arguments" 2 "usage: issue-branch-prefix"
+
+# ---------------------------------------------------------------------------
 # Every write is re-read: with writes dropped, each write verb fails.
 # ---------------------------------------------------------------------------
 

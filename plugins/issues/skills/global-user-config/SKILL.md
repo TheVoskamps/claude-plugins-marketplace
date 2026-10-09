@@ -109,7 +109,14 @@ this skill knows about, each with a "leave unset" option, plus an
    machine, so a user whose repos span both trackers sets the
    repo-level key with `/user-config` instead. Recommended: leave
    unset.
-2. **Other** — any `key: value` pair the user wants as a machine-wide
+2. **`branch-prefix-initials`** — the initials an issue-branch name
+   carries in front of `/` in every repo whose repo-config sets
+   `issue-branch-naming-prefix: initials`, unless that repo's
+   repo-level user-config overrides it. No `/` and no whitespace.
+   Recommended: leave unset unless a repo uses that mode.
+3. **`branch-prefix-name`** — the same, for
+   `issue-branch-naming-prefix: name`.
+4. **Other** — any `key: value` pair the user wants as a machine-wide
    personal setting (`preferred-editor`, `default-reviewer`, etc.).
    Capture key and value as strings. Repeat until done.
 
