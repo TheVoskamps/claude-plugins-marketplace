@@ -10,6 +10,7 @@ skills:
   - issue-view
   - github-prs:pr-diff
   - github-prs:pr-view
+  - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
   - sdlc:pr-read-cli-interface
@@ -104,12 +105,17 @@ from its issue.
    it asks of you. Steps 3 to 6 are about findings and do not apply to
    it; the rest of the workflow does.
 
-2. Fetch the remote and check out the PR branch:
+2. Check out the PR branch with the preloaded
+   `git-tools:git-branch-sync` skill, which owns every git step of this
+   file outside a conflict's resolution:
 
    ```bash
-   git fetch origin
-   git checkout <branch-name>
+   git-branch-sync checkout <branch-name>
    ```
+
+   On any non-zero exit of any `git-branch-sync` call in this file,
+   other than the exits this file says how to handle, stop and report
+   it, quoting its stderr.
 
 3. Read the review findings and the owner rulings carefully. Address
    every finding the brief rules in scope, including Low — the review
@@ -163,8 +169,8 @@ from its issue.
    requires running inside a subdirectory, use a **single Bash call**
    of the form `cd <subdir> && <cmd>`. This is allowed **only when
    `<cmd>` is not git** — the harness's CVE-2025-59536 gate prompts on
-   `cd <path> && git ...` regardless of context, so a build or lint
-   command is safe in that form and a git command is not.
+   a `cd` chained into a git command regardless of context, so a build
+   or lint command is safe in that form and a git command is not.
 
 8. Run the test suite: if tests fail and aren't related to your fixes,
    note it.
@@ -177,7 +183,17 @@ from its issue.
    referenced issue. The keyword as plain English prose with no
    adjacent issue reference is fine.
 
-10. Push the branch (it's already tracking the remote).
+10. Push the branch, which also verifies the push landed:
+
+    ```bash
+    git-branch-sync push
+    ```
+
+    It exits 0 only once the remote branch is your local HEAD and the
+    tree is clean, including when there was nothing new to push. On 8
+    the remote branch moved under you since the fetch, and on 9 or 10
+    the push did not land as verified: stop and report, and do not run
+    step 12.
 
 11. Capture agent memory into the session inbox, before worktree
     cleanup:
@@ -194,20 +210,18 @@ from its issue.
     subagents can check out the same branch. Run this only if step 11
     completed **and** either your commit and push both succeeded or you
     had nothing to commit — if the capture failed, or if either the
-    commit or the push failed, `git branch -D` would destroy the only
-    copy of your work, so stop and report the failure instead of
-    proceeding to cleanup. The capture condition holds on the
+    commit or the push failed, deleting the local branch would destroy
+    the only copy of your work, so stop and report the failure instead
+    of proceeding to cleanup. The capture condition holds on the
     nothing-to-commit path too:
 
     ```bash
-    git checkout --detach
-    git branch -D <branch-name>
+    git-branch-sync release <branch-name>
     ```
 
-    Use `--detach` (not switching to the source branch) because the
-    orchestrator's primary clone is already holding that branch, so a
-    subagent worktree can't switch to it. Detaching HEAD releases the
-    feature-branch claim equivalently.
+    It detaches HEAD rather than switching to the source branch, because
+    the orchestrator's primary clone is already holding that branch, so
+    a subagent worktree can't switch to it.
 
 13. Report back, per finding and per owner ruling, un-tiered:
     - Which findings were fixed, and how
@@ -281,13 +295,12 @@ the head and base branches from the PR:
 The state the brief names sets the remedy:
 
 - **`BEHIND`** — the branch is behind its base. Rebase it onto the base
-  and push with `--force-with-lease`:
+  and push:
 
   ```bash
-  git fetch origin
-  git checkout <head>
-  git rebase origin/<base>
-  git push --force-with-lease
+  git-branch-sync checkout <head>
+  git-branch-sync rebase <base>
+  git-branch-sync push
   ```
 
   A `BEHIND` brief that carries a ruling is one a previous round of
@@ -307,23 +320,19 @@ The state the brief names sets the remedy:
   green. Carry it out as the ruling says, under this file's rules as
   any fix is.
 
-A rebase that stops on a conflict, on any state, is resolved by the
-first of the conditions below that settles each conflicting file —
-resolve it so and
-`git add` it. Once every file the stop reports is added, commit the
-resolution yourself, then let the rebase walk on; repeat at each stop,
-then push with `--force-with-lease`:
+A rebase that stops on a conflict, on any state, exits 3 with the
+conflicting files on stdout. Each is resolved by the first of the
+conditions below that settles it — resolve it so in the file. Once
+every file the stop reported is resolved, hand them all back, which
+lands the stopped commit under its original message and author and
+lets the rebase walk on; repeat at each stop, then push:
 
 ```bash
-git add <resolved-paths>
-git commit -C REBASE_HEAD   # lands the stopped commit under its original message and author
-git rebase --continue       # finds nothing left to commit, so opens no editor
+git-branch-sync continue <resolved-paths>
 ```
 
-A bare `git rebase --continue` over staged resolutions opens an editor
-for the commit message, and completes unattended only where the
-environment happens to set `GIT_EDITOR` to a no-op; the commit step is
-what makes the sequence independent of it.
+Exit 5 means a file the stop reported is still unresolved: resolve it
+and run `continue` again with it.
 
 The conditions, in order:
 
@@ -341,9 +350,10 @@ The conditions, in order:
 The second and third are the resolvability conditions, and they apply
 to a conflict no ruling names. A conflict that meets neither is a
 design decision you cannot make, and so is a ruling that leaves the
-remedy unclear: abort the rebase with `git rebase --abort`, leave the
-branch as it was, push nothing, and report each such conflict the
-rebase reached, quoting it. A conflict you resolved earlier in the same
+remedy unclear: abort the rebase with `git-branch-sync abort`, which
+leaves the branch as it was, push nothing, and report each such
+conflict the rebase reached, quoting it. A conflict you resolved
+earlier in the same
 rebase is undone by the abort, and resolved again on the next round.
 `pr-merge-readiness` returns your report as the question, and the
 human's ruling reaches you in the next brief.
@@ -358,10 +368,10 @@ and the test result.
 `pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
 again on your return; no review round follows a merge-readiness brief.
 
-`--force-with-lease` is the one force flag this file sanctions, and a
-rebase is the one occasion: the push replaces commits the PR already
-carries, and the lease is what refuses to replace ones you never saw.
-Never `--force`.
+Push only through `git-branch-sync push`. After a rebase it pushes
+with a lease, because the push replaces commits the PR already carries,
+and the lease is what refuses to replace ones you never saw; exit 8 is
+that refusal. Never push any other way, and never `--force`.
 
 ## Verify the claims in your own prose
 
