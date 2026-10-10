@@ -179,8 +179,9 @@ surviving notification carries the round past every lost one.
      --stage <stage> --agent <agent>
    ```
 
-   — `generate` with the generator the last `spawn` record for `list`
-   names, `disprove` with `theorem-disprover`, or `verify` with
+   — `generate` with the generator the stage's `leave` record or
+   `result` line for `list` names, or the last `spawn` record's while
+   there is neither, `disprove` with `theorem-disprover`, or `verify` with
    `counterexample-verifier`. **When it lists the agent id the
    notification named, that child handed back without a `leave`** —
    a `LEAVE FAILED` report among the ways — and none is coming: write
@@ -499,7 +500,9 @@ review" stores both under **this** round's number, and the posted
 review says the round was empty-delta.
 
 **An empty delta with new adjustment comments is an adjustment-only
-round, and it fans out**: spawn the generator on the delta brief, which
+round, and it fans out**: spawn the generator on the delta brief —
+`--delta-commits` carries an empty value rather than being dropped, so
+the generator reads a delta of nothing, not a fallback round — and it
 emits an empty list unless a member issue gained a criterion, and
 "Assemble the round's live list" assembles the minted theorems,
 whatever last round left disproved or unsettled, and anything the
@@ -531,12 +534,11 @@ whatever its size. `theorem-generator-high` and
 for an explicit `--generator`.
 
 Both signals read the round's delta — on a fallback round, the whole
-PR diff. The tier that ran is the agent whose result file is the
-round's list — the one the last `spawn` record for `list` names, per
-"Spawn the theorem generator" — read from the records, never from your
-spawn choice. Say in the Review method section which it was and what
-picked it, and when a generator at another tier also reported this
-round, name it too.
+PR diff. The tier that ran is the agent the generate stage's `leave`
+record or `result` line for `list` names, never your spawn choice. Say
+in the Review method section which it was and what picked it, and when
+it differs from the agent the last `spawn` record for `list` names,
+name both.
 
 ### Spawn the theorem generator
 
@@ -545,9 +547,9 @@ in the `generate` stage, per "What the reader derives", an earlier
 instance generated this round's list: read its result file and take the
 list from it rather than spawning, so a theorem id denotes the same
 claim across instances. **The round's
-list is the result file of the agent the last `spawn` record for `list`
-names** — a round that replaced a generator at another tier holds a
-file per tier.
+list is the result file the generate stage's `leave` record or `result`
+line for `list` names** — a round that replaced a generator at another
+tier holds a file per tier, and the one that reported may be either.
 
 **A generator may instead be in flight** — `list` listed by
 `--mode print-in-flight` under `--stage generate`. Wait on it by "The
