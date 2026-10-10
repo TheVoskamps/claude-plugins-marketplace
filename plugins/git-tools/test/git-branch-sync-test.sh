@@ -9,9 +9,6 @@
 #
 # Usage: git-branch-sync-test.sh    (exit 0 when every case passes)
 
-# `run continue ...` passes `continue` as the subcommand, not the builtin.
-# shellcheck disable=SC2105
-
 set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -95,10 +92,12 @@ A=$(commit_file "$SEED" a.txt "a" "feature A")
 git -C "$SEED" push -q origin main feature
 git clone -q "$ORIGIN" "$CLONE"
 
-# run <args...> -- run git-branch-sync from $CLONE through the logging
-# git, with an editor that leaves a marker if anything opens it; leaves
-# OUT, ERR, RC.
-run() {
+# branch_sync <args...> -- run git-branch-sync from $CLONE through the
+# logging git, with an editor that leaves a marker if anything opens it;
+# leaves OUT, ERR, RC. Not named `run`: shellcheck checks the arguments
+# of a `run` call as a command of their own, so `run continue` reads as
+# the builtin.
+branch_sync() {
   OUT=$(cd "$CLONE" && PATH="${CASE_PATH:+$CASE_PATH:}$SANDBOX/logbin:$PATH" \
     GIT_EDITOR="touch $SANDBOX/editor-opened" /bin/bash "$SCRIPT" "$@" 2>"$SANDBOX/stderr")
   RC=$?
@@ -115,30 +114,38 @@ last_push() { tail -n 1 "$PUSH_LOG"; }
 check "$([ -x "$SCRIPT" ] && echo yes)" "yes" "git-branch-sync is executable"
 
 # --- usage ------------------------------------------------------------------
-for args in "" "bogus" "checkout" "checkout a b" "rebase" "continue" "abort x" "push x" "release"; do
-  # shellcheck disable=SC2086
-  run $args
-  check "$RC:$OUT" "2:" "usage: \`$args\` exits 2 with nothing on stdout"
-done
+usage_case() {
+  branch_sync "$@"
+  check "$RC:$OUT" "2:" "usage: \`$*\` exits 2 with nothing on stdout"
+}
+usage_case
+usage_case bogus
+usage_case checkout
+usage_case checkout a b
+usage_case rebase
+usage_case continue
+usage_case abort x
+usage_case push x
+usage_case release
 
 # --- checkout ---------------------------------------------------------------
-run checkout feature
+branch_sync checkout feature
 check "$RC" "0" "checkout: a branch with no local copy exits 0"
 check "$(git -C "$CLONE" branch --show-current)" "feature" "checkout: the branch is checked out"
 check "$(clone_head)" "$A" "checkout: at origin's tip"
 
 B=$(commit_file "$SEED" b.txt "b" "feature B")
 git -C "$SEED" push -q origin feature
-run checkout feature
+branch_sync checkout feature
 check "$RC" "0" "checkout: a local branch behind origin exits 0"
 check "$(clone_head)" "$B" "checkout: fast-forwarded to origin's tip"
 
 LOCAL=$(commit_file "$CLONE" local.txt "local" "local only")
-run checkout feature
+branch_sync checkout feature
 check "$RC:$(clone_head)" "0:$LOCAL" "checkout: a local branch ahead of origin is kept as it is"
 git -C "$CLONE" reset -q --hard "$B"
 
-run checkout nope
+branch_sync checkout nope
 check "$RC" "1" "checkout: a branch origin lacks exits 1"
 check_contains "$ERR" "origin/nope does not exist after the fetch" "checkout: stderr names the missing ref"
 
@@ -147,12 +154,12 @@ DIVERGED=$(commit_file "$CLONE" mine.txt "mine" "mine")
 C=$(commit_file "$SEED" c.txt "c" "feature C")
 git -C "$SEED" push -q origin feature
 git -C "$CLONE" checkout -q --detach
-run checkout feature
+branch_sync checkout feature
 check "$RC" "4" "checkout: a diverged local branch exits 4"
 check "$(git -C "$CLONE" rev-parse refs/heads/feature)" "$DIVERGED" "checkout: the diverged branch is not reset"
 check "$(git -C "$CLONE" branch --show-current)" "" "checkout: nothing was checked out"
 git -C "$CLONE" branch -q -f feature "$C"
-run checkout feature
+branch_sync checkout feature
 check "$RC:$(clone_head)" "0:$C" "checkout: back in step with origin"
 
 # --- rebase and push, clean -------------------------------------------------
@@ -160,31 +167,31 @@ git -C "$SEED" checkout -q main
 U1=$(commit_file "$SEED" upstream.txt "u1" "upstream one")
 git -C "$SEED" push -q origin main
 : >"$PUSH_LOG"
-run rebase main
+branch_sync rebase main
 check "$RC" "0" "clean rebase: exit 0"
 check "$OUT" "" "clean rebase: nothing on stdout"
 check "$(git -C "$CLONE" merge-base --is-ancestor "$U1" HEAD && echo on-base)" "on-base" "clean rebase: the branch sits on origin/main"
 check "$(git -C "$CLONE" branch --show-current)" "feature" "clean rebase: the branch is still checked out"
 
-run push
+branch_sync push
 check "$RC" "0" "push after a rebase: exit 0"
 check "$(origin_tip feature)" "$(clone_head)" "push after a rebase: origin holds the rebased head"
 check_contains "$(last_push)" "--force-with-lease=refs/heads/feature:$C" \
   "push after a rebase: the lease names the fetched remote tip"
 
 : >"$PUSH_LOG"
-run push
+branch_sync push
 check "$RC" "0" "push with nothing new: exit 0 after verifying"
 check_lacks "$(last_push)" "--force-with-lease" "push with nothing new: a plain push"
 
 D=$(commit_file "$CLONE" d.txt "d" "feature D")
-run push
+branch_sync push
 check "$RC:$(origin_tip feature)" "0:$D" "push of a new commit: exit 0, origin holds it"
 check_lacks "$(last_push)" "--force-with-lease" "push of a new commit: a plain push"
 
 git -C "$CLONE" reset -q --hard HEAD~1
 : >"$PUSH_LOG"
-run push
+branch_sync push
 check "$RC" "11" "push behind origin: exit 11"
 check_contains "$ERR" "is behind origin/feature ($D); nothing was pushed" "push behind origin: stderr names the remote tip"
 check "$(cat "$PUSH_LOG")" "" "push behind origin: no push was run"
@@ -212,36 +219,36 @@ printf 'main base\n' >"$SEED/base.txt"
 git -C "$SEED" add shared.txt other.txt base.txt
 git -C "$SEED" commit -q -m "main touches all three"
 git -C "$SEED" push -q origin main
-run checkout feature
+branch_sync checkout feature
 
-run rebase main
+branch_sync rebase main
 check "$RC" "3" "stopped rebase: exit 3"
 check "$OUT" "other.txt
 shared.txt" "stopped rebase: stdout is the conflicted paths, one per line, and nothing else"
 check "$(in_rebase)" "yes" "stopped rebase: the rebase is in progress"
 
 printf 'resolved shared\n' >"$CLONE/shared.txt"
-run continue shared.txt
+branch_sync continue shared.txt
 check "$RC:$OUT" "5:" "continue with another conflicted path left unstaged: exit 5"
 check_contains "$ERR" "other.txt" "continue refused: stderr names the unresolved path"
 check "$(in_rebase)" "yes" "continue refused: the rebase is still in progress"
 
 printf 'resolved other\n' >"$CLONE/other.txt"
-run continue other.txt
+branch_sync continue other.txt
 check "$RC" "3" "continue: the next stop exits 3"
 check "$OUT" "base.txt" "continue: stdout is the next stop's conflicted path"
 check "$(git -C "$CLONE" log -1 --format='%an <%ae>|%s' HEAD)" "Author <author@example.com>|feature E" \
   "continue: the stopped commit keeps its author and message"
 
 printf 'resolved base\n' >"$CLONE/base.txt"
-run continue base.txt
+branch_sync continue base.txt
 check "$RC:$OUT" "0:" "continue: the last stop finishes the rebase, exit 0"
 check "$(in_rebase)" "no" "continue: no rebase is left in progress"
 check "$(git -C "$CLONE" log -1 --format='%an|%s' HEAD)" "Author|feature F" \
   "continue: the last commit keeps its author and message"
 check "$(git -C "$CLONE" branch --show-current)" "feature" "continue: the branch is checked out again"
 check "$([ -e "$SANDBOX/editor-opened" ] && echo opened || echo never)" "never" "continue: no editor was opened"
-run push
+branch_sync push
 check "$RC:$(origin_tip feature)" "0:$(clone_head)" "push after a resolved rebase: exit 0, origin holds the head"
 
 # --- abort ------------------------------------------------------------------
@@ -253,19 +260,19 @@ git -C "$SEED" push -q origin feature
 git -C "$SEED" checkout -q main
 commit_file "$SEED" shared.txt "main again" "main again" >/dev/null
 git -C "$SEED" push -q origin main
-run checkout feature
+branch_sync checkout feature
 PRE_REBASE=$(clone_head)
-run rebase main
+branch_sync rebase main
 check "$RC" "3" "abort: the rebase stopped"
-run abort
+branch_sync abort
 check "$RC" "0" "abort: exit 0"
 check "$(clone_head)" "$PRE_REBASE" "abort: the branch is at its pre-rebase tip"
 check "$(git -C "$CLONE" branch --show-current)" "feature" "abort: the branch is checked out again"
 check "$(in_rebase)" "no" "abort: no rebase is left in progress"
 
-run abort
+branch_sync abort
 check "$RC" "6" "abort with no rebase in progress: exit 6"
-run continue shared.txt
+branch_sync continue shared.txt
 check "$RC" "6" "continue with no rebase in progress: exit 6"
 
 # --- a resolution that empties the stopped commit ---------------------------
@@ -278,24 +285,24 @@ git -C "$SEED" push -q origin skipper
 git -C "$SEED" checkout -q main
 MAIN_TIP=$(commit_file "$SEED" other.txt "main skip" "main skip")
 git -C "$SEED" push -q origin main
-run checkout skipper
-run rebase main
+branch_sync checkout skipper
+branch_sync rebase main
 check "$RC:$OUT" "3:other.txt" "skip: the rebase stopped on other.txt"
 printf 'main skip\n' >"$CLONE/other.txt"
-run continue other.txt
+branch_sync continue other.txt
 check "$RC:$OUT" "0:" "skip: continue with an emptying resolution exits 0"
 check "$(in_rebase)" "no" "skip: no rebase is left in progress"
 check "$(clone_head)" "$MAIN_TIP" "skip: the emptied commit is dropped, the branch is at origin/main"
 check "$(git -C "$CLONE" branch --show-current)" "skipper" "skip: the branch is checked out again"
 check "$([ -e "$SANDBOX/editor-opened" ] && echo opened || echo never)" "never" "skip: no editor was opened"
-run checkout feature
+branch_sync checkout feature
 check "$RC" "0" "skip: back on feature"
 
 # --- detached HEAD ----------------------------------------------------------
 git -C "$CLONE" checkout -q --detach
-run rebase main
+branch_sync rebase main
 check "$RC" "7" "rebase on a detached HEAD: exit 7"
-run push
+branch_sync push
 check "$RC" "7" "push on a detached HEAD: exit 7"
 git -C "$CLONE" checkout -q feature
 
@@ -319,13 +326,13 @@ STUB
 chmod +x "$SANDBOX/racebin/git"
 
 commit_file "$CLONE" plain.txt "plain" "plain push" >/dev/null
-CASE_PATH="$SANDBOX/racebin" run push
+CASE_PATH="$SANDBOX/racebin" branch_sync push
 check "$RC" "8" "plain push, remote moved since the fetch: exit 8"
 
 git -C "$CLONE" fetch -q origin
 git -C "$CLONE" reset -q --hard origin/feature
 git -C "$CLONE" commit -q --amend -m "rewritten"
-CASE_PATH="$SANDBOX/racebin" run push
+CASE_PATH="$SANDBOX/racebin" branch_sync push
 check "$RC" "8" "lease push, remote moved since the fetch: exit 8"
 check_lacks "$(cat "$PUSH_LOG")" "--force " "push never uses --force"
 check_lacks "$(cat "$PUSH_LOG")" "--mirror" "push never uses --mirror"
@@ -334,7 +341,7 @@ git -C "$CLONE" fetch -q origin
 git -C "$CLONE" reset -q --hard origin/feature
 
 printf 'dirty\n' >>"$CLONE/base.txt"
-run push
+branch_sync push
 check "$RC" "10" "push verification, a dirty tree: exit 10"
 git -C "$CLONE" checkout -q -- base.txt
 
@@ -346,7 +353,7 @@ git update-ref refs/heads/feature $OTHER
 HOOK
 chmod +x "$ORIGIN/hooks/post-receive"
 commit_file "$CLONE" moved.txt "moved" "moved after push" >/dev/null
-run push
+branch_sync push
 check "$RC" "9" "push verification, HEAD differs from the remote tip: exit 9"
 check_contains "$ERR" "differs from origin/feature $OTHER" "push verification: stderr names both SHAs"
 rm -f "$ORIGIN/hooks/post-receive"
@@ -358,7 +365,7 @@ echo "refused by policy" >&2
 exit 1
 HOOK
 chmod +x "$ORIGIN/hooks/pre-receive"
-run push
+branch_sync push
 check "$RC" "1" "push refused by a remote hook: exit 1, unclassified"
 rm -f "$ORIGIN/hooks/pre-receive"
 
@@ -374,7 +381,7 @@ exec "$REAL_GIT" "\$@"
 STUB
 chmod +x "$SANDBOX/failbin/git"
 git -C "$CLONE" fetch -q origin
-CASE_PATH="$SANDBOX/failbin" run push
+CASE_PATH="$SANDBOX/failbin" branch_sync push
 check "$RC" "1" "unhandled failure: exit 1, not git's 9"
 check_contains "$ERR" "failed (exit 9)" "unhandled failure: stderr names its status"
 
@@ -383,7 +390,7 @@ RC=$?
 check "$RC" "1" "outside a repository: exit 1"
 
 # --- release ----------------------------------------------------------------
-run release feature
+branch_sync release feature
 check "$RC" "0" "release: exit 0"
 check "$(git -C "$CLONE" branch --show-current)" "" "release: HEAD is detached"
 check "$(git -C "$CLONE" rev-parse -q --verify refs/heads/feature || echo gone)" "gone" "release: the local branch is deleted"
