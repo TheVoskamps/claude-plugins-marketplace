@@ -179,9 +179,8 @@ surviving notification carries the round past every lost one.
      --stage <stage> --agent <agent>
    ```
 
-   — `generate` with the generator the stage's `leave` record or
-   `result` line for `list` names, or the last `spawn` record's while
-   there is neither, `disprove` with `theorem-disprover`, or `verify` with
+   — `generate` with the generator the last `spawn` record for `list`
+   names, `disprove` with `theorem-disprover`, or `verify` with
    `counterexample-verifier`. **When it lists the agent id the
    notification named, that child handed back without a `leave`** —
    a `LEAVE FAILED` report among the ways — and none is coming: write
@@ -547,9 +546,9 @@ in the `generate` stage, per "What the reader derives", an earlier
 instance generated this round's list: read its result file and take the
 list from it rather than spawning, so a theorem id denotes the same
 claim across instances. **The round's
-list is the result file the generate stage's `leave` record or `result`
-line for `list` names** — a round that replaced a generator at another
-tier holds a file per tier, and the one that reported may be either.
+list is the result file of the agent the last `spawn` record for `list`
+names** — a round that replaced a generator at another tier holds a
+file per tier.
 
 **A generator may instead be in flight** — `list` listed by
 `--mode print-in-flight` under `--stage generate`. Wait on it by "The
