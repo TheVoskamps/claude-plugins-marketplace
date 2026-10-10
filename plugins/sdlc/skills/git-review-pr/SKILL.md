@@ -53,7 +53,7 @@ skill computes.
    --pr <PR>
 
    Review this PR per your agent definition. Report back its
-   verdicts, findings, severity counts, and theorem tally.
+   verdicts, findings, and round kind.
    ```
 
    Unless the user asked for an override, this path passes `--pr`
@@ -121,11 +121,8 @@ skill computes.
    say where the round's detail is — the state path above — since the
    posted review carries the summary alone: the overall
    APPROVED / NEEDS_CHANGES / BLOCKED, plus every per-issue verdict
-   (a PR may deliver a batch of several), plus the severity
-   counts (Critical, High, Medium, Low) and the theorem
-   tally. What that tally enumerates, and which of its counts never
-   reach severity, is the reviewer agent's own "Report back" section;
-   relay it as the reviewer returned it rather than restating the
-   enumeration here. Relay the tier that ran and the kind of round it
-   was as well — a user reading "no findings" off an empty-delta round
-   is reading a carried-forward verdict, not a fresh check.
+   (a PR may deliver a batch of several), plus the findings. Relay the
+   kind of round it was as well — a user reading "no findings" off an
+   empty-delta round is reading a carried-forward verdict, not a fresh
+   check. The per-theorem lines and the tier that ran are in the posted
+   review's summary, not in the report; point the user there for them.
