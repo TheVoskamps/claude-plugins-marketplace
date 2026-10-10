@@ -9,6 +9,9 @@
 #
 # Usage: git-branch-sync-test.sh    (exit 0 when every case passes)
 
+# `run continue ...` passes `continue` as the subcommand, not the builtin.
+# shellcheck disable=SC2105
+
 set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -179,6 +182,15 @@ run push
 check "$RC:$(origin_tip feature)" "0:$D" "push of a new commit: exit 0, origin holds it"
 check_lacks "$(last_push)" "--force-with-lease" "push of a new commit: a plain push"
 
+git -C "$CLONE" reset -q --hard HEAD~1
+: >"$PUSH_LOG"
+run push
+check "$RC" "11" "push behind origin: exit 11"
+check_contains "$ERR" "is behind origin/feature ($D); nothing was pushed" "push behind origin: stderr names the remote tip"
+check "$(cat "$PUSH_LOG")" "" "push behind origin: no push was run"
+check "$(origin_tip feature)" "$D" "push behind origin: origin keeps its tip"
+git -C "$CLONE" reset -q --hard "$D"
+
 # --- a stopped rebase finished through continue -----------------------------
 # Feature E conflicts with main in two files and feature F in a third,
 # so the rebase stops twice.
@@ -255,6 +267,29 @@ run abort
 check "$RC" "6" "abort with no rebase in progress: exit 6"
 run continue shared.txt
 check "$RC" "6" "continue with no rebase in progress: exit 6"
+
+# --- a resolution that empties the stopped commit ---------------------------
+# Branch `skipper` changes other.txt, main changes it differently; taking
+# main's side leaves the stopped commit with no change, so it is skipped.
+git -C "$SEED" checkout -q main
+git -C "$SEED" checkout -q -b skipper
+commit_file "$SEED" other.txt "skipper other" "skipper K" >/dev/null
+git -C "$SEED" push -q origin skipper
+git -C "$SEED" checkout -q main
+MAIN_TIP=$(commit_file "$SEED" other.txt "main skip" "main skip")
+git -C "$SEED" push -q origin main
+run checkout skipper
+run rebase main
+check "$RC:$OUT" "3:other.txt" "skip: the rebase stopped on other.txt"
+printf 'main skip\n' >"$CLONE/other.txt"
+run continue other.txt
+check "$RC:$OUT" "0:" "skip: continue with an emptying resolution exits 0"
+check "$(in_rebase)" "no" "skip: no rebase is left in progress"
+check "$(clone_head)" "$MAIN_TIP" "skip: the emptied commit is dropped, the branch is at origin/main"
+check "$(git -C "$CLONE" branch --show-current)" "skipper" "skip: the branch is checked out again"
+check "$([ -e "$SANDBOX/editor-opened" ] && echo opened || echo never)" "never" "skip: no editor was opened"
+run checkout feature
+check "$RC" "0" "skip: back on feature"
 
 # --- detached HEAD ----------------------------------------------------------
 git -C "$CLONE" checkout -q --detach

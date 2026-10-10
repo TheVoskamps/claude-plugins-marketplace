@@ -27,6 +27,7 @@
 #   8   push: rejected because the remote moved since the fetch
 #   9   push: local HEAD differs from the remote tip
 #   10  push: the working tree is dirty
+#   11  push: the local branch is behind origin/<branch>; nothing pushed
 set -euo pipefail
 
 PROGRAM=${0##*/}
@@ -192,6 +193,13 @@ cmd_push() {
   branch=$(current_branch) || exit
   git fetch -q origin || fail 1 "git fetch origin failed"
   remote=$(remote_ref "$branch")
+  local_head=$(git rev-parse HEAD)
+  # A branch behind its remote would otherwise take the lease push below,
+  # which would discard the remote's newer commits.
+  if [ -n "$remote" ] && [ "$local_head" != "$remote" ] &&
+    git merge-base --is-ancestor "$local_head" "$remote"; then
+    fail 11 "local $branch ($local_head) is behind origin/$branch ($remote); nothing was pushed"
+  fi
   if [ -n "$remote" ] && ! git merge-base --is-ancestor "$remote" HEAD; then
     result=$(git push --porcelain "--force-with-lease=refs/heads/$branch:$remote" origin \
       "HEAD:refs/heads/$branch" 2>&1 || exit) || status=$?

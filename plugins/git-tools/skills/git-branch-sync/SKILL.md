@@ -1,6 +1,6 @@
 ---
 name: git-branch-sync
-description: Run the fixed git steps around work on an existing branch — check it out fast-forward only, rebase it onto origin/<base>, finish or abort a rebase stopped on conflicts, push it (with a lease exactly when the remote tip is not an ancestor of HEAD) and verify the push landed, and release the local branch at the end of a run. Resolving a conflict stays with the caller.
+description: Run the fixed git steps around work on an existing branch — check it out fast-forward only, rebase it onto origin/<base>, finish or abort a rebase stopped on conflicts, push it (refusing a branch behind its remote, with a lease exactly when the remote tip is not an ancestor of HEAD) and verify the push landed, and release the local branch at the end of a run. Resolving a conflict stays with the caller.
 ---
 
 # Git Branch Sync
@@ -51,7 +51,9 @@ No subcommand ever opens an editor.
   staged exits 5, before anything is committed.
 - **`abort`** — aborts the rebase in progress, leaving the branch
   checked out at its pre-rebase tip.
-- **`push`** — fetches `origin`, then pushes the current branch to
+- **`push`** — fetches `origin`. When HEAD is a strict ancestor of
+  `origin/<branch>` — the local branch is behind the remote — exits 11
+  and pushes nothing. Otherwise pushes the current branch to
   `origin/<branch>`: with `--force-with-lease=<branch>:<the fetched
   remote tip>` when `origin/<branch>` exists and is not an ancestor of
   HEAD, and a plain push otherwise, which succeeds when there is nothing
@@ -86,8 +88,9 @@ on every status but 3.
 | 8 | `push`: rejected because `origin/<branch>` moved since the fetch — a lease or fast-forward failure | `the push was rejected: origin/<branch> moved since the fetch` |
 | 9 | `push`: verification failed, local HEAD differs from the remote tip | `local HEAD <sha> differs from origin/<branch> <sha>` |
 | 10 | `push`: verification failed, the working tree is dirty | `the working tree is dirty after the push` |
+| 11 | `push`: the local branch is behind `origin/<branch>` — HEAD is a strict ancestor of the remote tip; nothing was pushed | `local <branch> (<sha>) is behind origin/<branch> (<sha>); nothing was pushed` |
 
 On 3 the rebase is still in progress: resolve the paths and run
 `continue`, or run `abort`. On 5 the given paths stay staged and the
-rebase stays in progress. On 8, 9 and 10 the local commits are intact:
-nothing the push did removes them.
+rebase stays in progress. On 8, 9, 10 and 11 the local commits are
+intact: nothing the push did removes them.
