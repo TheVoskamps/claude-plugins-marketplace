@@ -585,7 +585,7 @@ the standalone path rather than this one:
 --pr <PR_REF> --issues <issue_N1> <issue_N2> … --branch <branch-name>
 
 Review this PR per your agent definition. Report back its verdicts,
-findings, severity counts, and theorem tally.
+findings, and round kind.
 ```
 
 This round's number is the one the reviewer composes its round
@@ -609,11 +609,11 @@ Pass no `--generator`, no effort, and no model. The reviewer picks the
 tier itself from the round's delta; `--generator` goes in only when
 the human named a tier, per "Overriding the generator tier" below.
 
-The reviewer returns every verdict line it posted, the overall
-verdict, the severity counts, the findings themselves, and the theorem
-tally; what the tally enumerates is the reviewer agent's own "Report
-back" section. Its report ends with a `Return:` line, which "Handling
-review findings — the fix loop" reads first.
+The reviewer returns its verdict lines and its findings, and the rest
+of what its own "Report back" section lists; the per-theorem lines are
+on the posted review rather than in the report. Its report ends with a
+`Return:` line, which "Handling review findings — the fix loop" reads
+first.
 
 You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
