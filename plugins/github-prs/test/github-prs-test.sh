@@ -761,6 +761,7 @@ new_case create-comma-list
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3, 4
 check "$RC" "2" "pr-create: a comma-separated issue list is a usage error"
 check_contains "$ERR" "\`3,\` is not an issue number" "pr-create: the comma-carrying token is named"
+check "$(calls | grep -c '^pr create')" "0" "pr-create: a comma-separated list creates nothing"
 
 new_case link-comma-list
 run pr-link-issue 7 3, 4
