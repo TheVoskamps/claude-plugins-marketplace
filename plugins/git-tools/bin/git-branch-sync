@@ -147,8 +147,9 @@ after_rebase_step() {
 # cmd_checkout <branch> -- check out <branch> at origin's tip: create it
 # tracking origin/<branch> when there is no local copy, fast-forward one
 # that is behind, and leave one that is ahead; then record origin's tip
-# for `push`. Exits 4, touching nothing, when the local copy has
-# diverged, and 1 when origin lacks the branch.
+# for `push`. Exits 4 when the local copy has diverged, leaving the
+# local branch and its recorded tip as they were, and 1 when origin
+# lacks the branch.
 cmd_checkout() {
   local branch=$1 remote local_tip
   git fetch -q origin || fail 1 "git fetch origin failed"
