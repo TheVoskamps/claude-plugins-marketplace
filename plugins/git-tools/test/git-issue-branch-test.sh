@@ -164,11 +164,17 @@ run encode 5 --slug "$long"
 check "$RC:$OUT" "10:" "a 103-character name with its prefix: exit 10"
 check_contains "$ERR" "\`ev/issue-5-$long\` is 103 characters" "too long: stderr names the name and its length"
 STUB_MODE=none STUB_VALUE=
+run encode 5 --slug "${long}a"
+check "$RC:$OUT" "10:" "a 101-character name: exit 10"
+check_contains "$ERR" "\`issue-5-${long}a\` is 101 characters" "101 characters: stderr names the name and its length"
+STUB_MODE=none STUB_VALUE=
 
 run encode 5 9 --slug some-slug
 check "$RC:$OUT" "11:" "missing issue: exit 11, nothing on stdout"
 check_contains "$ERR" "stub: issue #9 not found" "missing issue: issue-view's stderr is relayed"
 check_contains "$ERR" "issue 9 was not found" "missing issue: stderr names the issue"
+check "$ERR" "stub: issue #9 not found
+git-issue-branch: issue 9 was not found; the issue-view error is above." "missing issue: stderr is issue-view's error and the script's line, nothing else"
 
 run encode 5 8 --slug some-slug
 check "$RC:$OUT" "12:" "closed issue: exit 12, nothing on stdout"
@@ -178,6 +184,8 @@ STUB_PREFIX_FAIL=1
 run encode 5 --slug some-slug
 check "$RC:$OUT" "8:" "issue-branch-prefix fails: exit 8, nothing on stdout"
 check_contains "$ERR" "stub: branch-prefix-initials is unset" "issue-branch-prefix fails: its stderr is relayed"
+check "$ERR" "stub: branch-prefix-initials is unset
+git-issue-branch: issue-branch-prefix failed; its error is above." "issue-branch-prefix fails: stderr is its error and the script's line, nothing else"
 run decode issue-5-some-slug 5
 check "$RC" "0" "decode succeeds while issue-branch-prefix fails"
 check "$CALLED" "" "decode runs neither issue-branch-prefix nor issue-view"

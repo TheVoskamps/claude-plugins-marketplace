@@ -66,9 +66,9 @@ usage_error() {
 
 # A command that fails where the script does not handle it exits 1
 # naming the command. `set -E` carries the trap into functions and
-# command substitutions; a substitution whose failure a `||` after it
-# handles ends in `|| exit` inside it, so the trap stays quiet in the
-# substitution's own shell.
+# command substitutions; a substitution whose failure the script handles,
+# with a `||` after it or an `if !` around it, ends in `|| exit` inside
+# it, so the trap stays quiet in the substitution's own shell.
 set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
@@ -179,7 +179,7 @@ encode() {
   # returns.
   err=$(mktemp "${TMPDIR:-/tmp}/git-issue-branch.XXXXXX")
   trap 'rm -f "$err"' EXIT
-  if ! prefix_out=$(issue-branch-prefix 2>"$err"); then
+  if ! prefix_out=$(issue-branch-prefix 2>"$err" || exit); then
     cat "$err" >&2
     fail 8 "issue-branch-prefix failed; its error is above."
   fi
@@ -192,7 +192,7 @@ encode() {
   fi
 
   for n in $numbers; do
-    if ! view=$(issue-view "$n" 2>"$err"); then
+    if ! view=$(issue-view "$n" 2>"$err" || exit); then
       cat "$err" >&2
       fail 11 "issue $n was not found; the issue-view error is above."
     fi

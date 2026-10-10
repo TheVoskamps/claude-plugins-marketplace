@@ -765,6 +765,7 @@ check_contains "$ERR" "\`3,\` is not an issue number" "pr-create: the comma-carr
 new_case link-comma-list
 run pr-link-issue 7 3, 4
 check "$RC" "2" "pr-link-issue: a comma-separated issue list is a usage error"
+check_contains "$ERR" "\`3,\` is not an issue number" "pr-link-issue: the comma-carrying token is named"
 check "$(calls | grep -c '^pr edit')" "0" "pr-link-issue: a comma-separated list writes nothing"
 
 new_case create-no-config
