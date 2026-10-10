@@ -186,13 +186,17 @@ cmd_rebase() {
   after_rebase_step "$status"
 }
 
-# cmd_continue <path>... -- stage the resolved <path>s and resume the
-# stopped rebase. Exits 6 when no rebase is in progress, 5 when a
+# cmd_continue <path>... -- stage the resolved <path>s, each relative to
+# the top level, and resume the stopped rebase. Exits 6 when no rebase is in progress, 5 when a
 # conflicted path is still unstaged, and otherwise as after_rebase_step
 # does.
 cmd_continue() {
-  local status=0 left
+  local status=0 left top
   rebase_in_progress || fail 6 "no rebase is in progress"
+  # `rebase` prints paths relative to the top level, so they resolve from
+  # there whatever directory the caller runs in.
+  top=$(git rev-parse --show-toplevel)
+  cd "$top"
   # Literal, so a path `rebase` printed names that file and no pattern.
   git --literal-pathspecs add -- "$@"
   left=$(unmerged_paths)

@@ -98,14 +98,14 @@ A=$(commit_file "$SEED" a.txt "a" "feature A")
 git -C "$SEED" push -q origin main feature
 git clone -q "$ORIGIN" "$CLONE"
 
-# branch_sync <args...> -- run git-branch-sync from $CLONE through the
-# logging git, with an editor that leaves a marker if anything opens it,
-# and with $CASE_PATH, when set, ahead of the logging git on PATH;
-# leaves OUT, ERR, RC. Not named `run`: shellcheck checks the arguments
+# branch_sync <args...> -- run git-branch-sync from $CLONE, or from its
+# subdirectory $CASE_DIR when set, through the logging git, with an
+# editor that leaves a marker if anything opens it, and with $CASE_PATH,
+# when set, ahead of the logging git on PATH; leaves OUT, ERR, RC. Not named `run`: shellcheck checks the arguments
 # of a `run` call as a command of their own, so `run continue` reads as
 # the builtin.
 branch_sync() {
-  OUT=$(cd "$CLONE" && PATH="${CASE_PATH:+$CASE_PATH:}$SANDBOX/logbin:$PATH" \
+  OUT=$(cd "$CLONE${CASE_DIR:+/$CASE_DIR}" && PATH="${CASE_PATH:+$CASE_PATH:}$SANDBOX/logbin:$PATH" \
     GIT_EDITOR="touch $SANDBOX/editor-opened" /bin/bash "$SCRIPT" "$@" 2>"$SANDBOX/stderr")
   RC=$?
   ERR=$(cat "$SANDBOX/stderr")
@@ -376,6 +376,28 @@ printf 'odd resolved\n' >"$CLONE/$ODD"
 branch_sync continue "$OUT"
 check "$RC:$OUT" "0:" "odd path: continue takes the path rebase printed"
 check "$(git -C "$CLONE" show HEAD:"$ODD")" "odd resolved" "odd path: the resolution is committed"
+
+# --- a stopped rebase run from a subdirectory -------------------------------
+# rebase and continue both run in sub/; the path rebase prints is
+# relative to the top level.
+git -C "$SEED" checkout -q main
+mkdir -p "$SEED/sub"
+commit_file "$SEED" sub/f.txt "sub base" "sub base" >/dev/null
+git -C "$SEED" push -q origin main
+git -C "$SEED" checkout -q -b subdir
+commit_file "$SEED" sub/f.txt "sub branch" "sub branch" >/dev/null
+git -C "$SEED" push -q origin subdir
+git -C "$SEED" checkout -q main
+commit_file "$SEED" sub/f.txt "sub main" "sub main" >/dev/null
+git -C "$SEED" push -q origin main
+branch_sync checkout subdir
+CASE_DIR=sub branch_sync rebase main
+check "$RC:$OUT" "3:sub/f.txt" "subdirectory: rebase prints the path relative to the top level"
+printf 'sub resolved\n' >"$CLONE/sub/f.txt"
+CASE_DIR=sub branch_sync continue "$OUT"
+check "$RC:$OUT" "0:" "subdirectory: continue takes the path rebase printed"
+check "$(in_rebase)" "no" "subdirectory: no rebase is left in progress"
+check "$(git -C "$CLONE" show HEAD:sub/f.txt)" "sub resolved" "subdirectory: the resolution is committed"
 
 branch_sync checkout feature
 check "$RC" "0" "back on feature"

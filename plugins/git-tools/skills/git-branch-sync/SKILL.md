@@ -45,8 +45,10 @@ No subcommand ever opens an editor.
 - **`continue <path>…`** — stages the given paths, then commits the
   stopped commit under `REBASE_HEAD`'s message and author and lets the
   rebase continue, exiting as `rebase` does on the next stop. Each path
-  is taken literally, never as a pattern, so a path `rebase` printed
-  can be passed back as it stands. When the staged resolution leaves
+  is taken literally, never as a pattern, and relative to the top level
+  of the working tree from whatever directory `continue` runs in, as
+  `rebase` prints it, so a path `rebase` printed can be passed back as
+  it stands. When the staged resolution leaves
   the stopped commit with no change, the commit is skipped instead, as
   a rebase drops a commit that becomes empty.
 - **`abort`** — aborts the rebase in progress, leaving the branch
