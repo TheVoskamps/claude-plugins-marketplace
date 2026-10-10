@@ -118,7 +118,7 @@ whole workflow:
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, as its result file holds it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and
-  `CONSEQUENCE-CLASS`.
+  `CONSEQUENCE-CLASS`. Only a verifier receives it.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
 - `--round <n>` — the review round, as the reviewer numbers it.

@@ -118,11 +118,10 @@ calls in a subagent context.
    one of k disprovers running at once in k worktrees of one repo, and
    those worktrees share that repo's single ref store: k concurrent
    fetches contend for the same `.git`, and a loser of that lock race
-   fails outright rather than waiting. The pipeline fetches once
-   before it fans out and tells you so with `--fetched yes`, so on
-   that path the check above passes and no disprover fetches at
-   all. Run standalone, with neither parameter, you fetch — the ref
-   may be stale or absent, and one fetch racing nothing is free.
+   fails outright rather than waiting. On the `--fetched yes` path the
+   check above passes and no disprover fetches at all. Run standalone,
+   with neither parameter, you fetch — the ref may be stale or absent,
+   and one fetch racing nothing is free.
 
    A fresh worktree can start on the base branch, so a build, a test
    run, or a binary inspected before this checkout measures base code

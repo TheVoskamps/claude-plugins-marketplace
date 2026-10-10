@@ -531,10 +531,12 @@ whatever its size. `theorem-generator-high` and
 for an explicit `--generator`.
 
 Both signals read the round's delta — on a fallback round, the whole
-PR diff. The tier that ran is the agent whose record settled `list` in
-the `generate` stage, never your spawn choice; say
-in the Review method section which it was and what picked it, and name
-both when it differs from the last `spawn` record for `list`.
+PR diff. The tier that ran is the agent whose result file is the
+round's list — the one the last `spawn` record for `list` names, per
+"Spawn the theorem generator" — read from the records, never from your
+spawn choice. Say in the Review method section which it was and what
+picked it, and when a generator at another tier also reported this
+round, name it too.
 
 ### Spawn the theorem generator
 
@@ -600,8 +602,7 @@ defines, and nothing else.
 ```
 
 Pass the delta as the **commit list**, never as a previous head to diff
-against; on an adjustment-only round `--delta-commits` carries an empty
-value rather than being dropped. Pass no tier, effort, or model. Append
+against. Pass no tier, effort, or model. Append
 its `--mode spawn` record with `--theorem list --stage generate
 --agent <the definition you spawned> --model default --effort default`
 — the tier travels in `--agent`.
@@ -694,9 +695,10 @@ class, or SURVIVED with what you checked. Nothing else.
 ```
 
 Pass `--pr` and `--round` unchanged from the anchor call, or the
-child's records land in a round you never read; pass `--head-sha` and
-`--fetched yes` only when you really fetched in this session. Never
-merge two theorems into one brief or add one of your own.
+child's records land in a round you never read; pass `--fetched yes`
+only when `sdlc:theorem-agents-interface`'s meaning for it holds, and
+`--head-sha` only beside it. Never merge two theorems into one brief or
+add one of your own.
 
 Name in your closing turn text the theorems you are waiting on, and
 wait by "The resume loop" over the `disprove` stage. A theorem whose
@@ -739,8 +741,7 @@ rejection reason, or STANDS with a confirmed or corrected consequence
 statement and a consequence class. Nothing else.
 ```
 
-`--counterexample` is the report as its result file holds it, byte for
-byte. **No retry ping-pong**: a `REFUTED` counterexample ends that
+**No retry ping-pong**: a `REFUTED` counterexample ends that
 theorem's round, with no further disprover and no second verifier. A
 verifier report malformed by `counterexample-verifier` → "Output"
 leaves the finding **standing**, on the disprover's proposed class, and
