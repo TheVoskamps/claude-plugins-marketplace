@@ -110,6 +110,7 @@ in_rebase() {
   if [ -d "$CLONE/.git/rebase-merge" ] || [ -d "$CLONE/.git/rebase-apply" ]; then echo yes; else echo no; fi
 }
 last_push() { tail -n 1 "$PUSH_LOG"; }
+recorded() { git -C "$CLONE" rev-parse -q --verify "refs/git-branch-sync/$1" || echo none; }
 
 check "$([ -x "$SCRIPT" ] && echo yes)" "yes" "git-branch-sync is executable"
 
@@ -128,11 +129,19 @@ usage_case abort x
 usage_case push x
 usage_case release
 
+# --- push before any checkout -----------------------------------------------
+: >"$PUSH_LOG"
+branch_sync push
+check "$RC" "12" "push with no recorded tip: exit 12"
+check_contains "$ERR" "no tip is recorded for main" "push with no recorded tip: stderr names the branch"
+check "$(cat "$PUSH_LOG")" "" "push with no recorded tip: no push was run"
+
 # --- checkout ---------------------------------------------------------------
 branch_sync checkout feature
 check "$RC" "0" "checkout: a branch with no local copy exits 0"
 check "$(git -C "$CLONE" branch --show-current)" "feature" "checkout: the branch is checked out"
 check "$(clone_head)" "$A" "checkout: at origin's tip"
+check "$(recorded feature)" "$A" "checkout: records origin's tip"
 
 B=$(commit_file "$SEED" b.txt "b" "feature B")
 git -C "$SEED" push -q origin feature
@@ -177,7 +186,8 @@ branch_sync push
 check "$RC" "0" "push after a rebase: exit 0"
 check "$(origin_tip feature)" "$(clone_head)" "push after a rebase: origin holds the rebased head"
 check_contains "$(last_push)" "--force-with-lease=refs/heads/feature:$C" \
-  "push after a rebase: the lease names the fetched remote tip"
+  "push after a rebase: the lease names the recorded tip"
+check "$(recorded feature)" "$(clone_head)" "push after a rebase: records the pushed tip"
 
 : >"$PUSH_LOG"
 branch_sync push
@@ -193,10 +203,49 @@ git -C "$CLONE" reset -q --hard HEAD~1
 : >"$PUSH_LOG"
 branch_sync push
 check "$RC" "11" "push behind origin: exit 11"
-check_contains "$ERR" "is behind origin/feature ($D); nothing was pushed" "push behind origin: stderr names the remote tip"
+check_contains "$ERR" "is behind its recorded tip ($D); nothing was pushed" "push behind origin: stderr names the recorded tip"
 check "$(cat "$PUSH_LOG")" "" "push behind origin: no push was run"
 check "$(origin_tip feature)" "$D" "push behind origin: origin keeps its tip"
 git -C "$CLONE" reset -q --hard "$D"
+
+# --- another writer pushes after the checkout -------------------------------
+# writer_pushes <file> -- the seed pushes one commit onto origin/feature;
+# prints its SHA.
+writer_pushes() {
+  git -C "$SEED" checkout -q feature
+  git -C "$SEED" fetch -q origin
+  git -C "$SEED" reset -q --hard origin/feature
+  commit_file "$SEED" "$1" "$1" "writer $1"
+  git -C "$SEED" push -q origin feature
+}
+
+branch_sync checkout feature
+W1=$(writer_pushes w1.txt)
+commit_file "$CLONE" mine1.txt "mine1" "mine one" >/dev/null
+branch_sync push
+check "$RC" "8" "another writer, no rebase: exit 8"
+check "$(origin_tip feature)" "$W1" "another writer, no rebase: origin keeps the writer's commit"
+git -C "$CLONE" fetch -q origin
+git -C "$CLONE" reset -q --hard "$W1"
+branch_sync checkout feature
+check "$RC:$(recorded feature)" "0:$W1" "another writer: checkout records the writer's tip"
+
+git -C "$SEED" checkout -q main
+commit_file "$SEED" upstream2.txt "u2" "upstream two" >/dev/null
+git -C "$SEED" push -q origin main
+W2=$(writer_pushes w2.txt)
+commit_file "$CLONE" mine2.txt "mine2" "mine two" >/dev/null
+branch_sync rebase main
+check "$RC" "0" "another writer, then a rebase: the rebase is clean"
+: >"$PUSH_LOG"
+branch_sync push
+check "$RC" "8" "another writer, then a rebase: exit 8"
+check_contains "$(last_push)" "--force-with-lease=refs/heads/feature:$W1" \
+  "another writer, then a rebase: the lease names the tip checkout recorded"
+check "$(origin_tip feature)" "$W2" "another writer, then a rebase: origin keeps the writer's commit"
+git -C "$CLONE" fetch -q origin
+git -C "$CLONE" reset -q --hard "$W2"
+branch_sync checkout feature
 
 # --- a stopped rebase finished through continue -----------------------------
 # Feature E conflicts with main in two files and feature F in a third,
@@ -295,8 +344,34 @@ check "$(in_rebase)" "no" "skip: no rebase is left in progress"
 check "$(clone_head)" "$MAIN_TIP" "skip: the emptied commit is dropped, the branch is at origin/main"
 check "$(git -C "$CLONE" branch --show-current)" "skipper" "skip: the branch is checked out again"
 check "$([ -e "$SANDBOX/editor-opened" ] && echo opened || echo never)" "never" "skip: no editor was opened"
+
+# --- a conflicted path git would quote --------------------------------------
+# A tab, a quote, a non-ASCII letter and a backslash: git quotes each
+# unless asked for raw paths.
+ODD=$(printf 'odd\t"\303\251\\.txt')
+git -C "$SEED" checkout -q main
+printf 'odd base\n' >"$SEED/$ODD"
+git -C "$SEED" add -A
+git -C "$SEED" commit -q -m "odd base"
+git -C "$SEED" push -q origin main
+git -C "$SEED" checkout -q -b odd
+printf 'odd branch\n' >"$SEED/$ODD"
+git -C "$SEED" commit -q -a -m "odd branch"
+git -C "$SEED" push -q origin odd
+git -C "$SEED" checkout -q main
+printf 'odd main\n' >"$SEED/$ODD"
+git -C "$SEED" commit -q -a -m "odd main"
+git -C "$SEED" push -q origin main
+branch_sync checkout odd
+branch_sync rebase main
+check "$RC:$OUT" "3:$ODD" "odd path: stdout is the conflicted path, unquoted"
+printf 'odd resolved\n' >"$CLONE/$ODD"
+branch_sync continue "$OUT"
+check "$RC:$OUT" "0:" "odd path: continue takes the path rebase printed"
+check "$(git -C "$CLONE" show HEAD:"$ODD")" "odd resolved" "odd path: the resolution is committed"
+
 branch_sync checkout feature
-check "$RC" "0" "skip: back on feature"
+check "$RC" "0" "back on feature"
 
 # --- detached HEAD ----------------------------------------------------------
 git -C "$CLONE" checkout -q --detach
@@ -307,8 +382,8 @@ check "$RC" "7" "push on a detached HEAD: exit 7"
 git -C "$CLONE" checkout -q feature
 
 # --- push failures ----------------------------------------------------------
-# The remote moves between the script's fetch and its push: a git whose
-# push lets the seed push first.
+# The remote moves just before the script's push: a git whose push lets
+# the seed push first, then logs and runs the script's own.
 mkdir -p "$SANDBOX/racebin"
 cat >"$SANDBOX/racebin/git" <<STUB
 #!/usr/bin/env bash
@@ -321,24 +396,28 @@ if [ "\$1" = push ]; then
   "$REAL_GIT" -C "$SEED" commit -q -m race
   "$REAL_GIT" -C "$SEED" push -q origin feature
 fi
-exec "$REAL_GIT" "\$@"
+exec "$SANDBOX/logbin/git" "\$@"
 STUB
 chmod +x "$SANDBOX/racebin/git"
 
 commit_file "$CLONE" plain.txt "plain" "plain push" >/dev/null
 CASE_PATH="$SANDBOX/racebin" branch_sync push
-check "$RC" "8" "plain push, remote moved since the fetch: exit 8"
+check "$RC" "8" "plain push, remote moved just before it: exit 8"
 
 git -C "$CLONE" fetch -q origin
 git -C "$CLONE" reset -q --hard origin/feature
+branch_sync checkout feature
 git -C "$CLONE" commit -q --amend -m "rewritten"
+: >"$PUSH_LOG"
 CASE_PATH="$SANDBOX/racebin" branch_sync push
-check "$RC" "8" "lease push, remote moved since the fetch: exit 8"
+check "$RC" "8" "lease push, remote moved just before it: exit 8"
+check_contains "$(last_push)" "--force-with-lease" "lease push, remote moved just before it: a lease push"
 check_lacks "$(cat "$PUSH_LOG")" "--force " "push never uses --force"
 check_lacks "$(cat "$PUSH_LOG")" "--mirror" "push never uses --mirror"
 
 git -C "$CLONE" fetch -q origin
 git -C "$CLONE" reset -q --hard origin/feature
+branch_sync checkout feature
 
 printf 'dirty\n' >>"$CLONE/base.txt"
 branch_sync push
@@ -394,6 +473,11 @@ branch_sync release feature
 check "$RC" "0" "release: exit 0"
 check "$(git -C "$CLONE" branch --show-current)" "" "release: HEAD is detached"
 check "$(git -C "$CLONE" rev-parse -q --verify refs/heads/feature || echo gone)" "gone" "release: the local branch is deleted"
+check "$(recorded feature)" "none" "release: the recorded tip is deleted"
+
+git -C "$CLONE" checkout -q -b unrecorded
+branch_sync release unrecorded
+check "$RC" "0" "release with no recorded tip: exit 0"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

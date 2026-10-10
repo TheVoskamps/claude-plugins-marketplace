@@ -24,10 +24,17 @@
 #   5   continue: a conflicted path is still unresolved
 #   6   continue or abort: no rebase is in progress
 #   7   rebase or push: no branch is checked out
-#   8   push: rejected because the remote moved since the fetch
+#   8   push: rejected because the remote moved past the recorded tip
 #   9   push: local HEAD differs from the remote tip
 #   10  push: the working tree is dirty
-#   11  push: the local branch is behind origin/<branch>; nothing pushed
+#   11  push: the local branch is behind the recorded tip; nothing pushed
+#   12  push: no tip is recorded for the branch; nothing pushed
+#
+# `checkout` records the origin/<branch> tip it saw in
+# refs/git-branch-sync/<branch>; `push` decides and leases against that
+# recorded tip, never one it fetches itself, so a commit another writer
+# pushed after the checkout is refused rather than replaced. `release`
+# deletes the record.
 set -euo pipefail
 
 PROGRAM=${0##*/}
@@ -98,9 +105,16 @@ rebase_in_progress() {
   [ -d "$merge" ] || [ -d "$apply" ]
 }
 
-# unmerged_paths -- print every path the index still holds as conflicted.
+# unmerged_paths -- print every path the index still holds as conflicted,
+# one per line, verbatim: -z keeps git from quoting a path with a
+# non-ASCII byte, a tab, a quote or a backslash.
 unmerged_paths() {
-  git diff --name-only --diff-filter=U
+  git diff --name-only -z --diff-filter=U | tr '\0' '\n'
+}
+
+# recorded_ref <branch> -- print the ref that holds <branch>'s recorded tip.
+recorded_ref() {
+  printf 'refs/git-branch-sync/%s\n' "$1"
 }
 
 # remote_ref <branch> -- print origin/<branch>'s SHA as last fetched, or
@@ -131,8 +145,9 @@ after_rebase_step() {
 
 # cmd_checkout <branch> -- check out <branch> at origin's tip: create it
 # tracking origin/<branch> when there is no local copy, fast-forward one
-# that is behind, and leave one that is ahead. Exits 4, touching nothing,
-# when the local copy has diverged, and 1 when origin lacks the branch.
+# that is behind, and leave one that is ahead; then record origin's tip
+# for `push`. Exits 4, touching nothing, when the local copy has
+# diverged, and 1 when origin lacks the branch.
 cmd_checkout() {
   local branch=$1 remote local_tip
   git fetch -q origin || fail 1 "git fetch origin failed"
@@ -141,17 +156,18 @@ cmd_checkout() {
   local_tip=$(git rev-parse -q --verify "refs/heads/$branch^{commit}" || true)
   if [ -z "$local_tip" ]; then
     git checkout -q -b "$branch" --track "refs/remotes/origin/$branch"
-    exit 0
+  else
+    if ! git merge-base --is-ancestor "$local_tip" "$remote" &&
+      ! git merge-base --is-ancestor "$remote" "$local_tip"; then
+      fail 4 "local $branch ($local_tip) has diverged from origin/$branch ($remote); nothing was reset"
+    fi
+    git checkout -q "$branch"
+    # A local branch already ahead of origin/<branch> stays where it is.
+    if git merge-base --is-ancestor "$local_tip" "$remote"; then
+      git merge -q --ff-only "$remote"
+    fi
   fi
-  if ! git merge-base --is-ancestor "$local_tip" "$remote" &&
-    ! git merge-base --is-ancestor "$remote" "$local_tip"; then
-    fail 4 "local $branch ($local_tip) has diverged from origin/$branch ($remote); nothing was reset"
-  fi
-  git checkout -q "$branch"
-  # A local branch already ahead of origin/<branch> stays where it is.
-  if git merge-base --is-ancestor "$local_tip" "$remote"; then
-    git merge -q --ff-only "$remote"
-  fi
+  git update-ref "$(recorded_ref "$branch")" "$remote"
 }
 
 # cmd_rebase <base> -- rebase the checked-out branch onto the freshly
@@ -175,7 +191,8 @@ cmd_rebase() {
 cmd_continue() {
   local status=0 left
   rebase_in_progress || fail 6 "no rebase is in progress"
-  git add -- "$@"
+  # Literal, so a path `rebase` printed names that file and no pattern.
+  git --literal-pathspecs add -- "$@"
   left=$(unmerged_paths)
   if [ -n "$left" ]; then
     printf '%s\n' "$left" >&2
@@ -201,24 +218,26 @@ cmd_abort() {
   git rebase --abort
 }
 
-# cmd_push -- push the checked-out branch to origin/<branch>, with a lease
-# on the fetched tip when the push is not a fast-forward, then verify
-# that origin holds HEAD and the working tree is clean. Exits 7 to 11 as
-# the header lists them.
+# cmd_push -- push the checked-out branch to origin/<branch>, deciding
+# against the tip `checkout` recorded rather than a fresh fetch: with a
+# lease on the recorded tip when the push is not a fast-forward from it,
+# then record the pushed tip and verify that origin holds HEAD and the
+# working tree is clean. Exits 7 to 12 as the header lists them.
 cmd_push() {
-  local branch remote result status=0 line pushed local_head dirty
+  local branch recorded result status=0 line remote local_head dirty
   branch=$(current_branch) || exit
-  git fetch -q origin || fail 1 "git fetch origin failed"
-  remote=$(remote_ref "$branch")
+  recorded=$(git rev-parse -q --verify "$(recorded_ref "$branch")^{commit}" || true)
+  [ -n "$recorded" ] ||
+    fail 12 "no tip is recorded for $branch: run \`checkout $branch\` first; nothing was pushed"
   local_head=$(git rev-parse HEAD)
-  # A branch behind its remote would otherwise take the lease push below,
-  # which would discard the remote's newer commits.
-  if [ -n "$remote" ] && [ "$local_head" != "$remote" ] &&
-    git merge-base --is-ancestor "$local_head" "$remote"; then
-    fail 11 "local $branch ($local_head) is behind origin/$branch ($remote); nothing was pushed"
+  # A branch behind the recorded tip would otherwise take the lease push
+  # below, which would discard the commits it lacks.
+  if [ "$local_head" != "$recorded" ] &&
+    git merge-base --is-ancestor "$local_head" "$recorded"; then
+    fail 11 "local $branch ($local_head) is behind its recorded tip ($recorded); nothing was pushed"
   fi
-  if [ -n "$remote" ] && ! git merge-base --is-ancestor "$remote" HEAD; then
-    result=$(git push --porcelain "--force-with-lease=refs/heads/$branch:$remote" origin \
+  if ! git merge-base --is-ancestor "$recorded" HEAD; then
+    result=$(git push --porcelain "--force-with-lease=refs/heads/$branch:$recorded" origin \
       "HEAD:refs/heads/$branch" 2>&1 || exit) || status=$?
   else
     result=$(git push --porcelain origin "HEAD:refs/heads/$branch" 2>&1 || exit) || status=$?
@@ -231,7 +250,7 @@ cmd_push() {
     while IFS= read -r line; do
       case "$line" in
         '!'*'[rejected] (stale info)'* | '!'*'[rejected] (fetch first)'* | '!'*'[rejected] (non-fast-forward)'*)
-          fail 8 "the push was rejected: origin/$branch moved since the fetch"
+          fail 8 "the push was rejected: origin/$branch moved past the recorded tip ($recorded)"
           ;;
       esac
     done <<EOF
@@ -239,22 +258,23 @@ $result
 EOF
     fail 1 "git push to origin/$branch failed (exit $status)"
   fi
-  pushed=$(git ls-remote origin "refs/heads/$branch" || exit)
-  pushed=${pushed%%[[:space:]]*}
-  local_head=$(git rev-parse HEAD)
-  if [ "$pushed" != "$local_head" ]; then
-    fail 9 "local HEAD $local_head differs from origin/$branch ${pushed:-(absent)}"
+  git update-ref "$(recorded_ref "$branch")" "$local_head"
+  git fetch -q origin || fail 1 "git fetch origin failed"
+  remote=$(remote_ref "$branch")
+  if [ "$remote" != "$local_head" ]; then
+    fail 9 "local HEAD $local_head differs from origin/$branch ${remote:-(absent)}"
   fi
   dirty=$(git status --porcelain)
   [ -z "$dirty" ] || fail 10 "the working tree is dirty after the push"
 }
 
 # cmd_release <branch> -- detach HEAD and delete the local <branch>, so
-# another worktree can check it out.
+# another worktree can check it out, and delete its recorded tip.
 cmd_release() {
   local branch=$1
   git checkout -q --detach
   git branch -q -D "$branch"
+  git update-ref -d "$(recorded_ref "$branch")"
 }
 
 [ "$#" -ge 1 ] || usage_error "No subcommand was supplied."

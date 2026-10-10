@@ -107,7 +107,7 @@ from its issue.
 
 2. Check out the PR branch with the preloaded
    `git-tools:git-branch-sync` skill, which owns every git step of this
-   file outside a conflict's resolution:
+   file but step 9's commit and a conflict's resolution:
 
    ```bash
    git-branch-sync checkout <branch-name>
@@ -191,9 +191,9 @@ from its issue.
 
     It exits 0 only once the remote branch is your local HEAD and the
     tree is clean, including when there was nothing new to push. On 8
-    the remote branch moved under you since the fetch, and on 9 or 10
-    the push did not land as verified: stop and report, and do not run
-    step 12.
+    the remote branch moved under you after step 2's checkout, and on 9
+    or 10 the push did not land as verified: stop and report, and do not
+    run step 12.
 
 11. Capture agent memory into the session inbox, before worktree
     cleanup:
@@ -369,8 +369,9 @@ and the test result.
 again on your return; no review round follows a merge-readiness brief.
 
 Push only through `git-branch-sync push`. After a rebase it pushes
-with a lease, because the push replaces commits the PR already carries,
-and the lease is what refuses to replace ones you never saw; exit 8 is
+with a lease on the tip `checkout` saw, because the push replaces
+commits the PR already carries, and the lease is what refuses to
+replace ones pushed after your checkout, which you never saw; exit 8 is
 that refusal. Never push any other way, and never `--force`.
 
 ## Verify the claims in your own prose
