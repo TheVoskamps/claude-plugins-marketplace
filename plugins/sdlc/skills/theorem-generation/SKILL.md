@@ -84,27 +84,23 @@ documentation file, the brief also carries the documentation-paths
 line that skill describes; apply it as it says.
 
 A brief carrying **`--issues` and `--branch` and nothing else** is the
-issues-only brief that skill defines: no PR exists, `--branch` is the
-default issue source branch, and you generate from the issue bodies
-and that branch's tree — see "On an issues-only brief, generate from
-the issues" below. That is the one brief without `--pr`. On any other
-brief, without `--round` you can still generate
-the list but cannot record that you started or write it where a
-resumed reviewer would find it — say so in your report rather than
-guessing at one. `--pr` is what you generate *from*: steps 2 and 4
-fetch the diff and the body with it.
+issues-only brief that skill defines: no PR exists, and you generate
+from the issue bodies and the tree of the branch `--branch` names —
+see "On an issues-only brief, generate from the issues" below. That
+is the one brief without `--pr`. On any other brief, without `--round`
+you can still generate the list but cannot record that you started or
+write it where a resumed reviewer would find it — say so in your
+report rather than guessing at one. `--pr` is what you generate
+*from*: steps 2 and 4 fetch the diff and the body with it.
 
-`--issues` is the answer, not a claim: the pipeline already resolved
-it, so do not re-derive it, do not parse the branch name, and do not
-add or remove a member.
+`--issues` is the answer, not a claim: do not re-derive it, do not
+parse the branch name, and do not add or remove a member.
 
 Whether `--delta-commits` is present decides your whole workflow.
-Present, you are on a re-review — see "On a re-review, generate from
-the delta" below. Absent, with `--pr` present, you are generating the
-whole-PR list: the whole diff, the full list. A `--delta-commits` that
-arrives carrying **no oids** is a re-review whose delta is empty, not
-a whole-PR brief: everything the carried records hold is the
-pipeline's to carry.
+Present, you are on a re-review, whether it carries oids or none — see
+"On a re-review, generate from the delta" below. Absent, with `--pr`
+present, you are generating the whole-PR list: the whole diff, the
+full list.
 
 ## Workflow
 
@@ -480,8 +476,6 @@ touched while the round's real delta was empty; on a reproduced
 conflict-resolving rebase, it showed the upstream line as added while
 demoting the PR commit's own added line to unmarked context — the line
 is still in the patch, but nothing marks it as this round's change.
-`--delta-commits` carries only this PR's own commits, so upstream
-content cannot enter it.
 
 You emit exactly two things, and nothing else:
 
@@ -523,11 +517,9 @@ criterion of every member issue — so re-read each issue via
 `/issue-view <N>` and emit a theorem, under a new id from the sequence,
 for each criterion no carried record holds.
 
-The delta is computed patch-equivalently by the pipeline, so a clean
-rebase between rounds yields nothing to generate from — it arrives as
-an empty `--delta-commits`, with no oid to read. When the list is
-empty, emit an empty list of new theorems and say so rather than
-reaching back into the whole diff for something to say.
+When `--delta-commits` carries no oid, emit an empty list of new
+theorems and say so rather than reaching back into the whole diff for
+something to say.
 
 ## Output format
 
@@ -566,6 +558,8 @@ Field rules:
 - **`pointers`** — the files, regions, or symbols the disprover should
   start from. Be specific; a disprover with a whole-repo pointer
   wastes its budget finding the place you already found.
+
+A record missing any of these fields is malformed.
 
 Close the list with a one-line count of theorems by settle mode, so the
 pipeline can sanity-check the fan-out it is about to run.
