@@ -36,8 +36,8 @@ and is idempotent on its own.
 - `<PR>` (required): the pull request, in any form
   `skills/lib/pr-reference.md` lists.
 - `<issue-number>…` (required): one or more issue numbers the PR
-  resolves — members of the branch's **own** issue set only, separated
-  by spaces or commas. See "Own issue set only" below.
+  resolves — members of the branch's **own** issue set only, each as
+  `N` or `#N`, space-separated. See "Own issue set only" below.
 
 ## Own issue set only
 
@@ -57,9 +57,7 @@ numbers — a caller of `/pr-link-issue` always has the issues in hand,
 so there is nothing to look up. It hands that claim to
 `/git-tools:git-issues-from-branch` alongside the PR's head branch,
 and acts on what comes back. It never parses a branch name and never
-re-derives the resolution. That skill reads
-`issue-branch-naming-prefix` from repo-config internally; this one
-reads no config of its own.
+re-derives the resolution. This skill reads no config of its own.
 
 ## Execution
 

@@ -664,7 +664,7 @@ check "$(calls | grep -c '^api')" "0" "pr-comment: a URL with no comment id is n
 # --- pr-link-issue -------------------------------------------------------
 new_case link
 printf 'Summary\n\nCloses #3\n' >"$CASE/body"
-run pr-link-issue 7 '#4' 5,
+run pr-link-issue 7 '#4' 5
 check "$RC" "0" "pr-link-issue: exit 0 when the lines land"
 check "$(call_line 1)" "pr view 7 --json body --jq .body" "pr-link-issue: reads the existing body"
 check "$(call_line 2)" "pr edit 7 --body-file -" "pr-link-issue: writes the body through stdin"
@@ -756,6 +756,16 @@ check "$(calls | grep -c '^pr view')" "0" "pr-create: a URL with no PR number is
 new_case create-no-issue
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md"
 check "$RC" "2" "pr-create: no issue number is a usage error"
+
+new_case create-comma-list
+run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3, 4
+check "$RC" "2" "pr-create: a comma-separated issue list is a usage error"
+check_contains "$ERR" "\`3,\` is not an issue number" "pr-create: the comma-carrying token is named"
+
+new_case link-comma-list
+run pr-link-issue 7 3, 4
+check "$RC" "2" "pr-link-issue: a comma-separated issue list is a usage error"
+check "$(calls | grep -c '^pr edit')" "0" "pr-link-issue: a comma-separated list writes nothing"
 
 new_case create-no-config
 mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
