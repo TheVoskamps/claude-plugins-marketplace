@@ -336,8 +336,8 @@ share documented as read-only" are consequences; "this is a
 documentation problem" is not. Do not restate the evidence quote: the
 pipeline already holds the disprover's copy and publishes that one.
 
-A `STANDS` report is malformed when its `CONSEQUENCE-CLASS` line is
-absent or holds anything but one of the four tokens the template lists.
+A `STANDS` report whose `CONSEQUENCE-CLASS` line breaks the template
+is malformed.
 
 ## End-of-run cleanup
 
