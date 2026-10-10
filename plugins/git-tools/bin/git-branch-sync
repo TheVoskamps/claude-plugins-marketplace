@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+#
+# git-branch-sync -- the fixed git steps around work on an existing
+# branch: check it out, rebase it onto its base, finish or abort a
+# stopped rebase, push it and verify the push landed, and release it at
+# the end of a run.
+#
+# The contract is plugins/git-tools/skills/git-branch-sync/SKILL.md.
+#
+# Usage:
+#   git-branch-sync checkout <branch>
+#   git-branch-sync rebase <base>
+#   git-branch-sync continue <path>...
+#   git-branch-sync abort
+#   git-branch-sync push
+#   git-branch-sync release <branch>
+#
+# Exit statuses:
+#   0   success
+#   1   a failure the script did not classify; stderr names it
+#   2   a usage error; nothing was run
+#   3   the rebase stopped on conflicts; stdout is the conflicted paths
+#   4   checkout: the local branch has diverged from origin/<branch>
+#   5   continue: a conflicted path is still unresolved
+#   6   continue or abort: no rebase is in progress
+#   7   rebase or push: no branch is checked out
+#   8   push: rejected because the remote moved past the recorded tip
+#   9   push: local HEAD differs from the remote tip
+#   10  push: the working tree is dirty
+#   11  push: the local branch is behind the recorded tip; nothing pushed
+#   12  push: no tip is recorded for the branch; nothing pushed
+#
+# `checkout` records the origin/<branch> tip it saw in
+# refs/git-branch-sync/<branch>; `push` decides and leases against that
+# recorded tip, never one it fetches itself, so a commit another writer
+# pushed after the checkout is refused rather than replaced. `release`
+# deletes the record.
+set -euo pipefail
+
+PROGRAM=${0##*/}
+
+# No git command this script runs may stop for an editor.
+GIT_EDITOR=true
+GIT_SEQUENCE_EDITOR=true
+export GIT_EDITOR GIT_SEQUENCE_EDITOR
+
+# fail <status> <message> -- print <message>, prefixed with the
+# program's name, and exit with <status>.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+# usage -- print the synopsis on stdout.
+usage() {
+  cat <<EOF
+usage: $PROGRAM checkout <branch>
+       $PROGRAM rebase <base>
+       $PROGRAM continue <path>...
+       $PROGRAM abort
+       $PROGRAM push
+       $PROGRAM release <branch>
+EOF
+}
+
+# usage_error <message> -- print <message> and the synopsis, and exit 2.
+usage_error() {
+  printf '%s: %s\n' "$PROGRAM" "$1" >&2
+  usage >&2
+  exit 2
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command, never with git's own status. `set -E` carries the
+# trap into functions and command substitutions, so a substitution whose
+# failure is expected ends inside it in `|| exit`, which hands the status
+# to the command around it, or in `|| true`, which discards it; either
+# keeps the trap quiet in the substitution's own shell.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+# arity <want> <subcommand> <args...> -- a usage error unless exactly
+# <want> arguments follow <subcommand>.
+arity() {
+  local want=$1 sub=$2
+  shift 2
+  [ "$#" -eq "$want" ] ||
+    usage_error "\`$sub\` takes $want argument(s), not $#."
+}
+
+# current_branch -- print the checked-out branch's name, or exit 7 when
+# HEAD is detached.
+current_branch() {
+  local name
+  # Outside a repository this fails, exiting 1, before the symbolic-ref
+  # below could swallow that failure and report a detached HEAD.
+  git rev-parse -q --git-dir >/dev/null
+  name=$(git symbolic-ref -q --short HEAD || exit 0)
+  [ -n "$name" ] || fail 7 "no branch is checked out (HEAD is detached)"
+  printf '%s\n' "$name"
+}
+
+# rebase_in_progress -- succeed when a rebase is stopped in this
+# checkout.
+rebase_in_progress() {
+  local merge apply
+  merge=$(git rev-parse --git-path rebase-merge)
+  apply=$(git rev-parse --git-path rebase-apply)
+  [ -d "$merge" ] || [ -d "$apply" ]
+}
+
+# unmerged_paths -- print every path the index still holds as conflicted,
+# one per line, verbatim: -z keeps git from quoting a path with a
+# non-ASCII byte, a tab, a quote or a backslash.
+unmerged_paths() {
+  git diff --name-only -z --diff-filter=U | tr '\0' '\n'
+}
+
+# recorded_ref <branch> -- print the ref that holds <branch>'s recorded tip.
+recorded_ref() {
+  printf 'refs/git-branch-sync/%s\n' "$1"
+}
+
+# remote_ref <branch> -- print origin/<branch>'s SHA as last fetched, or
+# nothing when origin has no such branch.
+remote_ref() {
+  git rev-parse -q --verify "refs/remotes/origin/$1^{commit}" || true
+}
+
+# after_rebase_step <status> -- classify how a `git rebase` or
+# `git rebase --continue` that exited <status> left the checkout: exit 0
+# when it finished, 3 with the conflicted paths on stdout when it stopped
+# on conflicts, and 1 otherwise.
+after_rebase_step() {
+  local paths
+  if [ "$1" -eq 0 ] && ! rebase_in_progress; then
+    exit 0
+  fi
+  if rebase_in_progress; then
+    paths=$(unmerged_paths)
+    if [ -n "$paths" ]; then
+      printf '%s\n' "$paths"
+      fail 3 "the rebase stopped on conflicts in the paths on stdout"
+    fi
+    fail 1 "the rebase stopped with no conflicted path; it is still in progress"
+  fi
+  fail 1 "the rebase failed (exit $1) and is not in progress"
+}
+
+# cmd_checkout <branch> -- check out <branch> at origin's tip: create it
+# tracking origin/<branch> when there is no local copy, fast-forward one
+# that is behind, and leave one that is ahead; then record origin's tip
+# for `push`. Exits 4 when the local copy has diverged, leaving the
+# local branch and its recorded tip as they were, and 1 when origin
+# lacks the branch.
+cmd_checkout() {
+  local branch=$1 remote local_tip
+  git fetch -q origin || fail 1 "git fetch origin failed"
+  remote=$(remote_ref "$branch")
+  [ -n "$remote" ] || fail 1 "origin/$branch does not exist after the fetch"
+  local_tip=$(git rev-parse -q --verify "refs/heads/$branch^{commit}" || true)
+  if [ -z "$local_tip" ]; then
+    git checkout -q -b "$branch" --track "refs/remotes/origin/$branch"
+  else
+    if ! git merge-base --is-ancestor "$local_tip" "$remote" &&
+      ! git merge-base --is-ancestor "$remote" "$local_tip"; then
+      fail 4 "local $branch ($local_tip) has diverged from origin/$branch ($remote); nothing was reset"
+    fi
+    git checkout -q "$branch"
+    # A local branch already ahead of origin/<branch> stays where it is.
+    if git merge-base --is-ancestor "$local_tip" "$remote"; then
+      git merge -q --ff-only "$remote"
+    fi
+  fi
+  git update-ref "$(recorded_ref "$branch")" "$remote"
+}
+
+# cmd_rebase <base> -- rebase the checked-out branch onto the freshly
+# fetched origin/<base>. Exits as after_rebase_step does, 7 when HEAD is
+# detached, and 1 when origin lacks <base>.
+cmd_rebase() {
+  local base=$1 status=0
+  current_branch >/dev/null
+  git fetch -q origin || fail 1 "git fetch origin failed"
+  [ -n "$(remote_ref "$base")" ] || fail 1 "origin/$base does not exist after the fetch"
+  # git's own progress and CONFLICT lines go to stderr, so stdout carries
+  # the conflicted paths alone.
+  git rebase "refs/remotes/origin/$base" >&2 || status=$?
+  after_rebase_step "$status"
+}
+
+# cmd_continue <path>... -- stage the resolved <path>s, each relative to
+# the top level, and resume the stopped rebase. Exits 6 when no rebase is
+# in progress, 5 when a conflicted path is still unstaged, and otherwise
+# as after_rebase_step does.
+cmd_continue() {
+  local status=0 left top
+  rebase_in_progress || fail 6 "no rebase is in progress"
+  # `rebase` prints paths relative to the top level, so they resolve from
+  # there whatever directory the caller runs in.
+  top=$(git rev-parse --show-toplevel)
+  cd "$top"
+  # Literal, so a path `rebase` printed names that file and no pattern.
+  git --literal-pathspecs add -- "$@"
+  left=$(unmerged_paths)
+  if [ -n "$left" ]; then
+    printf '%s\n' "$left" >&2
+    fail 5 "a conflicted path is still unresolved: the paths above"
+  fi
+  if git diff --cached --quiet; then
+    # The resolution leaves the stopped commit with no change: drop it,
+    # as a rebase drops a commit that becomes empty.
+    git rebase --skip >&2 || status=$?
+  else
+    # Committing under REBASE_HEAD lands the stopped commit with its own
+    # message and author, so `--continue` finds nothing left to commit.
+    git commit -q -C REBASE_HEAD
+    git rebase --continue >&2 || status=$?
+  fi
+  after_rebase_step "$status"
+}
+
+# cmd_abort -- abort the stopped rebase, or exit 6 when none is in
+# progress.
+cmd_abort() {
+  rebase_in_progress || fail 6 "no rebase is in progress"
+  git rebase --abort
+}
+
+# cmd_push -- push the checked-out branch to origin/<branch>, deciding
+# against the tip `checkout` recorded rather than a fresh fetch: with a
+# lease on the recorded tip when the push is not a fast-forward from it,
+# then record the pushed tip and verify that origin holds HEAD and the
+# working tree is clean. Exits 7 to 12 as the header lists them.
+cmd_push() {
+  local branch recorded result status=0 line remote local_head dirty
+  branch=$(current_branch) || exit
+  recorded=$(git rev-parse -q --verify "$(recorded_ref "$branch")^{commit}" || true)
+  [ -n "$recorded" ] ||
+    fail 12 "no tip is recorded for $branch: run \`checkout $branch\` first; nothing was pushed"
+  local_head=$(git rev-parse HEAD)
+  # A branch behind the recorded tip would otherwise take the lease push
+  # below, which would discard the commits it lacks.
+  if [ "$local_head" != "$recorded" ] &&
+    git merge-base --is-ancestor "$local_head" "$recorded"; then
+    fail 11 "local $branch ($local_head) is behind its recorded tip ($recorded); nothing was pushed"
+  fi
+  if ! git merge-base --is-ancestor "$recorded" HEAD; then
+    result=$(git push --porcelain "--force-with-lease=refs/heads/$branch:$recorded" origin \
+      "HEAD:refs/heads/$branch" 2>&1 || exit) || status=$?
+  else
+    result=$(git push --porcelain origin "HEAD:refs/heads/$branch" 2>&1 || exit) || status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' "$result" >&2
+    # A porcelain line flagged `!` whose summary is git's own
+    # `[rejected]` is a ref the remote holds at something else than the
+    # push expected; `[remote rejected]` is a hook or a rule, and stays 1.
+    while IFS= read -r line; do
+      case "$line" in
+        '!'*'[rejected] (stale info)'* | '!'*'[rejected] (fetch first)'* | '!'*'[rejected] (non-fast-forward)'*)
+          fail 8 "the push was rejected: origin/$branch moved past the recorded tip ($recorded)"
+          ;;
+      esac
+    done <<EOF
+$result
+EOF
+    fail 1 "git push to origin/$branch failed (exit $status)"
+  fi
+  git update-ref "$(recorded_ref "$branch")" "$local_head"
+  git fetch -q origin || fail 1 "git fetch origin failed"
+  remote=$(remote_ref "$branch")
+  if [ "$remote" != "$local_head" ]; then
+    fail 9 "local HEAD $local_head differs from origin/$branch ${remote:-(absent)}"
+  fi
+  dirty=$(git status --porcelain)
+  [ -z "$dirty" ] || fail 10 "the working tree is dirty after the push"
+}
+
+# cmd_release <branch> -- detach HEAD and delete the local <branch>, so
+# another worktree can check it out, and delete its recorded tip.
+cmd_release() {
+  local branch=$1
+  git checkout -q --detach
+  git branch -q -D "$branch"
+  git update-ref -d "$(recorded_ref "$branch")"
+}
+
+[ "$#" -ge 1 ] || usage_error "No subcommand was supplied."
+sub=$1
+shift
+case "$sub" in
+  checkout)
+    arity 1 checkout "$@"
+    cmd_checkout "$1"
+    ;;
+  rebase)
+    arity 1 rebase "$@"
+    cmd_rebase "$1"
+    ;;
+  continue)
+    [ "$#" -ge 1 ] || usage_error "\`continue\` needs at least one resolved path."
+    cmd_continue "$@"
+    ;;
+  abort)
+    arity 0 abort "$@"
+    cmd_abort
+    ;;
+  push)
+    arity 0 push "$@"
+    cmd_push
+    ;;
+  release)
+    arity 1 release "$@"
+    cmd_release "$1"
+    ;;
+  *) usage_error "\`$sub\` is not a subcommand $PROGRAM takes." ;;
+esac

@@ -10,6 +10,7 @@ skills:
   - issue-view
   - github-prs:pr-diff
   - github-prs:pr-view
+  - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
 ---
@@ -53,9 +54,11 @@ the PR is flipped ready.
 ## Setup
 
 ```bash
-git fetch origin
-git checkout <branch-name>
+git-branch-sync checkout <branch-name>
 ```
+
+When a `git-branch-sync` call in this file exits non-zero, stop and
+report it, quoting its stderr.
 
 ## Discovery
 
@@ -123,11 +126,17 @@ inbox. That is the `agent-memory-scrubber` agent's job.
 2. Stage exactly the files you edited, by explicit path — no
    `git add -A`, no directory-wide adds.
 3. Commit with an imperative message describing the documentation
-   change, and push to the same branch. NEVER place a closing keyword
+   change. NEVER place a closing keyword
    (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
    `resolves`/`resolved`, case-insensitive) immediately before an issue
    reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that
-   pattern auto-closes the referenced issue.
+   pattern auto-closes the referenced issue. Then push, which also
+   verifies the push landed:
+
+   ```bash
+   git-branch-sync push
+   ```
+
 4. Capture your own agent memory into the session inbox:
 
    ```text
@@ -151,14 +160,14 @@ inbox. That is the `agent-memory-scrubber` agent's job.
 Release the branch claim so the next agent that checks the branch out
 attached can do so in its own worktree. Run this only if the memory
 capture completed **and** either your commit and push both succeeded or
-you had nothing to commit — otherwise `git branch -D` would destroy the
-only copy of your work, so stop and report the failure instead:
+you had nothing to commit — otherwise deleting the local branch would
+destroy the only copy of your work, so stop and report the failure
+instead:
 
 ```bash
-git checkout --detach
-git branch -D <branch-name>
+git-branch-sync release <branch-name>
 ```
 
-Use `--detach` rather than switching to the source branch: the
-orchestrator's primary clone is already holding that branch, so a
-subagent worktree can't switch to it.
+Release rather than switch to the source branch: the orchestrator's
+primary clone is already holding that branch, so a subagent worktree
+can't switch to it.

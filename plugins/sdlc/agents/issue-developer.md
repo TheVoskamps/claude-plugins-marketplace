@@ -9,6 +9,7 @@ memory: project
 skills:
   - issue-view
   - git-tools:git-branch-create
+  - git-tools:git-branch-sync
   - github-prs:pr-create
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
@@ -221,21 +222,19 @@ owns — but never a finding, a location, or an implementation shape.
     branch in their own worktrees. Run this only if step 11 completed
     **and** either your commit and push both succeeded or you had
     nothing to commit — if the capture failed, or if either the commit
-    or the push failed, `git branch -D` would destroy the only copy of
-    your work, so stop and report the failure instead of proceeding to
-    cleanup. The capture condition holds on the nothing-to-commit path
-    too:
+    or the push failed, deleting the local branch would destroy the
+    only copy of your work, so stop and report the failure instead of
+    proceeding to cleanup. The capture condition holds on the
+    nothing-to-commit path too:
 
     ```bash
-    git checkout --detach
-    git branch -D <branch-name>
+    git-branch-sync release <branch-name>
     ```
 
     Without this, git refuses to check out a branch already claimed by
-    another worktree. Use `--detach` (not switching to the source
-    branch) because the orchestrator's primary clone is already holding
-    that branch, so a subagent worktree can't switch to it. Detaching
-    HEAD releases the feature-branch claim equivalently.
+    another worktree. Release rather than switch to the source branch:
+    the orchestrator's primary clone is already holding that branch, so
+    a subagent worktree can't switch to it.
 
 13. Report back: PR URL (or equivalent), the issue set the PR closes,
     branch name, and — per member — what you implemented, its commit,
