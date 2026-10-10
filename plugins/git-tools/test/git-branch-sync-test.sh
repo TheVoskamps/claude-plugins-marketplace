@@ -17,6 +17,8 @@ SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/git-branch-sync-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 FAILURES=0
 
+# check <actual> <expected> <label> -- print PASS or FAIL for <label>,
+# counting a failure in FAILURES when <actual> differs from <expected>.
 check() {
   if [ "$1" = "$2" ]; then
     echo "PASS  $3"
@@ -28,6 +30,8 @@ check() {
   fi
 }
 
+# check_contains <actual> <needle> <label> -- as check, passing when
+# <actual> contains <needle>.
 check_contains() {
   case "$1" in
     *"$2"*) echo "PASS  $3" ;;
@@ -40,6 +44,8 @@ check_contains() {
   esac
 }
 
+# check_lacks <actual> <needle> <label> -- as check, passing when
+# <actual> does not contain <needle>.
 check_lacks() {
   case "$1" in
     *"$2"*)
@@ -93,7 +99,8 @@ git -C "$SEED" push -q origin main feature
 git clone -q "$ORIGIN" "$CLONE"
 
 # branch_sync <args...> -- run git-branch-sync from $CLONE through the
-# logging git, with an editor that leaves a marker if anything opens it;
+# logging git, with an editor that leaves a marker if anything opens it,
+# and with $CASE_PATH, when set, ahead of the logging git on PATH;
 # leaves OUT, ERR, RC. Not named `run`: shellcheck checks the arguments
 # of a `run` call as a command of their own, so `run continue` reads as
 # the builtin.
