@@ -78,8 +78,8 @@ round, `--mode spawn` per child, `--mode return` per notification —
 `--mode stopped` per write-off. `--mode records` and `--mode review`
 store the round's output at its end. Read with `--mode print` on every
 resume before deciding anything, and ask `--mode print-in-flight` which
-children are running. A child has finished when it wrote `leave` or its
-result file exists, never because you heard from it. Never create the
+children are running. When a child has finished is that skill's "What
+the reader derives". Never create the
 log with `Write` or hold a path: read a result file's path out of the
 log you just printed, then `Read` the file.
 
@@ -129,8 +129,8 @@ loop" writes that child off. **One child per theorem per stage is an
 invariant**; a replacement keeps it, because its predecessor was
 recorded `stopped` first. A theorem whose report came back
 **malformed** is settled and gets no replacement, since a second child
-would be invisible to the in-flight derivation, which excludes every
-theorem with a result file.
+would be invisible to the in-flight derivation in "What the reader
+derives".
 
 **A moved head voids the round** — found at the anchor step, whose call
 voids it, or at the fetch in "Fan out the disprovers", which restarts
@@ -709,11 +709,8 @@ A `DISPROVED` report is a candidate finding, not a finding. Each
 notifications you recall — gets one `sdlc:counterexample-verifier`;
 `SURVIVED` theorems get none.
 
-A `DISPROVED` report is **malformed**, and reaches no verifier, when its
-counterexample is not a verbatim quote at the PR head — one taken from
-`main` or `origin/<base>` is the canonical instance — or when it asserts
-file topology without a topology command, per "Before claiming
-file-topology issues". Its theorem is **could not be settled** and live
+A `DISPROVED` report malformed by `theorem-disprover` → "Output"
+reaches no verifier. Its theorem is **could not be settled** and live
 again next round. Never file a finding on a paraphrase, never drop one
 silently, and spawn neither a verifier nor a second disprover for it.
 
@@ -903,23 +900,6 @@ source, in this exact format:
   would normally appear, AND (b) quote verbatim the surrounding code
   that should have contained it.
 - A finding without a verbatim `**Evidence:**` quote is malformed.
-
-## Before claiming file-topology issues
-
-Before any finding that asserts a path is a separate copy of another, a
-regular file rather than a symlink, out of sync with another location,
-or missing content that exists elsewhere, at least one of these must
-have been run:
-
-```bash
-git rev-parse --show-toplevel   # is this path inside the repo? where's the root?
-readlink <path>                 # symlink target, or non-zero exit if regular file
-ls -la <dir>                    # shows symlinks vs regular files in a directory
-diff <path-A> <path-B>          # do two paths have different content?
-```
-
-A `DISPROVED` topology report without one is malformed, per "Fan out the
-verifiers"; hedging it ("appears to be a separate copy") changes nothing.
 
 ## A finding is a disproved theorem verification left unrejected
 

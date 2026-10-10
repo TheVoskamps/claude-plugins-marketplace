@@ -288,6 +288,26 @@ For a claim about the **absence** of something, `EVIDENCE` must both
 name where the thing would normally appear and quote the surrounding
 text that should have contained it. Both parts are required.
 
+A claim about **file topology** — that a path is a separate copy of
+another, a regular file rather than a symlink, out of sync with another
+location, or missing content that exists elsewhere — needs at least one
+of these run first:
+
+```bash
+git rev-parse --show-toplevel   # is this path inside the repo? where's the root?
+readlink <path>                 # symlink target, or non-zero exit if regular file
+ls -la <dir>                    # shows symlinks vs regular files in a directory
+diff <path-A> <path-B>          # do two paths have different content?
+```
+
+A `DISPROVED` report is **malformed** when its `EVIDENCE` quote is not a
+byte-for-byte copy of the source at the PR head — one taken from `main`
+or `origin/<base>` is the canonical instance — or when it asserts file
+topology without one of those commands run; hedging it ("appears to be
+a separate copy") changes nothing. A malformed report reaches no
+verifier and gets no second attempt: its theorem goes unsettled this
+round.
+
 `CONSEQUENCE` is what the severity is ultimately derived from, so
 state the effect of merging, not the topic. "An acceptance criterion
 of #206 is unmet" and "the guest can write a share documented as
