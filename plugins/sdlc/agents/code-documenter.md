@@ -8,6 +8,7 @@ isolation: worktree
 memory: project
 skills:
   - github-prs:pr-diff
+  - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
 ---
@@ -136,14 +137,14 @@ inbox. That is the `agent-memory-scrubber` agent's job.
 Release the branch claim so the next agent that checks the branch out
 attached can do so in its own worktree. Run this only if the memory
 capture completed **and** either your commit and push both succeeded or
-you had nothing to commit — otherwise `git branch -D` would destroy the
-only copy of your work, so stop and report the failure instead:
+you had nothing to commit — otherwise deleting the local branch would
+destroy the only copy of your work, so stop and report the failure
+instead:
 
 ```bash
-git checkout --detach
-git branch -D <branch-name>
+git-branch-sync release <branch-name>
 ```
 
-Use `--detach` rather than switching to the source branch: the
+It detaches HEAD rather than switching to the source branch: the
 orchestrator's primary clone is already holding that branch, so a
 subagent worktree can't switch to it.
