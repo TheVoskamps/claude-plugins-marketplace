@@ -362,7 +362,8 @@ run push
 check "$RC" "1" "push refused by a remote hook: exit 1, unclassified"
 rm -f "$ORIGIN/hooks/pre-receive"
 
-# A git whose fetch fails mid-push: the script exits 1, never git's own.
+# A git whose status fails after the push: the script exits 1, never
+# git's own.
 mkdir -p "$SANDBOX/failbin"
 cat >"$SANDBOX/failbin/git" <<STUB
 #!/usr/bin/env bash

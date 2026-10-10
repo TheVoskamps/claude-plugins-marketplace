@@ -65,8 +65,8 @@ usage_error() {
 # A command that fails where the script does not handle it exits 1
 # naming the command, never with git's own status. `set -E` carries the
 # trap into functions and command substitutions; a substitution whose
-# failure is handled ends in `|| exit` inside it, so the trap stays quiet
-# in the substitution's own shell.
+# failure the command around it handles ends in `|| exit` inside it, so
+# the trap stays quiet in the substitution's own shell.
 set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
