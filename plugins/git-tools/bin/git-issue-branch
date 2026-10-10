@@ -132,7 +132,7 @@ not_kebab() {
 # issue-branch-prefix runs, and the name's length before any issue-view
 # runs; every issue must exist and be OPEN.
 encode() {
-  local slug='' have_slug='' arg n err prefix_out prefix name view state numbers='' count=0
+  local slug='' have_slug='' arg n prefix_out prefix name view state numbers='' count=0
   local -a issues=()
 
   while [ "$#" -gt 0 ]; do
@@ -175,9 +175,10 @@ encode() {
     *[!"$LOWER$DIGITS"-]* | *--* | *-) not_kebab "$slug" ;;
   esac
 
+  # Global rather than local, so the EXIT trap still sees it after encode
+  # returns.
   err=$(mktemp "${TMPDIR:-/tmp}/git-issue-branch.XXXXXX")
-  # shellcheck disable=SC2064
-  trap "rm -f '$err'" EXIT
+  trap 'rm -f "$err"' EXIT
   if ! prefix_out=$(issue-branch-prefix 2>"$err"); then
     cat "$err" >&2
     fail 8 "issue-branch-prefix failed; its error is above."
