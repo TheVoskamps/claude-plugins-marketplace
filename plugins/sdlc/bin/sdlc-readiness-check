@@ -18,6 +18,9 @@
 #
 # Usage: sdlc-readiness-check <N>
 #
+# <N> is an issue number in this repository, with or without a leading
+# `#`.
+#
 # Exit statuses:
 #   0  every Mechanical bullet passes; nothing is printed
 #   1  a command the script ran failed, or issue-view is not on PATH
