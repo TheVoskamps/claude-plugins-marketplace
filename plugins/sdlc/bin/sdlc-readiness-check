@@ -250,6 +250,9 @@ no_match() {
       "matches in a file the files-affected section does not list as update or delete: $uncovered"
 }
 
+# Grade each Mechanical bullet by its key. A key is lowercase letters and
+# hyphens; the arguments after it are split on whitespace, so a path a
+# bullet names cannot contain a space.
 key_re='^\[([a-z-]+)\]([[:space:]]+(.*))?$'
 
 while IFS=$'\t' read -r kind bullet; do

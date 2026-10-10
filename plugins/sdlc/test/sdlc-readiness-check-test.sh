@@ -44,6 +44,9 @@ check_contains() {
   esac
 }
 
+# check_lines <text> <count> <label>: checks that the text holds exactly
+# count lines, with or without a trailing newline; an empty text holds
+# none.
 check_lines() {
   local n
   n=$(printf '%s' "$1" | grep -c '')
