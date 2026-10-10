@@ -176,8 +176,8 @@ cmd_checkout() {
 }
 
 # cmd_rebase <base> -- rebase the checked-out branch onto the freshly
-# fetched origin/<base>. Exits as after_rebase_step does, or 7 when HEAD
-# is detached.
+# fetched origin/<base>. Exits as after_rebase_step does, 7 when HEAD is
+# detached, and 1 when origin lacks <base>.
 cmd_rebase() {
   local base=$1 status=0
   current_branch >/dev/null
