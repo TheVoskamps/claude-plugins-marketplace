@@ -61,7 +61,8 @@ they sit in, not by what an issue asked for.
 git-branch-sync checkout <branch-name>
 ```
 
-On a non-zero exit, stop and report it, quoting its stderr.
+When a `git-branch-sync` call in this file exits non-zero, stop and
+report it, quoting its stderr.
 
 ## Your reach
 
@@ -125,7 +126,6 @@ inbox. That is the `agent-memory-scrubber` agent's job.
    git-branch-sync push
    ```
 
-   On a non-zero exit, stop and report it, quoting its stderr.
 4. Capture your own agent memory into the session inbox:
 
    ```text
