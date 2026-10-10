@@ -73,7 +73,8 @@ set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
 # issue_number <arg> -- print <arg> without its leading `#`, or return 1
-# when <arg> is not N or #N with N a positive decimal integer.
+# when <arg> is not N or #N with N a positive decimal integer written
+# without a leading zero.
 issue_number() {
   local n=${1#\#}
   case "$n" in
@@ -196,6 +197,8 @@ encode() {
       cat "$err" >&2
       fail 11 "issue $n was not found; the issue-view error is above."
     fi
+    # issue-view's first line ends with the state in parentheses. A title
+    # can carry parentheses of its own, so only the last group is read.
     state=$(printf '%s\n' "$view" | sed -n '1s/.*(\([^()]*\))[[:space:]]*$/\1/p')
     [ "$state" = OPEN ] || fail 12 "issue $n is ${state:-in an unreadable state}, not OPEN."
   done
@@ -273,6 +276,8 @@ decode() {
         resolved=$(add "$resolved" "$n")
       fi
     done
+    # With no overlap, a branch that encodes one issue resolves to that
+    # issue; one that encodes several resolves to none.
     if [ -z "$resolved" ] && [ "$numbers" = "${numbers%% *}" ]; then
       resolved=$numbers
     fi
