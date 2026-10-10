@@ -189,11 +189,7 @@ from its issue.
     git-branch-sync push
     ```
 
-    It exits 0 only once the remote branch is your local HEAD and the
-    tree is clean, including when there was nothing new to push. On 8
-    the remote branch moved under you after step 2's checkout, and on 9
-    or 10 the push did not land as verified: stop and report, and do not
-    run step 12.
+    On a non-zero exit, do not run step 12.
 
 11. Capture agent memory into the session inbox, before worktree
     cleanup:
@@ -219,9 +215,9 @@ from its issue.
     git-branch-sync release <branch-name>
     ```
 
-    It detaches HEAD rather than switching to the source branch, because
-    the orchestrator's primary clone is already holding that branch, so
-    a subagent worktree can't switch to it.
+    Release rather than switch to the source branch: the orchestrator's
+    primary clone is already holding that branch, so a subagent worktree
+    can't switch to it.
 
 13. Report back, per finding and per owner ruling, un-tiered:
     - Which findings were fixed, and how
@@ -371,8 +367,8 @@ again on your return; no review round follows a merge-readiness brief.
 Push only through `git-branch-sync push`. After a rebase it pushes
 with a lease on the tip `checkout` saw, because the push replaces
 commits the PR already carries, and the lease is what refuses to
-replace ones pushed after your checkout, which you never saw; exit 8 is
-that refusal. Never push any other way, and never `--force`.
+replace ones pushed after your checkout, which you never saw. Never
+push any other way, and never `--force`.
 
 ## Verify the claims in your own prose
 
