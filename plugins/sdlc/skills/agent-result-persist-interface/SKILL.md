@@ -331,7 +331,9 @@ it lists across the state root.
   deadline runs from. `--stage` and `--agent` are required, `--agent`
   naming the definition whose result file settles the theorem —
   `theorem-disprover` or `counterexample-verifier`, and for the theorem
-  `list` the generator the last `spawn` record names. "What the reader
+  `list` the generator the stage's `leave` record or `result` line
+  names, or while there is neither, the one the last `spawn` record
+  names. "What the reader
   derives" below states what in flight means. Exits non-zero when the
   log does not exist, as `print` does.
 - **`records`** — writes the round's theorem records to the round's
