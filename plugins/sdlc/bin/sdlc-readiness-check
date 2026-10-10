@@ -90,6 +90,8 @@ records=$(printf '%s\n' "$view" | awk '
 
 GAPS=0
 
+# gap <bar item> <bullet> <reason> -- print one gap line on stdout and
+# count it in GAPS, which decides the exit-3 verdict.
 gap() {
   printf '%s: Mechanical bullet "- %s" %s\n' "$1" "$2" "$3"
   GAPS=$((GAPS + 1))

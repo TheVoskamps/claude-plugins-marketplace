@@ -83,6 +83,8 @@ run() {
   RC=$?
 }
 
+# no_marker <label>: checks that no marker a case's bullets would leave
+# if run, `ran-test` or `pwned*`, exists anywhere in the sandbox.
 no_marker() {
   local found
   found=$(find "$SANDBOX" -name 'ran-test' -o -name 'pwned*')
