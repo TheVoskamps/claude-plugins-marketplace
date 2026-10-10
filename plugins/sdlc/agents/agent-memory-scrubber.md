@@ -92,15 +92,10 @@ persist between Bash calls in a subagent context.
    git-branch-sync push
    ```
 
-   It pushes whatever the skill's own push left behind, then verifies,
-   so a commit that never left the machine is retried for free. The
-   work is on the PR only on exit 0: the remote branch is local HEAD
-   **and** the tree is clean. Each check catches what the other misses:
-   exit 9, HEAD differing from the remote, means the commit exists only
-   locally, and exit 10, a dirty tree, means the commit may never have
-   happened at all (a failed signing prompt, say) — where the SHA
-   comparison alone would misread the branch's pre-existing tip as your
-   own work.
+   The work is on the PR only on exit 0. Exit 9 means the commit exists
+   only locally, and exit 10 means it may never have happened at all (a
+   failed signing prompt, say) — where the SHA comparison alone would
+   misread the branch's pre-existing tip as your own work.
 
    This is a hard gate. On any non-zero exit do not report success and
    do not run the cleanup below, which would destroy the only copy of
@@ -131,5 +126,5 @@ git-branch-sync release <branch-name>
 ```
 
 Without this, git refuses to check out a branch already claimed by
-another worktree. It detaches HEAD rather than switching to the source
-branch, which the orchestrator's primary clone is already holding.
+another worktree. Release rather than switch to the source branch,
+which the orchestrator's primary clone is already holding.

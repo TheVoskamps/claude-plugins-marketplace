@@ -39,38 +39,30 @@ No subcommand ever opens an editor.
   of `origin/<branch>` is checked out as it is. It then records the
   `origin/<branch>` tip it saw in the ref
   `refs/git-branch-sync/<branch>`, the recorded tip `push` decides
-  against. A local branch that has diverged from `origin/<branch>`
-  exits 4 with nothing checked out, nothing reset and nothing
-  recorded.
+  against.
 - **`rebase <base>`** — fetches `origin` and rebases the current branch
-  onto `origin/<base>`. On a stop, exits 3 with the conflicted paths on
-  stdout, verbatim and unquoted. It leaves the recorded tip alone.
+  onto `origin/<base>`. It leaves the recorded tip alone.
 - **`continue <path>…`** — stages the given paths, then commits the
   stopped commit under `REBASE_HEAD`'s message and author and lets the
   rebase continue, exiting as `rebase` does on the next stop. Each path
   is taken literally, never as a pattern, so a path `rebase` printed
   can be passed back as it stands. When the staged resolution leaves
   the stopped commit with no change, the commit is skipped instead, as
-  a rebase drops a commit that becomes empty. A conflicted path still
-  unresolved once the given paths are staged exits 5, before anything
-  is committed.
+  a rebase drops a commit that becomes empty.
 - **`abort`** — aborts the rebase in progress, leaving the branch
   checked out at its pre-rebase tip.
 - **`push`** — decides against the tip `checkout` recorded for the
   current branch, never a tip it fetches itself, so a commit another
   writer pushed after the checkout is refused rather than replaced.
-  With no recorded tip, exits 12 and pushes nothing. When HEAD is a
-  strict ancestor of the recorded tip — the local branch is behind it —
-  exits 11 and pushes nothing. Otherwise pushes the current branch to
-  `origin/<branch>`: with `--force-with-lease=<branch>:<the recorded
-  tip>` when the recorded tip is not an ancestor of HEAD, and a plain
-  push otherwise, which succeeds when there is nothing new. The lease
-  push exits 8 when `origin/<branch>` is anywhere but the recorded tip,
-  and the plain push when `origin/<branch>` holds a commit HEAD lacks.
+  Unless it refuses as exits 11 and 12 state, it pushes the current
+  branch to `origin/<branch>`: with `--force-with-lease=<branch>:<the
+  recorded tip>` when the recorded tip is not an ancestor of HEAD, and a
+  plain push otherwise, which succeeds when there is nothing new.
   Ancestry alone decides; nothing records whether a rebase ran. After a
   successful push it records the pushed tip, then fetches `origin` and
   verifies that `origin/<branch>` equals local HEAD and that the working
-  tree is clean. It never uses `--force` or `--mirror`.
+  tree is clean. It never uses `--force` or `--mirror`, and never moves
+  the local branch, so no exit of `push` removes a local commit.
 - **`release <branch>`** — detaches HEAD, deletes the local `<branch>`
   and deletes its recorded tip, if any, releasing the claim that
   otherwise keeps every other worktree from checking the branch out. It
@@ -89,9 +81,9 @@ on every status but 3.
 | 0 | success | — |
 | 1 | a failure the script did not classify, such as a failed fetch, no `origin/<branch>` on `checkout` or `origin/<base>` on `rebase`, a dirty tree blocking a checkout, or a push the remote refused for its own reason; git's own status is never passed through | names the failed command or condition |
 | 2 | usage error: an unknown subcommand, or a missing or extra argument; nothing was run | `` `<subcommand>` is not a subcommand git-branch-sync takes. ``, `` `<subcommand>` takes <n> argument(s), not <m>. ``, `` `continue` needs at least one resolved path. `` or `No subcommand was supplied.`, then the synopsis |
-| 3 | `rebase` or `continue`: the rebase stopped on conflicts. Stdout is the conflicted paths, one per line, and nothing else | `the rebase stopped on conflicts in the paths on stdout` |
-| 4 | `checkout`: the local branch has diverged from `origin/<branch>` | `local <branch> (<sha>) has diverged from origin/<branch> (<sha>); nothing was reset` |
-| 5 | `continue`: a conflicted path remains unresolved after staging the given paths | the unresolved paths, one per line, then `a conflicted path is still unresolved: the paths above` |
+| 3 | `rebase` or `continue`: the rebase stopped on conflicts. Stdout is the conflicted paths, one per line, verbatim and unquoted, and nothing else | `the rebase stopped on conflicts in the paths on stdout` |
+| 4 | `checkout`: the local branch has diverged from `origin/<branch>`; nothing was checked out, reset or recorded | `local <branch> (<sha>) has diverged from origin/<branch> (<sha>); nothing was reset` |
+| 5 | `continue`: a conflicted path remains unresolved after staging the given paths; nothing was committed | the unresolved paths, one per line, then `a conflicted path is still unresolved: the paths above` |
 | 6 | `continue` or `abort`: no rebase is in progress | `no rebase is in progress` |
 | 7 | `rebase` or `push`: no branch is checked out | `no branch is checked out (HEAD is detached)` |
 | 8 | `push`: rejected because `origin/<branch>` moved past the recorded tip — a lease or fast-forward failure | `the push was rejected: origin/<branch> moved past the recorded tip (<sha>)` |
@@ -102,5 +94,4 @@ on every status but 3.
 
 On 3 the rebase is still in progress: resolve the paths and run
 `continue`, or run `abort`. On 5 the given paths stay staged and the
-rebase stays in progress. On 8, 9, 10, 11 and 12 the local commits are
-intact: nothing the push did removes them.
+rebase stays in progress.

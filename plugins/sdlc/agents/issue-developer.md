@@ -232,9 +232,9 @@ owns — but never a finding, a location, or an implementation shape.
     ```
 
     Without this, git refuses to check out a branch already claimed by
-    another worktree. It detaches HEAD rather than switching to the
-    source branch, because the orchestrator's primary clone is already
-    holding that branch, so a subagent worktree can't switch to it.
+    another worktree. Release rather than switch to the source branch:
+    the orchestrator's primary clone is already holding that branch, so
+    a subagent worktree can't switch to it.
 
 13. Report back: PR URL (or equivalent), the issue set the PR closes,
     branch name, and — per member — what you implemented, its commit,

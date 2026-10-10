@@ -145,6 +145,6 @@ instead:
 git-branch-sync release <branch-name>
 ```
 
-It detaches HEAD rather than switching to the source branch: the
-orchestrator's primary clone is already holding that branch, so a
-subagent worktree can't switch to it.
+Release rather than switch to the source branch: the orchestrator's
+primary clone is already holding that branch, so a subagent worktree
+can't switch to it.
