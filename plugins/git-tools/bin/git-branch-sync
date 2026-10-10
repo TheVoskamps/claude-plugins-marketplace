@@ -129,6 +129,10 @@ after_rebase_step() {
   fail 1 "the rebase failed (exit $1) and is not in progress"
 }
 
+# cmd_checkout <branch> -- check out <branch> at origin's tip: create it
+# tracking origin/<branch> when there is no local copy, fast-forward one
+# that is behind, and leave one that is ahead. Exits 4, touching nothing,
+# when the local copy has diverged, and 1 when origin lacks the branch.
 cmd_checkout() {
   local branch=$1 remote local_tip
   git fetch -q origin || fail 1 "git fetch origin failed"
@@ -150,6 +154,9 @@ cmd_checkout() {
   fi
 }
 
+# cmd_rebase <base> -- rebase the checked-out branch onto the freshly
+# fetched origin/<base>. Exits as after_rebase_step does, or 7 when HEAD
+# is detached.
 cmd_rebase() {
   local base=$1 status=0
   current_branch >/dev/null
@@ -161,6 +168,10 @@ cmd_rebase() {
   after_rebase_step "$status"
 }
 
+# cmd_continue <path>... -- stage the resolved <path>s and resume the
+# stopped rebase. Exits 6 when no rebase is in progress, 5 when a
+# conflicted path is still unstaged, and otherwise as after_rebase_step
+# does.
 cmd_continue() {
   local status=0 left
   rebase_in_progress || fail 6 "no rebase is in progress"
@@ -183,11 +194,17 @@ cmd_continue() {
   after_rebase_step "$status"
 }
 
+# cmd_abort -- abort the stopped rebase, or exit 6 when none is in
+# progress.
 cmd_abort() {
   rebase_in_progress || fail 6 "no rebase is in progress"
   git rebase --abort
 }
 
+# cmd_push -- push the checked-out branch to origin/<branch>, with a lease
+# on the fetched tip when the push is not a fast-forward, then verify
+# that origin holds HEAD and the working tree is clean. Exits 7 to 11 as
+# the header lists them.
 cmd_push() {
   local branch remote result status=0 line pushed local_head dirty
   branch=$(current_branch) || exit
@@ -232,6 +249,8 @@ EOF
   [ -z "$dirty" ] || fail 10 "the working tree is dirty after the push"
 }
 
+# cmd_release <branch> -- detach HEAD and delete the local <branch>, so
+# another worktree can check it out.
 cmd_release() {
   local branch=$1
   git checkout -q --detach
