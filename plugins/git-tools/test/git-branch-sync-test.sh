@@ -101,9 +101,9 @@ git clone -q "$ORIGIN" "$CLONE"
 # branch_sync <args...> -- run git-branch-sync from $CLONE, or from its
 # subdirectory $CASE_DIR when set, through the logging git, with an
 # editor that leaves a marker if anything opens it, and with $CASE_PATH,
-# when set, ahead of the logging git on PATH; leaves OUT, ERR, RC. Not named `run`: shellcheck checks the arguments
-# of a `run` call as a command of their own, so `run continue` reads as
-# the builtin.
+# when set, ahead of the logging git on PATH; leaves OUT, ERR, RC.
+# Not named `run`: shellcheck checks the arguments of a `run` call as a
+# command of their own, so `run continue` reads as the builtin.
 branch_sync() {
   OUT=$(cd "$CLONE${CASE_DIR:+/$CASE_DIR}" && PATH="${CASE_PATH:+$CASE_PATH:}$SANDBOX/logbin:$PATH" \
     GIT_EDITOR="touch $SANDBOX/editor-opened" /bin/bash "$SCRIPT" "$@" 2>"$SANDBOX/stderr")

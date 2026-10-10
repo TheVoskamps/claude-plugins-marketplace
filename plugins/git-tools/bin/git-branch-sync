@@ -72,9 +72,10 @@ usage_error() {
 
 # A command that fails where the script does not handle it exits 1
 # naming the command, never with git's own status. `set -E` carries the
-# trap into functions and command substitutions; a substitution whose
-# failure the command around it handles ends in `|| exit` inside it, so
-# the trap stays quiet in the substitution's own shell.
+# trap into functions and command substitutions, so a substitution whose
+# failure is expected ends inside it in `|| exit`, which hands the status
+# to the command around it, or in `|| true`, which discards it; either
+# keeps the trap quiet in the substitution's own shell.
 set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
@@ -91,6 +92,8 @@ arity() {
 # HEAD is detached.
 current_branch() {
   local name
+  # Outside a repository this fails, exiting 1, before the symbolic-ref
+  # below could swallow that failure and report a detached HEAD.
   git rev-parse -q --git-dir >/dev/null
   name=$(git symbolic-ref -q --short HEAD || exit 0)
   [ -n "$name" ] || fail 7 "no branch is checked out (HEAD is detached)"
@@ -187,9 +190,9 @@ cmd_rebase() {
 }
 
 # cmd_continue <path>... -- stage the resolved <path>s, each relative to
-# the top level, and resume the stopped rebase. Exits 6 when no rebase is in progress, 5 when a
-# conflicted path is still unstaged, and otherwise as after_rebase_step
-# does.
+# the top level, and resume the stopped rebase. Exits 6 when no rebase is
+# in progress, 5 when a conflicted path is still unstaged, and otherwise
+# as after_rebase_step does.
 cmd_continue() {
   local status=0 left top
   rebase_in_progress || fail 6 "no rebase is in progress"
