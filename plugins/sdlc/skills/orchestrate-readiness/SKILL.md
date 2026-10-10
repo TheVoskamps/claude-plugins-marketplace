@@ -98,12 +98,14 @@ names — `mechanical` under the first, `semantic` under the second.
 Every `### Mechanical` bullet opens with a check key followed by its
 arguments, and never carries a command. A path is a repo-relative
 literal: no key accepts a glob, and a path that leaves the repo root,
-starts with `-`, or names a symlink is refused. The keys:
+starts with `-`, names a symlink or the repo root itself, or — under
+`[no-match]` — names a directory, is refused. The keys:
 
 - `[no-match] <ERE> in <path>…` — no line of any named file matches
   the ERE. A named path absent from the tree at check time passes only
   when the files-affected section lists it as `new`, and is a gap
-  otherwise.
+  otherwise; grep is not run on such a path, so the ERE is checked only
+  against the named files that exist.
 - `[exists] <path>` — the path exists.
 - `[executable] <path>` — the path is an executable file.
 - `[version-bumped] <plugin>` — `version` in
@@ -116,7 +118,14 @@ starts with `-`, or names a symlink is refused. The keys:
   when run with `bash`.
 
 `sdlc-readiness-check` grades the `### Mechanical` bullets against the
-tree at check time.
+tree at check time. `[no-match]` is the one prohibition key, and the
+only key it executes: each site it reports is covered only when its file is listed
+in the files-affected section with the tag `update` or `delete`. Every
+other key is presence-shaped and never executed, since it fails before
+implementation by design: it passes when each path it names — for
+`[version-bumped]`, the plugin's `plugin.json` — is listed in the
+files-affected section, whatever the tag. A bullet with no key, or a key
+outside this list, is a gap, and nothing is executed for it.
 
 ### The files-affected section
 
