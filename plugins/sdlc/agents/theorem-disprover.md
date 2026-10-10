@@ -299,13 +299,11 @@ ls -la <dir>                    # shows symlinks vs regular files in a directory
 diff <path-A> <path-B>          # do two paths have different content?
 ```
 
-A `DISPROVED` report is **malformed** when its `EVIDENCE` quote is not a
-byte-for-byte copy of the source at the PR head — one taken from `main`
-or `origin/<base>` is the canonical instance — or when it asserts file
-topology without one of those commands run; hedging it ("appears to be
-a separate copy") changes nothing. It is malformed too when its
-`CONSEQUENCE-CLASS` line is absent or holds anything but one of the four
-tokens the template lists.
+A `DISPROVED` report that breaks any of these is **malformed**: the
+`EVIDENCE` rule above, read with "Establishing a fact" → "Extract
+evidence bytes from `HEAD`"; the topology rule just above, which
+hedging ("appears to be a separate copy") does not escape; or the
+template's `CONSEQUENCE-CLASS` line and its tokens.
 
 `CONSEQUENCE` is what the severity is ultimately derived from, so
 state the effect of merging, not the topic. "An acceptance criterion
