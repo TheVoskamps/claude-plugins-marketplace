@@ -54,9 +54,10 @@ the PR is flipped ready.
 ## Setup
 
 ```bash
-git fetch origin
-git checkout <branch-name>
+git-branch-sync checkout <branch-name>
 ```
+
+On a non-zero exit, stop and report it, quoting its stderr.
 
 ## Discovery
 
@@ -124,11 +125,18 @@ inbox. That is the `agent-memory-scrubber` agent's job.
 2. Stage exactly the files you edited, by explicit path — no
    `git add -A`, no directory-wide adds.
 3. Commit with an imperative message describing the documentation
-   change, and push to the same branch. NEVER place a closing keyword
+   change. NEVER place a closing keyword
    (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
    `resolves`/`resolved`, case-insensitive) immediately before an issue
    reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that
-   pattern auto-closes the referenced issue.
+   pattern auto-closes the referenced issue. Then push, which also
+   verifies the push landed:
+
+   ```bash
+   git-branch-sync push
+   ```
+
+   On a non-zero exit, stop and report it, quoting its stderr.
 4. Capture your own agent memory into the session inbox:
 
    ```text
