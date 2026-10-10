@@ -189,7 +189,8 @@ from its issue.
     git-branch-sync push
     ```
 
-    On a non-zero exit, do not run step 12.
+    On a non-zero exit, capture memory as step 11 says, then stop and
+    report the failed push, quoting its stderr, without running step 12.
 
 11. Capture agent memory into the session inbox, before worktree
     cleanup:

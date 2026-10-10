@@ -62,9 +62,10 @@ Check the branch out attached — the memory capture at the end refuses
 a detached HEAD:
 
 ```bash
-git fetch origin
-git checkout <branch-name>
+git-branch-sync checkout <branch-name>
 ```
+
+On a non-zero exit, stop and report it, quoting its stderr.
 
 ## Check
 
