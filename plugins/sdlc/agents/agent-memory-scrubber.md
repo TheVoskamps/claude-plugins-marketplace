@@ -70,7 +70,8 @@ persist between Bash calls in a subagent context.
    git-branch-sync checkout <branch-name>
    ```
 
-   On a non-zero exit, stop and report it, quoting its stderr.
+   When a `git-branch-sync` call in this file exits non-zero, stop and
+   report it, quoting its stderr.
 
 2. Run `/cc-tools:agent-memory-inbox-cleanup <branch-name>`. It owns
    the entire judgment — which entries are transferred, which are
@@ -97,9 +98,9 @@ persist between Bash calls in a subagent context.
    failed signing prompt, say) — where the SHA comparison alone would
    misread the branch's pre-existing tip as your own work.
 
-   This is a hard gate. On any non-zero exit do not report success and
-   do not run the cleanup below, which would destroy the only copy of
-   the transfers: report the exit, quoting its stderr, and stop.
+   This is a hard gate: on a non-zero exit, report no success and run
+   no cleanup below, which would destroy the only copy of the
+   transfers.
 
 4. Report back per "Output" below.
 
