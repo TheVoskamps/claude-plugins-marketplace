@@ -120,10 +120,17 @@ config_value() {
     END { exit !found }'
 }
 
+# not_kebab <slug> -- exit 7 naming <slug> and the kebab-case shape it
+# misses.
 not_kebab() {
   fail 7 "slug \`$1\` is not kebab-case: lowercase letters, digits and single hyphens, starting with a letter and not ending with a hyphen."
 }
 
+# encode <issue>... [--slug <slug>] -- print the branch name for the
+# issues, in the order given, and <slug>, behind the prefix
+# issue-branch-prefix reports. Every argument is validated before
+# issue-branch-prefix runs, and the name's length before any issue-view
+# runs; every issue must exist and be OPEN.
 encode() {
   local slug='' have_slug='' arg n err prefix_out prefix name view state numbers='' count=0
   local -a issues=()
@@ -195,6 +202,10 @@ encode() {
   printf '%s\n' "$name"
 }
 
+# decode <branch-name> [<claimed-issue>...] -- print the outcome, issue
+# set and slug <branch-name> encodes and, given a claim, the resolved,
+# claimed-outside and unclaimed lists. Runs no external command; exits 0
+# on either outcome and 2 on a usage error.
 decode() {
   [ "$#" -ge 1 ] || usage_error "decode needs a branch name."
   local branch=$1 rest numbers='' slug='' outcome=not-a-convention-branch arg n claimed='' token
