@@ -99,15 +99,17 @@ instance — in this session or another — already partly settled. Never
 ask which session wrote a record, and let no parameter tell you where
 you are: **derive what to do from the log, and hold nothing across a
 turn that is not written down.** Run `--mode print`, then take the arm
-the records name:
+the records name, reading "settled", "in flight" and "outstanding" as
+the preloaded `sdlc:agent-result-persist-interface` skill → "What the
+reader derives" defines them:
 
 | The log shows | Do |
 | --- | --- |
 | no round log (the call fails saying so) | anchor the round and start from "Read the PR's shape" |
-| a generate stage with no `leave` and no result file | wait on a generator in flight, or spawn one when none is, per "Spawn the theorem generator" |
-| a live theorem with no `disprove` `leave`, no result file, and no child in flight | spawn its disprover, per "Fan out the disprovers" |
-| every disprover left | spawn a verifier per `DISPROVED` report, per "Fan out the verifiers" |
-| every verifier left | derive and post, per "Derive each theorem's disposition" |
+| `list` not settled in the `generate` stage | wait on a generator in flight, or spawn one when none is, per "Spawn the theorem generator" |
+| a live theorem neither settled nor in flight in the `disprove` stage | spawn its disprover, per "Fan out the disprovers" |
+| no live theorem outstanding in the `disprove` stage | spawn a verifier per `DISPROVED` report, per "Fan out the verifiers" |
+| no theorem outstanding in the `verify` stage | derive and post, per "Derive each theorem's disposition" |
 | a failure naming a flag | see "When a call fails" |
 
 Whichever arm you take, run the sections before it that read the PR —
@@ -116,11 +118,9 @@ derived every time, never remembered. **Keep the barrier between the
 stages**: no verifier spawns while any disprover is outstanding, and
 nothing is derived while any verifier is.
 
-Which theorems are settled, outstanding, or in flight is the preloaded
-`sdlc:agent-result-persist-interface` skill → "What the reader
-derives"; take each from there, and read a verdict from the result file
-a record names, never from the log. A duplicate `leave` is resolved
-there too; report one in the Review method section.
+Take each of those sets, and where a verdict is read from, from that
+skill section. A duplicate `leave` is resolved there too; report one in
+the Review method section.
 
 **Keep what is settled; subtract what is in flight; spawn the rest.** A
 settled theorem is never re-attacked — its report is on disk in full —
@@ -187,9 +187,9 @@ surviving notification carries the round past every lost one.
    it off now, as the deadline arm does but with nothing to `TaskStop`,
    and re-spawn its theorem. A notification whose child is not listed
    changes nothing.
-2. **Derive the stage's position** — which theorems have left, started,
-   or are still outstanding — and read each settled theorem's report
-   from the result file its `leave` or `result` line names. Then read
+2. **Derive the stage's position** — which theorems are settled, in
+   flight, or outstanding — and read each settled theorem's report from
+   its result file, both per "What the reader derives". Then read
    the clock and compare it against each in-flight child's deadline:
    **15 minutes after the `enter` instant** `--mode print-in-flight`
    printed for it — five times the worst case measured on a 32-theorem
@@ -531,17 +531,18 @@ whatever its size. `theorem-generator-high` and
 for an explicit `--generator`.
 
 Both signals read the round's delta — on a fallback round, the whole
-PR diff. The tier that ran is the agent the generate stage's `leave`
-record or `result` line for `list` names, never your spawn choice; say
+PR diff. The tier that ran is the agent whose record settled `list` in
+the `generate` stage, never your spawn choice; say
 in the Review method section which it was and what picked it, and name
 both when it differs from the last `spawn` record for `list`.
 
 ### Spawn the theorem generator
 
-**The generate stage may already be settled.** On a `leave` record or a
-`result` line for `list`, an earlier instance generated this round's
-list: read that file and take the list from it rather than spawning, so
-a theorem id denotes the same claim across instances. **The round's
+**The generate stage may already be settled.** When `list` is settled
+in the `generate` stage, per "What the reader derives", an earlier
+instance generated this round's list: read its result file and take the
+list from it rather than spawning, so a theorem id denotes the same
+claim across instances. **The round's
 list is the result file of the agent the last `spawn` record for `list`
 names** — a round that replaced a generator at another tier holds a
 file per tier.
@@ -607,8 +608,9 @@ its `--mode spawn` record with `--theorem list --stage generate
 
 Where the report and the result file disagree, the file is the round's
 list. **Ids are stable across rounds and never reused.** If a record is
-missing a field, or gives a **new** theorem an id the carried records
-already hold, ask the generator to re-emit it rather than guessing: you
+malformed by `sdlc:theorem-generation` → "Output format", or gives a
+**new** theorem an id the carried records already hold, ask the
+generator to re-emit it rather than guessing: you
 are not a source of theorems.
 
 On a delta round the report may carry a `RETIREMENTS` list: ids of
@@ -711,8 +713,8 @@ notifications you recall — gets one `sdlc:counterexample-verifier`;
 
 A `DISPROVED` report malformed by `theorem-disprover` → "Output"
 reaches no verifier. Its theorem is **could not be settled** and live
-again next round. Never file a finding on a paraphrase, never drop one
-silently, and spawn neither a verifier nor a second disprover for it.
+again next round. Never file a finding on it, never drop it silently,
+and spawn neither a verifier nor a second disprover for it.
 
 Route the model as for the disprovers, and pass the same `--head-sha`
 and `--fetched yes`. Each brief is one counterexample and nothing more:
@@ -874,9 +876,8 @@ record:
 | `settle-mode` | `mechanical` (grep-shaped) or `semantic` (needs reading behavior) |
 | `pointers` | files, regions, or symbols the disprover starts from |
 
-`issues` lists every member a theorem affects — a shared helper, the
-batch's one version bump — and a theorem tagged to no member is
-malformed, since its finding would reach no verdict line. `state`,
+When a record is malformed is `sdlc:theorem-generation` → "Output
+format"'s to say, its `issues` field included. `state`,
 `state-detail`, `settled-at` and `severity-override` are yours to stamp;
 a generator that emits any of them has misread its brief.
 
@@ -1086,12 +1087,12 @@ For a finding from a theorem, an agent that read the code assigned a
 The class is the verifier's `STANDS` report's, which wins on
 disagreement per `counterexample-verifier` → "The consequence classes";
 you take the disprover's proposal only on a malformed verifier report.
-A report whose `CONSEQUENCE-CLASS` is absent or not a token in the
-table is malformed for its sender, and takes that sender's malformed
-row: a `STANDS` stands on the disprover's proposal, and a `DISPROVED`
-reaches no verifier and leaves the theorem unsettled. Neither gets a
-class you assign or a replacement child — everything you write into a
-record is transcribed from the agent or human that produced it.
+When a report is malformed is its sender's "Output" — `theorem-disprover`
+→ "Output" or `counterexample-verifier` → "Output" — and a malformed
+report takes its sender's malformed row in "Derive each theorem's
+disposition". It never gets a class you assign or a replacement child —
+everything you write into a record is transcribed from the agent or
+human that produced it.
 
 When the verifier's report is malformed and the disprover's proposal is
 not a token either, the finding still stands at **High**, with

@@ -317,9 +317,7 @@ review to the PR once the fix loop concludes — so it is what tells a
 human why a candidate finding was dropped. It must engage this
 counterexample specifically.
 A reason that only says the theorem looks fine, or that you could not
-follow the disprover, is malformed — you get no second attempt, and a
-malformed report makes the finding stand on the disprover's proposed
-consequence class.
+follow the disprover, is malformed.
 
 Refuting a counterexample does **not** prove the theorem. You checked
 one offered refutation and rejected it; say only that.
@@ -339,6 +337,9 @@ acceptance criterion of #206 is unmet" and "the guest can write a
 share documented as read-only" are consequences; "this is a
 documentation problem" is not. Do not restate the evidence quote: the
 pipeline already holds the disprover's copy and publishes that one.
+
+A `STANDS` report is malformed when its `CONSEQUENCE-CLASS` line is
+absent or holds anything but one of the four tokens the template lists.
 
 ## End-of-run cleanup
 
