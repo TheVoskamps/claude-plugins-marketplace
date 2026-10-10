@@ -51,6 +51,7 @@ fail() {
   exit "$1"
 }
 
+# usage -- print the synopsis on stdout.
 usage() {
   cat <<EOF
 usage: $PROGRAM checkout <branch>
