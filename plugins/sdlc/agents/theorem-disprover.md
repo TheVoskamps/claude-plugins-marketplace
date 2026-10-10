@@ -304,9 +304,9 @@ A `DISPROVED` report is **malformed** when its `EVIDENCE` quote is not a
 byte-for-byte copy of the source at the PR head — one taken from `main`
 or `origin/<base>` is the canonical instance — or when it asserts file
 topology without one of those commands run; hedging it ("appears to be
-a separate copy") changes nothing. A malformed report reaches no
-verifier and gets no second attempt: its theorem goes unsettled this
-round.
+a separate copy") changes nothing. It is malformed too when its
+`CONSEQUENCE-CLASS` line is absent or holds anything but one of the four
+tokens the template lists.
 
 `CONSEQUENCE` is what the severity is ultimately derived from, so
 state the effect of merging, not the topic. "An acceptance criterion
