@@ -1,21 +1,14 @@
 ---
 name: git-branch-create
-description: Create the correctly-named issue branch (issue-<N>-<slug>, or issue-<N1>-<N2>-...-<compound-slug> for a batch of issues) off the configured source branch, reading branch conventions from repo-config internally.
+description: Create the correctly-named issue branch (issue-<N>-<slug>, or issue-<N1>-<N2>-...-<compound-slug> for a batch of issues) off the configured source branch, naming it with the git-issue-branch script.
 ---
 
 # Git Branch Create
 
 Create the feature branch for an issue — or for a **batch** of issues
-implemented together on one branch and delivered as one PR: resolve the
-branch name from the issue numbers and the repo's branch-naming
-convention, and create it rooted at the configured source branch. This
-is the branch-create the `/sdlc:orchestrate` flow's `issue-developer`
-previously performed as a raw `git switch -c`; the skill now owns it,
-including the config read.
-
-A batch of one is the ordinary single-issue case: it is the k=1
-instance of the same shape, not a preserved special case, and it
-produces exactly the `issue-<N>-<slug>` name it always did.
+implemented together on one branch and delivered as one PR — named by
+`git-issue-branch encode` and rooted at the configured source branch.
+A batch of one is the ordinary single-issue case.
 
 The inverse operation — recovering the issue set back out of a
 finished branch name — is `git-tools:git-issues-from-branch`.
@@ -28,142 +21,65 @@ not at the source branch's tip.
 ## Invocation
 
 ```text
-/git-tools:git-branch-create <issue-number>… [<compound-slug>]
+/git-tools:git-branch-create <issue>… [<compound-slug>]
 ```
 
-Arguments are parsed by the same rule that recovers the issue set from
-a finished branch name (see "Branch name" below), applied after
-stripping each token's leading `#` and any comma separators: the
-**leading run of all-numeric tokens** is the issue set, and a single
-remaining non-numeric token is the compound slug.
-
-- `<issue-number>…` (required): one or more issue numbers in
-  **implementation order** — dependency order within the batch — each
-  with or without a leading `#`, separated by spaces or commas.
+- `<issue>…` (required): one or more issues in this repository, each
+  as `N` or `#N`, space-separated, in **implementation order** —
+  dependency order within the batch.
 - `<compound-slug>` (optional for one issue, **required** for two or
-  more): the kebab-case slug the branch name ends with. For a single
-  issue the skill derives it from the issue title when none is
-  supplied. For two or more, a mechanical merge of k titles produces
+  more): the slug the branch name ends with, as the last argument. For
+  a single issue with none supplied, the skill derives it from the
+  issue title. For two or more, a mechanical merge of k titles produces
   garbage, so the caller supplies it — with two or more issues and no
   slug, **ask** rather than inventing one.
 
-## Repo-config
+The last argument is the slug when it is not of the form `N` or `#N`;
+every other argument is an issue.
 
-This skill reads two values from `.issues/repo-config.md`
-**internally** — the caller does not pass them. It reads them with a
-lightweight **inline** parse of just these two front-matter lines,
-not the full reader contract in the `issues` plugin's
-`skills/lib/repo-config.md`: that lib file lives inside the `issues`
-plugin, and plugins are file-sandboxed (a bare `Read` from another
-plugin's skill cannot resolve a path outside its own plugin
-directory). Bundling a duplicate copy of that lib into this
-plugin, or inventing a cross-plugin `Read`, would either
-reproduce the exact coupling issue #143 removed from `sdlc` or simply
-not work; a two-field inline parse avoids both.
+## The script
 
-If `.issues/repo-config.md` is missing, abort with: "This repo has
-no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
-same wording the full reader contract uses for its "File missing"
-case, so the namespace's abort messages stay consistent even though
-this skill doesn't consume the whole contract).
+`git-issue-branch`, which this plugin puts on `PATH`, owns the name:
+the grammar, the issue-argument forms, the prefix, and every
+validation. `encode` takes the prefix from the `issues` plugin's
+`issue-branch-prefix`, so this skill neither reads the prefix nor asks
+the human for one.
 
-The values consumed:
-
-- **`default-issue-source-branch`** — the branch the new branch is
-  rooted at (e.g. `main` or `integ`).
-- **`issue-branch-naming-prefix`** — the prefix that goes in front of
-  the branch name, one of `none`, `initials`, or `name`. See "Branch
-  name" below for the shape each one produces.
-
-  When the prefix is `initials` or `name`, the `<initials>`/`<name>`
-  value comes from the human owner; if the invocation context does not
-  supply it, ask before proceeding.
-
-Re-read the file every run; do not cache across invocations.
-
-## Branch name
-
-```text
-issue-<N1>-<N2>-…-<Nk>-<slug>
+```bash
+git-issue-branch encode <issue>… [--slug <slug>]
 ```
 
-with the prefix `issue-branch-naming-prefix` asks for in front:
+On exit 0 its stdout is the branch name. Exit 4 is the one-issue,
+no-slug case, and a rejected slug step 2 derived is step 2's to
+adjust. On any other non-zero exit, relay its stderr verbatim and
+stop: it names the offending value, and nothing has been created.
 
-- `none`     -> `issue-<N1>-…-<Nk>-<slug>`
-- `initials` -> `<initials>/issue-<N1>-…-<Nk>-<slug>`
-- `name`     -> `<name>/issue-<N1>-…-<Nk>-<slug>`
+## Repo-config
 
-At k=1 that is exactly the historical `issue-<N>-<slug>` (or
-`<initials>/issue-<N>-<slug>` / `<name>/issue-<N>-<slug>`).
-
-**Parsing rule.** After the `issue-` marker, the leading run of
-all-numeric hyphen-separated tokens is the issue set; everything from
-the first non-numeric token onward is the slug.
-
-This section is the **only** statement of the branch-name grammar in
-this marketplace — the "Invocation" section above applies it to argv
-tokens and points back here rather than owning it. Nothing downstream
-restates it either: `git-tools:git-issues-from-branch` is the one
-parser — the inverse of this skill — and the consumers that need a
-branch's issue set (`github-prs:pr-create` and
-`github-prs:pr-link-issue`, to decide which issues a PR may close, and
-`sdlc:theorem-based-pr-reviewer`, to decide which issues to review
-against)
-invoke that skill. The number/slug boundary must therefore stay
-unambiguous, which is what the "no leading digit" validation below
-protects.
-
-**Order is implementation order**, not sorted: it records the order
-the caller intends to work the issues, which for a batch carrying a
-dependency edge is the order that edge forces. Every downstream
-comparison against the recovered set is a **set** comparison, never a
-sequence comparison, so the order is a record for humans and never
-changes meaning.
-
-## Validation
-
-Check all of these before creating anything, and on failure abort with
-an error naming the offending value:
-
-- **A compound slug that begins with a digit.** `2-space-indent`
-  against issue 206 would produce `issue-206-2-space-indent`, which
-  the parsing rule reads as the set `{206, 2}` with slug
-  `space-indent` — the intended set is unrecoverable. Ask for a slug
-  starting with a lowercase letter.
-- **A compound slug that is not kebab-case.** Lowercase letters,
-  digits, and single hyphens only; it must start with a lowercase
-  letter and must not start or end with a hyphen.
-- **A branch name longer than 100 characters**, counting the
-  `<initials>/` or `<name>/` prefix. Ask for a shorter compound slug.
-- **Two or more issue numbers with no compound slug.** Ask for one;
-  never merge the titles into a slug yourself.
+The source branch is the one value this skill reads from
+`.issues/repo-config.md` itself, with a lightweight inline parse of the
+`default-issue-source-branch` front-matter line. If the file is
+missing, abort with: "This repo has no `.issues/repo-config.md`. Run
+`/repo-config` to create one." Re-read the file every run.
 
 ## Execution
 
-1. **Resolve the slug.**
-   - Caller supplied one → validate it per "Validation" and use it
-     verbatim.
-   - Exactly one issue number and no slug → derive it from the issue
-     title, which is the first line of `/issues:issue-view <N>`'s
-     output, after the `#<N>` and before the `(<state>)`:
+1. **Name the branch.** Run `encode` with the issues in the order
+   given, and `--slug <compound-slug>` when one was supplied.
 
-     ```text
-     /issues:issue-view <N>
-     ```
+2. **Derive a single issue's slug**, only when step 1 exited 4. Take
+   the issue title from the first line of `/issues:issue-view <N>`'s
+   output, after the `#<N>` and before the `(<state>)`:
 
-     Lowercase, kebab-case, at most five words (e.g. `Orchestrator
-     manages PR draft/ready state` ->
-     `orchestrator-manages-pr-draft-ready`). A title-derived slug is
-     subject to the same validation — a title starting with a number
-     yields a leading-digit slug, so drop or spell out that leading
-     token.
-   - Two or more issue numbers and no slug → ask the caller for one
-     and stop until you have it.
+   ```text
+   /issues:issue-view <N>
+   ```
 
-2. **Form the branch name** by joining the issue numbers in the order
-   given, then the slug, behind the configured prefix, per "Branch
-   name" above. Re-check the 100-character limit against the assembled
-   name.
+   Lowercase it and make it kebab-case, at most five words (e.g.
+   `Orchestrator manages PR draft/ready state` ->
+   `orchestrator-manages-pr-draft-ready`), and run `encode` again with
+   `--slug <derived-slug>`. When `encode` rejects the derived slug,
+   adjust it as the message says and run it again.
 
 3. **Create the branch rooted at the configured source branch.**
    Fetch the source branch first, then switch onto the new branch with

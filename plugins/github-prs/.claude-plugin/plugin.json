@@ -1,7 +1,7 @@
 {
   "name": "github-prs",
   "description": "GitHub PR-operations skills, each running a bundled script that makes the gh call and re-reads what it changed: create, view, list, diff, list the changed files of, update the body of, comment on, and review-submit a PR; flip a PR draft/ready; report a PR's merge readiness and enumerate its merge conflicts; link a PR to the issues it closes via one closing keyword each in the PR body; and report which issues a PR body closes. GitHub-only by design.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" },
   "dependencies": ["git-tools"]
 }

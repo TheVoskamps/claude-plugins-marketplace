@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+#
+# git-issue-branch -- encode an issue set and a slug into an issue-branch
+# name, or decode a branch name back into its issue set and slug and
+# reconcile a claimed issue list against it.
+#
+# encode runs `issue-branch-prefix` and `issue-view`, both put on PATH
+# by the issues plugin; decode runs neither. The script opens no config
+# file itself. The grammar, the issue-argument forms, the validation
+# errors and the reconciliation outcomes are stated in
+# plugins/git-tools/README.md.
+#
+# Exit statuses:
+#   0   success
+#   1   a failure the script cannot attribute; stderr names the command
+#   2   a usage error; nothing was run
+#   3   an issue argument is not N or #N
+#   4   one issue and no slug
+#   5   two or more issues and no slug
+#   6   the slug begins with a digit
+#   7   the slug is not kebab-case
+#   8   issue-branch-prefix exited non-zero; its stderr is relayed
+#   9   issue-branch-prefix printed no `prefix:` line
+#   10  the branch name is longer than 100 characters
+#   11  issue-view exited non-zero for an issue; its stderr is relayed
+#   12  an issue's state is not OPEN
+set -euo pipefail
+
+PROGRAM=${0##*/}
+MAX_LENGTH=100
+# Spelled out rather than as ranges, which can match more than ASCII
+# under a non-C collation.
+DIGITS=0123456789
+LOWER=abcdefghijklmnopqrstuvwxyz
+
+# fail <status> <message> -- print <message>, prefixed with the
+# program's name, and exit with <status>.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+usage() {
+  cat <<EOF
+usage: $PROGRAM encode <issue>... [--slug <slug>]
+       $PROGRAM decode <branch-name> [<claimed-issue>...]
+
+encode prints the branch name.
+decode prints:
+  outcome: <convention|not-a-convention-branch>
+  issues: <issue>...
+  slug: <slug>
+and, when a claim is given:
+  resolved: <issue>... | (none)
+  claimed-outside: <issue>...
+  unclaimed: <issue>...
+EOF
+}
+
+# usage_error <message> -- print <message> and the synopsis, and exit 2.
+usage_error() {
+  printf '%s: %s\n' "$PROGRAM" "$1" >&2
+  usage >&2
+  exit 2
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command. `set -E` carries the trap into functions and
+# command substitutions; a substitution whose failure the script handles,
+# with a `||` after it or an `if !` around it, ends in `|| exit` inside
+# it, so the trap stays quiet in the substitution's own shell.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+# issue_number <arg> -- print <arg> without its leading `#`, or return 1
+# when <arg> is not N or #N with N a positive decimal integer written
+# without a leading zero.
+issue_number() {
+  local n=${1#\#}
+  case "$n" in
+    '' | 0* | *[!$DIGITS]*) return 1 ;;
+  esac
+  printf '%s\n' "$n"
+}
+
+# contains <list> <word> -- whether the space-separated <list> carries
+# <word>.
+contains() {
+  case " $1 " in
+    *" $2 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# add <list> <word> -- print <list> with <word> appended unless it is
+# already there.
+add() {
+  if contains "$1" "$2"; then
+    printf '%s\n' "$1"
+  else
+    printf '%s\n' "${1:+$1 }$2"
+  fi
+}
+
+# line <key> <value> -- one `key: value` line, with no trailing space
+# when <value> is empty.
+line() {
+  printf '%s:%s\n' "$1" "${2:+ $2}"
+}
+
+# config_value <key> <text> -- the value of <text>'s first `<key>:` line:
+# everything after the first `:`, trimmed of leading and trailing
+# whitespace. Returns 1 when no line carries <key>.
+config_value() {
+  printf '%s\n' "$2" | awk -v key="$1" '
+    index($0, key ":") == 1 {
+      v = substr($0, length(key) + 2)
+      sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      print v; found = 1; exit
+    }
+    END { exit !found }'
+}
+
+# not_kebab <slug> -- exit 7 naming <slug> and the kebab-case shape it
+# misses.
+not_kebab() {
+  fail 7 "slug \`$1\` is not kebab-case: lowercase letters, digits and single hyphens, starting with a letter and not ending with a hyphen."
+}
+
+# encode <issue>... [--slug <slug>] -- print the branch name for the
+# issues, in the order given, and <slug>, behind the prefix
+# issue-branch-prefix reports. Every argument is validated before
+# issue-branch-prefix runs, and the name's length before any issue-view
+# runs; every issue must exist and be OPEN.
+encode() {
+  local slug='' have_slug='' arg n prefix_out prefix name view state numbers='' count=0
+  local -a issues=()
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --slug)
+        [ "$#" -ge 2 ] || usage_error "\`--slug\` needs a value."
+        [ -z "$have_slug" ] || usage_error "\`--slug\` was given twice."
+        slug=$2
+        have_slug=1
+        shift 2
+        ;;
+      -?*) usage_error "\`$1\` is not an option encode takes." ;;
+      *)
+        issues+=("$1")
+        shift
+        ;;
+    esac
+  done
+  [ "${#issues[@]}" -gt 0 ] || usage_error "encode needs at least one issue."
+
+  for arg in "${issues[@]}"; do
+    n=$(issue_number "$arg" || exit) ||
+      fail 3 "\`$arg\` is not an issue in this repository: give it as N or #N, space-separated."
+    numbers="${numbers:+$numbers }$n"
+    count=$((count + 1))
+  done
+
+  if [ -z "$have_slug" ]; then
+    if [ "$count" -eq 1 ]; then
+      fail 4 "issue $numbers has no slug: pass one with \`--slug <slug>\`."
+    fi
+    fail 5 "issues $numbers have no slug: two or more issues need a compound slug, passed with \`--slug <slug>\`."
+  fi
+  case "$slug" in
+    ["$DIGITS"]*) fail 6 "slug \`$slug\` begins with a digit, which would read as an issue number: start it with a lowercase letter." ;;
+    ["$LOWER"]*) ;;
+    *) not_kebab "$slug" ;;
+  esac
+  case "$slug" in
+    *[!"$LOWER$DIGITS"-]* | *--* | *-) not_kebab "$slug" ;;
+  esac
+
+  # Global rather than local, so the EXIT trap still sees it after encode
+  # returns.
+  err=$(mktemp "${TMPDIR:-/tmp}/git-issue-branch.XXXXXX")
+  trap 'rm -f "$err"' EXIT
+  if ! prefix_out=$(issue-branch-prefix 2>"$err" || exit); then
+    cat "$err" >&2
+    fail 8 "issue-branch-prefix failed; its error is above."
+  fi
+  prefix=$(config_value prefix "$prefix_out" || exit) ||
+    fail 9 "issue-branch-prefix printed no \`prefix:\` line."
+
+  name="${prefix}issue-${numbers// /-}-$slug"
+  if [ "${#name}" -gt "$MAX_LENGTH" ]; then
+    fail 10 "branch name \`$name\` is ${#name} characters, over the $MAX_LENGTH limit: choose a shorter slug."
+  fi
+
+  for n in $numbers; do
+    if ! view=$(issue-view "$n" 2>"$err" || exit); then
+      cat "$err" >&2
+      fail 11 "issue $n was not found; the issue-view error is above."
+    fi
+    # issue-view's first line ends with the state in parentheses. A title
+    # can carry parentheses of its own, so only the last group is read.
+    state=$(printf '%s\n' "$view" | sed -n '1s/.*(\([^()]*\))[[:space:]]*$/\1/p')
+    [ "$state" = OPEN ] || fail 12 "issue $n is ${state:-in an unreadable state}, not OPEN."
+  done
+
+  printf '%s\n' "$name"
+}
+
+# decode <branch-name> [<claimed-issue>...] -- print the outcome, issue
+# set and slug <branch-name> encodes and, given a claim, the resolved,
+# claimed-outside and unclaimed lists. Runs no external command; exits 0
+# on either outcome and 2 on a usage error.
+decode() {
+  [ "$#" -ge 1 ] || usage_error "decode needs a branch name."
+  local branch=$1 rest numbers='' slug='' outcome=not-a-convention-branch arg n claimed='' token
+  shift
+  [ -n "$branch" ] || usage_error "decode needs a branch name, not an empty string."
+  local have_claim=''
+  for arg in "$@"; do
+    n=$(issue_number "$arg" || exit) ||
+      usage_error "claimed issue \`$arg\` is not an issue in this repository: give it as N or #N, space-separated."
+    claimed=$(add "$claimed" "$n")
+    have_claim=1
+  done
+
+  # Drop at most one non-empty `<segment>/` in front of the name; a name
+  # still carrying a `/` after that is not a convention branch.
+  rest=$branch
+  case "$rest" in
+    ?*/*) rest=${rest#*/} ;;
+  esac
+  case "$rest" in
+    */*) ;;
+    issue-*)
+      rest=${rest#issue-}
+      while :; do
+        token=${rest%%-*}
+        [ "$token" != "$rest" ] || break
+        case "$token" in
+          '' | *[!"$DIGITS"]*) break ;;
+        esac
+        numbers="${numbers:+$numbers }$token"
+        rest=${rest#*-}
+      done
+      # The slug's first token must be non-empty and not all digits.
+      token=${rest%%-*}
+      case "$token" in
+        *[!"$DIGITS"]*)
+          if [ -n "$numbers" ]; then
+            slug=$rest
+            outcome=convention
+          fi
+          ;;
+      esac
+      ;;
+  esac
+  if [ "$outcome" != convention ]; then
+    numbers=
+    slug=
+  fi
+
+  line outcome "$outcome"
+  line issues "$numbers"
+  line slug "$slug"
+  [ -n "$have_claim" ] || return 0
+
+  local resolved='' outside='' unclaimed=''
+  if [ "$outcome" != convention ]; then
+    resolved=$claimed
+  else
+    for n in $claimed; do
+      contains "$numbers" "$n" || outside="${outside:+$outside }$n"
+    done
+    for n in $numbers; do
+      if contains "$claimed" "$n"; then
+        resolved=$(add "$resolved" "$n")
+      fi
+    done
+    # With no overlap, a branch that encodes one issue resolves to that
+    # issue; one that encodes several resolves to none.
+    if [ -z "$resolved" ] && [ "$numbers" = "${numbers%% *}" ]; then
+      resolved=$numbers
+    fi
+    for n in $numbers; do
+      contains "$resolved" "$n" || unclaimed=$(add "$unclaimed" "$n")
+    done
+  fi
+  line resolved "${resolved:-(none)}"
+  line claimed-outside "$outside"
+  line unclaimed "$unclaimed"
+}
+
+[ "$#" -ge 1 ] || usage_error "no mode was given."
+mode=$1
+shift
+case "$mode" in
+  encode) encode "$@" ;;
+  decode) decode "$@" ;;
+  -h | --help) usage ;;
+  *) usage_error "\`$mode\` is not a mode: use encode or decode." ;;
+esac

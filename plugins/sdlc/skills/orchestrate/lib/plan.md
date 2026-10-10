@@ -57,12 +57,11 @@ when they share a version bump, not worth it when they do not.
 
 ### Choose the compound slug at plan time
 
-A batch of two or more needs a **compound slug** for its branch name
-(`issue-<N1>-<N2>-…-<Nk>-<compound-slug>`). Mechanically merging k
-titles produces garbage, so you choose it during planning and pass it
-in the spawn prompt — `git-tools:git-branch-create` validates the
-shape (kebab-case, no leading digit, branch name at most 100
-characters) and refuses to invent one. Name the batch's shared change
+A batch of two or more needs a **compound slug** for its branch name.
+Mechanically merging k titles produces garbage, so you choose it during
+planning and pass it in the spawn prompt — `git-tools:git-branch-create`
+owns the rules a slug must meet, and refuses to invent one. Name the
+batch's shared change
 surface, e.g. `guardrails-gate-sweep`. A batch of one needs no slug —
 the skill derives it from the issue title.
 

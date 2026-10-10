@@ -436,8 +436,8 @@ spawns you, and a standalone invocation passes the same flags.
   `/github-prs:pr-view` accepts; the orchestrator passes its canonical
   reference. With no `--pr`, stop and report that your caller named no
   PR rather than guessing one.
-- `--issues <N…>` (optional) — the issue numbers this PR closes, space-
-  or comma-separated, each with or without a leading `#`. This is the
+- `--issues <N…>` (optional) — the issue numbers this PR closes, each
+  as `N` or `#N`, space-separated. This is the
   **claim**, not the answer: "Identify the issue set" reconciles it
   against the branch. Absent, "Identify the issue set" takes the claim
   from the PR body instead — the standalone path.
@@ -479,10 +479,10 @@ You need only this field from the file:
   issue set" below). This is an **issue-tracker** concern, independent
   of the PR mechanics: `github-prs:pr-review-submit` and
   `github-prs:pr-closing-issues` read no repo-config at all — they are
-  GitHub-only by design — and `git-tools:git-issues-from-branch` reads
-  `issue-branch-naming-prefix` internally, so you do not resolve
+  GitHub-only by design — and neither does
+  `git-tools:git-issues-from-branch`, so you do not resolve
   `source-control`, `default-issue-source-branch`,
-  `default-pr-target-branch`, or `issue-branch-naming-prefix` yourself.
+  `default-pr-target-branch`, or `issue-branch-naming-prefix`.
 
 If `.issues/repo-config.md` is missing, abort with: "This repo has
 no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
@@ -561,7 +561,8 @@ one branch — and a batch of one is the ordinary single-issue PR.
   `/github-prs:pr-closing-issues <PR>`, the one skill that reads a PR
   body's closing lines. Never scan the body for them yourself.
 - **Reconcile the claim against the branch.** Invoke
-  `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
+  `/git-tools:git-issues-from-branch <headRefName> <claim…>`, the
+  claim as bare issue numbers, space-separated — the one
   skill that parses a branch name and the one place the
   issue-to-branch rule is applied. Never parse a branch name and never
   re-derive the resolution yourself. **The set you review against is the resolved
