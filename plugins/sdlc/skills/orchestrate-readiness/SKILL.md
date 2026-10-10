@@ -41,8 +41,8 @@ can trigger that stop. The items:
   structural contract a downstream consumer depends on — is settled in
   the body. It fails on a decision the body poses as a question or
   leaves implicit; the gap line names the decision. It also fails on
-  every site the executed Mechanical check below reports for a
-  prohibition-shaped bullet that the design does not change.
+  every site a `[no-match]` bullet reports in a file the design does
+  not change.
 - **Sandbox fit**. The implementer's sandbox is this repo, and it would
   have to stop on anything else. It fails on a sentence asking for work
   that lands outside this repo.
@@ -59,9 +59,10 @@ can trigger that stop. The items:
   section, and each bullet in it is one claim about the delivered
   change that a reviewer can attempt to disprove against the diff. It
   fails when the section is absent, has no bullets, or has a bullet
-  that is not such a claim. It also fails on every presence-shaped
-  bullet and every write-shaped check the executed Mechanical check
-  below makes a gap.
+  that is not such a claim. It also fails on every `### Mechanical`
+  bullet that is not in the key vocabulary below, and on every
+  presence-shaped bullet naming a path the files-affected section does
+  not list.
 - **Files affected**. The body carries the files-affected section the
   grammar below defines. Settled against the tree and consulting no
   prose, it fails when the section is absent or departs from that
@@ -86,19 +87,46 @@ These are the headings a writer emits and a reader keys on.
 
 ### Mechanical
 
-- <criterion>
+- [<key>] <arguments>
 
 ### Semantic
 
 - <criterion>
 ```
 
-Each bullet is one criterion. `### Mechanical` holds the criteria a
-grep, a file listing, or a one-command check settles; `### Semantic`
-holds the criteria that need reading behavior or exercising code. A
-generator reading the body emits a criterion theorem with the
-`settle-mode` its sub-heading names — `mechanical` under the first,
-`semantic` under the second.
+Each bullet is one criterion. `### Mechanical` holds the criteria one
+of the check keys below settles; `### Semantic` holds every other
+criterion, including any a key cannot express. A generator reading the
+body emits a criterion theorem with the `settle-mode` its sub-heading
+names — `mechanical` under the first, `semantic` under the second.
+
+Every `### Mechanical` bullet opens with a check key followed by its
+arguments, and never carries a command. A path is a repo-relative
+literal: no key accepts a glob, and a path that leaves the repo root or
+starts with `-` is refused. The keys:
+
+- `[no-match] <ERE> in <path>…` — no line of any named file matches
+  the ERE.
+- `[exists] <path>` — the path exists.
+- `[executable] <path>` — the path is an executable file.
+- `[version-bumped] <plugin>` — `version` in
+  `plugins/<plugin>/.claude-plugin/plugin.json` is higher than on
+  `origin/<default branch>`.
+- `[max-lines] <path> <n>` — the file has at most `n` lines.
+- `[lint-clean] <path>…` — each file lints clean: Markdown with
+  `npx --no-install markdownlint-cli2`, shell with `bash -n`.
+- `[test-passes] <path>` — a test script inside the repo exits zero
+  when run with `bash`.
+
+`sdlc-readiness-check` grades the `### Mechanical` bullets against the
+tree at check time. `[no-match]` is the one prohibition key, and the
+only key it executes: each site it reports is covered only when its file is listed
+in the files-affected section with the tag `update` or `delete`. Every
+other key is presence-shaped and never executed, since it fails before
+implementation by design: it passes when each path it names — for
+`[version-bumped]`, the plugin's `plugin.json` — is listed in the
+files-affected section, whatever the tag. A bullet with no key, or a key
+outside this list, is a gap, and nothing is executed for it.
 
 ### The files-affected section
 
@@ -115,41 +143,23 @@ the change creates, absent from the tree at check time; `update` for
 one it edits and `delete` for one it removes, each present in the tree
 at check time.
 
-## The executed Mechanical check
-
-A `### Mechanical` bullet is graded by running it against the tree at
-check time, not by reading it, so the verdict on an unchanged body and
-an unchanged tree is the same on every invocation. Every bullet under
-`### Mechanical` is one of two shapes:
-
-- **Prohibition-shaped** — a bullet asserting the absence of a string
-  or a path. Run the grep, file listing, or one-command check the
-  bullet names against the tree. Each site the command reports is
-  design-changed only when its file is listed in the files-affected
-  section with the tag `update` or `delete`; the tag alone decides, in
-  every file. Every other reported site is a gap under "No unanswered
-  design decisions", and the gap line quotes the bullet and names each
-  such site by path and line.
-- **Presence-shaped** — a bullet requiring a string, a path, or a
-  change to a file, such as a version bump. It is not executed, since
-  it fails before implementation by design. It passes when its target
-  file is listed in the files-affected section; otherwise it is a gap
-  under "Acceptance criteria" naming the bullet and the unlisted file.
-
-The check runs read-only commands only — `grep`, `ls`, `test`, and
-the like. A Mechanical bullet whose check would write to the tree is
-not run; it is a gap under "Acceptance criteria" naming the bullet.
-
 ## The check
 
 Given an issue number:
 
 1. Fetch the body and the edges with `/issue-view <N>`.
-2. Grade the body against each bar item in the order listed above.
-   This step runs the executed Mechanical check above for every
-   `### Mechanical` bullet, on every invocation.
-3. Return a gap list: one line per bar item the body does not meet,
-   naming the item and the sentence or absence that fails it. An empty
+2. Run `sdlc-readiness-check <N>`, which this plugin puts on `PATH`,
+   from inside the repo's working tree, on every invocation. Exit 0
+   means every `### Mechanical` bullet passes; exit 3 prints one gap
+   line per failing bullet, each already naming its bar item, and each
+   goes into the gap list as it stands. On any other exit, relay its
+   stderr verbatim and stop. Then grade the rest of each bar item, in
+   the order listed above, by reading the body; the script's lines are
+   the whole grading of the `### Mechanical` bullets. Never run a
+   command a `### Mechanical` bullet's text spells.
+3. Return a gap list: every line step 2's script printed, and one line
+   per other failure of a bar item, naming the item and the sentence or
+   absence that fails it. An empty
    list is the verdict `ready`.
 
 ## Output

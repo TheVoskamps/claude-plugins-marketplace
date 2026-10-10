@@ -85,10 +85,12 @@ of them loses track of which decision belongs to which.
    Group that list into the two sub-lists the acceptance section of
    `sdlc:orchestrate-readiness`'s grammar defines, splitting it by
    that skill's sub-heading definitions so the writer and every reader
-   agree by construction. An issue that touches `plugins/<name>/`
-   always gets the plugin version bump as a mechanical criterion:
-   every PR that changes a plugin bumps its version, and the generator
-   makes a theorem of every criterion.
+   agree by construction. Write every `### Mechanical` bullet in that
+   skill's check-key vocabulary, never as a command; a criterion no
+   key expresses goes under `### Semantic`. An issue that touches
+   `plugins/<name>/` always gets `[version-bumped] <name>` as a
+   mechanical criterion: every PR that changes a plugin bumps its
+   version, and the generator makes a theorem of every criterion.
 
    **The files-affected section is a gap the same way.** Derive the
    list from the placement decisions settled with the user and from

@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+#
+# sdlc-readiness-check -- grade the `### Mechanical` bullets of an
+# issue's acceptance section against the tree, and print one gap line
+# per failing bullet. Read-only.
+#
+# The grammar and the key vocabulary are owned by
+# plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The body is read
+# by running `issue-view <N>` from PATH, in the repository the working
+# directory belongs to, and every path a bullet names is resolved
+# against that repository's root.
+#
+# A bullet's text is never run. The script builds each command itself
+# from the bullet's key, passes the bullet's arguments as argv only, and
+# runs `grep` for a `[no-match]` bullet and nothing for any other key,
+# which passes when each path it names is listed in the files-affected
+# section. Runs under the bash 3.2 macOS ships.
+#
+# Usage: sdlc-readiness-check <N>
+#
+# Exit statuses:
+#   0  every Mechanical bullet passes; nothing is printed
+#   1  a command the script ran failed, or issue-view is not on PATH
+#   2  a usage error; nothing was read
+#   3  at least one bullet fails; one gap line per failing bullet is
+#      printed on stdout
+set -uo pipefail
+
+PROGRAM=${0##*/}
+
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+[ "$#" -eq 1 ] || fail 2 "usage: $PROGRAM <N>"
+issue=${1#\#}
+case "$issue" in
+  '' | *[!0-9]*) fail 2 "not an issue number: $1" ;;
+esac
+
+command -v issue-view >/dev/null 2>&1 ||
+  fail 1 "issue-view is not on PATH; it ships with the issues plugin"
+
+root=$(git rev-parse --show-toplevel) || fail 1 "not inside a git working tree"
+root_phys=$(cd -P -- "$root" && pwd -P) || fail 1 "cannot resolve $root"
+
+view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
+
+# Split the body into its Mechanical bullets (`M<TAB><bullet>`) and its
+# well-formed files-affected bullets (`F<TAB><path><TAB><tag>`). A bullet
+# continues onto indented lines; a fenced block is never read as
+# grammar.
+records=$(printf '%s\n' "$view" | awk '
+  function flush() {
+    if (bullet != "") print "M\t" bullet
+    bullet = ""
+  }
+  { sub(/\r$/, "") }
+  !inbody { if ($0 == "Body:") inbody = 1; next }
+  /^[ \t]*(```|~~~)/ { flush(); fence = !fence; next }
+  fence { next }
+  /^## / {
+    flush()
+    h = $0; sub(/[ \t]+$/, "", h)
+    sec = (h == "## Acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : ""
+    sub_ = ""
+    next
+  }
+  /^### / {
+    flush()
+    h = $0; sub(/[ \t]+$/, "", h)
+    sub_ = (h == "### Mechanical") ? "mech" : ""
+    next
+  }
+  sec == "acc" && sub_ == "mech" {
+    if (/^- /) { flush(); bullet = substr($0, 3); next }
+    if (bullet != "" && /^[ \t]+[^ \t]/) { l = $0; sub(/^[ \t]+/, "", l); bullet = bullet " " l; next }
+    flush()
+    next
+  }
+  sec == "files" && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ {
+    p = $0; sub(/^- `/, "", p); t = p
+    sub(/`.*$/, "", p)
+    sub(/^[^`]*` \(/, "", t); sub(/\).*$/, "", t)
+    print "F\t" p "\t" t
+  }
+  END { flush() }
+') || fail 1 "could not split the body of issue $issue"
+
+GAPS=0
+
+gap() {
+  printf '%s: Mechanical bullet "- %s" %s\n' "$1" "$2" "$3"
+  GAPS=$((GAPS + 1))
+}
+
+# normalize <path> -- set NORM to the path with `.` and empty components
+# dropped and `..` applied, or return 1 when it leaves the root.
+normalize() {
+  local IFS=/ part out=''
+  local -a parts
+  read -r -a parts <<<"$1"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      '' | .) ;;
+      ..)
+        [ -n "$out" ] || return 1
+        case "$out" in
+          */*) out=${out%/*} ;;
+          *) out='' ;;
+        esac
+        ;;
+      *) out=${out:+$out/}$part ;;
+    esac
+  done
+  NORM=$out
+}
+
+# resolve <path> -- set NORM to the repo-relative path, or set REFUSAL
+# to why the path is refused and return 1. Nothing is run against the
+# path: a refused path is never handed to a command.
+resolve() {
+  local p=$1 dir phys
+  case "$p" in
+    '') REFUSAL='names an empty path'; return 1 ;;
+    -*) REFUSAL="names a path starting with '-': $p"; return 1 ;;
+    /*) REFUSAL="names a path outside the repo root: $p"; return 1 ;;
+    *[*?[]*) REFUSAL="names a glob, not a literal path: $p"; return 1 ;;
+  esac
+  normalize "$p" || { REFUSAL="names a path outside the repo root: $p"; return 1; }
+  [ -n "$NORM" ] || { REFUSAL="names the repo root, not a path in it: $p"; return 1; }
+  # A symlinked directory on the way can still lead out: resolve the
+  # deepest existing ancestor physically.
+  dir=$NORM
+  while [ -n "$dir" ] && [ ! -d "$root/$dir" ]; do
+    case "$dir" in
+      */*) dir=${dir%/*} ;;
+      *) dir='' ;;
+    esac
+  done
+  phys=$(cd -P -- "$root/$dir" 2>/dev/null && pwd -P) ||
+    { REFUSAL="names a path that cannot be resolved: $p"; return 1; }
+  case "$phys/" in
+    "$root_phys"/*) ;;
+    *) REFUSAL="names a path outside the repo root: $p"; return 1 ;;
+  esac
+  if [ -L "$root/$NORM" ]; then
+    REFUSAL="names a symlink, which is not followed: $p"
+    return 1
+  fi
+}
+
+# listed <path> [<tag>...] -- whether the files-affected section lists
+# the repo-relative path, with one of the tags when any are given.
+listed() {
+  local want=$1 kind path tag t NORM
+  shift
+  while IFS=$'\t' read -r kind path tag; do
+    [ "$kind" = F ] || continue
+    normalize "$path" || continue
+    [ "$NORM" = "$want" ] || continue
+    [ "$#" -eq 0 ] && return 0
+    for t in "$@"; do
+      [ "$tag" = "$t" ] && return 0
+    done
+  done <<<"$records"
+  return 1
+}
+
+# presence <bullet> <path>... -- the grading every key but [no-match]
+# gets: each path must be listed in the files-affected section.
+presence() {
+  local bullet=$1 p unlisted=''
+  shift
+  for p in "$@"; do
+    if ! resolve "$p"; then
+      gap 'Acceptance criteria' "$bullet" "$REFUSAL; nothing was checked"
+      return
+    fi
+  done
+  for p in "$@"; do
+    resolve "$p"
+    listed "$NORM" || unlisted=${unlisted:+$unlisted, }$NORM
+  done
+  [ -z "$unlisted" ] ||
+    gap 'Acceptance criteria' "$bullet" "names a file the files-affected section does not list: $unlisted"
+}
+
+# no_match <bullet> <args> -- run the one executed key: grep each named
+# file for the ERE, and report every site in a file not listed with
+# `update` or `delete`.
+no_match() {
+  local bullet=$1 args=$2 ere p out rc line uncovered=''
+  local -a paths
+  case "$args" in
+    *' in '*) ;;
+    *) gap 'Acceptance criteria' "$bullet" "is malformed: [no-match] takes '<ERE> in <path>...'"; return ;;
+  esac
+  ere=${args% in *}
+  read -r -a paths <<<"${args##* in }"
+  if [ -z "$ere" ] || [ "${#paths[@]}" -eq 0 ]; then
+    gap 'Acceptance criteria' "$bullet" "is malformed: [no-match] takes '<ERE> in <path>...'"
+    return
+  fi
+  for p in "${paths[@]}"; do
+    if ! resolve "$p"; then
+      gap 'Acceptance criteria' "$bullet" "$REFUSAL; nothing was run"
+      return
+    fi
+    if [ -d "$root/$NORM" ]; then
+      gap 'Acceptance criteria' "$bullet" "names a directory, not a file: $p; nothing was run"
+      return
+    fi
+  done
+  for p in "${paths[@]}"; do
+    resolve "$p"
+    [ -f "$root/$NORM" ] || continue
+    out=$(grep -nE -- "$ere" "$root/$NORM" 2>&1)
+    rc=$?
+    case "$rc" in
+      0) ;;
+      1) continue ;;
+      *) gap 'Acceptance criteria' "$bullet" "has an ERE grep rejects: ${out%%$'\n'*}"; return ;;
+    esac
+    listed "$NORM" update delete && continue
+    while IFS= read -r line; do
+      uncovered=${uncovered:+$uncovered, }$NORM:${line%%:*}
+    done <<<"$out"
+  done
+  [ -z "$uncovered" ] ||
+    gap 'No unanswered design decisions' "$bullet" \
+      "matches in a file the files-affected section does not list as update or delete: $uncovered"
+}
+
+key_re='^\[([a-z-]+)\]([[:space:]]+(.*))?$'
+
+while IFS=$'\t' read -r kind bullet; do
+  [ "$kind" = M ] || continue
+  if ! [[ $bullet =~ $key_re ]]; then
+    gap 'Acceptance criteria' "$bullet" "opens with no check key; nothing was run"
+    continue
+  fi
+  key=${BASH_REMATCH[1]}
+  args=${BASH_REMATCH[3]}
+  read -r -a argv <<<"$args"
+  n=${#argv[@]}
+  malformed="is malformed for [$key]; nothing was checked"
+  case "$key" in
+    no-match)
+      no_match "$bullet" "$args"
+      ;;
+    exists | executable | test-passes)
+      if [ "$n" -eq 1 ]; then presence "$bullet" "${argv[0]}"; else gap 'Acceptance criteria' "$bullet" "$malformed"; fi
+      ;;
+    lint-clean)
+      if [ "$n" -ge 1 ]; then presence "$bullet" "${argv[@]}"; else gap 'Acceptance criteria' "$bullet" "$malformed"; fi
+      ;;
+    max-lines)
+      if [ "$n" -eq 2 ] && [[ ${argv[1]} =~ ^[0-9]+$ ]]; then
+        presence "$bullet" "${argv[0]}"
+      else
+        gap 'Acceptance criteria' "$bullet" "$malformed"
+      fi
+      ;;
+    version-bumped)
+      if [ "$n" -eq 1 ] && [[ ${argv[0]} =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+        presence "$bullet" "plugins/${argv[0]}/.claude-plugin/plugin.json"
+      else
+        gap 'Acceptance criteria' "$bullet" "$malformed"
+      fi
+      ;;
+    *)
+      gap 'Acceptance criteria' "$bullet" "opens with an unrecognised check key [$key]; nothing was run"
+      ;;
+  esac
+done <<<"$records"
+
+[ "$GAPS" -eq 0 ] || exit 3
