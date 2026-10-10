@@ -97,9 +97,9 @@ names — `mechanical` under the first, `semantic` under the second.
 
 Every `### Mechanical` bullet opens with a check key followed by its
 arguments, and never carries a command. A path is a repo-relative
-literal: no key accepts a glob, and a path that leaves the repo root,
-starts with `-`, names a symlink or the repo root itself, or — under
-`[no-match]` — names a directory, is refused. The keys:
+literal with no whitespace and no glob. A path the script cannot check
+as one location inside the repo root — under `[no-match]`, as one file
+to read — is refused, and the bullet's gap line says why. The keys:
 
 - `[no-match] <ERE> in <path>…` — no line of any named file matches
   the ERE. A named path absent from the tree at check time passes only
@@ -110,7 +110,8 @@ starts with `-`, names a symlink or the repo root itself, or — under
 - `[executable] <path>` — the path is an executable file.
 - `[version-bumped] <plugin>` — `version` in
   `plugins/<plugin>/.claude-plugin/plugin.json` is higher than on
-  `origin/<default branch>`.
+  `origin/<default branch>`, where `<plugin>` is the plugin's directory
+  name under `plugins/`.
 - `[max-lines] <path> <n>` — the file has at most `n` lines.
 - `[lint-clean] <path>…` — each file lints clean: Markdown with
   `npx --no-install markdownlint-cli2`, shell with `bash -n`.
