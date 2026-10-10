@@ -28,6 +28,8 @@ set -uo pipefail
 
 PROGRAM=${0##*/}
 
+# fail <status> <message> -- print the message on stderr, prefixed with
+# the program name, and exit with the status.
 fail() {
   printf '%s: %s\n' "$PROGRAM" "$2" >&2
   exit "$1"
@@ -159,7 +161,8 @@ resolve() {
 }
 
 # listed <path> [<tag>...] -- whether the files-affected section lists
-# the repo-relative path, with one of the tags when any are given.
+# the repo-relative path, with one of the tags when any are given. NORM
+# is local here because both callers read their own NORM after the call.
 listed() {
   local want=$1 kind path tag t NORM
   shift
@@ -197,7 +200,8 @@ presence() {
 # no_match <bullet> <args> -- run the one executed key: grep each named
 # file for the ERE, and report every site in a file not listed with
 # `update` or `delete`. A named file absent from the tree is skipped
-# when listed with `new`, and is a gap otherwise.
+# when listed with `new`, and is a gap otherwise. The ERE runs up to the
+# last ` in `, so it may itself contain one.
 no_match() {
   local bullet=$1 args=$2 ere p out rc line uncovered=''
   local -a paths
