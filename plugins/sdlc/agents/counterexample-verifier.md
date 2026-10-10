@@ -62,8 +62,7 @@ it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 
 Without `--branch` you have no tree to check the quote against.
 
-`--counterexample` is the one parameter only you receive: it is the
-thing you attack.
+`--counterexample` is the thing you attack.
 
 Without `--pr` and `--round` you can still settle the
 counterexample but cannot record that you started or what you found —
@@ -138,9 +137,8 @@ calls in a subagent context.
    one of several verifiers running at once in as many worktrees of
    one repo, and those worktrees share that repo's single ref store:
    concurrent fetches contend for the same `.git`, and a loser of that
-   lock race fails outright rather than waiting. The pipeline fetches
-   once before it fans out and tells you so with `--fetched yes`, so
-   on that path no verifier fetches at all.
+   lock race fails outright rather than waiting. On the `--fetched yes`
+   path no verifier fetches at all.
 
    Checking out the same commit the disprover read is what makes a
    byte-for-byte quote check meaningful. A fresh worktree can start on
@@ -189,8 +187,8 @@ calls in a subagent context.
      aimed at the wrong claim, cut so that the surrounding lines
      reverse its meaning, or drawn from a region the claim never
      quantified over. Read the region around the quote, not just the
-     quoted line, and re-read `--claim` as written rather than as the
-     disprover restated it.
+     quoted line, and re-read `--claim` as `sdlc:theorem-agents-interface`
+     defines it.
    - **Does the stated consequence follow?** The consequence is what
      the pipeline grades severity from, so a quote that contradicts
      the claim but whose consequence is overstated does not get a free
