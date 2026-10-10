@@ -4,10 +4,10 @@
 # against a scratch repository and a stub issue-view serving a case's
 # body: each check key passing and failing, an unkeyed bullet, an
 # unknown key, malformed arguments, paths that leave the repo root or
-# start with '-', a hostile ERE, a fenced block and a wrapped bullet,
-# and issue-view missing from PATH. A bullet that would write to the
-# tree if anything ran it leaves a marker file, and each case carrying
-# one checks that none appeared.
+# start with '-', a [no-match] path absent from the tree, a hostile ERE,
+# fenced blocks and a wrapped bullet, and issue-view missing from PATH.
+# A bullet that would write to the tree if anything ran it leaves a
+# marker file, and each case carrying one checks that none appeared.
 #
 # Needs bash, git and the POSIX utilities. Reaches no network.
 #
@@ -111,7 +111,7 @@ run "## Acceptance
 - [lint-clean] src/a.sh tests/t.sh
 - [version-bumped] demo
 - [no-match] \\beval\\b in src/a.sh
-- [no-match] nothing-matches-this in src/b.sh src/missing.sh
+- [no-match] nothing-matches-this in src/b.sh src/new.sh
 
 ### Semantic
 
@@ -169,6 +169,24 @@ check_contains "$OUT" 'No unanswered design decisions: Mechanical bullet "- [no-
 check_contains "$OUT" 'src/c.sh:1, src/c.sh:3' "no-match: every site in a file is named"
 check_lines "$OUT" 2 "no-match: a delete-tagged file's site is covered"
 rm -f "$REPO/src/c.sh" "$REPO/src/d.sh"
+
+# --- [no-match] on a path absent from the tree ----------------------
+
+run "## Acceptance
+
+### Mechanical
+
+- [no-match] eval in src/b.sh src/missing.sh
+- [no-match] eval in src/gone.sh
+
+## Files affected (floor)
+
+- \`src/b.sh\` (update)
+- \`src/gone.sh\` (update)"
+check "$RC" 3 "absent path: exit 3"
+check_lines "$OUT" 2 "absent path: one gap per bullet"
+check_contains "$OUT" 'Acceptance criteria: Mechanical bullet "- [no-match] eval in src/b.sh src/missing.sh" names a file absent from the tree that the files-affected section does not list as new: src/missing.sh; nothing was run' "absent path: an unlisted absent path is a gap"
+check_contains "$OUT" '"- [no-match] eval in src/gone.sh" names a file absent from the tree that the files-affected section does not list as new: src/gone.sh' "absent path: one listed as update is a gap"
 
 # --- an unkeyed bullet and an unknown key are gaps, and never run -----
 
@@ -297,6 +315,27 @@ $FILES_ALL"
 check "$RC" 3 "grammar: exit 3"
 check "$OUT" 'No unanswered design decisions: Mechanical bullet "- [no-match] eval in src/a.sh src/b.sh" matches in a file the files-affected section does not list as update or delete: src/b.sh:1' "grammar: a wrapped bullet is joined, and only Mechanical bullets outside a fence are graded"
 no_marker "grammar"
+
+run "## Acceptance
+
+### Mechanical
+
+\`\`\`markdown
+~~~
+- [run] touch $SANDBOX/pwned10
+\`\`\`
+
+\`\`\`\`markdown
+\`\`\`
+- [run] touch $SANDBOX/pwned11
+\`\`\`\`
+
+- [no-match] eval in src/b.sh
+
+$FILES_ALL"
+check "$RC" 3 "nested fences: exit 3"
+check "$OUT" 'No unanswered design decisions: Mechanical bullet "- [no-match] eval in src/b.sh" matches in a file the files-affected section does not list as update or delete: src/b.sh:1' "nested fences: a different or shorter marker does not close a fence"
+no_marker "nested fences"
 
 run "## Acceptance
 

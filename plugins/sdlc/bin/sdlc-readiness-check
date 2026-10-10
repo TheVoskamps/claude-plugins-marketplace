@@ -50,7 +50,8 @@ view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 # Split the body into its Mechanical bullets (`M<TAB><bullet>`) and its
 # well-formed files-affected bullets (`F<TAB><path><TAB><tag>`). A bullet
 # continues onto indented lines; a fenced block is never read as
-# grammar.
+# grammar, and only a run of its opening character at least as long as
+# its opening run closes it.
 records=$(printf '%s\n' "$view" | awk '
   function flush() {
     if (bullet != "") print "M\t" bullet
@@ -58,7 +59,11 @@ records=$(printf '%s\n' "$view" | awk '
   }
   { sub(/\r$/, "") }
   !inbody { if ($0 == "Body:") inbody = 1; next }
-  /^[ \t]*(```|~~~)/ { flush(); fence = !fence; next }
+  match($0, /^[ \t]*(```+|~~~+)/) {
+    m = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", m)
+    if (!fence) { flush(); fence = 1; fch = substr(m, 1, 1); flen = length(m); next }
+    if (substr(m, 1, 1) == fch && length(m) >= flen) { fence = 0; next }
+  }
   fence { next }
   /^## / {
     flush()
@@ -191,7 +196,8 @@ presence() {
 
 # no_match <bullet> <args> -- run the one executed key: grep each named
 # file for the ERE, and report every site in a file not listed with
-# `update` or `delete`.
+# `update` or `delete`. A named file absent from the tree is skipped
+# when listed with `new`, and is a gap otherwise.
 no_match() {
   local bullet=$1 args=$2 ere p out rc line uncovered=''
   local -a paths
@@ -212,6 +218,11 @@ no_match() {
     fi
     if [ -d "$root/$NORM" ]; then
       gap 'Acceptance criteria' "$bullet" "names a directory, not a file: $p; nothing was run"
+      return
+    fi
+    if [ ! -e "$root/$NORM" ] && ! listed "$NORM" new; then
+      gap 'Acceptance criteria' "$bullet" \
+        "names a file absent from the tree that the files-affected section does not list as new: $p; nothing was run"
       return
     fi
   done

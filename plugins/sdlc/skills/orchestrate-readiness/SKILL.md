@@ -40,9 +40,7 @@ can trigger that stop. The items:
   tree, load mode, the fate of content the change subsumes, a
   structural contract a downstream consumer depends on — is settled in
   the body. It fails on a decision the body poses as a question or
-  leaves implicit; the gap line names the decision. It also fails on
-  every site a `[no-match]` bullet reports in a file the design does
-  not change.
+  leaves implicit; the gap line names the decision.
 - **Sandbox fit**. The implementer's sandbox is this repo, and it would
   have to stop on anything else. It fails on a sentence asking for work
   that lands outside this repo.
@@ -59,10 +57,7 @@ can trigger that stop. The items:
   section, and each bullet in it is one claim about the delivered
   change that a reviewer can attempt to disprove against the diff. It
   fails when the section is absent, has no bullets, or has a bullet
-  that is not such a claim. It also fails on every `### Mechanical`
-  bullet that is not in the key vocabulary below, and on every
-  presence-shaped bullet naming a path the files-affected section does
-  not list.
+  that is not such a claim.
 - **Files affected**. The body carries the files-affected section the
   grammar below defines. Settled against the tree and consulting no
   prose, it fails when the section is absent or departs from that
@@ -102,11 +97,13 @@ names — `mechanical` under the first, `semantic` under the second.
 
 Every `### Mechanical` bullet opens with a check key followed by its
 arguments, and never carries a command. A path is a repo-relative
-literal: no key accepts a glob, and a path that leaves the repo root or
-starts with `-` is refused. The keys:
+literal: no key accepts a glob, and a path that leaves the repo root,
+starts with `-`, or names a symlink is refused. The keys:
 
 - `[no-match] <ERE> in <path>…` — no line of any named file matches
-  the ERE.
+  the ERE. A named path absent from the tree at check time passes only
+  when the files-affected section lists it as `new`, and is a gap
+  otherwise.
 - `[exists] <path>` — the path exists.
 - `[executable] <path>` — the path is an executable file.
 - `[version-bumped] <plugin>` — `version` in
@@ -119,14 +116,7 @@ starts with `-` is refused. The keys:
   when run with `bash`.
 
 `sdlc-readiness-check` grades the `### Mechanical` bullets against the
-tree at check time. `[no-match]` is the one prohibition key, and the
-only key it executes: each site it reports is covered only when its file is listed
-in the files-affected section with the tag `update` or `delete`. Every
-other key is presence-shaped and never executed, since it fails before
-implementation by design: it passes when each path it names — for
-`[version-bumped]`, the plugin's `plugin.json` — is listed in the
-files-affected section, whatever the tag. A bullet with no key, or a key
-outside this list, is a gap, and nothing is executed for it.
+tree at check time.
 
 ### The files-affected section
 
