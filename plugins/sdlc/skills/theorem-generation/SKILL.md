@@ -93,9 +93,6 @@ write it where a resumed reviewer would find it — say so in your
 report rather than guessing at one. `--pr` is what you generate
 *from*: steps 2 and 4 fetch the diff and the body with it.
 
-`--issues` is the answer, not a claim: do not re-derive it, do not
-parse the branch name, and do not add or remove a member.
-
 Whether `--delta-commits` is present decides your whole workflow.
 Present, you are on a re-review, whether it carries oids or none — see
 "On a re-review, generate from the delta" below. Absent, with `--pr`

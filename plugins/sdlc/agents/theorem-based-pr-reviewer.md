@@ -534,11 +534,15 @@ whatever its size. `theorem-generator-high` and
 for an explicit `--generator`.
 
 Both signals read the round's delta — on a fallback round, the whole
-PR diff. The tier that ran is the agent the generate stage's `leave`
-record or `result` line for `list` names, never your spawn choice. Say
-in the Review method section which it was and what picked it, and when
-it differs from the agent the last `spawn` record for `list` names,
-name both.
+PR diff. Say in the Review method section which tier ran and what
+picked it. Read the tier that ran from the generate
+stage's `leave` record or `result` line for the theorem `list`, never
+from your own spawn choice: the definition that ran is the agent its
+result file is named for, per the preloaded
+`sdlc:agent-result-persist-interface` skill → "The line grammar". When
+that definition differs from the agent the last `spawn` record for the
+theorem `list` names, say so in the Review method section and name
+both.
 
 ### Spawn the theorem generator
 
