@@ -134,6 +134,8 @@ usage_case rebase
 usage_case continue
 usage_case abort x
 usage_case push x
+usage_case push --exclude
+usage_case push --exclude a x
 usage_case release
 
 # --- push before any checkout -----------------------------------------------
@@ -399,6 +401,37 @@ check "$RC:$OUT" "0:" "subdirectory: continue takes the path rebase printed"
 check "$(in_rebase)" "no" "subdirectory: no rebase is left in progress"
 check "$(git -C "$CLONE" show HEAD:sub/f.txt)" "sub resolved" "subdirectory: the resolution is committed"
 
+# --- a stopped rebase from a subdirectory under diff.relative=true ----------
+# One conflict inside sub/, one outside it: both are printed, relative to
+# the top level, whatever the user's diff.relative says.
+git -C "$SEED" checkout -q main
+commit_file "$SEED" sub/g.txt "rel base" "rel base" >/dev/null
+commit_file "$SEED" top.txt "rel base" "rel top base" >/dev/null
+git -C "$SEED" push -q origin main
+git -C "$SEED" checkout -q -b relative
+printf 'rel branch\n' >"$SEED/sub/g.txt"
+printf 'rel branch\n' >"$SEED/top.txt"
+git -C "$SEED" commit -q -a -m "rel branch"
+git -C "$SEED" push -q origin relative
+git -C "$SEED" checkout -q main
+printf 'rel main\n' >"$SEED/sub/g.txt"
+printf 'rel main\n' >"$SEED/top.txt"
+git -C "$SEED" commit -q -a -m "rel main"
+git -C "$SEED" push -q origin main
+branch_sync checkout relative
+git -C "$CLONE" config diff.relative true
+CASE_DIR=sub branch_sync rebase main
+check "$RC:$OUT" "3:sub/g.txt
+top.txt" "diff.relative: rebase prints every conflicted path relative to the top level"
+printf 'rel resolved\n' >"$CLONE/sub/g.txt"
+printf 'rel resolved\n' >"$CLONE/top.txt"
+CASE_DIR=sub branch_sync continue sub/g.txt
+check "$RC" "5" "diff.relative: continue still sees the conflict outside the subdirectory"
+check_contains "$ERR" "top.txt" "diff.relative: continue names the path outside the subdirectory"
+CASE_DIR=sub branch_sync continue top.txt
+check "$RC:$OUT" "0:" "diff.relative: continue takes the paths rebase printed"
+git -C "$CLONE" config --unset diff.relative
+
 branch_sync checkout feature
 check "$RC" "0" "back on feature"
 
@@ -452,6 +485,31 @@ printf 'dirty\n' >>"$CLONE/base.txt"
 branch_sync push
 check "$RC" "10" "push verification, a dirty tree: exit 10"
 git -C "$CLONE" checkout -q -- base.txt
+
+# Dirty only under excluded paths: a tracked file modified under mem/,
+# an untracked one beside it, and one under outer/mem/ inside the
+# untracked outer/.
+mkdir -p "$CLONE/mem"
+commit_file "$CLONE" mem/tracked.md "kept" "tracked memory" >/dev/null
+branch_sync push
+check "$RC" "0" "push --exclude setup: the tracked memory file is pushed"
+printf 'changed\n' >>"$CLONE/mem/tracked.md"
+printf 'new\n' >"$CLONE/mem/new.md"
+mkdir -p "$CLONE/outer/mem"
+printf 'new\n' >"$CLONE/outer/mem/x.md"
+branch_sync push
+check "$RC" "10" "push without --exclude, dirty under mem/ and outer/mem/: exit 10"
+branch_sync push --exclude mem/ --exclude outer/mem/
+check "$RC" "0" "push --exclude, dirty only under the excluded paths: exit 0"
+CASE_DIR=outer branch_sync push --exclude mem/ --exclude outer/mem/
+check "$RC" "0" "push --exclude from a subdirectory: pathspecs are relative to the top level"
+branch_sync push --exclude mem/
+check "$RC" "10" "push --exclude, dirty outside one exclude: exit 10"
+printf 'dirty\n' >>"$CLONE/base.txt"
+branch_sync push --exclude mem/ --exclude outer/mem/
+check "$RC" "10" "push --exclude, a dirty path no exclude matches: exit 10"
+git -C "$CLONE" checkout -q -- base.txt mem/tracked.md
+rm -rf "$CLONE/mem/new.md" "$CLONE/outer"
 
 # The remote accepts the push, then moves the branch somewhere else.
 OTHER=$(git -C "$CLONE" rev-parse HEAD~1)

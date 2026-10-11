@@ -12,7 +12,7 @@
 #   git-branch-sync rebase <base>
 #   git-branch-sync continue <path>...
 #   git-branch-sync abort
-#   git-branch-sync push
+#   git-branch-sync push [--exclude <pathspec>]...
 #   git-branch-sync release <branch>
 #
 # Exit statuses:
@@ -58,7 +58,7 @@ usage: $PROGRAM checkout <branch>
        $PROGRAM rebase <base>
        $PROGRAM continue <path>...
        $PROGRAM abort
-       $PROGRAM push
+       $PROGRAM push [--exclude <pathspec>]...
        $PROGRAM release <branch>
 EOF
 }
@@ -110,10 +110,12 @@ rebase_in_progress() {
 }
 
 # unmerged_paths -- print every path the index still holds as conflicted,
-# one per line, verbatim: -z keeps git from quoting a path with a
-# non-ASCII byte, a tab, a quote or a backslash.
+# one per line, verbatim and relative to the top level: -z keeps git from
+# quoting a path with a non-ASCII byte, a tab, a quote or a backslash,
+# and --no-relative overrides a diff.relative=true, which would print
+# paths relative to the current directory and drop those outside it.
 unmerged_paths() {
-  git diff --name-only -z --diff-filter=U | tr '\0' '\n'
+  git diff --no-relative --name-only -z --diff-filter=U | tr '\0' '\n'
 }
 
 # recorded_ref <branch> -- print the ref that holds <branch>'s recorded tip.
@@ -231,9 +233,22 @@ cmd_abort() {
 # against the tip `checkout` recorded rather than a fresh fetch: with a
 # lease on the recorded tip when the push is not a fast-forward from it,
 # then record the pushed tip and verify that origin holds HEAD and the
-# working tree is clean. Exits 7 to 12 as the header lists them.
+# working tree is clean outside the paths each --exclude <pathspec>
+# matches, relative to the top level. Exits 7 to 12 as the header lists
+# them.
 cmd_push() {
-  local branch recorded result status=0 line remote local_head dirty
+  local branch recorded result status=0 line remote local_head dirty top
+  local -a excludes=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --exclude)
+        [ "$#" -ge 2 ] || usage_error "\`--exclude\` needs a pathspec."
+        excludes+=(":(exclude)$2")
+        shift 2
+        ;;
+      *) usage_error "\`push\` takes no argument \`$1\`." ;;
+    esac
+  done
   branch=$(current_branch) || exit
   recorded=$(git rev-parse -q --verify "$(recorded_ref "$branch")^{commit}" || true)
   [ -n "$recorded" ] ||
@@ -273,7 +288,10 @@ EOF
   if [ "$remote" != "$local_head" ]; then
     fail 9 "local HEAD $local_head differs from origin/$branch ${remote:-(absent)}"
   fi
-  dirty=$(git status --porcelain)
+  top=$(git rev-parse --show-toplevel)
+  # The `${array[@]+...}` form expands an empty array under bash 3.2's
+  # `set -u`.
+  dirty=$(cd "$top" && git status --porcelain -- . ${excludes[@]+"${excludes[@]}"})
   [ -z "$dirty" ] || fail 10 "the working tree is dirty after the push"
 }
 
@@ -307,8 +325,7 @@ case "$sub" in
     cmd_abort
     ;;
   push)
-    arity 0 push "$@"
-    cmd_push
+    cmd_push "$@"
     ;;
   release)
     arity 1 release "$@"
