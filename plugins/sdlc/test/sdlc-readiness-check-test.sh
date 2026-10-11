@@ -67,6 +67,7 @@ chmod +x "$REPO/tests/t.sh"
 printf 'eval z\n' >"$SANDBOX/outside/secret"
 ln -s ../outside/secret "$REPO/link"
 ln -s ../outside "$REPO/ldir"
+mkfifo "$REPO/fifo"
 
 # The stub issue-view prints the header issue-view prints, then the
 # case's body.
@@ -245,14 +246,16 @@ run "## Acceptance
 - [no-match] eval in ldir/secret
 - [exists] src/*.sh
 - [no-match] eval in src
+- [no-match] eval in fifo
 - [exists] .
 
 ## Files affected (floor)
 
 - \`../outside/secret\` (update)
-- \`link\` (update)"
+- \`link\` (update)
+- \`fifo\` (update)"
 check "$RC" 3 "paths: exit 3"
-check_lines "$OUT" 10 "paths: one gap per bullet"
+check_lines "$OUT" 11 "paths: one gap per bullet"
 check_contains "$OUT" '"- [exists] ../outside/secret" names a path outside the repo root: ../outside/secret; nothing was checked' "paths: '..' out of the root is refused even when listed"
 check_contains "$OUT" '"- [no-match] eval in src/../../outside/secret" names a path outside the repo root' "paths: '..' after a component is refused"
 check_contains "$OUT" "names a path outside the repo root: $SANDBOX/outside/secret; nothing was run" "paths: an absolute path is refused"
@@ -262,6 +265,7 @@ check_contains "$OUT" '"- [no-match] eval in link" names a symlink' "paths: a sy
 check_contains "$OUT" '"- [no-match] eval in ldir/secret" names a path outside the repo root' "paths: a symlinked directory out of the root is refused"
 check_contains "$OUT" '"- [exists] src/*.sh" names a glob' "paths: a glob is refused"
 check_contains "$OUT" '"- [no-match] eval in src" names a directory' "paths: a directory is refused"
+check_contains "$OUT" '"- [no-match] eval in fifo" names neither a regular file nor a directory: fifo; nothing was run' "paths: a FIFO is refused even when listed"
 check_contains "$OUT" '"- [exists] ." names the repo root, not a path in it: .; nothing was checked' "paths: the repo root is refused"
 case "$OUT" in
   *outside/secret:1*) check "leaked" "" "paths: no file outside the repo was read" ;;

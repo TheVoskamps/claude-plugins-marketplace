@@ -227,6 +227,10 @@ no_match() {
       gap 'Acceptance criteria' "$bullet" "names a directory, not a file: $p; nothing was run"
       return
     fi
+    if [ -e "$root/$NORM" ] && [ ! -f "$root/$NORM" ]; then
+      gap 'Acceptance criteria' "$bullet" "names neither a regular file nor a directory: $p; nothing was run"
+      return
+    fi
     if [ ! -e "$root/$NORM" ] && ! listed "$NORM" new; then
       gap 'Acceptance criteria' "$bullet" \
         "names a file absent from the tree that the files-affected section does not list as new: $p; nothing was run"
