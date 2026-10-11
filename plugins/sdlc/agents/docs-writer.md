@@ -57,8 +57,9 @@ the PR is flipped ready.
 git-branch-sync checkout <branch-name>
 ```
 
-When a `git-branch-sync` call in this file exits non-zero, stop and
-report it, quoting its stderr.
+When a `git-branch-sync` call in this file exits non-zero, other than
+the push "Output" says how to handle, stop and report it, quoting its
+stderr.
 
 ## Discovery
 
@@ -131,11 +132,16 @@ inbox. That is the `agent-memory-scrubber` agent's job.
    `resolves`/`resolved`, case-insensitive) immediately before an issue
    reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that
    pattern auto-closes the referenced issue. Then push, which also
-   verifies the push landed:
+   verifies the push landed. Your memory files under
+   `.claude/agent-memory/` are not yours to commit — step 4's capture
+   carries them — so the clean-tree check leaves them out:
 
    ```bash
-   git-branch-sync push
+   git-branch-sync push --exclude .claude/agent-memory/
    ```
+
+   On a non-zero exit, capture memory as step 4 says, then stop and
+   report the failed push, quoting its stderr, without running step 5.
 
 4. Capture your own agent memory into the session inbox:
 

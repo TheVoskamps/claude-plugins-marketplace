@@ -183,10 +183,12 @@ from its issue.
    referenced issue. The keyword as plain English prose with no
    adjacent issue reference is fine.
 
-10. Push the branch, which also verifies the push landed:
+10. Push the branch, which also verifies the push landed. Your memory
+    files under `.claude/agent-memory/` are not yours to commit — step
+    11's capture carries them — so the clean-tree check leaves them out:
 
     ```bash
-    git-branch-sync push
+    git-branch-sync push --exclude .claude/agent-memory/
     ```
 
     On a non-zero exit, capture memory as step 11 says, then stop and
@@ -297,7 +299,7 @@ The state the brief names sets the remedy:
   ```bash
   git-branch-sync checkout <head>
   git-branch-sync rebase <base>
-  git-branch-sync push
+  git-branch-sync push --exclude .claude/agent-memory/
   ```
 
   A `BEHIND` brief that carries a ruling is one a previous round of
