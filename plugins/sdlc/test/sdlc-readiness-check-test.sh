@@ -3,10 +3,11 @@
 # sdlc-readiness-check-test.sh -- drive plugins/sdlc/bin/sdlc-readiness-check
 # against a scratch repository and a stub issue-view serving a case's
 # body: each check key passing and failing, an unkeyed bullet, an
-# unknown key, malformed arguments, paths that leave the repo root or
-# start with '-', a [no-match] path absent from the tree, a hostile ERE,
+# unknown key, malformed arguments, paths that leave the repo root,
+# start with '-', or name a glob, a symlink, a directory, a FIFO or the
+# root itself, a [no-match] path absent from the tree, a hostile ERE,
 # fenced blocks and a wrapped bullet, and issue-view missing from PATH.
-# A bullet that would write to the tree if anything ran it leaves a
+# A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
 #
 # Needs bash, git and the POSIX utilities. Reaches no network.
@@ -21,6 +22,8 @@ SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-readiness-check-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 FAILURES=0
 
+# check <actual> <expected> <label>: passes when the two are equal, and
+# otherwise prints both and counts a failure in FAILURES.
 check() {
   if [ "$1" = "$2" ]; then
     echo "PASS  $3"
@@ -32,6 +35,9 @@ check() {
   fi
 }
 
+# check_contains <actual> <substring> <label>: passes when the actual
+# text contains the substring, and otherwise prints both and counts a
+# failure in FAILURES.
 check_contains() {
   case "$1" in
     *"$2"*) echo "PASS  $3" ;;
