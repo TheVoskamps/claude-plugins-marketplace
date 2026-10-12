@@ -33,7 +33,8 @@ restate the fact.
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
 | In what order the review detail is assembled, how it is chunked under GitHub's comment cap, and what a piece too large for one comment becomes | `bin/sdlc-pr-post-theorem-records` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
-| The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on, and the check that grades a body against it | `skills/orchestrate-readiness/SKILL.md` |
+| The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
+| How the `### Mechanical` bullets are graded: how a body is split into them, which paths are refused with nothing run, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | Which file class a path falls in — documentation, instruction Markdown, or code — and which stage of the run edits each | `skills/documentation-definition/SKILL.md` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
@@ -752,6 +753,26 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
+| `bin/sdlc-readiness-check` | Grades an issue's `### Mechanical` bullets against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet; exits 3 on any failing bullet and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
+
+`sdlc-readiness-check` is a script because the grading it replaces was
+an injection path: a `### Mechanical` bullet used to name the command
+that settled it, so the model ran text from an issue body — text anyone
+with write access to the tracker can author — outside the permission
+gate and auto mode's classifier. The script never runs a bullet's text.
+It builds each check from the bullet's key, and `[no-match]` is the one
+key it executes at all, through `grep` alone; every other key is settled
+by whether the files-affected section lists the path, so the check never
+runs a test, a linter or any code in the repo, and a bullet it cannot
+place — no key, an unknown key, a path it cannot resolve to one file
+inside the repo root — is a gap with nothing run. The deterministic
+grading around the old command — which reported site a files-affected
+tag covers — moved into the script with it, so an unchanged body and an
+unchanged tree get the same verdict on every invocation.
+`test/sdlc-readiness-check-test.sh` drives it against a scratch
+repository and a stub `issue-view`; a bullet it feeds that would write
+if run leaves a marker file, and each case carrying one checks that
+none appeared.
 
 The PR-read scripts and the detail poster share one sourced helper,
 `bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
@@ -776,9 +797,10 @@ executable's concern.
 
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,
-never the tool's own status — the PR-read scripts and the detail poster
-exit 1, the persist script and the time report route it through their
-existing exit 2 — so a caller branching on an exit sees only the
+never the tool's own status — the PR-read scripts, the detail poster
+and the readiness check exit 1, the persist script and the time report
+route it through their existing exit 2 — so a caller branching on an
+exit sees only the
 statuses each contract documents.
 
 The time report and the detail poster compose no state path of their
