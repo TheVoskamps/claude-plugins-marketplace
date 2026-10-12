@@ -4,8 +4,9 @@
 # against a scratch repository and a stub issue-view serving a case's
 # body: each check key passing and failing, an unkeyed bullet, an
 # unknown key, malformed arguments, paths that leave the repo root,
-# start with '-', or name a glob, a symlink, a directory, a FIFO or the
-# root itself, a [no-match] path absent from the tree, a hostile ERE,
+# start with '-', or name a glob, a directory, a FIFO or the root
+# itself, symlinks that stay inside the root and symlinks that lead out
+# of it, a [no-match] path absent from the tree, a hostile ERE,
 # fenced blocks and a wrapped bullet, and issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
@@ -73,6 +74,8 @@ chmod +x "$REPO/tests/t.sh"
 printf 'eval z\n' >"$SANDBOX/outside/secret"
 ln -s ../outside/secret "$REPO/link"
 ln -s ../outside "$REPO/ldir"
+ln -s src/b.sh "$REPO/inlink"
+ln -s src "$REPO/indir"
 mkfifo "$REPO/fifo"
 
 # The stub issue-view prints the header issue-view prints, then the
@@ -267,7 +270,7 @@ check_contains "$OUT" '"- [no-match] eval in src/../../outside/secret" names a p
 check_contains "$OUT" "names a path outside the repo root: $SANDBOX/outside/secret; nothing was run" "paths: an absolute path is refused"
 check_contains "$OUT" "\"- [no-match] eval in -r\" names a path starting with '-': -r; nothing was run" "paths: a leading '-' is refused"
 check_contains "$OUT" "names a path starting with '-': --include=x" "paths: an option among the paths is refused"
-check_contains "$OUT" '"- [no-match] eval in link" names a symlink' "paths: a symlinked file is refused"
+check_contains "$OUT" '"- [no-match] eval in link" names a path outside the repo root: link; nothing was run' "paths: a symlink to a file out of the root is refused even when listed"
 check_contains "$OUT" '"- [no-match] eval in ldir/secret" names a path outside the repo root' "paths: a symlinked directory out of the root is refused"
 check_contains "$OUT" '"- [exists] src/*.sh" names a glob' "paths: a glob is refused"
 check_contains "$OUT" '"- [no-match] eval in src" names a directory' "paths: a directory is refused"
@@ -277,6 +280,24 @@ case "$OUT" in
   *outside/secret:1*) check "leaked" "" "paths: no file outside the repo was read" ;;
   *) check "" "" "paths: no file outside the repo was read" ;;
 esac
+
+# --- a symlink resolving inside the root is checked like any path ---
+
+run "## Acceptance
+
+### Mechanical
+
+- [no-match] eval in inlink
+- [no-match] eval in indir/b.sh
+- [exists] inlink
+
+## Files affected (floor)
+
+- \`inlink\` (new)"
+check "$RC" 3 "in-root symlinks: exit 3"
+check_lines "$OUT" 2 "in-root symlinks: one gap per failing bullet"
+check_contains "$OUT" '"- [no-match] eval in inlink" matches in a file the files-affected section does not list as update or delete: inlink:1' "in-root symlinks: a symlinked file is grepped"
+check_contains "$OUT" '"- [no-match] eval in indir/b.sh" matches in a file the files-affected section does not list as update or delete: indir/b.sh:1' "in-root symlinks: a file under a symlinked directory is grepped"
 
 # --- a hostile ERE is a pattern, never shell text ---------------------
 

@@ -129,11 +129,44 @@ normalize() {
   NORM=$out
 }
 
+# physical <path> -- set PHYS to where the absolute path leads once
+# every symlink on it, the last component included, is followed, or
+# return 1 when that takes more than 40 links. A component absent from
+# the tree is taken as named, and `..` after it removes it.
+physical() {
+  local rest=${1#/} cur='' comp target hops=0
+  while [ -n "$rest" ]; do
+    comp=${rest%%/*}
+    case "$rest" in
+      */*) rest=${rest#*/} ;;
+      *) rest='' ;;
+    esac
+    case "$comp" in
+      '' | .) ;;
+      ..) cur=${cur%/*} ;;
+      *)
+        if [ -L "$cur/$comp" ]; then
+          hops=$((hops + 1))
+          [ "$hops" -le 40 ] || return 1
+          target=$(readlink -- "$cur/$comp") || return 1
+          case "$target" in
+            /*) cur='' ;;
+          esac
+          rest=${target#/}${rest:+/$rest}
+        else
+          cur=$cur/$comp
+        fi
+        ;;
+    esac
+  done
+  PHYS=${cur:-/}
+}
+
 # resolve <path> -- set NORM to the repo-relative path, or set REFUSAL
 # to why the path is refused and return 1. Nothing is run against the
 # path: a refused path is never handed to a command.
 resolve() {
-  local p=$1 dir phys
+  local p=$1
   case "$p" in
     '') REFUSAL='names an empty path'; return 1 ;;
     -*) REFUSAL="names a path starting with '-': $p"; return 1 ;;
@@ -142,25 +175,14 @@ resolve() {
   esac
   normalize "$p" || { REFUSAL="names a path outside the repo root: $p"; return 1; }
   [ -n "$NORM" ] || { REFUSAL="names the repo root, not a path in it: $p"; return 1; }
-  # A symlinked directory on the way can still lead out: resolve the
-  # deepest existing ancestor physically.
-  dir=$NORM
-  while [ -n "$dir" ] && [ ! -d "$root/$dir" ]; do
-    case "$dir" in
-      */*) dir=${dir%/*} ;;
-      *) dir='' ;;
-    esac
-  done
-  phys=$(cd -P -- "$root/$dir" 2>/dev/null && pwd -P) ||
+  # A symlink anywhere on the path, the path itself included, can lead
+  # out of the root: follow each one and check where the path lands.
+  physical "$root/$NORM" ||
     { REFUSAL="names a path that cannot be resolved: $p"; return 1; }
-  case "$phys/" in
+  case "$PHYS/" in
     "$root_phys"/*) ;;
     *) REFUSAL="names a path outside the repo root: $p"; return 1 ;;
   esac
-  if [ -L "$root/$NORM" ]; then
-    REFUSAL="names a symlink, which is not followed: $p"
-    return 1
-  fi
 }
 
 # listed <path> [<tag>...] -- whether the files-affected section lists
