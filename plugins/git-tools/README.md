@@ -216,12 +216,12 @@ the caller's decisions.
 
 ## The executables
 
-Two skills here are backed by scripts under `bin/`, on `PATH` once the
-plugin is enabled; `test-generate` is a procedure the model runs. Both
-scripts run under the bash 3.2 macOS ships, and in both a command the
-script does not handle that fails exits 1 with a line naming the
-command, never with the tool's own status, so a caller branching on
-the exit sees only the statuses the skill documents.
+Every skill here but `test-generate`, which is a procedure the model
+runs, is backed by a script under `bin/`, on `PATH` once the plugin is
+enabled. Each script runs under the bash 3.2 macOS ships, and in each a
+command the script does not handle that fails exits 1 with a line
+naming the command, never with the tool's own status, so a caller
+branching on the exit sees only the statuses the skill documents.
 
 ### `git-issue-branch`
 
@@ -273,6 +273,28 @@ pushed after the clone, a moved head, a rebase that advances the base
 and rewrites one commit's patch while keeping another's — so only the
 changed commit is reported and no upstream commit is — and a clean
 rebase, which is an empty range.
+
+### `git-branch-sync`
+
+The branch steps are a script because the hand-spelled form of each
+goes wrong in a way that looks like success, and a script pins the form
+that does not. It disables the editor for every git command it runs —
+`GIT_EDITOR` and `GIT_SEQUENCE_EDITOR` are no-ops — and `continue`
+commits the stopped commit under `REBASE_HEAD`'s message and author, so
+a resumed rebase never waits on a prompt and never rewrites the
+commit's provenance.
+The tip `checkout` saw is kept in the ref `refs/git-branch-sync/<branch>`
+in the clone itself, so it survives between invocations with no state
+file and goes when `release` deletes it, and `push`'s lease is
+`--force-with-lease=refs/heads/<branch>:<that tip>`: git refuses it
+when the remote holds anything else, which is what a lease on a freshly
+fetched tip cannot do. A push git reports `[rejected]` — stale info,
+fetch first, non-fast-forward — is that refusal and exits 8; one it
+reports `[remote rejected]` is a hook or a rule, and stays an
+unclassified 1. The push is then confirmed against the remote rather
+than the local log: a fetch, `origin/<branch>` compared with local
+HEAD, and `status --porcelain` run from the top level so an untracked
+file in another directory is not missed. It depends on `git` alone.
 
 `test/git-branch-sync-test.sh` drives its script against a bare
 `origin`, a seed checkout that plays the other writer, and a clone,
