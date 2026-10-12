@@ -340,7 +340,9 @@ text contains the substring `git` anywhere. The same loop over
 verify that it stays inside the worktree" though no `git` runs, so a
 loop over any path under `github-prs` or `git-tools` draws that
 refusal. A `cd`, a `&&` chain or a plain `$VAR` over the same path
-passes.
+passes. A `$(…)` that runs `git` is refused the same way, while a
+pipeline out of `git` (`git rev-parse HEAD | cat`) passes: write the
+`git` output to a file in a statement of its own and read that.
 
 A program the guard does recognize is refused the same way when an
 operand is a runtime value: a `sed -i` on a loop variable is refused as
