@@ -113,8 +113,7 @@ what to do with the result, so the extraction doesn't flatten
 deliberate per-caller differences.
 
 `git-tools:git-issues-from-branch` is the worked instance: the
-branch-name grammar is stated once, in
-`git-tools:git-branch-create` → "Branch name", and
+`git-tools` plugin owns the branch-name grammar, and
 `git-issues-from-branch` is the one skill that parses it —
 `github-prs:pr-create`, `github-prs:pr-link-issue`, and
 `sdlc:theorem-based-pr-reviewer` invoke `git-issues-from-branch`

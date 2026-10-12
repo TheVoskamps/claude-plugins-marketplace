@@ -36,13 +36,11 @@ between Bash calls in a subagent context.
 Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file.
 
-You no longer read `.issues/repo-config.md` yourself for branch
-or PR mechanics — the `git-tools:git-branch-create` and
+You do not read `.issues/repo-config.md` yourself for branch or PR
+mechanics — the `git-tools:git-branch-create` and
 `github-prs:pr-create` skills declared in the `skills:` frontmatter
-above read the config values they need internally
-(`default-issue-source-branch`, `issue-branch-naming-prefix`,
-`default-pr-target-branch`, `issue-link-prefix`). Invoke those skills
-rather than re-deriving their reads.
+above own them, configuration included. Invoke those skills rather
+than re-deriving what they resolve.
 
 ## Inputs
 
@@ -93,9 +91,8 @@ owns — but never a finding, a location, or an implementation shape.
 
 2. Create the feature branch — **one call for the whole batch** — via
    `/git-tools:git-branch-create <N…> [<compound-slug>]`, passing the
-   issue numbers in implementation order. It encodes the set in the
-   branch name (`issue-<N1>-…-<Nk>-<slug>`, or `issue-<N>-<slug>` for
-   a batch of one), validates the slug, and creates the branch rooted
+   issue numbers in implementation order, space-separated. It encodes
+   the set in the branch name, validates it, and creates the branch rooted
    at the configured source branch — the same wrong-base guard the raw
    `git switch -c` used to provide, now owned by the skill. Note the
    branch name it reports back as `<branch-name>` for the rest of this
@@ -163,7 +160,8 @@ owns — but never a finding, a location, or an implementation shape.
 9. Push the branch.
 
 10. Create the PR via `/github-prs:pr-create <N…> <branch-name>`,
-    passing every member the batch actually landed. The skill opens
+    passing every member the batch actually landed, space-separated.
+    The skill opens
     the PR as a **draft**, targets the repo's configured base branch,
     and writes one `Closes <issue-link-prefix><N>` line per member
     into the PR body. The wrong-issue guard that used to be your

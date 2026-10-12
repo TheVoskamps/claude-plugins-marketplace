@@ -27,8 +27,8 @@ scope for this plugin.
 ```
 
 - `<issue-number>…` (required): the issues this PR resolves — members
-  of the branch's OWN issue set, each with or without a leading `#`,
-  separated by spaces or commas. See "Own issue set only" below.
+  of the branch's OWN issue set, each as `N` or `#N`, space-separated.
+  See "Own issue set only" below.
 - `<branch>` (required): the head branch the PR is opened from,
   conventionally the one `git-tools:git-branch-create` produced for
   the issue set.
@@ -67,8 +67,6 @@ The values consumed:
 The script re-reads the file on every run.
 
 Nothing about the **branch name** is read here.
-`git-tools:git-issues-from-branch`, which step 1 invokes, does its own
-internal read of `issue-branch-naming-prefix`.
 
 ## Own issue set only
 

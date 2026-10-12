@@ -152,9 +152,9 @@ since each must be in front of you before you know you need it:
 - **`github-setup`** — the App's starter permission set is restated
   as a literal list in several files and rendered in one.
 - **`git-tools`** — `git-branch-create` encodes the issue set in the
-  branch name and `git-issues-from-branch` is its inverse, so a change
-  to either edits both, and `github-prs` and `sdlc` depend on that
-  encoding.
+  branch name and `git-issues-from-branch` is its inverse, both through
+  the one `git-issue-branch` script, and `github-prs` and `sdlc` depend
+  on that encoding.
 
 ## Read on demand
 

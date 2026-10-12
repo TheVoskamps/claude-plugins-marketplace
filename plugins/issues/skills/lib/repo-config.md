@@ -327,19 +327,10 @@ file. Order is fixed; `schema-version` is always first.
   off `integ` but PRs target `main`).
 
 - **`issue-branch-naming-prefix`** — one of `none`, `initials`,
-  `name`. Selects the prefix in front of the issue-branch name that
-  `git-tools:git-branch-create` produces:
-  - `none`     -> `issue-<N>-<slug>`
-  - `initials` -> `<initials>/issue-<N>-<slug>`
-  - `name`     -> `<name>/issue-<N>-<slug>`
-
-  A branch carrying a batch of several issues names them all —
-  `issue-<N1>-<N2>-…-<Nk>-<slug>`, behind the same prefix. See the
-  `/git-tools:git-branch-create` skill → "Branch name" for the shape
-  and the rule that parses the issue set back out of it. The one
-  skill that applies that rule is
-  `/git-tools:git-issues-from-branch`, which reads this field itself
-  to strip the prefix before parsing.
+  `name`. Selects the prefix in front of an issue-branch name: none
+  under `none`, and the user's initials or name under the other two.
+  The branch name itself is the `git-tools:git-branch-create` skill's,
+  and `git-tools:git-issues-from-branch` reads one back.
 
   The `<initials>` and `<name>` values come from the user-config keys
   `branch-prefix-initials` and `branch-prefix-name`

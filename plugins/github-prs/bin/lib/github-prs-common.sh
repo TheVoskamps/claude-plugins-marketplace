@@ -276,12 +276,10 @@ gp_pr() {
   fi
 }
 
-# gp_issue_number <arg> -- the issue number with any leading `#` and
-# any trailing comma from a comma-separated list stripped, or a usage
-# error when what is left is not all digits.
+# gp_issue_number <arg> -- the issue number with any leading `#`
+# stripped, or a usage error when what is left is not all digits.
 gp_issue_number() {
   local n=${1#\#}
-  n=${n%,}
   case "$n" in
     '' | *[!0-9]*) gp_err_not_issue_number "$1" ;;
   esac

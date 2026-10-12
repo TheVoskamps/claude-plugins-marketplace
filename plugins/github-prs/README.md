@@ -251,8 +251,7 @@ two front-matter lines, not the `issues` plugin's full
 `issues` plugin and isn't reachable across the plugin sandbox
 boundary). Neither `pr-create` nor `pr-link-issue`
 reads anything about the **branch name**: both invoke
-`git-tools:git-issues-from-branch`, which reads
-`issue-branch-naming-prefix` internally in turn.
+`git-tools:git-issues-from-branch`, which owns the parse.
 
 The caller just invokes the skill with the issue/PR number — the
 operation owns its own config read where it needs one. This is the
