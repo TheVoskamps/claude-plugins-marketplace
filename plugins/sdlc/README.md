@@ -513,6 +513,158 @@ that a command any executable under `bin/` does not handle exits
 through that executable's own failure status. It needs only bash,
 `jq` and the POSIX utilities, and reaches no network.
 
+## The round is derived from the log, never from memory
+
+A fan-out wait ends the reviewer's turn, and nothing it merely
+remembers survives the boundary. Rebuilding the round from memory on a
+resume left returned disprovers uncrossed-off and burned a round's
+budget on theorems that had already reported (issue #351); the log and
+the result files are what every resume derives the round from since.
+The saving is the settled set: a stalled round that had settled 4 of 24
+theorems resumes with 20 to run, not 24, because a settled theorem's
+report is on disk in full and no spawn can recover anything a record
+left out.
+
+The notification is not the thing to build a round on either. A child
+that ran, finished and reported can still skip its own last call, and
+the harness can drop a notification outright. Every loss a round has to
+survive is of that shape — never a child that failed to run — so each
+child records its own entry and exit, and nothing the reviewer derives
+depends on having heard back.
+
+## A stall is reported as what the log shows, never as starvation
+
+The concurrency ceiling is readable from
+`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, but no documented tool,
+environment variable or API exposes the slots in use or the queue
+depth. Waves keep a round off that edge; starvation, if it happens
+anyway, shows only as absence of progress — which the bound on resume
+passes catches — and never as a cause the reviewer can name. That limit
+is known and deliberate, not a gap to close by inventing a mechanism.
+
+`No task found with ID` reads as gone, not as still occupying a slot.
+When a resumed reviewer tried to stop its own children after a
+suspension, every `TaskStop` returned that error. Whether those
+children were dead or merely unreachable is unverified, and treating
+their theorems as re-runnable assumes the former.
+
+## A verifier's deadline reuses the disprover's figure
+
+The disprover deadline is sized off a measured worst case, stated
+beside the deadline in the reviewer. No verifier measurement exists,
+and a verifier's work is a strict subset of a disprover's: it reads one
+counterexample against one head tree and runs no search. A shorter
+deadline derived from that subset relation would be a guess, and what
+the guess costs when it is wrong is `TaskStop`ing a verifier that was
+about to report, which drops a real check. So the verifier reuses the
+disprover's figure until one is measured for it.
+
+## A moved head voids the round, and the restart never mixes trees
+
+The round's `anchor` record carries the head SHA its theorems were
+generated against, and a head that differs from it — at the anchor
+step, or at the fetch before the disprovers fan out — voids the round:
+the records describe a tree that no longer exists, so they are set
+aside and the review names both SHAs. This is not hypothetical; the
+scheduled rebase sweep force-rebases open PR branches and can fire
+mid-round. The restart runs the round fresh against the new head rather
+than carrying verdicts from the old tree into it, and the restart's own
+anchor call, carrying the new SHA, is what keeps the void from
+repeating: the next instance to arrive reads an anchor naming the
+current head and resumes normally.
+
+## Every counterexample is re-checked before it becomes a finding
+
+A counterexample nobody re-checked is one agent's word: the quote can
+be misread, the excerpt can be cut against its own context, the
+consequence can be overstated. So every `DISPROVED` theorem gets a
+second, adversarial reader briefed to reject the counterexample, and a
+counterexample becomes a finding only where that stage ran its course
+without rejecting it. The same failure is why a finding must quote its
+evidence verbatim: paraphrase produced fabricated findings, where the
+"offending text" the reviewer claimed to see did not exist (issue #64).
+
+The cheaper check runs first. A `DISPROVED` report whose counterexample
+is not a verbatim quote from the PR head never reaches a verifier. The
+canonical instance is a quote taken from another ref, such as `main` or
+`origin/<base>`, which reads as real prose and matches nothing at the
+head commit; a filesystem quote from the primary clone is the rarer
+instance, because the permission gate denies a read naming a
+primary-clone path. Spawning a verifier against such a report would
+waste the check on evidence that has already failed a cheaper one, and
+spawning a second disprover would break the one-child-per-theorem
+invariant, so the theorem is left unsettled and live again next round.
+
+## One disprover per theorem is a starting point
+
+Each theorem gets exactly one disprover on a default round. If missed
+counterexamples show up in practice, N disprovers per theorem is a
+one-line change in the reviewer's fan-out.
+
+## The PR body is never a delta source
+
+A round's inputs are the channels that carry a timestamp to cut
+against: the PR's own commits since the previous head, the comments
+since the previous round, and the previous round's records. The body is
+frozen for an orchestrate loop and amended only by `pr-finalizer` after
+it, so detecting body edits buys nothing, and a round that diffed the
+body would fan out on that amendment after the loop it belongs to had
+already finished. The reviewer fetches the body once, for the deferral
+check and the `References:` trailers, and nothing after that reads it
+again.
+
+## The delta is patch-equivalent, and a re-applied commit stays in it
+
+The delta between rounds is the PR's own commits whose patch changed,
+compared by git's `--cherry-pick` patch-id, so a clean rebase onto the
+base yields an empty delta and a conflict-resolving one leaves exactly
+the commits whose patch changed. Patch-id reads context lines as part
+of the patch, so a PR commit re-applied over changed context — an
+upstream edit within a few lines of its own — is not patch-equivalent
+to its old self and stays in the delta, though the change it makes is
+unchanged. That costs a round one already-seen commit in the
+generator's read; the alternative is a mechanism deciding that two
+different patches mean the same thing, which patch-id deliberately does
+not.
+
+## Retirement prices a round on its delta, and `--full` is the backstop
+
+A theorem that survived its round retires and gets no disprover on a
+later default round. That is the whole saving: the disprovers that do
+run are unbounded, and only the list is smaller. Between a theorem's
+retirement and a `--full` run a fix can silently break the retired
+claim, and `--full` — which re-disproves every recorded theorem the
+human has not ruled on — is the bounded-cost check for that, priced
+once instead of every round. A design that re-disproved everything
+every round would have no gap and no saving either.
+
+No rule forces a `--full` round, deliberately. Whether one becomes
+mandatory before a merge blessing is a policy decision to take with
+measured burn data, not a default to assume, and which round precedes
+that blessing is not knowable at the moment the flag would be passed,
+so no rule could name it either.
+
+The empty-delta round is the same trade from the other side. A round
+with no delta and no new adjustment comments spawns nothing and carries
+every verdict forward, so an issue edited between rounds with no code
+change goes unchecked until the next non-empty round or a `--full` run.
+
+## A minted theorem's fields have fixed sources
+
+An adjustment comment reporting a missed defect mints a new theorem,
+and the comment carries only the defect and a location, so every field
+of the record has a fixed source and none is the reviewer's to invent.
+`settle-mode` is assigned `semantic` rather than judged: nothing in a
+human's prose settles whether a grep would close the claim, the field
+drives only the model routing, and `semantic` spawns each child at its
+declared default — costlier than the `mechanical` route and never
+weaker. Reading a mode out of the comment would need the human to write
+review vocabulary the orchestrator is forbidden to supply on their
+behalf. `issues` falls back to the whole resolved set because a theorem
+tagged to no member is malformed, and on a batch that tags the minted
+theorem to every member, which is the safe direction: each member's
+verdict then reflects it.
+
 ## Skills
 
 | Skill | Purpose | Where it runs |
@@ -690,6 +842,10 @@ PR's repository's directory, and `<round-dir>` for
 | `<round-dir>/review` | the round's argued review, which the posted review summarises; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 
+Neither the records file nor the review file is capped, quoted or
+truncated: the 64 KB ceiling that once bounded what a round could
+persist was a property of a PR comment, and none of these files is one.
+
 The PR number keys the path because a PR is worked by one orchestrate
 run, and the agent tree under it, at a time. Nothing in the path names
 a session, so any reviewer spawned over that PR reads the round an
@@ -811,9 +967,16 @@ set the skill no longer has. Point at the whole file instead.
 
 `theorem-disprover` and `counterexample-verifier` are deliberately not
 skeleton sets: one definition each, no tiers, and a `model` the
-reviewer routes per spawn. A frontmatter `model:` is only the default
-for an unrouted spawn, and no file outside that frontmatter spells the
-value — which is what keeps a model change a one-file edit.
+reviewer routes per spawn by the theorem's settle mode — a cheaper
+model for a `mechanical` theorem, whose grep-shaped claim a cheap model
+settles as well as any other, and none for a `semantic` one. A
+frontmatter `model:` is only the default for an unrouted spawn, not a
+floor or a ceiling — the `Agent` tool's `model` parameter may name a
+lower, higher or equal model for a single spawn — and no file outside
+that frontmatter spells the value, which is what keeps a model change a
+one-file edit. If a harness ever refuses to route below the declared
+default, the mechanical spawn runs at that default: costlier, never
+wrong.
 
 ## Dependencies
 

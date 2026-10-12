@@ -62,8 +62,7 @@ it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 
 Without `--branch` you have no tree to check the quote against.
 
-`--counterexample` is the one parameter only you receive: it is the
-thing you attack.
+`--counterexample` is the thing you attack.
 
 Without `--pr` and `--round` you can still settle the
 counterexample but cannot record that you started or what you found —
@@ -138,9 +137,8 @@ calls in a subagent context.
    one of several verifiers running at once in as many worktrees of
    one repo, and those worktrees share that repo's single ref store:
    concurrent fetches contend for the same `.git`, and a loser of that
-   lock race fails outright rather than waiting. The pipeline fetches
-   once before it fans out and tells you so with `--fetched yes`, so
-   on that path no verifier fetches at all.
+   lock race fails outright rather than waiting. On the `--fetched yes`
+   path no verifier fetches at all.
 
    Checking out the same commit the disprover read is what makes a
    byte-for-byte quote check meaningful. A fresh worktree can start on
@@ -189,8 +187,8 @@ calls in a subagent context.
      aimed at the wrong claim, cut so that the surrounding lines
      reverse its meaning, or drawn from a region the claim never
      quantified over. Read the region around the quote, not just the
-     quoted line, and re-read `--claim` as written rather than as the
-     disprover restated it.
+     quoted line, and re-read `--claim` as `sdlc:theorem-agents-interface`
+     defines it.
    - **Does the stated consequence follow?** The consequence is what
      the pipeline grades severity from, so a quote that contradicts
      the claim but whose consequence is overstated does not get a free
@@ -317,9 +315,7 @@ review to the PR once the fix loop concludes — so it is what tells a
 human why a candidate finding was dropped. It must engage this
 counterexample specifically.
 A reason that only says the theorem looks fine, or that you could not
-follow the disprover, is malformed — you get no second attempt, and a
-malformed report makes the finding stand on the disprover's proposed
-consequence class.
+follow the disprover, is malformed.
 
 Refuting a counterexample does **not** prove the theorem. You checked
 one offered refutation and rejected it; say only that.
@@ -339,6 +335,9 @@ acceptance criterion of #206 is unmet" and "the guest can write a
 share documented as read-only" are consequences; "this is a
 documentation problem" is not. Do not restate the evidence quote: the
 pipeline already holds the disprover's copy and publishes that one.
+
+A `STANDS` report whose `CONSEQUENCE-CLASS` line breaks the template
+is malformed.
 
 ## End-of-run cleanup
 

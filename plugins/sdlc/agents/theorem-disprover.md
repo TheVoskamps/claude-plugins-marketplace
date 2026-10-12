@@ -118,11 +118,10 @@ calls in a subagent context.
    one of k disprovers running at once in k worktrees of one repo, and
    those worktrees share that repo's single ref store: k concurrent
    fetches contend for the same `.git`, and a loser of that lock race
-   fails outright rather than waiting. The pipeline fetches once
-   before it fans out and tells you so with `--fetched yes`, so on
-   that path the check above passes and no disprover fetches at
-   all. Run standalone, with neither parameter, you fetch — the ref
-   may be stale or absent, and one fetch racing nothing is free.
+   fails outright rather than waiting. On the `--fetched yes` path the
+   check above passes and no disprover fetches at all. Run standalone,
+   with neither parameter, you fetch — the ref may be stale or absent,
+   and one fetch racing nothing is free.
 
    A fresh worktree can start on the base branch, so a build, a test
    run, or a binary inspected before this checkout measures base code
@@ -287,6 +286,24 @@ to report the counterexample: re-read, then quote.
 For a claim about the **absence** of something, `EVIDENCE` must both
 name where the thing would normally appear and quote the surrounding
 text that should have contained it. Both parts are required.
+
+A claim about **file topology** — that a path is a separate copy of
+another, a regular file rather than a symlink, out of sync with another
+location, or missing content that exists elsewhere — needs at least one
+of these run first:
+
+```bash
+git rev-parse --show-toplevel   # is this path inside the repo? where's the root?
+readlink <path>                 # symlink target, or non-zero exit if regular file
+ls -la <dir>                    # shows symlinks vs regular files in a directory
+diff <path-A> <path-B>          # do two paths have different content?
+```
+
+A `DISPROVED` report that breaks any of these is **malformed**: the
+`EVIDENCE` rule above, read with the "Extract evidence bytes from
+`HEAD`" bullet under "Establishing a fact"; the topology rule just
+above, which hedging ("appears to be a separate copy") does not escape;
+or the template's `CONSEQUENCE-CLASS` line and its tokens.
 
 `CONSEQUENCE` is what the severity is ultimately derived from, so
 state the effect of merging, not the topic. "An acceptance criterion

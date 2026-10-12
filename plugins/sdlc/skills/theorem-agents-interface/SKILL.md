@@ -91,9 +91,12 @@ whole workflow:
   re-reads as written rather than as the disprover restated it.
 - `--issues <N…>` — for a generator, the whole issue set the PR is
   reviewed against — on the issues-only brief, the batch's resolved
-  issue set; for a disprover or a verifier, the member issue(s)
-  the theorem is tagged to, which is context for the consequence
-  statement and nothing more — neither reviews against them.
+  issue set; on the whole-PR and delta briefs, the set the pipeline
+  already resolved, so the generator neither re-derives it, parses the
+  branch name, nor adds or removes a member; for a disprover or a
+  verifier, the member issue(s) the theorem is tagged to, which is
+  context for the consequence statement and nothing more — neither
+  reviews against them.
 - `--settle-mode <mechanical|semantic>` — how the generator expects
   the claim to be settled. `mechanical` means a grep, a file listing,
   or a one-command check should do it; `semantic` means reading
@@ -118,7 +121,7 @@ whole workflow:
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, as its result file holds it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and
-  `CONSEQUENCE-CLASS`.
+  `CONSEQUENCE-CLASS`. Only a verifier receives it.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
 - `--round <n>` — the review round, as the reviewer numbers it.
