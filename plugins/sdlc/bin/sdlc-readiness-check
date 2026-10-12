@@ -163,8 +163,9 @@ physical() {
 }
 
 # resolve <path> -- set NORM to the repo-relative path, or set REFUSAL
-# to why the path is refused and return 1. Nothing is run against the
-# path: a refused path is never handed to a command.
+# to why the path is refused and return 1. Only `readlink` runs on the
+# path's components, to follow symlinks; nothing reads the file it
+# names, and a refused path is never handed to grep.
 resolve() {
   local p=$1
   case "$p" in
