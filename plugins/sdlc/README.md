@@ -1006,7 +1006,7 @@ wrong.
 `github-prs`, and `cc-tools`. Those edges are what guarantee the
 cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
-`git-issues-from-branch`, `git-range`, the PR verbs,
+`git-issues-from-branch`, `git-range`, `git-branch-sync`, the PR verbs,
 `agent-memory-inbox-capture`, and `agent-memory-inbox-cleanup` — and
 that the `pr-comment` executable the detail poster calls off `PATH` is
 there to call. The

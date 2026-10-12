@@ -2,9 +2,10 @@
 
 Git-side helpers for the issue-branch lifecycle — create the branch an
 issue set is worked on, recover that set from a finished branch's
-name, and read a branch's range on `origin` before trusting what was
-read from it — plus `test-generate`, a general dev utility that lives
-here and is not a git operation.
+name, read a branch's range on `origin` before trusting what was read
+from it, and run the fixed git steps around an agent's own work on a
+branch that already exists — plus `test-generate`, a general dev
+utility that lives here and is not a git operation.
 
 ## Why you would want it
 
@@ -37,12 +38,32 @@ range bounded by the base and filtered by patch equivalence, and it
 exits distinctly when the head has moved so a caller re-reads instead
 of reviewing a tree that is gone.
 
+An agent that commits to a branch it shares runs the same git steps
+every time around the work itself: check the branch out, rebase it onto
+its base, finish or abort a rebase that stopped, push, confirm the push
+landed, and let go of the branch at the end. Spelled by hand, each copy
+drifts in a way that looks like success — a `rebase --continue` that
+opens an editor nobody is there to close, a push confirmed by a local
+log that reads clean for a commit that never left the machine, a lease
+taken on the tip a fetch inside the push just saw, which is the tip a
+concurrent writer moved and so refuses nothing. `/git-branch-sync` owns
+those steps as one script with one exit-status contract. Its `checkout`
+records the `origin/<branch>` tip it saw, and `push` decides against
+that record and never a fresh fetch, so a commit another writer pushed
+after the checkout is refused rather than replaced. Ancestry against the
+record alone picks the push form — a lease when the record is no longer
+an ancestor of HEAD, a plain push otherwise — so nothing has to remember
+whether a rebase ran. The one step that is judgment stays with the
+caller: resolving a conflict, after which the resolved paths are handed
+back and the rebase walks on.
+
 ## What it needs first
 
 - **A git working tree with an `origin` remote.** `/git-branch-create`
   fetches the source branch from it and roots the new branch at that
   tip; `/git-range` fetches it once and reads `origin/*` and nothing
-  else.
+  else; `/git-branch-sync` fetches from it and pushes to it, and
+  touches no other remote.
 - **`.issues/repo-config.md`, written by the `issues` plugin's
   `/repo-config`.** `/git-branch-create` reads
   `default-issue-source-branch` from it and aborts pointing back at
@@ -57,9 +78,10 @@ of reviewing a tree that is gone.
   title `/issues:issue-view` prints, so this plugin declares `issues`
   as a dependency.
 
-`/git-range` needs only the first: it takes every ref and SHA as an
-argument and never asks GitHub. `test-generate` needs none of these: it
-works on the code in front of it.
+`/git-range` and `/git-branch-sync` need only the first: each takes
+every ref it needs as an argument and never asks GitHub.
+`test-generate` needs none of these: it works on the code in front of
+it.
 
 ## Getting started
 
@@ -95,6 +117,7 @@ Reading a branch back is one line, with a claimed list optional:
 | `/git-branch-create <issue>… [<slug>]` | Create the issue branch — one issue or a batch — off the configured source branch, named per the repo's convention |
 | `/git-issues-from-branch <branch> [<claimed-issue>…]` | Recover the ordered issue set and slug a branch name encodes; reconcile a claimed list against it when one is given |
 | `/git-range --base <base-ref> --head-ref <head-ref> --head <sha> [--prev-head <sha>]` | Fetch `origin` once, confirm `origin/<head-ref>` is still `<sha>`, and print that head's merge base with `origin/<base-ref>` and its own commits since a previous head — never a commit the base gained |
+| `/git-branch-sync <subcommand> [<argument>…]` | Check an existing branch out fast-forward only and record the remote tip it saw, rebase it onto `origin/<base>`, finish or abort a rebase stopped on conflicts, push it against that recorded tip and verify the push landed, or release the local branch and its record at the end of a run |
 | `/test-generate` | Generate unit tests for the code at hand — a general dev utility, not a git operation |
 
 Each skill defines its own procedure — how it drives its script, what
@@ -244,12 +267,26 @@ answer — came out differently each time a model spelled them, and
 dropping any one term yields a plausible, wrong range. It depends on
 `git` alone.
 
-`test/git-range-test.sh` drives the script against a local bare
+`test/git-range-test.sh` drives its script against a local bare
 `origin` it creates and reaches no network: a whole-branch read, a head
 pushed after the clone, a moved head, a rebase that advances the base
 and rewrites one commit's patch while keeping another's — so only the
 changed commit is reported and no upstream commit is — and a clean
 rebase, which is an empty range.
+
+`test/git-branch-sync-test.sh` drives its script against a bare
+`origin`, a seed checkout that plays the other writer, and a clone,
+all under `mktemp -d`. A logging `git` wrapper on `PATH` records each
+push's arguments, so the test asserts which push form was picked and
+that no `--force` or `--mirror` ever was. It covers each subcommand on
+its own path and the exits that separate them — a diverged checkout
+refused, a stopped rebase finished through `continue` and one aborted,
+a resolution that empties the stopped commit, a conflicted path git
+would quote, a stop reached from a subdirectory — and the push's
+refusals: a second writer who pushed after the checkout, with and
+without a rebase in between, a `post-receive` hook that moves the branch
+so the verification fails, and a `pre-receive` hook that refuses, which
+stays an unclassified failure.
 
 ## What it deliberately does not do
 
@@ -272,6 +309,13 @@ rebase, which is an empty range.
 - **`/git-range` reports and never remedies.** A moved head is an exit
   status, not a re-read; the fetch is its only effect on the checkout,
   and it never checks out, rebases or removes anything.
+- **`/git-branch-sync` never resolves a conflict and never forces.** A
+  stopped rebase is an exit status with the conflicted paths on stdout;
+  the caller edits them and hands them back. Its push leases against
+  the tip its own `checkout` recorded, never `--force` or `--mirror`,
+  and no exit of `push` moves the local branch, so no failed push
+  removes a local commit. `release` is the one subcommand that discards
+  anything, and it discards whatever the local branch still holds.
 
 ## Editing this plugin
 
@@ -292,3 +336,13 @@ to re-check.
 line rather than the `issues` plugin's full reader contract, because
 plugins are file-sandboxed and that contract is not reachable from
 here. It is the only config read in this plugin.
+
+`/git-branch-sync`'s exit statuses are a contract callers branch on,
+so each status keeps the one condition it names: a new condition the
+script can detect for certain gets a code of its own, and a failure it
+cannot classify stays 1. The subcommands share one invariant — `push`
+decides against the tip `checkout` recorded, `rebase` and `continue`
+leave that record alone, and nothing else records whether a rebase ran
+— so a change that lets `push` fetch before it decides, or lets a
+rebase touch the record, changes what the lease refuses, and the
+other-writer cases in the test are what re-check it.
