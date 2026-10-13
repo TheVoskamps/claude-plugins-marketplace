@@ -7,6 +7,7 @@ effort: medium
 isolation: worktree
 skills:
   - cc-tools:agent-memory-inbox-cleanup
+  - git-tools:git-branch-sync
 ---
 
 # Agent Memory Scrubber
@@ -60,14 +61,17 @@ The harness has placed you inside a fresh git worktree under
 Bash call onward. Run all commands as bare commands — `cd` does not
 persist between Bash calls in a subagent context.
 
-1. Check out the PR branch. The skill refuses to run unless
-   `git branch --show-current` is `<branch-name>`, so this is its
+1. Check out the PR branch with the preloaded
+   `git-tools:git-branch-sync` skill. The cleanup skill refuses to run
+   unless the checked-out branch is `<branch-name>`, so this is its
    precondition, not a convenience:
 
    ```bash
-   git fetch origin
-   git checkout <branch-name>
+   git-branch-sync checkout <branch-name>
    ```
+
+   When a `git-branch-sync` call in this file exits non-zero, stop and
+   report it, quoting its stderr.
 
 2. Run `/cc-tools:agent-memory-inbox-cleanup <branch-name>`. It owns
    the entire judgment — which entries are transferred, which are
@@ -82,27 +86,21 @@ persist between Bash calls in a subagent context.
    **`Commit: none`** — the skill staged nothing. There is no commit to
    verify; go to step 4.
 
-   **A SHA** — confirm it reached the branch, because `git log` reads
-   clean for a commit that never left the machine:
+   **A SHA** — confirm it reached the branch, because the local history
+   reads clean for a commit that never left the machine:
 
    ```bash
-   git fetch origin
-   git rev-parse HEAD
-   git rev-parse origin/<branch-name>
-   git status --porcelain
+   git-branch-sync push
    ```
 
-   The work is on the PR only when the two SHAs match **and**
-   `git status --porcelain` is empty. Each check catches what the other
-   misses: a mismatch means the commit exists only locally, and a dirty
-   tree with matching SHAs means the commit never happened at all (a
+   The work is on the PR only on exit 0. Exit 9 means the commit exists
+   only locally, and exit 10 means it may never have happened at all (a
    failed signing prompt, say) — where the SHA comparison alone would
    misread the branch's pre-existing tip as your own work.
 
-   This is a hard gate. On either failure do not report success and do
-   not run the cleanup below, which would destroy the only copy of the
-   transfers: retry `git push` and re-verify if HEAD is ahead, and stop
-   if the tree is dirty. If the failure persists, report it and stop.
+   This is a hard gate: on a non-zero exit, report no success and run
+   no cleanup below, which would destroy the only copy of the
+   transfers.
 
 4. Report back per "Output" below.
 
@@ -121,14 +119,13 @@ operation, and the human reviews them. Add:
 ## End-of-run cleanup
 
 Run this only after step 3's gate passed, or after `Commit: none` left
-nothing to verify. Otherwise `git branch -D` discards the only copy of
-an unpushed transfer commit.
+nothing to verify. Otherwise deleting the local branch discards the
+only copy of an unpushed transfer commit.
 
 ```bash
-git checkout --detach
-git branch -D <branch-name>
+git-branch-sync release <branch-name>
 ```
 
 Without this, git refuses to check out a branch already claimed by
-another worktree. Use `--detach` rather than switching to the source
-branch, which the orchestrator's primary clone is already holding.
+another worktree. Release rather than switch to the source branch,
+which the orchestrator's primary clone is already holding.

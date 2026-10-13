@@ -8,6 +8,7 @@ isolation: worktree
 memory: project
 skills:
   - github-prs:pr-diff
+  - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
   - sdlc:documentation-definition
 ---
@@ -61,9 +62,10 @@ Check the branch out attached — the memory capture at the end refuses
 a detached HEAD:
 
 ```bash
-git fetch origin
-git checkout <branch-name>
+git-branch-sync checkout <branch-name>
 ```
+
+On a non-zero exit, stop and report it, quoting its stderr.
 
 ## Check
 
@@ -117,8 +119,7 @@ is one nobody can rule on or fix.
    nothing:
 
    ```bash
-   git checkout --detach
-   git branch -D <branch-name>
+   git-branch-sync release <branch-name>
    ```
 
 3. Report back every finding, or `No findings` when there are none, and
