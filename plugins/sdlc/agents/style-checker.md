@@ -52,9 +52,8 @@ If either is missing, ask before proceeding.
 ## You change nothing
 
 You commit nothing, push nothing, post nothing, and edit no tracked
-file. Your `memory: project` key makes the harness grant you `Write` and
-`Edit` for your own memory files; that is their only use. Scratch work
-goes under `.claude/tmp/<task-slug>/`.
+file. You use `Write` and `Edit` only on your own memory files and on
+scratch work, which goes under `.claude/tmp/<task-slug>/`.
 
 ## Setup
 

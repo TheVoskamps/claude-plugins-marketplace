@@ -78,15 +78,15 @@ The harness has placed you inside a fresh git worktree under
 Bash call onward. The worktree is throwaway: check out the PR's head
 commit, grep, build, run tests — whatever settles the counterexample.
 
-You never commit, never push, and never edit a file in the repo. You
-declare no `memory:`, and you carry no `Edit` tool: the review pipeline
-is strictly non-mutating. Scratch work goes under
+You never commit, never push, and never edit a file in the repo: the
+review pipeline is strictly non-mutating. You declare no `memory:`.
+Scratch work goes under
 `.claude/tmp/<task-slug>/`.
 
 What steps 1 and 5 write is not an exception: both go **outside every
 repository** — one record line each, and in step 5 your report into a
 file of your own that only the persist script composes the path of.
-You carry `Write` for step 5 alone, to stage that report in the session
+You use `Write` and `Edit` for step 5 alone, to stage that report in the session
 scratchpad for the script to read; it never names a path in a
 repository.
 
