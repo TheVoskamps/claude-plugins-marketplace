@@ -14,9 +14,10 @@ import (
 // names the tool to use instead. It is off unless the operator's config turns
 // it on (loadRedirectBashFileWork, operator_carveout.go).
 //
-// A read that feeds another command, a redirect of a program's own output, and
-// search and listing (`grep`, `find`, `ls`) are never covered: Read, Edit and
-// Write cannot do what those do, so a deny there would leave no tool to go to.
+// A read piped into a command other than a reader, a redirect of a program's
+// own output, and search and listing (`grep`, `find`, `ls`) are never covered:
+// Read, Edit and Write cannot do what those do, so a deny there would leave no
+// tool to go to.
 
 // fileWorkMode is the operator's setting for the file-work redirect.
 type fileWorkMode string
@@ -119,6 +120,10 @@ type fileWorkWalker struct {
 	hit   bool
 }
 
+// stmt grades s and then every statement beneath it, recording the first
+// covered shape and visiting nothing after it. sink is where s's output goes; a
+// stdout redirect to a file on s overrides it, and the left side of a pipe
+// takes the sink pipeSink gives it.
 func (w *fileWorkWalker) stmt(s *syntax.Stmt, sink stdoutSink) {
 	if w.hit {
 		return

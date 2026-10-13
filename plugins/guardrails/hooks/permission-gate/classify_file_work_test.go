@@ -34,6 +34,7 @@ func fileWorkRepo(t *testing.T) string {
 	return canonicalize(repo)
 }
 
+// fileWorkEvent is a Bash PreToolUse event run in cwd by agentType.
 func fileWorkEvent(cwd, agentType string) *Event {
 	return &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: agentType}
 }
