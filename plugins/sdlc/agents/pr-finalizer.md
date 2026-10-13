@@ -1,7 +1,7 @@
 ---
 name: pr-finalizer
 description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — what the review rounds found, what changed in response, and the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR's canonical host/owner/repo#N reference, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
-tools: Read, Write, Glob, Grep, Bash, Skill
+tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
 isolation: worktree

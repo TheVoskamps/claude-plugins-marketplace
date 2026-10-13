@@ -832,8 +832,8 @@ session scratchpad and names that file by path, with `--from` or, for
 the carry form's edits, `--edits`; the
 staging file is the pipeline's one write outside XDG state, it lies
 outside every repository as well, and it dies with the session. That
-staging is why the theorem children carry `Write` while the review
-pipeline stays non-mutating. Why a file rather than a heredoc, and how
+staging is why the theorem children carry the file-writing tools while
+the review pipeline stays non-mutating. Why a file rather than a heredoc, and how
 the staging path is named, are owned by
 `skills/agent-result-persist-interface/SKILL.md`.
 
@@ -961,6 +961,35 @@ one sweep that removes them, after the human names which go.
 | `theorem-generator-xhigh` | The same generator at the highest reasoning tier |
 | `theorem-disprover` | Tries to break exactly one theorem |
 | `counterexample-verifier` | Tries to reject exactly one disprover's counterexample |
+
+### What an agent's `tools:` line declares
+
+The agents are directed to read and change files with the `Read`,
+`Edit` and `Write` tools rather than through Bash, and an agent can
+follow that only when its `tools:` frontmatter names those tools: a
+tool the line omits is not available, whatever the body says. So every
+agent that writes any file — a commit on the branch, a memory entry, a
+staging file in the session scratchpad, scratch under `.claude/tmp/` —
+declares all three, and an agent whose contract says it edits no
+tracked file holds that contract in its body, not by leaving a tool out.
+`pr-monitor` is the one agent that writes nothing; its line is
+`Read, Bash, Monitor`, and `Monitor` is there because the wait between
+polls is a watch that ticks once per interval; the alternative, a
+foreground Bash `sleep`, is one the harness discourages and never moves
+to the background.
+
+Two entries a reader might expect are absent or inert, each on purpose.
+`Skill` is never listed, and an explicit `tools:` line that omits it
+removes the Skill tool from the agent. That removal is the intent: a
+skill named in `skills:` has its full content injected when the agent
+starts, so the agent works from its preloaded skills without the tool,
+and lacking the tool keeps it on task, since it cannot discover and
+invoke a skill its definition did not preload. The constraint this puts
+on the skills is that one carrying `disable-model-invocation: true`
+cannot be preloaded, so an agent here never lists one in `skills:`.
+`Glob` and `Grep` are listed but grant nothing while `Bash` is also
+listed, which every agent here needs; they stay because they are
+harmless and take effect the moment a harness restores them.
 
 ### The generator skeletons are copies of one file
 

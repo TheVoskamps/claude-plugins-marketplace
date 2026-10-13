@@ -1,7 +1,7 @@
 ---
 name: pr-merge-readiness
 description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then docs-writer when the fixer deferred a documentation edit, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
-tools: Read, Write, Glob, Grep, Bash, Agent, Skill
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 model: opus
 effort: medium
 skills:

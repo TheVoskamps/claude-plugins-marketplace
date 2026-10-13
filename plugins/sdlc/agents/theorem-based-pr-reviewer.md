@@ -1,7 +1,7 @@
 ---
 name: theorem-based-pr-reviewer
 description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
-tools: Read, Write, Glob, Grep, Bash, Agent, Skill, TaskStop
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, TaskStop
 model: opus
 effort: medium
 isolation: worktree
