@@ -978,13 +978,20 @@ polls is a watch that ticks once per interval; the alternative, a
 foreground Bash `sleep`, is one the harness discourages and never moves
 to the background.
 
-Two entries a reader might expect are deliberately absent or inert.
-`Skill` is never listed: the harness grants the Skill tool to every
-agent, and the skills an agent invokes reach it through its `skills:`
-preload list, so a `Skill` entry in `tools:` changes nothing. `Glob`
-and `Grep` are listed but grant nothing while `Bash` is also listed,
-which every agent here needs; they stay because they are harmless and
-take effect the moment a harness restores them.
+Two entries a reader might expect are absent or inert, each on purpose.
+`Skill` is never listed, and an explicit `tools:` line that omits it
+removes the Skill tool from the agent. That removal is the intent: a
+skill named in `skills:` has its full content injected when the agent
+starts, so the agent works from its preloaded skills without the tool,
+and lacking the tool keeps it on task, since it cannot discover and
+invoke a skill its definition did not preload. The constraint this puts
+on the skills is that one carrying `disable-model-invocation: true`
+cannot be preloaded, so an agent here never lists one in `skills:`.
+`Glob` and `Grep` are listed but grant nothing while `Bash` is also
+listed, which every agent here needs; they stay because they are
+harmless and take effect the moment a harness restores them.
+
+### The generator skeletons are copies of one file
 
 `agents/theorem-generator.md`, `-medium`, `-high` and `-xhigh` are
 byte-identical except the frontmatter `name:` and `effort:` lines, the
