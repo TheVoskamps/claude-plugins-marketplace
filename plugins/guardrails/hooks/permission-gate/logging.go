@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -58,9 +59,15 @@ func logEvent(ev *Event, d Decision) {
 const logWarningBucket = "warning"
 
 // logWarning appends a warning record to the evolution log, under the same
-// never-change-the-verdict rule as logEvent.
+// never-change-the-verdict rule as logEvent. A panic while writing it is
+// reported on stderr, which neither the exit status nor the stdout decision
+// carries, and the gate goes on to its verdict.
 func logWarning(ev *Event, operation string, warning string) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "permission-gate could not log the warning %q (%v)\n", warning, r)
+		}
+	}()
 
 	appendLogRecord(logRecord{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
