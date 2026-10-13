@@ -1,7 +1,7 @@
 ---
 name: style-checker
 description: Checks the code and instruction-Markdown files a PR's diff touched, each against the rules under `## For Authors and Checkers` of the style guide its class routes to, and reports each violation, quoting the rule and the offending lines. Given a PR reference and branch name. Commits nothing and posts nothing. Spawned by /sdlc:orchestrate after code-documenter, before the review.
-tools: Read, Glob, Grep, Bash, Skill
+tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: medium
 isolation: worktree

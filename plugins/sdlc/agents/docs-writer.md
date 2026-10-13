@@ -1,7 +1,7 @@
 ---
 name: docs-writer
 description: Updates a PR's documentation — READMEs, and docs/ including ADRs — once its review loop has ended. Given a PR reference, the issue set it closes, and branch name, reads the issues, the PR body, and the PR diff, commits the documentation the change requires, repairing every deferred edit the brief relays, and reports every file it changed with a one-line reason. Edits documentation only — no code and no instruction Markdown. Spawned once by /sdlc:orchestrate after the human's end-of-loop confirmation, and again by pr-merge-readiness when a merge-readiness fixer round reports a deferred edit.
-tools: Read, Write, Edit, Glob, Grep, Bash, Skill
+tools: Read, Write, Edit, Glob, Grep, Bash
 model: fable
 effort: medium
 isolation: worktree

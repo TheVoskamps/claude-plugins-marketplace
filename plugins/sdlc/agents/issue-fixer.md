@@ -1,7 +1,7 @@
 ---
 name: issue-fixer
 description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR reference alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves each conflict a ruling or a resolvability condition settles, escalating the rest — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
-tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
+tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
 isolation: worktree

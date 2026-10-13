@@ -1,7 +1,7 @@
 ---
 name: theorem-generator-xhigh
 description: Reads a PR, the issues it closes, and the surrounding codebase — or, before a PR exists, the issues and the default issue source branch's tree alone — at the xhigh reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out or for the orchestrator to settle as the seed. It posts nothing and writes nothing in any repository.
-tools: Read, Write, Glob, Grep, Bash, Skill
+tools: Read, Write, Edit, Glob, Grep, Bash
 model: fable
 effort: xhigh
 isolation: worktree
