@@ -396,9 +396,7 @@ review or a comment; the platform caps both — GitHub at 64 KB — and a
 carrier that outgrows the cap is truncated into something a reader
 cannot tell from a complete one. Post a summary that names where the
 files are, and publish the detail once the pipeline is finished, when no
-later round can read it back as an instruction. `sdlc`'s review kept its
-theorem records in the review body it posted until issue #422 moved them
-here.
+later round can read it back as an instruction.
 
 This is about the pipeline's own store, not about every comment an agent
 reads. A comment written for an agent to act on once — the human's
@@ -589,7 +587,7 @@ Agent frontmatter is not established as covered — only skills have been
 probed — so for a new agent file, still eyeball the `description:` for
 the unquoted colon-space above.
 
-### Verify agent tool names against the live documentation
+### Verify agent frontmatter against the live documentation
 
 When a change touches an agent's `tools:` frontmatter, check the names
 against the current Claude Code tools, sub-agents and plugins reference
@@ -600,6 +598,13 @@ names can be written months before the work is picked up. The plugins
 reference is also the authority for which frontmatter keys a plugin
 agent supports at all, which is worth reading directly rather than
 inferring from the agents already in the tree.
+
+The same holds for what a frontmatter key does — what a `tools:` or
+`skills:` entry grants or removes, what a tool does by default. An issue
+or PR body's reason for a frontmatter choice is its author's belief, and
+no review round checks it, so prose that explains the choice states what
+the fetched documentation page says. Where the page contradicts the
+issue, write the page's version and report the contradiction.
 
 ### Where a newly demonstrated fact belongs
 
