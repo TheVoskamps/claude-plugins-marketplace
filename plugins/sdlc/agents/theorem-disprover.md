@@ -67,9 +67,10 @@ Scratch work goes under
 What steps 1 and 5 write is not an exception: both go **outside every
 repository** — one record line each, and in step 5 your report into a
 file of your own that only the persist script composes the path of.
-You use `Write` and `Edit` for step 5 alone, to stage that report in the session
-scratchpad for the script to read; it never names a path in a
-repository.
+You use `Write` and `Edit` for two things alone: your scratch files
+under `.claude/tmp/<task-slug>/`, and in step 5 to stage that report in
+the session scratchpad for the script to read, which never names a path
+in a repository.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
