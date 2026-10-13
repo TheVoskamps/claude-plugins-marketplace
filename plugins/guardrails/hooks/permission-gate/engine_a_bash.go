@@ -101,7 +101,23 @@ type cwdCtx struct {
 // Fail-closed: a parse error DENIES (bash would refuse the same string — see
 // the arm below) and an unhandled AST construct yields a DEFER carrying that as
 // its analysis (the gate cannot prove the line safe), never allow.
+//
+// The file-work redirect (classify_file_work.go) runs last and only on a line
+// no other rule denied, so a deny keeps its own reason; any other verdict it
+// replaces with its own deny.
 func classifyBash(command string, ev *Event) Decision {
+	d := classifyBashLine(command, ev)
+	if d.Bucket == BucketDeny {
+		return d
+	}
+	if fw, hit := redirectBashFileWork(command, ev); hit {
+		return fw
+	}
+	return d
+}
+
+// classifyBashLine is classifyBash without the file-work redirect.
+func classifyBashLine(command string, ev *Event) Decision {
 	parser := syntax.NewParser(syntax.KeepComments(false))
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {

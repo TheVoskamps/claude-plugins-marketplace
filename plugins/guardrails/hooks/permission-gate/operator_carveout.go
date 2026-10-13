@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -191,6 +193,66 @@ func loadOperatorCarveOutFrom(configPath string) operatorCarveOut {
 		c.roots = append(c.roots, r)
 	}
 	return c
+}
+
+// redirectBashFileWorkKey is the top-level key in the operator's config that
+// sets the file-work redirect's mode (classify_file_work.go).
+const redirectBashFileWorkKey = "redirect-bash-file-work"
+
+// loadRedirectBashFileWork reads the file-work redirect's mode from the
+// operator's config. An absent, unreadable or non-YAML file, an absent key and
+// an empty value all mean fileWorkOff, silently. A value that is not one of the
+// three modes also means fileWorkOff, with a warning written to warn.
+//
+// The key is decoded on its own, into a yaml.Node, rather than as a field of
+// operatorCarveOutDocument: a value of the wrong YAML type would otherwise fail
+// the whole document's unmarshal and withdraw the carve-out with it. It is not
+// gated on schema-version either, since no earlier schema spelled the key.
+func loadRedirectBashFileWork(configPath string, warn io.Writer) fileWorkMode {
+	if configPath == "" {
+		return fileWorkOff
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return fileWorkOff
+	}
+	var doc map[string]yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return fileWorkOff
+	}
+	node, ok := doc[redirectBashFileWorkKey]
+	if !ok {
+		return fileWorkOff
+	}
+	value := ""
+	switch {
+	case node.Kind != yaml.ScalarNode:
+		value = fmt.Sprintf("<a YAML %s>", yamlKindName(node.Kind))
+	case node.ShortTag() != "!!null":
+		value = node.Value
+	}
+	switch mode := fileWorkMode(value); mode {
+	case "", fileWorkOff:
+		return fileWorkOff
+	case fileWorkWorktree, fileWorkAlways:
+		return mode
+	}
+	fmt.Fprintf(warn, "permission-gate: warning: %s: %s is %q, which is not one of %s, %s or %s; treating it as %s.\n",
+		configPath, redirectBashFileWorkKey, value, fileWorkOff, fileWorkWorktree, fileWorkAlways, fileWorkOff)
+	return fileWorkOff
+}
+
+// yamlKindName names a non-scalar YAML node kind for the warning above.
+func yamlKindName(k yaml.Kind) string {
+	switch k {
+	case yaml.SequenceNode:
+		return "sequence"
+	case yaml.MappingNode:
+		return "mapping"
+	case yaml.AliasNode:
+		return "alias"
+	}
+	return "node"
 }
 
 // carveOutRootPath resolves one of the two XDG roots. The environment variable

@@ -35,6 +35,13 @@ type repoContext struct {
 	primaryClone string
 }
 
+// isLinkedWorktree reports whether the context's working tree is a linked
+// worktree rather than the primary clone: its root differs from the primary
+// clone root.
+func (rc *repoContext) isLinkedWorktree() bool {
+	return rc.topLevel != rc.primaryClone
+}
+
 // resolveRepoContext shells out to `git rev-parse` against the event's cwd. On
 // ANY subprocess trouble (non-zero exit, empty output, timeout) it returns an
 // error; the caller treats that as fail-closed (block, or a defer carrying the
