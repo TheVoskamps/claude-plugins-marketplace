@@ -30,9 +30,9 @@ import (
 // The carve-out is driven entirely by a file the OPERATOR writes
 // (~/.config/guardrails/config.yml). The gate ships no default entries and
 // carries no knowledge of which plugins exist: an absent file means no usable
-// entry anywhere, which means today's behaviour, and a file that exists but
-// cannot be read or parsed denies every gated call until it is fixed. It fails
-// closed.
+// entry anywhere, so every verdict is the one the gate gives with no carve-out,
+// and a file that exists but cannot be read or parsed denies every gated call
+// until it is fixed. It fails closed.
 //
 // The two XDG roots are opt-in: `resolve-xdg-environment-variables: yes` makes
 // them follow $XDG_CONFIG_HOME / $XDG_STATE_HOME, and without it they follow
@@ -170,7 +170,7 @@ func loadOperatorConfig() (operatorConfig, error) {
 // ~/.config. It is the one reader of the file, and decodes it once.
 //
 // An absent file, an unusable home, and a file stamped below the pin, or not
-// stamped at all, return noOperatorConfig — today's behaviour — and no error.
+// stamped at all, return noOperatorConfig and no error.
 // A file that exists but cannot be read, or is not a YAML document of the
 // shape operatorCarveOutDocument declares, returns an error, which classify
 // turns into a deny of every gated call.
@@ -255,7 +255,8 @@ func redirectBashFileWorkMode(node yaml.Node, configPath string) (fileWorkMode, 
 		configPath, redirectBashFileWorkKey, value, fileWorkOff, fileWorkWorktree, fileWorkAlways, fileWorkOff)
 }
 
-// yamlKindName names a non-scalar YAML node kind for the warning above.
+// yamlKindName names a non-scalar YAML node kind for redirectBashFileWorkMode's
+// warning.
 func yamlKindName(k yaml.Kind) string {
 	switch k {
 	case yaml.SequenceNode:
