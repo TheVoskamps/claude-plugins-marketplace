@@ -136,7 +136,7 @@ permission gate's `~/.config/guardrails/config.yml` (see above) treats a
 file stamped below the pin, or not stamped at all, as it treats an
 absent one: no usable entry on any root and `redirect-bash-file-work`
 off, with nothing reported anywhere. A file that exists but cannot be
-read or parsed is not exempt: the gate denies every tool call, naming
+read or parsed is not exempt: the gate denies every gated tool call, naming
 the path and the error, until the file is fixed. An unknown
 `redirect-bash-file-work` value is read as `off`, with a warning in the
 gate's own log. The rule above stands for every other reader.

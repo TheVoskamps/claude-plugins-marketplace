@@ -89,6 +89,10 @@ type utilitySpec struct {
 	// begins inside a bundled short-flag cluster (`grep -rf PATFILE`).
 	pathValueFlags map[string]bool
 	valueFlags     map[string]bool
+	// plusOptions is true when an argument starting with `+` is an option, not
+	// a file: tail's obsolete `+N` count, or less's `+cmd`. Only fileOperands
+	// reads it.
+	plusOptions bool
 }
 
 // operands returns the utility's read path operands for this invocation:
@@ -118,13 +122,14 @@ func (s utilitySpec) operands(args []string) []string {
 // token that names no file costs nothing there, while a mismodelled arity that
 // swallowed a real path would let it escape. This walk is for a caller that
 // needs the other direction — a value counted as a file is a file the
-// invocation does not read.
+// invocation does not read. For the same reason a `+` argument of a utility
+// whose plusOptions is set is an option here, not a file.
 func (s utilitySpec) fileOperands(args []string) []string {
 	var ops []string
 	if s.operandsFn != nil {
 		ops = s.operandsFn(args)
 	} else {
-		ops = getoptOperands(args, s.valueFlags)
+		ops = getoptOperands(args, s.valueFlags, s.plusOptions)
 	}
 	out := ops[:0:0]
 	for _, op := range ops {
@@ -137,28 +142,60 @@ func (s utilitySpec) fileOperands(args []string) []string {
 
 // readFileOperands returns the operands of prog's invocation that name a file
 // it reads, by the grammar the read tracks give prog: its readOnlyUtilities
-// entry, or for any other reader the plain non-flag walk classifyPathReader
-// contains.
+// entry, its pathReaderFileSpecs entry, or for any other reader the plain
+// non-flag walk classifyPathReader contains.
 func readFileOperands(prog string, args []string) []string {
-	spec, ok := readOnlyUtilities[prog]
-	if !ok {
-		return pathOperands(args)
+	if spec, ok := readOnlyUtilities[prog]; ok {
+		return spec.fileOperands(args)
 	}
-	return spec.fileOperands(args)
+	if spec, ok := pathReaderFileSpecs[prog]; ok {
+		return spec.fileOperands(args)
+	}
+	return pathOperands(args)
+}
+
+// pathReaderFileSpecs gives a classifyPathReader program the option grammar
+// readFileOperands reads it with. classifyPathReader's own containment keeps
+// the plain non-flag walk.
+var pathReaderFileSpecs = map[string]utilitySpec{
+	"less": {valueFlags: lessValueFlags, plusOptions: true},
+}
+
+// lessValueFlags is less's value-taking option set.
+var lessValueFlags = map[string]bool{
+	"-b": true, "--buffers": true,
+	"-D": true, "--color": true,
+	"-h": true, "--max-back-scroll": true,
+	"-j": true, "--jump-target": true,
+	"-k": true, "--lesskey-file": true, "--lesskey-src": true,
+	"-o": true, "--log-file": true,
+	"-O": true, "--LOG-FILE": true,
+	"-p": true, "--pattern": true,
+	"-P": true, "--prompt": true,
+	"-t": true, "--tag": true,
+	"-T": true, "--tag-file": true,
+	"-x": true, "--tabs": true,
+	"-y": true, "--max-forw-scroll": true,
+	"-z": true, "--window": true,
+	"-#": true, "--shift": true,
+	"-\"": true, "--quotes": true,
 }
 
 // getoptOperands returns the arguments that are not options, skipping the
 // value of each flag in valueFlags: the next token after a bare long flag or a
 // short flag ending its cluster, and nothing more for `--flag=value` or a short
-// value flag with the rest of its cluster attached. Every argument after `--`
-// is an operand.
-func getoptOperands(args []string, valueFlags map[string]bool) []string {
+// value flag with the rest of its cluster attached. With plusOptions, an
+// argument starting with `+` is an option too (less's `+G`, tail's `+2`).
+// Every argument after `--` is an operand.
+func getoptOperands(args []string, valueFlags map[string]bool, plusOptions bool) []string {
 	var out []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--":
 			return append(out, args[i+1:]...)
+		case plusOptions && strings.HasPrefix(a, "+") && a != "+":
+			// an option carrying its own value; nothing to skip
 		case strings.HasPrefix(a, "--"):
 			if !strings.Contains(a, "=") && valueFlags[a] {
 				i++
@@ -324,7 +361,7 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// read-only flags; anything else defers.
 	"cat":    {pathBearing: true, defersForm: catDefers},
 	"head":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags},
-	"tail":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags},
+	"tail":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags, plusOptions: true},
 	"cut":    {pathBearing: true, defersForm: cutDefers},
 	"tr":     {pathBearing: true, defersForm: trDefers},
 	"comm":   {pathBearing: true, defersForm: commDefers},

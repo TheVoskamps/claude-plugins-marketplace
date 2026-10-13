@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -71,6 +72,18 @@ func TestRemediationReasonsAreActionable(t *testing.T) {
 		{"file-work edit redirect", fileWork("sed -i 's/a/b/' f.txt", "bash-file-work:edit")},
 		{"file-work write redirect", fileWork("echo x > f.txt", "bash-file-work:write")},
 		{"file-work heredoc tee redirect", fileWork("tee f.txt <<'EOF'\nx\nEOF", "bash-file-work:write")},
+		{"unusable config", func() Decision {
+			defer t.Setenv("HOME", os.Getenv("HOME"))
+			fileWorkConfig(t, "redirect-bash-file-work: [\n")
+			d := classify(&Event{
+				HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo),
+				ToolInput: []byte(`{"command":"ls"}`),
+			})
+			if d.Operation != "config:unusable" {
+				t.Fatalf("expected the config:unusable deny; got %q/%q", d.Bucket, d.Operation)
+			}
+			return d
+		}},
 	}
 
 	for _, c := range cases {

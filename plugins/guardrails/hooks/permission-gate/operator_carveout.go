@@ -31,7 +31,7 @@ import (
 // (~/.config/guardrails/config.yml). The gate ships no default entries and
 // carries no knowledge of which plugins exist: an absent file means no usable
 // entry anywhere, which means today's behaviour, and a file that exists but
-// cannot be read or parsed denies every call until it is fixed. It fails
+// cannot be read or parsed denies every gated call until it is fixed. It fails
 // closed.
 //
 // The two XDG roots are opt-in: `resolve-xdg-environment-variables: yes` makes
@@ -173,7 +173,7 @@ func loadOperatorConfig() (operatorConfig, error) {
 // stamped at all, return noOperatorConfig — today's behaviour — and no error.
 // A file that exists but cannot be read, or is not a YAML document of the
 // shape operatorCarveOutDocument declares, returns an error, which classify
-// turns into a deny of every call.
+// turns into a deny of every gated call.
 func loadOperatorConfigFrom(configPath string) (operatorConfig, error) {
 	if configPath == "" {
 		return noOperatorConfig, nil

@@ -73,6 +73,9 @@ var coveredShapes = []struct {
 	{"sed -n '1,5p' f.txt", "bash-file-work:read"},
 	{"nl -ba f.txt", "bash-file-work:read"},
 	{"less f.txt", "bash-file-work:read"},
+	{"less -p pattern f.txt", "bash-file-work:read"},
+	{"less +G f.txt", "bash-file-work:read"},
+	{"tail +2 f.txt", "bash-file-work:read"},
 	{"cat f.txt && make", "bash-file-work:read"},
 	{"cat a.txt; cat b.txt", "bash-file-work:read"},
 	{"cat f.txt | cat", "bash-file-work:read"},
@@ -80,6 +83,9 @@ var coveredShapes = []struct {
 	{"sed -i 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -i.bak -e 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed --in-place 's/a/b/' f.txt", "bash-file-work:edit"},
+	{"sed -I '' 's/a/b/' f.txt", "bash-file-work:edit"},
+	{"sed -ni 's/a/b/p' f.txt", "bash-file-work:edit"},
+	{"sed -Ei 's/a+/b/' f.txt", "bash-file-work:edit"},
 	{"perl -pi -e 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"perl -i -pe 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"make && sed -i 's/a/b/' f.txt", "bash-file-work:edit"},
@@ -111,6 +117,9 @@ var uncoveredShapes = []string{
 	"ls | head -n 5",
 	"ls | tail -n 20",
 	"ls | nl -ba",
+	"make | less -p pattern",
+	"make | less +G",
+	"make | tail +2",
 	"cat <<EOF | wc -l\nx\nEOF",
 	"head -n 5 f.txt | sort",
 	"cat f.txt | jq .",
@@ -394,8 +403,8 @@ func TestFileWorkBadValueKeepsCarveOut(t *testing.T) {
 	}
 }
 
-// A config file that exists but cannot be parsed denies every call, whatever
-// the tool, naming the file.
+// A config file that exists but cannot be parsed denies every gated call,
+// whatever the tool, naming the file.
 func TestUnusableConfigDeniesEveryCall(t *testing.T) {
 	repo := fileWorkRepo(t)
 	home := fileWorkConfig(t, "redirect-bash-file-work: [\n")
