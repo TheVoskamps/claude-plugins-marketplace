@@ -131,16 +131,15 @@ the reader's own contract decides it: a config whose keys have
 defaults degrades to them, while a watermark or a facts file that
 cannot be invented stops and says what to write.
 
-**Named exception: a reader with no channel to abort into.** The
-`guardrails` permission gate's `~/.config/guardrails/config.yml` (see
-above) treats absent, unreadable, malformed and below-the-pin
-identically, as no usable entry on any root — the behaviour the machine
-had before the file existed, with nothing reported anywhere. A
-`PreToolUse` hook cannot abort: failing the hook
-over a broken config denies every tool call on the machine, which is
-strictly worse than the behaviour the operator had before writing the
-file. The rule above stands for every reader that can surface an abort
-to a human, which is all of the others.
+**Named exception: the permission gate's stamp.** The `guardrails`
+permission gate's `~/.config/guardrails/config.yml` (see above) treats a
+file stamped below the pin, or not stamped at all, as it treats an
+absent one: no usable entry on any root and `redirect-bash-file-work`
+off, with nothing reported anywhere. A file that exists but cannot be
+read or parsed is not exempt: the gate denies every tool call, naming
+the path and the error, until the file is fixed. An unknown
+`redirect-bash-file-work` value is read as `off`, with a warning in the
+gate's own log. The rule above stands for every other reader.
 
 ## Multi-writer files merge; single-owner files rewrite
 

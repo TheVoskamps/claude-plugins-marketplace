@@ -861,8 +861,11 @@ not obstacles to route around — each has a plain spelling that works:
   none of its statements, a write earlier in the chain included, so a
   retry of only the `git add` that followed it stages the file with its
   conflict markers intact: grep the file for them before staging.
-  Plain reads are unaffected — `cat`, `sed -n` and `grep` on in-worktree paths run
-  normally.
+  This guard leaves plain reads alone — `cat`, `sed -n` and `grep` on
+  in-worktree paths — but the permission gate's `redirect-bash-file-work`
+  setting, when on, denies a `cat` or `sed -n` of a file whose output is
+  not piped into another command, and names Read instead; `grep` it never
+  denies.
 - A heredoc is graded on the text it carries, not on the program that
   consumes it, so a `python3 - <<'PY'` script whose *payload* prose
   merely contains the word `git` is refused for feeding git-naming

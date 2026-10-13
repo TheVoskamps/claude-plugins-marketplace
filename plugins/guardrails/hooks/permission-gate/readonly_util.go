@@ -108,6 +108,77 @@ func (s utilitySpec) operands(args []string) []string {
 	return dedupeOperands(append(ops, pathFlagValues(args, s.valueFlags, s.pathValueFlags)...))
 }
 
+// fileOperands returns the operands of this invocation that name a file the
+// utility reads: its own operand grammar when it has one, and otherwise every
+// argument that is neither an option nor the value of one of valueFlags, read
+// with getopt's spellings. `-` names standard input, not a file.
+//
+// operands, which feeds containment, walks a utility with no grammar of its own
+// with pathOperands instead, which also keeps each flag's value: containing a
+// token that names no file costs
+// nothing there, while a mismodelled arity that swallowed a real path would
+// let it escape. This walk is for a caller that needs the other direction —
+// a value counted as a file is a file the invocation does not read.
+func (s utilitySpec) fileOperands(args []string) []string {
+	var ops []string
+	if s.operandsFn != nil {
+		ops = s.operandsFn(args)
+	} else {
+		ops = getoptOperands(args, s.valueFlags)
+	}
+	out := ops[:0:0]
+	for _, op := range ops {
+		if op != "-" {
+			out = append(out, op)
+		}
+	}
+	return out
+}
+
+// readFileOperands returns the operands of prog's invocation that name a file
+// it reads, by the grammar the read tracks give prog: its readOnlyUtilities
+// entry, or for any other reader the plain non-flag walk classifyPathReader
+// contains.
+func readFileOperands(prog string, args []string) []string {
+	spec, ok := readOnlyUtilities[prog]
+	if !ok {
+		return pathOperands(args)
+	}
+	return spec.fileOperands(args)
+}
+
+// getoptOperands returns the arguments that are not options, skipping the
+// value of each flag in valueFlags: the next token after a bare long flag or a
+// short flag ending its cluster, and nothing more for `--flag=value` or a short
+// value flag with the rest of its cluster attached. Every argument after `--`
+// is an operand.
+func getoptOperands(args []string, valueFlags map[string]bool) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return append(out, args[i+1:]...)
+		case strings.HasPrefix(a, "--"):
+			if !strings.Contains(a, "=") && valueFlags[a] {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && a != "-":
+			for j := 1; j < len(a); j++ {
+				if valueFlags["-"+string(a[j])] {
+					if j == len(a)-1 {
+						i++
+					}
+					break
+				}
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // dedupeOperands drops repeated operands while keeping first-seen order. A path
 // named both as a bare operand and as a flag value would otherwise be contained
 // twice and, on an escape, named twice in one deny message.
@@ -252,13 +323,13 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// set looks read-only. Each predicate enumerates the utility's known
 	// read-only flags; anything else defers.
 	"cat":    {pathBearing: true, defersForm: catDefers},
-	"head":   {pathBearing: true, defersForm: headTailDefers},
-	"tail":   {pathBearing: true, defersForm: headTailDefers},
+	"head":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags},
+	"tail":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags},
 	"cut":    {pathBearing: true, defersForm: cutDefers},
 	"tr":     {pathBearing: true, defersForm: trDefers},
 	"comm":   {pathBearing: true, defersForm: commDefers},
 	"paste":  {pathBearing: true, defersForm: pasteDefers},
-	"nl":     {pathBearing: true, defersForm: nlDefers},
+	"nl":     {pathBearing: true, defersForm: nlDefers, valueFlags: nlValueFlags},
 	"fold":   {pathBearing: true, defersForm: foldDefers},
 	"fmt":    {pathBearing: true, defersForm: fmtDefers},
 	"column": {pathBearing: true, defersForm: columnDefers},
@@ -613,17 +684,20 @@ func catDefers(args []string) bool {
 	}.defers(args)
 }
 
+// headTailValueFlags is head's and tail's value-taking flag set.
+var headTailValueFlags = map[string]bool{
+	"-c": true, "--bytes": true, "-n": true, "--lines": true,
+	"-s": true, "--sleep-interval": true, "--pid": true,
+	"--max-unchanged-stats": true,
+}
+
 // headTailDefers: head/tail share -c/-n (value), -q/-v, and tail's -f/-F/-s/--pid/
 // --retry. None writes. `-n5`/`-c10` attached forms are handled by the value-flag
 // attached check. A leading `-5` (obsolete count) is treated as an unknown flag
 // and defers — conservative, not wrong.
 func headTailDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{
-			"-c": true, "--bytes": true, "-n": true, "--lines": true,
-			"-s": true, "--sleep-interval": true, "--pid": true,
-			"--max-unchanged-stats": true,
-		},
+		valueFlags: headTailValueFlags,
 		boolFlags: map[string]bool{
 			"-q": true, "--quiet": true, "--silent": true, "-v": true, "--verbose": true,
 			"-z": true, "--zero-terminated": true,
@@ -718,17 +792,20 @@ func pasteDefers(args []string) bool {
 	}.defers(args)
 }
 
+// nlValueFlags is nl's value-taking flag set.
+var nlValueFlags = map[string]bool{
+	"-b": true, "--body-numbering": true, "-d": true, "--section-delimiter": true,
+	"-f": true, "--footer-numbering": true, "-h": true, "--header-numbering": true,
+	"-i": true, "--line-increment": true, "-l": true, "--join-blank-lines": true,
+	"-n": true, "--number-format": true, "-s": true, "--number-separator": true,
+	"-v": true, "--starting-line-number": true, "-w": true, "--number-width": true,
+}
+
 // nlDefers: nl numbers lines to stdout. Many value flags (-b/-d/-f/-h/-i/-l/-n/
 // -s/-v/-w); none writes a file.
 func nlDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{
-			"-b": true, "--body-numbering": true, "-d": true, "--section-delimiter": true,
-			"-f": true, "--footer-numbering": true, "-h": true, "--header-numbering": true,
-			"-i": true, "--line-increment": true, "-l": true, "--join-blank-lines": true,
-			"-n": true, "--number-format": true, "-s": true, "--number-separator": true,
-			"-v": true, "--starting-line-number": true, "-w": true, "--number-width": true,
-		},
+		valueFlags:      nlValueFlags,
 		boolFlags:       map[string]bool{"-p": true, "--no-renumber": true},
 		maxPathOperands: -1,
 		clusterable:     true,

@@ -26,10 +26,22 @@ func TestRemediationReasonsAreActionable(t *testing.T) {
 	gitInit(t, repo)
 	sibling := filepath.Join(base, "sibling")
 	gitInit(t, sibling)
+	fileWorkConfig(t, fileWorkModeConfig("always"))
 
 	type tc struct {
 		name string
 		got  func() Decision
+	}
+	// fileWork is a case whose decision must be the file-work redirect's
+	// deny for op, so the reason inspected is that rule's own.
+	fileWork := func(cmd, op string) func() Decision {
+		return func() Decision {
+			d := classifyCmdInRepo(t, cmd, true)
+			if d.Operation != op {
+				t.Fatalf("%q: expected the %s deny; got %q/%q", cmd, op, d.Bucket, d.Operation)
+			}
+			return d
+		}
 	}
 	cases := []tc{
 		{"gh auth switch", func() Decision { return classifyCmd(t, "gh auth switch", false) }},
@@ -55,6 +67,10 @@ func TestRemediationReasonsAreActionable(t *testing.T) {
 		{"cross-repo bash-read", func() Decision {
 			return classifyCmd(t, "cat "+filepath.Join(sibling, "x.txt"), false)
 		}},
+		{"file-work read redirect", fileWork("cat f.txt", "bash-file-work:read")},
+		{"file-work edit redirect", fileWork("sed -i 's/a/b/' f.txt", "bash-file-work:edit")},
+		{"file-work write redirect", fileWork("echo x > f.txt", "bash-file-work:write")},
+		{"file-work heredoc tee redirect", fileWork("tee f.txt <<'EOF'\nx\nEOF", "bash-file-work:write")},
 	}
 
 	for _, c := range cases {

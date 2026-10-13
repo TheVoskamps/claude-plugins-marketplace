@@ -873,12 +873,12 @@ func TestMatchCarveOutGlob(t *testing.T) {
 
 // The reader's own contract, exercised directly so a failure names the parse
 // rather than a downstream verdict.
-func TestLoadOperatorCarveOutFrom(t *testing.T) {
+func TestLoadOperatorConfigFrom(t *testing.T) {
 	base := t.TempDir()
 	home := carveOutFixture(t, base, "plain")
 	path := filepath.Join(base, "config.yml")
 
-	c := loadOperatorCarveOutFrom(path)
+	c := mustLoadOperatorConfigFrom(t, path).carveOut
 	if !c.empty() {
 		t.Errorf("an absent config file must yield no roots; got %+v", c)
 	}
@@ -886,7 +886,7 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	if err := os.WriteFile(path, []byte(carveOutConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	c = loadOperatorCarveOutFrom(path)
+	c = mustLoadOperatorConfigFrom(t, path).carveOut
 	if len(c.roots) != 3 {
 		t.Errorf("expected every root this config spells to resolve; got %+v", c)
 	}
@@ -907,7 +907,7 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	if err := os.WriteFile(path, []byte("schema-version: 2\nconfig-home-default: ~/.config\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if c = loadOperatorCarveOutFrom(path); !c.empty() {
+	if c = mustLoadOperatorConfigFrom(t, path).carveOut; !c.empty() {
 		t.Errorf("a file listing nothing must yield no roots; got %+v", c)
 	}
 
@@ -921,7 +921,7 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	c = loadOperatorCarveOutFrom(path)
+	c = mustLoadOperatorConfigFrom(t, path).carveOut
 	if len(c.roots) != 1 {
 		t.Fatalf("a relative config-home-default must drop that root; got %+v", c)
 	}
@@ -944,7 +944,7 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	c = loadOperatorCarveOutFrom(path)
+	c = mustLoadOperatorConfigFrom(t, path).carveOut
 	if len(c.roots) != 1 {
 		t.Fatalf("a `~someone`-spelled config-home-default must drop that root; got %+v", c)
 	}
@@ -959,10 +959,71 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	c = loadOperatorCarveOutFrom(path)
+	c = mustLoadOperatorConfigFrom(t, path).carveOut
 	if len(c.roots) != 1 || len(c.roots[0].write) != 1 {
 		t.Errorf("a higher schema-version must still be read; got %+v", c)
 	}
+
+	// A stamp below the pin, and no stamp at all, load as no file: no entries
+	// and no error.
+	for _, body := range []string{
+		"schema-version: 1\nconfig-home-default: ~/.config\nconfig-home:\n  write:\n    - cc-tools/**\n",
+		"config-home-default: ~/.config\nconfig-home:\n  write:\n    - cc-tools/**\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if c = mustLoadOperatorConfigFrom(t, path).carveOut; !c.empty() {
+			t.Errorf("a file stamped below the pin must yield no roots; got %+v", c)
+		}
+	}
+
+	// A file that exists but is not YAML, is not a mapping, or carries a key of
+	// the wrong type, and a path that cannot be read as a file, are errors.
+	for _, body := range []string{"schema-version: [\n", "just a string\n", "schema-version: two\n"} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadOperatorConfigFrom(path); err == nil {
+			t.Errorf("%q must not parse", body)
+		}
+	}
+	unreadable := filepath.Join(base, "a-directory.yml")
+	if err := os.Mkdir(unreadable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOperatorConfigFrom(unreadable); err == nil {
+		t.Error("a config path that cannot be read must be an error")
+	}
+}
+
+// reloaded drops ev's loaded operator config, so the next classification reads
+// the file as it is now. An event loads it once, which a test that rewrites
+// the file between classifications of one event would otherwise not see.
+func reloaded(ev *Event) *Event {
+	ev.operatorCfg, ev.operatorCfgErr = nil, nil
+	return ev
+}
+
+// mustLoadOperatorConfig is loadOperatorConfig failing the test on an error.
+func mustLoadOperatorConfig(t *testing.T) operatorConfig {
+	t.Helper()
+	cfg, err := loadOperatorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// mustLoadOperatorConfigFrom is loadOperatorConfigFrom failing the test on an
+// error.
+func mustLoadOperatorConfigFrom(t *testing.T, path string) operatorConfig {
+	t.Helper()
+	cfg, err := loadOperatorConfigFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
 }
 
 // bashCarveOutSpellings are the Bash spellings of one read or write, chosen so
@@ -1054,7 +1115,7 @@ func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 			for _, target := range listedCarveOutPaths(home) {
 				for _, sp := range bashCarveOutSpellings {
 					cmd := sp.cmd(target)
-					if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+					if d := classifyBash(cmd, reloaded(ev)); d.Bucket == BucketAllow {
 						t.Errorf("%s with no carve-out configured must not ALLOW; got %q (%s)", cmd, d.Bucket, d.Reason)
 					}
 				}
@@ -1064,7 +1125,7 @@ func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 			for _, target := range listedCarveOutPaths(home) {
 				for _, sp := range bashCarveOutSpellings {
 					cmd := sp.cmd(target)
-					d := classifyBash(cmd, ev)
+					d := classifyBash(cmd, reloaded(ev))
 					wantBucket(t, d, BucketAllow, cmd+" of a listed path")
 					if !containsSubstr(d.Reason, filepath.Join(home, ".config", "guardrails", "config.yml")) {
 						t.Errorf("%s: the allow reason should name the operator's config file; got %q", cmd, d.Reason)
@@ -1143,7 +1204,7 @@ state-home:
 	for _, r := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			cmd := sp.cmd(r.path)
-			today[cmd] = classifyBash(cmd, ev)
+			today[cmd] = classifyBash(cmd, reloaded(ev))
 		}
 	}
 
@@ -1151,7 +1212,7 @@ state-home:
 	for _, r := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			cmd := sp.cmd(r.path)
-			d := classifyBash(cmd, ev)
+			d := classifyBash(cmd, reloaded(ev))
 			if r.writeOnly && !sp.write {
 				// `ls` reads the parent directory, which an exact entry such as
 				// `gh/config.yml` does not list, so it is no control here.
@@ -1209,7 +1270,7 @@ func TestOperatorCarveOutWithholdsOtherTildeForms(t *testing.T) {
 				continue
 			}
 			cmd := sp.cmd(p)
-			today[cmd] = classifyBash(cmd, ev)
+			today[cmd] = classifyBash(cmd, reloaded(ev))
 			if sp.name == "redirect" && today[cmd].Bucket == BucketAllow {
 				t.Fatalf("%s with no carve-out configured must not ALLOW, or the row proves nothing; got %q (%s)",
 					cmd, today[cmd].Bucket, today[cmd].Reason)
@@ -1219,14 +1280,14 @@ func TestOperatorCarveOutWithholdsOtherTildeForms(t *testing.T) {
 
 	writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  write:\n    - '**'\n")
 	control := "echo x > ~/.config/other/x.yml"
-	wantBucket(t, classifyBash(control, ev), BucketAllow, control+" (negative control)")
+	wantBucket(t, classifyBash(control, reloaded(ev)), BucketAllow, control+" (negative control)")
 	for _, p := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			if !sp.write {
 				continue
 			}
 			cmd := sp.cmd(p)
-			d := classifyBash(cmd, ev)
+			d := classifyBash(cmd, reloaded(ev))
 			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
 				t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
 					cmd, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
@@ -1269,7 +1330,7 @@ func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
 	for _, p := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			cmd := sp.cmd(p)
-			today[cmd] = classifyBash(cmd, ev)
+			today[cmd] = classifyBash(cmd, reloaded(ev))
 			if movable[sp.name] && today[cmd].Bucket == BucketAllow {
 				t.Fatalf("%s with no carve-out configured must not ALLOW, or the row proves nothing; got %q (%s)",
 					cmd, today[cmd].Bucket, today[cmd].Reason)
@@ -1287,7 +1348,7 @@ func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
 				continue
 			}
 			cmd := sp.cmd(p)
-			if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+			if d := classifyBash(cmd, reloaded(ev)); d.Bucket == BucketAllow {
 				t.Fatalf("%s with no carve-out configured must not ALLOW, or the control proves nothing; got %q (%s)",
 					cmd, d.Bucket, d.Reason)
 			}
@@ -1301,13 +1362,13 @@ func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
 				continue
 			}
 			cmd := sp.cmd(p)
-			wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd+" (negative control)")
+			wantBucket(t, classifyBash(cmd, reloaded(ev)), BucketAllow, cmd+" (negative control)")
 		}
 	}
 	for _, p := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			cmd := sp.cmd(p)
-			d := classifyBash(cmd, ev)
+			d := classifyBash(cmd, reloaded(ev))
 			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
 				t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
 					cmd, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
@@ -1315,7 +1376,7 @@ func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
 		}
 	}
 
-	c := loadOperatorCarveOut()
+	c := mustLoadOperatorConfig(t).carveOut
 	for _, p := range controls {
 		if !c.allows(p, home, true, true, false) {
 			t.Errorf("read of %s must ride the `*` entry (negative control)", p)
@@ -1360,7 +1421,7 @@ func TestOperatorCarveOutWithholdsNonPlainSegment(t *testing.T) {
 	for _, p := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			cmd := sp.cmd(p)
-			today[cmd] = classifyBash(cmd, ev)
+			today[cmd] = classifyBash(cmd, reloaded(ev))
 			if movable[sp.name] && today[cmd].Bucket == BucketAllow {
 				t.Fatalf("%s with no carve-out configured must not ALLOW, or the row proves nothing; got %q (%s)",
 					cmd, today[cmd].Bucket, today[cmd].Reason)
@@ -1373,7 +1434,7 @@ func TestOperatorCarveOutWithholdsNonPlainSegment(t *testing.T) {
 				continue
 			}
 			cmd := sp.cmd(p)
-			if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+			if d := classifyBash(cmd, reloaded(ev)); d.Bucket == BucketAllow {
 				t.Fatalf("%s with no carve-out configured must not ALLOW, or the control proves nothing; got %q (%s)",
 					cmd, d.Bucket, d.Reason)
 			}
@@ -1387,13 +1448,13 @@ func TestOperatorCarveOutWithholdsNonPlainSegment(t *testing.T) {
 				continue
 			}
 			cmd := sp.cmd(p)
-			wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd+" (negative control)")
+			wantBucket(t, classifyBash(cmd, reloaded(ev)), BucketAllow, cmd+" (negative control)")
 		}
 	}
 	for _, p := range rows {
 		for _, sp := range bashCarveOutSpellings {
 			cmd := sp.cmd(p)
-			d := classifyBash(cmd, ev)
+			d := classifyBash(cmd, reloaded(ev))
 			if want := today[cmd]; d.Bucket != want.Bucket || d.Operation != want.Operation {
 				t.Errorf("%s must keep today's verdict %q/%q; got %q/%q (%s)",
 					cmd, want.Bucket, want.Operation, d.Bucket, d.Operation, d.Reason)
@@ -1401,7 +1462,7 @@ func TestOperatorCarveOutWithholdsNonPlainSegment(t *testing.T) {
 		}
 	}
 
-	c := loadOperatorCarveOut()
+	c := mustLoadOperatorConfig(t).carveOut
 	for _, p := range controls {
 		if !c.allows(p, home, true, true, false) {
 			t.Errorf("read of %s must ride the `**` entry (negative control)", p)
@@ -1462,14 +1523,14 @@ func TestOperatorCarveOutGhPublishBodyFile(t *testing.T) {
 
 	cmd := "gh pr create --title x --body-file " + filepath.Join(home, ".local", "state", "sdlc", "body.md")
 
-	d := classifyBash(cmd, ev)
+	d := classifyBash(cmd, reloaded(ev))
 	if d.Bucket != BucketDeny || d.Operation != "bash-read:cross-repo" {
 		t.Errorf("%s with no carve-out configured must deny as a cross-repo read; got %q/%q (%s)",
 			cmd, d.Bucket, d.Operation, d.Reason)
 	}
 
 	writeCarveOutConfig(t, home, carveOutConfig)
-	d = classifyBash(cmd, ev)
+	d = classifyBash(cmd, reloaded(ev))
 	if d.Bucket == BucketDeny && d.Operation == "bash-read:cross-repo" {
 		t.Errorf("%s of a listed body file must not deny as a cross-repo read; got %q/%q (%s)",
 			cmd, d.Bucket, d.Operation, d.Reason)
@@ -1538,7 +1599,7 @@ func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
 		"cat README.md",
 		"cat README.md && touch newfile.txt",
 	} {
-		d := classifyBash(cmd, ev)
+		d := classifyBash(cmd, reloaded(ev))
 		wantBucket(t, d, BucketAllow, cmd)
 		if containsSubstr(d.Reason, configPath) {
 			t.Errorf("%s touched no listed path, so its reason must not name the listing; got %q", cmd, d.Reason)
@@ -1552,7 +1613,7 @@ func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
 		"cat " + listed,
 		"cat README.md && touch " + listed,
 	} {
-		d := classifyBash(cmd, ev)
+		d := classifyBash(cmd, reloaded(ev))
 		wantBucket(t, d, BucketAllow, cmd)
 		if !containsSubstr(d.Reason, configPath) {
 			t.Errorf("%s rode the listing, so its reason must name it (negative control); got %q", cmd, d.Reason)
@@ -1561,7 +1622,7 @@ func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
 
 	inRepoWrite := func(args ...string) Decision {
 		sc := simpleCommand{args: append([]string{"touch"}, args...)}
-		return classifyInRepoWrite("touch", args, sc, ev)
+		return classifyInRepoWrite("touch", args, sc, reloaded(ev))
 	}
 	d := inRepoWrite("newfile.txt")
 	wantBucket(t, d, BucketAllow, "touch newfile.txt (in-repo write terminal)")
@@ -1604,7 +1665,7 @@ func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 	direct := "cat " + filepath.Join(dir, "a.md")
 
 	for _, cmd := range []string{loop, direct} {
-		if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+		if d := classifyBash(cmd, reloaded(ev)); d.Bucket == BucketAllow {
 			t.Errorf("%s with no carve-out configured must not ALLOW; got %q (%s)", cmd, d.Bucket, d.Reason)
 		}
 	}
@@ -1623,10 +1684,10 @@ func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 	}
 	for _, r := range rows {
 		writeCarveOutConfig(t, home, "schema-version: 2\nconfig-home-default: ~/.config\nconfig-home:\n  read:\n    - '"+r.entry+"'\n")
-		if d := classifyBash(loop, ev); d.Bucket == BucketAllow {
+		if d := classifyBash(loop, reloaded(ev)); d.Bucket == BucketAllow {
 			t.Errorf("%s under %s must not ALLOW; got %q (%s)", loop, r.entry, d.Bucket, d.Reason)
 		}
-		d := classifyBash(direct, ev)
+		d := classifyBash(direct, reloaded(ev))
 		if r.directAllow {
 			wantBucket(t, d, BucketAllow, direct+" under "+r.entry)
 		} else if d.Bucket == BucketAllow {
@@ -1646,14 +1707,14 @@ func TestOperatorCarveOutLoopOverListedDirectory(t *testing.T) {
 		dir + "/../sub/a.md",
 	} {
 		for _, cmd := range []string{loopOver(pattern), "cat " + pattern} {
-			if d := classifyBash(cmd, ev); d.Bucket == BucketAllow {
+			if d := classifyBash(cmd, reloaded(ev)); d.Bucket == BucketAllow {
 				t.Errorf("%s under cc-tools/** carries an expansion the listing does not grade and must not ALLOW; got %q (%s)",
 					cmd, d.Bucket, d.Reason)
 			}
 		}
 	}
 	brace := "cat " + dir + "/{a,b}.md"
-	if d := classifyBash(brace, ev); d.Bucket == BucketAllow {
+	if d := classifyBash(brace, reloaded(ev)); d.Bucket == BucketAllow {
 		t.Errorf("%s under cc-tools/** carries an expansion the listing does not grade and must not ALLOW; got %q (%s)",
 			brace, d.Bucket, d.Reason)
 	}
@@ -1683,9 +1744,9 @@ func TestOperatorCarveOutGlobRuleIsBashOnly(t *testing.T) {
 		d := fileToolVerdict(t, "Read", cwd, p)
 		wantBucket(t, d, BucketAllow, "Read of "+p+" under sdlc/pr*/notes.md")
 	}
-	d := classifyBash("cat "+plain, ev)
+	d := classifyBash("cat "+plain, reloaded(ev))
 	wantBucket(t, d, BucketAllow, "cat "+plain+" under sdlc/pr*/notes.md (negative control)")
-	d = classifyBash("cat "+bracketed, ev)
+	d = classifyBash("cat "+bracketed, reloaded(ev))
 	if d.Bucket == BucketAllow {
 		t.Errorf("cat %s is a pattern sdlc/pr*/notes.md does not cover and must not ALLOW; got %q (%s)",
 			bracketed, d.Bucket, d.Reason)
@@ -1737,28 +1798,28 @@ func TestOperatorCarveOutWithholdsRedirectGluedWord(t *testing.T) {
 	}{
 		{"read operand", "cat " + dir + "/<1-3>.md", "cat " + dir + "/1.md",
 			func(sc simpleCommand) (Decision, bool) {
-				d, ok := containPathOperands("cat", readTargets(pathOperands(sc.args[1:]), sc), sc, ev)
+				d, ok := containPathOperands("cat", readTargets(pathOperands(sc.args[1:]), sc), sc, reloaded(ev))
 				return d, !ok && d.Bucket == BucketAllow
 			}},
 		{"input-redirect source", "cat < " + dir + "/<1-3>.md", "cat < " + dir + "/1.md",
 			func(sc simpleCommand) (Decision, bool) {
-				d, ok := containPathOperands("cat", readTargets(pathOperands(sc.args[1:]), sc), sc, ev)
+				d, ok := containPathOperands("cat", readTargets(pathOperands(sc.args[1:]), sc), sc, reloaded(ev))
 				return d, !ok && d.Bucket == BucketAllow
 			}},
 		{"write operand", "tee " + dir + "/<1-3>.md", "tee " + dir + "/1.md",
 			func(sc simpleCommand) (Decision, bool) {
-				d, ok, sawOperator := containWriteOperands("tee", sc.args[1:], sc, ev)
+				d, ok, sawOperator := containWriteOperands("tee", sc.args[1:], sc, reloaded(ev))
 				return d, ok && sawOperator
 			}},
 		{"redirect destination", "echo x <1-3>" + listed, "echo x > " + listed,
 			func(sc simpleCommand) (Decision, bool) {
-				return Decision{}, !redirectVetoesAllow(sc, ev)
+				return Decision{}, !redirectVetoesAllow(sc, reloaded(ev))
 			}},
 		// The argument glued to the operator is the shell's problem, not the
 		// spaced target's: `x` is withheld and `listed` rides.
 		{"redirect destination after a glued argument", "echo x<1-3>" + listed, "echo x> " + listed,
 			func(sc simpleCommand) (Decision, bool) {
-				return Decision{}, !redirectVetoesAllow(sc, ev)
+				return Decision{}, !redirectVetoesAllow(sc, reloaded(ev))
 			}},
 	}
 	lines := []struct {
@@ -1780,7 +1841,7 @@ func TestOperatorCarveOutWithholdsRedirectGluedWord(t *testing.T) {
 		today[w.glued] = d
 	}
 	for _, l := range lines {
-		d := classifyBash(l.glued, ev)
+		d := classifyBash(l.glued, reloaded(ev))
 		if d.Bucket == BucketAllow {
 			t.Errorf("%s with no carve-out configured must not ALLOW; got %q (%s)", l.glued, d.Bucket, d.Reason)
 		}
@@ -1804,12 +1865,12 @@ func TestOperatorCarveOutWithholdsRedirectGluedWord(t *testing.T) {
 		}
 	}
 	for _, l := range lines {
-		d := classifyBash(l.literal, ev)
+		d := classifyBash(l.literal, reloaded(ev))
 		wantBucket(t, d, BucketAllow, l.literal+" (negative control)")
 		if !containsSubstr(d.Reason, configPath) {
 			t.Errorf("%s rode the listing, so its reason must name it; got %q", l.literal, d.Reason)
 		}
-		d = classifyBash(l.glued, ev)
+		d = classifyBash(l.glued, reloaded(ev))
 		if d.Bucket == BucketAllow {
 			t.Errorf("%s is glued to a redirect and must not ALLOW; got %q (%s)", l.glued, d.Bucket, d.Reason)
 		}

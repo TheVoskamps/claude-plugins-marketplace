@@ -493,7 +493,7 @@ func TestHomeUsabilityNonVerdictReaders(t *testing.T) {
 			gotLog := logPath()
 			gotConfig := operatorCarveOutConfigPath()
 			gotRoot := claudeConfigRoot()
-			carve := loadOperatorCarveOut()
+			carve := mustLoadOperatorConfig(t).carveOut
 
 			if !shape.usable {
 				if gotLog != "" {
@@ -506,7 +506,7 @@ func TestHomeUsabilityNonVerdictReaders(t *testing.T) {
 					t.Errorf("claudeConfigRoot() = %q with a %s home, want \"\"", gotRoot, shape.name)
 				}
 				if !carve.empty() {
-					t.Errorf("loadOperatorCarveOut() with a %s home must load nothing", shape.name)
+					t.Errorf("loadOperatorConfig() with a %s home must load nothing", shape.name)
 				}
 				return
 			}

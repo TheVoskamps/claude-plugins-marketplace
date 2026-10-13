@@ -257,7 +257,7 @@ func canonicalize(p string) string {
 // applyCd invalidates the running cwd, canonicalizeFromResolver raises
 // unresolvedTilde while keeping the literal for display, and the carve-out's
 // two sides part company over where the home comes from. A ROOT is expanded
-// against the home loadOperatorCarveOutFrom has already graded usable,
+// against the home loadOperatorConfigFrom has already graded usable,
 // so an unknown home never reaches absoluteRootPath — the whole carve-out is
 // empty before it is called — and a root drops out, along with every glob
 // listed under it, when its spelling is not absolute after expansion. A TARGET
@@ -791,7 +791,7 @@ func testContainmentFrom(target string, base string, rc *repoContext, readClass 
 		return escapeRepo, real, false
 	}
 
-	listed := loadOperatorCarveOut().allows(target, base, readClass, shellPattern, glued)
+	listed := ev.config().carveOut.allows(target, base, readClass, shellPattern, glued)
 	if listed && !isUnderGitDir(real, rc) && !(shellPattern && patternMayNameGitDir(real)) {
 		if ev != nil {
 			ev.rodeOperatorListing = true

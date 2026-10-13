@@ -364,17 +364,13 @@ named by its literal path.
 
 ## A subagent's Write tool refuses a report-named file
 
-A `Write` from a subagent to a path whose filename reads as a report —
-`report.md` among them — is refused with "Subagents should return
-findings as text, not write report files", wherever in the repo the
-path sits and whatever the content is. The refusal keys on the filename
-alone, so a source file the repo names that way (an orchestrate
-`lib/report.md`) is refused the same as a stray findings dump.
-
-Write such a file with a `cat > <path> <<'EOF'` heredoc that is a
-statement of its own: as a bare statement the isolation guard lets it
-through, while the same heredoc inside an `&&` chain is refused as too
-complex to verify. Do not rename the file to dodge the check.
+A `Write` from a subagent to a path whose filename starts with
+`report`, `summary`, `findings` or `analysis`, in any case, and ends in
+`.md` is refused with "Subagents should return findings as text, not
+write report files", wherever in the repo the path sits and whatever
+the content is. The refusal keys on the filename alone, so a file the
+repo keeps under such a name is one no subagent can write: name it
+otherwise.
 
 An inline script fed on stdin is graded on its text, not on what it
 does. `python3 - <<'EOF' … EOF` is refused as "feeds python text naming

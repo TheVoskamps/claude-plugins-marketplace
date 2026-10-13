@@ -41,7 +41,7 @@ type logRecord struct {
 func logEvent(ev *Event, d Decision) {
 	defer func() { _ = recover() }()
 
-	rec := logRecord{
+	appendLogRecord(logRecord{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		AgentType: ev.AgentType,
 		ToolName:  ev.ToolName,
@@ -50,8 +50,33 @@ func logEvent(ev *Event, d Decision) {
 		Analysis:  d.Reason,
 		CWD:       ev.CWD,
 		Raw:       string(ev.ToolInput),
-	}
+	})
+}
 
+// logWarningBucket is the bucket a warning record carries. It is no verdict:
+// a warning is about the gate's own input, not about the call it rode on.
+const logWarningBucket = "warning"
+
+// logWarning appends a warning record to the evolution log, under the same
+// never-change-the-verdict rule as logEvent.
+func logWarning(ev *Event, operation string, warning string) {
+	defer func() { _ = recover() }()
+
+	appendLogRecord(logRecord{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		AgentType: ev.AgentType,
+		ToolName:  ev.ToolName,
+		Operation: operation,
+		Bucket:    logWarningBucket,
+		Analysis:  warning,
+		CWD:       ev.CWD,
+		Raw:       string(ev.ToolInput),
+	})
+}
+
+// appendLogRecord writes one record as a line of the evolution log, swallowing
+// every failure.
+func appendLogRecord(rec logRecord) {
 	line, err := json.Marshal(rec)
 	if err != nil {
 		return

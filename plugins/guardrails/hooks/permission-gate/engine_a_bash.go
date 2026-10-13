@@ -102,22 +102,10 @@ type cwdCtx struct {
 // the arm below) and an unhandled AST construct yields a DEFER carrying that as
 // its analysis (the gate cannot prove the line safe), never allow.
 //
-// The file-work redirect (classify_file_work.go) runs last and only on a line
-// no other rule denied, so a deny keeps its own reason; any other verdict it
-// replaces with its own deny.
+// When the operator turned it on, the file-work redirect (classify_file_work.go)
+// grades each simple command too, and its deny ranks below every other deny:
+// a line any other rule denies anywhere reports that rule's deny instead.
 func classifyBash(command string, ev *Event) Decision {
-	d := classifyBashLine(command, ev)
-	if d.Bucket == BucketDeny {
-		return d
-	}
-	if fw, hit := redirectBashFileWork(command, ev); hit {
-		return fw
-	}
-	return d
-}
-
-// classifyBashLine is classifyBash without the file-work redirect.
-func classifyBashLine(command string, ev *Event) Decision {
 	parser := syntax.NewParser(syntax.KeepComments(false))
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {
@@ -216,8 +204,21 @@ func classifyBashLine(command string, ev *Event) Decision {
 	// may classify more than one line against it.
 	ev.rodeOperatorListing = false
 
+	// The file-work redirect's deny for each covered command, by call. The
+	// first one met is kept and reported only once the whole line has been
+	// walked, since another rule's deny on a later command outranks it.
+	var fileWork map[*syntax.CallExpr]Decision
+	if fileWorkEnabled(ev, rc) {
+		fileWork = fileWorkDenies(file)
+	}
+	var redirectDeny Decision
+	haveRedirectDeny := false
+
 	for _, sc := range cmds {
 		d := classifySimpleCommand(sc, ev)
+		if fw, ok := fileWork[sc.call]; ok && !haveRedirectDeny {
+			redirectDeny, haveRedirectDeny = fw, true
+		}
 		switch d.Bucket {
 		case BucketDeny:
 			// Hard deny short-circuits the whole line.
@@ -247,6 +248,9 @@ func classifyBashLine(command string, ev *Event) Decision {
 		}
 	}
 
+	if haveRedirectDeny {
+		return redirectDeny
+	}
 	if worst == BucketAsk {
 		return worstDecision
 	}
@@ -423,6 +427,10 @@ type simpleCommand struct {
 	// program; classifySimpleCommand branches on this flag BEFORE any program
 	// dispatch, so the name is never matched against a rule table.
 	redirectOnly bool
+	// call is the parsed call this command was reduced from, and nil on a
+	// redirect-only or hand-built command. classifyBash looks the file-work
+	// redirect's verdict for the command up by it.
+	call *syntax.CallExpr
 	// hasInlineAssignment is true when the command carried an inline
 	// environment-assignment prefix (`AWS_ENDPOINT_URL=… aws …`,
 	// `GIT_SSH_COMMAND=… git …`, `GH_HOST=… gh …`). Such a prefix can redirect
@@ -1478,7 +1486,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 // $HOME/$USER/$TMPDIR, the tracked cwd for $PWD/$OLDPWD) into every
 // literalWord call this reduction makes.
 func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) (simpleCommand, error) {
-	sc := simpleCommand{}
+	sc := simpleCommand{call: c}
 
 	glued := redirectGluedWords(c.Args, redirs)
 	applyRedirs(&sc, redirs, knownVars, resolver, cc, glued)
