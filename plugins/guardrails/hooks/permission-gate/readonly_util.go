@@ -115,10 +115,10 @@ func (s utilitySpec) operands(args []string) []string {
 //
 // operands, which feeds containment, walks a utility with no grammar of its own
 // with pathOperands instead, which also keeps each flag's value: containing a
-// token that names no file costs
-// nothing there, while a mismodelled arity that swallowed a real path would
-// let it escape. This walk is for a caller that needs the other direction —
-// a value counted as a file is a file the invocation does not read.
+// token that names no file costs nothing there, while a mismodelled arity that
+// swallowed a real path would let it escape. This walk is for a caller that
+// needs the other direction — a value counted as a file is a file the
+// invocation does not read.
 func (s utilitySpec) fileOperands(args []string) []string {
 	var ops []string
 	if s.operandsFn != nil {

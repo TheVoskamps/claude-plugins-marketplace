@@ -233,7 +233,7 @@ const redirectBashFileWorkKey = "redirect-bash-file-work"
 
 // redirectBashFileWorkMode reads the file-work redirect's mode from the
 // decoded key. An absent key and an empty value mean fileWorkOff, silently. A
-// value that is not one of the three modes also means fileWorkOff, and comes
+// value that is not one of the modes also means fileWorkOff, and comes
 // back with the warning it earns.
 func redirectBashFileWorkMode(node yaml.Node, configPath string) (fileWorkMode, string) {
 	value := ""

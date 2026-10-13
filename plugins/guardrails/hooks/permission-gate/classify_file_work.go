@@ -270,8 +270,8 @@ func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {
 }
 
 // sedQuiet reports whether a sed invocation carries -n (or --quiet/--silent),
-// reading each short-option cluster up to the first option sedValueFlags says
-// takes a value.
+// reading each short-option cluster up to the first option that takes a value:
+// one sedValueFlags names, or -i or -I.
 func sedQuiet(args []string) bool {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
