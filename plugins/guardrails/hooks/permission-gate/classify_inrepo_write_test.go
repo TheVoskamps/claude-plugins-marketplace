@@ -117,6 +117,30 @@ func TestInRepoWriteEscapeDeny(t *testing.T) {
 	}
 }
 
+// Every in-place spelling sedInPlace recognizes reaches write containment, so
+// one aimed at a sibling repository is denied there as a cross-repo write.
+func TestInRepoWriteSedInPlaceSpellingsContained(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	gitInit(t, filepath.Join(base, "sibling"))
+	root := canonicalize(repo)
+	ev := bashEvIn(t, root, "main")
+
+	for _, cmd := range []string{
+		`sed -Ei 's/a+/b/' ../sibling/f`,
+		`sed -ni 's/a/b/p' ../sibling/f`,
+		`sed -I '' 's/a/b/' ../sibling/f`,
+		`sed --in-place=.bak 's/a/b/' ../sibling/f`,
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket != BucketDeny || d.Operation != "bash-write:cross-repo" {
+			t.Errorf("%q: got %q/%q (%q), want deny/bash-write:cross-repo", cmd, d.Bucket, d.Operation, d.Reason)
+		}
+	}
+	wantBucket(t, classifyBash(`sed -Ei 's/a+/b/' f`, ev), BucketAllow, "contained sed -Ei")
+}
+
 // A write whose target lands under .git/ is denied, even though it
 // is technically in-repo / contained.
 func TestInRepoWriteGitTreeDenied(t *testing.T) {
@@ -292,6 +316,10 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-i", "--expression=s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-i", "-n", "s/a/b/", "f1"}, []string{"f1"}}, // -n bool before script
 		{[]string{"-i", "--bogus", "s/a/b/", "f1"}, nil},       // unknown flag → fail safe
+		{[]string{"-Ei", "s/a+/b/", "f1"}, []string{"f1"}},
+		{[]string{"-nEi.bak", "s/a/b/p", "f1"}, []string{"f1"}},
+		{[]string{"-I", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"-xi", "s/a/b/", "f1"}, nil}, // unknown option ahead of i → fail safe
 	}
 	for _, tc := range cases {
 		got := sedFileOperands(tc.args)

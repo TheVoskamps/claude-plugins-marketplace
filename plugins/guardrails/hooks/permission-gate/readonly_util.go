@@ -1118,11 +1118,52 @@ var sedValueFlags = map[string]bool{
 
 var sedPathValueFlags = map[string]bool{"-f": true, "--file": true}
 
+// sedInPlace reports whether a sed invocation edits a file in place: whether an
+// argument ahead of any `--` is the in-place flag, as sedInPlaceFlag defines
+// it. It is the one sed in-place rule; the read-only-utility track, the
+// in-repo-write track and the file-work redirect all decide on it.
+func sedInPlace(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if sedInPlaceFlag(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// sedInPlaceFlag reports whether one sed argument is the in-place flag:
+// `--in-place` or `--in-place=SUFFIX`, or a short-option cluster that reaches
+// `i` or `I` before any option sedValueFlags names — `-i`, `-i.bak`, `-I`,
+// `-ni`, `-Ei`. A value flag's separate value is not skipped, so a value
+// spelled like the flag counts as one and the rule errs toward in-place.
+func sedInPlaceFlag(a string) bool {
+	if a == "--in-place" || strings.HasPrefix(a, "--in-place=") {
+		return true
+	}
+	if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") {
+		return false
+	}
+	for j := 1; j < len(a); j++ {
+		if a[j] == 'i' || a[j] == 'I' {
+			return true
+		}
+		if sedValueFlags["-"+string(a[j])] {
+			return false
+		}
+	}
+	return false
+}
+
 // sedDefers reports whether a sed invocation must defer rather than allow. sed
-// is read-only EXCEPT for in-place editing (`-i` / `--in-place`, including the
-// BSD/GNU suffix forms `-i.bak` / `--in-place=.bak`). Any flag outside sed's
+// is read-only EXCEPT for in-place editing (sedInPlace). Any flag outside sed's
 // known read-only set also defers, so a future mutating flag fails safe.
 func sedDefers(args []string) bool {
+	if sedInPlace(args) {
+		return true
+	}
 	// Known read-only sed flags. `-e`/`-f`/`-l` take a following value; the
 	// value is consumed so it is not mistaken for an unknown flag.
 	valueFlags := sedValueFlags
@@ -1139,9 +1180,6 @@ func sedDefers(args []string) bool {
 		a := args[i]
 		if a == "--" {
 			return false // remaining tokens are operands, not flags
-		}
-		if a == "-i" || a == "--in-place" || strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
-			return true // in-place edit → mutating
 		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			continue // operand (script or file path)

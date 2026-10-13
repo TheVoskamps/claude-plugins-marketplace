@@ -397,23 +397,11 @@ func mkdirTouchOperands(args []string) []string {
 }
 
 // sedMutates reports whether a sed invocation is the in-place (mutating) form
-// the in-repo-write classifier should handle. It reuses sedDefers, which the
-// read-only-utility classifier uses to DEFER the mutating form: sedDefers
-// returns true for `-i`/`--in-place` (any suffix form) AND for any unrecognized
-// flag. We only want to claim the genuine in-place form here, so we test for the
-// `-i` token directly; a non-`-i` form that merely trips sedDefers (an unknown
-// flag) is left to defer rather than mis-classified as an in-repo write.
+// the in-repo-write classifier should handle: sedInPlace (readonly_util.go). A
+// form that merely trips sedDefers for an unknown flag is not claimed here, and
+// is left to defer rather than mis-classified as an in-repo write.
 func sedMutates(args []string, _ simpleCommand) bool {
-	for _, a := range args {
-		if a == "--" {
-			return false
-		}
-		if a == "-i" || a == "--in-place" ||
-			strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
-			return true
-		}
-	}
-	return false
+	return sedInPlace(args)
 }
 
 // sedFileOperands returns the FILE operands of a sed invocation, excluding the
@@ -447,9 +435,17 @@ func sedFileOperands(args []string) []string {
 			sawDashDash = true
 			continue
 		}
-		// The in-place flag (any spelling/suffix) is what put us here; skip it.
-		if a == "-i" || a == "--in-place" ||
-			strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
+		// The in-place flag (sedInPlaceFlag) is what put us here; skip it. Every
+		// option a short cluster carries ahead of its `i` or `I` must be one
+		// boolFlags names, or the cluster is one this walk does not model.
+		if sedInPlaceFlag(a) {
+			if !strings.HasPrefix(a, "--") {
+				for _, c := range a[1:strings.IndexAny(a, "iI")] {
+					if !boolFlags["-"+string(c)] {
+						return nil
+					}
+				}
+			}
 			continue
 		}
 		if !strings.HasPrefix(a, "-") || a == "-" {

@@ -595,6 +595,42 @@ func TestSortUniqDefersHelpers(t *testing.T) {
 	}
 }
 
+// sedInPlace recognizes every in-place spelling, reads a short cluster only up
+// to its first value-taking option, and stops at `--`.
+func TestSedInPlace(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-i", "s/a/b/", "f"}, true},
+		{[]string{"-i.bak", "s/a/b/", "f"}, true},
+		{[]string{"--in-place", "s/a/b/", "f"}, true},
+		{[]string{"--in-place=.bak", "s/a/b/", "f"}, true},
+		{[]string{"-I", "", "s/a/b/", "f"}, true},
+		{[]string{"-ni", "s/a/b/p", "f"}, true},
+		{[]string{"-Ei", "s/a+/b/", "f"}, true},
+		{[]string{"-nEI", "s/a/b/", "f"}, true},
+		{[]string{"-e", "-i", "f"}, true},
+		{[]string{"-n", "s/a/b/p", "f"}, false},
+		{[]string{"-ei", "f"}, false},
+		{[]string{"-f", "inline.sed", "f"}, false},
+		{[]string{"--", "-i-looking-file"}, false},
+	} {
+		if got := sedInPlace(tc.args); got != tc.want {
+			t.Errorf("sedInPlace(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := sedDefers(tc.args); tc.want && !got {
+			t.Errorf("sedDefers(%q) = false; an in-place form must defer", tc.args)
+		}
+		if got := sedMutates(tc.args, simpleCommand{}); got != tc.want {
+			t.Errorf("sedMutates(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := fileWorkInPlace("sed", tc.args); got != tc.want {
+			t.Errorf("fileWorkInPlace(sed, %q) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
 // TestReadOnlyUtilitySpecHelpers exercises the per-program defersForm
 // predicates directly, covering the flag-parsing edges (value flags, attached
 // long-flag values, the `--` operand boundary).

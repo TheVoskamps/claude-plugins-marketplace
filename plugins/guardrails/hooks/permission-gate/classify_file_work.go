@@ -304,42 +304,13 @@ func sedQuiet(args []string) bool {
 }
 
 // fileWorkInPlace reports whether prog with args edits a file in place: sed's
-// in-place form as the in-repo-write track recognizes it (sedMutates,
-// classify_inrepo_write.go) or as sedInPlaceCluster does, or `perl -i`.
+// in-place form (sedInPlace, readonly_util.go), or `perl -i`.
 func fileWorkInPlace(prog string, args []string) bool {
 	switch prog {
 	case "sed":
-		return sedMutates(args, simpleCommand{}) || sedInPlaceCluster(args)
+		return sedInPlace(args)
 	case "perl":
 		return perlInPlace(args)
-	}
-	return false
-}
-
-// sedInPlaceCluster reports whether a sed invocation carries -i or -I inside a
-// short-option cluster (`-ni`, `-Ei`), or -I on its own: the spellings
-// sedMutates does not match. Each cluster is read up to the first option that
-// takes a value, one sedValueFlags names.
-func sedInPlaceCluster(args []string) bool {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			return false
-		}
-		if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") || a == "-" {
-			continue
-		}
-		for j := 1; j < len(a); j++ {
-			if a[j] == 'i' || a[j] == 'I' {
-				return true
-			}
-			if sedValueFlags["-"+string(a[j])] {
-				if j == len(a)-1 {
-					i++
-				}
-				break
-			}
-		}
 	}
 	return false
 }
