@@ -23,7 +23,8 @@ const logEnvVar = "PERMISSION_GATE_LOG"
 // hit; the analysis says WHY, which is what makes a DEFER record usable as a
 // tuning input for the downstream automode evaluator rather than a bare tally.
 // It is empty for a bare deferToPipeline, which by construction has no account
-// to give.
+// to give. A warning record (logWarning) carries the warning text there instead,
+// under the logWarningBucket bucket.
 type logRecord struct {
 	Timestamp string `json:"ts"`
 	AgentType string `json:"agent_type"`
