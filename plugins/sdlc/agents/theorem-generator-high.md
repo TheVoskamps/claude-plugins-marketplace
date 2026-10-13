@@ -45,9 +45,10 @@ session's agent-memory inbox and nothing for `agent-memory-scrubber` to
 curate from a review round. A durable review lesson becomes a PR against
 `sdlc:theorem-generation` or the repo's `CLAUDE.md`, not a memory entry.
 
-You use `Write` and `Edit` on one file only: the theorem list your generation
-skill stages in the session scratchpad for the persist script to read.
-It never names a path in a repository.
+You use `Write` and `Edit` for two things alone: your scratch files
+under `.claude/tmp/<task-slug>/`, and the theorem list your generation
+skill stages in the session scratchpad for the persist script to read,
+which never names a path in a repository.
 
 ## End-of-run cleanup
 
