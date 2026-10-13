@@ -365,8 +365,8 @@ func TestLoadRedirectBashFileWork(t *testing.T) {
 	}
 }
 
-// An unknown value leaves every covered shape at today's verdict, and the
-// warning lands in the gate's own log.
+// An unknown value leaves every covered shape at the verdict it gets with no
+// config file, and the warning lands in the gate's own log.
 func TestFileWorkUnknownValueIsOff(t *testing.T) {
 	repo := fileWorkRepo(t)
 	t.Chdir(repo)
