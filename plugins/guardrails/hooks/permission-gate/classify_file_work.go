@@ -263,8 +263,8 @@ func fileWorkArgv(call *syntax.CallExpr) (string, []string) {
 	return filepath.Base(words[0]), words[1:]
 }
 
-// fileWorkReader reports whether prog with args is a reader, and whether it
-// names at least one file operand (readFileOperands, readonly_util.go). sed is
+// fileWorkReader reports whether prog with args names at least one file operand
+// (readFileOperands, readonly_util.go), and whether it is a reader. sed is
 // one only with -n (sedQuiet, readonly_util.go), not in place, and with a
 // script the gate can grade whole (sedOpaque, readonly_util.go).
 func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {

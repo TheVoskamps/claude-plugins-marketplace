@@ -1229,22 +1229,15 @@ func TestReadTrackFileFlagValuesAreContained(t *testing.T) {
 		"sed -i reading an in-repo script")
 }
 
-// TestPathValueFlagsAreDeclaredValueFlags is the structural guard on the two
-// tables: pathFlagValues finds a value only for a flag its walk knows to be
-// value-taking, so a pathValueFlags entry missing from valueFlags would be
+// TestPathValueFlagsAreDeclaredValueFlags is the structural guard on the read
+// track's table: pathFlagValues finds a value only for a flag its walk knows to
+// be value-taking, so a pathValueFlags entry missing from valueFlags would be
 // silently inert — the exact failure this class is about.
 func TestPathValueFlagsAreDeclaredValueFlags(t *testing.T) {
 	for prog, spec := range readOnlyUtilities {
 		for flag := range spec.pathValueFlags {
 			if !spec.valueFlags[flag] {
 				t.Errorf("read track %q: pathValueFlags has %q but valueFlags does not", prog, flag)
-			}
-		}
-	}
-	for prog, spec := range inRepoWriters {
-		for flag := range spec.pathValueFlags {
-			if !spec.valueFlags[flag] {
-				t.Errorf("write track %q: pathValueFlags has %q but valueFlags does not", prog, flag)
 			}
 		}
 	}

@@ -40,20 +40,12 @@ import (
 type inRepoWriteSpec struct {
 	operandsFn func(args []string) []string
 	mutatesFn  func(args []string, sc simpleCommand) bool
-	// pathValueFlags names the flags whose VALUE is a path the program READS,
-	// and valueFlags the program's complete value-taking set that locates such
-	// a value in every spelling getopt gives it, which is the whole set for
-	// these programs (see pathFlagValues in
-	// readonly_util.go for the spellings and the getopt/pflag split). They are
-	// graded through the READ containment (containReadSources), never added to
-	// the write operands: the file is read, not written, and the read grading
-	// can only ever withhold this classifier's ALLOW, never earn it. Same
-	// meaning as utilitySpec's fields of these names on the read track.
-	pathValueFlags map[string]bool
-	valueFlags     map[string]bool
-	// pathValuesFn, when set, returns those path values by the program's own
-	// option grammar in place of the pathFlagValues walk, as utilitySpec's
-	// field of this name does on the read track.
+	// pathValuesFn, when set, returns the paths the program READS from its
+	// arguments, by its own option grammar, as utilitySpec's field of this name
+	// does on the read track. They are graded through the READ containment
+	// (containReadSources), never added to the write operands: the file is
+	// read, not written, and the read grading can only ever withhold this
+	// classifier's ALLOW, never earn it.
 	pathValuesFn func(args []string) []string
 	// defersFn, when set, reports a form whose writes the operand parse cannot
 	// see whole. It withholds the ALLOW, and only once containment has found no
@@ -151,7 +143,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// defective scratchpad root, an unresolvable repo boundary) is held back
 	// until after the write walk, so a write escape still outranks it — the same
 	// ordering containWriteOperands applies to its own recorded defer.
-	readSources := pathFlagValues(args, spec.valueFlags, spec.pathValueFlags)
+	var readSources []string
 	if spec.pathValuesFn != nil {
 		readSources = spec.pathValuesFn(args)
 	}
