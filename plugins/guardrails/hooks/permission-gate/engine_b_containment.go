@@ -33,9 +33,8 @@ type repoContext struct {
 	// every working tree but a linked worktree, whose own git directory sits
 	// under commonDir's worktrees/.
 	gitDir string
-	// primaryClone is the primary clone root derived from commonDir
-	// (commonDir is <primary-clone>/.git for a normal clone). Empty if it
-	// cannot be derived.
+	// primaryClone is the primary clone's root (primaryCloneRoot). Empty if
+	// it cannot be derived.
 	primaryClone string
 }
 
@@ -115,12 +114,33 @@ func resolveRepoContext(eventCWD string) (*repoContext, error) {
 	}
 	if common != "" {
 		rc.commonDir = canonicalize(common)
-		// commonDir is typically <primary-clone>/.git; the primary clone is
-		// its parent. For a bare/linked layout this still yields the dir that
-		// owns the shared object store, which is what the worktree guard protects.
-		rc.primaryClone = canonicalize(filepath.Dir(rc.commonDir))
+		rc.primaryClone = primaryCloneRoot(rc)
 	}
 	return rc, nil
+}
+
+// primaryCloneRoot is the root of a resolved context's primary clone. A primary
+// clone is its own, wherever its git directory sits. A linked worktree's is the
+// work tree its common git directory's core.worktree names, read relative to
+// that directory, as a submodule's common directory names one; with none set,
+// it is that directory's parent when the directory is a `.git`. Otherwise it is
+// "": a bare repository has no work tree, and git records none for a clone made
+// with --separate-git-dir, so the common directory is all there is to guard.
+func primaryCloneRoot(rc *repoContext) string {
+	if !rc.isLinkedWorktree() {
+		return rc.topLevel
+	}
+	if wt, err := runGit(rc.commonDir, "config", "--get", "core.worktree"); err == nil {
+		wt = strings.TrimRight(wt, "\n")
+		if !filepath.IsAbs(wt) {
+			wt = filepath.Join(rc.commonDir, wt)
+		}
+		return canonicalize(wt)
+	}
+	if filepath.Base(rc.commonDir) == ".git" {
+		return canonicalize(filepath.Dir(rc.commonDir))
+	}
+	return ""
 }
 
 // runGit executes `git -C <cwd> <args...>` with a timeout. Empty stdout or a

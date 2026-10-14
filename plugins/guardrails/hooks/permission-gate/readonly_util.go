@@ -1643,10 +1643,34 @@ func sedWriteReadSources(args []string) []string {
 }
 
 // sedDefers reports whether a sed invocation must defer rather than allow:
-// when it writes a file (sedWrites), or carries an option outside sed's table,
-// so a mutating option the table does not know fails safe.
+// when it writes a file (sedWrites), runs a script the gate cannot grade whole
+// (sedOpaque), or carries an option outside sed's table, so a mutating option
+// the table does not know fails safe.
 func sedDefers(args []string) bool {
-	return sedWrites(args) || sedUnknown(sedReadings(args))
+	return sedWrites(args) || sedOpaque(args) || sedUnknown(sedReadings(args))
+}
+
+// sedOpaque reports whether a sed invocation, in any reading of its argv and
+// either reading of its script, runs a script the gate cannot grade whole: one
+// it reads from a file (-f, --file), whose commands the gate never sees, or one
+// that runs a shell command through its `e` command or the `e` flag of `s`.
+// No track allows it, and the file-work redirect does not deny it.
+func sedOpaque(args []string) bool {
+	for _, p := range sedReadings(args) {
+		if len(p.scriptFiles) > 0 {
+			return true
+		}
+		script, ok := p.script()
+		if !ok {
+			continue
+		}
+		for _, brackets := range []bool{false, true} {
+			if sedScriptExecutes(script, brackets) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sedCommandFiles returns the files a sed script names in its own commands:
@@ -1662,9 +1686,22 @@ func sedDefers(args []string) bool {
 // sed's compile; the files named before it are kept, since sed opens a `w`
 // file as it compiles the command.
 func sedCommandFiles(script string, brackets bool) (reads, writes []string) {
+	w := walkSedScript(script, brackets)
+	return w.reads, w.writes
+}
+
+// sedScriptExecutes reports whether a sed script runs a shell command: its `e`
+// command, or the `e` flag of an `s` command. The walk is sedCommandFiles'.
+func sedScriptExecutes(script string, brackets bool) bool {
+	return walkSedScript(script, brackets).executes
+}
+
+// walkSedScript walks script, with brackets as for sedCommandFiles, and
+// returns the finished walk.
+func walkSedScript(script string, brackets bool) *sedScriptWalker {
 	w := &sedScriptWalker{s: script, brackets: brackets}
 	w.walk()
-	return w.reads, w.writes
+	return w
 }
 
 // sedScriptWalker walks a sed script command by command.
@@ -1673,6 +1710,8 @@ type sedScriptWalker struct {
 	i             int
 	brackets      bool
 	reads, writes []string
+	// executes: an `e` command or an `s` command's `e` flag was read.
+	executes bool
 }
 
 // peek is the byte at the walk's position, or 0 at the end of the script.
@@ -1861,7 +1900,11 @@ func (w *sedScriptWalker) command() bool {
 		return true
 	case '}':
 		return w.endOfCommand()
-	case '#', 'e':
+	case '#':
+		w.toEOL()
+		return true
+	case 'e':
+		w.executes = true
 		w.toEOL()
 		return true
 	case 'a', 'i', 'c':
@@ -1945,7 +1988,10 @@ func (w *sedScriptWalker) substitute() bool {
 			w.i++
 			w.write(w.filename())
 			return true
-		case strings.IndexByte("gpeiImM0123456789 \t", c) >= 0:
+		case c == 'e':
+			w.executes = true
+			w.i++
+		case strings.IndexByte("gpiImM0123456789 \t", c) >= 0:
 			w.i++
 		default:
 			return w.endOfCommand()

@@ -598,9 +598,9 @@ func TestSortUniqDefersHelpers(t *testing.T) {
 // sedInPlace recognizes every in-place spelling, reads a short cluster only up
 // to its first option whose value is the rest of the cluster, takes no option
 // value for the in-place option, and stops at `--`. Every case uses only
-// options in sed's table and a script that writes no file, so sedDefers, which
-// defers on a write and on an option outside the table, agrees with it in both
-// directions.
+// options in sed's table and a command-line script that writes no file and runs
+// no shell command, so sedDefers, which defers on a write, on such a script and
+// on an option outside the table, agrees with it in both directions.
 func TestSedInPlace(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -625,7 +625,6 @@ func TestSedInPlace(t *testing.T) {
 		{[]string{"-n", "s/a/b/p", "f"}, false},
 		{[]string{"-ei", "f"}, false},
 		{[]string{"-e", "s/a/b/", "-n", "f"}, false},
-		{[]string{"-f", "inline.sed", "f"}, false},
 		{[]string{"-l", "5", "s/a/b/", "f"}, false},
 		{[]string{"-l5", "s/a/b/", "f"}, false},
 		{[]string{"--line-length=5", "s/a/b/", "f"}, false},
@@ -643,6 +642,52 @@ func TestSedInPlace(t *testing.T) {
 		}
 		if got := fileWorkInPlace("sed", tc.args); got != tc.want {
 			t.Errorf("fileWorkInPlace(sed, %q) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
+// sedOpaque holds a script read from a file in every spelling of -f and
+// --file, and a script that runs a shell command through `e` or `s///e`, in any
+// reading of the argv and of the script; a script that only spells an `e`
+// elsewhere is not one. sedDefers agrees wherever the invocation writes no file.
+func TestSedOpaque(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-f", "s.sed", "f"}, true},
+		{[]string{"-n", "-f", "s.sed", "f"}, true},
+		{[]string{"-fs.sed", "f"}, true},
+		{[]string{"-nf", "s.sed", "f"}, true},
+		{[]string{"--file=s.sed", "f"}, true},
+		{[]string{"--fi", "s.sed", "f"}, true},
+		{[]string{"1e date", "f"}, true},
+		{[]string{"-n", "e date", "f"}, true},
+		{[]string{"/x/e", "f"}, true},
+		{[]string{"s/a/b/e", "f"}, true},
+		{[]string{"s/a/b/ge", "f"}, true},
+		{[]string{"-e", "p", "-e", "/x/e echo", "f"}, true},
+		{[]string{"--expression=1e date", "f"}, true},
+		// BSD reads the argument after a bare -i as its suffix, so the script
+		// is the one after it.
+		{[]string{"-n", "-i", "", "1e date", "f"}, true},
+		// BSD takes the `/` in the bracket expression literally, so `e` is the
+		// command's flag.
+		{[]string{"s/[/]/x/e", "f"}, true},
+		{[]string{"-n", "1p", "f"}, false},
+		{[]string{"s/e/x/", "f"}, false},
+		{[]string{"/e/p", "f"}, false},
+		{[]string{"1a e", "f"}, false},
+		{[]string{"y/e/x/", "f"}, false},
+		{[]string{"-n", "# e date", "f"}, false},
+		{[]string{"-e", "-f", "f"}, false},
+		{[]string{"--", "-f", "f"}, false},
+	} {
+		if got := sedOpaque(tc.args); got != tc.want {
+			t.Errorf("sedOpaque(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := sedDefers(tc.args); got != tc.want && !sedWrites(tc.args) {
+			t.Errorf("sedDefers(%q) = %v, want %v", tc.args, got, tc.want)
 		}
 	}
 }

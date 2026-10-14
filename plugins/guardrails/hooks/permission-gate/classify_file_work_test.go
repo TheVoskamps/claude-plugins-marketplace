@@ -163,6 +163,11 @@ var uncoveredShapes = []string{
 	"find . -name '*.go'",
 	"ls -la",
 	"sed 's/a/b/' f.txt",
+	"sed -n -f s.sed f.txt",
+	"sed -i -f s.sed f.txt",
+	"sed -n '1e date' f.txt",
+	"sed -i 's/a/b/e' f.txt",
+	"cat f.txt | sed -n -f s.sed",
 	"cat",
 	"cat -",
 	"echo hi",
@@ -263,16 +268,18 @@ func TestFileWorkWorktreeMode(t *testing.T) {
 
 	// A primary clone whose git directory is elsewhere does not fire; a linked
 	// worktree of one does.
-	submodule, separate, submoduleWorktree := primaryCloneLayouts(t)
-	for _, cwd := range []string{submodule, separate} {
+	l := primaryCloneLayouts(t)
+	for _, cwd := range []string{l.submodule, l.separate} {
 		if d := classifyBash("cat f.txt", fileWorkEvent(cwd, "issue-developer")); strings.HasPrefix(d.Operation,
 			"bash-file-work:") {
 			t.Errorf("primary clone %s: denied by the redirect (%q)", cwd, d.Reason)
 		}
 	}
-	if d := classifyBash("cat f.txt", fileWorkEvent(submoduleWorktree, "issue-developer")); d.Operation !=
-		"bash-file-work:read" {
-		t.Errorf("worktree of a submodule: got %q/%q, want deny/bash-file-work:read", d.Bucket, d.Operation)
+	for _, cwd := range []string{l.submoduleWorktree, l.separateWorktree} {
+		if d := classifyBash("cat f.txt", fileWorkEvent(cwd, "issue-developer")); d.Operation !=
+			"bash-file-work:read" {
+			t.Errorf("linked worktree %s: got %q/%q, want deny/bash-file-work:read", cwd, d.Bucket, d.Operation)
+		}
 	}
 }
 
@@ -333,6 +340,49 @@ func TestFileWorkOutranksAskAndDefer(t *testing.T) {
 	}
 }
 
+// A sed that takes a script file, or whose script runs a shell command, is
+// deferred whether the redirect is off or on, in place or not, while a file it
+// names that escapes the repository is still denied.
+func TestSedOpaqueDefersOnEveryTrack(t *testing.T) {
+	repo := fileWorkRepo(t)
+	gitInit(t, filepath.Join(filepath.Dir(repo), "sibling"))
+	t.Chdir(repo)
+	deferred := []string{
+		"sed -f s.sed f.txt",
+		"sed -n -f s.sed f.txt",
+		"sed -n --fi=s.sed f.txt",
+		"sed -i -f s.sed f.txt",
+		"sed -i --file s.sed f.txt",
+		"sed -n '1e date' f.txt",
+		"sed 's/a/b/e' f.txt",
+		"sed -i 's/a/b/e' f.txt",
+		"sed -i '1e date' f.txt",
+		"sed -n 's/a/b/e' f.txt | cat",
+		"cat f.txt | sed -n -f s.sed",
+	}
+	denied := []string{
+		"sed -i -f s.sed ../sibling/f.txt",
+		"sed -n -f ../sibling/s.sed f.txt",
+		"sed -n '1e date' ../sibling/f.txt",
+		"sed -i 's/a/b/e' ../sibling/f.txt",
+	}
+	for _, mode := range []string{"", fileWorkModeConfig("always")} {
+		fileWorkConfig(t, mode)
+		for _, cmd := range deferred {
+			if d := classifyBash(cmd, fileWorkEvent(repo, "main")); d.Bucket != BucketDefer {
+				t.Errorf("config %q, %q: got %q/%q (%q), want defer", mode, cmd, d.Bucket, d.Operation, d.Reason)
+			}
+		}
+		for _, cmd := range denied {
+			d := classifyBash(cmd, fileWorkEvent(repo, "main"))
+			if d.Bucket != BucketDeny || strings.HasPrefix(d.Operation, "bash-file-work:") {
+				t.Errorf("config %q, %q: got %q/%q (%q), want a containment deny", mode, cmd, d.Bucket,
+					d.Operation, d.Reason)
+			}
+		}
+	}
+}
+
 // runGitT runs git with args and fails the test on an error.
 func runGitT(t *testing.T, args ...string) {
 	t.Helper()
@@ -341,11 +391,18 @@ func runGitT(t *testing.T, args ...string) {
 	}
 }
 
-// primaryCloneLayouts builds the two primary clones whose git directory is not
-// at <root>/.git — a submodule checkout, and a clone made with
-// --separate-git-dir — plus a linked worktree of the submodule, and returns
-// their roots in that order.
-func primaryCloneLayouts(t *testing.T) (submodule, separate, submoduleWorktree string) {
+// cloneLayouts are the two primary clones whose git directory is not at
+// <root>/.git — a submodule checkout, and a clone made with --separate-git-dir
+// — and a linked worktree of each, every path canonical.
+type cloneLayouts struct {
+	submodule, submoduleWorktree, separate, separateWorktree string
+	// submoduleGitDir is the submodule's common git directory, and
+	// separateGitDir the separate clone's.
+	submoduleGitDir, separateGitDir string
+}
+
+// primaryCloneLayouts builds the cloneLayouts.
+func primaryCloneLayouts(t *testing.T) cloneLayouts {
 	t.Helper()
 	base := t.TempDir()
 	super := filepath.Join(base, "super")
@@ -353,29 +410,42 @@ func primaryCloneLayouts(t *testing.T) (submodule, separate, submoduleWorktree s
 	upstream := filepath.Join(base, "upstream")
 	gitInit(t, upstream)
 	runGitT(t, "-C", super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", upstream, "sub")
-	submodule = filepath.Join(super, "sub")
-	submoduleWorktree = filepath.Join(base, "sub-wt")
+	submodule := filepath.Join(super, "sub")
+	submoduleWorktree := filepath.Join(base, "sub-wt")
 	runGitT(t, "-C", submodule, "worktree", "add", "-q", "--detach", submoduleWorktree)
 
-	separate = filepath.Join(base, "separate")
-	runGitT(t, "init", "-q", "--separate-git-dir", filepath.Join(base, "separate.git"), separate)
-	return canonicalize(submodule), canonicalize(separate), canonicalize(submoduleWorktree)
+	separate := filepath.Join(base, "separate")
+	separateGitDir := filepath.Join(base, "separate.git")
+	runGitT(t, "init", "-q", "--separate-git-dir", separateGitDir, separate)
+	runGitT(t, "-C", separate, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+		"commit", "-q", "--allow-empty", "-m", "init")
+	separateWorktree := filepath.Join(base, "separate-wt")
+	runGitT(t, "-C", separate, "worktree", "add", "-q", "--detach", separateWorktree)
+	return cloneLayouts{
+		submodule:         canonicalize(submodule),
+		submoduleWorktree: canonicalize(submoduleWorktree),
+		separate:          canonicalize(separate),
+		separateWorktree:  canonicalize(separateWorktree),
+		submoduleGitDir:   canonicalize(filepath.Join(super, ".git", "modules", "sub")),
+		separateGitDir:    canonicalize(separateGitDir),
+	}
 }
 
 // isLinkedWorktree tells a linked worktree's context from a primary clone's,
 // whether the primary clone keeps its git directory at its root or elsewhere.
 func TestRepoContextIsLinkedWorktree(t *testing.T) {
 	primary, wt := setupWorktree(t)
-	submodule, separate, submoduleWorktree := primaryCloneLayouts(t)
+	l := primaryCloneLayouts(t)
 	for _, c := range []struct {
 		cwd  string
 		want bool
 	}{
 		{primary, false},
 		{wt, true},
-		{submodule, false},
-		{separate, false},
-		{submoduleWorktree, true},
+		{l.submodule, false},
+		{l.separate, false},
+		{l.submoduleWorktree, true},
+		{l.separateWorktree, true},
 	} {
 		rc, err := resolveRepoContext(c.cwd)
 		if err != nil {
@@ -383,6 +453,60 @@ func TestRepoContextIsLinkedWorktree(t *testing.T) {
 		}
 		if got := rc.isLinkedWorktree(); got != c.want {
 			t.Errorf("isLinkedWorktree() at %s = %v, want %v", c.cwd, got, c.want)
+		}
+	}
+}
+
+// primaryClone is the primary clone's root in every layout git records one
+// for, and empty for a linked worktree of a --separate-git-dir clone, for which
+// git records none.
+func TestRepoContextPrimaryClone(t *testing.T) {
+	primary, wt := setupWorktree(t)
+	primary, wt = canonicalize(primary), canonicalize(wt)
+	l := primaryCloneLayouts(t)
+	for _, c := range []struct{ cwd, want string }{
+		{primary, primary},
+		{wt, primary},
+		{l.submodule, l.submodule},
+		{l.submoduleWorktree, l.submodule},
+		{l.separate, l.separate},
+		{l.separateWorktree, ""},
+	} {
+		rc, err := resolveRepoContext(c.cwd)
+		if err != nil {
+			t.Fatalf("resolveRepoContext(%s): %v", c.cwd, err)
+		}
+		if rc.primaryClone != c.want {
+			t.Errorf("primaryClone at %s = %q, want %q", c.cwd, rc.primaryClone, c.want)
+		}
+	}
+}
+
+// From a linked worktree of a submodule or a --separate-git-dir clone, the
+// worktree-escape check holds the primary clone and the common git directory,
+// and nothing beside them: a path next to the common git directory is another
+// repository.
+func TestWorktreeEscapeInPrimaryCloneLayouts(t *testing.T) {
+	fileWorkConfig(t, "")
+	l := primaryCloneLayouts(t)
+	for _, c := range []struct {
+		cwd, target string
+		want        containmentResult
+	}{
+		{l.submoduleWorktree, filepath.Join(l.submodule, "f.txt"), escapeWorktree},
+		{l.submoduleWorktree, filepath.Join(l.submoduleGitDir, "config"), escapeWorktree},
+		{l.submoduleWorktree, filepath.Join(filepath.Dir(l.submoduleGitDir), "other", "config"), escapeRepo},
+		{l.separateWorktree, filepath.Join(l.separateGitDir, "config"), escapeWorktree},
+		{l.separateWorktree, filepath.Join(filepath.Dir(l.separateGitDir), "other", "f.txt"), escapeRepo},
+		{l.submodule, filepath.Join(filepath.Dir(l.submoduleGitDir), "other", "config"), escapeRepo},
+		{l.separate, filepath.Join(filepath.Dir(l.separateGitDir), "other", "f.txt"), escapeRepo},
+	} {
+		rc, err := resolveRepoContext(c.cwd)
+		if err != nil {
+			t.Fatalf("resolveRepoContext(%s): %v", c.cwd, err)
+		}
+		if got, _, _ := testContainmentFrom(c.target, c.cwd, rc, true, false, false, nil); got != c.want {
+			t.Errorf("from %s, %s: got %v, want %v", c.cwd, c.target, got, c.want)
 		}
 	}
 }

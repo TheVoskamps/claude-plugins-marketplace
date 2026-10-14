@@ -55,6 +55,10 @@ type inRepoWriteSpec struct {
 	// option grammar in place of the pathFlagValues walk, as utilitySpec's
 	// field of this name does on the read track.
 	pathValuesFn func(args []string) []string
+	// defersFn, when set, reports a form whose writes the operand parse cannot
+	// see whole. It withholds the ALLOW, and only once containment has found no
+	// escape among the files the parse does see, so an escape still denies.
+	defersFn func(args []string) bool
 }
 
 // inRepoWriters maps a mutating program basename to its operand-extraction spec.
@@ -80,7 +84,10 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	// `R` reads, and the file operands of a sed that does not edit them in
 	// place are files sed READS, so sedWriteReadSources hands them to the read
 	// containment rather than them being dropped or mistaken for write targets.
-	"sed": {operandsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources},
+	// A script read from a file, or one that runs a shell command, can write
+	// files the parse never sees, so sedOpaque defers it.
+	"sed": {operandsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources,
+		defersFn: sedOpaque},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
 	// real-file form; `tee /dev/null` stays on the read-only-utility track.
 	"tee": {operandsFn: teeTargets, mutatesFn: teeMutates},
@@ -159,6 +166,11 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	}
 	if !inputClean {
 		return inputEscape
+	}
+	if spec.defersFn != nil && spec.defersFn(args) {
+		return deferJudgment("bash-write:opaque-script", fmt.Sprintf(
+			"'%s' runs a script the gate cannot grade whole — one read from a file, or one that runs a shell "+
+				"command — so the files it writes cannot be proven in-repo.", prog))
 	}
 	// "a harness session scratchpad", not "THIS session's": the carve-out
 	// covers the whole per-uid prefix, so a write into another session's
