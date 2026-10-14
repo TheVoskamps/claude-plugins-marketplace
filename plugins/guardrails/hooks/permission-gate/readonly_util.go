@@ -89,6 +89,18 @@ type utilitySpec struct {
 	// begins inside a bundled short-flag cluster (`grep -rf PATFILE`).
 	pathValueFlags map[string]bool
 	valueFlags     map[string]bool
+	// pathValuesFn returns the path-valued flag values of THIS invocation, read
+	// by the utility's own option grammar. When set it is used in place of the
+	// pathFlagValues walk over valueFlags and pathValueFlags, for a utility whose
+	// option spellings that walk cannot read (sed's abbreviated long options).
+	pathValuesFn func(args []string) []string
+	// boolFlags, when set, holds every long option of the utility that takes
+	// no value, so that with valueFlags it holds all of the utility's long
+	// options. A utility that has one accepts a long option spelled as any
+	// unique prefix of its name, as getopt_long and less's own parser do, and
+	// fileOperands resolves such a prefix against both tables. Only
+	// fileOperands reads it.
+	boolFlags map[string]bool
 	// plusOptions is true when an argument starting with `+` is an option, not
 	// a file: tail's obsolete `+N` count, or less's `+cmd`. Only fileOperands
 	// reads it.
@@ -97,7 +109,7 @@ type utilitySpec struct {
 
 // operands returns the utility's read path operands for this invocation:
 // its own operand grammar when it has one and the plain non-flag walk
-// otherwise, plus the values of any pathValueFlags it carries.
+// otherwise, plus the values of any path-valued flags it carries.
 //
 // The flag values are APPENDED to what the operand walk produced, never
 // substituted for it, so this addition can only ever put MORE paths through
@@ -109,7 +121,16 @@ func (s utilitySpec) operands(args []string) []string {
 	if s.operandsFn != nil {
 		ops = s.operandsFn(args)
 	}
-	return dedupeOperands(append(ops, pathFlagValues(args, s.valueFlags, s.pathValueFlags)...))
+	return dedupeOperands(append(ops, s.pathValues(args)...))
+}
+
+// pathValues returns the values of the path-valued flags this invocation
+// carries: pathValuesFn's when the utility has one, pathFlagValues' otherwise.
+func (s utilitySpec) pathValues(args []string) []string {
+	if s.pathValuesFn != nil {
+		return s.pathValuesFn(args)
+	}
+	return pathFlagValues(args, s.valueFlags, s.pathValueFlags)
 }
 
 // fileOperands returns the operands of this invocation that name a file the
@@ -129,7 +150,7 @@ func (s utilitySpec) fileOperands(args []string) []string {
 	if s.operandsFn != nil {
 		ops = s.operandsFn(args)
 	} else {
-		ops = getoptOperands(args, s.valueFlags, s.plusOptions)
+		ops = getoptOperands(args, s.valueFlags, s.boolFlags, s.plusOptions)
 	}
 	out := ops[:0:0]
 	for _, op := range ops {
@@ -158,16 +179,24 @@ func readFileOperands(prog string, args []string) []string {
 // readFileOperands reads it with. classifyPathReader's own containment keeps
 // the plain non-flag walk.
 var pathReaderFileSpecs = map[string]utilitySpec{
-	"less": {valueFlags: lessValueFlags, plusOptions: true},
+	"less": {valueFlags: lessValueFlags, boolFlags: lessBoolFlags, plusOptions: true},
 }
 
-// lessValueFlags is less's value-taking option set.
+// lessValueFlags and lessBoolFlags hold every option in the option table
+// (opttbl.c) of less v581 or of less's source at v712, the pager macOS,
+// FreeBSD and Linux all ship. An option of type STRING or NUMBER
+// takes a value, in the same argument or the next one, and is in
+// lessValueFlags, in its short form when it has one and its long form. Every
+// other option is in lessBoolFlags by its long name, a triple option once in
+// lower case and once in upper case, since less matches a triple option's long
+// name in either; a short option that takes no value needs no entry.
 var lessValueFlags = map[string]bool{
 	"-b": true, "--buffers": true,
 	"-D": true, "--color": true,
 	"-h": true, "--max-back-scroll": true,
 	"-j": true, "--jump-target": true,
-	"-k": true, "--lesskey-file": true, "--lesskey-src": true,
+	"-k": true, "--lesskey-file": true,
+	"--lesskey-content": true, "--lesskey-src": true,
 	"-o": true, "--log-file": true,
 	"-O": true, "--LOG-FILE": true,
 	"-p": true, "--pattern": true,
@@ -177,17 +206,89 @@ var lessValueFlags = map[string]bool{
 	"-x": true, "--tabs": true,
 	"-y": true, "--max-forw-scroll": true,
 	"-z": true, "--window": true,
-	"-#": true, "--shift": true,
 	"-\"": true, "--quotes": true,
+	"-#": true, "--shift": true,
+	"--rscroll": true, "--emouse": true, "--wheel-lines": true,
+	"--line-num-width": true, "--status-col-width": true, "--time-file-size": true,
+	"--header": true, "--search-options": true, "--modelines": true,
+	"--intr": true, "--cmd": true, "--match-shift": true,
+	"--autosave": true, "--end-prompt": true,
+	"--tty": true, "--rstat": true,
+}
+
+var lessBoolFlags = map[string]bool{
+	"--search-skip-screen": true, "--SEARCH-SKIP-SCREEN": true,
+	"--auto-buffers": true,
+	"--clear-screen": true, "--CLEAR-SCREEN": true,
+	"--dumb":        true,
+	"--quit-at-eof": true, "--QUIT-AT-EOF": true,
+	"--force": true, "--quit-if-one-screen": true,
+	"--hilite-search": true, "--HILITE-SEARCH": true,
+	"--ignore-case": true, "--IGNORE-CASE": true,
+	"--status-column": true, "--quit-on-intr": true, "--no-lessopen": true,
+	"--long-prompt": true, "--LONG-PROMPT": true,
+	"--line-numbers": true, "--LINE-NUMBERS": true,
+	"--quiet": true, "--QUIET": true, "--silent": true, "--SILENT": true,
+	"--raw-control-chars": true, "--RAW-CONTROL-CHARS": true,
+	"--squeeze-blank-lines": true, "--chop-long-lines": true,
+	"--underline-special": true, "--UNDERLINE-SPECIAL": true,
+	"--version": true, "--hilite-target": true,
+	"--hilite-unread": true, "--HILITE-UNREAD": true,
+	"--no-init": true, "--tilde": true, "--help": true,
+	"--no-keypad": true, "--old-bot": true, "--follow-name": true,
+	"--use-backslash": true, "--no-histdups": true,
+	"--mouse": true, "--MOUSE": true,
+	"--rmouse": true, "--save-marks": true, "--incsearch": true,
+	"--use-color": true, "--file-size": true, "--status-line": true,
+	"--no-paste": true, "--form-feed": true, "--past-eof": true,
+	"--no-edit-warn": true, "--no-warn-edit": true,
+	"--no-number-headers": true, "--no-search-headers": true,
+	"--no-search-header-lines": true, "--no-search-header-columns": true,
+	"--redraw-on-quit": true, "--exit-follow-on-close": true, "--no-vbell": true,
+	"--wordwrap": true, "--show-preproc-errors": true,
+	"--proc-backspace": true, "--PROC-BACKSPACE": true,
+	"--proc-tab": true, "--PROC-TAB": true,
+	"--proc-return": true, "--PROC-RETURN": true,
+}
+
+// resolveLongOption returns the long option of the tables that a `--name`
+// argument, with any `=value` already cut off, spells: the name itself when a
+// table has it, or else the one name it is a prefix of, which is how
+// getopt_long and less read an abbreviated long option. A prefix of more than
+// one name, and a name no table has, resolve to "".
+func resolveLongOption(name string, tables ...map[string]bool) string {
+	if name == "--" || !strings.HasPrefix(name, "--") {
+		return ""
+	}
+	for _, t := range tables {
+		if t[name] {
+			return name
+		}
+	}
+	match := ""
+	for _, t := range tables {
+		for opt := range t {
+			if !strings.HasPrefix(opt, "--") || !strings.HasPrefix(opt, name) || opt == match {
+				continue
+			}
+			if match != "" {
+				return ""
+			}
+			match = opt
+		}
+	}
+	return match
 }
 
 // getoptOperands returns the arguments that are not options, skipping the
 // value of each flag in valueFlags: the next token after a bare long flag or a
 // short flag ending its cluster, and nothing more for `--flag=value` or a short
-// value flag with the rest of its cluster attached. With plusOptions, an
-// argument starting with `+` is an option too (less's `+G`, tail's `+2`).
-// Every argument after `--` is an operand.
-func getoptOperands(args []string, valueFlags map[string]bool, plusOptions bool) []string {
+// value flag with the rest of its cluster attached. With boolFlags set, a long
+// option is read through resolveLongOption against both tables, so an
+// abbreviated value option skips its value too. With plusOptions, an argument
+// starting with `+` is an option too (less's `+G`, tail's `+2`). Every argument
+// after `--` is an operand.
+func getoptOperands(args []string, valueFlags, boolFlags map[string]bool, plusOptions bool) []string {
 	var out []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -197,7 +298,14 @@ func getoptOperands(args []string, valueFlags map[string]bool, plusOptions bool)
 		case plusOptions && strings.HasPrefix(a, "+") && a != "+":
 			// an option carrying its own value; nothing to skip
 		case strings.HasPrefix(a, "--"):
-			if !strings.Contains(a, "=") && valueFlags[a] {
+			if strings.Contains(a, "=") {
+				break
+			}
+			name := a
+			if boolFlags != nil {
+				name = resolveLongOption(a, valueFlags, boolFlags)
+			}
+			if valueFlags[name] {
 				i++
 			}
 		case strings.HasPrefix(a, "-") && a != "-":
@@ -457,13 +565,14 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// SCRIPT / PROGRAM, not a path (sedFileOperands is shared verbatim with the
 	// `sed -i` write track, which has parsed it that way all along). What that
 	// grammar drops is the script TEXT; the script FILE named by `-f`/`--file`
-	// is a file the program reads, so it is declared a pathValueFlag and put
-	// back through containment. gawk's `-i`/`--include` names a source library
-	// it reads and goes in the same set (`-i inplace` walks its value as a
-	// path too, a bare relative name graded against the running cwd —
-	// awkDefers withholds the ALLOW on the in-place form regardless).
+	// is a file the program reads, so it is put back through containment — by
+	// sedScriptFiles for sed, and as a pathValueFlag for awk. gawk's
+	// `-i`/`--include` names a source library it reads and is an awk
+	// pathValueFlag too (`-i inplace` walks its value as a path too, a bare
+	// relative name graded against the running cwd — awkDefers withholds the
+	// ALLOW on the in-place form regardless).
 	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands,
-		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
+		pathValuesFn: sedScriptFiles},
 	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands,
 		valueFlags: awkOperandValueFlags, pathValueFlags: awkPathValueFlags},
 	// jq's leading positional is a FILTER, which is the same shape of non-path
@@ -1105,18 +1214,207 @@ func uniqDefers(args []string) bool {
 	}.defers(args)
 }
 
-// sedValueFlags is sed's value-taking flag set, shared with sedFileOperands (in
-// classify_inrepo_write.go) so the defer walk and the operand walk cannot drift.
-// sedPathValueFlags is the subset whose value is a PATH: `-f SCRIPTFILE` names a
-// file sed opens and reads its script from. `-e` carries the script inline and
-// `-l` a line length, so neither is a path.
+// sedValueFlags, sedBoolFlags and sedArityFlags are sed's whole option table:
+// the union of GNU sed's (its getopt_long table, so a long option may be
+// abbreviated to any unique prefix) and BSD and macOS sed's (getopt
+// "EHI:ae:f:i:lnru"; FreeBSD's lacks H, and neither has a long option).
+// sedValueFlags take a value, in the same argument or the next: `-e` the script
+// itself and `-f` a file sed reads it from. sedBoolFlags take none.
+// sedArityFlags are the two options whose value the two seds read differently,
+// which parseSed decides per argument:
+//
+//   - the in-place option. GNU's `-i` and `--in-place` take a suffix only in
+//     the same argument; BSD's `-i` and `-I` take one in the same argument or
+//     the next. GNU has no `-I`, so the argument after a bare `-I` is its
+//     suffix. The argument after a bare `-i` is its suffix when it is empty,
+//     BSD's no-backup spelling; any other is read as GNU reads it, the script
+//     or a file, which leaves every file either sed would edit among the
+//     files.
+//   - the line length. GNU's `-l` and `--line-length` take a number; BSD's
+//     `-l` takes nothing. A bare number is never a whole sed script, so `-l`
+//     carries a value exactly when a number follows it.
 var sedValueFlags = map[string]bool{
 	"-e": true, "--expression": true,
 	"-f": true, "--file": true,
+}
+
+var sedBoolFlags = map[string]bool{
+	"-n": true, "--quiet": true, "--silent": true,
+	"-E": true, "-r": true, "--regexp-extended": true,
+	"-z": true, "--null-data": true, "--zero-terminated": true,
+	"-s": true, "--separate": true,
+	"-u": true, "--unbuffered": true,
+	"-b": true, "--binary": true,
+	"-a": true, "-H": true,
+	"--posix": true, "--debug": true, "--sandbox": true,
+	"--follow-symlinks": true, "--help": true, "--version": true,
+}
+
+var sedArityFlags = map[string]bool{
+	"-i": true, "-I": true, "--in-place": true,
 	"-l": true, "--line-length": true,
 }
 
-var sedPathValueFlags = map[string]bool{"-f": true, "--file": true}
+// sedLongOption is the sed long option a `--name` argument, with any `=value`
+// cut off, spells (resolveLongOption), or "" when it spells none.
+func sedLongOption(name string) string {
+	return resolveLongOption(name, sedValueFlags, sedBoolFlags, sedArityFlags)
+}
+
+// sedLineLength reports whether s is a number, and so the value of a `-l`
+// rather than a BSD `-l` followed by something else.
+func sedLineLength(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// sedInvocation is a sed argv read against sed's option table.
+type sedInvocation struct {
+	// quiet: -n, --quiet or --silent is present.
+	quiet bool
+	// scriptByFlag: -e or -f supplied the script, so no positional is one.
+	scriptByFlag bool
+	// scriptFiles are the values of -f and --file, files sed reads.
+	scriptFiles []string
+	// unknown: an option outside the table, which makes sed exit with a usage
+	// error before it reads or writes anything.
+	unknown bool
+	// positional are the arguments that are neither an option nor an option's
+	// value, in order: the script first unless scriptByFlag, then the files.
+	positional []string
+}
+
+// parseSed reads a sed argv against sed's option table. An option is read
+// wherever it stands, as GNU sed reads one, up to a `--`.
+func parseSed(args []string) sedInvocation {
+	var p sedInvocation
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			p.positional = append(p.positional, args[i+1:]...)
+			return p
+		case !strings.HasPrefix(a, "-") || a == "-":
+			p.positional = append(p.positional, a)
+		case strings.HasPrefix(a, "--"):
+			i = p.longOption(args, i)
+		default:
+			i = p.shortCluster(args, i)
+		}
+	}
+	return p
+}
+
+// longOption reads the long option args[i] and returns the index of the last
+// argument it used.
+func (p *sedInvocation) longOption(args []string, i int) int {
+	name, value, attached := strings.Cut(args[i], "=")
+	switch opt := sedLongOption(name); {
+	case opt == "":
+		p.unknown = true
+	case sedValueFlags[opt]:
+		p.scriptByFlag = true
+		if !attached {
+			if i+1 >= len(args) {
+				return i
+			}
+			i++
+			value = args[i]
+		}
+		if opt == "--file" {
+			p.scriptFiles = append(p.scriptFiles, value)
+		}
+	case opt == "--line-length":
+		if !attached && i+1 < len(args) {
+			i++
+		}
+	case opt == "--in-place":
+	case attached:
+		p.unknown = true
+	case opt == "--quiet" || opt == "--silent":
+		p.quiet = true
+	}
+	return i
+}
+
+// shortCluster reads the short-option cluster args[i] and returns the index
+// of the last argument it used.
+func (p *sedInvocation) shortCluster(args []string, i int) int {
+	a := args[i]
+	for j := 1; j < len(a); j++ {
+		c, rest := a[j], a[j+1:]
+		switch {
+		case c == 'e' || c == 'f':
+			p.scriptByFlag = true
+			value := rest
+			if rest == "" {
+				if i+1 >= len(args) {
+					return i
+				}
+				i++
+				value = args[i]
+			}
+			if c == 'f' {
+				p.scriptFiles = append(p.scriptFiles, value)
+			}
+			return i
+		case c == 'i' || c == 'I':
+			if rest == "" && i+1 < len(args) && (c == 'I' || args[i+1] == "") {
+				i++
+			}
+			return i
+		case c == 'l':
+			if sedLineLength(rest) {
+				return i
+			}
+			if rest == "" && i+1 < len(args) && sedLineLength(args[i+1]) {
+				return i + 1
+			}
+		case c == 'n':
+			p.quiet = true
+		case !sedBoolFlags["-"+string(c)]:
+			p.unknown = true
+			return i
+		}
+	}
+	return i
+}
+
+// sedFileOperands returns the files a sed invocation reads, or edits in place:
+// its positional arguments after the script. An invocation that names no file,
+// and one sed rejects for an unknown option, return none. With nothing to
+// contain, the in-repo-write track defers, so a write it cannot see is never
+// allowed.
+func sedFileOperands(args []string) []string {
+	p := parseSed(args)
+	if p.unknown {
+		return nil
+	}
+	if p.scriptByFlag {
+		return p.positional
+	}
+	if len(p.positional) <= 1 {
+		return nil
+	}
+	return p.positional[1:]
+}
+
+// sedScriptFiles returns the files a sed invocation reads its script from.
+func sedScriptFiles(args []string) []string {
+	return parseSed(args).scriptFiles
+}
+
+// sedQuiet reports whether a sed invocation carries -n, --quiet or --silent.
+func sedQuiet(args []string) bool {
+	return parseSed(args).quiet
+}
 
 // sedInPlace reports whether a sed invocation edits a file in place: whether an
 // argument ahead of any `--` is the in-place flag, as sedInPlaceFlag defines
@@ -1135,74 +1433,38 @@ func sedInPlace(args []string) bool {
 }
 
 // sedInPlaceFlag reports whether one sed argument is the in-place flag:
-// `--in-place` or `--in-place=SUFFIX`, or a short-option cluster that reaches
-// `i` or `I` before any option sedValueFlags names — `-i`, `-i.bak`, `-I`,
-// `-ni`, `-Ei`. A value flag's separate value is not skipped, so a value
-// spelled like the flag counts as one and the rule errs toward in-place.
+// `--in-place` or `--in-place=SUFFIX`, in any abbreviation sedLongOption
+// resolves, or a short-option cluster that reaches `i` or `I` before an option
+// whose value is the rest of the cluster — `-i`, `-i.bak`, `-I`, `-ni`, `-Ei`,
+// `-li`, but not `-ei`. A value option's separate value is not
+// skipped, so a value spelled like the flag counts as one and the rule errs
+// toward in-place.
 func sedInPlaceFlag(a string) bool {
-	if a == "--in-place" || strings.HasPrefix(a, "--in-place=") {
-		return true
+	if strings.HasPrefix(a, "--") {
+		name, _, _ := strings.Cut(a, "=")
+		return sedLongOption(name) == "--in-place"
 	}
-	if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") {
+	if !strings.HasPrefix(a, "-") {
 		return false
 	}
 	for j := 1; j < len(a); j++ {
-		if a[j] == 'i' || a[j] == 'I' {
+		switch {
+		case a[j] == 'i' || a[j] == 'I':
 			return true
-		}
-		if sedValueFlags["-"+string(a[j])] {
+		case a[j] == 'e' || a[j] == 'f':
+			return false
+		case a[j] == 'l' && sedLineLength(a[j+1:]):
 			return false
 		}
 	}
 	return false
 }
 
-// sedDefers reports whether a sed invocation must defer rather than allow. sed
-// is read-only EXCEPT for in-place editing (sedInPlace). Any flag outside sed's
-// known read-only set also defers, so a future mutating flag fails safe.
+// sedDefers reports whether a sed invocation must defer rather than allow:
+// when it edits in place (sedInPlace), or carries an option outside sed's
+// table, so a mutating option the table does not know fails safe.
 func sedDefers(args []string) bool {
-	if sedInPlace(args) {
-		return true
-	}
-	// Known read-only sed flags. `-e`/`-f`/`-l` take a following value; the
-	// value is consumed so it is not mistaken for an unknown flag.
-	valueFlags := sedValueFlags
-	boolFlags := map[string]bool{
-		"-n": true, "--quiet": true, "--silent": true,
-		"-E": true, "-r": true, "--regexp-extended": true,
-		"-z": true, "--null-data": true,
-		"-s": true, "--separate": true,
-		"-u": true, "--unbuffered": true,
-		"--posix": true, "--debug": true, "--sandbox": true,
-		"--follow-symlinks": true,
-	}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			return false // remaining tokens are operands, not flags
-		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
-			continue // operand (script or file path)
-		}
-		if strings.HasPrefix(a, "--") && strings.Contains(a, "=") {
-			// long flag with attached value (e.g. --expression=...): recognized
-			// only if its name is a known read-only flag.
-			name := a[:strings.IndexByte(a, '=')]
-			if valueFlags[name] || boolFlags[name] {
-				continue
-			}
-			return true // unrecognized → fail safe
-		}
-		if valueFlags[a] {
-			i++ // skip the flag's value
-			continue
-		}
-		if boolFlags[a] {
-			continue
-		}
-		return true // unrecognized flag → fail safe
-	}
-	return false
+	return sedInPlace(args) || parseSed(args).unknown
 }
 
 // awkDefers reports whether an awk invocation must defer. awk is read-only

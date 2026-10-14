@@ -831,10 +831,6 @@ not obstacles to route around — each has a plain spelling that works:
   tree. The read deny is what stops evidence being gathered from the
   wrong tree: the primary clone's working files can differ, so the read
   would return plausible content with no error.
-- BSD `sed -i ''` is denied: the mandatory empty suffix reads as a
-  write target that resolves outside the repository, so no in-repo
-  spelling gets through. Use the Edit tool, or copy the file and edit
-  the copy — `cp` itself is fine.
 - Setting `HOME=` inline is refused on ANY command, not just a git one,
   since a redirected HOME changes where git reads configuration and
   therefore where git might write — see "A `$HOME`-rooted rule is

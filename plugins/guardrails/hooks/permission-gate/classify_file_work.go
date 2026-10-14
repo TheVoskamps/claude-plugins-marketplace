@@ -258,7 +258,8 @@ func fileWorkArgv(call *syntax.CallExpr) (string, []string) {
 }
 
 // fileWorkReader reports whether prog with args is a reader, and whether it
-// names at least one file operand (readFileOperands, readonly_util.go).
+// names at least one file operand (readFileOperands, readonly_util.go). sed is
+// one only with -n (sedQuiet, readonly_util.go) and not in place.
 func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {
 	if !fileWorkReaders[prog] {
 		return false, false
@@ -267,40 +268,6 @@ func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {
 		return false, false
 	}
 	return len(readFileOperands(prog, args)) > 0, true
-}
-
-// sedQuiet reports whether a sed invocation carries -n (or --quiet/--silent),
-// reading each short-option cluster up to the first option that takes a value:
-// one sedValueFlags names, or -i or -I.
-func sedQuiet(args []string) bool {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			return false
-		}
-		if a == "--quiet" || a == "--silent" {
-			return true
-		}
-		if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") || a == "-" {
-			continue
-		}
-		for j := 1; j < len(a); j++ {
-			if a[j] == 'n' {
-				return true
-			}
-			if sedValueFlags["-"+string(a[j])] {
-				if j == len(a)-1 {
-					i++
-				}
-				break
-			}
-			if a[j] == 'i' || a[j] == 'I' {
-				// -i's suffix is the rest of the cluster.
-				break
-			}
-		}
-	}
-	return false
 }
 
 // fileWorkInPlace reports whether prog with args edits a file in place: sed's

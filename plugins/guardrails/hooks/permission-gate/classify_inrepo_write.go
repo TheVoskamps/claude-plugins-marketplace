@@ -51,6 +51,10 @@ type inRepoWriteSpec struct {
 	// meaning as utilitySpec's fields of these names on the read track.
 	pathValueFlags map[string]bool
 	valueFlags     map[string]bool
+	// pathValuesFn, when set, returns those path values by the program's own
+	// option grammar in place of the pathFlagValues walk, as utilitySpec's
+	// field of this name does on the read track.
+	pathValuesFn func(args []string) []string
 }
 
 // inRepoWriters maps a mutating program basename to its operand-extraction spec.
@@ -71,11 +75,10 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	// sed -i: only the FILE args are paths; the script arg (`s/a/b/`) is not.
 	// mutatesFn gates this to the in-place form; the read-only form (no -i) is
 	// handled by the read-only-utility classifier. A script supplied by
-	// `-f FILE` is a file sed READS, so it is declared here and graded by the
-	// read containment rather than dropped (sedFileOperands consumes it) or
+	// `-f FILE` is a file sed READS, so sedScriptFiles hands it to the read
+	// containment rather than it being dropped (sedFileOperands consumes it) or
 	// mistaken for a write target.
-	"sed": {operandsFn: sedFileOperands, mutatesFn: sedMutates,
-		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
+	"sed": {operandsFn: sedFileOperands, mutatesFn: sedMutates, pathValuesFn: sedScriptFiles},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
 	// real-file form; `tee /dev/null` stays on the read-only-utility track.
 	"tee": {operandsFn: teeTargets, mutatesFn: teeMutates},
@@ -139,7 +142,11 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// defective scratchpad root, an unresolvable repo boundary) is held back
 	// until after the write walk, so a write escape still outranks it — the same
 	// ordering containWriteOperands applies to its own recorded defer.
-	readSources := append(pathFlagValues(args, spec.valueFlags, spec.pathValueFlags), sc.inputRedirectTargets...)
+	readSources := pathFlagValues(args, spec.valueFlags, spec.pathValueFlags)
+	if spec.pathValuesFn != nil {
+		readSources = spec.pathValuesFn(args)
+	}
+	readSources = append(readSources, sc.inputRedirectTargets...)
 	inputEscape, inputClean := containReadSources(prog, readSources, sc, ev)
 	if !inputClean && inputEscape.Bucket == BucketDeny {
 		return inputEscape
@@ -402,106 +409,6 @@ func mkdirTouchOperands(args []string) []string {
 // is left to defer rather than mis-classified as an in-repo write.
 func sedMutates(args []string, _ simpleCommand) bool {
 	return sedInPlace(args)
-}
-
-// sedFileOperands returns the FILE operands of a sed invocation, excluding the
-// script. sed's grammar is `sed [FLAGS] {script | -e script | -f file} [FILE...]`.
-// When the script is supplied inline (no -e/-f), it is the FIRST non-flag operand
-// and is NOT a path; the remaining non-flag operands are files. When -e/-f
-// supplies the script, EVERY non-flag operand is a file. Flag values for
-// -e/-f/-l are consumed. An unrecognized flag returns no operands (fail safe →
-// the caller defers), so a future mutating flag does not slip a write through.
-func sedFileOperands(args []string) []string {
-	valueFlags := sedValueFlags
-	boolFlags := map[string]bool{
-		"-n": true, "--quiet": true, "--silent": true,
-		"-E": true, "-r": true, "--regexp-extended": true,
-		"-z": true, "--null-data": true,
-		"-s": true, "--separate": true,
-		"-u": true, "--unbuffered": true,
-		"--posix": true, "--debug": true, "--sandbox": true,
-		"--follow-symlinks": true,
-	}
-	scriptSuppliedByFlag := false
-	var operands []string
-	sawDashDash := false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if sawDashDash {
-			operands = append(operands, a)
-			continue
-		}
-		if a == "--" {
-			sawDashDash = true
-			continue
-		}
-		// The in-place flag (sedInPlaceFlag) is what put us here; skip it. Every
-		// option a short cluster carries ahead of its `i` or `I` must be one
-		// boolFlags names, or the cluster is one this walk does not model.
-		if sedInPlaceFlag(a) {
-			if !strings.HasPrefix(a, "--") {
-				for _, c := range a[1:strings.IndexAny(a, "iI")] {
-					if !boolFlags["-"+string(c)] {
-						return nil
-					}
-				}
-			}
-			continue
-		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
-			operands = append(operands, a)
-			continue
-		}
-		// -e/-f with attached or long-with-value form supplies the script.
-		if strings.HasPrefix(a, "--expression=") || strings.HasPrefix(a, "--file=") {
-			scriptSuppliedByFlag = true
-			continue
-		}
-		if strings.HasPrefix(a, "--line-length=") {
-			continue
-		}
-		if a == "-e" || a == "--expression" || a == "-f" || a == "--file" {
-			scriptSuppliedByFlag = true
-			i++ // skip the script/file value
-			continue
-		}
-		if a == "-l" || a == "--line-length" {
-			i++ // skip the value
-			continue
-		}
-		// Attached short value forms: `-e'...'` / `-f file` collapse to `-eSCRIPT`.
-		if len(a) >= 2 && a[0] == '-' && a[1] != '-' {
-			short := a[:2]
-			if short == "-e" || short == "-f" {
-				scriptSuppliedByFlag = true
-				continue
-			}
-			if short == "-l" {
-				continue
-			}
-		}
-		if valueFlags[a] {
-			i++
-			continue
-		}
-		if boolFlags[a] {
-			continue
-		}
-		// Unrecognized flag → fail safe (no operands → caller defers).
-		return nil
-	}
-	if scriptSuppliedByFlag {
-		// Every non-flag operand is a file.
-		return operands
-	}
-	// The script is the first non-flag operand; drop it. The rest are files.
-	if len(operands) <= 1 {
-		// Only the script, no files (sed reads stdin) — there is no in-place
-		// target despite `-i`. Nothing to contain; return empty so the caller
-		// defers (a `sed -i 's/a/b/'` with no file is an odd no-op write form).
-		return nil
-	}
-	return operands[1:]
 }
 
 // teeMutates reports whether a tee invocation writes a real file (the in-repo

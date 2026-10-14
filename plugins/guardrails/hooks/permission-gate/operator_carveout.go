@@ -31,8 +31,8 @@ import (
 // (~/.config/guardrails/config.yml). The gate ships no default entries and
 // carries no knowledge of which plugins exist: an absent file means no usable
 // entry anywhere, so every verdict is the one the gate gives with no carve-out,
-// and a file that exists but cannot be read or parsed denies every gated call
-// until it is fixed. It fails closed.
+// and a file that exists but cannot be read or parsed denies every gated tool
+// call until it is fixed. It fails closed.
 //
 // The two XDG roots are opt-in: `resolve-xdg-environment-variables: yes` makes
 // them follow $XDG_CONFIG_HOME / $XDG_STATE_HOME, and without it they follow
@@ -94,6 +94,12 @@ func operatorCarveOutConfigPath() string {
 	}
 	return filepath.Join(home, operatorCarveOutConfigDirName, operatorCarveOutPluginDir, operatorCarveOutFileName)
 }
+
+// operatorCarveOutConfigDisplayPath is the config file's path spelled from the
+// home directory, `~/.config/guardrails/config.yml`, for a reason that must
+// not carry the host's absolute home path.
+var operatorCarveOutConfigDisplayPath = path.Join("~", operatorCarveOutConfigDirName, operatorCarveOutPluginDir,
+	operatorCarveOutFileName)
 
 // carveOutRoot is one resolved root and the two glob lists relative to it. A
 // root the file gave no usable spelling for is never built, so every root that
@@ -173,7 +179,8 @@ func loadOperatorConfig() (operatorConfig, error) {
 // stamped at all, return noOperatorConfig and no error.
 // A file that exists but cannot be read, or is not a YAML document of the
 // shape operatorCarveOutDocument declares, returns an error, which classify
-// turns into a deny of every gated call.
+// turns into a deny of every gated tool call. The error names no path: the
+// deny names the file as operatorCarveOutConfigDisplayPath.
 func loadOperatorConfigFrom(configPath string) (operatorConfig, error) {
 	if configPath == "" {
 		return noOperatorConfig, nil
@@ -183,11 +190,15 @@ func loadOperatorConfigFrom(configPath string) (operatorConfig, error) {
 		return noOperatorConfig, nil
 	}
 	if err != nil {
-		return noOperatorConfig, fmt.Errorf("cannot read %s: %w", configPath, err)
+		var pathErr *fs.PathError
+		if errors.As(err, &pathErr) {
+			err = pathErr.Err
+		}
+		return noOperatorConfig, fmt.Errorf("cannot read it: %w", err)
 	}
 	var doc operatorCarveOutDocument
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return noOperatorConfig, fmt.Errorf("cannot parse %s: %w", configPath, err)
+		return noOperatorConfig, fmt.Errorf("cannot parse it: %w", err)
 	}
 	if doc.SchemaVersion < operatorCarveOutSchemaVersion {
 		return noOperatorConfig, nil

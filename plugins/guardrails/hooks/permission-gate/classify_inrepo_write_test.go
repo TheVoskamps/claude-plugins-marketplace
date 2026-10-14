@@ -139,6 +139,11 @@ func TestInRepoWriteSedInPlaceSpellingsContained(t *testing.T) {
 		}
 	}
 	wantBucket(t, classifyBash(`sed -Ei 's/a+/b/' f`, ev), BucketAllow, "contained sed -Ei")
+	// BSD's empty suffix is not read as the script, so the script's address
+	// is not taken for a file outside the repository.
+	wantBucket(t, classifyBash(`sed -i '' '/x/d' f`, ev), BucketAllow, "contained sed -i ''")
+	wantBucket(t, classifyBash(`sed -I '' '/x/d' f`, ev), BucketAllow, "contained sed -I ''")
+	wantBucket(t, classifyBash(`sed -i '' '/x/d' ../sibling/f`, ev), BucketDeny, "sibling sed -i ''")
 }
 
 // A write whose target lands under .git/ is denied, even though it
@@ -318,13 +323,82 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-i", "--bogus", "s/a/b/", "f1"}, nil},       // unknown flag → fail safe
 		{[]string{"-Ei", "s/a+/b/", "f1"}, []string{"f1"}},
 		{[]string{"-nEi.bak", "s/a/b/p", "f1"}, []string{"f1"}},
-		{[]string{"-I", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-xi", "s/a/b/", "f1"}, nil}, // unknown option ahead of i → fail safe
+		// BSD's -I takes its suffix from the next argument; GNU has no -I.
+		{[]string{"-I", ".bak", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"-I", "", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"-I", "s/a/b/", "f1"}, nil}, // suffix s/a/b/, script f1, no file
+		// BSD's empty suffix after a bare -i.
+		{[]string{"-i", "", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"-ni", "", "/x/d", "f1"}, []string{"f1"}},
+		// -l: GNU's line length when a number follows, BSD's bool otherwise.
+		{[]string{"-l", "5", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"-l5", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"-l", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"-nl", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"--line-length", "5", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"--line-length=5", "/x/d", "f1"}, []string{"f1"}},
+		// The rest of the table, and GNU's abbreviated long options.
+		{[]string{"-a", "-H", "-b", "-s", "-z", "-u", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"--debug", "--posix", "--sandbox", "--zero-terminated", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"--expr", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"--expr=s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"--fil", "x.sed", "f1"}, []string{"f1"}},
+		{[]string{"--qui", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"--in", "s/a/b/", "f1"}, []string{"f1"}},
+		{[]string{"--s", "s/a/b/", "f1"}, nil},       // silent, separate or sandbox
+		{[]string{"--quiet=x", "s/a/b/", "f1"}, nil}, // a value on a bool option
+		{[]string{"-ef1", "f2"}, []string{"f2"}},
+		{[]string{"-ei", "f1"}, []string{"f1"}},
+		{[]string{"-nfx.sed", "f1"}, []string{"f1"}},
+		{[]string{"--", "-i"}, nil}, // the script, and no file
 	}
 	for _, tc := range cases {
 		got := sedFileOperands(tc.args)
 		if !sliceEq(got, tc.want) {
-			t.Errorf("sedFileOperands(%v) = %v, want %v", tc.args, got, tc.want)
+			t.Errorf("sedFileOperands(%q) = %q, want %q", tc.args, got, tc.want)
+		}
+	}
+}
+
+// Unit: sedScriptFiles returns the file every -f and --file spelling names.
+func TestSedScriptFiles(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"-f", "x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"-fx.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"-nf", "x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"--file", "x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"--file=x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"--fil", "x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"--fi=x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"-l", "-f", "x.sed", "f1"}, []string{"x.sed"}},
+		{[]string{"-e", "-f", "f1"}, nil},
+		{[]string{"s/a/b/", "f1"}, nil},
+	} {
+		if got := sedScriptFiles(tc.args); !sliceEq(got, tc.want) {
+			t.Errorf("sedScriptFiles(%q) = %q, want %q", tc.args, got, tc.want)
+		}
+	}
+}
+
+// A sed script file named by an abbreviated --file is contained like any
+// other spelling of it.
+func TestSedAbbreviatedScriptFileContained(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	gitInit(t, filepath.Join(base, "sibling"))
+	ev := bashEvIn(t, canonicalize(repo), "main")
+	for _, cmd := range []string{
+		`sed -n --fil ../sibling/x.sed f`,
+		`sed -n --fi=../sibling/x.sed f`,
+		`sed -i --fil ../sibling/x.sed f`,
+	} {
+		if d := classifyBash(cmd, ev); d.Bucket != BucketDeny {
+			t.Errorf("%q: got %q/%q (%q), want a deny", cmd, d.Bucket, d.Operation, d.Reason)
 		}
 	}
 }

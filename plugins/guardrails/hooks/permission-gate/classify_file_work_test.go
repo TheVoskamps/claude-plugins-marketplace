@@ -75,7 +75,11 @@ var coveredShapes = []struct {
 	{"less f.txt", "bash-file-work:read"},
 	{"less -p pattern f.txt", "bash-file-work:read"},
 	{"less +G f.txt", "bash-file-work:read"},
+	{"less --wheel-lines 2 f.txt", "bash-file-work:read"},
+	{"less --pat x f.txt", "bash-file-work:read"},
 	{"tail +2 f.txt", "bash-file-work:read"},
+	{"sed -n -l 5 '1p' f.txt", "bash-file-work:read"},
+	{"sed --qui '1p' f.txt", "bash-file-work:read"},
 	{"cat f.txt && make", "bash-file-work:read"},
 	{"cat a.txt; cat b.txt", "bash-file-work:read"},
 	{"cat f.txt | cat", "bash-file-work:read"},
@@ -84,6 +88,9 @@ var coveredShapes = []struct {
 	{"sed -i.bak -e 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed --in-place 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -I '' 's/a/b/' f.txt", "bash-file-work:edit"},
+	{"sed -i '' '/x/d' f.txt", "bash-file-work:edit"},
+	{"sed -I '' '/x/d' f.txt", "bash-file-work:edit"},
+	{"sed --in 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -ni 's/a/b/p' f.txt", "bash-file-work:edit"},
 	{"sed -Ei 's/a+/b/' f.txt", "bash-file-work:edit"},
 	{"perl -pi -e 's/a/b/' f.txt", "bash-file-work:edit"},
@@ -119,7 +126,21 @@ var uncoveredShapes = []string{
 	"ls | nl -ba",
 	"make | less -p pattern",
 	"make | less +G",
+	"make | less --wheel-lines 2",
+	"make | less --wheel-lines=2",
+	"make | less --header 1",
+	"make | less --intr x",
+	"make | less --rscroll -",
+	"make | less --line-num-width 3",
+	"make | less --match-shift 2",
+	"make | less --modelines 5",
+	"make | less --status-col-width 2",
+	"make | less --search-options W",
+	"make | less --pat x",
+	"make | less -x 4",
+	"make | less -z -4",
 	"make | tail +2",
+	"make | sed -n -l 5 '1p'",
 	"cat <<EOF | wc -l\nx\nEOF",
 	"head -n 5 f.txt | sort",
 	"cat f.txt | jq .",
@@ -403,12 +424,13 @@ func TestFileWorkBadValueKeepsCarveOut(t *testing.T) {
 	}
 }
 
-// A config file that exists but cannot be parsed denies every gated call,
-// whatever the tool, naming the file.
+// A config file that exists but cannot be parsed denies every gated tool call,
+// whatever the tool, naming the file from the home directory rather than by
+// its absolute path.
 func TestUnusableConfigDeniesEveryCall(t *testing.T) {
 	repo := fileWorkRepo(t)
 	home := fileWorkConfig(t, "redirect-bash-file-work: [\n")
-	path := filepath.Join(home, ".config", "guardrails", "config.yml")
+	abs := filepath.Join(home, ".config", "guardrails", "config.yml")
 	for _, ev := range []*Event{
 		fileWorkEvent(repo, "main"),
 		{HookEventName: "PreToolUse", ToolName: "Bash", CWD: repo, ToolInput: []byte(`{"command":"ls"}`)},
@@ -421,8 +443,27 @@ func TestUnusableConfigDeniesEveryCall(t *testing.T) {
 			t.Errorf("%s: got %q/%q, want deny/config:unusable", ev.ToolName, d.Bucket, d.Operation)
 			continue
 		}
-		if !strings.Contains(d.Reason, path) {
-			t.Errorf("%s: the reason does not name %s; got %q", ev.ToolName, path, d.Reason)
+		if !strings.Contains(d.Reason, "~/.config/guardrails/config.yml") {
+			t.Errorf("%s: the reason does not name ~/.config/guardrails/config.yml; got %q", ev.ToolName, d.Reason)
 		}
+		if strings.Contains(d.Reason, home) {
+			t.Errorf("%s: the reason carries the absolute path %s; got %q", ev.ToolName, abs, d.Reason)
+		}
+	}
+}
+
+// A config path that exists but cannot be read is an error that names no
+// path, so the deny it becomes carries none either.
+func TestUnreadableConfigErrorNamesNoPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadOperatorConfigFrom(dir)
+	if err == nil {
+		t.Fatal("a directory at the config path loaded without an error")
+	}
+	if strings.Contains(err.Error(), dir) {
+		t.Errorf("the error names the path; got %q", err)
 	}
 }

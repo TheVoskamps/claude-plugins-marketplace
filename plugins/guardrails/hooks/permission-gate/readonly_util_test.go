@@ -596,7 +596,10 @@ func TestSortUniqDefersHelpers(t *testing.T) {
 }
 
 // sedInPlace recognizes every in-place spelling, reads a short cluster only up
-// to its first value-taking option, and stops at `--`.
+// to its first option whose value is the rest of the cluster, and stops at
+// `--`. Every case uses only options in sed's table, so sedDefers, which
+// defers on in-place and on an option outside the table, agrees with it in
+// both directions.
 func TestSedInPlace(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -604,29 +607,107 @@ func TestSedInPlace(t *testing.T) {
 	}{
 		{[]string{"-i", "s/a/b/", "f"}, true},
 		{[]string{"-i.bak", "s/a/b/", "f"}, true},
+		{[]string{"-i", "", "s/a/b/", "f"}, true},
 		{[]string{"--in-place", "s/a/b/", "f"}, true},
 		{[]string{"--in-place=.bak", "s/a/b/", "f"}, true},
+		{[]string{"--in", "s/a/b/", "f"}, true},
+		{[]string{"--i=.bak", "s/a/b/", "f"}, true},
 		{[]string{"-I", "", "s/a/b/", "f"}, true},
+		{[]string{"-I", ".bak", "s/a/b/", "f"}, true},
 		{[]string{"-ni", "s/a/b/p", "f"}, true},
 		{[]string{"-Ei", "s/a+/b/", "f"}, true},
 		{[]string{"-nEI", "s/a/b/", "f"}, true},
+		{[]string{"-li", "", "s/a/b/", "f"}, true},
 		{[]string{"-e", "-i", "f"}, true},
 		{[]string{"-n", "s/a/b/p", "f"}, false},
 		{[]string{"-ei", "f"}, false},
+		{[]string{"-e", "s/a/b/", "-n", "f"}, false},
 		{[]string{"-f", "inline.sed", "f"}, false},
+		{[]string{"-l", "5", "s/a/b/", "f"}, false},
+		{[]string{"-l5", "s/a/b/", "f"}, false},
+		{[]string{"--line-length=5", "s/a/b/", "f"}, false},
+		{[]string{"--quiet", "--debug", "s/a/b/p", "f"}, false},
 		{[]string{"--", "-i-looking-file"}, false},
 	} {
 		if got := sedInPlace(tc.args); got != tc.want {
 			t.Errorf("sedInPlace(%q) = %v, want %v", tc.args, got, tc.want)
 		}
-		if got := sedDefers(tc.args); tc.want && !got {
-			t.Errorf("sedDefers(%q) = false; an in-place form must defer", tc.args)
+		if got := sedDefers(tc.args); got != tc.want {
+			t.Errorf("sedDefers(%q) = %v, want %v", tc.args, got, tc.want)
 		}
 		if got := sedMutates(tc.args, simpleCommand{}); got != tc.want {
 			t.Errorf("sedMutates(%q) = %v, want %v", tc.args, got, tc.want)
 		}
 		if got := fileWorkInPlace("sed", tc.args); got != tc.want {
 			t.Errorf("fileWorkInPlace(sed, %q) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
+// resolveLongOption takes a long option's full name or a prefix of exactly
+// one name, and nothing else.
+func TestResolveLongOption(t *testing.T) {
+	values := map[string]bool{"-t": true, "--tag": true, "--tag-file": true, "--pattern": true}
+	bools := map[string]bool{"--past-eof": true, "--help": true}
+	for _, tc := range []struct{ name, want string }{
+		{"--tag", "--tag"},
+		{"--tag-f", "--tag-file"},
+		{"--pat", "--pattern"},
+		{"--pas", "--past-eof"},
+		{"--pa", ""},
+		{"--ta", ""},
+		{"--nope", ""},
+		{"--", ""},
+		{"-t", ""},
+	} {
+		if got := resolveLongOption(tc.name, values, bools); got != tc.want {
+			t.Errorf("resolveLongOption(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// less's operand walk skips the value of every value-taking option, in short
+// and long form, abbreviated or not, attached or in the next argument.
+func TestLessFileOperands(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"f"}, []string{"f"}},
+		{[]string{"-p", "x", "f"}, []string{"f"}},
+		{[]string{"-px", "f"}, []string{"f"}},
+		{[]string{"-Sp", "x", "f"}, []string{"f"}},
+		{[]string{"-x", "4", "f"}, []string{"f"}},
+		{[]string{"-#", "8", "f"}, []string{"f"}},
+		{[]string{"-\"", "ab", "f"}, []string{"f"}},
+		{[]string{"-z", "-4", "f"}, []string{"f"}},
+		{[]string{"+G", "f"}, []string{"f"}},
+		{[]string{"--wheel-lines", "2", "f"}, []string{"f"}},
+		{[]string{"--wheel-lines=2", "f"}, []string{"f"}},
+		{[]string{"--wheel", "2", "f"}, []string{"f"}},
+		{[]string{"--header", "1", "f"}, []string{"f"}},
+		{[]string{"--intr", "x", "f"}, []string{"f"}},
+		{[]string{"--rscroll", "-", "f"}, []string{"f"}},
+		{[]string{"--line-num-width", "3", "f"}, []string{"f"}},
+		{[]string{"--match-shift", "2", "f"}, []string{"f"}},
+		{[]string{"--modelines", "5", "f"}, []string{"f"}},
+		{[]string{"--status-col-width", "2", "f"}, []string{"f"}},
+		{[]string{"--search-options", "W", "f"}, []string{"f"}},
+		{[]string{"--time-file-size", "10", "f"}, []string{"f"}},
+		{[]string{"--cmd", "G", "f"}, []string{"f"}},
+		{[]string{"--pat", "x", "f"}, []string{"f"}},
+		{[]string{"--tag", "x", "f"}, []string{"f"}},
+		{[]string{"--LOG", "log", "f"}, []string{"f"}},
+		{[]string{"--chop-long-lines", "f"}, []string{"f"}},
+		{[]string{"--QUIT-AT-EOF", "f"}, []string{"f"}},
+		{[]string{"--he", "f"}, []string{"f"}}, // header or help: less rejects it
+		{[]string{"--wheel-lines", "2"}, nil},
+		{[]string{"-p", "x"}, nil},
+		{[]string{"--", "-p"}, []string{"-p"}},
+		{[]string{"-"}, nil},
+	} {
+		if got := readFileOperands("less", tc.args); !sliceEq(got, tc.want) {
+			t.Errorf("readFileOperands(less, %q) = %q, want %q", tc.args, got, tc.want)
 		}
 	}
 }
