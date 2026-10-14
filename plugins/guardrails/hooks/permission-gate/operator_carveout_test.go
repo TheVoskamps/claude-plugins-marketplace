@@ -190,10 +190,10 @@ func TestOperatorCarveOutWriteImpliesRead(t *testing.T) {
 }
 
 // A path under a carve-out root that matches neither list keeps the verdict it
-// has today, and so does every path once the config file is absent or stamped
-// below the pin; a malformed file instead denies every call as
-// config:unusable. The carve-out fails closed on each of those, for a WRITE
-// as much as for a read. Both classes are pinned because they reach the allow by
+// gets with no carve-out, and so does every path once the config file is absent
+// or stamped below the pin; a malformed file instead denies every call as
+// config:unusable. The carve-out fails closed on each of those, for a WRITE as
+// much as for a read. Both classes are pinned because they reach the allow by
 // different routes — a read can ride either list, a write only `write` — so a
 // config state that yields no entries has to be shown to close both. The
 // states that spell a `write` list are exactly the ones that would hand out the

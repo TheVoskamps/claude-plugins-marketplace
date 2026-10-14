@@ -71,7 +71,7 @@ type utilitySpec struct {
 	// read track, which had only the undifferentiated non-flag-token walk.
 	operandsFn func(args []string) []string
 	// pathValueFlags names the flags whose VALUE is a filesystem path — one the
-	// utility READS (`grep -f PATFILE`, `sed -f SCRIPT`, `awk -f PROG`,
+	// utility READS (`grep -f PATFILE`, `awk -f PROG`,
 	// `diff -X EXCLUDEFILE`, `wc --files0-from=LIST`), WRITES (`sort -T DIR`
 	// holds its temporary spill files) or RESOLVES (`realpath
 	// --relative-to=DIR`). Their values are added to the containment list by
@@ -1529,8 +1529,6 @@ func sedUnknown(readings []sedInvocation) bool {
 // sedFileOperands returns the files a sed invocation reads, or edits in place,
 // in any reading: the positional arguments after the script. An invocation
 // that names no file, and one sed rejects for an unknown option, return none.
-// With nothing to contain, the in-repo-write track defers, so a write it
-// cannot see is never allowed.
 func sedFileOperands(args []string) []string {
 	readings := sedReadings(args)
 	if sedUnknown(readings) {
@@ -1615,7 +1613,8 @@ func sedReadValues(args []string) []string {
 // sedWriteTargets returns the files a writing sed invocation writes, in any
 // reading: the files it edits in place and their backups, and the files its
 // script writes. An invocation sed rejects for an unknown option returns none,
-// as sedFileOperands does.
+// as sedFileOperands does. With nothing to contain, the in-repo-write track
+// defers, so a write it cannot see is never allowed.
 func sedWriteTargets(args []string) []string {
 	readings := sedReadings(args)
 	if sedUnknown(readings) {
