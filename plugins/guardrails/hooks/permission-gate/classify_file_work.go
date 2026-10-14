@@ -239,7 +239,7 @@ func gradeFileWorkCall(s *syntax.Stmt, call *syntax.CallExpr, sink stdoutSink, h
 // human reading the deny knows where it comes from.
 func fileWorkSettingNote() string {
 	return fmt.Sprintf(" This redirect is enabled by %s in %s.", redirectBashFileWorkKey,
-		operatorCarveOutConfigPath())
+		operatorCarveOutConfigDisplayPath)
 }
 
 // fileWorkArgv returns a call's program name, with any `env` wrapper and

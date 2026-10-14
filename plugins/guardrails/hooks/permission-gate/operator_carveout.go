@@ -84,9 +84,9 @@ const (
 	xdgStateHomeEnv  = "XDG_STATE_HOME"
 )
 
-// operatorCarveOutConfigPath is the operator-written config file's path, for
-// the allow reason and for the self-write deny. Returns "" when the process
-// home is unusable.
+// operatorCarveOutConfigPath is the operator-written config file's path, the
+// one the gate loads and the self-write deny guards. Returns "" when the
+// process home is unusable.
 func operatorCarveOutConfigPath() string {
 	home, ok := processHome()
 	if !ok {
@@ -96,8 +96,8 @@ func operatorCarveOutConfigPath() string {
 }
 
 // operatorCarveOutConfigDisplayPath is the config file's path spelled from the
-// home directory, `~/.config/guardrails/config.yml`, for a reason that must
-// not carry the host's absolute home path.
+// home directory, `~/.config/guardrails/config.yml`, as every reason that names
+// the file spells it, so none carries the host's absolute home path.
 var operatorCarveOutConfigDisplayPath = path.Join("~", operatorCarveOutConfigDirName, operatorCarveOutPluginDir,
 	operatorCarveOutFileName)
 

@@ -124,8 +124,10 @@ func TestOperatorCarveOutAllowsListedRead(t *testing.T) {
 			writeCarveOutConfig(t, home, carveOutConfig)
 			d = fileToolVerdict(t, "Read", repo, target)
 			wantBucket(t, d, BucketAllow, "read of a listed ~/.config file")
-			if !containsSubstr(d.Reason, filepath.Join(home, ".config", "guardrails", "config.yml")) {
-				t.Errorf("allow reason should name the operator's config file; got %q", d.Reason)
+			if !containsSubstr(d.Reason, "~/.config/guardrails/config.yml") ||
+				containsSubstr(d.Reason, filepath.Join(home, ".config", "guardrails", "config.yml")) {
+				t.Errorf("allow reason should name the operator's config file from the home directory; got %q",
+					d.Reason)
 			}
 		})
 	}
@@ -1128,8 +1130,10 @@ func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 					cmd := sp.cmd(target)
 					d := classifyBash(cmd, reloaded(ev))
 					wantBucket(t, d, BucketAllow, cmd+" of a listed path")
-					if !containsSubstr(d.Reason, filepath.Join(home, ".config", "guardrails", "config.yml")) {
-						t.Errorf("%s: the allow reason should name the operator's config file; got %q", cmd, d.Reason)
+					if !containsSubstr(d.Reason, "~/.config/guardrails/config.yml") ||
+						containsSubstr(d.Reason, filepath.Join(home, ".config", "guardrails", "config.yml")) {
+						t.Errorf("%s: the allow reason should name the operator's config file from the home "+
+							"directory; got %q", cmd, d.Reason)
 					}
 				}
 			}
@@ -1592,7 +1596,7 @@ func TestOperatorCarveOutNamedOnlyWhenRidden(t *testing.T) {
 	home := carveOutFixture(t, base, "repo")
 	writeCarveOutConfig(t, home, carveOutConfig)
 	ev := bashEvIn(t, canonicalize(repo), "issue-developer")
-	configPath := filepath.Join(home, ".config", "guardrails", "config.yml")
+	configPath := "~/.config/guardrails/config.yml"
 
 	for _, cmd := range []string{
 		"touch newfile.txt",
@@ -1778,7 +1782,7 @@ func TestOperatorCarveOutWithholdsRedirectGluedWord(t *testing.T) {
 	home := carveOutFixture(t, base, "repo")
 	cwd := canonicalize(repo)
 	ev := bashEvIn(t, cwd, "issue-developer")
-	configPath := filepath.Join(home, ".config", "guardrails", "config.yml")
+	configPath := "~/.config/guardrails/config.yml"
 
 	dir := filepath.Join(home, ".config", "cc-tools", "sub")
 	listed := filepath.Join(home, ".config", "cc-tools", "whats-new.md")

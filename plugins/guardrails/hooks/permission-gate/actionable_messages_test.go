@@ -72,6 +72,10 @@ func TestRemediationReasonsAreActionable(t *testing.T) {
 		{"file-work edit redirect", fileWork("sed -i 's/a/b/' f.txt", "bash-file-work:edit")},
 		{"file-work write redirect", fileWork("echo x > f.txt", "bash-file-work:write")},
 		{"file-work heredoc tee redirect", fileWork("tee f.txt <<'EOF'\nx\nEOF", "bash-file-work:write")},
+		// This reason names a file outside the plugin, the sanctioned exception
+		// to a Reason naming only what the plugin owns: the file is the gate's
+		// own config, and naming it is the remediation, so the reason names it
+		// from the home directory as the operator writes it.
 		{"unusable config", func() Decision {
 			defer t.Setenv("HOME", os.Getenv("HOME"))
 			fileWorkConfig(t, "redirect-bash-file-work: [\n")
@@ -81,6 +85,10 @@ func TestRemediationReasonsAreActionable(t *testing.T) {
 			})
 			if d.Operation != "config:unusable" {
 				t.Fatalf("expected the config:unusable deny; got %q/%q", d.Bucket, d.Operation)
+			}
+			if !containsSubstr(d.Reason, "~/.config/guardrails/config.yml") {
+				t.Errorf("the config:unusable reason does not name ~/.config/guardrails/config.yml; got %q",
+					d.Reason)
 			}
 			return d
 		}},

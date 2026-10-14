@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,6 +81,7 @@ var coveredShapes = []struct {
 	{"tail +2 f.txt", "bash-file-work:read"},
 	{"sed -n -l 5 '1p' f.txt", "bash-file-work:read"},
 	{"sed --qui '1p' f.txt", "bash-file-work:read"},
+	{"sed -n -e -i p f.txt", "bash-file-work:read"},
 	{"cat f.txt && make", "bash-file-work:read"},
 	{"cat a.txt; cat b.txt", "bash-file-work:read"},
 	{"cat f.txt | cat", "bash-file-work:read"},
@@ -88,7 +90,7 @@ var coveredShapes = []struct {
 	{"sed -i.bak -e 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed --in-place 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -I '' 's/a/b/' f.txt", "bash-file-work:edit"},
-	{"sed -i '' '/x/d' f.txt", "bash-file-work:edit"},
+	{"sed -i '' 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -I '' '/x/d' f.txt", "bash-file-work:edit"},
 	{"sed --in 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -ni 's/a/b/p' f.txt", "bash-file-work:edit"},
@@ -137,6 +139,7 @@ var uncoveredShapes = []string{
 	"make | less --status-col-width 2",
 	"make | less --search-options W",
 	"make | less --pat x",
+	"make | less --rs x",
 	"make | less -x 4",
 	"make | less -z -4",
 	"make | tail +2",
@@ -257,6 +260,20 @@ func TestFileWorkWorktreeMode(t *testing.T) {
 	if strings.HasPrefix(d.Operation, "bash-file-work:") {
 		t.Errorf("no repository: denied by the redirect (%q)", d.Reason)
 	}
+
+	// A primary clone whose git directory is elsewhere does not fire; a linked
+	// worktree of one does.
+	submodule, separate, submoduleWorktree := primaryCloneLayouts(t)
+	for _, cwd := range []string{submodule, separate} {
+		if d := classifyBash("cat f.txt", fileWorkEvent(cwd, "issue-developer")); strings.HasPrefix(d.Operation,
+			"bash-file-work:") {
+			t.Errorf("primary clone %s: denied by the redirect (%q)", cwd, d.Reason)
+		}
+	}
+	if d := classifyBash("cat f.txt", fileWorkEvent(submoduleWorktree, "issue-developer")); d.Operation !=
+		"bash-file-work:read" {
+		t.Errorf("worktree of a submodule: got %q/%q, want deny/bash-file-work:read", d.Bucket, d.Operation)
+	}
 }
 
 // A line another rule denies keeps that rule's reason, wherever in the line
@@ -316,15 +333,49 @@ func TestFileWorkOutranksAskAndDefer(t *testing.T) {
 	}
 }
 
-// isLinkedWorktree tells a linked worktree's context from the primary clone's.
+// runGitT runs git with args and fails the test on an error.
+func runGitT(t *testing.T, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// primaryCloneLayouts builds the two primary clones whose git directory is not
+// at <root>/.git — a submodule checkout, and a clone made with
+// --separate-git-dir — plus a linked worktree of the submodule, and returns
+// their roots in that order.
+func primaryCloneLayouts(t *testing.T) (submodule, separate, submoduleWorktree string) {
+	t.Helper()
+	base := t.TempDir()
+	super := filepath.Join(base, "super")
+	gitInit(t, super)
+	upstream := filepath.Join(base, "upstream")
+	gitInit(t, upstream)
+	runGitT(t, "-C", super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", upstream, "sub")
+	submodule = filepath.Join(super, "sub")
+	submoduleWorktree = filepath.Join(base, "sub-wt")
+	runGitT(t, "-C", submodule, "worktree", "add", "-q", "--detach", submoduleWorktree)
+
+	separate = filepath.Join(base, "separate")
+	runGitT(t, "init", "-q", "--separate-git-dir", filepath.Join(base, "separate.git"), separate)
+	return canonicalize(submodule), canonicalize(separate), canonicalize(submoduleWorktree)
+}
+
+// isLinkedWorktree tells a linked worktree's context from a primary clone's,
+// whether the primary clone keeps its git directory at its root or elsewhere.
 func TestRepoContextIsLinkedWorktree(t *testing.T) {
 	primary, wt := setupWorktree(t)
+	submodule, separate, submoduleWorktree := primaryCloneLayouts(t)
 	for _, c := range []struct {
 		cwd  string
 		want bool
 	}{
 		{primary, false},
 		{wt, true},
+		{submodule, false},
+		{separate, false},
+		{submoduleWorktree, true},
 	} {
 		rc, err := resolveRepoContext(c.cwd)
 		if err != nil {

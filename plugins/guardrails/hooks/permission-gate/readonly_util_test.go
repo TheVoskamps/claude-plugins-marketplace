@@ -596,10 +596,11 @@ func TestSortUniqDefersHelpers(t *testing.T) {
 }
 
 // sedInPlace recognizes every in-place spelling, reads a short cluster only up
-// to its first option whose value is the rest of the cluster, and stops at
-// `--`. Every case uses only options in sed's table, so sedDefers, which
-// defers on in-place and on an option outside the table, agrees with it in
-// both directions.
+// to its first option whose value is the rest of the cluster, takes no option
+// value for the in-place option, and stops at `--`. Every case uses only
+// options in sed's table and a script that writes no file, so sedDefers, which
+// defers on a write and on an option outside the table, agrees with it in both
+// directions.
 func TestSedInPlace(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -618,7 +619,9 @@ func TestSedInPlace(t *testing.T) {
 		{[]string{"-Ei", "s/a+/b/", "f"}, true},
 		{[]string{"-nEI", "s/a/b/", "f"}, true},
 		{[]string{"-li", "", "s/a/b/", "f"}, true},
-		{[]string{"-e", "-i", "f"}, true},
+		{[]string{"s/a/b/", "-i", "f"}, true},
+		{[]string{"-e", "-i", "f"}, false},
+		{[]string{"-n", "-e", "-i", "p", "f"}, false},
 		{[]string{"-n", "s/a/b/p", "f"}, false},
 		{[]string{"-ei", "f"}, false},
 		{[]string{"-e", "s/a/b/", "-n", "f"}, false},
@@ -696,6 +699,7 @@ func TestLessFileOperands(t *testing.T) {
 		{[]string{"--time-file-size", "10", "f"}, []string{"f"}},
 		{[]string{"--cmd", "G", "f"}, []string{"f"}},
 		{[]string{"--pat", "x", "f"}, []string{"f"}},
+		{[]string{"--rs", "x", "f"}, []string{"f"}},
 		{[]string{"--tag", "x", "f"}, []string{"f"}},
 		{[]string{"--LOG", "log", "f"}, []string{"f"}},
 		{[]string{"--chop-long-lines", "f"}, []string{"f"}},

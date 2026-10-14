@@ -139,11 +139,99 @@ func TestInRepoWriteSedInPlaceSpellingsContained(t *testing.T) {
 		}
 	}
 	wantBucket(t, classifyBash(`sed -Ei 's/a+/b/' f`, ev), BucketAllow, "contained sed -Ei")
-	// BSD's empty suffix is not read as the script, so the script's address
-	// is not taken for a file outside the repository.
-	wantBucket(t, classifyBash(`sed -i '' '/x/d' f`, ev), BucketAllow, "contained sed -i ''")
+	// The argument after a bare -i is BSD's suffix and GNU's script, so every
+	// file either sed edits is contained: GNU edits the argument after it.
+	wantBucket(t, classifyBash(`sed -i '' 's/a/b/' f`, ev), BucketAllow, "contained sed -i ''")
 	wantBucket(t, classifyBash(`sed -I '' '/x/d' f`, ev), BucketAllow, "contained sed -I ''")
-	wantBucket(t, classifyBash(`sed -i '' '/x/d' ../sibling/f`, ev), BucketDeny, "sibling sed -i ''")
+	for _, cmd := range []string{
+		`sed -i "" ../sibling/f target.md`,
+		`sed -i '' '/x/d' f`,
+		`sed -i '' '/x/d' ../sibling/f`,
+		// BSD's getopt stops at the script, so it edits ../sibling/f.
+		`sed -i.bak f -e ../sibling/f`,
+		// GNU writes the backup to the suffix with the file's name for `*`.
+		`sed -i'../sibling/*' 's/a/b/' f`,
+		`sed --in-place='../sibling/*.bak' 's/a/b/' f`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
+	}
+}
+
+// The files a sed script's own commands read and write are contained: a read
+// in any sed, and a write as the write it is.
+func TestSedScriptCommandFilesContained(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	gitInit(t, filepath.Join(base, "sibling"))
+	ev := bashEvIn(t, canonicalize(repo), "main")
+
+	for _, cmd := range []string{
+		`sed -n 'r ../sibling/x' f`,
+		`sed -n '1R ../sibling/x' f`,
+		`sed -n 'w ../sibling/x' f`,
+		`sed -n '/a/W ../sibling/x' f`,
+		`sed 's/a/b/w ../sibling/x' f`,
+		`sed 's/a/b/gp w ../sibling/x' f`,
+		`sed -n -e p -e 'w ../sibling/x' f`,
+		`sed -n --expression='$r ../sibling/x' f`,
+		`sed -n ':a;w ../sibling/x' f`,
+		`sed -n '/x/{p;w ../sibling/x
+}' f`,
+		`sed -i 'w ../sibling/x' f`,
+		`sed 's/[/]/x/w ../sibling/x' f`,
+		`sed -i 's/a/b/' f -e 'w ../sibling/x'`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
+	}
+	for _, cmd := range []string{
+		`sed -n 'w out.txt' f`,
+		`sed -n 'r in.txt' f`,
+		`sed 's/a/b/w out.txt' f`,
+		`sed -n 'w /dev/stdout' f`,
+		`sed '1a ../sibling/x' f`,
+		`sed -n 'p # w ../sibling/x' f`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd)
+	}
+}
+
+// sedCommandFiles reads the files a script's commands name, in GNU's reading
+// of a bracket expression and BSD's.
+func TestSedCommandFiles(t *testing.T) {
+	for _, tc := range []struct {
+		script        string
+		brackets      bool
+		reads, writes []string
+	}{
+		{"p", false, nil, nil},
+		{"r a", false, []string{"a"}, nil},
+		{"R  a b;c", false, []string{"a b;c"}, nil},
+		{"w a\np", false, nil, []string{"a"}},
+		{"1,/x/W a", false, nil, []string{"a"}},
+		{`\,x,!w a`, false, nil, []string{"a"}},
+		{"s/a/b/w a", false, nil, []string{"a"}},
+		{"s|a/w|b/w x|g", false, nil, nil},
+		{"y/abc/xyz/;w a", false, nil, []string{"a"}},
+		{"/x/I,+3{s/a/b/2;w a\n}", false, nil, []string{"a"}},
+		{"b end;w a", false, nil, []string{"a"}},
+		{"/x/{b end}\nw a", false, nil, []string{"a"}},
+		{"a\\\nw a\\\nw b\nw c", false, nil, []string{"c"}},
+		{"i w a", false, nil, nil},
+		{"# w a\nw b", false, nil, []string{"b"}},
+		{"w /dev/stdout\nr /dev/stdin", false, nil, nil},
+		{"w a\nk\nw b", false, nil, []string{"a"}},
+		{"s/[/]/x/w a", false, nil, nil},
+		{"s/[/]/x/w a", true, nil, []string{"a"}},
+		{"s/[[:alpha:]/]/x/w a", true, nil, []string{"a"}},
+		{"s/[]/]/x/w a", true, nil, []string{"a"}},
+	} {
+		reads, writes := sedCommandFiles(tc.script, tc.brackets)
+		if !sliceEq(reads, tc.reads) || !sliceEq(writes, tc.writes) {
+			t.Errorf("sedCommandFiles(%q, %v) = %q, %q, want %q, %q",
+				tc.script, tc.brackets, reads, writes, tc.reads, tc.writes)
+		}
+	}
 }
 
 // A write whose target lands under .git/ is denied, even though it
@@ -316,7 +404,10 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-i", "s/a/b/", "f1", "f2"}, []string{"f1", "f2"}},
 		{[]string{"-i", "s/a/b/"}, nil}, // script only, no file → no in-place target
 		{[]string{"-i", "-e", "s/a/b/", "f1"}, []string{"f1"}},
-		{[]string{"-i", "-e", "s/a/b/", "-e", "s/c/d/", "f1", "f2"}, []string{"f1", "f2"}},
+		// BSD's getopt takes s/a/b/ as the script and stops there, so -e and
+		// s/c/d/ are files too.
+		{[]string{"-i", "-e", "s/a/b/", "-e", "s/c/d/", "f1", "f2"}, []string{"f1", "f2", "-e", "s/c/d/"}},
+		{[]string{"-n", "s/a/b/", "f1", "-f", "x.sed"}, []string{"s/a/b/", "f1", "-f", "x.sed"}},
 		{[]string{"-i.bak", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-i", "--expression=s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-i", "-n", "s/a/b/", "f1"}, []string{"f1"}}, // -n bool before script
@@ -328,9 +419,11 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-I", ".bak", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-I", "", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"-I", "s/a/b/", "f1"}, nil}, // suffix s/a/b/, script f1, no file
-		// BSD's empty suffix after a bare -i.
-		{[]string{"-i", "", "/x/d", "f1"}, []string{"f1"}},
-		{[]string{"-ni", "", "/x/d", "f1"}, []string{"f1"}},
+		// After a bare -i, BSD's suffix and GNU's script: GNU takes /x/d for a
+		// file.
+		{[]string{"-i", "", "/x/d", "f1"}, []string{"/x/d", "f1"}},
+		{[]string{"-ni", "", "/x/d", "f1"}, []string{"/x/d", "f1"}},
+		{[]string{"-i", "", "../sibling/f", "target.md"}, []string{"../sibling/f", "target.md"}},
 		// -l: GNU's line length when a number follows, BSD's bool otherwise.
 		{[]string{"-l", "5", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"-l5", "/x/d", "f1"}, []string{"f1"}},

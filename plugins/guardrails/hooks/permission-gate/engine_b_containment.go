@@ -29,6 +29,10 @@ type repoContext struct {
 	// resolve into the primary clone / common dir rather than this worktree
 	// (the worktree-escape discrimination).
 	commonDir string
+	// gitDir is THIS working tree's own git directory. It is commonDir for
+	// every working tree but a linked worktree, whose own git directory sits
+	// under commonDir's worktrees/.
+	gitDir string
 	// primaryClone is the primary clone root derived from commonDir
 	// (commonDir is <primary-clone>/.git for a normal clone). Empty if it
 	// cannot be derived.
@@ -36,10 +40,12 @@ type repoContext struct {
 }
 
 // isLinkedWorktree reports whether the context's working tree is a linked
-// worktree rather than the primary clone: its root differs from the primary
-// clone root.
+// worktree rather than a primary clone: its own git directory differs from the
+// common one. A submodule checkout and a clone made with --separate-git-dir
+// keep their git directory away from their root, but it is still the common
+// one, so each is a primary clone.
 func (rc *repoContext) isLinkedWorktree() bool {
-	return rc.topLevel != rc.primaryClone
+	return rc.gitDir != rc.commonDir
 }
 
 // resolveRepoContext shells out to `git rev-parse` against the event's cwd. On
@@ -62,20 +68,21 @@ func resolveRepoContext(eventCWD string) (*repoContext, error) {
 		return nil, fmt.Errorf("event cwd %q is not an absolute path; cannot resolve git context (fail-closed)", eventCWD)
 	}
 
-	// One combined rev-parse call returns all three flags, newline-separated,
+	// One combined rev-parse call returns all four flags, newline-separated,
 	// in order. Running them together keeps it to a single fork.
 	out, err := runGit(eventCWD,
 		"rev-parse",
 		"--is-inside-work-tree",
 		"--show-toplevel",
 		"--git-common-dir",
+		"--git-dir",
 	)
 	if err != nil {
 		return nil, err
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) < 3 {
-		return nil, fmt.Errorf("git rev-parse returned %d lines, expected 3 (fail-closed): %q", len(lines), out)
+	if len(lines) < 4 {
+		return nil, fmt.Errorf("git rev-parse returned %d lines, expected 4 (fail-closed): %q", len(lines), out)
 	}
 
 	rc := &repoContext{
@@ -87,17 +94,25 @@ func resolveRepoContext(eventCWD string) (*repoContext, error) {
 
 	top := strings.TrimSpace(lines[1])
 	common := strings.TrimSpace(lines[2])
+	gitDir := strings.TrimSpace(lines[3])
 	if top == "" {
 		return nil, fmt.Errorf("git rev-parse --show-toplevel returned empty (fail-closed)")
 	}
 
-	// `--git-common-dir` may be relative to the event cwd; make it absolute.
+	// `--git-common-dir` and `--git-dir` may be relative to the event cwd; make
+	// them absolute.
 	if common != "" && !filepath.IsAbs(common) {
 		common = filepath.Join(eventCWD, common)
+	}
+	if gitDir != "" && !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(eventCWD, gitDir)
 	}
 
 	// Canonicalize the git-derived roots (canonicalize BOTH sides).
 	rc.topLevel = canonicalize(top)
+	if gitDir != "" {
+		rc.gitDir = canonicalize(gitDir)
+	}
 	if common != "" {
 		rc.commonDir = canonicalize(common)
 		// commonDir is typically <primary-clone>/.git; the primary clone is

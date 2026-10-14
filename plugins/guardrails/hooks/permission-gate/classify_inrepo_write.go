@@ -72,13 +72,15 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	// mkdir/touch: every non-flag operand is a target the command creates.
 	"mkdir": {operandsFn: mkdirTouchOperands},
 	"touch": {operandsFn: mkdirTouchOperands},
-	// sed -i: only the FILE args are paths; the script arg (`s/a/b/`) is not.
-	// mutatesFn gates this to the in-place form; the read-only form (no -i) is
-	// handled by the read-only-utility classifier. A script supplied by
-	// `-f FILE` is a file sed READS, so sedScriptFiles hands it to the read
-	// containment rather than it being dropped (sedFileOperands consumes it) or
-	// mistaken for a write target.
-	"sed": {operandsFn: sedFileOperands, mutatesFn: sedMutates, pathValuesFn: sedScriptFiles},
+	// sed: the files it writes are the ones it edits in place with their
+	// backups, and the ones its script's own commands write; the script
+	// argument (`s/a/b/`) is not one. mutatesFn gates this to a sed that writes
+	// a file; the read-only form is handled by the read-only-utility
+	// classifier. A script supplied by `-f FILE`, a file the script's `r` or
+	// `R` reads, and the file operands of a sed that does not edit them in
+	// place are files sed READS, so sedWriteReadSources hands them to the read
+	// containment rather than them being dropped or mistaken for write targets.
+	"sed": {operandsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
 	// real-file form; `tee /dev/null` stays on the read-only-utility track.
 	"tee": {operandsFn: teeTargets, mutatesFn: teeMutates},
@@ -169,7 +171,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	regions := "inside the current worktree or a harness session scratchpad"
 	if sawOperator {
 		regions = fmt.Sprintf("inside the current worktree, a harness session scratchpad, or paths the operator "+
-			"listed in %s", operatorCarveOutConfigPath())
+			"listed in %s", operatorCarveOutConfigDisplayPath)
 	}
 	return allow(fmt.Sprintf("%s writes only paths %s (in-repo write)", prog, regions))
 }
@@ -403,12 +405,12 @@ func mkdirTouchOperands(args []string) []string {
 	return out
 }
 
-// sedMutates reports whether a sed invocation is the in-place (mutating) form
-// the in-repo-write classifier should handle: sedInPlace (readonly_util.go). A
+// sedMutates reports whether a sed invocation writes a file, and so is the form
+// the in-repo-write classifier should handle: sedWrites (readonly_util.go). A
 // form that merely trips sedDefers for an unknown flag is not claimed here, and
 // is left to defer rather than mis-classified as an in-repo write.
 func sedMutates(args []string, _ simpleCommand) bool {
-	return sedInPlace(args)
+	return sedWrites(args)
 }
 
 // teeMutates reports whether a tee invocation writes a real file (the in-repo

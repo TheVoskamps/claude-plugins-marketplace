@@ -282,7 +282,7 @@ func classifyBash(command string, ev *Event) Decision {
 	regions := "this worktree, or the harness scratchpad"
 	if ev.rodeOperatorListing {
 		regions = fmt.Sprintf("this worktree, the harness scratchpad, or paths the operator listed in %s",
-			operatorCarveOutConfigPath())
+			operatorCarveOutConfigDisplayPath)
 	}
 	return allow(fmt.Sprintf("every command part has positive grounds to be safe: the operation itself cannot "+
 		"write, or its targets are confined to a region designated safe by construction (%s)", regions))
