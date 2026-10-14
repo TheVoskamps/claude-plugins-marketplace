@@ -193,7 +193,8 @@ func leftmostCall(s *syntax.Stmt) *syntax.CallExpr {
 
 // gradeFileWorkCall grades one statement that runs a simple command: an
 // in-place edit or an authored write anywhere, and a covered read whose output
-// sink leaves unconsumed. heredocIn is as for fileWorkWalker.stmt.
+// sink leaves unconsumed. heredocIn is as for fileWorkWalker.stmt. It returns
+// the deny the statement earns, and false when it earns none.
 func gradeFileWorkCall(s *syntax.Stmt, call *syntax.CallExpr, sink stdoutSink, heredocIn bool) (Decision, bool) {
 	prog, args := fileWorkArgv(call)
 	if prog == "" {
