@@ -596,8 +596,8 @@ func TestSortUniqDefersHelpers(t *testing.T) {
 }
 
 // sedInPlace recognizes every in-place spelling, reads a short cluster only up
-// to its first option whose value is the rest of the cluster, takes no option
-// value for the in-place option, and stops at `--`. Every case uses only
+// to its first option whose value is the rest of the cluster, never reads
+// another option's value as the in-place option, and stops at `--`. Every case uses only
 // options in sed's table and a command-line script that writes no file and runs
 // no shell command, so sedDefers, which defers on a write, on such a script and
 // on an option outside the table, agrees with it in both directions.
