@@ -131,9 +131,9 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 	// The paths this command READS are ones the operand parser never returns:
 	// an input redirect (`tee f.md < ../sibling-repo/.env` copies a file from
-	// outside the repo into one inside it) and the value of a path-valued flag
-	// (`sed -i -f ../sibling-repo/x.sed f.md` runs a script read from outside
-	// it), while every operand the parser does see is contained. Grade those
+	// outside the repo into one inside it) and the paths spec.pathValuesFn
+	// returns (`sed -i -f ../sibling-repo/x.sed f.md` runs a script read from
+	// outside it), while every operand the parser does see is contained. Grade those
 	// sources through the read containment (containReadSources), which yields
 	// escape verdicts only — a read source can never earn this classifier's
 	// write ALLOW.
