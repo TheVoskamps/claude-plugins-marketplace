@@ -56,9 +56,9 @@ import (
 // understands, pinned here as a literal rather than derived. A higher stamp is
 // read for the keys documented here and nothing else; a lower or absent one
 // yields no entries and leaves the file-work redirect off, rather than an
-// abort. A file still spelling the schema-1 `allow-read` / `allow-write` keys
-// is stamped 1 and so lands on that path — one hand edit per machine migrates
-// it.
+// abort. A file still spelling the schema-1 `allow-read` /
+// `allow-write` keys is stamped 1 and so lands on that path — one hand edit per
+// machine migrates it.
 const operatorCarveOutSchemaVersion = 2
 
 // operatorCarveOutConfigDirName is the LITERAL directory name this plugin's own
