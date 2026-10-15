@@ -831,6 +831,12 @@ not obstacles to route around — each has a plain spelling that works:
   tree. The read deny is what stops evidence being gathered from the
   wrong tree: the primary clone's working files can differ, so the read
   would return plausible content with no error.
+- BSD `sed -i '' '<script>' <file>` is denied when the script, read as
+  a path, resolves outside the repository, as one opening with a `/`
+  address does: GNU sed reads the empty argument after a bare `-i` as
+  the script and the script as a file to edit. Spell the empty suffix
+  `-I ''`, which GNU sed rejects rather than misreads, or use the Edit
+  tool.
 - Setting `HOME=` inline is refused on ANY command, not just a git one,
   since a redirected HOME changes where git reads configuration and
   therefore where git might write — see "A `$HOME`-rooted rule is
