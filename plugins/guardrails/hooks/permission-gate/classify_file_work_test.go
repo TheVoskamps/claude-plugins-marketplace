@@ -95,6 +95,11 @@ var coveredShapes = []struct {
 	{"sed --in 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -ni 's/a/b/p' f.txt", "bash-file-work:edit"},
 	{"sed -Ei 's/a+/b/' f.txt", "bash-file-work:edit"},
+	{"sed -i -f s.sed f.txt", "bash-file-work:edit"},
+	{"sed -i 's/a/b/e' f.txt", "bash-file-work:edit"},
+	{"sed -n -f s.sed f.txt", "bash-file-work:read"},
+	{"sed -n '1e date' f.txt", "bash-file-work:read"},
+	{"cat f.txt | sed -n -f s.sed", "bash-file-work:read"},
 	{"perl -pi -e 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"perl -i -pe 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"make && sed -i 's/a/b/' f.txt", "bash-file-work:edit"},
@@ -163,11 +168,8 @@ var uncoveredShapes = []string{
 	"find . -name '*.go'",
 	"ls -la",
 	"sed 's/a/b/' f.txt",
-	"sed -n -f s.sed f.txt",
-	"sed -i -f s.sed f.txt",
-	"sed -n '1e date' f.txt",
-	"sed -i 's/a/b/e' f.txt",
-	"cat f.txt | sed -n -f s.sed",
+	"sed -f s.sed f.txt",
+	"sed 's/a/b/e' f.txt",
 	"cat",
 	"cat -",
 	"echo hi",
@@ -340,25 +342,35 @@ func TestFileWorkOutranksAskAndDefer(t *testing.T) {
 	}
 }
 
-// A sed that takes a script file, or whose script runs a shell command, is
-// deferred whether the redirect is off or on, in place or not, while a file it
-// names that escapes the repository is still denied.
+// A sed that takes a script file, or whose script runs a shell command or
+// cannot be read whole, is deferred with the redirect off, and with it on unless
+// the redirect covers it, which then denies it with its own redirect; a file it
+// names that escapes the repository is still denied by containment either way.
 func TestSedOpaqueDefersOnEveryTrack(t *testing.T) {
 	repo := fileWorkRepo(t)
 	gitInit(t, filepath.Join(filepath.Dir(repo), "sibling"))
 	t.Chdir(repo)
+	redirected := map[string]string{
+		"sed -n -f s.sed f.txt":             "bash-file-work:read",
+		"sed -n --fi=s.sed f.txt":           "bash-file-work:read",
+		"sed -i -f s.sed f.txt":             "bash-file-work:edit",
+		"sed -i --file s.sed f.txt":         "bash-file-work:edit",
+		"sed -n '1e date' f.txt":            "bash-file-work:read",
+		"sed -i 's/a/b/e' f.txt":            "bash-file-work:edit",
+		"sed -i '1e date' f.txt":            "bash-file-work:edit",
+		"sed -n 's/a/b/e' f.txt | cat":      "bash-file-work:read",
+		"cat f.txt | sed -n -f s.sed":       "bash-file-work:read",
+		"sed -n ':a e echo EXECUTED' f.txt": "bash-file-work:read",
+		"sed -n 'b a e id' f.txt":           "bash-file-work:read",
+		"sed -n 't a e id' f.txt":           "bash-file-work:read",
+		"sed -n ':a s/x/y/e' f.txt":         "bash-file-work:read",
+		"sed -n ':a e;p' f.txt":             "bash-file-work:read",
+	}
 	deferred := []string{
 		"sed -f s.sed f.txt",
-		"sed -n -f s.sed f.txt",
-		"sed -n --fi=s.sed f.txt",
-		"sed -i -f s.sed f.txt",
-		"sed -i --file s.sed f.txt",
-		"sed -n '1e date' f.txt",
 		"sed 's/a/b/e' f.txt",
-		"sed -i 's/a/b/e' f.txt",
-		"sed -i '1e date' f.txt",
-		"sed -n 's/a/b/e' f.txt | cat",
-		"cat f.txt | sed -n -f s.sed",
+		"sed ':a e echo EXECUTED' f.txt",
+		"sed 'b a e id' f.txt",
 	}
 	denied := []string{
 		"sed -i -f s.sed ../sibling/f.txt",
@@ -371,6 +383,16 @@ func TestSedOpaqueDefersOnEveryTrack(t *testing.T) {
 		for _, cmd := range deferred {
 			if d := classifyBash(cmd, fileWorkEvent(repo, "main")); d.Bucket != BucketDefer {
 				t.Errorf("config %q, %q: got %q/%q (%q), want defer", mode, cmd, d.Bucket, d.Operation, d.Reason)
+			}
+		}
+		for cmd, op := range redirected {
+			d := classifyBash(cmd, fileWorkEvent(repo, "main"))
+			switch {
+			case mode == "" && d.Bucket != BucketDefer:
+				t.Errorf("config %q, %q: got %q/%q (%q), want defer", mode, cmd, d.Bucket, d.Operation, d.Reason)
+			case mode != "" && (d.Bucket != BucketDeny || d.Operation != op):
+				t.Errorf("config %q, %q: got %q/%q (%q), want deny/%q", mode, cmd, d.Bucket, d.Operation, d.Reason,
+					op)
 			}
 		}
 		for _, cmd := range denied {

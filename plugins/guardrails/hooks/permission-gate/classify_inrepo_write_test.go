@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -155,6 +156,43 @@ func TestInRepoWriteSedInPlaceSpellingsContained(t *testing.T) {
 	} {
 		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
 	}
+	// GNU sed puts the file's name as spelled, directory included, in place of
+	// `*` (get_backup_file_name, sed/execute.c), so a backup suffix that climbs
+	// out of it is graded from there.
+	wantBucket(t, classifyBash(`sed -i'*/../../../x' 's/a/b/' sub/f`, ev), BucketDeny, "backup climbing out")
+	wantBucket(t, classifyBash(`sed -i'*/../../x' 's/a/b/' sub/f`, ev), BucketAllow, "backup staying in")
+}
+
+// A write that escapes only in GNU's reading of a bare -i, where BSD sed's
+// reading of the same line runs and stays inside, is denied with a reason
+// naming the spellings no sed misreads; one that escapes in BSD's reading too,
+// or one BSD sed refuses to run, keeps the ordinary cross-repo reason.
+func TestSedBareInPlaceDenyReason(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	gitInit(t, filepath.Join(base, "sibling"))
+	ev := bashEvIn(t, canonicalize(repo), "main")
+
+	d := classifyBash(`sed -i '' '/x/d' f`, ev)
+	if d.Bucket != BucketDeny || d.Operation != "bash-write:cross-repo" {
+		t.Fatalf("got %q/%q, want deny/bash-write:cross-repo", d.Bucket, d.Operation)
+	}
+	for _, want := range []string{"'/x/d'", "-I ''", "`-e`", "Edit tool"} {
+		if !strings.Contains(d.Reason, want) {
+			t.Errorf("the reason does not name %s; got %q", want, d.Reason)
+		}
+	}
+	for _, cmd := range []string{
+		`sed -i '' '/x/d' ../sibling/f`,
+		`sed -i "" ../sibling/f target.md`,
+		`sed -i 's/a/b/' ../sibling/f`,
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket != BucketDeny || strings.Contains(d.Reason, "-I ''") {
+			t.Errorf("%q: got %q (%q), want the ordinary cross-repo deny", cmd, d.Bucket, d.Reason)
+		}
+	}
 }
 
 // The files a sed script's own commands read and write are contained: a read
@@ -181,6 +219,12 @@ func TestSedScriptCommandFilesContained(t *testing.T) {
 		`sed -i 'w ../sibling/x' f`,
 		`sed 's/[/]/x/w ../sibling/x' f`,
 		`sed -i 's/a/b/' f -e 'w ../sibling/x'`,
+		// GNU's -l takes `x` as its value, so the script is the one after it.
+		`sed -l x 'r ../sibling/x' f`,
+		`sed -n -lx 'r ../sibling/x' f`,
+		// A label ends at a blank, and GNU reads the next command after it.
+		`sed -n ':a w ../sibling/x' f`,
+		`sed -n 'b a r ../sibling/x' f`,
 	} {
 		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
 	}
@@ -215,6 +259,8 @@ func TestSedCommandFiles(t *testing.T) {
 		{"y/abc/xyz/;w a", false, nil, []string{"a"}},
 		{"/x/I,+3{s/a/b/2;w a\n}", false, nil, []string{"a"}},
 		{"b end;w a", false, nil, []string{"a"}},
+		{":a w b", false, nil, []string{"b"}},
+		{"t a r b", false, []string{"b"}, nil},
 		{"/x/{b end}\nw a", false, nil, []string{"a"}},
 		{"a\\\nw a\\\nw b\nw c", false, nil, []string{"c"}},
 		{"i w a", false, nil, nil},
@@ -424,11 +470,16 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-i", "", "/x/d", "f1"}, []string{"/x/d", "f1"}},
 		{[]string{"-ni", "", "/x/d", "f1"}, []string{"/x/d", "f1"}},
 		{[]string{"-i", "", "../sibling/f", "target.md"}, []string{"../sibling/f", "target.md"}},
-		// -l: GNU's line length when a number follows, BSD's bool otherwise.
+		// -l: GNU's line length takes the next argument or the rest of the
+		// cluster, whatever it holds; BSD's takes none. A BSD reading whose
+		// script both seds reject (`5`), or with an option BSD lacks (`-5`), runs
+		// nothing and adds no file.
 		{[]string{"-l", "5", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"-l5", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"-l", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"-nl", "/x/d", "f1"}, []string{"f1"}},
+		{[]string{"-l", "x", "r /etc/passwd", "f1"}, []string{"f1", "r /etc/passwd"}},
+		{[]string{"-ln", "p", "f1"}, []string{"f1"}},
 		{[]string{"--line-length", "5", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"--line-length=5", "/x/d", "f1"}, []string{"f1"}},
 		// The rest of the table, and GNU's abbreviated long options.

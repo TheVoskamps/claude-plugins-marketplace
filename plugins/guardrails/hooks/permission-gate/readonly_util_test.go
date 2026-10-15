@@ -627,6 +627,8 @@ func TestSedInPlace(t *testing.T) {
 		{[]string{"-e", "s/a/b/", "-n", "f"}, false},
 		{[]string{"-l", "5", "s/a/b/", "f"}, false},
 		{[]string{"-l5", "s/a/b/", "f"}, false},
+		{[]string{"-l", "x", "s/a/b/", "f"}, false},
+		{[]string{"-lx", "s/a/b/", "f"}, false},
 		{[]string{"--line-length=5", "s/a/b/", "f"}, false},
 		{[]string{"--quiet", "--debug", "s/a/b/p", "f"}, false},
 		{[]string{"--", "-i-looking-file"}, false},
@@ -647,9 +649,10 @@ func TestSedInPlace(t *testing.T) {
 }
 
 // sedOpaque holds a script read from a file in every spelling of -f and
-// --file, and a script that runs a shell command through `e` or `s///e`, in any
-// reading of the argv and of the script; a script that only spells an `e`
-// elsewhere is not one. sedDefers agrees wherever the invocation writes no file.
+// --file, a script that runs a shell command through `e` or `s///e`, and a
+// script whose walk stops anywhere but a missing command, in any reading of the
+// argv and of the script; a script that only spells an `e` elsewhere is not
+// one. sedDefers agrees wherever the invocation writes no file.
 func TestSedOpaque(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -674,6 +677,18 @@ func TestSedOpaque(t *testing.T) {
 		// BSD takes the `/` in the bracket expression literally, so `e` is the
 		// command's flag.
 		{[]string{"s/[/]/x/e", "f"}, true},
+		// GNU reads the next command straight after a label.
+		{[]string{"-n", ":a e echo EXECUTED", "f"}, true},
+		{[]string{"-n", "b a e id", "f"}, true},
+		{[]string{"-n", "t a e id", "f"}, true},
+		{[]string{"-n", ":a s/x/y/e", "f"}, true},
+		{[]string{"-n", ":a e;p", "f"}, true},
+		// A walk that stops anywhere but a missing command may have missed the
+		// rest of the script.
+		{[]string{"-n", "1p x", "f"}, true},
+		// A missing command, which both seds reject.
+		{[]string{"-n", "1p;k", "f"}, false},
+		{[]string{"-n", "1", "f"}, false},
 		{[]string{"-n", "1p", "f"}, false},
 		{[]string{"s/e/x/", "f"}, false},
 		{[]string{"/e/p", "f"}, false},

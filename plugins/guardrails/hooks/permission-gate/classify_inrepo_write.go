@@ -76,8 +76,9 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	// `R` reads, and the file operands of a sed that does not edit them in
 	// place are files sed READS, so sedWriteReadSources hands them to the read
 	// containment rather than them being dropped or mistaken for write targets.
-	// A script read from a file, or one that runs a shell command, can write
-	// files the parse never sees, so sedOpaque defers it.
+	// A script read from a file, one that runs a shell command, or one the walk
+	// cannot read to its end can write files the parse never sees, so
+	// sedOpaque defers it.
 	"sed": {operandsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources,
 		defersFn: sedOpaque},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
@@ -154,6 +155,11 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	}
 	d, ok, sawOperator := containWriteOperands(prog, operands, sc, ev)
 	if !ok {
+		if prog == "sed" && d.Bucket == BucketDeny {
+			if sd, found := sedBareInPlaceDeny(args, operands, sc, ev); found {
+				return sd
+			}
+		}
 		return d
 	}
 	if !inputClean {
@@ -161,8 +167,8 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	}
 	if spec.defersFn != nil && spec.defersFn(args) {
 		return deferJudgment("bash-write:opaque-script", fmt.Sprintf(
-			"'%s' runs a script the gate cannot grade whole — one read from a file, or one that runs a shell "+
-				"command — so the files it writes cannot be proven in-repo.", prog))
+			"'%s' runs a script the gate cannot grade whole — one read from a file, one that runs a shell "+
+				"command, or one it cannot read to its end — so the files it writes cannot be proven in-repo.", prog))
 	}
 	// "a harness session scratchpad", not "THIS session's": the carve-out
 	// covers the whole per-uid prefix, so a write into another session's
@@ -407,6 +413,44 @@ func mkdirTouchOperands(args []string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// sedBareInPlaceDeny returns the deny for a sed whose write operands escape
+// only in GNU's reading of a bare `-i` (sedGNUBareInPlaceTargets,
+// readonly_util.go), naming spellings in which no sed takes the script for a
+// file, and false when another operand escapes too or none of those does.
+func sedBareInPlaceDeny(args, operands []string, sc simpleCommand, ev *Event) (Decision, bool) {
+	gnu := map[string]bool{}
+	for _, f := range sedGNUBareInPlaceTargets(args) {
+		gnu[f] = true
+	}
+	if len(gnu) == 0 {
+		return Decision{}, false
+	}
+	var rest []string
+	for _, f := range operands {
+		if !gnu[f] {
+			rest = append(rest, f)
+		}
+	}
+	if d, ok, _ := containWriteOperands("sed", rest, sc, ev); !ok && d.Bucket == BucketDeny {
+		return Decision{}, false
+	}
+	for _, f := range operands {
+		if !gnu[f] {
+			continue
+		}
+		d, ok, _ := containWriteOperands("sed", []string{f}, sc, ev)
+		if ok || d.Bucket != BucketDeny {
+			continue
+		}
+		return deny(d.Operation, fmt.Sprintf(
+			"Blocked: GNU sed reads the argument after a bare `-i` as the script, not as a backup suffix the way "+
+				"BSD sed does, so it would edit '%s' as a file, and that path is outside this worktree. Spell BSD "+
+				"sed's empty suffix as `-I ''`, which GNU sed rejects rather than misreads, or pass the script with "+
+				"`-e`, or use the Edit tool.", f)), true
+	}
+	return Decision{}, false
 }
 
 // sedMutates reports whether a sed invocation writes a file, and so is the form

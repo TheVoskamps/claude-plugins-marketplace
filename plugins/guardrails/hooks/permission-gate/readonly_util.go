@@ -1228,9 +1228,10 @@ func uniqDefers(args []string) bool {
 //     the next. GNU has no `-I`, so the argument after a bare `-I` is its
 //     suffix. The argument after a bare `-i` has two readings, BSD's suffix and
 //     GNU's script or file, and sedReadings returns both.
-//   - the line length. GNU's `-l` and `--line-length` take a number; BSD's
-//     `-l` takes nothing. A bare number is never a whole sed script, so `-l`
-//     carries a value exactly when a number follows it.
+//   - the line length. GNU's `-l` and `--line-length` take a value, the rest of
+//     the argument or the next one, and accept any text as it; BSD's `-l`
+//     takes nothing, so the rest of its argument is more options and the next
+//     argument is the script or a file. sedReadings returns both readings.
 var sedValueFlags = map[string]bool{
 	"-e": true, "--expression": true,
 	"-f": true, "--file": true,
@@ -1259,20 +1260,6 @@ func sedLongOption(name string) string {
 	return resolveLongOption(name, sedValueFlags, sedBoolFlags, sedArityFlags)
 }
 
-// sedLineLength reports whether s is a number, and so the value of a `-l`
-// rather than a BSD `-l` followed by something else.
-func sedLineLength(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 // sedSuffix is an in-place backup suffix and the seds that take it as one.
 type sedSuffix struct {
 	text     string
@@ -1287,6 +1274,12 @@ type sedInvocation struct {
 	inPlace bool
 	// suffixes are the in-place option's backup suffixes.
 	suffixes []sedSuffix
+	// forked: this reading is BSD's, forked off where it reads an option
+	// differently from GNU's (sedReadings).
+	forked bool
+	// bareSuffix: this reading took the argument after a bare `-i` as its
+	// suffix, as BSD sed does, where GNU sed takes it as the script or a file.
+	bareSuffix bool
 	// scriptByFlag: -e or -f supplied the script, so no positional is one.
 	scriptByFlag bool
 	// scripts are the values of -e and --expression, in order.
@@ -1309,6 +1302,33 @@ func (p sedInvocation) clone() sedInvocation {
 	q.scriptFiles = append([]string(nil), p.scriptFiles...)
 	q.positional = append([]string(nil), p.positional...)
 	return q
+}
+
+// fork returns a copy of p, as a reading forked off it (clone).
+func (p sedInvocation) fork() sedInvocation {
+	q := p.clone()
+	q.forked = true
+	return q
+}
+
+// runs reports whether sed runs this reading at all: it carries no unknown
+// option, it does not edit in place with no file to edit, which both seds
+// refuse, and its script, when it has one, is not one both seds reject
+// (sedScriptRejected). A reading that does not run reads and edits no file.
+func (p sedInvocation) runs() bool {
+	if p.unknown || p.inPlace && len(p.files()) == 0 {
+		return false
+	}
+	script, ok := p.script()
+	return !ok || !sedScriptRejected(script)
+}
+
+// counts reports whether this reading's files are among the invocation's: a
+// reading GNU sed's option parse yields always counts, so a mistake in the
+// script walk never drops a file from containment, and a forked one counts
+// when sed runs it (runs).
+func (p sedInvocation) counts() bool {
+	return !p.forked || p.runs()
 }
 
 // files are the files this reading reads, or edits in place: the positional
@@ -1336,9 +1356,10 @@ func (p sedInvocation) script() (string, bool) {
 }
 
 // backups are the backup files this reading's in-place edit writes. BSD sed
-// appends the suffix to each file's name. GNU sed puts the file's name in place
-// of each `*` in the suffix, which a suffix without one gets in front of it, and
-// makes no backup for a suffix of `*` alone.
+// appends the suffix to each file's name. GNU sed puts the file's name, as the
+// argument spells it, directory included, in place of each `*` in the suffix,
+// which a suffix without one gets in front of it, and makes no backup for a
+// suffix of `*` alone.
 func (p sedInvocation) backups() []string {
 	var out []string
 	for _, f := range p.files() {
@@ -1361,9 +1382,20 @@ func (p sedInvocation) backups() []string {
 	return out
 }
 
-// sedMaxForks bounds how many bare `-i` arguments sedReadings reads both
-// ways. An argv with more is read as one with an unknown option.
+// sedMaxForks bounds how many readings sedReadings forks off an argument it
+// reads two ways, counted across every reading rather than per argument. An
+// argv that needs more is read as one with an unknown option.
 const sedMaxForks = 8
+
+// sedPending is a reading sedReadings has yet to finish: p as read so far, to
+// resume at argument i — at byte j of it when j is above zero, inside a
+// short-option cluster — taking options wherever they stand when permute is
+// set.
+type sedPending struct {
+	p       sedInvocation
+	i, j    int
+	permute bool
+}
 
 // sedReadings reads a sed argv against sed's option table, every way GNU and
 // BSD sed read it, up to a `--`:
@@ -1371,51 +1403,47 @@ const sedMaxForks = 8
 //   - GNU sed's reading takes an option wherever it stands.
 //   - BSD sed's getopt, and GNU sed's with POSIXLY_CORRECT set, stop taking
 //     options at the first argument that is not one, so every argument from
-//     there on is the script or a file. In that reading a bare `-i`, alone or
-//     ending a cluster, with an argument after it is read both ways: GNU's
-//     leaves that argument to be the script or a file, and BSD's takes it as
-//     the suffix.
+//     there on is the script or a file. That reading forks at the two short
+//     options whose value the seds read differently: it goes on as GNU's, and
+//     the fork goes on as BSD's — a bare `-i` ending a cluster, with an
+//     argument after it, taking that argument as its suffix, and `-l` taking
+//     no value.
 //
 // GNU's reading is first.
 func sedReadings(args []string) []sedInvocation {
-	type pending struct {
-		p       sedInvocation
-		i       int
-		permute bool
-	}
 	var out []sedInvocation
-	work := []pending{{permute: true}, {}}
+	work := []sedPending{{permute: true}, {}}
 	forks := 0
 	for len(work) > 0 {
-		p, i, permute := work[0].p, work[0].i, work[0].permute
+		p, i, j, permute := work[0].p, work[0].i, work[0].j, work[0].permute
 		work = work[1:]
-		for ; i < len(args); i++ {
+	reading:
+		for ; i < len(args); i, j = i+1, 0 {
 			a := args[i]
-			if a == "--" {
-				p.positional = append(p.positional, args[i+1:]...)
-				break
-			}
+			var fork *sedPending
 			switch {
+			case j > 0:
+				i, fork = p.shortCluster(args, i, j, permute)
+			case a == "--":
+				p.positional = append(p.positional, args[i+1:]...)
+				break reading
 			case (!strings.HasPrefix(a, "-") || a == "-") && !permute:
 				p.positional = append(p.positional, args[i:]...)
-				i = len(args)
+				break reading
 			case !strings.HasPrefix(a, "-") || a == "-":
 				p.positional = append(p.positional, a)
 			case strings.HasPrefix(a, "--"):
 				i = p.longOption(args, i)
 			default:
-				var fork bool
-				i, fork = p.shortCluster(args, i)
-				if !fork || permute {
-					continue
-				}
-				if forks++; forks > sedMaxForks {
-					return []sedInvocation{{inPlace: true, unknown: true}}
-				}
-				q := p.clone()
-				q.suffixes = append(q.suffixes, sedSuffix{text: args[i+1], bsd: true})
-				work = append(work, pending{q, i + 2, false})
+				i, fork = p.shortCluster(args, i, 1, permute)
 			}
+			if fork == nil {
+				continue
+			}
+			if forks++; forks > sedMaxForks {
+				return []sedInvocation{{inPlace: true, unknown: true}}
+			}
+			work = append(work, *fork)
 		}
 		out = append(out, p)
 	}
@@ -1460,13 +1488,13 @@ func (p *sedInvocation) longOption(args []string, i int) int {
 	return i
 }
 
-// shortCluster reads the short-option cluster args[i] and returns the index
-// of the last argument it used. fork reports a bare `-i` ending the cluster
-// with an argument after it, which this reading leaves alone and the caller
-// reads as BSD's suffix in another.
-func (p *sedInvocation) shortCluster(args []string, i int) (next int, fork bool) {
+// shortCluster reads the short-option cluster args[i] from its byte j0 and
+// returns the index of the last argument it used. Outside a permute reading,
+// where the two seds read an option of the cluster differently, it reads it as
+// GNU does and returns BSD's reading as fork, else nil.
+func (p *sedInvocation) shortCluster(args []string, i, j0 int, permute bool) (next int, fork *sedPending) {
 	a := args[i]
-	for j := 1; j < len(a); j++ {
+	for j := j0; j < len(a); j++ {
 		c, rest := a[j], a[j+1:]
 		switch {
 		case c == 'e' || c == 'f':
@@ -1474,7 +1502,7 @@ func (p *sedInvocation) shortCluster(args []string, i int) (next int, fork bool)
 			value := rest
 			if rest == "" {
 				if i+1 >= len(args) {
-					return i, false
+					return i, nil
 				}
 				i++
 				value = args[i]
@@ -1484,7 +1512,7 @@ func (p *sedInvocation) shortCluster(args []string, i int) (next int, fork bool)
 			} else {
 				p.scripts = append(p.scripts, value)
 			}
-			return i, false
+			return i, nil
 		case c == 'i' || c == 'I':
 			p.inPlace = true
 			switch {
@@ -1493,33 +1521,42 @@ func (p *sedInvocation) shortCluster(args []string, i int) (next int, fork bool)
 			case i+1 >= len(args):
 			case c == 'I':
 				p.suffixes = append(p.suffixes, sedSuffix{text: args[i+1], bsd: true})
-				return i + 1, false
-			default:
-				return i, true
+				return i + 1, nil
+			case !permute:
+				q := p.fork()
+				q.suffixes = append(q.suffixes, sedSuffix{text: args[i+1], bsd: true})
+				q.bareSuffix = true
+				return i, &sedPending{p: q, i: i + 2}
 			}
-			return i, false
+			return i, nil
 		case c == 'l':
-			if sedLineLength(rest) {
-				return i, false
+			if !permute && (rest != "" || i+1 < len(args)) {
+				fork = &sedPending{p: p.fork(), i: i, j: j + 1}
+				if rest == "" {
+					fork.i, fork.j = i+1, 0
+				}
 			}
-			if rest == "" && i+1 < len(args) && sedLineLength(args[i+1]) {
-				return i + 1, false
+			if rest == "" && i+1 < len(args) {
+				i++
 			}
+			return i, fork
 		case c == 'n':
 			p.quiet = true
 		case !sedBoolFlags["-"+string(c)]:
 			p.unknown = true
-			return i, false
+			return i, nil
 		}
 	}
-	return i, false
+	return i, nil
 }
 
-// sedUnknown reports whether a reading of a sed argv carries an option outside
-// sed's table.
+// sedUnknown reports whether a reading of a sed argv other than a forked one
+// carries an option outside sed's table. A forked reading is BSD's, whose
+// options the table holds whole, so an unknown option there is one BSD sed
+// rejects rather than one the table lacks.
 func sedUnknown(readings []sedInvocation) bool {
 	for _, p := range readings {
-		if p.unknown {
+		if p.unknown && !p.forked {
 			return true
 		}
 	}
@@ -1527,8 +1564,9 @@ func sedUnknown(readings []sedInvocation) bool {
 }
 
 // sedFileOperands returns the files a sed invocation reads, or edits in place,
-// in any reading: the positional arguments after the script. An invocation
-// that names no file, and one sed rejects for an unknown option, return none.
+// in any reading that counts (counts): the positional arguments after the
+// script. An invocation that names no file, and one sed rejects for an unknown
+// option, return none.
 func sedFileOperands(args []string) []string {
 	readings := sedReadings(args)
 	if sedUnknown(readings) {
@@ -1536,7 +1574,9 @@ func sedFileOperands(args []string) []string {
 	}
 	var out []string
 	for _, p := range readings {
-		out = append(out, p.files()...)
+		if p.counts() {
+			out = append(out, p.files()...)
+		}
 	}
 	return dedupeOperands(out)
 }
@@ -1575,13 +1615,13 @@ func sedInPlace(args []string) bool {
 }
 
 // sedCommandFileSets returns the files the script on a sed invocation's
-// command line names in its own commands, in any reading of the argv and
-// either sed's reading of the script (sedCommandFiles): the files it reads,
-// and the files it writes.
+// command line names in its own commands, in any reading of the argv but a
+// forked one BSD sed rejects for an unknown option, and either sed's reading of
+// the script (sedCommandFiles): the files it reads, and the files it writes.
 func sedCommandFileSets(args []string) (reads, writes []string) {
 	for _, p := range sedReadings(args) {
 		script, ok := p.script()
-		if !ok {
+		if !ok || p.unknown && p.forked {
 			continue
 		}
 		for _, brackets := range []bool{false, true} {
@@ -1622,13 +1662,63 @@ func sedWriteTargets(args []string) []string {
 	}
 	var out []string
 	for _, p := range readings {
-		if p.inPlace {
-			out = append(out, p.files()...)
-			out = append(out, p.backups()...)
+		out = append(out, p.writeTargets()...)
+	}
+	return dedupeOperands(out)
+}
+
+// writeTargets are the files this reading writes: the files it edits in place
+// and their backups, when the reading counts (counts), and the files its script
+// writes in either reading of the script (sedCommandFiles), which sed opens as
+// it compiles the script, before it rejects anything after them.
+func (p sedInvocation) writeTargets() []string {
+	if p.unknown && p.forked {
+		return nil
+	}
+	var out []string
+	if p.inPlace && p.counts() {
+		out = append(out, p.files()...)
+		out = append(out, p.backups()...)
+	}
+	if script, ok := p.script(); ok {
+		for _, brackets := range []bool{false, true} {
+			_, w := sedCommandFiles(script, brackets)
+			out = append(out, w...)
 		}
 	}
-	_, writes := sedCommandFileSets(args)
-	return dedupeOperands(append(out, writes...))
+	return out
+}
+
+// sedGNUBareInPlaceTargets returns the files a sed invocation writes only in
+// GNU's reading of a bare `-i`: with an argument after the `-i`, which BSD sed
+// takes as the suffix, GNU sed takes it as the script, so the argument BSD
+// takes as the script is a file GNU edits. It returns none when no reading sed
+// runs (runs) takes such an argument as the suffix.
+func sedGNUBareInPlaceTargets(args []string) []string {
+	readings := sedReadings(args)
+	if sedUnknown(readings) {
+		return nil
+	}
+	bsd := map[string]bool{}
+	forked := false
+	for _, p := range readings {
+		if p.bareSuffix && p.runs() {
+			forked = true
+			for _, f := range p.writeTargets() {
+				bsd[f] = true
+			}
+		}
+	}
+	if !forked {
+		return nil
+	}
+	var out []string
+	for _, f := range sedWriteTargets(args) {
+		if !bsd[f] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // sedWriteReadSources returns the files a writing sed invocation reads and does
@@ -1653,10 +1743,13 @@ func sedDefers(args []string) bool {
 // sedOpaque reports whether a sed invocation, in any reading of its argv and
 // either reading of its script, runs a script the gate cannot grade whole: one
 // it reads from a file (-f, --file), whose commands the gate never sees, or one
-// that runs a shell command through its `e` command or the `e` flag of `s`.
-// No track allows it, and the file-work redirect does not deny it.
+// sedScriptOpaque reports. No track allows it; the file-work redirect still
+// denies it.
 func sedOpaque(args []string) bool {
 	for _, p := range sedReadings(args) {
+		if p.unknown && p.forked {
+			continue
+		}
 		if len(p.scriptFiles) > 0 {
 			return true
 		}
@@ -1665,7 +1758,7 @@ func sedOpaque(args []string) bool {
 			continue
 		}
 		for _, brackets := range []bool{false, true} {
-			if sedScriptExecutes(script, brackets) {
+			if sedScriptOpaque(script, brackets) {
 				return true
 			}
 		}
@@ -1678,22 +1771,38 @@ func sedOpaque(args []string) bool {
 // `/dev/stdin`, `/dev/stdout` and `/dev/stderr` name sed's own streams, not a
 // file. Where the two seds compile a script differently, the walk reads it the
 // way that reaches every command either compiles: a label ends at a blank, `;`,
-// `}` or `#`, as GNU ends one where BSD reads to the end of the line, and a
-// command only one sed has is read rather than rejected. The one exception is a
-// bracket expression in a regular expression, inside which BSD sed takes the
-// delimiter literally and GNU sed ends the expression at it; brackets selects
-// BSD's reading. A command the script spells wrong ends the walk, as it ends
-// sed's compile; the files named before it are kept, since sed opens a `w`
-// file as it compiles the command.
+// `}` or `#`, as GNU ends one where BSD reads to the end of the line, and the
+// next command may follow it directly, as GNU reads one; and a command only one
+// sed has is read rather than rejected. The one exception is a bracket
+// expression in a regular expression, inside which BSD sed takes the delimiter
+// literally and GNU sed ends the expression at it; brackets selects BSD's
+// reading. A command the script spells wrong ends the walk, as it ends sed's
+// compile; the files named before it are kept, since sed opens a `w` file as it
+// compiles the command.
 func sedCommandFiles(script string, brackets bool) (reads, writes []string) {
 	w := walkSedScript(script, brackets)
 	return w.reads, w.writes
 }
 
-// sedScriptExecutes reports whether a sed script runs a shell command: its `e`
-// command, or the `e` flag of an `s` command. The walk is sedCommandFiles'.
-func sedScriptExecutes(script string, brackets bool) bool {
-	return walkSedScript(script, brackets).executes
+// sedScriptOpaque reports whether the gate cannot grade a sed script whole: it
+// runs a shell command, through its `e` command or the `e` flag of an `s`
+// command, or its walk stopped at something other than a missing command — the
+// one place both seds are known to reject a script — and so may have missed
+// commands after it. The walk is sedCommandFiles'.
+func sedScriptOpaque(script string, brackets bool) bool {
+	w := walkSedScript(script, brackets)
+	return w.executes || w.unread
+}
+
+// sedScriptRejected reports whether both seds reject a sed script: its walk,
+// in either reading of a bracket expression, stops at a missing command.
+func sedScriptRejected(script string) bool {
+	for _, brackets := range []bool{false, true} {
+		if !walkSedScript(script, brackets).noCommand {
+			return false
+		}
+	}
+	return true
 }
 
 // walkSedScript walks script, with brackets as for sedCommandFiles, and
@@ -1712,6 +1821,13 @@ type sedScriptWalker struct {
 	reads, writes []string
 	// executes: an `e` command or an `s` command's `e` flag was read.
 	executes bool
+	// noCommand: the walk stopped where a command is due and none of either
+	// sed's stands — another byte, or the end of the script — which both seds
+	// reject.
+	noCommand bool
+	// unread: the walk stopped anywhere else, where the rest of the script is
+	// something the walk cannot read.
+	unread bool
 }
 
 // peek is the byte at the walk's position, or 0 at the end of the script.
@@ -1754,24 +1870,33 @@ func (w *sedScriptWalker) filename() string {
 	return w.toEOL()
 }
 
-// walk reads commands until the script ends or one is spelled wrong.
+// walk reads commands until the script ends or one is spelled wrong, and sets
+// unread when it stops anywhere but the end or a missing command.
 func (w *sedScriptWalker) walk() {
+	if !w.commands() {
+		w.unread = !w.noCommand
+	}
+}
+
+// commands reads commands until the script ends, and reports false when one is
+// spelled wrong.
+func (w *sedScriptWalker) commands() bool {
 	for {
 		for w.i < len(w.s) && strings.IndexByte(" \t\n;", w.s[w.i]) >= 0 {
 			w.i++
 		}
 		if w.i >= len(w.s) {
-			return
+			return true
 		}
 		if !w.address(false) {
-			return
+			return false
 		}
 		w.skipBlanks()
 		if w.peek() == ',' {
 			w.i++
 			w.skipBlanks()
 			if !w.address(true) {
-				return
+				return false
 			}
 			w.skipBlanks()
 		}
@@ -1780,7 +1905,7 @@ func (w *sedScriptWalker) walk() {
 			w.skipBlanks()
 		}
 		if !w.command() {
-			return
+			return false
 		}
 	}
 }
@@ -1891,6 +2016,7 @@ func (w *sedScriptWalker) bracket() bool {
 // spelled wrong.
 func (w *sedScriptWalker) command() bool {
 	if w.i >= len(w.s) {
+		w.noCommand = true
 		return false
 	}
 	c := w.s[w.i]
@@ -1928,11 +2054,13 @@ func (w *sedScriptWalker) command() bool {
 		w.i++
 		return w.delimited(d, false) && w.delimited(d, false) && w.endOfCommand()
 	case ':', 'b', 't', 'T', 'v':
+		// GNU sed reads the next command straight after the label, with no
+		// `;` or newline between them.
 		w.skipBlanks()
 		for w.i < len(w.s) && strings.IndexByte(" \t\n;}#", w.s[w.i]) < 0 {
 			w.i++
 		}
-		return w.endOfCommand()
+		return true
 	case 'l', 'L', 'q', 'Q':
 		w.skipBlanks()
 		w.skipDigits()
@@ -1940,6 +2068,7 @@ func (w *sedScriptWalker) command() bool {
 	case '=', 'd', 'D', 'g', 'G', 'h', 'H', 'n', 'N', 'p', 'P', 'x', 'z', 'F':
 		return w.endOfCommand()
 	}
+	w.noCommand = true
 	return false
 }
 

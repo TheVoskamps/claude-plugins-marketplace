@@ -200,11 +200,6 @@ func gradeFileWorkCall(s *syntax.Stmt, call *syntax.CallExpr, sink stdoutSink, h
 	if prog == "" {
 		return Decision{}, false
 	}
-	// No track allows a sed whose script the gate cannot grade whole (sedOpaque,
-	// readonly_util.go), and the redirect does not deny it either.
-	if prog == "sed" && sedOpaque(args) {
-		return Decision{}, false
-	}
 
 	if fileWorkInPlace(prog, args) {
 		return deny("bash-file-work:edit", fmt.Sprintf(
@@ -265,13 +260,13 @@ func fileWorkArgv(call *syntax.CallExpr) (string, []string) {
 
 // fileWorkReader reports whether prog with args names at least one file operand
 // (readFileOperands, readonly_util.go), and whether it is a reader. sed is
-// one only with -n (sedQuiet, readonly_util.go), not in place, and with a
-// script the gate can grade whole (sedOpaque, readonly_util.go).
+// one only with -n (sedQuiet, readonly_util.go) and not in place, whether or
+// not the gate can grade its script whole.
 func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {
 	if !fileWorkReaders[prog] {
 		return false, false
 	}
-	if prog == "sed" && (!sedQuiet(args) || fileWorkInPlace(prog, args) || sedOpaque(args)) {
+	if prog == "sed" && (!sedQuiet(args) || fileWorkInPlace(prog, args)) {
 		return false, false
 	}
 	return len(readFileOperands(prog, args)) > 0, true
