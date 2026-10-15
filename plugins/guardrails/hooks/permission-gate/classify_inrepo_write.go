@@ -39,7 +39,13 @@ import (
 // and always rides this classifier.
 type inRepoWriteSpec struct {
 	operandsFn func(args []string) []string
-	mutatesFn  func(args []string, sc simpleCommand) bool
+	// targetsFn, when set, takes operandsFn's place for a program whose write
+	// targets depend on the filesystem: it returns them for a command that runs
+	// in base, and false when it could not read what they depend on. The
+	// targets it did find are still contained, and the false withholds the
+	// ALLOW only once containment has found no escape among them.
+	targetsFn func(args []string, base string) ([]string, bool)
+	mutatesFn func(args []string, sc simpleCommand) bool
 	// pathValuesFn, when set, returns the paths the program READS from its
 	// arguments, by its own option grammar, as utilitySpec's field of this name
 	// does on the read track. They are graded through the READ containment
@@ -47,10 +53,11 @@ type inRepoWriteSpec struct {
 	// read, not written, and the read grading can only ever withhold this
 	// classifier's ALLOW, never earn it.
 	pathValuesFn func(args []string) []string
-	// defersFn, when set, reports a form whose writes the operand parse cannot
-	// see whole. It withholds the ALLOW, and only once containment has found no
-	// escape among the files the parse does see, so an escape still denies.
-	defersFn func(args []string) bool
+	// defersFn, when set, returns the defer for a form whose writes the operand
+	// parse cannot see whole, and false for one it sees whole. It withholds the
+	// ALLOW, and only once containment has found no escape among the files the
+	// parse does see, so an escape still denies.
+	defersFn func(args []string) (Decision, bool)
 }
 
 // inRepoWriters maps a mutating program basename to its operand-extraction spec.
@@ -77,10 +84,12 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	// place are files sed READS, so sedWriteReadSources hands them to the read
 	// containment rather than them being dropped or mistaken for write targets.
 	// A script read from a file, one that runs a shell command, or one the walk
-	// cannot read to its end can write files the parse never sees, so
-	// sedOpaque defers it.
-	"sed": {operandsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources,
-		defersFn: sedOpaque},
+	// cannot read to its end can write files the parse never sees, and so can
+	// an option outside sed's table, so sedWriteDefers defers each. Under
+	// --follow-symlinks the files sed writes depend on the links its operands
+	// name, so the targets are read from the filesystem.
+	"sed": {targetsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources,
+		defersFn: sedWriteDefers},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
 	// real-file form; `tee /dev/null` stays on the read-only-utility track.
 	"tee": {operandsFn: teeTargets, mutatesFn: teeMutates},
@@ -121,7 +130,17 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 			prog))
 	}
 
-	operands := spec.operandsFn(args)
+	base := sc.cwd
+	if base == "" {
+		base = ev.CWD
+	}
+	var operands []string
+	targetsRead := true
+	if spec.targetsFn != nil {
+		operands, targetsRead = spec.targetsFn(args, base)
+	} else {
+		operands = spec.operandsFn(args)
+	}
 	if len(operands) == 0 {
 		// No statically-extractable write target (e.g. an unrecognized flag the
 		// extractor refused to model, or a form we don't recognize). Defer rather
@@ -156,7 +175,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	d, ok, sawOperator := containWriteOperands(prog, operands, sc, ev)
 	if !ok {
 		if prog == "sed" && d.Bucket == BucketDeny {
-			if sd, found := sedBareInPlaceDeny(args, operands, sc, ev); found {
+			if sd, found := sedBareInPlaceDeny(args, operands, base, sc, ev); found {
 				return sd
 			}
 		}
@@ -165,10 +184,15 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	if !inputClean {
 		return inputEscape
 	}
-	if spec.defersFn != nil && spec.defersFn(args) {
-		return deferJudgment("bash-write:opaque-script", fmt.Sprintf(
-			"'%s' runs a script the gate cannot grade whole — one read from a file, one that runs a shell "+
-				"command, or one it cannot read to its end — so the files it writes cannot be proven in-repo.", prog))
+	if !targetsRead {
+		return deferJudgment("bash-write:unreadable-link", fmt.Sprintf(
+			"'%s' follows a symlink among its operands that the gate cannot read, or that does not exist, so "+
+				"the file it writes cannot be proven in-repo.", prog))
+	}
+	if spec.defersFn != nil {
+		if dd, defers := spec.defersFn(args); defers {
+			return dd
+		}
 	}
 	// "a harness session scratchpad", not "THIS session's": the carve-out
 	// covers the whole per-uid prefix, so a write into another session's
@@ -419,9 +443,11 @@ func mkdirTouchOperands(args []string) []string {
 // only in GNU's reading of a bare `-i` (sedGNUBareInPlaceTargets,
 // readonly_util.go), naming spellings in which no sed takes the script for a
 // file, and false when another operand escapes too or none of those does.
-func sedBareInPlaceDeny(args, operands []string, sc simpleCommand, ev *Event) (Decision, bool) {
+// base is the directory the command runs in.
+func sedBareInPlaceDeny(args, operands []string, base string, sc simpleCommand, ev *Event) (Decision, bool) {
+	files, suffix := sedGNUBareInPlaceTargets(args, base)
 	gnu := map[string]bool{}
-	for _, f := range sedGNUBareInPlaceTargets(args) {
+	for _, f := range files {
 		gnu[f] = true
 	}
 	if len(gnu) == 0 {
@@ -446,11 +472,39 @@ func sedBareInPlaceDeny(args, operands []string, sc simpleCommand, ev *Event) (D
 		}
 		return deny(d.Operation, fmt.Sprintf(
 			"Blocked: GNU sed reads the argument after a bare `-i` as the script, not as a backup suffix the way "+
-				"BSD sed does, so it would edit '%s' as a file, and that path is outside this worktree. Spell BSD "+
-				"sed's empty suffix as `-I ''`, which GNU sed rejects rather than misreads, or pass the script with "+
-				"`-e`, or use the Edit tool.", f)), true
+				"BSD sed does, so it would edit '%s' as a file, and that path is outside this worktree. %s",
+			f, sedSuffixSpellings(suffix))), true
 	}
 	return Decision{}, false
+}
+
+// sedSuffixSpellings names the spellings of the backup suffix suffix that no
+// sed misreads, and the Edit tool. An empty suffix cannot be attached to
+// `-i`, which would leave a bare `-i`, so only `-I` spells it.
+func sedSuffixSpellings(suffix string) string {
+	if suffix == "" {
+		return "Spell BSD sed's empty suffix as `-I ''`, which GNU sed rejects rather than misreads, or use the " +
+			"Edit tool."
+	}
+	q := sedShellWord(suffix)
+	return fmt.Sprintf("To keep the backup suffix %s, attach it as `-i%s`, which both seds read as the suffix, or "+
+		"spell it `-I %s`, which GNU sed rejects rather than misreads, or use the Edit tool.", q, q, q)
+}
+
+// sedShellWord is s as one shell word: as it stands when it holds only
+// characters the shell gives no meaning, else single-quoted.
+func sedShellWord(s string) string {
+	plain := s != ""
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-+,:@%/=", c)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // sedMutates reports whether a sed invocation writes a file, and so is the form
@@ -459,6 +513,23 @@ func sedBareInPlaceDeny(args, operands []string, sc simpleCommand, ev *Event) (D
 // is left to defer rather than mis-classified as an in-repo write.
 func sedMutates(args []string, _ simpleCommand) bool {
 	return sedWrites(args)
+}
+
+// sedWriteDefers returns the defer for a writing sed whose writes the operand
+// parse cannot see whole, and false for one it sees whole: one that runs a
+// script sedOpaque reports (readonly_util.go), or one that carries an option
+// outside sed's table (sedUnknown), which a sed newer than the table may read
+// as a write.
+func sedWriteDefers(args []string) (Decision, bool) {
+	if sedOpaque(args) {
+		return deferJudgment("bash-write:opaque-script",
+			"'sed' runs a script the gate cannot grade whole — one read from a file, one that runs a shell "+
+				"command, or one it cannot read to its end — so the files it writes cannot be proven in-repo."), true
+	}
+	if sedUnknown(sedReadings(args)) {
+		return deferToPipeline(), true
+	}
+	return Decision{}, false
 }
 
 // teeMutates reports whether a tee invocation writes a real file (the in-repo

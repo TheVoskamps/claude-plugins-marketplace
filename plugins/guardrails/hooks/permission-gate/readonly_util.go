@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"syscall"
 )
 
 // readOnlyUtility is the curated read-only-utility classifier: it
@@ -1279,7 +1282,12 @@ type sedInvocation struct {
 	forked bool
 	// bareSuffix: this reading took the argument after a bare `-i` as its
 	// suffix, as BSD sed does, where GNU sed takes it as the script or a file.
+	// bareText is that argument.
 	bareSuffix bool
+	bareText   string
+	// followSymlinks: --follow-symlinks is present, so GNU sed edits the file a
+	// symlink operand ends at, under the name sedFollowSymlink gives it.
+	followSymlinks bool
 	// scriptByFlag: -e or -f supplied the script, so no positional is one.
 	scriptByFlag bool
 	// scripts are the values of -e and --expression, in order.
@@ -1355,12 +1363,23 @@ func (p sedInvocation) script() (string, bool) {
 	return p.positional[0], true
 }
 
-// backups are the backup files this reading's in-place edit writes. BSD sed
-// appends the suffix to each file's name. GNU sed puts the file's name, as the
-// argument spells it, directory included, in place of each `*` in the suffix,
-// which a suffix without one gets in front of it, and makes no backup for a
-// suffix of `*` alone.
-func (p sedInvocation) backups() []string {
+// edited is the name GNU sed edits the file operand f under in this reading:
+// f as spelled, or under --follow-symlinks the name followed maps f to
+// (sedFollowedNames).
+func (p sedInvocation) edited(f string, followed map[string]string) string {
+	if n, ok := followed[f]; ok && p.followSymlinks {
+		return n
+	}
+	return f
+}
+
+// backups are the backup files this reading's in-place edit writes, with
+// followed as for edited. BSD sed appends the suffix to each file's name. GNU
+// sed puts the name it edits the file under (edited), directory included, in
+// place of each `*` in the suffix, which a suffix without one gets in front of
+// it, and makes no backup for a suffix of `*` alone (open_next_file, closedown
+// and get_backup_file_name, sed/execute.c).
+func (p sedInvocation) backups(followed map[string]string) []string {
 	var out []string
 	for _, f := range p.files() {
 		for _, s := range p.suffixes {
@@ -1375,11 +1394,69 @@ func (p sedInvocation) backups() []string {
 				ext = "*" + ext
 			}
 			if ext != "*" {
-				out = append(out, strings.ReplaceAll(ext, "*", f))
+				out = append(out, strings.ReplaceAll(ext, "*", p.edited(f, followed)))
 			}
 		}
 	}
 	return out
+}
+
+// sedMaxLinks bounds how many symlinks sedFollowSymlink follows from one file
+// operand before it gives up.
+const sedMaxLinks = 40
+
+// sedFollowSymlink returns the name GNU sed's --follow-symlinks edits the file
+// operand name under, reading links relative to base, the directory sed runs
+// in: while the name is a symlink, the link text, behind the name's own
+// directory as the name spells it when the text is relative and the name has
+// one (follow_symlink, sed/utils.c). It returns false when a link cannot be
+// read, which includes a name that does not exist, or the chain is longer
+// than sedMaxLinks.
+func sedFollowSymlink(name, base string) (string, bool) {
+	fn := name
+	for n := 0; ; n++ {
+		at := fn
+		if !strings.HasPrefix(at, "/") {
+			at = base + "/" + at
+		}
+		link, err := os.Readlink(at)
+		if errors.Is(err, syscall.EINVAL) {
+			return fn, true
+		}
+		if err != nil || n >= sedMaxLinks {
+			return "", false
+		}
+		if k := strings.LastIndex(fn, "/"); !strings.HasPrefix(link, "/") && k >= 0 {
+			link = fn[:k+1] + link
+		}
+		fn = link
+	}
+}
+
+// sedFollowedNames maps each file a reading that counts (counts) edits in
+// place under --follow-symlinks to the name sedFollowSymlink gives it, from
+// base. It reports false when one of them cannot be followed; the map then
+// holds the rest.
+func sedFollowedNames(readings []sedInvocation, base string) (map[string]string, bool) {
+	followed := map[string]string{}
+	ok := true
+	for _, p := range readings {
+		if !p.followSymlinks || !p.inPlace || !p.counts() {
+			continue
+		}
+		for _, f := range p.files() {
+			if _, done := followed[f]; done {
+				continue
+			}
+			n, found := sedFollowSymlink(f, base)
+			if !found {
+				ok = false
+				continue
+			}
+			followed[f] = n
+		}
+	}
+	return followed, ok
 }
 
 // sedMaxForks bounds how many readings sedReadings forks off an argument it
@@ -1484,6 +1561,8 @@ func (p *sedInvocation) longOption(args []string, i int) int {
 		p.unknown = true
 	case opt == "--quiet" || opt == "--silent":
 		p.quiet = true
+	case opt == "--follow-symlinks":
+		p.followSymlinks = true
 	}
 	return i
 }
@@ -1525,7 +1604,7 @@ func (p *sedInvocation) shortCluster(args []string, i, j0 int, permute bool) (ne
 			case !permute:
 				q := p.fork()
 				q.suffixes = append(q.suffixes, sedSuffix{text: args[i+1], bsd: true})
-				q.bareSuffix = true
+				q.bareSuffix, q.bareText = true, args[i+1]
 				return i, &sedPending{p: q, i: i + 2}
 			}
 			return i, nil
@@ -1565,13 +1644,12 @@ func sedUnknown(readings []sedInvocation) bool {
 
 // sedFileOperands returns the files a sed invocation reads, or edits in place,
 // in any reading that counts (counts): the positional arguments after the
-// script. An invocation that names no file, and one sed rejects for an unknown
-// option, return none.
+// script. An invocation that names no file returns none. One that carries an
+// option outside sed's table returns the files its readings name with that
+// option read as taking no value, so containment still denies an escape among
+// them before sedDefers defers the invocation.
 func sedFileOperands(args []string) []string {
 	readings := sedReadings(args)
-	if sedUnknown(readings) {
-		return nil
-	}
 	var out []string
 	for _, p := range readings {
 		if p.counts() {
@@ -1650,35 +1728,42 @@ func sedReadValues(args []string) []string {
 	return dedupeOperands(append(sedScriptFiles(args), reads...))
 }
 
-// sedWriteTargets returns the files a writing sed invocation writes, in any
-// reading: the files it edits in place and their backups, and the files its
-// script writes. An invocation sed rejects for an unknown option returns none,
-// as sedFileOperands does. With nothing to contain, the in-repo-write track
-// defers, so a write it cannot see is never allowed.
-func sedWriteTargets(args []string) []string {
+// sedWriteTargets returns the files a writing sed invocation that runs in base
+// writes, in any reading: the files it edits in place, under each name it
+// edits them under (edited), and their backups, and the files its script
+// writes. An invocation that carries an option outside sed's table returns
+// them as sedFileOperands does, and the in-repo-write track defers it once
+// containment passes (sedWriteDefers). It reports false when a file it edits
+// under --follow-symlinks cannot be followed (sedFollowedNames); the files
+// returned then lack that file's followed name and its backups.
+func sedWriteTargets(args []string, base string) ([]string, bool) {
 	readings := sedReadings(args)
-	if sedUnknown(readings) {
-		return nil
-	}
+	followed, ok := sedFollowedNames(readings, base)
 	var out []string
 	for _, p := range readings {
-		out = append(out, p.writeTargets()...)
+		out = append(out, p.writeTargets(followed)...)
 	}
-	return dedupeOperands(out)
+	return dedupeOperands(out), ok
 }
 
-// writeTargets are the files this reading writes: the files it edits in place
-// and their backups, when the reading counts (counts), and the files its script
-// writes in either reading of the script (sedCommandFiles), which sed opens as
-// it compiles the script, before it rejects anything after them.
-func (p sedInvocation) writeTargets() []string {
+// writeTargets are the files this reading writes, with followed as for
+// edited: the files it edits in place, as spelled and as edited, and their
+// backups, when the reading counts (counts), and the files its script writes
+// in either reading of the script (sedCommandFiles), which sed opens as it
+// compiles the script, before it rejects anything after them.
+func (p sedInvocation) writeTargets(followed map[string]string) []string {
 	if p.unknown && p.forked {
 		return nil
 	}
 	var out []string
 	if p.inPlace && p.counts() {
-		out = append(out, p.files()...)
-		out = append(out, p.backups()...)
+		for _, f := range p.files() {
+			out = append(out, f)
+			if e := p.edited(f, followed); e != f {
+				out = append(out, e)
+			}
+		}
+		out = append(out, p.backups(followed)...)
 	}
 	if script, ok := p.script(); ok {
 		for _, brackets := range []bool{false, true} {
@@ -1692,33 +1777,39 @@ func (p sedInvocation) writeTargets() []string {
 // sedGNUBareInPlaceTargets returns the files a sed invocation writes only in
 // GNU's reading of a bare `-i`: with an argument after the `-i`, which BSD sed
 // takes as the suffix, GNU sed takes it as the script, so the argument BSD
-// takes as the script is a file GNU edits. It returns none when no reading sed
-// runs (runs) takes such an argument as the suffix.
-func sedGNUBareInPlaceTargets(args []string) []string {
+// takes as the script is a file GNU edits. It also returns the argument BSD
+// sed takes as the suffix. It returns no file when no reading sed runs (runs)
+// takes such an argument as the suffix, or the invocation carries an option
+// outside sed's table. base is as for sedWriteTargets.
+func sedGNUBareInPlaceTargets(args []string, base string) (files []string, suffix string) {
 	readings := sedReadings(args)
 	if sedUnknown(readings) {
-		return nil
+		return nil, ""
 	}
+	followed, _ := sedFollowedNames(readings, base)
 	bsd := map[string]bool{}
 	forked := false
 	for _, p := range readings {
 		if p.bareSuffix && p.runs() {
+			if !forked {
+				suffix = p.bareText
+			}
 			forked = true
-			for _, f := range p.writeTargets() {
+			for _, f := range p.writeTargets(followed) {
 				bsd[f] = true
 			}
 		}
 	}
 	if !forked {
-		return nil
+		return nil, ""
 	}
-	var out []string
-	for _, f := range sedWriteTargets(args) {
+	all, _ := sedWriteTargets(args, base)
+	for _, f := range all {
 		if !bsd[f] {
-			out = append(out, f)
+			files = append(files, f)
 		}
 	}
-	return out
+	return files, suffix
 }
 
 // sedWriteReadSources returns the files a writing sed invocation reads and does
@@ -1743,8 +1834,8 @@ func sedDefers(args []string) bool {
 // sedOpaque reports whether a sed invocation, in any reading of its argv and
 // either reading of its script, runs a script the gate cannot grade whole: one
 // it reads from a file (-f, --file), whose commands the gate never sees, or one
-// sedScriptOpaque reports. No track allows it; the file-work redirect still
-// denies it.
+// sedScriptOpaque reports. No track allows it. The file-work redirect does not
+// consult it, and grades an opaque sed as it grades any other.
 func sedOpaque(args []string) bool {
 	for _, p := range sedReadings(args) {
 		if p.unknown && p.forked {

@@ -156,9 +156,10 @@ func TestInRepoWriteSedInPlaceSpellingsContained(t *testing.T) {
 	} {
 		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
 	}
-	// GNU sed puts the file's name as spelled, directory included, in place of
-	// `*` (get_backup_file_name, sed/execute.c), so a backup suffix that climbs
-	// out of it is graded from there.
+	// Without --follow-symlinks GNU sed puts the file's name as spelled,
+	// directory included, in place of `*` (get_backup_file_name,
+	// sed/execute.c), so a backup suffix that climbs out of it is graded from
+	// there.
 	wantBucket(t, classifyBash(`sed -i'*/../../../x' 's/a/b/' sub/f`, ev), BucketDeny, "backup climbing out")
 	wantBucket(t, classifyBash(`sed -i'*/../../x' 's/a/b/' sub/f`, ev), BucketAllow, "backup staying in")
 }
@@ -174,13 +175,37 @@ func TestSedBareInPlaceDenyReason(t *testing.T) {
 	gitInit(t, filepath.Join(base, "sibling"))
 	ev := bashEvIn(t, canonicalize(repo), "main")
 
-	d := classifyBash(`sed -i '' '/x/d' f`, ev)
-	if d.Bucket != BucketDeny || d.Operation != "bash-write:cross-repo" {
-		t.Fatalf("got %q/%q, want deny/bash-write:cross-repo", d.Bucket, d.Operation)
-	}
-	for _, want := range []string{"'/x/d'", "-I ''", "`-e`", "Edit tool"} {
-		if !strings.Contains(d.Reason, want) {
-			t.Errorf("the reason does not name %s; got %q", want, d.Reason)
+	// Each row's reason names the spellings in allowed, and each of those is
+	// allowed.
+	for _, tc := range []struct {
+		cmd     string
+		names   []string
+		allowed []string
+	}{
+		{`sed -i '' '/x/d' f`, []string{"'/x/d'", "`-I ''`", "Edit tool"}, []string{`sed -I '' '/x/d' f`}},
+		{`sed -i '' -e '/x/d' f`, []string{"`-I ''`", "Edit tool"}, []string{`sed -I '' -e '/x/d' f`}},
+		{`sed -i '' --expression='/x/d' f`, []string{"`-I ''`", "Edit tool"},
+			[]string{`sed -I '' --expression='/x/d' f`}},
+		{`sed -i .bak '/x/d' f`, []string{"'/x/d'", "`-i.bak`", "`-I .bak`", "Edit tool"},
+			[]string{`sed -i.bak '/x/d' f`, `sed -I .bak '/x/d' f`}},
+		{`sed -i '.b k' '/x/d' f`, []string{"`-i'.b k'`", "`-I '.b k'`"},
+			[]string{`sed -i'.b k' '/x/d' f`, `sed -I '.b k' '/x/d' f`}},
+	} {
+		d := classifyBash(tc.cmd, ev)
+		if d.Bucket != BucketDeny || d.Operation != "bash-write:cross-repo" {
+			t.Errorf("%q: got %q/%q, want deny/bash-write:cross-repo", tc.cmd, d.Bucket, d.Operation)
+			continue
+		}
+		for _, want := range tc.names {
+			if !strings.Contains(d.Reason, want) {
+				t.Errorf("%q: the reason does not name %s; got %q", tc.cmd, want, d.Reason)
+			}
+		}
+		if strings.Contains(d.Reason, "`-e`") {
+			t.Errorf("%q: the reason names `-e`, which leaves the line denied; got %q", tc.cmd, d.Reason)
+		}
+		for _, cmd := range tc.allowed {
+			wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd+", which the reason for "+tc.cmd+" names")
 		}
 	}
 	for _, cmd := range []string{
@@ -192,6 +217,143 @@ func TestSedBareInPlaceDenyReason(t *testing.T) {
 		if d.Bucket != BucketDeny || strings.Contains(d.Reason, "-I ''") {
 			t.Errorf("%q: got %q (%q), want the ordinary cross-repo deny", cmd, d.Bucket, d.Reason)
 		}
+	}
+}
+
+// Under --follow-symlinks GNU sed edits a symlink operand under the name it
+// follows the link to, and builds the backup's name from that name, so the
+// backup is contained from there. A link the gate cannot follow defers.
+func TestSedFollowSymlinksBackupContained(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	for _, dir := range []string{filepath.Join(root, "a", "b"), filepath.Join(root, "c")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{filepath.Join(root, "c", "f"), filepath.Join(root, "a", "b", "plain")} {
+		if err := os.WriteFile(f, []byte("a"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("../../c/f", filepath.Join(root, "a", "b", "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../c/missing", filepath.Join(root, "a", "b", "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	ev := bashEvIn(t, filepath.Join(root, "a", "b"), "main")
+
+	// GNU follows link to ../../c/f, from a/b, and writes the backup to
+	// ../../../c/f, from a/b: outside the repository.
+	for _, cmd := range []string{
+		`sed -i'../*' --follow-symlinks 's/a/b/' link`,
+		`sed --follow-symlinks --in-place='../*' 's/a/b/' link`,
+		`sed --follow -i'../*' 's/a/b/' link`,
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket != BucketDeny || d.Operation != "bash-write:cross-repo" {
+			t.Errorf("%q: got %q/%q (%q), want deny/bash-write:cross-repo", cmd, d.Bucket, d.Operation, d.Reason)
+		}
+	}
+	// Without --follow-symlinks the backup is ../link, from a/b; a regular file
+	// is its own name; and a suffix that stays inside from c/f is allowed.
+	for _, cmd := range []string{
+		`sed -i'../*' 's/a/b/' link`,
+		`sed -i'../*' --follow-symlinks 's/a/b/' plain`,
+		`sed -i'*.bak' --follow-symlinks 's/a/b/' link`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, cmd)
+	}
+	for _, cmd := range []string{
+		`sed -i --follow-symlinks 's/a/b/' dangling`,
+		`sed -i --follow-symlinks 's/a/b/' absent`,
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket != BucketDefer || d.Operation != "bash-write:unreadable-link" {
+			t.Errorf("%q: got %q/%q (%q), want defer/bash-write:unreadable-link", cmd, d.Bucket, d.Operation, d.Reason)
+		}
+	}
+	// An escape elsewhere on the line still denies past a link it cannot follow.
+	gitInit(t, filepath.Join(base, "sibling"))
+	cmd := `sed -i --follow-symlinks 's/a/b/' dangling ../../../sibling/f`
+	wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
+}
+
+// sedFollowSymlink names a file as GNU sed's follow_symlink does: the link
+// text alone when it is absolute or the name has no directory, and behind the
+// name's directory otherwise, link after link.
+func TestSedFollowSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	base := canonicalize(t.TempDir())
+	if err := os.MkdirAll(filepath.Join(base, "d", "e"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "t"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		"rel":         "t",
+		"d/up":        "../t",
+		"d/e/chain":   "../up",
+		"abs":         filepath.Join(base, "t"),
+		"d/dangling":  "nowhere",
+		"d/e/to-dang": "../dangling",
+	}
+	for name, text := range links {
+		if err := os.Symlink(text, filepath.Join(base, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, want string
+		ok         bool
+	}{
+		{"t", "t", true},
+		{"rel", "t", true},
+		{"d/up", "d/../t", true},
+		{"d/e/chain", "d/e/../../t", true},
+		{"abs", filepath.Join(base, "t"), true},
+		{base + "/d/up", base + "/d/../t", true},
+		{"d/dangling", "", false},
+		{"d/e/to-dang", "", false},
+		{"absent", "", false},
+	} {
+		got, ok := sedFollowSymlink(tc.name, base)
+		if ok != tc.ok || ok && got != tc.want {
+			t.Errorf("sedFollowSymlink(%q) = %q, %v, want %q, %v", tc.name, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// A sed carrying an option outside sed's table still has its files contained:
+// an escape denies, and a contained one defers rather than being allowed.
+func TestSedUnknownOptionFilesContained(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	gitInit(t, filepath.Join(base, "sibling"))
+	ev := bashEvIn(t, canonicalize(repo), "main")
+
+	for _, cmd := range []string{
+		`sed -i -X p ../sibling/f`,
+		`sed -n p -X ../sibling/f`,
+		`sed -i --bogus 's/a/b/' ../sibling/f`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
+	}
+	for _, cmd := range []string{
+		`sed -i -X p f`,
+		`sed -n p -X f`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketDefer, cmd)
 	}
 }
 
@@ -457,10 +619,11 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-i.bak", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-i", "--expression=s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-i", "-n", "s/a/b/", "f1"}, []string{"f1"}}, // -n bool before script
-		{[]string{"-i", "--bogus", "s/a/b/", "f1"}, nil},       // unknown flag → fail safe
+		// An unknown option still yields the files, for containment.
+		{[]string{"-i", "--bogus", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-Ei", "s/a+/b/", "f1"}, []string{"f1"}},
 		{[]string{"-nEi.bak", "s/a/b/p", "f1"}, []string{"f1"}},
-		{[]string{"-xi", "s/a/b/", "f1"}, nil}, // unknown option ahead of i → fail safe
+		{[]string{"-xi", "s/a/b/", "f1"}, []string{"f1"}},
 		// BSD's -I takes its suffix from the next argument; GNU has no -I.
 		{[]string{"-I", ".bak", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"-I", "", "/x/d", "f1"}, []string{"f1"}},
@@ -490,8 +653,8 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"--fil", "x.sed", "f1"}, []string{"f1"}},
 		{[]string{"--qui", "s/a/b/", "f1"}, []string{"f1"}},
 		{[]string{"--in", "s/a/b/", "f1"}, []string{"f1"}},
-		{[]string{"--s", "s/a/b/", "f1"}, nil},       // silent, separate or sandbox
-		{[]string{"--quiet=x", "s/a/b/", "f1"}, nil}, // a value on a bool option
+		{[]string{"--s", "s/a/b/", "f1"}, []string{"f1"}},       // silent, separate or sandbox
+		{[]string{"--quiet=x", "s/a/b/", "f1"}, []string{"f1"}}, // a value on a bool option
 		{[]string{"-ef1", "f2"}, []string{"f2"}},
 		{[]string{"-ei", "f1"}, []string{"f1"}},
 		{[]string{"-nfx.sed", "f1"}, []string{"f1"}},

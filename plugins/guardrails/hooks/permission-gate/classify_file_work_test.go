@@ -209,9 +209,9 @@ func TestFileWorkAlways(t *testing.T) {
 	}
 }
 
-// Under `off`, with the key absent, with the file stamped below the pin or not
-// at all, and with no config file, every covered shape gets the verdict the
-// line gets with no config file.
+// Under `off`, with the key absent, with the key given an empty value, with the
+// file stamped below the pin or not at all, and with no config file, every
+// covered shape gets the verdict the line gets with no config file.
 func TestFileWorkOffIsTodaysVerdict(t *testing.T) {
 	repo := fileWorkRepo(t)
 	t.Chdir(repo)
@@ -627,7 +627,6 @@ func TestFileWorkBadValueKeepsCarveOut(t *testing.T) {
 func TestUnusableConfigDeniesEveryCall(t *testing.T) {
 	repo := fileWorkRepo(t)
 	home := fileWorkConfig(t, "redirect-bash-file-work: [\n")
-	abs := filepath.Join(home, ".config", "guardrails", "config.yml")
 	for _, ev := range []*Event{
 		fileWorkEvent(repo, "main"),
 		{HookEventName: "PreToolUse", ToolName: "Bash", CWD: repo, ToolInput: []byte(`{"command":"ls"}`)},
@@ -644,7 +643,7 @@ func TestUnusableConfigDeniesEveryCall(t *testing.T) {
 			t.Errorf("%s: the reason does not name ~/.config/guardrails/config.yml; got %q", ev.ToolName, d.Reason)
 		}
 		if strings.Contains(d.Reason, home) {
-			t.Errorf("%s: the reason carries the absolute path %s; got %q", ev.ToolName, abs, d.Reason)
+			t.Errorf("%s: the reason carries the home directory %s; got %q", ev.ToolName, home, d.Reason)
 		}
 	}
 }
