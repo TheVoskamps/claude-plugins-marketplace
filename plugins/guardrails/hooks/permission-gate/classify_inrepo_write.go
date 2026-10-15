@@ -63,9 +63,9 @@ type inRepoWriteSpec struct {
 // inRepoWriters maps a mutating program basename to its operand-extraction spec.
 // Each spec parses the program's own flag grammar so a flag value is never
 // misread as a path operand and a script argument (sed) is never tested as a
-// file. An unrecognized flag makes the operand extractor fail safe by withholding
-// the ALLOW (see the per-program functions), so a future mutating flag does not
-// slip a write past containment.
+// file. An unrecognized flag withholds the ALLOW, through the operand extractor
+// or, for sed, its defersFn once containment passes (see the per-program
+// functions), so a future mutating flag does not slip a write past containment.
 var inRepoWriters = map[string]inRepoWriteSpec{
 	// cp/mv: all non-flag operands are paths (source(s) + dest). Containment on
 	// the DEST is what makes `mv repo-file /tmp/x` deny — checking only the

@@ -69,9 +69,9 @@ type utilitySpec struct {
 	// positional is a program, not a path: sed's script, awk's program text, and
 	// grep's pattern. A `sed -n '/A/,/B/p' f.md` range address starts with '/',
 	// so containment read it as an absolute path and DENIED the command as a
-	// cross-repo read. The write track has had this grammar since it was built
-	// (inRepoWriteSpec.operandsFn, for `sed -i`); this is the same idea on the
-	// read track, which had only the undifferentiated non-flag-token walk.
+	// cross-repo read. The write track reads a writing sed by the same grammar
+	// (sedReadings, through inRepoWriteSpec.targetsFn); this is the same idea on
+	// the read track, which had only the undifferentiated non-flag-token walk.
 	operandsFn func(args []string) []string
 	// pathValueFlags names the flags whose VALUE is a filesystem path — one the
 	// utility READS (`grep -f PATFILE`, `awk -f PROG`,
