@@ -1461,26 +1461,25 @@ func sedFollowedNames(readings []sedInvocation, base string) (map[string]string,
 
 // sedMaxForks bounds how many readings sedReadings forks off an argument it
 // reads two ways, counted across every reading rather than per argument. An
-// argv that needs more is read as sedForkLimitReading reads it.
+// argv that needs more is past the gate's parse limit, and sedForkLimitDeny
+// denies it.
 const sedMaxForks = 8
 
-// sedForkLimitReading is the one reading sedReadings returns for an argv past
-// sedMaxForks: an in-place edit carrying an option outside sed's table
-// (sedUnknown), so no track allows it, whose files are every argument that is
-// not an option, in order. Any of them may be a file in some reading, so
-// containment holds each to its boundary.
-func sedForkLimitReading(args []string) sedInvocation {
-	p := sedInvocation{inPlace: true, unknown: true, scriptByFlag: true}
-	for i, a := range args {
-		if a == "--" {
-			p.positional = append(p.positional, args[i+1:]...)
-			break
-		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
-			p.positional = append(p.positional, a)
-		}
+// sedForkLimitDeny returns the deny for a sed whose argv needs more than
+// sedMaxForks forked readings to parse (sedReadingsWithin), and false for one
+// that needs no more. classifySimpleCommand runs it before it hands sed to any
+// track, and the file-work redirect before it grades sed as a read or an edit,
+// so such a sed is denied for the parse limit rather than graded.
+func sedForkLimitDeny(args []string) (Decision, bool) {
+	if _, ok := sedReadingsWithin(args); ok {
+		return Decision{}, false
 	}
-	return p
+	return deny("bash:sed-parse-limit", fmt.Sprintf(
+		"Blocked: this `sed` command is past the gate's parse limit. GNU and BSD sed read `-l`, and a bare `-i` "+
+			"with an argument after it, differently, so the gate parses the command each way it can be read, and "+
+			"this one needs more than %d extra readings, so the gate cannot tell which files it reads or writes. "+
+			"Rewrite it with fewer bare `-i` and `-l` options, or use the Read tool to read a file or the Edit "+
+			"tool to edit one.", sedMaxForks)), true
 }
 
 // sedPending is a reading sedReadings has yet to finish: p as read so far, to
@@ -1505,8 +1504,16 @@ type sedPending struct {
 //     argument after it, taking that argument as its suffix, and `-l` taking
 //     no value.
 //
-// GNU's reading is first.
+// GNU's reading is first. An argv past sedMaxForks has none: every track denies
+// it (sedForkLimitDeny), so no verdict rests on its readings.
 func sedReadings(args []string) []sedInvocation {
+	out, _ := sedReadingsWithin(args)
+	return out
+}
+
+// sedReadingsWithin returns sedReadings' readings of args, and false, with no
+// reading, when reading args takes more than sedMaxForks forks.
+func sedReadingsWithin(args []string) ([]sedInvocation, bool) {
 	var out []sedInvocation
 	work := []sedPending{{permute: true}, {}}
 	forks := 0
@@ -1537,13 +1544,13 @@ func sedReadings(args []string) []sedInvocation {
 				continue
 			}
 			if forks++; forks > sedMaxForks {
-				return []sedInvocation{sedForkLimitReading(args)}
+				return nil, false
 			}
 			work = append(work, *fork)
 		}
 		out = append(out, p)
 	}
-	return out
+	return out, true
 }
 
 // longOption reads the long option args[i] and returns the index of the last

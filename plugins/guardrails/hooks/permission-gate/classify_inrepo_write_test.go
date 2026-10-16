@@ -342,17 +342,10 @@ func TestSedUnknownOptionFilesContained(t *testing.T) {
 	gitInit(t, filepath.Join(base, "sibling"))
 	ev := bashEvIn(t, canonicalize(repo), "main")
 
-	// Past sedMaxForks the argv is read once, with every argument that is not
-	// an option a file.
-	pastForkCap := `sed -i -X` + strings.Repeat(` -l`, 10) + ` ../sibling/f`
-	if n := len(sedReadings(strings.Fields(pastForkCap)[1:])); n != 1 {
-		t.Fatalf("%q: got %d readings, want the one past sedMaxForks", pastForkCap, n)
-	}
 	for _, cmd := range []string{
 		`sed -i -X p ../sibling/f`,
 		`sed -n p -X ../sibling/f`,
 		`sed -i --bogus 's/a/b/' ../sibling/f`,
-		pastForkCap,
 	} {
 		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
 	}

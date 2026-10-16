@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -401,6 +402,71 @@ func TestSedOpaqueDefersOnEveryTrack(t *testing.T) {
 				t.Errorf("config %q, %q: got %q/%q (%q), want a containment deny", mode, cmd, d.Bucket,
 					d.Operation, d.Reason)
 			}
+		}
+	}
+}
+
+// A sed whose argv needs more than sedMaxForks forked readings is denied for the
+// parse limit on the read-only-utility and in-repo-write tracks, and under the
+// file-work redirect, under every setting and wherever it would escape: never
+// graded as a read, an edit or an escape. The reason names the limit and the
+// rewrite. One that needs no more than the limit is graded as before.
+func TestSedPastForkLimitDeniedOnEveryTrack(t *testing.T) {
+	primary, wt := setupWorktree(t)
+	sib := filepath.Join(filepath.Dir(primary), "sibling")
+	gitInit(t, sib)
+	sibFile := filepath.Join(canonicalize(sib), "f.txt")
+	ls := strings.Repeat(" -l", 10)
+	if _, ok := sedReadingsWithin(strings.Fields(ls)); ok {
+		t.Fatalf("%q: read within sedMaxForks; the fixture must be past it", ls)
+	}
+	cmds := []string{
+		"sed -n" + ls + " p f.txt",
+		"sed" + ls + " p f.txt",
+		"sed -i" + ls + " 's/a/b/' f.txt",
+		"sed -n" + ls + " p " + sibFile,
+		"sed -i" + ls + " 's/a/b/' " + sibFile,
+		"cat f.txt | sed -n" + ls + " p",
+	}
+	for _, cfg := range []struct{ name, body string }{
+		{"no file", ""},
+		{"off", fileWorkModeConfig("off")},
+		{"worktree", fileWorkModeConfig("worktree")},
+		{"always", fileWorkModeConfig("always")},
+	} {
+		t.Run(cfg.name, func(t *testing.T) {
+			fileWorkConfig(t, cfg.body)
+			for _, cwd := range []string{primary, wt} {
+				for _, cmd := range cmds {
+					d := classifyBash(cmd, fileWorkEvent(cwd, "main"))
+					if d.Bucket != BucketDeny || d.Operation != "bash:sed-parse-limit" {
+						t.Errorf("%s, %q: got %q/%q (%q), want deny/bash:sed-parse-limit", cwd, cmd, d.Bucket,
+							d.Operation, d.Reason)
+						continue
+					}
+					for _, want := range []string{fmt.Sprintf("more than %d", sedMaxForks), "`-i`", "`-l`",
+						"Read tool", "Edit tool"} {
+						if !strings.Contains(d.Reason, want) {
+							t.Errorf("%s, %q: the reason does not name %q; got %q", cwd, cmd, want, d.Reason)
+						}
+					}
+				}
+			}
+		})
+	}
+
+	// Within the limit, the same shapes are graded by the tracks.
+	fileWorkConfig(t, fileWorkModeConfig("always"))
+	within := map[string]string{
+		"sed -n -l -l p f.txt":        "bash-file-work:read",
+		"sed -i -l -l 's/a/b/' f.txt": "bash-file-work:edit",
+	}
+	for cmd, op := range within {
+		if _, hit := sedForkLimitDeny(strings.Fields(cmd)[1:]); hit {
+			t.Fatalf("%q: past the parse limit; the control must be within it", cmd)
+		}
+		if d := classifyBash(cmd, fileWorkEvent(primary, "main")); d.Bucket != BucketDeny || d.Operation != op {
+			t.Errorf("%q: got %q/%q (%q), want deny/%q", cmd, d.Bucket, d.Operation, d.Reason, op)
 		}
 	}
 }
