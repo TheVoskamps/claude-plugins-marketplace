@@ -1108,6 +1108,16 @@ URL, and containment can never catch that, because containment bounds
 which file, and a contained file is exactly where "the bytes stay on
 the machine" fails.
 
+What GNU sed does is a vendor fact settled from its source, never from
+recall. The GitHub mirror `mirror/sed` serves it:
+`gh api "repos/mirror/sed/contents/sed/<file>.c" --jq .download_url`
+gives a raw URL to download into `.claude/tmp/<task>/`. `sed/sed.c`
+holds the option table (`SHORTOPTS`) and the `-i` suffix setup,
+`sed/execute.c` the in-place edit (`open_next_file`, `closedown`,
+`get_backup_file_name`), and `sed/utils.c` `follow_symlink`. Read the
+file before writing a comment or code that asserts GNU sed behavior,
+and cite the function in that comment.
+
 Follow-ons. A screen that decided a branch you are making
 unconditional is **dead, not repurposable** — a walk that reported a
 flag being *named* cannot describe the value it carried, so reusing it
