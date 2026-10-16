@@ -78,7 +78,7 @@ the body, in one of two shapes:
 | `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
 | `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the spawns on the human's end-of-loop confirmation, the close-out, and the briefs for the two loop agents |
-| `report.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
+| `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
 
 A step the orchestrator runs is run by exactly one of the body, a lib
 file, `pr-merge-readiness` or `pr-monitor`; a PR that moves a step

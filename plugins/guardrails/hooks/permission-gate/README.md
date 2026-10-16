@@ -635,11 +635,11 @@ The gate's engines feed that decision:
   conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
   utility enumerates its read-only flag grammar, and anything outside it
   defers. A utility whose leading positional is a PROGRAM rather than a
-  path also carries its own **operand grammar**, the read-track
-  counterpart of the one the write track has always had for `sed -i`:
-  for `sed` the first non-flag token is the script unless `-e`/`-f`
-  supplied one, for `awk` the program text unless `-f` did, for `grep`
-  the pattern unless `-e`/`-f` did. None of them is a path, and
+  path also carries its own **operand grammar**, which for `sed` is the
+  same parse the write track reads a writing `sed` with: for `sed` the
+  first non-flag token is the script unless `-e`/`-f` supplied one, for
+  `awk` the program text unless `-f` did, for `grep` the pattern unless
+  `-e`/`-f` did. None of them is a path, and
   testing them as one was not merely wasted work — a `sed -n
   '/A/,/B/p' f.md` range address begins with `/`, so containment read
   it as an absolute path and DENIED a command that reads only `f.md`.
@@ -651,8 +651,8 @@ The gate's engines feed that decision:
   allow, and a jq filter is not absolute-path-shaped in practice. Every
   genuine path operand alongside them is still contained — including one
   that arrives as a **flag value**. A flag whose value names a path the
-  utility reads (`grep -f PATFILE`, `sed -f SCRIPT`, `awk -f PROG` and
-  gawk's `-i LIB`, `diff -X`/`--exclude-from`/`--from-file`/`--to-file`/
+  utility reads (`grep -f PATFILE`, `awk -f PROG` and gawk's `-i LIB`,
+  `diff -X`/`--exclude-from`/`--from-file`/`--to-file`/
   `-S`, `wc --files0-from`, `sort --random-source`), writes
   (`sort -T DIR`) or resolves (`realpath --relative-to`) is declared in
   the table's `pathValueFlags`, and its value goes through containment in
@@ -661,7 +661,10 @@ The gate's engines feed that decision:
   cluster (`grep -rf`). Those are getopt's spellings, which is the whole
   set for these programs; the one spelling getopt does not give — pflag's
   `-F=FILE` — belongs to the `gh` track below, which appends a reading of
-  its own for it.
+  its own for it. `sed` declares no such flag: its option spellings are
+  read by its own parse rather than this walk, and that parse puts its
+  `-f SCRIPT` file through containment along with every file the
+  script's own commands read (`sedReadValues`).
   Without that declaration the separate-token and glued spellings
   disagreed: the plain walk keeps only tokens that do not begin with
   `-`, so `diff -X /etc/passwd` was contained while `diff -X/etc/passwd`
@@ -721,24 +724,77 @@ The gate's engines feed that decision:
   model must not assert an arity that is wrong on one of the two
   platforms: as value flags the predicate misreads BSD's `ls -I .`, and
   as bools it misreads GNU's `ls -w 80 .`.
+
+  **`sed` is read every way GNU and BSD sed read it** (`sedReadings`).
+  The two seds share one option table here — the union of GNU sed's
+  getopt_long table and BSD and macOS sed's `EHI:ae:f:i:lnru` — and a
+  GNU long option may be abbreviated to any unique prefix (`--qu` for
+  `--quiet`), as getopt_long reads one. Where the two seds read an argv
+  differently the gate reads it both ways and grades on every reading:
+  GNU takes an option wherever it stands while BSD stops at the first
+  operand; GNU's `-l` takes a value while BSD's takes none; and the
+  argument after a bare `-i` is BSD's backup suffix and GNU's script.
+  So in `sed -i '' 's/a/b/' f` BSD edits `f` with no backup while GNU
+  runs the empty script over the files `s/a/b/` and `f`; the gate
+  grades both, and when only GNU's reading escapes the deny says so
+  and names the spellings neither sed misreads — the suffix attached
+  (`-i.bak`), or on `-I`, which GNU rejects rather than misreads. `-I`
+  is BSD-only, so the argument after a bare `-I` is a suffix in every
+  reading. Each argument read two ways forks a reading, counted across
+  the whole argv, and one needing more than `sedMaxForks` forks is past
+  the parse limit: it **denies** as `bash:sed-parse-limit` on every
+  track and under every setting, before any track reads it, since no
+  verdict may rest on readings the gate did not finish. Every file a
+  reading reads or writes is contained — a reading GNU's parse yields
+  always counts, and a BSD fork counts when sed would run it, so an
+  option outside the table still has the files beside it contained
+  before the invocation defers for the option. The script is walked
+  command by command (`sedCommandFiles`): the files `r` and `R` read go
+  through read containment, with any `-f` script file, and the files
+  `w`, `W` and the `w` flag of `s` write are write targets, since sed
+  opens them as it compiles the script; `/dev/stdin`, `/dev/stdout` and
+  `/dev/stderr` name sed's own streams and are no file. Where the seds
+  compile a script differently the walk reads it the way that reaches
+  every command either compiles — a label ends where GNU ends one, at a
+  blank, `;`, `}` or `#`, and a bracket expression is read both as GNU
+  does, ending at the delimiter, and whole as BSD does — and a script
+  counts as rejected only when a label run to the end of its line, as
+  BSD reads one, rejects it too. A script the gate cannot grade whole —
+  one read from a file, one that runs a shell command through `e` or
+  `s///e`, or one the walk cannot read to its end — is **opaque**: no
+  track allows it, and the write track defers it as
+  `bash-write:opaque-script`. An in-place edit's **backups** are write
+  targets too. BSD appends the suffix to each file's name; GNU puts the
+  name it edits the file under in place of each `*` in the suffix, or
+  in front of a suffix without one, and makes no backup for `*` alone;
+  and under `--follow-symlinks` GNU edits the file a symlink operand
+  ends at and names the backup after it, so the gate reads the link
+  chain from the filesystem, and a link it cannot read, or an operand
+  that does not exist, defers as `bash-write:unreadable-link` once
+  containment has found no escape among the targets it did read. One
+  in-place rule, `sedInPlace`, true when any reading edits in place,
+  decides for the read-only track, the in-repo-write track and the
+  file-work redirect alike.
 - **In-repo-write classifier** (`classify_inrepo_write.go`): the
   write-side counterpart to the read-only-utility classifier. The agent
   can already mutate any in-repo file via the Write/Edit tools (Engine B
   lets those through when contained), so an equivalent in-repo write via
   a shell utility should not prompt every time. A curated set of
-  file-mutating programs — `cp`, `mv`, `mkdir`, `touch`, `sed -i`, and
-  `tee FILE` — **ALLOWs** when every path operand it writes is provably
-  contained in the current worktree via Engine B containment. Each
-  program's operands are parsed against its own flag grammar so a flag
-  value or a `sed` script (`s/a/b/`) is never tested as a path — the
-  read track carries the mirror of that grammar for `sed`/`awk`/`grep`
-  (see above); the read track had none before that grammar landed, so this
-  claim held only here.
+  file-mutating programs — `cp`, `mv`, `mkdir`, `touch`, a writing
+  `sed`, and `tee FILE` — **ALLOWs** when every path operand it writes
+  is provably contained in the current worktree via Engine B
+  containment. Each program's operands are parsed against its own flag
+  grammar so a flag value or a `sed` script (`s/a/b/`) is never tested
+  as a path; `sed`'s parse is the one the read track reads it with. A
+  writing `sed` is one that edits in place or whose script writes a
+  file, and its write targets are the files it edits, under every name
+  it edits them under, their backups, and the files the script writes.
   Not being tested as a *write target* is not the same as being ignored:
-  a flag value that names a file the program READS (`sed -i -f SCRIPT`)
-  is graded by the **read** containment via `containReadSources`,
-  alongside the input-redirect sources, so it can withhold this
-  classifier's ALLOW but never earn one. An
+  a file the program READS — a `sed -f SCRIPT` file, a file the script's
+  `r` or `R` reads, and the file operands of a `sed` that writes only
+  through its script — is graded by the **read** containment via
+  `containReadSources`, alongside the input-redirect sources, so it can
+  withhold this classifier's ALLOW but never earn one. An
   operand that escapes the repo or the worktree into the primary
   clone **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies**; an operand built from an
@@ -756,7 +812,62 @@ The gate's engines feed that decision:
   highest-blast-radius mutating program stays off the allow track, so no
   `rm` is ever blessed by the gate. `sed` and `tee` are dual-mode — their read-only
   forms (`sed -n`, `tee /dev/null`) stay on the read-only-utility track;
-  only the mutating form routes here.
+  only the writing form routes here.
+- **File-work redirect** (`classify_file_work.go`): a deny-with-teaching
+  arm that sends file work done through Bash to the tool built for it.
+  It is **off** unless the operator's `~/.config/guardrails/config.yml`
+  sets `redirect-bash-file-work`: `worktree` fires only when the event's
+  `cwd` is inside a linked worktree, whatever the event's `agent_type`,
+  and `always` fires for every caller. `off`, an absent key, an empty
+  value and an absent file never fire; any other value — a different
+  case, a non-scalar — is read as `off` and logged as a warning naming
+  the file, the key and the value. Worktree mode asks
+  `repoContext.isLinkedWorktree()`, and a `cwd` that resolves to no
+  repository leaves the arm off. The walk covers every statement of the
+  line — lists, pipelines, subshells, blocks, control flow, function
+  bodies and command and process substitutions — and grades each simple
+  command, spelled bare, by path or behind `env`, by where its effect
+  lands:
+  - **Read** (`bash-file-work:read`): `cat`, `head`, `tail` (`-f`/`-F`
+    included), `sed -n`, `nl` and `less`, each only when it names at
+    least one file operand by its own option grammar — `-` is stdin, an
+    option's value (`head -n 5`, `nl -ba`, a sed script, `less +G`,
+    `tail +2`) is no file, and less's long options resolve by unique
+    prefix as less itself reads them. A read is denied unless its stdout
+    is piped into a command outside that reader set or captured by a
+    command or process substitution: `head -n 5 f | sort`,
+    `cat f | jq .` and `x=$(cat f)` pass; `cat f`, `cat f && make`,
+    `cat a; cat b`, `cat f | cat` and `cat f | head` deny. A pipe into a
+    construct the walk cannot name as a first command — a loop, a
+    conditional — counts as consuming. A `sed` is a reader when any
+    reading of its argv carries `-n` and none edits in place, whether or
+    not the gate can grade its script whole: an opaque script withholds
+    the allow tracks' ALLOW, and the redirect to Read still stands.
+  - **Edit** (`bash-file-work:edit`): `sed` in any in-place spelling its
+    parse recognizes — `-i`, `-i.bak`, BSD `-I`, `--in-place` and its
+    unique prefixes, `-i` inside a short cluster — and `perl -i` in any
+    switch cluster, wherever they sit in the line.
+  - **Write** (`bash-file-work:write`): `echo` or `printf` whose own
+    stdout redirect (`>`, `>>`, `>|`, `&>`, `&>>`, an explicit fd 1)
+    targets a file, `cat` of a here-document so redirected, and a
+    here-document fed to `tee <file>`. A stderr redirect, a descriptor
+    duplication (`>&2`, `2>&1`), a `/dev/*` target, a target with no
+    static leading text, another program's output (`make > build.log`)
+    and `tee` on a stream that is not a here-document are not covered:
+    Write cannot capture a command's output, so a deny would leave them
+    no tool to go to.
+  - **Never covered:** `grep`, `find` and `ls`. Read, Edit and Write do
+    none of what search and listing do.
+  Each deny names the tool to use and the setting that turned the arm
+  on. The arm's deny is one more verdict in `classifyBash`'s per-line
+  ranking and sits **below every other deny**: a line any other rule
+  denies anywhere — a cross-repo read, a `git -C /abs` — reports that
+  rule's deny, while an allow, an ask or a defer is replaced by the
+  redirect's deny when it fires. Defer has to be included, since
+  `echo x > f` and `cat <<EOF > f` defer on their own. The first covered
+  command met is the one reported. A `sed` past the parse limit earns
+  `bash:sed-parse-limit` here as on every track, before it is graded as
+  a read or an edit.
 - **Dangerous git / gh / aws classifier** (`classify_command.go`,
   `rules.go`): the deny/ask half of the command classifier
   for the tools whose remote operations can damage or expose a
@@ -1412,7 +1523,18 @@ The gate's engines feed that decision:
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
   both the git-derived root and the target, and blocks worktree escapes
-  and cross-repo access. A **relative** `file_path` is joined onto the
+  and cross-repo access. The context carries the working tree's own git
+  directory beside the common one, and the two differing is what makes
+  it a linked worktree (`isLinkedWorktree`); a submodule checkout and a
+  `--separate-git-dir` clone keep their git directory away from their
+  root, but it is still the common one, so each is a primary clone. A
+  primary clone's root is its own top level. A linked worktree's
+  (`primaryCloneRoot`) is the work tree its common git directory's
+  `core.worktree` names, as a submodule's does; with none set, the
+  directory above a common directory named `.git`; and otherwise
+  nothing — a bare repository has no work tree, and git records none
+  for a `--separate-git-dir` clone, so the common directory is all
+  there is to guard. A **relative** `file_path` is joined onto the
   event's `cwd` — the base the tool itself resolves it against, and the
   same base the bash operand walks use — and then resolved segment by
   segment, so a `..` behind an in-repo symlink applies to the directory
@@ -1910,6 +2032,7 @@ The gate's engines feed that decision:
   resolve-xdg-environment-variables: yes   # optional, default no
   config-home-default: ~/.config           # optional
   state-home-default: ~/.local/state       # optional
+  redirect-bash-file-work: off             # optional, default off
   config-home:
     read:
       - macos-setup/**
@@ -1939,6 +2062,14 @@ The gate's engines feed that decision:
   root — everything under a config home inside the home directory does
   — is allowed when **any** of those roots lists it.
 
+  `redirect-bash-file-work` is the one key here that relaxes nothing:
+  it is the file-work redirect's setting, `off`, `worktree` or `always`.
+  It is decoded on its own, as a YAML node, so a value of another type
+  is an unknown value — read as `off`, with a warning — rather than a
+  document that fails to parse and takes the carve-out down with it.
+  It needs the same stamp as the rest of the file: below the pin, the
+  whole file is read as absent.
+
   **How each root resolves.** `home` is the process home as
   `resolveHome` hands it over — this section applies no home test of its
   own, and what makes a home usable is stated once, in the home-usability
@@ -1962,23 +2093,27 @@ The gate's engines feed that decision:
   report a broken spelling to, so a root that reads as configured hands
   out nothing, and the tell is the deny the listed path still earns.
 
-  **Absent, unreadable, malformed, or stamped below `schema-version: 2`
-  → no usable entry anywhere → today's behaviour**, on every path. The
-  carve-out fails closed, and the gate is its only reader, so none of
-  those is an error reported anywhere — it is simply a carve-out with no
-  root that can allow anything. That departs deliberately from the
-  abort-on-malformed rule the marketplace's other config readers
-  follow: a `PreToolUse` hook has no
-  channel to abort into, and failing the hook over a broken config
-  would be strictly worse than the behaviour the operator had before
-  writing it. The file
-  is read in Go with `gopkg.in/yaml.v3` on each invocation — not a tool
-  call, so the carve-out does not gate its own config, and the process
-  is fresh per event, so nothing is cached. A file still spelling the
+  **Absent, or stamped below `schema-version: 2` → no usable entry
+  anywhere and the redirect off → the behaviour the machine had before
+  the file existed**, on every path, with nothing reported anywhere: the
+  carve-out fails closed, and a machine without the file is the ordinary
+  case rather than an error. **A file that exists but cannot be read or
+  parsed is different: the gate DENIES every gated tool call**, as
+  `config:unusable`, naming the file and the error, until the file is
+  fixed or removed — a write to the file included, so the repair is the
+  human's. Both the carve-out and the redirect come from this file, and
+  a gate that guessed at a broken one would be applying policy the
+  operator did not write; a `PreToolUse` hook cannot abort, so a deny on
+  every call is the loudest signal it has, and the same one an
+  unprovisioned platform gets. The file is read in Go with
+  `gopkg.in/yaml.v3`, once per event — every reader of the event's
+  config sees the same load — and not as a tool call, so the carve-out
+  does not gate its own config; the process is fresh per event, so
+  nothing is cached across them. A file still spelling the
   `schema-version: 1` keys `allow-read` / `allow-write` is stamped
-  below the pin, so it lands on exactly that path: one hand edit per
-  machine migrates it, and until then that machine has the behaviour it
-  had before the file existed.
+  below the pin, so it is read as absent: one hand edit per machine
+  migrates it, and until then that machine has the behaviour it had
+  before the file existed.
 
   **This file's own location does not come from this file.** It is read
   at the literal `$HOME/.config/guardrails/config.yml` whatever
@@ -2213,6 +2348,13 @@ label. Every deny and every ask carries both, as does every
 its record spells `operation` and `analysis` empty, which is itself how
 a reader tells the two kinds of defer apart. An ALLOW is not logged:
 the allow track exists precisely to keep the hot path out of this feed.
+A **warning** record — bucket `warning`, an `operation` naming what it
+is about (`config:redirect-bash-file-work` for an unknown value of that
+setting) and the warning text as its `analysis` — is appended when the
+gate's own input is at fault, under the same never-change-the-verdict
+rule. It is no verdict: the call it rode on gets a record of its own if
+it earns one. A panic while writing one is reported on stderr, which
+neither the exit status nor the stdout decision carries.
 
 The **no-specific-rule residual** — an unrecognized program (`npm`,
 `python3`, `make`, …) reaching the end of `classifySimpleCommand` — is
@@ -2276,9 +2418,15 @@ satisfies it inline and stops there — the `cd <path> && git …` and
 naked-`gh` deny names the wrapper by path. Naming an executable to run
 is the remediation itself, not a pointer to prose someone else worded,
 so the wrapper's path stays even though this plugin does not ship the
-file it names. No test guards this one: `trackerRefInReason` is
-issue-pointer-shaped only, so it is held by inspection whenever a
-Reason is written.
+file it names. The operator's config file,
+`~/.config/guardrails/config.yml`, is the other sanctioned name: a
+Reason that cites it — the allow reason that names the listing, the
+redirect's note of the setting that turned it on, the unusable-config
+deny — names a file whose schema this README owns and whose location
+the gate alone fixes, and it is spelled from `~` so that no Reason
+carries the host's absolute home path. No test guards this one:
+`trackerRefInReason` is issue-pointer-shaped only, so it is held by
+inspection whenever a Reason is written.
 
 The same bar binds a comment in this package, with one clause added: it
 describes the gate, not the harness around it. A comment that justified
