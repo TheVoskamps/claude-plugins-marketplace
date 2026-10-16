@@ -831,10 +831,12 @@ not obstacles to route around — each has a plain spelling that works:
   tree. The read deny is what stops evidence being gathered from the
   wrong tree: the primary clone's working files can differ, so the read
   would return plausible content with no error.
-- BSD `sed -i ''` is denied: the mandatory empty suffix reads as a
-  write target that resolves outside the repository, so no in-repo
-  spelling gets through. Use the Edit tool, or copy the file and edit
-  the copy — `cp` itself is fine.
+- BSD `sed -i '' '<script>' <file>` is denied when the script, read as
+  a path, resolves outside the repository, as one opening with a `/`
+  address does: GNU sed reads the empty argument after a bare `-i` as
+  the script and the script as a file to edit. Spell the empty suffix
+  `-I ''`, which GNU sed rejects rather than misreads, or use the Edit
+  tool.
 - Setting `HOME=` inline is refused on ANY command, not just a git one,
   since a redirected HOME changes where git reads configuration and
   therefore where git might write — see "A `$HOME`-rooted rule is
@@ -861,8 +863,11 @@ not obstacles to route around — each has a plain spelling that works:
   none of its statements, a write earlier in the chain included, so a
   retry of only the `git add` that followed it stages the file with its
   conflict markers intact: grep the file for them before staging.
-  Plain reads are unaffected — `cat`, `sed -n` and `grep` on in-worktree paths run
-  normally.
+  This guard leaves plain reads alone — `cat`, `sed -n` and `grep` on
+  in-worktree paths — but the permission gate's `redirect-bash-file-work`
+  setting, when on, denies a `cat` or `sed -n` of a file whose output is
+  not piped into another command, and names Read instead; `grep` it never
+  denies.
 - A heredoc is graded on the text it carries, not on the program that
   consumes it, so a `python3 - <<'PY'` script whose *payload* prose
   merely contains the word `git` is refused for feeding git-naming
@@ -1102,6 +1107,16 @@ carve-out publishes a readable copy of a contained file to a durable
 URL, and containment can never catch that, because containment bounds
 which file, and a contained file is exactly where "the bytes stay on
 the machine" fails.
+
+What GNU sed does is a vendor fact settled from its source, never from
+recall. The GitHub mirror `mirror/sed` serves it:
+`gh api "repos/mirror/sed/contents/sed/<file>.c" --jq .download_url`
+gives a raw URL to download into `.claude/tmp/<task>/`. `sed/sed.c`
+holds the option table (`SHORTOPTS`) and the `-i` suffix setup,
+`sed/execute.c` the in-place edit (`open_next_file`, `closedown`,
+`get_backup_file_name`), and `sed/utils.c` `follow_symlink`. Read the
+file before writing a comment or code that asserts GNU sed behavior,
+and cite the function in that comment.
 
 Follow-ons. A screen that decided a branch you are making
 unconditional is **dead, not repurposable** — a walk that reported a

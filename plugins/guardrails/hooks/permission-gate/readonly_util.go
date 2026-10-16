@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"syscall"
 )
 
 // readOnlyUtility is the curated read-only-utility classifier: it
@@ -66,12 +69,12 @@ type utilitySpec struct {
 	// positional is a program, not a path: sed's script, awk's program text, and
 	// grep's pattern. A `sed -n '/A/,/B/p' f.md` range address starts with '/',
 	// so containment read it as an absolute path and DENIED the command as a
-	// cross-repo read. The write track has had this grammar since it was built
-	// (inRepoWriteSpec.operandsFn, for `sed -i`); this is the same idea on the
-	// read track, which had only the undifferentiated non-flag-token walk.
+	// cross-repo read. The write track reads a writing sed by the same grammar
+	// (sedReadings, through inRepoWriteSpec.targetsFn); this is the same idea on
+	// the read track, which had only the undifferentiated non-flag-token walk.
 	operandsFn func(args []string) []string
 	// pathValueFlags names the flags whose VALUE is a filesystem path — one the
-	// utility READS (`grep -f PATFILE`, `sed -f SCRIPT`, `awk -f PROG`,
+	// utility READS (`grep -f PATFILE`, `awk -f PROG`,
 	// `diff -X EXCLUDEFILE`, `wc --files0-from=LIST`), WRITES (`sort -T DIR`
 	// holds its temporary spill files) or RESOLVES (`realpath
 	// --relative-to=DIR`). Their values are added to the containment list by
@@ -89,11 +92,27 @@ type utilitySpec struct {
 	// begins inside a bundled short-flag cluster (`grep -rf PATFILE`).
 	pathValueFlags map[string]bool
 	valueFlags     map[string]bool
+	// pathValuesFn returns the path-valued flag values of THIS invocation, read
+	// by the utility's own option grammar. When set it is used in place of the
+	// pathFlagValues walk over valueFlags and pathValueFlags, for a utility whose
+	// option spellings that walk cannot read (sed's abbreviated long options).
+	pathValuesFn func(args []string) []string
+	// boolFlags, when set, holds every long option of the utility that takes
+	// no value, so that with valueFlags it holds all of the utility's long
+	// options. A utility that has one accepts a long option spelled as any
+	// unique prefix of its name, as getopt_long and less's own parser do, and
+	// fileOperands resolves such a prefix against both tables. Only
+	// fileOperands reads it.
+	boolFlags map[string]bool
+	// plusOptions is true when an argument starting with `+` is an option, not
+	// a file: tail's obsolete `+N` count, or less's `+cmd`. Only fileOperands
+	// reads it.
+	plusOptions bool
 }
 
 // operands returns the utility's read path operands for this invocation:
 // its own operand grammar when it has one and the plain non-flag walk
-// otherwise, plus the values of any pathValueFlags it carries.
+// otherwise, plus the values of any path-valued flags it carries.
 //
 // The flag values are APPENDED to what the operand walk produced, never
 // substituted for it, so this addition can only ever put MORE paths through
@@ -105,7 +124,208 @@ func (s utilitySpec) operands(args []string) []string {
 	if s.operandsFn != nil {
 		ops = s.operandsFn(args)
 	}
-	return dedupeOperands(append(ops, pathFlagValues(args, s.valueFlags, s.pathValueFlags)...))
+	return dedupeOperands(append(ops, s.pathValues(args)...))
+}
+
+// pathValues returns the values of the path-valued flags this invocation
+// carries: pathValuesFn's when the utility has one, pathFlagValues' otherwise.
+func (s utilitySpec) pathValues(args []string) []string {
+	if s.pathValuesFn != nil {
+		return s.pathValuesFn(args)
+	}
+	return pathFlagValues(args, s.valueFlags, s.pathValueFlags)
+}
+
+// fileOperands returns the operands of this invocation that name a file the
+// utility reads: its own operand grammar when it has one, and otherwise every
+// argument that is neither an option nor the value of one of valueFlags, read
+// with getopt's spellings. `-` names standard input, not a file.
+//
+// operands, which feeds containment, walks a utility with no grammar of its own
+// with pathOperands instead, which also keeps each flag's value: containing a
+// token that names no file costs nothing there, while a mismodelled arity that
+// swallowed a real path would let it escape. This walk is for a caller that
+// needs the other direction — a value counted as a file is a file the
+// invocation does not read. For the same reason a `+` argument of a utility
+// whose plusOptions is set is an option here, not a file.
+func (s utilitySpec) fileOperands(args []string) []string {
+	var ops []string
+	if s.operandsFn != nil {
+		ops = s.operandsFn(args)
+	} else {
+		ops = getoptOperands(args, s.valueFlags, s.boolFlags, s.plusOptions)
+	}
+	out := ops[:0:0]
+	for _, op := range ops {
+		if op != "-" {
+			out = append(out, op)
+		}
+	}
+	return out
+}
+
+// readFileOperands returns the operands of prog's invocation that name a file
+// it reads, by the grammar the read tracks give prog: its readOnlyUtilities
+// entry, its pathReaderFileSpecs entry, or for any other reader the plain
+// non-flag walk classifyPathReader contains.
+func readFileOperands(prog string, args []string) []string {
+	if spec, ok := readOnlyUtilities[prog]; ok {
+		return spec.fileOperands(args)
+	}
+	if spec, ok := pathReaderFileSpecs[prog]; ok {
+		return spec.fileOperands(args)
+	}
+	return pathOperands(args)
+}
+
+// pathReaderFileSpecs gives a classifyPathReader program the option grammar
+// readFileOperands reads it with. classifyPathReader's own containment keeps
+// the plain non-flag walk.
+var pathReaderFileSpecs = map[string]utilitySpec{
+	"less": {valueFlags: lessValueFlags, boolFlags: lessBoolFlags, plusOptions: true},
+}
+
+// lessValueFlags and lessBoolFlags hold every option in the option table
+// (opttbl.c) of less v581 or of less's source at v712, the pager macOS,
+// FreeBSD and Linux all ship. An option of type STRING or NUMBER
+// takes a value, in the same argument or the next one, and is in
+// lessValueFlags, in its short form when it has one and its long form. Every
+// other option is in lessBoolFlags by its long name, a triple option once in
+// lower case and once in upper case, since less matches a triple option's long
+// name in either; a short option that takes no value needs no entry. `--tty`
+// and `--rstat` are declared only in a LESSTEST build, which no platform
+// ships, so they are in neither table and are no candidate for an abbreviation.
+var lessValueFlags = map[string]bool{
+	"-b": true, "--buffers": true,
+	"-D": true, "--color": true,
+	"-h": true, "--max-back-scroll": true,
+	"-j": true, "--jump-target": true,
+	"-k": true, "--lesskey-file": true,
+	"--lesskey-content": true, "--lesskey-src": true,
+	"-o": true, "--log-file": true,
+	"-O": true, "--LOG-FILE": true,
+	"-p": true, "--pattern": true,
+	"-P": true, "--prompt": true,
+	"-t": true, "--tag": true,
+	"-T": true, "--tag-file": true,
+	"-x": true, "--tabs": true,
+	"-y": true, "--max-forw-scroll": true,
+	"-z": true, "--window": true,
+	"-\"": true, "--quotes": true,
+	"-#": true, "--shift": true,
+	"--rscroll": true, "--emouse": true, "--wheel-lines": true,
+	"--line-num-width": true, "--status-col-width": true, "--time-file-size": true,
+	"--header": true, "--search-options": true, "--modelines": true,
+	"--intr": true, "--cmd": true, "--match-shift": true,
+	"--autosave": true, "--end-prompt": true,
+}
+
+var lessBoolFlags = map[string]bool{
+	"--search-skip-screen": true, "--SEARCH-SKIP-SCREEN": true,
+	"--auto-buffers": true,
+	"--clear-screen": true, "--CLEAR-SCREEN": true,
+	"--dumb":        true,
+	"--quit-at-eof": true, "--QUIT-AT-EOF": true,
+	"--force": true, "--quit-if-one-screen": true,
+	"--hilite-search": true, "--HILITE-SEARCH": true,
+	"--ignore-case": true, "--IGNORE-CASE": true,
+	"--status-column": true, "--quit-on-intr": true, "--no-lessopen": true,
+	"--long-prompt": true, "--LONG-PROMPT": true,
+	"--line-numbers": true, "--LINE-NUMBERS": true,
+	"--quiet": true, "--QUIET": true, "--silent": true, "--SILENT": true,
+	"--raw-control-chars": true, "--RAW-CONTROL-CHARS": true,
+	"--squeeze-blank-lines": true, "--chop-long-lines": true,
+	"--underline-special": true, "--UNDERLINE-SPECIAL": true,
+	"--version": true, "--hilite-target": true,
+	"--hilite-unread": true, "--HILITE-UNREAD": true,
+	"--no-init": true, "--tilde": true, "--help": true,
+	"--no-keypad": true, "--old-bot": true, "--follow-name": true,
+	"--use-backslash": true, "--no-histdups": true,
+	"--mouse": true, "--MOUSE": true,
+	"--rmouse": true, "--save-marks": true, "--incsearch": true,
+	"--use-color": true, "--file-size": true, "--status-line": true,
+	"--no-paste": true, "--form-feed": true, "--past-eof": true,
+	"--no-edit-warn": true, "--no-warn-edit": true,
+	"--no-number-headers": true, "--no-search-headers": true,
+	"--no-search-header-lines": true, "--no-search-header-columns": true,
+	"--redraw-on-quit": true, "--exit-follow-on-close": true, "--no-vbell": true,
+	"--wordwrap": true, "--show-preproc-errors": true,
+	"--proc-backspace": true, "--PROC-BACKSPACE": true,
+	"--proc-tab": true, "--PROC-TAB": true,
+	"--proc-return": true, "--PROC-RETURN": true,
+}
+
+// resolveLongOption returns the long option of the tables that a `--name`
+// argument, with any `=value` already cut off, spells: the name itself when a
+// table has it, or else the one name it is a prefix of, which is how
+// getopt_long and less read an abbreviated long option. A prefix of more than
+// one name, and a name no table has, resolve to "".
+func resolveLongOption(name string, tables ...map[string]bool) string {
+	if name == "--" || !strings.HasPrefix(name, "--") {
+		return ""
+	}
+	for _, t := range tables {
+		if t[name] {
+			return name
+		}
+	}
+	match := ""
+	for _, t := range tables {
+		for opt := range t {
+			if !strings.HasPrefix(opt, "--") || !strings.HasPrefix(opt, name) || opt == match {
+				continue
+			}
+			if match != "" {
+				return ""
+			}
+			match = opt
+		}
+	}
+	return match
+}
+
+// getoptOperands returns the arguments that are not options, skipping the
+// value of each flag in valueFlags: the next token after a bare long flag or a
+// short flag ending its cluster, and nothing more for `--flag=value` or a short
+// value flag with the rest of its cluster attached. With boolFlags set, a long
+// option is read through resolveLongOption against both tables, so an
+// abbreviated value option skips its value too. With plusOptions, an argument
+// starting with `+` is an option too (less's `+G`, tail's `+2`). Every argument
+// after `--` is an operand.
+func getoptOperands(args []string, valueFlags, boolFlags map[string]bool, plusOptions bool) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return append(out, args[i+1:]...)
+		case plusOptions && strings.HasPrefix(a, "+") && a != "+":
+			// an option carrying its own value; nothing to skip
+		case strings.HasPrefix(a, "--"):
+			if strings.Contains(a, "=") {
+				break
+			}
+			name := a
+			if boolFlags != nil {
+				name = resolveLongOption(a, valueFlags, boolFlags)
+			}
+			if valueFlags[name] {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && a != "-":
+			for j := 1; j < len(a); j++ {
+				if valueFlags["-"+string(a[j])] {
+					if j == len(a)-1 {
+						i++
+					}
+					break
+				}
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // dedupeOperands drops repeated operands while keeping first-seen order. A path
@@ -252,13 +472,13 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// set looks read-only. Each predicate enumerates the utility's known
 	// read-only flags; anything else defers.
 	"cat":    {pathBearing: true, defersForm: catDefers},
-	"head":   {pathBearing: true, defersForm: headTailDefers},
-	"tail":   {pathBearing: true, defersForm: headTailDefers},
+	"head":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags},
+	"tail":   {pathBearing: true, defersForm: headTailDefers, valueFlags: headTailValueFlags, plusOptions: true},
 	"cut":    {pathBearing: true, defersForm: cutDefers},
 	"tr":     {pathBearing: true, defersForm: trDefers},
 	"comm":   {pathBearing: true, defersForm: commDefers},
 	"paste":  {pathBearing: true, defersForm: pasteDefers},
-	"nl":     {pathBearing: true, defersForm: nlDefers},
+	"nl":     {pathBearing: true, defersForm: nlDefers, valueFlags: nlValueFlags},
 	"fold":   {pathBearing: true, defersForm: foldDefers},
 	"fmt":    {pathBearing: true, defersForm: fmtDefers},
 	"column": {pathBearing: true, defersForm: columnDefers},
@@ -346,16 +566,17 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// Conditionally read-only: a mutating mode is gated by a flag. defersForm
 	// withholds the ALLOW for the mutating flag OR any unrecognized flag.
 	// sed and awk also carry an operand grammar: their leading positional is a
-	// SCRIPT / PROGRAM, not a path (sedFileOperands is shared verbatim with the
-	// `sed -i` write track, which has parsed it that way all along). What that
-	// grammar drops is the script TEXT; the script FILE named by `-f`/`--file`
-	// is a file the program reads, so it is declared a pathValueFlag and put
-	// back through containment. gawk's `-i`/`--include` names a source library
-	// it reads and goes in the same set (`-i inplace` walks its value as a
-	// path too, a bare relative name graded against the running cwd —
-	// awkDefers withholds the ALLOW on the in-place form regardless).
+	// SCRIPT / PROGRAM, not a path (sed's parse, sedReadings, is shared with
+	// the sed write track). What that grammar drops is the script TEXT; the
+	// script FILE named by `-f`/`--file` is a file the program reads, so it is
+	// put back through containment — by sedReadValues for sed, with every file
+	// the script's own `r` and `R` read, and as a pathValueFlag for awk. gawk's
+	// `-i`/`--include` names a source library it reads and is an awk
+	// pathValueFlag too (`-i inplace` walks its value as a path too, a bare
+	// relative name graded against the running cwd — awkDefers withholds the
+	// ALLOW on the in-place form regardless).
 	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands,
-		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
+		pathValuesFn: sedReadValues},
 	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands,
 		valueFlags: awkOperandValueFlags, pathValueFlags: awkPathValueFlags},
 	// jq's leading positional is a FILTER, which is the same shape of non-path
@@ -613,17 +834,20 @@ func catDefers(args []string) bool {
 	}.defers(args)
 }
 
+// headTailValueFlags is head's and tail's value-taking flag set.
+var headTailValueFlags = map[string]bool{
+	"-c": true, "--bytes": true, "-n": true, "--lines": true,
+	"-s": true, "--sleep-interval": true, "--pid": true,
+	"--max-unchanged-stats": true,
+}
+
 // headTailDefers: head/tail share -c/-n (value), -q/-v, and tail's -f/-F/-s/--pid/
 // --retry. None writes. `-n5`/`-c10` attached forms are handled by the value-flag
 // attached check. A leading `-5` (obsolete count) is treated as an unknown flag
 // and defers — conservative, not wrong.
 func headTailDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{
-			"-c": true, "--bytes": true, "-n": true, "--lines": true,
-			"-s": true, "--sleep-interval": true, "--pid": true,
-			"--max-unchanged-stats": true,
-		},
+		valueFlags: headTailValueFlags,
 		boolFlags: map[string]bool{
 			"-q": true, "--quiet": true, "--silent": true, "-v": true, "--verbose": true,
 			"-z": true, "--zero-terminated": true,
@@ -718,17 +942,20 @@ func pasteDefers(args []string) bool {
 	}.defers(args)
 }
 
+// nlValueFlags is nl's value-taking flag set.
+var nlValueFlags = map[string]bool{
+	"-b": true, "--body-numbering": true, "-d": true, "--section-delimiter": true,
+	"-f": true, "--footer-numbering": true, "-h": true, "--header-numbering": true,
+	"-i": true, "--line-increment": true, "-l": true, "--join-blank-lines": true,
+	"-n": true, "--number-format": true, "-s": true, "--number-separator": true,
+	"-v": true, "--starting-line-number": true, "-w": true, "--number-width": true,
+}
+
 // nlDefers: nl numbers lines to stdout. Many value flags (-b/-d/-f/-h/-i/-l/-n/
 // -s/-v/-w); none writes a file.
 func nlDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{
-			"-b": true, "--body-numbering": true, "-d": true, "--section-delimiter": true,
-			"-f": true, "--footer-numbering": true, "-h": true, "--header-numbering": true,
-			"-i": true, "--line-increment": true, "-l": true, "--join-blank-lines": true,
-			"-n": true, "--number-format": true, "-s": true, "--number-separator": true,
-			"-v": true, "--starting-line-number": true, "-w": true, "--number-width": true,
-		},
+		valueFlags:      nlValueFlags,
 		boolFlags:       map[string]bool{"-p": true, "--no-renumber": true},
 		maxPathOperands: -1,
 		clusterable:     true,
@@ -991,64 +1218,1060 @@ func uniqDefers(args []string) bool {
 	}.defers(args)
 }
 
-// sedValueFlags is sed's value-taking flag set, shared with sedFileOperands (in
-// classify_inrepo_write.go) so the defer walk and the operand walk cannot drift.
-// sedPathValueFlags is the subset whose value is a PATH: `-f SCRIPTFILE` names a
-// file sed opens and reads its script from. `-e` carries the script inline and
-// `-l` a line length, so neither is a path.
+// sedValueFlags, sedBoolFlags and sedArityFlags are sed's whole option table:
+// the union of GNU sed's (its getopt_long table, so a long option may be
+// abbreviated to any unique prefix) and BSD and macOS sed's (getopt
+// "EHI:ae:f:i:lnru"; FreeBSD's lacks H, and neither has a long option).
+// sedValueFlags take a value, in the same argument or the next: `-e` the script
+// itself and `-f` a file sed reads it from. sedBoolFlags take none.
+// sedArityFlags are the two options whose value the two seds read differently:
+//
+//   - the in-place option. GNU's `-i` and `--in-place` take a suffix only in
+//     the same argument; BSD's `-i` and `-I` take one in the same argument or
+//     the next. GNU has no `-I`, so the argument after a bare `-I` is its
+//     suffix. The argument after a bare `-i` has two readings, BSD's suffix and
+//     GNU's script or file, and sedReadings returns both.
+//   - the line length. GNU's `-l` and `--line-length` take a value, the rest of
+//     the argument or the next one, and accept any text as it; BSD's `-l`
+//     takes nothing, so the rest of its argument is more options and the next
+//     argument is the script or a file. sedReadings returns both readings.
 var sedValueFlags = map[string]bool{
 	"-e": true, "--expression": true,
 	"-f": true, "--file": true,
+}
+
+var sedBoolFlags = map[string]bool{
+	"-n": true, "--quiet": true, "--silent": true,
+	"-E": true, "-r": true, "--regexp-extended": true,
+	"-z": true, "--null-data": true, "--zero-terminated": true,
+	"-s": true, "--separate": true,
+	"-u": true, "--unbuffered": true,
+	"-b": true, "--binary": true,
+	"-a": true, "-H": true,
+	"--posix": true, "--debug": true, "--sandbox": true,
+	"--follow-symlinks": true, "--help": true, "--version": true,
+}
+
+var sedArityFlags = map[string]bool{
+	"-i": true, "-I": true, "--in-place": true,
 	"-l": true, "--line-length": true,
 }
 
-var sedPathValueFlags = map[string]bool{"-f": true, "--file": true}
+// sedLongOption is the sed long option a `--name` argument, with any `=value`
+// cut off, spells (resolveLongOption), or "" when it spells none.
+func sedLongOption(name string) string {
+	return resolveLongOption(name, sedValueFlags, sedBoolFlags, sedArityFlags)
+}
 
-// sedDefers reports whether a sed invocation must defer rather than allow. sed
-// is read-only EXCEPT for in-place editing (`-i` / `--in-place`, including the
-// BSD/GNU suffix forms `-i.bak` / `--in-place=.bak`). Any flag outside sed's
-// known read-only set also defers, so a future mutating flag fails safe.
-func sedDefers(args []string) bool {
-	// Known read-only sed flags. `-e`/`-f`/`-l` take a following value; the
-	// value is consumed so it is not mistaken for an unknown flag.
-	valueFlags := sedValueFlags
-	boolFlags := map[string]bool{
-		"-n": true, "--quiet": true, "--silent": true,
-		"-E": true, "-r": true, "--regexp-extended": true,
-		"-z": true, "--null-data": true,
-		"-s": true, "--separate": true,
-		"-u": true, "--unbuffered": true,
-		"--posix": true, "--debug": true, "--sandbox": true,
-		"--follow-symlinks": true,
+// sedSuffix is an in-place backup suffix and the seds that take it as one.
+type sedSuffix struct {
+	text     string
+	gnu, bsd bool
+}
+
+// sedInvocation is one reading of a sed argv against sed's option table.
+type sedInvocation struct {
+	// quiet: -n, --quiet or --silent is present.
+	quiet bool
+	// inPlace: the in-place option is present.
+	inPlace bool
+	// suffixes are the in-place option's backup suffixes.
+	suffixes []sedSuffix
+	// forked: this reading is BSD's, forked off where it reads an option
+	// differently from GNU's (sedReadings).
+	forked bool
+	// bareSuffix: this reading took the argument after a bare `-i` as its
+	// suffix, as BSD sed does, where GNU sed takes it as the script or a file.
+	// bareText is that argument.
+	bareSuffix bool
+	bareText   string
+	// followSymlinks: --follow-symlinks is present, so GNU sed edits the file a
+	// symlink operand ends at, under the name sedFollowSymlink gives it.
+	followSymlinks bool
+	// scriptByFlag: -e or -f supplied the script, so no positional is one.
+	scriptByFlag bool
+	// scripts are the values of -e and --expression, in order.
+	scripts []string
+	// scriptFiles are the values of -f and --file, files sed reads.
+	scriptFiles []string
+	// unknown: an option outside the table, which makes sed exit with a usage
+	// error before it reads or writes anything.
+	unknown bool
+	// positional are the arguments that are neither an option nor an option's
+	// value, in order: the script first unless scriptByFlag, then the files.
+	positional []string
+}
+
+// clone returns a copy of p that shares no slice with it.
+func (p sedInvocation) clone() sedInvocation {
+	q := p
+	q.suffixes = append([]sedSuffix(nil), p.suffixes...)
+	q.scripts = append([]string(nil), p.scripts...)
+	q.scriptFiles = append([]string(nil), p.scriptFiles...)
+	q.positional = append([]string(nil), p.positional...)
+	return q
+}
+
+// fork returns a copy of p, as a reading forked off it (clone).
+func (p sedInvocation) fork() sedInvocation {
+	q := p.clone()
+	q.forked = true
+	return q
+}
+
+// runs reports whether sed runs this reading at all: it carries no unknown
+// option, it does not edit in place with no file to edit, which both seds
+// refuse, and its script, when it has one, is not one both seds reject
+// (sedScriptRejected). A reading that does not run reads and edits no file.
+func (p sedInvocation) runs() bool {
+	if p.unknown || p.inPlace && len(p.files()) == 0 {
+		return false
 	}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			return false // remaining tokens are operands, not flags
-		}
-		if a == "-i" || a == "--in-place" || strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
-			return true // in-place edit → mutating
-		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
-			continue // operand (script or file path)
-		}
-		if strings.HasPrefix(a, "--") && strings.Contains(a, "=") {
-			// long flag with attached value (e.g. --expression=...): recognized
-			// only if its name is a known read-only flag.
-			name := a[:strings.IndexByte(a, '=')]
-			if valueFlags[name] || boolFlags[name] {
+	script, ok := p.script()
+	return !ok || !sedScriptRejected(script)
+}
+
+// counts reports whether this reading's files are among the invocation's: a
+// reading GNU sed's option parse yields always counts, so a mistake in the
+// script walk never drops a file from containment, and a forked one counts
+// when sed runs it (runs).
+func (p sedInvocation) counts() bool {
+	return !p.forked || p.runs()
+}
+
+// files are the files this reading reads, or edits in place: the positional
+// arguments after the script.
+func (p sedInvocation) files() []string {
+	if p.scriptByFlag {
+		return p.positional
+	}
+	if len(p.positional) <= 1 {
+		return nil
+	}
+	return p.positional[1:]
+}
+
+// script is the script text this reading gives sed on its command line, and
+// false when it gives none. A -f script is a file's content and is not in it.
+func (p sedInvocation) script() (string, bool) {
+	if p.scriptByFlag {
+		return strings.Join(p.scripts, "\n"), len(p.scripts) > 0
+	}
+	if len(p.positional) == 0 {
+		return "", false
+	}
+	return p.positional[0], true
+}
+
+// edited is the name GNU sed edits the file operand f under in this reading:
+// f as spelled, or under --follow-symlinks the name followed maps f to
+// (sedFollowedNames).
+func (p sedInvocation) edited(f string, followed map[string]string) string {
+	if n, ok := followed[f]; ok && p.followSymlinks {
+		return n
+	}
+	return f
+}
+
+// backups are the backup files this reading's in-place edit writes, with
+// followed as for edited. BSD sed appends the suffix to each file's name. GNU
+// sed puts the name it edits the file under (edited), directory included, in
+// place of each `*` in the suffix, which a suffix without one gets in front of
+// it, and makes no backup for a suffix of `*` alone (open_next_file, closedown
+// and get_backup_file_name, sed/execute.c).
+func (p sedInvocation) backups(followed map[string]string) []string {
+	var out []string
+	for _, f := range p.files() {
+		for _, s := range p.suffixes {
+			if s.bsd && s.text != "" {
+				out = append(out, f+s.text)
+			}
+			if !s.gnu {
 				continue
 			}
-			return true // unrecognized → fail safe
+			ext := s.text
+			if !strings.Contains(ext, "*") {
+				ext = "*" + ext
+			}
+			if ext != "*" {
+				out = append(out, strings.ReplaceAll(ext, "*", p.edited(f, followed)))
+			}
 		}
-		if valueFlags[a] {
-			i++ // skip the flag's value
+	}
+	return out
+}
+
+// sedMaxLinks bounds how many symlinks sedFollowSymlink follows from one file
+// operand before it gives up.
+const sedMaxLinks = 40
+
+// sedFollowSymlink returns the name GNU sed's --follow-symlinks edits the file
+// operand name under, reading links relative to base, the directory sed runs
+// in: while the name is a symlink, the link text, behind the name's own
+// directory as the name spells it when the text is relative and the name has
+// one (follow_symlink, sed/utils.c). It returns false when a link cannot be
+// read, which includes a name that does not exist, or the chain is longer
+// than sedMaxLinks.
+func sedFollowSymlink(name, base string) (string, bool) {
+	fn := name
+	for n := 0; ; n++ {
+		at := fn
+		if !strings.HasPrefix(at, "/") {
+			at = base + "/" + at
+		}
+		link, err := os.Readlink(at)
+		if errors.Is(err, syscall.EINVAL) {
+			return fn, true
+		}
+		if err != nil || n >= sedMaxLinks {
+			return "", false
+		}
+		if k := strings.LastIndex(fn, "/"); !strings.HasPrefix(link, "/") && k >= 0 {
+			link = fn[:k+1] + link
+		}
+		fn = link
+	}
+}
+
+// sedFollowedNames maps each file a reading that counts (counts) edits in
+// place under --follow-symlinks to the name sedFollowSymlink gives it, from
+// base. It reports false when one of them cannot be followed; the map then
+// holds the rest.
+func sedFollowedNames(readings []sedInvocation, base string) (map[string]string, bool) {
+	followed := map[string]string{}
+	ok := true
+	for _, p := range readings {
+		if !p.followSymlinks || !p.inPlace || !p.counts() {
 			continue
 		}
-		if boolFlags[a] {
+		for _, f := range p.files() {
+			if _, done := followed[f]; done {
+				continue
+			}
+			n, found := sedFollowSymlink(f, base)
+			if !found {
+				ok = false
+				continue
+			}
+			followed[f] = n
+		}
+	}
+	return followed, ok
+}
+
+// sedMaxForks bounds how many readings sedReadings forks off an argument it
+// reads two ways, counted across every reading rather than per argument. An
+// argv that needs more is past the gate's parse limit, and sedForkLimitDeny
+// denies it.
+const sedMaxForks = 8
+
+// sedForkLimitDeny returns the deny for a sed whose argv needs more than
+// sedMaxForks forked readings to parse (sedReadingsWithin), and false for one
+// that needs no more. classifySimpleCommand runs it before it hands sed to any
+// track, and the file-work redirect before it grades sed as a read or an edit,
+// so such a sed is denied for the parse limit rather than graded.
+func sedForkLimitDeny(args []string) (Decision, bool) {
+	if _, ok := sedReadingsWithin(args); ok {
+		return Decision{}, false
+	}
+	return deny("bash:sed-parse-limit", fmt.Sprintf(
+		"Blocked: this `sed` command is past the gate's parse limit. GNU and BSD sed read `-l`, and a bare `-i` "+
+			"with an argument after it, differently, so the gate parses the command each way it can be read, and "+
+			"this one needs more than %d extra readings, so the gate cannot tell which files it reads or writes. "+
+			"Rewrite it with fewer bare `-i` and `-l` options, or use the Read tool to read a file or the Edit "+
+			"tool to edit one.", sedMaxForks)), true
+}
+
+// sedPending is a reading sedReadings has yet to finish: p as read so far, to
+// resume at argument i — at byte j of it when j is above zero, inside a
+// short-option cluster — taking options wherever they stand when permute is
+// set.
+type sedPending struct {
+	p       sedInvocation
+	i, j    int
+	permute bool
+}
+
+// sedReadings reads a sed argv against sed's option table, every way GNU and
+// BSD sed read it, up to a `--`:
+//
+//   - GNU sed's reading takes an option wherever it stands.
+//   - BSD sed's getopt, and GNU sed's with POSIXLY_CORRECT set, stop taking
+//     options at the first argument that is not one, so every argument from
+//     there on is the script or a file. That reading forks at the two short
+//     options whose value the seds read differently: it goes on as GNU's, and
+//     the fork goes on as BSD's — a bare `-i` ending a cluster, with an
+//     argument after it, taking that argument as its suffix, and `-l` taking
+//     no value.
+//
+// GNU's reading is first. An argv past sedMaxForks has none: every track denies
+// it (sedForkLimitDeny), so no verdict rests on its readings.
+func sedReadings(args []string) []sedInvocation {
+	out, _ := sedReadingsWithin(args)
+	return out
+}
+
+// sedReadingsWithin returns sedReadings' readings of args, and false, with no
+// reading, when reading args takes more than sedMaxForks forks.
+func sedReadingsWithin(args []string) ([]sedInvocation, bool) {
+	var out []sedInvocation
+	work := []sedPending{{permute: true}, {}}
+	forks := 0
+	for len(work) > 0 {
+		p, i, j, permute := work[0].p, work[0].i, work[0].j, work[0].permute
+		work = work[1:]
+	reading:
+		for ; i < len(args); i, j = i+1, 0 {
+			a := args[i]
+			var fork *sedPending
+			switch {
+			case j > 0:
+				i, fork = p.shortCluster(args, i, j, permute)
+			case a == "--":
+				p.positional = append(p.positional, args[i+1:]...)
+				break reading
+			case (!strings.HasPrefix(a, "-") || a == "-") && !permute:
+				p.positional = append(p.positional, args[i:]...)
+				break reading
+			case !strings.HasPrefix(a, "-") || a == "-":
+				p.positional = append(p.positional, a)
+			case strings.HasPrefix(a, "--"):
+				i = p.longOption(args, i)
+			default:
+				i, fork = p.shortCluster(args, i, 1, permute)
+			}
+			if fork == nil {
+				continue
+			}
+			if forks++; forks > sedMaxForks {
+				return nil, false
+			}
+			work = append(work, *fork)
+		}
+		out = append(out, p)
+	}
+	return out, true
+}
+
+// longOption reads the long option args[i] and returns the index of the last
+// argument it used.
+func (p *sedInvocation) longOption(args []string, i int) int {
+	name, value, attached := strings.Cut(args[i], "=")
+	switch opt := sedLongOption(name); {
+	case opt == "":
+		p.unknown = true
+	case sedValueFlags[opt]:
+		p.scriptByFlag = true
+		if !attached {
+			if i+1 >= len(args) {
+				return i
+			}
+			i++
+			value = args[i]
+		}
+		if opt == "--file" {
+			p.scriptFiles = append(p.scriptFiles, value)
+		} else {
+			p.scripts = append(p.scripts, value)
+		}
+	case opt == "--line-length":
+		if !attached && i+1 < len(args) {
+			i++
+		}
+	case opt == "--in-place":
+		p.inPlace = true
+		if attached {
+			p.suffixes = append(p.suffixes, sedSuffix{text: value, gnu: true})
+		}
+	case attached:
+		p.unknown = true
+	case opt == "--quiet" || opt == "--silent":
+		p.quiet = true
+	case opt == "--follow-symlinks":
+		p.followSymlinks = true
+	}
+	return i
+}
+
+// shortCluster reads the short-option cluster args[i] from its byte j0 and
+// returns the index of the last argument it used. Outside a permute reading,
+// where the two seds read an option of the cluster differently, it reads it as
+// GNU does and returns BSD's reading as fork, else nil.
+func (p *sedInvocation) shortCluster(args []string, i, j0 int, permute bool) (next int, fork *sedPending) {
+	a := args[i]
+	for j := j0; j < len(a); j++ {
+		c, rest := a[j], a[j+1:]
+		switch {
+		case c == 'e' || c == 'f':
+			p.scriptByFlag = true
+			value := rest
+			if rest == "" {
+				if i+1 >= len(args) {
+					return i, nil
+				}
+				i++
+				value = args[i]
+			}
+			if c == 'f' {
+				p.scriptFiles = append(p.scriptFiles, value)
+			} else {
+				p.scripts = append(p.scripts, value)
+			}
+			return i, nil
+		case c == 'i' || c == 'I':
+			p.inPlace = true
+			switch {
+			case rest != "":
+				p.suffixes = append(p.suffixes, sedSuffix{text: rest, gnu: c == 'i', bsd: true})
+			case i+1 >= len(args):
+			case c == 'I':
+				p.suffixes = append(p.suffixes, sedSuffix{text: args[i+1], bsd: true})
+				return i + 1, nil
+			case !permute:
+				q := p.fork()
+				q.suffixes = append(q.suffixes, sedSuffix{text: args[i+1], bsd: true})
+				q.bareSuffix, q.bareText = true, args[i+1]
+				return i, &sedPending{p: q, i: i + 2}
+			}
+			return i, nil
+		case c == 'l':
+			if !permute && (rest != "" || i+1 < len(args)) {
+				fork = &sedPending{p: p.fork(), i: i, j: j + 1}
+				if rest == "" {
+					fork.i, fork.j = i+1, 0
+				}
+			}
+			if rest == "" && i+1 < len(args) {
+				i++
+			}
+			return i, fork
+		case c == 'n':
+			p.quiet = true
+		case !sedBoolFlags["-"+string(c)]:
+			p.unknown = true
+			return i, nil
+		}
+	}
+	return i, nil
+}
+
+// sedUnknown reports whether a reading of a sed argv other than a forked one
+// carries an option outside sed's table. A forked reading is BSD's, whose
+// options the table holds whole, so an unknown option there is one BSD sed
+// rejects rather than one the table lacks.
+func sedUnknown(readings []sedInvocation) bool {
+	for _, p := range readings {
+		if p.unknown && !p.forked {
+			return true
+		}
+	}
+	return false
+}
+
+// sedFileOperands returns the files a sed invocation reads, or edits in place,
+// in any reading that counts (counts): the positional arguments after the
+// script. An invocation that names no file returns none. One that carries an
+// option outside sed's table returns the files its readings name with that
+// option read as taking no value, so containment still denies an escape among
+// them before sedDefers defers the invocation.
+func sedFileOperands(args []string) []string {
+	readings := sedReadings(args)
+	var out []string
+	for _, p := range readings {
+		if p.counts() {
+			out = append(out, p.files()...)
+		}
+	}
+	return dedupeOperands(out)
+}
+
+// sedScriptFiles returns the files a sed invocation reads its script from, in
+// any reading.
+func sedScriptFiles(args []string) []string {
+	var out []string
+	for _, p := range sedReadings(args) {
+		out = append(out, p.scriptFiles...)
+	}
+	return dedupeOperands(out)
+}
+
+// sedQuiet reports whether a sed invocation carries -n, --quiet or --silent
+// in any reading.
+func sedQuiet(args []string) bool {
+	for _, p := range sedReadings(args) {
+		if p.quiet {
+			return true
+		}
+	}
+	return false
+}
+
+// sedInPlace reports whether a sed invocation edits a file in place in any
+// reading. It is the one sed in-place rule; the read-only-utility track, the
+// in-repo-write track and the file-work redirect all decide on it.
+func sedInPlace(args []string) bool {
+	for _, p := range sedReadings(args) {
+		if p.inPlace {
+			return true
+		}
+	}
+	return false
+}
+
+// sedCommandFileSets returns the files the script on a sed invocation's
+// command line names in its own commands, in any reading of the argv but a
+// forked one BSD sed rejects for an unknown option, and either sed's reading of
+// the script (sedCommandFiles): the files it reads, and the files it writes.
+func sedCommandFileSets(args []string) (reads, writes []string) {
+	for _, p := range sedReadings(args) {
+		script, ok := p.script()
+		if !ok || p.unknown && p.forked {
 			continue
 		}
-		return true // unrecognized flag → fail safe
+		for _, brackets := range []bool{false, true} {
+			r, w := sedCommandFiles(script, brackets)
+			reads = append(reads, r...)
+			writes = append(writes, w...)
+		}
+	}
+	return dedupeOperands(reads), dedupeOperands(writes)
+}
+
+// sedWrites reports whether a sed invocation writes a file: it edits in place,
+// or its script writes one.
+func sedWrites(args []string) bool {
+	if sedInPlace(args) {
+		return true
+	}
+	_, writes := sedCommandFileSets(args)
+	return len(writes) > 0
+}
+
+// sedReadValues returns the files a sed invocation reads other than its file
+// operands: its script files, and the files its script reads.
+func sedReadValues(args []string) []string {
+	reads, _ := sedCommandFileSets(args)
+	return dedupeOperands(append(sedScriptFiles(args), reads...))
+}
+
+// sedWriteTargets returns the files a writing sed invocation that runs in base
+// writes, in any reading: the files it edits in place, under each name it
+// edits them under (edited), and their backups, and the files its script
+// writes. An invocation that carries an option outside sed's table returns
+// them as sedFileOperands does, and the in-repo-write track defers it once
+// containment passes (sedWriteDefers). It reports false when a file it edits
+// under --follow-symlinks cannot be followed (sedFollowedNames); the files
+// returned then lack that file's followed name and its backups.
+func sedWriteTargets(args []string, base string) ([]string, bool) {
+	readings := sedReadings(args)
+	followed, ok := sedFollowedNames(readings, base)
+	var out []string
+	for _, p := range readings {
+		out = append(out, p.writeTargets(followed)...)
+	}
+	return dedupeOperands(out), ok
+}
+
+// writeTargets are the files this reading writes, with followed as for
+// edited: the files it edits in place, as spelled and as edited, and their
+// backups, when the reading counts (counts), and the files its script writes
+// in either reading of the script (sedCommandFiles), which sed opens as it
+// compiles the script, before it rejects anything after them.
+func (p sedInvocation) writeTargets(followed map[string]string) []string {
+	if p.unknown && p.forked {
+		return nil
+	}
+	var out []string
+	if p.inPlace && p.counts() {
+		for _, f := range p.files() {
+			out = append(out, f)
+			if e := p.edited(f, followed); e != f {
+				out = append(out, e)
+			}
+		}
+		out = append(out, p.backups(followed)...)
+	}
+	if script, ok := p.script(); ok {
+		for _, brackets := range []bool{false, true} {
+			_, w := sedCommandFiles(script, brackets)
+			out = append(out, w...)
+		}
+	}
+	return out
+}
+
+// sedGNUBareInPlaceTargets returns the files a sed invocation writes only in
+// GNU's reading of a bare `-i`: with an argument after the `-i`, which BSD sed
+// takes as the suffix, GNU sed takes it as the script, so the argument BSD
+// takes as the script is a file GNU edits. It also returns the argument BSD
+// sed takes as the suffix. It returns no file when no reading sed runs (runs)
+// takes such an argument as the suffix, or the invocation carries an option
+// outside sed's table. base is as for sedWriteTargets.
+func sedGNUBareInPlaceTargets(args []string, base string) (files []string, suffix string) {
+	readings := sedReadings(args)
+	if sedUnknown(readings) {
+		return nil, ""
+	}
+	followed, _ := sedFollowedNames(readings, base)
+	bsd := map[string]bool{}
+	forked := false
+	for _, p := range readings {
+		if p.bareSuffix && p.runs() {
+			if !forked {
+				suffix = p.bareText
+			}
+			forked = true
+			for _, f := range p.writeTargets(followed) {
+				bsd[f] = true
+			}
+		}
+	}
+	if !forked {
+		return nil, ""
+	}
+	all, _ := sedWriteTargets(args, base)
+	for _, f := range all {
+		if !bsd[f] {
+			files = append(files, f)
+		}
+	}
+	return files, suffix
+}
+
+// sedWriteReadSources returns the files a writing sed invocation reads and does
+// not write: sedReadValues', and its file operands when it does not edit them
+// in place.
+func sedWriteReadSources(args []string) []string {
+	out := sedReadValues(args)
+	if !sedInPlace(args) {
+		out = append(out, sedFileOperands(args)...)
+	}
+	return dedupeOperands(out)
+}
+
+// sedDefers reports whether a sed invocation must defer rather than allow:
+// when it writes a file (sedWrites), runs a script the gate cannot grade whole
+// (sedOpaque), or carries an option outside sed's table, so a mutating option
+// the table does not know fails safe.
+func sedDefers(args []string) bool {
+	return sedWrites(args) || sedOpaque(args) || sedUnknown(sedReadings(args))
+}
+
+// sedOpaque reports whether a sed invocation, in any reading of its argv and
+// either reading of its script, runs a script the gate cannot grade whole: one
+// it reads from a file (-f, --file), whose commands the gate never sees, or one
+// sedScriptOpaque reports. No track allows it. The file-work redirect does not
+// consult it, and grades an opaque sed as it grades any other.
+func sedOpaque(args []string) bool {
+	for _, p := range sedReadings(args) {
+		if p.unknown && p.forked {
+			continue
+		}
+		if len(p.scriptFiles) > 0 {
+			return true
+		}
+		script, ok := p.script()
+		if !ok {
+			continue
+		}
+		for _, brackets := range []bool{false, true} {
+			if sedScriptOpaque(script, brackets) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sedCommandFiles returns the files a sed script names in its own commands:
+// those `r` and `R` read, and those `w`, `W` and the `w` flag of `s` write.
+// `/dev/stdin`, `/dev/stdout` and `/dev/stderr` name sed's own streams, not a
+// file. Where the two seds compile a script differently, the walk reads it the
+// way that reaches every command either compiles: a label ends at a blank, `;`,
+// `}` or `#`, as GNU ends one where BSD reads to the end of the line, and the
+// next command may follow it directly, as GNU reads one; and a command only one
+// sed has is read rather than rejected. The one exception is a bracket
+// expression in a regular expression, inside which BSD sed takes the delimiter
+// literally and GNU sed ends the expression at it; brackets selects BSD's
+// reading. A command the script spells wrong ends the walk, as it ends sed's
+// compile; the files named before it are kept, since sed opens a `w` file as it
+// compiles the command.
+func sedCommandFiles(script string, brackets bool) (reads, writes []string) {
+	w := walkSedScript(script, brackets)
+	return w.reads, w.writes
+}
+
+// sedScriptOpaque reports whether the gate cannot grade a sed script whole: it
+// runs a shell command, through its `e` command or the `e` flag of an `s`
+// command, or its walk stopped at something other than a missing command — the
+// one place both seds are known to reject a script — and so may have missed
+// commands after it. The walk is sedCommandFiles'.
+func sedScriptOpaque(script string, brackets bool) bool {
+	w := walkSedScript(script, brackets)
+	return w.executes || w.unread
+}
+
+// sedScriptRejected reports whether both seds reject a sed script: its walk
+// stops at a missing command in either reading of a bracket expression, with a
+// label ended as GNU ends one and with a label running to the end of the line,
+// as BSD reads one. Under GNU's label rule alone, `:l;1~2` is a label followed
+// by an address with no command, while BSD sed reads the label `l;1~2` and
+// runs the script.
+func sedScriptRejected(script string) bool {
+	for _, brackets := range []bool{false, true} {
+		for _, bsdLabels := range []bool{false, true} {
+			w := &sedScriptWalker{s: script, brackets: brackets, bsdLabels: bsdLabels}
+			w.walk()
+			if !w.noCommand {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// walkSedScript walks script, with brackets as for sedCommandFiles, and
+// returns the finished walk.
+func walkSedScript(script string, brackets bool) *sedScriptWalker {
+	w := &sedScriptWalker{s: script, brackets: brackets}
+	w.walk()
+	return w
+}
+
+// sedScriptWalker walks a sed script command by command.
+type sedScriptWalker struct {
+	s        string
+	i        int
+	brackets bool
+	// bsdLabels: a label runs to the end of the line, as BSD sed reads one,
+	// rather than ending where GNU sed ends one.
+	bsdLabels     bool
+	reads, writes []string
+	// executes: an `e` command or an `s` command's `e` flag was read.
+	executes bool
+	// noCommand: the walk stopped where a command is due and none of either
+	// sed's stands — another byte, or the end of the script — which both seds
+	// reject.
+	noCommand bool
+	// unread: the walk stopped anywhere else, where the rest of the script is
+	// something the walk cannot read.
+	unread bool
+}
+
+// peek is the byte at the walk's position, or 0 at the end of the script.
+func (w *sedScriptWalker) peek() byte {
+	if w.i < len(w.s) {
+		return w.s[w.i]
+	}
+	return 0
+}
+
+// skipBlanks moves past spaces and tabs.
+func (w *sedScriptWalker) skipBlanks() {
+	for w.peek() == ' ' || w.peek() == '\t' {
+		w.i++
+	}
+}
+
+// skipDigits moves past a run of decimal digits.
+func (w *sedScriptWalker) skipDigits() {
+	for c := w.peek(); c >= '0' && c <= '9'; c = w.peek() {
+		w.i++
+	}
+}
+
+// toEOL returns the text up to the next newline and moves past the newline.
+func (w *sedScriptWalker) toEOL() string {
+	rest := w.s[w.i:]
+	line, _, found := strings.Cut(rest, "\n")
+	w.i += len(line)
+	if found {
+		w.i++
+	}
+	return line
+}
+
+// filename reads a command's filename: blanks skipped, then the rest of the
+// line.
+func (w *sedScriptWalker) filename() string {
+	w.skipBlanks()
+	return w.toEOL()
+}
+
+// walk reads commands until the script ends or one is spelled wrong, and sets
+// unread when it stops anywhere but the end or a missing command.
+func (w *sedScriptWalker) walk() {
+	if !w.commands() {
+		w.unread = !w.noCommand
+	}
+}
+
+// commands reads commands until the script ends, and reports false when one is
+// spelled wrong.
+func (w *sedScriptWalker) commands() bool {
+	for {
+		for w.i < len(w.s) && strings.IndexByte(" \t\n;", w.s[w.i]) >= 0 {
+			w.i++
+		}
+		if w.i >= len(w.s) {
+			return true
+		}
+		if !w.address(false) {
+			return false
+		}
+		w.skipBlanks()
+		if w.peek() == ',' {
+			w.i++
+			w.skipBlanks()
+			if !w.address(true) {
+				return false
+			}
+			w.skipBlanks()
+		}
+		for w.peek() == '!' {
+			w.i++
+			w.skipBlanks()
+		}
+		if !w.command() {
+			return false
+		}
+	}
+}
+
+// address reads one address, and reports false when it is spelled wrong or,
+// with required set, absent.
+func (w *sedScriptWalker) address(required bool) bool {
+	switch c := w.peek(); {
+	case c >= '0' && c <= '9':
+		w.skipDigits()
+		if w.peek() == '~' {
+			w.i++
+			w.skipDigits()
+		}
+		return true
+	case c == '$':
+		w.i++
+		return true
+	case c == '+' || c == '~':
+		w.i++
+		w.skipDigits()
+		return true
+	case c == '/':
+		w.i++
+		return w.regexAddress('/')
+	case c == '\\':
+		w.i++
+		d := w.peek()
+		if d == 0 || d == '\n' || d == '\\' {
+			return false
+		}
+		w.i++
+		return w.regexAddress(d)
+	}
+	return !required
+}
+
+// regexAddress reads a regular expression address after its opening
+// delimiter d, and its I and M flags.
+func (w *sedScriptWalker) regexAddress(d byte) bool {
+	if !w.delimited(d, true) {
+		return false
+	}
+	for w.peek() == 'I' || w.peek() == 'M' {
+		w.i++
+	}
+	return true
+}
+
+// delimited reads up to and past the delimiter d. A backslash escapes the byte
+// after it, a newline included. In a regular expression read with brackets
+// set, a bracket expression is read whole. A bare newline, or the end of the
+// script, is an error.
+func (w *sedScriptWalker) delimited(d byte, regex bool) bool {
+	for w.i < len(w.s) {
+		switch c := w.s[w.i]; {
+		case c == '\\':
+			w.i += 2
+		case c == '\n':
+			return false
+		case c == d:
+			w.i++
+			return true
+		case c == '[' && regex && w.brackets:
+			if !w.bracket() {
+				return false
+			}
+		default:
+			w.i++
+		}
+	}
+	return false
+}
+
+// bracket reads a bracket expression from its `[` to its closing `]`, as BSD
+// sed reads one: a `]` first, after any `^`, is a member, and `[:`, `[.` and
+// `[=` open a class that runs to its own closing `:]`, `.]` or `=]`.
+func (w *sedScriptWalker) bracket() bool {
+	w.i++
+	if w.peek() == '^' {
+		w.i++
+	}
+	if w.peek() == ']' {
+		w.i++
+	}
+	for w.i < len(w.s) {
+		c := w.s[w.i]
+		switch {
+		case c == ']':
+			w.i++
+			return true
+		case c == '\n':
+			return false
+		case c == '[' && w.i+1 < len(w.s) && strings.IndexByte(":.=", w.s[w.i+1]) >= 0:
+			end := strings.Index(w.s[w.i+2:], string(w.s[w.i+1])+"]")
+			if end < 0 {
+				return false
+			}
+			w.i += 2 + end + 2
+		default:
+			w.i++
+		}
+	}
+	return false
+}
+
+// command reads one command after its addresses, and reports false when it is
+// spelled wrong.
+func (w *sedScriptWalker) command() bool {
+	if w.i >= len(w.s) {
+		w.noCommand = true
+		return false
+	}
+	c := w.s[w.i]
+	w.i++
+	switch c {
+	case '{':
+		return true
+	case '}':
+		return w.endOfCommand()
+	case '#':
+		w.toEOL()
+		return true
+	case 'e':
+		w.executes = true
+		w.toEOL()
+		return true
+	case 'a', 'i', 'c':
+		w.text()
+		return true
+	case 'r', 'R':
+		if name := w.filename(); name != "" && name != "/dev/stdin" {
+			w.reads = append(w.reads, name)
+		}
+		return true
+	case 'w', 'W':
+		w.write(w.filename())
+		return true
+	case 's':
+		return w.substitute()
+	case 'y':
+		d := w.peek()
+		if d == 0 || d == '\n' || d == '\\' {
+			return false
+		}
+		w.i++
+		return w.delimited(d, false) && w.delimited(d, false) && w.endOfCommand()
+	case ':', 'b', 't', 'T', 'v':
+		if w.bsdLabels {
+			w.toEOL()
+			return true
+		}
+		// GNU sed reads the next command straight after the label, with no
+		// `;` or newline between them.
+		w.skipBlanks()
+		for w.i < len(w.s) && strings.IndexByte(" \t\n;}#", w.s[w.i]) < 0 {
+			w.i++
+		}
+		return true
+	case 'l', 'L', 'q', 'Q':
+		w.skipBlanks()
+		w.skipDigits()
+		return w.endOfCommand()
+	case '=', 'd', 'D', 'g', 'G', 'h', 'H', 'n', 'N', 'p', 'P', 'x', 'z', 'F':
+		return w.endOfCommand()
+	}
+	w.noCommand = true
+	return false
+}
+
+// write records a file a command writes.
+func (w *sedScriptWalker) write(name string) {
+	if name != "" && name != "/dev/stdout" && name != "/dev/stderr" {
+		w.writes = append(w.writes, name)
+	}
+}
+
+// text reads the text of an `a`, `i` or `c` command: after an optional
+// backslash and newline, every line up to one that does not end in an escaping
+// backslash.
+func (w *sedScriptWalker) text() {
+	w.skipBlanks()
+	if w.peek() == '\\' {
+		w.i++
+		if w.peek() == '\n' {
+			w.i++
+		}
+	}
+	for w.i < len(w.s) {
+		line := w.toEOL()
+		trailing := len(line) - len(strings.TrimRight(line, "\\"))
+		if trailing%2 == 0 {
+			return
+		}
+	}
+}
+
+// substitute reads an `s` command after the `s`: its regular expression, its
+// replacement and its flags, the last of which may be `w` and a filename.
+func (w *sedScriptWalker) substitute() bool {
+	d := w.peek()
+	if d == 0 || d == '\n' || d == '\\' {
+		return false
+	}
+	w.i++
+	if !w.delimited(d, true) || !w.delimited(d, false) {
+		return false
+	}
+	for w.i < len(w.s) {
+		c := w.s[w.i]
+		switch {
+		case c == 'w':
+			w.i++
+			w.write(w.filename())
+			return true
+		case c == 'e':
+			w.executes = true
+			w.i++
+		case strings.IndexByte("gpiImM0123456789 \t", c) >= 0:
+			w.i++
+		default:
+			return w.endOfCommand()
+		}
+	}
+	return true
+}
+
+// endOfCommand reads what may follow a command: blanks, then the end of the
+// script, a `;` or newline, which it moves past, or a `}` or `#`, which it
+// leaves to be read as the next command.
+func (w *sedScriptWalker) endOfCommand() bool {
+	w.skipBlanks()
+	switch w.peek() {
+	case 0, '}', '#':
+		return true
+	case ';', '\n':
+		w.i++
+		return true
 	}
 	return false
 }

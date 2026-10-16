@@ -39,26 +39,33 @@ import (
 // and always rides this classifier.
 type inRepoWriteSpec struct {
 	operandsFn func(args []string) []string
-	mutatesFn  func(args []string, sc simpleCommand) bool
-	// pathValueFlags names the flags whose VALUE is a path the program READS
-	// (`sed -i -f SCRIPTFILE`), and valueFlags the program's complete
-	// value-taking set that locates such a value in every spelling getopt gives
-	// it, which is the whole set for these programs (see pathFlagValues in
-	// readonly_util.go for the spellings and the getopt/pflag split). They are
-	// graded through the READ containment (containReadSources), never added to
-	// the write operands: the file is read, not written, and the read grading
-	// can only ever withhold this classifier's ALLOW, never earn it. Same
-	// meaning as utilitySpec's fields of these names on the read track.
-	pathValueFlags map[string]bool
-	valueFlags     map[string]bool
+	// targetsFn, when set, takes operandsFn's place for a program whose write
+	// targets depend on the filesystem: it returns them for a command that runs
+	// in base, and false when it could not read what they depend on. The
+	// targets it did find are still contained, and the false withholds the
+	// ALLOW only once containment has found no escape among them.
+	targetsFn func(args []string, base string) ([]string, bool)
+	mutatesFn func(args []string, sc simpleCommand) bool
+	// pathValuesFn, when set, returns the paths the program READS from its
+	// arguments, by its own option grammar, as utilitySpec's field of this name
+	// does on the read track. They are graded through the READ containment
+	// (containReadSources), never added to the write operands: the file is
+	// read, not written, and the read grading can only ever withhold this
+	// classifier's ALLOW, never earn it.
+	pathValuesFn func(args []string) []string
+	// defersFn, when set, returns the defer for a form whose writes the operand
+	// parse cannot see whole, and false for one it sees whole. It withholds the
+	// ALLOW, and only once containment has found no escape among the files the
+	// parse does see, so an escape still denies.
+	defersFn func(args []string) (Decision, bool)
 }
 
 // inRepoWriters maps a mutating program basename to its operand-extraction spec.
 // Each spec parses the program's own flag grammar so a flag value is never
 // misread as a path operand and a script argument (sed) is never tested as a
-// file. An unrecognized flag makes the operand extractor fail safe by withholding
-// the ALLOW (see the per-program functions), so a future mutating flag does not
-// slip a write past containment.
+// file. An unrecognized flag withholds the ALLOW, through the operand extractor
+// or, for sed, its defersFn once containment passes (see the per-program
+// functions), so a future mutating flag does not slip a write past containment.
 var inRepoWriters = map[string]inRepoWriteSpec{
 	// cp/mv: all non-flag operands are paths (source(s) + dest). Containment on
 	// the DEST is what makes `mv repo-file /tmp/x` deny — checking only the
@@ -68,14 +75,21 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	// mkdir/touch: every non-flag operand is a target the command creates.
 	"mkdir": {operandsFn: mkdirTouchOperands},
 	"touch": {operandsFn: mkdirTouchOperands},
-	// sed -i: only the FILE args are paths; the script arg (`s/a/b/`) is not.
-	// mutatesFn gates this to the in-place form; the read-only form (no -i) is
-	// handled by the read-only-utility classifier. A script supplied by
-	// `-f FILE` is a file sed READS, so it is declared here and graded by the
-	// read containment rather than dropped (sedFileOperands consumes it) or
-	// mistaken for a write target.
-	"sed": {operandsFn: sedFileOperands, mutatesFn: sedMutates,
-		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
+	// sed: the files it writes are the ones it edits in place with their
+	// backups, and the ones its script's own commands write; the script
+	// argument (`s/a/b/`) is not one. mutatesFn gates this to a sed that writes
+	// a file; the read-only form is handled by the read-only-utility
+	// classifier. A script supplied by `-f FILE`, a file the script's `r` or
+	// `R` reads, and the file operands of a sed that does not edit them in
+	// place are files sed READS, so sedWriteReadSources hands them to the read
+	// containment rather than them being dropped or mistaken for write targets.
+	// A script read from a file, one that runs a shell command, or one the walk
+	// cannot read to its end can write files the parse never sees, and so can
+	// an option outside sed's table, so sedWriteDefers defers each. Under
+	// --follow-symlinks the files sed writes depend on the links its operands
+	// name, so the targets are read from the filesystem.
+	"sed": {targetsFn: sedWriteTargets, mutatesFn: sedMutates, pathValuesFn: sedWriteReadSources,
+		defersFn: sedWriteDefers},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
 	// real-file form; `tee /dev/null` stays on the read-only-utility track.
 	"tee": {operandsFn: teeTargets, mutatesFn: teeMutates},
@@ -116,7 +130,17 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 			prog))
 	}
 
-	operands := spec.operandsFn(args)
+	base := sc.cwd
+	if base == "" {
+		base = ev.CWD
+	}
+	var operands []string
+	targetsRead := true
+	if spec.targetsFn != nil {
+		operands, targetsRead = spec.targetsFn(args, base)
+	} else {
+		operands = spec.operandsFn(args)
+	}
 	if len(operands) == 0 {
 		// No statically-extractable write target (e.g. an unrecognized flag the
 		// extractor refused to model, or a form we don't recognize). Defer rather
@@ -126,9 +150,9 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 	// The paths this command READS are ones the operand parser never returns:
 	// an input redirect (`tee f.md < ../sibling-repo/.env` copies a file from
-	// outside the repo into one inside it) and the value of a path-valued flag
-	// (`sed -i -f ../sibling-repo/x.sed f.md` runs a script read from outside
-	// it), while every operand the parser does see is contained. Grade those
+	// outside the repo into one inside it) and the paths spec.pathValuesFn
+	// returns (`sed -i -f ../sibling-repo/x.sed f.md` runs a script read from
+	// outside it), while every operand the parser does see is contained. Grade those
 	// sources through the read containment (containReadSources), which yields
 	// escape verdicts only — a read source can never earn this classifier's
 	// write ALLOW.
@@ -139,17 +163,36 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// defective scratchpad root, an unresolvable repo boundary) is held back
 	// until after the write walk, so a write escape still outranks it — the same
 	// ordering containWriteOperands applies to its own recorded defer.
-	readSources := append(pathFlagValues(args, spec.valueFlags, spec.pathValueFlags), sc.inputRedirectTargets...)
+	var readSources []string
+	if spec.pathValuesFn != nil {
+		readSources = spec.pathValuesFn(args)
+	}
+	readSources = append(readSources, sc.inputRedirectTargets...)
 	inputEscape, inputClean := containReadSources(prog, readSources, sc, ev)
 	if !inputClean && inputEscape.Bucket == BucketDeny {
 		return inputEscape
 	}
 	d, ok, sawOperator := containWriteOperands(prog, operands, sc, ev)
 	if !ok {
+		if prog == "sed" && d.Bucket == BucketDeny {
+			if sd, found := sedBareInPlaceDeny(args, operands, base, sc, ev); found {
+				return sd
+			}
+		}
 		return d
 	}
 	if !inputClean {
 		return inputEscape
+	}
+	if !targetsRead {
+		return deferJudgment("bash-write:unreadable-link", fmt.Sprintf(
+			"'%s' follows a symlink among its operands that the gate cannot read, or that does not exist, so "+
+				"the file it writes cannot be proven in-repo.", prog))
+	}
+	if spec.defersFn != nil {
+		if dd, defers := spec.defersFn(args); defers {
+			return dd
+		}
 	}
 	// "a harness session scratchpad", not "THIS session's": the carve-out
 	// covers the whole per-uid prefix, so a write into another session's
@@ -162,7 +205,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	regions := "inside the current worktree or a harness session scratchpad"
 	if sawOperator {
 		regions = fmt.Sprintf("inside the current worktree, a harness session scratchpad, or paths the operator "+
-			"listed in %s", operatorCarveOutConfigPath())
+			"listed in %s", operatorCarveOutConfigDisplayPath)
 	}
 	return allow(fmt.Sprintf("%s writes only paths %s (in-repo write)", prog, regions))
 }
@@ -396,116 +439,97 @@ func mkdirTouchOperands(args []string) []string {
 	return out
 }
 
-// sedMutates reports whether a sed invocation is the in-place (mutating) form
-// the in-repo-write classifier should handle. It reuses sedDefers, which the
-// read-only-utility classifier uses to DEFER the mutating form: sedDefers
-// returns true for `-i`/`--in-place` (any suffix form) AND for any unrecognized
-// flag. We only want to claim the genuine in-place form here, so we test for the
-// `-i` token directly; a non-`-i` form that merely trips sedDefers (an unknown
-// flag) is left to defer rather than mis-classified as an in-repo write.
-func sedMutates(args []string, _ simpleCommand) bool {
-	for _, a := range args {
-		if a == "--" {
-			return false
-		}
-		if a == "-i" || a == "--in-place" ||
-			strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
-			return true
+// sedBareInPlaceDeny returns the deny for a sed whose write operands escape
+// only in GNU's reading of a bare `-i` (sedGNUBareInPlaceTargets,
+// readonly_util.go), naming spellings in which no sed takes the script for a
+// file, and false when another operand escapes too or none of those does.
+// base is the directory the command runs in.
+func sedBareInPlaceDeny(args, operands []string, base string, sc simpleCommand, ev *Event) (Decision, bool) {
+	files, suffix := sedGNUBareInPlaceTargets(args, base)
+	gnu := map[string]bool{}
+	for _, f := range files {
+		gnu[f] = true
+	}
+	if len(gnu) == 0 {
+		return Decision{}, false
+	}
+	var rest []string
+	for _, f := range operands {
+		if !gnu[f] {
+			rest = append(rest, f)
 		}
 	}
-	return false
+	if d, ok, _ := containWriteOperands("sed", rest, sc, ev); !ok && d.Bucket == BucketDeny {
+		return Decision{}, false
+	}
+	for _, f := range operands {
+		if !gnu[f] {
+			continue
+		}
+		d, ok, _ := containWriteOperands("sed", []string{f}, sc, ev)
+		if ok || d.Bucket != BucketDeny {
+			continue
+		}
+		return deny(d.Operation, fmt.Sprintf(
+			"Blocked: GNU sed reads the argument after a bare `-i` as the script, not as a backup suffix the way "+
+				"BSD sed does, so it would edit '%s' as a file, and that path is outside this worktree. %s",
+			f, sedSuffixSpellings(suffix))), true
+	}
+	return Decision{}, false
 }
 
-// sedFileOperands returns the FILE operands of a sed invocation, excluding the
-// script. sed's grammar is `sed [FLAGS] {script | -e script | -f file} [FILE...]`.
-// When the script is supplied inline (no -e/-f), it is the FIRST non-flag operand
-// and is NOT a path; the remaining non-flag operands are files. When -e/-f
-// supplies the script, EVERY non-flag operand is a file. Flag values for
-// -e/-f/-l are consumed. An unrecognized flag returns no operands (fail safe →
-// the caller defers), so a future mutating flag does not slip a write through.
-func sedFileOperands(args []string) []string {
-	valueFlags := sedValueFlags
-	boolFlags := map[string]bool{
-		"-n": true, "--quiet": true, "--silent": true,
-		"-E": true, "-r": true, "--regexp-extended": true,
-		"-z": true, "--null-data": true,
-		"-s": true, "--separate": true,
-		"-u": true, "--unbuffered": true,
-		"--posix": true, "--debug": true, "--sandbox": true,
-		"--follow-symlinks": true,
+// sedSuffixSpellings names the spellings of the backup suffix suffix that no
+// sed misreads, and the Edit tool. An empty suffix cannot be attached to
+// `-i`, which would leave a bare `-i`, so only `-I` spells it.
+func sedSuffixSpellings(suffix string) string {
+	if suffix == "" {
+		return "Spell BSD sed's empty suffix as `-I ''`, which GNU sed rejects rather than misreads, or use the " +
+			"Edit tool."
 	}
-	scriptSuppliedByFlag := false
-	var operands []string
-	sawDashDash := false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if sawDashDash {
-			operands = append(operands, a)
-			continue
+	q := sedShellWord(suffix)
+	return fmt.Sprintf("To keep the backup suffix %s, attach it as `-i%s`, which both seds read as the suffix, or "+
+		"spell it `-I %s`, which GNU sed rejects rather than misreads, or use the Edit tool.", q, q, q)
+}
+
+// sedShellWord is s as one shell word: as it stands when it holds only
+// characters the shell gives no meaning, else single-quoted.
+func sedShellWord(s string) string {
+	plain := s != ""
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-+,:@%/=", c)) {
+			plain = false
+			break
 		}
-		if a == "--" {
-			sawDashDash = true
-			continue
-		}
-		// The in-place flag (any spelling/suffix) is what put us here; skip it.
-		if a == "-i" || a == "--in-place" ||
-			strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
-			continue
-		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
-			operands = append(operands, a)
-			continue
-		}
-		// -e/-f with attached or long-with-value form supplies the script.
-		if strings.HasPrefix(a, "--expression=") || strings.HasPrefix(a, "--file=") {
-			scriptSuppliedByFlag = true
-			continue
-		}
-		if strings.HasPrefix(a, "--line-length=") {
-			continue
-		}
-		if a == "-e" || a == "--expression" || a == "-f" || a == "--file" {
-			scriptSuppliedByFlag = true
-			i++ // skip the script/file value
-			continue
-		}
-		if a == "-l" || a == "--line-length" {
-			i++ // skip the value
-			continue
-		}
-		// Attached short value forms: `-e'...'` / `-f file` collapse to `-eSCRIPT`.
-		if len(a) >= 2 && a[0] == '-' && a[1] != '-' {
-			short := a[:2]
-			if short == "-e" || short == "-f" {
-				scriptSuppliedByFlag = true
-				continue
-			}
-			if short == "-l" {
-				continue
-			}
-		}
-		if valueFlags[a] {
-			i++
-			continue
-		}
-		if boolFlags[a] {
-			continue
-		}
-		// Unrecognized flag → fail safe (no operands → caller defers).
-		return nil
 	}
-	if scriptSuppliedByFlag {
-		// Every non-flag operand is a file.
-		return operands
+	if plain {
+		return s
 	}
-	// The script is the first non-flag operand; drop it. The rest are files.
-	if len(operands) <= 1 {
-		// Only the script, no files (sed reads stdin) — there is no in-place
-		// target despite `-i`. Nothing to contain; return empty so the caller
-		// defers (a `sed -i 's/a/b/'` with no file is an odd no-op write form).
-		return nil
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// sedMutates reports whether a sed invocation writes a file, and so is the form
+// the in-repo-write classifier should handle: sedWrites (readonly_util.go). A
+// form that merely trips sedDefers for an unknown flag is not claimed here, and
+// is left to defer rather than mis-classified as an in-repo write.
+func sedMutates(args []string, _ simpleCommand) bool {
+	return sedWrites(args)
+}
+
+// sedWriteDefers returns the defer for a writing sed whose writes the operand
+// parse cannot see whole, and false for one it sees whole: one that runs a
+// script sedOpaque reports (readonly_util.go), or one that carries an option
+// outside sed's table (sedUnknown), which a sed newer than the table may read
+// as a write.
+func sedWriteDefers(args []string) (Decision, bool) {
+	if sedOpaque(args) {
+		return deferJudgment("bash-write:opaque-script",
+			"'sed' runs a script the gate cannot grade whole — one read from a file, one that runs a shell "+
+				"command, or one it cannot read to its end — so the files it writes cannot be proven in-repo."), true
 	}
-	return operands[1:]
+	if sedUnknown(sedReadings(args)) {
+		return deferToPipeline(), true
+	}
+	return Decision{}, false
 }
 
 // teeMutates reports whether a tee invocation writes a real file (the in-repo

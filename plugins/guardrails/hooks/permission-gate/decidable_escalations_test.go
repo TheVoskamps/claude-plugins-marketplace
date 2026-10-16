@@ -1198,7 +1198,6 @@ func TestReadTrackFileFlagValuesAreContained(t *testing.T) {
 	for _, cmd := range []string{
 		`grep -f patterns.txt README.md`,
 		`grep -fpatterns.txt README.md`,
-		`sed -n -f script.sed README.md`,
 		`awk -f prog.awk README.md`,
 		`diff -Xexclude.txt a.txt b.txt`,
 		`diff --exclude-from=exclude.txt a.txt b.txt`,
@@ -1216,31 +1215,29 @@ func TestReadTrackFileFlagValuesAreContained(t *testing.T) {
 		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "a non-path flag value is not a path: "+cmd)
 	}
 
-	// The write track carries the same rule for the one path-valued flag it
-	// models: a `sed -i` script READ from outside the repo denies even though
-	// every write target is contained, and the in-repo script still allows.
+	// sed's script file is read by sed's own operand walk (sedReadValues on the
+	// read track, sedWriteReadSources on the write track), not a pathValueFlags
+	// entry, and it is contained on both: a `sed -i` script READ from outside
+	// the repo denies even though every write target is contained. An in-repo
+	// script file defers rather than allows on either track, since the gate does
+	// not read the commands inside it (sedOpaque).
 	wantBucket(t, classifyBash(`sed -i -f `+out+` README.md`, ev), BucketDeny,
 		"sed -i reading an out-of-repo script")
-	wantBucket(t, classifyBash(`sed -i -f script.sed README.md`, ev), BucketAllow,
+	wantBucket(t, classifyBash(`sed -n -f script.sed README.md`, ev), BucketDefer,
+		"sed -n reading an in-repo script")
+	wantBucket(t, classifyBash(`sed -i -f script.sed README.md`, ev), BucketDefer,
 		"sed -i reading an in-repo script")
 }
 
-// TestPathValueFlagsAreDeclaredValueFlags is the structural guard on the two
-// tables: pathFlagValues finds a value only for a flag its walk knows to be
-// value-taking, so a pathValueFlags entry missing from valueFlags would be
+// TestPathValueFlagsAreDeclaredValueFlags is the structural guard on the read
+// track's table: pathFlagValues finds a value only for a flag its walk knows to
+// be value-taking, so a pathValueFlags entry missing from valueFlags would be
 // silently inert — the exact failure this class is about.
 func TestPathValueFlagsAreDeclaredValueFlags(t *testing.T) {
 	for prog, spec := range readOnlyUtilities {
 		for flag := range spec.pathValueFlags {
 			if !spec.valueFlags[flag] {
 				t.Errorf("read track %q: pathValueFlags has %q but valueFlags does not", prog, flag)
-			}
-		}
-	}
-	for prog, spec := range inRepoWriters {
-		for flag := range spec.pathValueFlags {
-			if !spec.valueFlags[flag] {
-				t.Errorf("write track %q: pathValueFlags has %q but valueFlags does not", prog, flag)
 			}
 		}
 	}

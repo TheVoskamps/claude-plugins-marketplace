@@ -1,4 +1,4 @@
-# Report
+# Wrap-up
 
 The post-merge tail that runs once after the last PR's monitor loop
 ends — or, under `merge-wait: skip`, after the last PR's ready flip —

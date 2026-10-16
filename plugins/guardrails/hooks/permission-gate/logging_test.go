@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -284,5 +285,27 @@ func TestLoggingFailureChangesNoVerdict(t *testing.T) {
 				t.Errorf("a logging failure changed the verdict: wanted %q, got %q (%s)", tc.want, got, out)
 			}
 		})
+	}
+}
+
+// A panic while logging a warning is recovered inside logWarning, so its
+// caller goes on to the verdict, and the recovered value is reported on stderr
+// rather than dropped. A nil event panics on its first field read.
+func TestLogWarningReportsARecoveredPanicOnStderr(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = w
+	logWarning(nil, "config:test", "unknown mode")
+	os.Stderr = stderr
+	w.Close()
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `could not log the warning "unknown mode"`) {
+		t.Errorf("the recovered panic was not reported on stderr; got %q", got)
 	}
 }

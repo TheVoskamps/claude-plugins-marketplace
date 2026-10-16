@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,9 +29,10 @@ import (
 //
 // The carve-out is driven entirely by a file the OPERATOR writes
 // (~/.config/guardrails/config.yml). The gate ships no default entries and
-// carries no knowledge of which plugins exist: absent, unreadable or malformed
-// means no usable entry anywhere, which means today's behaviour. It fails
-// closed.
+// carries no knowledge of which plugins exist: an absent file means no usable
+// entry anywhere, so every verdict is the one the gate gives with no carve-out,
+// and a file that exists but cannot be read or parsed denies every gated tool
+// call until it is fixed. It fails closed.
 //
 // The two XDG roots are opt-in: `resolve-xdg-environment-variables: yes` makes
 // them follow $XDG_CONFIG_HOME / $XDG_STATE_HOME, and without it they follow
@@ -80,9 +84,9 @@ const (
 	xdgStateHomeEnv  = "XDG_STATE_HOME"
 )
 
-// operatorCarveOutConfigPath is the operator-written config file's path, for
-// the allow reason and for the self-write deny. Returns "" when the process
-// home is unusable.
+// operatorCarveOutConfigPath is the operator-written config file's path, the
+// one the gate loads and the self-write deny guards. Returns "" when the
+// process home is unusable.
 func operatorCarveOutConfigPath() string {
 	home, ok := processHome()
 	if !ok {
@@ -90,6 +94,12 @@ func operatorCarveOutConfigPath() string {
 	}
 	return filepath.Join(home, operatorCarveOutConfigDirName, operatorCarveOutPluginDir, operatorCarveOutFileName)
 }
+
+// operatorCarveOutConfigDisplayPath is the config file's path spelled from the
+// home directory, `~/.config/guardrails/config.yml`, as every reason that names
+// the file spells it, so none carries the host's absolute home path.
+var operatorCarveOutConfigDisplayPath = path.Join("~", operatorCarveOutConfigDirName, operatorCarveOutPluginDir,
+	operatorCarveOutFileName)
 
 // carveOutRoot is one resolved root and the two glob lists relative to it. A
 // root the file gave no usable spelling for is never built, so every root that
@@ -123,52 +133,87 @@ type operatorCarveOutLists struct {
 // carrying keys a later schema adds still parses here — and a config still
 // spelling the schema-1 `allow-read` / `allow-write` keys parses as no entries
 // at all.
-type operatorCarveOutDocument struct {
-	SchemaVersion     int                   `yaml:"schema-version"`
-	ResolveXDGEnvVars bool                  `yaml:"resolve-xdg-environment-variables"`
-	ConfigHomeDefault string                `yaml:"config-home-default"`
-	StateHomeDefault  string                `yaml:"state-home-default"`
-	ConfigHome        operatorCarveOutLists `yaml:"config-home"`
-	StateHome         operatorCarveOutLists `yaml:"state-home"`
-	Home              operatorCarveOutLists `yaml:"home"`
-}
-
-// loadOperatorCarveOut reads the operator's config for this event. The gate
-// process is fresh per hook invocation, so there is nothing to cache and no
-// staleness to manage; and this read is an os.ReadFile rather than a tool call,
-// so the carve-out does not gate its own config.
-func loadOperatorCarveOut() operatorCarveOut {
-	return loadOperatorCarveOutFrom(operatorCarveOutConfigPath())
-}
-
-// loadOperatorCarveOutFrom is loadOperatorCarveOut's body with the config
-// path passed in, so tests can exercise the absent, malformed, wrong-stamp and
-// populated cases against a fixture tree rather than the developer's own
-// ~/.config.
 //
-// Every failure — the file is absent, unreadable, not YAML, not a mapping, or
-// stamped below the pin — returns no entries, i.e. today's behaviour.
-func loadOperatorCarveOutFrom(configPath string) operatorCarveOut {
+// RedirectBashFileWork is decoded as a node rather than a string so that a
+// value of another YAML type is an unknown value, warned about and read as
+// off, rather than a document that fails to parse.
+type operatorCarveOutDocument struct {
+	SchemaVersion        int                   `yaml:"schema-version"`
+	ResolveXDGEnvVars    bool                  `yaml:"resolve-xdg-environment-variables"`
+	ConfigHomeDefault    string                `yaml:"config-home-default"`
+	StateHomeDefault     string                `yaml:"state-home-default"`
+	ConfigHome           operatorCarveOutLists `yaml:"config-home"`
+	StateHome            operatorCarveOutLists `yaml:"state-home"`
+	Home                 operatorCarveOutLists `yaml:"home"`
+	RedirectBashFileWork yaml.Node             `yaml:"redirect-bash-file-work"`
+}
+
+// operatorConfig is everything the operator's config file sets.
+type operatorConfig struct {
+	carveOut operatorCarveOut
+	// fileWork is the file-work redirect's mode (classify_file_work.go).
+	fileWork fileWorkMode
+	// fileWorkWarning is the warning an unknown redirect-bash-file-work value
+	// earns, or "" when the value is a mode, empty or absent.
+	fileWorkWarning string
+}
+
+// noOperatorConfig is a machine with no config file: no carve-out entry, and
+// the file-work redirect off.
+var noOperatorConfig = operatorConfig{fileWork: fileWorkOff}
+
+// loadOperatorConfig reads the operator's config for this event. The gate
+// process is fresh per hook invocation, so there is nothing to cache across
+// events; and this read is an os.ReadFile rather than a tool call, so the
+// carve-out does not gate its own config.
+func loadOperatorConfig() (operatorConfig, error) {
+	return loadOperatorConfigFrom(operatorCarveOutConfigPath())
+}
+
+// loadOperatorConfigFrom is loadOperatorConfig's body with the config path
+// passed in, so tests can exercise the absent, malformed, wrong-stamp and
+// populated cases against a fixture tree rather than the developer's own
+// ~/.config. It is the one reader of the file, and decodes it once.
+//
+// An absent file, an unusable home, and a file stamped below the pin, or not
+// stamped at all, return noOperatorConfig and no error.
+// A file that exists but cannot be read, or is not a YAML document of the
+// shape operatorCarveOutDocument declares, returns an error, which classify
+// turns into a deny of every gated tool call. The error names no path: the
+// deny names the file as operatorCarveOutConfigDisplayPath.
+func loadOperatorConfigFrom(configPath string) (operatorConfig, error) {
 	if configPath == "" {
-		return operatorCarveOut{}
+		return noOperatorConfig, nil
 	}
 	raw, err := os.ReadFile(configPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return noOperatorConfig, nil
+	}
 	if err != nil {
-		return operatorCarveOut{}
+		var pathErr *fs.PathError
+		if errors.As(err, &pathErr) {
+			err = pathErr.Err
+		}
+		return noOperatorConfig, fmt.Errorf("cannot read it: %w", err)
 	}
 	var doc operatorCarveOutDocument
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return operatorCarveOut{}
+		return noOperatorConfig, fmt.Errorf("cannot parse it: %w", err)
 	}
 	if doc.SchemaVersion < operatorCarveOutSchemaVersion {
-		return operatorCarveOut{}
+		return noOperatorConfig, nil
 	}
 	home, ok := processHome()
 	if !ok {
-		return operatorCarveOut{}
+		return noOperatorConfig, nil
 	}
-	home = filepath.Clean(home)
+	cfg := operatorConfig{carveOut: buildOperatorCarveOut(doc, configPath, filepath.Clean(home))}
+	cfg.fileWork, cfg.fileWorkWarning = redirectBashFileWorkMode(doc.RedirectBashFileWork, configPath)
+	return cfg, nil
+}
 
+// buildOperatorCarveOut resolves a decoded document's roots against home.
+func buildOperatorCarveOut(doc operatorCarveOutDocument, configPath string, home string) operatorCarveOut {
 	configHome := carveOutRootPath(xdgConfigHomeEnv, doc.ResolveXDGEnvVars, doc.ConfigHomeDefault, home)
 	stateHome := carveOutRootPath(xdgStateHomeEnv, doc.ResolveXDGEnvVars, doc.StateHomeDefault, home)
 
@@ -191,6 +236,48 @@ func loadOperatorCarveOutFrom(configPath string) operatorCarveOut {
 		c.roots = append(c.roots, r)
 	}
 	return c
+}
+
+// redirectBashFileWorkKey is the top-level key in the operator's config that
+// sets the file-work redirect's mode (classify_file_work.go).
+const redirectBashFileWorkKey = "redirect-bash-file-work"
+
+// redirectBashFileWorkMode reads the file-work redirect's mode from the
+// decoded key. An absent key and an empty value mean fileWorkOff, silently. A
+// value that is not one of the modes also means fileWorkOff, and comes
+// back with the warning it earns.
+func redirectBashFileWorkMode(node yaml.Node, configPath string) (fileWorkMode, string) {
+	value := ""
+	switch {
+	case node.Kind == 0:
+		return fileWorkOff, ""
+	case node.Kind != yaml.ScalarNode:
+		value = fmt.Sprintf("<a YAML %s>", yamlKindName(node.Kind))
+	case node.ShortTag() != "!!null":
+		value = node.Value
+	}
+	switch mode := fileWorkMode(value); mode {
+	case "", fileWorkOff:
+		return fileWorkOff, ""
+	case fileWorkWorktree, fileWorkAlways:
+		return mode, ""
+	}
+	return fileWorkOff, fmt.Sprintf("%s: %s is %q, which is not one of %s, %s or %s; treating it as %s.",
+		configPath, redirectBashFileWorkKey, value, fileWorkOff, fileWorkWorktree, fileWorkAlways, fileWorkOff)
+}
+
+// yamlKindName names a non-scalar YAML node kind for redirectBashFileWorkMode's
+// warning.
+func yamlKindName(k yaml.Kind) string {
+	switch k {
+	case yaml.SequenceNode:
+		return "sequence"
+	case yaml.MappingNode:
+		return "mapping"
+	case yaml.AliasNode:
+		return "alias"
+	}
+	return "node"
 }
 
 // carveOutRootPath resolves one of the two XDG roots. The environment variable

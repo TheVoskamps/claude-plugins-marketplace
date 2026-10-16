@@ -34,6 +34,35 @@ type Event struct {
 	// reason, so the whole-line reason is where that ride surfaces. Not part
 	// of the wire format.
 	rodeOperatorListing bool
+	// operatorCfg and operatorCfgErr are the operator's config as
+	// loadOperatorConfig read it for this event, set on first use
+	// (Event.loadConfig). Not part of the wire format.
+	operatorCfg    *operatorConfig
+	operatorCfgErr error
+}
+
+// loadConfig reads the operator's config for this event on first use and
+// returns the error the read met, if any. classify calls it before anything
+// else, so every later reader of the event's config sees the same file.
+func (ev *Event) loadConfig() error {
+	if ev.operatorCfg == nil {
+		cfg, err := loadOperatorConfig()
+		ev.operatorCfg, ev.operatorCfgErr = &cfg, err
+	}
+	return ev.operatorCfgErr
+}
+
+// config returns the operator's config for this event. A nil event reads the
+// file afresh, and an event whose file failed to load gets noOperatorConfig:
+// classify has already denied an event of that kind, so only a caller that
+// bypasses classify reads it.
+func (ev *Event) config() operatorConfig {
+	if ev == nil {
+		cfg, _ := loadOperatorConfig()
+		return cfg
+	}
+	_ = ev.loadConfig()
+	return *ev.operatorCfg
 }
 
 // bashInput models tool_input for the Bash tool.

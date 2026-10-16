@@ -1,7 +1,7 @@
 # guardrails
 
-A compiled `PreToolUse` hook that inspects every tool call Claude Code
-is about to make and, where it can settle the question from the call
+A compiled `PreToolUse` hook that inspects every gated tool call Claude
+Code is about to make and, where it can settle the question from the call
 alone, allows it, denies it with a redirect, or holds it for a human
 click — before any prompt, allow-list or model judge sees it.
 
@@ -67,3 +67,32 @@ without one, those calls fall to whatever your allow-list and prompt
 settings do with them. The
 [`auto-mode-tools`](../auto-mode-tools/README.md) plugin is the other
 half: it tunes and personalizes that configuration.
+
+**The Bash-to-file-tool redirect is graded on the command's shape, not
+on what the file holds or what the pipe does.** With
+`redirect-bash-file-work` turned on in `~/.config/guardrails/config.yml`,
+a Bash command that reads, edits in place or writes a file the way the
+Read, Edit or Write tool does is denied and sent to that tool. The
+grading accepts these consequences rather than carving exceptions for
+them:
+
+- `sed -i` on a file that is not valid UTF-8 is denied and sent to Edit,
+  although Edit refuses such a file.
+- A covered read is denied only when its output is not consumed by a
+  command outside the reader set, so piping it into a filter that
+  changes nothing (`cat f | tr a a`) passes.
+- A reader is covered only when it names at least one file operand, and
+  the operands are read by each program's own option grammar: `-` names
+  stdin, an option's value (`head -n 5`, `nl -ba`, sed's script,
+  `less +G`) is not a file, and a reader that names no file reads stdin
+  and is never denied. So `make 2>&1 | tail -20`, `cmd | head` and
+  `cat <<EOF | x` pass, while `cat f`, `cat a; cat b` and `cat f | head`
+  are denied.
+
+**A `--separate-git-dir` clone whose git directory is itself named
+`.git` is unsupported.** The gate finds a linked worktree's primary
+clone through the git directory the worktrees share, and git records no
+work tree for a clone made that way, so the gate takes the directory
+above the `.git` for the clone. A read from such a worktree that
+resolves into the primary clone is still denied, but the deny's label
+and the path it suggests instead are wrong.

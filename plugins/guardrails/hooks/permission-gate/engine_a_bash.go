@@ -101,6 +101,10 @@ type cwdCtx struct {
 // Fail-closed: a parse error DENIES (bash would refuse the same string — see
 // the arm below) and an unhandled AST construct yields a DEFER carrying that as
 // its analysis (the gate cannot prove the line safe), never allow.
+//
+// When the operator turned it on, the file-work redirect (classify_file_work.go)
+// grades each simple command too, and its deny ranks below every other deny:
+// a line any other rule denies anywhere reports that rule's deny instead.
 func classifyBash(command string, ev *Event) Decision {
 	parser := syntax.NewParser(syntax.KeepComments(false))
 	file, err := parser.Parse(strings.NewReader(command), "")
@@ -200,8 +204,21 @@ func classifyBash(command string, ev *Event) Decision {
 	// may classify more than one line against it.
 	ev.rodeOperatorListing = false
 
+	// The file-work redirect's deny for each covered command, by call. The
+	// first one met is kept and reported only once the whole line has been
+	// walked, since another rule's deny on a later command outranks it.
+	var fileWork map[*syntax.CallExpr]Decision
+	if fileWorkEnabled(ev, rc) {
+		fileWork = fileWorkDenies(file)
+	}
+	var redirectDeny Decision
+	haveRedirectDeny := false
+
 	for _, sc := range cmds {
 		d := classifySimpleCommand(sc, ev)
+		if fw, ok := fileWork[sc.call]; ok && !haveRedirectDeny {
+			redirectDeny, haveRedirectDeny = fw, true
+		}
 		switch d.Bucket {
 		case BucketDeny:
 			// Hard deny short-circuits the whole line.
@@ -231,6 +248,9 @@ func classifyBash(command string, ev *Event) Decision {
 		}
 	}
 
+	if haveRedirectDeny {
+		return redirectDeny
+	}
 	if worst == BucketAsk {
 		return worstDecision
 	}
@@ -262,7 +282,7 @@ func classifyBash(command string, ev *Event) Decision {
 	regions := "this worktree, or the harness scratchpad"
 	if ev.rodeOperatorListing {
 		regions = fmt.Sprintf("this worktree, the harness scratchpad, or paths the operator listed in %s",
-			operatorCarveOutConfigPath())
+			operatorCarveOutConfigDisplayPath)
 	}
 	return allow(fmt.Sprintf("every command part has positive grounds to be safe: the operation itself cannot "+
 		"write, or its targets are confined to a region designated safe by construction (%s)", regions))
@@ -407,6 +427,10 @@ type simpleCommand struct {
 	// program; classifySimpleCommand branches on this flag BEFORE any program
 	// dispatch, so the name is never matched against a rule table.
 	redirectOnly bool
+	// call is the parsed call this command was reduced from, and nil on a
+	// redirect-only or hand-built command. classifyBash looks the file-work
+	// redirect's verdict for the command up by it.
+	call *syntax.CallExpr
 	// hasInlineAssignment is true when the command carried an inline
 	// environment-assignment prefix (`AWS_ENDPOINT_URL=… aws …`,
 	// `GIT_SSH_COMMAND=… git …`, `GH_HOST=… gh …`). Such a prefix can redirect
@@ -1462,7 +1486,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 // $HOME/$USER/$TMPDIR, the tracked cwd for $PWD/$OLDPWD) into every
 // literalWord call this reduction makes.
 func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) (simpleCommand, error) {
-	sc := simpleCommand{}
+	sc := simpleCommand{call: c}
 
 	glued := redirectGluedWords(c.Args, redirs)
 	applyRedirs(&sc, redirs, knownVars, resolver, cc, glued)

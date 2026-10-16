@@ -595,6 +595,187 @@ func TestSortUniqDefersHelpers(t *testing.T) {
 	}
 }
 
+// sedInPlace recognizes every in-place spelling, reads a short cluster only up
+// to its first option whose value is the rest of the cluster, never reads
+// another option's value as the in-place option, and stops at `--`. Every case uses only
+// options in sed's table and a command-line script that writes no file and runs
+// no shell command, so sedDefers, which defers on a write, on such a script and
+// on an option outside the table, agrees with it in both directions.
+func TestSedInPlace(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-i", "s/a/b/", "f"}, true},
+		{[]string{"-i.bak", "s/a/b/", "f"}, true},
+		{[]string{"-i", "", "s/a/b/", "f"}, true},
+		{[]string{"--in-place", "s/a/b/", "f"}, true},
+		{[]string{"--in-place=.bak", "s/a/b/", "f"}, true},
+		{[]string{"--in", "s/a/b/", "f"}, true},
+		{[]string{"--i=.bak", "s/a/b/", "f"}, true},
+		{[]string{"-I", "", "s/a/b/", "f"}, true},
+		{[]string{"-I", ".bak", "s/a/b/", "f"}, true},
+		{[]string{"-ni", "s/a/b/p", "f"}, true},
+		{[]string{"-Ei", "s/a+/b/", "f"}, true},
+		{[]string{"-nEI", "s/a/b/", "f"}, true},
+		{[]string{"-li", "", "s/a/b/", "f"}, true},
+		{[]string{"s/a/b/", "-i", "f"}, true},
+		{[]string{"-e", "-i", "f"}, false},
+		{[]string{"-n", "-e", "-i", "p", "f"}, false},
+		{[]string{"-n", "s/a/b/p", "f"}, false},
+		{[]string{"-ei", "f"}, false},
+		{[]string{"-e", "s/a/b/", "-n", "f"}, false},
+		{[]string{"-l", "5", "s/a/b/", "f"}, false},
+		{[]string{"-l5", "s/a/b/", "f"}, false},
+		{[]string{"-l", "x", "s/a/b/", "f"}, false},
+		{[]string{"-lx", "s/a/b/", "f"}, false},
+		{[]string{"--line-length=5", "s/a/b/", "f"}, false},
+		{[]string{"--quiet", "--debug", "s/a/b/p", "f"}, false},
+		{[]string{"--", "-i-looking-file"}, false},
+	} {
+		if got := sedInPlace(tc.args); got != tc.want {
+			t.Errorf("sedInPlace(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := sedDefers(tc.args); got != tc.want {
+			t.Errorf("sedDefers(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := sedMutates(tc.args, simpleCommand{}); got != tc.want {
+			t.Errorf("sedMutates(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := fileWorkInPlace("sed", tc.args); got != tc.want {
+			t.Errorf("fileWorkInPlace(sed, %q) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
+// sedOpaque holds a script read from a file in every spelling of -f and
+// --file, a script that runs a shell command through `e` or `s///e`, and a
+// script whose walk stops anywhere but a missing command, in any reading of the
+// argv and of the script; a script that only spells an `e` elsewhere is not
+// one. sedDefers agrees wherever the invocation writes no file.
+func TestSedOpaque(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-f", "s.sed", "f"}, true},
+		{[]string{"-n", "-f", "s.sed", "f"}, true},
+		{[]string{"-fs.sed", "f"}, true},
+		{[]string{"-nf", "s.sed", "f"}, true},
+		{[]string{"--file=s.sed", "f"}, true},
+		{[]string{"--fi", "s.sed", "f"}, true},
+		{[]string{"1e date", "f"}, true},
+		{[]string{"-n", "e date", "f"}, true},
+		{[]string{"/x/e", "f"}, true},
+		{[]string{"s/a/b/e", "f"}, true},
+		{[]string{"s/a/b/ge", "f"}, true},
+		{[]string{"-e", "p", "-e", "/x/e echo", "f"}, true},
+		{[]string{"--expression=1e date", "f"}, true},
+		// BSD reads the argument after a bare -i as its suffix, so the script
+		// is the one after it.
+		{[]string{"-n", "-i", "", "1e date", "f"}, true},
+		// BSD takes the `/` in the bracket expression literally, so `e` is the
+		// command's flag.
+		{[]string{"s/[/]/x/e", "f"}, true},
+		// GNU reads the next command straight after a label.
+		{[]string{"-n", ":a e echo EXECUTED", "f"}, true},
+		{[]string{"-n", "b a e id", "f"}, true},
+		{[]string{"-n", "t a e id", "f"}, true},
+		{[]string{"-n", ":a s/x/y/e", "f"}, true},
+		{[]string{"-n", ":a e;p", "f"}, true},
+		// A walk that stops anywhere but a missing command may have missed the
+		// rest of the script.
+		{[]string{"-n", "1p x", "f"}, true},
+		// A missing command, which both seds reject.
+		{[]string{"-n", "1p;k", "f"}, false},
+		{[]string{"-n", "1", "f"}, false},
+		{[]string{"-n", "1p", "f"}, false},
+		{[]string{"s/e/x/", "f"}, false},
+		{[]string{"/e/p", "f"}, false},
+		{[]string{"1a e", "f"}, false},
+		{[]string{"y/e/x/", "f"}, false},
+		{[]string{"-n", "# e date", "f"}, false},
+		{[]string{"-e", "-f", "f"}, false},
+		{[]string{"--", "-f", "f"}, false},
+	} {
+		if got := sedOpaque(tc.args); got != tc.want {
+			t.Errorf("sedOpaque(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+		if got := sedDefers(tc.args); got != tc.want && !sedWrites(tc.args) {
+			t.Errorf("sedDefers(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
+// resolveLongOption takes a long option's full name or a prefix of exactly
+// one name, and nothing else.
+func TestResolveLongOption(t *testing.T) {
+	values := map[string]bool{"-t": true, "--tag": true, "--tag-file": true, "--pattern": true}
+	bools := map[string]bool{"--past-eof": true, "--help": true}
+	for _, tc := range []struct{ name, want string }{
+		{"--tag", "--tag"},
+		{"--tag-f", "--tag-file"},
+		{"--pat", "--pattern"},
+		{"--pas", "--past-eof"},
+		{"--pa", ""},
+		{"--ta", ""},
+		{"--nope", ""},
+		{"--", ""},
+		{"-t", ""},
+	} {
+		if got := resolveLongOption(tc.name, values, bools); got != tc.want {
+			t.Errorf("resolveLongOption(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// less's operand walk skips the value of every value-taking option, in short
+// and long form, abbreviated or not, attached or in the next argument.
+func TestLessFileOperands(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"f"}, []string{"f"}},
+		{[]string{"-p", "x", "f"}, []string{"f"}},
+		{[]string{"-px", "f"}, []string{"f"}},
+		{[]string{"-Sp", "x", "f"}, []string{"f"}},
+		{[]string{"-x", "4", "f"}, []string{"f"}},
+		{[]string{"-#", "8", "f"}, []string{"f"}},
+		{[]string{"-\"", "ab", "f"}, []string{"f"}},
+		{[]string{"-z", "-4", "f"}, []string{"f"}},
+		{[]string{"+G", "f"}, []string{"f"}},
+		{[]string{"--wheel-lines", "2", "f"}, []string{"f"}},
+		{[]string{"--wheel-lines=2", "f"}, []string{"f"}},
+		{[]string{"--wheel", "2", "f"}, []string{"f"}},
+		{[]string{"--header", "1", "f"}, []string{"f"}},
+		{[]string{"--intr", "x", "f"}, []string{"f"}},
+		{[]string{"--rscroll", "-", "f"}, []string{"f"}},
+		{[]string{"--line-num-width", "3", "f"}, []string{"f"}},
+		{[]string{"--match-shift", "2", "f"}, []string{"f"}},
+		{[]string{"--modelines", "5", "f"}, []string{"f"}},
+		{[]string{"--status-col-width", "2", "f"}, []string{"f"}},
+		{[]string{"--search-options", "W", "f"}, []string{"f"}},
+		{[]string{"--time-file-size", "10", "f"}, []string{"f"}},
+		{[]string{"--cmd", "G", "f"}, []string{"f"}},
+		{[]string{"--pat", "x", "f"}, []string{"f"}},
+		{[]string{"--rs", "x", "f"}, []string{"f"}},
+		{[]string{"--tag", "x", "f"}, []string{"f"}},
+		{[]string{"--LOG", "log", "f"}, []string{"f"}},
+		{[]string{"--chop-long-lines", "f"}, []string{"f"}},
+		{[]string{"--QUIT-AT-EOF", "f"}, []string{"f"}},
+		{[]string{"--he", "f"}, []string{"f"}}, // header or help: less rejects it
+		{[]string{"--wheel-lines", "2"}, nil},
+		{[]string{"-p", "x"}, nil},
+		{[]string{"--", "-p"}, []string{"-p"}},
+		{[]string{"-"}, nil},
+	} {
+		if got := readFileOperands("less", tc.args); !sliceEq(got, tc.want) {
+			t.Errorf("readFileOperands(less, %q) = %q, want %q", tc.args, got, tc.want)
+		}
+	}
+}
+
 // TestReadOnlyUtilitySpecHelpers exercises the per-program defersForm
 // predicates directly, covering the flag-parsing edges (value flags, attached
 // long-flag values, the `--` operand boundary).

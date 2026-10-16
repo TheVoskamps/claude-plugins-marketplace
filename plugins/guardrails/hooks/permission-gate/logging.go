@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,7 +23,8 @@ const logEnvVar = "PERMISSION_GATE_LOG"
 // hit; the analysis says WHY, which is what makes a DEFER record usable as a
 // tuning input for the downstream automode evaluator rather than a bare tally.
 // It is empty for a bare deferToPipeline, which by construction has no account
-// to give.
+// to give. A warning record (logWarning) carries the warning text there instead,
+// under the logWarningBucket bucket.
 type logRecord struct {
 	Timestamp string `json:"ts"`
 	AgentType string `json:"agent_type"`
@@ -41,7 +43,7 @@ type logRecord struct {
 func logEvent(ev *Event, d Decision) {
 	defer func() { _ = recover() }()
 
-	rec := logRecord{
+	appendLogRecord(logRecord{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		AgentType: ev.AgentType,
 		ToolName:  ev.ToolName,
@@ -50,8 +52,39 @@ func logEvent(ev *Event, d Decision) {
 		Analysis:  d.Reason,
 		CWD:       ev.CWD,
 		Raw:       string(ev.ToolInput),
-	}
+	})
+}
 
+// logWarningBucket is the bucket a warning record carries. It is no verdict:
+// a warning is about the gate's own input, not about the call it rode on.
+const logWarningBucket = "warning"
+
+// logWarning appends a warning record to the evolution log, under the same
+// never-change-the-verdict rule as logEvent. A panic while writing it is
+// reported on stderr, which neither the exit status nor the stdout decision
+// carries, and the gate goes on to its verdict.
+func logWarning(ev *Event, operation string, warning string) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "permission-gate could not log the warning %q (%v)\n", warning, r)
+		}
+	}()
+
+	appendLogRecord(logRecord{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		AgentType: ev.AgentType,
+		ToolName:  ev.ToolName,
+		Operation: operation,
+		Bucket:    logWarningBucket,
+		Analysis:  warning,
+		CWD:       ev.CWD,
+		Raw:       string(ev.ToolInput),
+	})
+}
+
+// appendLogRecord writes one record as a line of the evolution log, swallowing
+// every failure.
+func appendLogRecord(rec logRecord) {
 	line, err := json.Marshal(rec)
 	if err != nil {
 		return

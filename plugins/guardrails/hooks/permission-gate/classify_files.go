@@ -803,7 +803,7 @@ func eligibleScratchRegions(readClass bool) string {
 func carveOutAllowReason(subject string, readClass bool, sawScratch bool, sawOperator bool) string {
 	scratch := fmt.Sprintf("harness-owned regions under %s/ that are designated safe by construction (%s)",
 		harnessScratchDisplay(), eligibleScratchRegions(readClass))
-	listed := fmt.Sprintf("paths the operator listed in %s", operatorCarveOutConfigPath())
+	listed := fmt.Sprintf("paths the operator listed in %s", operatorCarveOutConfigDisplayPath)
 	switch {
 	case sawScratch && sawOperator:
 		return fmt.Sprintf("%s %s, and %s", subject, scratch, listed)

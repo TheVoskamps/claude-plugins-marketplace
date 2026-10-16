@@ -95,7 +95,17 @@ func main() {
 
 // classify routes the event to the right engine and returns a Decision.
 // It NEVER returns BucketAllow for an uncertain call: the residual is DEFER.
+//
+// An operator config that exists but cannot be read or parsed denies every
+// gated tool call, whatever the tool: the carve-out and the file-work redirect
+// both come from that file, and the gate does not guess at what it says.
 func classify(ev *Event) Decision {
+	if err := ev.loadConfig(); err != nil {
+		return deny("config:unusable", fmt.Sprintf(
+			"Blocked: the permission gate's config file, %s, is unusable (%v), so every gated tool call, a write "+
+				"to that file included, is refused until it is fixed. Ask the human to repair or remove the file.",
+			operatorCarveOutConfigDisplayPath, err))
+	}
 	switch {
 	case ev.ToolName == "Bash":
 		cmd, err := ev.bashCommand()

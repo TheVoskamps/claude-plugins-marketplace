@@ -70,6 +70,14 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		return classifyPathReader(prog, args, sc, ev)
 	}
 
+	// A sed past the parse limit is denied before either track below reads it,
+	// whatever form it takes.
+	if prog == "sed" {
+		if d, hit := sedForkLimitDeny(args); hit {
+			return d
+		}
+	}
+
 	// Curated in-repo-write ALLOW track (cp/mv/mkdir/touch/sed -i/tee FILE).
 	// A file-mutating program ALLOWs when every path operand it writes is
 	// contained in the current worktree; an escaping operand denies.

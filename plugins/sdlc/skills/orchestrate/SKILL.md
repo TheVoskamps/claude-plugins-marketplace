@@ -1021,7 +1021,7 @@ so the body stays frozen for whatever round comes next.
 
 After the last PR's monitor loop ends — or its ready flip, under
 `merge-wait: skip` — read
-`skills/orchestrate/lib/report.md` and follow it: the single cleanup
+`skills/orchestrate/lib/wrap-up.md` and follow it: the single cleanup
 sweep, the return of the primary clone to the default branch, and then
 the summary in the shape that file gives.
 Every cell of the summary is a claim to the human, filled per
