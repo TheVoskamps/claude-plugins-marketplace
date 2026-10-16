@@ -1461,8 +1461,27 @@ func sedFollowedNames(readings []sedInvocation, base string) (map[string]string,
 
 // sedMaxForks bounds how many readings sedReadings forks off an argument it
 // reads two ways, counted across every reading rather than per argument. An
-// argv that needs more is read as one with an unknown option.
+// argv that needs more is read as sedForkLimitReading reads it.
 const sedMaxForks = 8
+
+// sedForkLimitReading is the one reading sedReadings returns for an argv past
+// sedMaxForks: an in-place edit carrying an option outside sed's table
+// (sedUnknown), so no track allows it, whose files are every argument that is
+// not an option, in order. Any of them may be a file in some reading, so
+// containment holds each to its boundary.
+func sedForkLimitReading(args []string) sedInvocation {
+	p := sedInvocation{inPlace: true, unknown: true, scriptByFlag: true}
+	for i, a := range args {
+		if a == "--" {
+			p.positional = append(p.positional, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			p.positional = append(p.positional, a)
+		}
+	}
+	return p
+}
 
 // sedPending is a reading sedReadings has yet to finish: p as read so far, to
 // resume at argument i — at byte j of it when j is above zero, inside a
@@ -1518,7 +1537,7 @@ func sedReadings(args []string) []sedInvocation {
 				continue
 			}
 			if forks++; forks > sedMaxForks {
-				return []sedInvocation{{inPlace: true, unknown: true}}
+				return []sedInvocation{sedForkLimitReading(args)}
 			}
 			work = append(work, *fork)
 		}
@@ -1885,12 +1904,20 @@ func sedScriptOpaque(script string, brackets bool) bool {
 	return w.executes || w.unread
 }
 
-// sedScriptRejected reports whether both seds reject a sed script: its walk,
-// in either reading of a bracket expression, stops at a missing command.
+// sedScriptRejected reports whether both seds reject a sed script: its walk
+// stops at a missing command in either reading of a bracket expression, with a
+// label ended as GNU ends one and with a label running to the end of the line,
+// as BSD reads one. Under GNU's label rule alone, `:l;1~2` is a label followed
+// by an address with no command, while BSD sed reads the label `l;1~2` and
+// runs the script.
 func sedScriptRejected(script string) bool {
 	for _, brackets := range []bool{false, true} {
-		if !walkSedScript(script, brackets).noCommand {
-			return false
+		for _, bsdLabels := range []bool{false, true} {
+			w := &sedScriptWalker{s: script, brackets: brackets, bsdLabels: bsdLabels}
+			w.walk()
+			if !w.noCommand {
+				return false
+			}
 		}
 	}
 	return true
@@ -1906,9 +1933,12 @@ func walkSedScript(script string, brackets bool) *sedScriptWalker {
 
 // sedScriptWalker walks a sed script command by command.
 type sedScriptWalker struct {
-	s             string
-	i             int
-	brackets      bool
+	s        string
+	i        int
+	brackets bool
+	// bsdLabels: a label runs to the end of the line, as BSD sed reads one,
+	// rather than ending where GNU sed ends one.
+	bsdLabels     bool
 	reads, writes []string
 	// executes: an `e` command or an `s` command's `e` flag was read.
 	executes bool
@@ -2145,6 +2175,10 @@ func (w *sedScriptWalker) command() bool {
 		w.i++
 		return w.delimited(d, false) && w.delimited(d, false) && w.endOfCommand()
 	case ':', 'b', 't', 'T', 'v':
+		if w.bsdLabels {
+			w.toEOL()
+			return true
+		}
 		// GNU sed reads the next command straight after the label, with no
 		// `;` or newline between them.
 		w.skipBlanks()

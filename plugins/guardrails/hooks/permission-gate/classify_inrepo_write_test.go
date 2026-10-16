@@ -342,10 +342,17 @@ func TestSedUnknownOptionFilesContained(t *testing.T) {
 	gitInit(t, filepath.Join(base, "sibling"))
 	ev := bashEvIn(t, canonicalize(repo), "main")
 
+	// Past sedMaxForks the argv is read once, with every argument that is not
+	// an option a file.
+	pastForkCap := `sed -i -X` + strings.Repeat(` -l`, 10) + ` ../sibling/f`
+	if n := len(sedReadings(strings.Fields(pastForkCap)[1:])); n != 1 {
+		t.Fatalf("%q: got %d readings, want the one past sedMaxForks", pastForkCap, n)
+	}
 	for _, cmd := range []string{
 		`sed -i -X p ../sibling/f`,
 		`sed -n p -X ../sibling/f`,
 		`sed -i --bogus 's/a/b/' ../sibling/f`,
+		pastForkCap,
 	} {
 		wantBucket(t, classifyBash(cmd, ev), BucketDeny, cmd)
 	}
@@ -354,6 +361,22 @@ func TestSedUnknownOptionFilesContained(t *testing.T) {
 		`sed -n p -X f`,
 	} {
 		wantBucket(t, classifyBash(cmd, ev), BucketDefer, cmd)
+	}
+}
+
+// BSD sed reads a label to the end of the line, so its reading of `-l` taking
+// no value runs `:l;1~2`, which GNU's label rule rejects, and reads the file
+// after it: that file is contained.
+func TestSedBSDLabelReadingContained(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	gitInit(t, filepath.Join(base, "sibling"))
+	ev := bashEvIn(t, canonicalize(repo), "main")
+
+	cmd := `sed -l ':l;1~2' ../sibling/f`
+	if d := classifyBash(cmd, ev); d.Bucket != BucketDeny || !strings.Contains(d.Operation, "cross-repo") {
+		t.Errorf("%q: got %q/%q (%q), want a cross-repo deny", cmd, d.Bucket, d.Operation, d.Reason)
 	}
 }
 
@@ -643,6 +666,9 @@ func TestSedFileOperands(t *testing.T) {
 		{[]string{"-nl", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"-l", "x", "r /etc/passwd", "f1"}, []string{"f1", "r /etc/passwd"}},
 		{[]string{"-ln", "p", "f1"}, []string{"f1"}},
+		// BSD reads a label to the end of the line, so its reading of `:l;1~2`
+		// runs and reads the file.
+		{[]string{"-l", ":l;1~2", "../sibling/f"}, []string{"../sibling/f"}},
 		{[]string{"--line-length", "5", "/x/d", "f1"}, []string{"f1"}},
 		{[]string{"--line-length=5", "/x/d", "f1"}, []string{"f1"}},
 		// The rest of the table, and GNU's abbreviated long options.
