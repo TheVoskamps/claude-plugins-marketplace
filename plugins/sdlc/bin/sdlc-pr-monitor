@@ -32,8 +32,9 @@
 #
 # Exit statuses:
 #   0  the last line is a terminal line or a `continue` line
-#   1  a command the script ran failed; its own error, and any report
-#      pr-ready-to-merge printed, is on stderr above the script's line
+#   1  a command the script ran failed, or pr-view reported a state other
+#      than OPEN, MERGED or CLOSED; a failed command's own error, and any
+#      report pr-ready-to-merge printed, is on stderr above the script's line
 #   2  a usage error, an <interval> above 540 included; nothing was polled
 set -uo pipefail
 

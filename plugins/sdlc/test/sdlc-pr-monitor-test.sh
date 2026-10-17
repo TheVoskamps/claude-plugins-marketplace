@@ -4,10 +4,11 @@
 # against stub pr-view and pr-ready-to-merge executables serving a
 # scripted sequence of polls, and stub sleep and date executables that
 # advance and read a fake clock, so no case waits: each terminal line,
-# the unchanged-poll bound with and without a count carried in, a state
-# change resetting the count, the `continue` exit at the wall-time
-# budget, the sleep chunking, the refusal of an interval above 540, the
-# usage errors, and a failing pr-view or pr-ready-to-merge.
+# the gate's report compacted onto the poll line, the unchanged-poll
+# bound with and without a count carried in, a state change resetting
+# the count, the `continue` exit at the wall-time budget, the sleep
+# chunking, the refusal of an interval above 540, the usage errors, and
+# a failing pr-view or pr-ready-to-merge.
 #
 # Needs bash and the POSIX utilities. Reaches no network.
 #
@@ -51,8 +52,9 @@ check_contains() {
 }
 
 # The stubs. pr-view and pr-ready-to-merge each serve the file for their
-# n-th call, <kind>.<n>, and repeat <kind>.last past the end, or fail
-# when <kind>.fail exists. sleep adds its argument to the fake clock and
+# n-th call, <kind>.<n>, and repeat <kind>.last past the end, logging
+# their arguments to <kind>.args; when <kind>.fail exists they print it
+# and fail instead. sleep adds its argument to the fake clock and
 # logs it; date prints the clock for `+%s`.
 mkdir -p "$SANDBOX/bin"
 for kind in view gate; do
