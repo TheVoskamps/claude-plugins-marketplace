@@ -4,11 +4,14 @@
 # against stub pr-view and pr-ready-to-merge executables serving a
 # scripted sequence of polls, and stub sleep and date executables that
 # advance and read a fake clock, so no case waits: each terminal line,
-# the gate's report compacted onto the poll line, the unchanged-poll
-# bound with and without a count carried in, a state change resetting
-# the count, the `continue` exit at the wall-time budget, the sleep
-# chunking, the refusal of an interval above 540, the usage errors, and
-# a failing pr-view or pr-ready-to-merge.
+# the gate's report compacted onto the poll line, a gate exit 3 for a
+# merge state still UNKNOWN and for a PR that merged or closed after the
+# state read, the unchanged-poll bound with and without a count carried
+# in, a state change resetting the count, the `continue` exit at the
+# wall-time budget with and without the gate's own waits, the sleep
+# chunking, the refusal of an interval above 540, the usage errors, a
+# failing pr-view or pr-ready-to-merge, and a failing command the script
+# does not wrap.
 #
 # Needs bash and the POSIX utilities. Reaches no network.
 #
@@ -54,8 +57,11 @@ check_contains() {
 # The stubs. pr-view and pr-ready-to-merge each serve the file for their
 # n-th call, <kind>.<n>, and repeat <kind>.last past the end, logging
 # their arguments to <kind>.args; when <kind>.fail exists they print it
-# and fail instead. sleep adds its argument to the fake clock and
-# logs it; date prints the clock for `+%s`.
+# and exit 1 instead. When <kind>.sleep exists they first sleep the
+# seconds it holds, and when <kind>.rc.<n> exists the n-th call exits
+# with the status it holds after serving its file. sleep adds its
+# argument to the fake clock and logs it; date prints the clock for
+# `+%s`.
 mkdir -p "$SANDBOX/bin"
 for kind in view gate; do
   case "$kind" in
@@ -72,9 +78,14 @@ echo "\$*" >>"\$d/$kind.args"
 if [ -f "\$d/$kind.fail" ]; then
   cat "\$d/$kind.fail"
   echo "$name: stub failure" >&2
-  exit 3
+  exit 1
 fi
+[ ! -f "\$d/$kind.sleep" ] || sleep "\$(cat "\$d/$kind.sleep")"
 if [ -f "\$d/$kind.\$n" ]; then cat "\$d/$kind.\$n"; else cat "\$d/$kind.last"; fi
+if [ -f "\$d/$kind.rc.\$n" ]; then
+  echo "$name: stub exit \$(cat "\$d/$kind.rc.\$n")" >&2
+  exit "\$(cat "\$d/$kind.rc.\$n")"
+fi
 EOF
 done
 cat >"$SANDBOX/bin/sleep" <<EOF
@@ -134,6 +145,10 @@ block behind BEHIND
 block dirty DIRTY
 printf 'PR %s: merge state still computing, attempt 2 of 3 — waiting 10 s.\n' "$PR" >"$SANDBOX/blocked-wait"
 cat "$SANDBOX/blocked" >>"$SANDBOX/blocked-wait"
+sed 's/^  /	/' "$SANDBOX/blocked-ci" >"$SANDBOX/blocked-ci-tab"
+sed 's/mergeable MERGEABLE, mergeStateStatus BLOCKED — .*/mergeable UNKNOWN, mergeStateStatus UNKNOWN — still computing after the whole retry schedule/' \
+  "$SANDBOX/blocked" >"$SANDBOX/unknown"
+: >"$SANDBOX/empty"
 
 # run <arg>...: runs the monitor with the stubs first on PATH, leaving
 # stdout in OUT, stderr in ERR, the status in RC, the last stdout line
@@ -202,6 +217,49 @@ check_contains "$(printf '%s\n' "$OUT" | sed -n 2p)" "mergeStateStatus BLOCKED" 
 check "$(printf '%s\n' "$OUT" | grep -c 'still computing')" 0 "poll line: no wait announcement reaches stdout"
 check "$LAST" "Merged" "poll line: polling continues past BLOCKED"
 
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/blocked-ci-tab"
+run "$PR" 60 3
+check_contains "$(printf '%s\n' "$OUT" | sed -n 1p)" "checks running: ci: status IN_PROGRESS; checks not green" \
+  "poll line: a tab-indented check entry is joined onto its label"
+
+# --- a gate exit 3 --------------------------------------------------------
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/unknown" "$SANDBOX/behind"
+echo 3 >"$SANDBOX/serve/gate.rc.1"
+run "$PR" 60 3
+check "$RC" 0 "still unknown: exit 0"
+check_contains "$(printf '%s\n' "$OUT" | sed -n 1p)" "mergeable UNKNOWN, mergeStateStatus UNKNOWN" "still unknown: the poll line carries the UNKNOWN report"
+check "$(polls)" 2 "still unknown: polled again"
+check "$LAST" "BEHIND" "still unknown: polling goes on to the next state"
+
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/empty"
+echo 3 >"$SANDBOX/serve/gate.rc.1"
+run "$PR" 60 3
+check "$RC" 0 "merged under the gate: exit 0"
+check "$OUT" "Polled $PR: MERGED
+Merged" "merged under the gate: pr-view is read again and reports Merged"
+
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/CLOSED"
+serve gate "$SANDBOX/empty"
+echo 3 >"$SANDBOX/serve/gate.rc.1"
+run "$PR" 60 3
+check "$LAST" "Closed without merging" "closed under the gate: the terminal line"
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/empty"
+echo 3 >"$SANDBOX/serve/gate.rc.1"
+run "$PR" 60 3
+check "$RC" 1 "refused while open: exit 1"
+check_contains "$ERR" "pr-ready-to-merge $PR failed" "refused while open: the error names the gate"
+
 # --- the unchanged-poll bound -----------------------------------------
 
 reset
@@ -262,16 +320,26 @@ reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked"
 run "$PR" 540 10
-check "$(polls)" 2 "interval 540: two polls in a call that starts with one"
-check "$SLEEPS" "60 60 60 60 60 60 60 60 60 " "interval 540: one wait of nine chunks"
-check "$LAST" "continue 1 ${LAST##* }" "interval 540: then continue"
+check "$(polls)" 1 "interval 540: a call that starts with a poll polls once"
+check "$SLEEPS" "" "interval 540: and leaves the wait to the next call"
+check "$LAST" "continue 0 ${LAST##* }" "interval 540: then continue"
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked"
-run "$PR" 540 10 1 "${LAST##* }"
+run "$PR" 540 10 0 "${LAST##* }"
 check "$(polls)" 1 "interval 540: a resumed call polls once"
-check "$SLEPT" 540 "interval 540: after waiting the whole interval, and no more"
-check "$LAST" "continue 2 ${LAST##* }" "interval 540: the carried count advances"
+check "$SLEEPS" "60 60 60 60 60 60 60 60 60 " "interval 540: after one wait of nine chunks"
+check "$SLEPT" 540 "interval 540: and no more"
+check "$LAST" "continue 1 ${LAST##* }" "interval 540: the carried count advances"
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/blocked"
+echo 40 >"$SANDBOX/serve/gate.sleep"
+run "$PR" 220 10
+check "$(polls)" 2 "gate wait: polls until the next wait and gate wait would pass 540 s"
+check "$SLEPT" 300 "gate wait: the gate's own sleeps count against the budget"
+check "$LAST" "continue 1 ${LAST##* }" "gate wait: then continue"
 
 # --- refusals and failures --------------------------------------------
 
@@ -283,18 +351,25 @@ check "$RC" 2 "interval 541: exit 2"
 check_contains "$ERR" "lower merge-poll-interval-seconds" "interval 541: the error names the config key"
 check "$OUT" "" "interval 541: nothing polled"
 
-for args in "$PR 60" "$PR 60 3 0" "$PR x 3" "$PR 60 -1" "$PR 0 3" "$PR 60 0" "$PR 60 3 y z"; do
-  # shellcheck disable=SC2086 # each case is split into its arguments
-  run $args
-  check "$RC" 2 "usage: $args exits 2"
-done
+# usage_case <arg>...: runs the monitor with the arguments and expects
+# exit 2.
+usage_case() {
+  run "$@"
+  check "$RC" 2 "usage: $* exits 2"
+}
+usage_case "$PR" 60
+usage_case "$PR" 60 3 0
+usage_case "$PR" x 3
+usage_case "$PR" 60 -1
+usage_case "$PR" 0 3
+usage_case "$PR" 60 0
+usage_case "$PR" 60 3 y z
 
 reset
 echo "gh: no such PR" >"$SANDBOX/serve/view.fail"
 run "$PR" 60 3
 check "$RC" 1 "pr-view fails: exit 1"
 check_contains "$ERR" "pr-view $PR failed" "pr-view fails: the error names pr-view"
-
 reset
 serve view "$SANDBOX/OPEN"
 cp "$SANDBOX/blocked" "$SANDBOX/serve/gate.fail"
@@ -303,6 +378,13 @@ check "$RC" 1 "gate fails: exit 1"
 check_contains "$ERR" "pr-ready-to-merge: stub failure" "gate fails: the gate's own error passes through"
 check_contains "$ERR" "mergeStateStatus BLOCKED" "gate fails: the gate's report is on stderr"
 check_contains "$ERR" "pr-ready-to-merge $PR failed" "gate fails: the error names the gate"
+
+reset
+serve view "$SANDBOX/MERGED"
+PATH="$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 >&- 2>"$SANDBOX/err"
+RC=$?
+check "$RC" 1 "unwrapped failure: a failing echo exits 1"
+check_contains "$(cat "$SANDBOX/err")" "\`echo \"Polled \$pr: MERGED\"\` failed" "unwrapped failure: the error names the command"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

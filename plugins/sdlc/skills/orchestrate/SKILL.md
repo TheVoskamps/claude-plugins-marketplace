@@ -91,7 +91,8 @@ under `agents/` owns:
   the PR is merged, or closed without merging, or has gone `BEHIND` or
   `DIRTY` — `pr-merge-readiness` runs again, then `pr-monitor` again —
   or its polls found no change for long enough that it asks whether to
-  keep waiting. It spawns nothing and leaves nothing on the branch
+  keep waiting, or its polling script failed and it hands back the
+  error verbatim. It spawns nothing and leaves nothing on the branch
 
 Every teammate but `pr-merge-readiness` and `pr-monitor` declares
 `isolation: worktree` in its frontmatter, so the harness creates each
@@ -999,12 +1000,17 @@ for it.
      it to the human, and spawn `pr-monitor` again on a yes. A close,
      or a no, ends this PR's stages with a **Needs Your Attention**
      row naming which it was and the state the last poll found.
+   - **The script's error** — the monitor stopped on a failure, not an
+     outcome, and the PR's state is unknown. Spawn no `pr-monitor`
+     again; end this PR's stages with a **Needs Your Attention** row
+     quoting the error verbatim and the state the last poll found, if
+     any poll ran.
 
 **One PR goes through these stages at a time.** When the human confirms
 more than one PR, take them in the order confirmed, and start the next
 PR's stages — the pre-readiness spawns onward — only when the previous
-PR's monitor loop has ended, whether by a merge, a close, or the human
-declining to keep waiting; under `merge-wait: skip`, when the previous
+PR's monitor loop has ended, whether by a merge, a close, an error, or
+the human declining to keep waiting; under `merge-wait: skip`, when the previous
 PR's ready flip has landed. The first PR's merge moves the base the
 second is measured against, so serialising is what makes the second
 PR's merge-readiness loop see that merged base — and rebase onto it —
