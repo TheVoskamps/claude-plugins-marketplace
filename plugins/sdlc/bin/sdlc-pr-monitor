@@ -155,8 +155,9 @@ while :; do
   report=$(pr-ready-to-merge "$pr" || exit) || gate=$?
   # The gate exits 3 both when the merge state is still UNKNOWN after its
   # retries, printing its report block, and when it refuses a PR that is
-  # not open, printing no block. The first is a state to poll again; the second
-  # means the PR merged or closed after read_view, which reads it again.
+  # not open, printing no block. The first is a state to poll again; the
+  # second means the PR merged or closed after read_view, which reads it
+  # again.
   if [ "$gate" -eq 3 ]; then
     case "$report" in
       *'mergeable UNKNOWN,'*) gate=0 ;;
