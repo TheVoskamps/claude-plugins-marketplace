@@ -30,10 +30,12 @@
 #   <unchanged-so-far> the count a `continue` line carried
 #   <last-state>       the state token a `continue` line carried
 #
-# Stdout is one line per poll, `Polled <PR>: <state>`, then exactly one
-# last line, which is either a terminal line -- `Merged`, `Closed without
-# merging`, `BEHIND`, `DIRTY` or `No change after <bound> polls` -- or
-# `continue <unchanged-count> <last-state>`.
+# Stdout is one line per poll, `Polled <PR>: <state>`. On exit 0 those
+# are followed by exactly one last line, which is either a terminal line
+# -- `Merged`, `Closed without merging`, `BEHIND`, `DIRTY` or `No change
+# after <bound> polls` -- or `continue <unchanged-count> <last-state>`.
+# On a non-zero exit there is no such line: stdout holds only the poll
+# lines printed before the failure, and none on exit 2.
 #
 # Exit statuses:
 #   0  the last line is a terminal line or a `continue` line
