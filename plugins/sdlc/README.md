@@ -754,6 +754,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
 | `bin/sdlc-readiness-check` | Grades an issue's `### Mechanical` bullets against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet; exits 3 on any failing bullet and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
+| `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
 
 `sdlc-readiness-check` is a script because the grading it replaces was
 an injection path: a `### Mechanical` bullet used to name the command
@@ -773,6 +774,31 @@ unchanged tree get the same verdict on every invocation.
 repository and a stub `issue-view`; a bullet it feeds that would write
 if run leaves a marker file, and each case carrying one checks that
 none appeared.
+
+`sdlc-pr-monitor` is a script because the wait between polls has to
+happen inside the agent's turn. `pr-monitor` used to wait on a Monitor
+watch, which ended its turn after every poll; the harness forced a
+hand-back on each such turn, the orchestrator read that hand-back as the
+monitor's final report and spawned another monitor on the same PR, and
+the watch kept waking the first one. With the loop in a foreground Bash
+call, the agent's turn runs from its spawn to its report and nothing it
+hands back is interim. The call's length is bounded by the Bash tool's
+600-second limit, so the script budgets 540 seconds of wall time per
+call, counting the gate's own retry waits, and exits with
+`continue <unchanged-count> <last-state>` before a wait that would pass
+it; the agent calls it again with those values, in the same turn, and
+the resumed call starts with the wait the previous one skipped, so no
+two polls run closer than the interval. The state crosses that boundary
+as a checksum of the poll's compacted gate report, which is what lets a
+multi-line report travel as one argument; the readable state stays on
+the `Polled` lines. An interval the budget cannot hold is refused before
+anything is polled, which is where `merge-poll-interval-seconds`'s
+maximum comes from. `test/sdlc-pr-monitor-test.sh` drives it against
+stub `pr-view` and `pr-ready-to-merge` executables serving a scripted
+poll sequence, and stub `sleep` and `date` executables that advance and
+read a fake clock, so the budget cases run without waiting; reading wall
+time through `date +%s` is what makes that stub possible without a hook
+in the script.
 
 The PR-read scripts and the detail poster share one sourced helper,
 `bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
@@ -797,11 +823,10 @@ executable's concern.
 
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,
-never the tool's own status — the PR-read scripts, the detail poster
-and the readiness check exit 1, the persist script and the time report
-route it through their existing exit 2 — so a caller branching on an
-exit sees only the
-statuses each contract documents.
+never the tool's own status — the PR-read scripts, the detail poster,
+the readiness check and the PR monitor exit 1, the persist script and
+the time report route it through their existing exit 2 — so a caller
+branching on an exit sees only the statuses each contract documents.
 
 The time report and the detail poster compose no state path of their
 own: each reaches round logs, result files and transcripts only through
@@ -953,7 +978,7 @@ one sweep that removes them, after the human names which go.
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer`, then `docs-writer` when the fixer deferred a documentation edit, then `agent-memory-scrubber` for each remedy, and returns a state that needs a ruling as a question |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, replacing the one an earlier run left |
-| `pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting |
+| `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |
@@ -973,10 +998,10 @@ staging file in the session scratchpad, scratch under `.claude/tmp/` —
 declares all three, and an agent whose contract says it edits no
 tracked file holds that contract in its body, not by leaving a tool out.
 `pr-monitor` is the one agent that writes nothing; its line is
-`Read, Bash, Monitor`, and `Monitor` is there because the wait between
-polls is a watch that ticks once per interval; the alternative, a
-foreground Bash `sleep`, is one the harness discourages and never moves
-to the background.
+`Read, Bash, Monitor`. Its body puts nothing on `Monitor`: every wait
+between polls runs inside a foreground `sdlc-pr-monitor` call, because
+a wait on a Monitor watch ends the agent's turn, and a turn that ends
+without a report is handed back as one and read as final.
 
 Two entries a reader might expect are absent or inert, each on purpose.
 `Skill` is never listed, and an explicit `tools:` line that omits it

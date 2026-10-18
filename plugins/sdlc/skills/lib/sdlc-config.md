@@ -42,7 +42,7 @@ merge-poll-interval-seconds: 300
 | --- | --- | --- |
 | `seed-review` | `ask` \| `auto-accept` | `ask` |
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
-| `merge-poll-interval-seconds` | positive integer | `120` |
+| `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
 | `merge-max-unchanged-polls` | positive integer | `15` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
@@ -51,7 +51,8 @@ merge-poll-interval-seconds: 300
 - **`merge-wait`** — `monitor` spawns `pr-monitor` after a PR's ready
   flip. `skip` spawns none; the PR is left ready and unmonitored.
 - **`merge-poll-interval-seconds`** — the wait between two
-  `pr-monitor` polls.
+  `pr-monitor` polls. `sdlc-pr-monitor` refuses a wait above `540`,
+  so a higher value aborts at pre-flight instead.
 - **`merge-max-unchanged-polls`** — how many consecutive polls with no
   change in state `pr-monitor` runs before it asks whether to keep
   waiting.
@@ -75,7 +76,8 @@ of these that applies:
 - **A key from the table above holds a value outside its allowed
   values** — abort, naming the path and the key. A positive integer is
   a YAML integer of 1 or more; `0`, a negative, a float and a quoted
-  string are all outside it.
+  string are all outside it, and so is an integer above the key's
+  stated maximum.
 - **Otherwise** — the tier contributes every key from the table above
   that it sets. A key the table does not list is ignored, and so is a
   `schema-version` above the pin.
@@ -102,7 +104,8 @@ Each writer owns one tier's file and runs these steps against it.
    show the value the lower tiers resolve to and the tier it comes
    from, and the value the writer's own file sets now, if any. Offer
    every allowed value and **leave unchanged**. A positive-integer key
-   takes a typed value, re-asked until it is a positive integer.
+   takes a typed value, re-asked until it is a positive integer within
+   the key's stated maximum.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and
