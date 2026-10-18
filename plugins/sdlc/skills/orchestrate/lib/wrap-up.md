@@ -78,10 +78,13 @@ already had a chance to act on does not qualify — the loop was where
 it was cheap to settle, and holding it to the end spends the human's
 turn on work that was yours. Round-cap findings, escalations, a
 discrepancy your re-read could not settle, a PR closed without
-merging, and a monitor loop the human declined to keep waiting on
-qualify as they stand; the last two name which it was and the state
-the last poll found, so the human reading the summary knows whether
-the PR is gone or still open, ready, and unmerged.
+merging, a monitor loop the human declined to keep waiting on, and a
+`pr-monitor` hand-back of the script's error qualify as they stand.
+A close or a declined wait names which it was and the state the last
+poll found, so the human reading the summary knows whether the PR is
+gone or still open, ready, and unmerged; a script error's row quotes
+the error verbatim, and the state the last poll found if any poll ran,
+since the error leaves the PR's state unknown.
 
 Every cell in those tables is a claim to the human, and most arrive
 from a teammate's report — the `Doc Changes` list is `docs-writer`'s,
