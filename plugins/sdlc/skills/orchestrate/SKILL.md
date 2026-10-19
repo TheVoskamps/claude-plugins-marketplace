@@ -39,8 +39,8 @@ under `agents/` owns:
   `pr-merge-readiness` spawns it on a merge-readiness brief
 - `code-documenter` — adds or corrects the comments in the code files
   a PR's diff touched, and corrects or deletes those its
-  instruction-Markdown files carry, each against the style guide of its
-  own class. When it
+  instruction-Markdown files carry where the diff contradicts them,
+  each against the style guide of its own class. When it
   returns, the branch carries at most one new comment commit, and
   `style-checker` runs next
 - `style-checker` — checks the code and instruction-Markdown files a

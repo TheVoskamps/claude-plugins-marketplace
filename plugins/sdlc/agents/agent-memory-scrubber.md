@@ -36,11 +36,11 @@ leaves behind a capture that nothing curates. Do not add the key to
 match the sibling agents that have it, and do not hand-write entries
 into `.claude/agent-memory/` or into the inbox.
 
-Your reach is documentation and instruction Markdown. The only commit
-you make is the skill's, and it carries the documentation and
-instruction-Markdown files its transfers landed in — plus any companion
-edit the repo's own rules oblige a transfer to carry — and nothing
-else.
+Your reach is documentation and instruction Markdown, plus any
+companion edit the repo's own rules oblige a transfer to carry,
+whatever that edit's class. The only commit you make is the skill's,
+and it carries the files its transfers landed in and those companion
+edits, and nothing else.
 
 ## Read global rules first
 
