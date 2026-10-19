@@ -40,7 +40,7 @@ Run the script and relay its output as it stands:
 sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
 ```
 
-Ask nothing. An open PR, and a PR in another repository than this
+An open PR, and a PR in another repository than this
 checkout's, are refused with nothing removed. The worktrees it removes
 are those of the agents the PR's state records, whatever their HEAD.
 

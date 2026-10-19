@@ -2,8 +2,7 @@
 
 What the orchestrator does to a PR from the moment its developer
 reports it open to the moment it is flipped ready: the link to its
-issues and the record of the spawns made before it, the round-0 write
-that follows it, the body freeze that holds
+issues, the round-0 write that follows it, the body freeze that holds
 through the review loop, the two
 spawns that run on the human's end-of-loop confirmation, the close-out,
 and the briefs for the two agents that carry the loops on either side
@@ -36,9 +35,6 @@ re-add a deliberately deferred member.
 load-bearing — every follow-up agent and the review pipeline are
 addressed with them. This call is where a wrong PR surfaces
 cheaply; read what it reports back rather than assuming the no-op.
-
-Then record the batch's seed generator and this developer in the PR's
-state, `--mode agent` once each, by the agent ids you held for them.
 
 ## Write the ruled seed as round 0 of the PR's state
 
