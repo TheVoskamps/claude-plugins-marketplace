@@ -257,9 +257,9 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    Deferred to docs-writer:
    <the fixer's entries, verbatim, one per line>
    Documentation criteria:
-   <every bullet of every member issue's `## Documentation acceptance`
-   section, one per line, as `<member>: "<the bullet, verbatim>"`, with
-   `<member>` the issue as this brief's first line names it — or "none">
+   <each criterion, one per line, as `<member>: "<the bullet, verbatim>"`,
+   with `<member>` the issue as this brief's first line names it — or
+   "none">
 
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the

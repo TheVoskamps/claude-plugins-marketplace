@@ -134,9 +134,9 @@ for each to return.
    Deferred to docs-writer:
    <every collected entry, verbatim, one per line — or "none">
    Documentation criteria:
-   <every bullet of every member issue's `## Documentation acceptance`
-   section, one per line, as `<member>: "<the bullet, verbatim>"`, with
-   `<member>` the issue as this brief's first line names it — or "none">
+   <each criterion, one per line, as `<member>: "<the bullet, verbatim>"`,
+   with `<member>` the issue as this brief's first line names it — or
+   "none">
 
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the
