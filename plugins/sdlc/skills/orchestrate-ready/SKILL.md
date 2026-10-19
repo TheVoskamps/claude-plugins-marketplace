@@ -142,9 +142,9 @@ of them loses track of which decision belongs to which.
    from a referenced document is restated in the body in the present
    tense, and a dependency the prose stated is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance
-   criteria go in as the two acceptance sections, each with its two
-   grouped sub-lists and the documentation section omitted when no
-   criterion is about documentation, and the agreed
+   criteria go in as the acceptance sections, each with its two
+   grouped sub-lists and each omitted when no agreed criterion is in
+   its class, and the agreed
    files-affected section goes in as its tagged list, both in the
    shape `sdlc:orchestrate-readiness`'s grammar spells.
 

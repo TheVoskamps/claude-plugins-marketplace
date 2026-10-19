@@ -3,7 +3,10 @@
 # sdlc-readiness-check -- grade the `### Mechanical` bullets of an
 # issue's two acceptance sections, `## Code and instruction Markdown
 # acceptance` and `## Documentation acceptance`, against the tree, and
-# print one gap line per failing bullet. Read-only.
+# print one gap line per failing bullet, per line under `### Mechanical`
+# that is neither a bullet nor its continuation, per acceptance section
+# with no bullet, and one when the body carries neither section.
+# Read-only.
 #
 # The grammar and the key vocabulary are owned by
 # plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The body is read
@@ -23,11 +26,10 @@
 # `#`.
 #
 # Exit statuses:
-#   0  every Mechanical bullet passes; nothing is printed
+#   0  no gap; nothing is printed
 #   1  a command the script ran failed, or issue-view is not on PATH
 #   2  a usage error; nothing was read
-#   3  at least one bullet fails; one gap line per failing bullet is
-#      printed on stdout
+#   3  at least one gap; one gap line per gap is printed on stdout
 set -uo pipefail
 
 PROGRAM=${0##*/}
@@ -54,21 +56,30 @@ root_phys=$(cd -P -- "$root" && pwd -P) || fail 1 "cannot resolve $root"
 view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 
 # Split the body into the Mechanical bullets of both acceptance sections
-# (`M<TAB><bullet>`) and its well-formed files-affected bullets
-# (`F<TAB><path><TAB><tag>`); any other `## ` section, `## Acceptance`
-# included, is not read. A bullet continues onto indented lines; a
-# fenced block is never read as grammar, and only a run of its opening
-# character at least as long as its opening run closes it.
+# (`M<TAB><bullet>`), every other non-blank line under their `###
+# Mechanical` (`X<TAB><line>`), the bullet count of each acceptance
+# section present (`S<TAB><count><TAB><heading>`), and the well-formed
+# files-affected bullets (`F<TAB><path><TAB><tag>`); any other `## `
+# section, `## Acceptance` included, is not read. A bullet is a line
+# opening with `- `, and continues onto indented lines; a section's
+# count is its `- ` lines with text under `### Mechanical` and `###
+# Semantic`. A fenced block is never read as grammar, and only a run of
+# its opening character at least as long as its opening run closes it;
+# a fence opening under `### Mechanical` is itself an `X` line.
 records=$(printf '%s\n' "$view" | awk '
   function flush() {
-    if (bullet != "") print "M\t" bullet
-    bullet = ""
+    if (open) print "M\t" bullet
+    open = 0; bullet = ""
   }
   { sub(/\r$/, "") }
   !inbody { if ($0 == "Body:") inbody = 1; next }
   match($0, /^[ \t]*(```+|~~~+)/) {
     m = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", m)
-    if (!fence) { flush(); fence = 1; fch = substr(m, 1, 1); flen = length(m); next }
+    if (!fence) {
+      flush()
+      if (sec == "acc" && sub_ == "mech") print "X\t" $0
+      fence = 1; fch = substr(m, 1, 1); flen = length(m); next
+    }
     if (substr(m, 1, 1) == fch && length(m) >= flen) { fence = 0; next }
   }
   fence { next }
@@ -76,19 +87,22 @@ records=$(printf '%s\n' "$view" | awk '
     flush()
     h = $0; sub(/[ \t]+$/, "", h)
     sec = (h == "## Code and instruction Markdown acceptance" || h == "## Documentation acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : ""
+    if (sec == "acc") { acc = h; if (!(h in count)) { count[h] = 0; order[++n] = h } }
     sub_ = ""
     next
   }
   /^### / {
     flush()
     h = $0; sub(/[ \t]+$/, "", h)
-    sub_ = (h == "### Mechanical") ? "mech" : ""
+    sub_ = (h == "### Mechanical") ? "mech" : (h == "### Semantic") ? "sem" : ""
     next
   }
+  sec == "acc" && sub_ != "" && /^- [ \t]*[^ \t]/ { count[acc]++ }
   sec == "acc" && sub_ == "mech" {
-    if (/^- /) { flush(); bullet = substr($0, 3); next }
-    if (bullet != "" && /^[ \t]+[^ \t]/) { l = $0; sub(/^[ \t]+/, "", l); bullet = bullet " " l; next }
+    if (/^- /) { flush(); open = 1; bullet = substr($0, 3); next }
+    if (open && /^[ \t]+[^ \t]/) { l = $0; sub(/^[ \t]+/, "", l); bullet = bullet " " l; next }
     flush()
+    if (/[^ \t]/) print "X\t" $0
     next
   }
   sec == "files" && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ {
@@ -97,7 +111,10 @@ records=$(printf '%s\n' "$view" | awk '
     sub(/^[^`]*` \(/, "", t); sub(/\).*$/, "", t)
     print "F\t" p "\t" t
   }
-  END { flush() }
+  END {
+    flush()
+    for (i = 1; i <= n; i++) print "S\t" count[order[i]] "\t" order[i]
+  }
 ') || fail 1 "could not split the body of issue $issue"
 
 GAPS=0
@@ -288,6 +305,11 @@ no_match() {
 key_re='^\[([a-z-]+)\]([[:space:]]+(.*))?$'
 
 while IFS=$'\t' read -r kind bullet; do
+  if [ "$kind" = X ]; then
+    printf 'Acceptance criteria: Mechanical line "%s" is not a "- " bullet or an indented continuation of one; nothing was run\n' "$bullet"
+    GAPS=$((GAPS + 1))
+    continue
+  fi
   [ "$kind" = M ] || continue
   if ! [[ $bullet =~ $key_re ]]; then
     gap 'Acceptance criteria' "$bullet" "opens with no check key; nothing was run"
@@ -327,5 +349,21 @@ while IFS=$'\t' read -r kind bullet; do
       ;;
   esac
 done <<<"$records"
+
+# Grade section presence: at least one acceptance section, and a
+# bullet in each one present.
+sections=0
+while IFS=$'\t' read -r kind count heading; do
+  [ "$kind" = S ] || continue
+  sections=$((sections + 1))
+  if [ "$count" -eq 0 ]; then
+    printf 'Acceptance criteria: "%s" carries no bullet under "### Mechanical" or "### Semantic"\n' "$heading"
+    GAPS=$((GAPS + 1))
+  fi
+done <<<"$records"
+if [ "$sections" -eq 0 ]; then
+  printf 'Acceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"\n'
+  GAPS=$((GAPS + 1))
+fi
 
 [ "$GAPS" -eq 0 ] || exit 3
