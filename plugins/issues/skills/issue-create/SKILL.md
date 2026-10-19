@@ -180,12 +180,13 @@ Read each signal off the issue body and combine them per the
 "Combining signals" rule below. None of the signals require running
 code or reading files in the repo.
 
-1. **Doc-only marker.** The body's
-   `## Code and instruction Markdown acceptance` section — that heading
-   literal — carries no bullet beyond a `[version-bumped]` one. Heavy
-   bias toward XS / S.
+1. **Doc-only marker.** The body carries a
+   `## Documentation acceptance` or
+   `## Code and instruction Markdown acceptance` section — those
+   heading literals — and the latter is either absent or carries no
+   bullet beyond a `[version-bumped]` one. Heavy bias toward XS / S.
 
-   If the body has no such section, fall back to its language: the
+   Only a body with neither section falls back to its language: the
    title or body contains language like "rename", "rewrite the docs",
    "clarify wording", "update README", or "documentation", and nothing
    in it mentions executable behavior.
@@ -243,9 +244,9 @@ code or reading files in the repo.
    triviality signal (signal 5) fires.
 5. Override to the least-work option, or one step above it, if the
    doc-only marker (signal 1) fires — the code and instruction Markdown
-   acceptance section carries no bullet beyond a version bump, so the
-   issue's criteria are all documentation — `XS` / `S` for the t-shirt
-   set, `Low` / `Medium` for `Effort`.
+   acceptance section is absent or carries no bullet beyond a version
+   bump, so the issue's criteria are all documentation — `XS` / `S`
+   for the t-shirt set, `Low` / `Medium` for `Effort`.
 
 If the model genuinely cannot pick a size from the body (e.g. an
 issue with one sentence and no other signals), it picks the **median
@@ -265,6 +266,11 @@ toward the same default and matches the issue's intent that
   `[version-bumped] <plugin>` and a `## Documentation acceptance`
   section carrying 3 bullets — 2 files, 4 items → S → no adjustment →
   doc-only marker fires → XS / S.
+- **"Correct the changelog's release dates"** with a
+  `## Documentation acceptance` section carrying 2 bullets and no
+  `## Code and instruction Markdown acceptance` section — 1 file,
+  2 items → XS → -1 step → XS (the floor) → doc-only marker fires from
+  the sections, whatever the wording → XS / S.
 - **"Add a new `--foo` flag to `/issue-create`"** with body listing
   `skills/issue-create/SKILL.md` and `skills/lib/issue.md` and one
   `## Code and instruction Markdown acceptance` bullet and no
