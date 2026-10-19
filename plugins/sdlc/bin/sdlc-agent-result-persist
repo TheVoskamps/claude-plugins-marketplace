@@ -751,11 +751,11 @@ build_carried_records() {
 
 migrate_old_layout
 
-# Every mode that writes writes into the same directory, with its
-# repo.yml — the round's, or the PR's for agent, which writes no round;
-# past migrate_old_layout's move, the reading modes and delete create
-# nothing, and neither does a refused carry, which creates the directory
-# only once its file is built.
+# Every mode that writes creates the directory it writes into, and the
+# repository's repo.yml with it: the round's directory, or the PR's for
+# agent, which writes no round. Past migrate_old_layout's move, the
+# reading modes and delete create nothing, and neither does a refused
+# carry, which creates the directory only once its file is built.
 make_dir() {
   mkdir -p "$dir"
   write_repo_yml
