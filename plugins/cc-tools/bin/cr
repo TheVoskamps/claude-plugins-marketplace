@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+#
+# cr -- launch an interactive Claude Code session named after the repo it
+# runs in, from that repo's root, with remote control on and a debug log
+# under ~/.claude/logs/. When <repo-root>/.cc-tools/cr-settings.json
+# exists, claude also gets `--settings <that path>`. Runs under the bash
+# 3.2 macOS ships.
+#
+# Usage: cr [--cr-strict] [<name-word>…] [<claude-argument>…]
+#
+#   --cr-strict  only as the first argument: refuse to run outside a git
+#                repo, or in one with no `origin` remote
+#   <name-word>  the arguments before the first `-`-prefixed one, joined
+#                with spaces into the session name's prefix; with none,
+#                the prefix is a `%b%d-%H:%M` date stamp
+#   the first `-`-prefixed argument and everything after it pass to
+#   claude unchanged
+#
+# Outside a git repo, cr runs `git init` in the current directory so the
+# session has a repo, and removes that .git again on exit, interrupt or
+# termination.
+#
+# Exit status: claude's own, or 1 when cr refuses or a step before claude
+# fails, with stderr saying which.
+set -uo pipefail
+
+strict=0
+if [ "${1-}" = "--cr-strict" ]; then
+  strict=1
+  shift
+fi
+
+if [ -z "${GIT_CONFIG_GLOBAL:-}" ] && [ -r "$HOME/.gitconfig-claude" ]; then
+  export GIT_CONFIG_GLOBAL="$HOME/.gitconfig-claude"
+fi
+
+name_words=()
+claude_args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -*)
+      claude_args=("$@")
+      break
+      ;;
+  esac
+  name_words+=("$1")
+  shift
+done
+
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  url=$(git remote get-url origin 2>/dev/null)
+  if [ -z "$url" ] && [ "$strict" -eq 1 ]; then
+    echo "cr: --cr-strict: this git repo has no 'origin' remote" >&2
+    exit 1
+  fi
+  toplevel=$(git rev-parse --show-toplevel)
+  echo "cr: detected existing git repo; cd to repo root ${toplevel}" >&2
+  cd "$toplevel" || {
+    echo "cr: cd to repo root failed" >&2
+    exit 1
+  }
+  if [ -n "$url" ]; then
+    repo=${url##*/}
+    repo=${repo%.git}
+  else
+    repo="(local)"
+  fi
+elif [ "$strict" -eq 1 ]; then
+  echo "cr: --cr-strict: not inside a git repo" >&2
+  exit 1
+else
+  initdir=$PWD
+  git init >/dev/null || {
+    echo "cr: git init failed" >&2
+    exit 1
+  }
+  # bash runs the EXIT trap when INT or TERM ends the script too, so this
+  # one trap removes the .git on all three.
+  trap 'rm -rf -- "$initdir/.git"' EXIT
+  repo="(local)"
+fi
+
+suffix="${name_words[*]-}"
+if [ -z "$suffix" ]; then
+  suffix=$(date '+%b%d-%H:%M')
+fi
+name="${suffix} ${repo}"
+
+settings=()
+overlay="$PWD/.cc-tools/cr-settings.json"
+if [ -f "$overlay" ]; then
+  settings=(--settings "$overlay")
+fi
+
+# claude runs as a child rather than through exec, so the EXIT trap above
+# is still in place when it returns.
+claude --name "$name" --remote-control --debug-file "$HOME/.claude/logs/$name" \
+  ${settings[@]+"${settings[@]}"} --allowedTools Grep Glob ${claude_args[@]+"${claude_args[@]}"}

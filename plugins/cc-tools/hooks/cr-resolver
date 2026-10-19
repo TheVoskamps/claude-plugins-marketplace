@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#
+# cr -- the resolver cc-tools deploys to ~/.local/bin/cr. It carries no
+# launcher logic: it asks Claude Code where the enabled cc-tools is
+# installed and execs that version's bin/cr with its own arguments, so a
+# cc-tools update reaches the next `cr` with no redeploy. It never falls
+# back to plain claude. Runs under the bash 3.2 macOS ships.
+#
+# The deploy hook copies this file byte for byte, so it must not depend
+# on where it lives.
+#
+# Exit status: bin/cr's own, or 1 when jq is missing, the plugin list
+# cannot be read, or no enabled cc-tools is installed, with stderr saying
+# which.
+set -uo pipefail
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "cr: jq is not on PATH; cr needs it to find the installed cc-tools" >&2
+  exit 1
+fi
+
+if ! list=$(claude plugin list --json); then
+  echo "cr: \`claude plugin list --json\` failed" >&2
+  exit 1
+fi
+
+install_path=$(printf '%s\n' "$list" |
+  jq -r 'first(.[] | select(.id=="cc-tools@thevoskamps" and .enabled) | .installPath) // empty')
+
+if [ -z "$install_path" ]; then
+  echo "cr: no enabled cc-tools@thevoskamps is installed; enable or install it to use cr" >&2
+  exit 1
+fi
+
+exec "$install_path/bin/cr" "$@"

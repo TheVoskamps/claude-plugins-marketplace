@@ -109,6 +109,11 @@ JSON is never the answer for a config this marketplace's own plugins
 write. It cannot carry a comment, which is exactly what the prose in
 either format above is for.
 
+**Named exception: `cc-tools`' `.cc-tools/cr-settings.json`.** This
+per-repo file is JSON with no `schema-version`, because it is a Claude
+Code settings file that `cr` hands to `claude --settings`, not a config
+cc-tools reads: its format and keys are Claude Code's.
+
 ## Every config carries `schema-version`
 
 The first front-matter or top-level key is `schema-version`, an
