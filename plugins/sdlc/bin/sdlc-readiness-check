@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # sdlc-readiness-check -- grade the `### Mechanical` bullets of an
-# issue's acceptance section against the tree, and print one gap line
-# per failing bullet. Read-only.
+# issue's two acceptance sections, `## Code and instruction Markdown
+# acceptance` and `## Documentation acceptance`, against the tree, and
+# print one gap line per failing bullet. Read-only.
 #
 # The grammar and the key vocabulary are owned by
 # plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The body is read
@@ -52,8 +53,10 @@ root_phys=$(cd -P -- "$root" && pwd -P) || fail 1 "cannot resolve $root"
 
 view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 
-# Split the body into its Mechanical bullets (`M<TAB><bullet>`) and its
-# well-formed files-affected bullets (`F<TAB><path><TAB><tag>`). A bullet
+# Split the body into the Mechanical bullets of both acceptance sections
+# (`M<TAB><bullet>`) and its well-formed files-affected bullets
+# (`F<TAB><path><TAB><tag>`); any other `## ` section, `## Acceptance`
+# included, is not read. A bullet
 # continues onto indented lines; a fenced block is never read as
 # grammar, and only a run of its opening character at least as long as
 # its opening run closes it.
@@ -73,7 +76,7 @@ records=$(printf '%s\n' "$view" | awk '
   /^## / {
     flush()
     h = $0; sub(/[ \t]+$/, "", h)
-    sec = (h == "## Acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : ""
+    sec = (h == "## Code and instruction Markdown acceptance" || h == "## Documentation acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : ""
     sub_ = ""
     next
   }
