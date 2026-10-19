@@ -206,14 +206,19 @@ satisfies `<criterion, quoted from the issue>`". One theorem per
 criterion — never one theorem for a whole checklist, because a
 counterexample to one criterion says nothing about the others.
 
+The criteria are the bullets of the issue's code and instruction
+Markdown acceptance section, as the issue-body grammar
+`sdlc:orchestrate-readiness` defines it. A bullet of its documentation
+acceptance section becomes no theorem, on any brief, the issues-only
+brief included: `docs-writer` settles it after the review loop.
+
 Keep the members separate. A batch PR is precisely where one member
 can be under-delivered while the diff as a whole reads well, so tag
 each of these theorems to the single member its criterion came from.
 
 **A groomed issue hands you the settle mode.** Emit each criterion
-with the `settle-mode` its sub-heading names under the acceptance
-section of the issue-body grammar `sdlc:orchestrate-readiness`
-defines. A criterion under no such sub-heading falls back to the
+with the `settle-mode` its sub-heading names under that section. A
+criterion under no such sub-heading falls back to the
 `settle-mode` rule in "Output format" below.
 
 ### 2. PR-body claims

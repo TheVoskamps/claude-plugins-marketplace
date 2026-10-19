@@ -70,27 +70,32 @@ of them loses track of which decision belongs to which.
    own words, and move to the next topic once it is settled. Your
    proposed defaults are proposals; the user decides.
 
-   **The acceptance section is a gap like any other.** When the
+   **The acceptance sections are a gap like any other.** When the
    body has none, derive candidate criteria from the design prose —
    one per load-bearing commitment it makes, and never past it: a
    commitment the design does not make is a design decision to settle
-   first, not a criterion to invent. When the body has one, split a
-   bullet that bundles several checks one claim per bullet, drop a
-   bullet that restates the design prose without adding a checkable
-   claim, and rewrite a bullet that names no artifact to name the
-   file, section, or command it is about. Either way, put the
-   resulting list to the user with the other decisions before step 4
-   rewrites the body.
+   first, not a criterion to invent. When the body has them, split a
+   bullet that bundles several checks one claim per bullet, split a
+   bullet whose subject spans the two sections' classes one bullet per
+   class, drop a bullet that restates the design prose without adding
+   a checkable claim, and rewrite a bullet that names no artifact to
+   name the file, section, or command it is about. A body still
+   carrying a single `## Acceptance` section has its bullets moved
+   into the two sections the same way. Either way, put the resulting
+   list to the user with the other decisions before step 4 rewrites
+   the body.
 
-   Group that list into the two sub-lists the acceptance section of
-   `sdlc:orchestrate-readiness`'s grammar defines, splitting it by
-   that skill's sub-heading definitions so the writer and every reader
-   agree by construction. Write every `### Mechanical` bullet in that
-   skill's check-key vocabulary, never as a command; a criterion no
-   key expresses goes under `### Semantic`. An issue that touches
+   Write each agreed criterion into the acceptance section of
+   `sdlc:orchestrate-readiness`'s grammar that its subject's file class
+   names, and within that section into the sub-list that skill's
+   sub-heading definitions name, so the writer and every reader agree
+   by construction. Write every `### Mechanical` bullet in that skill's
+   check-key vocabulary, never as a command; a criterion no key
+   expresses goes under `### Semantic`. An issue that touches
    `plugins/<name>/` always gets `[version-bumped] <name>` as a
-   mechanical criterion: every PR that changes a plugin bumps its
-   version, and the generator makes a theorem of every criterion.
+   mechanical criterion of the code and instruction Markdown section:
+   every PR that changes a plugin bumps its version, and the generator
+   makes a theorem of every criterion in that section.
 
    **The files-affected section is a gap the same way.** Derive the
    list from the placement decisions settled with the user and from
@@ -137,7 +142,9 @@ of them loses track of which decision belongs to which.
    from a referenced document is restated in the body in the present
    tense, and a dependency the prose stated is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance
-   section goes in as its two grouped sub-lists, and the agreed
+   criteria go in as the two acceptance sections, each with its two
+   grouped sub-lists and the documentation section omitted when no
+   criterion is about documentation, and the agreed
    files-affected section goes in as its tagged list, both in the
    shape `sdlc:orchestrate-readiness`'s grammar spells.
 

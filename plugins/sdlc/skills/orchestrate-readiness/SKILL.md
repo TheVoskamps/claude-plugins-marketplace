@@ -53,11 +53,23 @@ can trigger that stop. The items:
   how the change came to be asked for, what an earlier round did, or
   why an earlier design was rejected is provenance rather than spec —
   it costs the implementer reads that buy nothing.
-- **Acceptance criteria**. The body carries an `## Acceptance`
-  section, and each bullet in it is one claim about the delivered
-  change that a reviewer can attempt to disprove against the diff. It
-  fails when the section is absent, has no bullets, or has a bullet
-  that is not such a claim.
+- **Acceptance criteria**. The body carries the two acceptance
+  sections the grammar below defines, and each bullet in either is one
+  claim about the delivered change that a reviewer can attempt to
+  disprove against the diff. Your own reading of the body settles which
+  file class a bullet's subject is in. It fails:
+  - when `## Code and instruction Markdown acceptance` is absent or has
+    no bullet;
+  - when `## Documentation acceptance` is present with no bullet;
+  - when the body carries an `## Acceptance` section; the gap line says
+    to split it into `## Code and instruction Markdown acceptance` and
+    `## Documentation acceptance`;
+  - on a bullet whose subject spans both sections' classes; the gap
+    line names the bullet and says to split it into one bullet per
+    class;
+  - on a bullet whose subject's class does not match its section; the
+    gap line names the bullet and the section it belongs in;
+  - on a bullet that is not such a claim.
 - **Files affected**. The body carries the files-affected section the
   grammar below defines. Settled against the tree and consulting no
   prose, it fails when the section is absent or departs from that
@@ -75,10 +87,20 @@ can trigger that stop. The items:
 
 These are the headings a writer emits and a reader keys on.
 
-### The acceptance section
+### The acceptance sections
 
 ```markdown
-## Acceptance
+## Code and instruction Markdown acceptance
+
+### Mechanical
+
+- [<key>] <arguments>
+
+### Semantic
+
+- <criterion>
+
+## Documentation acceptance
 
 ### Mechanical
 
@@ -89,11 +111,21 @@ These are the headings a writer emits and a reader keys on.
 - <criterion>
 ```
 
-Each bullet is one criterion. `### Mechanical` holds the criteria one
-of the check keys below settles; `### Semantic` holds every other
-criterion, including any a key cannot express. A generator reading the
-body emits a criterion theorem with the `settle-mode` its sub-heading
-names — `mechanical` under the first, `semantic` under the second.
+The two sections come in this order, and each bullet is one criterion
+whose subject is in the class its section names.
+`## Code and instruction Markdown acceptance` holds the criteria about
+code and instruction Markdown, which the review loop settles; it is
+required. `## Documentation acceptance` holds the criteria about
+documentation, which `docs-writer` settles; it is
+omitted when the change owes no documentation criterion.
+
+Within either section, `### Mechanical` holds the criteria one of the
+check keys below settles; `### Semantic` holds every other criterion,
+including any a key cannot express. A generator reading the body emits
+a criterion theorem for each bullet of
+`## Code and instruction Markdown acceptance`, with the `settle-mode`
+its sub-heading names — `mechanical` under the first, `semantic` under
+the second — and none for a bullet of `## Documentation acceptance`.
 
 Every `### Mechanical` bullet opens with a check key followed by its
 arguments, and never carries a command. A path is a repo-relative
@@ -118,8 +150,9 @@ to read — is refused, and the bullet's gap line says why. The keys:
 - `[test-passes] <path>` — a test script inside the repo exits zero
   when run with `bash`.
 
-`sdlc-readiness-check` grades the `### Mechanical` bullets against the
-tree at check time. `[no-match]` is the one prohibition key, and the
+`sdlc-readiness-check` grades the `### Mechanical` bullets of both
+acceptance sections against the tree at check time, by the same keys
+and rules in each. `[no-match]` is the one prohibition key, and the
 only key it executes: each site it reports is covered only when its file is listed
 in the files-affected section with the tag `update` or `delete`. Every
 other key is presence-shaped and never executed, since it fails before

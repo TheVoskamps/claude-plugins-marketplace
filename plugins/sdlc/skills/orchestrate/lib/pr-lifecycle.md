@@ -116,12 +116,16 @@ for each to return.
 
 1. **Spawn `docs-writer` to write the PR's documentation.** You spawn
    it once per PR, here, and no review round runs over its commit. Give
-   it the PR reference, the issue set the PR closes, the branch name, and
+   it the PR reference, the issue set the PR closes, the branch name,
    the deferred edits — every entry on the `Deferred to docs-writer:`
    line of the developer's report and of every fixer round's report on
-   this PR, verbatim. Collect those entries as each report returns, and
-   raise none of them to the human: each is a documentation edit the
-   class rules hand to `docs-writer`, not open work.
+   this PR, verbatim — and the documentation criteria: every bullet of
+   the `## Documentation acceptance` section, as
+   `sdlc:orchestrate-readiness` defines it, of every issue the PR
+   closes, read off `/issue-view <N>` for each. Collect the deferred
+   entries as each report returns, and raise none of them to the human:
+   each is a documentation edit the class rules hand to `docs-writer`,
+   not open work.
 
    ```text
    PR <PR_REF> for issues <link-prefix><issue_N1>,
@@ -129,6 +133,10 @@ for each to return.
    Branch: <branch-name>
    Deferred to docs-writer:
    <every collected entry, verbatim, one per line — or "none">
+   Documentation criteria:
+   <every bullet of every member issue's `## Documentation acceptance`
+   section, one per line, as `<member>: "<the bullet, verbatim>"`, with
+   `<member>` the issue as this brief's first line names it — or "none">
 
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the

@@ -51,8 +51,9 @@ under `agents/` owns:
   its rule cannot settle pauses the loop for the human, per "The
   style-fix loop"
 - `docs-writer` — writes the PR's documentation after the human's
-  end-of-loop confirmation, from the diff and the deferred edits the
-  implementing agents reported. When it returns, the branch carries a
+  end-of-loop confirmation, from the diff, the deferred edits the
+  implementing agents reported, and the member issues' documentation
+  criteria. When it returns, the branch carries a
   documentation commit if the change needed one, and its report lists
   every file it changed with a one-line reason
 - `theorem-based-pr-reviewer` — reviews one PR, carrying the whole
@@ -787,10 +788,12 @@ member)**:
    ```
 
    Make each scope ruling by reading the finding against the issue's
-   acceptance section, as `sdlc:orchestrate-readiness` defines it,
-   never against the finding's severity: a
-   fix those criteria cover is in scope, and one they do not is outside
-   the issue however severe.
+   `## Code and instruction Markdown acceptance` section, as
+   `sdlc:orchestrate-readiness` defines it, never against the finding's
+   severity: a fix those criteria cover is in scope, and one they do
+   not is outside the issue however severe. The issue's
+   `## Documentation acceptance` section decides no scope ruling;
+   `docs-writer` settles its criteria.
 
    A finding ruled `— in scope` goes into the brief without a question
    to the human: the scope ruling already decides it. A reviewer's
@@ -902,8 +905,9 @@ of the diff into the next round's theorem list, which is exactly what
 "Spawn-prompt principle" forbids. Ask the human first, and post
 nothing they did not say. The one line that is yours to author is the
 `dropped (scope ruling)` line for a finding ruled `— outside the issue;
-dropped:` — a scope ruling read off the issue's acceptance
-section, not a reading of the diff — and its shape names you as the
+dropped:` — a scope ruling read off the issue's
+`## Code and instruction Markdown acceptance` section, not a reading of
+the diff — and its shape names you as the
 actor, so nothing downstream records it as the human's rejection.
 
 ### When a teammate escalates
