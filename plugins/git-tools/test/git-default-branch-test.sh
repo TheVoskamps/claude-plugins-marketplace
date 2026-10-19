@@ -60,8 +60,10 @@ git -C "$ORIGIN" symbolic-ref HEAD refs/heads/main
 git clone -q "$ORIGIN" "$CLONE"
 
 # The stub gh prints $SANDBOX/gh.out when it exists, logs its arguments
-# to $SANDBOX/gh.args, and exits with the status in $SANDBOX/gh.rc, 0
-# when that file is absent.
+# to $SANDBOX/gh.args, writes an error line to stderr on every call, so
+# an empty stderr from the script shows that gh's own error was dropped,
+# and exits with the status in $SANDBOX/gh.rc, 0 when that file is
+# absent.
 mkdir -p "$SANDBOX/bin"
 cat >"$SANDBOX/bin/gh" <<EOF
 #!/bin/sh
