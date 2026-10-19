@@ -144,7 +144,8 @@ FAILED=
 
 # attempt <label> <command>... -- run the command with its output
 # captured; when it fails, print a failure line naming <label> and
-# quoting the output, one line, and record the failure in FAILED.
+# quoting the output, one line, record the failure in FAILED, and return
+# 1. Returns 0 when the command succeeds.
 attempt() {
   local label=$1 out
   shift
