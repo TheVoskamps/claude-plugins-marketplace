@@ -10,7 +10,11 @@
 # nothing; --pr removing only the worktrees its state names an agent
 # for -- whatever their HEAD, nested ones included -- those agents'
 # worktree-agent-<id> branches, its local head branch and its issues'
-# scratch, reading the agents before it deletes the review state; --all
+# scratch, reading the agents before it deletes the review state, and
+# any other worktree under .claude/worktrees/ holding a branch it
+# deletes; a branch checked out outside .claude/worktrees/ kept rather
+# than failed; the primary clone detached off the head branch when
+# another worktree holds the default branch; --all
 # removing every worktree, every branch but the default branch, all
 # scratch and every scratchpad but its own; removal of a dirty, unpushed
 # and locked worktree; the primary clone switched to the default branch
@@ -291,6 +295,57 @@ check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "main" \
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "--pr, head branch in the primary clone: and it is pulled"
 check "$(grep -n -e '^-C [^ ]* switch main' -e '^-C [^ ]* branch -D' "$SERVE/git.log" | sed -n 1p | cut -d' ' -f3)" \
   "switch" "--pr, head branch in the primary clone: the switch runs before any branch is deleted"
+
+# --- --pr with the head branch in a worktree no recorded agent ran in -----
+build pr-unrecorded
+git -C "$WT/agent-a" checkout -q --detach
+git -C "$PRIMARY" worktree add -q "$WT/manual" issue-7-feat
+run --pr 7 --dry-run
+check_contains "$OUT" "would-remove worktree $WT/manual" "--pr, head branch in an unrecorded worktree, dry run: the worktree is listed"
+check_contains "$OUT" "would-delete branch issue-7-feat" "--pr, head branch in an unrecorded worktree, dry run: and the branch"
+run --pr 7
+check "$RC" "0" "--pr, head branch in an unrecorded worktree: exit 0"
+check_contains "$OUT" "remove worktree $WT/manual" "--pr, head branch in an unrecorded worktree: the worktree is removed"
+check "$([ -e "$WT/manual" ] && echo left)" "" "--pr, head branch in an unrecorded worktree: its directory is gone"
+check "$(branches)" "main other-branch worktree-agent-c " "--pr, head branch in an unrecorded worktree: the head branch is deleted"
+check "$([ -d "$WT/agent-c" ] && [ -d "$WT/agent-d" ] && echo kept)" "kept" \
+  "--pr, head branch in an unrecorded worktree: unrecorded worktrees off the PR's branches are kept"
+
+# --- --pr with the head branch in the primary clone, main held elsewhere ---
+build pr-detach
+git -C "$WT/agent-a" checkout -q --detach
+git -C "$PRIMARY" checkout -q issue-7-feat
+git -C "$PRIMARY" worktree add -q "$CASE/main-wt" main
+run --pr 7 --dry-run
+check_contains "$OUT" "would-delete branch issue-7-feat" "--pr, primary clone on the head branch, main held elsewhere, dry run: the branch is listed"
+run --pr 7
+check "$RC" "0" "--pr, primary clone on the head branch, main held elsewhere: exit 0"
+check "$(printf '%s\n' "$OUT" | grep -c '^failed')" "0" "--pr, primary clone on the head branch, main held elsewhere: nothing fails"
+check "$(branches)" "main other-branch worktree-agent-c " \
+  "--pr, primary clone on the head branch, main held elsewhere: the head branch is deleted"
+check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "HEAD" \
+  "--pr, primary clone on the head branch, main held elsewhere: the primary clone is detached"
+check "$(git -C "$CASE/main-wt" rev-parse HEAD)" "$ORIGIN_MAIN" \
+  "--pr, primary clone on the head branch, main held elsewhere: main is pulled in its worktree"
+
+# --- a branch checked out outside .claude/worktrees/ is kept ---------------
+build keep
+git -C "$WT/agent-a" checkout -q --detach
+git -C "$PRIMARY" worktree add -q "$CASE/head-wt" issue-7-feat
+run --pr 7 --dry-run
+check_contains "$OUT" "would-keep branch issue-7-feat: checked out at $CASE/head-wt" \
+  "kept branch, dry run: listed as would-keep"
+run --pr 7
+check "$RC" "0" "kept branch: exit 0"
+check_contains "$OUT" "keep branch issue-7-feat: checked out at $CASE/head-wt" "kept branch: reported as kept"
+check "$(printf '%s\n' "$OUT" | grep -c -e '^failed' -e '^delete branch issue-7-feat')" "0" \
+  "kept branch: neither deleted nor failed"
+check "$(branches)" "issue-7-feat main other-branch worktree-agent-c " "kept branch: the branch is still there"
+check "$([ -d "$CASE/head-wt" ] && echo kept)" "kept" "kept branch: the worktree outside .claude/worktrees/ is not removed"
+run --all --scratchpad "$PAD"
+check "$RC" "0" "kept branch, --all: exit 0"
+check_contains "$OUT" "keep branch issue-7-feat: checked out at $CASE/head-wt" "kept branch, --all: reported as kept"
+check "$(branches)" "issue-7-feat main " "kept branch, --all: every other branch but main is deleted"
 
 # --- --pr refusals --------------------------------------------------------
 build open

@@ -42,7 +42,8 @@ sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
 
 An open PR, and a PR in another repository than this
 checkout's, are refused with nothing removed. The worktrees it removes
-are those of the agents the PR's state records, whatever their HEAD.
+are those of the agents the PR's state records, whatever their HEAD,
+and any other under `.claude/worktrees/` holding a branch it deletes.
 
 ## `--all`
 
@@ -66,11 +67,16 @@ are those of the agents the PR's state records, whatever their HEAD.
 
 Each item is one line, `<action> <category> <item>`, its action
 prefixed `would-` under `--dry-run`. A `failed` line after an item
-quotes why that item's action failed; the rest carried on. A run that
-removes switches the primary clone to the default branch before it
-deletes any branch, unless another worktree holds the default branch,
-and ends by pruning the worktree registrations, fetching with
-`--prune`, and fast-forwarding the default branch; it prints a `failed`
-line only for a step of those that failed.
+quotes why that item's action failed; the rest carried on. A
+`keep branch` line names a branch left in place because a worktree
+still has it checked out, and is not a failure. A run that removes
+switches the primary clone to the default branch before it deletes any
+branch, or detaches it off a branch it deletes when another worktree
+holds the default branch, and ends by pruning the worktree
+registrations, fetching with `--prune`, and fast-forwarding the default
+branch; it prints a `failed` line only for a step of those that failed.
 
-On a non-zero exit, relay stderr verbatim beside the output.
+On a non-zero exit, relay stderr verbatim beside the output. Exit 1
+means an action, a step or a command failed. Exits 2 to 5 removed
+nothing: 2 is a usage error, 3 an open PR, 4 a default branch that
+could not be resolved, and 5 a PR in another repository.

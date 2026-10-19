@@ -27,7 +27,9 @@
 #                       included, named agent-<id> for an agent id its
 #                       state names, and each such agent's local
 #                       worktree-agent-<id> branch; its local head
-#                       branch; and every top-level .claude/tmp/ entry
+#                       branch, and every worktree under
+#                       .claude/worktrees/ holding a branch it deletes;
+#                       and every top-level .claude/tmp/ entry
 #                       named `<anything>-<N>` for an issue <N> its body
 #                       closes.
 #   --all               the whole repository: its review state, every
@@ -51,7 +53,13 @@
 # `failed <action> <category> <item>: <its error>`, and the rest carry on.
 # A run that is not --dry-run puts the primary clone on the default
 # branch before it deletes any branch -- `git switch`, unless another
-# worktree has the default branch checked out -- and ends with
+# worktree has the default branch checked out, in which case a primary
+# clone on a branch the run deletes is detached with `git switch
+# --detach`. A branch the run deletes that a worktree still has checked
+# out after that -- one outside .claude/worktrees/, or one an earlier
+# action or step failed to free -- is not deleted, and prints
+# `keep branch <branch>: checked out at <path>`, `would-keep` under
+# --dry-run, which is no failure. The run ends with
 # `git worktree prune`, `git fetch --all --prune` and
 # `git -C <path> pull --ff-only` in the worktree holding the default
 # branch. A step that fails prints `failed <step>: <its error>`.
@@ -258,6 +266,24 @@ EOF
   agents=$'\n'$agents$'\n'
 fi
 
+# deletes_branch <branch> -- succeed when the run deletes the local
+# branch <branch>: under --all every branch but the default branch, and
+# under --pr the PR's head branch and the worktree-agent-<id> branch of
+# each agent id its state names.
+deletes_branch() {
+  [ -n "$1" ] && [ "$1" != "$default" ] || return 1
+  [ -n "$pr" ] || return 0
+  [ "$1" != "$head_branch" ] || return 0
+  case "$1" in
+    worktree-agent-?*) ;;
+    *) return 1 ;;
+  esac
+  case "$agents" in
+    *$'\n'"${1#worktree-agent-}"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
 # --- review state ------------------------------------------------------
 if [ -n "$pr" ]; then
   listed=$(sdlc-agent-result-persist --mode list "${ref%'#'*}" || exit) ||
@@ -280,7 +306,9 @@ while IFS=$SEP read -r path head branch locked; do
     "$root/.claude/worktrees/"*) ;;
     *) continue ;;
   esac
-  if [ -n "$pr" ]; then
+  # Under --pr, a worktree holding a branch the run deletes goes too,
+  # whoever it was made for, so that it does not keep the branch.
+  if [ -n "$pr" ] && ! deletes_branch "$branch"; then
     name=${path##*/}
     case "$name" in
       agent-?*) ;;
@@ -296,38 +324,72 @@ done <<EOF
 $under
 EOF
 
-# --- the primary clone onto the default branch -------------------------
+# --- the primary clone off the branches it deletes ---------------------
 # Before any branch is deleted, so a branch the primary clone had checked
-# out is deleted with the rest. The worktree left holding the default
-# branch is the one the finish pulls in.
+# out is deleted with the rest: onto the default branch, or detached when
+# another worktree holds the default branch. The worktree left holding
+# the default branch is the one the finish pulls in.
 holder=
 if [ -z "$dry" ]; then
   remaining=$(worktrees || exit) || exit
+  root_branch=
   while IFS=$SEP read -r path head branch locked; do
     [ "$branch" != "$default" ] || holder=$path
+    [ "$path" != "$root" ] || root_branch=$branch
   done <<EOF
 $remaining
 EOF
-  if [ -z "$holder" ] && attempt "git switch $default" git -C "$root" switch "$default"; then
-    holder=$root
+  if [ -z "$holder" ]; then
+    if attempt "git switch $default" git -C "$root" switch "$default"; then
+      holder=$root
+    fi
+  elif [ "$holder" != "$root" ] && deletes_branch "$root_branch"; then
+    attempt "git switch --detach" git -C "$root" switch --detach || :
   fi
 fi
 
 # --- branches ----------------------------------------------------------
+# The worktrees that still hold a branch once the steps above have run:
+# after them, every worktree left; under --dry-run, which runs none of
+# them, every worktree but the primary clone and those under
+# .claude/worktrees/, the ones they would free.
+if [ -z "$dry" ]; then
+  holding=$(worktrees || exit) || exit
+else
+  holding=
+  while IFS= read -r line; do
+    case "${line%%"$SEP"*}" in
+      "$root" | "$root/.claude/worktrees/"*) ;;
+      *) holding=$holding$line$'\n' ;;
+    esac
+  done <<EOF
+$all_worktrees
+EOF
+fi
+
+# checked_out_at <branch> -- print the path of the worktree in
+# `holding` that has <branch> checked out, or nothing when none has.
+checked_out_at() {
+  local path head branch locked
+  while IFS=$SEP read -r path head branch locked; do
+    if [ -n "$branch" ] && [ "$branch" = "$1" ]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done <<EOF
+$holding
+EOF
+  return 0
+}
+
 branches=$(git -C "$root" for-each-ref --format='%(refname:lstrip=2)' refs/heads/ || exit) ||
   fail 1 "git for-each-ref refs/heads/ failed"
 while IFS= read -r branch; do
-  [ -n "$branch" ] || continue
-  [ "$branch" != "$default" ] || continue
-  if [ -n "$pr" ] && [ "$branch" != "$head_branch" ]; then
-    case "$branch" in
-      worktree-agent-?*) ;;
-      *) continue ;;
-    esac
-    case "$agents" in
-      *$'\n'"${branch#worktree-agent-}"$'\n'*) ;;
-      *) continue ;;
-    esac
+  deletes_branch "$branch" || continue
+  at=$(checked_out_at "$branch" || exit) || exit
+  if [ -n "$at" ]; then
+    printf '%skeep branch %s: checked out at %s\n' "${dry:+would-}" "$branch" "$at"
+    continue
   fi
   act delete branch "$branch" git -C "$root" branch -D "$branch"
 done <<EOF
