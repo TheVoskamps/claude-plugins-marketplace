@@ -3,9 +3,10 @@
 # cr-test.sh -- drive plugins/cc-tools/bin/cr, hooks/cr-resolver and
 # hooks/cr-deploy.sh under the bash 3.2 macOS ships, with HOME pointed at
 # a scratch directory and a stub claude first on PATH: cr's argument
-# handling, repo detection and settings overlay; the resolver's exec of
-# the enabled cc-tools and its two refusals; and the deploy hook's
-# missing, differing, current and unwritable targets.
+# handling, repo detection, settings overlay, GIT_CONFIG_GLOBAL and exit
+# status; the resolver's exec of the enabled cc-tools and its refusals;
+# and the deploy hook's missing, differing, current and unwritable
+# targets.
 #
 # Needs git and jq on PATH. Reaches no network.
 #

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
 # cr -- launch an interactive Claude Code session named after the repo it
-# runs in, from that repo's root, with remote control on and a debug log
-# under ~/.claude/logs/. When <repo-root>/.cc-tools/cr-settings.json
-# exists, claude also gets `--settings <that path>`. Runs under the bash
-# 3.2 macOS ships.
+# runs in, from that repo's root, with remote control on, a debug log
+# under ~/.claude/logs/, and Grep and Glob allowed without a prompt. When
+# <repo-root>/.cc-tools/cr-settings.json exists, claude also gets
+# `--settings <that path>`. When GIT_CONFIG_GLOBAL is unset and
+# ~/.gitconfig-claude is readable, cr exports GIT_CONFIG_GLOBAL pointing
+# at that file for itself and the session. Runs under the bash 3.2 macOS
+# ships.
 #
 # Usage: cr [--cr-strict] [<name-word>…] [<claude-argument>…]
 #
