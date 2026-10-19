@@ -53,10 +53,10 @@ can trigger that stop. The items:
   how the change came to be asked for, what an earlier round did, or
   why an earlier design was rejected is provenance rather than spec —
   it costs the implementer reads that buy nothing.
-- **Acceptance criteria**. The body carries at least one of the
-  acceptance sections the grammar below defines, and each bullet in
-  either is one claim about the delivered change that a reviewer can
-  attempt to disprove against the diff. Your own reading of the body
+- **Acceptance criteria**. The body carries the acceptance sections
+  the grammar below defines, and each bullet in either is one claim
+  about the delivered change that a reviewer can attempt to disprove
+  against the diff. Your own reading of the body
   settles which file class a bullet's subject is in. It fails:
   - when neither `## Code and instruction Markdown acceptance` nor
     `## Documentation acceptance` is present;
@@ -116,10 +116,9 @@ whose subject is in the class its section names.
 `## Code and instruction Markdown acceptance` holds the criteria about
 code and instruction Markdown, which the review loop settles, and
 `## Documentation acceptance` holds the criteria about documentation,
-which `docs-writer` settles. Each section is optional, so a
-documentation-only change carries the second alone; a body carries at
-least one, and a section that is present carries at least one bullet
-under `### Mechanical` or `### Semantic`.
+which `docs-writer` settles. A documentation-only change carries the
+second alone; which sections a body must carry, and with what, is the
+"Acceptance criteria" bar item's.
 
 Within either section, `### Mechanical` holds the criteria one of the
 check keys below settles; `### Semantic` holds every other criterion,

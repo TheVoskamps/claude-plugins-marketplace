@@ -243,10 +243,8 @@ code or reading files in the repo.
    order — `XS` for the t-shirt set, `Low` for `Effort`) if the
    triviality signal (signal 5) fires.
 5. Override to the least-work option, or one step above it, if the
-   doc-only marker (signal 1) fires — the code and instruction Markdown
-   acceptance section is absent or carries no bullet beyond a version
-   bump, so the issue's criteria are all documentation — `XS` / `S`
-   for the t-shirt set, `Low` / `Medium` for `Effort`.
+   doc-only marker (signal 1) fires — `XS` / `S` for the t-shirt set,
+   `Low` / `Medium` for `Effort`.
 
 If the model genuinely cannot pick a size from the body (e.g. an
 issue with one sentence and no other signals), it picks the **median
