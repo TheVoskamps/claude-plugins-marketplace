@@ -531,6 +531,8 @@ OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 2>"$SANDBOX/err")
 check "$?" 2 "no argument: exit 2"
 OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 'x;y' 2>"$SANDBOX/err")
 check "$?" 2 "a non-numeric argument: exit 2"
+# An empty body is itself a gap, so this case serves a body that passes,
+# leaving the '#' as the one thing exit 0 can rest on.
 printf '## Documentation acceptance\n\n### Semantic\n\n- anything\n' >"$SANDBOX/body.md"
 OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" '#7' 2>"$SANDBOX/err")
 check "$?" 0 "a leading '#' is accepted"
