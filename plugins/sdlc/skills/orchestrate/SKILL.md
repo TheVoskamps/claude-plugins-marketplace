@@ -37,9 +37,10 @@ under `agents/` owns:
   review to see again — or, on a merge-readiness brief, has been
   rebased for the gate to see again. You spawn it on review feedback;
   `pr-merge-readiness` spawns it on a merge-readiness brief
-- `code-documenter` — adds or corrects the comments in the code and
-  instruction-Markdown files a PR's diff touched, each against the
-  style guide of its own class. When it
+- `code-documenter` — adds or corrects the comments in the code files
+  a PR's diff touched, and corrects or deletes those its
+  instruction-Markdown files carry, each against the style guide of its
+  own class. When it
   returns, the branch carries at most one new comment commit, and
   `style-checker` runs next
 - `style-checker` — checks the code and instruction-Markdown files a
@@ -819,9 +820,9 @@ member)**:
 4. Run `code-documenter` and `style-checker` against the branch, the
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping
-   them is what lets a fixer's commits reach the review without the
-   comments their classes' style guides require of them, and unchecked
-   against the `## For Authors and Checkers` rules.
+   them is what lets a fixer's commits reach the review with their
+   comments unchecked against their classes' style guides, and
+   unchecked against the `## For Authors and Checkers` rules.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
