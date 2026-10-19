@@ -33,6 +33,8 @@ SANDBOX=$(cd "$SANDBOX" && pwd -P)
 FAILURES=0
 PR='h.example/o/r#7'
 
+# check <actual> <expected> <label>: passes when the two are equal, and
+# otherwise prints both and counts a failure in FAILURES.
 check() {
   if [ "$1" = "$2" ]; then
     echo "PASS  $3"
@@ -44,6 +46,9 @@ check() {
   fi
 }
 
+# check_contains <actual> <substring> <label>: passes when the actual
+# text contains the substring, and otherwise prints both and counts a
+# failure in FAILURES.
 check_contains() {
   case "$1" in
     *"$2"*) echo "PASS  $3" ;;
@@ -79,8 +84,9 @@ git -C "$SEED" push -q origin main issue-7-feat
 git -C "$SEED" checkout -q main
 
 # The stubs. git-default-branch prints serve/default and fails when it
-# is absent. pr-view prints the reference for --ref and serve/facts
-# otherwise; pr-closing-issues prints serve/closing; and
+# is absent. pr-view fails when serve/pr-view.fail exists, and
+# otherwise prints the reference for --ref and serve/facts for anything
+# else; pr-closing-issues prints serve/closing; and
 # sdlc-agent-result-persist prints serve/list for --mode list and logs
 # --mode delete's --pr to serve/deleted, failing for the PR named in
 # serve/delete.fail. Each logs its arguments to serve/<name>.args. The

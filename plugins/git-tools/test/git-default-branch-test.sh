@@ -19,6 +19,8 @@ SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/git-default-branch-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 FAILURES=0
 
+# check <actual> <expected> <label>: passes when the two are equal, and
+# otherwise prints both and counts a failure in FAILURES.
 check() {
   if [ "$1" = "$2" ]; then
     echo "PASS  $3"
@@ -30,6 +32,9 @@ check() {
   fi
 }
 
+# check_contains <actual> <substring> <label>: passes when the actual
+# text contains the substring, and otherwise prints both and counts a
+# failure in FAILURES.
 check_contains() {
   case "$1" in
     *"$2"*) echo "PASS  $3" ;;
@@ -73,8 +78,9 @@ gh_serves() {
   echo "$2" >"$SANDBOX/gh.rc"
 }
 
-# run [<dir>] -- run the script from <dir>, $CLONE by default, with the
-# stub gh first on PATH; leaves OUT, ERR, RC.
+# run [<dir> [<arg>]] -- run the script from <dir>, $CLONE by default,
+# passing <arg> when given, with the stub gh first on PATH; leaves OUT,
+# ERR, RC.
 run() {
   OUT=$(cd "${1:-$CLONE}" && PATH="$SANDBOX/bin:$PATH" /bin/bash "$SCRIPT" ${2+"$2"} 2>"$SANDBOX/stderr")
   RC=$?
