@@ -8,7 +8,7 @@
 # itself, symlinks that stay inside the root and symlinks that lead out
 # of it, a [no-match] path absent from the tree, a hostile ERE,
 # fenced blocks and a wrapped bullet, a failing bullet under each of the
-# two acceptance sections and one under a retired `## Acceptance`, and
+# two acceptance sections and one under an ungraded `## Acceptance`, and
 # issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
