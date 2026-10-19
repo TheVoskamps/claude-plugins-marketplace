@@ -457,7 +457,7 @@ it lists across the state root.
   the harness's `.claude/worktrees/agent-<agent-id>` worktree and its
   `worktree-agent-<agent-id>` branch. The spawner's, once per agent it
   spawns for the PR, whether or not that agent runs in a worktree of its
-  own: `/sdlc:orchestrate`'s spawns, and `sdlc:pr-merge-readiness`'s. A child
+  own. A child
   of the review pipeline writes an `enter` instead, which names its agent
   id the same way. It takes **no `--round`** and refuses one; both
   `--agent` and `--agent-id` are required.
