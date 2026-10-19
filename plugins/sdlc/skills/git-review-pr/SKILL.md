@@ -94,10 +94,9 @@ skill computes.
    ```
 
    The reviewer writes no record naming itself, so this one is how
-   `/sdlc:orchestrate-cleanup <PR>` finds its worktree. A call that
-   exits non-zero stops nothing: relay its stderr with the review.
-
-   Remove the reviewer agent's worktree when it returns.
+   `/sdlc:orchestrate-cleanup <PR>` finds and removes its worktree,
+   which this path leaves in place. A call that exits non-zero stops
+   nothing: relay its stderr with the review.
 
    **This path leaves the round's detail on disk and nothing else.** In
    the `/sdlc:orchestrate` flow, `pr-finalizer` posts the assembled
