@@ -56,10 +56,9 @@ view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 # Split the body into the Mechanical bullets of both acceptance sections
 # (`M<TAB><bullet>`) and its well-formed files-affected bullets
 # (`F<TAB><path><TAB><tag>`); any other `## ` section, `## Acceptance`
-# included, is not read. A bullet
-# continues onto indented lines; a fenced block is never read as
-# grammar, and only a run of its opening character at least as long as
-# its opening run closes it.
+# included, is not read. A bullet continues onto indented lines; a
+# fenced block is never read as grammar, and only a run of its opening
+# character at least as long as its opening run closes it.
 records=$(printf '%s\n' "$view" | awk '
   function flush() {
     if (bullet != "") print "M\t" bullet
