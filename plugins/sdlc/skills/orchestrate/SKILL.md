@@ -395,9 +395,9 @@ named at the plan confirm wins outright.
 
 The seed spawn is not persisted through `sdlc-agent-result-persist`:
 every path it composes is keyed on a PR, and none exists.
-Hold the generator's return in your scratchpad. Its worktree is left
-for the post-merge tail's cleanup sweep, like every other worktree you
-spawn.
+Hold the generator's return in your scratchpad. Its worktree is on no
+PR's branch or commit, so the post-merge tail's per-PR cleanup leaves
+it, and only `/sdlc:orchestrate-cleanup --all` removes it.
 
 **Put every candidate to the human.** Show each theorem — id, claim,
 issues, settle mode, pointers — and take one ruling per theorem:
@@ -1027,9 +1027,8 @@ so the body stays frozen for whatever round comes next.
 
 After the last PR's monitor loop ends — or its ready flip, under
 `merge-wait: skip` — read
-`skills/orchestrate/lib/wrap-up.md` and follow it: the single cleanup
-sweep, the return of the primary clone to the default branch, and then
-the summary in the shape that file gives.
+`skills/orchestrate/lib/wrap-up.md` and follow it: the cleanup of each
+PR the run merged, and then the summary in the shape that file gives.
 Every cell of the summary is a claim to the human, filled per
 "Report-consumption principle".
 
@@ -1086,11 +1085,10 @@ What you do yourself is orchestration mechanics:
   `git log`, `git diff`, file reads. Reading is planning, and what it
   turns up stays yours.
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
-  long-lived branches the primary clone tracks, the post-merge tail's
-  checkout of the default branch and `git remote prune`, and
-  `git push` of a commit an agent authored but could not push. Branch
-  and worktree removal is not on this list: the post-merge tail's
-  `/sdlc:cleanup-interim-work` invocation owns it.
+  long-lived branches the primary clone tracks, and `git push` of a
+  commit an agent authored but could not push. Branch and worktree
+  removal is not on this list: the post-merge tail's
+  `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's dictated
   review adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write

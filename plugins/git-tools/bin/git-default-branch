@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# git-default-branch -- print the name of the current repository's
+# default branch: the GitHub repository setting `gh repo view` reports,
+# else the branch the refs/remotes/origin/HEAD symref points at.
+# Read-only. Runs under the bash 3.2 macOS ships.
+#
+# Usage: git-default-branch
+#
+# Exit statuses:
+#   0  stdout is the branch name, on one line
+#   1  neither source names a branch, or a command failed; stderr says
+#      which
+#   2  a usage error: the script takes no argument; nothing was run
+set -uo pipefail
+
+PROGRAM=${0##*/}
+
+# fail <status> <message> -- print <message>, prefixed with the
+# program's name, and exit with <status>.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command. `set -E` carries the trap into command
+# substitutions; a substitution whose failure is handled ends in
+# `|| exit` inside it, so the trap stays quiet in the substitution's own
+# shell.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+[ "$#" -eq 0 ] || fail 2 "\`$1\` is not an argument $PROGRAM takes. usage: $PROGRAM"
+
+# gh's own error is dropped: a gh that is missing, unauthenticated or
+# pointed at a non-GitHub remote is the case the symref is the fallback
+# for.
+name=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name // empty' 2>/dev/null || exit) ||
+  name=
+
+if [ -z "$name" ]; then
+  if ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || exit); then
+    name=${ref#refs/remotes/origin/}
+  fi
+fi
+
+[ -n "$name" ] ||
+  fail 1 "neither \`gh repo view\` nor refs/remotes/origin/HEAD names a default branch"
+
+printf '%s\n' "$name"

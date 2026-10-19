@@ -7,27 +7,16 @@ and the summary that closes the run.
 ## The post-merge tail, once per run
 
 After the last PR's monitor loop ends, or its ready flip under
-`merge-wait: skip`, and before you write the
-summary, invoke the whole-repo sweep exactly once, with no scoping
-added — its own skip-and-report conditions are the scope:
+`merge-wait: skip`, and before you write the summary, run the cleanup
+once for each PR the run merged:
 
 ```text
-/sdlc:cleanup-interim-work
+/sdlc:orchestrate-cleanup <PR>
 ```
 
-It asks the human which items to remove before it removes any; that
-answer is the human's, so the tail waits on it. Report what the skill
-reports, in its own words, and add nothing — no count of your own, no
-list of what you expected it to find.
-
-Then bring the primary clone back to the default branch, current with
-the remote and with its stale tracking refs gone:
-
-```bash
-git checkout <default-branch>
-git pull --ff-only
-git remote prune origin
-```
+Ask the human nothing about it. Relay one line per PR: what it
+removed, and any `failed` line quoted, adding no count or list of your
+own. A PR the run did not see merge gets no cleanup.
 
 Then write the summary.
 
