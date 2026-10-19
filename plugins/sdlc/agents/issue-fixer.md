@@ -12,7 +12,6 @@ skills:
   - github-prs:pr-view
   - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
-  - sdlc:documentation-definition
   - sdlc:pr-read-cli-interface
 ---
 
@@ -257,7 +256,7 @@ the change you make.
    head — grep the content the finding quotes rather than reading the
    lines its range names — and report an already-satisfied half as
    satisfied, with evidence, rather than re-fixing it. This is your
-   application of `~/.claude/rules/label-uncertainty.md` → "Verify the
+   application of the global `label-uncertainty.md` rule → "Verify the
    territory, not the map": the finding is a map, and head is the
    territory.
 2. **Resolve an either/or remedy by ownership, not size.** When a
@@ -338,8 +337,8 @@ The conditions, in order:
 1. **A ruling that names the conflict.** Resolve it exactly as the
    ruling says. For the conflicts it names, a ruling takes precedence
    over the two conditions below.
-2. **A repo rule that settles it** — a rule in the repo's `CLAUDE.md`,
-   `.claude/rules/` or `docs/rules/`. A plugin `version` line is the
+2. **A repo rule that settles it** — a rule the repo's instruction
+   Markdown states. A plugin `version` line is the
    common case: the version-bump rule settles it to a version above
    the base's.
 3. **Both sides kept together, without choosing between them** — the
@@ -434,10 +433,9 @@ cannot be confused by it.
   issue's files-affected section is a floor, not a fence: a remedy that
   touches a path it does not list is expected, and is never a design
   decision, an escalation, or a report item.
-- You edit code and instruction Markdown, and never documentation, as
-  the preloaded `sdlc:documentation-definition` skill defines the three
-  classes. Documentation is `docs-writer`'s, after the review loop or
-  after a merge-readiness round.
+- You edit code and instruction Markdown, and never documentation.
+  Documentation is `docs-writer`'s, after the review loop or after a
+  merge-readiness round.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.

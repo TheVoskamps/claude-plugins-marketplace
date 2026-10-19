@@ -36,7 +36,8 @@ restate the fact.
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
 | How the `### Mechanical` bullets are graded: how a body is split into them, which paths are refused with nothing run, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
-| Which file class a path falls in — documentation, instruction Markdown, or code — and which stage of the run edits each | `skills/documentation-definition/SKILL.md` |
+| Which file class a path falls in — code, instruction Markdown, or documentation | the global Claude configuration, outside this repository; no file in this plugin restates it |
+| Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
 | What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with | `skills/pr-read-cli-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
@@ -128,9 +129,9 @@ issue-body grammar, though, and spells the files-affected heading
 literally, so a change to that grammar reaches that file too.
 
 The header `style-checker` takes its rules from, `## For Authors and
-Checkers`, is spelled in the global style guides under
-`~/.claude/docs/rules/` — outside this repository, so a rename there
-never shows up in a grep here — and in their per-repo extension files.
+Checkers`, is spelled in the global style guides — outside this
+repository, so a rename there never shows up in a grep here — and in
+their per-repo extension files.
 By the checker's own wording a guide without that header contributes no
 rules, so a renamed header makes the pass report clean rather than
 fail. A PR that renames it in the guides edits `agents/style-checker.md`
@@ -340,15 +341,20 @@ human-refuted.
 
 ## A documentation edit an implementer owes is a handoff, not a failure
 
-Every file in a run is in one of the classes
-`skills/documentation-definition/SKILL.md` names, and the class alone
-decides who edits it: `issue-developer` and `issue-fixer` edit code and
-instruction Markdown inside the review loop, and `docs-writer` edits
-documentation after it. Instruction Markdown — `CLAUDE.md`, rules
-files, skill bodies, agent definitions — is a class of its own rather
-than a kind of code because the style guides grade it by its own
-guide, yet it is implemented, fixed, checked and reviewed exactly as
-code is: a change to one changes what an agent does, so it cannot
+Every file in a run is in one of the classes the global Claude
+configuration defines — code, instruction Markdown, documentation —
+and the class alone decides who edits it: `issue-developer` and
+`issue-fixer` edit code and instruction Markdown inside the review
+loop, `code-documenter` corrects the comments in both, each against
+its own class's style guide, and `docs-writer` edits documentation
+after it. No file in this plugin defines a class or says which paths
+fall in one: the definition once lived in a skill of this plugin's own
+as well, and two copies in two repositories drifted apart whenever
+either changed, so an sdlc file that needs a file's class names the
+class and nothing more. Instruction Markdown is a class of its own
+rather than a kind of code because the style guides grade it by its
+own guide, yet it is implemented, fixed, checked and reviewed exactly
+as code is: a change to one changes what an agent does, so it cannot
 wait for the unreviewed pass documentation gets. Whether an issue's
 files-affected list names a file never moves it between classes.
 
@@ -682,7 +688,6 @@ verdict then reflects it.
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
-| `sdlc:documentation-definition` | The file classes of a run — documentation, instruction Markdown, code — and the path rules that sort a file into one | preloaded into the agents that decide which files they may edit, check, or review |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer` and `pr-finalizer` |
 | `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
 
@@ -972,7 +977,7 @@ one sweep that removes them, after the human names which go.
 | ------- | --------- |
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving each conflict a ruling or its own resolvability conditions settle and escalating the rest — to an open PR's branch |
-| `code-documenter` | Adds or corrects the comments the code-style guide requires in a round's code files, before its review |
+| `code-documenter` | Adds or corrects the comments in a round's code files, and corrects or deletes those its instruction-Markdown files carry where the diff contradicts them, each file against its own class's style guide, before its review |
 | `style-checker` | Reports a round's style-guide violations in its code and instruction Markdown, each file graded against its own class's guide, which the orchestrator sends to a fixer before its review |
 | `docs-writer` | Writes a PR's documentation after its review loop ends, and again after a merge-readiness fixer round that deferred a documentation edit to it |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |

@@ -23,9 +23,10 @@ spawned: the orchestrator spawns you once per blessed PR, after
 `docs-writer`, and `pr-merge-readiness` spawns you after every
 `issue-fixer` round it runs.
 
-Do not review code, do not update docs beyond the transfers the skill
-directs, and do not fix the PR. If you notice something wrong with it,
-say so in your report and leave it alone.
+Do not review code, do not edit documentation or instruction Markdown
+beyond the transfers the skill directs, and do not fix the PR. If you
+notice something wrong with it, say so in your report and leave it
+alone.
 
 ## You persist no memory of your own
 
@@ -35,9 +36,11 @@ leaves behind a capture that nothing curates. Do not add the key to
 match the sibling agents that have it, and do not hand-write entries
 into `.claude/agent-memory/` or into the inbox.
 
-The only commit you make is the skill's, and it carries the
-documentation files its transfers landed in — plus any companion edit
-the repo's own rules oblige a transfer to carry — and nothing else.
+Your reach is documentation and instruction Markdown, plus any
+companion edit the repo's own rules oblige a transfer to carry,
+whatever that edit's class. The only commit you make is the skill's,
+and it carries the files its transfers landed in and those companion
+edits, and nothing else.
 
 ## Read global rules first
 

@@ -207,9 +207,8 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    ```text
    PR <PR> has a fixer brief waiting on it.
 
-   Edit code and instruction Markdown, and no documentation, as the
-   sdlc:documentation-definition skill defines the three classes;
-   report every documentation edit your work calls for on your
+   Edit code and instruction Markdown, and no documentation; report
+   every documentation edit your work calls for on your
    Deferred to docs-writer: line, and docs-writer makes it after you.
 
    Address it per your agent definition. Report back what you fixed
