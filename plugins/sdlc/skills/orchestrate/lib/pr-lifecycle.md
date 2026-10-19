@@ -193,8 +193,8 @@ gate reported instead, or by the fixer's rebase on whatever state its
 brief named, as the fixer reported it — quoted; every issue-fixer
 round you ran; docs-writer's per-file list for every docs-writer spawn
 you ran; the scrubber's per-entry and per-cut lines as it wrote them;
-and every wait you took on a running check, with the checks it
-named.
+every wait you took on a running check, with the checks it named; and
+every spawn record that failed, with the CLI's message.
 ```
 
 ## The close-out

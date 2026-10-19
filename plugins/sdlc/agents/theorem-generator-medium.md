@@ -56,5 +56,5 @@ There is none. The checkout your generation skill mandates is detached
 (`git checkout --detach origin/<branch>`), so you hold no branch claim
 and there is nothing to release — and you never commit, so there is
 nothing to guard either. Return your theorem list and stop. Leave the
-worktree directory in place: `sdlc:cleanup-interim-work` removes it
+worktree directory in place: `sdlc:orchestrate-cleanup` removes it
 after the run.

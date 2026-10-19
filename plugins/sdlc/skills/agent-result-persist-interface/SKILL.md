@@ -1,6 +1,6 @@
 ---
 name: agent-result-persist-interface
-description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, the theorem-generator variants, sdlc:theorem-disprover, sdlc:counterexample-verifier, and sdlc:pr-finalizer via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, the theorem-generator variants, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -15,7 +15,9 @@ argued review it composed. Any instance of
 and the result files, and from nothing it heard back; the next round
 reads its predecessor's theorem records out of the records file, and the
 end of an orchestrate loop assembles the run's detail out of the review
-files.
+files. Beside the rounds, the PR's **agents log** records every agent
+spawned for the PR, so the cleanup after the PR can find each one's
+worktree by its agent id.
 
 That is the whole design. A child that ran, finished and reported can
 still skip its own last call, and a `<task-notification>` can go
@@ -102,9 +104,10 @@ then Write again.
 
 These two go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
-refuses it: `delete` removes the whole PR's directory and `print-root`
-names it, so each refuses `--round`, `list` reads across every PR of a
-repository, so it refuses `--pr` and `--round` alike and takes the
+refuses it: `delete` removes the whole PR's directory, `print-root`
+names it, and `agent` and `print-agents` write and read the PR's agents
+log beside its rounds, so each refuses `--round`, `list` reads across
+every PR of a repository, so it refuses `--pr` and `--round` alike and takes the
 repository instead, and
 `repos` reads across every repository, so it refuses both and takes no
 repository. `print-records` selects the round itself, so `--round` is
@@ -169,13 +172,17 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/round<ro
 <the same directory>/<theorem>-<agent>
 <the same directory>/records
 <the same directory>/review
+${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/agents
 ~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl
 ```
 
 `log` is the round log, `<theorem>-<agent>` a child's result file,
 `records` the round's theorem records, and `review` the round's argued
-review; the `.jsonl` under `~/.claude/projects/` is the harness's own
-transcript of a child, which `--mode enter` records. The records and
+review; `agents` is the PR's agents log, beside its rounds rather than
+in one, since an agent spawned for the PR belongs to no round and a
+voided round's rename must not carry it away. The `.jsonl` under
+`~/.claude/projects/` is the harness's own transcript of a child, which
+`--mode enter` records. The records and
 the review are written at the end of the round, and a voided round's
 rename carries both with it exactly as it carries the log and the
 result files.
@@ -213,17 +220,21 @@ host from `--pr` or from `list`'s repository, and writes its
 state at both paths refuses, non-zero, naming both, and moves nothing.
 
 **Nothing here is deleted but by `--mode delete`, and that mode is
-called only by `/sdlc:orchestrate-cleanup`, a pass the human invokes.**
-A round's files are the evidence a stalled or voided round is diagnosed
+called only by `sdlc-orchestrate-cleanup`, which the human invokes and
+which `/sdlc:orchestrate` runs for a PR after that PR has merged.** A
+round's files are the evidence a stalled or voided round is diagnosed
 from, so no mode that runs during a review removes one, and none ever
-expires: a PR's directory stays until the human decides its evidence is
-no longer wanted, which is the one exception this policy makes.
+expires: a PR's directory stays until `/sdlc:orchestrate` cleans up
+after the PR's merge — a merged PR's evidence is no longer needed to
+diagnose a round — or the human decides its evidence is no longer
+wanted.
 
 ## The modes
 
 One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
-round, `print-root` for the PR directory it names, `list` and `delete`
+round, `print-root` for the PR directory it names, `print-agents` for
+the agent ids it reads across the PR's logs, `list` and `delete`
 for what they do across a repo's PR directories, and `repos` for what
 it lists across the state root.
 
@@ -440,6 +451,22 @@ it lists across the state root.
   the root spells no root of its own; it opens nothing. It takes **no
   `--round`** and refuses one, creates nothing, and exits zero whether
   or not the directory exists.
+- **`agent`** — appends one `agent` record to the PR's agents log,
+  carrying `--agent`, the definition spawned, and `--agent-id`, the id
+  the `Agent` tool's result names for the spawn — the `<agent-id>` of
+  the harness's `.claude/worktrees/agent-<agent-id>` worktree and its
+  `worktree-agent-<agent-id>` branch. The spawner's, once per agent it
+  spawns for the PR, whether or not that agent runs in a worktree of its
+  own. A child
+  of the review pipeline writes an `enter` instead, which names its agent
+  id the same way. It takes **no `--round`** and refuses one; both
+  `--agent` and `--agent-id` are required.
+- **`print-agents`** — writes to stdout every agent id the PR's state
+  names, one per line, sorted and each once: every `agent` record's,
+  and every `enter` record's in every round log, the
+  `.voided-<instant>` rounds included, since a voided round's children
+  left worktrees too. It takes **no `--round`** and refuses one, creates
+  nothing, and prints nothing for a PR with no state.
 - **`list`** — writes to stdout one PR per line, as the
   `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
   order of `<n>`, one per `pr<n>/` directory under the repository's
@@ -450,8 +477,8 @@ it lists across the state root.
   refuses either, and refuses a second operand. A repository no review
   has run against has no directory, so the output is empty and the exit
   zero; the mode creates nothing.
-- **`delete`** — removes `pr<n>/` recursively, every round under it
-  and every voided round with them. It takes **no `--round`** and
+- **`delete`** — removes `pr<n>/` recursively, every round under it,
+  every voided round and the agents log with them. It takes **no `--round`** and
   refuses one, and it refuses a missing `--pr` with the usual
   `--pr is required` message. A directory already absent is the state
   the call asks for, so it exits zero and prints nothing.
@@ -515,6 +542,13 @@ wrote it.
 The generation stage answers no single theorem, so its theorem column
 is the literal `list` — the thing it produces. Every other stage's is a
 theorem id.
+
+The agents log holds one record kind, on the same terms — one line per
+record, appended, never revised, every column a single token:
+
+```text
+agent   <instant> <agent> <agent-id>
+```
 
 **Two lifecycles share the log, and the split is what keeps the
 vocabulary from drifting the next time a kind is added.** `spawn`,

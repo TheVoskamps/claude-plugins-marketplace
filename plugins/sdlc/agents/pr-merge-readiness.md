@@ -9,6 +9,7 @@ skills:
   - github-prs:pr-merge-conflicts
   - github-prs:pr-comment
   - github-prs:pr-closing-issues
+  - sdlc:agent-result-persist-interface
 ---
 
 # PR Merge Readiness
@@ -21,7 +22,8 @@ the gate again.
 
 You declare no `isolation`, so you run in the orchestrator's primary
 clone. Nothing below writes to it: your one file write is the brief
-body under `.claude/tmp/`, and every change to the branch is a
+body under `.claude/tmp/`, every record you make goes to the PR's state
+outside every repository, and every change to the branch is a
 teammate's, made in that teammate's own worktree.
 
 ## You never ask; you return
@@ -46,6 +48,20 @@ make from inside this agent. A spawned agent's context carries
 plugin-prefixed `subagent_type` string — `sdlc:issue-fixer`,
 `sdlc:docs-writer` and `sdlc:agent-memory-scrubber`. Pass those
 strings as written rather than a bare name you reconstruct.
+
+**Record every spawn in the PR's state** as soon as its `Agent` tool
+result names its agent id, through the preloaded
+`sdlc:agent-result-persist-interface` skill's `--mode agent`, with the
+definition's bare name — `issue-fixer`, say:
+
+```bash
+sdlc-agent-result-persist --mode agent --pr <PR> \
+  --agent <the definition spawned> --agent-id <its agent id>
+```
+
+The cleanup after the PR removes the worktrees that log names and no
+other, so a spawn you do not record leaves its worktree behind. A call
+that exits non-zero stops nothing; "Report back" says how to carry it.
 
 ## Inputs
 
@@ -296,3 +312,5 @@ Your report carries:
   every scrubber pass you ran — they are the record of a destructive
   operation, and the human reviews them.
 - **Every wait** you took on a running check, and the checks it named.
+- **Every spawn record that failed**, the agent and its agent id, with
+  the CLI's message quoted.

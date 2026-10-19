@@ -5,8 +5,9 @@ implemented without stopping to ask, plan and delegate the
 implementation of one or more issues across parallel teammate agents,
 review the resulting PRs through a theorem-based pipeline, hand the
 human a set of PRs to bless, watch each blessed PR until it merges,
-and, when the human asks, delete the review state of PRs that have
-merged or closed.
+and remove what each merged PR left behind — its review state, the
+worktrees its agents ran in, its local branch and its scratch — or,
+when the human asks, everything every run left in the repo.
 
 ## Find the owner of a statement before you edit it
 
@@ -41,6 +42,7 @@ restate the fact.
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
 | What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with | `skills/pr-read-cli-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
+| What the cleanup removes in each scope and in what order, what it keeps, the lines it prints and what it exits with | `bin/sdlc-orchestrate-cleanup` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
 Some owners are worth spelling out, because the obvious guess is wrong.
@@ -244,10 +246,11 @@ flips, `pr-finalizer`, the ready flip; then, unless `merge-wait` is
 until the PR merges and re-runs the gate while it waits, returning when
 the branch has fallen `BEHIND` or `DIRTY` so the merge-readiness loop
 runs again; and, once per run after the last PR's stages end, the
-**post-merge tail**, which owns the single cleanup sweep and returns
-the primary clone to the default branch. One PR goes through the
-stages at a time, because the first merge moves the base the next PR
-is measured against.
+**post-merge tail**, which runs the cleanup once for each PR the run
+merged — the cleanup is what leaves the primary clone on the default
+branch, fast-forwarded. One PR goes through the stages at a time,
+because the first merge moves the base the next PR is measured
+against.
 
 The split that holds this together: the gate **reports**, and the
 remedy is a teammate's. Neither the orchestrator nor a loop agent runs
@@ -679,15 +682,15 @@ verdict then reflects it.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `/sdlc:orchestrate-cleanup [<repository>] [--dry-run]` | Delete the review state of this repo's — or the named repository's — merged and closed PRs, keep it for open or unresolvable ones, identify every other repository's state directory from its `repo.yml` and move each old-layout one under the host the human names, then run the interim-work sweep; `--dry-run` reports the verdicts and the sweep's index, asks no host, and deletes no review state and no indexed item | main session |
-| `/sdlc:cleanup-interim-work [--index-only]` | Index what runs leave behind in this repo — `.claude/tmp/` scratch, the harness scratchpads, subagent worktrees, orphan `worktree-*` refs, nested worktrees, local and remote branches — grade each item, ask the human which to remove, and remove only those; `--index-only` prints the index and removes none of it | main session, interactive |
+| `/sdlc:orchestrate-cleanup <PR> [--dry-run]` | Remove what one merged or closed PR left behind — its review state, the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; `--dry-run` lists what would go and removes nothing | main session |
+| `/sdlc:orchestrate-cleanup --all [--dry-run]` | Remove everything every run left in this repo — all review state, every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; `--dry-run` shows the list and asks nothing | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
 | `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
-| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer` and `pr-finalizer` |
 | `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
 
@@ -723,26 +726,73 @@ and the grammar are owned by `skills/orchestrate-readiness/SKILL.md`;
 why grooming is interactive rather than an agent is owned by
 `skills/orchestrate-ready/SKILL.md`.
 
-`/sdlc:orchestrate-cleanup` is the pass behind the flow, and
-`/sdlc:orchestrate` does not invoke it either: a run's review state
-outlives the run, and the human runs the cleanup once that evidence is
-no longer wanted. Its verdicts, its report, and what `--dry-run` still
-writes are owned by `skills/orchestrate-cleanup/SKILL.md`.
+`/sdlc:orchestrate-cleanup` is the pass behind the flow, and its two
+forms are two scopes of one script, `bin/sdlc-orchestrate-cleanup`.
+The `<PR>` form is what `/sdlc:orchestrate`'s post-merge tail runs,
+once for each PR the run merged, asking nothing: a merged PR's evidence
+is no longer needed to diagnose a round, so its review state goes with
+the worktrees, branch and scratch that produced it, and a PR the run
+did not see merge keeps all of it. The `--all` form is the human's, for
+clearing up after many runs, and it is the one form that asks — a
+single question, put over the full list a dry run printed. The skill
+owns which form asks and what it shows first; what each scope removes,
+the lines it prints and its exits are the script's.
 
-`/sdlc:cleanup-interim-work` is the sweep both that pass and the
-orchestrator's post-merge tail end in, and it lives in this plugin
-because what it removes is what an `sdlc` run creates: task scratch,
-session scratchpads, the worktrees `isolation: worktree` teammates ran
-in, and the issue branches its PRs were opened from, locally and on
-`origin`. Two decisions shape it. It grades before it acts — every item
-is **clean**, **keep** or **ask** against a gate, and a gate that cannot
-be evaluated (a `rev-list` that errors) reads as keep, never as an
-empty list — and it removes nothing until the human names what goes,
-re-running each item's gate just before its action because a subagent
-may have committed or pushed since the index was taken. That question
-is why it runs in the main session rather than as an agent, and why
-`--index-only` exists: a caller that may not ask, such as a `--dry-run`,
-still gets the full index.
+The script replaces two step lists the model re-derived on every run,
+which graded each item against a gate and asked the human to pick from
+the result — a question the run could answer itself, since every item
+either belongs to the PR or does not. The decisions that replaced the
+grading:
+
+- **A PR's worktrees are found by agent id, not by branch or HEAD.**
+  A teammate releases its branch claim at end of run, so the worktree
+  it leaves is detached, and the reviewer's children check out
+  detached from the start; a sweep that matched worktrees by the PR's
+  branch or its commits missed most of them. So every spawn made for a
+  PR is recorded in the PR's state — the orchestrator and
+  `pr-merge-readiness` record each one through
+  `sdlc-agent-result-persist --mode agent`, and a review child records
+  itself at `enter` — and the `<PR>` scope removes exactly the
+  `.claude/worktrees/agent-<id>` worktree and the `worktree-agent-<id>`
+  branch of each id the state names, nested worktrees included, plus
+  any worktree under `.claude/worktrees/` still holding a branch it
+  deletes. A spawn nobody recorded is left behind, and `--all` is the
+  backstop that takes it.
+- **Removal is forced.** The `<PR>` scope runs only for a merged or
+  closed PR, so a worktree's uncommitted edit, unpushed commit or lock
+  is leftover from a run that has ended, not work in flight; the
+  `--all` scope is the human's deliberate reset. Checking for dirty or
+  unpushed state was what the old sweep spent its gates on, and every
+  such gate ended in a question.
+- **Nothing on `origin` is ever deleted or pushed to**, in either
+  scope; a remote branch is the human's.
+- **The default branch is never removed**, and the script refuses to
+  run at all when `git-default-branch` cannot name it — a sweep that
+  does not know which branch is protected cannot safely delete any.
+- **A PR in another repository is refused**, with exit 5 and nothing
+  removed: every worktree, branch and scratch entry the script matches
+  against the PR is this checkout's, so a PR from elsewhere would match
+  nothing or, worse, something.
+- **The primary clone is moved off the branches it deletes first.**
+  A run that removes switches the primary clone to the default branch
+  before it deletes any branch, or detaches it when another worktree
+  holds the default branch, so the branch the clone happened to have
+  checked out goes with the rest rather than failing. A branch a
+  worktree outside `.claude/worktrees/` still holds is kept and
+  reported, not failed: that worktree is nobody's leftover.
+- **Every run ends with the default branch current**: worktree prune,
+  fetch with prune, and a fast-forward in whichever worktree holds the
+  default branch. The orchestrator's post-merge tail used to do that
+  itself, after the sweep; now the script does it, and the tail only
+  relays.
+
+`test/sdlc-orchestrate-cleanup-test.sh` drives the script against a
+primary clone holding dirty, unpushed, locked, detached and nested
+worktrees, unrelated branches, scratch and session scratchpads, with
+stub `git-default-branch`, `gh`, `pr-view`, `pr-closing-issues` and
+`sdlc-agent-result-persist` executables and a logging `git` wrapper in
+front of the real one, so it can assert that no run pushed and that
+`origin`'s refs are unchanged.
 
 ## Executables
 
@@ -760,6 +810,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
 | `bin/sdlc-readiness-check` | Grades an issue's `### Mechanical` bullets against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet; exits 3 on any failing bullet and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
+| `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — review state through `sdlc-agent-result-persist`, worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
 
 `sdlc-readiness-check` is a script because the grading it replaces was
 an injection path: a `### Mechanical` bullet used to name the command
@@ -829,9 +880,10 @@ executable's concern.
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,
 never the tool's own status — the PR-read scripts, the detail poster,
-the readiness check and the PR monitor exit 1, the persist script and
-the time report route it through their existing exit 2 — so a caller
-branching on an exit sees only the statuses each contract documents.
+the readiness check, the PR monitor and the cleanup exit 1, the persist
+script and the time report route it through their existing exit 2 — so
+a caller branching on an exit sees only the statuses each contract
+documents.
 
 The time report and the detail poster compose no state path of their
 own: each reaches round logs, result files and transcripts only through
@@ -868,9 +920,10 @@ the staging path is named, are owned by
 `skills/agent-result-persist-interface/SKILL.md`.
 
 `pr-finalizer` reads that state and writes none of it. The orchestrator
-writes exactly one of these files, round 0's `records` — the seed
-settled before the developer ran, transcribed through the same
-script. The `sdlc-config-*` verbs write the config files their contract
+writes round 0's `records` — the seed settled before the developer ran,
+transcribed through the same script — and, like `pr-merge-readiness`,
+appends to the PR's agents log for each agent it spawns; neither writes
+anything else here. The `sdlc-config-*` verbs write the config files their contract
 names, on the user's yes, and those are the user's files rather than
 run state. The implementing
 agents are outside the claim entirely and write nothing this
@@ -893,6 +946,7 @@ PR's repository's directory, and `<round-dir>` for
 | `<round-dir>/records` | the round's theorem records, which the next round carries forward — built by the script from the round below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
 | `<round-dir>/review` | the round's argued review, which the posted review summarises; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
+| `<repo-dir>/pr<pr>/agents` | the PR's agents log: one record per agent spawned for the PR, naming the definition and the agent id, beside the rounds because a spawn belongs to no round and a voided round's rename must not carry it away |
 
 Neither the records file nor the review file is capped, quoted or
 truncated: the 64 KB ceiling that once bounded what a round could
@@ -931,22 +985,23 @@ host is guessed and no network call is made. `--mode list` takes its
 repository as an optional operand — `<host>/<owner>/<repo>`, its URL,
 or a shorter form filled in from the current repository, which is also
 what an omitted operand means — and prints each PR as the reference
-`--pr` takes, so `/sdlc:orchestrate-cleanup` hands each line on to
-`/github-prs:pr-view` and `--mode delete` without composing one. The
-script's `--mode repos` lists every repository directory under the
-state root as its `repo.yml` names it, and a directory of the old
-layout, which has none, as such; it is how `/sdlc:orchestrate-cleanup`
-finds state for repositories other than the one it was pointed at, and
-asks the human for the host of each old-layout directory rather than
-assuming one. The identifying flag, the `list` operand, `repo.yml`, the
-move and the modes are owned by
-`skills/agent-result-persist-interface/SKILL.md`.
+`--pr` takes, so a caller hands each line on to `--mode delete` without
+composing one. The script's `--mode repos` lists every repository
+directory under the state root as its `repo.yml` names it, and a
+directory of the old layout, which has none, as such. The identifying
+flag, the `list` operand, `repo.yml`, the move and the modes are owned
+by `skills/agent-result-persist-interface/SKILL.md`.
 
 The `enter` record also carries a path outside that directory,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
 — the harness's own transcript of that child. The script **composes**
 that path and writes nothing there; recording it is what lets a
-post-mortem reach a child's transcript after its worktree is gone.
+post-mortem reach a child's transcript after its worktree is gone. The
+agent id in that record, and in each `agent` record of the agents log,
+is also the name of the child's worktree under `.claude/worktrees/`,
+which is how `--mode print-agents` — every id the PR's state names,
+across the agents log and every round log, voided rounds included —
+tells the cleanup which worktrees were the PR's.
 
 **Nothing removes any of it during a run, and that is deliberate.**
 No mode that runs during a review deletes, and nothing expires: a
@@ -958,8 +1013,11 @@ across a turn, and a finished run's time report is reconstructed from
 them after every worktree that produced them is gone. The one `sdlc`
 surface that deletes state is the script's `--mode delete`, which
 removes a whole `pr<N>/`, and its only caller is
-`/sdlc:orchestrate-cleanup`, a pass the human invokes; so a `pr<N>/`
-stays after its PR merges or closes until the human runs that pass.
+`sdlc-orchestrate-cleanup`, which `/sdlc:orchestrate` runs for a PR
+once that PR has merged and the human runs otherwise; so a `pr<N>/`
+outlives every round of its PR, and goes when the PR has merged — its
+evidence is no longer needed to diagnose a round — or when the human
+decides it is no longer wanted.
 
 ## Agents
 
@@ -970,8 +1028,14 @@ primary clone, writing nothing to it: each is a loop over a gate, and
 every change to the branch a loop drives is a commit by a teammate it
 spawns or that the orchestrator spawns after it. Nothing removes a
 worktree during a run: the reviewer leaves its children's worktrees
-where the harness made them, and `/sdlc:cleanup-interim-work` is the
-one sweep that removes them, after the human names which go.
+where the harness made them, and `sdlc-orchestrate-cleanup` removes
+them once the PR has merged, finding each by the agent id the PR's
+state names. That is why every spawn made for a PR is recorded there:
+the orchestrator and `pr-merge-readiness` record each agent they spawn
+through `sdlc-agent-result-persist --mode agent`, and a review child
+records itself when it enters a round. The orchestrator's seed
+generator and the batch's developer are spawned before the PR has a
+reference, so their ids are held and recorded once the PR is linked.
 
 | Agent | Purpose |
 | ------- | --------- |
@@ -981,7 +1045,7 @@ one sweep that removes them, after the human names which go.
 | `style-checker` | Reports a round's style-guide violations in its code and instruction Markdown, each file graded against its own class's guide, which the orchestrator sends to a fixer before its review |
 | `docs-writer` | Writes a PR's documentation after its review loop ends, and again after a merge-readiness fixer round that deferred a documentation edit to it |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer`, then `docs-writer` when the fixer deferred a documentation edit, then `agent-memory-scrubber` for each remedy, and returns a state that needs a ruling as a question |
+| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer`, then `docs-writer` when the fixer deferred a documentation edit, then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, and returns a state that needs a ruling as a question |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, replacing the one an earlier run left |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
@@ -1067,8 +1131,9 @@ cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, `git-range`, `git-branch-sync`, the PR verbs,
 `agent-memory-inbox-capture`, and `agent-memory-inbox-cleanup` — and
-that the `pr-comment` executable the detail poster calls off `PATH` is
-there to call. The
+that the executables the scripts here call off `PATH` are there to
+call: `pr-comment` for the detail poster, and `git-default-branch`,
+`pr-view` and `pr-closing-issues` for the cleanup. The
 edge coordinates install and enablement, not file access: plugins are
 file-sandboxed, so nothing here reads another plugin's files.
 
@@ -1082,7 +1147,11 @@ breaking one. The `github-prs` edge is what makes the policy safe to
 hold. The executables under `bin/` are outside it: a script is already
 the single owner of the call it makes.
 
-The `github-prs` edge is also why the interim-work sweep lives here
-rather than in `git-tools`: its branch gate asks GitHub whether a
-branch's PR merged, `github-prs` already depends on `git-tools`, and
-an edge back would be a cycle.
+The `github-prs` edge is also why the cleanup lives here rather than
+in `git-tools`: its per-PR scope reads the PR's state and head branch
+through `pr-view` and the issues it closes through
+`pr-closing-issues`, `github-prs` already depends on `git-tools`, and
+an edge back would be a cycle. What the cleanup needs from git alone —
+the one branch no scope removes — it takes from `git-tools`'
+`git-default-branch`, which the `git-tools` edge puts on `PATH`; the
+script refuses to run when that call names no branch.

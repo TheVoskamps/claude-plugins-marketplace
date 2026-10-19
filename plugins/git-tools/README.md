@@ -3,8 +3,9 @@
 Git-side helpers for the issue-branch lifecycle — create the branch an
 issue set is worked on, recover that set from a finished branch's
 name, read a branch's range on `origin` before trusting what was read
-from it, and run the fixed git steps around an agent's own work on a
-branch that already exists — plus `test-generate`, a general dev
+from it, run the fixed git steps around an agent's own work on a
+branch that already exists, and name the repo's default branch for a
+caller that must never remove it — plus `test-generate`, a general dev
 utility that lives here and is not a git operation.
 
 ## Why you would want it
@@ -80,8 +81,11 @@ back and the rebase walks on.
 
 `/git-range` and `/git-branch-sync` need only the first: each takes
 every ref it needs as an argument and never asks GitHub.
-`test-generate` needs none of these: it works on the code in front of
-it.
+`git-default-branch` needs either an authenticated `gh` or an `origin`
+whose `HEAD` symref is set: it asks `gh` first and falls back to the
+symref, so a checkout that has only one of the two still gets an
+answer. `test-generate` needs none of these: it works on the code in
+front of it.
 
 ## Getting started
 
@@ -218,10 +222,12 @@ the caller's decisions.
 
 Every skill here but `test-generate`, which is a procedure the model
 runs, is backed by a script under `bin/`, on `PATH` once the plugin is
-enabled. Each script runs under the bash 3.2 macOS ships, and in each a
-command the script does not handle that fails exits 1 with a line
-naming the command, never with the tool's own status, so a caller
-branching on the exit sees only the statuses the skill documents.
+enabled, and one script, `git-default-branch`, has no skill in front
+of it: it exists for other scripts to call by name. Each script runs
+under the bash 3.2 macOS ships, and in each a command the script does
+not handle that fails exits 1 with a line naming the command, never
+with the tool's own status, so a caller branching on the exit sees
+only the statuses the skill, or the script's own header, documents.
 
 ### `git-issue-branch`
 
@@ -310,14 +316,44 @@ without a rebase in between, a `post-receive` hook that moves the branch
 so the verification fails, and a `pre-receive` hook that refuses, which
 stays an unclassified failure.
 
+### `git-default-branch`
+
+Prints the name of the current repository's default branch, on one
+line, and takes no argument. The GitHub repository setting wins,
+through `gh repo view`; when `gh` fails or names nothing, the branch
+`refs/remotes/origin/HEAD` points at is used instead. The setting is
+first because it is the live answer: the symref is a snapshot the
+clone took, which a rename on GitHub does not update and which a
+remote added by hand and fetched never gets. The symref is the fallback
+because it is what a checkout with no `gh`, an unauthenticated one, or
+a non-GitHub remote still has, which is why `gh`'s own error is
+dropped rather than relayed — a failing `gh` is the case the fallback
+exists for, not a failure of the script. It exits 1, with a line
+naming both sources, when neither names a branch, and 2 on any
+argument, having run nothing.
+
+A caller removing branches resolves the default branch through this
+script before it deletes anything, and treats a non-zero exit as "no
+protected branch is known" and stops; a sweep that hardcodes `main`
+deletes the wrong branch on the first repo whose default is something
+else.
+
+`test/git-default-branch-test.sh` drives it with a stub `gh` first on
+`PATH` and a clone of a local bare `origin`, reaching no network: the
+setting winning over the symref, the fallback when `gh` fails and when
+it names nothing, neither source naming a branch, the usage error, and
+a failing command the script does not handle.
+
 ## What it deliberately does not do
 
 - **No pull-request or issue-tracker operations.** These skills touch
   branches; opening a PR, linking issues to one, listing a branch's
   PRs, or changing an issue is not theirs. That is also why no
-  end-of-lifecycle cleanup lives here: deciding whether a merged branch
-  can go means asking GitHub about its PR, and the sweep over what an
-  orchestrated run leaves behind belongs with the flow that leaves it.
+  end-of-lifecycle cleanup lives here: deciding what a merged PR
+  leaves behind means asking GitHub about the PR, and the sweep over
+  what an orchestrated run leaves belongs with the flow that leaves
+  it. What such a sweep needs from git alone — the one branch it must
+  never remove — is what `git-default-branch` supplies.
 - **`/git-issues-from-branch` reports and never decides.** It names
   the resolved set and what fell outside it; what a mismatch means, and
   what to do about it, is the caller's call. It also runs no git
@@ -368,3 +404,10 @@ leave that record alone, and nothing else records whether a rebase ran
 — so a change that lets `push` fetch before it decides, or lets a
 rebase touch the record, changes what the lease refuses, and the
 other-writer cases in the test are what re-check it.
+
+`git-default-branch`'s non-zero exit is what a caller reads as "no
+protected branch is known", so a new source for the name goes in ahead
+of that failure, in the order the sources are trusted, rather than as
+a new exit status; and a source that can be wrong about the live
+default — anything read off the clone rather than the host — goes
+after the GitHub setting, never before it.

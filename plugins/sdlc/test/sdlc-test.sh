@@ -6,7 +6,8 @@
 # file from the carried round, an edits file and the new records, each
 # refusal the carry form makes, print-records with and without a --round
 # bound, the path leave prints, stopped's --agent-id and
-# print-in-flight's matching of a stopped to its child, a generator's
+# print-in-flight's matching of a stopped to its child, the agent
+# record and the agent ids print-agents reads back, a generator's
 # leave refused for ids that do not continue the carried records,
 # print-root's state root and its signpost, and the repository's state
 # directory: its repo.yml, the move of state from the layout that
@@ -471,6 +472,55 @@ printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' >"$CASE/report"
 as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/report"
 check "$RC:$OUT" "0:$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover" \
   "leave: prints the result file's path"
+
+# --- the agents a PR's state names ------------------------------------------
+
+# print_agents: runs print-agents, leaving stdout in OUT.
+print_agents() {
+  OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print-agents 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+new_case agents-none
+print_agents
+check "$RC:$OUT" "0:" "agents: a PR with no state names none"
+check "$([ -e "$XDG_STATE_HOME/sdlc" ] && echo made || echo absent)" "absent" "agents: print-agents creates nothing"
+
+new_case agents-recorded
+persist --mode agent --agent issue-developer --agent-id d1
+check "$RC" "0" "agents: an agent record is written"
+check "$(awk '{print $1, $3, $4}' "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/agents")" "agent issue-developer d1" \
+  "agents: the record names the definition and the agent id"
+check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null | sed -n 2p)" "host: h.example" \
+  "agents: the record's directory carries repo.yml"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round" ] && echo made || echo absent)" "absent" \
+  "agents: an agent record creates no round directory"
+persist --mode agent --agent theorem-based-pr-reviewer --agent-id r1
+as_child g1 --mode enter --round 1 --theorem list --stage generate
+as_child v1 --mode enter --round 1 --theorem T1 --stage disprove
+as_child v1 --mode enter --round 1 --theorem T2 --stage disprove
+as_child old --mode enter --round 2 --theorem list --stage generate
+mv "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2.voided-20260101T000000Z"
+print_agents
+check "$RC" "0" "agents: print-agents exits 0"
+check "$(printf '%s\n' "$OUT" | tr '\n' ' ')" "d1 g1 old r1 v1 " \
+  "agents: every recorded spawn and every child that entered a round, voided rounds included, once each"
+
+new_case agents-refusals
+persist --mode agent --agent issue-developer
+check "$RC" "2" "agents: an agent record without --agent-id is refused"
+check_contains "$ERR" "--agent-id is required in --mode agent" "agents: the refusal names --agent-id"
+persist --mode agent --agent-id d1
+check_contains "$RC:$ERR" "2:" "agents: an agent record without --agent is refused"
+check_contains "$ERR" "--agent is required in --mode agent" "agents: the refusal names --agent"
+persist --mode agent --agent issue-developer --agent-id 'd 1'
+check_contains "$ERR" "--agent-id must be a single token" "agents: an agent id carrying whitespace is refused"
+persist --mode agent --round 1 --agent issue-developer --agent-id d1
+check_contains "$ERR" "--round is not accepted in --mode agent" "agents: an agent record takes no --round"
+persist --mode print-agents --round 1
+check_contains "$ERR" "--round is not accepted in --mode print-agents" "agents: print-agents takes no --round"
+check "$([ -e "$XDG_STATE_HOME/sdlc" ] && echo made || echo absent)" "absent" "agents: a refused record writes nothing"
 
 # --- a generator's ids against the carried records --------------------------
 

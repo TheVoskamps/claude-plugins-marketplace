@@ -1,0 +1,441 @@
+#!/usr/bin/env bash
+#
+# sdlc-orchestrate-cleanup -- remove what sdlc runs leave behind in this
+# repository, for one merged or closed pull request or for the whole
+# repository, and bring the default branch up to date. Asks nothing.
+#
+# The default branch comes from git-tools' `git-default-branch`, and is
+# never removed. No branch on origin is ever deleted or pushed to.
+# Removal is forced: a worktree is unlocked and removed with `--force`,
+# a branch is deleted with `-D`, and scratch with `rm -rf`, so
+# uncommitted or unpushed work goes with it. Review state, and the agents
+# a PR's state names, are read and deleted only through
+# `sdlc-agent-result-persist`. The PR is read through github-prs'
+# `pr-view` and `pr-closing-issues`, and this checkout's repository is
+# the one `gh repo view` reports. Every executable is called by name off
+# PATH. Worktrees, branches and scratch are those of the primary clone,
+# whichever of its worktrees the script runs in. Runs under the bash 3.2
+# macOS ships.
+#
+# Usage: sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
+#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--dry-run]
+#
+#   --pr <PR>           the pull request, in any form pr-view accepts. It
+#                       must be merged or closed, and in this checkout's
+#                       repository. Removes its review state; every
+#                       worktree under .claude/worktrees/, nested ones
+#                       included, named agent-<id> for an agent id its
+#                       state names, and each such agent's local
+#                       worktree-agent-<id> branch; its local head
+#                       branch, and every worktree under
+#                       .claude/worktrees/ holding a branch it deletes;
+#                       and every top-level .claude/tmp/ entry
+#                       named `<anything>-<N>` for an issue <N> its body
+#                       closes.
+#   --all               the whole repository: its review state, every
+#                       worktree under .claude/worktrees/, every local
+#                       branch but the default branch, every top-level
+#                       .claude/tmp/ entry, and every per-session
+#                       scratchpad beside --scratchpad's.
+#   --scratchpad <path> this session's scratchpad, whose last component
+#                       is `scratchpad`; the directory two levels above
+#                       it holds one <session-id>/scratchpad/ per
+#                       session. It is kept.
+#   --dry-run           print what a real run would act on, and act on
+#                       nothing; the `sdlc-agent-result-persist` calls
+#                       that find the review state still move old-layout
+#                       state into place, as every call of that CLI does
+#
+# Stdout is one line per item, `<action> <category> <item>`, the action
+# `delete` or `remove` -- `would-delete` or `would-remove` under
+# --dry-run -- and the category `review-state`, `worktree`, `branch`,
+# `scratch` or `scratchpad`. An action that fails is followed by
+# `failed <action> <category> <item>: <its error>`, and the rest carry on.
+# A run that is not --dry-run puts the primary clone on the default
+# branch before it deletes any branch -- `git switch`, unless another
+# worktree has the default branch checked out, in which case a primary
+# clone on a branch the run deletes is detached with `git switch
+# --detach`. A branch the run deletes that a worktree still has checked
+# out after that -- one outside .claude/worktrees/, or one an earlier
+# action or step failed to free -- is not deleted, and prints
+# `keep branch <branch>: checked out at <path>`, `would-keep` under
+# --dry-run, which is no failure. The run ends with
+# `git worktree prune`, `git fetch --all --prune` and
+# `git -C <path> pull --ff-only` in the worktree holding the default
+# branch. A step that fails prints `failed <step>: <its error>`.
+#
+# Exit statuses:
+#   0  every action and step succeeded, or --dry-run printed its items
+#   1  an action or step failed, its failure line on stdout; or a
+#      command the script ran outside an action failed, its error on
+#      stderr above the script's line
+#   2  a usage error; nothing was run
+#   3  --pr: the PR is open; nothing was removed
+#   4  the default branch could not be resolved; nothing was removed
+#   5  --pr: the PR is in another repository than this checkout's;
+#      nothing was removed
+set -uo pipefail
+
+PROGRAM=${0##*/}
+
+# fail <status> <message> -- print <message>, prefixed with the
+# program's name, and exit with <status>.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+usage="usage: $PROGRAM --pr <PR> [--dry-run] | --all --scratchpad <path> [--dry-run]"
+
+# usage_error <message> -- print <message> and the synopsis, and exit 2.
+usage_error() {
+  printf '%s: %s\n%s\n' "$PROGRAM" "$1" "$usage" >&2
+  exit 2
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command. `set -E` carries the trap into functions and
+# command substitutions; a substitution whose failure is handled ends in
+# `|| exit` inside it, so the trap stays quiet in the substitution's own
+# shell.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+# An empty value is refused here, so each flag's value is empty exactly
+# when the flag was not passed, and the checks below read its presence
+# off it.
+pr=
+all=
+scratchpad=
+dry=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pr | --scratchpad)
+      [ "$#" -ge 2 ] || usage_error "\`$1\` needs a value."
+      [ -n "$2" ] || usage_error "\`$1\` needs a non-empty value."
+      case "$1" in
+        --pr) pr=$2 ;;
+        --scratchpad) scratchpad=$2 ;;
+      esac
+      shift 2
+      ;;
+    --all)
+      all=yes
+      shift
+      ;;
+    --dry-run)
+      dry=yes
+      shift
+      ;;
+    *) usage_error "\`$1\` is not an argument $PROGRAM takes." ;;
+  esac
+done
+
+if [ -n "$pr" ]; then
+  [ -z "$all" ] || usage_error "\`--pr\` and \`--all\` are two scopes; pass one."
+  [ -z "$scratchpad" ] || usage_error "\`--scratchpad\` goes with \`--all\` only."
+else
+  [ -n "$all" ] || usage_error "No scope was supplied: pass \`--pr <PR>\` or \`--all\`."
+  [ -n "$scratchpad" ] || usage_error "\`--all\` needs \`--scratchpad <path>\`."
+  while [ "$scratchpad" != / ] && [ "${scratchpad%/}" != "$scratchpad" ]; do
+    scratchpad=${scratchpad%/}
+  done
+  [ "${scratchpad##*/}" = scratchpad ] ||
+    usage_error "\`--scratchpad\` must name a directory called \`scratchpad\`, not \`$scratchpad\`."
+  [ -d "$scratchpad" ] || usage_error "\`--scratchpad\` names no directory: \`$scratchpad\`."
+fi
+
+default=$(git-default-branch || exit) ||
+  fail 4 "git-default-branch named no default branch; nothing was removed"
+
+FAILED=
+
+# attempt <label> <command>... -- run the command with its output
+# captured; when it fails, print a failure line naming <label> and
+# quoting the output, one line, record the failure in FAILED, and return
+# 1. Returns 0 when the command succeeds.
+attempt() {
+  local label=$1 out
+  shift
+  if out=$(
+    trap - ERR
+    "$@" 2>&1
+  ); then
+    return 0
+  fi
+  printf 'failed %s: %s\n' "$label" "${out//$'\n'/ / }"
+  FAILED=yes
+  return 1
+}
+
+# act <action> <category> <item> <command>... -- print the item's line,
+# then run the command through attempt; under --dry-run print it as
+# would-<action> and run nothing.
+act() {
+  local action=$1 category=$2 item=$3
+  shift 3
+  if [ -n "$dry" ]; then
+    printf 'would-%s %s %s\n' "$action" "$category" "$item"
+    return 0
+  fi
+  printf '%s %s %s\n' "$action" "$category" "$item"
+  attempt "$action $category $item" "$@" || :
+}
+
+# remove_worktree <path> <locked> -- unlock the worktree when <locked>
+# is non-empty, then remove it whatever it holds.
+remove_worktree() {
+  if [ -n "$2" ]; then
+    git -C "$root" worktree unlock "$1" || return
+  fi
+  git -C "$root" worktree remove --force "$1"
+}
+
+# The field separator of the worktree lines. A tab or any other
+# whitespace character would not do: `read` merges a run of IFS
+# whitespace into one separator, so an empty field would take the next
+# field's value.
+SEP=$'\x1f'
+
+# worktrees -- print one line per worktree of the repository, the
+# primary clone first: <path> SEP <HEAD> SEP <branch> SEP <locked>,
+# <branch> empty for a detached HEAD and <locked> `yes` or empty.
+worktrees() {
+  local list line path='' head='' branch='' locked=''
+  list=$(git worktree list --porcelain || exit) || fail 1 "git worktree list --porcelain failed"
+  while IFS= read -r line; do
+    case "$line" in
+      'worktree '*)
+        [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked"
+        path=${line#worktree }
+        head=
+        branch=
+        locked=
+        ;;
+      'HEAD '*) head=${line#HEAD } ;;
+      'branch refs/heads/'*) branch=${line#branch refs/heads/} ;;
+      locked | 'locked '*) locked=yes ;;
+    esac
+  done <<EOF
+$list
+EOF
+  [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked"
+}
+
+all_worktrees=$(worktrees || exit) || exit
+root=${all_worktrees%%"$SEP"*}
+# Reverse order puts every nested worktree before the one it sits in,
+# so each is removed while its own directory is still there rather than
+# deleted under it by the outer removal.
+under=$(printf '%s\n' "$all_worktrees" | LC_ALL=C sort -r || exit) ||
+  fail 1 "sorting the worktrees failed"
+
+# The PR's facts: its canonical reference, its state, its head branch,
+# the issues its body closes, and the agent ids its state names as one
+# newline-delimited list with a newline at each end. The PR must be in
+# this checkout's repository, since every worktree, branch and scratch
+# entry the script matches against it is this checkout's.
+if [ -n "$pr" ]; then
+  ref=$(pr-view "$pr" --ref || exit) || fail 1 "pr-view $pr --ref failed"
+  here=$(gh repo view --json url --jq .url || exit) || fail 1 "gh repo view failed"
+  here=${here#https://}
+  here=${here%/}
+  pr_repo=$(printf '%s' "${ref%'#'*}" | tr '[:upper:]' '[:lower:]' || exit) || fail 1 "lowercasing $ref failed"
+  here_repo=$(printf '%s' "$here" | tr '[:upper:]' '[:lower:]' || exit) || fail 1 "lowercasing $here failed"
+  [ "$pr_repo" = "$here_repo" ] ||
+    fail 5 "PR $ref is not in this checkout's repository, $here; nothing was removed"
+  facts=$(pr-view "$ref" --json state,headRefName --jq '.state, .headRefName' || exit) ||
+    fail 1 "pr-view $ref failed"
+  { IFS= read -r state && IFS= read -r head_branch; } <<EOF || :
+$facts
+EOF
+  case "$state" in
+    OPEN) fail 3 "PR $ref is open; nothing was removed" ;;
+    MERGED | CLOSED) ;;
+    *) fail 1 "pr-view $ref reported an unrecognised state: $state" ;;
+  esac
+  closing=$(pr-closing-issues "$ref" || exit) || fail 1 "pr-closing-issues $ref failed"
+  issues=
+  case "$closing" in
+    *' closes issues '*) issues=${closing##* closes issues } && issues=${issues//,/} ;;
+  esac
+  # Read before the review state is deleted, which takes the records
+  # naming the agents with it.
+  agents=$(sdlc-agent-result-persist --mode print-agents --pr "$ref" || exit) ||
+    fail 1 "sdlc-agent-result-persist --mode print-agents --pr $ref failed"
+  agents=$'\n'$agents$'\n'
+fi
+
+# deletes_branch <branch> -- succeed when the run deletes the local
+# branch <branch>: under --all every branch but the default branch, and
+# under --pr the PR's head branch and the worktree-agent-<id> branch of
+# each agent id its state names.
+deletes_branch() {
+  [ -n "$1" ] && [ "$1" != "$default" ] || return 1
+  [ -n "$pr" ] || return 0
+  [ "$1" != "$head_branch" ] || return 0
+  case "$1" in
+    worktree-agent-?*) ;;
+    *) return 1 ;;
+  esac
+  case "$agents" in
+    *$'\n'"${1#worktree-agent-}"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+# --- review state ------------------------------------------------------
+if [ -n "$pr" ]; then
+  listed=$(sdlc-agent-result-persist --mode list "${ref%'#'*}" || exit) ||
+    fail 1 "sdlc-agent-result-persist --mode list ${ref%'#'*} failed"
+else
+  listed=$(sdlc-agent-result-persist --mode list || exit) ||
+    fail 1 "sdlc-agent-result-persist --mode list failed"
+fi
+while IFS= read -r item; do
+  [ -n "$item" ] || continue
+  [ -z "$pr" ] || [ "$item" = "$ref" ] || continue
+  act delete review-state "$item" sdlc-agent-result-persist --mode delete --pr "$item"
+done <<EOF
+$listed
+EOF
+
+# --- worktrees ---------------------------------------------------------
+while IFS=$SEP read -r path head branch locked; do
+  case "$path" in
+    "$root/.claude/worktrees/"*) ;;
+    *) continue ;;
+  esac
+  # Under --pr, a worktree holding a branch the run deletes goes too,
+  # whoever it was made for, so that it does not keep the branch.
+  if [ -n "$pr" ] && ! deletes_branch "$branch"; then
+    name=${path##*/}
+    case "$name" in
+      agent-?*) ;;
+      *) continue ;;
+    esac
+    case "$agents" in
+      *$'\n'"${name#agent-}"$'\n'*) ;;
+      *) continue ;;
+    esac
+  fi
+  act remove worktree "$path" remove_worktree "$path" "$locked"
+done <<EOF
+$under
+EOF
+
+# --- the primary clone off the branches it deletes ---------------------
+# Before any branch is deleted, so a branch the primary clone had checked
+# out is deleted with the rest: onto the default branch, or detached when
+# another worktree holds the default branch. The worktree left holding
+# the default branch is the one the finish pulls in.
+holder=
+if [ -z "$dry" ]; then
+  remaining=$(worktrees || exit) || exit
+  root_branch=
+  while IFS=$SEP read -r path head branch locked; do
+    [ "$branch" != "$default" ] || holder=$path
+    [ "$path" != "$root" ] || root_branch=$branch
+  done <<EOF
+$remaining
+EOF
+  if [ -z "$holder" ]; then
+    if attempt "git switch $default" git -C "$root" switch "$default"; then
+      holder=$root
+    fi
+  elif [ "$holder" != "$root" ] && deletes_branch "$root_branch"; then
+    attempt "git switch --detach" git -C "$root" switch --detach || :
+  fi
+fi
+
+# --- branches ----------------------------------------------------------
+# The worktrees that still hold a branch once the steps above have run:
+# after them, every worktree left; under --dry-run, which runs none of
+# them, every worktree but the primary clone and those under
+# .claude/worktrees/, the ones they would free.
+if [ -z "$dry" ]; then
+  holding=$(worktrees || exit) || exit
+else
+  holding=
+  while IFS= read -r line; do
+    case "${line%%"$SEP"*}" in
+      "$root" | "$root/.claude/worktrees/"*) ;;
+      *) holding=$holding$line$'\n' ;;
+    esac
+  done <<EOF
+$all_worktrees
+EOF
+fi
+
+# checked_out_at <branch> -- print the path of the worktree in
+# `holding` that has <branch> checked out, or nothing when none has.
+checked_out_at() {
+  local path head branch locked
+  while IFS=$SEP read -r path head branch locked; do
+    if [ -n "$branch" ] && [ "$branch" = "$1" ]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done <<EOF
+$holding
+EOF
+  return 0
+}
+
+branches=$(git -C "$root" for-each-ref --format='%(refname:lstrip=2)' refs/heads/ || exit) ||
+  fail 1 "git for-each-ref refs/heads/ failed"
+while IFS= read -r branch; do
+  deletes_branch "$branch" || continue
+  at=$(checked_out_at "$branch" || exit) || exit
+  if [ -n "$at" ]; then
+    printf '%skeep branch %s: checked out at %s\n' "${dry:+would-}" "$branch" "$at"
+    continue
+  fi
+  act delete branch "$branch" git -C "$root" branch -D "$branch"
+done <<EOF
+$branches
+EOF
+
+# --- scratch -----------------------------------------------------------
+if [ -d "$root/.claude/tmp" ]; then
+  entries=$(find "$root/.claude/tmp" -mindepth 1 -maxdepth 1 || exit) ||
+    fail 1 "find $root/.claude/tmp failed"
+  entries=$(printf '%s\n' "$entries" | LC_ALL=C sort || exit) || fail 1 "sorting .claude/tmp/ failed"
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    if [ -n "$pr" ]; then
+      match=
+      for n in $issues; do
+        case "${entry##*/}" in
+          *-"$n") match=yes ;;
+        esac
+      done
+      [ -n "$match" ] || continue
+    fi
+    act remove scratch "$entry" rm -rf "$entry"
+  done <<EOF
+$entries
+EOF
+fi
+
+# --- scratchpads -------------------------------------------------------
+if [ -n "$all" ]; then
+  sessions=${scratchpad%/*}
+  sessions=${sessions%/*}
+  for pad in "$sessions"/*/scratchpad; do
+    [ -d "$pad" ] || continue
+    [ ! "$pad" -ef "$scratchpad" ] || continue
+    act remove scratchpad "$pad" rm -rf "$pad"
+  done
+fi
+
+# --- finish ------------------------------------------------------------
+if [ -z "$dry" ]; then
+  attempt "git worktree prune" git -C "$root" worktree prune || :
+  attempt "git fetch --all --prune" git -C "$root" fetch --all --prune || :
+  if [ -n "$holder" ]; then
+    attempt "git -C $holder pull --ff-only" git -C "$holder" pull --ff-only || :
+  fi
+fi
+
+[ -z "$FAILED" ] || exit 1

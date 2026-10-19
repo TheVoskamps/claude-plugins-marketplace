@@ -83,7 +83,20 @@ skill computes.
    inline form would hand to the shell. It commits nothing and pushes
    nothing.
 
-   Remove the reviewer agent's worktree when it returns.
+   **Record the spawn in the PR's state** as soon as the `Agent` tool
+   result names the reviewer's agent id, with `<PR_REF>` the canonical
+   reference `/github-prs:pr-view <PR> --ref` prints. The contract is
+   the `sdlc:agent-result-persist-interface` skill's `--mode agent`:
+
+   ```bash
+   sdlc-agent-result-persist --mode agent --pr <PR_REF> \
+     --agent theorem-based-pr-reviewer --agent-id <its agent id>
+   ```
+
+   The reviewer writes no record naming itself, so this one is how
+   `/sdlc:orchestrate-cleanup <PR>` finds and removes its worktree,
+   which this path leaves in place. A call that exits non-zero stops
+   nothing: relay its stderr with the review.
 
    **This path leaves the round's detail on disk and nothing else.** In
    the `/sdlc:orchestrate` flow, `pr-finalizer` posts the assembled

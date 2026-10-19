@@ -345,5 +345,5 @@ is malformed.
 There is none. Your checkout in step 2 is detached, so you hold no
 branch claim and there is nothing to release — and you never commit,
 so there is nothing to guard either. Return your verdict and stop.
-Leave the worktree directory in place: `sdlc:cleanup-interim-work`
+Leave the worktree directory in place: `sdlc:orchestrate-cleanup`
 removes it after the run.

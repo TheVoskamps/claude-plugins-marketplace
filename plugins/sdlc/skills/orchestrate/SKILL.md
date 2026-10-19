@@ -103,6 +103,22 @@ inside it. You don't manage worktree paths and you never pass them in
 spawn prompts. Those two run in the primary clone and write nothing to
 it.
 
+**Record every agent you spawn for a PR** in its state, as soon as the
+spawn's `Agent` tool result names its agent id and the PR has a
+`<PR_REF>` — `sdlc-agent-result-persist`'s `--mode agent`, whose
+contract is the `sdlc:agent-result-persist-interface` skill:
+
+```bash
+sdlc-agent-result-persist --mode agent --pr <PR_REF> \
+  --agent <the definition spawned> --agent-id <its agent id>
+```
+
+That log is how the post-merge tail's `/sdlc:orchestrate-cleanup <PR>`
+finds the PR's worktrees: what is not recorded is left behind. A batch's
+seed generator and its `issue-developer` are spawned before the PR has
+a reference, so hold each one's agent id in your scratchpad and record
+both at the link step.
+
 A teammate that declares `memory: project` captures its entries with
 `/cc-tools:agent-memory-inbox-capture` at end-of-run, and
 `agent-memory-scrubber` curates that inbox on the human's end-of-loop
@@ -393,11 +409,10 @@ extent signals, read against the batch's issue bodies rather than a
 delta. The output is low or medium and nothing else. A tier the human
 named at the plan confirm wins outright.
 
-The seed spawn is not persisted through `sdlc-agent-result-persist`:
-every path it composes is keyed on a PR, and none exists.
-Hold the generator's return in your scratchpad. Its worktree is left
-for the post-merge tail's cleanup sweep, like every other worktree you
-spawn.
+The seed spawn's return is not persisted through
+`sdlc-agent-result-persist`: every path it composes is keyed on a PR,
+and none exists. Hold the generator's return and its agent id in your
+scratchpad; its spawn is recorded once the PR is linked.
 
 **Put every candidate to the human.** Show each theorem — id, claim,
 issues, settle mode, pointers — and take one ruling per theorem:
@@ -1027,9 +1042,8 @@ so the body stays frozen for whatever round comes next.
 
 After the last PR's monitor loop ends — or its ready flip, under
 `merge-wait: skip` — read
-`skills/orchestrate/lib/wrap-up.md` and follow it: the single cleanup
-sweep, the return of the primary clone to the default branch, and then
-the summary in the shape that file gives.
+`skills/orchestrate/lib/wrap-up.md` and follow it: the cleanup of each
+PR the run merged, and then the summary in the shape that file gives.
 Every cell of the summary is a claim to the human, filled per
 "Report-consumption principle".
 
@@ -1086,11 +1100,10 @@ What you do yourself is orchestration mechanics:
   `git log`, `git diff`, file reads. Reading is planning, and what it
   turns up stays yours.
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
-  long-lived branches the primary clone tracks, the post-merge tail's
-  checkout of the default branch and `git remote prune`, and
-  `git push` of a commit an agent authored but could not push. Branch
-  and worktree removal is not on this list: the post-merge tail's
-  `/sdlc:cleanup-interim-work` invocation owns it.
+  long-lived branches the primary clone tracks, and `git push` of a
+  commit an agent authored but could not push. Branch and worktree
+  removal is not on this list: the post-merge tail's
+  `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's dictated
   review adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write
