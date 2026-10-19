@@ -8,24 +8,28 @@
 # never removed. No branch on origin is ever deleted or pushed to.
 # Removal is forced: a worktree is unlocked and removed with `--force`,
 # a branch is deleted with `-D`, and scratch with `rm -rf`, so
-# uncommitted or unpushed work goes with it. Review state is listed and
-# deleted only through `sdlc-agent-result-persist`. The PR is read
-# through github-prs' `pr-view` and `pr-closing-issues`. Every executable
-# is called by name off PATH. Worktrees, branches and scratch are those
-# of the primary clone, whichever of its worktrees the script runs in.
-# Runs under the bash 3.2 macOS ships.
+# uncommitted or unpushed work goes with it. Review state, and the agents
+# a PR's state names, are read and deleted only through
+# `sdlc-agent-result-persist`. The PR is read through github-prs'
+# `pr-view` and `pr-closing-issues`, and this checkout's repository is
+# the one `gh repo view` reports. Every executable is called by name off
+# PATH. Worktrees, branches and scratch are those of the primary clone,
+# whichever of its worktrees the script runs in. Runs under the bash 3.2
+# macOS ships.
 #
 # Usage: sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
 #        sdlc-orchestrate-cleanup --all --scratchpad <path> [--dry-run]
 #
 #   --pr <PR>           the pull request, in any form pr-view accepts. It
-#                       must be merged or closed. Removes its review
-#                       state; every worktree under .claude/worktrees/,
-#                       nested ones included, on its head branch or at a
-#                       detached HEAD that is one of its commits; its
-#                       local head branch; and every top-level
-#                       .claude/tmp/ entry named `<anything>-<N>` for an
-#                       issue <N> its body closes.
+#                       must be merged or closed, and in this checkout's
+#                       repository. Removes its review state; every
+#                       worktree under .claude/worktrees/, nested ones
+#                       included, named agent-<id> for an agent id its
+#                       state names, and each such agent's local
+#                       worktree-agent-<id> branch; its local head
+#                       branch; and every top-level .claude/tmp/ entry
+#                       named `<anything>-<N>` for an issue <N> its body
+#                       closes.
 #   --all               the whole repository: its review state, every
 #                       worktree under .claude/worktrees/, every local
 #                       branch but the default branch, every top-level
@@ -36,20 +40,21 @@
 #                       it holds one <session-id>/scratchpad/ per
 #                       session. It is kept.
 #   --dry-run           print what a real run would act on, and act on
-#                       nothing; the `--mode list` call that finds the
-#                       review state still moves old-layout state into
-#                       place, as every call of that CLI does
+#                       nothing; the `sdlc-agent-result-persist` calls
+#                       that find the review state still move old-layout
+#                       state into place, as every call of that CLI does
 #
 # Stdout is one line per item, `<action> <category> <item>`, the action
 # `delete` or `remove` -- `would-delete` or `would-remove` under
 # --dry-run -- and the category `review-state`, `worktree`, `branch`,
 # `scratch` or `scratchpad`. An action that fails is followed by
 # `failed <action> <category> <item>: <its error>`, and the rest carry on.
-# A run that is not --dry-run then runs `git worktree prune`,
-# `git fetch --all --prune` and a fast-forward of the default branch --
-# `git -C <path> pull --ff-only` where a worktree has it checked out,
-# else `git switch` to it in the primary clone and `git pull --ff-only`
-# -- and a step that fails prints `failed <step>: <its error>`.
+# A run that is not --dry-run puts the primary clone on the default
+# branch before it deletes any branch -- `git switch`, unless another
+# worktree has the default branch checked out -- and ends with
+# `git worktree prune`, `git fetch --all --prune` and
+# `git -C <path> pull --ff-only` in the worktree holding the default
+# branch. A step that fails prints `failed <step>: <its error>`.
 #
 # Exit statuses:
 #   0  every action and step succeeded, or --dry-run printed its items
@@ -59,6 +64,8 @@
 #   2  a usage error; nothing was run
 #   3  --pr: the PR is open; nothing was removed
 #   4  the default branch could not be resolved; nothing was removed
+#   5  --pr: the PR is in another repository than this checkout's;
+#      nothing was removed
 set -uo pipefail
 
 PROGRAM=${0##*/}
@@ -86,6 +93,9 @@ usage_error() {
 set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
+# An empty value is refused here, so each flag's value is empty exactly
+# when the flag was not passed, and the checks below read its presence
+# off it.
 pr=
 all=
 scratchpad=
@@ -94,6 +104,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --pr | --scratchpad)
       [ "$#" -ge 2 ] || usage_error "\`$1\` needs a value."
+      [ -n "$2" ] || usage_error "\`$1\` needs a non-empty value."
       case "$1" in
         --pr) pr=$2 ;;
         --scratchpad) scratchpad=$2 ;;
@@ -171,8 +182,14 @@ remove_worktree() {
   git -C "$root" worktree remove --force "$1"
 }
 
+# The field separator of the worktree lines. A tab or any other
+# whitespace character would not do: `read` merges a run of IFS
+# whitespace into one separator, so an empty field would take the next
+# field's value.
+SEP=$'\x1f'
+
 # worktrees -- print one line per worktree of the repository, the
-# primary clone first: <path> TAB <HEAD> TAB <branch> TAB <locked>,
+# primary clone first: <path> SEP <HEAD> SEP <branch> SEP <locked>,
 # <branch> empty for a detached HEAD and <locked> `yes` or empty.
 worktrees() {
   local list line path='' head='' branch='' locked=''
@@ -180,7 +197,7 @@ worktrees() {
   while IFS= read -r line; do
     case "$line" in
       'worktree '*)
-        [ -z "$path" ] || printf '%s\t%s\t%s\t%s\n' "$path" "$head" "$branch" "$locked"
+        [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked"
         path=${line#worktree }
         head=
         branch=
@@ -193,11 +210,11 @@ worktrees() {
   done <<EOF
 $list
 EOF
-  [ -z "$path" ] || printf '%s\t%s\t%s\t%s\n' "$path" "$head" "$branch" "$locked"
+  [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked"
 }
 
 all_worktrees=$(worktrees || exit) || exit
-root=${all_worktrees%%$'\t'*}
+root=${all_worktrees%%"$SEP"*}
 # Reverse order puts every nested worktree before the one it sits in,
 # so each is removed while its own directory is still there rather than
 # deleted under it by the outer removal.
@@ -205,24 +222,22 @@ under=$(printf '%s\n' "$all_worktrees" | LC_ALL=C sort -r || exit) ||
   fail 1 "sorting the worktrees failed"
 
 # The PR's facts: its canonical reference, its state, its head branch,
-# its commits as one newline-delimited list with a newline at each end,
-# and the issues its body closes.
+# the issues its body closes, and the agent ids its state names as one
+# newline-delimited list with a newline at each end. The PR must be in
+# this checkout's repository, since every worktree, branch and scratch
+# entry the script matches against it is this checkout's.
 if [ -n "$pr" ]; then
   ref=$(pr-view "$pr" --ref || exit) || fail 1 "pr-view $pr --ref failed"
-  facts=$(pr-view "$ref" --json state,headRefName,commits --jq '.state, .headRefName, .commits[].oid' || exit) ||
+  here=$(gh repo view --json url --jq .url || exit) || fail 1 "gh repo view failed"
+  here=${here#https://}
+  here=${here%/}
+  pr_repo=$(printf '%s' "${ref%'#'*}" | tr '[:upper:]' '[:lower:]' || exit) || fail 1 "lowercasing $ref failed"
+  here_repo=$(printf '%s' "$here" | tr '[:upper:]' '[:lower:]' || exit) || fail 1 "lowercasing $here failed"
+  [ "$pr_repo" = "$here_repo" ] ||
+    fail 5 "PR $ref is not in this checkout's repository, $here; nothing was removed"
+  facts=$(pr-view "$ref" --json state,headRefName --jq '.state, .headRefName' || exit) ||
     fail 1 "pr-view $ref failed"
-  state=
-  head_branch=
-  commits=$'\n'
-  n=0
-  while IFS= read -r line; do
-    n=$((n + 1))
-    case "$n" in
-      1) state=$line ;;
-      2) head_branch=$line ;;
-      *) commits=$commits$line$'\n' ;;
-    esac
-  done <<EOF
+  { IFS= read -r state && IFS= read -r head_branch; } <<EOF || :
 $facts
 EOF
   case "$state" in
@@ -235,6 +250,11 @@ EOF
   case "$closing" in
     *' closes issues '*) issues=${closing##* closes issues } && issues=${issues//,/} ;;
   esac
+  # Read before the review state is deleted, which takes the records
+  # naming the agents with it.
+  agents=$(sdlc-agent-result-persist --mode print-agents --pr "$ref" || exit) ||
+    fail 1 "sdlc-agent-result-persist --mode print-agents --pr $ref failed"
+  agents=$'\n'$agents$'\n'
 fi
 
 # --- review state ------------------------------------------------------
@@ -254,25 +274,43 @@ $listed
 EOF
 
 # --- worktrees ---------------------------------------------------------
-while IFS=$'\t' read -r path head branch locked; do
+while IFS=$SEP read -r path head branch locked; do
   case "$path" in
     "$root/.claude/worktrees/"*) ;;
     *) continue ;;
   esac
   if [ -n "$pr" ]; then
-    if [ -n "$branch" ]; then
-      [ "$branch" = "$head_branch" ] || continue
-    else
-      case "$commits" in
-        *$'\n'"$head"$'\n'*) ;;
-        *) continue ;;
-      esac
-    fi
+    name=${path##*/}
+    case "$name" in
+      agent-?*) ;;
+      *) continue ;;
+    esac
+    case "$agents" in
+      *$'\n'"${name#agent-}"$'\n'*) ;;
+      *) continue ;;
+    esac
   fi
   act remove worktree "$path" remove_worktree "$path" "$locked"
 done <<EOF
 $under
 EOF
+
+# --- the primary clone onto the default branch -------------------------
+# Before any branch is deleted, so a branch the primary clone had checked
+# out is deleted with the rest. The worktree left holding the default
+# branch is the one the finish pulls in.
+holder=
+if [ -z "$dry" ]; then
+  remaining=$(worktrees || exit) || exit
+  while IFS=$SEP read -r path head branch locked; do
+    [ "$branch" != "$default" ] || holder=$path
+  done <<EOF
+$remaining
+EOF
+  if [ -z "$holder" ] && attempt "git switch $default" git -C "$root" switch "$default"; then
+    holder=$root
+  fi
+fi
 
 # --- branches ----------------------------------------------------------
 branches=$(git -C "$root" for-each-ref --format='%(refname:lstrip=2)' refs/heads/ || exit) ||
@@ -280,7 +318,16 @@ branches=$(git -C "$root" for-each-ref --format='%(refname:lstrip=2)' refs/heads
 while IFS= read -r branch; do
   [ -n "$branch" ] || continue
   [ "$branch" != "$default" ] || continue
-  [ -z "$pr" ] || [ "$branch" = "$head_branch" ] || continue
+  if [ -n "$pr" ] && [ "$branch" != "$head_branch" ]; then
+    case "$branch" in
+      worktree-agent-?*) ;;
+      *) continue ;;
+    esac
+    case "$agents" in
+      *$'\n'"${branch#worktree-agent-}"$'\n'*) ;;
+      *) continue ;;
+    esac
+  fi
   act delete branch "$branch" git -C "$root" branch -D "$branch"
 done <<EOF
 $branches
@@ -323,17 +370,8 @@ fi
 if [ -z "$dry" ]; then
   attempt "git worktree prune" git -C "$root" worktree prune || :
   attempt "git fetch --all --prune" git -C "$root" fetch --all --prune || :
-  holder=
-  remaining=$(worktrees || exit) || exit
-  while IFS=$'\t' read -r path head branch locked; do
-    [ "$branch" != "$default" ] || holder=$path
-  done <<EOF
-$remaining
-EOF
   if [ -n "$holder" ]; then
     attempt "git -C $holder pull --ff-only" git -C "$holder" pull --ff-only || :
-  elif attempt "git switch $default" git -C "$root" switch "$default"; then
-    attempt "git pull --ff-only" git -C "$root" pull --ff-only || :
   fi
 fi
 

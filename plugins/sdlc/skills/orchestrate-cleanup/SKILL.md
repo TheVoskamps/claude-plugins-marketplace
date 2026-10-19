@@ -40,7 +40,9 @@ Run the script and relay its output as it stands:
 sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
 ```
 
-Ask nothing. An open PR is refused with nothing removed.
+Ask nothing. An open PR, and a PR in another repository than this
+checkout's, are refused with nothing removed. The worktrees it removes
+are those of the agents the PR's state records, whatever their HEAD.
 
 ## `--all`
 
@@ -65,8 +67,10 @@ Ask nothing. An open PR is refused with nothing removed.
 Each item is one line, `<action> <category> <item>`, its action
 prefixed `would-` under `--dry-run`. A `failed` line after an item
 quotes why that item's action failed; the rest carried on. A run that
-removes ends by pruning the worktree registrations, fetching with
-`--prune`, and fast-forwarding the default branch, and prints a
-`failed` line only for a step of those that failed.
+removes switches the primary clone to the default branch before it
+deletes any branch, unless another worktree holds the default branch,
+and ends by pruning the worktree registrations, fetching with
+`--prune`, and fast-forwarding the default branch; it prints a `failed`
+line only for a step of those that failed.
 
 On a non-zero exit, relay stderr verbatim beside the output.

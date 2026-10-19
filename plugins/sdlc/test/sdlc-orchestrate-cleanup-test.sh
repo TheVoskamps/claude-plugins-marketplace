@@ -3,19 +3,22 @@
 # sdlc-orchestrate-cleanup-test.sh -- drive plugins/sdlc/bin/sdlc-orchestrate-cleanup,
 # under the bash 3.2 macOS ships, against a primary clone of a local
 # bare origin holding worktrees, branches, .claude/tmp/ scratch and a
-# directory of session scratchpads, with stub git-default-branch,
+# directory of session scratchpads, with stub git-default-branch, gh,
 # pr-view, pr-closing-issues and sdlc-agent-result-persist executables
 # first on PATH and a logging git wrapper in front of the real git: each
 # scope's dry run printing what its real run acts on and removing
-# nothing; --pr removing only the PR's worktrees -- on its head branch
-# or detached at one of its commits, nested ones included -- its local
-# branch and its issues' scratch; --all removing every worktree, every
-# branch but the default branch, all scratch and every scratchpad but
-# its own; removal of a dirty, unpushed and locked worktree; the
-# fast-forward of the default branch in place and after a switch; an
-# action that fails while the rest carry on; an open PR and an
-# unresolved default branch refused with nothing removed; that no run
-# pushes to origin; and the usage errors.
+# nothing; --pr removing only the worktrees its state names an agent
+# for -- whatever their HEAD, nested ones included -- those agents'
+# worktree-agent-<id> branches, its local head branch and its issues'
+# scratch, reading the agents before it deletes the review state; --all
+# removing every worktree, every branch but the default branch, all
+# scratch and every scratchpad but its own; removal of a dirty, unpushed
+# and locked worktree; the primary clone switched to the default branch
+# before any branch is deleted, in both scopes, and the fast-forward of
+# the default branch there or in the worktree holding it; an action that
+# fails while the rest carry on; an open PR, a PR in another repository
+# and an unresolved default branch refused with nothing removed; that no
+# run pushes to origin; and the usage errors.
 #
 # Needs git on PATH. Reaches no network.
 #
@@ -30,6 +33,8 @@ trap 'rm -rf "$SANDBOX"' EXIT
 # The real path, so the paths git reports and the ones expected here
 # are spelled alike.
 SANDBOX=$(cd "$SANDBOX" && pwd -P)
+# No state a run could reach is the user's own, whatever a stub misses.
+export XDG_STATE_HOME="$SANDBOX/state"
 FAILURES=0
 PR='h.example/o/r#7'
 
@@ -79,15 +84,15 @@ git -C "$SEED" checkout -q -b issue-7-feat
 git -C "$SEED" commit -q --allow-empty -m c1
 C1=$(git -C "$SEED" rev-parse HEAD)
 git -C "$SEED" commit -q --allow-empty -m c2
-C2=$(git -C "$SEED" rev-parse HEAD)
 git -C "$SEED" push -q origin main issue-7-feat
 git -C "$SEED" checkout -q main
 
 # The stubs. git-default-branch prints serve/default and fails when it
-# is absent. pr-view fails when serve/pr-view.fail exists, and
-# otherwise prints the reference for --ref and serve/facts for anything
-# else; pr-closing-issues prints serve/closing; and
-# sdlc-agent-result-persist prints serve/list for --mode list and logs
+# is absent. gh prints serve/repo-url for `repo view`. pr-view fails when
+# serve/pr-view.fail exists, and otherwise prints the reference for --ref
+# and serve/facts for anything else; pr-closing-issues prints
+# serve/closing; and sdlc-agent-result-persist prints serve/list for
+# --mode list and serve/agents for --mode print-agents, and logs
 # --mode delete's --pr to serve/deleted, failing for the PR named in
 # serve/delete.fail. Each logs its arguments to serve/<name>.args. The
 # git wrapper logs every call to serve/git.log.
@@ -97,6 +102,11 @@ cat >"$SANDBOX/bin/git-default-branch" <<EOF
 echo "\$*" >>"$SERVE/git-default-branch.args"
 [ -f "$SERVE/default" ] || { echo "git-default-branch: stub: no default" >&2; exit 1; }
 cat "$SERVE/default"
+EOF
+cat >"$SANDBOX/bin/gh" <<EOF
+#!/bin/sh
+echo "\$*" >>"$SERVE/gh.args"
+cat "$SERVE/repo-url"
 EOF
 cat >"$SANDBOX/bin/pr-view" <<EOF
 #!/bin/sh
@@ -117,6 +127,7 @@ cat >"$SANDBOX/bin/sdlc-agent-result-persist" <<EOF
 echo "\$*" >>"$SERVE/sdlc-agent-result-persist.args"
 case "\$2" in
   list) cat "$SERVE/list" ;;
+  print-agents) cat "$SERVE/agents" ;;
   delete)
     if [ "\$4" = "\$(cat "$SERVE/delete.fail" 2>/dev/null)" ]; then
       echo "persist: stub refused \$4" >&2
@@ -137,17 +148,20 @@ chmod +x "$SANDBOX/bin/"*
 # commit ahead of it, holding:
 #   .claude/worktrees/agent-a    on issue-7-feat, dirty, one commit
 #                                unpushed, and locked
-#   .claude/worktrees/agent-b    detached at C2
+#   .claude/worktrees/agent-b    detached at main, on none of the PR's
+#                                commits
 #   .claude/worktrees/agent-b/.claude/worktrees/agent-n
 #                                nested, detached at C1
 #   .claude/worktrees/agent-c    on worktree-agent-c, at main
 #   .claude/worktrees/agent-d    detached at main
-#   branches main, issue-7-feat, other-branch, worktree-agent-c
+#   branches main, issue-7-feat, other-branch, worktree-agent-b,
+#   worktree-agent-c
 #   .claude/tmp/issue-7, .claude/tmp/task-17, .claude/tmp/other-9
 # and SESSIONS holding s1/scratchpad -- this session's, PAD -- and
 # s2/scratchpad, s3/scratchpad and s2/tasks. The stubs serve a merged PR
-# closing issue 7, review state for PRs 7 and 8, and main as the default
-# branch.
+# of this checkout's repository closing issue 7, whose state names the
+# agents a, b, n and x -- x with no worktree -- review state for PRs 7
+# and 8, and main as the default branch.
 build() {
   CASE="$SANDBOX/$1"
   PRIMARY="$CASE/primary"
@@ -157,12 +171,13 @@ build() {
   git clone -q "$ORIGIN" "$PRIMARY"
   git -C "$PRIMARY" branch -q issue-7-feat origin/issue-7-feat
   git -C "$PRIMARY" branch -q other-branch
+  git -C "$PRIMARY" branch -q worktree-agent-b
   git -C "$PRIMARY" worktree add -q "$WT/agent-a" issue-7-feat
   echo dirty >"$WT/agent-a/dirty.txt"
   git -C "$WT/agent-a" commit -q --allow-empty -m unpushed
   echo more >"$WT/agent-a/more.txt"
   git -C "$PRIMARY" worktree lock --reason "claude agent agent-a (pid 1)" "$WT/agent-a"
-  git -C "$PRIMARY" worktree add -q --detach "$WT/agent-b" "$C2"
+  git -C "$PRIMARY" worktree add -q --detach "$WT/agent-b" main
   git -C "$PRIMARY" worktree add -q --detach "$WT/agent-b/.claude/worktrees/agent-n" "$C1"
   git -C "$PRIMARY" worktree add -q -b worktree-agent-c "$WT/agent-c" main
   git -C "$PRIMARY" worktree add -q --detach "$WT/agent-d" main
@@ -177,8 +192,10 @@ build() {
   rm -rf "$SERVE"
   mkdir -p "$SERVE"
   echo main >"$SERVE/default"
-  printf 'MERGED\nissue-7-feat\n%s\n%s\n' "$C1" "$C2" >"$SERVE/facts"
+  echo https://h.example/o/r >"$SERVE/repo-url"
+  printf 'MERGED\nissue-7-feat\n' >"$SERVE/facts"
   echo "PR $PR closes issues 7" >"$SERVE/closing"
+  printf 'a\nb\nn\nx\n' >"$SERVE/agents"
   printf '%s\n%s\n' "$PR" 'h.example/o/r#8' >"$SERVE/list"
   ORIGIN_REFS=$(git -C "$ORIGIN" for-each-ref)
 }
@@ -222,6 +239,7 @@ remove worktree $WT/agent-b/.claude/worktrees/agent-n
 remove worktree $WT/agent-b
 remove worktree $WT/agent-a
 delete branch issue-7-feat
+delete branch worktree-agent-b
 remove scratch $PRIMARY/.claude/tmp/issue-7"
 BEFORE=$(snapshot)
 run --pr 7 --dry-run
@@ -232,16 +250,25 @@ check "$(git -C "$PRIMARY" rev-parse main)" "$BASE" "--pr dry run: the default b
 check "$(grep -cE 'fetch|pull|switch|prune|remove|unlock|branch -D' "$SERVE/git.log")" "0" \
   "--pr dry run: no git call acts"
 
+rm -f "$SERVE/sdlc-agent-result-persist.args" "$SERVE/gh.args"
 run --pr 7
 check "$RC" "0" "--pr: exit 0"
 check "$OUT" "$EXPECTED" "--pr: the dry run's items, acted on"
 check "$(cat "$SERVE/deleted")" "$PR" "--pr: only the PR's review state is deleted"
 check "$(sed -n 1p "$SERVE/pr-view.args")" "7 --ref" "--pr: the PR is resolved to its reference"
-check "$(sed -n 1p "$SERVE/sdlc-agent-result-persist.args")" "--mode list h.example/o/r" "--pr: review state is listed for the PR's repository"
-check "$([ -e "$WT/agent-a" ] || [ -e "$WT/agent-b" ] && echo left)" "" "--pr: the PR's worktrees are gone, dirty, unpushed and locked included"
-check "$([ -d "$WT/agent-c" ] && [ -d "$WT/agent-d" ] && echo kept)" "kept" "--pr: worktrees not tied to the PR are kept"
+check "$(cat "$SERVE/gh.args")" "repo view --json url --jq .url" "--pr: this checkout's repository comes from gh repo view"
+check "$(awk '{print $2}' "$SERVE/sdlc-agent-result-persist.args" | tr '\n' ' ')" "print-agents list delete " \
+  "--pr: the PR's agents are read before its review state is deleted"
+check "$(sed -n 1p "$SERVE/sdlc-agent-result-persist.args")" "--mode print-agents --pr $PR" \
+  "--pr: the agents are read for the PR's reference"
+check "$(sed -n 2p "$SERVE/sdlc-agent-result-persist.args")" "--mode list h.example/o/r" \
+  "--pr: review state is listed for the PR's repository"
+check "$([ -e "$WT/agent-a" ] || [ -e "$WT/agent-b" ] && echo left)" "" \
+  "--pr: the agents' worktrees are gone, dirty, unpushed, locked and off the PR's commits included"
+check "$([ -d "$WT/agent-c" ] && [ -d "$WT/agent-d" ] && echo kept)" "kept" \
+  "--pr: worktrees of agents the PR's state does not name are kept, one at the same HEAD as a removed one"
 check "$(git -C "$PRIMARY" worktree list --porcelain | grep -c '^worktree ')" "3" "--pr: three worktrees remain registered"
-check "$(branches)" "main other-branch worktree-agent-c " "--pr: only the head branch is deleted"
+check "$(branches)" "main other-branch worktree-agent-c " "--pr: only the head branch and the agents' branches are deleted"
 check "$(printf '%s ' "$PRIMARY/.claude/tmp/"*)" "$PRIMARY/.claude/tmp/other-9 $PRIMARY/.claude/tmp/task-17 " \
   "--pr: only the closed issue's scratch is removed"
 check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/scratchpad $SESSIONS/s2/tasks $SESSIONS/s3/scratchpad " \
@@ -249,9 +276,25 @@ check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/scratchpad $SESSIONS/
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "--pr: the default branch is fast-forwarded in place"
 untouched_origin "--pr"
 
+# --- --pr with the head branch checked out in the primary clone ------------
+build pr-switch
+git -C "$WT/agent-a" checkout -q --detach
+git -C "$PRIMARY" checkout -q issue-7-feat
+run --pr 7
+check "$RC" "0" "--pr, head branch in the primary clone: exit 0"
+check "$([ -e "$WT/agent-a" ] && echo left)" "" "--pr: a locked worktree at a detached HEAD is unlocked and removed"
+check_contains "$OUT" "delete branch issue-7-feat
+delete branch worktree-agent-b" "--pr, head branch in the primary clone: its deletion does not fail"
+check "$(branches)" "main other-branch worktree-agent-c " "--pr, head branch in the primary clone: the head branch is deleted"
+check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "main" \
+  "--pr, head branch in the primary clone: the primary clone is on the default branch"
+check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "--pr, head branch in the primary clone: and it is pulled"
+check "$(grep -n -e '^-C [^ ]* switch main' -e '^-C [^ ]* branch -D' "$SERVE/git.log" | sed -n 1p | cut -d' ' -f3)" \
+  "switch" "--pr, head branch in the primary clone: the switch runs before any branch is deleted"
+
 # --- --pr refusals --------------------------------------------------------
 build open
-printf 'OPEN\nissue-7-feat\n%s\n' "$C1" >"$SERVE/facts"
+printf 'OPEN\nissue-7-feat\n' >"$SERVE/facts"
 BEFORE=$(snapshot)
 run --pr 7
 check "$RC:$OUT" "3:" "open PR: exit 3, nothing on stdout"
@@ -259,6 +302,24 @@ check_contains "$ERR" "PR $PR is open; nothing was removed" "open PR: stderr say
 check "$(snapshot)" "$BEFORE" "open PR: nothing removed"
 run --pr 7 --dry-run
 check "$RC:$OUT" "3:" "open PR, dry run: exit 3, nothing on stdout"
+
+printf 'MERGED\nissue-7-feat\n' >"$SERVE/facts"
+echo https://h.example/o/other >"$SERVE/repo-url"
+rm -f "$SERVE/sdlc-agent-result-persist.args" "$SERVE/git.log"
+run --pr 7
+check "$RC:$OUT" "5:" "another repository's PR: exit 5, nothing on stdout"
+check_contains "$ERR" "PR $PR is not in this checkout's repository, h.example/o/other; nothing was removed" \
+  "another repository's PR: stderr names both repositories"
+check "$(snapshot)" "$BEFORE" "another repository's PR: nothing removed"
+check "$([ -f "$SERVE/sdlc-agent-result-persist.args" ] && echo ran)" "" \
+  "another repository's PR: no review state is read"
+check "$(grep -cE 'switch|remove|branch -D' "$SERVE/git.log")" "0" "another repository's PR: no git call acts"
+run --pr 7 --dry-run
+check "$RC:$OUT" "5:" "another repository's PR, dry run: exit 5, nothing on stdout"
+echo https://H.example/O/R/ >"$SERVE/repo-url"
+run --pr 7 --dry-run
+check "$RC" "0" "this repository spelled in another case: the PR is this checkout's"
+echo https://h.example/o/r >"$SERVE/repo-url"
 
 rm -f "$SERVE/default"
 run --pr 7
@@ -299,6 +360,7 @@ remove worktree $WT/agent-b
 remove worktree $WT/agent-a
 delete branch issue-7-feat
 delete branch other-branch
+delete branch worktree-agent-b
 delete branch worktree-agent-c
 remove scratch $PRIMARY/.claude/tmp/issue-7
 remove scratch $PRIMARY/.claude/tmp/other-9
@@ -310,7 +372,7 @@ run --all --scratchpad "$PAD/" --dry-run
 check "$RC" "0" "--all dry run: exit 0"
 check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--all dry run: every item as would-<action>"
 check "$(snapshot)" "$BEFORE" "--all dry run: nothing removed"
-check "$(sed -n 1p "$SERVE/sdlc-agent-result-persist.args")" "--mode list" "--all: review state is listed for this repository"
+check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode list" "--all: review state is listed for this repository, and nothing else is read"
 
 run --all --scratchpad "$PAD"
 check "$RC" "0" "--all: exit 0"
@@ -333,10 +395,11 @@ check "$RC" "1" "a failed action: exit 1"
 check_contains "$OUT" "delete review-state h.example/o/r#8
 failed delete review-state h.example/o/r#8: persist: stub refused h.example/o/r#8
 remove worktree" "a failed action: its failure line quotes the error, and the run goes on"
-check_contains "$OUT" "delete branch other-branch
-failed delete branch other-branch: " "a failed action: a branch the primary clone has checked out fails"
 check_contains "$OUT" "remove scratchpad $SESSIONS/s3/scratchpad" "a failed action: the last item is still acted on"
-check "$(branches)" "main other-branch " "a failed action: every other branch is deleted"
+check "$(printf '%s\n' "$OUT" | grep -c '^failed')" "1" "a failed action: no other action fails"
+check_contains "$OUT" "delete branch other-branch
+delete branch worktree-agent-b" "switch: the branch the primary clone had checked out is deleted without failing"
+check "$(branches)" "main " "switch: every branch but the default branch is deleted"
 check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "main" "switch: the primary clone is switched to the default branch"
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "switch: and pulled"
 untouched_origin "a failed action"
@@ -351,6 +414,15 @@ for args in "" "--dry-run" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr
   run ${argv[@]+"${argv[@]}"}
   check "$RC:$OUT" "2:" "usage: \`$args\` exits 2 with nothing on stdout"
 done
+run --pr ""
+check "$RC:$OUT" "2:" "usage: an empty --pr exits 2 with nothing on stdout"
+check_contains "$ERR" "\`--pr\` needs a non-empty value." "usage: an empty --pr says so"
+run --pr 7 --scratchpad ""
+check "$RC:$OUT" "2:" "usage: --pr with an empty --scratchpad exits 2 with nothing on stdout"
+run --all --scratchpad "$PAD" --pr ""
+check "$RC:$OUT" "2:" "usage: --all with an empty --pr exits 2 with nothing on stdout"
+run --all --scratchpad ""
+check "$RC:$OUT" "2:" "usage: an empty --scratchpad exits 2 with nothing on stdout"
 check "$([ -f "$SERVE/git-default-branch.args" ] && echo ran)" "" "usage: nothing ran"
 check "$(snapshot)" "$BEFORE" "usage: nothing removed"
 
