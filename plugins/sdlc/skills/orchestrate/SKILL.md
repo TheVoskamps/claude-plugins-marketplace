@@ -103,6 +103,22 @@ inside it. You don't manage worktree paths and you never pass them in
 spawn prompts. Those two run in the primary clone and write nothing to
 it.
 
+**Record every agent you spawn for a PR** in its state, as soon as the
+spawn's `Agent` tool result names its agent id and the PR has a
+`<PR_REF>` — `sdlc-agent-result-persist`'s `--mode agent`, whose
+contract is the `sdlc:agent-result-persist-interface` skill:
+
+```bash
+sdlc-agent-result-persist --mode agent --pr <PR_REF> \
+  --agent <the definition spawned> --agent-id <its agent id>
+```
+
+That log is how the post-merge tail's `/sdlc:orchestrate-cleanup <PR>`
+finds the PR's worktrees: what is not recorded is left behind. A batch's
+seed generator and its `issue-developer` are spawned before the PR has
+a reference, so hold each one's agent id in your scratchpad and record
+both at the link step.
+
 A teammate that declares `memory: project` captures its entries with
 `/cc-tools:agent-memory-inbox-capture` at end-of-run, and
 `agent-memory-scrubber` curates that inbox on the human's end-of-loop
@@ -393,11 +409,10 @@ extent signals, read against the batch's issue bodies rather than a
 delta. The output is low or medium and nothing else. A tier the human
 named at the plan confirm wins outright.
 
-The seed spawn is not persisted through `sdlc-agent-result-persist`:
-every path it composes is keyed on a PR, and none exists.
-Hold the generator's return in your scratchpad. Its worktree is on no
-PR's branch or commit, so the post-merge tail's per-PR cleanup leaves
-it, and only `/sdlc:orchestrate-cleanup --all` removes it.
+The seed spawn's return is not persisted through
+`sdlc-agent-result-persist`: every path it composes is keyed on a PR,
+and none exists. Hold the generator's return and its agent id in your
+scratchpad; its spawn is recorded once the PR is linked.
 
 **Put every candidate to the human.** Show each theorem — id, claim,
 issues, settle mode, pointers — and take one ruling per theorem:
