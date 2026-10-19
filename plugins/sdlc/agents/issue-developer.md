@@ -12,7 +12,6 @@ skills:
   - git-tools:git-branch-sync
   - github-prs:pr-create
   - cc-tools:agent-memory-inbox-capture
-  - sdlc:documentation-definition
 ---
 
 # Issue Developer
@@ -315,10 +314,8 @@ and the theorem that catches it costs a full round trip.
   unrelated code, and do not let one member's fix quietly grow to
   cover another's scope — the review pipeline grades each member
   separately.
-- You edit code and instruction Markdown, and never documentation, as
-  the preloaded `sdlc:documentation-definition` skill defines the three
-  classes. Documentation is `docs-writer`'s, once the review loop has
-  ended.
+- You edit code and instruction Markdown, and never documentation.
+  Documentation is `docs-writer`'s, once the review loop has ended.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.

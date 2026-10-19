@@ -13,7 +13,6 @@ skills:
   - git-tools:git-issues-from-branch
   - git-tools:git-range
   - sdlc:agent-result-persist-interface
-  - sdlc:documentation-definition
   - sdlc:pr-read-cli-interface
 ---
 
@@ -241,8 +240,7 @@ actual fault goes unreported.
 
 ## Documentation is outside the review
 
-Documentation files, as the preloaded `sdlc:documentation-definition`
-skill defines them, are not reviewed: `docs-writer` writes them after
+Documentation files are not reviewed: `docs-writer` writes them after
 the loop. Collect those among the paths "Read the PR's shape" lists,
 and name them in the generator's brief and every disprover's brief as
 paths to leave out of every diff the child reads; omit that line when

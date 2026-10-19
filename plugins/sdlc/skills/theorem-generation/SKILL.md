@@ -196,10 +196,8 @@ Work these sources in the order given. Each produces claims of a
 different shape, and codebase consistency and design shape are what
 force the review out of the diff.
 
-Documentation files, as the `sdlc:documentation-definition` skill
-defines them, are outside the review — invoke that skill for the
-definition. No theorem is about one, and none names one as a stale
-restatement.
+Documentation files are outside the review. No theorem is about one,
+and none names one as a stale restatement.
 
 ### 1. Acceptance criteria
 

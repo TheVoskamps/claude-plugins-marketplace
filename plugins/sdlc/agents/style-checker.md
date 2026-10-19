@@ -10,7 +10,6 @@ skills:
   - github-prs:pr-diff
   - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
-  - sdlc:documentation-definition
 ---
 
 # Style Checker
@@ -69,8 +68,7 @@ On a non-zero exit, stop and report it, quoting its stderr.
 ## Check
 
 Fetch the diff via `/github-prs:pr-diff <PR_number>`. You read every
-**code** and **instruction-Markdown** file the diff touched, as the
-preloaded `sdlc:documentation-definition` skill defines the two, and
+**code** and **instruction-Markdown** file the diff touched, and
 nothing they link to: a file the diff did not touch is outside your
 scope, and so is documentation.
 

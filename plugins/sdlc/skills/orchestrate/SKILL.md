@@ -37,8 +37,9 @@ under `agents/` owns:
   review to see again — or, on a merge-readiness brief, has been
   rebased for the gate to see again. You spawn it on review feedback;
   `pr-merge-readiness` spawns it on a merge-readiness brief
-- `code-documenter` — adds or corrects the comments the code-style
-  guide requires in the code files a PR's diff touched. When it
+- `code-documenter` — adds or corrects the comments in the code and
+  instruction-Markdown files a PR's diff touched, each against the
+  style guide of its own class. When it
   returns, the branch carries at most one new comment commit, and
   `style-checker` runs next
 - `style-checker` — checks the code and instruction-Markdown files a
@@ -245,8 +246,9 @@ Then let the agent discover the rest.
 
 Do not:
 
-- **Restate anything already durable.** `CLAUDE.md`, `.claude/rules/`,
-  and the agent's own definition are read at the start of every run.
+- **Restate anything already durable.** `CLAUDE.md`, the rules files
+  it loads, and the agent's own definition are read at the start of
+  every run.
   If a constraint keeps needing repetition across briefs, the
   repetition is the signal to make it durable — a PR against
   `CLAUDE.md` or the agent definition — not to repeat it better.
@@ -313,7 +315,7 @@ a spawn: a report you relay unexamined is your claim now, whatever
 byline it arrived under.
 
 A teammate's report is your highest-volume surface for
-`~/.claude/rules/label-uncertainty.md`, and this section says what that
+the global `label-uncertainty.md` rule, and this section says what that
 rule means for one.
 
 - **Label provenance when you relay a finding to the human.** "The
@@ -435,11 +437,9 @@ Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
 
-Edit code and instruction Markdown, and no documentation, as the
-sdlc:documentation-definition skill defines the three classes;
-docs-writer writes the PR's documentation after the review loop, from
-the documentation edits you report on your Deferred to docs-writer:
-line.
+Edit code and instruction Markdown, and no documentation; docs-writer
+writes the PR's documentation after the review loop, from the
+documentation edits you report on your Deferred to docs-writer: line.
 
 Implement the batch end-to-end per your agent definition. Report back:
 PR URL (or equivalent), the issue set the PR closes, branch name, and
@@ -508,8 +508,8 @@ agent works from the PR diff and reads no issue:
 PR <PR_REF> has new commits on it.
 Branch: <branch-name>
 
-Document the code per your agent definition. Report back the files you
-touched and the commit you pushed.
+Document the code and instruction Markdown per your agent definition.
+Report back the files you touched and the commit you pushed.
 ```
 
 **style-checker spawn prompt** — the same two identifiers, spawned once
@@ -799,8 +799,7 @@ member)**:
    ```text
    PR <PR_REF> has a fixer brief waiting on it.
 
-   Edit code and instruction Markdown, and no documentation, as the
-   sdlc:documentation-definition skill defines the three classes;
+   Edit code and instruction Markdown, and no documentation;
    docs-writer writes the PR's documentation after the review loop,
    from the documentation edits you report on your Deferred to
    docs-writer: line.
@@ -821,7 +820,7 @@ member)**:
    style-fix loop included, per "After each round's commits: document,
    check style, then review" above, before the review runs. Skipping
    them is what lets a fixer's commits reach the review without the
-   comments the code-style guide requires of them, and unchecked
+   comments their classes' style guides require of them, and unchecked
    against the `## For Authors and Checkers` rules.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
@@ -895,7 +894,7 @@ actor, so nothing downstream records it as the human's rejection.
 
 A teammate "escalates" when it stops mid-run and reports back instead
 of completing — on any of the conditions in
-`~/.claude/rules/escalation-discipline.md`, or on a design decision
+the global `escalation-discipline.md` rule, or on a design decision
 its issue does not answer. Escalation is distinct from the
 review-finding fix loop above, which is normal
 completion-then-followup rather than an early stop.
@@ -1039,7 +1038,7 @@ Every cell of the summary is a claim to the human, filled per
 
 The rest of this file says what you spawn and when. This section is
 what you do and do not do yourself, and it keeps only what no agent
-definition, `CLAUDE.md` or `~/.claude/rules/` file already states.
+definition, `CLAUDE.md` or global rules file already states.
 
 - **Never merge a PR.** The merge is the human's, after the ready flip
   they confirm in the Final Report.
