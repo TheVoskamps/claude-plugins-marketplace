@@ -53,9 +53,11 @@ can trigger that stop. The items:
   how the change came to be asked for, what an earlier round did, or
   why an earlier design was rejected is provenance rather than spec —
   it costs the implementer reads that buy nothing.
-- **Acceptance criteria**. The body carries the two acceptance
-  sections the grammar below defines, and each bullet in either is one
-  claim about the delivered change that a reviewer can attempt to
+- **Acceptance criteria**. The body carries the acceptance
+  sections the grammar below defines — `## Code and instruction
+  Markdown acceptance` always, and `## Documentation acceptance` when
+  the change owes a documentation criterion — and each bullet in either
+  is one claim about the delivered change that a reviewer can attempt to
   disprove against the diff. Your own reading of the body settles which
   file class a bullet's subject is in. It fails:
   - when `## Code and instruction Markdown acceptance` is absent or has
@@ -183,13 +185,16 @@ Given an issue number:
 1. Fetch the body and the edges with `/issue-view <N>`.
 2. Run `sdlc-readiness-check <N>`, which this plugin puts on `PATH`,
    from inside the repo's working tree, on every invocation. Exit 0
-   means every `### Mechanical` bullet passes; exit 3 prints one gap
-   line per failing bullet, each already naming its bar item, and each
-   goes into the gap list as it stands. On any other exit, relay its
-   stderr verbatim and stop. Then grade the rest of each bar item, in
-   the order listed above, by reading the body; the script's lines are
-   the whole grading of the `### Mechanical` bullets. Never run a
-   command a `### Mechanical` bullet's text spells.
+   means every `### Mechanical` bullet passes its check key; exit 3
+   prints one gap line per failing bullet, each already naming its bar
+   item, and each goes into the gap list as it stands. On any other
+   exit, relay its stderr verbatim and stop. Then grade the rest of each
+   bar item, in the order listed above, by reading the body; the
+   script's lines are the whole grading of each `### Mechanical`
+   bullet's check key, and the file-class failures under "Acceptance
+   criteria" are yours to grade for `### Mechanical` and `### Semantic`
+   bullets alike. Never run a command a `### Mechanical` bullet's text
+   spells.
 3. Return a gap list: every line step 2's script printed, and one line
    per other failure of a bar item, naming the item and the sentence or
    absence that fails it. An empty
