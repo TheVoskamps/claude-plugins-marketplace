@@ -9,9 +9,10 @@
 # The deploy hook copies this file byte for byte, so it must not depend
 # on where it lives.
 #
-# Exit status: bin/cr's own, or 1 when jq is missing, the plugin list
-# cannot be read, or no enabled cc-tools is installed, with stderr saying
-# which.
+# Exit status: bin/cr's own; 1 when jq is missing, the plugin list cannot
+# be read, or no enabled cc-tools is installed, with stderr saying which;
+# or bash's 126 or 127 when the listed install path holds no executable
+# bin/cr.
 set -uo pipefail
 
 if ! command -v jq >/dev/null 2>&1; then

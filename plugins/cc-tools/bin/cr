@@ -23,8 +23,9 @@
 # session has a repo, and removes that .git again on exit, interrupt or
 # termination.
 #
-# Exit status: claude's own, or 1 when cr refuses or a step before claude
-# fails, with stderr saying which.
+# Exit status: claude's own; 1 when cr refuses or a step before claude
+# fails, with stderr saying which; or bash's 127 when claude is not on
+# PATH.
 set -uo pipefail
 
 strict=0
