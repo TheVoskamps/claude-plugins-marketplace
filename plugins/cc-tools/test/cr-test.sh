@@ -19,6 +19,8 @@ CR="$TEST_DIR/../bin/cr"
 RESOLVER="$TEST_DIR/../hooks/cr-resolver"
 DEPLOY="$TEST_DIR/../hooks/cr-deploy.sh"
 HOOKS_JSON="$TEST_DIR/../hooks/hooks.json"
+# Resolved with pwd -P because the stub claude reports its directory that
+# way, and the pwd= checks compare the two; TMPDIR can sit under a symlink.
 SANDBOX="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/cr-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 FAILURES=0
@@ -68,6 +70,8 @@ check_lacks() {
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
 unset GIT_CONFIG_GLOBAL
+# Keeps git from finding a repo above the sandbox, which would turn the
+# outside-a-repo cases into inside-a-repo ones.
 export GIT_CEILING_DIRECTORIES="$SANDBOX"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 JQ="$(command -v jq)"
@@ -150,6 +154,8 @@ check_contains "$ERR" "cr: detected existing git repo; cd to repo root $REPO" "r
 check_contains "$ENV" "git=yes" "repo: the repo's own .git is there"
 check "$([ -d "$REPO/.git" ] && echo kept)" "kept" "repo: the existing .git is left alone"
 
+# With no overlay, the arguments cr adds itself fill the first eight lines
+# of claude.args, so line 9 onward is what passed through.
 run_cr "$REPO" --model opus fix
 check "$(sed -n '9,$p' "$SANDBOX/claude.args")" "$(lines --model opus fix)" \
   "first flag first: no name words, and a word after a flag passes to claude"
