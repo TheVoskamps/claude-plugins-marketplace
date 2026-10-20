@@ -1,6 +1,6 @@
 ---
 name: pr-merge-readiness
-description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then docs-writer when the fixer deferred a documentation edit, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after docs-writer and agent-memory-scrubber have committed, again with the human's ruling after it returns with a question, and again when pr-monitor reports the PR BEHIND or DIRTY.
+description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question, and returning documentation loop needed, spawning no docs-writer, when the fixer deferred a documentation edit or resolved a conflict in a documentation file; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after the documentation loop and agent-memory-scrubber, again with the human's ruling after it returns with a question, again after the documentation loop it returned for, and again when pr-monitor reports the PR BEHIND or DIRTY.
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 model: opus
 effort: medium
@@ -8,8 +8,6 @@ skills:
   - github-prs:pr-ready-to-merge
   - github-prs:pr-merge-conflicts
   - github-prs:pr-comment
-  - github-prs:pr-closing-issues
-  - issue-view
   - sdlc:agent-result-persist-interface
 ---
 
@@ -46,9 +44,9 @@ instructions at the top of that file.
 You hold the `Agent` tool, and the remedy spawns below are spawns you
 make from inside this agent. A spawned agent's context carries
 **no agent-type roster**, so each is named by its exact
-plugin-prefixed `subagent_type` string — `sdlc:issue-fixer`,
-`sdlc:docs-writer` and `sdlc:agent-memory-scrubber`. Pass those
-strings as written rather than a bare name you reconstruct.
+plugin-prefixed `subagent_type` string — `sdlc:issue-fixer` and
+`sdlc:agent-memory-scrubber`. Pass those strings as written rather than
+a bare name you reconstruct.
 
 **Record every spawn in the PR's state** as soon as its `Agent` tool
 result names its agent id, through the preloaded
@@ -224,9 +222,10 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    ```text
    PR <PR> has a fixer brief waiting on it.
 
-   Edit code and instruction Markdown, and no documentation; report
-   every documentation edit your work calls for on your
-   Deferred to docs-writer: line, and docs-writer makes it after you.
+   Edit code and instruction Markdown, and no documentation but a
+   rebase conflict in a documentation file; report every other
+   documentation edit your work calls for on your Deferred to
+   docs-writer: line, and the documentation loop makes it after you.
 
    Address it per your agent definition. Report back what you fixed
    and what you didn't.
@@ -240,40 +239,20 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    the fixer's report verbatim beneath them — and run none of the
    spawns below, nor the gate.
 
-2. **`sdlc:docs-writer`**, only when the fixer's `Deferred to
-   docs-writer:` line is not `none`. Those entries are a handoff, not a
-   question: raise none of them, and run this spawn rather than
-   returning on them. Give it the PR reference, the issue set the PR
-   closes — what `/github-prs:pr-closing-issues <PR>` reports — the
-   branch name, the fixer's entries verbatim, and the documentation
-   criteria: every bullet of the `## Documentation acceptance` section,
-   as `sdlc:orchestrate-readiness` defines it, of every issue in that
-   set, read off `/issue-view <N>` for each:
+   A fixer whose `Deferred to docs-writer:` line or
+   `Documentation conflicts:` line is not `none` has left the PR's
+   documentation for a documentation loop to write and review, which is
+   the orchestrator's to run: return with `documentation loop needed`,
+   per "Report back", and run neither the scrubber nor the gate. Those
+   entries are a handoff, not a question, and you spawn no
+   `docs-writer`: its commit would reach the gate with no round
+   reviewing it.
 
-   ```text
-   PR <PR> for issues <issue_N1>, <issue_N2>, … has settled a
-   merge-readiness remedy.
-   Branch: <branch-name>
-   Deferred to docs-writer:
-   <the fixer's entries, verbatim, one per line>
-   Documentation criteria:
-   <each criterion, one per line, as `<member>: "<the bullet, verbatim>"`,
-   with `<member>` the issue as this brief's first line names it — or
-   "none">
-
-   Write the PR's documentation per your agent definition. Report back
-   every file you changed with a one-line reason (or "none"), the
-   commit SHA you pushed, and anything the change made wrong that was
-   not yours to fix — a PR-body claim, quoted, with what is true now.
-   ```
-
-   `docs-writer` declares memory, so it runs before the scrubber.
-
-3. **`sdlc:agent-memory-scrubber`**, with the PR reference and the branch
-   name. `issue-fixer` and `docs-writer` declare memory, so their
-   entries wait in the session's inbox until this pass, and the
-   scrubber's commit has to be on the branch before the gate grades
-   it — never run the gate between the two:
+2. **`sdlc:agent-memory-scrubber`**, with the PR reference and the branch
+   name. `issue-fixer` declares memory, so its entries wait in the
+   session's inbox until this pass, and the scrubber's commit has to be
+   on the branch before the gate grades it — never run the gate between
+   the two:
 
    ```text
    PR <PR> has settled a merge-readiness remedy. Branch: <branch-name>
@@ -284,10 +263,9 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    SHA you pushed — or, if nothing was staged, why.
    ```
 
-Then run the gate again. No review round follows a remedy: the fixer's
-commits are a rebase of what the loop already approved, `docs-writer`'s
-are documentation, which no round reviews, and the gate is what checks
-them.
+Then run the gate again. No code review round follows a remedy: the
+fixer's commits are a rebase of what the loop already approved, and
+the gate is what checks them.
 
 ## Report back
 
@@ -305,6 +283,12 @@ Your report carries:
     to settle; when a fixer escalated, its report verbatim beneath
     them. The orchestrator relays it and re-spawns you with the
     ruling, the state and cause beside it.
+  - `documentation loop needed` — the last `issue-fixer` round
+    deferred a documentation edit or resolved a conflict in a
+    documentation file, so the gate was not run after it. Follow it
+    with that round's `Deferred to docs-writer:` and
+    `Documentation conflicts:` lines verbatim. The orchestrator runs the
+    documentation loop and re-spawns you.
 - **A ruling the spawn carried that the gate's report did not
   consume**, quoted, with the state and cause the gate reported
   instead — or one the fixer's report named as unconsumed, whatever
@@ -313,9 +297,6 @@ Your report carries:
   base the fixer rebased onto, each conflict and what settled it — the
   ruling, or the repo rule or the combination of both sides the fixer
   named — and the new head SHA, as the fixer reported them.
-- **`docs-writer`'s report, for every spawn of it you ran** — its
-  per-file list as it wrote it, and anything it names as made wrong
-  that was not its to fix.
 - **The scrubber's per-entry and per-cut lines**, as it wrote them, for
   every scrubber pass you ran — they are the record of a destructive
   operation, and the human reviews them.

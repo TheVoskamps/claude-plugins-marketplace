@@ -1,6 +1,6 @@
 ---
 name: agent-memory-scrubber
-description: Curates the agent memory a PR's run accumulated. Given a PR reference and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate once on the human's end-of-loop confirmation for a PR, after docs-writer, and by pr-merge-readiness after every issue-fixer round it runs — whenever a memory-declaring teammate was spawned after the scrubber last ran.
+description: Curates the agent memory a PR's run accumulated. Given a PR reference and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate on the human's confirmation that a PR's documentation loop has ended, and by pr-merge-readiness after every issue-fixer round it runs that needs no documentation loop — whenever a memory-declaring teammate was spawned after the scrubber last ran.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
@@ -19,9 +19,9 @@ what it committed reached that branch.
 Those entries have exactly one reader — you — and nothing carries them
 past the end of the session, so an entry the skill does not transfer is
 gone. Curate the inbox as you find it, however many times you are
-spawned: the orchestrator spawns you once per blessed PR, after
-`docs-writer`, and `pr-merge-readiness` spawns you after every
-`issue-fixer` round it runs.
+spawned: the orchestrator spawns you each time a PR's documentation
+loop ends, and `pr-merge-readiness` spawns you after every
+`issue-fixer` round it runs that needs no documentation loop.
 
 Do not review code, do not edit documentation or instruction Markdown
 beyond the transfers the skill directs, and do not fix the PR. If you

@@ -3,15 +3,16 @@
 What the orchestrator does to a PR from the moment its developer
 reports it open to the moment it is flipped ready: the link to its
 issues, the round-0 write that follows it, the body freeze that holds
-through the review loop, the two
-spawns that run on the human's end-of-loop confirmation, the close-out,
-and the briefs for the two agents that carry the loops on either side
-of the close-out.
+through both loops, the documentation loop's briefs and round
+mechanics, the spawn that runs on the human's confirmation of that
+loop's end, the close-out, and the briefs for the two agents that
+carry the loops on either side of the close-out.
 
 ## Link the PR to its issues, once the developer reports back
 
-First resolve the PR the developer reported, by its URL, to its
-canonical reference, once:
+The developer is `docs-writer` for a batch with no code to implement,
+which skips the round-0 write below. First resolve the PR the developer
+reported, by its URL, to its canonical reference, once:
 
 ```text
 /github-prs:pr-view <PR URL> --ref
@@ -86,10 +87,11 @@ The freeze closes as soon as the PR is linked to its issues.
 `issue-developer` writes the body when the PR opens, and your one
 `/github-prs:pr-link-issue` call appends whatever closing lines it is
 missing immediately after — both of those land before the first review
-round exists to be confused by them. From there until the loop ends,
-**nothing edits the PR body**. Not you, and not any other teammate.
-`pr-finalizer` writes one final section after the loop is over, in the
-close-out below, and that is the whole exception.
+round exists to be confused by them. From there until the
+documentation loop ends, **nothing edits the PR body**. Not you, and
+not any other teammate. `pr-finalizer` writes one final section after
+both loops are over, in the close-out below, and that is the whole
+exception.
 
 The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
@@ -107,80 +109,153 @@ change, a body change a fixer reports it did not make, a claim
 and carry each into the scope notes you hand `pr-finalizer`, quoted,
 with what is true now. The fix lands once, at the end.
 
-## The pre-readiness spawns, on the human's end-of-loop confirmation
+## The documentation loop
 
-Two teammates still put commits on the branch after the loop ends,
-and both run before the merge-readiness loop so that what the gate
-grades is what the human blesses. Spawn them in this order, and wait
-for each to return.
+The rounds of the loop `skills/orchestrate/SKILL.md` → "The
+documentation loop" runs. Each opens with a `docs-writer` commit, then
+`style-checker` and `theorem-based-pr-reviewer` under
+`--mode documentation`, sequentially. The reviewer's spawn is the code
+loop's with that mode; `style-checker`'s is:
 
-1. **Spawn `docs-writer` to write the PR's documentation.** You spawn
-   it once per PR, here, and no review round runs over its commit. Give
-   it the PR reference, the issue set the PR closes, the branch name,
-   the deferred edits — every entry on the `Deferred to docs-writer:`
-   line of the developer's report and of every fixer round's report on
-   this PR, verbatim — and the documentation criteria: every bullet of
-   the `## Documentation acceptance` section, as
-   `sdlc:orchestrate-readiness` defines it, of every issue the PR
-   closes, read off `/issue-view <N>` for each. Collect the deferred
-   entries as each report returns, and raise none of them to the human:
-   each is a documentation edit the class rules hand to `docs-writer`,
-   not open work.
+```text
+PR <PR_REF> has new commits on it.
+Branch: <branch-name>
+--mode documentation
 
-   ```text
-   PR <PR_REF> for issues <link-prefix><issue_N1>,
-   <link-prefix><issue_N2>, … has finished its review loop.
-   Branch: <branch-name>
-   Deferred to docs-writer:
-   <every collected entry, verbatim, one per line — or "none">
-   Documentation criteria:
-   <each criterion, one per line, as `<member>: "<the bullet, verbatim>"`,
-   with `<member>` the issue as this brief's first line names it — or
-   "none">
+Check the documentation against the rules under
+`## For Authors and Checkers` per your agent definition. Report back
+your findings, or that there are none.
+```
 
-   Write the PR's documentation per your agent definition. Report back
-   every file you changed with a one-line reason (or "none"), the
-   commit SHA you pushed, and anything the change made wrong that was
-   not yours to fix — a PR-body claim, quoted, with what is true now.
-   ```
+**The first round's commit comes from the writing brief.** Give
+`docs-writer` the PR reference, the issue set the PR closes, the
+branch name, the deferred edits — every entry on the
+`Deferred to docs-writer:` line of the developer's report and of every
+fixer round's report on this PR, verbatim, or on a
+`documentation loop needed` return, the `Deferred to docs-writer:`
+entries that report relays and one entry per path on its
+`Documentation conflicts:` line, as `<path> — a rebase conflict
+issue-fixer resolved` —
+and the documentation criteria: every bullet of the
+`## Documentation acceptance` section, as `sdlc:orchestrate-readiness`
+defines it, of every issue the PR closes, read off `/issue-view <N>`
+for each. Collect the deferred entries as each report returns, and
+raise none of them to the human: each is a documentation edit the
+class rules hand to `docs-writer`, not open work.
 
-   Its per-file list is the summary's `Doc Changes` cell, and it goes
-   verbatim into the scope notes you hand `pr-finalizer`. A
-   documentation change the human wants after reading it is a manual
-   round, not a loop.
+```text
+PR <PR_REF> for issues <link-prefix><issue_N1>,
+<link-prefix><issue_N2>, … has finished its code loop.
+Branch: <branch-name>
+Deferred to docs-writer:
+<every collected entry, verbatim, one per line — or "none">
+Documentation criteria:
+<each criterion, one per line, as `<member>: "<the bullet, verbatim>"`,
+with `<member>` the issue as this brief's first line names it — or
+"none">
 
-2. **Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
-   By now every teammate that writes memory has captured into the
-   session's inbox for this branch, so one pass grades the whole run's
-   entries; the scrubber's commit is the last one on the branch before
-   the gate runs. Give it the PR reference and the branch name:
+Write the PR's documentation per your agent definition. Report back
+every file you changed with a one-line reason (or "none"), the commit
+SHA you pushed, each documentation criterion as met or not met, and
+anything the change made wrong that was not yours to fix — a PR-body
+claim, quoted, with what is true now.
+```
 
-   ```text
-   PR <PR_REF> has settled its review loop. Branch: <branch-name>
+On a batch with no code to implement the first commit comes from the
+new-branch brief instead, which opens the PR as well:
 
-   Curate the PR's agent memory per your agent definition. Report back
-   what was transferred, what was deleted, and what was cut from or
-   created as a destination file, where transfers landed, and the commit
-   SHA you pushed — or, if nothing was staged, why.
-   ```
+```text
+You are writing the documentation for issues <link-prefix><N1>,
+<link-prefix><N2>, … in this repo, as one batch: one branch, one PR
+closing all of them. No code loop runs for it.
 
-   The scrubber's per-entry and per-cut lines are the record of what it
-   deleted, transferred, and cut from a destination file, so pass them
-   through to the human as it wrote them.
+Implementation order: <N1>, <N2>, …
+Compound slug for the branch name: <compound-slug>
+Documentation criteria:
+<each criterion, one per line, as `<member>: "<the bullet, verbatim>"`>
 
-   A memory-declaring teammate spawned after the scrubber last ran
-   leaves entries the scrubber has not seen, and none of them reports a
-   *successful* capture back, so a spawn is the only evidence that
-   entries may be waiting. Past this point the only such spawn is the
-   `issue-fixer` a merge-readiness remedy runs, and `pr-merge-readiness`
-   runs the scrubber itself after every one of those, so you spawn it
-   here once. The only wrong placement is spawning it *early*, while
-   more branch work is still expected.
+Write the documentation, create the branch and open the PR per your
+agent definition. Report back the PR URL, the issue set the PR closes,
+the branch name, every file you changed with a one-line reason, the
+commit SHA you pushed, and each documentation criterion as met or not
+met.
+```
+
+For a batch of one, the opening line names the one issue, and the
+`Implementation order` and `Compound slug` lines go away.
+
+**Every `docs-writer` report's per-file list** is added to the
+summary's `Doc Changes` cell, and goes verbatim into the scope notes
+you hand `pr-finalizer`.
+
+**A round's fixer brief** is posted on the PR in the shape the code
+loop's is — `skills/orchestrate/SKILL.md` → "Handling review findings —
+the fix loop", marker, finding-line rulings and owner rulings included
+— carrying every finding of the round: the review's, `style-checker`'s
+when the style-fix loop posts one, and each criterion the round's
+`docs-writer` report graded `not met`, quoted, tagged to its member and
+ruled `— in scope`. A `not met` criterion is a finding even when the
+review approved, so it alone makes a fixer round. Post the brief, post
+nothing else on the PR, then spawn `docs-writer` with this address and
+nothing more:
+
+```text
+PR <PR_REF> has a fixer brief waiting on it.
+
+Edit documentation only; the code loop has ended.
+
+Address it per your agent definition. Report back what you fixed and
+what you didn't, every file you changed with a one-line reason, and
+the commit SHA you pushed.
+```
+
+Its commit opens the next round.
+
+**The loop ends** on a round whose review is APPROVED with no finding
+above Low and whose `docs-writer` report graded no criterion
+`not met`, or when the documentation loop's round bound is reached
+with a finding above Low still open, which goes to the human in the
+final report. Either way the human's end-of-loop confirmation is what
+moves the PR on.
+
+## The pre-readiness spawn, once the documentation loop is confirmed
+
+**Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
+By now every teammate that writes memory has captured into the
+session's inbox for this branch, so one pass grades the whole run's
+entries; the scrubber's commit is the last one on the branch before
+the gate runs, so that what the gate grades is what the human blesses.
+Give it the PR reference and the branch name:
+
+```text
+PR <PR_REF> has settled its review loop. Branch: <branch-name>
+
+Curate the PR's agent memory per your agent definition. Report back
+what was transferred, what was deleted, and what was cut from or
+created as a destination file, where transfers landed, and the commit
+SHA you pushed — or, if nothing was staged, why.
+```
+
+The scrubber's per-entry and per-cut lines are the record of what it
+deleted, transferred, and cut from a destination file, so pass them
+through to the human as it wrote them.
+
+A memory-declaring teammate spawned after the scrubber last ran
+leaves entries the scrubber has not seen, and none of them reports a
+*successful* capture back, so a spawn is the only evidence that
+entries may be waiting. Past this point the only such spawns are the
+`issue-fixer` a merge-readiness remedy runs, after which
+`pr-merge-readiness` runs the scrubber itself, and the `docs-writer`
+of a documentation loop that remedy needed, after which you spawn it
+here again. The only wrong placement is spawning it *early*, while
+more branch work is still expected.
 
 ## The brief for `pr-merge-readiness`
 
-Give it the PR reference and the branch name, and — on a re-spawn after
-it returned with a question — the human's ruling, with the state and
+Give it the PR reference and the branch name — after a
+`documentation loop needed` return, the same brief as a first spawn —
+and, on a re-spawn after it returned with a question, the human's
+ruling, with the state and
 the cause the question named, both copied from the `Question:` line of
 the report that asked it: a ruling answers only the question it was
 asked, and the state and cause together are how the re-spawn tells
@@ -194,13 +269,13 @@ state and the cause that question named — or omit the line on the
 first spawn>
 
 Drive the PR to a merge-ready state per your agent definition. Report
-back the state you reached, or the question you stopped on — its state
-and cause, with the gate's report verbatim; any ruling this brief
-carried that went unconsumed — by the gate's report, with what the
-gate reported instead, or by the fixer's rebase on whatever state its
-brief named, as the fixer reported it — quoted; every issue-fixer
-round you ran; docs-writer's per-file list for every docs-writer spawn
-you ran; the scrubber's per-entry and per-cut lines as it wrote them;
+back the state you reached, the question you stopped on — its state
+and cause, with the gate's report verbatim — or that a documentation
+loop is needed, with the fixer's entries that need it; any ruling this
+brief carried that went unconsumed — by the gate's report, with what
+the gate reported instead, or by the fixer's rebase on whatever state
+its brief named, as the fixer reported it — quoted; every issue-fixer
+round you ran; the scrubber's per-entry and per-cut lines as it wrote them;
 every wait you took on a running check, with the checks it named; and
 every spawn record that failed, with the CLI's message.
 ```

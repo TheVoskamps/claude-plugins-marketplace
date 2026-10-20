@@ -139,6 +139,21 @@ in the path: the `stage` column below says which fan-out a record
 belongs to, so two files can never disagree about the round and a
 reader answers every stage's question from one `--mode print`.
 
+**A round has a type**, the class of file it reviews:
+`code-and-instruction-markdown` or `documentation`, the reviewer's
+`--mode`. Rounds of both types share one sequence per PR, so a
+documentation round takes the number after the last code round, and
+the paths do not change with the type. The `anchor` call is where the
+type is written, as `--round-type <type>`, and every read bounded by a
+round takes that round's type from there: a round whose log carries no
+anchor naming
+a type — round 0, which holds only the seed, or a round anchored before
+rounds had a type — is a `code-and-instruction-markdown` round. A round
+carries only the records of its own type, so the first documentation
+round carries nothing; theorem ids run in one sequence across both
+types, so its first new id is still one above the highest id any round
+below it holds.
+
 ## The paths
 
 The script composes every path below and **no caller ever reads or
@@ -238,16 +253,20 @@ the agent ids it reads across the PR's logs, `list` and `delete`
 for what they do across a repo's PR directories, and `repos` for what
 it lists across the state root.
 
-- **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`.
-  One call per round, and **idempotent**, which is what lets the
-  reviewer make it without knowing whether a child has already written:
+- **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`
+  and `--round-type <type>`, both required. One call per round, and
+  **idempotent**, which is what lets the reviewer make it without
+  knowing whether a child has already written:
 
   - **No `anchor` in the log** — the line is appended, creating the log
     when it is absent. A child that started first has already created
     it with its own `enter`, so the anchor is not necessarily the first
     line and no reader may assume it is.
-  - **An `anchor` naming the same head SHA** — this same round's, so
-    the call writes nothing and exits zero.
+  - **An `anchor` naming the same head SHA and type** — this same
+    round's, so the call writes nothing and exits zero.
+  - **An `anchor` naming the same head SHA and another type** — the
+    round is the other loop's, and nothing moved under it, so the call
+    is refused, non-zero, naming both types, and writes nothing.
   - **An `anchor` naming a different head SHA** — the records describe
     a tree that no longer exists, so the round's whole directory is
     renamed to `round<round>.voided-<instant>` — kept as the evidence
@@ -301,16 +320,16 @@ it lists across the state root.
   never answered.
 
   With `--stage generate` the report is the theorem list, filed under
-  `--theorem list`, and its new ids must continue the records the round
-  carries: those `print-records --round <round>` would print, or none
-  when no round below `--round` holds records — round 0 included — so
-  the list then starts at `T1`. Its ids are the lines holding nothing
-  but `T<n>`, above any `RETIREMENTS` line, in order, and each is held
-  to the rule the carry form holds a new record to: a new id a carried
-  record already holds, or one that is not the next id in sequence, is
-  refused, non-zero, with a message naming that id and the expected
-  next one. The call is refused as `print-records` would be, too, when
-  a round above `--round` holds records.
+  `--theorem list`, and its new ids must continue the PR's sequence: one
+  above the highest id the records of any round below `--round` hold,
+  of either type, or `T1` when none holds any — round 0 included. Its
+  ids are the lines holding nothing but `T<n>`, above any `RETIREMENTS`
+  line, in order, and each is held to the rule the carry form holds a
+  new record to: a new id a carried record — one `print-records --round
+  <round>` would print — already holds, or one that is not the next id
+  in sequence, is refused, non-zero, with a message naming that id and
+  the expected next one. The call is refused as `print-records` would
+  be, too, when a round above `--round` holds records.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a `<task-notification>` it
@@ -328,7 +347,8 @@ it lists across the state root.
   off whichever child the theorem had when it landed, a replacement
   included.
 - **`print`** — writes the round log to stdout, followed by one
-  `result` line per result file present. A `.partial-<pid>` staging
+  `result` line per result file present and then one `round-type` line
+  naming the round's type. A `.partial-<pid>` staging
   from a `leave` still in flight is **skipped**, so a report reaches a
   reader whole or not at all, and so are the round's `records` and
   `review` files, which are the round's own output rather than any
@@ -369,13 +389,15 @@ it lists across the state root.
   record's new state is arrives as an edit:
 
   1. It reads the records of the highest-numbered round **below**
-     `--round` that holds a records file, skipping the
+     `--round` that holds a records file and is of the type
+     `--round`'s own anchor names, skipping the
      `.voided-<instant>` directories as `print-records` does. A records
      file at `--round` itself is not read: `--round` may be the latest
      round holding records, and the carry then rebuilds that round's
      file from the round below, so a resumed reviewer stores its round's
      records again and gets the same file from the same edits. It
-     refuses when any round **above** `--round` holds a records file.
+     refuses when any round **above** `--round` holds a records file,
+     of either type.
   2. It applies the **edits file** `--edits <path>`, one edit per line:
      `<id>`, a tab, `<field>`, a tab, `<value>`. `<value>` is the rest
      of the line and may be empty; an empty line is skipped. `<field>`
@@ -388,7 +410,8 @@ it lists across the state root.
      a round that changes no carried record passes none.
   3. It appends the **new records** read as its payload, in the record
      shape above. Their ids, in payload order, are exactly `T<m+1>`,
-     `T<m+2>`, … where `T<m>` is the highest carried id. The payload may
+     `T<m+2>`, … where `T<m>` is the highest id the records of any round
+     below `--round` hold, of either type. The payload may
      be empty here, so an empty-delta round and a round that only
      retires are both written.
   4. It writes the result in id order, staged and renamed into place as
@@ -411,8 +434,9 @@ it lists across the state root.
   - a result that leaves any record without `state` — a round-0 seed
     record carried into round 1 unstamped is the case this catches —
     naming each such id;
-  - `--carry` when no round below `--round` holds a records file, or
-    when a round above it does, naming that round;
+  - `--carry` when no round below `--round` of its type holds a records
+    file, naming the type, or when a round above it does, naming that
+    round;
   - `--edits` without `--carry`, and `--carry` in any mode but
     `records`.
 - **`review`** — writes the round's argued review, read as its payload,
@@ -422,19 +446,23 @@ it lists across the state root.
   `.voided-<instant>` directories, whose records describe a tree that no
   longer exists. The round to carry forward is the most recent one
   there is, not one a caller names. A `--round <n>` bounds the
-  selection to the rounds **below** `<n>`, and `<n>` need not hold
-  records itself: a round under way passes its own number, so it reads
-  the round it carries from even when an earlier instance of it already
-  stored this round's records. With `--round <n>` it exits non-zero,
-  printing no records, when any round **above** `<n>` holds a records
-  file — the condition `--carry` refuses on, decided by the same code —
-  so a stale `--round` fails at this read rather than at the carry
-  that follows it. Its first line is `round <n>`, naming the
+  selection to the rounds **below** `<n>` of the type round `<n>`'s
+  anchor names, and `<n>` need not hold records itself: a round under
+  way passes its own number, so it reads the round it carries from even
+  when an earlier instance of it already stored this round's records.
+  With `--round <n>` it exits non-zero, printing no records, when any
+  round **above** `<n>` holds a records file — the condition `--carry`
+  refuses on, decided by the same code — so a stale `--round` fails at
+  this read rather than at the carry that follows it. Without
+  `--round`, `--round-type <type>` narrows the selection to the rounds
+  of that type; beside `--round` it is refused, since that round's
+  anchor already names the type. Its first line is `round <n>`, naming the
   round it selected, so a reader that needs the rest of that round's
   state — its `anchor` line's head SHA, its review file — has the number
   to ask for it with; the records follow from the second line on. Exits
   non-zero when no round it considers holds a records file — a PR whose
-  round 1 has no round-0 seed to read.
+  round 1 has no round-0 seed to read, or a first documentation round —
+  naming the type it selected by.
 - **`print-round-records`** — writes the named round's records file
   to stdout, byte for byte, with no `round <n>` line in front: the
   caller named the round. It is the read for a caller that walks every
@@ -514,7 +542,7 @@ One record per line, whitespace-separated columns, appended, and **no
 line is ever revised in place**:
 
 ```text
-anchor  <instant> <head-sha>
+anchor  <instant> <head-sha> <round-type>
 spawn   <theorem> <stage> <instant> <agent> <model> <effort>
 enter   <theorem> <stage> <instant> <agent-id> <transcript-path>
 leave   <theorem> <stage> <instant> <agent-id> <result-file>
@@ -523,15 +551,20 @@ stopped <theorem> <stage> <instant> <agent-id>
 ```
 
 `--mode print` adds one line per result file it finds, synthesized from
-the directory at read time and stored nowhere:
+the directory at read time and stored nowhere, and then the round's
+type as "A round has a type" above settles it, so no reader applies the
+rule for an anchor naming none itself:
 
 ```text
-result  <theorem> <agent> <result-file>
+result      <theorem> <agent> <result-file>
+round-type  <round-type>
 ```
 
 Every instant is `date -u +%Y-%m-%dT%H:%M:%SZ`. `<stage>` is
-`generate`, `disprove` or `verify`. The script rejects any column value
-carrying whitespace, which would shift its own line's columns.
+`generate`, `disprove` or `verify`, and `<round-type>`
+`code-and-instruction-markdown` or `documentation`. The script rejects
+any column value carrying whitespace, which would shift its own line's
+columns.
 
 A `result` line carries the agent rather than the stage because that is
 what the file's own name holds, and the name is split back apart at its

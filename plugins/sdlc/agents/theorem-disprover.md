@@ -38,9 +38,10 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--settle-mode`,
-`--pointers`, and `--round`. When the PR changes a
-documentation file, it also carries the documentation-paths line that
-skill describes; apply it as it says.
+`--pointers`, `--round`, and `--mode`. When the PR changes a
+documentation file, a `code-and-instruction-markdown` brief also
+carries the documentation-paths line that skill describes; apply it as
+it says.
 
 Without `--branch` you have no branch to settle the claim against.
 

@@ -44,7 +44,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |print-round-records|print-review|print-root|agent
                        |print-agents|delete
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
-                [--head-sha <sha>] [--theorem <id>]
+                [--head-sha <sha>] [--round-type <type>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
@@ -61,6 +61,7 @@ operands=0
 pr=
 round=
 head_sha=
+round_type=
 theorem=
 stage=
 agent=
@@ -77,7 +78,7 @@ edits=
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
+    --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -106,6 +107,7 @@ while [ "$#" -gt 0 ]; do
     --pr)         pr_ref=$value ;;
     --round)      round=$value ;;
     --head-sha)   head_sha=$value ;;
+    --round-type) round_type=$value ;;
     --theorem)    theorem=$value ;;
     --stage)      stage=$value ;;
     --agent)      agent=$value ;;
@@ -355,6 +357,26 @@ esac
 if [ "$mode" = anchor ]; then
   [ -n "$head_sha" ] || die "--head-sha is required in --mode anchor"
   single_token head-sha "$head_sha"
+  [ -n "$round_type" ] || die "--round-type is required in --mode anchor"
+fi
+
+# A round's type is the class of file it reviews, fixed by its anchor.
+# The anchor writes it; print-records without a --round selects by it,
+# and every read bounded by a --round takes the type that round's anchor
+# wrote rather than one a caller passes beside it.
+readonly default_round_type=code-and-instruction-markdown
+if [ -n "$round_type" ]; then
+  case "$mode" in
+    anchor) ;;
+    print-records)
+      [ -z "$round" ] || die "--round-type is not accepted with --round in --mode print-records: the anchor of round $round names its type"
+      ;;
+    *) die "--round-type is not accepted in --mode $mode: $round_type" ;;
+  esac
+  case "$round_type" in
+    code-and-instruction-markdown|documentation) ;;
+    *) die "--round-type must be code-and-instruction-markdown or documentation: $round_type" ;;
+  esac
 fi
 
 # --from names the file a writing mode reads its payload from in place
@@ -546,11 +568,14 @@ check_report_theorem() {
 # cannot be the next new record's id — one a carried record holds, or
 # one out of sequence — naming the id expected instead, or returns empty
 # and counts the id as added. The caller keeps the carried ids in
-# carried[], the highest carried number in max, and the ids accepted so
-# far in added.
+# carried[], the highest carried number in max, the highest number any
+# round below holds, of either type, in floor, and the ids accepted so
+# far in added. Ids run in one sequence per PR across both round types,
+# so the next one is above whichever of max and floor is higher.
 readonly new_id_rule='
+  function id_base() { return (floor + 0 > max + 0) ? floor + 0 : max + 0 }
   function new_id_refusal(id,    want) {
-    want = "T" (max + added + 1)
+    want = "T" (id_base() + added + 1)
     if (id in carried)
       return "the new record " id " has an id a carried record already holds; the next id in sequence is " want
     if (id != want)
@@ -560,18 +585,19 @@ readonly new_id_rule='
   }'
 
 # A generator's report is the round's new theorems, and an id it gives
-# one must continue the records the round carries: the round below
-# --round that print-records would read, or none, which makes the list
-# start at T1. The ids are the lines holding nothing but T<n> above any
-# RETIREMENTS line, checked in order against new_id_rule before the
-# report is installed, so a refused list leaves no result file and no
-# leave record behind.
+# one must continue the PR's sequence: one above the highest id any round
+# below --round holds, of either type, or T1 when none holds any. The
+# records it checks a collision against are the round's carried ones,
+# those print-records would read. The ids are the lines holding nothing
+# but T<n> above any RETIREMENTS line, checked in order against
+# new_id_rule before the report is installed, so a refused list leaves no
+# result file and no leave record behind.
 check_report_ids() {
   [ "$stage" = generate ] || return 0
   records_below_round
   carried_file=/dev/null
   [ -z "$best" ] || carried_file=$best/records
-  refusal=$(awk -v carried_file="$carried_file" "$new_id_rule"'
+  refusal=$(awk -v carried_file="$carried_file" -v floor="$id_floor" "$new_id_rule"'
     FNR == 1 { open = 0 }
     FILENAME == carried_file {
       if ($0 == "") { open = 0; next }
@@ -594,19 +620,37 @@ check_report_ids() {
   fi
 }
 
+# round_type_of <round directory>: the type the round's anchor wrote. A
+# round with no anchor naming one — round 0, which holds only the seed,
+# or a round anchored before rounds had a type — reviewed code and
+# instruction Markdown.
+round_type_of() {
+  anchored_type=
+  if [ -f "$1/log" ]; then
+    anchored_type=$(awk '$1 == "anchor" { print $4; exit }' "$1/log")
+  fi
+  printf '%s\n' "${anchored_type:-$default_round_type}"
+}
+
 # The records to carry forward are the most recent ones there are, so
 # this sets best_round and best to the highest-numbered round holding a
 # records file, and leaves both empty when none does. Given a round
 # number, it considers only the rounds below that one, and sets
-# above_round to the highest round above it holding a records file,
-# leaving it empty when none does. A voided round's directory carries
-# its records with it under the .voided- name, and is skipped for the
-# same reason its result files are — it describes a tree that no longer
+# above_round to the highest round above it holding a records file, of
+# either type, leaving it empty when none does. Given a type as well, it
+# sets best to the highest of the rounds below holding records of that
+# type alone, since a round carries only the records of its own type.
+# Either way it sets id_floor to the highest theorem id the records of
+# every round it considers hold, of either type, 0 when they hold none,
+# because ids run in one sequence across both types. A voided round's directory carries its
+# records with it under the .voided- name, and is skipped for the same
+# reason its result files are — it describes a tree that no longer
 # exists.
 latest_records_round() {
   best=
   best_round=
   above_round=
+  id_floor=0
   for candidate in "$pr_dir"/round*; do
     [ -d "$candidate" ] || continue
     base=${candidate##*/}
@@ -624,6 +668,12 @@ latest_records_round() {
       fi
       continue
     fi
+    top=$(awk '/^T[0-9]+$/ { n = substr($0, 2) + 0; if (n > m) m = n } END { print m + 0 }' \
+      "$candidate/records")
+    [ "$top" -le "$id_floor" ] || id_floor=$top
+    if [ -n "${2-}" ] && [ "$(round_type_of "$candidate")" != "$2" ]; then
+      continue
+    fi
     if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
       best_round=$n
       best=$candidate
@@ -632,12 +682,13 @@ latest_records_round() {
 }
 
 # The rounds below --round, for a call that reads records from there:
-# sets best_round and best as latest_records_round does, and refuses when
-# a round above --round holds records. Such a round was built from the
-# records below it, so --round is not the round under way and what the
-# rounds below hold is no longer the latest state.
+# sets best_round, best and id_floor as latest_records_round does for the
+# type the round's own anchor wrote, and refuses when a round above
+# --round holds records. Such a round was built from the records below
+# it, so --round is not the round under way and what the rounds below
+# hold is no longer the latest state.
 records_below_round() {
-  latest_records_round "$round"
+  latest_records_round "$round" "$(round_type_of "$dir")"
   [ -z "$above_round" ] \
     || die "--mode $mode${carry:+ --carry} --round $round refused: round $above_round, above it, holds a records file"
 }
@@ -648,12 +699,13 @@ records_below_round() {
 # it lacks appends the line after the record's others, in the order
 # state, state-detail, settled-at, severity-override. Arguments are the
 # carried records file, the edits file and the new-records file, either
-# of the last two possibly empty. Every refusal is decided before the
-# first record is printed, and exits 2 with its message on stderr. Only
-# a round-0 seed may hold a record without a state, so a result for
-# round 1 or later that leaves one unstamped is refused.
+# of the last two possibly empty, and the id floor records_below_round
+# set. Every refusal is decided before the first record is printed, and
+# exits 2 with its message on stderr. Only a round-0 seed may hold a
+# record without a state, so a result for round 1 or later that leaves
+# one unstamped is refused.
 build_carried_records() {
-  awk -v prog="$PROGRAM" -v round="$round" \
+  awk -v prog="$PROGRAM" -v round="$round" -v floor="$4" \
       -v carried_file="$1" -v edits_file="$2" -v new_file="$3" "$new_id_rule"'
     function refuse(msg) {
       printf "%s: %s\n", prog, msg | "cat 1>&2"
@@ -714,7 +766,7 @@ build_carried_records() {
     }
     END {
       if (failed) exit 2
-      last = max + added
+      last = id_base() + added
       for (n = 1; n <= last; n++) {
         if (!(n in present)) continue
         id = "T" n
@@ -781,7 +833,7 @@ case "$mode" in
       old_head=$(awk '$1=="anchor"{print $3; exit}' "$file")
     fi
     if [ -z "$old_head" ]; then
-      printf 'anchor %s %s\n' "$(now)" "$head_sha" >> "$file"
+      printf 'anchor %s %s %s\n' "$(now)" "$head_sha" "$round_type" >> "$file"
     elif [ "$old_head" != "$head_sha" ]; then
       # A different head means the records describe a tree that no
       # longer exists, so they answer for nothing the new round will ask
@@ -794,10 +846,15 @@ case "$mode" in
       stamp=$(date -u +%Y%m%dT%H%M%SZ)
       mv -- "$dir" "$dir.voided-$stamp"
       mkdir -p "$dir"
-      printf 'anchor %s %s\n' "$(now)" "$head_sha" > "$file"
+      printf 'anchor %s %s %s\n' "$(now)" "$head_sha" "$round_type" > "$file"
+    elif [ "$(round_type_of "$dir")" != "$round_type" ]; then
+      # The same head under another type is not this round: its records
+      # answer the other loop's questions, and voiding them would discard
+      # a round nothing moved.
+      die "--mode anchor --round $round refused: the round is anchored as $(round_type_of "$dir"), not $round_type"
     fi
-    # An anchor already naming this head is this same round's: the call
-    # writes nothing and says so by exiting zero.
+    # An anchor already naming this head and type is this same round's:
+    # the call writes nothing and says so by exiting zero.
     ;;
   spawn)
     printf 'spawn %s %s %s %s %s %s\n' \
@@ -878,6 +935,9 @@ case "$mode" in
       esac
       printf 'result %s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
     done
+    # The round's type, as every reader of a round takes it: the one its
+    # anchor wrote, or the type a round with none reviewed.
+    printf 'round-type %s\n' "$(round_type_of "$dir")"
     ;;
   records)
     if [ -z "$carry" ]; then
@@ -888,14 +948,15 @@ case "$mode" in
       # rebuilds them from the same input rather than from its own
       # output.
       records_below_round
-      [ -n "$best" ] || die "--carry found no round below --round $round under $pr_dir holding a records file"
+      [ -n "$best" ] \
+        || die "--carry found no round below --round $round under $pr_dir holding a records file of type $(round_type_of "$dir")"
       # The new records may be empty, so the payload is read rather than
       # stored through store_payload, which refuses an empty one. The
       # result is built beside it and installed into the round's
       # directory only once nothing refused it.
       make_work
       read_payload "$work/new" "new records"
-      build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" > "$work/records" \
+      build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" "$id_floor" > "$work/records" \
         || exit 2
       make_dir
       install_whole "$work/records" "$records_file"
@@ -906,17 +967,20 @@ case "$mode" in
     ;;
   print-records)
     # The caller does not name the round to read, and which round wrote
-    # the records is what the first line of the output says. A --round bounds the
-    # selection to the rounds below it, because a round whose records an
-    # earlier instance of it already stored carries the round below's,
-    # not its own. The bound refuses as the carry does, so a stale
-    # --round fails at this read rather than at the carry that follows.
+    # the records is what the first line of the output says. A --round
+    # bounds the selection to the rounds below it, of that round's own
+    # type, because a round whose records an earlier instance of it
+    # already stored carries the round below's, not its own. The bound
+    # refuses as the carry does, so a stale --round fails at this read
+    # rather than at the carry that follows. Without one, --round-type
+    # narrows the selection to the rounds of that type.
     if [ -n "$round" ]; then
       records_below_round
-      [ -n "$best" ] || die "no round below --round $round under $pr_dir holds a records file"
+      [ -n "$best" ] \
+        || die "no round below --round $round under $pr_dir holds a records file of type $(round_type_of "$dir")"
     else
-      latest_records_round
-      [ -n "$best" ] || die "no round under $pr_dir holds a records file"
+      latest_records_round "" "$round_type"
+      [ -n "$best" ] || die "no round under $pr_dir holds a records file${round_type:+ of type $round_type}"
     fi
     printf 'round %s\n' "$best_round"
     cat -- "$best/records"

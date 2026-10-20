@@ -43,24 +43,29 @@ under `agents/` owns:
   each against the style guide of its own class. When it
   returns, the branch carries at most one new comment commit, and
   `style-checker` runs next
-- `style-checker` — checks the code and instruction-Markdown files a
-  PR's diff touched against the rules under `## For Authors and
-  Checkers` of the style guide each file's class routes to.
+- `style-checker` — checks the files a PR's diff touched against the
+  rules under `## For Authors and Checkers` of the style guide each
+  file's class routes to: code and instruction Markdown in the code
+  loop, documentation in the documentation loop, as its `--mode` says.
   When it returns, the branch is unchanged and its report carries
-  findings or none; findings go to `issue-fixer`, and only a finding
-  its rule cannot settle pauses the loop for the human, per "The
-  style-fix loop"
-- `docs-writer` — writes the PR's documentation after the human's
-  end-of-loop confirmation, from the diff, the deferred edits the
-  implementing agents reported, and the member issues' documentation
-  criteria. When it returns, the branch carries a
-  documentation commit if the change needed one, and its report lists
-  every file it changed with a one-line reason
+  findings or none; findings go to the loop's fixer — `issue-fixer` or
+  `docs-writer` — and only a finding its rule cannot settle pauses the
+  loop for the human, per "The style-fix loop"
+- `docs-writer` — the documentation loop's implementer. It writes the
+  PR's documentation from the diff, the deferred edits the implementing
+  agents reported, and the member issues' documentation criteria; it
+  fixes the findings of a documentation round's fixer brief; and for a
+  batch with no code to implement it creates the branch and opens the
+  PR. When it returns, the branch carries a documentation commit if the
+  work needed one, and its report lists every file it changed with a
+  one-line reason and grades each documentation criterion it was given
+  `met` or `not met`
 - `theorem-based-pr-reviewer` — reviews one PR, carrying the whole
   review procedure in its own definition and spawning the generator
-  and both fan-outs from inside itself. When it returns, one review is
-  posted on the PR and its report carries the verdicts and findings you
-  brief a fixer from. It leaves nothing on the branch
+  and both fan-outs from inside itself, under the `--mode` of the loop
+  that spawned it. When it returns, one review is posted on the PR and
+  its report carries the verdicts and findings you brief a fixer from.
+  It leaves nothing on the branch
 - `theorem-generator` and its `-medium`, `-high` and `-xhigh` tiers,
   `theorem-disprover`, and `counterexample-verifier` — the reviewer's
   own children, spawned by the review pipeline; each leaves nothing on
@@ -75,15 +80,18 @@ under `agents/` owns:
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty. You spawn it
-  once, after `docs-writer`; `pr-merge-readiness` spawns it after
-  every `issue-fixer` round of its own
+  after each documentation loop ends; `pr-merge-readiness` spawns it
+  after every `issue-fixer` round of its own that needs no
+  documentation loop
 - `pr-merge-readiness` — drives one blessed PR through the
-  merge-readiness gate, spawning `issue-fixer`, `docs-writer` when the
-  fixer deferred a documentation edit, and `agent-memory-scrubber` for
-  the remedies. When it returns, either the PR is in a state the
-  close-out proceeds from, or its report carries a question with the
-  gate's output verbatim, which you relay to the human and answer by
-  re-spawning it with the ruling in the brief
+  merge-readiness gate, spawning `issue-fixer` and
+  `agent-memory-scrubber` for the remedies. When it returns, either the
+  PR is in a state the close-out proceeds from; or its report carries a
+  question with the gate's output verbatim, which you relay to the
+  human and answer by re-spawning it with the ruling in the brief; or
+  it reports `documentation loop needed`, because a fixer round left
+  documentation to write or a documentation conflict resolved, and you
+  run the documentation loop before re-spawning it
 - `pr-finalizer` — posts the run's assembled review detail as chained
   PR comments and writes the run's final section into the PR body,
   once the loop is over, replacing the section an earlier run left.
@@ -122,8 +130,8 @@ both at the link step.
 
 A teammate that declares `memory: project` captures its entries with
 `/cc-tools:agent-memory-inbox-capture` at end-of-run, and
-`agent-memory-scrubber` curates that inbox on the human's end-of-loop
-confirmation (see "Final Report"). You never carry memory between
+`agent-memory-scrubber` curates that inbox once the documentation loop
+has ended (see "Final Report"). You never carry memory between
 spawns yourself.
 
 ## Invocation
@@ -377,6 +385,28 @@ rule means for one.
   option stated in the question. It never travels to the final report,
   and it never becomes a follow-up issue on your initiative.
 
+### A batch with no code to implement skips the code loop
+
+A batch none of whose members carries a
+`## Code and instruction Markdown acceptance` section, as
+`sdlc:orchestrate-readiness` defines it, has nothing for the code loop
+to implement or review. Group such an issue only with others like it,
+so a batch takes one path or the other whole. For such a batch:
+
+- **No seed and no developer.** The seed below is the code loop's
+  round 0, so it is not generated; spawn `docs-writer` in place of
+  `issue-developer`, with the new-branch brief the PR-lifecycle file
+  carries, once the batch's members are In Progress. It creates the
+  branch, writes the documentation, and opens the draft PR.
+- **When it returns**, make the PR-lifecycle file's link step on the
+  PR it reports, and record its agent id there as a developer's is.
+  There is no round 0 to write and no `Scope:` block to read.
+- **Then run the documentation loop** from its style check, per "The
+  documentation loop" — `docs-writer`'s commit is that loop's first
+  round of documentation — and every stage after it as for any PR.
+
+Every other batch takes the sections below.
+
 ### Seed the theorem set from the issues, and put it to the human
 
 Before a batch's developer is spawned, the review's theorem set is
@@ -455,7 +485,7 @@ Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
 
 Edit code and instruction Markdown, and no documentation; docs-writer
-writes the PR's documentation after the review loop, from the
+writes the PR's documentation after the code loop, from the
 documentation edits you report on your Deferred to docs-writer: line.
 
 Implement the batch end-to-end per your agent definition. Report back:
@@ -480,9 +510,9 @@ lines all go away.
 Read `skills/orchestrate/lib/pr-lifecycle.md` when the first developer
 returns, and keep it through every PR's close-out: it owns the link
 step below, the body freeze that holds from that step to the end of
-the loop, the two spawns that run on the human's end-of-loop
-confirmation, the close-out, and the briefs for `pr-merge-readiness`
-and `pr-monitor`.
+the documentation loop, the documentation loop's briefs and round
+mechanics, the pre-readiness spawn, the close-out, and the briefs for
+`pr-merge-readiness` and `pr-monitor`.
 
 Before spawning the follow-up agents, make that file's link step for
 the PR the developer just reported: resolve its canonical reference,
@@ -511,11 +541,13 @@ until the Final Report flips it.
 
 ### After each round's commits: document, check style, then review
 
-Run `code-documenter`, then `style-checker`, then
-`theorem-based-pr-reviewer`, **sequentially**. The review must see the
-final state of the PR's code, including the comment commit and any
-style fix; if either pass runs after the review, the review covers an
-incomplete PR.
+This is the **code loop**, which reviews code and instruction Markdown
+and runs every round under `--mode code-and-instruction-markdown`; "The
+documentation loop" below follows it. Run `code-documenter`, then
+`style-checker`, then `theorem-based-pr-reviewer`, **sequentially**.
+The review must see the final state of the PR's code, including the
+comment commit and any style fix; if either pass runs after the
+review, the review covers an incomplete PR.
 
 **code-documenter spawn prompt** — give it PR reference and branch name.
 The same prompt serves every round, and no issue set is passed: the
@@ -535,6 +567,7 @@ Report back the files you touched and the commit you pushed.
 ```text
 PR <PR_REF> has new commits on it.
 Branch: <branch-name>
+--mode code-and-instruction-markdown
 
 Check the code and instruction Markdown against the rules under
 `## For Authors and Checkers` per your agent definition. Report back
@@ -590,8 +623,9 @@ report it in the Final Report summary.
 Review is a teammate spawn like any other. Spawn
 `theorem-based-pr-reviewer` with the `Agent` tool, giving it the
 reviewer's own double-dash parameters — the PR reference, the issue set,
-and the branch name (`--pr`, `--issues`, `--branch`). That is the one
-vocabulary both this path and a standalone `/sdlc:git-review-pr` use.
+the branch name, and the loop's mode (`--pr`, `--issues`, `--branch`,
+`--mode`). That is the one vocabulary both this path and a standalone
+`/sdlc:git-review-pr` use.
 
 The issue set is not context here: it is the **claim** the reviewer
 reconciles against the branch name, so pass the set the PR actually
@@ -601,6 +635,7 @@ the standalone path rather than this one:
 
 ```text
 --pr <PR_REF> --issues <issue_N1> <issue_N2> … --branch <branch-name>
+--mode <code-and-instruction-markdown in the code loop, documentation in the documentation loop>
 
 Review this PR per your agent definition. Report back its verdicts,
 findings, and round kind.
@@ -787,12 +822,13 @@ member)**:
    what you didn't.
    ```
 
-   Make each scope ruling by reading the finding against the issue's
-   `## Code and instruction Markdown acceptance` section, as
-   `sdlc:orchestrate-readiness` defines it, never against the finding's
-   severity: a fix those criteria cover is in scope, and one they do
-   not is outside the issue however severe. The issue's
-   `## Documentation acceptance` section decides no scope ruling.
+   Make each scope ruling of the code loop by reading the finding
+   against the issue's `## Code and instruction Markdown acceptance`
+   section, as `sdlc:orchestrate-readiness` defines it, never against
+   the finding's severity: a fix those criteria cover is in scope, and
+   one they do not is outside the issue however severe. The issue's
+   `## Documentation acceptance` section decides no scope ruling of the
+   code loop; "The documentation loop" says what decides one there.
 
    A finding ruled `— in scope` goes into the brief without a question
    to the human: the scope ruling already decides it. A reviewer's
@@ -818,7 +854,7 @@ member)**:
    PR <PR_REF> has a fixer brief waiting on it.
 
    Edit code and instruction Markdown, and no documentation;
-   docs-writer writes the PR's documentation after the review loop,
+   docs-writer writes the PR's documentation after the code loop,
    from the documentation edits you report on your Deferred to
    docs-writer: line.
 
@@ -868,6 +904,35 @@ round's fix, stop briefing and put the class to the human, with
 reverting to the last state the class was clean in stated as one of
 the options. Name the class you are watching — the theorem or the
 file — in each round's report.
+
+### The documentation loop
+
+The code loop reviews no documentation, so a second loop does: it runs
+on the human's end-of-loop confirmation of the code loop, per "Final
+Report", and again on a `documentation loop needed` return from
+`pr-merge-readiness`. It takes the code loop's round rules and its
+end-of-loop confirmation as they stand — the style-fix loop, the
+reviewer spawn and its `Return:` line, the fix loop's decision points,
+the review adjustments — with these differences:
+
+- **Every round runs under `--mode documentation`** — `style-checker`
+  and `theorem-based-pr-reviewer` both get it, so the round checks and
+  reviews the PR's documentation and nothing else. `code-documenter`
+  does not run.
+- **`docs-writer` is the loop's implementer**, in `issue-fixer`'s place
+  for review and style findings alike. Its briefs, how a round's fixer
+  brief is posted, and when the loop ends are in
+  `skills/orchestrate/lib/pr-lifecycle.md` → "The documentation loop".
+- **Scope rulings read the finding against the issue's
+  `## Documentation acceptance` section, and against the documentation
+  the PR's diff made stale** — the two sources a documentation round
+  generates from. A fix either covers is in scope; any other is outside
+  the issue, ruled as the code loop rules one.
+- **Its rounds count against a bound of their own.** Rounds of both
+  loops share one numbering per PR, so the reviewer's first
+  documentation round takes the number after the last code round, but
+  only documentation rounds count against the documentation loop's
+  bound, per "Your own boundary".
 
 ### Posting the human's review adjustments as a PR comment
 
@@ -960,19 +1025,23 @@ says otherwise:
 
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
-The review/fix loop leaves each PR **draft** and every issue it closes
-**In Progress**. The Final Report is where the human confirms — per
-PR — that the loop is done and the PR is good enough to move forward.
-On that end-of-loop confirmation for a given PR, and only then, the PR
-goes through these stages, in this order. The confirmation authorizes
-the ready flip and nothing past it: the merge stays the human's, by
-hand or by the repo's auto-merge, and the monitor loop only watches
-for it.
+The code loop leaves each PR **draft** and every issue it closes
+**In Progress**, and so does the documentation loop. Each loop ends on
+the human's end-of-loop confirmation, per PR, that the loop is done and
+the PR is good enough to move forward:
 
-1. **The pre-readiness spawns** — `docs-writer`, then
-   `agent-memory-scrubber`, each with the brief the PR-lifecycle file
-   carries. Both put commits on the branch, which is why they run
-   before the gate that grades those commits.
+- **The code loop's confirmation** starts the PR's documentation loop,
+  per "The documentation loop", and nothing else. A batch with no code
+  to implement has no code loop, and so no such confirmation.
+- **The documentation loop's confirmation**, and only that, sends the
+  PR through the stages below, in this order. The confirmation
+  authorizes the ready flip and nothing past it: the merge stays the
+  human's, by hand or by the repo's auto-merge, and the monitor loop
+  only watches for it.
+
+1. **The pre-readiness spawn** — `agent-memory-scrubber`, with the
+   brief the PR-lifecycle file carries. It puts a commit on the branch,
+   which is why it runs before the gate that grades that commit.
 
 2. **Spawn `pr-merge-readiness`**, with the brief the PR-lifecycle
    file carries: the PR reference, the branch, and no ruling on the first
@@ -988,6 +1057,12 @@ for it.
      the state and cause the question named; it runs the gate afresh
      and carries on from there. Nothing else is spawned for the PR
      until it returns with a terminal state.
+   - **`documentation loop needed`** — a fixer round deferred a
+     documentation edit or resolved a conflict in a documentation file,
+     and spawned no `docs-writer`. Run the documentation loop, its
+     writing brief carrying the entries the report relays, then step 1
+     again on its end-of-loop confirmation, then spawn
+     `pr-merge-readiness` again with no ruling.
 
    A ruling its report names as discarded — one the gate's report
    did not consume, or one the fixer's rebase did not need, whatever
@@ -995,10 +1070,9 @@ for it.
    question or the state it returned with, so the human knows the
    earlier answer lapsed rather than took effect.
    Count each `issue-fixer` round its report names, with the state
-   that drove it, toward the summary's `Readiness Remedies` cell, add
-   each `docs-writer` per-file list it relays to the `Doc Changes` cell
-   and the finalizer's scope notes, and pass the scrubber lines it
-   relays through to the human as it wrote them.
+   that drove it, toward the summary's `Readiness Remedies` cell, and
+   pass the scrubber lines it relays through to the human as it wrote
+   them.
 
 3. **The close-out**, per the PR-lifecycle file: the In Review flips
    for every issue the PR closes, `pr-finalizer`, then the ready flip.
@@ -1026,7 +1100,7 @@ for it.
 
 **One PR goes through these stages at a time.** When the human confirms
 more than one PR, take them in the order confirmed, and start the next
-PR's stages — the pre-readiness spawns onward — only when the previous
+PR's stages — the pre-readiness spawn onward — only when the previous
 PR's monitor loop has ended, whether by a merge, a close, an error, or
 the human declining to keep waiting; under `merge-wait: skip`, when the previous
 PR's ready flip has landed. The first PR's merge moves the base the
@@ -1087,7 +1161,10 @@ definition, `CLAUDE.md` or global rules file already states.
   is settled at the Discovery and Planning confirm step; once a branch
   carries commits and a PR, the only way a member leaves the batch is
   the developer's drop protocol (see "A dropped batch member").
-- **Max review rounds per PR: 5.** Escalate to the human after that. A
+- **Max review rounds per PR: 5 per loop**, counted separately: 5
+  code-loop rounds, and 5 documentation-loop rounds, which no code-loop
+  round counts against. Escalate to the human after a loop reaches its
+  bound. A
   round is one `theorem-based-pr-reviewer` spawn **that posted a
   review**, however many children its fan-outs spawned and at whatever
   generator tier. The `code-documenter` and `style-checker` passes are

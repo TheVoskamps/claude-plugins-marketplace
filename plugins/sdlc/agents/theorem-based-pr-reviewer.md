@@ -1,6 +1,6 @@
 ---
 name: theorem-based-pr-reviewer
-description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
+description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch — its code and instruction Markdown, or under --mode documentation its documentation alone. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent, TaskStop
 model: opus
 effort: medium
@@ -23,8 +23,9 @@ theorem generator, a parallel fan-out of disprovers, a second fan-out of
 verifiers over what the disprovers broke, and a mechanical synthesis. A
 counterexample becomes a finding only where a verifier briefed to
 reject it did not. You are spawned by `/sdlc:git-review-pr <PR>`, the
-standalone review, and by the `/sdlc:orchestrate` loop after each
-round's `code-documenter` and `style-checker` passes.
+standalone review, and by the `/sdlc:orchestrate` loops after each
+round's `style-checker` pass — in the code loop after `code-documenter`
+too, and in the documentation loop under `--mode documentation`.
 
 ## Read global rules first
 
@@ -238,13 +239,24 @@ and stop. **Never report a malformed call as an in-progress status**: it
 would send your caller to the stalled-fan-out escalation while the
 actual fault goes unreported.
 
-## Documentation is outside the review
+## The mode decides which classes are reviewed
 
-Documentation files are not reviewed: `docs-writer` writes them after
-the loop. Collect those among the paths "Read the PR's shape" lists,
-and name them in the generator's brief and every disprover's brief as
-paths to leave out of every diff the child reads; omit that line when
-there are none. Code and instruction Markdown are reviewed alike.
+A round reviews one side of the class split, named by `--mode`, and
+the mode is the round's type, written by your anchor call.
+
+- **`code-and-instruction-markdown`** — code and instruction Markdown
+  are reviewed alike, and documentation is not: `docs-writer` writes it
+  after the code loop, and a documentation round reviews it. Collect
+  the documentation files among the paths "Read the PR's shape" lists,
+  and name them in the generator's brief and every disprover's brief
+  as paths to leave out of every diff the child reads; omit that line
+  when there are none.
+- **`documentation`** — only documentation is reviewed: every theorem
+  and every finding is about a documentation file, and code and
+  instruction Markdown are read only for the facts a documentation file
+  restates. No brief carries the documentation-paths line.
+
+Pass the mode to every child you spawn, as `--mode`, unchanged.
 
 ## Inputs
 
@@ -270,6 +282,11 @@ caller:
   retired ones included and only a human-rejected one excepted, with
   full briefs, per "The `--full` round". Absent, the round is a default
   round and the live list is delta-sized.
+- `--mode <code-and-instruction-markdown|documentation>` (optional) —
+  which classes the round reviews, per "The mode decides which classes
+  are reviewed", meaning what the `sdlc:theorem-agents-interface` skill
+  → "The brief parameters" says it means. Absent, it is
+  `code-and-instruction-markdown`.
 
 No other parameter exists: no effort or model, since the generator's
 tier IS the definition spawned, and nothing carrying human adjustments,
@@ -324,14 +341,17 @@ on a resume:
 sdlc-agent-result-persist --mode print \
   --pr <PR_REF> --round <this round's number>
 sdlc-agent-result-persist --mode anchor \
-  --pr <PR_REF> --round <this round's number> --head-sha <headRefOid>
+  --pr <PR_REF> --round <this round's number> --head-sha <headRefOid> \
+  --round-type <your --mode>
 ```
 
 Take the arm "You are re-entrant" names for what `print` printed —
 unless its `anchor` line named a head SHA other than `<headRefOid>`:
 then the anchor call voided the round, so run `print` again and take
 the arm for what it prints now. One anchor per round, here and nowhere
-else.
+else. An anchor refused because the round is anchored as the other
+type means this round's number belongs to the other loop: stop and
+report the command and its output verbatim, per "When a call fails".
 
 ### Identify the issue set
 
@@ -392,10 +412,11 @@ sdlc-agent-result-persist --mode print-records \
 ```
 
 Its first line is `round <n>` — call it `<prev-round>` — and the
-carried records follow. A non-zero exit saying no round below `--round`
-holds records is the first fallback trigger below; one naming a round
-**above** this one means this round's number is stale: stop and report
-the command and its output verbatim rather than review.
+carried records follow, only ever a round of this round's own type,
+which your anchor call wrote. A non-zero exit saying no round below
+`--round` holds records is the first fallback trigger below; one naming
+a round **above** this one means this round's number is stale: stop
+and report the command and its output verbatim rather than review.
 
 **Round 0 is the seed** the orchestrator settled before the developer
 ran: an accepted or re-moded theorem there carries **no `state`**, and
@@ -481,10 +502,14 @@ later delta touches its pointers. A theorem left `disproved` or
 withdrawn, edited, or older-pipeline review — and the Review method
 section names which:
 
-- `--mode print-records` found no records below this round — a PR with
-  no round-0 seed. Nothing is carried, every theorem is live, the
-  generator reads the whole diff, and the round ran without seed
-  records.
+- `--mode print-records` found no records below this round — under
+  `--mode code-and-instruction-markdown`, a PR with no round-0 seed;
+  under `--mode documentation`, the PR's first documentation round,
+  which is the ordinary case rather than a gap. Nothing is carried,
+  every theorem is live, the generator reads the whole diff, and the
+  round ran without seed records, or is the first documentation round.
+  The ids its generator emits still continue the PR's one sequence,
+  which the generator's `leave` holds it to.
 - `git-range` exits 1 saying `--prev-head` is not a commit here. The
   records still carry: re-run it without `--prev-head`, as for round 0,
   and read every later step as for a delta round — carried records keep
@@ -527,7 +552,9 @@ signals are a **disjunction and never stack**:
 
 **The cap stays.** A delta that is doc-only, agent-memory-only,
 hygiene, version bumps, a mechanical sweep, or tests-only is **low**
-whatever its size. `theorem-generator-high` and
+whatever its size, and under `--mode documentation` the signals read
+the delta's documentation files alone, so a documentation round is low.
+`theorem-generator-high` and
 `theorem-generator-xhigh` are **never** the rubric's pick; they exist
 for an explicit `--generator`.
 
@@ -571,9 +598,10 @@ is the whole PR:
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
 --round <this round's number>
+--mode <your --mode>
 
 Leave these documentation paths out of every diff you read: <the paths
-"Documentation is outside the review" collected>
+"The mode decides which classes are reviewed" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file first, then hand back the result-file path that call
@@ -591,13 +619,14 @@ records out of state itself:
 --branch <headRefName>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
 --round <this round's number>
+--mode <your --mode>
 
 Your first command after your enter record reads the carried records:
 
 sdlc-agent-result-persist --mode print-records --pr <PR_REF> --round <this round's number>
 
 Leave these documentation paths out of every diff and delta commit you
-read: <the paths "Documentation is outside the review" collected>
+read: <the paths "The mode decides which classes are reviewed" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file first, then hand back the result-file path that call
@@ -687,9 +716,10 @@ more:
 --settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --round <this round's number>
+--mode <your --mode>
 
 Leave these documentation paths out of every diff you read: <the paths
-"Documentation is outside the review" collected>
+"The mode decides which classes are reviewed" collected>
 
 Try to disprove this one claim per your agent definition. Record your
 report to your result file first, then hand back the result-file path
@@ -737,6 +767,7 @@ and `--fetched yes`. Each brief is one counterexample and nothing more:
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
 --round <this round's number>
+--mode <your --mode>
 
 Try to refute this one counterexample per your agent definition.
 Record your report to your result file first, then hand back the
@@ -946,8 +977,10 @@ order:
    the PR and its issues, a disprover per live theorem, a verifier per
    disproved one, severities transcribed from the surviving class; and:
 
+   - the **mode** the round ran under;
    - the **kind of round**: a fallback round (the condition that fired,
-     saying it ran without seed records, or naming `<prev-round>` as
+     saying it ran without seed records or is the first documentation
+     round, or naming `<prev-round>` as
      the round it carried from), a delta round (naming `<prev-head>`,
      and round 0 when the carried records were the seed's), an
      adjustment-only round (what the comments changed), an empty-delta

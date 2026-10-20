@@ -8,8 +8,10 @@
 # bound, the path leave prints, stopped's --agent-id and
 # print-in-flight's matching of a stopped to its child, the agent
 # record and the agent ids print-agents reads back, a generator's
-# leave refused for ids that do not continue the carried records,
-# print-root's state root and its signpost, and the repository's state
+# leave refused for ids that do not continue the carried records, the
+# round type an anchor writes and the same-type carry and cross-type id
+# sequence it drives, print-root's state root and its signpost, and the
+# repository's state
 # directory: its repo.yml, the move of state from the layout that
 # predates the host segment, and --mode repos. It also drives the --pr
 # reference and its refusals, --mode list's repository operand against
@@ -578,6 +580,99 @@ theorem_list 1 2 >"$CASE/list"
 as_child G --mode leave --round 1 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
 check "$RC" "0" "generate ids: a round with no records below it accepts a list opening at T1"
 
+# --- round types -----------------------------------------------------------
+
+# anchor <n> <type>: anchors round <n> on head abc as a round of <type>.
+anchor() {
+  persist --mode anchor --round "$1" --head-sha abc --round-type "$2"
+  check "$RC" "0" "anchor: round $1 is anchored as $2"
+}
+
+new_case round-type-anchor
+anchor 1 documentation
+check "$(round_log 1 | awk '$1 == "anchor" {print $3, $4}')" "abc documentation" \
+  "round type: the anchor line carries the round's type after its head"
+OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print --round 1 2>/dev/null </dev/null)
+check "$(printf '%s\n' "$OUT" | tail -n 1)" "round-type documentation" "round type: print ends with the round's type"
+persist --mode anchor --round 1 --head-sha abc --round-type code-and-instruction-markdown
+check "$RC" "2" "round type: re-anchoring the same head as another type is refused"
+check_contains "$ERR" "the round is anchored as documentation, not code-and-instruction-markdown" \
+  "round type: the refusal names both types"
+check "$(round_log 1 | grep -c '^anchor')" "1" "round type: a refused re-anchor writes nothing"
+persist --mode anchor --round 2 --head-sha abc
+check_contains "$RC:$ERR" "2:" "round type: an anchor without --round-type is refused"
+check_contains "$ERR" "--round-type is required in --mode anchor" "round type: the refusal names --round-type"
+persist --mode anchor --round 2 --head-sha abc --round-type prose
+check_contains "$ERR" "--round-type must be code-and-instruction-markdown or documentation: prose" \
+  "round type: a type outside the two is refused"
+persist --mode spawn --round 1 --theorem T1 --stage disprove --agent theorem-disprover --model default \
+  --effort default --round-type documentation
+check_contains "$ERR" "--round-type is not accepted in --mode spawn" "round type: a mode that writes no anchor refuses it"
+
+new_case round-type-unanchored
+mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print --round 1 2>/dev/null </dev/null)
+check "$(printf '%s\n' "$OUT" | tail -n 1)" "round-type code-and-instruction-markdown" \
+  "round type: an anchor naming no type is a code and instruction Markdown round"
+
+# Rounds 0 and 1 review code; round 2 is the first documentation round.
+new_case round-type-carry
+seed_round 0 "$SEED"
+anchor 1 code-and-instruction-markdown
+seed_round 1 "$SEVENTEEN"
+anchor 2 documentation
+print_records --round 2
+check "$RC" "2" "round type: a first documentation round carries no code records"
+check_contains "$ERR" "no round below --round 2 under" "round type: the refusal says no round below holds records"
+check_contains "$ERR" "of type documentation" "round type: the refusal names the round's type"
+theorem_list 1 2 >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check_contains "$RC:$ERR" "2:" "round type: a first documentation round's list opening at T1 is refused"
+check_contains "$ERR" "is not the next id in sequence, which is T18" \
+  "round type: the expected id is above the highest id of the other type"
+theorem_list 18 18 >"$CASE/list"
+as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
+check "$RC" "0" "round type: a first documentation round's list continuing the PR's sequence is stored"
+DOC_T18='T18
+claim: the documentation claim
+issues: #1
+settle-mode: semantic
+pointers: README.md
+state: disproved
+state-detail: finding 1, High
+settled-at: aaa'
+seed_round 2 "$DOC_T18"
+anchor 3 code-and-instruction-markdown
+print_records --round 3
+check "$(printf '%s\n' "$OUT" | sed -n 1p)" "round 1" \
+  "round type: a code round carries the code round below, past a documentation one"
+seed_round 3 "$SEVENTEEN
+$(printf '\nT19\nclaim: claim 19\nissues: #1\nsettle-mode: semantic\npointers: a.md\nstate: retired')"
+anchor 4 documentation
+print_records --round 4
+check "$OUT" "round 2
+$DOC_T18" "round type: a documentation round carries the documentation round below"
+printf 'T18\tstate\tretired\nT18\tstate-detail\tsurvived\n' >"$CASE/edits"
+printf 'T19\nclaim: a\nissues: #1\nsettle-mode: semantic\npointers: README.md\nstate: retired\n' >"$CASE/new"
+persist --mode records --round 4 --carry --edits "$CASE/edits" --from "$CASE/new"
+check "$RC" "2" "round type: a new record taking an id the other type holds is refused"
+check_contains "$ERR" "the new record T19 is not the next id in sequence, which is T20" \
+  "round type: the carry expects the id above the highest of either type"
+printf 'T20\nclaim: a\nissues: #1\nsettle-mode: semantic\npointers: README.md\nstate: retired\n' >"$CASE/new"
+persist --mode records --round 4 --carry --edits "$CASE/edits" --from "$CASE/new"
+check "$RC" "0" "round type: a new record continuing the PR's sequence is carried"
+check "$(round_records 4 | awk '/^T[0-9]+$/' | tr '\n' ' ')" "T18 T20 " \
+  "round type: the carry holds the documentation records and the new one alone"
+print_records --round-type documentation
+check "$(printf '%s\n' "$OUT" | sed -n 1p)" "round 4" "round type: --round-type selects the latest round of that type"
+print_records --round-type code-and-instruction-markdown
+check "$(printf '%s\n' "$OUT" | sed -n 1p)" "round 3" "round type: --round-type selects the latest round of the other type"
+print_records --round 4 --round-type documentation
+check_contains "$RC:$ERR" "2:" "round type: --round-type beside --round is refused"
+check_contains "$ERR" "--round-type is not accepted with --round in --mode print-records" \
+  "round type: the refusal says the round's anchor names its type"
+
 # --- the repository's state directory ------------------------------------
 
 REPO_YML='schema-version: 1
@@ -625,7 +720,8 @@ new_case pr-same-directory
 mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
 printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
 OUT=$("$PERSIST" --pr 'h.example/o/r#7' --round 1 --mode print 2>"$CASE/err" </dev/null)
-check "$OUT" "anchor 2026-01-01T00:00:00Z abc" "canonical --pr: reads the state directory sdlc/<host>/<owner>/<repo>/pr<n>/"
+check "$(printf '%s\n' "$OUT" | sed -n 1p)" "anchor 2026-01-01T00:00:00Z abc" \
+  "canonical --pr: reads the state directory sdlc/<host>/<owner>/<repo>/pr<n>/"
 
 new_case repo-dot-segment
 "$PERSIST" --mode list h.example/../r >/dev/null 2>"$CASE/err" </dev/null
@@ -798,7 +894,8 @@ for given in 7 '#7' 'https://h.example/o/r/pull/7'; do
   OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" "$given" 2>"$CASE/err" </dev/null)
   check "$?" "0" "analysis $given: exit 0"
   check "$(sed -n 1p "$CASE/calls")" "pr-view $given --ref" "analysis $given: resolves the PR once with pr-view --ref"
-  check_contains "$OUT" "| 1 | whole round | 2026-01-01T00:00:00Z |" "analysis $given: reports the canonical reference's round"
+  check_contains "$OUT" "| 1 | code-and-instruction-markdown | whole round | 2026-01-01T00:00:00Z |" \
+    "analysis $given: reports the canonical reference's round, with its type"
   check_contains "$(cat "$CASE/calls")" "gh api --hostname h.example repos/o/r/pulls/7" \
     "analysis $given: reads the timeline on the reference's host and repository"
   check "$(cat "$CASE/err")" "" "analysis $given: the sources it finds missing cost no line on stderr"
@@ -834,6 +931,23 @@ check_contains "$OUT" "| fixer brief posted |" "analysis: the brief's timeline r
 check_contains "$OUT" "Accepted into the fixer brief posted 2026-01-01T00:05:00Z:" \
   "analysis: the brief's finding is listed as a ruling"
 
+# A documentation round after a code round: each round's rows name its type.
+new_case analysis-round-types
+mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2"
+printf 'anchor 2026-01-01T00:00:00Z abc code-and-instruction-markdown\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+printf 'anchor 2026-01-02T00:00:00Z def documentation\nspawn list generate 2026-01-02T00:01:00Z theorem-generator default default\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/log"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: rounds of both types exit 0"
+check_contains "$OUT" "| 1 | code-and-instruction-markdown | whole round |" "analysis: the code round's row names its type"
+check_contains "$OUT" "| 2 | documentation | whole round |" "analysis: the documentation round's row names its type"
+check_contains "$OUT" "| 2 | documentation | generator |" "analysis: a stage row names its round's type"
+
 new_case operand-other-mode
 "$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "refusal: a mode other than list takes no repository operand"
@@ -845,7 +959,7 @@ check "$?" "2" "refusal: a mode other than list takes no repository operand"
 new_case persist-unhandled
 printf 'not a directory\n' >"$CASE/state-file"
 XDG_STATE_HOME="$CASE/state-file" "$PERSIST" --pr 'h.example/o/r#7' --mode anchor --round 1 --head-sha abc \
-  >/dev/null 2>"$CASE/err" </dev/null
+  --round-type code-and-instruction-markdown >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "persist: an unwritable state root exits 2, not mkdir's status"
 check_contains "$(cat "$CASE/err")" "sdlc-agent-result-persist: \`mkdir -p \"\$dir\"\` failed (exit 1)" \
   "persist: the message names the failed command"
@@ -1153,6 +1267,19 @@ check "$(sed -n '3,5p' "$CASE/posted/1")" "## \`round1/records\`
 
 T1" "post: the records piece leaves out print-records' round line"
 check_contains "$CALLS" "pr-comment h.example/o/r#7 --body-file" "post: posts on the reference's PR by body file"
+
+# Round 1 reviews code and round 2 documentation: each type's latest
+# records are posted, code first.
+post_case post-round-types
+state_file round1/records 60 T1
+mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round2"
+printf 'anchor 2026-01-01T00:00:00Z abc documentation\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round2/log"
+state_file round2/records 60 T2
+post 'h.example/o/r#7'
+check "$RC" "0" "post: a PR with rounds of both types exits 0"
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+## \`round1/records\`
+## \`round2/records\`" "post: the latest records of each round type, code and instruction Markdown first"
 
 # Pieces of 25,000, 40,000 (T1's two reports) and 30,000 bytes: no two
 # adjacent pieces fit one chunk.

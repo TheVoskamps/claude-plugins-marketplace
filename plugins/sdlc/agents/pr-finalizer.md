@@ -1,6 +1,6 @@
 ---
 name: pr-finalizer
-description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — what the review rounds found, what changed in response, and the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR's canonical host/owner/repo#N reference, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
+description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — per round type, what that loop's rounds found and what changed in response, then the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR's canonical host/owner/repo#N reference, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
@@ -91,8 +91,8 @@ You must be given:
 - The scope notes the run settled — deferrals, dropped members,
   rulings the human made that the rounds do not carry, every claim in
   the PR body the run made stale, quoted, with what is true now, and
-  `docs-writer`'s per-file list of the documentation it changed after
-  the last round. May be "none".
+  `docs-writer`'s per-file list of the documentation it changed in the
+  documentation loop. May be "none".
 
 If the PR is missing, ask before proceeding.
 
@@ -160,8 +160,10 @@ into a brief.
 
 2. **Read the review rounds out of state.** Each round wrote its
    argued review — verdicts, findings, counterexamples and all — to a
-   file of its own, and the last round to reach disposition wrote the
-   run's theorem records. Walk the rounds from 1 upward:
+   file of its own, and the last round of each type to reach
+   disposition wrote that type's theorem records. Walk the rounds from
+   1 upward, taking each round's type from the `round-type` line its
+   `--mode print` ends with, then read each type's records:
 
    ```bash
    sdlc-agent-result-persist --mode print \
@@ -170,7 +172,7 @@ into a brief.
      --pr <PR> --round <n>
 
    sdlc-agent-result-persist --mode print-records \
-     --pr <PR>
+     --pr <PR> --round-type <code-and-instruction-markdown|documentation>
    ```
 
    **The walk ends at the first round whose `--mode print` fails**: no
@@ -193,8 +195,10 @@ into a brief.
    turns on the operator's own configuration, so a run that leans on
    one works on one machine and is refused on the next.
 
-   The **last** round's verdict block is where the loop ended up; the
-   earlier ones are how it got there. Read the verdicts from these files
+   The rounds of both loops share one sequence, so a type's rounds
+   need not be consecutive numbers. Within each type, the **last**
+   round's verdict block is where that loop ended up; the earlier ones
+   are how it got there. Read the verdicts from these files
    rather than from the reviews posted on the PR, which are summaries.
    A finding that appears in one round and not the next was fixed in
    between — say so from the commits, not from the absence alone.
@@ -377,30 +381,38 @@ written now would name a chain that is not there.
 
 One section, below the base, opening with the opening marker line and
 then a heading that names what it is rather than when it was written,
-and ending with the closing marker line. It carries:
+and ending with the closing marker line. Inside it, write one
+sub-section per round type the PR's rounds hold —
+`code-and-instruction-markdown`, then `documentation` — each covering
+that type's rounds in order and nothing of the other's, then the parts
+that belong to no type. Each type's sub-section carries:
 
-- **How the review loop went** — how many rounds reached disposition,
-  the final overall verdict, and what the last round's findings were, if
-  any, plus where the full detail now is: the complete comment chain,
-  named as such, whether this run posted it or a previous one did.
-  State a count only where you counted it from the round files
+- **How that loop went** — how many of its rounds reached disposition,
+  its final overall verdict, and what its last round's findings were,
+  if any. State a count only where you counted it from the round files
   themselves.
-- **What changed in response** — what the loop raised, whether a review
-  finding, an orchestrator ruling the brief carried, or a
-  merge-readiness remedy — a rebase unless the human's ruling named
-  another — and the change each drove, drawn from the commits and the
-  fixer briefs. This
-  is the part a reviewer of the merged PR cannot reconstruct: the
-  diff shows the end state, and this says which of it was the first
-  attempt and which was a repair.
+- **What changed in response** — what that loop raised, whether a
+  review finding, a style finding, or an orchestrator ruling the brief
+  carried, and the change each drove, drawn from the commits and the
+  fixer briefs. This is the part a reviewer of the merged PR cannot
+  reconstruct: the diff shows the end state, and this says which of it
+  was the first attempt and which was a repair.
+
+The rest of the section belongs to no type, and carries:
+
+- **Where the full detail now is** — the complete comment chain, named
+  as such, whether this run posted it or a previous one did.
+- **The merge-readiness remedies** — each a rebase unless the human's
+  ruling named another, and the change it drove, drawn from the
+  commits and the fixer briefs. Leave the part out when there were
+  none.
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
   grounds, a finding dropped on the orchestrator's scope ruling — worded
   as that ruling, never as the human's rejection — a deferral to a
-  follow-up issue, and the documentation
-  `docs-writer` changed, which no review round checked — its per-file
-  list as your brief carries it. Take these from your
-  brief and from the non-brief PR comments, never from your own
+  follow-up issue, and `docs-writer`'s per-file list of the
+  documentation it changed, as your brief carries it. Take these from
+  your brief and from the non-brief PR comments, never from your own
   reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
   scope notes name, quoted, with what is true now. The claim stays

@@ -320,7 +320,8 @@ The state the brief names sets the remedy:
 
 A rebase that stops on a conflict, on any state, exits 3 with the
 conflicting files on stdout. Each is resolved by the first of the
-conditions below that settles it — resolve it so in the file. Once
+conditions below that settles it — resolve it so in the file, a
+documentation file by the same conditions as any other. Once
 every file the stop reported is resolved, hand them all back, which
 lands the stopped commit under its original message and author and
 lets the rebase walk on; repeat at each stop, then push:
@@ -362,9 +363,13 @@ brief named, the base you rebased onto, each conflict and what settled
 it — for one a ruling named, the ruling; for one you resolved without
 a ruling, the repo rule, quoted, or the combination of both sides you
 kept — any ruling the rebase did not need, quoted, the new head SHA,
-and the test result.
-`pr-merge-readiness` runs `agent-memory-scrubber` and then the gate
-again on your return; no review round follows a merge-readiness brief.
+and the test result. Add a fixed `Documentation conflicts:` line, one
+entry per documentation file whose conflict you resolved, or `none`.
+On your return `pr-merge-readiness` runs `agent-memory-scrubber` and
+then the gate again — or, when that line or your
+`Deferred to docs-writer:` line is not `none`, returns the PR to the
+orchestrator for a documentation loop. No code review round follows a
+merge-readiness brief.
 
 Push only through `git-branch-sync push`. After a rebase it pushes
 with a lease on the tip `checkout` saw, because the push replaces
@@ -434,8 +439,12 @@ cannot be confused by it.
   touches a path it does not list is expected, and is never a design
   decision, an escalation, or a report item.
 - You edit code and instruction Markdown, and never documentation.
-  Documentation is `docs-writer`'s, after the review loop or after a
-  merge-readiness round.
+  Documentation is `docs-writer`'s, in the documentation loop. The one
+  documentation edit you make is resolving a rebase conflict in a
+  documentation file, per "Merge-readiness briefs": a rebase cannot
+  leave a file half-applied, and you name each such file on your
+  `Documentation conflicts:` line, so the documentation loop that
+  follows reviews it.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.

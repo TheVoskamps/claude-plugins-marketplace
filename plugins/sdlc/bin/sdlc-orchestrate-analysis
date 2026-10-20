@@ -299,10 +299,12 @@ if [ -n "$waits" ]; then
   }')$NL"
 fi
 
-# Per round: its whole span, then one span per stage from the stage's
-# first record to its last. Every instant is the round log's own.
+# Per round: its whole span and its type, then one span per stage from
+# the stage's first record to its last. Every instant is the round log's
+# own, and the type is the round-type line print ends with.
 round_spans=$(printf '%s' "$round_logs" | awk -F'\t' '
   {split($2, f, " "); r = $1}
+  f[1] == "round-type" {type[r] = f[2]; next}
   f[1] == "anchor" {t = f[2]; s = ""}
   f[1] ~ /^(spawn|enter|leave|return|stopped)$/ {t = f[4]; s = f[3]}
   f[1] == "result" {next}
@@ -318,11 +320,11 @@ round_spans=$(printf '%s' "$round_logs" | awk -F'\t' '
   }
   END {
     for (r in lo) {
-      print "ROUND\t" r "\t" lo[r] "\t" hi[r]
+      print "ROUND\t" r "\t" lo[r] "\t" hi[r] "\t" type[r]
       split("generate disprove verify", st, " ")
       for (i = 1; i <= 3; i++) {
         k = r SUBSEP st[i]
-        if (k in slo) print "STAGE\t" r "\t" slo[k] "\t" shi[k] "\t" st[i] "\t" (kids[k] + 0)
+        if (k in slo) print "STAGE\t" r "\t" slo[k] "\t" shi[k] "\t" st[i] "\t" (kids[k] + 0) "\t" type[r]
       }
     }
   }' | sort -t "$TAB" -k2,2n -k3,3)
@@ -669,12 +671,13 @@ fi
 
 printf '\n## Review rounds\n\n'
 if [ -n "$round_spans" ]; then
-  printf '| Round | Phase | From | To | Duration | Children spawned |\n| --- | --- | --- | --- | --- | --- |\n'
+  printf '| Round | Type | Phase | From | To | Duration | Children spawned |\n'
+  printf '| --- | --- | --- | --- | --- | --- | --- |\n'
   printf '%s\n' "$round_spans" | awk -F'\t' "$AWK_TIME"'
-    $1 == "ROUND" {printf "| %s | whole round | %s | %s | %s | |\n", $2, $3, $4, dur(ep($4) - ep($3))}
+    $1 == "ROUND" {printf "| %s | %s | whole round | %s | %s | %s | |\n", $2, $5, $3, $4, dur(ep($4) - ep($3))}
     $1 == "STAGE" {
       p = ($5 == "generate") ? "generator" : ($5 == "disprove") ? "disprove fan-out" : "verify fan-out"
-      printf "| %s | %s | %s | %s | %s | %s |\n", $2, p, $3, $4, dur(ep($4) - ep($3)), $6
+      printf "| %s | %s | %s | %s | %s | %s | %s |\n", $2, $7, p, $3, $4, dur(ep($4) - ep($3)), $6
     }'
   printf '\n### Flags\n\n'
   flags=$(printf '%s' "$round_logs" | awk -F'\t' '

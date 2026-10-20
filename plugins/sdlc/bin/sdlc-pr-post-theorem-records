@@ -11,8 +11,9 @@
 # The detail is assembled in this order, each file headed by its path
 # relative to the PR's state root, round<n>/<file>:
 #
-#   1. the final theorem records, from --mode print-records, unless no
-#      round holds any;
+#   1. the final theorem records of each round type, code and
+#      instruction Markdown first, from --mode print-records
+#      --round-type, unless no round of that type holds any;
 #   2. per round, from round 1 up to the first round with no log: its
 #      generator files, list-<agent>, in agent-name order; its review,
 #      when it stored one; then its children's result files grouped by
@@ -149,12 +150,16 @@ read_state() {
   sp_fail 1 "sdlc-agent-result-persist $* failed (exit $rc)"
 }
 
-if read_state ' holds a records file' --mode print-records; then
-  records_round=$(sed -n '1s/^round //p' "$work/out")
-  sed '1d' "$work/out" >"$work/records"
-  new_piece
-  add_file "round$records_round/records" "$work/records"
-fi
+# Each round carries only the records of its own type, so the latest
+# records of one type say nothing of the other's theorems.
+for round_type in code-and-instruction-markdown documentation; do
+  if read_state ' holds a records file' --mode print-records --round-type "$round_type"; then
+    records_round=$(sed -n '1s/^round //p' "$work/out")
+    sed '1d' "$work/out" >"$work/records"
+    new_piece
+    add_file "round$records_round/records" "$work/records"
+  fi
+done
 
 round=1
 while read_state 'no round log at ' --mode print --round "$round"; do

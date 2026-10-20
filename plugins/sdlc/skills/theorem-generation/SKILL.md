@@ -78,10 +78,17 @@ mirrored fact, not merely touch a file the section mentions.
 You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
-`--branch`, `--round`, and — on a re-review only —
+`--branch`, `--round`, `--mode`, and — on a re-review only —
 `--delta-commits`. When the PR changes a
-documentation file, the brief also carries the documentation-paths
-line that skill describes; apply it as it says.
+documentation file, a `code-and-instruction-markdown` brief also
+carries the documentation-paths line that skill describes; apply it as
+it says.
+
+`--mode` decides which sources you work. Under
+`code-and-instruction-markdown`, work "Theorem sources" below. Under
+`documentation`, work "Documentation-mode sources" in its place. Every
+other
+section binds both modes.
 
 A brief carrying **`--issues` and `--branch` and nothing else** is the
 issues-only brief that skill defines: no PR exists, and you generate
@@ -192,11 +199,12 @@ given, and step 7.
 
 ## Theorem sources
 
-Work these sources in the order given. Each produces claims of a
-different shape, and codebase consistency and design shape are what
-force the review out of the diff.
+These are the sources of a `code-and-instruction-markdown` round and
+of the issues-only brief. Work them in the order given. Each produces
+claims of a different shape, and codebase consistency and design shape
+are what force the review out of the diff.
 
-Documentation files are outside the review. No theorem is about one,
+Documentation files are outside this review. No theorem is about one,
 and none names one as a stale restatement.
 
 ### 1. Acceptance criteria
@@ -209,8 +217,9 @@ counterexample to one criterion says nothing about the others.
 The criteria are the bullets of the issue's code and instruction
 Markdown acceptance section, as the issue-body grammar
 `sdlc:orchestrate-readiness` defines it. A bullet of its documentation
-acceptance section becomes no theorem, on any brief, the issues-only
-brief included: `docs-writer` settles it after the review loop.
+acceptance section becomes no theorem here, the issues-only brief
+included: the documentation loop's rounds settle it, per
+"Documentation-mode sources".
 
 Keep the members separate. A batch PR is precisely where one member
 can be under-delivered while the diff as a whole reads well, so tag
@@ -267,8 +276,9 @@ order:
    touches. If it does, emit one theorem naming the specific surfaces
    that restate it in code or instruction Markdown and must have moved
    with it. A restatement in a documentation file is `docs-writer`'s to
-   repair once the loop has ended, and warrants no theorem; when every
-   surface the section names is documentation, emit nothing for it.
+   repair once the code loop has ended, and warrants no theorem here —
+   a documentation round states it; when every surface the section
+   names is documentation, emit nothing for it.
 
 Sweep sections often say this themselves — that rebuilding a file in
 place mirrors nothing, that a given surface takes the edit only when a
@@ -331,6 +341,46 @@ theorem before any developer runs, and the settled list is what the
 PR's first review round carries, so the emission bar binds here
 exactly as it does on a diff — a claim the design does not make is not
 a theorem about it.
+
+## Documentation-mode sources
+
+A documentation round reviews the PR's documentation and nothing else.
+Every theorem you emit is a claim about a documentation file, and none
+is about code or instruction Markdown — not a claim that the code is
+right, not a sweep of the code's consumers, not a design-shape claim
+about where the code sits. The code and instruction Markdown the diff
+changed are what you read to learn which facts moved, never a subject.
+Work these two sources, in this order:
+
+1. **Documentation criteria.** Every bullet of every member issue's
+   documentation acceptance section, as the issue-body grammar
+   `sdlc:orchestrate-readiness` defines it, becomes one theorem: "the
+   PR's documentation satisfies `<criterion, quoted from the issue>`".
+   One theorem per criterion, tagged to the single member it came from,
+   with the `settle-mode` its sub-heading names, exactly as source 1 of
+   "Theorem sources" treats a code criterion. A code and instruction
+   Markdown criterion becomes no theorem here. The emission bar's rule
+   that a criterion clears the stakes question by construction holds
+   for these too.
+2. **Restatements the diff made stale.** For every fact the PR's diff
+   changed — a flag, a mode, a file's role, a step's order, a roster, a
+   count, a default — "no documentation file in the repo still states
+   the old fact", naming the documentation files that restate it as
+   pointers. These quantify over the repo's documentation, as source 3
+   of "Theorem sources" does over its code, and the sweep sections of
+   the repo's `CLAUDE.md`, its on-demand files and each touched
+   plugin's README name the documentation surfaces a fact is mirrored
+   on. The same narrow trigger holds: a theorem only where the diff
+   changes the fact, never because it touched a file a sweep section
+   names.
+
+A documentation file's statement about code the diff did not change is
+no theorem: the round is about what this PR made true or false.
+
+On a delta brief, the carried records are the documentation round
+below's, and the rules of "On a re-review, generate from the delta"
+hold with "criterion" read as a documentation criterion: a criterion
+whose theorem the carried records hold is never re-emitted.
 
 ## The emission bar: falsifiability, then stakes
 
@@ -541,7 +591,12 @@ Field rules:
 - **`id`** — `T1`, `T2`, … in emission order. The pipeline routes and
   reports by this handle. On a re-review the sequence continues from
   the carried records rather than restarting at `T1`, and an id is
-  never reused.
+  never reused. Ids run in one sequence per PR across both modes, so a
+  whole-PR brief can carry no records yet still not start at `T1` —
+  the first `documentation` round continues the code rounds' ids.
+  Number such a list from `T1`, and on the `leave` refusal that names
+  the expected next id, renumber and retry as "On a re-review,
+  generate from the delta" describes.
 - **`claim`** — one sentence, stated so a counterexample refutes it.
   Quote the criterion or the PR-body sentence the claim comes from.
 - **`issues`** — one or more members of `--issues`, comma-separated.

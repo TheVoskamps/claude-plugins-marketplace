@@ -39,8 +39,10 @@ skill computes.
    PR to review, in any form `/github-prs:pr-view` accepts — a number,
    `#N`, a `host/owner/repo#N` reference or a PR URL among them. Any
    `--generator <name>` and `--full` tokens alongside it are the human
-   overrides above; they are not part of the PR and pass through to
-   the reviewer spawn in step 2 unchanged. If `$ARGUMENTS` carries no
+   overrides above, and a `--mode <mode>` token names the classes the
+   round reviews, per the reviewer's own Inputs; none of them is part
+   of the PR, and each passes through to the reviewer spawn in step 2
+   unchanged. If `$ARGUMENTS` carries no
    positional token, ask the user which PR to review before
    proceeding.
 
@@ -57,13 +59,13 @@ skill computes.
    ```
 
    Unless the user asked for an override, this path passes `--pr`
-   alone — no `--issues`, no `--branch`, no `--generator`, and no
-   `--full` — which is what makes it the
+   alone — no `--issues`, no `--branch`, no `--generator`, no `--full`
+   and no `--mode` — which is what makes it the
    reviewer's **standalone** path: with no orchestrator brief naming
    the issues, the reviewer takes its claim from
    `/github-prs:pr-closing-issues <PR>` and reconciles it against the
-   branch itself. Add `--generator <name>` or `--full` to the brief
-   only when the user asked for one.
+   branch itself. Add `--generator <name>`, `--full` or `--mode <mode>`
+   to the brief only when the user passed one.
 
    The reviewer reads `issue-link-prefix` from the repo's
    `.issues/repo-config.md` (for recognizing `References:`
