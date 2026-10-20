@@ -180,10 +180,16 @@ Read each signal off the issue body and combine them per the
 "Combining signals" rule below. None of the signals require running
 code or reading files in the repo.
 
-1. **Doc-only marker.** Title or body contains language like "rename",
-   "rewrite the docs", "clarify wording", "update README", or
-   "documentation"; no acceptance criterion mentions executable
-   behavior. Heavy bias toward XS / S.
+1. **Doc-only marker.** The body carries a
+   `## Documentation acceptance` or
+   `## Code and instruction Markdown acceptance` section — those
+   heading literals — and the latter is either absent or carries no
+   bullet beyond a `[version-bumped]` one. Heavy bias toward XS / S.
+
+   Only a body with neither section falls back to its language: the
+   title or body contains language like "rename", "rewrite the docs",
+   "clarify wording", "update README", or "documentation", and nothing
+   in it mentions executable behavior.
 
 2. **Estimated file count.** Find the body's
    `## Files affected (floor)` section — that heading literal, not a
@@ -198,9 +204,12 @@ code or reading files in the repo.
    file paths mentioned anywhere in the body (anything that looks
    like `path/to/file.ext` or `<dir>/<name>`).
 
-3. **Distinct concerns / acceptance items.** Count the bullets under
-   "Acceptance" / "Acceptance criteria" / numbered task lists in the
-   body. Mapping:
+3. **Distinct concerns / acceptance items.** Count the bullets of the
+   body's `## Code and instruction Markdown acceptance` and
+   `## Documentation acceptance` sections together — those heading
+   literals, each counted across its `### Mechanical` and
+   `### Semantic` sub-headings. If the body has neither section, count
+   the items of its numbered task lists instead. Mapping:
    - 1-2 items: -1 size step (one bucket smaller)
    - 3-5 items: no adjustment
    - 6-9 items: +1 size step
@@ -215,13 +224,14 @@ code or reading files in the repo.
 
 5. **Triviality signals.** Body language like "typo", "one-liner",
    "small follow-up", "drive-by", or a body shorter than ~10 lines
-   with no acceptance section. Bias toward XS regardless of other
+   with neither acceptance section. Bias toward XS regardless of other
    signals.
 
 ### Combining signals
 
 1. Start with the file-count signal (signal 2) as the base size.
-2. Apply the acceptance-items adjustment (signal 3) in steps. A
+2. Apply the acceptance-items adjustment (signal 3), over the bullets
+   of both acceptance sections, in steps. A
    "step" for `kind: single-select` / `kind: label` / `kind: issue-field`
    slots means moving one option along the **magnitude order** (see
    "The option set is the slot's own, not a fixed t-shirt set" above),
@@ -233,9 +243,8 @@ code or reading files in the repo.
    order — `XS` for the t-shirt set, `Low` for `Effort`) if the
    triviality signal (signal 5) fires.
 5. Override to the least-work option, or one step above it, if the
-   doc-only marker (signal 1) fires strongly (entire issue is
-   documentation work) — `XS` / `S` for the t-shirt set, `Low` /
-   `Medium` for `Effort`.
+   doc-only marker (signal 1) fires — `XS` / `S` for the t-shirt set,
+   `Low` / `Medium` for `Effort`.
 
 If the model genuinely cannot pick a size from the body (e.g. an
 issue with one sentence and no other signals), it picks the **median
@@ -250,14 +259,25 @@ toward the same default and matches the issue's intent that
 ### Worked examples
 
 - **"Fix typo in README.md"** — triviality marker + 1 file → XS.
+- **"Reword the plugin README's install section"** with a
+  `## Code and instruction Markdown acceptance` section carrying only
+  `[version-bumped] <plugin>` and a `## Documentation acceptance`
+  section carrying 3 bullets — 2 files, 4 items → S → no adjustment →
+  doc-only marker fires → XS / S.
+- **"Correct the changelog's release dates"** with a
+  `## Documentation acceptance` section carrying 2 bullets and no
+  `## Code and instruction Markdown acceptance` section — 1 file,
+  2 items → XS → -1 step → XS (the floor) → doc-only marker fires from
+  the sections, whatever the wording → XS / S.
 - **"Add a new `--foo` flag to `/issue-create`"** with body listing
   `skills/issue-create/SKILL.md` and `skills/lib/issue.md` and one
-  acceptance bullet — 2 files, 1 item → S - 1 step → XS (XS is the
-  floor).
+  `## Code and instruction Markdown acceptance` bullet and no
+  `## Documentation acceptance` section — 2 files, 1 item → S - 1 step
+  → XS (XS is the floor).
 - **"Add interactive prompts to `/issue-create`"** (this issue,
-  conceptually) — 2 files affected, ~4 acceptance items, "documented
-  not prompt-engineered ad-hoc" complexity marker → S → no
-  adjustment → +1 from complexity → M.
+  conceptually) — 2 files affected, ~4 bullets across the two
+  acceptance sections, "documented not prompt-engineered ad-hoc"
+  complexity marker → S → no adjustment → +1 from complexity → M.
 - **"Migrate the repo from CodeCommit to GitHub"** — many files,
   >15 distinct concerns, multiple subsystems → L → +2 from
   complexity → XL.

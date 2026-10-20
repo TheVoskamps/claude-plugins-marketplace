@@ -35,7 +35,7 @@ restate the fact.
 | In what order the review detail is assembled, how it is chunked under GitHub's comment cap, and what a piece too large for one comment becomes | `bin/sdlc-pr-post-theorem-records` |
 | How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
-| How the `### Mechanical` bullets are graded: how a body is split into them, which paths are refused with nothing run, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
+| How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | Which file class a path falls in — code, instruction Markdown, or documentation | the global Claude configuration, outside this repository; no file in this plugin restates it |
 | Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
@@ -106,18 +106,21 @@ rather than recalling it:
 - A changed count or roster: a back-reference like "those three" goes
   stale in silence. Read the paragraph; don't trust the grep.
 - A renamed heading in the issue-body grammar: the grammar has one
-  owner, `skills/orchestrate-readiness/SKILL.md`, and its readers name
-  that skill rather than spelling a heading — the writer,
-  `skills/orchestrate-ready/SKILL.md`; the gate and the "Files likely
-  affected" step in `skills/orchestrate/SKILL.md`; and
-  `skills/theorem-generation/SKILL.md`, which keys a criterion
-  theorem's `settle-mode` off the acceptance sub-headings and, on the
-  issues-only brief, reads the files-affected section in place of a
-  diff. So a grep for the heading literal hits the owner and one file
-  outside this plugin, `plugins/issues/skills/issue-create/SKILL.md`,
-  which spells the literal because the plugin sandbox keeps it from
-  reaching the skill. A rename edits the owner, that file, and any
-  reader whose wording no longer fits the renamed section.
+  owner, `skills/orchestrate-readiness/SKILL.md`, and a reader either
+  names the skill and a section's role or spells a heading literal.
+  Among the first: the writer, `skills/orchestrate-ready/SKILL.md`; the
+  gate and the "Files likely affected" step in
+  `skills/orchestrate/SKILL.md`; and `skills/theorem-generation/SKILL.md`,
+  which keys a criterion theorem's `settle-mode` off the sub-headings of
+  the code and instruction Markdown section and emits no theorem for a
+  documentation bullet. Among the second, where the wording cannot
+  avoid the literal: the orchestrator's scope rule and both
+  `docs-writer` briefs spell the acceptance-section headings, and
+  `plugins/issues/skills/issue-create/SKILL.md` spells every heading it
+  reads because the plugin sandbox keeps it from reaching the skill. So
+  grep the quoted heading repo-wide rather than recalling who spells
+  it, and a rename edits the owner, every hit, and any reader whose
+  wording no longer fits the renamed section.
 
 Surfaces outside this plugin that a contract change reaches:
 `plugins/github-prs/` attributes PR verbs to named `sdlc` agents in its
@@ -127,8 +130,9 @@ carried them last time.
 `plugins/issues/` deliberately names no `sdlc` reader of its
 repo-config, for the reason `plugins/issues/README.md` gives — do not
 add one back. Its `skills/issue-create/SKILL.md` does read the
-issue-body grammar, though, and spells the files-affected heading
-literally, so a change to that grammar reaches that file too.
+issue-body grammar, though, and spells the acceptance-section and
+files-affected headings literally, so a change to that grammar reaches
+that file too.
 
 The header `style-checker` takes its rules from, `## For Authors and
 Checkers`, is spelled in the global style guides — outside this
@@ -297,11 +301,15 @@ meets a stale section before the current one.
 
 ## The issue is the ceiling of the fix loop
 
-An issue's acceptance section is the ceiling of the fix loop, not
-its floor. A review finding whose fix lies outside it is the human's to
-admit or refuse, and so is a developer's diff that reaches a plugin the
-issue does not name or renames or deletes a file the issue does not
-specify; the orchestrator never admits either on its own. The issue's
+An issue's `## Code and instruction Markdown acceptance` section is
+the ceiling of the fix loop, not its floor; its
+`## Documentation acceptance` section sets no scope at all, since what
+that section asks for is `docs-writer`'s after the loop and never a
+finding's fix. A review finding whose fix lies outside the ceiling is
+the human's to admit or refuse, and so is a developer's diff that
+reaches a plugin the issue does not name or renames or deletes a file
+the issue does not specify; the orchestrator never admits either on its
+own. The issue's
 files-affected section is no ceiling at all. It is a floor: the
 implementer is expected to touch paths it does not list, so an
 unlisted path is not a gate trigger, not a design decision, not a
@@ -310,11 +318,12 @@ listed path grounds a claim about that path and nothing about the rest
 of the tree. Treating the list as a fence produced "Needs Your
 Attention" rows, escalations and theorems over work that was simply
 part of the fix. The converse holds below the
-ceiling: a finding the acceptance section covers is the orchestrator's
-to brief, and nothing the reviewer attaches to it — an offered
-rejection, a request to confirm intent — turns it into a question for
-the human, because the verification stage already closed that question
-and the scope ruling answers the rest. Rejecting a verified finding is
+ceiling: a finding the code and instruction Markdown criteria cover is
+the orchestrator's to brief, and nothing the reviewer attaches to it —
+an offered rejection, a request to confirm intent — turns it into a
+question for the human, because the verification stage already closed
+that question and the scope ruling answers the rest. Rejecting a
+verified finding is
 the human's unprompted move, never one the review invites. That
 boundary is enforced by slots that must be filled rather than by prose
 asking for judgment, and each slot has one owner:
@@ -372,16 +381,32 @@ orchestrator collects every entry into the `docs-writer` brief and
 raises none of them. The same line runs through a merge-readiness
 remedy: a fixer round there may defer an edit too, and
 `pr-merge-readiness` spawns `docs-writer` for the entries before the
-gate runs again, in place of returning them as a question. Each
+gate runs again, in place of returning them as a question.
+
+An issue's own acceptance criteria used to take the same wrong turn
+from the other direction. Every criterion became a theorem the review
+loop settled, so a criterion about documentation sent the implementer
+at a file outside its reach, and the loop stopped for a human ruling
+that relayed the edit to `docs-writer` by hand. So the issue-body
+grammar splits the criteria by class into
+`## Code and instruction Markdown acceptance`, which the review loop
+settles and which alone grounds criterion theorems and scope rulings,
+and `## Documentation acceptance`, which no theorem is made of. Every
+`docs-writer` brief carries the latter's bullets, from every member
+issue, under a fixed `Documentation criteria:` line beside the deferred
+entries, and `docs-writer` treats each one as a required edit. Each
 piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The `Deferred to docs-writer:` line in the developer's report | `agents/issue-developer.md` |
 | The same line in the fixer's report, and that a documentation-remedy finding goes there rather than under not fixed | `agents/issue-fixer.md` |
-| Collecting the entries into the end-of-loop `docs-writer` brief | `skills/orchestrate/lib/pr-lifecycle.md` |
-| The `docs-writer` spawn after a merge-readiness fixer round, and the issue set it carries | `agents/pr-merge-readiness.md` |
-| How `docs-writer` treats the entries alongside the diff | `agents/docs-writer.md` |
+| The acceptance sections, which class of criterion each holds, and that a readiness gap is raised on a criterion filed under the wrong one | `skills/orchestrate-readiness/SKILL.md` |
+| That a criterion is written into the section its subject's class names | `skills/orchestrate-ready/SKILL.md` |
+| That a documentation criterion becomes no theorem on any brief | `skills/theorem-generation/SKILL.md` |
+| Collecting the deferred entries and the documentation criteria into the end-of-loop `docs-writer` brief | `skills/orchestrate/lib/pr-lifecycle.md` |
+| The `docs-writer` spawn after a merge-readiness fixer round, and the issue set and documentation criteria it carries | `agents/pr-merge-readiness.md` |
+| How `docs-writer` treats the entries and the criteria alongside the diff | `agents/docs-writer.md` |
 
 ## The theorem set is seeded from the issues before the developer runs
 
@@ -408,7 +433,7 @@ Each piece has one owner:
 | The seed spawn, the tier pick against the issue bodies, the per-theorem ruling or its `auto-accept` skip, and the round-0 write | `skills/orchestrate/SKILL.md` |
 | Round 0 as a valid round number holding only a records file | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
-| The files-affected section the seed generator reads in place of a diff | `skills/orchestrate-readiness/SKILL.md` |
+| That the seed generator reads the files-affected section in place of a diff | `skills/theorem-generation/SKILL.md` |
 
 ## Carried records move through state, not a brief or an agent-built file
 
@@ -808,7 +833,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
-| `bin/sdlc-readiness-check` | Grades an issue's `### Mechanical` bullets against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet; exits 3 on any failing bullet and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
+| `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, and one for a body with neither section; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
 | `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — review state through `sdlc-agent-result-persist`, worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
 
@@ -822,7 +847,13 @@ key it executes at all, through `grep` alone; every other key is settled
 by whether the files-affected section lists the path, so the check never
 runs a test, a linter or any code in the repo, and a bullet it cannot
 place — no key, an unknown key, a path it cannot resolve to one file
-inside the repo root — is a gap with nothing run. The deterministic
+inside the repo root — is a gap with nothing run, as is a line under
+`### Mechanical` that is no bullet, a fence opening included: whatever
+such a line carries is never read as grammar, so a command hidden in
+one is a gap rather than a run. The same pass settles the shape of
+the body — a section with no bullet, or a body carrying neither
+acceptance section — so the model's grading starts from a body the
+script has already found well-formed. The deterministic
 grading around the old command — which reported site a files-affected
 tag covers — moved into the script with it, so an unchanged body and an
 unchanged tree get the same verdict on every invocation.

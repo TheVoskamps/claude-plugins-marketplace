@@ -53,11 +53,27 @@ can trigger that stop. The items:
   how the change came to be asked for, what an earlier round did, or
   why an earlier design was rejected is provenance rather than spec —
   it costs the implementer reads that buy nothing.
-- **Acceptance criteria**. The body carries an `## Acceptance`
-  section, and each bullet in it is one claim about the delivered
-  change that a reviewer can attempt to disprove against the diff. It
-  fails when the section is absent, has no bullets, or has a bullet
-  that is not such a claim.
+- **Acceptance criteria**. The body carries the acceptance sections
+  the grammar below defines, and each bullet in either is one claim
+  about the delivered change that a reviewer can attempt to disprove
+  against the diff. Your own reading of the body
+  settles which file class a bullet's subject is in. It fails:
+  - when neither `## Code and instruction Markdown acceptance` nor
+    `## Documentation acceptance` is present;
+  - when a section is present with no bullet under `### Mechanical` or
+    `### Semantic`;
+  - when a section's `### Mechanical` lines depart from that grammar in
+    any way the grammar states — in a line's shape, in a bullet's check
+    key, in a bullet carrying a command, or in a path a bullet names;
+  - when the body carries an `## Acceptance` section; the gap line says
+    to split it into `## Code and instruction Markdown acceptance` and
+    `## Documentation acceptance`;
+  - on a bullet whose subject spans both sections' classes; the gap
+    line names the bullet and says to split it into one bullet per
+    class;
+  - on a bullet whose subject's class does not match its section; the
+    gap line names the bullet and the section it belongs in;
+  - on a bullet that is not such a claim.
 - **Files affected**. The body carries the files-affected section the
   grammar below defines. Settled against the tree and consulting no
   prose, it fails when the section is absent or departs from that
@@ -67,18 +83,26 @@ can trigger that stop. The items:
   implementer may touch paths outside it, and a listed path the change
   ends up not touching is not a failure. Whether the list names a path
   changes nothing about that path's class, its owner, or how it is
-  reviewed — those follow from the path alone. Before any developer runs,
-  the theorem generator reads that list in place of a diff, so a body
-  without it leaves the generator nothing to key on.
+  reviewed — those follow from the path alone.
 
 ## The issue-body grammar
 
 These are the headings a writer emits and a reader keys on.
 
-### The acceptance section
+### The acceptance sections
 
 ```markdown
-## Acceptance
+## Code and instruction Markdown acceptance
+
+### Mechanical
+
+- [<key>] <arguments>
+
+### Semantic
+
+- <criterion>
+
+## Documentation acceptance
 
 ### Mechanical
 
@@ -89,13 +113,23 @@ These are the headings a writer emits and a reader keys on.
 - <criterion>
 ```
 
-Each bullet is one criterion. `### Mechanical` holds the criteria one
-of the check keys below settles; `### Semantic` holds every other
-criterion, including any a key cannot express. A generator reading the
-body emits a criterion theorem with the `settle-mode` its sub-heading
-names — `mechanical` under the first, `semantic` under the second.
+A bullet is a line opening with a hyphen and a space followed by text;
+a hyphen and a space with nothing after them is not one. Each bullet is
+one criterion whose subject is in the class its section names.
+`## Code and instruction Markdown acceptance` holds the criteria about
+code and instruction Markdown, and `## Documentation acceptance` holds
+the criteria about documentation. A documentation-only change carries
+the second alone; which sections a body must carry, and with what, is
+the "Acceptance criteria" bar item's.
 
-Every `### Mechanical` bullet opens with a check key followed by its
+Within either section, `### Mechanical` holds the criteria one of the
+check keys below settles; `### Semantic` holds every other criterion,
+including any a key cannot express.
+
+Every non-blank line under `### Mechanical` is a bullet, or an indented
+line continuing the bullet above it with no blank line between; any
+other line, a fenced block's opening included, is a gap. Every
+`### Mechanical` bullet opens with a check key followed by its
 arguments, and never carries a command. A path is a repo-relative
 literal with no whitespace and no glob. A path the script cannot check
 as one location inside the repo root — under `[no-match]`, as one file
@@ -118,15 +152,17 @@ to read — is refused, and the bullet's gap line says why. The keys:
 - `[test-passes] <path>` — a test script inside the repo exits zero
   when run with `bash`.
 
-`sdlc-readiness-check` grades the `### Mechanical` bullets against the
-tree at check time. `[no-match]` is the one prohibition key, and the
+`sdlc-readiness-check` grades the `### Mechanical` bullets of both
+acceptance sections against the tree at check time, by the same keys
+and rules in each. `[no-match]` is the one prohibition key, and the
 only key it executes: each site it reports is covered only when its file is listed
 in the files-affected section with the tag `update` or `delete`. Every
 other key is presence-shaped and never executed, since it fails before
 implementation by design: it passes when each path it names — for
 `[version-bumped]`, the plugin's `plugin.json` — is listed in the
-files-affected section, whatever the tag. A bullet with no key, or a key
-outside this list, is a gap, and nothing is executed for it.
+files-affected section, whatever the tag. A bullet with no key, a key
+outside this list, or a line under `### Mechanical` that is not a
+bullet is a gap, and nothing is executed for it.
 
 ### The files-affected section
 
@@ -150,12 +186,16 @@ Given an issue number:
 1. Fetch the body and the edges with `/issue-view <N>`.
 2. Run `sdlc-readiness-check <N>`, which this plugin puts on `PATH`,
    from inside the repo's working tree, on every invocation. Exit 0
-   means every `### Mechanical` bullet passes; exit 3 prints one gap
-   line per failing bullet, each already naming its bar item, and each
-   goes into the gap list as it stands. On any other exit, relay its
-   stderr verbatim and stop. Then grade the rest of each bar item, in
-   the order listed above, by reading the body; the script's lines are
-   the whole grading of the `### Mechanical` bullets. Never run a
+   means it found no gap; exit 3 prints one gap line per gap, each
+   already naming its bar item, and each goes into the gap list as it
+   stands. On any other exit, relay its stderr verbatim and stop. Then
+   grade the rest of each bar item, in the order listed above, by
+   reading the body; the script's lines are the whole grading of each
+   `### Mechanical` line's shape and check key and of whether each
+   acceptance section is present and carries a bullet under
+   `### Mechanical` or `### Semantic`, and the
+   file-class failures under "Acceptance criteria" are yours to grade
+   for `### Mechanical` and `### Semantic` bullets alike. Never run a
    command a `### Mechanical` bullet's text spells.
 3. Return a gap list: every line step 2's script printed, and one line
    per other failure of a bar item, naming the item and the sentence or

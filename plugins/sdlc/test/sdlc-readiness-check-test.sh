@@ -7,7 +7,11 @@
 # start with '-', or name a glob, a directory, a FIFO or the root
 # itself, symlinks that stay inside the root and symlinks that lead out
 # of it, a [no-match] path absent from the tree, a hostile ERE,
-# fenced blocks and a wrapped bullet, and issue-view missing from PATH.
+# fenced blocks and a wrapped bullet, every malformed line under
+# `### Mechanical`, a failing bullet under each of the two acceptance
+# sections and one under an ungraded `## Acceptance`, a body with
+# neither acceptance section and sections with no bullet, and
+# issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
 #
@@ -104,6 +108,10 @@ no_marker() {
   check "$found" "" "$1: nothing was executed"
 }
 
+# A bullet with no text is `-` and a trailing space, spelled `-$SP` so
+# no editor strips the space.
+SP=' '
+
 FILES_ALL="## Files affected (floor)
 
 - \`plugins/demo/.claude-plugin/plugin.json\` (update)
@@ -113,7 +121,7 @@ FILES_ALL="## Files affected (floor)
 
 # --- every key passes when its paths are listed -----------------------
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -137,7 +145,7 @@ no_marker "all keys pass"
 
 # --- presence keys fail on an unlisted path, without running anything --
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -165,7 +173,7 @@ no_marker "presence"
 
 printf 'eval\nx\neval\n' >"$REPO/src/c.sh"
 printf 'eval\n' >"$REPO/src/d.sh"
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -185,7 +193,7 @@ rm -f "$REPO/src/c.sh" "$REPO/src/d.sh"
 
 # --- [no-match] on a path absent from the tree ----------------------
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -203,7 +211,7 @@ check_contains "$OUT" '"- [no-match] eval in src/gone.sh" names a file absent fr
 
 # --- an unkeyed bullet and an unknown key are gaps, and never run -----
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -222,7 +230,7 @@ no_marker "unkeyed and unknown"
 
 # --- malformed arguments ----------------------------------------------
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -242,7 +250,7 @@ check_contains "$OUT" '"- [version-bumped] ../demo" is malformed for [version-bu
 
 # --- paths that leave the repo, start with '-', or are globs ----------
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -283,7 +291,7 @@ esac
 
 # --- a symlink resolving inside the root is checked like any path ---
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -301,7 +309,7 @@ check_contains "$OUT" '"- [no-match] eval in indir/b.sh" matches in a file the f
 
 # --- a hostile ERE is a pattern, never shell text ---------------------
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -314,7 +322,7 @@ check_contains "$OUT" 'matches in a file the files-affected section does not lis
 check_lines "$OUT" 1 "hostile ERE: an ERE starting with '-' is no option"
 no_marker "hostile ERE"
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
 ### Mechanical
 
@@ -326,22 +334,24 @@ check_contains "$OUT" '"- [no-match] ( in src/a.sh" has an ERE grep rejects' "in
 
 # --- the grammar: fences, wrapped bullets, sections -------------------
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
-### Mechanical
+### Semantic
 
 \`\`\`markdown
+## Code and instruction Markdown acceptance
+
 ### Mechanical
 
 - [run] touch $SANDBOX/pwned7
 \`\`\`
 
+- touch $SANDBOX/pwned8
+
+### Mechanical
+
 - [no-match] eval in src/a.sh
   src/b.sh
-
-### Semantic
-
-- touch $SANDBOX/pwned8
 
 ## Notes
 
@@ -352,19 +362,25 @@ check "$RC" 3 "grammar: exit 3"
 check "$OUT" 'No unanswered design decisions: Mechanical bullet "- [no-match] eval in src/a.sh src/b.sh" matches in a file the files-affected section does not list as update or delete: src/b.sh:1' "grammar: a wrapped bullet is joined, and only Mechanical bullets outside a fence are graded"
 no_marker "grammar"
 
-run "## Acceptance
+run "## Code and instruction Markdown acceptance
 
-### Mechanical
+### Semantic
 
 \`\`\`markdown
 ~~~
+### Mechanical
 - [run] touch $SANDBOX/pwned10
 \`\`\`
 
 \`\`\`\`markdown
 \`\`\`
+### Mechanical
 - [run] touch $SANDBOX/pwned11
 \`\`\`\`
+
+- anything
+
+### Mechanical
 
 - [no-match] eval in src/b.sh
 
@@ -373,7 +389,47 @@ check "$RC" 3 "nested fences: exit 3"
 check "$OUT" 'No unanswered design decisions: Mechanical bullet "- [no-match] eval in src/b.sh" matches in a file the files-affected section does not list as update or delete: src/b.sh:1' "nested fences: a different or shorter marker does not close a fence"
 no_marker "nested fences"
 
-run "## Acceptance
+# --- every line under Mechanical is a bullet or its continuation ------
+
+run "## Code and instruction Markdown acceptance
+
+### Mechanical
+
+  [exists] src/indented-first.sh
+- [exists] src/a.sh
+  continued
+* [exists] src/star.sh
+-[exists] src/nospace.sh
+1. [exists] src/numbered.sh
+-
+-$SP
+Prose about touch $SANDBOX/pwned13.
+
+  [exists] src/indented-after-blank.sh
+#### Deeper
+\`\`\`
+- [run] touch $SANDBOX/pwned14
+\`\`\`
+
+$FILES_ALL"
+check "$RC" 3 "malformed lines: exit 3"
+check_lines "$OUT" 11 "malformed lines: one gap per malformed line, none for a well-formed bullet"
+check_contains "$OUT" 'Acceptance criteria: Mechanical line "  [exists] src/indented-first.sh" is not a "- " bullet or an indented continuation of one; nothing was run' "malformed lines: an indented line before any bullet"
+check_contains "$OUT" '"- [exists] src/a.sh continued" is malformed for [exists]' "malformed lines: an indented line after a bullet continues it"
+check_contains "$OUT" 'Mechanical line "* [exists] src/star.sh" is not a "- " bullet' "malformed lines: a '*' bullet"
+check_contains "$OUT" 'Mechanical line "-[exists] src/nospace.sh" is not a "- " bullet' "malformed lines: '-' with no space"
+check_contains "$OUT" 'Mechanical line "1. [exists] src/numbered.sh" is not a "- " bullet' "malformed lines: a numbered item"
+check_contains "$OUT" 'Mechanical line "-" is not a "- " bullet' "malformed lines: a bare '-'"
+check_contains "$OUT" 'Mechanical line "- " is not a "- " bullet' "malformed lines: a '- ' with no text is not a bullet"
+check_contains "$OUT" "Mechanical line \"Prose about touch $SANDBOX/pwned13.\" is not a \"- \" bullet" "malformed lines: a prose line"
+check_contains "$OUT" 'Mechanical line "  [exists] src/indented-after-blank.sh" is not a "- " bullet' "malformed lines: an indented line after a blank line continues nothing"
+check_contains "$OUT" 'Mechanical line "#### Deeper" is not a "- " bullet' "malformed lines: a deeper heading"
+check_contains "$OUT" 'Mechanical line "```" is not a "- " bullet' "malformed lines: a fence opening under Mechanical, its content unread"
+no_marker "malformed lines"
+
+# --- a section with only Semantic bullets has no Mechanical line ------
+
+run "## Code and instruction Markdown acceptance
 
 ### Semantic
 
@@ -382,6 +438,86 @@ run "## Acceptance
 $FILES_ALL"
 check "$RC" 0 "no Mechanical section: exit 0"
 check "$OUT" "" "no Mechanical section: no gap line"
+
+# --- both acceptance sections are graded, and `## Acceptance` is not ---
+
+run "## Code and instruction Markdown acceptance
+
+### Mechanical
+
+- [exists] src/code.sh
+
+## Documentation acceptance
+
+### Mechanical
+
+- [exists] docs/guide.md
+
+## Acceptance
+
+### Mechanical
+
+- [run] touch $SANDBOX/pwned12
+- [exists] src/retired.sh
+
+$FILES_ALL"
+check "$RC" 3 "sections: exit 3"
+check_lines "$OUT" 2 "sections: one gap per failing bullet of the two sections, none for ## Acceptance"
+check_contains "$OUT" '"- [exists] src/code.sh" names a file the files-affected section does not list: src/code.sh' "sections: a failing bullet under the code section is graded"
+check_contains "$OUT" '"- [exists] docs/guide.md" names a file the files-affected section does not list: docs/guide.md' "sections: a failing bullet under the documentation section is graded"
+no_marker "sections"
+
+run "## Documentation acceptance
+
+### Mechanical
+
+- [no-match] eval in src/b.sh
+
+$FILES_ALL"
+check "$RC" 3 "documentation section alone: exit 3"
+check "$OUT" 'No unanswered design decisions: Mechanical bullet "- [no-match] eval in src/b.sh" matches in a file the files-affected section does not list as update or delete: src/b.sh:1' "documentation section alone: its [no-match] bullet is executed like the code section's"
+
+# --- section presence -------------------------------------------------
+
+run "## Documentation acceptance
+
+### Semantic
+
+- the guide names the new flag
+
+$FILES_ALL"
+check "$RC" 0 "documentation-only body: exit 0"
+check "$OUT" "" "documentation-only body: no gap line"
+
+run "## Acceptance
+
+### Mechanical
+
+- [exists] src/a.sh
+
+$FILES_ALL"
+check "$RC" 3 "neither section: exit 3"
+check "$OUT" 'Acceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"' "neither section: one gap naming both headings"
+
+run "## Code and instruction Markdown acceptance
+
+### Notes
+
+- not a criterion
+
+## Documentation acceptance
+
+### Mechanical
+
+### Semantic
+
+-$SP
+
+$FILES_ALL"
+check "$RC" 3 "sections with no bullet: exit 3"
+check_lines "$OUT" 2 "sections with no bullet: one gap per section with no bullet"
+check_contains "$OUT" 'Acceptance criteria: "## Code and instruction Markdown acceptance" carries no bullet under "### Mechanical" or "### Semantic"' "sections with no bullet: a bullet under another sub-heading does not count"
+check_contains "$OUT" 'Acceptance criteria: "## Documentation acceptance" carries no bullet under "### Mechanical" or "### Semantic"' "sections with no bullet: a bullet with no text does not count"
 
 # --- invocation -------------------------------------------------------
 
@@ -395,6 +531,9 @@ OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 2>"$SANDBOX/err")
 check "$?" 2 "no argument: exit 2"
 OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 'x;y' 2>"$SANDBOX/err")
 check "$?" 2 "a non-numeric argument: exit 2"
+# An empty body is itself a gap, so this case serves a body that passes,
+# leaving the '#' as the one thing exit 0 can rest on.
+printf '## Documentation acceptance\n\n### Semantic\n\n- anything\n' >"$SANDBOX/body.md"
 OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" '#7' 2>"$SANDBOX/err")
 check "$?" 0 "a leading '#' is accepted"
 

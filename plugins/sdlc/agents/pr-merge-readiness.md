@@ -9,6 +9,7 @@ skills:
   - github-prs:pr-merge-conflicts
   - github-prs:pr-comment
   - github-prs:pr-closing-issues
+  - issue-view
   - sdlc:agent-result-persist-interface
 ---
 
@@ -244,7 +245,10 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    question: raise none of them, and run this spawn rather than
    returning on them. Give it the PR reference, the issue set the PR
    closes — what `/github-prs:pr-closing-issues <PR>` reports — the
-   branch name, and the fixer's entries verbatim:
+   branch name, the fixer's entries verbatim, and the documentation
+   criteria: every bullet of the `## Documentation acceptance` section,
+   as `sdlc:orchestrate-readiness` defines it, of every issue in that
+   set, read off `/issue-view <N>` for each:
 
    ```text
    PR <PR> for issues <issue_N1>, <issue_N2>, … has settled a
@@ -252,6 +256,10 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    Branch: <branch-name>
    Deferred to docs-writer:
    <the fixer's entries, verbatim, one per line>
+   Documentation criteria:
+   <each criterion, one per line, as `<member>: "<the bullet, verbatim>"`,
+   with `<member>` the issue as this brief's first line names it — or
+   "none">
 
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the
