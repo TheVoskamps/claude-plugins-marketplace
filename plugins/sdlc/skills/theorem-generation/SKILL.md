@@ -380,7 +380,9 @@ no theorem: the round is about what this PR made true or false.
 On a delta brief, the carried records are the documentation round
 below's, and the rules of "On a re-review, generate from the delta"
 hold with "criterion" read as a documentation criterion: a criterion
-whose theorem the carried records hold is never re-emitted.
+whose theorem the carried records hold is never re-emitted. Its new
+theorems arising from the delta come from these two sources alone, never
+from the codebase-consistency or design-shape sources that section names.
 
 ## The emission bar: falsifiability, then stakes
 

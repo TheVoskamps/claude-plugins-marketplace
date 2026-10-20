@@ -195,6 +195,13 @@ into a brief.
    turns on the operator's own configuration, so a run that leans on
    one works on one machine and is refused on the next.
 
+   A `--mode print-records` call refused with `no round under <dir>
+   holds a records file of type <type>` means no round of that type
+   wrote records: the PR has no rounds of that type to report, and its
+   sub-section is left out of the final section. Any other failure of
+   that call is a failure — stop and report the command and its output
+   verbatim.
+
    The rounds of both loops share one sequence, so a type's rounds
    need not be consecutive numbers. Within each type, the **last**
    round's verdict block is where that loop ended up; the earlier ones

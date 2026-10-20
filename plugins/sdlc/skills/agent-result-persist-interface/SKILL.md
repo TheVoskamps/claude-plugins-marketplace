@@ -552,7 +552,7 @@ stopped <theorem> <stage> <instant> <agent-id>
 
 `--mode print` adds one line per result file it finds, synthesized from
 the directory at read time and stored nowhere, and then the round's
-type as "A round has a type" above settles it, so no reader applies the
+type as "The identifying flags" above settles it, so no reader applies the
 rule for an anchor naming none itself:
 
 ```text

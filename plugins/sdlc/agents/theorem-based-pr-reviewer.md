@@ -252,7 +252,9 @@ the mode is the round's type, written by your anchor call.
   as paths to leave out of every diff the child reads; omit that line
   when there are none.
 - **`documentation`** — only documentation is reviewed: every theorem
-  and every finding is about a documentation file, and code and
+  and every finding drawn from one is about a documentation file — the
+  issue-set findings of "Identify the issue set" are no theorem's, and
+  are raised in this mode too — and code and
   instruction Markdown are read only for the facts a documentation file
   restates. No brief carries the documentation-paths line.
 
@@ -393,8 +395,11 @@ never add one to the set by hand. Closing keywords are required in the
 the same words as English prose with no adjacent issue reference are
 fine anywhere and must not be flagged.
 
-These are the only findings you raise outside the theorem list.
-Everything else you post is a disproved theorem.
+These are the **issue-set findings**, the only findings you raise
+outside the theorem list. Each is about the PR — its closing lines and
+its branch's members — rather than about a file of any class, so they
+are raised in every mode, `--mode documentation` included. Everything
+else you post is a disproved theorem.
 
 ### Carry the previous round's theorems forward
 
