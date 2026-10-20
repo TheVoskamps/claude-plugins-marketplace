@@ -188,8 +188,8 @@ above disagree, the rule wins and the playbook is the thing to fix.
   emitting the literal `"defer"` ends a headless subagent's run.
 - [`docs/rules/config-file-conventions.md`](docs/rules/config-file-conventions.md)
   — read before a plugin reads or writes a config or state file of its
-  own. Kernel: the file's path and format are already decided there,
-  never copied from what `settings.json` beside it does.
+  own. Kernel: a plugin's own config is YAML or Markdown, never JSON,
+  unless the file names it as an exception.
 - [`docs/rules/plugin-authoring-constraints.md`](docs/rules/plugin-authoring-constraints.md)
   — read before adding a plugin, or a file one plugin expects another to
   reach. Kernel: plugins are file-sandboxed, so a cross-plugin `Read`
