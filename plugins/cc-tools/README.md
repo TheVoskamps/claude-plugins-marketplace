@@ -1,19 +1,27 @@
 # cc-tools
 
-Meta-skills for running Claude Code itself: load the global rules a
-session should be working under, find out what changed in the harness
-and in the issues you track, and curate the memory your agents write
-so it stays worth reading.
+Tools for running Claude Code itself: launch a session named after the
+repo it runs in, with that repo's own settings overlay on top of your
+global ones; load the global rules a session should be working under;
+find out what changed in the harness and in the issues you track; and
+curate the memory your agents write so it stays worth reading.
 
 Everything here is *about* the harness rather than about any one
-repo's code. That is the line: a skill belongs in this plugin when
-what it operates on is your Claude Code configuration, the upstream
-Claude Code project, or the memory tree agents leave behind.
+repo's code. That is the line: a skill or a command belongs in this
+plugin when what it operates on is your Claude Code configuration, the
+launch of a session, the upstream Claude Code project, or the memory
+tree agents leave behind.
 
 ## Why you would want it
 
 Each of these gets worse the longer you leave it:
 
+- **Every repo launches with the same settings.** A permission rule or
+  an auto-mode line that one repo needs has nowhere to go but your
+  global `settings.json`, where every other repo gets it too, and a
+  repo's own `.claude/settings.json` does not reach `autoMode`. The
+  `cr` launcher gives each repo a settings file of its own that is
+  layered over the global one at launch.
 - **Your global rules are on disk but not in the session.**
   `~/.claude/CLAUDE.md` pulls in files with `@~/` lines that are not
   expanded for a model reading it with a file tool, so "the rules are
@@ -38,6 +46,17 @@ Each of these gets worse the longer you leave it:
   `dependencies` edge on `github-prs`. The edge guarantees that verb
   is installed and enabled wherever this plugin runs; it grants no
   access to `github-prs`' files.
+- **`jq`**, if you want `cr`. The resolver at `~/.local/bin/cr` reads
+  `claude plugin list --json` through it to find where the enabled
+  cc-tools is installed; without `jq` it refuses with a message on
+  stderr rather than guessing a path.
+- **`~/.local/bin` on your `PATH`**, if you want `cr`. The deploy hook
+  writes the resolver there and says so when the directory is not on
+  `PATH`; it never edits `PATH` for you.
+- **No `cr()` function in your shell profile.** In zsh a function
+  shadows a command on `PATH`, so a shell that still defines one keeps
+  running it until the function is removed from the profile and the
+  profile is reloaded; only then does `~/.local/bin/cr` take over.
 - **A `~/.claude/CLAUDE.md`**, if you want rule-loading to have
   anything to load.
 - **Agents that declare `memory: project`**, if you want anything to
@@ -56,9 +75,82 @@ Each of these gets worse the longer you leave it:
 creates on its first run; its path and shape are
 `skills/cc-whats-new/SKILL.md` → "State file". The only other state is
 the session inbox described below, which lives under the session
-scratchpad rather than in any repo and dies with the session.
+scratchpad rather than in any repo and dies with the session. The one
+file the plugin writes outside its own tree is `~/.local/bin/cr`, a
+byte-for-byte copy of `hooks/cr-resolver`.
 
 ## The entry points
+
+### Launching a session
+
+`cr` starts an interactive Claude Code session from the root of the
+repo you are in, named after that repo. Its shape:
+
+```text
+cr [--cr-strict] [<name-word>…] [<claude-argument>…]
+```
+
+The arguments before the first `-`-prefixed one become the session
+name's prefix, joined with spaces — `cr fix the bug` in a clone of
+`my-repo` names the session `fix the bug my-repo`; with no name words
+the prefix is a `%b%d-%H:%M` date stamp. The first `-`-prefixed
+argument and everything after it go to `claude` unchanged. The repo
+name is the last path component of the `origin` URL without `.git`, or
+`(local)` when there is no `origin`. Outside any repo, `cr` runs
+`git init` in the current directory so the session has a repo, and
+removes that `.git` again when the session ends, on an interrupt or a
+termination included; `--cr-strict` as the first argument refuses
+instead, and also refuses a repo with no `origin`. The session gets
+`--remote-control`, a debug log under `~/.claude/logs/` named after
+the session, and `Grep` and `Glob` allowed without a prompt. When
+`GIT_CONFIG_GLOBAL` is unset and `~/.gitconfig-claude` is readable,
+`cr` exports it pointing there, so git inside the session reads that
+file as its global config. The usage block at the top of `bin/cr` is
+the exact contract.
+
+**The per-repo overlay.** When `<repo-root>/.cc-tools/cr-settings.json`
+exists, `cr` passes it to `claude --settings`. It is a Claude Code
+settings file, with the format and keys of a user `settings.json`,
+`permissions` and `autoMode` included; list keys add to the global
+lists and scalar keys override them. This is the one route by which a
+per-repo setting reaches `autoMode` — a repo's `.claude/settings.json`
+does not — and an `autoMode.environment` line passed this way lands in
+every model request of the session, subagent requests included. Only
+the file at the repo root counts; one in a subdirectory is ignored. A
+change to the overlay takes effect at the next `cr`; nothing in a
+running session re-reads it. Owner- and org-level layers over the repo
+one are issue #596.
+
+**How `cr` reaches the shell.** The launcher lives in the plugin as
+`bin/cr`, which puts it on `PATH` inside sessions — but the plugin
+cache path changes with every cc-tools version, so nothing in a shell
+profile can name it. What the shell runs is a resolver, deployed to
+`~/.local/bin/cr`, that carries no launcher logic: it asks
+`claude plugin list --json` where the enabled `cc-tools@thevoskamps` is
+installed and execs that install's `bin/cr` with its arguments, so a
+cc-tools update reaches the very next `cr` with nothing redeployed.
+When no enabled cc-tools is installed, or `jq` is missing, or the plugin
+list cannot be read, the resolver says which on stderr and exits 1; it
+never falls back to plain `claude`, because a session launched without
+the overlay would look like one launched with it. The resolver's text
+is `hooks/cr-resolver`. It sits under `hooks/` rather than `bin/`
+because `bin/` is what sessions get on `PATH`, and the resolver is only
+ever run from the shell.
+
+**Keeping the resolver current.** `hooks/hooks.json` registers
+`hooks/cr-deploy.sh` on `SessionStart`. While `~/.local/bin/cr` matches
+`hooks/cr-resolver` byte for byte, the hook does nothing and prints
+nothing. When the target is missing or differs, it creates
+`~/.local/bin` if absent, writes an executable copy to a temporary file
+beside the target and renames it into place, and reports through a
+`systemMessage` that `cr` was updated and the shell should be
+restarted, adding that `~/.local/bin` is not on `PATH` when it is not.
+A write that fails, and a `HOME` that is unset or empty, each get a
+`systemMessage` saying the launcher could not be updated. The hook
+exits 0 on every path, so it never blocks a session, and it builds its
+JSON by hand so that `jq` is a dependency of `cr` alone. A change to
+the resolver's text therefore reaches a machine at its next session
+start, and a change to the launcher reaches it at the next `cr`.
 
 ### Loading the global rules
 
@@ -131,6 +223,15 @@ which of its notes were about the branch and which about the repo.
 
 ## What it deliberately does not do
 
+- **`cr` does not validate the overlay.** `.cc-tools/cr-settings.json`
+  goes to `claude --settings` as it stands, so a malformed file fails
+  the way `claude` fails on any bad settings file, and the keys it may
+  hold are Claude Code's to define.
+- **The resolver does not run `claude` without cc-tools.** A missing
+  or disabled cc-tools is an error, never a plain `claude` launch.
+- **The deploy hook does not touch your profile.** It writes
+  `~/.local/bin/cr` and nothing else; putting that directory on `PATH`
+  and removing an older `cr()` function are yours.
 - **It does not decide what your rules should say.** `cc-all` loads
   `~/.claude/CLAUDE.md`; authoring it is yours.
 - **The topics list is hand-maintained.** Past the starter set that
