@@ -4,7 +4,8 @@
 # hooks/cr-deploy.sh under the bash 3.2 macOS ships, with HOME pointed at
 # a scratch directory and a stub claude first on PATH: cr's argument
 # handling, repo detection, settings overlay, GIT_CONFIG_GLOBAL and exit
-# status; the resolver's exec of the enabled cc-tools and its refusals;
+# status; the resolver's exec of the enabled cc-tools, its refusals and
+# its failed execs;
 # and the deploy hook's missing, differing, current and unwritable
 # targets and its unset or empty HOME.
 #
@@ -201,7 +202,17 @@ check_contains "$ENV" "gcg=$HOME/.gitconfig-claude" "a readable .gitconfig-claud
 reset
 (cd "$REPO" && GIT_CONFIG_GLOBAL=/elsewhere PATH="$SANDBOX/bin:$PATH" /bin/bash "$CR" x) >/dev/null 2>&1
 check_contains "$(cat "$SANDBOX/claude.env")" "gcg=/elsewhere" "GIT_CONFIG_GLOBAL already set: left as it is"
+
+reset
+(cd "$REPO" && GIT_CONFIG_GLOBAL='' PATH="$SANDBOX/bin:$PATH" /bin/bash "$CR" x) >/dev/null 2>&1
+check_contains "$(cat "$SANDBOX/claude.env")" "gcg=$HOME/.gitconfig-claude" \
+  "GIT_CONFIG_GLOBAL empty, a readable .gitconfig-claude: exported as when unset"
 rm "$HOME/.gitconfig-claude"
+
+reset
+(cd "$REPO" && GIT_CONFIG_GLOBAL='' PATH="$SANDBOX/bin:$PATH" /bin/bash "$CR" x) >/dev/null 2>&1
+check_contains "$(cat "$SANDBOX/claude.env")" "gcg=
+" "GIT_CONFIG_GLOBAL empty, no .gitconfig-claude: stays empty"
 
 # --- bin/cr: exit status ----------------------------------------------------
 reset
@@ -321,6 +332,17 @@ run_resolver "$SANDBOX/withjq" a
 check "$RC" "1" "resolver, plugin list fails: exit 1"
 check_contains "$ERR" "cr: \`claude plugin list --json\` failed" "resolver, plugin list fails: stderr says so"
 rm "$SANDBOX/list.rc"
+
+# The exec fails three ways, each 126 under bash 3.2: the install has no
+# bin/cr, the install directory is gone, and bin/cr is not executable.
+mkdir -p "$SANDBOX/install/nocr/bin" "$SANDBOX/install/noexec/bin"
+cp "$SANDBOX/install/enabled/bin/cr" "$SANDBOX/install/noexec/bin/cr"
+chmod -x "$SANDBOX/install/noexec/bin/cr"
+for v in nocr gone noexec; do
+  echo "[$(entry cc-tools@thevoskamps true "$SANDBOX/install/$v")]" >"$SANDBOX/plugins.json"
+  run_resolver "$SANDBOX/withjq" a
+  check "$RC:$([ -f "$SANDBOX/enabled.args" ] && echo ran)" "126:" "resolver, exec fails ($v): exit 126, nothing runs"
+done
 
 # --- hooks/cr-deploy.sh -----------------------------------------------------
 TARGET_DIR="$HOME/.local/bin"
