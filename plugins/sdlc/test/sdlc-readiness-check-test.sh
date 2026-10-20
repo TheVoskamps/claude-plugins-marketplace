@@ -427,7 +427,7 @@ check_contains "$OUT" 'Mechanical line "#### Deeper" is not a "- " bullet' "malf
 check_contains "$OUT" 'Mechanical line "```" is not a "- " bullet' "malformed lines: a fence opening under Mechanical, its content unread"
 no_marker "malformed lines"
 
-# --- a section with no Mechanical sub-heading has nothing to grade ----
+# --- a section with only Semantic bullets has no Mechanical line ------
 
 run "## Code and instruction Markdown acceptance
 

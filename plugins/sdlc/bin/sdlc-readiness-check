@@ -61,8 +61,8 @@ view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 # section present (`S<TAB><count><TAB><heading>`), and the well-formed
 # files-affected bullets (`F<TAB><path><TAB><tag>`); any other `## `
 # section, `## Acceptance` included, is not read. A bullet is a line
-# opening with `- ` followed by text, and continues onto indented lines;
-# a section's count is its bullets under `### Mechanical` and `###
+# opening with `- ` followed by text, and continues onto the indented
+# lines directly below it, with no blank line between; a section's count is its bullets under `### Mechanical` and `###
 # Semantic`. A fenced block is never read as grammar, and only a run of
 # its opening character at least as long as its opening run closes it;
 # a fence opening under `### Mechanical` is itself an `X` line.
