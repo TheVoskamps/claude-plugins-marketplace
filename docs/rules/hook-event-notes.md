@@ -39,16 +39,20 @@ more notes.
 
 - **Observe-only: no decision control, exit code ignored.** The hook
   cannot block or alter a load regardless of what it returns.
-- **Only the `systemMessage` JSON stdout field reaches the user** —
-  not bare/plain stdout (e.g. a bare `echo`). A hook that wants to
-  surface a message must emit `{"systemMessage": "..."}` on stdout.
+- **No text it returns reaches the user.** The hooks docs say Claude
+  Code discards this event's JSON output fields, `systemMessage` and
+  `continue` among them, and plain stdout goes to the debug log as on
+  most events. The one field still acted on is `terminalSequence` — a
+  bell, window title or desktop notification, written only in an
+  interactive session — so a hook here can notify but cannot print a
+  line in the transcript.
 - **Fires once per file loaded**, not just once per session. It fires
   both at session start and on lazy loads during the session, with
   `load_reason` one of `session_start`, `nested_traversal`,
   `path_glob_match`, `include`, or `compact`. A hook must not assume
   `session_start` is the only reason it will see.
 
-First demonstrated by the `show-loaded-rules` plugin (see
+First met while building the `show-loaded-rules` plugin (see
 [`plugins/show-loaded-rules/README.md`](../../plugins/show-loaded-rules/README.md)).
 
 ## `UserPromptExpansion`
@@ -68,10 +72,7 @@ First demonstrated by the `show-loaded-rules` plugin (see
   field, not nested under `hookSpecificOutput`.
 - **`systemMessage` is the reliable display channel.** Plain stdout on
   this event is injected into Claude's context (useful for
-  `additionalContext`-style hooks), not shown to the user — the same
-  distinction seen on `InstructionsLoaded` above, but for a different
-  reason (this event's plain stdout has a *different* consumer, not no
-  consumer).
+  `additionalContext`-style hooks), not shown to the user.
 
 First demonstrated by the `show-loaded-skills` plugin (see
 [`plugins/show-loaded-skills/README.md`](../../plugins/show-loaded-skills/README.md)).
@@ -94,7 +95,7 @@ First demonstrated by the `show-loaded-skills` plugin (see
 - **`systemMessage` reaches the user on `PreToolUse` too** — this is
   broader than the plain-stdout restriction: plain/bare stdout is not
   shown to the user on this event, but the `systemMessage` JSON field
-  is, same as `InstructionsLoaded` and `UserPromptExpansion`.
+  is, same as `UserPromptExpansion`.
 - **Decision control is `hookSpecificOutput.permissionDecision`**
   (`allow` / `deny` / `ask`), optionally paired with
   `hookSpecificOutput.updatedInput` to rewrite the tool call. A
@@ -183,3 +184,29 @@ First demonstrated by the `show-agent-calls` plugin (see
 Discovered by the `guardrails` permission-gate (issue #271); the
 reasoning and the tests that pin it are in
 [`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md).
+
+## `SessionStart`
+
+- **`systemMessage` reaches the user.** The hooks docs show
+  `systemMessage` to the user on every event whose section does not say
+  it discards or redirects the field, and the `SessionStart` section
+  says neither; it names a `systemMessage` as the way to report to the
+  user before the first request.
+- **Plain stdout goes to Claude, not the user.** `SessionStart` is one
+  of the events that adds plain-text stdout to Claude's context. A hook
+  that wants the user to see a line prints it as the one
+  `{"systemMessage": "..."}` object and nothing else: stdout counts as
+  JSON output only when it is a single object with nothing around it
+  but whitespace.
+- **A `--settings` file is already in force when the hook runs.**
+  `--settings` is a launch-time layer of the settings stack, and the
+  docs' way to turn every hook off for one run is
+  `--settings '{"disableAllHooks": true}'`, which works only if that
+  layer is read before the first hook fires. So a `SessionStart` hook cannot
+  change the settings of the session it runs in: a file it writes for
+  `--settings` to load takes effect at the next launch.
+- **Exit status 2 does not block.** The session proceeds, and the
+  stderr shows as a `<hook name> hook error` notice Claude does not see.
+
+First demonstrated by the `cc-tools` cr deploy hook,
+`plugins/cc-tools/hooks/cr-deploy.sh`.
