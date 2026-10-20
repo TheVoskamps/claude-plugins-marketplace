@@ -5,9 +5,10 @@
 # prints nothing. When the target is missing or differs, it creates
 # ~/.local/bin if absent, replaces the target atomically with an
 # executable copy, and emits a systemMessage saying so, adding a note when
-# ~/.local/bin is not on PATH. It never edits PATH, never blocks the
-# session, and exits 0 on every path, a failed write and an unset or empty
-# HOME included. Runs under the bash 3.2 macOS ships.
+# ~/.local/bin is not on PATH. A failed write and an unset or empty HOME
+# each emit a systemMessage saying the launcher could not be updated. It
+# never edits PATH, never blocks the session, and exits 0 on every path.
+# Runs under the bash 3.2 macOS ships.
 set -u
 
 # say <message> -- print <message> as the hook's systemMessage, escaped by
