@@ -590,15 +590,16 @@ pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, "Fan out the disprov
 
 Field rules:
 
-- **`id`** — `T1`, `T2`, … in emission order. The pipeline routes and
-  reports by this handle. On a re-review the sequence continues from
-  the carried records rather than restarting at `T1`, and an id is
-  never reused. Ids run in one sequence per PR across both modes, so a
-  whole-PR brief can carry no records yet still not start at `T1` —
-  the first `documentation` round continues the code rounds' ids.
-  Number such a list from `T1`, and on the `leave` refusal that names
-  the expected next id, renumber and retry as "On a re-review,
-  generate from the delta" describes.
+- **`id`** — `T<n>`, `T<n+1>`, … in emission order, continuing the
+  PR's one sequence across both modes; an id is never reused. The
+  pipeline routes and reports by this handle. On a re-review the
+  sequence continues from the carried records. A whole-PR brief carries
+  no records, so it does not show where the sequence stands, though
+  earlier rounds can already hold ids — the first `documentation` round
+  continues the code rounds' ids. Draft such a
+  list from `T1` as a placeholder; when `leave` refuses it naming the
+  expected next id, renumber and retry as "On a re-review, generate
+  from the delta" describes.
 - **`claim`** — one sentence, stated so a counterexample refutes it.
   Quote the criterion or the PR-body sentence the claim comes from.
 - **`issues`** — one or more members of `--issues`, comma-separated.
