@@ -6,7 +6,7 @@
 # handling, repo detection, settings overlay, GIT_CONFIG_GLOBAL and exit
 # status; the resolver's exec of the enabled cc-tools and its refusals;
 # and the deploy hook's missing, differing, current and unwritable
-# targets.
+# targets and its unset or empty HOME.
 #
 # Needs git and jq on PATH. Reaches no network.
 #
@@ -367,6 +367,20 @@ run_deploy "$TARGET_DIR"
 check "$RC" "0" "deploy, unwritable target: exit 0"
 check "$(printf '%s' "$OUT" | "$JQ" -r '.systemMessage')" \
   "cc-tools could not update the cr launcher at $TARGET." "deploy, unwritable target: the systemMessage says so"
+
+OUT=$(env -u HOME PATH=/usr/bin:/bin /bin/bash "$DEPLOY" </dev/null 2>"$SANDBOX/stderr")
+RC=$?
+check "$RC:$(cat "$SANDBOX/stderr")" "0:" "deploy, HOME unset: exit 0, nothing on stderr"
+check "$(printf '%s' "$OUT" | "$JQ" -r '.systemMessage')" \
+  "cc-tools could not update the cr launcher at ~/.local/bin/cr: HOME is not set." \
+  "deploy, HOME unset: the systemMessage says so"
+
+OUT=$(HOME='' PATH=/usr/bin:/bin /bin/bash "$DEPLOY" </dev/null 2>"$SANDBOX/stderr")
+RC=$?
+check "$RC:$(cat "$SANDBOX/stderr")" "0:" "deploy, HOME empty: exit 0, nothing on stderr"
+check "$(printf '%s' "$OUT" | "$JQ" -r '.systemMessage')" \
+  "cc-tools could not update the cr launcher at ~/.local/bin/cr: HOME is not set." \
+  "deploy, HOME empty: the systemMessage says so"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

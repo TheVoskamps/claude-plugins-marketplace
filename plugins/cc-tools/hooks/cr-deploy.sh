@@ -6,13 +6,9 @@
 # ~/.local/bin if absent, replaces the target atomically with an
 # executable copy, and emits a systemMessage saying so, adding a note when
 # ~/.local/bin is not on PATH. It never edits PATH, never blocks the
-# session, and exits 0 on every path, a failed write included. Runs under
-# the bash 3.2 macOS ships.
+# session, and exits 0 on every path, a failed write and an unset or empty
+# HOME included. Runs under the bash 3.2 macOS ships.
 set -u
-
-source_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cr-resolver"
-target_dir="$HOME/.local/bin"
-target="$target_dir/cr"
 
 # say <message> -- print <message> as the hook's systemMessage, escaped by
 # hand so the hook does not need jq.
@@ -22,6 +18,17 @@ say() {
   text=${text//\"/\\\"}
   printf '{"systemMessage": "%s"}\n' "$text"
 }
+
+# An empty HOME would put the target under /.local/bin, so it counts as
+# unset.
+if [ -z "${HOME-}" ]; then
+  say "cc-tools could not update the cr launcher at ~/.local/bin/cr: HOME is not set."
+  exit 0
+fi
+
+source_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cr-resolver"
+target_dir="$HOME/.local/bin"
+target="$target_dir/cr"
 
 if cmp -s "$source_file" "$target"; then
   exit 0
