@@ -217,7 +217,8 @@ can be under-delivered while the diff as a whole reads well, so tag
 each of these theorems to the single member its criterion came from.
 
 **A groomed issue hands you the settle mode.** Emit each criterion
-with the `settle-mode` its sub-heading names under that section. A
+with the `settle-mode` its sub-heading in that section names:
+`mechanical` under `### Mechanical`, `semantic` under `### Semantic`. A
 criterion under no such sub-heading falls back to the
 `settle-mode` rule in "Output format" below.
 

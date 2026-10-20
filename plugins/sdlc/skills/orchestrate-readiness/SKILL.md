@@ -83,9 +83,7 @@ can trigger that stop. The items:
   implementer may touch paths outside it, and a listed path the change
   ends up not touching is not a failure. Whether the list names a path
   changes nothing about that path's class, its owner, or how it is
-  reviewed — those follow from the path alone. Before any developer runs,
-  the theorem generator reads that list in place of a diff, so a body
-  without it leaves the generator nothing to key on.
+  reviewed — those follow from the path alone.
 
 ## The issue-body grammar
 
@@ -119,19 +117,14 @@ A bullet is a line opening with a hyphen and a space followed by text;
 a hyphen and a space with nothing after them is not one. Each bullet is
 one criterion whose subject is in the class its section names.
 `## Code and instruction Markdown acceptance` holds the criteria about
-code and instruction Markdown, which the review loop settles, and
-`## Documentation acceptance` holds the criteria about documentation,
-which `docs-writer` settles. A documentation-only change carries the
-second alone; which sections a body must carry, and with what, is the
-"Acceptance criteria" bar item's.
+code and instruction Markdown, and `## Documentation acceptance` holds
+the criteria about documentation. A documentation-only change carries
+the second alone; which sections a body must carry, and with what, is
+the "Acceptance criteria" bar item's.
 
 Within either section, `### Mechanical` holds the criteria one of the
 check keys below settles; `### Semantic` holds every other criterion,
-including any a key cannot express. A generator reading the body emits
-a criterion theorem for each bullet of
-`## Code and instruction Markdown acceptance`, with the `settle-mode`
-its sub-heading names — `mechanical` under the first, `semantic` under
-the second — and none for a bullet of `## Documentation acceptance`.
+including any a key cannot express.
 
 Every non-blank line under `### Mechanical` is a bullet, or an indented
 line continuing the bullet above it with no blank line between; any
