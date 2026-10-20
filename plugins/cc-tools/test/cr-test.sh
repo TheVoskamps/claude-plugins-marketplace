@@ -3,8 +3,9 @@
 # cr-test.sh -- drive plugins/cc-tools/bin/cr, hooks/cr-resolver and
 # hooks/cr-deploy.sh under the bash 3.2 macOS ships, with HOME,
 # XDG_CONFIG_HOME and XDG_STATE_HOME pointed at scratch directories and a
-# stub claude and a stub gh first on PATH: cr's argument handling, repo
-# detection, repository identity, settings layers and their merge, its
+# stub claude, a stub gh and a stub ssh first on PATH: cr's argument
+# handling, repo detection, repository identity, ssh host aliases included,
+# settings layers and their merge, its
 # refusals, GIT_CONFIG_GLOBAL and exit status; the resolver's exec of the
 # enabled cc-tools, its refusals and its failed execs;
 # and the deploy hook's missing, differing, current and unwritable
@@ -135,16 +136,35 @@ exit "\$(/bin/cat "$SANDBOX/gh.rc" 2>/dev/null || echo 0)"
 EOF
 chmod +x "$SANDBOX/bin/gh"
 
+# The stub ssh stands in for the machine's ssh configuration: it appends
+# its arguments, one line per call, to $SANDBOX/ssh.calls and answers
+# `-G -- <host>` as `ssh -G` does, with the `hostname` line among others,
+# naming github.com for the alias github-work, ssh.github.com for the
+# alias github-443, and <host> itself otherwise; it exits with the status
+# in $SANDBOX/ssh.rc, 0 when absent.
+cat >"$SANDBOX/bin/ssh" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$SANDBOX/ssh.calls"
+case "\$3" in
+  github-work) h=github.com ;;
+  github-443) h=ssh.github.com ;;
+  *) h=\$3 ;;
+esac
+printf 'host %s\nuser git\nhostname %s\nport 22\n' "\$3" "\$h"
+exit "\$(/bin/cat "$SANDBOX/ssh.rc" 2>/dev/null || echo 0)"
+EOF
+chmod +x "$SANDBOX/bin/ssh"
+
 # reset -- forget the previous launch.
 reset() {
   rm -f "$SANDBOX/claude.args" "$SANDBOX/claude.env" "$SANDBOX/claude.rc" "$SANDBOX/claude.signal" \
-    "$SANDBOX/claude.settings" "$SANDBOX/gh.calls"
+    "$SANDBOX/claude.settings" "$SANDBOX/gh.calls" "$SANDBOX/ssh.calls"
 }
 
-# run_cr <dir> [<arg>…] -- run bin/cr from <dir> with the stub claude
-# and gh first on PATH; leaves ARGS (claude's arguments, one per line),
-# SETTINGS (the content of each --settings file at launch), ENV, GH (gh's
-# calls), ERR and RC.
+# run_cr <dir> [<arg>…] -- run bin/cr from <dir> with the stub claude,
+# gh and ssh first on PATH; leaves ARGS (claude's arguments, one per
+# line), SETTINGS (the content of each --settings file at launch), ENV,
+# GH (gh's calls), SSH (ssh's calls), ERR and RC.
 run_cr() {
   local dir=$1
   shift
@@ -156,6 +176,7 @@ run_cr() {
   SETTINGS=$(cat "$SANDBOX/claude.settings" 2>/dev/null)
   ENV=$(cat "$SANDBOX/claude.env" 2>/dev/null)
   GH=$(cat "$SANDBOX/gh.calls" 2>/dev/null)
+  SSH=$(cat "$SANDBOX/ssh.calls" 2>/dev/null)
 }
 
 # settings_arg -- the argument after --settings in claude.args.
@@ -229,6 +250,29 @@ for form in git@github.com:owner/my-repo.git org-1@github.com:owner/my-repo.git 
   run_cr "$REPO" x
   check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" "origin $form: gh is given its https:// form"
 done
+
+# An ssh origin's host is the one ssh resolves: an alias names its real
+# host, and ssh.github.com names github.com.
+for form in git@github-work:owner/my-repo.git ssh://git@github-work:22/owner/my-repo.git \
+  git@github-443:owner/my-repo.git; do
+  git -C "$REPO" remote set-url origin "$form"
+  run_cr "$REPO" x
+  check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" \
+    "ssh alias origin $form: gh is given the real host's https:// URL"
+done
+check "$SSH" "-G -- github-443" "ssh alias origin: ssh -G is asked about the origin's host alone"
+
+git -C "$REPO" remote set-url origin https://github-work/owner/my-repo.git
+run_cr "$REPO" x
+check "$SSH:$GH" ":repo view https://github-work/owner/my-repo.git --json url --jq .url" \
+  "https origin: no ssh call, and its host is left as it is"
+
+git -C "$REPO" remote set-url origin git@github-work:owner/my-repo.git
+echo 255 >"$SANDBOX/ssh.rc"
+run_cr "$REPO" x
+check "$GH" "repo view https://github-work/owner/my-repo.git --json url --jq .url" \
+  "ssh -G fails: the origin's host is left as it is"
+rm "$SANDBOX/ssh.rc"
 git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
 
 # --- bin/cr: the settings layers --------------------------------------------
@@ -285,6 +329,14 @@ check "$RC:$(merged .order)" '0:["host","owner","machine","committed"]' \
   "fork with an upstream remote: origin's owner and repo layers apply"
 check "$(dirname "$(settings_arg)")" "$MERGED_DIR" "fork with an upstream remote: the merged file is under origin's owner and repo"
 git -C "$REPO" remote remove upstream
+
+# An ssh config alias: the layers are its real host's, not the local ones.
+git -C "$REPO" remote set-url origin git@github-work:owner/my-repo.git
+run_cr "$REPO" x
+check "$RC:$(merged .order)" '0:["host","owner","machine","committed"]' \
+  "ssh alias origin: the real host's owner and repo layers apply"
+check "$(dirname "$(settings_arg)")" "$MERGED_DIR" "ssh alias origin: the merged file is under the real host's owner and repo"
+git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
 
 # Negative control: the same launch with the layers moved aside must lose
 # them, so the checks above are measuring the layers.

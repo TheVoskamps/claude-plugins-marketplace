@@ -7,7 +7,7 @@
 # When GIT_CONFIG_GLOBAL is unset or empty and ~/.gitconfig-claude is
 # readable, cr exports GIT_CONFIG_GLOBAL pointing at that file for itself
 # and the session. Runs under the bash 3.2 macOS ships. Needs git, gh and
-# jq on PATH.
+# jq on PATH, and uses ssh when it is there.
 #
 # Usage: cr [--cr-strict] [<name-word>…] [<claude-argument>…]
 #
@@ -32,7 +32,8 @@
 #   <repo-root>/.cc-tools/cr-settings.json
 #
 # <host>, <owner> and <repo> come from `gh repo view <origin URL> --json
-# url`, the URL in its https:// form. With no
+# url`, the URL in its https:// form, an ssh URL's host first resolved
+# through `ssh -G` so an ssh config alias names its real host. With no
 # `origin`, after a `git init`, or when gh cannot resolve the `origin`,
 # the identity is `local` and only the first and last layers apply.
 # Merging concatenates lists, dropping an entry equal to an earlier one,
@@ -92,14 +93,40 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+# ssh_hostname <host> -- the hostname ssh connects to for <host>, as
+# `ssh -G` reports it, so an alias a `Host` block in the ssh config renames
+# becomes the host it reaches; GitHub's ssh-over-443 endpoint
+# ssh.github.com becomes github.com. Prints <host> unchanged when ssh is
+# not on PATH, fails, or reports no hostname. This is the translation gh
+# applies to a git remote of its own.
+ssh_hostname() {
+  local out key value real=
+  if command -v ssh >/dev/null 2>&1 && out=$(ssh -G -- "$1" </dev/null 2>/dev/null); then
+    while read -r key value; do
+      if [ "$key" = hostname ]; then real=$value; fi
+    done <<<"$out"
+  fi
+  case "$real" in
+    '') real=$1 ;;
+    [Ss][Ss][Hh].[Gg][Ii][Tt][Hh][Uu][Bb].[Cc][Oo][Mm]) real=github.com ;;
+  esac
+  printf '%s\n' "$real"
+}
+
 # https_url <remote-url> -- the remote URL as https://<host>/<path>, with
 # any scheme, user and port dropped, for a `<scheme>://` URL and for an
 # scp-like `[<user>@]<host>:<path>` one; any other URL, a local path
-# included, is printed unchanged. gh's argument parser takes an scp-like
-# URL only when it begins `git@`, and splits any other one as
-# OWNER/REPO.
+# included, is printed unchanged. The host of an ssh URL -- an scp-like
+# one, or one whose scheme is ssh, git+ssh or ssh+git -- is the one
+# ssh_hostname resolves. gh's argument parser takes an scp-like URL only
+# when it begins `git@`, and splits any other one as OWNER/REPO.
 https_url() {
-  local host path
+  local host path ssh=0
+  case "$1" in
+    ssh://* | git+ssh://* | ssh+git://*)
+      ssh=1
+      ;;
+  esac
   case "$1" in
     *://*)
       host=${1#*://}
@@ -116,6 +143,7 @@ https_url() {
           return
           ;;
       esac
+      ssh=1
       ;;
     *)
       printf '%s\n' "$1"
@@ -124,6 +152,7 @@ https_url() {
   esac
   host=${host##*@}
   host=${host%%:*}
+  if [ "$ssh" -eq 1 ]; then host=$(ssh_hostname "$host"); fi
   printf 'https://%s/%s\n' "$host" "${path#/}"
 }
 
