@@ -792,8 +792,7 @@ member)**:
    `sdlc:orchestrate-readiness` defines it, never against the finding's
    severity: a fix those criteria cover is in scope, and one they do
    not is outside the issue however severe. The issue's
-   `## Documentation acceptance` section decides no scope ruling;
-   `docs-writer` settles its criteria.
+   `## Documentation acceptance` section decides no scope ruling.
 
    A finding ruled `— in scope` goes into the brief without a question
    to the human: the scope ruling already decides it. A reviewer's
