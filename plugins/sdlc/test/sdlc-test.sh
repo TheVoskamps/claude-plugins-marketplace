@@ -9,14 +9,15 @@
 # print-in-flight's matching of a stopped to its child, the agent
 # record and the agent ids print-agents reads back, a generator's
 # leave refused for ids that do not continue the carried records, the
-# round type an anchor writes and the same-type carry and cross-type id
-# sequence it drives, print-root's state root and its signpost, and the
-# repository's state
-# directory: its repo.yml, the move of state from the layout that
-# predates the host segment, and --mode repos. It also drives the --pr
-# reference and its refusals, --mode list's repository operand against
-# a stub gh, and sdlc-orchestrate-analysis's resolution of its PR
-# against a stub pr-view and its reading of a fixer brief. It checks
+# round type an anchor writes and print's round-type line, the same-type
+# carry and cross-type id sequence that type drives, print-records'
+# --round-type selection, print-root's state root and its signpost, and
+# the repository's state directory: its repo.yml, the move of state from
+# the layout that predates the host segment, and --mode repos. It also
+# drives the --pr reference and its refusals, --mode list's repository
+# operand against a stub gh, and sdlc-orchestrate-analysis's resolution
+# of its PR against a stub pr-view, its reading of a fixer brief and its
+# round-type column. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a

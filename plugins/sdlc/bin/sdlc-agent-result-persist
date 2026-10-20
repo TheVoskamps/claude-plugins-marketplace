@@ -637,15 +637,15 @@ round_type_of() {
 # records file, and leaves both empty when none does. Given a round
 # number, it considers only the rounds below that one, and sets
 # above_round to the highest round above it holding a records file, of
-# either type, leaving it empty when none does. Given a type as well, it
-# sets best to the highest of the rounds below holding records of that
-# type alone, since a round carries only the records of its own type.
-# Either way it sets id_floor to the highest theorem id the records of
-# every round it considers hold, of either type, 0 when they hold none,
-# because ids run in one sequence across both types. A voided round's directory carries its
-# records with it under the .voided- name, and is skipped for the same
-# reason its result files are — it describes a tree that no longer
-# exists.
+# either type, leaving it empty when none does. Given a type, with or
+# without a round number, it sets best_round and best from the rounds of
+# that type alone, since a round carries only the records of its own
+# type. Either way it sets id_floor to the highest theorem id the
+# records of every round it considers hold, of either type, 0 when they
+# hold none, because ids run in one sequence across both types. A voided
+# round's directory carries its records with it under the .voided- name,
+# and is skipped for the same reason its result files are — it describes
+# a tree that no longer exists.
 latest_records_round() {
   best=
   best_round=
