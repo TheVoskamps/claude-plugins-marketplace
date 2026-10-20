@@ -4,7 +4,7 @@
 # runs in, from that repo's root, with remote control on, a debug log
 # under ~/.claude/logs/, and Grep and Glob allowed without a prompt. When
 # <repo-root>/.cc-tools/cr-settings.json exists, claude also gets
-# `--settings <that path>`. When GIT_CONFIG_GLOBAL is unset and
+# `--settings <that path>`. When GIT_CONFIG_GLOBAL is unset or empty and
 # ~/.gitconfig-claude is readable, cr exports GIT_CONFIG_GLOBAL pointing
 # at that file for itself and the session. Runs under the bash 3.2 macOS
 # ships.
