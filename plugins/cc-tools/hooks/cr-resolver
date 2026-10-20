@@ -11,8 +11,8 @@
 #
 # Exit status: bin/cr's own; 1 when jq is missing, the plugin list cannot
 # be read, or no enabled cc-tools is installed, with stderr saying which;
-# or bash's 126 or 127 when the listed install path holds no executable
-# bin/cr.
+# or, under bash 3.2, 126 when the exec fails, whether bin/cr is absent,
+# its install directory is missing, or it is not executable.
 set -uo pipefail
 
 if ! command -v jq >/dev/null 2>&1; then
