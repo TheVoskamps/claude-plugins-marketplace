@@ -118,13 +118,19 @@ EOF
 chmod +x "$SANDBOX/bin/claude"
 
 # The stub gh appends its arguments, one line per call, to
-# $SANDBOX/gh.calls, prints the contents of $SANDBOX/gh.url, or
-# https://github.com/owner/my-repo when that file is absent, and exits
-# with the status in $SANDBOX/gh.rc, 0 when absent.
+# $SANDBOX/gh.calls, prints the contents of $SANDBOX/gh.url, or when that
+# file is absent the https:// URL `repo view` was given, without `.git`,
+# or https://github.com/upstream/upstream-repo when it was given none, as
+# a real gh can pick a fork's `upstream`; it exits with the status in
+# $SANDBOX/gh.rc, 0 when absent.
 cat >"$SANDBOX/bin/gh" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >>"$SANDBOX/gh.calls"
-if [ -f "$SANDBOX/gh.url" ]; then /bin/cat "$SANDBOX/gh.url"; else echo https://github.com/owner/my-repo; fi
+case "\$3" in
+  https://*) u=\${3%.git} ;;
+  *) u=https://github.com/upstream/upstream-repo ;;
+esac
+if [ -f "$SANDBOX/gh.url" ]; then /bin/cat "$SANDBOX/gh.url"; else echo "\$u"; fi
 exit "\$(/bin/cat "$SANDBOX/gh.rc" 2>/dev/null || echo 0)"
 EOF
 chmod +x "$SANDBOX/bin/gh"
@@ -210,8 +216,20 @@ run_cr "$REPO" x
 check "$(sed -n 2p "$SANDBOX/claude.args")" "x plain" "origin with no .git suffix: its last component names the repo"
 git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
 
-check "$GH" "repo view --json url --jq .url" "repo: the identity comes from gh repo view --json url"
+run_cr "$REPO" x
+check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" \
+  "repo: the identity comes from gh repo view of origin's URL in its https:// form"
 check "$(state_files)" "" "no layer: no merged file is written"
+
+# Each form an origin can take reaches gh as the same https:// URL.
+for form in git@github.com:owner/my-repo.git org-1@github.com:owner/my-repo.git github.com:owner/my-repo.git \
+  ssh://git@github.com/owner/my-repo.git ssh://git@github.com:22/owner/my-repo.git \
+  git+ssh://git@github.com/owner/my-repo.git https://user@github.com/owner/my-repo.git; do
+  git -C "$REPO" remote set-url origin "$form"
+  run_cr "$REPO" x
+  check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" "origin $form: gh is given its https:// form"
+done
+git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
 
 # --- bin/cr: the settings layers --------------------------------------------
 CFG="$XDG_CONFIG_HOME/cc-tools/cr-settings"
@@ -258,6 +276,15 @@ case "$MERGED" in
 esac
 check "$AT" "ok" "layers: the merged file is <state>/cc-tools/<host>/<owner>/<repo>/cr-settings-<stamp>-<pid>.json"
 check "$([ -e "$MERGED" ] && echo left)" "" "layers: the merged file is removed on exit"
+
+# A fork: gh asked with no repository would resolve `upstream`, so these
+# pass only when cr names origin's URL.
+git -C "$REPO" remote add upstream git@github.com:upstream/upstream-repo.git
+run_cr "$REPO" x
+check "$RC:$(merged .order)" '0:["host","owner","machine","committed"]' \
+  "fork with an upstream remote: origin's owner and repo layers apply"
+check "$(dirname "$(settings_arg)")" "$MERGED_DIR" "fork with an upstream remote: the merged file is under origin's owner and repo"
+git -C "$REPO" remote remove upstream
 
 # Negative control: the same launch with the layers moved aside must lose
 # them, so the checks above are measuring the layers.

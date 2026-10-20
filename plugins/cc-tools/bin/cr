@@ -31,7 +31,8 @@
 #   <config>/<host>/<owner>/<repo>.json
 #   <repo-root>/.cc-tools/cr-settings.json
 #
-# <host>, <owner> and <repo> come from `gh repo view --json url`. With no
+# <host>, <owner> and <repo> come from `gh repo view <origin URL> --json
+# url`, the URL in its https:// form. With no
 # `origin`, after a `git init`, or when gh cannot resolve the `origin`,
 # the identity is `local` and only the first and last layers apply.
 # Merging concatenates lists, dropping an entry equal to an earlier one,
@@ -77,13 +78,54 @@ done
 
 initdir=
 merged=
-# bash runs the EXIT trap when INT or TERM ends the script too, so this
-# one trap covers all three.
+# cleanup forgets what it removed, so the EXIT trap that follows an INT or
+# TERM trap's exit finds nothing left to do.
 cleanup() {
   if [ -n "$merged" ]; then rm -f -- "$merged"; fi
   if [ -n "$initdir" ]; then rm -rf -- "$initdir/.git"; fi
+  merged=
+  initdir=
 }
+# An INT or TERM trap exits after cleaning up, so cr stops where the signal
+# reached it rather than carrying on without the files it removed.
 trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+
+# https_url <remote-url> -- the remote URL as https://<host>/<path>, with
+# any scheme, user and port dropped, for a `<scheme>://` URL and for an
+# scp-like `[<user>@]<host>:<path>` one; any other URL, a local path
+# included, is printed unchanged. gh's argument parser takes an scp-like
+# URL only when it begins `git@`, and splits any other one as
+# OWNER/REPO.
+https_url() {
+  local host path
+  case "$1" in
+    *://*)
+      host=${1#*://}
+      path=
+      case "$host" in */*) path=${host#*/} ;; esac
+      host=${host%%/*}
+      ;;
+    *:*)
+      host=${1%%:*}
+      path=${1#*:}
+      case "$host" in
+        */*)
+          printf '%s\n' "$1"
+          return
+          ;;
+      esac
+      ;;
+    *)
+      printf '%s\n' "$1"
+      return
+      ;;
+  esac
+  host=${host##*@}
+  host=${host%%:*}
+  printf 'https://%s/%s\n' "$host" "${path#/}"
+}
 
 identity=local
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -101,7 +143,9 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if [ -n "$url" ]; then
     repo=${url##*/}
     repo=${repo%.git}
-    if gh_url=$(gh repo view --json url --jq .url 2>/dev/null) && [ -n "$gh_url" ]; then
+    # Naming origin's URL keeps gh from resolving another remote, such as a
+    # fork's `upstream`, through its own remote-priority rules.
+    if gh_url=$(gh repo view "$(https_url "$url")" --json url --jq .url 2>/dev/null) && [ -n "$gh_url" ]; then
       identity=$gh_url
     else
       echo "cr: gh repo view could not resolve 'origin'; applying only the host and committed settings layers" >&2
