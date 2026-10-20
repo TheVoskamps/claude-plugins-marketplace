@@ -76,6 +76,12 @@ one left it; a session id in the path would have made the same records
 unreachable. The harness's per-session scratchpad is the opposite
 choice deliberately — it is for what should die with the session.
 
+Named exception: state written before the session knows which issue or
+PR it serves may be keyed on the launch, since there is nothing else
+yet to key it on. `cc-tools`' `cr` writes its merged settings file as
+`cc-tools/<host>/<owner>/<repo>/cr-settings-<stamp>-<pid>.json` for
+this reason, and removes it when the launch ends.
+
 The permission gate's carve-out roots this directory too, on the same
 terms as the config one — see "The permission gate's carve-out follows
 these same roots" above.
@@ -109,10 +115,12 @@ JSON is never the answer for a config this marketplace's own plugins
 write. It cannot carry a comment, which is exactly what the prose in
 either format above is for.
 
-**Named exception: `cc-tools`' `.cc-tools/cr-settings.json`.** This
-per-repo file is JSON with no `schema-version`, because it is a Claude
-Code settings file that `cr` hands to `claude --settings`, not a config
-cc-tools reads: its format and keys are Claude Code's.
+**Named exception: `cc-tools`' `cr` settings layers.** The per-repo
+`.cc-tools/cr-settings.json` and the per-user layers under
+`$XDG_CONFIG_HOME/cc-tools/cr-settings/` are JSON with no
+`schema-version`, because each is a Claude Code settings file that `cr`
+merges and hands to `claude --settings`, not a config cc-tools reads:
+their format and keys are Claude Code's.
 
 ## Every config carries `schema-version`
 
