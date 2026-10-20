@@ -420,7 +420,7 @@ check_contains "$OUT" 'Mechanical line "* [exists] src/star.sh" is not a "- " bu
 check_contains "$OUT" 'Mechanical line "-[exists] src/nospace.sh" is not a "- " bullet' "malformed lines: '-' with no space"
 check_contains "$OUT" 'Mechanical line "1. [exists] src/numbered.sh" is not a "- " bullet' "malformed lines: a numbered item"
 check_contains "$OUT" 'Mechanical line "-" is not a "- " bullet' "malformed lines: a bare '-'"
-check_contains "$OUT" 'Mechanical bullet "- " opens with no check key' "malformed lines: a bullet with no text"
+check_contains "$OUT" 'Mechanical line "- " is not a "- " bullet' "malformed lines: a '- ' with no text is not a bullet"
 check_contains "$OUT" "Mechanical line \"Prose about touch $SANDBOX/pwned13.\" is not a \"- \" bullet" "malformed lines: a prose line"
 check_contains "$OUT" 'Mechanical line "  [exists] src/indented-after-blank.sh" is not a "- " bullet' "malformed lines: an indented line after a blank line continues nothing"
 check_contains "$OUT" 'Mechanical line "#### Deeper" is not a "- " bullet' "malformed lines: a deeper heading"

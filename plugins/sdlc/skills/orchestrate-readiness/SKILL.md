@@ -62,6 +62,9 @@ can trigger that stop. The items:
     `## Documentation acceptance` is present;
   - when a section is present with no bullet under `### Mechanical` or
     `### Semantic`;
+  - when a section's `### Mechanical` lines depart from that grammar in
+    any way the grammar states — in a line's shape, in a bullet's check
+    key, in a bullet carrying a command, or in a path a bullet names;
   - when the body carries an `## Acceptance` section; the gap line says
     to split it into `## Code and instruction Markdown acceptance` and
     `## Documentation acceptance`;
@@ -112,8 +115,9 @@ These are the headings a writer emits and a reader keys on.
 - <criterion>
 ```
 
-Each bullet is one criterion whose subject is in the class its section
-names.
+A bullet is a line opening with a hyphen and a space followed by text;
+a hyphen and a space with nothing after them is not one. Each bullet is
+one criterion whose subject is in the class its section names.
 `## Code and instruction Markdown acceptance` holds the criteria about
 code and instruction Markdown, which the review loop settles, and
 `## Documentation acceptance` holds the criteria about documentation,
@@ -129,11 +133,11 @@ a criterion theorem for each bullet of
 its sub-heading names — `mechanical` under the first, `semantic` under
 the second — and none for a bullet of `## Documentation acceptance`.
 
-Every non-blank line under `### Mechanical` is a bullet opening with a
-hyphen and a space, or an indented line continuing the bullet above it
-with no blank line between; any other line, a fenced block's opening
-included, is a gap. Every `### Mechanical` bullet opens with a check
-key followed by its arguments, and never carries a command. A path is a repo-relative
+Every non-blank line under `### Mechanical` is a bullet, or an indented
+line continuing the bullet above it with no blank line between; any
+other line, a fenced block's opening included, is a gap. Every
+`### Mechanical` bullet opens with a check key followed by its
+arguments, and never carries a command. A path is a repo-relative
 literal with no whitespace and no glob. A path the script cannot check
 as one location inside the repo root — under `[no-match]`, as one file
 to read — is refused, and the bullet's gap line says why. The keys:
