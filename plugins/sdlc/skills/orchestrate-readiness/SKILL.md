@@ -60,7 +60,8 @@ can trigger that stop. The items:
   settles which file class a bullet's subject is in. It fails:
   - when neither `## Code and instruction Markdown acceptance` nor
     `## Documentation acceptance` is present;
-  - when a section is present with no bullet;
+  - when a section is present with no bullet under `### Mechanical` or
+    `### Semantic`;
   - when the body carries an `## Acceptance` section; the gap line says
     to split it into `## Code and instruction Markdown acceptance` and
     `## Documentation acceptance`;
@@ -111,8 +112,8 @@ These are the headings a writer emits and a reader keys on.
 - <criterion>
 ```
 
-The two sections come in this order, and each bullet is one criterion
-whose subject is in the class its section names.
+Each bullet is one criterion whose subject is in the class its section
+names.
 `## Code and instruction Markdown acceptance` holds the criteria about
 code and instruction Markdown, which the review loop settles, and
 `## Documentation acceptance` holds the criteria about documentation,
@@ -194,7 +195,8 @@ Given an issue number:
    grade the rest of each bar item, in the order listed above, by
    reading the body; the script's lines are the whole grading of each
    `### Mechanical` line's shape and check key and of whether each
-   acceptance section is present and carries a bullet, and the
+   acceptance section is present and carries a bullet under
+   `### Mechanical` or `### Semantic`, and the
    file-class failures under "Acceptance criteria" are yours to grade
    for `### Mechanical` and `### Semantic` bullets alike. Never run a
    command a `### Mechanical` bullet's text spells.
