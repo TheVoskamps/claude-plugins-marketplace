@@ -89,9 +89,9 @@ The freeze closes as soon as the PR is linked to its issues.
 missing immediately after — both of those land before the first review
 round exists to be confused by them. From there until the
 documentation loop ends, **nothing edits the PR body**. Not you, and
-not any other teammate. `pr-finalizer` writes one final section after
-both loops are over, in the close-out below, and that is the whole
-exception.
+not any other teammate. `pr-finalizer` writes one final section and
+corrects the closing lines you collected after both loops are over, in
+the close-out below, and that is the whole exception.
 
 The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
@@ -108,6 +108,16 @@ change, a body change a fixer reports it did not make, a claim
 `docs-writer` says a change falsified — say so in the round's report,
 and carry each into the scope notes you hand `pr-finalizer`, quoted,
 with what is true now. The fix lands once, at the end.
+
+An issue-set finding is collected the same way, from the review of
+every round in either loop. Turn each into one closing-line
+correction — `add <issue>` for a branch member with no closing line,
+`remove <issue>` for a closing line naming an issue outside the
+branch's set, `<issue>` the reference as the finding names it — and say
+so in the round's report. The corrections the PR's last review round
+raised go on the `Closing-line corrections:` line of the
+`pr-finalizer` brief; one an earlier round raised and the last did not
+carries nothing.
 
 ## The documentation loop
 
@@ -212,7 +222,9 @@ the commit SHA you pushed.
 Its commit opens the next round.
 
 **The loop ends** on a round whose review is APPROVED with no finding
-above Low and whose `docs-writer` report graded no criterion
+above Low — an issue-set finding counting as none, per
+`skills/orchestrate/SKILL.md` → "Handling review findings — the fix
+loop" — and whose `docs-writer` report graded no criterion
 `not met`, or when the documentation loop's round bound is reached
 with a finding above Low still open, which goes to the human in the
 final report. Either way the human's end-of-loop confirmation is what
@@ -291,8 +303,11 @@ and linear:
    it rather than reusing the batch's planned membership: neither
    `/pr-create` nor `/pr-link-issue` writes a closing line for a
    member the developer **dropped**, so a dropped member is absent
-   from that list and stays In Progress. Then flip each member it
-   named with `/issue-set-status <N> "In Review"`, gated on the
+   from that list and stays In Progress. Apply the closing-line
+   corrections you collected to that list — each `add` issue joins it,
+   each `remove` issue leaves it — since `pr-finalizer` lands them
+   only after this flip. Then flip each member of the result
+   with `/issue-set-status <N> "In Review"`, gated on the
    configured status slot as every status transition is. The flip
    lands before the finalizer because it is a tracker write the
    finalizer's section may mention.
@@ -302,9 +317,10 @@ and linear:
    loop runs; the finalizer posts it as a chain of PR comments and
    writes one section summarising the review rounds, the changes made
    in response, and any scope notes the run settled, replacing the
-   section a previous run of this close-out left. Give it `<PR_REF>`,
-   the branch name, and the scope notes the run settled that
-   the rounds themselves do not carry:
+   section a previous run of this close-out left, and corrects the
+   closing lines you collected. Give it `<PR_REF>`, the branch name,
+   the scope notes the run settled that the rounds themselves do not
+   carry, and the closing-line corrections:
 
    ```text
    PR <PR_REF> has finished its review loop. Branch: <branch-name>
@@ -314,9 +330,13 @@ and linear:
    the rounds do not carry; every PR-body claim the run made stale,
    quoted, with what is true now; and docs-writer's per-file list
    verbatim — or "none">
+   Closing-line corrections:
+   <each collected correction, one per line, as `add <issue>` or
+   `remove <issue>` — or "none">
 
    Post the detail and write the final section per your agent
-   definition. Report back what you posted and what you wrote.
+   definition. Report back what you posted, what you wrote, and each
+   closing-line correction as applied or not, with why.
    ```
 
    It reads the rounds out of state and the commits off the branch for

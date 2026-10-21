@@ -94,9 +94,10 @@ under `agents/` owns:
   run the documentation loop before re-spawning it
 - `pr-finalizer` — posts the run's assembled review detail as chained
   PR comments and writes the run's final section into the PR body,
-  once the loop is over, replacing the section an earlier run left.
-  When it returns, the PR carries that comment chain and exactly one
-  such section, and nothing else about the PR has moved. It is the
+  once the loop is over, replacing the section an earlier run left,
+  and corrects the closing lines its brief names. When it returns, the
+  PR carries that comment chain, exactly one such section and those
+  corrections, and nothing else about the PR has moved. It is the
   **only** agent that edits a PR body
 - `pr-monitor` — polls one ready PR until it merges. When it returns,
   the PR is merged, or closed without merging, or has gone `BEHIND` or
@@ -895,6 +896,19 @@ retires those theorems as scope-dropped rather than filing them again.
 That re-review posts a review, so it counts as a round against the
 cap.
 
+**An issue-set finding goes to `pr-finalizer`, in either loop.** The
+reviewer raises one, in every mode, on the PR body's closing lines: a
+branch member with no closing line and no deferral the body explains,
+or a closing line naming an issue outside the branch's set. The body is frozen until the close-out, so
+no teammate in either loop can fix one. It gets no line in a fixer
+brief, it spawns no `issue-fixer` and no `docs-writer` fix, and a round
+whose only open findings above Low are issue-set findings counts as an
+APPROVED round, ending the loop rather than keeping it running. Collect
+each instead, per `skills/orchestrate/lib/pr-lifecycle.md` → "The PR
+body is frozen for the loop"; `pr-finalizer` corrects the closing lines
+at the close-out. Until then every round re-raises it, since nothing
+changes the body.
+
 **A finding class that produces a new site each round is a design
 question, not a round.** Two findings are the same class when the
 reviewer files them under the same theorem, or when the second's fix
@@ -928,6 +942,8 @@ the review adjustments — with these differences:
   the PR's diff made stale** — the two sources a documentation round
   generates from. A fix either covers is in scope; any other is outside
   the issue, ruled as the code loop rules one.
+- **An issue-set finding gets no scope ruling**: it goes to
+  `pr-finalizer`, per "Handling review findings — the fix loop".
 - **Its rounds count against a bound of their own.** Rounds of both
   loops share one numbering per PR, so the reviewer's first
   documentation round takes the number after the last code round, but
