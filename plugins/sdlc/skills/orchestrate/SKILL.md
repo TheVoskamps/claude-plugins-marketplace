@@ -899,9 +899,10 @@ cap.
 **An issue-set finding goes to `pr-finalizer`, in either loop.** The
 reviewer raises one, in every mode, on the PR body's closing lines: a
 branch member with no closing line and no deferral the body explains,
-or a closing line naming an issue outside the branch's set. The body is frozen until the close-out, so
-no teammate in either loop can fix one. It gets no line in a fixer
-brief, it spawns no `issue-fixer` and no `docs-writer` fix, and a round
+or a closing line naming an issue outside the branch's set. The body is
+frozen until the close-out, so no teammate in either loop can fix one.
+It gets no line in a fixer brief, it spawns no `issue-fixer` and no
+`docs-writer` fix, and a round
 whose only open findings above Low are issue-set findings counts as an
 APPROVED round, ending the loop rather than keeping it running. Collect
 each instead, per `skills/orchestrate/lib/pr-lifecycle.md` → "The PR
