@@ -5,11 +5,10 @@
 # XDG_CONFIG_HOME and XDG_STATE_HOME pointed at scratch directories and a
 # stub claude, a stub gh and a stub ssh first on PATH: cr's argument
 # handling, repo detection, repository identity, ssh host aliases included,
-# settings layers and their merge, its
-# refusals, GIT_CONFIG_GLOBAL and exit status; the resolver's exec of the
-# enabled cc-tools, its refusals and its failed execs;
-# and the deploy hook's missing, differing, current and unwritable
-# targets and its unset or empty HOME.
+# settings layers and their merge, its refusals, GIT_CONFIG_GLOBAL and exit
+# status; the resolver's exec of the enabled cc-tools, its refusals and its
+# failed execs; and the deploy hook's missing, differing, current and
+# unwritable targets and its unset or empty HOME.
 #
 # Needs git and jq on PATH. Reaches no network.
 #
@@ -217,8 +216,8 @@ check_contains "$ERR" "cr: detected existing git repo; cd to repo root $REPO" "r
 check_contains "$ENV" "git=yes" "repo: the repo's own .git is there"
 check "$([ -d "$REPO/.git" ] && echo kept)" "kept" "repo: the existing .git is left alone"
 
-# With no overlay, the arguments cr adds itself fill the first eight lines
-# of claude.args, so line 9 onward is what passed through.
+# With no settings layer, the arguments cr adds itself fill the first
+# eight lines of claude.args, so line 9 onward is what passed through.
 run_cr "$REPO" --model opus fix
 check "$(sed -n '9,$p' "$SANDBOX/claude.args")" "$(lines --model opus fix)" \
   "first flag first: no name words, and a word after a flag passes to claude"
