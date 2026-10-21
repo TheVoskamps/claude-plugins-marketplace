@@ -639,7 +639,7 @@ the standalone path rather than this one:
 --mode <code-and-instruction-markdown in the code loop, documentation in the documentation loop>
 
 Review this PR per your agent definition. Report back its verdicts,
-findings, and round kind.
+findings, closing-line corrections, and round kind.
 ```
 
 This round's number is the one the reviewer composes its round
@@ -740,11 +740,10 @@ a `--full` one.
 
 ### Handling review findings — the fix loop
 
-The reviewer reports a verdict per issue the PR closes — plus one for
-any other issue its findings name, such as a branch-set member the
-body silently dropped — and an overall verdict, which is the worst of
-them. **The overall verdict drives the loop** — the PR merges as one
-unit, so one member at NEEDS_CHANGES sends the whole PR back. The
+The reviewer reports a verdict per issue the PR closes and an overall
+verdict, which is the worst of them. **The overall verdict drives the
+loop** — the PR merges as one unit, so one member at NEEDS_CHANGES
+sends the whole PR back. The
 per-issue verdicts tell you which member's criteria each finding is
 measured against; carry those tags into the fixer's brief rather than
 flattening them.
@@ -896,19 +895,19 @@ retires those theorems as scope-dropped rather than filing them again.
 That re-review posts a review, so it counts as a round against the
 cap.
 
-**An issue-set finding goes to `pr-finalizer`, in either loop.** The
-reviewer raises one, in every mode, on the PR body's closing lines: a
-branch member with no closing line and no deferral the body explains,
-or a closing line naming an issue outside the branch's set. The body is
-frozen until the close-out, so no teammate in either loop can fix one.
-It gets no line in a fixer brief, it spawns no `issue-fixer` and no
-`docs-writer` fix, and a round
-whose only open findings above Low are issue-set findings counts as an
-APPROVED round, ending the loop rather than keeping it running. Collect
-each instead, per `skills/orchestrate/lib/pr-lifecycle.md` → "The PR
-body is frozen for the loop"; `pr-finalizer` corrects the closing lines
-at the close-out. Until then every round re-raises it, since nothing
-changes the body.
+**A closing-line correction goes to `pr-finalizer`, in either loop.**
+The reviewer reports its corrections, in every mode, in a section of
+their own outside its findings, and they take no part in its verdict:
+`add <issue>` for a branch member with no closing line and no deferral
+the body explains, `remove <issue>` for a closing line naming an issue
+outside the branch's set. The body is frozen until the close-out, so no
+teammate in either loop can make one. A correction gets no line in a
+fixer brief and spawns no `issue-fixer` and no `docs-writer` fix.
+Read the section off each round's report and hand it on, per
+`skills/orchestrate/lib/pr-lifecycle.md` → "The PR body is frozen for
+the loop"; `pr-finalizer` corrects the closing lines at the close-out.
+Until then every round reports it again, since nothing changes the
+body.
 
 **A finding class that produces a new site each round is a design
 question, not a round.** Two findings are the same class when the
@@ -943,7 +942,7 @@ the review adjustments — with these differences:
   the PR's diff made stale** — the two sources a documentation round
   generates from. A fix either covers is in scope; any other is outside
   the issue, ruled as the code loop rules one.
-- **An issue-set finding gets no scope ruling**: it goes to
+- **A closing-line correction gets no scope ruling**: it goes to
   `pr-finalizer`, per "Handling review findings — the fix loop".
 - **Its rounds count against a bound of their own.** Rounds of both
   loops share one numbering per PR, so the reviewer's first
@@ -1091,8 +1090,9 @@ the PR is good enough to move forward:
    pass the scrubber lines it relays through to the human as it wrote
    them.
 
-3. **The close-out**, per the PR-lifecycle file: the In Review flips
-   for every issue the PR closes, `pr-finalizer`, then the ready flip.
+3. **The close-out**, per the PR-lifecycle file: `pr-finalizer`, the
+   In Review flips for every issue the PR then closes, then the ready
+   flip.
    It is linear, and every step is safe to repeat.
 
 4. **Spawn `pr-monitor`**, with the brief the PR-lifecycle file

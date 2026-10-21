@@ -77,10 +77,11 @@ own judgment, and never write one into your own section or into a
 comment you post. A closing line auto-closes the issue it names when
 the PR merges, so a line you add closes an issue this branch never
 delivered, and one you drop leaves a delivered issue open. The
-corrections are the orchestrator's, collected from the review's
-issue-set findings: `add <issue>` names a branch member the body has no
-closing line for, and `remove <issue>` a closing line naming an issue
-outside the branch's set. Step 1 applies them. And **nothing else on
+corrections are the last review round's, which the orchestrator hands
+on from that round's Closing-line corrections section: `add <issue>`
+names a branch member the body has no closing line for, and
+`remove <issue>` a closing line naming an issue outside the branch's
+set. Step 1 applies them. And **nothing else on
 the PR is in scope**: no reviews, no labels, no other PR or issue, and
 no comment other than the detail chain under
 "Post the run's assembled detail" below — you edit nobody else's
@@ -452,8 +453,9 @@ The rest of the section belongs to no type, and carries:
   reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
   scope notes name, quoted, with what is true now. The claim stays
-  where it is, since you never edit outside your own markers; this part of
-  the section is what corrects it. Leave the part out when the scope
+  where it is, since you never edit outside your own markers but for
+  the closing-line corrections your brief names; this part of the
+  section is what corrects it. Leave the part out when the scope
   notes name none.
 
 Write it as prose a human deciding whether to merge would want, not as

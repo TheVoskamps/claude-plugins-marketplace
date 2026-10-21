@@ -253,8 +253,8 @@ the mode is the round's type, written by your anchor call.
   when there are none.
 - **`documentation`** — only documentation is reviewed: every theorem
   and every finding drawn from one is about a documentation file — the
-  issue-set findings of "Identify the issue set" are no theorem's, and
-  are raised in this mode too — and code and
+  closing-line corrections of "Identify the issue set" are no finding,
+  and are reported in this mode too — and code and
   instruction Markdown are read only for the facts a documentation file
   restates. No brief carries the documentation-paths line.
 
@@ -369,24 +369,29 @@ and a batch of one is the ordinary single-issue PR.
   parse a branch name or re-derive the resolution.
   **The set you review against is the resolved set it reports.**
 
-The lists it reports alongside are findings, not members:
+The lists it reports alongside are **closing-line corrections**, not
+members, each naming one closing line the PR body should gain or lose:
 
 - **A claimed issue outside the branch's set** — a hand-edited closing
   line that would auto-close, on merge, an issue this branch never
-  delivered. Never fold it into the set. Grade it on that consequence
-  per "Findings by severity", with its own verdict line per "Per-issue
-  verdicts, one overall".
+  delivered. Never fold it into the set. It is `remove <issue>`.
 - **A branch member on the *not claimed* list** — a sanctioned deferral
   when the PR body names it and says why it is not in this PR: context,
-  not a finding. Missing with no explanation, it IS a finding — an
-  unmet acceptance criterion, graded High per "Findings by severity" —
-  and gets its own verdict line, though the diff is not reviewed
-  against it.
+  not a correction. Missing with no explanation, it is `add <issue>`,
+  though the diff is not reviewed against it.
+
+`<issue>` is the reference as `<link-prefix><N>`. A correction is no
+finding: it gets no severity and no verdict line, and takes no part in
+any verdict, so a round whose only open item is a closing line posts the
+verdict its findings earn. Each goes in the review's own "Closing-line
+corrections" section, per "Review body".
 
 A **non-convention branch** — human-named or `dependabot/…` — resolves
 to your claim with those lists empty. **No safe resolution** leaves no
-resolved set, so the findings above cover the PR between them: post
-that review and stop, with nothing for a generator to work from.
+resolved set and nothing for a generator to work from: post a review
+carrying the corrections the lists imply and the overall verdict
+`BLOCKED (no resolved issue set)`, since nothing was reviewed that could
+ground an approval, and stop.
 
 `References: <link-prefix><M>` trailers link *other* issues and close
 nothing, so `/github-prs:pr-closing-issues` already leaves them out —
@@ -395,11 +400,10 @@ never add one to the set by hand. Closing keywords are required in the
 the same words as English prose with no adjacent issue reference are
 fine anywhere and must not be flagged.
 
-These are the **issue-set findings**, the only findings you raise
-outside the theorem list. Each is about the PR — its closing lines and
-its branch's members — rather than about a file of any class, so they
-are raised in every mode, `--mode documentation` included. Everything
-else you post is a disproved theorem.
+Each correction is about the PR — its closing lines and its branch's
+members — rather than about a file of any class, so corrections are
+reported in every mode, `--mode documentation` included. Every finding
+you post is a disproved theorem.
 
 ### Carry the previous round's theorems forward
 
@@ -882,7 +886,7 @@ program, script or pipeline you wrote to transform records:
 
 When `--mode print-records` read no records, store the new-records file
 with `--from` alone; whenever it read records, use `--carry`. The review
-file carries the eight argued sections of "Review body" in full. **Both
+file carries every argued section of "Review body" in full. **Both
 calls run on every round that reaches disposition** — a resumed one
 through the same call, and an empty-delta round as `--carry` with
 neither `--edits` nor `--from`: a round that stored neither leaves the
@@ -973,8 +977,7 @@ review"; the PR gets "The posted review summary". Its sections, in
 order:
 
 1. **Verdicts** — one line per member of the set you review against,
-   one per any other issue a finding names, and the overall line, per
-   "Per-issue verdicts, one overall".
+   and the overall line, per "Per-issue verdicts, one overall".
 2. **Review method** — the **head SHA reviewed**, which pins every
    verdict to a revision; the tier that ran and what picked it; how many
    theorems were live and how many the generator emitted; one paragraph
@@ -1022,6 +1025,10 @@ order:
 8. **Verdict** — the overall verdict in prose, with a path to approve:
    what must change for APPROVED, summarizing section 5's fix sizes; on
    APPROVED, what the approval rests on.
+9. **Closing-line corrections** — every correction "Identify the issue
+   set" reported, one per line as `add <issue>` or `remove <issue>` and
+   nothing else on the line, or `none`. Nothing here counts toward
+   section 1 or section 8.
 
 Sections 4, 6 and 7 are the **full theorem list**: every theorem the
 round fanned out over appears in exactly one, and each section-5
@@ -1034,7 +1041,8 @@ never a copy of the argued review. In order: the verdict block; the
 Review method section unchanged, naming the round; one line per
 recorded theorem — id, the state this round left it in, and what
 changed; one line per finding — severity, source theorem, member(s);
-and the overall verdict in prose with a path to approve. **Every
+the overall verdict in prose with a path to approve; and the
+Closing-line corrections section unchanged. **Every
 theorem and finding line ends with the path of each file holding its
 detail**, relative to the state root the body names once:
 
@@ -1095,13 +1103,8 @@ theorems tagged to it and nothing tagged to another:
 - **Overall — NEEDS_CHANGES**
 ```
 
-Any *other* issue a finding attaches to gets a line too, so the finding
-cannot vanish from the overall verdict, carrying that finding alone:
-`- #207 — NEEDS_CHANGES (1 High, not delivered by this PR)` for an
-unexplained unclaimed member, and `- #310 — NEEDS_CHANGES (1 High,
-closing line outside the branch's set)` for a claimed issue outside the
-branch's set. A sanctioned deferral gets no line; note it as context
-below the block.
+An issue a closing-line correction names gets no line, and neither does
+a sanctioned deferral; note the deferral as context below the block.
 
 The overall verdict is the **worst** line, in the order APPROVED <
 NEEDS_CHANGES < BLOCKED — a derivation, because the PR merges as one
@@ -1157,13 +1160,7 @@ criterion. It only raises: `breaks-production` stays Critical.
 the severity of any standing finding the theorem produces, this round
 and every later one, criterion theorems included: Low grades Low.
 
-#### The findings that carry no class
-
-The findings "Identify the issue set" raises come from no theorem.
-Grade each yourself by the class glosses in the
-`sdlc:theorem-agents-interface` skill → "The consequence classes", and
-transcribe the class through the table. A finding that must be fixed
-before merge is not Low — re-grade it Medium or higher.
+#### A comment-only remedy
 
 A finding whose whole remedy is rewording a comment or docstring is at
 most Low — *unless* the comment masks an unmet acceptance criterion
@@ -1173,8 +1170,7 @@ finding IS the unmet criterion and is graded High per the floor.
 ## Verdict follows from findings
 
 Each verdict line follows mechanically from the findings and unsettled
-theorems tagged to its issue — a member, or an extra issue "Per-issue
-verdicts, one overall" gives a line to:
+theorems tagged to its member:
 
 - Any open Critical, High, or Medium finding → `request_changes`
   (report `NEEDS_CHANGES`, or `BLOCKED` if the fix is outside the
@@ -1199,6 +1195,7 @@ per-theorem lines, and your caller reads the review file through
 - every verdict line posted, and the overall verdict;
 - the findings themselves, so your caller can brief a fixer without
   re-reading the PR;
+- the Closing-line corrections section, verbatim, `none` included;
 - the kind of round, as the Review method section names it;
 - whether the round was **resumed** — theorems inherited settled and
   resume passes taken — and on an in-progress return, which loop exit

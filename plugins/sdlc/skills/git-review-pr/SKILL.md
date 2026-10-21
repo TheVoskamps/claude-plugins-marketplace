@@ -55,7 +55,7 @@ skill computes.
    --pr <PR>
 
    Review this PR per your agent definition. Report back its
-   verdicts, findings, and round kind.
+   verdicts, findings, closing-line corrections, and round kind.
    ```
 
    Unless the user asked for an override, this path passes `--pr`
@@ -136,7 +136,9 @@ skill computes.
    say where the round's detail is — the state path above — since the
    posted review carries the summary alone: the overall
    APPROVED / NEEDS_CHANGES / BLOCKED, plus every per-issue verdict
-   (a PR may deliver a batch of several), plus the findings. Relay the
+   (a PR may deliver a batch of several), plus the findings, plus the
+   closing-line corrections, which no verdict reflects and which are the
+   user's to make in the PR body. Relay the
    kind of round it was as well — a user reading "no findings" off an
    empty-delta round is reading a carried-forward verdict, not a fresh
    check. The per-theorem lines and the tier that ran are in the posted

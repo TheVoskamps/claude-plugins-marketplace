@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for the class glosses; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -16,12 +16,9 @@ that skill. The
 meaning of a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
-its issue-set findings come from no theorem, so it grades them by the
-class glosses below and then transcribes the class into a severity by
-its own table. It reaches this skill by name rather than by preload —
-its frontmatter is reserved for what every round needs, and the glosses
-here are wanted only on the one branch that raises a theorem-less
-finding.
+what a parameter of the briefs it writes means — whether `--fetched`
+holds, say — is stated here. It reaches this skill by name rather than
+by preload.
 
 The reviewer's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by
