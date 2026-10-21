@@ -13,22 +13,20 @@ runs, so no model assembles a `gh pr` call by hand (see "Every verb is
 a script" below).
 
 These skills serve the `/sdlc:orchestrate` flow and its agents. The
-`issue-developer` opens the PR, or `docs-writer` does for a batch with
-no code to implement. The
+`issue-developer` opens the PR. The
 `theorem-based-pr-reviewer` posts the single review that carries the
 verdict, and — when run standalone on a PR reference — reads the
 PR's closing lines to learn which issues it claims; the
 agents it spawns — every `theorem-generator` variant,
 `theorem-disprover`, and `counterexample-verifier` — fetch the diff, as do the `issue-fixer`,
 `code-documenter`, `style-checker`, and `docs-writer`. The orchestrator
-keeps PRs draft through the code and documentation loops; once the
-human blesses a PR at the end of its documentation loop,
-`pr-merge-readiness` gates the close-out on the PR's merge readiness,
-enumerating the conflicts when the branch has any; `pr-finalizer` then
-amends the body, reading its closing lines before and after to prove
-the amendment cost no issue its auto-close; and only then does the
-orchestrator read those same closing lines for the issues it flips to
-In Review and flip the PR draft → ready.
+keeps PRs draft through the review/fix loop; once the human blesses a
+PR at end-of-loop, `pr-merge-readiness` gates the close-out on the PR's
+merge readiness, enumerating the conflicts when the branch has any and
+reading the closing lines for the issue set it briefs `docs-writer`
+with after a remedy, and only then does the orchestrator read those
+same closing lines for the issues it flips to In Review and flip the
+PR draft → ready.
 `pr-monitor` keeps reading the merge readiness while the PR waits for
 its merge. Each skill is still a standalone verb usable by a human or
 any caller.
