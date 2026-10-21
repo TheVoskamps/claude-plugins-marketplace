@@ -387,10 +387,9 @@ corrections" section, per "Review body".
 
 A **non-convention branch** — human-named or `dependabot/…` — resolves
 to your claim with those lists empty. **No safe resolution** leaves no
-resolved set and nothing for a generator to work from: post a review
-carrying the corrections the lists imply and the overall verdict
-`BLOCKED (no resolved issue set)`, since nothing was reviewed that could
-ground an approval, and stop.
+resolved set and nothing for a generator to work from: post no review,
+and stop with the `no resolved issue set` closing line "Report back"
+names, reporting the corrections the lists imply.
 
 `References: <link-prefix><M>` trailers link *other* issues and close
 nothing, so `/github-prs:pr-closing-issues` already leaves them out —
@@ -1201,7 +1200,7 @@ per-theorem lines, and your caller reads the review file through
   you took and which theorems or stage are still outstanding.
 
 **End every report with one fixed closing line**, of the form
-`Return: <kind> — <next step>`, in exactly one of three kinds:
+`Return: <kind> — <next step>`, in exactly one of these kinds:
 
 - `Return: posted review <VERDICT> — act on the verdict`, where
   `<VERDICT>` is the overall verdict you posted.
@@ -1212,6 +1211,8 @@ per-theorem lines, and your caller reads the review file through
   log did not already have.
 - `Return: broken call: <script's message verbatim> — raise it`, per
   "When a call fails".
+- `Return: no resolved issue set: <what git-issues-from-branch
+  reported, verbatim> — raise it`, per "Identify the issue set".
 
 The harness surfaces every return as completed, so this line is what
-tells your caller the three apart; nothing above it substitutes for it.
+tells your caller the kinds apart; nothing above it substitutes for it.

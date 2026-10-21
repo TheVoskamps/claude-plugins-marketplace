@@ -758,7 +758,7 @@ that for this line the PR carries no review, and any review the PR
 shows is a previous round's; none above it means the PR carries this
 round's review.
 
-A line ending `— raise it`, in progress or broken call, spawns nothing
+A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
 first such return, quoting the reviewer's line verbatim. A re-spawn to
 resume is **not a new round** against the review-round cap — count it
@@ -774,26 +774,6 @@ for human decision, tagged by member and un-tiered. Do not spawn the
 fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.
-
-**If BLOCKED**: Stop the fix loop for this PR and raise the round as a
-**Needs Your Attention** row naming the cause its verdict states,
-whatever that cause is. Post no fixer brief and
-spawn no `issue-fixer` until the human rules on the row. The review is
-posted, so the round counts against the cap.
-
-The human's ruling resumes the loop. For a round blocked on a finding,
-post a fixer brief, per step 2 below, carrying the ruling on the line
-of the finding the round blocked on, as
-`— put to the human: <question> → <answer>`, or as
-`— outside the issue; put to the human: <question> → <answer>` for a
-finding outside the issue, spawn `issue-fixer`, and continue from
-step 3.
-
-A round blocked on no finding — `BLOCKED (no resolved issue set)`, or
-BLOCKED on an unsettled theorem — resumes with no fixer brief and no
-`issue-fixer`: re-spawn the reviewer as step 5 says, once the human has
-fixed the PR body or branch for no resolved issue set, or once the
-human has ruled on the unsettled theorem.
 
 **If NEEDS_CHANGES (any open Critical/High/Medium finding, on any
 member)**:
@@ -901,9 +881,8 @@ member)**:
    new round's delta; a round in which the pick missed a defect the
    human caught is a reason to ask the human for a `--generator`
    override, per "Overriding the generator tier".
-6. Repeat this loop until APPROVED, until a round is BLOCKED (see "If
-   BLOCKED" above), or until the review-round cap (see "Your own
-   boundary" below) is reached.
+6. Repeat this loop until APPROVED or until the review-round cap
+   (see "Your own boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
@@ -1207,10 +1186,10 @@ definition, `CLAUDE.md` or global rules file already states.
   review**, however many children its fan-outs spawned and at whatever
   generator tier. The `code-documenter` and `style-checker` passes are
   not reviews, a style-fix round is counted by its own loop, and a
-  reviewer spawn that posted no review — an in-progress return or a
-  broken call — is not a round; a spawn that returned without a
-  verdict block having posted a review anyway counts, because the
-  review is there.
+  reviewer spawn that posted no review — an in-progress return, a
+  broken call, or no resolved issue set — is not a round; a spawn that
+  returned without a verdict block having posted a review anyway
+  counts, because the review is there.
 
 What you do yourself is orchestration mechanics:
 

@@ -131,6 +131,10 @@ skill computes.
    - `Return: broken call: … — raise it`: quote the script's message
      verbatim to the user with no offer, for a different reason: no
      fan-out ran, and a re-spawn composes the same call again.
+   - `Return: no resolved issue set: … — raise it`: relay the
+     reviewer's line and the closing-line corrections it reported
+     verbatim, say no review was posted, and make no offer: a re-spawn
+     resolves the same set until the PR body or the branch changes.
 
 4. **Relay the reviewer's verdicts and findings** back to the user, and
    say where the round's detail is — the state path above — since the
