@@ -698,9 +698,9 @@ records_below_round() {
 # already holds rewrites that line where it stands; an edit to a field
 # it lacks appends the line after the record's others, in the order
 # state, state-detail, settled-at, severity-override. Arguments are the
-# carried records file, the edits file and the new-records file, either
-# of the last two possibly empty, and the id floor records_below_round
-# set. Every refusal is decided before the first record is printed, and
+# carried records file, the edits file, the new-records file and the id
+# floor records_below_round set, the edits and new-records files each
+# possibly empty. Every refusal is decided before the first record is printed, and
 # exits 2 with its message on stderr. Only a round-0 seed may hold a
 # record without a state, so a result for round 1 or later that leaves
 # one unstamped is refused.
