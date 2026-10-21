@@ -776,8 +776,8 @@ fixer — no loop runs for Lows alone.
 **If APPROVED with no findings**: No further action needed for this PR.
 
 **If BLOCKED**: Stop the fix loop for this PR and raise the round as a
-**Needs Your Attention** row naming the cause its verdict states — no
-resolved issue set, or the unsettled theorems. Post no fixer brief and
+**Needs Your Attention** row naming the cause its verdict states,
+whatever that cause is. Post no fixer brief and
 spawn no `issue-fixer`. The review is posted, so the round counts
 against the cap.
 
@@ -1036,7 +1036,7 @@ says otherwise:
   review pipeline, and `docs-writer` all get the set the PR actually
   closes, not the branch's full set.
 - The dropped issue **stays In Progress**. Do not flip it to In Review
-  at end-of-loop (the Final Report) and do not put it back to Ready. It gets
+  at the close-out's flip step, and do not put it back to Ready. It gets
   its own branch later, on the human's say-so.
 - Surface it in the final report's **Needs Your Attention** section,
   naming the reason the developer gave.
