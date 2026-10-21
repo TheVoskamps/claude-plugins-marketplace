@@ -778,8 +778,15 @@ fixer — no loop runs for Lows alone.
 **If BLOCKED**: Stop the fix loop for this PR and raise the round as a
 **Needs Your Attention** row naming the cause its verdict states,
 whatever that cause is. Post no fixer brief and
-spawn no `issue-fixer`. The review is posted, so the round counts
-against the cap.
+spawn no `issue-fixer` until the human rules on the row. The review is
+posted, so the round counts against the cap.
+
+The human's ruling resumes the loop. Post a fixer brief, per step 2
+below, carrying the ruling on the line of the finding the round blocked
+on, as `— put to the human: <question> → <answer>`, or as
+`— outside the issue; put to the human: <question> → <answer>` for a
+finding outside the issue, spawn `issue-fixer`, and continue from
+step 3.
 
 **If NEEDS_CHANGES (any open Critical/High/Medium finding, on any
 member)**:
@@ -887,8 +894,9 @@ member)**:
    new round's delta; a round in which the pick missed a defect the
    human caught is a reason to ask the human for a `--generator`
    override, per "Overriding the generator tier".
-6. Repeat this loop until APPROVED or until the review-round cap
-   (see "Your own boundary" below) is reached.
+6. Repeat this loop until APPROVED, until a round is BLOCKED (see "If
+   BLOCKED" above), or until the review-round cap (see "Your own
+   boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 

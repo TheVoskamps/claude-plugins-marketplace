@@ -223,7 +223,9 @@ above Low and whose `docs-writer` report graded no criterion
 `not met`, or when the documentation loop's round bound is reached
 with a finding above Low still open, which goes to the human in the
 final report. Either way the human's end-of-loop confirmation is what
-moves the PR on.
+moves the PR on. A BLOCKED round stops the loop short of both, until
+the human rules on it, per `skills/orchestrate/SKILL.md` → "Handling
+review findings — the fix loop".
 
 ## The pre-readiness spawn, once the documentation loop is confirmed
 
