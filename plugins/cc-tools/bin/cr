@@ -35,12 +35,18 @@
 # url`, the URL in its https:// form, an ssh URL's host first resolved
 # through `ssh -G` so an ssh config alias names its real host. With no
 # `origin`, after a `git init`, or when gh cannot resolve the `origin`,
-# the identity is `local` and only the first and last layers apply.
+# the identity is `local` and only the first and last layers apply. cr
+# refuses an identity whose <host>, <owner> or <repo> holds anything but
+# letters, digits, `.`, `_` and `-`, or is `.` or `..`.
 # Merging concatenates lists, dropping an entry equal to an earlier one,
 # merges objects key by key, and lets a later scalar override an earlier
-# one. The merged file is written under
+# one. cr refuses when a layer is not a single JSON value, or when a key
+# path is a list, an object or a scalar in one layer and another kind in
+# another. The merged file is written under
 # ${XDG_STATE_HOME:-~/.local/state}/cc-tools/<host>/<owner>/<repo>/, or
 # .../cc-tools/local/, and removed on exit, interrupt or termination.
+# With no layer present, claude gets no `--settings` and nothing is
+# written.
 #
 # Exit status: claude's own; 1 when cr refuses or a step before claude
 # fails, with stderr saying which; or bash's 127 when claude is not on
@@ -118,8 +124,9 @@ ssh_hostname() {
 # scp-like `[<user>@]<host>:<path>` one; any other URL, a local path
 # included, is printed unchanged. The host of an ssh URL -- an scp-like
 # one, or one whose scheme is ssh, git+ssh or ssh+git, each of which git
-# reaches over ssh -- is the one ssh_hostname resolves. gh's argument parser takes an scp-like URL only
-# when it begins `git@`, and splits any other one as OWNER/REPO.
+# reaches over ssh -- is the one ssh_hostname resolves. gh's argument
+# parser takes an scp-like URL only when it begins `git@`, and splits any
+# other one as OWNER/REPO.
 https_url() {
   local host path ssh=0
   case "$1" in
