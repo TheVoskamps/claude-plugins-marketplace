@@ -2,12 +2,12 @@
 #
 # cr -- launch an interactive Claude Code session named after the repo it
 # runs in, from that repo's root, with remote control on, a debug log
-# under ~/.claude/logs/, and Grep and Glob allowed without a prompt. When
-# <repo-root>/.cc-tools/cr-settings.json exists, claude also gets
-# `--settings <that path>`. When GIT_CONFIG_GLOBAL is unset or empty and
-# ~/.gitconfig-claude is readable, cr exports GIT_CONFIG_GLOBAL pointing
-# at that file for itself and the session. Runs under the bash 3.2 macOS
-# ships.
+# under ~/.claude/logs/, Grep and Glob allowed without a prompt, and the
+# settings layers below merged into one file passed as `--settings`.
+# When GIT_CONFIG_GLOBAL is unset or empty and ~/.gitconfig-claude is
+# readable, cr exports GIT_CONFIG_GLOBAL pointing at that file for itself
+# and the session. Runs under the bash 3.2 macOS ships. Needs git, gh and
+# jq on PATH, and uses ssh when it is there.
 #
 # Usage: cr [--cr-strict] [<name-word>…] [<claude-argument>…]
 #
@@ -17,11 +17,36 @@
 #                with spaces into the session name's prefix; with none,
 #                the prefix is a `%b%d-%H:%M` date stamp
 #   the first `-`-prefixed argument and everything after it pass to
-#   claude unchanged
+#   claude unchanged, after cr's own `--settings`
 #
 # Outside a git repo, cr runs `git init` in the current directory so the
 # session has a repo, and removes that .git again on exit, interrupt or
 # termination.
+#
+# Settings layers, each optional, applied in this order, where <config>
+# is ${XDG_CONFIG_HOME:-~/.config}/cc-tools/cr-settings:
+#
+#   <config>/host.json
+#   <config>/<host>/<owner>.json
+#   <config>/<host>/<owner>/<repo>.json
+#   <repo-root>/.cc-tools/cr-settings.json
+#
+# <host>, <owner> and <repo> come from `gh repo view <origin URL> --json
+# url`, the URL in its https:// form, an ssh URL's host first resolved
+# through `ssh -G` so an ssh config alias names its real host. With no
+# `origin`, after a `git init`, or when gh cannot resolve the `origin`,
+# the identity is `local` and only the first and last layers apply. cr
+# refuses an identity whose <host>, <owner> or <repo> holds anything but
+# letters, digits, `.`, `_` and `-`, or is `.` or `..`.
+# Merging concatenates lists, dropping an entry equal to an earlier one,
+# merges objects key by key, and lets a later scalar override an earlier
+# one. cr refuses when a layer is not a single JSON value, or when a key
+# path is a list, an object or a scalar in one layer and another kind in
+# another. The merged file is written under
+# ${XDG_STATE_HOME:-~/.local/state}/cc-tools/<host>/<owner>/<repo>/, or
+# .../cc-tools/local/, and removed on exit, interrupt or termination.
+# With no layer present, claude gets no `--settings` and nothing is
+# written.
 #
 # Exit status: claude's own; 1 when cr refuses or a step before claude
 # fails, with stderr saying which; or bash's 127 when claude is not on
@@ -33,6 +58,13 @@ if [ "${1-}" = "--cr-strict" ]; then
   strict=1
   shift
 fi
+
+for tool in git gh jq; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "cr: $tool is not on PATH" >&2
+    exit 1
+  fi
+done
 
 if [ -z "${GIT_CONFIG_GLOBAL:-}" ] && [ -r "$HOME/.gitconfig-claude" ]; then
   export GIT_CONFIG_GLOBAL="$HOME/.gitconfig-claude"
@@ -51,6 +83,87 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+initdir=
+merged=
+# cleanup forgets what it removed, so the EXIT trap that follows an INT or
+# TERM trap's exit finds nothing left to do.
+cleanup() {
+  if [ -n "$merged" ]; then rm -f -- "$merged"; fi
+  if [ -n "$initdir" ]; then rm -rf -- "$initdir/.git"; fi
+  merged=
+  initdir=
+}
+# Until claude launches, an INT or TERM trap exits after cleaning up, so cr
+# stops where the signal reached it rather than carrying on without the
+# files it removed.
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+
+# ssh_hostname <host> -- the hostname ssh connects to for <host>, as
+# `ssh -G` reports it, so an alias a `Host` block in the ssh config renames
+# becomes the host it reaches; GitHub's ssh-over-443 endpoint
+# ssh.github.com becomes github.com. Prints <host> unchanged when ssh is
+# not on PATH, fails, or reports no hostname.
+ssh_hostname() {
+  local out key value real=
+  if command -v ssh >/dev/null 2>&1 && out=$(ssh -G -- "$1" </dev/null 2>/dev/null); then
+    while read -r key value; do
+      if [ "$key" = hostname ]; then real=$value; fi
+    done <<<"$out"
+  fi
+  case "$real" in
+    '') real=$1 ;;
+    [Ss][Ss][Hh].[Gg][Ii][Tt][Hh][Uu][Bb].[Cc][Oo][Mm]) real=github.com ;;
+  esac
+  printf '%s\n' "$real"
+}
+
+# https_url <remote-url> -- the remote URL as https://<host>/<path>, with
+# any scheme, user and port dropped, for a `<scheme>://` URL and for an
+# scp-like `[<user>@]<host>:<path>` one; any other URL, a local path
+# included, is printed unchanged. The host of an ssh URL -- an scp-like
+# one, or one whose scheme is ssh, git+ssh or ssh+git, each of which git
+# reaches over ssh -- is the one ssh_hostname resolves. gh's argument
+# parser takes an scp-like URL only when it begins `git@`, and splits any
+# other one as OWNER/REPO.
+https_url() {
+  local host path ssh=0
+  case "$1" in
+    ssh://* | git+ssh://* | ssh+git://*)
+      ssh=1
+      ;;
+  esac
+  case "$1" in
+    *://*)
+      host=${1#*://}
+      path=
+      case "$host" in */*) path=${host#*/} ;; esac
+      host=${host%%/*}
+      ;;
+    *:*)
+      host=${1%%:*}
+      path=${1#*:}
+      case "$host" in
+        */*)
+          printf '%s\n' "$1"
+          return
+          ;;
+      esac
+      ssh=1
+      ;;
+    *)
+      printf '%s\n' "$1"
+      return
+      ;;
+  esac
+  host=${host##*@}
+  host=${host%%:*}
+  if [ "$ssh" -eq 1 ]; then host=$(ssh_hostname "$host"); fi
+  printf 'https://%s/%s\n' "$host" "${path#/}"
+}
+
+identity=local
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   url=$(git remote get-url origin 2>/dev/null)
   if [ -z "$url" ] && [ "$strict" -eq 1 ]; then
@@ -66,6 +179,13 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if [ -n "$url" ]; then
     repo=${url##*/}
     repo=${repo%.git}
+    # Naming origin's URL keeps gh from resolving another remote, such as a
+    # fork's `upstream`, through its own remote-priority rules.
+    if gh_url=$(gh repo view "$(https_url "$url")" --json url --jq .url 2>/dev/null) && [ -n "$gh_url" ]; then
+      identity=$gh_url
+    else
+      echo "cr: gh repo view could not resolve 'origin'; applying only the host and committed settings layers" >&2
+    fi
   else
     repo="(local)"
   fi
@@ -75,13 +195,106 @@ elif [ "$strict" -eq 1 ]; then
 else
   initdir=$PWD
   git init >/dev/null || {
+    initdir=
     echo "cr: git init failed" >&2
     exit 1
   }
-  # bash runs the EXIT trap when INT or TERM ends the script too, so this
-  # one trap removes the .git on all three.
-  trap 'rm -rf -- "$initdir/.git"' EXIT
   repo="(local)"
+fi
+
+# valid_segment <segment> -- whether the segment holds only letters,
+# digits, `.`, `_` and `-`, and is not `.` or `..`. The letters are
+# spelled out because a bracket range can follow the locale's collation.
+valid_segment() {
+  case "$1" in
+    '' | . | .. | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*) return 1 ;;
+  esac
+  return 0
+}
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/cr-settings"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/cc-tools"
+candidates=("$config/host.json")
+if [ "$identity" = local ]; then
+  state="$state/local"
+else
+  case "$identity" in
+    https://*/*/*) ;;
+    *)
+      echo "cr: cannot split $identity into https://<host>/<owner>/<repo>" >&2
+      exit 1
+      ;;
+  esac
+  # A URL with more than three segments leaves a `/` in gh_repo, which
+  # the segment check refuses.
+  rest=${identity#https://}
+  gh_host=${rest%%/*}
+  rest=${rest#*/}
+  gh_owner=${rest%%/*}
+  gh_repo=${rest#*/}
+  for segment in "$gh_host" "$gh_owner" "$gh_repo"; do
+    if ! valid_segment "$segment"; then
+      echo "cr: '$segment' in $identity is not a valid host, owner or repo name" >&2
+      exit 1
+    fi
+  done
+  state="$state/$gh_host/$gh_owner/$gh_repo"
+  candidates+=("$config/$gh_host/$gh_owner.json" "$config/$gh_host/$gh_owner/$gh_repo.json")
+fi
+candidates+=("$PWD/.cc-tools/cr-settings.json")
+
+layers=()
+for f in "${candidates[@]}"; do
+  if [ -f "$f" ]; then
+    if ! jq -se 'length == 1' "$f" >/dev/null 2>&1; then
+      echo "cr: $f is not valid JSON" >&2
+      exit 1
+    fi
+    layers+=("$f")
+  fi
+done
+
+settings=()
+if [ "${#layers[@]}" -gt 0 ]; then
+  # The first key path whose kind -- list, object or scalar -- differs
+  # between layers, with its kind in each layer holding it; empty when
+  # none does.
+  conflict=$(jq -rn '
+    def kind: if type == "array" then "list" elif type == "object" then "object" else "scalar" end;
+    [inputs | {f: input_filename, v: .}]
+    | [.[] as $l
+        | ($l.v | [[]] + [paths | select(all(.[]; type == "string"))])[] as $p
+        | {p: $p, k: ($l.v | getpath($p) | kind), f: $l.f}]
+    | group_by(.p)
+    | map(select((map(.k) | unique | length) > 1))
+    | if length == 0 then empty else
+        first
+        | "\(if .[0].p == [] then "the top level" else .[0].p | join(".") end) differs in type between layers: \(map("\(.k) in \(.f)") | join(", "))"
+      end' "${layers[@]}")
+  if [ -n "$conflict" ]; then
+    echo "cr: $conflict" >&2
+    exit 1
+  fi
+
+  mkdir -p -- "$state" || {
+    echo "cr: cannot create $state" >&2
+    exit 1
+  }
+  merged="$state/cr-settings-$(date '+%Y%m%dT%H%M%S')-$$.json"
+  jq -n '
+    def dedup: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+    def norm: if type == "object" then map_values(norm) elif type == "array" then dedup else . end;
+    def merge($b):
+      if type == "object" and ($b | type) == "object" then
+        reduce ($b | keys_unsorted[]) as $k (.;
+          .[$k] = (if has($k) then (.[$k] | merge($b | .[$k])) else ($b | .[$k] | norm) end))
+      elif type == "array" and ($b | type) == "array" then . + $b | dedup
+      else $b | norm end;
+    input | norm | reduce inputs as $l (.; merge($l))' "${layers[@]}" >"$merged" || {
+    echo "cr: cannot write $merged" >&2
+    exit 1
+  }
+  settings=(--settings "$merged")
 fi
 
 suffix="${name_words[*]-}"
@@ -90,13 +303,10 @@ if [ -z "$suffix" ]; then
 fi
 name="${suffix} ${repo}"
 
-settings=()
-overlay="$PWD/.cc-tools/cr-settings.json"
-if [ -f "$overlay" ]; then
-  settings=(--settings "$overlay")
-fi
-
 # claude runs as a child rather than through exec, so the EXIT trap above
-# is still in place when it returns.
+# is still in place when it returns. bash runs an INT or TERM trap only
+# once claude has returned, and from here on that trap cleans up without
+# exiting, so a signal claude survives leaves claude's status as cr's.
+trap cleanup INT TERM
 claude --name "$name" --remote-control --debug-file "$HOME/.claude/logs/$name" \
   ${settings[@]+"${settings[@]}"} --allowedTools Grep Glob ${claude_args[@]+"${claude_args[@]}"}

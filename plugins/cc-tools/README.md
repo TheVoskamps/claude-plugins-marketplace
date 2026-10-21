@@ -1,8 +1,9 @@
 # cc-tools
 
 Tools for running Claude Code itself: launch a session named after the
-repo it runs in, with that repo's own settings overlay on top of your
-global ones; load the global rules a session should be working under;
+repo it runs in, with settings layers for this machine, the repo's
+owner and the repo itself merged on top of your global ones; load the
+global rules a session should be working under;
 find out what changed in the harness and in the issues you track; and
 curate the memory your agents write so it stays worth reading.
 
@@ -19,9 +20,11 @@ Each of these gets worse the longer you leave it:
 - **Every repo launches with the same settings.** A permission rule or
   an auto-mode line that one repo needs has nowhere to go but your
   global `settings.json`, where every other repo gets it too, and a
-  repo's own `.claude/settings.json` does not reach `autoMode`. The
-  `cr` launcher gives each repo a settings file of its own that is
-  layered over the global one at launch.
+  repo's own `.claude/settings.json` does not reach `autoMode`. A rule
+  every repo of one org needs lives as a copy in each, and the copies
+  drift. The `cr` launcher layers settings files for this machine, the
+  repo's owner and the repo itself over the global one at launch, so
+  each setting has one home.
 - **Your global rules are on disk but not in the session.**
   `~/.claude/CLAUDE.md` pulls in files with `@~/` lines that are not
   expanded for a model reading it with a file tool, so "the rules are
@@ -39,17 +42,19 @@ Each of these gets worse the longer you leave it:
 
 ## Before it will work
 
-- **`gh`, authenticated.** The skills that report on upstream Claude
-  Code read `anthropics/claude-code` through it, and memory curation
-  aimed at a PR resolves that PR's branch through the `github-prs`
-  plugin's PR-view verb — which is why `plugin.json` declares a
-  `dependencies` edge on `github-prs`. The edge guarantees that verb
-  is installed and enabled wherever this plugin runs; it grants no
-  access to `github-prs`' files.
+- **`gh`, authenticated.** `cr` resolves the repo's host, owner and
+  name through it, and refuses to launch without it. The skills that
+  report on upstream Claude Code read `anthropics/claude-code` through
+  it, and memory curation aimed at a PR resolves that PR's branch
+  through the `github-prs` plugin's PR-view verb — which is why
+  `plugin.json` declares a `dependencies` edge on `github-prs`. The
+  edge guarantees that verb is installed and enabled wherever this
+  plugin runs; it grants no access to `github-prs`' files.
 - **`jq`**, if you want `cr`. The resolver at `~/.local/bin/cr` reads
   `claude plugin list --json` through it to find where the enabled
-  cc-tools is installed; without `jq` it refuses with a message on
-  stderr rather than guessing a path.
+  cc-tools is installed, and the launcher merges the settings layers
+  with it; each refuses with a message on stderr without it, rather
+  than guessing a path or launching with the layers dropped.
 - **`~/.local/bin` on your `PATH`**, if you want `cr`. The deploy hook
   writes the resolver there and says so when the directory is not on
   `PATH`; it never edits `PATH` for you.
@@ -75,9 +80,11 @@ Each of these gets worse the longer you leave it:
 creates on its first run; its path and shape are
 `skills/cc-whats-new/SKILL.md` → "State file". The only other state is
 the session inbox described below, which lives under the session
-scratchpad rather than in any repo and dies with the session. The one
-file the plugin writes outside its own tree is `~/.local/bin/cr`, a
-byte-for-byte copy of `hooks/cr-resolver`.
+scratchpad rather than in any repo and dies with the session. Outside
+its own tree the plugin writes `~/.local/bin/cr`, a byte-for-byte copy
+of `hooks/cr-resolver`, and the merged settings file `cr` builds for
+each launch under `${XDG_STATE_HOME:-~/.local/state}/cc-tools/`, which
+lives only as long as that launch.
 
 ## The entry points
 
@@ -94,32 +101,90 @@ The arguments before the first `-`-prefixed one become the session
 name's prefix, joined with spaces — `cr fix the bug` in a clone of
 `my-repo` names the session `fix the bug my-repo`; with no name words
 the prefix is a `%b%d-%H:%M` date stamp. The first `-`-prefixed
-argument and everything after it go to `claude` unchanged. The repo
-name is the last path component of the `origin` URL without `.git`, or
-`(local)` when there is no `origin`. Outside any repo, `cr` runs
-`git init` in the current directory so the session has a repo, and
-removes that `.git` again when the session ends, on an interrupt or a
-termination included; `--cr-strict` as the first argument refuses
-instead, and also refuses a repo with no `origin`. The session gets
+argument and everything after it go to `claude` unchanged, after the
+`--settings` `cr` adds itself. The repo name is the last path component
+of the `origin` URL without `.git`, or `(local)` when there is no
+`origin`. Outside any repo, `cr` runs `git init` in the current
+directory so the session has a repo, and removes that `.git` again
+when the session ends, on an interrupt or a termination included;
+`--cr-strict` as the first argument refuses instead, and also refuses
+a repo with no `origin`. A signal that arrives while `claude` runs is
+`claude`'s to handle: when `claude` survives it, `cr` cleans up once
+`claude` returns and exits with `claude`'s status. The session gets
 `--remote-control`, a debug log under `~/.claude/logs/` named after
 the session, and `Grep` and `Glob` allowed without a prompt. When
 `GIT_CONFIG_GLOBAL` is unset and `~/.gitconfig-claude` is readable,
 `cr` exports it pointing there, so git inside the session reads that
-file as its global config. The usage block at the top of `bin/cr` is
-the exact contract.
+file as its global config. `cr` needs `git`, `gh` and `jq` on `PATH`,
+and refuses before launching, naming the tool, when one is missing.
+The usage block at the top of `bin/cr` is the exact contract.
 
-**The per-repo overlay.** When `<repo-root>/.cc-tools/cr-settings.json`
-exists, `cr` passes it to `claude --settings`. It is a Claude Code
-settings file, with the format and keys of a user `settings.json`,
-`permissions` and `autoMode` included; list keys add to the global
-lists and scalar keys override them. This is the one route by which a
-per-repo setting reaches `autoMode` — a repo's `.claude/settings.json`
-does not — and an `autoMode.environment` line passed this way lands in
-every model request of the session, subagent requests included. Only
-the file at the repo root counts; one in a subdirectory is ignored. A
-change to the overlay takes effect at the next `cr`; nothing in a
-running session re-reads it. Owner- and org-level layers over the repo
-one are issue #596.
+**The settings layers.** `cr` applies these settings files, each
+optional, in this order, where `<config>` is
+`${XDG_CONFIG_HOME:-~/.config}/cc-tools/cr-settings`:
+
+- `<config>/host.json` — this machine, every repo.
+- `<config>/<host>/<owner>.json` — every repo of one owner or org.
+- `<config>/<host>/<owner>/<repo>.json` — one repo, this machine only.
+- `<repo-root>/.cc-tools/cr-settings.json` — one repo, committed.
+
+Each is a Claude Code settings file, with the format and keys of a
+user `settings.json`, `permissions` and `autoMode` included, and
+nothing deploys the per-user ones. A setting shared by every repo of
+an org — an AWS estate, a package registry, the `autoMode` rules that
+name them — has one home in the owner layer rather than a copy in each
+repo, and a setting that belongs to one machine, or to a repo that
+must not carry a committed file (a fork whose branches become upstream
+pull requests), has the per-machine layers. This is the one route by
+which a per-repo setting reaches `autoMode` — a repo's
+`.claude/settings.json` does not — and an `autoMode.environment` line
+passed this way lands in every model request of the session, subagent
+requests included. Only the committed file at the repo root counts;
+one in a subdirectory is ignored. A change to a layer takes effect at
+the next `cr`; nothing in a running session re-reads it.
+
+**Repository identity.** `<host>`, `<owner>` and `<repo>` come from
+`gh repo view <url> --json url`, where `<url>` is the `origin` URL in
+its `https://<host>/<path>` form, any user and port dropped. For an
+ssh origin — an scp-like `git@<host>:<path>`, or an `ssh://`,
+`git+ssh://` or `ssh+git://` URL — the host is first resolved through
+`ssh -G`, so an alias a `Host` block in your ssh config renames
+becomes the host it reaches and `ssh.github.com` becomes `github.com`;
+`ssh` is optional, and without it, or when `ssh -G` fails, the host is
+used as written. Naming `origin`'s URL keeps `gh` from resolving
+another remote, such as a fork's `upstream`, through its own
+remote-priority rules. Each segment may hold only letters, digits,
+`.`, `_` and `-`, and may not be `.` or `..`; `cr` refuses an identity
+that fails that check, naming the segment. The identity is `local`,
+and only the host and committed layers apply, in a repo with no
+`origin`, in the directory `cr` ran `git init` in, and when
+`gh repo view` cannot resolve the `origin`, an `origin` not hosted on
+GitHub included; the first two make no `gh` call, and the last says so
+on stderr.
+
+**The merged file.** `claude` honours exactly one `--settings`, so
+`cr` merges the layers that exist into one file with `jq` and passes
+that: list keys concatenate across layers in layer order, dropping an
+entry equal to an earlier one so the first occurrence keeps its
+position; object keys merge key by key; a later layer's scalar
+overrides an earlier one's. A key that is a list in one layer and an
+object or scalar in another, or an object in one and a scalar in
+another, has no merge, so `cr` refuses, naming the key and each
+layer's kind for it, as it refuses a layer that is not valid JSON,
+naming the file. The merged file is
+`<state>/cc-tools/<host>/<owner>/<repo>/cr-settings-<stamp>-<pid>.json`,
+with `<state>` `${XDG_STATE_HOME:-~/.local/state}`, `cc-tools/local/`
+in place of the identity for a `local` one, `<stamp>` the launch time
+as `%Y%m%dT%H%M%S` and `<pid>` `cr`'s process ID. It is keyed on the
+launch because it is written before the session knows which issue or
+PR it serves, and `cr` removes it when the session ends, on an
+interrupt or a termination included. With no layer present `cr`
+writes nothing and passes no `--settings`. `cr`'s `--settings`
+precedes the arguments it passes through, and `claude` keeps only the
+last `--settings` it is given, so one you pass replaces the layers for
+that launch. Against your global `settings.json` the merged file lands
+as any `--settings` does: list keys add to the global lists and scalar
+keys override them.
 
 **How `cr` reaches the shell.** The launcher lives in the plugin as
 `bin/cr`, which puts it on `PATH` inside sessions — but the plugin
@@ -132,7 +197,8 @@ cc-tools update reaches the very next `cr` with nothing redeployed.
 When no enabled cc-tools is installed, or `jq` is missing, or the plugin
 list cannot be read, the resolver says which on stderr and exits 1; it
 never falls back to plain `claude`, because a session launched without
-the overlay would look like one launched with it. The resolver's text
+the settings layers would look like one launched with them. The
+resolver's text
 is `hooks/cr-resolver`. It sits under `hooks/` rather than `bin/`
 because `bin/` is what sessions get on `PATH`, and the resolver is only
 ever run from the shell.
@@ -223,10 +289,12 @@ which of its notes were about the branch and which about the repo.
 
 ## What it deliberately does not do
 
-- **`cr` does not validate the overlay.** `.cc-tools/cr-settings.json`
-  goes to `claude --settings` as it stands, so a malformed file fails
-  the way `claude` fails on any bad settings file, and the keys it may
-  hold are Claude Code's to define.
+- **`cr` does not validate a layer's keys.** It refuses what `jq`
+  cannot merge — a layer that is not valid JSON, a key whose type
+  differs between layers — and nothing more: the merged file goes to
+  `claude --settings` as it stands, so an unknown or ill-typed key
+  fails the way `claude` fails on any bad settings file, and the keys a
+  layer may hold are Claude Code's to define.
 - **The resolver does not run `claude` without cc-tools.** A missing
   or disabled cc-tools is an error, never a plain `claude` launch.
 - **The deploy hook does not touch your profile.** It writes

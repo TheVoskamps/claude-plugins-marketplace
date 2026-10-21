@@ -30,8 +30,9 @@ The marketplace currently ships these plugins (one entry each in
   machine's Claude configuration on your yes — and agent-memory
   curation into the repo's own documentation; plus the `cr` session
   launcher, kept current at `~/.local/bin/cr` by a `SessionStart`
-  hook, which loads a repo's `.cc-tools/cr-settings.json` through
-  `--settings`.
+  hook, which merges per-user host, owner and repo settings layers
+  under `~/.config/cc-tools/cr-settings/` with a repo's
+  `.cc-tools/cr-settings.json` into one `--settings` file.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity.

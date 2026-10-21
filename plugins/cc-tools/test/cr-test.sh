@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
 # cr-test.sh -- drive plugins/cc-tools/bin/cr, hooks/cr-resolver and
-# hooks/cr-deploy.sh under the bash 3.2 macOS ships, with HOME pointed at
-# a scratch directory and a stub claude first on PATH: cr's argument
-# handling, repo detection, settings overlay, GIT_CONFIG_GLOBAL and exit
-# status; the resolver's exec of the enabled cc-tools, its refusals and
-# its failed execs;
-# and the deploy hook's missing, differing, current and unwritable
-# targets and its unset or empty HOME.
+# hooks/cr-deploy.sh under the bash 3.2 macOS ships, with HOME,
+# XDG_CONFIG_HOME and XDG_STATE_HOME pointed at scratch directories and a
+# stub claude, a stub gh and a stub ssh first on PATH: cr's argument
+# handling, repo detection, repository identity, ssh host aliases included,
+# settings layers and their merge, its refusals, GIT_CONFIG_GLOBAL and exit
+# status; the resolver's exec of the enabled cc-tools, its refusals and its
+# failed execs; and the deploy hook's missing, differing, current and
+# unwritable targets and its unset or empty HOME.
 #
 # Needs git and jq on PATH. Reaches no network.
 #
@@ -69,6 +70,8 @@ check_lacks() {
 }
 
 export HOME="$SANDBOX/home"
+export XDG_CONFIG_HOME="$SANDBOX/config"
+export XDG_STATE_HOME="$SANDBOX/state"
 mkdir -p "$HOME"
 unset GIT_CONFIG_GLOBAL
 # Keeps git from finding a repo above the sandbox, which would turn the
@@ -80,11 +83,15 @@ JQ="$(command -v jq)"
 # The stub claude answers `plugin list --json` with $SANDBOX/plugins.json
 # and the status in $SANDBOX/list.rc, 0 when absent. Any other call is a
 # launch: it writes its arguments one per line to $SANDBOX/claude.args,
-# its directory, GIT_CONFIG_GLOBAL and whether ./.git exists to
+# the file each --settings names to $SANDBOX/claude.settings, its
+# directory, GIT_CONFIG_GLOBAL and whether ./.git exists to
 # $SANDBOX/claude.env, sends the signal named in $SANDBOX/claude.signal
-# to its parent and then to itself when that file exists, and exits
-# with the status in $SANDBOX/claude.rc, 0 when absent. It names every
-# command by absolute path so it runs on the restricted PATHs below.
+# to its parent when that file exists, and then to itself -- or, when
+# $SANDBOX/claude.survive exists, instead survives it, waits a second and
+# appends to claude.env whether ./.git and the --settings file are still
+# there -- and exits with the status in $SANDBOX/claude.rc, 0 when absent.
+# It names every command by absolute path so it runs on the restricted
+# PATHs below.
 mkdir -p "$SANDBOX/bin"
 cat >"$SANDBOX/bin/claude" <<EOF
 #!/bin/sh
@@ -93,7 +100,16 @@ if [ "\$*" = "plugin list --json" ]; then
   exit "\$(/bin/cat "$SANDBOX/list.rc" 2>/dev/null || echo 0)"
 fi
 : >"$SANDBOX/claude.args"
-for a in "\$@"; do printf '%s\n' "\$a" >>"$SANDBOX/claude.args"; done
+prev=
+settings=
+for a in "\$@"; do
+  printf '%s\n' "\$a" >>"$SANDBOX/claude.args"
+  if [ "\$prev" = --settings ]; then
+    /bin/cat "\$a" >>"$SANDBOX/claude.settings"
+    settings=\$a
+  fi
+  prev=\$a
+done
 {
   echo "pwd=\$(/bin/pwd -P)"
   echo "gcg=\${GIT_CONFIG_GLOBAL-}"
@@ -102,20 +118,67 @@ for a in "\$@"; do printf '%s\n' "\$a" >>"$SANDBOX/claude.args"; done
 if [ -f "$SANDBOX/claude.signal" ]; then
   sig=\$(/bin/cat "$SANDBOX/claude.signal")
   kill -"\$sig" "\$PPID"
-  kill -"\$sig" \$\$
+  if [ -f "$SANDBOX/claude.survive" ]; then
+    /bin/sleep 1
+    {
+      if [ -d .git ]; then echo "after-git=yes"; else echo "after-git=no"; fi
+      if [ -f "\$settings" ]; then echo "after-settings=yes"; else echo "after-settings=no"; fi
+    } >>"$SANDBOX/claude.env"
+  else
+    kill -"\$sig" \$\$
+  fi
 fi
 exit "\$(/bin/cat "$SANDBOX/claude.rc" 2>/dev/null || echo 0)"
 EOF
 chmod +x "$SANDBOX/bin/claude"
 
+# The stub gh appends its arguments, one line per call, to
+# $SANDBOX/gh.calls, prints the contents of $SANDBOX/gh.url, or when that
+# file is absent the https:// URL `repo view` was given, without `.git`,
+# or https://github.com/upstream/upstream-repo when it was given none, as
+# a real gh can pick a fork's `upstream`; it exits with the status in
+# $SANDBOX/gh.rc, 0 when absent.
+cat >"$SANDBOX/bin/gh" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$SANDBOX/gh.calls"
+case "\$3" in
+  https://*) u=\${3%.git} ;;
+  *) u=https://github.com/upstream/upstream-repo ;;
+esac
+if [ -f "$SANDBOX/gh.url" ]; then /bin/cat "$SANDBOX/gh.url"; else echo "\$u"; fi
+exit "\$(/bin/cat "$SANDBOX/gh.rc" 2>/dev/null || echo 0)"
+EOF
+chmod +x "$SANDBOX/bin/gh"
+
+# The stub ssh stands in for the machine's ssh configuration: it appends
+# its arguments, one line per call, to $SANDBOX/ssh.calls and answers
+# `-G -- <host>` as `ssh -G` does, with the `hostname` line among others,
+# naming github.com for the alias github-work, ssh.github.com for the
+# alias github-443, and <host> itself otherwise; it exits with the status
+# in $SANDBOX/ssh.rc, 0 when absent.
+cat >"$SANDBOX/bin/ssh" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$SANDBOX/ssh.calls"
+case "\$3" in
+  github-work) h=github.com ;;
+  github-443) h=ssh.github.com ;;
+  *) h=\$3 ;;
+esac
+printf 'host %s\nuser git\nhostname %s\nport 22\n' "\$3" "\$h"
+exit "\$(/bin/cat "$SANDBOX/ssh.rc" 2>/dev/null || echo 0)"
+EOF
+chmod +x "$SANDBOX/bin/ssh"
+
 # reset -- forget the previous launch.
 reset() {
-  rm -f "$SANDBOX/claude.args" "$SANDBOX/claude.env" "$SANDBOX/claude.rc" "$SANDBOX/claude.signal"
+  rm -f "$SANDBOX/claude.args" "$SANDBOX/claude.env" "$SANDBOX/claude.rc" "$SANDBOX/claude.signal" \
+    "$SANDBOX/claude.survive" "$SANDBOX/claude.settings" "$SANDBOX/gh.calls" "$SANDBOX/ssh.calls"
 }
 
-# run_cr <dir> [<arg>…] -- run bin/cr from <dir> with the stub claude
-# first on PATH; leaves ARGS (claude's arguments, one per line), ENV,
-# ERR and RC.
+# run_cr <dir> [<arg>…] -- run bin/cr from <dir> with the stub claude,
+# gh and ssh first on PATH; leaves ARGS (claude's arguments, one per
+# line), SETTINGS (the content of each --settings file at launch), ENV,
+# GH (gh's calls), SSH (ssh's calls), ERR and RC.
 run_cr() {
   local dir=$1
   shift
@@ -124,7 +187,20 @@ run_cr() {
   RC=$?
   ERR=$(cat "$SANDBOX/stderr")
   ARGS=$(cat "$SANDBOX/claude.args" 2>/dev/null)
+  SETTINGS=$(cat "$SANDBOX/claude.settings" 2>/dev/null)
   ENV=$(cat "$SANDBOX/claude.env" 2>/dev/null)
+  GH=$(cat "$SANDBOX/gh.calls" 2>/dev/null)
+  SSH=$(cat "$SANDBOX/ssh.calls" 2>/dev/null)
+}
+
+# settings_arg -- the argument after --settings in claude.args.
+settings_arg() {
+  sed -n '/^--settings$/{n;p;}' "$SANDBOX/claude.args"
+}
+
+# state_files -- every file under XDG_STATE_HOME, one per line.
+state_files() {
+  find "$XDG_STATE_HOME" -type f 2>/dev/null
 }
 
 # lines <word>… -- the words, one per line, as claude.args holds them.
@@ -148,15 +224,15 @@ run_cr "$REPO/sub" fix the bug --model opus "two words"
 check "$RC" "0" "repo: exit 0"
 check "$ARGS" "$(lines --name "fix the bug my-repo" --remote-control \
   --debug-file "$HOME/.claude/logs/fix the bug my-repo" --allowedTools Grep Glob --model opus "two words")" \
-  "repo: name words before the first flag, the rest passed unchanged, no --settings without an overlay"
+  "repo: name words before the first flag, the rest passed unchanged, no --settings without a settings layer"
 check_contains "$ENV" "pwd=$REPO
 " "repo: claude runs from the repo root"
 check_contains "$ERR" "cr: detected existing git repo; cd to repo root $REPO" "repo: stderr names the root"
 check_contains "$ENV" "git=yes" "repo: the repo's own .git is there"
 check "$([ -d "$REPO/.git" ] && echo kept)" "kept" "repo: the existing .git is left alone"
 
-# With no overlay, the arguments cr adds itself fill the first eight lines
-# of claude.args, so line 9 onward is what passed through.
+# With no settings layer, the arguments cr adds itself fill the first
+# eight lines of claude.args, so line 9 onward is what passed through.
 run_cr "$REPO" --model opus fix
 check "$(sed -n '9,$p' "$SANDBOX/claude.args")" "$(lines --model opus fix)" \
   "first flag first: no name words, and a word after a flag passes to claude"
@@ -175,20 +251,187 @@ run_cr "$REPO" x
 check "$(sed -n 2p "$SANDBOX/claude.args")" "x plain" "origin with no .git suffix: its last component names the repo"
 git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
 
-# --- bin/cr: the settings overlay -------------------------------------------
-mkdir -p "$REPO/.cc-tools"
-echo '{}' >"$REPO/.cc-tools/cr-settings.json"
+run_cr "$REPO" x
+check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" \
+  "repo: the identity comes from gh repo view of origin's URL in its https:// form"
+check "$(state_files)" "" "no layer: no merged file is written"
+
+# Each form an origin can take reaches gh as the same https:// URL.
+for form in git@github.com:owner/my-repo.git org-1@github.com:owner/my-repo.git github.com:owner/my-repo.git \
+  ssh://git@github.com/owner/my-repo.git ssh://git@github.com:22/owner/my-repo.git \
+  git+ssh://git@github.com/owner/my-repo.git ssh+git://git@github.com/owner/my-repo.git \
+  https://user@github.com/owner/my-repo.git; do
+  git -C "$REPO" remote set-url origin "$form"
+  run_cr "$REPO" x
+  check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" "origin $form: gh is given its https:// form"
+done
+
+# An ssh origin's host is the one ssh resolves: an alias names its real
+# host, and ssh.github.com names github.com.
+for form in git@github-work:owner/my-repo.git ssh://git@github-work:22/owner/my-repo.git \
+  git+ssh://git@github-work/owner/my-repo.git ssh+git://git@github-work/owner/my-repo.git \
+  git@github-443:owner/my-repo.git; do
+  git -C "$REPO" remote set-url origin "$form"
+  run_cr "$REPO" x
+  check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" \
+    "ssh alias origin $form: gh is given the real host's https:// URL"
+done
+check "$SSH" "-G -- github-443" "ssh alias origin: ssh -G is asked about the origin's host alone"
+
+git -C "$REPO" remote set-url origin https://github-work/owner/my-repo.git
+run_cr "$REPO" x
+check "$SSH:$GH" ":repo view https://github-work/owner/my-repo.git --json url --jq .url" \
+  "https origin: no ssh call, and its host is left as it is"
+
+git -C "$REPO" remote set-url origin git@github-work:owner/my-repo.git
+echo 255 >"$SANDBOX/ssh.rc"
+run_cr "$REPO" x
+check "$GH" "repo view https://github-work/owner/my-repo.git --json url --jq .url" \
+  "ssh -G fails: the origin's host is left as it is"
+rm "$SANDBOX/ssh.rc"
+git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
+
+# --- bin/cr: the settings layers --------------------------------------------
+CFG="$XDG_CONFIG_HOME/cc-tools/cr-settings"
+HOST_L="$CFG/host.json"
+OWNER_L="$CFG/github.com/owner.json"
+MACHINE_L="$CFG/github.com/owner/my-repo.json"
+COMMITTED_L="$REPO/.cc-tools/cr-settings.json"
+mkdir -p "$CFG/github.com/owner" "$REPO/.cc-tools"
+
+# write_layers -- one file per layer. Each appends its name to `order`
+# and sets `model`; the `permissions.allow` entries repeat across layers,
+# and `env` gets a key from each of two layers.
+write_layers() {
+  echo '{"order": ["host"], "model": "host", "permissions": {"allow": ["a", "shared"]}, "env": {"A": "1"}}' >"$HOST_L"
+  echo '{"order": ["owner"], "model": "owner", "permissions": {"allow": ["owner", "shared"]}, "env": {"B": "2"}}' >"$OWNER_L"
+  echo '{"order": ["machine"], "model": "machine", "permissions": {"allow": ["machine"]}}' >"$MACHINE_L"
+  echo '{"order": ["committed"], "model": "committed", "permissions": {"allow": ["committed", "a"]}}' >"$COMMITTED_L"
+}
+
+# merged <jq-filter> -- the filter applied to what claude's --settings
+# file held at launch, compact.
+merged() {
+  printf '%s' "$SETTINGS" | "$JQ" -c "$1"
+}
+
+write_layers
 run_cr "$REPO/sub" x --model opus
+MERGED=$(settings_arg)
+check "$RC" "0" "layers: exit 0"
+check "$(merged .order)" '["host","owner","machine","committed"]' \
+  "layers: applied in the order host, owner, repo per machine, repo committed"
+check "$(merged .permissions.allow)" '["a","shared","owner","machine","committed"]' \
+  "layers: a list concatenates in layer order, and an entry equal to an earlier one is dropped"
+check "$(merged .env)" '{"A":"1","B":"2"}' "layers: an object merges key by key"
+check "$(merged .model)" '"committed"' "layers: a later scalar overrides an earlier one"
+check "$(grep -c '^--settings$' "$SANDBOX/claude.args")" "1" "layers: claude receives exactly one --settings"
 check "$ARGS" "$(lines --name "x my-repo" --remote-control --debug-file "$HOME/.claude/logs/x my-repo" \
-  --settings "$REPO/.cc-tools/cr-settings.json" --allowedTools Grep Glob --model opus)" \
-  "overlay: claude receives --settings <repo-root>/.cc-tools/cr-settings.json"
-rm -r "$REPO/.cc-tools"
+  --settings "$MERGED" --allowedTools Grep Glob --model opus)" \
+  "layers: cr's --settings precedes the pass-through arguments"
+MERGED_DIR="$XDG_STATE_HOME/cc-tools/github.com/owner/my-repo"
+case "$MERGED" in
+  "$MERGED_DIR"/cr-settings-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9]*.json) AT=ok ;;
+  *) AT="$MERGED" ;;
+esac
+check "$AT" "ok" "layers: the merged file is <state>/cc-tools/<host>/<owner>/<repo>/cr-settings-<stamp>-<pid>.json"
+check "$([ -e "$MERGED" ] && echo left)" "" "layers: the merged file is removed on exit"
+
+# A fork: gh asked with no repository would resolve `upstream`, so these
+# pass only when cr names origin's URL.
+git -C "$REPO" remote add upstream git@github.com:upstream/upstream-repo.git
+run_cr "$REPO" x
+check "$RC:$(merged .order)" '0:["host","owner","machine","committed"]' \
+  "fork with an upstream remote: origin's owner and repo layers apply"
+check "$(dirname "$(settings_arg)")" "$MERGED_DIR" "fork with an upstream remote: the merged file is under origin's owner and repo"
+git -C "$REPO" remote remove upstream
+
+# An ssh config alias: the layers are its real host's, not the local ones.
+git -C "$REPO" remote set-url origin git@github-work:owner/my-repo.git
+run_cr "$REPO" x
+check "$RC:$(merged .order)" '0:["host","owner","machine","committed"]' \
+  "ssh alias origin: the real host's owner and repo layers apply"
+check "$(dirname "$(settings_arg)")" "$MERGED_DIR" "ssh alias origin: the merged file is under the real host's owner and repo"
+git -C "$REPO" remote set-url origin git@github.com:owner/my-repo.git
+
+# Negative control: the same launch with the layers moved aside must lose
+# them, so the checks above are measuring the layers.
+mv "$CFG" "$CFG.aside"
+rm "$COMMITTED_L"
+run_cr "$REPO" x
+check_lacks "$ARGS" "--settings" "negative control: with no layer present, claude receives no --settings"
+check "$SETTINGS" "" "negative control: nothing reaches claude's settings"
+mv "$CFG.aside" "$CFG"
+write_layers
 
 mkdir -p "$REPO/sub/.cc-tools"
-echo '{}' >"$REPO/sub/.cc-tools/cr-settings.json"
+mv "$COMMITTED_L" "$REPO/sub/.cc-tools/cr-settings.json"
 run_cr "$REPO/sub" x
-check_lacks "$ARGS" "--settings" "overlay below the root only: no --settings"
+check "$(merged .order)" '["host","owner","machine"]' "committed layer below the root only: ignored"
+mv "$REPO/sub/.cc-tools/cr-settings.json" "$COMMITTED_L"
 rm -r "$REPO/sub/.cc-tools"
+
+# gh repo view fails: the local identity, host and committed layers only.
+echo 1 >"$SANDBOX/gh.rc"
+run_cr "$REPO" x
+check "$RC:$(merged .order)" '0:["host","committed"]' "gh repo view fails: only the host and committed layers apply"
+check "$(dirname "$(settings_arg)")" "$XDG_STATE_HOME/cc-tools/local" "gh repo view fails: the merged file is under local/"
+rm "$SANDBOX/gh.rc"
+
+# --- bin/cr: refusals -------------------------------------------------------
+# no_claude -- empty when claude did not run.
+no_claude() {
+  [ ! -f "$SANDBOX/claude.args" ] || echo ran
+}
+
+echo '{"order": [' >"$OWNER_L"
+run_cr "$REPO" x
+check "$RC:$(no_claude)" "1:" "a layer that is not valid JSON: exit 1, claude does not run"
+check_contains "$ERR" "cr: $OWNER_L is not valid JSON" "a layer that is not valid JSON: stderr names the file"
+write_layers
+
+echo '{"permissions": {"allow": {"x": 1}}}' >"$MACHINE_L"
+run_cr "$REPO" x
+check "$RC:$(no_claude)" "1:" "a key's type differs between layers: exit 1, claude does not run"
+check_contains "$ERR" "cr: permissions.allow differs in type between layers: list in $HOST_L, list in $OWNER_L, object in $MACHINE_L, list in $COMMITTED_L" \
+  "a key's type differs between layers: stderr names the key and the layers"
+check "$(state_files)" "" "a refusal writes no merged file"
+write_layers
+
+# Each bad URL with the segment cr refuses in it, after a `|`.
+for case in "https://github.com/owner/..|.." "https://github.com/own%20er/my-repo|own%20er" \
+  "https://github.com/owner/my-repo/extra|my-repo/extra"; do
+  bad=${case%|*}
+  segment=${case#*|}
+  echo "$bad" >"$SANDBOX/gh.url"
+  run_cr "$REPO" x
+  check "$RC:$(no_claude)" "1:" "segment check ($bad): exit 1, claude does not run"
+  check_contains "$ERR" "cr: '$segment' in $bad is not a valid host, owner or repo name" \
+    "segment check ($bad): stderr names the segment"
+done
+rm "$SANDBOX/gh.url"
+
+# PATHs holding every tool cr runs but one; the stubs stand in for claude
+# and gh.
+for tool in git gh jq; do
+  d="$SANDBOX/no-$tool"
+  mkdir -p "$d"
+  for t in claude gh; do ln -s "$SANDBOX/bin/$t" "$d/$t"; done
+  for t in git jq date mkdir rm; do ln -s "$(command -v "$t")" "$d/$t"; done
+  mv "$d/$tool" "$SANDBOX/aside-$tool"
+  reset
+  (cd "$REPO" && PATH="$d" /bin/bash "$CR" x) >/dev/null 2>"$SANDBOX/stderr"
+  check "$?:$(no_claude)" "1:" "$tool not on PATH: exit 1, claude does not run"
+  check "$(cat "$SANDBOX/stderr")" "cr: $tool is not on PATH" "$tool not on PATH: stderr names it"
+  mv "$SANDBOX/aside-$tool" "$d/$tool"
+done
+# The same PATH with the tool put back launches claude, so the refusals
+# above are the missing tool's and not the restricted PATH's.
+reset
+(cd "$REPO" && PATH="$SANDBOX/no-jq" /bin/bash "$CR" x) >/dev/null 2>&1
+check "$?:$(no_claude)" "0:ran" "every tool on a restricted PATH: claude runs"
+
+rm -r "$CFG" "$REPO/.cc-tools"
 
 # --- bin/cr: GIT_CONFIG_GLOBAL ----------------------------------------------
 run_cr "$REPO" x
@@ -226,6 +469,23 @@ git init -q "$LOCAL"
 run_cr "$LOCAL" x
 check "$(sed -n 2p "$SANDBOX/claude.args")" "x (local)" "no origin: the repo is named (local)"
 
+# local_layers <dir> -- all four layer files, the committed one in <dir>.
+# Under the local identity only host and committed may reach claude.
+local_layers() {
+  mkdir -p "$CFG/github.com/owner" "$1/.cc-tools"
+  echo '{"order": ["host"]}' >"$HOST_L"
+  echo '{"order": ["owner"]}' >"$OWNER_L"
+  echo '{"order": ["machine"]}' >"$MACHINE_L"
+  echo '{"order": ["committed"]}' >"$1/.cc-tools/cr-settings.json"
+}
+
+local_layers "$LOCAL"
+run_cr "$LOCAL" x
+check "$RC:$(merged .order)" '0:["host","committed"]' "no origin: only the host and committed layers apply"
+check "$GH" "" "no origin: no gh call"
+check "$(dirname "$(settings_arg)")" "$XDG_STATE_HOME/cc-tools/local" "no origin: the merged file is under local/"
+rm -r "$CFG" "$LOCAL/.cc-tools"
+
 run_cr "$LOCAL" --cr-strict x
 check "$RC" "1" "--cr-strict, no origin: exit 1"
 check "$ERR" "cr: --cr-strict: this git repo has no 'origin' remote" "--cr-strict, no origin: stderr says why"
@@ -252,6 +512,12 @@ check_contains "$ENV" "pwd=$PLAIN
 " "outside a repo: claude runs from the current directory"
 check "$([ -e "$PLAIN/.git" ] && echo left)" "" "outside a repo: the .git is removed on exit"
 
+local_layers "$PLAIN"
+run_cr "$PLAIN" x
+check "$RC:$(merged .order)" '0:["host","committed"]' "git init directory: only the host and committed layers apply"
+check "$GH" "" "git init directory: no gh call"
+check "$(dirname "$(settings_arg)")" "$XDG_STATE_HOME/cc-tools/local" "git init directory: the merged file is under local/"
+
 for sig in INT TERM; do
   reset
   echo "$sig" >"$SANDBOX/claude.signal"
@@ -259,8 +525,29 @@ for sig in INT TERM; do
   RC=$?
   check "$(grep -c git=yes "$SANDBOX/claude.env"):$([ -e "$PLAIN/.git" ] && echo left)" "1:" \
     "outside a repo, $sig: the .git is removed"
+  SIG_MERGED=$(settings_arg)
+  check "$(dirname "$SIG_MERGED"):$([ -e "$SIG_MERGED" ] && echo left)" "$XDG_STATE_HOME/cc-tools/local:" \
+    "outside a repo, $sig: the merged file claude received is removed"
   check "$([ "$RC" -ne 0 ] && echo nonzero)" "nonzero" "outside a repo, $sig: cr exits non-zero"
 done
+
+# A signal claude survives: cr leaves the files in place until claude
+# returns, then removes them and exits with claude's status.
+for sig in INT TERM; do
+  reset
+  echo "$sig" >"$SANDBOX/claude.signal"
+  : >"$SANDBOX/claude.survive"
+  echo 7 >"$SANDBOX/claude.rc"
+  (cd "$PLAIN" && PATH="$SANDBOX/bin:$PATH" /bin/bash "$CR" x) >/dev/null 2>&1
+  RC=$?
+  check "$RC" "7" "$sig that claude survives: cr exits with claude's status"
+  check_contains "$(cat "$SANDBOX/claude.env")" "after-git=yes
+after-settings=yes" "$sig that claude survives: the .git and the merged file stay while claude runs"
+  SIG_MERGED=$(settings_arg)
+  check "$([ -e "$PLAIN/.git" ] && echo git):$([ -e "$SIG_MERGED" ] && echo settings)" ":" \
+    "$sig that claude survives: the .git and the merged file are removed once claude returns"
+done
+rm -r "$CFG" "$PLAIN/.cc-tools"
 
 # --- hooks/cr-resolver ------------------------------------------------------
 # Two fake installs: the enabled one and a disabled one listed first. Each
