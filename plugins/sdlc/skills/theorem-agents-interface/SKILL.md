@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for the class glosses; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -16,12 +16,9 @@ that skill. The
 meaning of a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
-its issue-set findings come from no theorem, so it grades them by the
-class glosses below and then transcribes the class into a severity by
-its own table. It reaches this skill by name rather than by preload —
-its frontmatter is reserved for what every round needs, and the glosses
-here are wanted only on the one branch that raises a theorem-less
-finding.
+what a parameter of the briefs it writes means — whether `--fetched`
+holds, say — is stated here. It reaches this skill by name rather than
+by preload.
 
 The reviewer's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by
@@ -44,9 +41,9 @@ A generator receives one of three briefs, and which one decides its
 whole workflow:
 
 - The **whole-PR brief** — `--pr`, `--issues`, `--branch`,
-  `--round`, and the documentation-paths line when the PR
-  changes a documentation file. The generator reads the whole diff and
-  emits the full list.
+  `--round`, `--mode`, and, under `--mode code-and-instruction-markdown`,
+  the documentation-paths line when the PR changes a documentation
+  file. The generator reads the whole diff and emits the full list.
 - The **delta brief** — the whole-PR brief plus `--delta-commits`,
   and a line naming the `print-records` command, `--pr` and `--round`
   filled in, that the generator runs first after its `enter` record.
@@ -56,8 +53,10 @@ whole workflow:
 - The **issues-only brief** — `--issues` and `--branch` **only**. No
   PR exists yet: `--branch` names the repo's default issue source
   branch rather than a PR head, and the brief carries no `--pr`,
-  `--round`, `--delta-commits` and no
-  documentation-paths line, because none of those exists. The
+  `--round`, `--delta-commits`, `--mode` and no
+  documentation-paths line, because none of those exists: the seed is
+  round 0, whose records the first `code-and-instruction-markdown`
+  round carries. The
   generator reads the issue bodies and that branch's tree, emits the
   acceptance-criterion theorems and the theorems the issues' design
   and file lists warrant, and points into the issue text or the
@@ -125,10 +124,22 @@ whole workflow:
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
 - `--round <n>` — the review round, as the reviewer numbers it.
+- `--mode <code-and-instruction-markdown|documentation>` — which file
+  classes the round reviews, as the global Claude configuration
+  defines them, and so the round's type. Under
+  `code-and-instruction-markdown` the round reviews code and
+  instruction Markdown, and no claim is about a documentation file.
+  Under `documentation` it reviews documentation alone: every claim is
+  about a documentation file, and the code and instruction Markdown
+  the PR changed are read only for the facts a documentation file
+  restates, never as a subject of their own. A child settles its
+  theorem under the mode its brief names, and never reports a defect
+  in a file outside that mode's classes as a counterexample.
 
-`--pr` and `--round` say nothing about the claim, and **every** theorem
-agent receives them, the generator included — on every brief but the
-issues-only one, which has no PR to key a path on. Each passes them
+`--pr`, `--round` and `--mode` say nothing about the claim, and
+**every** theorem agent receives them, the generator included — on
+every brief but the issues-only one, which has no PR to key a path on.
+Each passes `--pr` and `--round`
 straight back — alongside its own stage and its own definition's
 name — to
 `sdlc-agent-result-persist`, per
@@ -143,12 +154,13 @@ brief can carry `Leave these documentation paths out of every diff you
 read:` — on a generator's delta-round brief, `… every diff and delta
 commit you read:` — followed by paths. Each is a documentation file
 the PR changes; the reviewer lists them because documentation is
-outside the review. Comply by treating those paths' hunks as absent
-from every diff and delta commit you read: settle nothing from them,
+outside a `code-and-instruction-markdown` round's review. Comply by
+treating those paths' hunks as absent from every diff and delta commit
+you read: settle nothing from them,
 and name none of them in a claim, a pointer, or a counterexample. The
-line is absent when the PR changes no documentation file, and on the
-issues-only brief, and it narrows what you read, never what you may
-check out.
+line is absent when the PR changes no documentation file, under
+`--mode documentation`, and on the issues-only brief, and it narrows
+what you read, never what you may check out.
 
 ## The consequence classes
 

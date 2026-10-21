@@ -39,8 +39,10 @@ skill computes.
    PR to review, in any form `/github-prs:pr-view` accepts — a number,
    `#N`, a `host/owner/repo#N` reference or a PR URL among them. Any
    `--generator <name>` and `--full` tokens alongside it are the human
-   overrides above; they are not part of the PR and pass through to
-   the reviewer spawn in step 2 unchanged. If `$ARGUMENTS` carries no
+   overrides above, and a `--mode <mode>` token names the classes the
+   round reviews, per the reviewer's own Inputs; none of them is part
+   of the PR, and each passes through to the reviewer spawn in step 2
+   unchanged. If `$ARGUMENTS` carries no
    positional token, ask the user which PR to review before
    proceeding.
 
@@ -53,17 +55,17 @@ skill computes.
    --pr <PR>
 
    Review this PR per your agent definition. Report back its
-   verdicts, findings, and round kind.
+   verdicts, findings, closing-line corrections, and round kind.
    ```
 
    Unless the user asked for an override, this path passes `--pr`
-   alone — no `--issues`, no `--branch`, no `--generator`, and no
-   `--full` — which is what makes it the
+   alone — no `--issues`, no `--branch`, no `--generator`, no `--full`
+   and no `--mode` — which is what makes it the
    reviewer's **standalone** path: with no orchestrator brief naming
    the issues, the reviewer takes its claim from
    `/github-prs:pr-closing-issues <PR>` and reconciles it against the
-   branch itself. Add `--generator <name>` or `--full` to the brief
-   only when the user asked for one.
+   branch itself. Add `--generator <name>`, `--full` or `--mode <mode>`
+   to the brief only when the user passed one.
 
    The reviewer reads `issue-link-prefix` from the repo's
    `.issues/repo-config.md` (for recognizing `References:`
@@ -129,12 +131,18 @@ skill computes.
    - `Return: broken call: … — raise it`: quote the script's message
      verbatim to the user with no offer, for a different reason: no
      fan-out ran, and a re-spawn composes the same call again.
+   - `Return: no resolved issue set: … — raise it`: relay the
+     reviewer's line and the closing-line corrections it reported
+     verbatim, say no review was posted, and make no offer: a re-spawn
+     resolves the same set until the PR body or the branch changes.
 
 4. **Relay the reviewer's verdicts and findings** back to the user, and
    say where the round's detail is — the state path above — since the
    posted review carries the summary alone: the overall
    APPROVED / NEEDS_CHANGES / BLOCKED, plus every per-issue verdict
-   (a PR may deliver a batch of several), plus the findings. Relay the
+   (a PR may deliver a batch of several), plus the findings, plus the
+   closing-line corrections, which no verdict reflects and which are the
+   user's to make in the PR body. Relay the
    kind of round it was as well — a user reading "no findings" off an
    empty-delta round is reading a carried-forward verdict, not a fresh
    check. The per-theorem lines and the tier that ran are in the posted

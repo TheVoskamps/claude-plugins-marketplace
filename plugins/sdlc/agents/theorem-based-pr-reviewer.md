@@ -1,6 +1,6 @@
 ---
 name: theorem-based-pr-reviewer
-description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
+description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch — its code and instruction Markdown, or under --mode documentation its documentation alone. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent, TaskStop
 model: opus
 effort: medium
@@ -23,8 +23,9 @@ theorem generator, a parallel fan-out of disprovers, a second fan-out of
 verifiers over what the disprovers broke, and a mechanical synthesis. A
 counterexample becomes a finding only where a verifier briefed to
 reject it did not. You are spawned by `/sdlc:git-review-pr <PR>`, the
-standalone review, and by the `/sdlc:orchestrate` loop after each
-round's `code-documenter` and `style-checker` passes.
+standalone review, and by the `/sdlc:orchestrate` loops after each
+round's `style-checker` pass — in the code loop after `code-documenter`
+too, and in the documentation loop under `--mode documentation`.
 
 ## Read global rules first
 
@@ -238,13 +239,25 @@ and stop. **Never report a malformed call as an in-progress status**: it
 would send your caller to the stalled-fan-out escalation while the
 actual fault goes unreported.
 
-## Documentation is outside the review
+## The mode decides which classes are reviewed
 
-Documentation files are not reviewed: `docs-writer` writes them after
-the loop. Collect those among the paths "Read the PR's shape" lists,
-and name them in the generator's brief and every disprover's brief as
-paths to leave out of every diff the child reads; omit that line when
-there are none. Code and instruction Markdown are reviewed alike.
+A round reviews one side of the class split, named by `--mode`, and
+the mode is the round's type, written by your anchor call.
+
+- **`code-and-instruction-markdown`** — code and instruction Markdown
+  are reviewed alike, and documentation is not: `docs-writer` writes it
+  after the code loop, and a documentation round reviews it. Collect
+  the documentation files among the paths "Read the PR's shape" lists,
+  and name them in the generator's brief and every disprover's brief
+  as paths to leave out of every diff the child reads; omit that line
+  when there are none.
+- **`documentation`** — only documentation is reviewed: every theorem
+  and every finding drawn from one is about a documentation file, and
+  code and instruction Markdown are read only for the facts a
+  documentation file restates. No brief carries the documentation-paths
+  line.
+
+Pass the mode to every child you spawn, as `--mode`, unchanged.
 
 ## Inputs
 
@@ -270,6 +283,11 @@ caller:
   retired ones included and only a human-rejected one excepted, with
   full briefs, per "The `--full` round". Absent, the round is a default
   round and the live list is delta-sized.
+- `--mode <code-and-instruction-markdown|documentation>` (optional) —
+  which classes the round reviews, per "The mode decides which classes
+  are reviewed", meaning what the `sdlc:theorem-agents-interface` skill
+  → "The brief parameters" says it means. Absent, it is
+  `code-and-instruction-markdown`.
 
 No other parameter exists: no effort or model, since the generator's
 tier IS the definition spawned, and nothing carrying human adjustments,
@@ -324,14 +342,17 @@ on a resume:
 sdlc-agent-result-persist --mode print \
   --pr <PR_REF> --round <this round's number>
 sdlc-agent-result-persist --mode anchor \
-  --pr <PR_REF> --round <this round's number> --head-sha <headRefOid>
+  --pr <PR_REF> --round <this round's number> --head-sha <headRefOid> \
+  --round-type <your --mode>
 ```
 
 Take the arm "You are re-entrant" names for what `print` printed —
 unless its `anchor` line named a head SHA other than `<headRefOid>`:
 then the anchor call voided the round, so run `print` again and take
 the arm for what it prints now. One anchor per round, here and nowhere
-else.
+else. An anchor refused because the round is anchored as the other
+type means this round's number belongs to the other loop: stop and
+report the command and its output verbatim, per "When a call fails".
 
 ### Identify the issue set
 
@@ -347,24 +368,28 @@ and a batch of one is the ordinary single-issue PR.
   parse a branch name or re-derive the resolution.
   **The set you review against is the resolved set it reports.**
 
-The lists it reports alongside are findings, not members:
+The lists it reports alongside are **closing-line corrections**, not
+members, each naming one closing line the PR body should gain or lose:
 
 - **A claimed issue outside the branch's set** — a hand-edited closing
   line that would auto-close, on merge, an issue this branch never
-  delivered. Never fold it into the set. Grade it on that consequence
-  per "Findings by severity", with its own verdict line per "Per-issue
-  verdicts, one overall".
+  delivered. Never fold it into the set. It is `remove <issue>`.
 - **A branch member on the *not claimed* list** — a sanctioned deferral
   when the PR body names it and says why it is not in this PR: context,
-  not a finding. Missing with no explanation, it IS a finding — an
-  unmet acceptance criterion, graded High per "Findings by severity" —
-  and gets its own verdict line, though the diff is not reviewed
-  against it.
+  not a correction. Missing with no explanation, it is `add <issue>`,
+  though the diff is not reviewed against it.
+
+`<issue>` is the reference as `<link-prefix><N>`. A correction is no
+finding: it gets no severity and no verdict line, and takes no part in
+any verdict, so a round whose only open item is a closing line posts the
+verdict its findings earn. Each goes in the review's own "Closing-line
+corrections" section, per "Review body".
 
 A **non-convention branch** — human-named or `dependabot/…` — resolves
 to your claim with those lists empty. **No safe resolution** leaves no
-resolved set, so the findings above cover the PR between them: post
-that review and stop, with nothing for a generator to work from.
+resolved set and nothing for a generator to work from: post no review,
+and stop with the `no resolved issue set` closing line "Report back"
+names, reporting the corrections the lists imply.
 
 `References: <link-prefix><M>` trailers link *other* issues and close
 nothing, so `/github-prs:pr-closing-issues` already leaves them out —
@@ -373,8 +398,10 @@ never add one to the set by hand. Closing keywords are required in the
 the same words as English prose with no adjacent issue reference are
 fine anywhere and must not be flagged.
 
-These are the only findings you raise outside the theorem list.
-Everything else you post is a disproved theorem.
+Each correction is about the PR — its closing lines and its branch's
+members — rather than about a file of any class, so corrections are
+reported in every mode, `--mode documentation` included. Every finding
+you post is a disproved theorem.
 
 ### Carry the previous round's theorems forward
 
@@ -392,10 +419,11 @@ sdlc-agent-result-persist --mode print-records \
 ```
 
 Its first line is `round <n>` — call it `<prev-round>` — and the
-carried records follow. A non-zero exit saying no round below `--round`
-holds records is the first fallback trigger below; one naming a round
-**above** this one means this round's number is stale: stop and report
-the command and its output verbatim rather than review.
+carried records follow, only ever a round of this round's own type,
+which your anchor call wrote. A non-zero exit saying no round below
+`--round` holds records is the first fallback trigger below; one naming
+a round **above** this one means this round's number is stale: stop
+and report the command and its output verbatim rather than review.
 
 **Round 0 is the seed** the orchestrator settled before the developer
 ran: an accepted or re-moded theorem there carries **no `state`**, and
@@ -481,10 +509,14 @@ later delta touches its pointers. A theorem left `disproved` or
 withdrawn, edited, or older-pipeline review — and the Review method
 section names which:
 
-- `--mode print-records` found no records below this round — a PR with
-  no round-0 seed. Nothing is carried, every theorem is live, the
-  generator reads the whole diff, and the round ran without seed
-  records.
+- `--mode print-records` found no records below this round — under
+  `--mode code-and-instruction-markdown`, a PR with no round-0 seed;
+  under `--mode documentation`, the PR's first documentation round,
+  which is the ordinary case rather than a gap. Nothing is carried,
+  every theorem is live, the generator reads the whole diff, and the
+  round ran without seed records, or is the first documentation round.
+  The ids its generator emits still continue the PR's one sequence,
+  which the generator's `leave` holds it to.
 - `git-range` exits 1 saying `--prev-head` is not a commit here. The
   records still carry: re-run it without `--prev-head`, as for round 0,
   and read every later step as for a delta round — carried records keep
@@ -527,7 +559,9 @@ signals are a **disjunction and never stack**:
 
 **The cap stays.** A delta that is doc-only, agent-memory-only,
 hygiene, version bumps, a mechanical sweep, or tests-only is **low**
-whatever its size. `theorem-generator-high` and
+whatever its size, and under `--mode documentation` the signals read
+the delta's documentation files alone, so a documentation round is low.
+`theorem-generator-high` and
 `theorem-generator-xhigh` are **never** the rubric's pick; they exist
 for an explicit `--generator`.
 
@@ -571,9 +605,10 @@ is the whole PR:
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
 --round <this round's number>
+--mode <your --mode>
 
 Leave these documentation paths out of every diff you read: <the paths
-"Documentation is outside the review" collected>
+"The mode decides which classes are reviewed" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file first, then hand back the result-file path that call
@@ -591,13 +626,14 @@ records out of state itself:
 --branch <headRefName>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
 --round <this round's number>
+--mode <your --mode>
 
 Your first command after your enter record reads the carried records:
 
 sdlc-agent-result-persist --mode print-records --pr <PR_REF> --round <this round's number>
 
 Leave these documentation paths out of every diff and delta commit you
-read: <the paths "Documentation is outside the review" collected>
+read: <the paths "The mode decides which classes are reviewed" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file first, then hand back the result-file path that call
@@ -687,9 +723,10 @@ more:
 --settle-mode <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --round <this round's number>
+--mode <your --mode>
 
 Leave these documentation paths out of every diff you read: <the paths
-"Documentation is outside the review" collected>
+"The mode decides which classes are reviewed" collected>
 
 Try to disprove this one claim per your agent definition. Record your
 report to your result file first, then hand back the result-file path
@@ -737,6 +774,7 @@ and `--fetched yes`. Each brief is one counterexample and nothing more:
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
 --round <this round's number>
+--mode <your --mode>
 
 Try to refute this one counterexample per your agent definition.
 Record your report to your result file first, then hand back the
@@ -846,7 +884,7 @@ program, script or pipeline you wrote to transform records:
 
 When `--mode print-records` read no records, store the new-records file
 with `--from` alone; whenever it read records, use `--carry`. The review
-file carries the eight argued sections of "Review body" in full. **Both
+file carries every argued section of "Review body" in full. **Both
 calls run on every round that reaches disposition** — a resumed one
 through the same call, and an empty-delta round as `--carry` with
 neither `--edits` nor `--from`: a round that stored neither leaves the
@@ -937,8 +975,7 @@ review"; the PR gets "The posted review summary". Its sections, in
 order:
 
 1. **Verdicts** — one line per member of the set you review against,
-   one per any other issue a finding names, and the overall line, per
-   "Per-issue verdicts, one overall".
+   and the overall line, per "Per-issue verdicts, one overall".
 2. **Review method** — the **head SHA reviewed**, which pins every
    verdict to a revision; the tier that ran and what picked it; how many
    theorems were live and how many the generator emitted; one paragraph
@@ -946,8 +983,10 @@ order:
    the PR and its issues, a disprover per live theorem, a verifier per
    disproved one, severities transcribed from the surviving class; and:
 
+   - the **mode** the round ran under;
    - the **kind of round**: a fallback round (the condition that fired,
-     saying it ran without seed records, or naming `<prev-round>` as
+     saying it ran without seed records or is the first documentation
+     round, or naming `<prev-round>` as
      the round it carried from), a delta round (naming `<prev-head>`,
      and round 0 when the carried records were the seed's), an
      adjustment-only round (what the comments changed), an empty-delta
@@ -984,6 +1023,10 @@ order:
 8. **Verdict** — the overall verdict in prose, with a path to approve:
    what must change for APPROVED, summarizing section 5's fix sizes; on
    APPROVED, what the approval rests on.
+9. **Closing-line corrections** — every correction "Identify the issue
+   set" reported, one per line as `add <issue>` or `remove <issue>` and
+   nothing else on the line, or `none`. Nothing here counts toward
+   section 1 or section 8.
 
 Sections 4, 6 and 7 are the **full theorem list**: every theorem the
 round fanned out over appears in exactly one, and each section-5
@@ -996,7 +1039,8 @@ never a copy of the argued review. In order: the verdict block; the
 Review method section unchanged, naming the round; one line per
 recorded theorem — id, the state this round left it in, and what
 changed; one line per finding — severity, source theorem, member(s);
-and the overall verdict in prose with a path to approve. **Every
+the overall verdict in prose with a path to approve; and the
+Closing-line corrections section unchanged. **Every
 theorem and finding line ends with the path of each file holding its
 detail**, relative to the state root the body names once:
 
@@ -1057,13 +1101,8 @@ theorems tagged to it and nothing tagged to another:
 - **Overall — NEEDS_CHANGES**
 ```
 
-Any *other* issue a finding attaches to gets a line too, so the finding
-cannot vanish from the overall verdict, carrying that finding alone:
-`- #207 — NEEDS_CHANGES (1 High, not delivered by this PR)` for an
-unexplained unclaimed member, and `- #310 — NEEDS_CHANGES (1 High,
-closing line outside the branch's set)` for a claimed issue outside the
-branch's set. A sanctioned deferral gets no line; note it as context
-below the block.
+An issue a closing-line correction names gets no line, and neither does
+a sanctioned deferral; note the deferral as context below the block.
 
 The overall verdict is the **worst** line, in the order APPROVED <
 NEEDS_CHANGES < BLOCKED — a derivation, because the PR merges as one
@@ -1119,13 +1158,7 @@ criterion. It only raises: `breaks-production` stays Critical.
 the severity of any standing finding the theorem produces, this round
 and every later one, criterion theorems included: Low grades Low.
 
-#### The findings that carry no class
-
-The findings "Identify the issue set" raises come from no theorem.
-Grade each yourself by the class glosses in the
-`sdlc:theorem-agents-interface` skill → "The consequence classes", and
-transcribe the class through the table. A finding that must be fixed
-before merge is not Low — re-grade it Medium or higher.
+#### A comment-only remedy
 
 A finding whose whole remedy is rewording a comment or docstring is at
 most Low — *unless* the comment masks an unmet acceptance criterion
@@ -1135,8 +1168,7 @@ finding IS the unmet criterion and is graded High per the floor.
 ## Verdict follows from findings
 
 Each verdict line follows mechanically from the findings and unsettled
-theorems tagged to its issue — a member, or an extra issue "Per-issue
-verdicts, one overall" gives a line to:
+theorems tagged to its member:
 
 - Any open Critical, High, or Medium finding → `request_changes`
   (report `NEEDS_CHANGES`, or `BLOCKED` if the fix is outside the
@@ -1161,13 +1193,14 @@ per-theorem lines, and your caller reads the review file through
 - every verdict line posted, and the overall verdict;
 - the findings themselves, so your caller can brief a fixer without
   re-reading the PR;
+- the Closing-line corrections section, verbatim, `none` included;
 - the kind of round, as the Review method section names it;
 - whether the round was **resumed** — theorems inherited settled and
   resume passes taken — and on an in-progress return, which loop exit
   you took and which theorems or stage are still outstanding.
 
 **End every report with one fixed closing line**, of the form
-`Return: <kind> — <next step>`, in exactly one of three kinds:
+`Return: <kind> — <next step>`, in exactly one of these kinds:
 
 - `Return: posted review <VERDICT> — act on the verdict`, where
   `<VERDICT>` is the overall verdict you posted.
@@ -1178,6 +1211,8 @@ per-theorem lines, and your caller reads the review file through
   log did not already have.
 - `Return: broken call: <script's message verbatim> — raise it`, per
   "When a call fails".
+- `Return: no resolved issue set: <what git-issues-from-branch
+  reported, verbatim> — raise it`, per "Identify the issue set".
 
 The harness surfaces every return as completed, so this line is what
-tells your caller the three apart; nothing above it substitutes for it.
+tells your caller the kinds apart; nothing above it substitutes for it.

@@ -24,7 +24,7 @@ restate the fact.
 | What one agent does | that agent's own file under `agents/` |
 | What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
-| How the orchestrator sequences the flow, what it branches on when a teammate returns, and how it briefs the teammates it spawns during the review loop | `skills/orchestrate/SKILL.md` |
+| How the orchestrator sequences the flow, what it branches on when a teammate returns, and how it briefs the teammates it spawns during the code loop | `skills/orchestrate/SKILL.md` |
 | The procedure the orchestrator runs at one moment of the flow, and the briefs it spawns at that moment | the file for that moment under `skills/orchestrate/lib/` |
 | What the merge-readiness loop does on each state the gate reports, which of those it returns as a question, how a ruling is matched to the question it answered, and the bounds on its waits | `agents/pr-merge-readiness.md` |
 | What ends the monitor loop | `agents/pr-monitor.md` |
@@ -80,7 +80,7 @@ the body, in one of two shapes:
 | `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
 | `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
-| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the spawns on the human's end-of-loop confirmation, the close-out, and the briefs for the two loop agents |
+| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn on the human's confirmation that the documentation loop is done, the close-out, and the briefs for the two loop agents |
 | `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
 
 A step the orchestrator runs is run by exactly one of the body, a lib
@@ -112,10 +112,12 @@ rather than recalling it:
   gate and the "Files likely affected" step in
   `skills/orchestrate/SKILL.md`; and `skills/theorem-generation/SKILL.md`,
   which keys a criterion theorem's `settle-mode` off the sub-headings of
-  the code and instruction Markdown section and emits no theorem for a
-  documentation bullet. Among the second, where the wording cannot
-  avoid the literal: the orchestrator's scope rule and both
-  `docs-writer` briefs spell the acceptance-section headings, and
+  the section its mode reads — the code and instruction Markdown
+  section in a code round, the documentation section in a documentation
+  round. Among the second, where the wording cannot avoid the literal:
+  the orchestrator's scope rules and its rule for a batch with no code
+  to implement, and the `docs-writer` writing brief, spell the
+  acceptance-section headings, and
   `plugins/issues/skills/issue-create/SKILL.md` spells every heading it
   reads because the plugin sandbox keeps it from reaching the skill. So
   grep the quoted heading repo-wide rather than recalling who spells
@@ -135,13 +137,17 @@ files-affected headings literally, so a change to that grammar reaches
 that file too.
 
 The header `style-checker` takes its rules from, `## For Authors and
-Checkers`, is spelled in the global style guides — outside this
-repository, so a rename there never shows up in a grep here — and in
-their per-repo extension files.
+Checkers`, is spelled in the global style guides — the code-style
+guide, the instruction-Markdown guide and the documentation style
+guide, all outside this repository, so a rename there never shows up
+in a grep here — and in their per-repo extension files.
 By the checker's own wording a guide without that header contributes no
 rules, so a renamed header makes the pass report clean rather than
-fail. A PR that renames it in the guides edits `agents/style-checker.md`
-and the orchestrator's roster line and spawn prompt in the same change.
+fail. A PR that renames it in the guides edits `agents/style-checker.md`,
+the orchestrator's roster line, and every `style-checker` spawn prompt
+— the code loop's in `skills/orchestrate/SKILL.md` and the
+documentation loop's in `skills/orchestrate/lib/pr-lifecycle.md` — in
+the same change.
 
 ## A spawn template and its receiving agent are one change
 
@@ -234,18 +240,21 @@ What the two switches leave alone is as deliberate as what they skip:
 
 ## A blessed PR is gated on merge readiness, and the gate never remedies
 
-The human's end-of-loop blessing authorizes the ready flip and nothing
-past it, and the flip is not the next thing that happens. "Ready for
-review" is a draft flag; it says nothing about whether the branch is
-current with its base, merges cleanly, or passes its required checks,
-and a final section written while the branch is behind its base
-describes commits a rebase is about to rewrite. So a blessed PR goes
-through the close-out's stages in order: the agents that still put
-commits on the branch (`docs-writer`, `agent-memory-scrubber`), then
-the **merge-readiness loop** — the `pr-merge-readiness` agent, which
-runs `github-prs:pr-ready-to-merge` and leaves only on a state its
-table lets through; then the linear **close-out** — the In Review
-flips, `pr-finalizer`, the ready flip; then, unless `merge-wait` is
+The human's blessing — the confirmation that ends the PR's
+documentation loop — authorizes the ready flip and nothing past it,
+and the flip is not the next thing that happens. "Ready for review" is
+a draft flag; it says nothing about whether the branch is current with
+its base, merges cleanly, or passes its required checks, and a final
+section written while the branch is behind its base describes commits
+a rebase is about to rewrite. So a blessed PR goes through the
+close-out's stages in order: the one agent that still puts a commit on
+the branch, `agent-memory-scrubber`; then the **merge-readiness loop**
+— the `pr-merge-readiness` agent, which runs
+`github-prs:pr-ready-to-merge` and leaves only on a state its table
+lets through; then the linear **close-out** — `pr-finalizer`, the In
+Review flips, the ready flip, in that order because the finalizer
+corrects the body's closing lines and the flips read the closing set
+it leaves; then, unless `merge-wait` is
 `skip`, the **monitor loop** — the `pr-monitor` agent, which polls
 until the PR merges and re-runs the gate while it waits, returning when
 the branch has fallen `BEHIND` or `DIRTY` so the merge-readiness loop
@@ -261,14 +270,18 @@ remedy is a teammate's. Neither the orchestrator nor a loop agent runs
 `git rebase` or `git merge` or hand-edits a conflict in the primary
 clone. A branch the gate finds `BEHIND` or `DIRTY` is handed by
 `pr-merge-readiness` to `issue-fixer` through the same fixer-brief
-comment the review loop uses, carrying the gate's report verbatim, and
-the fixer's return is followed by `docs-writer` when the fixer deferred
-a documentation edit, then the memory scrub, then the gate again rather
-than a review round — so `issue-fixer` performs merge-readiness
-remedies as well as review fixes, and the two kinds of brief are told
-apart by whether the brief carries findings. A `docs-writer` commit
-needs no review round in either place, since documentation is the one
-class no round reviews. What each state drives is
+comment the code loop uses, carrying the gate's report verbatim, and
+the fixer's return is followed by the memory scrub, then the gate again
+rather than a code review round — so `issue-fixer` performs
+merge-readiness remedies as well as review fixes, and the two kinds of
+brief are told apart by whether the brief carries findings. A remedy
+that leaves documentation behind — an edit the fixer deferred, or a
+rebase conflict it resolved in a documentation file — is the one
+return the loop agent makes with no question to ask: it spawns no
+`docs-writer`, because a documentation commit would reach the gate with
+no round over it, and returns `documentation loop needed` instead; the
+orchestrator runs the documentation loop, scrubs memory again, and
+spawns the agent afresh. What each state drives is
 owned by that loop agent's own file. The merge-readiness loop's wait
 bounds are that file's too; the monitor loop's poll interval and
 unchanged-poll bound reach it in its brief, as config keys whose
@@ -295,17 +308,20 @@ effect.
 Because every failed gate means the close-out is run again, each of
 its steps is safe to repeat: the status flips repeat harmlessly, the
 ready flip no-ops on a PR already ready, and `pr-finalizer` finds a
-detail chain a previous run posted and leaves it alone, and finds its
-own marked section in the body and overwrites it, so a reader never
-meets a stale section before the current one.
+detail chain a previous run posted and leaves it alone, finds its own
+marked section in the body and overwrites it, so a reader never meets
+a stale section before the current one, and reports a closing-line
+correction the body already satisfies as satisfied rather than
+applying it twice.
 
 ## The issue is the ceiling of the fix loop
 
 An issue's `## Code and instruction Markdown acceptance` section is
-the ceiling of the fix loop, not its floor; its
-`## Documentation acceptance` section sets no scope at all, since what
-that section asks for is `docs-writer`'s after the loop and never a
-finding's fix. A review finding whose fix lies outside the ceiling is
+the ceiling of the code loop's fix loop, not its floor; its
+`## Documentation acceptance` section sets no scope there, since what
+that section asks for is `docs-writer`'s, in the documentation loop,
+where that section and the documentation the diff made stale are the
+ceiling in turn. A review finding whose fix lies outside the ceiling is
 the human's to admit or refuse, and so is a developer's diff that
 reaches a plugin the issue does not name or renames or deletes a file
 the issue does not specify; the orchestrator never admits either on its
@@ -324,9 +340,26 @@ an offered rejection, a request to confirm intent — turns it into a
 question for the human, because the verification stage already closed
 that question and the scope ruling answers the rest. Rejecting a
 verified finding is
-the human's unprompted move, never one the review invites. That
-boundary is enforced by slots that must be filled rather than by prose
-asking for judgment, and each slot has one owner:
+the human's unprompted move, never one the review invites.
+
+A closing line the PR body gets wrong — a branch member with no closing
+line and no deferral the body explains, or a line naming an issue
+outside the branch's set — is about the PR rather than about any file,
+so it is neither a finding nor a scope question. It used to be graded
+as a finding with a verdict line of its own, which sent the loop back
+over something no fixer could touch: the body is frozen until the
+close-out. The reviewer now reports each as a **closing-line
+correction**, `add <issue>` or `remove <issue>`, in a section outside
+its findings that takes no part in any verdict, in every mode, and
+every round reports it again because nothing changes the body. The
+orchestrator hands the last round's section to `pr-finalizer`, which
+makes the corrections at the close-out and reports each as applied,
+satisfied or not applied; one not applied is the human's, raised before
+the ready flip. That is why the finalizer runs before the In Review
+flips, which read the closing set it leaves.
+
+That boundary is enforced by slots that must be filled rather than by
+prose asking for judgment, and each slot has one owner:
 
 | Slot | Owner |
 | --- | --- |
@@ -340,6 +373,9 @@ asking for judgment, and each slot has one owner:
 | The grading of an issue body's structural instruction against the repo | `skills/orchestrate/SKILL.md` |
 | How a finding dropped on a scope ruling reaches the next round and retires | `agents/theorem-based-pr-reviewer.md` |
 | How a finding dropped on a scope ruling is worded in the PR's final section | `agents/pr-finalizer.md` |
+| That a closing-line correction is reported outside the findings, in every mode, and takes no part in any verdict | `agents/theorem-based-pr-reviewer.md` |
+| That a closing-line correction gets no ruling and no fixer, and that the last round's section is what reaches `pr-finalizer` | `skills/orchestrate/SKILL.md` |
+| How `pr-finalizer` applies a correction, which it reports as satisfied, and which it refuses to apply | `agents/pr-finalizer.md` |
 | That the files-affected list is a floor, and that listing a path changes nothing about its class, owner, or review | `skills/orchestrate-readiness/SKILL.md` |
 | That a listed path grounds no theorem about the rest of the tree | `skills/theorem-generation/SKILL.md` |
 
@@ -356,19 +392,21 @@ human-refuted.
 Every file in a run is in one of the classes the global Claude
 configuration defines — code, instruction Markdown, documentation —
 and the class alone decides who edits it: `issue-developer` and
-`issue-fixer` edit code and instruction Markdown inside the review
-loop, `code-documenter` corrects the comments in both, each against
-its own class's style guide, and `docs-writer` edits documentation
-after it. No file in this plugin defines a class or says which paths
-fall in one: the definition once lived in a skill of this plugin's own
+`issue-fixer` edit code and instruction Markdown inside the code loop,
+`code-documenter` corrects the comments in both, each against its own
+class's style guide, and `docs-writer` edits documentation in the
+documentation loop that follows. No file in this plugin defines a
+class or says which paths fall in one: the definition once lived in a
+skill of this plugin's own
 as well, and two copies in two repositories drifted apart whenever
 either changed, so an sdlc file that needs a file's class names the
 class and nothing more. Instruction Markdown is a class of its own
 rather than a kind of code because the style guides grade it by its
 own guide, yet it is implemented, fixed, checked and reviewed exactly
 as code is: a change to one changes what an agent does, so it cannot
-wait for the unreviewed pass documentation gets. Whether an issue's
-files-affected list names a file never moves it between classes.
+wait for the loop that follows the code loop, as documentation does.
+Whether an issue's files-affected list names a file never moves it
+between classes.
 
 The split leaves the implementers with edits they are barred from
 making. A code change that makes a README wrong, or a review finding
@@ -377,11 +415,14 @@ fixed" or as a design decision, and the orchestrator put each one to
 the human — an escalation over work that was already assigned, by
 design, to a later stage. So each implementer report carries a fixed
 `Deferred to docs-writer:` line, `none` when empty, and the
-orchestrator collects every entry into the `docs-writer` brief and
-raises none of them. The same line runs through a merge-readiness
-remedy: a fixer round there may defer an edit too, and
-`pr-merge-readiness` spawns `docs-writer` for the entries before the
-gate runs again, in place of returning them as a question.
+orchestrator collects every entry into the `docs-writer` writing brief
+and raises none of them. The same line runs through a merge-readiness
+remedy: a fixer round there may defer an edit too, or resolve a rebase
+conflict in a documentation file — the one documentation edit it
+makes, named on its `Documentation conflicts:` line — and
+`pr-merge-readiness` returns `documentation loop needed` for either, in
+place of returning them as a question, so the orchestrator runs a
+documentation loop whose writing brief carries the entries.
 
 An issue's own acceptance criteria used to take the same wrong turn
 from the other direction. Every criterion became a theorem the review
@@ -389,24 +430,130 @@ loop settled, so a criterion about documentation sent the implementer
 at a file outside its reach, and the loop stopped for a human ruling
 that relayed the edit to `docs-writer` by hand. So the issue-body
 grammar splits the criteria by class into
-`## Code and instruction Markdown acceptance`, which the review loop
-settles and which alone grounds criterion theorems and scope rulings,
-and `## Documentation acceptance`, which no theorem is made of. Every
-`docs-writer` brief carries the latter's bullets, from every member
-issue, under a fixed `Documentation criteria:` line beside the deferred
-entries, and `docs-writer` treats each one as a required edit. Each
+`## Code and instruction Markdown acceptance`, which the code loop
+settles and which alone grounds its criterion theorems and scope
+rulings, and `## Documentation acceptance`, which the documentation
+loop settles the same way, one theorem per criterion, and which no code
+round makes a theorem of. The `docs-writer` writing brief carries the
+latter's bullets, from every member issue, under a fixed
+`Documentation criteria:` line beside the deferred entries;
+`docs-writer` treats each one as a required edit and grades it `met` or
+`not met` in its report, and a `not met` is a finding of the round. Each
 piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The `Deferred to docs-writer:` line in the developer's report | `agents/issue-developer.md` |
 | The same line in the fixer's report, and that a documentation-remedy finding goes there rather than under not fixed | `agents/issue-fixer.md` |
+| That a rebase conflict in a documentation file is the fixer's one documentation edit, and the `Documentation conflicts:` line that names each | `agents/issue-fixer.md` |
 | The acceptance sections, which class of criterion each holds, and that a readiness gap is raised on a criterion filed under the wrong one | `skills/orchestrate-readiness/SKILL.md` |
 | That a criterion is written into the section its subject's class names | `skills/orchestrate-ready/SKILL.md` |
-| That a documentation criterion becomes no theorem on any brief | `skills/theorem-generation/SKILL.md` |
-| Collecting the deferred entries and the documentation criteria into the end-of-loop `docs-writer` brief | `skills/orchestrate/lib/pr-lifecycle.md` |
-| The `docs-writer` spawn after a merge-readiness fixer round, and the issue set and documentation criteria it carries | `agents/pr-merge-readiness.md` |
-| How `docs-writer` treats the entries and the criteria alongside the diff | `agents/docs-writer.md` |
+| That a documentation criterion becomes no theorem in a code round, and one theorem per criterion in a documentation round | `skills/theorem-generation/SKILL.md` |
+| Collecting the deferred entries and the documentation criteria into the `docs-writer` writing brief, and that a criterion graded `not met` goes into the round's fixer brief | `skills/orchestrate/lib/pr-lifecycle.md` |
+| The `documentation loop needed` return, and which fixer lines trigger it | `agents/pr-merge-readiness.md` |
+| How `docs-writer` treats the entries and the criteria alongside the diff, and how it grades each criterion | `agents/docs-writer.md` |
+
+## Documentation is reviewed in a loop of its own, after the code loop
+
+Documentation describes code that has settled, so `docs-writer` writes
+it once the code loop has ended — and until it had a loop of its own,
+nothing read what it wrote. A `## Documentation acceptance` criterion
+it missed, or a README restatement the change had made stale, reached
+the merge unchecked, and an issue whose criteria were all documentation
+had no path through the orchestrator at all. So the human's
+confirmation that the code loop is done starts a **documentation loop**
+rather than the close-out. It takes the code loop's round rules as they
+stand — the style-fix loop, the reviewer spawn and its `Return:` line,
+the fix loop's decision points, the review adjustments, the end-of-loop
+confirmation — with `docs-writer` as its implementer: it writes on the
+first round and, on each later one, fixes the fixer brief the
+orchestrator posts on the PR, read off the PR's most recent comment as
+`issue-fixer` reads its own. `code-documenter` does not run in it,
+since a documentation file carries no comment for it to correct.
+
+**One pipeline, two modes.** Every round of either loop runs under a
+`--mode`, `code-and-instruction-markdown` or `documentation`, passed to
+`style-checker`, to the reviewer, and by the reviewer to every theorem
+agent it spawns, so one review pipeline grades either side of the class
+split rather than a second pipeline duplicating the first. Under
+`documentation` the generator works these sources and no other: one
+theorem per documentation criterion of every member issue, with the
+settle mode its sub-heading names, and one per restatement in
+documentation of a fact the diff changed. Code and instruction Markdown
+are read only for the facts a documentation file restates, so the
+documentation-paths line that keeps a code round's children off
+documentation files has nothing to exclude and is absent.
+`style-checker` under the same mode checks only the documentation files
+the diff touched, against the documentation style guide. A brief
+carrying no `--mode` is a code round, so a standalone
+`/sdlc:git-review-pr` reviews as it always did unless the user passes
+one.
+
+**Round types share a sequence and split their records.** The rounds
+of both loops are numbered in one sequence per PR, under one state
+layout: the first documentation round takes the number after the last
+code round, and the reviewer's anchor call writes the mode into the
+round's log as its type. A round carries only the records of its own
+type, so the first documentation round carries nothing and generates
+from the whole PR, as a first code round with no seed does, and a code
+round after a documentation loop carries past it to the code round
+below. Theorem ids do not split: they run in one sequence across both
+types, so an id names one theorem across the whole PR, and the
+generator's `leave` holds a documentation round's first new id to one
+above the highest id any round holds. Each type has a records chain of
+its own, so the detail poster posts the latest records of each, the
+time report names the type on every round's row, and `pr-finalizer`
+writes one sub-section per type.
+
+**A bound per loop.** The documentation loop's round bound is the code
+loop's value, counted on its own, so a PR that spent its code rounds
+still gets its documentation rounds; the summary's `Review Rounds`
+cell carries each loop's count.
+
+**`docs-writer` grades the criteria, and the grade can be a finding.**
+Its report marks each criterion in its brief `met` or
+`not met — <reason>`, grading the branch rather than its intent, and a
+`not met` goes into the round's fixer brief even when the review
+approved, so the loop never ends on an approval the writer itself
+disputes. Scope rulings in this loop read a finding against the issue's
+`## Documentation acceptance` section and against the documentation
+the diff made stale — the sources a documentation round generates from
+— and a closing-line correction gets no ruling at all, per "The issue
+is the ceiling of the fix loop".
+
+**A merge-readiness remedy that touches documentation re-opens the
+loop.** `pr-merge-readiness` used to spawn `docs-writer` itself when a
+fixer deferred an edit, and that commit reached the gate with no round
+over it. It now spawns none: a fixer round that defers a documentation
+edit or resolves a rebase conflict in a documentation file ends its
+run with `documentation loop needed`, the orchestrator runs the
+documentation loop with those entries in the writing brief, scrubs
+memory again, and spawns `pr-merge-readiness` afresh.
+
+**The documentation-only path.** A batch none of whose members carries
+a `## Code and instruction Markdown acceptance` section has nothing for
+the code loop to implement or review, so it skips the seed and the
+developer: `docs-writer` creates the branch with
+`git-tools:git-branch-create`, writes the documentation, opens the
+draft PR with `github-prs:pr-create`, and the documentation loop runs
+from its style check. Such an issue is grouped only with others like
+it, so a batch takes one path or the other whole. Each piece has one
+owner:
+
+| Slot | Owner |
+| --- | --- |
+| Sequencing the documentation loop after the code loop and on a `documentation loop needed` return, its scope rulings, its separate bound, and skipping the code loop for a batch with no code to implement | `skills/orchestrate/SKILL.md` |
+| The `docs-writer` briefs — writing, fixer address, new branch — how a documentation round's fixer brief is posted, and what ends the loop | `skills/orchestrate/lib/pr-lifecycle.md` |
+| What `--mode` means to a theorem agent, and which brief carries it | `skills/theorem-agents-interface/SKILL.md` |
+| Which classes a round reviews under each mode, and that the mode is the round's type | `agents/theorem-based-pr-reviewer.md` |
+| The documentation-mode sources, and that no theorem under that mode is about code or instruction Markdown | `skills/theorem-generation/SKILL.md` |
+| Which files `style-checker` reads under each mode, and against which guide | `agents/style-checker.md` |
+| The round type in the anchor, the same-type carry, the cross-type id sequence, and the type a round anchored before rounds had one is read as | `skills/agent-result-persist-interface/SKILL.md` |
+| How `docs-writer` reads a fixer brief, grades a criterion, and creates the branch and PR on the documentation-only path | `agents/docs-writer.md` |
+| The `documentation loop needed` return, and that no `docs-writer` is spawned for a remedy | `agents/pr-merge-readiness.md` |
+| One final-section sub-section per round type, and which records each is read from | `agents/pr-finalizer.md` |
+| That the latest records of each type are posted, and in which order | `bin/sdlc-pr-post-theorem-records` |
+| The type column on the time report's per-round rows | `bin/sdlc-orchestrate-analysis` |
 
 ## The theorem set is seeded from the issues before the developer runs
 
@@ -425,13 +572,17 @@ Round 0 holds that one file, so a walk that starts at round 1 never
 sees it, and a PR with no round 0 — one reviewed outside the
 orchestrate loop, or one whose seed was lost with the session that
 took it — is reviewed from its whole diff, with the review saying so.
-Each piece has one owner:
+The seed is the code loop's: a documentation round carries only
+records of its own type, so the first one reads no seed and generates
+from the whole PR the same way, with the review saying so, and a batch
+with no code to implement has no seed at all. Each piece has one
+owner:
 
 | Slot | Owner |
 | --- | --- |
 | The issues-only brief, and what a generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `skills/theorem-generation/SKILL.md` |
 | The seed spawn, the tier pick against the issue bodies, the per-theorem ruling or its `auto-accept` skip, and the round-0 write | `skills/orchestrate/SKILL.md` |
-| Round 0 as a valid round number holding only a records file | `skills/agent-result-persist-interface/SKILL.md` |
+| Round 0 as a valid round number holding only a records file, read as a code round | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
 | That the seed generator reads the files-affected section in place of a diff | `skills/theorem-generation/SKILL.md` |
 
@@ -469,8 +620,19 @@ rounds below. A round whose previous head can no longer be fetched
 still carries: its delta becomes the whole branch, but its ids continue
 the sequence and its retired theorems stay retired.
 
+Both reads select by the round's type as well, which the round's own
+anchor names rather than a flag beside the round number: a
+documentation round reads past the code rounds to the documentation
+round below it, and a code round reads past the documentation rounds,
+because a documentation round's verdicts answer none of a code round's
+questions. The ids are what the split leaves whole. A new theorem's id
+is one above the highest id any round below holds, of either type, so
+an id names one theorem across the PR and the detail chain never holds
+the same id twice.
+
 The ids a generator gives its new theorems are checked at its `leave`,
-against the same carried records its read returned, and a list whose
+against the same carried records its read returned and the same id
+floor, and a list whose
 ids collide with a carried record or skip ahead of the sequence is
 refused before any of it is stored. The carry form already refused such
 a list, but it runs in the reviewer after the generator has returned,
@@ -485,8 +647,8 @@ Each piece has one owner:
 | Slot | Owner |
 | --- | --- |
 | The carry form — its inputs, the edits grammar, the records-file shape, and each refusal | `skills/agent-result-persist-interface/SKILL.md` |
-| The bounded read, and the refusal that bounds it | `skills/agent-result-persist-interface/SKILL.md` |
-| The id check a generator's `leave` makes, and what its refusal names | `skills/agent-result-persist-interface/SKILL.md` |
+| The bounded read, its selection by the round's type, and the refusal that bounds it | `skills/agent-result-persist-interface/SKILL.md` |
+| The id check a generator's `leave` makes, that the expected id is above the highest of either type, and what its refusal names | `skills/agent-result-persist-interface/SKILL.md` |
 | What the reviewer stages as edits and as new records, and which form a fallback round stores through | `agents/theorem-based-pr-reviewer.md` |
 | That `--delta-commits` alone marks a delta brief, and the `print-records` line it carries | `skills/theorem-agents-interface/SKILL.md` |
 | The generator's own read, and the stop when it fails or prints no records | `skills/theorem-generation/SKILL.md` |
@@ -538,8 +700,15 @@ names it. Each piece has one owner:
 `test/sdlc-test.sh` drives the script's records and round-log modes
 against a state root of its own — the seed write, the carry form, each
 refusal it makes, the bounded read, the generator's id check at
-`leave`, the path `leave` prints, and the in-flight derivation with a
-`stopped` landing after its replacement's `enter`. The same suite
+`leave`, the path `leave` prints, the in-flight derivation with a
+`stopped` landing after its replacement's `enter`, and the round types:
+the type an anchor writes and the refusals around it, the `round-type`
+line `print` ends with, a first documentation round carrying nothing
+while its ids continue the code rounds', a code round carrying past a
+documentation round, the carry's cross-type id floor, and
+`print-records`' selection by type. It drives the detail poster
+posting each type's records and the time report's type column against
+the same root. The same suite
 drives the PR-read scripts against a stub `gh` that serves a PR's
 reviews and comments — each script's output and exits, every case of
 the adjustment cut, and that the adjustments read reaches the previous
@@ -706,7 +875,7 @@ verdict then reflects it.
 | ------- | --------- | --------------- |
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
-| `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
+| `/sdlc:git-review-pr <PR> [--generator <name>] [--full] [--mode <mode>]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `/sdlc:orchestrate-cleanup <PR> [--dry-run]` | Remove what one merged or closed PR left behind — its review state, the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; `--dry-run` lists what would go and removes nothing | main session |
 | `/sdlc:orchestrate-cleanup --all [--dry-run]` | Remove everything every run left in this repo — all review state, every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; `--dry-run` shows the list and asks nothing | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
@@ -716,7 +885,7 @@ verdict then reflects it.
 | `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
-| `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer` and `pr-finalizer` |
+| `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer`, `docs-writer` and `pr-finalizer` |
 | `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
 
 The rows with no leading slash are not user verbs — each declares
@@ -729,7 +898,7 @@ frontmatter, and `theorem-agents-interface` into every theorem agent
 `counterexample-verifier` — the same way, and `pr-read-cli-interface`
 into each agent that runs one of the PR-read scripts.
 `theorem-based-pr-reviewer` reads `theorem-agents-interface` by name as
-well, for the class glosses it grades its own theorem-less findings by.
+well, for what the parameters of the briefs it writes mean.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
@@ -972,9 +1141,9 @@ PR's repository's directory, and `<round-dir>` for
 | File | What it holds |
 | ------- | --------------- |
 | `<repo-dir>/repo.yml` | the host, owner and name of the repository whose state the directory holds, written when the directory is created |
-| `<round-dir>/log` | the round log |
+| `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
-| `<round-dir>/records` | the round's theorem records, which the next round carries forward — built by the script from the round below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
+| `<round-dir>/records` | the round's theorem records, which the next round of its type carries forward — built by the script from the round of that type below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
 | `<round-dir>/review` | the round's argued review, which the posted review summarises; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 | `<repo-dir>/pr<pr>/agents` | the PR's agents log: one record per agent spawned for the PR, naming the definition and the agent id, beside the rounds because a spawn belongs to no round and a voided round's rename must not carry it away |
@@ -1073,11 +1242,11 @@ reference, so their ids are held and recorded once the PR is linked.
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving each conflict a ruling or its own resolvability conditions settle and escalating the rest — to an open PR's branch |
 | `code-documenter` | Adds or corrects the comments in a round's code files, and corrects or deletes those its instruction-Markdown files carry where the diff contradicts them, each file against its own class's style guide, before its review |
-| `style-checker` | Reports a round's style-guide violations in its code and instruction Markdown, each file graded against its own class's guide, which the orchestrator sends to a fixer before its review |
-| `docs-writer` | Writes a PR's documentation after its review loop ends, and again after a merge-readiness fixer round that deferred a documentation edit to it |
+| `style-checker` | Reports a round's style-guide violations in the files of the side of the class split its `--mode` names — code and instruction Markdown in the code loop, documentation in the documentation loop — each file graded against its own class's guide, which the orchestrator sends to the loop's fixer before its review |
+| `docs-writer` | Writes a PR's documentation in the documentation loop that follows its code loop, fixes what that loop's rounds find in it, and for a batch with no code to implement creates the branch and opens the PR |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer`, then `docs-writer` when the fixer deferred a documentation edit, then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, and returns a state that needs a ruling as a question |
-| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, replacing the one an earlier run left |
+| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
+| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, and corrects the closing lines its brief names |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove |

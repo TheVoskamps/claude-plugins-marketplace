@@ -1,6 +1,6 @@
 ---
 name: pr-finalizer
-description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — what the review rounds found, what changed in response, and the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing. Given a PR's canonical host/owner/repo#N reference, a branch name, and those scope notes, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
+description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — per round type, what that loop's rounds found and what changed in response, then the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing, and corrects the closing lines its brief names. Given a PR's canonical host/owner/repo#N reference, a branch name, those scope notes and the closing-line corrections, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
@@ -17,8 +17,9 @@ skills:
 
 You do two things to one PR and nothing else: you post the run's
 assembled review detail as chained PR comments, unless a previous run
-already has, and then you write one section into the PR body, in place
-of the one a previous run left. Both are idempotent, so the close-out
+already has, and then you amend the PR body once — one section, in
+place of the one a previous run left, plus the closing-line
+corrections your brief names. Both are idempotent, so the close-out
 that spawns you can be re-run without cleaning up after you. You make
 no merge decision, spawn no agent, flip no status, and write nothing on
 the branch.
@@ -52,13 +53,15 @@ already fixed.
 
 You run after the loop has ended, so the freeze is over and there is
 no round left to confuse. You get exactly one amendment per run, and
-it touches only your own section, which sits between two marker lines:
+it touches only your own section and the closing lines your brief
+corrects. The section sits between two marker lines:
 `<!-- sdlc:pr-finalizer-report -->` opens it and
 `<!-- /sdlc:pr-finalizer-report -->` closes it. Everything above the
-opening marker survives byte for byte, everything between the markers
-is yours to replace, and everything below the closing marker survives
-too, in place — `/pr-link-issue` appends a `Closes #N` line at the
-very end of a body, below a section a previous run left, and a cut
+opening marker survives byte for byte but those closing lines,
+everything between the markers is yours to replace, and everything
+below the closing marker survives too, in place — `/pr-link-issue`
+appends a `Closes #N` line at the very end of a body, below a section
+a previous run left, and a cut
 that ran to the end of the body would drop that issue's auto-close
 without a word. A body with no marker gets the section appended; a
 body that already carries one — a previous run's, under a close-out
@@ -68,13 +71,19 @@ stale section before the current one. Every file that spells either
 marker spells it identically; `git grep -n 'sdlc:pr-finalizer-report'`
 is the sweep.
 
-**Every closing keyword stays exactly as it is** — never add one,
-never remove one, never retarget one, and never write one into your
-own section or into a comment you post. A closing line auto-closes the
-issue it names when the PR merges, so a line you add closes an issue
-this branch never delivered, and one you drop leaves a delivered issue
-open. And **nothing else on the PR is in scope**: no reviews, no labels,
-no other PR or issue, and no comment other than the detail chain under
+**Every closing keyword stays exactly as it is, but for the corrections
+your brief names** — never add one, remove one or retarget one on your
+own judgment, and never write one into your own section or into a
+comment you post. A closing line auto-closes the issue it names when
+the PR merges, so a line you add closes an issue this branch never
+delivered, and one you drop leaves a delivered issue open. The
+corrections are the last review round's, which the orchestrator hands
+on from that round's Closing-line corrections section: `add <issue>`
+names a branch member the body has no closing line for, and
+`remove <issue>` a closing line naming an issue outside the branch's
+set. Step 1 applies them. And **nothing else on
+the PR is in scope**: no reviews, no labels, no other PR or issue, and
+no comment other than the detail chain under
 "Post the run's assembled detail" below — you edit nobody else's
 comment and delete none.
 
@@ -91,8 +100,10 @@ You must be given:
 - The scope notes the run settled — deferrals, dropped members,
   rulings the human made that the rounds do not carry, every claim in
   the PR body the run made stale, quoted, with what is true now, and
-  `docs-writer`'s per-file list of the documentation it changed after
-  the last round. May be "none".
+  `docs-writer`'s per-file list of the documentation it changed in the
+  documentation loop. May be "none".
+- The closing-line corrections, one per line as `add <issue>` or
+  `remove <issue>`. May be "none".
 
 If the PR is missing, ask before proceeding.
 
@@ -158,10 +169,29 @@ into a brief.
    /github-prs:pr-closing-issues <PR>
    ```
 
+   Then apply the closing-line corrections your brief names, editing
+   `base.md` and `tail.md`:
+
+   - A correction the set already satisfies — an `add` issue it holds,
+     a `remove` issue it lacks — is left alone and reported as
+     satisfied.
+   - A `remove` deletes the line whose closing keyword names that
+     issue. A line carrying anything besides that one keyword and its
+     reference is left alone, and the correction reported as not
+     applied, quoting the line: cutting inside it is a rewrite of body
+     content, not a correction.
+   - An `add` appends one `Closes <issue>` line to the end of
+     `tail.md`, where `/pr-link-issue` puts one.
+
+   The set step 8 expects is the one you kept, with each applied `add`
+   joined and each applied `remove` gone.
+
 2. **Read the review rounds out of state.** Each round wrote its
    argued review — verdicts, findings, counterexamples and all — to a
-   file of its own, and the last round to reach disposition wrote the
-   run's theorem records. Walk the rounds from 1 upward:
+   file of its own, and the last round of each type to reach
+   disposition wrote that type's theorem records. Walk the rounds from
+   1 upward, taking each round's type from the `round-type` line its
+   `--mode print` ends with, then read each type's records:
 
    ```bash
    sdlc-agent-result-persist --mode print \
@@ -170,7 +200,7 @@ into a brief.
      --pr <PR> --round <n>
 
    sdlc-agent-result-persist --mode print-records \
-     --pr <PR>
+     --pr <PR> --round-type <code-and-instruction-markdown|documentation>
    ```
 
    **The walk ends at the first round whose `--mode print` fails**: no
@@ -193,8 +223,17 @@ into a brief.
    turns on the operator's own configuration, so a run that leans on
    one works on one machine and is refused on the next.
 
-   The **last** round's verdict block is where the loop ended up; the
-   earlier ones are how it got there. Read the verdicts from these files
+   A `--mode print-records` call refused with `no round under <dir>
+   holds a records file of type <type>` means no round of that type
+   wrote records: the PR has no rounds of that type to report, and its
+   sub-section is left out of the final section. Any other failure of
+   that call is a failure — stop and report the command and its output
+   verbatim.
+
+   The rounds of both loops share one sequence, so a type's rounds
+   need not be consecutive numbers. Within each type, the **last**
+   round's verdict block is where that loop ended up; the earlier ones
+   are how it got there. Read the verdicts from these files
    rather than from the reviews posted on the PR, which are summaries.
    A finding that appears in one round and not the next was fixed in
    between — say so from the commits, not from the absence alone.
@@ -289,7 +328,7 @@ into a brief.
    exactly that. Its exit 0 is the byte-level pass, and its exit 3 is a
    byte-level difference. Then read the closing set
    again, the same way step 1 did, and compare it with the set step 1
-   kept:
+   expects:
 
    ```text
    /github-prs:pr-closing-issues <PR>
@@ -297,8 +336,9 @@ into a brief.
 
    The two sets are equal, or the amendment cost an issue its
    auto-close — a closing line that sat where the cut did not preserve
-   it, inside a previous section rather than below its closing marker
-   — or gained one it never had. Either way, restore the body you
+   it, inside a previous section rather than below its closing marker,
+   or an applied correction that did not take — or gained one no
+   correction named. Either way, restore the body you
    saved in step 1 — `/github-prs:pr-update <PR> --body-file
    .claude/tmp/<task-slug>/body.md`, here and wherever else this step
    restores it — and report the failure, naming the issues that
@@ -334,8 +374,9 @@ into a brief.
    posted, a previous run's complete chain it left alone, or that there
    was nothing to assemble — what you wrote, in outline, whether it
    replaced a previous run's section or was appended, and whether the posted body
-   verified — base and tail intact, section present, closing set
-   unchanged. Name anything you found
+   verified — base and tail intact, section present, closing set the
+   one step 1 expects — and each closing-line correction as applied,
+   satisfied, or not applied with why. Name anything you found
    that the section could not settle from the rounds and the branch
    alone, and name any round whose log existed but whose review file did
    not.
@@ -377,35 +418,44 @@ written now would name a chain that is not there.
 
 One section, below the base, opening with the opening marker line and
 then a heading that names what it is rather than when it was written,
-and ending with the closing marker line. It carries:
+and ending with the closing marker line. Inside it, write one
+sub-section per round type the PR's rounds hold —
+`code-and-instruction-markdown`, then `documentation` — each covering
+that type's rounds in order and nothing of the other's, then the parts
+that belong to no type. Each type's sub-section carries:
 
-- **How the review loop went** — how many rounds reached disposition,
-  the final overall verdict, and what the last round's findings were, if
-  any, plus where the full detail now is: the complete comment chain,
-  named as such, whether this run posted it or a previous one did.
-  State a count only where you counted it from the round files
+- **How that loop went** — how many of its rounds reached disposition,
+  its final overall verdict, and what its last round's findings were,
+  if any. State a count only where you counted it from the round files
   themselves.
-- **What changed in response** — what the loop raised, whether a review
-  finding, an orchestrator ruling the brief carried, or a
-  merge-readiness remedy — a rebase unless the human's ruling named
-  another — and the change each drove, drawn from the commits and the
-  fixer briefs. This
-  is the part a reviewer of the merged PR cannot reconstruct: the
-  diff shows the end state, and this says which of it was the first
-  attempt and which was a repair.
+- **What changed in response** — what that loop raised, whether a
+  review finding, a style finding, or an orchestrator ruling the brief
+  carried, and the change each drove, drawn from the commits and the
+  fixer briefs. This is the part a reviewer of the merged PR cannot
+  reconstruct: the diff shows the end state, and this says which of it
+  was the first attempt and which was a repair.
+
+The rest of the section belongs to no type, and carries:
+
+- **Where the full detail now is** — the complete comment chain, named
+  as such, whether this run posted it or a previous one did.
+- **The merge-readiness remedies** — each a rebase unless the human's
+  ruling named another, and the change it drove, drawn from the
+  commits and the fixer briefs. Leave the part out when there were
+  none.
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
   grounds, a finding dropped on the orchestrator's scope ruling — worded
   as that ruling, never as the human's rejection — a deferral to a
-  follow-up issue, and the documentation
-  `docs-writer` changed, which no review round checked — its per-file
-  list as your brief carries it. Take these from your
-  brief and from the non-brief PR comments, never from your own
+  follow-up issue, and `docs-writer`'s per-file list of the
+  documentation it changed, as your brief carries it. Take these from
+  your brief and from the non-brief PR comments, never from your own
   reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
   scope notes name, quoted, with what is true now. The claim stays
-  where it is, since you never edit outside your own markers; this part of
-  the section is what corrects it. Leave the part out when the scope
+  where it is, since you never edit outside your own markers but for
+  the closing-line corrections your brief names; this part of the
+  section is what corrects it. Leave the part out when the scope
   notes name none.
 
 Write it as prose a human deciding whether to merge would want, not as
@@ -435,8 +485,10 @@ writing that anything was addressed.
 
 ## Rules
 
-- Write between your own markers only. Never rewrite, reorder, or
-  delete body content outside them, and never touch a closing keyword.
+- Write between your own markers only, but for the closing-line
+  corrections your brief names. Never rewrite, reorder, or delete body
+  content outside them, and never touch a closing keyword those
+  corrections do not name.
 - Never edit anything but this one PR's body, and post nothing on the
   PR but the detail chain under "Post the run's assembled detail". You
   edit no existing comment, yours included, and delete none.

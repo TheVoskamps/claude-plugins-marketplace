@@ -315,7 +315,8 @@ and the theorem that catches it costs a full round trip.
   cover another's scope — the review pipeline grades each member
   separately.
 - You edit code and instruction Markdown, and never documentation.
-  Documentation is `docs-writer`'s, once the review loop has ended.
+  Documentation is `docs-writer`'s, in the documentation loop that
+  follows the code loop.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.

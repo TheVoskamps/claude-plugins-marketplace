@@ -58,7 +58,7 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--settle-mode`,
-`--pointers`, `--counterexample`, and `--round`.
+`--pointers`, `--counterexample`, `--round`, and `--mode`.
 
 Without `--branch` you have no tree to check the quote against.
 

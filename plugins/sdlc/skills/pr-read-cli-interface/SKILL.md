@@ -1,6 +1,6 @@
 ---
 name: pr-read-cli-interface
-description: The contract for sdlc's PR-read CLIs — sdlc-pr-round, sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain — their arguments, exit codes and output grammar. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:issue-fixer and sdlc:pr-finalizer via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for sdlc's PR-read CLIs — sdlc-pr-round, sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain — their arguments, exit codes and output grammar. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:issue-fixer, sdlc:docs-writer and sdlc:pr-finalizer via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
