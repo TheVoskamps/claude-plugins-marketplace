@@ -252,11 +252,10 @@ the mode is the round's type, written by your anchor call.
   as paths to leave out of every diff the child reads; omit that line
   when there are none.
 - **`documentation`** — only documentation is reviewed: every theorem
-  and every finding drawn from one is about a documentation file — the
-  closing-line corrections of "Identify the issue set" are no finding,
-  and are reported in this mode too — and code and
-  instruction Markdown are read only for the facts a documentation file
-  restates. No brief carries the documentation-paths line.
+  and every finding drawn from one is about a documentation file, and
+  code and instruction Markdown are read only for the facts a
+  documentation file restates. No brief carries the documentation-paths
+  line.
 
 Pass the mode to every child you spawn, as `--mode`, unchanged.
 
