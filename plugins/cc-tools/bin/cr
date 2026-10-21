@@ -87,8 +87,9 @@ cleanup() {
   merged=
   initdir=
 }
-# An INT or TERM trap exits after cleaning up, so cr stops where the signal
-# reached it rather than carrying on without the files it removed.
+# Until claude launches, an INT or TERM trap exits after cleaning up, so cr
+# stops where the signal reached it rather than carrying on without the
+# files it removed.
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
@@ -97,8 +98,7 @@ trap 'cleanup; exit 143' TERM
 # `ssh -G` reports it, so an alias a `Host` block in the ssh config renames
 # becomes the host it reaches; GitHub's ssh-over-443 endpoint
 # ssh.github.com becomes github.com. Prints <host> unchanged when ssh is
-# not on PATH, fails, or reports no hostname. This is the translation gh
-# applies to a git remote of its own.
+# not on PATH, fails, or reports no hostname.
 ssh_hostname() {
   local out key value real=
   if command -v ssh >/dev/null 2>&1 && out=$(ssh -G -- "$1" </dev/null 2>/dev/null); then
@@ -117,8 +117,8 @@ ssh_hostname() {
 # any scheme, user and port dropped, for a `<scheme>://` URL and for an
 # scp-like `[<user>@]<host>:<path>` one; any other URL, a local path
 # included, is printed unchanged. The host of an ssh URL -- an scp-like
-# one, or one whose scheme is ssh, git+ssh or ssh+git -- is the one
-# ssh_hostname resolves. gh's argument parser takes an scp-like URL only
+# one, or one whose scheme is ssh, git+ssh or ssh+git, each of which git
+# reaches over ssh -- is the one ssh_hostname resolves. gh's argument parser takes an scp-like URL only
 # when it begins `git@`, and splits any other one as OWNER/REPO.
 https_url() {
   local host path ssh=0
@@ -297,6 +297,9 @@ fi
 name="${suffix} ${repo}"
 
 # claude runs as a child rather than through exec, so the EXIT trap above
-# is still in place when it returns.
+# is still in place when it returns. bash runs an INT or TERM trap only
+# once claude has returned, and from here on that trap cleans up without
+# exiting, so a signal claude survives leaves claude's status as cr's.
+trap cleanup INT TERM
 claude --name "$name" --remote-control --debug-file "$HOME/.claude/logs/$name" \
   ${settings[@]+"${settings[@]}"} --allowedTools Grep Glob ${claude_args[@]+"${claude_args[@]}"}

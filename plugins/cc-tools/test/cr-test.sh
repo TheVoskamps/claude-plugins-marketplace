@@ -86,9 +86,12 @@ JQ="$(command -v jq)"
 # the file each --settings names to $SANDBOX/claude.settings, its
 # directory, GIT_CONFIG_GLOBAL and whether ./.git exists to
 # $SANDBOX/claude.env, sends the signal named in $SANDBOX/claude.signal
-# to its parent and then to itself when that file exists, and exits
-# with the status in $SANDBOX/claude.rc, 0 when absent. It names every
-# command by absolute path so it runs on the restricted PATHs below.
+# to its parent when that file exists, and then to itself -- or, when
+# $SANDBOX/claude.survive exists, instead survives it, waits a second and
+# appends to claude.env whether ./.git and the --settings file are still
+# there -- and exits with the status in $SANDBOX/claude.rc, 0 when absent.
+# It names every command by absolute path so it runs on the restricted
+# PATHs below.
 mkdir -p "$SANDBOX/bin"
 cat >"$SANDBOX/bin/claude" <<EOF
 #!/bin/sh
@@ -98,9 +101,13 @@ if [ "\$*" = "plugin list --json" ]; then
 fi
 : >"$SANDBOX/claude.args"
 prev=
+settings=
 for a in "\$@"; do
   printf '%s\n' "\$a" >>"$SANDBOX/claude.args"
-  [ "\$prev" != --settings ] || /bin/cat "\$a" >>"$SANDBOX/claude.settings"
+  if [ "\$prev" = --settings ]; then
+    /bin/cat "\$a" >>"$SANDBOX/claude.settings"
+    settings=\$a
+  fi
   prev=\$a
 done
 {
@@ -111,7 +118,15 @@ done
 if [ -f "$SANDBOX/claude.signal" ]; then
   sig=\$(/bin/cat "$SANDBOX/claude.signal")
   kill -"\$sig" "\$PPID"
-  kill -"\$sig" \$\$
+  if [ -f "$SANDBOX/claude.survive" ]; then
+    /bin/sleep 1
+    {
+      if [ -d .git ]; then echo "after-git=yes"; else echo "after-git=no"; fi
+      if [ -f "\$settings" ]; then echo "after-settings=yes"; else echo "after-settings=no"; fi
+    } >>"$SANDBOX/claude.env"
+  else
+    kill -"\$sig" \$\$
+  fi
 fi
 exit "\$(/bin/cat "$SANDBOX/claude.rc" 2>/dev/null || echo 0)"
 EOF
@@ -157,7 +172,7 @@ chmod +x "$SANDBOX/bin/ssh"
 # reset -- forget the previous launch.
 reset() {
   rm -f "$SANDBOX/claude.args" "$SANDBOX/claude.env" "$SANDBOX/claude.rc" "$SANDBOX/claude.signal" \
-    "$SANDBOX/claude.settings" "$SANDBOX/gh.calls" "$SANDBOX/ssh.calls"
+    "$SANDBOX/claude.survive" "$SANDBOX/claude.settings" "$SANDBOX/gh.calls" "$SANDBOX/ssh.calls"
 }
 
 # run_cr <dir> [<arg>…] -- run bin/cr from <dir> with the stub claude,
@@ -209,7 +224,7 @@ run_cr "$REPO/sub" fix the bug --model opus "two words"
 check "$RC" "0" "repo: exit 0"
 check "$ARGS" "$(lines --name "fix the bug my-repo" --remote-control \
   --debug-file "$HOME/.claude/logs/fix the bug my-repo" --allowedTools Grep Glob --model opus "two words")" \
-  "repo: name words before the first flag, the rest passed unchanged, no --settings without an overlay"
+  "repo: name words before the first flag, the rest passed unchanged, no --settings without a settings layer"
 check_contains "$ENV" "pwd=$REPO
 " "repo: claude runs from the repo root"
 check_contains "$ERR" "cr: detected existing git repo; cd to repo root $REPO" "repo: stderr names the root"
@@ -244,7 +259,8 @@ check "$(state_files)" "" "no layer: no merged file is written"
 # Each form an origin can take reaches gh as the same https:// URL.
 for form in git@github.com:owner/my-repo.git org-1@github.com:owner/my-repo.git github.com:owner/my-repo.git \
   ssh://git@github.com/owner/my-repo.git ssh://git@github.com:22/owner/my-repo.git \
-  git+ssh://git@github.com/owner/my-repo.git https://user@github.com/owner/my-repo.git; do
+  git+ssh://git@github.com/owner/my-repo.git ssh+git://git@github.com/owner/my-repo.git \
+  https://user@github.com/owner/my-repo.git; do
   git -C "$REPO" remote set-url origin "$form"
   run_cr "$REPO" x
   check "$GH" "repo view https://github.com/owner/my-repo.git --json url --jq .url" "origin $form: gh is given its https:// form"
@@ -253,6 +269,7 @@ done
 # An ssh origin's host is the one ssh resolves: an alias names its real
 # host, and ssh.github.com names github.com.
 for form in git@github-work:owner/my-repo.git ssh://git@github-work:22/owner/my-repo.git \
+  git+ssh://git@github-work/owner/my-repo.git ssh+git://git@github-work/owner/my-repo.git \
   git@github-443:owner/my-repo.git; do
   git -C "$REPO" remote set-url origin "$form"
   run_cr "$REPO" x
@@ -381,11 +398,16 @@ check_contains "$ERR" "cr: permissions.allow differs in type between layers: lis
 check "$(state_files)" "" "a refusal writes no merged file"
 write_layers
 
-for bad in "https://github.com/owner/.." "https://github.com/own%20er/my-repo" "https://github.com/owner/my-repo/extra"; do
+# Each bad URL with the segment cr refuses in it, after a `|`.
+for case in "https://github.com/owner/..|.." "https://github.com/own%20er/my-repo|own%20er" \
+  "https://github.com/owner/my-repo/extra|my-repo/extra"; do
+  bad=${case%|*}
+  segment=${case#*|}
   echo "$bad" >"$SANDBOX/gh.url"
   run_cr "$REPO" x
   check "$RC:$(no_claude)" "1:" "segment check ($bad): exit 1, claude does not run"
-  check_contains "$ERR" "is not a valid host, owner or repo name" "segment check ($bad): stderr names the segment"
+  check_contains "$ERR" "cr: '$segment' in $bad is not a valid host, owner or repo name" \
+    "segment check ($bad): stderr names the segment"
 done
 rm "$SANDBOX/gh.url"
 
@@ -507,6 +529,23 @@ for sig in INT TERM; do
   check "$(dirname "$SIG_MERGED"):$([ -e "$SIG_MERGED" ] && echo left)" "$XDG_STATE_HOME/cc-tools/local:" \
     "outside a repo, $sig: the merged file claude received is removed"
   check "$([ "$RC" -ne 0 ] && echo nonzero)" "nonzero" "outside a repo, $sig: cr exits non-zero"
+done
+
+# A signal claude survives: cr leaves the files in place until claude
+# returns, then removes them and exits with claude's status.
+for sig in INT TERM; do
+  reset
+  echo "$sig" >"$SANDBOX/claude.signal"
+  : >"$SANDBOX/claude.survive"
+  echo 7 >"$SANDBOX/claude.rc"
+  (cd "$PLAIN" && PATH="$SANDBOX/bin:$PATH" /bin/bash "$CR" x) >/dev/null 2>&1
+  RC=$?
+  check "$RC" "7" "$sig that claude survives: cr exits with claude's status"
+  check_contains "$(cat "$SANDBOX/claude.env")" "after-git=yes
+after-settings=yes" "$sig that claude survives: the .git and the merged file stay while claude runs"
+  SIG_MERGED=$(settings_arg)
+  check "$([ -e "$PLAIN/.git" ] && echo git):$([ -e "$SIG_MERGED" ] && echo settings)" ":" \
+    "$sig that claude survives: the .git and the merged file are removed once claude returns"
 done
 rm -r "$CFG" "$PLAIN/.cc-tools"
 
