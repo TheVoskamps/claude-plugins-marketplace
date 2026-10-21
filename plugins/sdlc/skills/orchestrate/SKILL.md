@@ -775,6 +775,12 @@ fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
+**If BLOCKED**: Stop the fix loop for this PR and raise the round as a
+**Needs Your Attention** row naming the cause its verdict states — no
+resolved issue set, or the unsettled theorems. Post no fixer brief and
+spawn no `issue-fixer`. The review is posted, so the round counts
+against the cap.
+
 **If NEEDS_CHANGES (any open Critical/High/Medium finding, on any
 member)**:
 

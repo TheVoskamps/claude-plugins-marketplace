@@ -9,7 +9,8 @@ them.
 Each issue's board status tracks its lifecycle via `/issue-set-status`:
 In Progress before its batch's developer spawns, In Review in the
 close-out — after the merge-readiness loop has passed, not on the
-confirmation that starts it — for every member the PR closes. The
+confirmation that starts it, and after `pr-finalizer`'s amendment of
+the PR body — for every member the PR then closes. The
 assign that accompanies the first is outside this file's gate: it is
 not a status, it happens once, and nothing later unassigns — a member
 dropped from a batch mid-run keeps its assignee.
@@ -38,7 +39,9 @@ the call is additive, so no assignee already on the issue is displaced.
 
 ### In Review, in the close-out
 
-Once per member the PR closes, as the close-out's first step:
+At the close-out's flip step, after `pr-finalizer` has amended the PR
+body, once per member of the set `/github-prs:pr-closing-issues` then
+reports:
 
 ```text
 /issue-set-status <N> "In Review"
