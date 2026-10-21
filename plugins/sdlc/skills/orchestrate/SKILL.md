@@ -781,12 +781,19 @@ whatever that cause is. Post no fixer brief and
 spawn no `issue-fixer` until the human rules on the row. The review is
 posted, so the round counts against the cap.
 
-The human's ruling resumes the loop. Post a fixer brief, per step 2
-below, carrying the ruling on the line of the finding the round blocked
-on, as `— put to the human: <question> → <answer>`, or as
+The human's ruling resumes the loop. For a round blocked on a finding,
+post a fixer brief, per step 2 below, carrying the ruling on the line
+of the finding the round blocked on, as
+`— put to the human: <question> → <answer>`, or as
 `— outside the issue; put to the human: <question> → <answer>` for a
 finding outside the issue, spawn `issue-fixer`, and continue from
 step 3.
+
+A round blocked on no finding — `BLOCKED (no resolved issue set)`, or
+BLOCKED on an unsettled theorem — resumes with no fixer brief and no
+`issue-fixer`: re-spawn the reviewer as step 5 says, once the human has
+fixed the PR body or branch for no resolved issue set, or once the
+human has ruled on the unsettled theorem.
 
 **If NEEDS_CHANGES (any open Critical/High/Medium finding, on any
 member)**:
