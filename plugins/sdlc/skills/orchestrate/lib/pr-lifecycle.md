@@ -74,8 +74,22 @@ seed's rulings transcribed onto it:
 - a **merge** retires each merged theorem the same way and mints one
   new record continuing the id sequence — the human's claim, quoted;
   `settle-mode: semantic` unless the human said otherwise; `issues`
-  and `pointers` the union of the merged theorems'. Ids are never
-  reused.
+  and `pointers` the union of the merged theorems';
+- a **rewrite** keeps the original record's id and carries the human's
+  claim, with no `state` field; its `issues`, `pointers` and
+  `settle-mode` stay as emitted unless the human changed them;
+- a **split** keeps the original record's id carrying the first part,
+  and mints one new record per further part, continuing the id
+  sequence; every part has no `state` field and inherits the original's
+  `issues`, `pointers` and `settle-mode` unless the human said
+  otherwise;
+- an **add** mints one new record continuing the id sequence, with no
+  `state` field — the human's claim; `issues` the issues the uncovered
+  criterion or behavior comes from; the proposed pointers;
+  `settle-mode: semantic` unless the human said otherwise.
+
+Ids are never reused. A merged, rewritten, split or added claim is the
+human's words once adopted.
 
 Round 0 holds that file and nothing else — no log, no result files,
 no review. The reviewer's round 1 reads it as its carried records and
