@@ -474,7 +474,7 @@ on:
 Across the set, find the **coverage gaps**: each code and instruction
 Markdown acceptance criterion or stated behavior no candidate tests,
 with a proposed theorem to add. A documentation acceptance criterion is
-never a gap here, since no seed theorem tests one.
+never a gap here.
 
 From that, recommend one action per theorem, each with a one-line
 reason: accept; reject; change settle mode; merge, naming the partners
