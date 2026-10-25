@@ -416,7 +416,7 @@ seeded from the issues alone and the human rules on it, unless
 issues, or decides something they do not, shows up later against a
 list the human already owns. The gate
 runs once per batch, after the plan is confirmed and the batch's
-members are In Progress, and it is three moves.
+members are In Progress, and it is four moves.
 
 **Spawn the generator on the issues-only brief.** The brief carries
 the batch's resolved issue set and repo-config's
@@ -446,24 +446,71 @@ The seed spawn's return is not persisted through
 and none exists. Hold the generator's return and its agent id in your
 scratchpad; its spawn is recorded once the PR is linked.
 
-**Put every candidate to the human.** Show each theorem — id, claim,
-issues, settle mode, pointers — and take one ruling per theorem:
+**Assess the candidate list.** You make the assessment yourself, with
+no spawn, from the candidate list, the batch's issue bodies you already
+hold, and the tree of `default-issue-source-branch`. Judge each theorem
+on:
+
+- **necessity** — whether an issue's acceptance criterion or stated
+  behavior actually requires it;
+- **extension beyond the issues** — whether it asserts something no
+  issue in the batch asks for;
+- **usefulness** — whether a counterexample to it would change
+  anything the human would act on;
+- **duplication and overlap** — with which other candidates, fully or
+  partly;
+- **settle mode** — whether `mechanical` or `semantic` fits the claim;
+- **wording** — whether the claim is disprovable as written, or vague,
+  compound or untestable;
+- **criterion mapping** — which acceptance criterion or stated behavior
+  it tests; one that maps to none is a reject candidate;
+- **compound claims** — whether it asserts more than one thing and
+  should be split;
+- **pre-existing truth** — whether it already holds, or already fails,
+  on the source branch, so it tests nothing the developer does;
+- **pointer validity** — whether its pointers name paths and sections
+  that exist on the source branch, and are the right ones.
+
+Across the set, find the **coverage gaps**: each code and instruction
+Markdown acceptance criterion or stated behavior no candidate tests,
+with a proposed theorem to add. A documentation acceptance criterion is
+never a gap here.
+
+From that, recommend one action per theorem, each with a one-line
+reason: accept; reject; change settle mode; merge, naming the partners
+and proposing the merged claim; split, proposing the parts; or rewrite,
+proposing the new claim. Recommend an add for each coverage gap.
+
+**Put every candidate to the human, with the assessment.** Show each
+theorem — id, claim, issues, settle mode, pointers — with its
+recommendation and reason: first every theorem recommended for a
+change, then the coverage gaps with their proposed adds, then the
+theorems recommended as is, grouped as "accept". Take one ruling per
+theorem:
 
 - **accept** as is;
 - **reject**;
 - **change its settle mode**, to `mechanical` or `semantic`;
-- **merge** into another theorem, with a claim the human states.
+- **merge** into another theorem, with a claim the human states;
+- **split** into parts the human states;
+- **rewrite**, with a claim the human states;
+- **add** a theorem the candidates lack, with a claim the human states.
 
-A theorem the human does not name is accepted. Under `seed-review:
-ask` this is a question and ends your turn: write nothing until the
-human has ruled. You carry no review vocabulary on the human's behalf —
-a merged claim is the human's words, quoted, per "Posting the human's
-review adjustments as a PR comment".
+A theorem the human does not name is accepted as the generator emitted
+it, not as recommended. A recommendation applies only when the human
+adopts it — all at once, by saying to apply the recommendations, or
+individually, by naming it. Under `seed-review: ask` this is a question
+and ends your turn: write nothing until the human has ruled. You carry
+no review vocabulary on the human's behalf — a merged, split, rewritten
+or added claim is the human's words, quoted, per "Posting the human's
+review adjustments as a PR comment", and a claim you proposed becomes
+one only when the human adopts it.
 
-Under `seed-review: auto-accept`, still show every candidate the same
-way, say that the config accepted all of them, and continue without
-waiting: every theorem is accepted as the generator emitted it, and
-that list is the ruled seed from here on.
+Under `seed-review: auto-accept`, still show every candidate and the
+assessment the same way, say that the config accepted all of them as
+emitted, and continue without waiting: no recommendation is applied,
+every theorem is accepted as the generator emitted it, and that list is
+the ruled seed from here on.
 
 **Hold the ruled list until the PR exists.** The ruled list is the
 seed, and it is written as round 0 of the PR's state once the

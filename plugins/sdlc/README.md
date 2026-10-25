@@ -227,9 +227,11 @@ other spawn-template field.
 
 What the two switches leave alone is as deliberate as what they skip:
 
-- `seed-review: auto-accept` skips only the wait. The candidate list is
-  still shown, and still written as round 0 of the PR's state, so the
-  first review round starts from the same records whichever way the
+- `seed-review: auto-accept` skips only the wait. The candidate list
+  and the orchestrator's assessment of it are still shown, with none of
+  the assessment's recommendations applied, and the list is still
+  written as round 0 of the PR's state as the generator emitted it, so
+  the first review round starts from the same records whichever way the
   seed was settled; the setting changes who settled it, not what is
   recorded.
 - `merge-wait: skip` ends the PR's stages at the ready flip, and the
@@ -575,13 +577,39 @@ took it — is reviewed from its whole diff, with the review saying so.
 The seed is the code loop's: a documentation round carries only
 records of its own type, so the first one reads no seed and generates
 from the whole PR the same way, with the review saying so, and a batch
-with no code to implement has no seed at all. Each piece has one
-owner:
+with no code to implement has no seed at all.
+
+The candidates do not reach the human raw. The orchestrator assesses
+the list before it asks — in its own session, with no spawn, because
+it already holds the issue bodies and the source branch the judgment
+needs — judging each theorem against the issues and the source branch:
+whether an issue requires it or it reaches past the batch, which
+acceptance criterion or stated behavior it tests, whether a
+counterexample would matter, what it duplicates, whether its settle
+mode and wording fit a disprovable claim, whether it asserts more than
+one thing and should be split, whether it already holds or fails before
+the developer runs, and whether its pointers exist. Across the set it
+names the code and instruction Markdown criteria no candidate tests,
+each with a proposed theorem to add; a documentation criterion is never
+a gap, since no seed theorem is made from one. From that it recommends
+one action per theorem with a one-line reason, and presents the
+theorems recommended for a change first, then the coverage gaps with
+their proposed adds, then the "accept" group, so the human reads what
+needs a decision first. The human's
+ruling set is accept, reject, change settle mode, merge, split, rewrite
+and add. The assessment is advice: a theorem the human does not name is
+accepted as the generator emitted it, not as recommended, and a claim
+the orchestrator proposed becomes a ruled claim only when the human
+adopts it, all at once or by name. That keeps round 0 a transcription —
+every claim in it is the generator's or the human's — and keeps the
+orchestrator from carrying review vocabulary on the human's behalf.
+Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The issues-only brief, and what a generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `skills/theorem-generation/SKILL.md` |
-| The seed spawn, the tier pick against the issue bodies, the per-theorem ruling or its `auto-accept` skip, and the round-0 write | `skills/orchestrate/SKILL.md` |
+| The seed spawn, the tier pick against the issue bodies, the assessment's dimensions and recommendations, the ruling set the human chooses from, and the per-theorem ruling or its `auto-accept` skip | `skills/orchestrate/SKILL.md` |
+| The round-0 write, and the record outcome of every ruling — what each one transcribes onto round 0's records | `skills/orchestrate/lib/pr-lifecycle.md` |
 | Round 0 as a valid round number holding only a records file, read as a code round | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
 | That the seed generator reads the files-affected section in place of a diff | `skills/theorem-generation/SKILL.md` |
