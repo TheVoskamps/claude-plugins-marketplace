@@ -304,9 +304,7 @@ A `DISPROVED` report that breaks any of these is **malformed**: the
 `EVIDENCE` rule above, read with the "Extract evidence bytes from
 `HEAD`" bullet under "Establishing a fact"; the topology rule just
 above, which hedging ("appears to be a separate copy") does not escape;
-or the template's `CONSEQUENCE-CLASS` line. A value on that line outside
-its tokens leaves the report well formed and its class underivable,
-which the verifier's class corrects.
+or the template's `CONSEQUENCE-CLASS` line.
 
 `CONSEQUENCE` is what the severity is ultimately derived from, so
 state the effect of merging, not the topic. "An acceptance criterion

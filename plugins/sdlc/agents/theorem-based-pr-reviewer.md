@@ -116,12 +116,10 @@ settled, pass `--edits` and `--from` on every `next` call**, as
 "Assemble the round's live list" stages them: an arm past `generate`
 read without them is not one to act on.
 
-`next` prints a stage's lines only up to its arm, and never a settled
-theorem or one with a child in flight as `outstanding`, so spawning
-only on `outstanding` lines holds the barrier between the stages and
-**one child per theorem per stage** — a replacement keeps it, its
-predecessor recorded `stopped` first. Report a duplicate `leave`, which
-`--mode print` shows, in the Review method section.
+Spawn only on `outstanding` lines: that holds the barrier between the
+stages and **one child per theorem per stage** — a replacement keeps
+it, its predecessor recorded `stopped` first. Report a duplicate
+`leave`, which `--mode print` shows, in the Review method section.
 
 **A moved head voids the round** — found at the anchor step, whose call
 voids it, or at the fetch in "Fan out the disprovers", which restarts
@@ -174,11 +172,9 @@ surviving notification carries the round past every lost one.
    does not read as slow.
 3. **End the turn, or act on the lines**, in the stage its arm names:
    an `overdue` line takes the deadline arm, and a **`returned-unsaved`**
-   line is a child that handed back without a `leave` — a `LEAVE FAILED`
-   report among the ways — whose save is never coming: write it off on
-   the resume that reads the line, as the deadline arm does but with
-   nothing to `TaskStop`, and re-spawn its theorem. An arm that moved on
-   ends this stage's wait.
+   line is written off on the resume that reads it, as the deadline arm
+   does but with nothing to `TaskStop`, and its theorem re-spawned. An
+   arm that moved on ends this stage's wait.
 
 **The deadline arm.** For an `overdue` line, `TaskStop` its child if
 **you** spawned it, and append its stop either way, naming it by the
@@ -626,11 +622,9 @@ call, leaving out a file with nothing in it. Every retired theorem
 carries its verdict forward with no disprover; every live one gets a
 **full, unbounded** disprover.
 
-**The `--full` round**, passed on to `next` and `dispose`, widens the
-live list to retired theorems too, each with a full brief, except a
-`human-refuted` one: the human already ruled on it. It is the one way a
-retired theorem is re-disproved, and no rule here forces one. It says
-so in its Review method section.
+**The `--full` round** passes `--full` on to `next` and `dispose`,
+which widen the live list by it; no rule here forces one. It says so in
+its Review method section.
 
 ### Fan out the disprovers
 
@@ -690,9 +684,7 @@ are waiting on, and wait by "The resume loop" over the `disprove` stage.
 
 A `DISPROVED` report is a candidate finding, not a finding. Spawn one
 `sdlc:counterexample-verifier` per `verify` line `next` printed
-`outstanding`: each is a well-formed `DISPROVED` report, and a
-malformed one is no line, so it gets neither a verifier nor a second
-disprover. Route the model as for the disprovers. Each brief is one
+`outstanding`. Route the model as for the disprovers. Each brief is one
 counterexample and nothing more: the disprover's brief, on the same
 terms, with `--counterexample <the disprover's full DISPROVED report,
 verbatim>` after `--pointers`, no documentation-paths line, and this
@@ -706,8 +698,6 @@ rejection reason, or STANDS with a confirmed or corrected consequence
 statement and a consequence class. Nothing else.
 ```
 
-**No retry ping-pong**: a `REFUTED` counterexample ends that theorem's
-round, and a malformed verifier report gets no second verifier either.
 Append a `--mode spawn` record per verifier, under `--stage verify` and
 `--agent counterexample-verifier`, name the theorems in your closing
 turn text, and wait by "The resume loop" over `verify`.
@@ -973,15 +963,6 @@ outside the issue's scope and needs a human decision is `BLOCKED`, and
 saying so on its line raises the overall line with it; that is a
 judgment, never a derivation. Nothing lowers a verdict `dispose`
 printed.
-
-### Findings by severity
-
-Severity is a property of the **consequence of merging the PR as-is**,
-never of the topic. `--mode dispose` transcribes it from the
-consequence class a theorem agent assigned, applying the override, per
-the preloaded `sdlc:agent-result-persist-interface` skill → "The
-derivation modes": you never assign a class or a severity, and a
-malformed report never gets a replacement child.
 
 ## Report back
 

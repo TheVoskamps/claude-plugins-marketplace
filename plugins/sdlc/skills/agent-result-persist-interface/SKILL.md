@@ -1,6 +1,6 @@
 ---
 name: agent-result-persist-interface
-description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, the per-round records and review files it stores, and the derivation modes — next, dispose and summary — that derive a round's arm and outstanding work, its dispositions, severities and verdicts, and its review body. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
