@@ -4,10 +4,14 @@
 # records and the round's argued review in files of their own, so a
 # round completes from what is on disk rather than from what a caller
 # heard back, and so the next round reads its predecessor's records off
-# disk rather than off the PR. It also records every agent spawned for a
-# PR and prints the agent ids its state names, lists the PRs a repo holds
-# state for and deletes one PR's state whole, which is the only way any
-# of it is ever removed, and lists the repositories the state root holds.
+# disk rather than off the PR. It derives what a reviewer reads off that
+# state — the arm a resumed round is in, each theorem's disposition,
+# severity, state and the verdicts, and the posted review body — so no
+# model re-derives them by hand. It also records every agent spawned for
+# a PR and prints the agent ids its state names, lists the PRs a repo
+# holds state for and deletes one PR's state whole, which is the only way
+# any of it is ever removed, and lists the repositories the state root
+# holds.
 #
 # Every path is composed here and nowhere else — the repository's
 # repo.yml, the round log, each result file, the records file, the
@@ -42,13 +46,14 @@ usage() {
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |print-in-flight|records|review|print-records
                        |print-round-records|print-review|print-root|agent
-                       |print-agents|delete
+                       |print-agents|delete|next|dispose|summary
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--round-type <type>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
-                [--carry [--edits <path>]]
+                [--carry] [--edits <path>] [--full]
+                [--deadline-minutes <n>] [--loop-exited]
        $PROGRAM --mode list [((<host>/)<owner>/)<repo> | https://<host>/<owner>/<repo>]
        $PROGRAM --mode repos
 EOF
@@ -74,17 +79,30 @@ ms=
 from=
 carry=
 edits=
+full=
+loop_exited=
+deadline_minutes=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits)
+    --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits|--deadline-minutes)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
       ;;
     --carry)
       carry=1
+      shift
+      continue
+      ;;
+    --full)
+      full=1
+      shift
+      continue
+      ;;
+    --loop-exited)
+      loop_exited=1
       shift
       continue
       ;;
@@ -119,13 +137,14 @@ while [ "$#" -gt 0 ]; do
     --ms)         ms=$value ;;
     --from)       from=$value ;;
     --edits)      edits=$value ;;
+    --deadline-minutes) deadline_minutes=$value ;;
   esac
 done
 
 case "$mode" in
   anchor|spawn|enter|leave|return|stopped|print|print-in-flight) ;;
   records|review|print-records|print-round-records|print-review|print-root) ;;
-  agent|print-agents|list|delete|repos) ;;
+  agent|print-agents|list|delete|repos|next|dispose|summary) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
@@ -359,6 +378,9 @@ if [ "$mode" = anchor ]; then
   single_token head-sha "$head_sha"
   [ -n "$round_type" ] || die "--round-type is required in --mode anchor"
 fi
+if [ "$mode" = next ] && [ -n "$head_sha" ]; then
+  single_token head-sha "$head_sha"
+fi
 
 # A round's type is the class of file it reviews, fixed by its anchor.
 # The anchor writes it; print-records without a --round selects by it,
@@ -380,24 +402,47 @@ if [ -n "$round_type" ]; then
 fi
 
 # --from names the file a writing mode reads its payload from in place
-# of stdin. A mode that reads no payload refuses it rather than ignore a
-# file the caller expected to be stored.
+# of stdin, and the file next and dispose read the round's new records
+# from. A mode that reads no such file refuses it rather than ignore a
+# file the caller expected to be read.
 if [ -n "$from" ]; then
   case "$mode" in
-    leave|records|review) ;;
+    leave|records|review|next|dispose) ;;
     *) die "--from is not accepted in --mode $mode: $from" ;;
   esac
   [ -f "$from" ] || die "--from names no file: $from"
 fi
 
-# --carry is the records form that builds the round's file itself, and
-# --edits is that form's input alone.
+# --carry is the records form that builds the round's file itself.
+# --edits is that form's input, and next's and dispose's adjustments to
+# the carried records.
 if [ -n "$carry" ] && [ "$mode" != records ]; then
   die "--carry is not accepted in --mode $mode"
 fi
 if [ -n "$edits" ]; then
-  [ -n "$carry" ] || die "--edits is accepted only with --carry: $edits"
+  case "$mode" in
+    next|dispose) ;;
+    *) [ -n "$carry" ] || die "--edits is accepted only with --carry, or in --mode next or dispose: $edits" ;;
+  esac
   [ -f "$edits" ] || die "--edits names no file: $edits"
+fi
+
+# --full widens the live list next and dispose derive; --deadline-minutes
+# is next's alone, and --loop-exited dispose's.
+if [ -n "$full" ]; then
+  case "$mode" in
+    next|dispose) ;;
+    *) die "--full is not accepted in --mode $mode" ;;
+  esac
+fi
+if [ -n "$deadline_minutes" ]; then
+  [ "$mode" = next ] || die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes"
+  case "$deadline_minutes" in
+    *[!0-9]*) die "--deadline-minutes must be a number: $deadline_minutes" ;;
+  esac
+fi
+if [ -n "$loop_exited" ] && [ "$mode" != dispose ]; then
+  die "--loop-exited is not accepted in --mode $mode"
 fi
 
 for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
@@ -703,9 +748,11 @@ records_below_round() {
 # possibly empty. Every refusal is decided before the first record is
 # printed, and exits 2 with its message on stderr. Only a round-0 seed
 # may hold a record without a state, so a result for round 1 or later
-# that leaves one unstamped is refused.
+# that leaves one unstamped is refused — unless the fifth argument is
+# "unstamped", which next and dispose pass: they read the round's records
+# before its states are stamped.
 build_carried_records() {
-  awk -v prog="$PROGRAM" -v round="$round" -v floor="$4" \
+  awk -v prog="$PROGRAM" -v round="$round" -v floor="$4" -v unstamped_ok="${5-}" \
       -v carried_file="$1" -v edits_file="$2" -v new_file="$3" "$new_id_rule"'
     function refuse(msg) {
       printf "%s: %s\n", prog, msg | "cat 1>&2"
@@ -786,7 +833,7 @@ build_carried_records() {
           if (key == "state") stamped = 1
           lines[n, ++count[n]] = key ":" (edit[id, key] == "" ? "" : " " edit[id, key])
         }
-        if (round >= 1 && !stamped) unstamped = unstamped " " id
+        if (round >= 1 && !stamped && unstamped_ok != "unstamped") unstamped = unstamped " " id
       }
       if (unstamped != "")
         refuse("round " round " would leave these records without a state:" unstamped)
@@ -801,6 +848,438 @@ build_carried_records() {
   ' "$1" "$2" "$3"
 }
 
+# list_results <round directory>: one "<theorem> <agent> <path>" line per
+# result file the directory holds, the way --mode print synthesizes its
+# result lines: the log, the records, the review and a staging file are
+# not results.
+list_results() {
+  for found in "$1"/*; do
+    [ -e "$found" ] || continue
+    rest=${found##*/}
+    case "$rest" in
+      log|records|review|*.partial-*) continue ;;
+    esac
+    printf '%s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
+  done
+}
+
+# The round's records as next and dispose read them, into $work/records:
+# the carried records the carry form would read, the --edits adjustments
+# applied, and the --from new records appended, no state yet required.
+# Their refusals are the carry form's.
+load_round_records() {
+  records_below_round
+  carried_file=/dev/null
+  [ -z "$best" ] || carried_file=$best/records
+  build_carried_records "$carried_file" "${edits:-/dev/null}" "${from:-/dev/null}" "$id_floor" unstamped \
+    > "$work/records" || exit 2
+}
+
+# The derivation next and dispose share, as awk source. It reads the
+# round's records (records_file), the --edits file (edits_file), the round
+# log (log_file) and the round's result files (results_file, as
+# list_results prints them), and leaves in END: ids[1..nid] in id order
+# with rec[id, field]; the live list live[1..nlive] with islive[id]; and,
+# from the log, which child each stage's theorem has and how it ended.
+#
+# A theorem is live unless this round's edits retire it; on a default
+# round it is live when it holds no state, or disproved or unsettled; on a
+# --full round unless its state-detail is human-refuted.
+#
+# read_report classifies a disprover's or verifier's report on the
+# grammar theorem-disprover.md and counterexample-verifier.md give under
+# "Output", setting rv to its verdict, rc to its consequence class when
+# that is one of the four tokens and empty otherwise, and rok to 1 when
+# the report is well formed for its verdict. A DISPROVED report whose
+# class line holds no token is well formed; only the class is
+# underivable. Whether a quote is verbatim is the verifier's to check,
+# not the grammar's.
+# shellcheck disable=SC2016 # awk source, expanded by awk rather than the shell
+readonly derive_lib='
+  function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+  function is_class(c) {
+    return c ~ /^(breaks-production|behavior-broken-or-criterion-unmet|defect-no-shipped-breakage|optional-polish)$/
+  }
+  function stage_agent(st) { return st == "disprove" ? "theorem-disprover" : "counterexample-verifier" }
+  function has_result(st, t) { return st == "generate" ? list_result : ((t SUBSEP stage_agent(st)) in result) }
+  function settled(st, t) { return ((st SUBSEP t) in left) || has_result(st, t) }
+  function read_report(path, stage,    line, key, v, nv, has, content, val, quoted, last) {
+    split("", has); split("", content); split("", val)
+    nv = 0; quoted = 0; last = ""
+    while ((getline line < path) > 0) {
+      if (match(line, /^(VERDICT|THEOREM|COUNTEREXAMPLE|EVIDENCE|CONSEQUENCE|CONSEQUENCE-CLASS|CHECKED|REASON):/)) {
+        key = substr(line, 1, RLENGTH - 1)
+        v = trim(substr(line, RLENGTH + 1))
+        if (key == "VERDICT") nv++
+        if (!(key in has)) { has[key] = 1; val[key] = v }
+        if (v != "") content[key] = 1
+        last = key
+        continue
+      }
+      if (last == "EVIDENCE" && line ~ /^>/) quoted = 1
+      if (last != "" && trim(line) != "") content[last] = 1
+    }
+    close(path)
+    rv = nv == 1 ? val["VERDICT"] : ""
+    rc = is_class(val["CONSEQUENCE-CLASS"]) ? val["CONSEQUENCE-CLASS"] : ""
+    rok = 0
+    if (stage == "disprove") {
+      if (rv == "SURVIVED") rok = ("CHECKED" in content)
+      else if (rv == "DISPROVED")
+        rok = ("COUNTEREXAMPLE" in content) && quoted && ("CONSEQUENCE" in content) && ("CONSEQUENCE-CLASS" in has)
+    } else {
+      if (rv == "REFUTED") rok = ("REASON" in content)
+      else if (rv == "STANDS") rok = ("CONSEQUENCE" in content) && rc != ""
+    }
+  }
+  # disproved_ok(t): whether the disprover report of t is a well-formed
+  # DISPROVED one, which is what earns it a verifier.
+  function disproved_ok(t) {
+    if (!has_result("disprove", t)) return 0
+    read_report(result[t, "theorem-disprover"], "disprove")
+    return rv == "DISPROVED" && rok
+  }
+  FNR == 1 { open = 0 }
+  FILENAME == records_file {
+    if ($0 == "") { open = 0; next }
+    if (!open) { open = 1; cur = $0; ids[++nid] = cur; next }
+    key = $0; sub(/:.*/, "", key)
+    v = $0; sub(/^[^:]*:[ ]?/, "", v)
+    rec[cur, key] = v
+    next
+  }
+  FILENAME == edits_file {
+    split($0, f, "\t")
+    if (f[2] == "state" && f[3] == "retired") retired_now[f[1]] = 1
+    next
+  }
+  FILENAME == log_file {
+    if ($1 == "anchor") { if (anchor == "") anchor = $3; next }
+    if ($1 == "spawn" || $1 == "enter") fanned = 1
+    t = $2; st = $3
+    if ($1 == "enter") {
+      if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
+      child[st, t] = $5; at[st, t] = $4
+    }
+    if ($1 == "leave") { left[st, t] = 1; ended[st, t, $5] = 1 }
+    if ($1 == "stopped") ended[st, t, $5] = 1
+    if ($1 == "return") returned[st, t, $5] = 1
+    next
+  }
+  FILENAME == results_file {
+    result[$1, $2] = $3
+    if ($1 == "list") list_result = 1
+    next
+  }
+  function derive_live(    i, t, s) {
+    for (i = 1; i <= nid; i++) {
+      t = ids[i]
+      if (t in retired_now) continue
+      s = rec[t, "state"]
+      if (full) { if (rec[t, "state-detail"] == "human-refuted") continue }
+      else if (s != "" && s != "disproved" && s != "unsettled") continue
+      live[++nlive] = t
+      islive[t] = 1
+    }
+  }'
+
+# derive <awk program> [-v name=value]...: runs the shared derivation
+# with the program appended, over the files load_round_records and
+# list_results leave in $work.
+derive() {
+  prog=$1
+  shift
+  list_results "$dir" > "$work/results"
+  log_in=/dev/null
+  [ ! -e "$file" ] || log_in=$file
+  awk -v prog="$PROGRAM" -v full="$full" -v records_file="$work/records" \
+      -v edits_file="${edits:-/dev/null}" -v log_file="$log_in" -v results_file="$work/results" \
+      "$@" "$derive_lib$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
+}
+
+# next: the arm the round is in, then one line per theorem of each stage
+# that is outstanding, in flight, overdue or returned without saving.
+readonly next_prog='
+  function epoch(ts,    y, m, d, era, yoe, doy, doe) {
+    y = substr(ts, 1, 4) + 0; m = substr(ts, 6, 2) + 0; d = substr(ts, 9, 2) + 0
+    if (m <= 2) y--
+    era = int(y / 400); yoe = y - era * 400
+    doy = int((153 * (m > 2 ? m - 3 : m + 9) + 2) / 5) + d - 1
+    doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+    return (era * 146097 + doe - 719468) * 86400 \
+      + substr(ts, 12, 2) * 3600 + substr(ts, 15, 2) * 60 + substr(ts, 18, 2)
+  }
+  # flight(st, t): the state of the child the theorem has in flight in
+  # the stage, or empty when it has none. A child is in flight when the
+  # last enter of the theorem names it, no leave or stopped names it, and
+  # no result file settles the theorem.
+  function flight(st, t,    id) {
+    if (!((st SUBSEP t) in child)) return ""
+    id = child[st, t]
+    if ((st SUBSEP t SUBSEP id) in ended || has_result(st, t)) return ""
+    if ((st SUBSEP t SUBSEP id) in returned) return "returned-unsaved"
+    if (deadline != "" && now + 0 >= epoch(at[st, t]) + deadline * 60) return "overdue"
+    return "in-flight"
+  }
+  # consider(st, t, member): adds the line the theorem gets in the stage,
+  # if any, and says whether the stage still has work on it. Only a
+  # member of the stage is outstanding without a child.
+  function consider(st, t, member,    f) {
+    if ((st SUBSEP t) in seen) return 0
+    seen[st, t] = 1
+    f = flight(st, t)
+    if (f != "") {
+      out[++nout] = st "\t" t "\t" f "\t" child[st, t] "\t" at[st, t]
+      return 1
+    }
+    if (member && !settled(st, t)) {
+      out[++nout] = st "\t" t "\t" "outstanding" "\t\t"
+      return 1
+    }
+    return 0
+  }
+  function sweep(st,    i, open) {
+    open = 0
+    for (i = 1; i <= nentered[st]; i++) if (consider(st, entered[st, i], 0)) open = 1
+    return open
+  }
+  END {
+    if (head != "" && anchor != "" && anchor != head) { print "moved-head"; exit }
+    derive_live()
+    gen_open = consider("generate", "list", 1)
+    sweep("generate")
+    dis_open = 0
+    for (i = 1; i <= nlive; i++) if (consider("disprove", live[i], 1)) dis_open = 1
+    if (sweep("disprove")) dis_open = 1
+    ver_open = 0
+    for (i = 1; i <= nlive; i++)
+      if (disproved_ok(live[i]) && consider("verify", live[i], 1)) ver_open = 1
+    if (sweep("verify")) ver_open = 1
+    # A stage past the arm is not under way, so its lines would only
+    # tempt a spawn across the barrier between stages.
+    arm = gen_open ? "generate" : dis_open ? "disprove" : ver_open ? "verify" : "dispose"
+    print arm
+    upto = arm == "generate" ? "generate" : arm == "disprove" ? "generate disprove" : "generate disprove verify"
+    for (i = 1; i <= nout; i++) {
+      split(out[i], f, "\t")
+      if (index(" " upto " ", " " f[1] " ")) print out[i]
+    }
+  }'
+
+# dispose: one row per live theorem, then the verdicts.
+readonly dispose_prog='
+  function sev_rank(s) { return s == "Critical" ? 4 : s == "High" ? 3 : s == "Medium" ? 2 : s == "Low" ? 1 : 0 }
+  function class_sev(c) {
+    return c == "breaks-production" ? "Critical" \
+      : c == "behavior-broken-or-criterion-unmet" ? "High" \
+      : c == "defect-no-shipped-breakage" ? "Medium" : "Low"
+  }
+  # override(t): the theorem record'"'"'s severity-override, spelled as a
+  # severity, or empty when it has none.
+  function override(t,    o) {
+    o = tolower(trim(rec[t, "severity-override"]))
+    if (o == "") return ""
+    if (o == "critical") return "Critical"
+    if (o == "high") return "High"
+    if (o == "medium") return "Medium"
+    if (o == "low") return "Low"
+    printf "%s: the severity-override of %s is %s, which is not Critical, High, Medium or Low\n", \
+      prog, t, rec[t, "severity-override"] | "cat 1>&2"
+    failed = 1
+    exit 2
+  }
+  # A criterion theorem is one whose claim opens with the words
+  # theorem-generation gives every acceptance-criterion claim.
+  function is_criterion(t,    c) {
+    c = tolower(trim(rec[t, "claim"]))
+    return c ~ /^the diff satisfies / || c ~ /^the pr'"'"'s documentation satisfies /
+  }
+  function severity(t, cls,    s, o) {
+    s = cls == "class-underivable" ? "High" : class_sev(cls)
+    if (is_criterion(t) && sev_rank(s) < sev_rank("High")) s = "High"
+    o = override(t)
+    return o != "" ? o : s
+  }
+  function contribute(t, sev, blocked,    n, parts, i, issue) {
+    n = split(rec[t, "issues"], parts, ",")
+    for (i = 1; i <= n; i++) {
+      issue = trim(parts[i]); sub(/^#/, "", issue)
+      if (issue == "") continue
+      if (blocked) block[issue] = 1
+      if (sev_rank(sev) >= sev_rank("Medium")) needs[issue] = 1
+    }
+    if (blocked) block_all = 1
+    if (sev_rank(sev) >= sev_rank("Medium")) needs_all = 1
+  }
+  function verdict(b, n) { return b ? "BLOCKED" : n ? "NEEDS_CHANGES" : "APPROVED" }
+  END {
+    if (failed) exit 2
+    derive_live()
+    # The round that spawned nothing, the empty-delta one, gives no
+    # theorem a row: none got a disprover this round.
+    for (i = 1; fanned && i <= nlive; i++) {
+      t = live[i]
+      cls = "-"; sev = "-"
+      if (!has_result("disprove", t)) {
+        if (!loop_exited) { missing = missing " " t " (disprove)"; continue }
+        disp = "unsettled-no-verdict"
+      } else {
+        read_report(result[t, "theorem-disprover"], "disprove")
+        if (!rok) disp = "unsettled-disprover-malformed"
+        else if (rv == "SURVIVED") disp = "verified-survived"
+        else {
+          dclass = rc
+          if (!has_result("verify", t)) {
+            if (!loop_exited) { missing = missing " " t " (verify)"; continue }
+            disp = "disproved-unverified"
+          } else {
+            read_report(result[t, "counterexample-verifier"], "verify")
+            if (rok && rv == "REFUTED") disp = "verified-refuted"
+            else if (rok) { disp = "finding"; cls = rc }
+            else { disp = "finding-verifier-malformed"; cls = dclass != "" ? dclass : "class-underivable" }
+          }
+        }
+      }
+      if (disp ~ /^finding/) { sev = severity(t, cls); if (failed) exit 2 }
+      row[t] = 1; rdisp[t] = disp; rcls[t] = cls; rsev[t] = sev
+      rows[++nrows] = t
+    }
+    if (missing != "") {
+      printf "%s: --mode dispose --round %s: these theorems have no result file for their stage:%s\n", \
+        prog, round, missing | "cat 1>&2"
+      exit 3
+    }
+    # Findings are numbered by severity, highest first, then by id.
+    for (n = 1; ; n++) {
+      pick = ""
+      for (i = 1; i <= nrows; i++) {
+        t = rows[i]
+        if (rdisp[t] !~ /^finding/ || (t in number)) continue
+        if (pick == "" || sev_rank(rsev[t]) > sev_rank(rsev[pick])) pick = t
+      }
+      if (pick == "") break
+      number[pick] = n
+    }
+    for (i = 1; i <= nrows; i++) {
+      t = rows[i]; disp = rdisp[t]
+      if (disp == "verified-survived") { st = "retired"; detail = "survived" }
+      else if (disp == "verified-refuted") { st = "retired"; detail = "disproved-but-refuted" }
+      else if (disp == "disproved-unverified") { st = "disproved"; detail = "unverified" }
+      else if (disp ~ /^unsettled/) { st = "unsettled"; detail = "-" }
+      else {
+        st = "disproved"
+        detail = "finding " number[t] ", " rsev[t] (rcls[t] == "class-underivable" ? ", class-underivable" : "")
+      }
+      printf "%s\t%s\t%s\t%s\t%s\t%s\n", t, disp, rcls[t], rsev[t], st, detail
+    }
+    # Every recorded theorem contributes to the verdicts: one with a row
+    # by its row, any other by the state it carries.
+    for (i = 1; i <= nid; i++) {
+      t = ids[i]
+      n = split(rec[t, "issues"], parts, ",")
+      for (j = 1; j <= n; j++) {
+        issue = trim(parts[j]); sub(/^#/, "", issue)
+        if (issue != "" && !(issue in listed)) { listed[issue] = 1; issues[++nissues] = issue }
+      }
+      if (t in row) {
+        contribute(t, rsev[t], rdisp[t] ~ /^unsettled/)
+        continue
+      }
+      s = rec[t, "state"]; d = rec[t, "state-detail"]
+      if (s == "unsettled") contribute(t, "-", 1)
+      else if (s == "disproved" && match(d, /^finding [0-9]+, (Critical|High|Medium|Low)/)) {
+        sev = substr(d, 1, RLENGTH); sub(/.*, /, "", sev)
+        o = override(t)
+        if (failed) exit 2
+        contribute(t, o != "" ? o : sev, 0)
+      }
+    }
+    for (i = 1; i <= nissues; i++)
+      printf "verdict\t%s\t%s\n", issues[i], verdict(issues[i] in block, issues[i] in needs)
+    printf "verdict\toverall\t%s\n", verdict(block_all, needs_all)
+  }'
+
+# summary: the posted review body, from the round's review file
+# (review_file), its records (records_file), the records it carried
+# (prev_file) and one "<round> <theorem> <name>" line per result file of
+# this round and every round below (results_file). It copies four review
+# sections through unchanged and writes one line per theorem and per
+# finding, each ending with the paths of the files holding its detail,
+# relative to the state root (root) it names once.
+# shellcheck disable=SC2016 # awk source, expanded by awk rather than the shell
+readonly summary_prog='
+  function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+  function chomp(s) { sub(/[ \t\r\n]+$/, "", s); return s }
+  function refuse(msg) { printf "%s: %s\n", prog, msg | "cat 1>&2"; failed = 1; exit 2 }
+  function text(s, d) { return (s == "" ? "unattacked" : s) (d == "" ? "" : ", " d) }
+  FNR == 1 { open = 0; cur = "" }
+  FILENAME == review_file {
+    if (!fence && $0 ~ /^## /) {
+      h = $0; sub(/^## +/, "", h); h = trim(h)
+      if (h in body) { cur = ""; next }
+      cur = h; body[h] = $0
+      next
+    }
+    if ($0 ~ /^[ \t]*```/) fence = !fence
+    if (cur != "") body[cur] = body[cur] "\n" $0
+    next
+  }
+  FILENAME == records_file || FILENAME == prev_file {
+    if ($0 == "") { open = 0; next }
+    which = FILENAME == records_file ? "now" : "was"
+    if (!open) { open = 1; id = $0; if (which == "now") ids[++nid] = id; has[which, id] = 1; next }
+    key = $0; sub(/:.*/, "", key)
+    v = $0; sub(/^[^:]*:[ ]?/, "", v)
+    rec[which, id, key] = v
+    next
+  }
+  FILENAME == results_file {
+    # A theorem points at its result files in this round when it has
+    # any, and otherwise at those of the highest round below that does.
+    if ($1 == round) { here[$2] = here[$2] (here[$2] == "" ? "" : ", ") "`round" $1 "/" $3 "`"; next }
+    if (!($2 in older) || $1 + 0 > older[$2] + 0) { older[$2] = $1; olderp[$2] = "" }
+    if ($1 + 0 == older[$2] + 0)
+      olderp[$2] = olderp[$2] (olderp[$2] == "" ? "" : ", ") "`round" $1 "/" $3 "`"
+    next
+  }
+  END {
+    if (failed) exit 2
+    split("Verdicts|Review method|Overall verdict|Closing-line corrections", need, "|")
+    for (i = 1; i <= 4; i++)
+      if (!(need[i] in body)) refuse("the review of round " round " has no \"## " need[i] "\" section")
+    print chomp(body["Verdicts"]); print ""
+    print chomp(body["Review method"]); print ""
+    print "## Theorems"; print ""
+    print "Detail for this round is under `" root "`."; print ""
+    for (i = 1; i <= nid; i++) {
+      t = ids[i]
+      s = rec["now", t, "state"]; d = rec["now", t, "state-detail"]
+      if (!has["was", t]) change = "new"
+      else if (s == rec["was", t, "state"] && d == rec["was", t, "state-detail"] \
+               && rec["now", t, "settled-at"] == rec["was", t, "settled-at"]) change = "unchanged"
+      else change = "was " text(rec["was", t, "state"], rec["was", t, "state-detail"])
+      paths = ""
+      if (s == "disproved" && d ~ /^finding [0-9]+, /) paths = "`round" round "/review`"
+      p = (t in here) ? here[t] : (t in older) ? olderp[t] : ""
+      if (p != "") paths = paths (paths == "" ? "" : ", ") p
+      if (paths == "") paths = "`round" round "/records`"
+      print "- " t " — " text(s, d) " — " change " — " paths
+      if (s == "disproved" && match(d, /^finding [0-9]+, [A-Za-z]+/)) {
+        f = substr(d, 1, RLENGTH); sub(/^finding /, "", f)
+        n = f; sub(/,.*/, "", n); sev = f; sub(/^[0-9]+, /, "", sev)
+        finding[n + 0] = "- " n " — " sev " — from " t ", " rec["now", t, "issues"] " — `round" round "/review`"
+        if (n + 0 > maxf) maxf = n + 0
+      }
+    }
+    if (nid == 0) print "none"
+    print ""; print "## Findings"; print ""
+    for (n = 1; n <= maxf; n++) if (n in finding) { print finding[n]; anyf = 1 }
+    if (!anyf) print "none"
+    print ""
+    print chomp(body["Overall verdict"]); print ""
+    print chomp(body["Closing-line corrections"])
+  }'
+
 migrate_old_layout
 
 # Every mode that writes creates the directory it writes into, and the
@@ -814,6 +1293,7 @@ make_dir() {
 }
 case "$mode" in
   print|print-in-flight|print-records|print-round-records|print-review|print-root|print-agents|list|delete) ;;
+  next|dispose|summary) ;;
   records) [ -n "$carry" ] || make_dir ;;
   agent)
     mkdir -p "$pr_dir"
@@ -1019,5 +1499,53 @@ case "$mode" in
     # The one mode that deletes. A directory already gone is the state
     # the call asks for, so it succeeds silently.
     rm -rf -- "$pr_dir"
+    ;;
+  next)
+    # No log is the fresh round, which reads nothing else.
+    if [ ! -e "$file" ]; then
+      printf 'no-log\n'
+      exit 0
+    fi
+    make_work
+    load_round_records
+    derive "$next_prog" -v head="$head_sha" -v deadline="$deadline_minutes" -v now="$(date -u +%s)" \
+      || exit 2
+    ;;
+  dispose)
+    make_work
+    load_round_records
+    status=0
+    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" || status=$?
+    # 3 is a theorem with no result file for its stage, named on stderr;
+    # any other failure is a refusal.
+    case "$status" in
+      0) ;;
+      3) exit 3 ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  summary)
+    [ -e "$records_file" ] || die "no round records at $records_file"
+    [ -e "$review_file" ] || die "no round review at $review_file"
+    latest_records_round "$round" "$(round_type_of "$dir")"
+    prev_file=/dev/null
+    [ -z "$best" ] || prev_file=$best/records
+    make_work
+    for candidate in "$pr_dir"/round*; do
+      [ -d "$candidate" ] || continue
+      n=${candidate##*/round}
+      case "$n" in
+        ''|*[!0-9]*) continue ;;
+      esac
+      [ "$n" -le "$round" ] || continue
+      list_results "$candidate" | while read -r t _ found; do
+        printf '%s %s %s\n' "$n" "$t" "${found##*/}"
+      done
+    done > "$work/results"
+    awk -v prog="$PROGRAM" -v round="$round" -v review_file="$review_file" \
+        -v records_file="$records_file" -v prev_file="$prev_file" -v results_file="$work/results" \
+        -v root="$state_root_form/$host/$owner/$repo/pr$pr/" \
+        "$summary_prog" "$review_file" "$records_file" "$prev_file" "$work/results" \
+      || exit 2
     ;;
 esac

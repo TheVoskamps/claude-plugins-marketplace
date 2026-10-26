@@ -321,8 +321,8 @@ an `issue-fixer` brief or to the human:
 
 - **Never pre-set or soften a severity.** A severity is transcribed
   mechanically from a consequence class one of the review agents
-  assigned, by the rules in the `sdlc:theorem-based-pr-reviewer` agent
-  → "Findings by severity"; re-tiering a finding on its way into a brief
+  assigned, by the rules in the `sdlc:agent-result-persist-interface`
+  skill → "The derivation modes"; re-tiering a finding on its way into a brief
   substitutes your judgment for that derivation, and the fixer gives
   back the tier you handed it.
 - **Supply consequence, not a consistency checklist.** The question is
