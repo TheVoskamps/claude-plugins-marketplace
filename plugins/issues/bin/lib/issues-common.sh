@@ -1198,7 +1198,8 @@ readonly ISS_BOARD_RETRIES=5 ISS_BOARD_RETRY_WAIT=5
 # the add is refused as already on the board, re-read the issue up to
 # ISS_BOARD_RETRIES times, each after ISS_BOARD_RETRY_WAIT seconds, and take
 # the item from the first read that shows it, leaving that read, with the
-# issue's id and url, in ISS_ISSUE. Any other failure of the add aborts.
+# issue's id and url, in ISS_ISSUE. Aborts with the add's error when no read
+# shows the item, and on any other failure of the add.
 iss_project_add() {
   local host=$1 owner=$2 repo=$3 number=$4 issue_id=$5 add_err i
   if iss_gql "$host" -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" \
