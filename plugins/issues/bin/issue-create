@@ -219,8 +219,7 @@ iss_lookup "$host" "$owner" "$repo" "$number" "id $ISS_SEL_PROJECT_ITEMS"
 issue_id=$(iss_jq .id)
 
 if [ "$ISS_HAS_GP" = 1 ] && iss_cfg_get project-id >/dev/null 2>&1 && [ -z "$(iss_project_item)" ]; then
-  iss_gql "$host" -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" \
-    -f contentId="$issue_id" || iss_gql_fail
+  iss_project_add "$host" "$owner" "$repo" "$number" "$issue_id"
   step_done "added to project"
 fi
 

@@ -153,6 +153,21 @@ issue, its URL and the steps that completed; nothing is rolled back.
 The select-style setters skip a write whose value is already set;
 `/issue-set-status` writes without that pre-check.
 
+Adding an issue to the board **tolerates an auto-add workflow**. A
+board can be set to add every new issue itself, and the workflow can
+land between the read that found the issue off the board and the
+script's own add, which GitHub then refuses with `Content already
+exists in this project`. That is the issue already being where the
+verb wanted it, so the script does not abort on it: it re-reads the
+issue, up to 5 times with a 5-second wait before each, and takes the
+board's own item from the first read that shows it, so the slots it
+was asked to set land on that item. The add runs through one helper,
+whether `/issue-create` reaches it or a slot setter does on an issue
+the board does not yet hold, so every verb that adds gets the same
+tolerance. When no read shows the item, the verb aborts with the add's
+error and that the item never became visible; any other refusal of
+the add aborts as it always did, with no re-read.
+
 A script that reaches GitHub serves the GitHub backend only. Under
 `issues: Jira` it exits non-zero with one fixed message before any
 `gh` call, and the verb is carried out from the prose Jira path in
@@ -222,18 +237,27 @@ none. Its write-dropping mode is the negative control: every write
 reports success and changes nothing, and every write path must exit
 non-zero on it. The fake gives each repository a host and resolves a
 repository, node or comment only on its own host, so a call that drops
-the host fails the verb rather than only the call-log check. The
-discovery lookups have their own state: an owner's boards live under
-`owners`, each owner on its own host; `hostUsers` gives each host its
-own authenticated login, so a `viewer` test can tell which host was
-asked; a host listed in `scopeless` has a token without `read:project`
-and fails every board query as GitHub does; a repository's
-`issueFields` or `issueTypes` set to `"absent"` stands for a schema
-without that field, and `null` for a null connection; and a repository
-named in `nullRepos` resolves to null without an error. A pull request
-is an entry in a repository's issues carrying `pullRequest: true`,
-since the two share one number sequence on GitHub, which is how a test
-asserts that a verb refuses one. No test reaches GitHub.
+the host fails the verb rather than only the call-log check. An
+`autoAdd` key with a `hiddenReads` count stands for a board whose
+auto-add workflow got there first: the add creates the item, keeps it
+out of that many following reads of the issue's project items, and
+fails with GitHub's already-on-the-board message; `addError` makes
+every add fail with a message of the test's choosing, for the case
+that must not be retried. The suite also puts a `sleep` on `PATH`
+that returns at once and logs each wait it was asked for, so a test
+asserts how many waits a verb made and how long each was without
+spending the time. The discovery lookups have their own state: an
+owner's boards live under `owners`, each owner on its own host;
+`hostUsers` gives each host its own authenticated login, so a `viewer`
+test can tell which host was asked; a host listed in `scopeless` has a
+token without `read:project` and fails every board query as GitHub
+does; a repository's `issueFields` or `issueTypes` set to `"absent"`
+stands for a schema without that field, and `null` for a null
+connection; and a repository named in `nullRepos` resolves to null
+without an error. A pull request is an entry in a repository's issues
+carrying `pullRequest: true`, since the two share one number sequence
+on GitHub, which is how a test asserts that a verb refuses one. No
+test reaches GitHub.
 
 `test/issues-reference-test.sh` is the parser's own suite: it runs
 `iss_parse_operand` alone under `/bin/bash`, with the current

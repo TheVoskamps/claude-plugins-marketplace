@@ -922,8 +922,10 @@ iss_gql() {
   return $rc
 }
 
+# iss_gql_fail [<detail>]: abort with the last call's error, and <detail>
+# after it when given.
 iss_gql_fail() {
-  iss_die "GitHub GraphQL call failed: ${ISS_GQL_ERR:-$ISS_GQL_OUT}"
+  iss_die "GitHub GraphQL call failed: ${ISS_GQL_ERR:-$ISS_GQL_OUT}${1:+; $1}"
 }
 
 # iss_lookup <host> <owner> <repo> <number> <selection>: fetch one issue with
@@ -1186,6 +1188,42 @@ iss_project_item() {
   iss_jq --arg p "$(iss_cfg_get project-id)" "[.projectItems.nodes[] | select(.project.id == \$p)][0].id // empty"
 }
 
+# A board's auto-add workflow can put the issue on the board between the read
+# that found it absent and the add, which GitHub then refuses with this error.
+readonly ISS_ALREADY_ON_BOARD='Content already exists in this project'
+readonly ISS_BOARD_RETRIES=5 ISS_BOARD_RETRY_WAIT=5
+
+# iss_project_add <host> <owner> <repo> <number> <issue-id>: add the issue to
+# the configured board and set ISS_PROJECT_ITEM to its project item's ID. When
+# the add is refused as already on the board, re-read the issue up to
+# ISS_BOARD_RETRIES times, each after ISS_BOARD_RETRY_WAIT seconds, and take
+# the item from the first read that shows it, leaving that read, with the
+# issue's id and url, in ISS_ISSUE. Aborts with the add's error when no read
+# shows the item, and on any other failure of the add.
+iss_project_add() {
+  local host=$1 owner=$2 repo=$3 number=$4 issue_id=$5 add_err i
+  if iss_gql "$host" -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" \
+    -f contentId="$issue_id"; then
+    ISS_PROJECT_ITEM=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.addProjectV2ItemById.item.id')
+    return 0
+  fi
+  case "$ISS_GQL_ERR $ISS_GQL_OUT" in
+    *"$ISS_ALREADY_ON_BOARD"*) ;;
+    *) iss_gql_fail ;;
+  esac
+  add_err=${ISS_GQL_ERR:-$ISS_GQL_OUT}
+  i=0
+  while [ "$i" -lt "$ISS_BOARD_RETRIES" ]; do
+    i=$((i + 1))
+    sleep "$ISS_BOARD_RETRY_WAIT"
+    iss_lookup "$host" "$owner" "$repo" "$number" "id url $ISS_SEL_PROJECT_ITEMS"
+    ISS_PROJECT_ITEM=$(iss_project_item)
+    [ -z "$ISS_PROJECT_ITEM" ] || return 0
+  done
+  ISS_GQL_ERR=$add_err
+  iss_gql_fail "issue \`$(iss_ref "$host" "$owner" "$repo" "$number")\` is reported as already on the board, but its project item never became visible after $ISS_BOARD_RETRIES lookups"
+}
+
 # Whether the last failed iss_gql call's message reads as a node ID that no
 # longer resolves, the symptom of an ID cached in repo-config going stale.
 iss_is_stale_id_error() {
@@ -1274,9 +1312,8 @@ iss_slot_write() {
       fid=$(iss_cfg_get fields "$slot" id)
       item=$(iss_project_item)
       if [ -z "$item" ]; then
-        iss_gql "$host" -f query="$ISS_DOC_ADD_PROJECT_ITEM" -f projectId="$(iss_cfg_get project-id)" \
-          -f contentId="$issue_id" || iss_gql_fail
-        item=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.addProjectV2ItemById.item.id')
+        iss_project_add "$host" "$owner" "$repo" "$number" "$issue_id"
+        item=$ISS_PROJECT_ITEM
       fi
       if [ "$kind" = number ]; then
         iss_gql "$host" -f query="$ISS_DOC_SET_NUMBER" -f projectId="$(iss_cfg_get project-id)" \
