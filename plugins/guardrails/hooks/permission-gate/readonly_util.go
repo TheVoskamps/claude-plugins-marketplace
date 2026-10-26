@@ -2180,7 +2180,11 @@ func (w *sedScriptWalker) command() bool {
 			return false
 		}
 		w.i++
-		return w.delimited(d, false) && w.delimited(d, false) && w.endOfCommand()
+		// The source and the destination are two delimited fields in turn.
+		if !w.delimited(d, false) {
+			return false
+		}
+		return w.delimited(d, false) && w.endOfCommand()
 	case ':', 'b', 't', 'T', 'v':
 		if w.bsdLabels {
 			w.toEOL()
@@ -2522,7 +2526,7 @@ func grepFileOperands(args []string) []string {
 		switch name {
 		case "-e", "--regexp", "-f", "--file":
 			patternSuppliedByFlag = true
-			if !glued && !(len(a) > 2 && a[1] != '-') && i+1 < len(args) {
+			if !glued && (len(a) <= 2 || a[1] == '-') && i+1 < len(args) {
 				i++ // consume the separate pattern/pattern-file token
 			}
 			continue

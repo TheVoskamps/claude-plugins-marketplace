@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -24,7 +25,8 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 	cmd.Env = append(os.Environ(), logEnvVar+"="+logPath)
 	out, err := cmd.Output()
 	code := 0
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		code = exitErr.ExitCode()
 	} else if err != nil {
 		t.Fatalf("run binary: %v", err)
@@ -272,7 +274,8 @@ func TestLoggingFailureChangesNoVerdict(t *testing.T) {
 			cmd.Env = append(os.Environ(), logEnvVar+"="+logPath)
 			out, err := cmd.Output()
 			code := 0
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				code = exitErr.ExitCode()
 			} else if err != nil {
 				t.Fatalf("run binary: %v", err)

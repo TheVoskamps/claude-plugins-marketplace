@@ -827,7 +827,7 @@ func testContainmentFrom(target string, base string, rc *repoContext, readClass 
 	}
 
 	listed := ev.config().carveOut.allows(target, base, readClass, shellPattern, glued)
-	if listed && !isUnderGitDir(real, rc) && !(shellPattern && patternMayNameGitDir(real)) {
+	if listed && !isUnderGitDir(real, rc) && (!shellPattern || !patternMayNameGitDir(real)) {
 		if ev != nil {
 			ev.rodeOperatorListing = true
 		}

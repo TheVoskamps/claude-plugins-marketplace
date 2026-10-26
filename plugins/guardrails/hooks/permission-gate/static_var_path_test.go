@@ -510,7 +510,7 @@ func TestForLoopBraceInListDotDotAllInRepoContained(t *testing.T) {
 
 // TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied is a
 // regression pin for the specific silent-drop failure mode discovered while
-// building the fallback splitter: upstream's expand.Braces on a 3+-member
+// building the fallback splitter: upstream's expand.BracesSeq on a 3+-member
 // ".."-bearing list does not always leave residual "{"/"}" text — it can
 // instead silently DROP the escaping (and any later) member from its
 // returned sub-word slice with no error and no residual-brace signal
@@ -544,7 +544,7 @@ func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied(t *testing.T) {
 // verified live), but reproducing bash's full nested-brace grammar is
 // exactly the complexity this fallback declines: any brace grammar it
 // does not implement falls closed. Upstream's own
-// SplitBraces/expand.Braces partially declines this shape too (resolves "a"
+// SplitBraces/expand.BracesSeq partially declines this shape too (resolves "a"
 // but leaves residual "{"/"}" text for the nested "{b,../c}" sub-part), so
 // staticExpandItem's declined-detection fires and hands the raw text to
 // staticExpandBraceFallback, whose depth-tracking correctly detects the
@@ -749,7 +749,7 @@ func TestForLoopNestedSaveRestoresOuterBinding(t *testing.T) {
 // TestForLoopBraceInListTildeEscapingMemberDenied pins a real fail-open
 // found in PR review: a for-loop brace member expressed as a
 // tilde-prefixed path (`~/.ssh/id_rsa`) is NOT dropped by upstream
-// expand.Braces (only ".."-bearing members are, per hasDotDotBraceMember) and
+// expand.BracesSeq (only ".."-bearing members are, per hasDotDotBraceMember) and
 // is NOT absolute per filepath.IsAbs, so before the containment fix in this
 // commit it fell through canonicalizeFrom's relative-join branch and
 // resolved to a literal in-repo-looking child path (`<repo>/~/.ssh/id_rsa`)
@@ -775,7 +775,7 @@ func TestForLoopBraceInListTildeEscapingMemberDenied(t *testing.T) {
 
 // TestForLoopBraceInListAbsoluteEscapingMemberDenied pins the absolute-
 // path escaping-member shape named in the PR review High finding. Upstream
-// expand.Braces preserves an absolute member unchanged (verified: `{a,
+// expand.BracesSeq preserves an absolute member unchanged (verified: `{a,
 // /etc/passwd}` => `[a /etc/passwd]`, no silent drop), so it reaches
 // literalWord/containment on the normal (non-fallback) path and denies via
 // ordinary worst-wins — same machinery as any other absolute operand.

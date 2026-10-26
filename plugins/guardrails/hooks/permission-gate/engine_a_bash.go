@@ -1603,7 +1603,7 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 			sc.hasUnknownExpansion = true
 		}
 		switch r.Op {
-		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
+		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.RdrClob:
 			if target != "/dev/null" {
 				sc.hasRedirectToFile = true
 				// Record the destination so a classifier can GRADE it
@@ -2139,7 +2139,7 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // concrete literal values. It handles, in order:
 //
 //  1. Brace expansion (`{a,b}.md`, `{a,b}$X.md`) via the upstream
-//     syntax.SplitBraces + expand.Braces pair, which performs the
+//     syntax.SplitBraces + expand.BracesSeq pair, which performs the
 //     cross-product fan-out itself. mvdan.cc/sh does NOT pre-expand braces
 //     during parsing (that is correct upstream behavior — matching happens
 //     at expansion time, not parse time), so this step is required even for
@@ -2200,7 +2200,17 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 	// copies each *syntax.Lit it rewrites rather than editing it in place.
 	split := *w
 	syntax.SplitBraces(&split)
-	subWords := expand.Braces(&split)
+	// BracesSeq stops with an error once an expansion passes its element
+	// limit. Reporting that as not static keeps the loop on the unbound walk,
+	// which is where a list that long goes anyway, since the limit sits far
+	// above maxForFanOut.
+	var subWords []*syntax.Word
+	for sw, err := range expand.BracesSeq(&expand.Config{}, &split) {
+		if err != nil {
+			return nil, false
+		}
+		subWords = append(subWords, sw)
+	}
 
 	declined := false
 	items := make([]string, 0, len(subWords))
@@ -2252,7 +2262,7 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 // hasDotDotBraceMember reports whether raw contains a top-level (unnested)
 // brace-comma-list `{...,...}` with at least one comma-separated member
 // containing "..". This is a cheap textual pre-check used purely to decide
-// whether to distrust upstream's expand.Braces output shape — it does not
+// whether to distrust upstream's expand.BracesSeq output shape — it does not
 // itself resolve anything. A false positive here just means
 // staticExpandBraceFallback gets consulted and, if the form is anything more
 // exotic than a single unnested comma-list, correctly declines (fail closed).
@@ -2294,7 +2304,7 @@ func hasDotDotBraceMember(raw string) bool {
 }
 
 // staticExpandBraceFallback splits ONE `for … in` item's raw printed text
-// when upstream's syntax.SplitBraces/expand.Braces declined (or, worse,
+// when upstream's syntax.SplitBraces/expand.BracesSeq declined (or, worse,
 // silently under-counted — see staticExpandItem's doc comment) on a
 // ".."-bearing member. It handles exactly the single, unnested comma-list
 // grammar `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list
