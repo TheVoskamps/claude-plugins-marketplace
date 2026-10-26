@@ -7,13 +7,14 @@
 #     head, generate, disprove, verify, dispose -- and over the states it
 #     prints: outstanding, in flight, overdue past --deadline-minutes, and
 #     returned without saving; a stopped after its enter, a duplicate
-#     leave, a malformed DISPROVED report that earns no verifier, and a
-#     --full round's live list.
+#     leave, a malformed DISPROVED report that earns no verifier, a
+#     generator replaced at another tier, and a --full round's live list.
 #   - --mode dispose over result files for every row of the disposition
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
-#     the verdicts with an unsettled theorem forcing BLOCKED, the refusal
-#     without --loop-exited, and the round that spawned nothing.
+#     the verdicts with an unsettled theorem forcing BLOCKED and a member
+#     of --issues no record tags, the refusal without --loop-exited, and
+#     the round that spawned nothing.
 #   - --mode summary over a stored records file and review file.
 #
 # Every fixture is built under mktemp -d with its own state root. The
@@ -197,6 +198,31 @@ run --mode next --round 1
 assert_eq "next: a generator in flight keeps the generate arm" "generate" "$(first_line)"
 assert_contains "next: the generator in flight names its agent id" "generate${TAB}list${TAB}in-flight${TAB}G${TAB}" "$(rest)"
 
+new_case next-generator-replaced
+add_seed T1 "a claim" "#1"
+seed
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator --model default --effort default
+report "$CASE/r" "no new theorems"
+leave G list generate theorem-generator
+run --mode next --round 1
+assert_eq "next: the file of the generator the spawn record names settles the list" "disprove" "$(first_line)"
+run --mode print --round 1
+assert_contains "print: a result line per result file" \
+  "result list theorem-generator $PR_DIR/round1/list-theorem-generator" "$OUT"
+must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator-medium --model default --effort default
+run --mode next --round 1
+assert_eq "next: a list replaced at another tier is unsettled until that tier's file lands" "generate" "$(first_line)"
+assert_eq "next: the replacement not yet entered is outstanding" "generate${TAB}list${TAB}outstanding${TAB}${TAB}" "$(rest)"
+as_child M --mode enter --round 1 --theorem list --stage generate
+run --mode next --round 1
+assert_contains "next: the replacement in flight" "generate${TAB}list${TAB}in-flight${TAB}M${TAB}" "$(rest)"
+run --mode print-in-flight --round 1 --stage generate --agent theorem-generator-medium
+assert_contains "print-in-flight: agrees that the replacement is in flight" "list M " "$OUT"
+as_child M --mode leave --round 1 --theorem list --stage generate --agent theorem-generator-medium --from "$CASE/r"
+run --mode next --round 1
+assert_eq "next: the replacement's file settles the list" "disprove" "$(first_line)"
+
 # --- next: disprove, its child states, and the barrier --------------------
 
 new_case next-disprove
@@ -268,7 +294,7 @@ assert_eq "duplicate leave: both leave records stay in the log" "2" \
   "$(awk '$1 == "leave" && $2 == "T1"' "$PR_DIR/round1/log" | wc -l | tr -d ' ')"
 run --mode next --round 1
 assert_eq "next: a duplicate leave settles its theorem once, from the later report" "dispose" "$OUT"
-run --mode dispose --round 1
+run --mode dispose --round 1 --issues 1
 assert_eq "dispose: a duplicate leave takes the one file there is, the later child's" \
   "T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived" "$(printf '%s\n' "$OUT" | sed -n 1p)"
 
@@ -335,15 +361,19 @@ report "$CASE/r" "VERDICT: SURVIVED" "THEOREM: T9"
 leave D9 T9 disprove theorem-disprover
 printf 'T7\tseverity-override\tLow\n' >"$CASE/edits"
 
-run --mode dispose --round 1 --edits "$CASE/edits"
+run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited
+assert_eq "dispose: without --issues it is refused" "2" "$RC"
+assert_contains "dispose: the refusal names --issues" "--issues is required in --mode dispose" "$ERR"
+
+run --mode dispose --round 1 --edits "$CASE/edits" --issues "1 2 3 4 5"
 assert_eq "dispose: without --loop-exited a theorem with no result file for its stage exits non-zero" "3" "$RC"
 assert_eq "dispose: without --loop-exited no row and no verdict is printed" "" "$OUT"
 assert_contains "dispose: the refusal names the theorem missing its verifier" "T8 (verify)" "$ERR"
 assert_contains "dispose: the refusal names the theorem missing its disprover" "T10 (disprove)" "$ERR"
 
-run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited
+run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited --issues "#1, #2 #3,#4 #5 #6"
 assert_eq "dispose: with --loop-exited it exits 0" "0" "$RC"
-assert_eq "dispose: every row of the disposition table, its state, severity and the verdicts" \
+assert_eq "dispose: every row of the disposition table, its state, severity and the verdicts, a member no record tags approved" \
 "T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived
 T2${TAB}verified-refuted${TAB}-${TAB}-${TAB}retired${TAB}disproved-but-refuted
 T3${TAB}finding${TAB}optional-polish${TAB}Low${TAB}disproved${TAB}finding 3, Low
@@ -358,10 +388,18 @@ verdict${TAB}2${TAB}NEEDS_CHANGES
 verdict${TAB}3${TAB}APPROVED
 verdict${TAB}4${TAB}BLOCKED
 verdict${TAB}5${TAB}BLOCKED
+verdict${TAB}6${TAB}APPROVED
 verdict${TAB}overall${TAB}BLOCKED" "$OUT"
 
+run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited --issues "6 3"
+assert_eq "dispose: the members come first, in the order given, then each other issue a record tags" \
+  "6 3 1 2 4 5 overall" "$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "verdict" { printf "%s%s", sep, $2; sep = " " }')"
+
+run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited --issues '1 *'
+assert_eq "dispose: an --issues member that is no issue is refused" "2" "$RC"
+
 printf 'T3\tseverity-override\tsevere\n' >"$CASE/bad-edits"
-run --mode dispose --round 1 --edits "$CASE/bad-edits" --loop-exited
+run --mode dispose --round 1 --edits "$CASE/bad-edits" --loop-exited --issues 1
 assert_eq "dispose: an override that is no severity is refused" "2" "$RC"
 assert_contains "dispose: the refusal names the override" "the severity-override of T3 is severe" "$ERR"
 
@@ -376,7 +414,7 @@ disproved T2 optional-polish
 leave D2 T2 disprove theorem-disprover
 stands T2 optional-polish
 leave V2 T2 verify counterexample-verifier
-run --mode dispose --round 1
+run --mode dispose --round 1 --issues 1
 assert_eq "dispose: only Low findings approve" \
   "verdict${TAB}1${TAB}APPROVED
 verdict${TAB}overall${TAB}APPROVED" "$(printf '%s\n' "$OUT" | grep '^verdict')"
@@ -387,7 +425,7 @@ add_seed T2 "b" "#1" "state: disproved" "state-detail: finding 1, Medium"
 add_seed T3 "c" "#2" "state: unsettled"
 must --mode records --round 1 --from "$CASE/seed"
 must --mode anchor --round 2 --head-sha aaa --round-type code-and-instruction-markdown
-run --mode dispose --round 2
+run --mode dispose --round 2 --issues "1 2"
 assert_eq "dispose: a round that spawned nothing gives no row and carries each verdict forward" \
   "verdict${TAB}1${TAB}NEEDS_CHANGES
 verdict${TAB}2${TAB}BLOCKED

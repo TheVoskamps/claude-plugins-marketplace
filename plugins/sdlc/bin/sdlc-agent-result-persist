@@ -53,7 +53,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
                 [--carry] [--edits <path>] [--full]
-                [--deadline-minutes <n>] [--loop-exited]
+                [--deadline-minutes <n>] [--loop-exited] [--issues <issues>]
        $PROGRAM --mode list [((<host>/)<owner>/)<repo> | https://<host>/<owner>/<repo>]
        $PROGRAM --mode repos
 EOF
@@ -82,11 +82,12 @@ edits=
 full=
 loop_exited=
 deadline_minutes=
+issues=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits|--deadline-minutes)
+    --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits|--deadline-minutes|--issues)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -138,6 +139,7 @@ while [ "$#" -gt 0 ]; do
     --from)       from=$value ;;
     --edits)      edits=$value ;;
     --deadline-minutes) deadline_minutes=$value ;;
+    --issues)     issues=$value ;;
   esac
 done
 
@@ -443,6 +445,20 @@ if [ -n "$deadline_minutes" ]; then
 fi
 if [ -n "$loop_exited" ] && [ "$mode" != dispose ]; then
   die "--loop-exited is not accepted in --mode $mode"
+fi
+
+# --issues is the issue set dispose gives a verdict line each, whether or
+# not a record tags it: the members separated by spaces or commas, each
+# with or without its leading #.
+if [ "$mode" = dispose ]; then
+  issue_list=$(printf '%s\n' "$issues" \
+    | awk '{ gsub(/,/, " "); for (i = 1; i <= NF; i++) { s = $i; sub(/^#/, "", s); printf "%s ", s } }')
+  [ -n "$issue_list" ] || die "--issues is required in --mode dispose"
+  case "$issue_list" in
+    *[!A-Za-z0-9._\ -]*) die "--issues must name each issue as N or #N: $issues" ;;
+  esac
+elif [ -n "$issues" ]; then
+  die "--issues is not accepted in --mode $mode: $issues"
 fi
 
 for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
@@ -850,9 +866,8 @@ build_carried_records() {
 }
 
 # list_results <round directory>: one "<theorem> <agent> <path>" line per
-# result file the directory holds, the way --mode print synthesizes its
-# result lines: the log, the records, the review and a staging file are
-# not results.
+# result file the directory holds: the log, the records, the review and a
+# staging file are not results.
 list_results() {
   for found in "$1"/*; do
     [ -e "$found" ] || continue
@@ -903,8 +918,19 @@ derive_lib() {
     return c ~ /^(breaks-production|behavior-broken-or-criterion-unmet|defect-no-shipped-breakage|optional-polish)$/
   }
   function stage_agent(st) { return st == "disprove" ? "theorem-disprover" : "counterexample-verifier" }
-  function has_result(st, t) { return st == "generate" ? list_result : ((t SUBSEP stage_agent(st)) in result) }
-  function settled(st, t) { return ((st SUBSEP t) in left) || has_result(st, t) }
+  # A stage other than generate has one definition, and its file is the
+  # one. The list is the file of the generator the last spawn record for
+  # list names, since a replacement at another tier writes a file of its
+  # own; the file of any generator settles it while no spawn record names
+  # one.
+  function has_result(st, t) {
+    if (st != "generate") return (t SUBSEP stage_agent(st)) in result
+    return (t in gen_agent) ? ((t SUBSEP gen_agent[t]) in result) : list_result
+  }
+  function settled(st, t) {
+    if (st == "generate" && (t in gen_agent)) return ((t SUBSEP gen_agent[t]) in left_as) || has_result(st, t)
+    return ((st SUBSEP t) in left) || has_result(st, t)
+  }
   function read_report(path, stage,    line, key, v, nv, has, content, val, quoted, last) {
     split("", has); split("", content); split("", val)
     nv = 0; quoted = 0; last = ""
@@ -959,11 +985,18 @@ derive_lib() {
     if ($1 == "anchor") { if (anchor == "") anchor = $3; next }
     if ($1 == "spawn" || $1 == "enter") fanned = 1
     t = $2; st = $3
+    if ($1 == "spawn" && st == "generate") gen_agent[t] = $5
     if ($1 == "enter") {
       if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
       child[st, t] = $5; at[st, t] = $4
     }
-    if ($1 == "leave") { left[st, t] = 1; ended[st, t, $5] = 1 }
+    if ($1 == "leave") {
+      left[st, t] = 1; ended[st, t, $5] = 1
+      # The agent a leave wrote for is the name of its result file past
+      # the theorem and its dash.
+      name = $6; sub(/.*\//, "", name)
+      if (st == "generate") left_as[t, substr(name, length(t) + 2)] = 1
+    }
     if ($1 == "stopped") ended[st, t, $5] = 1
     if ($1 == "return") returned[st, t, $5] = 1
     next
@@ -1079,8 +1112,10 @@ readonly next_prog='
     }
   }'
 
-# dispose: one row per live theorem, then the verdicts; no row at all on
-# a round whose log holds no spawn and no enter. Without loop_exited, a
+# dispose: one row per live theorem, then the verdicts, one for each of
+# members, the space-separated issue set, and for each other issue a
+# record tags; no row at all on a round whose log holds no spawn and no
+# enter. Without loop_exited, a
 # live theorem with no result file for its stage makes it print nothing,
 # name each such theorem and stage on stderr, and exit 3. An override
 # that is no severity exits 2.
@@ -1189,6 +1224,11 @@ readonly dispose_prog='
       }
       printf "%s\t%s\t%s\t%s\t%s\t%s\n", t, disp, rcls[t], rsev[t], st, detail
     }
+    # Every member gets a verdict line, a member no record tags included,
+    # and so does an issue a record tags outside the set.
+    nm = split(members, m, " ")
+    for (i = 1; i <= nm; i++)
+      if (!(m[i] in listed)) { listed[m[i]] = 1; issues[++nissues] = m[i] }
     # Every recorded theorem contributes to the verdicts: one with a row
     # by its row, any other by the state it carries.
     for (i = 1; i <= nid; i++) {
@@ -1426,13 +1466,8 @@ case "$mode" in
     # Every result file present, synthesized from the directory at read
     # time rather than stored: a report written by a child whose leave
     # record never landed still reaches the reader this way.
-    for found in "$dir"/*; do
-      [ -e "$found" ] || continue
-      rest=${found##*/}
-      case "$rest" in
-        log|records|review|*.partial-*) continue ;;
-      esac
-      printf 'result %s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
+    list_results "$dir" | while read -r t name found; do
+      printf 'result %s %s %s\n' "$t" "$name" "$found"
     done
     # The round's type, as every reader of a round takes it: the one its
     # anchor wrote, or the type a round with none reviewed.
@@ -1534,7 +1569,8 @@ case "$mode" in
     make_work
     load_round_records
     status=0
-    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" || status=$?
+    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" -v members="$issue_list" \
+      || status=$?
     # 3 is a theorem with no result file for its stage, named on stderr;
     # any other failure is a refusal.
     case "$status" in

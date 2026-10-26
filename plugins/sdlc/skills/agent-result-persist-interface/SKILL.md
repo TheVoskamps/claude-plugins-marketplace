@@ -588,8 +588,11 @@ does not check that a quote is verbatim; the verifier does.
 
 **A verdict's only source is a result file.** A theorem settles in a
 stage only through its result file under that stage's agent —
-`theorem-disprover` or `counterexample-verifier`, and for `list` any
-generator — or a `leave` record, and a report is read from the file. A
+`theorem-disprover` or `counterexample-verifier`, and for `list` the
+generator the last `spawn` record for `list` names, or any generator
+while none does — or a `leave` record, for `list` only one writing that
+generator's file once a `spawn` record names it, and a report is read
+from the file. A
 `return` record never settles a theorem, and a hand-back is never read.
 
 - **`next`** — prints the arm the round is in, alone on the first line,
@@ -629,8 +632,9 @@ generator — or a `leave` record, and a report is read from the file. A
     Without `--deadline-minutes` nothing is overdue;
   - **`in-flight`** — any other child in flight.
 - **`dispose`** — prints one row per live theorem, in id order, then one
-  verdict line per issue the records tag, in first-tagged order, then
-  the overall verdict:
+  verdict line per member of `--issues`, in the order given, and per
+  other issue the records tag, in first-tagged order, then the overall
+  verdict:
 
   ```text
   <theorem-id>\t<disposition>\t<class>\t<severity>\t<state>\t<state-detail>
@@ -638,8 +642,10 @@ generator — or a `leave` record, and a report is read from the file. A
   verdict\toverall\t<verdict>
   ```
 
-  `<issue-number>` is the `issues` entry without its `#`. It takes
-  `--edits`, `--from`, `--full` and `--loop-exited`, all optional.
+  `<issue-number>` is the issue without its `#`. `--issues <issues>`,
+  required, is the issue set under review, its members separated by
+  spaces or commas, each `N` or `#N`. It also takes `--edits`,
+  `--from`, `--full` and `--loop-exited`, all optional.
   `--loop-exited` says the resume-pass loop has exited for the round.
   Without it, a live theorem with no result file for its stage gets no
   row: the mode prints nothing on stdout, names each such theorem and
@@ -855,7 +861,7 @@ one file there is to read, and no reader has a tie to break. A
 replacement carrying a different `--agent` name writes a file of its
 own instead, leaving the theorem two; `dispose` reads only the
 disprover's and the verifier's, so this arises only for `list`, whose
-file the caller picks by the last `spawn` record. Both records stay in the
+file is the one the last `spawn` record names. Both records stay in the
 log, because the pair is evidence that a child believed dead was
 alive, and the reader reports it as such. No line is revised, so
 concurrent appends cannot collide.
