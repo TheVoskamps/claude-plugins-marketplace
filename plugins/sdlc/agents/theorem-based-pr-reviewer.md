@@ -978,15 +978,10 @@ printed.
 
 Severity is a property of the **consequence of merging the PR as-is**,
 never of the topic. `--mode dispose` transcribes it from the
-consequence class a theorem agent assigned, applying the floor and the
-override, per the preloaded `sdlc:agent-result-persist-interface` skill
-→ "The derivation modes": you never assign a class or a severity, and a
+consequence class a theorem agent assigned, applying the override, per
+the preloaded `sdlc:agent-result-persist-interface` skill → "The
+derivation modes": you never assign a class or a severity, and a
 malformed report never gets a replacement child.
-
-A finding whose whole remedy is rewording a comment or docstring is at
-most Low — *unless* the comment masks an unmet acceptance criterion
-(e.g. asserting a criterion is satisfied when it isn't), when the
-finding IS the unmet criterion and is graded High per the floor.
 
 ## Report back
 

@@ -1088,15 +1088,8 @@ readonly dispose_prog='
     failed = 1
     exit 2
   }
-  # A criterion theorem is one whose claim opens with the words
-  # theorem-generation gives every acceptance-criterion claim.
-  function is_criterion(t,    c) {
-    c = tolower(trim(rec[t, "claim"]))
-    return c ~ /^the diff satisfies / || c ~ /^the pr'"'"'s documentation satisfies /
-  }
   function severity(t, cls,    s, o) {
     s = cls == "class-underivable" ? "High" : class_sev(cls)
-    if (is_criterion(t) && sev_rank(s) < sev_rank("High")) s = "High"
     o = override(t)
     return o != "" ? o : s
   }

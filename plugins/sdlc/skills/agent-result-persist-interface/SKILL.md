@@ -676,12 +676,11 @@ generator — or a `leave` record, and a report is read from the file. A
   state and head SHA it had; a round whose log holds no `spawn` and no
   `enter` record — the empty-delta round — gives no theorem a row.
 
-  **The severity** is derived in this fixed order: the class table, or
-  High where the class is underivable, gives the base; the
-  acceptance-criterion floor raises it; a `severity-override` on the
-  record, case-insensitively one of the four severities, replaces the
-  result of both. An override that is none of them is refused, exit 2,
-  on a theorem whose finding it would grade.
+  **The severity** is the class table's, or High where the class is
+  underivable, and a `severity-override` on the record,
+  case-insensitively one of the four severities, replaces it. Nothing
+  else adjusts it. An override that is none of the four is refused,
+  exit 2, on a theorem whose finding it would grade.
 
   | Consequence class | Severity |
   | --- | --- |
@@ -692,11 +691,7 @@ generator — or a `leave` record, and a report is read from the file. A
 
   The class is **underivable** — `class-underivable` in `<class>` — when
   the verifier's report is malformed and the disprover's proposal is not
-  a token either. The **floor** makes a finding on a criterion theorem
-  at least High, and only raises. A criterion theorem is one whose
-  `claim` opens, case-insensitively, `The diff satisfies` or `The PR's
-  documentation satisfies` — the opening `sdlc:theorem-generation` gives
-  every acceptance-criterion claim.
+  a token either.
 
   **The verdicts** are derived per issue, over the findings and
   unsettled theorems tagged to it, and overall over all of them: any

@@ -11,10 +11,9 @@
 #     --full round's live list.
 #   - --mode dispose over result files for every row of the disposition
 #     table, the state each row stamps, the severity derivation -- a
-#     class-underivable finding, the acceptance-criterion floor and a
-#     human override on a criterion theorem -- the verdicts with an
-#     unsettled theorem forcing BLOCKED, the refusal without --loop-exited,
-#     and the round that spawned nothing.
+#     class-underivable finding and a human override on a theorem --
+#     the verdicts with an unsettled theorem forcing BLOCKED, the refusal
+#     without --loop-exited, and the round that spawned nothing.
 #   - --mode summary over a stored records file and review file.
 #
 # Every fixture is built under mktemp -d with its own state root. The
@@ -304,8 +303,7 @@ add_seed T2 "is refuted" "#1"
 add_seed T3 "stands at polish" "#1"
 add_seed T4 "verifier malformed" "#2"
 add_seed T5 "nothing derives a class" "#2"
-add_seed T6 'The diff satisfies acceptance criterion "x" of #3.' "#3"
-add_seed T7 'The diff satisfies acceptance criterion "y" of #3.' "#3"
+add_seed T7 "overridden by a human" "#3"
 add_seed T8 "never verified" "#4"
 add_seed T9 "disprover malformed" "#4"
 add_seed T10 "never disproved" "#5"
@@ -329,10 +327,6 @@ disproved T5 not-a-class
 leave D5 T5 disprove theorem-disprover
 stands_classless T5
 leave V5 T5 verify counterexample-verifier
-disproved T6 optional-polish
-leave D6 T6 disprove theorem-disprover
-stands T6 optional-polish
-leave V6 T6 verify counterexample-verifier
 disproved T7 behavior-broken-or-criterion-unmet
 leave D7 T7 disprove theorem-disprover
 stands T7 behavior-broken-or-criterion-unmet
@@ -354,17 +348,16 @@ assert_eq "dispose: with --loop-exited it exits 0" "0" "$RC"
 assert_eq "dispose: every row of the disposition table, its state, severity and the verdicts" \
 "T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived
 T2${TAB}verified-refuted${TAB}-${TAB}-${TAB}retired${TAB}disproved-but-refuted
-T3${TAB}finding${TAB}optional-polish${TAB}Low${TAB}disproved${TAB}finding 4, Low
-T4${TAB}finding-verifier-malformed${TAB}defect-no-shipped-breakage${TAB}Medium${TAB}disproved${TAB}finding 3, Medium
+T3${TAB}finding${TAB}optional-polish${TAB}Low${TAB}disproved${TAB}finding 3, Low
+T4${TAB}finding-verifier-malformed${TAB}defect-no-shipped-breakage${TAB}Medium${TAB}disproved${TAB}finding 2, Medium
 T5${TAB}finding-verifier-malformed${TAB}class-underivable${TAB}High${TAB}disproved${TAB}finding 1, High, class-underivable
-T6${TAB}finding${TAB}optional-polish${TAB}High${TAB}disproved${TAB}finding 2, High
-T7${TAB}finding${TAB}behavior-broken-or-criterion-unmet${TAB}Low${TAB}disproved${TAB}finding 5, Low
+T7${TAB}finding${TAB}behavior-broken-or-criterion-unmet${TAB}Low${TAB}disproved${TAB}finding 4, Low
 T8${TAB}disproved-unverified${TAB}-${TAB}-${TAB}disproved${TAB}unverified
 T9${TAB}unsettled-disprover-malformed${TAB}-${TAB}-${TAB}unsettled${TAB}-
 T10${TAB}unsettled-no-verdict${TAB}-${TAB}-${TAB}unsettled${TAB}-
 verdict${TAB}1${TAB}APPROVED
 verdict${TAB}2${TAB}NEEDS_CHANGES
-verdict${TAB}3${TAB}NEEDS_CHANGES
+verdict${TAB}3${TAB}APPROVED
 verdict${TAB}4${TAB}BLOCKED
 verdict${TAB}5${TAB}BLOCKED
 verdict${TAB}overall${TAB}BLOCKED" "$OUT"
