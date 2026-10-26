@@ -10,6 +10,12 @@ is how a test drives a script's re-read check. `issue create` is the one
 exception: the issue itself is still created, without its labels or
 assignees, so a script can reach the writes that follow it.
 
+state["addError"] makes every addProjectV2ItemById fail with that message.
+state["autoAdd"] = {"hiddenReads": N} stands for a board whose auto-add
+workflow added the issue first: the add fails as "Content already exists in
+this project", and the item it created stays out of the next N reads of the
+issue's project items.
+
 A pull request is an entry in a repo's "issues" carrying "pullRequest": true,
 since the two share one number sequence.
 
@@ -135,9 +141,17 @@ def render(state, nwo, issue, query, after=None):
     children = [brief(state, n, i) for n, i in all_issues(state) if i.get("parent") == issue["id"]]
     blocked_by = [brief(state, *by_id(state, b)) for b in issue.get("blockedBy", [])]
     blocking = [brief(state, n, i) for n, i in all_issues(state) if issue["id"] in i.get("blockedBy", [])]
-    items = [{"id": item["id"], "project": {"id": item["project"]},
-              "fieldValues": paginate(query, "fieldValues", field_values(item), None)}
-             for item in issue.get("projectItems", [])]
+    items = []
+    for item in issue.get("projectItems", []):
+        # An item a board's auto-add workflow created stays out of this many
+        # more reads of the issue's project items.
+        if item.get("hiddenReads", 0) > 0:
+            if "projectItems(" in query:
+                item["hiddenReads"] -= 1
+                save(state)
+            continue
+        items.append({"id": item["id"], "project": {"id": item["project"]},
+                      "fieldValues": paginate(query, "fieldValues", field_values(item), None)})
     issue_fields = [{"__typename": "IssueFieldSingleSelectValue", "name": v["name"], "optionId": v["optionId"],
                      "field": {"id": fid}} for fid, v in issue.get("issueFields", {}).items()]
     issue_type = None
@@ -268,6 +282,15 @@ def graphql(state, host, args):
     if name == "addProjectV2ItemById":
         _, issue = node("contentId")
         item = {"id": "PVTI_" + issue["id"], "project": fields["projectId"], "fields": {}}
+        if "addError" in state:
+            fail(state["addError"])
+        if "autoAdd" in state:
+            # The board's auto-add workflow got there first: the item exists,
+            # hidden from the next hiddenReads reads, and the add fails.
+            item["hiddenReads"] = state["autoAdd"]["hiddenReads"]
+            issue["projectItems"].append(item)
+            save(state)
+            fail("Content already exists in this project")
         if not dropping():
             issue["projectItems"].append(item)
         result = {"item": {"id": item["id"]}}

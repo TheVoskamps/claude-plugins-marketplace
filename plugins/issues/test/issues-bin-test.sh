@@ -28,6 +28,12 @@ cat >"$SANDBOX/bin/gh" <<EOF
 exec python3 "$TEST_DIR/fake-gh.py" "\$@"
 EOF
 chmod +x "$SANDBOX/bin/gh"
+# A `sleep` that returns at once, logging each wait to $FAKE_SLEEP_LOG.
+cat >"$SANDBOX/bin/sleep" <<'EOF'
+#!/bin/sh
+echo "$1" >>"$FAKE_SLEEP_LOG"
+EOF
+chmod +x "$SANDBOX/bin/sleep"
 
 FRONT_MATTER='---
 schema-version: 7
@@ -214,6 +220,7 @@ new_case() {
   fi
   cp "$BASE_STATE" "$CASE_DIR/state.json"
   : >"$CASE_DIR/gh.log"
+  : >"$CASE_DIR/sleep.log"
 }
 
 # run <verb> <args...>: run a script under /bin/bash in the case repo; sets
@@ -228,7 +235,7 @@ run_in() {
   shift 2
   OUT=$(cd "$dir" &&
     PATH="$SANDBOX/bin:$PATH" FAKE_GH_STATE="$CASE_DIR/state.json" FAKE_GH_LOG="$CASE_DIR/gh.log" \
-    XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
+    FAKE_SLEEP_LOG="$CASE_DIR/sleep.log" XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
     /bin/bash "$BIN/$verb" "$@" 2>&1)
   RC=$?
 }
@@ -976,6 +983,44 @@ check "$(state '.repos["acme/widgets"].issues["210"] | [.issueType, .issueFields
 run issue-create --title "Bad" --body-file new.md --priority Extreme
 expect "issue-create: invalid value refused before creating" 1 "value \`Extreme\` is not in \`priority\`'s options"
 check "$(state '.repos["acme/widgets"].issues | has("211")')" false "issue-create: nothing created on a bad value"
+
+# set_state <jq-update>: change the case's fake GitHub.
+set_state() {
+  jq "$1" "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+}
+
+# A board's auto-add workflow adds the issue between the read and the add.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+set_state '.autoAdd = {hiddenReads: 0}'
+run issue-create --title "Raced" --body-file new.md --status Done
+expect "issue-create: an issue the board added first is tolerated" 0 "Created issue #210 \"Raced\"" "  status:     Done"
+check "$(state '.repos["acme/widgets"].issues["210"].projectItems | map(.fields.PVTSSF_status.name) | join(",")')" \
+  Done "issue-create: the status landed on the board's own item"
+check "$(tr '\n' ' ' <"$CASE_DIR/sleep.log")" "5 " "issue-create: one 5-second wait before the lookup that found the item"
+
+new_case "$CONFIG_MAIN"
+set_state '.autoAdd = {hiddenReads: 2}'
+run issue-set-status 3 Done
+expect "issue-set-status: an issue the board added first is tolerated" 0
+check "$(state '.repos["acme/widgets"].issues["3"].projectItems | map(.fields.PVTSSF_status.name) | join(",")')" \
+  Done "issue-set-status: the status landed on the board's own item"
+check "$(tr '\n' ' ' <"$CASE_DIR/sleep.log")" "5 5 5 " "issue-set-status: a 5-second wait before each lookup"
+
+new_case "$CONFIG_MAIN"
+set_state '.autoAdd = {hiddenReads: 5}'
+run issue-set-status 3 Done
+expect "issue-set-status: an item that never shows aborts" 1 \
+  "GitHub GraphQL call failed: gh: Content already exists in this project; issue \`#3\` is reported as already on the board, but its project item never became visible after 5 lookups"
+check "$(tr '\n' ' ' <"$CASE_DIR/sleep.log")" "5 5 5 5 5 " "issue-set-status: at most 5 lookups, each after a 5-second wait"
+
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+set_state '.addError = "Something else went wrong"'
+run issue-create --title "Refused" --body-file new.md
+expect "issue-create: any other add failure aborts" 1 "GitHub GraphQL call failed: gh: Something else went wrong" \
+  "the run stopped before finishing"
+check "$(wc -l <"$CASE_DIR/sleep.log" | tr -d ' ')" 0 "issue-create: any other add failure is not retried"
 
 new_case "$CONFIG_NUMBER"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
