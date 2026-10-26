@@ -880,8 +880,9 @@ load_round_records() {
 # round's records (records_file), the --edits file (edits_file), the round
 # log (log_file) and the round's result files (results_file, as
 # list_results prints them), and leaves in END: ids[1..nid] in id order
-# with rec[id, field]; the live list live[1..nlive] with islive[id]; and,
-# from the log, which child each stage's theorem has and how it ended.
+# with rec[id, field], and, from the log, which child each stage's
+# theorem has and how it ended. derive_live() fills the live list,
+# live[1..nlive] with islive[id], and the appended program calls it.
 #
 # A theorem is live unless this round's edits retire it; on a default
 # round it is live when it holds no state, or disproved or unsettled; on a
@@ -987,8 +988,9 @@ AWK
 }
 
 # derive <awk program> [-v name=value]...: runs the shared derivation
-# with the program appended, over the files load_round_records and
-# list_results leave in $work.
+# with the program appended, over the records load_round_records left in
+# $work, the --edits file, the round log and the result files it lists
+# itself.
 derive() {
   prog=$1
   shift
@@ -1001,9 +1003,13 @@ derive() {
 }
 
 # next: the arm the round is in, then one line per theorem of each stage
-# that is outstanding, in flight, overdue or returned without saving; or
-# moved-head alone, when --head-sha names a head other than the anchor's.
+# up to the arm's that is outstanding, in flight, overdue or returned
+# without saving; or moved-head alone, when --head-sha names a head other
+# than the anchor's.
 readonly next_prog='
+  # epoch(ts): the seconds since 1970 of a UTC YYYY-MM-DDTHH:MM:SSZ
+  # timestamp, by the days-from-civil count, since awk has no portable
+  # time parser.
   function epoch(ts,    y, m, d, era, yoe, doy, doe) {
     y = substr(ts, 1, 4) + 0; m = substr(ts, 6, 2) + 0; d = substr(ts, 9, 2) + 0
     if (m <= 2) y--
@@ -1042,6 +1048,9 @@ readonly next_prog='
     }
     return 0
   }
+  # sweep(st): considers every theorem a child entered the stage for,
+  # member or not, so a child in flight is printed even off the live
+  # list, and says whether any of them still has work.
   function sweep(st,    i, open) {
     open = 0
     for (i = 1; i <= nentered[st]; i++) if (consider(st, entered[st, i], 0)) open = 1
@@ -1092,11 +1101,17 @@ readonly dispose_prog='
     failed = 1
     exit 2
   }
+  # severity(t, cls): the severity class_sev gives the class, High for
+  # class-underivable, replaced by the override on the theorem when it
+  # has one.
   function severity(t, cls,    s, o) {
     s = cls == "class-underivable" ? "High" : class_sev(cls)
     o = override(t)
     return o != "" ? o : s
   }
+  # contribute(t, sev, blocked): marks each issue the theorem tags, and
+  # the overall verdict, BLOCKED when blocked is set and NEEDS_CHANGES
+  # when sev is Medium or worse.
   function contribute(t, sev, blocked,    n, parts, i, issue) {
     n = split(rec[t, "issues"], parts, ",")
     for (i = 1; i <= n; i++) {
