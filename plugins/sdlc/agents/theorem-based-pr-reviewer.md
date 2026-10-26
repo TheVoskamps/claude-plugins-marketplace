@@ -613,10 +613,12 @@ else:
   generated or minted, in id order, with the fields of "The theorem
   contract" and no `state`.
 
-Re-stage both on every resume from what this round's sections read,
-and once the list is settled pass them as `--edits` and `--from` to
-every `next` and `dispose` call, leaving out a file with nothing in it:
-an arm past `generate` read without them is not one to act on. Every
+Re-stage both on every resume from what this round's sections read.
+Once the list is settled, run `--mode next` with them as `--edits` and
+`--from`, per "You are re-entrant", leaving out a file with nothing in
+it, and take the arm it prints: an arm past `generate` read without
+them is not one to act on. Pass them to every later `next` and `dispose`
+call too. Every
 retired theorem carries its verdict forward with no disprover; every
 live one gets a **full, unbounded** disprover.
 
@@ -707,7 +709,7 @@ stage posts":
 
 ```bash
 sdlc-agent-result-persist --mode dispose \
-  --pr <PR_REF> --round <this round's number> \
+  --pr <PR_REF> --round <this round's number> --issues "<the resolved set, space-separated>" \
   [--edits <edits file>] [--from <new-records file>] [--full] [--loop-exited]
 ```
 
@@ -858,9 +860,7 @@ standing counterexample in full, and keeps the near-misses visible. It
 goes to the round's review file, per "Persist the round's records and
 review"; the PR gets what `--mode summary` renders from it, per "Post
 one review". Its sections, in order, each under a `##` heading spelled
-as its bold name below — `summary` copies the Verdicts, Review method,
-Overall verdict and Closing-line corrections sections through by those
-headings:
+as its bold name below:
 
 1. **Verdicts** — one line per member of the set you review against,
    and the overall line, per "Per-issue verdicts, one overall".
