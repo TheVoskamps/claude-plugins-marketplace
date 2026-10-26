@@ -530,7 +530,8 @@ transcript_path() {
   printf '%s\n' "$HOME/.claude/projects/$project/$session/subagents/agent-$(this_agent_id).jsonl"
 }
 
-# Scratch for a payload on its way into state, removed on exit.
+# Scratch for a payload on its way into state, or for the files a
+# derivation reads, removed on exit.
 work=
 make_work() {
   work=$(mktemp -d "${TMPDIR:-/tmp}/$PROGRAM.XXXXXX")
@@ -998,7 +999,8 @@ derive() {
 }
 
 # next: the arm the round is in, then one line per theorem of each stage
-# that is outstanding, in flight, overdue or returned without saving.
+# that is outstanding, in flight, overdue or returned without saving; or
+# moved-head alone, when --head-sha names a head other than the anchor's.
 readonly next_prog='
   function epoch(ts,    y, m, d, era, yoe, doy, doe) {
     y = substr(ts, 1, 4) + 0; m = substr(ts, 6, 2) + 0; d = substr(ts, 9, 2) + 0
