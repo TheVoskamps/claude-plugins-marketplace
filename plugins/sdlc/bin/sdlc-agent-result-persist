@@ -1079,7 +1079,11 @@ readonly next_prog='
     }
   }'
 
-# dispose: one row per live theorem, then the verdicts.
+# dispose: one row per live theorem, then the verdicts; no row at all on
+# a round whose log holds no spawn and no enter. Without loop_exited, a
+# live theorem with no result file for its stage makes it print nothing,
+# name each such theorem and stage on stderr, and exit 3. An override
+# that is no severity exits 2.
 readonly dispose_prog='
   function sev_rank(s) { return s == "Critical" ? 4 : s == "High" ? 3 : s == "Medium" ? 2 : s == "Low" ? 1 : 0 }
   function class_sev(c) {
