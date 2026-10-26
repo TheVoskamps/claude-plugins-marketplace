@@ -615,23 +615,19 @@ generator — or a `leave` record, and a report is read from the file. A
 
   A stage's members are `list` for `generate`, the live list for
   `disprove`, and for `verify` the live theorems whose disprover report
-  is a well-formed `DISPROVED` one; a malformed one earns no verifier. A
+  is a well-formed `DISPROVED` one; a malformed one earns no verifier.
+  Outstanding and in flight are as "What the reader derives" below
+  defines them. An outstanding theorem is printed `outstanding`, and a
   theorem with a child in flight is printed with its child's state and
   never as `outstanding`, member or not:
 
-  - **`in-flight`** — its last `enter` in the stage names a child that
-    no `leave` and no `stopped` of the theorem names, matched by agent
-    id, and no result file settles it;
-  - **`returned-unsaved`** — a `return` record in the stage names such
-    a child. It
-    returned without saving and never will, so this is work at once,
-    whatever the deadline;
-  - **`overdue`** — such a child, with no `return`, whose `enter` is at
-    least `--deadline-minutes` before the clock at the time of the
-    call. Without `--deadline-minutes` nothing is overdue.
-
-  A member neither settled nor with a child in flight is
-  `outstanding`: no child, or its child `stopped`.
+  - **`returned-unsaved`** — a `return` record in the stage names the
+    child. It returned without saving and never will, so this is work at
+    once, whatever the deadline;
+  - **`overdue`** — the child, with no `return`, has an `enter` at least
+    `--deadline-minutes` before the clock at the time of the call.
+    Without `--deadline-minutes` nothing is overdue;
+  - **`in-flight`** — any other child in flight.
 - **`dispose`** — prints one row per live theorem, in id order, then one
   verdict line per issue the records tag, in first-tagged order, then
   the overall verdict:
