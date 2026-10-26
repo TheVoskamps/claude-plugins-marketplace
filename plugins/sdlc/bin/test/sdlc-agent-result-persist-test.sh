@@ -25,8 +25,6 @@
 #
 # Needs bash, awk and the POSIX utilities. Reaches no network.
 
-# The fixtures spell backticks and ${...} as literal report and body text.
-# shellcheck disable=SC2016
 set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,12 +134,12 @@ report() {
 survived() { report "$CASE/r" "VERDICT: SURVIVED" "THEOREM: $1" "CHECKED: read a.md"; }
 disproved() {
   report "$CASE/r" "VERDICT: DISPROVED" "THEOREM: $1" "COUNTEREXAMPLE: it breaks" \
-    'EVIDENCE: in `a.md` at line 1:' "> the quoted text" "CONSEQUENCE: it ships broken" \
+    "EVIDENCE: in \`a.md\` at line 1:" "> the quoted text" "CONSEQUENCE: it ships broken" \
     "CONSEQUENCE-CLASS: $2"
 }
 disproved_unquoted() {
   report "$CASE/r" "VERDICT: DISPROVED" "THEOREM: $1" "COUNTEREXAMPLE: it breaks" \
-    'EVIDENCE: in `a.md` at line 1:' "CONSEQUENCE: it ships broken" \
+    "EVIDENCE: in \`a.md\` at line 1:" "CONSEQUENCE: it ships broken" \
     "CONSEQUENCE-CLASS: defect-no-shipped-breakage"
 }
 refuted() { report "$CASE/r" "VERDICT: REFUTED" "THEOREM: $1" "REASON: the quote is from main"; }
@@ -444,8 +442,8 @@ EOF
 must --mode review --round 1 --from "$CASE/review"
 run --mode summary --round 1
 assert_eq "summary: exits 0" "0" "$RC"
-assert_eq "summary: the body, in order" \
-'## Verdicts
+cat >"$CASE/expected" <<'EOF'
+## Verdicts
 
 - #1 — NEEDS_CHANGES (1 High)
 - **Overall — NEEDS_CHANGES**
@@ -475,7 +473,9 @@ Fix finding 1 to approve.
 
 ## Closing-line corrections
 
-none' "$OUT"
+none
+EOF
+assert_eq "summary: the body, in order" "$(cat "$CASE/expected")" "$OUT"
 assert_lacks "summary: no argued text" "the argued" "$OUT"
 assert_lacks "summary: no quoted counterexample" "the quoted text" "$OUT"
 assert_lacks "summary: no records" "the first claim" "$OUT"

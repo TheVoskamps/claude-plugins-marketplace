@@ -895,8 +895,8 @@ load_round_records() {
 # class line holds no token is well formed; only the class is
 # underivable. Whether a quote is verbatim is the verifier's to check,
 # not the grammar's.
-# shellcheck disable=SC2016 # awk source, expanded by awk rather than the shell
-readonly derive_lib='
+derive_lib() {
+  cat <<'AWK'
   function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
   function is_class(c) {
     return c ~ /^(breaks-production|behavior-broken-or-criterion-unmet|defect-no-shipped-breakage|optional-polish)$/
@@ -982,7 +982,9 @@ readonly derive_lib='
       live[++nlive] = t
       islive[t] = 1
     }
-  }'
+  }
+AWK
+}
 
 # derive <awk program> [-v name=value]...: runs the shared derivation
 # with the program appended, over the files load_round_records and
@@ -995,7 +997,7 @@ derive() {
   [ ! -e "$file" ] || log_in=$file
   awk -v prog="$PROGRAM" -v full="$full" -v records_file="$work/records" \
       -v edits_file="${edits:-/dev/null}" -v log_file="$log_in" -v results_file="$work/results" \
-      "$@" "$derive_lib$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
+      "$@" "$(derive_lib)$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
 }
 
 # next: the arm the round is in, then one line per theorem of each stage
@@ -1201,8 +1203,8 @@ readonly dispose_prog='
 # sections through unchanged and writes one line per theorem and per
 # finding, each ending with the paths of the files holding its detail,
 # relative to the state root (root) it names once.
-# shellcheck disable=SC2016 # awk source, expanded by awk rather than the shell
-readonly summary_prog='
+summary_prog() {
+  cat <<'AWK'
   function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
   function chomp(s) { sub(/[ \t\r\n]+$/, "", s); return s }
   function refuse(msg) { printf "%s: %s\n", prog, msg | "cat 1>&2"; failed = 1; exit 2 }
@@ -1273,7 +1275,9 @@ readonly summary_prog='
     print ""
     print chomp(body["Overall verdict"]); print ""
     print chomp(body["Closing-line corrections"])
-  }'
+  }
+AWK
+}
 
 migrate_old_layout
 
@@ -1540,7 +1544,7 @@ case "$mode" in
     awk -v prog="$PROGRAM" -v round="$round" -v review_file="$review_file" \
         -v records_file="$records_file" -v prev_file="$prev_file" -v results_file="$work/results" \
         -v root="$state_root_form/$host/$owner/$repo/pr$pr/" \
-        "$summary_prog" "$review_file" "$records_file" "$prev_file" "$work/results" \
+        "$(summary_prog)" "$review_file" "$records_file" "$prev_file" "$work/results" \
       || exit 2
     ;;
 esac

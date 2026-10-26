@@ -171,9 +171,9 @@ A caller does spell the PR's state root
 `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/` in
 prose that points a **human** at the directory: the review body
 `--mode summary` renders names it once and hangs a round-relative path
-off each theorem and finding line, and every file that tells a reader where a round's
-detail is spells the same root. That is a signpost, not a route:
-nothing composes it to open a file with.
+off each theorem and finding line, and every file that tells a reader
+where a round's detail is spells the same root. That is a signpost, not
+a route: nothing composes it to open a file with.
 
 The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
@@ -313,8 +313,8 @@ under "The derivation modes", for what they derive.
   all, and the `-<pid>` suffix is what keeps two writers from staging
   over each other. A refused report — empty, a `--from` file that
   could not be read, a `THEOREM:` mismatch or an id refusal below —
-  leaves nothing behind: the staging file is removed before the call exits non-zero,
-  and no `leave` record is appended.
+  leaves nothing behind: the staging file is removed before the call
+  exits non-zero, and no `leave` record is appended.
 
   With `--stage disprove` or `--stage verify`, the report must answer
   the theorem it is filed under. The first line of the report that
@@ -524,10 +524,10 @@ under "The derivation modes", for what they derive.
   `mismatch` when it names another, the repository being the file's
   `<host>/<owner>/<repo>` either way. A directory two levels down
   that has no `repo.yml` in it or one level down, and holds
-  `pr<n>/` directories directly, is old-layout state: `old <owner>/<repo> <owner>/<repo>`,
-  its host unknown. It takes **no repository, no `--pr` and no
-  `--round`**, refuses each, moves nothing, and prints nothing for a
-  state root that does not exist.
+  `pr<n>/` directories directly, is old-layout state:
+  `old <owner>/<repo> <owner>/<repo>`, its host unknown. It takes **no
+  repository, no `--pr` and no `--round`**, refuses each, moves nothing,
+  and prints nothing for a state root that does not exist.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
