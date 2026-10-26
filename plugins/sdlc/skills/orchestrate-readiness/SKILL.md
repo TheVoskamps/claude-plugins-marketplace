@@ -147,8 +147,9 @@ to read — is refused, and the bullet's gap line says why. The keys:
   `origin/<default branch>`, where `<plugin>` is the plugin's directory
   name under `plugins/`.
 - `[max-lines] <path> <n>` — the file has at most `n` lines.
-- `[lint-clean] <path>…` — each file lints clean: Markdown with
-  `npx --no-install markdownlint-cli2`, shell with `bash -n`.
+- `[lint-clean] <path>…` — each file lints clean: Markdown with the
+  `markdownlint-cli2` binary on `PATH`, run from the worktree root,
+  shell with `bash -n`.
 - `[test-passes] <path>` — a test script inside the repo exits zero
   when run with `bash`.
 
