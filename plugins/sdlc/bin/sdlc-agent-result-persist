@@ -1088,7 +1088,8 @@ readonly dispose_prog='
       : c == "defect-no-shipped-breakage" ? "Medium" : "Low"
   }
   # override(t): the theorem record'"'"'s severity-override, spelled as a
-  # severity, or empty when it has none.
+  # severity, or empty when it has none. An override that is no severity
+  # is refused on stderr, setting failed and exiting 2.
   function override(t,    o) {
     o = tolower(trim(rec[t, "severity-override"]))
     if (o == "") return ""
@@ -1217,7 +1218,7 @@ readonly dispose_prog='
 # this round and every round below (results_file). It copies four review
 # sections through unchanged and writes one line per theorem and per
 # finding, each ending with the paths of the files holding its detail,
-# relative to the state root (root) it names once.
+# relative to the PR's state root (root) it names once.
 summary_prog() {
   cat <<'AWK'
   function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
