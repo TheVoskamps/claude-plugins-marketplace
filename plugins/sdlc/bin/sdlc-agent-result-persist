@@ -927,6 +927,9 @@ derive_lib() {
     if (st != "generate") return (t SUBSEP stage_agent(st)) in result
     return (t in gen_agent) ? ((t SUBSEP gen_agent[t]) in result) : list_result
   }
+  # settled(st, t): whether the stage is done with the theorem, by a
+  # leave record for it or by its result file. For the list, only a leave
+  # by the generator the last spawn record names counts.
   function settled(st, t) {
     if (st == "generate" && (t in gen_agent)) return ((t SUBSEP gen_agent[t]) in left_as) || has_result(st, t)
     return ((st SUBSEP t) in left) || has_result(st, t)
@@ -1115,10 +1118,9 @@ readonly next_prog='
 # dispose: one row per live theorem, then the verdicts, one for each of
 # members, the space-separated issue set, and for each other issue a
 # record tags; no row at all on a round whose log holds no spawn and no
-# enter. Without loop_exited, a
-# live theorem with no result file for its stage makes it print nothing,
-# name each such theorem and stage on stderr, and exit 3. An override
-# that is no severity exits 2.
+# enter. Without loop_exited, a live theorem with no result file for its
+# stage makes it print nothing, name each such theorem and stage on
+# stderr, and exit 3. An override that is no severity exits 2.
 readonly dispose_prog='
   function sev_rank(s) { return s == "Critical" ? 4 : s == "High" ? 3 : s == "Medium" ? 2 : s == "Low" ? 1 : 0 }
   function class_sev(c) {
