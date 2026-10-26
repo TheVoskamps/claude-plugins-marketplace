@@ -104,17 +104,14 @@ sdlc-agent-result-persist --mode next \
 | `no-log` | anchor the round and start from "Read the PR's shape" |
 | `moved-head` | anchor, which voids the round, per "Read the round log, then anchor the round" |
 | `generate` | wait on a generator in flight, or spawn one when none is, per "Spawn the theorem generator" |
-| `disprove` | spawn a disprover per `outstanding` line, per "Fan out the disprovers" |
-| `verify` | spawn a verifier per `outstanding` line, per "Fan out the verifiers" |
+| `disprove` | spawn disprovers, per "Fan out the disprovers" |
+| `verify` | spawn verifiers, per "Fan out the verifiers" |
 | `dispose` | per "Dispose the round" |
 | a failure naming a flag | see "When a call fails" |
 
 Whichever arm you take, run the sections before it that read the PR —
 the issue set, the carried records, the delta and the live list's
-inputs are derived every time, never remembered. **Once the list is
-settled, pass `--edits` and `--from` on every `next` call**, as
-"Assemble the round's live list" stages them: an arm past `generate`
-read without them is not one to act on.
+inputs are derived every time, never remembered.
 
 Spawn only on `outstanding` lines: that holds the barrier between the
 stages and **one child per theorem per stage** — a replacement keeps
@@ -617,10 +614,11 @@ else:
   contract" and no `state`.
 
 Re-stage both on every resume from what this round's sections read,
-and pass them as `--edits` and `--from` to every `next` and `dispose`
-call, leaving out a file with nothing in it. Every retired theorem
-carries its verdict forward with no disprover; every live one gets a
-**full, unbounded** disprover.
+and once the list is settled pass them as `--edits` and `--from` to
+every `next` and `dispose` call, leaving out a file with nothing in it:
+an arm past `generate` read without them is not one to act on. Every
+retired theorem carries its verdict forward with no disprover; every
+live one gets a **full, unbounded** disprover.
 
 **The `--full` round** passes `--full` on to `next` and `dispose`,
 which widen the live list by it; no rule here forces one. It says so in
@@ -633,10 +631,9 @@ worktrees share one ref store, and concurrent fetches lose lock races.
 Before spawning, confirm the ref carries the round's `<headRefOid>` by
 running the `git-range` call without `--prev-head` from "Carry the
 previous round's theorems forward": exit 0 passes, and any other exit is
-read per the table there. Then spawn one `sdlc:theorem-disprover` per
-`disprove` line `next` printed `outstanding`, in waves, appending one
-`spawn` record per child — per **child**, not per theorem, as for every
-child this file spawns:
+read per the table there. Then spawn the `sdlc:theorem-disprover`
+children, in waves, appending one `spawn` record per child — per
+**child**, not per theorem, as for every child this file spawns:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
@@ -682,13 +679,13 @@ are waiting on, and wait by "The resume loop" over the `disprove` stage.
 
 ### Fan out the verifiers
 
-A `DISPROVED` report is a candidate finding, not a finding. Spawn one
-`sdlc:counterexample-verifier` per `verify` line `next` printed
-`outstanding`. Route the model as for the disprovers. Each brief is one
-counterexample and nothing more: the disprover's brief, on the same
-terms, with `--counterexample <the disprover's full DISPROVED report,
-verbatim>` after `--pointers`, no documentation-paths line, and this
-closing paragraph in place of its own:
+A `DISPROVED` report is a candidate finding, not a finding. Spawn the
+`sdlc:counterexample-verifier` children. Route the model as for the
+disprovers. Each brief is one counterexample and nothing more: the
+disprover's brief, on the same terms, with `--counterexample <the
+disprover's full DISPROVED report, verbatim>` after `--pointers`, no
+documentation-paths line, and this closing paragraph in place of its
+own:
 
 ```text
 Try to refute this one counterexample per your agent definition.
