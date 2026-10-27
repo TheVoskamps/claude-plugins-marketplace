@@ -312,9 +312,10 @@ under "The derivation modes", for what they derive.
   good. The rename is what makes the file appear complete or not at
   all, and the `-<pid>` suffix is what keeps two writers from staging
   over each other. A refused report — empty, a `--from` file that
-  could not be read, a `THEOREM:` mismatch or an id refusal below —
-  leaves nothing behind: the staging file is removed before the call
-  exits non-zero, and no `leave` record is appended.
+  could not be read, a result-file path carrying whitespace, a
+  `THEOREM:` mismatch or an id refusal below — leaves nothing behind:
+  the staging file is removed before the call exits non-zero, and no
+  `leave` record is appended.
 
   With `--stage disprove` or `--stage verify`, the report must answer
   the theorem it is filed under. The first line of the report that
