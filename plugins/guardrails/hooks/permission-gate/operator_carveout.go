@@ -136,7 +136,7 @@ type operatorCarveOutLists struct {
 //
 // RedirectBashFileWork is decoded as a node rather than a string so that a
 // value of another YAML type is an unknown value, warned about and read as
-// off, rather than a document that fails to parse.
+// worktree, rather than a document that fails to parse.
 type operatorCarveOutDocument struct {
 	SchemaVersion        int                   `yaml:"schema-version"`
 	ResolveXDGEnvVars    bool                  `yaml:"resolve-xdg-environment-variables"`
@@ -159,8 +159,8 @@ type operatorConfig struct {
 }
 
 // noOperatorConfig is a machine with no config file: no carve-out entry, and
-// the file-work redirect off.
-var noOperatorConfig = operatorConfig{fileWork: fileWorkOff}
+// the file-work redirect in its default mode, worktree.
+var noOperatorConfig = operatorConfig{fileWork: fileWorkWorktree}
 
 // loadOperatorConfig reads the operator's config for this event. The gate
 // process is fresh per hook invocation, so there is nothing to cache across
@@ -243,27 +243,28 @@ func buildOperatorCarveOut(doc operatorCarveOutDocument, configPath string, home
 const redirectBashFileWorkKey = "redirect-bash-file-work"
 
 // redirectBashFileWorkMode reads the file-work redirect's mode from the
-// decoded key. An absent key and an empty value mean fileWorkOff, silently. A
-// value that is not one of the modes also means fileWorkOff, and comes
-// back with the warning it earns.
+// decoded key. An absent key and an empty value mean fileWorkWorktree, silently.
+// A value that is not one of the modes also means fileWorkWorktree, and comes
+// back with the warning it earns, so a typo never turns the redirect off: only
+// an explicit `off` does.
 func redirectBashFileWorkMode(node yaml.Node, configPath string) (fileWorkMode, string) {
 	value := ""
 	switch {
 	case node.Kind == 0:
-		return fileWorkOff, ""
+		return fileWorkWorktree, ""
 	case node.Kind != yaml.ScalarNode:
 		value = fmt.Sprintf("<a YAML %s>", yamlKindName(node.Kind))
 	case node.ShortTag() != "!!null":
 		value = node.Value
 	}
 	switch mode := fileWorkMode(value); mode {
-	case "", fileWorkOff:
-		return fileWorkOff, ""
-	case fileWorkWorktree, fileWorkAlways:
+	case "":
+		return fileWorkWorktree, ""
+	case fileWorkOff, fileWorkWorktree, fileWorkAlways:
 		return mode, ""
 	}
-	return fileWorkOff, fmt.Sprintf("%s: %s is %q, which is not one of %s, %s or %s; treating it as %s.",
-		configPath, redirectBashFileWorkKey, value, fileWorkOff, fileWorkWorktree, fileWorkAlways, fileWorkOff)
+	return fileWorkWorktree, fmt.Sprintf("%s: %s is %q, which is not one of %s, %s or %s; treating it as %s.",
+		configPath, redirectBashFileWorkKey, value, fileWorkOff, fileWorkWorktree, fileWorkAlways, fileWorkWorktree)
 }
 
 // yamlKindName names a non-scalar YAML node kind for redirectBashFileWorkMode's

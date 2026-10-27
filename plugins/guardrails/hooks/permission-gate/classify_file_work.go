@@ -10,8 +10,9 @@ import (
 
 // The file-work redirect: a Bash line that reads, edits in place, or writes a
 // file the way the Read, Edit and Write tools do is denied, and the reason
-// names the tool to use instead. It is off unless the operator's config turns
-// it on (redirect-bash-file-work, operator_carveout.go).
+// names the tool to use instead. Its mode is the operator's
+// redirect-bash-file-work setting (operator_carveout.go), worktree unless the
+// config sets another; only an explicit `off` turns it off.
 //
 // Each simple command it covers earns a deny that classifyBash ranks with the
 // line's other verdicts, below every other rule's deny.
@@ -34,7 +35,8 @@ const (
 )
 
 // fileWorkReaders are the programs whose file-operand form is a covered read.
-// sed is one only in its `-n` form, which fileWorkReader decides.
+// sed is one only in its `-n` form, and awk only with a line-selecting program,
+// which fileWorkReader decides.
 var fileWorkReaders = map[string]bool{
 	"cat":  true,
 	"head": true,
@@ -42,6 +44,7 @@ var fileWorkReaders = map[string]bool{
 	"nl":   true,
 	"less": true,
 	"sed":  true,
+	"awk":  true,
 }
 
 // stdoutSink is where a command's standard output goes, as far as grading a
@@ -234,18 +237,19 @@ func gradeFileWorkCall(s *syntax.Stmt, call *syntax.CallExpr, sink stdoutSink, h
 		if hasFile, ok := fileWorkReader(prog, args); ok && hasFile {
 			return deny("bash-file-work:read", fmt.Sprintf(
 				"Blocked: `%s` reads a file from Bash — use the Read tool instead. Read takes the file's path, "+
-					"plus an offset and a limit for a range of lines, which covers what head, tail, sed -n and "+
-					"nl select. A read piped into a command that consumes it, such as `cat f | jq .`, is not "+
+					"plus an offset and a limit for a range of lines, which covers what head, tail, sed -n, "+
+					"nl and a line-selecting awk select. A read piped into a command that consumes it, such as `cat f | jq .`, is not "+
 					"refused.%s", prog, fileWorkSettingNote())), true
 		}
 	}
 	return Decision{}, false
 }
 
-// fileWorkSettingNote names the setting that turned the redirect on, so a
-// human reading the deny knows where it comes from.
+// fileWorkSettingNote names the setting that controls the redirect, so a human
+// reading the deny knows where it comes from, whether or not the config file
+// exists.
 func fileWorkSettingNote() string {
-	return fmt.Sprintf(" This redirect is enabled by %s in %s.", redirectBashFileWorkKey,
+	return fmt.Sprintf(" This redirect is controlled by %s in %s.", redirectBashFileWorkKey,
 		operatorCarveOutConfigDisplayPath)
 }
 
@@ -268,7 +272,8 @@ func fileWorkArgv(call *syntax.CallExpr) (string, []string) {
 // fileWorkReader reports whether prog with args names at least one file operand
 // (readFileOperands, readonly_util.go), and whether it is a reader. sed is
 // one only with -n (sedQuiet, readonly_util.go) and not in place, whether or
-// not the gate can grade its script whole.
+// not the gate can grade its script whole. awk is one only when awkSelectsLines
+// accepts its argv.
 func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {
 	if !fileWorkReaders[prog] {
 		return false, false
@@ -276,17 +281,158 @@ func fileWorkReader(prog string, args []string) (hasFile bool, isReader bool) {
 	if prog == "sed" && (!sedQuiet(args) || fileWorkInPlace(prog, args)) {
 		return false, false
 	}
+	if prog == "awk" && !awkSelectsLines(args) {
+		return false, false
+	}
 	return len(readFileOperands(prog, args)) > 0, true
 }
 
+// awkSelectsLines reports whether an awk argv only selects lines of its input,
+// which Read with an offset and a limit, or Read of the whole file, also does:
+// no option, a program awkLineSelector accepts, and no `var=value` operand.
+// Anything more — a field separator, an assignment, printf, a field — is a
+// transform whose output Read cannot produce.
+func awkSelectsLines(args []string) bool {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") || !awkLineSelector(args[0]) {
+		return false
+	}
+	for _, a := range args[1:] {
+		if isAssignment(a) {
+			return false
+		}
+	}
+	return true
+}
+
+// awkLineSelector reports whether an awk program is a pattern alone, or a
+// pattern followed by `{print}` or `{print $0}`. The pattern is a selector, or
+// a range of two selectors joined by a comma; a selector is a comparison of NR
+// with a decimal number, or a bare /re/.
+func awkLineSelector(prog string) bool {
+	rest, ok := awkSelector(strings.TrimSpace(prog))
+	if !ok {
+		return false
+	}
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, ",") {
+		if rest, ok = awkSelector(strings.TrimSpace(rest[1:])); !ok {
+			return false
+		}
+		rest = strings.TrimSpace(rest)
+	}
+	if rest == "" {
+		return true
+	}
+	if !strings.HasPrefix(rest, "{") || !strings.HasSuffix(rest, "}") {
+		return false
+	}
+	body := strings.TrimSpace(rest[1 : len(rest)-1])
+	body = strings.TrimSpace(strings.TrimSuffix(body, ";"))
+	if !strings.HasPrefix(body, "print") {
+		return false
+	}
+	arg := strings.TrimSpace(body[len("print"):])
+	return arg == "" || arg == "$0"
+}
+
+// awkSelector consumes one selector from the front of s — `NR` compared with a
+// decimal number, or a /re/ — and returns what follows it.
+func awkSelector(s string) (string, bool) {
+	if strings.HasPrefix(s, "/") {
+		return awkRegexEnd(s)
+	}
+	if !strings.HasPrefix(s, "NR") {
+		return "", false
+	}
+	s = strings.TrimSpace(s[len("NR"):])
+	op := ""
+	for _, o := range []string{"==", "!=", "<=", ">=", "<", ">"} {
+		if strings.HasPrefix(s, o) {
+			op = o
+			break
+		}
+	}
+	if op == "" {
+		return "", false
+	}
+	s = strings.TrimSpace(s[len(op):])
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+	if n == 0 {
+		return "", false
+	}
+	return s[n:], true
+}
+
+// awkRegexEnd consumes a /re/ from the front of s, which starts with its
+// opening slash, and returns what follows the closing one. A backslash escapes
+// the next character, and a slash inside a bracket expression does not close
+// the regex.
+func awkRegexEnd(s string) (string, bool) {
+	inBracket := false
+	for i := 1; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '\\':
+			i++
+		case c == '[' && !inBracket:
+			inBracket = true
+			if i+1 < len(s) && s[i+1] == ']' {
+				i++
+			}
+		case c == ']' && inBracket:
+			inBracket = false
+		case c == '/' && !inBracket:
+			return s[i+1:], true
+		}
+	}
+	return "", false
+}
+
 // fileWorkInPlace reports whether prog with args edits a file in place: sed's
-// in-place form (sedInPlace, readonly_util.go), or `perl -i`.
+// in-place form (sedInPlace, readonly_util.go), `perl -i`, or gawk's
+// `-i inplace`.
 func fileWorkInPlace(prog string, args []string) bool {
 	switch prog {
 	case "sed":
 		return sedInPlace(args)
 	case "perl":
 		return perlInPlace(args)
+	case "awk":
+		return awkInPlace(args)
+	}
+	return false
+}
+
+// awkInPlace reports whether awk's options, which end at the first argument
+// that is not one, load gawk's inplace extension: `-i inplace`, `-iinplace`,
+// `--include inplace` or `--include=inplace`, the library also spelled
+// `inplace.awk`.
+func awkInPlace(args []string) bool {
+	inplace := func(lib string) bool { return lib == "inplace" || lib == "inplace.awk" }
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" || !strings.HasPrefix(a, "-") || a == "-" {
+			return false
+		}
+		switch {
+		case a == "-i" || a == "--include":
+			if i+1 < len(args) && inplace(args[i+1]) {
+				return true
+			}
+			i++
+		case strings.HasPrefix(a, "--include="):
+			if inplace(strings.TrimPrefix(a, "--include=")) {
+				return true
+			}
+		case strings.HasPrefix(a, "-i"):
+			if inplace(a[2:]) {
+				return true
+			}
+		case awkOperandValueFlags[a]:
+			i++
+		}
 	}
 	return false
 }
@@ -321,8 +467,11 @@ func perlInPlace(args []string) bool {
 
 // inPlaceSpelling is how the edit deny names the command.
 func inPlaceSpelling(prog string) string {
-	if prog == "perl" {
+	switch prog {
+	case "perl":
 		return "perl -i"
+	case "awk":
+		return "awk -i inplace"
 	}
 	return "sed -i"
 }

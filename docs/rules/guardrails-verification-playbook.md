@@ -865,9 +865,10 @@ not obstacles to route around — each has a plain spelling that works:
   conflict markers intact: grep the file for them before staging.
   This guard leaves plain reads alone — `cat`, `sed -n` and `grep` on
   in-worktree paths — but the permission gate's `redirect-bash-file-work`
-  setting, when on, denies a `cat` or `sed -n` of a file whose output is
-  not piped into another command, and names Read instead; `grep` it never
-  denies.
+  setting, `worktree` by default and so on in every linked worktree,
+  denies a `cat`, `sed -n` or line-selecting `awk` of a file whose output
+  is not piped into another command, and names Read instead; `grep` it
+  never denies.
 - A heredoc is graded on the text it carries, not on the program that
   consumes it, so a `python3 - <<'PY'` script whose *payload* prose
   merely contains the word `git` is refused for feeding git-naming
