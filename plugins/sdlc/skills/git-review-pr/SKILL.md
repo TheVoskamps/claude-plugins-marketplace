@@ -116,6 +116,9 @@ something this skill computes.
    what tells them apart, and on any kind but a posted review, do not
    present the partial text as a review outcome.
 
+   - `Return: posted review <VERDICT> — act on the verdict`: the round
+     finished and its review is on the PR; relay it per step 4, with
+     `<VERDICT>` as the overall verdict.
    - `Return: in progress: … — re-spawn to resume`: tell the user the
      round did not finish, say no review was posted, and offer to
      re-spawn the reviewer on the same PR — that re-spawn resumes the

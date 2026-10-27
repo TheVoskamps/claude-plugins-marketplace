@@ -451,11 +451,6 @@ invent:
 | `settle-mode` | always `semantic` |
 | `pointers` | the comment's `<file-or-location>`, verbatim |
 
-**Retire on survive.** No later default round re-disproves a theorem
-`--mode dispose` retired — an acceptance-criterion theorem included,
-even when a later delta touches its pointers. Retirement is a record
-state, never a deletion.
-
 **A fallback round** runs on exactly one of two triggers — never on a
 withdrawn, edited, or older-pipeline review — and the Review method
 section names which:
@@ -618,9 +613,8 @@ Once the list is settled, run `--mode next` with them as `--edits` and
 `--from`, per "You are re-entrant", leaving out a file with nothing in
 it, and take the arm it prints: an arm past `generate` read without
 them is not one to act on. Pass them to every later `next` and `dispose`
-call too. Every
-retired theorem carries its verdict forward with no disprover; every
-live one gets a **full, unbounded** disprover.
+call too. Each disprover the live list earns is a **full, unbounded**
+one.
 
 **The `--full` round** passes `--full` on to `next` and `dispose`,
 which widen the live list by it; no rule here forces one. It says so in

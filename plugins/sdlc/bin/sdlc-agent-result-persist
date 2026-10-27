@@ -482,6 +482,16 @@ readonly records_file="$dir/records"
 readonly review_file="$dir/review"
 readonly agents_file="$pr_dir/agents"
 
+# A leave record carries the result file's path as one column, and the
+# path runs through the state root the environment names, which no flag
+# check reaches. The refusal comes before the report is stored, so it
+# leaves neither the file nor the record behind.
+if [ "$mode" = leave ]; then
+  case "$result_file" in
+    *[[:space:]]*) die "--mode leave records the result file's path as one column, and $result_file carries whitespace" ;;
+  esac
+fi
+
 now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
