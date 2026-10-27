@@ -95,7 +95,8 @@ must() {
 }
 
 # as_child <agent-id> <args...>: runs the script from a directory named
-# agent-<agent-id>, the way a child's worktree names its agent id.
+# agent-<agent-id>, the way a child's worktree names its agent id, as run
+# does, and ends the suite when the call fails.
 as_child() {
   local id=$1
   shift
