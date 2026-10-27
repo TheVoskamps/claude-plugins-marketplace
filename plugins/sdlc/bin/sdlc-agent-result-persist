@@ -1280,6 +1280,9 @@ summary_prog() {
   function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
   function chomp(s) { sub(/[ \t\r\n]+$/, "", s); return s }
   function refuse(msg) { printf "%s: %s\n", prog, msg | "cat 1>&2"; failed = 1; exit 2 }
+  # text(s, d): a state and its state-detail as a theorem line spells
+  # them, "unattacked" standing for no state and the detail left out
+  # where there is none.
   function text(s, d) { return (s == "" ? "unattacked" : s) (d == "" ? "" : ", " d) }
   FNR == 1 { open = 0; cur = "" }
   FILENAME == review_file {
