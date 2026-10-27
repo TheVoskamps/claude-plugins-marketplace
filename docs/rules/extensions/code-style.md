@@ -18,8 +18,7 @@ format, each run as the binary on `PATH`:
   available directly.
 - GitHub Actions workflow — `actionlint`.
 - YAML — `yamllint`.
-- JSON — `jsonlint` to validate; JSON and JSONC — `biome` to lint and
-  format.
+- JSON and JSONC — `biome lint`; `oxfmt` alone formats them.
 - TOML — `tombi`.
 - CloudFormation template — `cfn-lint`.
 - JS, TS, JSX and TSX — `oxlint`.
