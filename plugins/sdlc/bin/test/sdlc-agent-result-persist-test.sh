@@ -132,6 +132,12 @@ report() {
   printf '%s\n' "$@" >"$path"
 }
 
+# survived, disproved, disproved_unquoted, refuted, stands and
+# stands_classless <theorem> [<class>]: each writes to $CASE/r, the file
+# leave hands over, the report shape it is named for answering
+# <theorem>. disproved and stands take the consequence class as <class>;
+# disproved_unquoted is malformed, lacking its evidence quote, and
+# stands_classless carries no class line.
 survived() { report "$CASE/r" "VERDICT: SURVIVED" "THEOREM: $1" "CHECKED: read a.md"; }
 disproved() {
   report "$CASE/r" "VERDICT: DISPROVED" "THEOREM: $1" "COUNTEREXAMPLE: it breaks" \
