@@ -586,15 +586,6 @@ Any other report is malformed. A `DISPROVED` report whose class line
 holds no token is well formed with its class underivable. The grammar
 does not check that a quote is verbatim; the verifier does.
 
-**A verdict's only source is a result file.** A theorem settles in a
-stage only through its result file under that stage's agent —
-`theorem-disprover` or `counterexample-verifier`, and for `list` the
-generator the last `spawn` record for `list` names, or any generator
-while none does — or a `leave` record, for `list` only one writing that
-generator's file once a `spawn` record names it, and a report is read
-from the file. A
-`return` record never settles a theorem, and a hand-back is never read.
-
 - **`next`** — prints the arm the round is in, alone on the first line,
   then one line per theorem with work left in each stage up to that
   arm's:
@@ -815,9 +806,16 @@ and `dispose`, under "The derivation modes", apply the rules below, and
 a caller asks them rather than deriving anything off the log itself.
 
 **A theorem is settled in a stage when its child wrote `leave`, or when
-its result file exists** — never when the caller heard back. The two
-are almost always the same fact, and the second is what covers a child
-that wrote its report and died before the record landed.
+its result file exists** — never when the caller heard back: a `return`
+record settles nothing, and a hand-back is never read. The two are
+almost always the same fact, and the second is what covers a child that
+wrote its report and died before the record landed.
+
+The result file is the one under the stage's agent, `theorem-disprover`
+or `counterexample-verifier`. For `list` it is the file of the generator
+the last `spawn` record for `list` names, or of any generator while none
+does; once a `spawn` record names one, a `leave` settles `list` only
+when it wrote that generator's file.
 
 A stage's **outstanding** theorems are its members, over the live list
 rather than over the theorems the log was told about, less the settled
