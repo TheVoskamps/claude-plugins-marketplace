@@ -305,9 +305,10 @@ func awkSelectsLines(args []string) bool {
 }
 
 // awkLineSelector reports whether an awk program is a pattern alone, or a
-// pattern followed by `{print}` or `{print $0}`. The pattern is a selector, or
-// a range of two selectors joined by a comma; a selector is a comparison of NR
-// with a decimal number, or a bare /re/.
+// pattern followed by `{print}` or `{print $0}`, either one optionally ending
+// in `;`. The pattern is a selector, or a range of two selectors joined by a
+// comma; a selector is a comparison of NR with a decimal number, or a bare
+// /re/.
 func awkLineSelector(prog string) bool {
 	rest, ok := awkSelector(strings.TrimSpace(prog))
 	if !ok {
