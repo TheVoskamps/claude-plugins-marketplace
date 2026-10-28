@@ -623,8 +623,7 @@ check_report_ids() {
 # round_type_of <round directory>: the type the round's anchor wrote. A
 # round with no anchor naming one — round 0, which holds the seed and
 # its generator's spawn record, or a round anchored before rounds had a
-# type — reviewed code and
-# instruction Markdown.
+# type — reviewed code and instruction Markdown.
 round_type_of() {
   anchored_type=
   if [ -f "$1/log" ]; then
