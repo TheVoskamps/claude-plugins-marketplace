@@ -291,6 +291,37 @@ func TestLoggingFailureChangesNoVerdict(t *testing.T) {
 	}
 }
 
+// A `..` after a symlinked directory in the override steps out of the
+// symlink's target, as the kernel resolves it, not out of the directory the
+// symlink sits in. Cleaning the override as written would put the log in the
+// second place.
+func TestLogOverrideDotDotAfterASymlinkOpensTheFileTheKernelResolves(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "real", "dir")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(logEnvVar, link+"/../gate.jsonl")
+
+	appendLogRecord(logRecord{Operation: "test:symlink-dotdot"})
+
+	kernelPath := filepath.Join(root, "real", "gate.jsonl")
+	raw, err := os.ReadFile(kernelPath)
+	if err != nil {
+		t.Fatalf("the log did not land where the kernel resolves the override (%s): %v", kernelPath, err)
+	}
+	if !strings.Contains(string(raw), "test:symlink-dotdot") {
+		t.Errorf("the record is missing from %s; got %q", kernelPath, raw)
+	}
+	if _, err := os.Stat(filepath.Join(root, "gate.jsonl")); !os.IsNotExist(err) {
+		t.Errorf("the log landed at the lexically cleaned path %s; stat error %v", filepath.Join(root, "gate.jsonl"), err)
+	}
+}
+
 // A panic while logging a warning is recovered inside logWarning, so its
 // caller goes on to the verdict, and the recovered value is reported on stderr
 // rather than dropped. A nil event panics on its first field read.

@@ -450,18 +450,15 @@ func TestForLoopBraceInListBothContained(t *testing.T) {
 // this test that pinned the wrong one. Real bash splits this into "a" and
 // "../../../etc/passwd" (verified live: `bash -c 'for f in
 // {a,../../../etc/passwd}; do echo "$f"; done'` prints both members
-// unchanged). mvdan.cc/sh's own syntax.SplitBraces declines to split any
-// brace element containing "..", as a guard against ambiguity with the
-// `{x..y}` sequence form — and empirically that decline is not even
-// "leave literal braces behind": for other list shapes it can silently DROP
-// members instead (see engine_a_bash.go staticExpandItem's doc comment).
-// Falling back to the unresolved-expansion residual whenever upstream declines
+// unchanged). staticExpandItem does not trust upstream's split of a
+// ".."-bearing brace list (see engine_a_bash.go staticExpandItem's doc
+// comment). Falling back to the unresolved-expansion residual for such a list
 // would hand an entirely mechanical case to someone else for every
 // escaping-path brace list — a human click when this was written, the
 // downstream evaluator, that residual being a DEFER. Either
 // way the gate's job is to decide what it CAN decide, and this it can.
-// staticExpandBraceFallback now does the comma-list split itself whenever
-// upstream's result is declined or suspect, so every member — including the
+// staticExpandBraceFallback does the comma-list split itself for it, so
+// every member — including the
 // escaping one — flows through the existing containment pipeline and gets
 // its real verdict via worst-wins: the escaping member denies.
 func TestForLoopBraceInListDotDotEscapingMemberDenied(t *testing.T) {
@@ -482,8 +479,8 @@ func TestForLoopBraceInListDotDotEscapingMemberDenied(t *testing.T) {
 // TestForLoopBraceInListDotDotAllInRepoContained covers the companion
 // mixed-list shape: every member of a ".."-bearing brace list resolves
 // in-repo (the ".." stays inside the worktree), so the whole line must
-// CONTAIN (not ASK) — dropping the fan-out to ASK merely because upstream
-// declined the split would waste human attention on a case with an
+// CONTAIN (not ASK) — dropping the fan-out to ASK merely because a member
+// carries ".." would waste human attention on a case with an
 // unambiguous, all-safe verdict.
 func TestForLoopBraceInListDotDotAllInRepoContained(t *testing.T) {
 	base := t.TempDir()
@@ -508,18 +505,17 @@ func TestForLoopBraceInListDotDotAllInRepoContained(t *testing.T) {
 	wantBucket(t, d, BucketAllow, "follow-up: all-in-repo '..'-bearing brace list resolves and contains")
 }
 
-// TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied is a
-// regression pin for the specific silent-drop failure mode discovered while
-// building the fallback splitter: upstream's expand.BracesSeq on a 3+-member
-// ".."-bearing list does not always leave residual "{"/"}" text — it can
-// instead silently DROP the escaping (and any later) member from its
-// returned sub-word slice with no error and no residual-brace signal
-// (verified via a probe of mvdan.cc/sh: `{a,b,../c}` returns only two
-// sub-words, "a" and "b", never "../c"). A fallback that only checked for
-// residual "{"/"}" text would miss this and treat the truncated two-item
-// result as fully resolved, silently ALLOWing past the escaping member.
+// TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied pins the
+// escaping third member of a 3-member ".."-bearing list. On mvdan.cc/sh
+// v3.14.1, expand.BracesSeq returns all three members of `{a,b,../c}` —
+// "a", "b" and "../c" — so the escaping member reaches containment either
+// way. What it guards is a silent drop: an upstream that drops the escaping (and any later)
+// member leaves no residual "{"/"}" text and no error, and a fallback that
+// only checked for residual braces would treat the truncated two-item result
+// as fully resolved, silently ALLOWing past the escaping member.
 // staticExpandItem's independent hasDotDotBraceMember raw-text cross-check
-// (not just the subWords' own content) is what catches this.
+// (not just the subWords' own content) keeps that from recurring, as defense
+// in depth.
 func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -544,10 +540,10 @@ func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied(t *testing.T) {
 // verified live), but reproducing bash's full nested-brace grammar is
 // exactly the complexity this fallback declines: any brace grammar it
 // does not implement falls closed. Upstream's own
-// SplitBraces/expand.BracesSeq partially declines this shape too (resolves "a"
-// but leaves residual "{"/"}" text for the nested "{b,../c}" sub-part), so
-// staticExpandItem's declined-detection fires and hands the raw text to
-// staticExpandBraceFallback, whose depth-tracking correctly detects the
+// SplitBraces/expand.BracesSeq resolves this shape to all three members on
+// mvdan.cc/sh v3.14.1, but the top-level group carries a ".." member, so
+// staticExpandItem's hasDotDotBraceMember cross-check distrusts that result
+// and hands the raw text to staticExpandBraceFallback, whose depth-tracking correctly detects the
 // nested "{" and returns ok=false — the whole item then fails closed to DEFER
 // rather than mis-splitting it.
 func TestForLoopBraceNestedFormStillFailsClosed(t *testing.T) {
@@ -566,9 +562,9 @@ func TestForLoopBraceNestedFormStillFailsClosed(t *testing.T) {
 }
 
 // TestForLoopBraceInListEscapingMemberDeniedNoDotDot covers the same
-// worst-wins requirement with a brace member that escapes WITHOUT triggering
-// the upstream ".." SplitBraces ambiguity guard, so the brace genuinely
-// splits into two items and containment denies the second.
+// worst-wins requirement with a brace member that escapes WITHOUT a ".."
+// member, so the hasDotDotBraceMember cross-check does not fire, upstream's
+// split into two items stands, and containment denies the second.
 func TestForLoopBraceInListEscapingMemberDeniedNoDotDot(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -748,8 +744,8 @@ func TestForLoopNestedSaveRestoresOuterBinding(t *testing.T) {
 
 // TestForLoopBraceInListTildeEscapingMemberDenied pins a real fail-open
 // found in PR review: a for-loop brace member expressed as a
-// tilde-prefixed path (`~/.ssh/id_rsa`) is NOT dropped by upstream
-// expand.BracesSeq (only ".."-bearing members are, per hasDotDotBraceMember) and
+// tilde-prefixed path (`~/.ssh/id_rsa`) carries no "..", so it rides
+// upstream expand.BracesSeq's split rather than the fallback splitter, and
 // is NOT absolute per filepath.IsAbs, so before the containment fix in this
 // commit it fell through canonicalizeFrom's relative-join branch and
 // resolved to a literal in-repo-looking child path (`<repo>/~/.ssh/id_rsa`)

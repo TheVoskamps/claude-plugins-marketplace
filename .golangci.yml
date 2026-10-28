@@ -15,8 +15,7 @@ linters:
   exclusions:
     generated: lax
     rules:
-      # Tests build throwaway fixtures under t.TempDir and run the gate binary
-      # they compiled; these checks guard the shipped hook, not its fixtures.
+      # These checks guard the shipped hook; test code is not shipped.
       - path: _test\.go$
         linters:
           - errcheck
