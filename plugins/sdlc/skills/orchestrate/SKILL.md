@@ -754,18 +754,15 @@ file; the detail reaches the PR once, when `pr-finalizer` posts it.
 
 You do not pick a review round's tier. The rubric lives in the
 reviewer, next to the delta it reads (see the
-`sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier"),
-and it picks `low` or `medium` and nothing else; the seed spawn alone
-applies it yourself.
+`sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier");
+the seed spawn alone applies it yourself.
 
-`--generator-effort <low|medium|high|xhigh>` is a human-override
-channel, and you pass it only when the human names a tier. `high` and
-`xhigh` are reachable that way and no other, and `max` is never
-passed. A tier named at the plan confirm is that override for the
-whole batch: it is the `effort` of the seed spawn in "Seed the theorem
-set from the issues, and put it to the human" and travels as
-`--generator-effort` on every reviewer spawn for the batch's PR. The
-cases that warrant asking the human for one:
+`--generator-effort <tier>` is a human-override channel, and you pass
+it only when the human names a tier. A tier named at the plan confirm
+is that override for the whole batch: it is the `effort` of the seed
+spawn in "Seed the theorem set from the issues, and put it to the
+human" and travels as `--generator-effort` on every reviewer spawn for
+the batch's PR. The cases that warrant asking the human for one:
 
 - The diff changes the **executable behavior of a shared mechanism**
   *and* coincides with a security-sensitive surface — the `guardrails`

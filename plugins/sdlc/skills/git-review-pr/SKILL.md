@@ -22,14 +22,13 @@ one `theorem-disprover` per live theorem in parallel, then one
 spawning the harness supports, so the fan-outs happen inside the
 agent.
 
-This path **computes** no `--generator-effort`. The reviewer's own
-tier rubric picks `low` or `medium` from the round's delta, and it
-never picks `high` or `xhigh`. A user who wants a specific tier for a
-one-off review passes `--generator-effort <low|medium|high|xhigh>` to
-this skill and it goes through unchanged; a
-user who wants the retired theorems re-checked passes `--full` the
-same way. Both are human overrides, and neither is something this
-skill computes.
+This path **computes** no `--generator-effort`; the reviewer picks the
+tier itself (see the `sdlc:theorem-based-pr-reviewer` agent → "Pick
+the generator tier"). A user who wants a specific tier for a one-off
+review passes `--generator-effort <tier>` to this skill and it goes
+through unchanged; a user who wants the retired theorems re-checked
+passes `--full` the same way. Both are human overrides, and neither is
+something this skill computes.
 
 ## Process
 
