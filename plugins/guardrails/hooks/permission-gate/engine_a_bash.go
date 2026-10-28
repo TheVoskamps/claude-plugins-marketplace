@@ -2171,9 +2171,9 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // existing containment pipeline and gets its own worst-wins verdict.
 // staticExpandBraceFallback only understands the single unnested `{x,y,z}`
 // comma-list grammar; a range form (`{1..9}`, `{a..z}`) it does not
-// recognize is left to fail closed exactly as before — the accepted
-// carve-out: a brace form the fallback does not handle falls closed rather
-// than being guessed at.
+// recognize is left to fail closed — the accepted carve-out: a brace
+// form the fallback does not handle falls closed rather than being guessed
+// at.
 func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
@@ -2230,7 +2230,7 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 	// the raw word (before SplitBraces ran) contains a ".."-bearing top-level
 	// brace-comma-list, resolve this item with our own splitter rather than
 	// trust the count/content upstream returned. Upstream splits such a list
-	// correctly today; this is defense in depth.
+	// correctly on mvdan.cc/sh v3.14.1; this is defense in depth.
 	if !declined && hasDotDotBraceMember(raw) {
 		declined = true
 	}
