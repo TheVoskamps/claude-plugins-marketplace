@@ -47,13 +47,13 @@ func fileWorkEvent(cwd, agentType string) *Event {
 	return &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: agentType}
 }
 
-// verdictsWithoutConfig classifies each command in cwd with no operator config
-// file — the verdict each gets with the redirect off — and leaves the test's
-// home as it found it.
-func verdictsWithoutConfig(t *testing.T, cwd string, agentType string, cmds []string) map[string]Decision {
+// verdictsRedirectOff classifies each command in cwd with a config that sets
+// nothing but `redirect-bash-file-work: off` — the verdict each gets with the
+// redirect off — and leaves the test's home as it found it.
+func verdictsRedirectOff(t *testing.T, cwd string, agentType string, cmds []string) map[string]Decision {
 	t.Helper()
 	home := os.Getenv("HOME")
-	fileWorkConfig(t, "")
+	fileWorkConfig(t, fileWorkModeConfig("off"))
 	out := map[string]Decision{}
 	for _, cmd := range cmds {
 		out[cmd] = classifyBash(cmd, fileWorkEvent(cwd, agentType))
@@ -103,6 +103,27 @@ var coveredShapes = []struct {
 	{"cat f.txt | sed -n -f s.sed", "bash-file-work:read"},
 	{"perl -pi -e 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"perl -i -pe 's/a/b/' f.txt", "bash-file-work:edit"},
+	{"awk -i inplace '{print}' f.txt", "bash-file-work:edit"},
+	{"awk -iinplace '{print}' f.txt", "bash-file-work:edit"},
+	{"awk --include inplace '{print}' f.txt", "bash-file-work:edit"},
+	{"awk --include=inplace '{print}' f.txt", "bash-file-work:edit"},
+	{"awk -v n=1 -i inplace.awk '{print}' f.txt", "bash-file-work:edit"},
+	{"awk 'NR==5' f.txt", "bash-file-work:read"},
+	{"awk 'NR==5{print}' f.txt", "bash-file-work:read"},
+	{"awk 'NR==5 { print $0 }' f.txt", "bash-file-work:read"},
+	{"awk 'NR>=5' f.txt", "bash-file-work:read"},
+	{"awk 'NR < 20 {print}' f.txt", "bash-file-work:read"},
+	{"awk 'NR!=1{print $0}' f.txt", "bash-file-work:read"},
+	{"awk 'NR==2,NR==5' f.txt", "bash-file-work:read"},
+	{"awk 'NR==2,NR==5{print}' f.txt", "bash-file-work:read"},
+	{"awk 'NR==2, NR==5 {print $0;}' f.txt", "bash-file-work:read"},
+	{"awk '/^## /' f.txt", "bash-file-work:read"},
+	{"awk '/a\\/b/{print}' f.txt", "bash-file-work:read"},
+	{"awk '/[/]x/ {print $0}' f.txt", "bash-file-work:read"},
+	{"awk '/^## /,/^---/' f.txt", "bash-file-work:read"},
+	{"awk 'NR<5' a.txt b.txt", "bash-file-work:read"},
+	{"awk 'NR<5' f.txt | head", "bash-file-work:read"},
+	{"cat f.txt | awk 'NR<5'", "bash-file-work:read"},
 	{"make && sed -i 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"grep -l x . | sed -i 's/a/b/' f.txt", "bash-file-work:edit"},
 	{"sed -i 's/a/b/' f.txt | sort", "bash-file-work:edit"},
@@ -175,6 +196,32 @@ var uncoveredShapes = []string{
 	"cat -",
 	"echo hi",
 	"x=$(cat f.txt | jq .)",
+	"awk '{print $1}' f.txt",
+	"awk 'NR==1{print $2}' f.txt",
+	"awk -F: 'NR==1' f.txt",
+	"awk -v n=1 'NR==n' f.txt",
+	"awk 'NR==1{printf \"%s\\n\", $0}' f.txt",
+	"awk '{x=1} NR==1' f.txt",
+	"awk 'NR==1{n++}' f.txt",
+	"awk 'BEGIN{print 1}'",
+	"awk 'BEGIN{n=0} NR==1' f.txt",
+	"awk 'END{print NR}' f.txt",
+	"awk 'NR==1' n=1 f.txt",
+	"awk 'NR==1 && /x/' f.txt",
+	"awk '!/x/' f.txt",
+	"awk -f prog.awk f.txt",
+	"awk -i lib '{print}' f.txt",
+	"awk 'NR<5'",
+	"make | awk 'NR<5'",
+	"awk 'NR<5' f.txt | sort",
+	"x=$(awk 'NR==1' f.txt)",
+	"diff <(awk 'NR==1' a.txt) b.txt",
+	"python -c \"print(open('f.txt').read())\"",
+	"python3 -c \"open('f.txt','w').write('x')\"",
+	"perl -e 'print 1' f.txt",
+	"perl -ne 'print' f.txt",
+	"ruby -e 'puts File.read(\"f.txt\")'",
+	"node -e \"require('fs').readFileSync('f.txt')\"",
 }
 
 // Under `always`, every covered shape is denied with a reason naming its tool,
@@ -210,30 +257,46 @@ func TestFileWorkAlways(t *testing.T) {
 	}
 }
 
-// Under `off`, with the key absent, with the key given an empty value, with the
-// file stamped below the pin or not at all, and with no config file, every
-// covered shape gets the verdict the line gets with no config file.
-func TestFileWorkOffIsTodaysVerdict(t *testing.T) {
-	repo := fileWorkRepo(t)
-	t.Chdir(repo)
-	today := verdictsWithoutConfig(t, repo, "main", coveredCmds())
+// Under an explicit `off`, quoted or not, no covered shape is denied by the
+// redirect, in a linked worktree or in the primary clone.
+func TestFileWorkOffNeverFires(t *testing.T) {
+	primary, wt := setupWorktree(t)
+	for _, body := range []string{fileWorkModeConfig("off"), fileWorkModeConfig(`"off"`)} {
+		fileWorkConfig(t, body)
+		for _, cwd := range []string{primary, wt} {
+			for _, c := range coveredShapes {
+				if got := classifyBash(c.cmd, fileWorkEvent(cwd, "main")); strings.HasPrefix(got.Operation,
+					"bash-file-work:") {
+					t.Errorf("config %q, %s, %q: denied by the redirect while it is off", body, cwd, c.cmd)
+				}
+			}
+		}
+	}
+}
+
+// With the key absent, with the key given an empty value, with the file
+// stamped below the pin or not at all, and with no config file, the redirect
+// runs in worktree mode: it fires in a linked worktree, and in the primary
+// clone every covered shape gets the verdict the line gets with it off.
+func TestFileWorkDefaultIsWorktree(t *testing.T) {
+	primary, wt := setupWorktree(t)
+	off := verdictsRedirectOff(t, primary, "main", coveredCmds())
 	for _, cfg := range []struct{ name, body string }{
-		{"off", fileWorkModeConfig("off")},
 		{"key absent", "schema-version: 2\n"},
 		{"empty value", "schema-version: 2\nredirect-bash-file-work:\n"},
-		{"below the pin", "schema-version: 1\nredirect-bash-file-work: always\n"},
-		{"unstamped", "redirect-bash-file-work: always\n"},
+		{"below the pin", "schema-version: 1\nredirect-bash-file-work: off\n"},
+		{"unstamped", "redirect-bash-file-work: off\n"},
 		{"no file", ""},
 	} {
 		t.Run(cfg.name, func(t *testing.T) {
 			fileWorkConfig(t, cfg.body)
 			for _, c := range coveredShapes {
-				got := classifyBash(c.cmd, fileWorkEvent(repo, "main"))
-				if want := today[c.cmd]; got != want {
-					t.Errorf("%q: got %+v, want today's %+v", c.cmd, got, want)
+				if d := classifyBash(c.cmd, fileWorkEvent(wt, "main")); d.Bucket != BucketDeny || d.Operation != c.op {
+					t.Errorf("worktree, %q: got %q/%q, want deny/%q", c.cmd, d.Bucket, d.Operation, c.op)
 				}
-				if strings.HasPrefix(got.Operation, "bash-file-work:") {
-					t.Errorf("%q: denied by the redirect while it is off", c.cmd)
+				got := classifyBash(c.cmd, fileWorkEvent(primary, "main"))
+				if want := off[c.cmd]; got != want {
+					t.Errorf("primary, %q: got %+v, want the off verdict %+v", c.cmd, got, want)
 				}
 			}
 		})
@@ -247,7 +310,7 @@ func TestFileWorkWorktreeMode(t *testing.T) {
 	agents := []string{"main", "issue-developer", ""}
 	today := map[string]map[string]Decision{}
 	for _, agent := range agents {
-		today[agent] = verdictsWithoutConfig(t, primary, agent, coveredCmds())
+		today[agent] = verdictsRedirectOff(t, primary, agent, coveredCmds())
 	}
 	fileWorkConfig(t, fileWorkModeConfig("worktree"))
 	for _, agent := range agents {
@@ -304,7 +367,7 @@ func TestFileWorkKeepsOtherDeny(t *testing.T) {
 		"echo x > f.txt; gh auth switch",
 	}
 	t.Chdir(root)
-	today := verdictsWithoutConfig(t, root, "main", cmds)
+	today := verdictsRedirectOff(t, root, "main", cmds)
 	fileWorkConfig(t, fileWorkModeConfig("always"))
 
 	for _, cmd := range cmds {
@@ -331,7 +394,7 @@ func TestFileWorkOutranksAskAndDefer(t *testing.T) {
 	for cmd := range cmds {
 		list = append(list, cmd)
 	}
-	today := verdictsWithoutConfig(t, repo, "main", list)
+	today := verdictsRedirectOff(t, repo, "main", list)
 	fileWorkConfig(t, fileWorkModeConfig("always"))
 	for cmd, bucket := range cmds {
 		if today[cmd].Bucket != bucket {
@@ -379,7 +442,8 @@ func TestSedOpaqueDefersOnEveryTrack(t *testing.T) {
 		"sed -n '1e date' ../sibling/f.txt",
 		"sed -i 's/a/b/e' ../sibling/f.txt",
 	}
-	for _, mode := range []string{"", fileWorkModeConfig("always")} {
+	off := fileWorkModeConfig("off")
+	for _, mode := range []string{off, fileWorkModeConfig("always")} {
 		fileWorkConfig(t, mode)
 		for _, cmd := range deferred {
 			if d := classifyBash(cmd, fileWorkEvent(repo, "main")); d.Bucket != BucketDefer {
@@ -389,9 +453,9 @@ func TestSedOpaqueDefersOnEveryTrack(t *testing.T) {
 		for cmd, op := range redirected {
 			d := classifyBash(cmd, fileWorkEvent(repo, "main"))
 			switch {
-			case mode == "" && d.Bucket != BucketDefer:
+			case mode == off && d.Bucket != BucketDefer:
 				t.Errorf("config %q, %q: got %q/%q (%q), want defer", mode, cmd, d.Bucket, d.Operation, d.Reason)
-			case mode != "" && (d.Bucket != BucketDeny || d.Operation != op):
+			case mode != off && (d.Bucket != BucketDeny || d.Operation != op):
 				t.Errorf("config %q, %q: got %q/%q (%q), want deny/%q", mode, cmd, d.Bucket, d.Operation, d.Reason,
 					op)
 			}
@@ -599,8 +663,9 @@ func TestWorktreeEscapeInPrimaryCloneLayouts(t *testing.T) {
 	}
 }
 
-// The loader reads each mode, treats everything else as off, and has a warning
-// only for a value that is present and not a mode.
+// The loader reads each mode, treats everything else as worktree, and has a
+// warning only for a value that is present and not a mode, naming worktree as
+// the value used.
 func TestLoadRedirectBashFileWork(t *testing.T) {
 	fileWorkConfig(t, "")
 	dir := t.TempDir()
@@ -614,13 +679,14 @@ func TestLoadRedirectBashFileWork(t *testing.T) {
 		{"worktree", fileWorkModeConfig("worktree"), fileWorkWorktree, false},
 		{"off", fileWorkModeConfig("off"), fileWorkOff, false},
 		{"quoted off", fileWorkModeConfig(`"off"`), fileWorkOff, false},
-		{"null", fileWorkModeConfig(""), fileWorkOff, false},
-		{"absent", "schema-version: 2\n", fileWorkOff, false},
-		{"below the pin", "schema-version: 1\nredirect-bash-file-work: sometimes\n", fileWorkOff, false},
-		{"unknown", fileWorkModeConfig("sometimes"), fileWorkOff, true},
-		{"wrong case", fileWorkModeConfig("Always"), fileWorkOff, true},
-		{"boolean", fileWorkModeConfig("true"), fileWorkOff, true},
-		{"sequence", fileWorkModeConfig("[always]"), fileWorkOff, true},
+		{"null", fileWorkModeConfig(""), fileWorkWorktree, false},
+		{"empty string", fileWorkModeConfig(`""`), fileWorkWorktree, false},
+		{"absent", "schema-version: 2\n", fileWorkWorktree, false},
+		{"below the pin", "schema-version: 1\nredirect-bash-file-work: sometimes\n", fileWorkWorktree, false},
+		{"unknown", fileWorkModeConfig("sometimes"), fileWorkWorktree, true},
+		{"wrong case", fileWorkModeConfig("Off"), fileWorkWorktree, true},
+		{"boolean", fileWorkModeConfig("false"), fileWorkWorktree, true},
+		{"sequence", fileWorkModeConfig("[off]"), fileWorkWorktree, true},
 	} {
 		path := filepath.Join(dir, c.name+".yml")
 		if err := os.WriteFile(path, []byte(c.body), 0o644); err != nil {
@@ -640,36 +706,47 @@ func TestLoadRedirectBashFileWork(t *testing.T) {
 		if c.warn && !strings.Contains(cfg.fileWorkWarning, redirectBashFileWorkKey) {
 			t.Errorf("%s: the warning does not name the key; got %q", c.name, cfg.fileWorkWarning)
 		}
+		if c.warn && !strings.HasSuffix(cfg.fileWorkWarning, "treating it as worktree.") {
+			t.Errorf("%s: the warning does not name worktree as the value used; got %q", c.name,
+				cfg.fileWorkWarning)
+		}
 	}
 
 	cfg, err := loadOperatorConfigFrom(filepath.Join(dir, "missing.yml"))
-	if err != nil || cfg.fileWork != fileWorkOff || cfg.fileWorkWarning != "" {
-		t.Errorf("missing file: got %q with warning %q and error %v, want off, no warning and no error",
+	if err != nil || cfg.fileWork != fileWorkWorktree || cfg.fileWorkWarning != "" {
+		t.Errorf("missing file: got %q with warning %q and error %v, want worktree, no warning and no error",
 			cfg.fileWork, cfg.fileWorkWarning, err)
+	}
+	if noOperatorConfig.fileWork != fileWorkWorktree {
+		t.Errorf("noOperatorConfig: got %q, want worktree", noOperatorConfig.fileWork)
 	}
 }
 
-// An unknown value leaves every covered shape at the verdict it gets with no
-// config file, and the warning lands in the gate's own log.
-func TestFileWorkUnknownValueIsOff(t *testing.T) {
-	repo := fileWorkRepo(t)
-	t.Chdir(repo)
-	today := verdictsWithoutConfig(t, repo, "main", coveredCmds())
+// An unknown value runs the redirect in worktree mode — it fires in a linked
+// worktree, and leaves every covered shape in the primary clone at the verdict
+// it gets with the redirect off — and the warning lands in the gate's own log.
+func TestFileWorkUnknownValueIsWorktree(t *testing.T) {
+	primary, wt := setupWorktree(t)
+	off := verdictsRedirectOff(t, primary, "main", coveredCmds())
 	fileWorkConfig(t, fileWorkModeConfig("sometimes"))
 	logFile := filepath.Join(t.TempDir(), "gate.jsonl")
 	t.Setenv(logEnvVar, logFile)
 	for _, c := range coveredShapes {
-		got := classifyBash(c.cmd, fileWorkEvent(repo, "main"))
-		if want := today[c.cmd]; got != want {
-			t.Errorf("%q: got %+v, want today's %+v", c.cmd, got, want)
+		if d := classifyBash(c.cmd, fileWorkEvent(wt, "main")); d.Bucket != BucketDeny || d.Operation != c.op {
+			t.Errorf("worktree, %q: got %q/%q, want deny/%q", c.cmd, d.Bucket, d.Operation, c.op)
+		}
+		got := classifyBash(c.cmd, fileWorkEvent(primary, "main"))
+		if want := off[c.cmd]; got != want {
+			t.Errorf("primary, %q: got %+v, want the off verdict %+v", c.cmd, got, want)
 		}
 	}
 	raw, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatalf("the warning was not logged: %v", err)
 	}
-	if !strings.Contains(string(raw), `"bucket":"warning"`) || !strings.Contains(string(raw), "sometimes") {
-		t.Errorf("the log carries no warning naming the value; got %s", raw)
+	if !strings.Contains(string(raw), `"bucket":"warning"`) || !strings.Contains(string(raw), "sometimes") ||
+		!strings.Contains(string(raw), "treating it as worktree") {
+		t.Errorf("the log carries no warning naming the value and worktree; got %s", raw)
 	}
 }
 
