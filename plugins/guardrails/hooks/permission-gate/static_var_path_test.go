@@ -458,9 +458,9 @@ func TestForLoopBraceInListBothContained(t *testing.T) {
 // downstream evaluator, that residual being a DEFER. Either
 // way the gate's job is to decide what it CAN decide, and this it can.
 // staticExpandBraceFallback does the comma-list split itself for it, so
-// every member — including the
-// escaping one — flows through the existing containment pipeline and gets
-// its real verdict via worst-wins: the escaping member denies.
+// every member — including the escaping one — flows through the existing
+// containment pipeline and gets its real verdict via worst-wins: the
+// escaping member denies.
 func TestForLoopBraceInListDotDotEscapingMemberDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -509,10 +509,11 @@ func TestForLoopBraceInListDotDotAllInRepoContained(t *testing.T) {
 // escaping third member of a 3-member ".."-bearing list. On mvdan.cc/sh
 // v3.14.1, expand.BracesSeq returns all three members of `{a,b,../c}` —
 // "a", "b" and "../c" — so the escaping member reaches containment either
-// way. What it guards is a silent drop: an upstream that drops the escaping (and any later)
-// member leaves no residual "{"/"}" text and no error, and a fallback that
-// only checked for residual braces would treat the truncated two-item result
-// as fully resolved, silently ALLOWing past the escaping member.
+// way. What it guards is a silent drop: an upstream that drops the escaping
+// (and any later) member leaves no residual "{"/"}" text and no error, and a
+// fallback that only checked for residual braces would treat the truncated
+// two-item result as fully resolved, silently ALLOWing past the escaping
+// member.
 // staticExpandItem's independent hasDotDotBraceMember raw-text cross-check
 // (not just the subWords' own content) keeps that from recurring, as defense
 // in depth.
@@ -543,9 +544,9 @@ func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied(t *testing.T) {
 // SplitBraces/expand.BracesSeq resolves this shape to all three members on
 // mvdan.cc/sh v3.14.1, but the top-level group carries a ".." member, so
 // staticExpandItem's hasDotDotBraceMember cross-check distrusts that result
-// and hands the raw text to staticExpandBraceFallback, whose depth-tracking correctly detects the
-// nested "{" and returns ok=false — the whole item then fails closed to DEFER
-// rather than mis-splitting it.
+// and hands the raw text to staticExpandBraceFallback, whose depth-tracking
+// correctly detects the nested "{" and returns ok=false — the whole item then
+// fails closed to DEFER rather than mis-splitting it.
 func TestForLoopBraceNestedFormStillFailsClosed(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

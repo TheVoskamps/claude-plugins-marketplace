@@ -2170,10 +2170,10 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // so every member (including the escaping one) still flows through the
 // existing containment pipeline and gets its own worst-wins verdict.
 // staticExpandBraceFallback only understands the single unnested `{x,y,z}`
-// comma-list grammar; a
-// range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
-// closed exactly as before — the accepted carve-out: a brace form the
-// fallback does not handle falls closed rather than being guessed at.
+// comma-list grammar; a range form (`{1..9}`, `{a..z}`) it does not
+// recognize is left to fail closed exactly as before — the accepted
+// carve-out: a brace form the fallback does not handle falls closed rather
+// than being guessed at.
 func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
@@ -2299,12 +2299,12 @@ func hasDotDotBraceMember(raw string) bool {
 }
 
 // staticExpandBraceFallback splits ONE `for … in` item's raw printed text
-// when staticExpandItem does not trust upstream's
-// syntax.SplitBraces/expand.BracesSeq result: residual braces, or a
-// ".."-bearing member (see staticExpandItem's doc comment). It handles exactly the single, unnested comma-list
-// grammar `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list
-// brace-expansion semantics for that shape (verified live: `bash -c 'for f
-// in {a,../b,c}; do echo "$f"; done'` prints all three members unchanged).
+// when staticExpandItem does not trust upstream's SplitBraces/BracesSeq
+// result: residual braces, or a ".."-bearing member (see staticExpandItem's
+// doc comment). It handles exactly the single, unnested comma-list grammar
+// `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list brace-expansion
+// semantics for that shape (verified live: `bash -c 'for f in {a,../b,c}; do
+// echo "$f"; done'` prints all three members unchanged).
 // It deliberately does NOT attempt: a range form (`{1..9}`, `{a..z}` — ok is
 // false, e.g. because the sole group's members don't contain a comma, so
 // depth-1 commaCount stays 0), nested braces (`{a,{b,c}}` — ok is false
