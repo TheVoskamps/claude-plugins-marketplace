@@ -139,8 +139,8 @@ instances.
 
 **A stalled stage posts.** When the resume-pass loop exits — either
 exit — with `disprove`- or `verify`-stage theorems that have no verdict,
-the round moves on: run "Dispose the round" with `--loop-exited`, which
-gives each such theorem its no-verdict row, and post the review. Only
+the round moves on to "Dispose the round", which gives each such
+theorem its no-verdict row, and posts the review. Only
 in the `generate` stage is a loop exit an escalation, since a round with
 no theorems has nothing to post: report an in-progress status naming
 the stage and the exit you took.
@@ -243,10 +243,8 @@ caller:
 - `--generator-effort <low|medium|high|xhigh>` (optional) — a **pure
   human-override channel** for the generator's tier, one of those four
   values and no other, applied by "Pick the generator tier".
-- `--full` (optional, no value) — re-disprove **every** carried theorem,
-  retired ones included and only a human-rejected one excepted, with
-  full briefs, per "The `--full` round". Absent, the round is a default
-  round and the live list is delta-sized.
+- `--full` (optional, no value) — pass it on to `next` and `dispose`,
+  and say so in the Review method section.
 - `--mode <code-and-instruction-markdown|documentation>` (optional) —
   which classes the round reviews, per "The mode decides which classes
   are reviewed", meaning what the `sdlc:theorem-agents-interface` skill
@@ -616,10 +614,6 @@ them is not one to act on. Pass them to every later `next` and `dispose`
 call too. Each disprover the live list earns is a **full, unbounded**
 one.
 
-**The `--full` round** passes `--full` on to `next` and `dispose`,
-which widen the live list by it; no rule here forces one. It says so in
-its Review method section.
-
 ### Fan out the disprovers
 
 **Fetch in your session, never in the fan-out**: the children's
@@ -698,8 +692,7 @@ turn text, and wait by "The resume loop" over `verify`.
 ### Dispose the round
 
 Run `--mode dispose` once `next`'s arm is `dispose`, or with
-`--loop-exited` once the resume-pass loop has exited, per "A stalled
-stage posts":
+`--loop-exited` when "A stalled stage posts" sends you here:
 
 ```bash
 sdlc-agent-result-persist --mode dispose \
