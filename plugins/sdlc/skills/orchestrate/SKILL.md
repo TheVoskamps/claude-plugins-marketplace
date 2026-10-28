@@ -73,10 +73,7 @@ under `agents/` owns:
   before its developer runs — when it returns, its report is the seed
   candidate list the human rules on — or that `seed-review:
   auto-accept` accepts whole — per "Seed the theorem set from the
-  issues, and put it to the human". Every generator spawn passes its
-  tier as the `Agent` call's `effort`: the reviewer's rubric picks
-  `low` or `medium`, and `high` and `xhigh` are the human's to override
-  with, per "Overriding the generator tier" below
+  issues, and put it to the human"
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty. You spawn it
@@ -439,9 +436,8 @@ Spawn `sdlc:theorem-generator` with the `Agent` call's `effort` set to
 the tier, whatever it is, `low` included. Pick the tier by the
 reviewer's rubric (`sdlc:theorem-based-pr-reviewer` → "Pick the
 generator tier"), its complexity and extent signals read against the
-batch's issue bodies rather than a delta. The output is `low` or
-`medium` and nothing else. A tier the human named at the plan confirm
-wins outright.
+batch's issue bodies rather than a delta, unless "Overriding the
+generator tier" sets it.
 
 The seed spawn's return is not persisted through
 `sdlc-agent-result-persist`: every path it composes is keyed on a PR,
@@ -760,7 +756,7 @@ You do not pick a review round's tier. The rubric lives in the
 reviewer, next to the delta it reads (see the
 `sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier"),
 and it picks `low` or `medium` and nothing else; the seed spawn alone
-applies it yourself, against the issue bodies.
+applies it yourself.
 
 `--generator-effort <low|medium|high|xhigh>` is a human-override
 channel, and you pass it only when the human names a tier. `high` and
@@ -1272,9 +1268,9 @@ What you do yourself is orchestration mechanics:
 ## Token Efficiency
 
 - Every teammate's `model` and `effort` are its own frontmatter's, and
-  a routine spawn overrides neither; `theorem-generator` is the one
-  exception, whose every spawn passes its tier as `effort`, per
-  "Overriding the generator tier". For a genuinely hard issue,
+  a routine spawn overrides neither; the seed spawn in "Seed the
+  theorem set from the issues, and put it to the human" is not a
+  routine one. For a genuinely hard issue,
   escalate that single spawn to a stronger model via the `Agent`
   tool's per-call `model` override; the frontmatter `model:` is a
   default, not a floor or a ceiling.

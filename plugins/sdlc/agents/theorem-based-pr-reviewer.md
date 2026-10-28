@@ -275,8 +275,7 @@ caller:
   the issue set" reads it from GitHub.
 - `--generator-effort <low|medium|high|xhigh>` (optional) — a **pure
   human-override channel** for the generator's tier, one of those four
-  values and no other. Passed, it wins outright; absent, "Pick the
-  generator tier" decides.
+  values and no other, applied by "Pick the generator tier".
 - `--full` (optional, no value) — re-disprove **every** carried theorem,
   retired ones included and only a human-rejected one excepted, with
   full briefs, per "The `--full` round". Absent, the round is a default
@@ -559,8 +558,6 @@ never stack**:
 hygiene, version bumps, a mechanical sweep, or tests-only is **low**
 whatever its size, and under `--mode documentation` the signals read
 the delta's documentation files alone, so a documentation round is low.
-`high` and `xhigh` are **never** the rubric's pick; they exist for an
-explicit `--generator-effort`. `max` is never passed.
 
 Both signals read the round's delta — on a fallback round, the whole
 PR diff. Say in the Review method section which tier ran and what
@@ -634,8 +631,7 @@ defines, and nothing else.
 ```
 
 Pass the delta as the **commit list**, never as a previous head to diff
-against. Pass no model, and no tier in the brief: the tier is the
-`Agent` call's `effort` alone. Append its `--mode spawn` record with
+against, and pass no model. Append its `--mode spawn` record with
 `--theorem list --stage generate --agent theorem-generator --model
 default --effort <tier>` — the generator cannot be relied on to know
 its own tier, so this record is the one place it is written.
