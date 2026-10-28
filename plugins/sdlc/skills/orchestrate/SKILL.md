@@ -777,11 +777,8 @@ given more effort than the diff has stakes for spends it manufacturing
 immaterial claims, each of which drives a fix round when disproved. An
 override is something to argue for rather than a default to reach past.
 
-`--full` is the other override, and it is the human's or yours: it
-re-disproves every recorded theorem, retired ones included and only a
-human-rejected one excepted. Say in the round's report which tier ran,
-whether the rubric or an override picked it, and whether the round was
-a `--full` one.
+Say in the round's report which tier ran and whether the rubric or an
+override picked it.
 
 ### Handling review findings — the fix loop
 
