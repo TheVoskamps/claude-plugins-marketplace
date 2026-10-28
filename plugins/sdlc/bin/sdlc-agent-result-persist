@@ -1079,8 +1079,9 @@ readonly next_prog='
     return "in-flight"
   }
   # consider(st, t, member): adds the line the theorem gets in the stage,
-  # if any, and says whether the stage still has work on it. Only a
-  # member of the stage is outstanding without a child. A theorem already
+  # if any, and says whether the stage still has work on it. A theorem
+  # with no child in flight is outstanding only when it is a member of
+  # the stage and the stage has not settled it. A theorem already
   # considered in the stage adds no second line and returns 0, so the
   # answer of the first call is the one that counts.
   function consider(st, t, member,    f) {
