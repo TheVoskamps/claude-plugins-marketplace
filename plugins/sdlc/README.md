@@ -1027,7 +1027,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
 | `bin/sdlc-pr-round` | Prints the number of the review round under way: the PR's review count plus one | `skills/pr-read-cli-interface/SKILL.md` |
-| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log, else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
@@ -1150,11 +1150,12 @@ the staging path is named, are owned by
 
 `pr-finalizer` reads that state and writes none of it. The orchestrator
 writes round 0's `records` — the seed settled before the developer ran,
-transcribed through the same script — and, like `pr-merge-readiness`,
-appends to the PR's agents log for each agent it spawns; neither writes
-anything else here. The `sdlc-config-*` verbs write the config files their contract
-names, on the user's yes, and those are the user's files rather than
-run state. The implementing
+transcribed through the same script — and the generate-stage `spawn`
+record carrying the seed generator's tier into round 0's `log`, and,
+like `pr-merge-readiness`, appends to the PR's agents log for each
+agent it spawns; neither writes anything else here. The `sdlc-config-*`
+verbs write the config files their contract names, on the user's yes,
+and those are the user's files rather than run state. The implementing
 agents are outside the claim entirely and write nothing this
 list owns: those declaring `memory: project` capture their agent memory
 with `/cc-tools:agent-memory-inbox-capture`, each of them but
