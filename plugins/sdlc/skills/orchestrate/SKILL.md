@@ -1015,8 +1015,8 @@ Review adjustments for round <N>:
 
 Each adjustment binds the rest of the PR's rounds, so the human is
 never asked to repeat one. A rejection retires the theorem for good:
-no later round re-attacks it, `--full` included, and a human who
-changes their mind reports a missed defect instead. A severity override
+no later round re-attacks it, and a human who changes their mind
+reports a missed defect instead. A severity override
 is written on the theorem's record and grades every standing finding
 that theorem produces from then on, until a later override on the same
 theorem replaces it.
