@@ -64,11 +64,12 @@ these that exists:
 
 1. the newest `submittedAt` among the PR's reviews;
 2. with no review, the newest instant on any line
-   `sdlc-agent-result-persist --mode print` prints for round `<n>-1` —
-   the script reads that round's log through that call and through
-   nothing else;
-3. the PR's `createdAt`, when there is no review and that log is empty
-   or absent, as it always is below round 1.
+   `sdlc-agent-result-persist --mode print` prints for round `<n>-1`,
+   when that is round 1 or later — the script reads that round's log
+   through that call and through nothing else, and never reads round
+   0's, which holds the seed generator's `spawn` record and no review;
+3. the PR's `createdAt`, when there is no review and that log is empty,
+   absent or round 0's.
 
 A comment whose first line is a fixer-brief marker or a
 theorem-records chunk marker is never printed: each is sdlc's own

@@ -36,9 +36,7 @@ instructions at the top of that file.
 
 Your context carries **no agent-type roster**, so spawn each agent by
 its exact `subagent_type`: `sdlc:theorem-generator`,
-`sdlc:theorem-generator-medium`, `sdlc:theorem-generator-high`,
-`sdlc:theorem-generator-xhigh`, `sdlc:theorem-disprover`,
-`sdlc:counterexample-verifier`.
+`sdlc:theorem-disprover`, `sdlc:counterexample-verifier`.
 
 ## You write nothing on the branch
 
@@ -48,7 +46,7 @@ persist between Bash calls in a subagent context.
 
 You write no code and post exactly one review. You never commit, never
 push, and never edit a tracked file. You declare no `memory:`; a durable
-review lesson becomes a PR against `sdlc:theorem-generation`,
+review lesson becomes a PR against `theorem-generator`,
 `theorem-disprover`, `counterexample-verifier`, this file, or the
 repo's `CLAUDE.md`. `Write` is for **staging the text you hand off** —
 the argued review, the edits and new records, the summary body — under
@@ -179,8 +177,8 @@ surviving notification carries the round past every lost one.
      --stage <stage> --agent <agent>
    ```
 
-   — `generate` with the generator the last `spawn` record for `list`
-   names, `disprove` with `theorem-disprover`, or `verify` with
+   — `generate` with `theorem-generator`, `disprove` with
+   `theorem-disprover`, or `verify` with
    `counterexample-verifier`. **When it lists the agent id the
    notification named, that child handed back without a `leave`** —
    a `LEAVE FAILED` report among the ways — and none is coming: write
@@ -275,10 +273,9 @@ caller:
   standalone path.
 - `--branch <name>` (optional) — the PR's head branch. Absent, "Identify
   the issue set" reads it from GitHub.
-- `--generator <agent-name>` (optional) — a **pure human-override
-  channel**, one of `theorem-generator`, `theorem-generator-medium`,
-  `theorem-generator-high`, or `theorem-generator-xhigh`. Passed, it
-  wins outright; absent, "Pick the generator tier" decides.
+- `--generator-effort <low|medium|high|xhigh>` (optional) — a **pure
+  human-override channel** for the generator's tier, one of those four
+  values and no other, applied by "Pick the generator tier".
 - `--full` (optional, no value) — re-disprove **every** carried theorem,
   retired ones included and only a human-rejected one excepted, with
   full briefs, per "The `--full` round". Absent, the round is a default
@@ -289,9 +286,9 @@ caller:
   → "The brief parameters" says it means. Absent, it is
   `code-and-instruction-markdown`.
 
-No other parameter exists: no effort or model, since the generator's
-tier IS the definition spawned, and nothing carrying human adjustments,
-which ride PR comments.
+No other parameter exists: no model, no effort beyond the generator's
+tier above, and nothing carrying human adjustments, which ride PR
+comments.
 
 What each parameter of the briefs you write means is owned by the
 `sdlc:theorem-agents-interface` skill → "The brief parameters",
@@ -429,7 +426,7 @@ and report the command and its output verbatim rather than review.
 ran: an accepted or re-moded theorem there carries **no `state`**, and
 a rejected or merged one is `retired` / `human-refuted`. Round 1 over
 it takes the **delta path** with the whole branch as its delta: round 0
-has no log and no head, so read both with no `--prev-head`:
+records no head, so read both with no `--prev-head`:
 
 ```text
 /git-tools:git-range --base <baseRefName> --head-ref <headRefName> --head <headRefOid>
@@ -545,10 +542,10 @@ that precedence.
 
 ### Pick the generator tier
 
-`--generator`, when passed, wins outright. Otherwise the rubric picks
-**low or medium, nothing else**: `theorem-generator` (low) by default,
-and `theorem-generator-medium` (medium) when either signal fires. The
-signals are a **disjunction and never stack**:
+`--generator-effort`, when passed, wins outright. Otherwise the rubric
+picks **`low` or `medium`, nothing else**: `low` by default, and
+`medium` when either signal fires. The signals are a **disjunction and
+never stack**:
 
 - **Complexity** — the delta touches code with dependents or run-time
   behavior: a contract other agents consume, a `lib/` helper, config
@@ -561,20 +558,14 @@ signals are a **disjunction and never stack**:
 hygiene, version bumps, a mechanical sweep, or tests-only is **low**
 whatever its size, and under `--mode documentation` the signals read
 the delta's documentation files alone, so a documentation round is low.
-`theorem-generator-high` and
-`theorem-generator-xhigh` are **never** the rubric's pick; they exist
-for an explicit `--generator`.
 
 Both signals read the round's delta — on a fallback round, the whole
 PR diff. Say in the Review method section which tier ran and what
-picked it. Read the tier that ran from the generate
-stage's `leave` record or `result` line for the theorem `list`, never
-from your own spawn choice: the definition that ran is the agent its
-result file is named for, per the preloaded
-`sdlc:agent-result-persist-interface` skill → "The line grammar". When
-that definition differs from the agent the last `spawn` record for the
-theorem `list` names, say so in the Review method section and name
-both.
+picked it. Read the tier that ran from the `effort` column of the last
+generate-stage `spawn` record for the theorem `list`, per the preloaded
+`sdlc:agent-result-persist-interface` skill → "The line grammar", never
+from your own memory of the spawn: an earlier instance may have made
+it.
 
 ### Spawn the theorem generator
 
@@ -582,10 +573,7 @@ both.
 in the `generate` stage, per "What the reader derives", an earlier
 instance generated this round's list: read its result file and take the
 list from it rather than spawning, so a theorem id denotes the same
-claim across instances. **The round's
-list is the result file of the agent the last `spawn` record for `list`
-names** — a round that replaced a generator at another tier holds a
-file per tier.
+claim across instances.
 
 **A generator may instead be in flight** — `list` listed by
 `--mode print-in-flight` under `--stage generate`. Wait on it by "The
@@ -595,10 +583,11 @@ forever. Once the resume-pass loop exits with the list unsettled, the
 round has no theorems and posts no review: report an in-progress status
 naming the `generate` stage and which exit you took.
 
-Otherwise spawn the definition "Pick the generator tier" settled on,
-passing the resolved set from "Identify the issue set", not the
-caller's claim. On a **fallback round** that read no records, the brief
-is the whole PR:
+Otherwise spawn `sdlc:theorem-generator` with the `Agent` call's
+`effort` set to the tier "Pick the generator tier" settled on — on
+every round, `low` included — passing the resolved set from "Identify
+the issue set", not the caller's claim. On a **fallback round** that
+read no records, the brief is the whole PR:
 
 ```text
 --pr <PR_REF>
@@ -610,9 +599,9 @@ is the whole PR:
 Leave these documentation paths out of every diff you read: <the paths
 "The mode decides which classes are reviewed" collected>
 
-Generate the theorem list per your preloaded generation skill. Record it
-to your result file first, then hand back the result-file path that call
-printed and, under it, the list in the theorem-record format that skill
+Generate the theorem list per your agent definition. Record it to your
+result file first, then hand back the result-file path that call
+printed and, under it, the list in the theorem-record format it
 defines, and nothing else.
 ```
 
@@ -635,21 +624,21 @@ sdlc-agent-result-persist --mode print-records --pr <PR_REF> --round <this round
 Leave these documentation paths out of every diff and delta commit you
 read: <the paths "The mode decides which classes are reviewed" collected>
 
-Generate the theorem list per your preloaded generation skill. Record it
-to your result file first, then hand back the result-file path that call
-printed and, under it, the list in the theorem-record format that skill
+Generate the theorem list per your agent definition. Record it to your
+result file first, then hand back the result-file path that call
+printed and, under it, the list in the theorem-record format it
 defines, and nothing else.
 ```
 
 Pass the delta as the **commit list**, never as a previous head to diff
-against. Pass no tier, effort, or model. Append
-its `--mode spawn` record with `--theorem list --stage generate
---agent <the definition you spawned> --model default --effort default`
-— the tier travels in `--agent`.
+against, and pass no model. Append its `--mode spawn` record with
+`--theorem list --stage generate --agent theorem-generator --model
+default --effort <tier>` — the generator cannot be relied on to know
+its own tier, so this record is the one place it is written.
 
 Where the report and the result file disagree, the file is the round's
 list. **Ids are stable across rounds and never reused.** If a record is
-malformed by `sdlc:theorem-generation` → "Output format", or gives a
+malformed by `agents/theorem-generator.md` → "Output format", or gives a
 **new** theorem an id the carried records already hold, ask the
 generator to re-emit it rather than guessing: you
 are not a source of theorems.
@@ -908,7 +897,7 @@ post is "The posted review summary".
 ## The theorem contract
 
 A theorem is a claim the generator has already put through the emission
-bar `sdlc:theorem-generation` owns. You consume every field of its
+bar `agents/theorem-generator.md` owns. You consume every field of its
 record:
 
 | Field | What it is |
@@ -919,7 +908,7 @@ record:
 | `settle-mode` | `mechanical` (grep-shaped) or `semantic` (needs reading behavior) |
 | `pointers` | files, regions, or symbols the disprover starts from |
 
-When a record is malformed is `sdlc:theorem-generation` → "Output
+When a record is malformed is `agents/theorem-generator.md` → "Output
 format"'s to say, its `issues` field included. `state`,
 `state-detail`, `settled-at` and `severity-override` are yours to stamp;
 a generator that emits any of them has misread its brief.

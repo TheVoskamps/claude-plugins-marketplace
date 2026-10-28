@@ -17,7 +17,7 @@ These skills serve the `/sdlc:orchestrate` flow and its agents. The
 `theorem-based-pr-reviewer` posts the single review that carries the
 verdict, and — when run standalone on a PR reference — reads the
 PR's closing lines to learn which issues it claims; the
-agents it spawns — every `theorem-generator` variant,
+agents it spawns — `theorem-generator`,
 `theorem-disprover`, and `counterexample-verifier` — fetch the diff, as do the `issue-fixer`,
 `code-documenter`, `style-checker`, and `docs-writer`. The orchestrator
 keeps PRs draft through the review/fix loop; once the human blesses a
@@ -314,7 +314,7 @@ the marketplace, so a field list a caller used to pass to a raw
 ### `/pr-diff <PR>`
 
 Fetches the full unified diff of a pull request via `gh pr diff <PR>`.
-This is the diff-fetch that every `theorem-generator` variant,
+This is the diff-fetch that `theorem-generator`,
 `theorem-disprover`, `counterexample-verifier`, `issue-fixer`, `code-documenter`,
 `style-checker`, and `docs-writer` need
 before they read a PR's changes.

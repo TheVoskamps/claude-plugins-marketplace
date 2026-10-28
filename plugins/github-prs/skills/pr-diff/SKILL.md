@@ -8,7 +8,7 @@ description: Fetch the full unified diff of a GitHub pull request, verbatim.
 Fetch the full unified diff of a GitHub pull request. This is the
 diff-fetch that PR consumers run before
 reading a PR's changes: the agents `sdlc:theorem-based-pr-reviewer`
-spawns — every `theorem-generator` variant, `theorem-disprover`, and
+spawns — `theorem-generator`, `theorem-disprover`, and
 `counterexample-verifier` —
 and `/sdlc:orchestrate`'s own `issue-fixer`, `code-documenter`,
 `style-checker`, and `docs-writer`. Each

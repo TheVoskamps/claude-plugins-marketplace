@@ -99,9 +99,11 @@ The confirm step is the human's escape hatch on grouping, and the only
 cheap moment for it: regrouping before any spawn is free, and after a
 branch carries commits and a PR it is not. Accept a regrouping
 instruction — re-emit the table with the change applied and confirm
-again. A generator tier the human names here is a `--generator`
-override for that batch: it wins outright for the seed generator and
-for every reviewer round on the batch's PR. If the run is large (more
+again. A generator tier the human names here — `low`, `medium`,
+`high` or `xhigh` — is a `--generator-effort` override for that batch:
+it wins outright as the seed spawn's `effort` and as
+`--generator-effort` on every reviewer round on the batch's PR. If the
+run is large (more
 than 8 issues across all batches), split it into two separate sessions
 and say so here before proceeding.
 

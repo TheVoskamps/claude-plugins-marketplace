@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -9,11 +9,9 @@ user-invocable: false
 This is the one statement of what goes into a theorem agent and what
 comes back out. An `## Inputs` section names which of the parameters
 below one agent's brief carries and adds only what is specific to
-that agent — `theorem-disprover`'s and `counterexample-verifier`'s in
-their own agent files, the generator's in `sdlc:theorem-generation`,
-since the generator skeletons leave the whole generation procedure to
-that skill. The
-meaning of a parameter is stated here and nowhere else.
+that agent, in that agent's own file: `agents/theorem-generator.md`,
+`theorem-disprover`'s and `counterexample-verifier`'s. The meaning of
+a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
 what a parameter of the briefs it writes means — whether `--fetched`
@@ -28,7 +26,7 @@ the reviewer's `--issues` is a claim it reconciles, where a theorem
 agent's `--issues` is settled.
 
 The generator's theorem *record* carries the same vocabulary again, on
-a third surface: `sdlc:theorem-generation` states what a generator
+a third surface: `agents/theorem-generator.md` states what a generator
 puts in each record field, and the reviewer's "The theorem contract"
 tabulates what it consumes from one. A record is not a brief — the
 reviewer transcribes the former into the latter — so neither is a

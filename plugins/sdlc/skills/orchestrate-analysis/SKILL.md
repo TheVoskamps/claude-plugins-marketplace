@@ -1,6 +1,6 @@
 ---
 name: orchestrate-analysis
-description: Report where an /sdlc:orchestrate run's wall-clock time went for one PR — a begin-to-end timeline, totals, per-round review phases, every wait on the human, and each ruling on a theorem or on a fixer-brief finding that names none — by running the read-only sdlc-orchestrate-analysis script.
+description: Report where an /sdlc:orchestrate run's wall-clock time went for one PR — a begin-to-end timeline, totals, per-round review phases, the generator tier of every round, the round-0 seed included, every wait on the human, and each ruling on a theorem or on a fixer-brief finding that names none — by running the read-only sdlc-orchestrate-analysis script.
 ---
 
 # Orchestrate Analysis
@@ -32,7 +32,9 @@ which PR before running anything.
 
 2. **Exit 0** — print its stdout to the user unchanged. It is Markdown,
    and its "Missing sources" section is part of the report, not an
-   error.
+   error. Its "Generator tiers" section names the tier each round's
+   generator ran at, round 0's seed included, as the `effort` its
+   generate-stage `spawn` record carries.
 
 3. **Non-zero exit** — the script produced no report. Show its stderr
    verbatim and stop; do not assemble a report from any other source.

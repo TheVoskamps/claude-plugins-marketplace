@@ -165,18 +165,16 @@ from the sending end.
 
 State the interface once, as a skill in the same plugin, and name that
 skill in each receiving agent's `skills:` frontmatter so it is
-preloaded at spawn — the same mechanism "Varying one agent's budget:
-skeletons over a preloaded skill" below uses, for a different reason.
-Each agent's own file then carries only what is specific to it: which
-of the parameters its brief carries, and what it does with them that
-its siblings do not. The writing end carries what it *puts* in each
-parameter, which is policy rather than meaning, and points at the
-skill for the rest.
+preloaded at spawn. Each agent's own file then carries only what is
+specific to it: which of the parameters its brief carries, and what it
+does with them that its siblings do not. The writing end carries what
+it *puts* in each parameter, which is policy rather than meaning, and
+points at the skill for the rest.
 
 `sdlc`'s theorem agents are the worked instance:
 `plugins/sdlc/skills/theorem-agents-interface/SKILL.md` states each
 brief parameter and each consequence class once, and is preloaded into
-the `theorem-generator` variants, `theorem-disprover`, and
+`theorem-generator`, `theorem-disprover`, and
 `counterexample-verifier`. `agents/theorem-based-pr-reviewer.md`
 writes the briefs and says only what it puts in each; it keeps the
 class-to-severity mapping, which is its own policy over the shared
@@ -192,45 +190,6 @@ grades its own issue-set findings by — reaches it by name instead, since one
 rare branch does not earn a preload. The skill is still
 machinery rather than a user verb, so it takes `user-invocable: false`
 (constraint 4) the same way.
-
-### Varying one agent's budget: skeletons over a preloaded skill
-
-An agent's reasoning tier is its frontmatter `effort:`, and the `Agent`
-tool has no per-call `effort` parameter — so "the same agent, at a
-higher tier" can only be a *second agent definition*. Copying the
-agent's instructions into that second file gives its behavior two
-sources of truth, and they drift.
-
-The pattern that avoids it: move the agent's entire operating
-instruction into a skill in the same plugin, name that skill in each
-definition's `skills:` frontmatter so it is preloaded at spawn, and
-leave each definition a **skeleton** — frontmatter plus a pointer at
-the skill. The definitions then differ only in `name:`, `effort:`, the
-tier phrase in `description:`, and one body sentence stating the
-definition's own name and tier as literals, and choosing a tier is
-choosing which definition to spawn. The body sentence is there because
-the harness does not inject frontmatter into the agent's prompt: without
-it a skeleton cannot know which definition it is, and guesses whenever
-it has to name itself.
-
-- **The skill is tier-blind.** It carries no tier parameter and never
-  asks which variant is running it, so the variants cannot diverge in
-  behavior — only in budget.
-- **Guidance never lands in a skeleton.** Anything a skeleton says that
-  its siblings do not is the second source of truth the pattern exists
-  to remove. The one per-skeleton body line allowed is the sentence
-  stating the definition's own name and tier.
-- **A skeleton points at the whole skill, not at its parts.** Comparing
-  the skeletons catches only what one says and its siblings do not, so
-  a list of the skill's sections — identical in every skeleton, and
-  read by the agent as the skill's section set — passes that comparison
-  while falling behind the skill. The repair is a pointer at the file
-  as a whole, which cannot go stale, rather than a wider list, which
-  can.
-
-Such a skill is machinery, not a user verb: give it
-`user-invocable: false` (constraint 4) so it stays out of the human `/`
-menu while remaining loadable by the agents that declare it.
 
 ### Fanning out parallel agents: one home for the procedure
 
@@ -249,10 +208,6 @@ out at each caller. Which place that is follows from who runs it:
 A skill wrapping a procedure only one agent ever runs is the shape to
 avoid: it splits one contract across two files that must agree, and
 buys nothing, since an agent body is already preloaded at spawn.
-Budget is the one reason to accept the split anyway — see "Varying one
-agent's budget: skeletons over a preloaded skill" above, where the
-frontmatter-only `effort:` key forces several definitions over one
-shared procedure.
 
 The session that runs such a fan-out may be the main session or a
 subagent — **nested spawning works in this harness**: a spawned agent

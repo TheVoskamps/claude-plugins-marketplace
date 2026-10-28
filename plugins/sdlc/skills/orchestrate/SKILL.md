@@ -66,17 +66,14 @@ under `agents/` owns:
   that spawned it. When it returns, one review is posted on the PR and
   its report carries the verdicts and findings you brief a fixer from.
   It leaves nothing on the branch
-- `theorem-generator` and its `-medium`, `-high` and `-xhigh` tiers,
-  `theorem-disprover`, and `counterexample-verifier` — the reviewer's
-  own children, spawned by the review pipeline; each leaves nothing on
-  the branch. You spawn a generator yourself exactly once per batch,
-  on the issues-only brief, before its developer runs — when it
-  returns, its report is the seed candidate list the human rules on —
-  or that `seed-review: auto-accept` accepts whole — per "Seed the
-  theorem set from the issues, and put it to the human".
-  The reviewer's rubric picks between the base generator and
-  `-medium`; the other two tiers are yours to override with, per
-  "Overriding the generator tier" below
+- `theorem-generator`, `theorem-disprover`, and
+  `counterexample-verifier` — the reviewer's own children, spawned by
+  the review pipeline; each leaves nothing on the branch. You spawn a
+  generator yourself exactly once per batch, on the issues-only brief,
+  before its developer runs — when it returns, its report is the seed
+  candidate list the human rules on — or that `seed-review:
+  auto-accept` accepts whole — per "Seed the theorem set from the
+  issues, and put it to the human"
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty. You spawn it
@@ -431,20 +428,22 @@ returns a candidate list:
 --issues <issue_N1> <issue_N2> …
 --branch <default-issue-source-branch>
 
-Generate the theorem list per your preloaded generation skill, and
-report it back in the theorem-record format that skill defines, and
-nothing else.
+Generate the theorem list per your agent definition, and report it
+back in the theorem-record format it defines, and nothing else.
 ```
 
-Pick the definition to spawn by the tier rubric's complexity and
-extent signals, read against the batch's issue bodies rather than a
-delta. The output is low or medium and nothing else. A tier the human
-named at the plan confirm wins outright.
+Spawn `sdlc:theorem-generator` with the `Agent` call's `effort` set to
+the tier, whatever it is, `low` included. Pick the tier by the
+reviewer's rubric (`sdlc:theorem-based-pr-reviewer` → "Pick the
+generator tier"), its complexity and extent signals read against the
+batch's issue bodies rather than a delta, unless "Overriding the
+generator tier" sets it.
 
 The seed spawn's return is not persisted through
 `sdlc-agent-result-persist`: every path it composes is keyed on a PR,
-and none exists. Hold the generator's return and its agent id in your
-scratchpad; its spawn is recorded once the PR is linked.
+and none exists. Hold the generator's return, its agent id and the
+tier you passed in your scratchpad; its spawn is recorded, tier
+included, once the PR is linked.
 
 **Assess the candidate list.** You make the assessment yourself, with
 no spawn, from the candidate list, the batch's issue bodies you already
@@ -706,9 +705,10 @@ and not posted, so this round is `R` and the PR carries no review of
 it; one that fails saying there is no round log means this round is
 `R-1`.
 
-Pass no `--generator`, no effort, and no model. The reviewer picks the
-tier itself from the round's delta; `--generator` goes in only when
-the human named a tier, per "Overriding the generator tier" below.
+Pass no `--generator-effort`, no effort, and no model. The reviewer
+picks the generator's tier itself from the round's delta;
+`--generator-effort` goes in only when the human named a tier, per
+"Overriding the generator tier" below.
 
 The reviewer returns its verdict lines and its findings, and the rest
 of what its own "Report back" section lists; the per-theorem lines are
@@ -752,19 +752,17 @@ file; the detail reaches the PR once, when `pr-finalizer` posts it.
 
 ### Overriding the generator tier
 
-You do not pick a tier. The rubric lives in the reviewer, next to the
-delta it reads (see the `sdlc:theorem-based-pr-reviewer` agent →
-"Pick the generator tier"), and it routes between `theorem-generator` (low) and
-`theorem-generator-medium` (medium) and nowhere else.
+You do not pick a review round's tier. The rubric lives in the
+reviewer, next to the delta it reads (see the
+`sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier");
+the seed spawn alone applies it yourself.
 
-`--generator` is a human-override channel, and you pass it only when
-the human names a tier. `theorem-generator-high` and
-`theorem-generator-xhigh` are reachable that way and no other. A tier
-named at the plan confirm is that override for the whole batch: it
-picks the seed generator in "Seed the theorem set from the issues, and
-put it to the human" and travels as `--generator` on every reviewer
-spawn for the batch's PR. The
-cases that warrant asking the human for one:
+`--generator-effort <tier>` is a human-override channel, and you pass
+it only when the human names a tier. A tier named at the plan confirm
+is that override for the whole batch: it is the `effort` of the seed
+spawn in "Seed the theorem set from the issues, and put it to the
+human" and travels as `--generator-effort` on every reviewer spawn for
+the batch's PR. The cases that warrant asking the human for one:
 
 - The diff changes the **executable behavior of a shared mechanism**
   *and* coincides with a security-sensitive surface — the `guardrails`
@@ -926,8 +924,8 @@ member)**:
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
-   human caught is a reason to ask the human for a `--generator`
-   override, per "Overriding the generator tier".
+   human caught is a reason to ask the human for a
+   `--generator-effort` override, per "Overriding the generator tier".
 6. Repeat this loop until APPROVED or until the review-round cap
    (see "Your own boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
@@ -1267,15 +1265,12 @@ What you do yourself is orchestration mechanics:
 ## Token Efficiency
 
 - Every teammate's `model` and `effort` are its own frontmatter's, and
-  a routine spawn overrides neither. For a genuinely hard issue,
+  a routine spawn overrides neither; the seed spawn in "Seed the
+  theorem set from the issues, and put it to the human" is not a
+  routine one. For a genuinely hard issue,
   escalate that single spawn to a stronger model via the `Agent`
   tool's per-call `model` override; the frontmatter `model:` is a
-  default, not a floor or a ceiling. There is no `effort` equivalent
-  on the `Agent` tool, so effort cannot be overridden at spawn time at
-  all: changing a teammate's effort is an edit to its frontmatter plus
-  an `sdlc` version bump, never a per-run lever. A costlier theorem
-  generation is bought by spawning a different generator definition,
-  through the `--generator` override alone.
+  default, not a floor or a ceiling.
 - **Doing agent work — OR making decisions about an agent's
   lifecycle/environment — in the orchestrator is not a token-saving
   optimization.** A "quick" orchestrator-authored review, fix, or

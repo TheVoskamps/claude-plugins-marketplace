@@ -3,7 +3,7 @@
 # PR it produced, as Markdown tables on stdout.
 #
 # Its sources, each read as it stands and never substituted for one
-# another: the PR's review rounds, read only through
+# another: the PR's review rounds and its round-0 seed, read only through
 # sdlc-agent-result-persist's print modes and the result-file and
 # transcript paths those modes print; the orchestrator session's
 # transcript, found from the transcript paths on the round logs' enter
@@ -105,6 +105,17 @@ while :; do
 done
 if [ -z "$round_logs" ]; then
   note_missing "every round log: no round of PR #$pr has one; no review-round rows"
+fi
+
+# Round 0 is the seed rather than a review round, so its log is read for
+# the seed generator's spawn record alone, in the same "<round><TAB><log
+# line>" shape. A PR reviewed without a seed has no round 0 at all, so a
+# missing round-0 log is named only when round 0 holds the seed's records.
+seed_log=
+if log=$(persist --mode print --round 0 2>/dev/null || exit); then
+  seed_log="$(printf '%s\n' "$log" | awk '{print "0\t" $0}')$NL"
+elif persist --mode print-round-records --round 0 >/dev/null 2>&1; then
+  note_missing "round 0 log: \`sdlc-agent-result-persist --mode print --round 0\` found none; no generator tier for the seed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -702,6 +713,22 @@ if [ -n "$round_spans" ]; then
   if [ -n "$flags" ]; then printf '%s\n' "$flags"; else printf 'None.\n'; fi
 else
   printf 'No round log was read.\n'
+fi
+
+# The tier each generator ran at is the effort its spawner recorded on the
+# generate-stage spawn record, since the generator records none itself.
+printf '\n## Generator tiers\n\n'
+tiers=$(printf '%s%s' "$seed_log" "$round_logs" | awk -F'\t' '
+  {split($2, f, " ")}
+  f[1] == "spawn" && f[2] == "list" && f[3] == "generate" {print $1 "\t" f[4] "\t" f[5] "\t" f[7]}' \
+  | sort -t "$TAB" -k1,1n -k2,2)
+if [ -n "$tiers" ]; then
+  printf '| Round | Spawned at | Agent | Tier |\n| --- | --- | --- | --- |\n'
+  printf '%s\n' "$tiers" | awk -F'\t' '{
+    printf "| %s | %s | %s | %s |\n", ($1 == 0 ? "0 (seed)" : $1), $2, $3, $4
+  }'
+else
+  printf 'No generate-stage spawn record was read.\n'
 fi
 
 printf '\n## Waits on the human\n\n'

@@ -33,7 +33,8 @@ restate the fact.
 | How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
 | In what order the review detail is assembled, how it is chunked under GitHub's comment cap, and what a piece too large for one comment becomes | `bin/sdlc-pr-post-theorem-records` |
-| How a generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `skills/theorem-generation/SKILL.md` |
+| How the generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `agents/theorem-generator.md` |
+| The tier the generator runs at on one spawn, and where it is recorded | the `effort` of the `Agent` call that spawns it, written to the generate-stage `spawn` record by its spawner — `agents/theorem-based-pr-reviewer.md` for a review round, `skills/orchestrate/lib/pr-lifecycle.md` for the seed |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
 | How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
@@ -110,7 +111,7 @@ rather than recalling it:
   names the skill and a section's role or spells a heading literal.
   Among the first: the writer, `skills/orchestrate-ready/SKILL.md`; the
   gate and the "Files likely affected" step in
-  `skills/orchestrate/SKILL.md`; and `skills/theorem-generation/SKILL.md`,
+  `skills/orchestrate/SKILL.md`; and `agents/theorem-generator.md`,
   which keys a criterion theorem's `settle-mode` off the sub-headings of
   the section its mode reads — the code and instruction Markdown
   section in a code round, the documentation section in a documentation
@@ -379,9 +380,9 @@ prose asking for judgment, and each slot has one owner:
 | That a closing-line correction gets no ruling and no fixer, and that the last round's section is what reaches `pr-finalizer` | `skills/orchestrate/SKILL.md` |
 | How `pr-finalizer` applies a correction, which it reports as satisfied, and which it refuses to apply | `agents/pr-finalizer.md` |
 | That the files-affected list is a floor, and that listing a path changes nothing about its class, owner, or review | `skills/orchestrate-readiness/SKILL.md` |
-| That a listed path grounds no theorem about the rest of the tree | `skills/theorem-generation/SKILL.md` |
+| That a listed path grounds no theorem about the rest of the tree | `agents/theorem-generator.md` |
 
-The reviewer's own scope theorem, in `skills/theorem-generation/SKILL.md`,
+The reviewer's own scope theorem, in `agents/theorem-generator.md`,
 is unchanged by any of this: the slots make the orchestrator act on
 the theorem's answer, and none of them changes how that answer is
 produced. A scope ruling is the orchestrator's judgment, never the
@@ -450,7 +451,7 @@ piece has one owner:
 | That a rebase conflict in a documentation file is the fixer's one documentation edit, and the `Documentation conflicts:` line that names each | `agents/issue-fixer.md` |
 | The acceptance sections, which class of criterion each holds, and that a readiness gap is raised on a criterion filed under the wrong one | `skills/orchestrate-readiness/SKILL.md` |
 | That a criterion is written into the section its subject's class names | `skills/orchestrate-ready/SKILL.md` |
-| That a documentation criterion becomes no theorem in a code round, and one theorem per criterion in a documentation round | `skills/theorem-generation/SKILL.md` |
+| That a documentation criterion becomes no theorem in a code round, and one theorem per criterion in a documentation round | `agents/theorem-generator.md` |
 | Collecting the deferred entries and the documentation criteria into the `docs-writer` writing brief, and that a criterion graded `not met` goes into the round's fixer brief | `skills/orchestrate/lib/pr-lifecycle.md` |
 | The `documentation loop needed` return, and which fixer lines trigger it | `agents/pr-merge-readiness.md` |
 | How `docs-writer` treats the entries and the criteria alongside the diff, and how it grades each criterion | `agents/docs-writer.md` |
@@ -548,7 +549,7 @@ owner:
 | The `docs-writer` briefs — writing, fixer address, new branch — how a documentation round's fixer brief is posted, and what ends the loop | `skills/orchestrate/lib/pr-lifecycle.md` |
 | What `--mode` means to a theorem agent, and which brief carries it | `skills/theorem-agents-interface/SKILL.md` |
 | Which classes a round reviews under each mode, and that the mode is the round's type | `agents/theorem-based-pr-reviewer.md` |
-| The documentation-mode sources, and that no theorem under that mode is about code or instruction Markdown | `skills/theorem-generation/SKILL.md` |
+| The documentation-mode sources, and that no theorem under that mode is about code or instruction Markdown | `agents/theorem-generator.md` |
 | Which files `style-checker` reads under each mode, and against which guide | `agents/style-checker.md` |
 | The round type in the anchor, the same-type carry, the cross-type id sequence, and the type a round anchored before rounds had one is read as | `skills/agent-result-persist-interface/SKILL.md` |
 | How `docs-writer` reads a fixer brief, grades a criterion, and creates the branch and PR on the documentation-only path | `agents/docs-writer.md` |
@@ -569,9 +570,11 @@ implementer passes from 1, and 0 is the pre-loop stage. The generator
 runs on an issues-only brief and its return is held, not persisted —
 every path `bin/sdlc-agent-result-persist` composes is keyed on a PR
 reference, and none exists yet — until the developer's PR is open and
-linked, when the ruled list is written as round 0's records file.
-Round 0 holds that one file, so a walk that starts at round 1 never
-sees it, and a PR with no round 0 — one reviewed outside the
+linked, when the ruled list is written as round 0's records file and
+the tier the seed generator was spawned at as the generate-stage
+`spawn` record in round 0's log. Round 0 holds that file and that log
+line, and no anchor, result file or review, so a walk that starts at
+round 1 never sees it, and a PR with no round 0 — one reviewed outside the
 orchestrate loop, or one whose seed was lost with the session that
 took it — is reviewed from its whole diff, with the review saying so.
 The seed is the code loop's: a documentation round carries only
@@ -607,12 +610,12 @@ Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
-| The issues-only brief, and what a generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `skills/theorem-generation/SKILL.md` |
+| The issues-only brief, and what the generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `agents/theorem-generator.md` |
 | The seed spawn, the tier pick against the issue bodies, the assessment's dimensions and recommendations, the ruling set the human chooses from, and the per-theorem ruling or its `auto-accept` skip | `skills/orchestrate/SKILL.md` |
-| The round-0 write, and the record outcome of every ruling — what each one transcribes onto round 0's records | `skills/orchestrate/lib/pr-lifecycle.md` |
-| Round 0 as a valid round number holding only a records file, read as a code round | `skills/agent-result-persist-interface/SKILL.md` |
+| The round-0 write — the record outcome of every ruling, what each one transcribes onto round 0's records, and the seed generator's `spawn` record carrying its tier | `skills/orchestrate/lib/pr-lifecycle.md` |
+| Round 0 as a valid round number holding a records file and a log with the seed's `spawn` record and no anchor, read as a code round | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
-| That the seed generator reads the files-affected section in place of a diff | `skills/theorem-generation/SKILL.md` |
+| That the seed generator reads the files-affected section in place of a diff | `agents/theorem-generator.md` |
 
 ## Carried records move through state, not a brief or an agent-built file
 
@@ -679,8 +682,8 @@ Each piece has one owner:
 | The id check a generator's `leave` makes, that the expected id is above the highest of either type, and what its refusal names | `skills/agent-result-persist-interface/SKILL.md` |
 | What the reviewer stages as edits and as new records, and which form a fallback round stores through | `agents/theorem-based-pr-reviewer.md` |
 | That `--delta-commits` alone marks a delta brief, and the `print-records` line it carries | `skills/theorem-agents-interface/SKILL.md` |
-| The generator's own read, and the stop when it fails or prints no records | `skills/theorem-generation/SKILL.md` |
-| The generator's renumbering on an id refusal, and the bound on its retries | `skills/theorem-generation/SKILL.md` |
+| The generator's own read, and the stop when it fails or prints no records | `agents/theorem-generator.md` |
+| The generator's renumbering on an id refusal, and the bound on its retries | `agents/theorem-generator.md` |
 
 ## A child's hand-back is evidence of its `leave`, never a substitute
 
@@ -722,7 +725,7 @@ names it. Each piece has one owner:
 | --- | --- |
 | What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off | `skills/agent-result-persist-interface/SKILL.md` |
 | The shape of a child's hand-back after a `leave` that succeeded, and after one that failed | `skills/agent-result-persist-interface/SKILL.md` |
-| That each child calls `leave` before composing its hand-back | that child's own file under `agents/`, and `skills/theorem-generation/SKILL.md` for the generator variants |
+| That each child calls `leave` before composing its hand-back | that child's own file under `agents/` |
 | The immediate write-off of a child that handed back without a `leave`, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
 
 `test/sdlc-test.sh` drives the script's records and round-log modes
@@ -903,26 +906,24 @@ verdict then reflects it.
 | ------- | --------- | --------------- |
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
-| `/sdlc:git-review-pr <PR> [--generator <name>] [--full] [--mode <mode>]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
+| `/sdlc:git-review-pr <PR> [--generator-effort <low\|medium\|high\|xhigh>] [--full] [--mode <mode>]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `/sdlc:orchestrate-cleanup <PR> [--dry-run]` | Remove what one merged or closed PR left behind — its review state, the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; `--dry-run` lists what would go and removes nothing | main session |
 | `/sdlc:orchestrate-cleanup --all [--dry-run]` | Remove everything every run left in this repo — all review state, every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; `--dry-run` shows the list and asks nothing | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
 | `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
-| `sdlc:theorem-generation` | How a generator turns a PR, or the issues a batch will close, into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
-| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, `theorem-generator`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer`, `docs-writer` and `pr-finalizer` |
-| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into each generator variant |
+| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator` |
 
 The rows with no leading slash are not user verbs — each declares
 `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
-`theorem-generation` and `orchestrate-readiness` are preloaded into
-each `theorem-generator` variant through that agent's `skills:`
-frontmatter, and `theorem-agents-interface` into every theorem agent
-— the generator variants, `theorem-disprover`, and
+`orchestrate-readiness` is preloaded into `theorem-generator` through
+that agent's `skills:` frontmatter, and `theorem-agents-interface` into
+every theorem agent — `theorem-generator`, `theorem-disprover`, and
 `counterexample-verifier` — the same way, and `pr-read-cli-interface`
 into each agent that runs one of the PR-read scripts.
 `theorem-based-pr-reviewer` reads `theorem-agents-interface` by name as
@@ -1026,7 +1027,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
 | `bin/sdlc-pr-round` | Prints the number of the review round under way: the PR's review count plus one | `skills/pr-read-cli-interface/SKILL.md` |
-| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log, else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
@@ -1149,11 +1150,12 @@ the staging path is named, are owned by
 
 `pr-finalizer` reads that state and writes none of it. The orchestrator
 writes round 0's `records` — the seed settled before the developer ran,
-transcribed through the same script — and, like `pr-merge-readiness`,
-appends to the PR's agents log for each agent it spawns; neither writes
-anything else here. The `sdlc-config-*` verbs write the config files their contract
-names, on the user's yes, and those are the user's files rather than
-run state. The implementing
+transcribed through the same script — and the generate-stage `spawn`
+record carrying the seed generator's tier into round 0's `log`, and,
+like `pr-merge-readiness`, appends to the PR's agents log for each
+agent it spawns; neither writes anything else here. The `sdlc-config-*`
+verbs write the config files their contract names, on the user's yes,
+and those are the user's files rather than run state. The implementing
 agents are outside the claim entirely and write nothing this
 list owns: those declaring `memory: project` capture their agent memory
 with `/cc-tools:agent-memory-inbox-capture`, each of them but
@@ -1169,7 +1171,7 @@ PR's repository's directory, and `<round-dir>` for
 | File | What it holds |
 | ------- | --------------- |
 | `<repo-dir>/repo.yml` | the host, owner and name of the repository whose state the directory holds, written when the directory is created |
-| `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against |
+| `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against; round 0's holds the seed generator's `spawn` record and no anchor |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round of its type carries forward — built by the script from the round of that type below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
 | `<round-dir>/review` | the round's argued review, which the posted review summarises; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
@@ -1277,10 +1279,7 @@ reference, so their ids are held and recorded once the PR is linked.
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, and corrects the closing lines its brief names |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
-| `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove |
-| `theorem-generator-medium` | The same generator at a higher reasoning tier |
-| `theorem-generator-high` | The same generator at a higher reasoning tier still |
-| `theorem-generator-xhigh` | The same generator at the highest reasoning tier |
+| `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove, at the reasoning tier its spawner names |
 | `theorem-disprover` | Tries to break exactly one theorem |
 | `counterexample-verifier` | Tries to reject exactly one disprover's counterexample |
 
@@ -1313,43 +1312,41 @@ cannot be preloaded, so an agent here never lists one in `skills:`.
 listed, which every agent here needs; they stay because they are
 harmless and take effect the moment a harness restores them.
 
-### The generator skeletons are copies of one file
+### The generator's tier is passed per spawn
 
-`agents/theorem-generator.md`, `-medium`, `-high` and `-xhigh` are
-byte-identical except the frontmatter `name:` and `effort:` lines, the
-tier phrase in `description:`, and the one body sentence stating the
-definition's own name and tier as literals — the name each passes as
-`--agent` on its `leave` call. Generation instructions live in
-`skills/theorem-generation/SKILL.md`, preloaded into each skeleton, so
-picking a tier is picking which definition to spawn rather than
-passing a parameter. After editing any skeleton, prove the others
-match:
+`agents/theorem-generator.md` is one definition carrying the whole
+generation procedure, and its reasoning tier is the `effort` of the
+`Agent` call that spawns it: the reviewer's on a review round, picked
+by its rubric or by the `--generator-effort` override, and the
+orchestrator's on the seed, picked by the same rubric against the issue
+bodies. Every generator spawn names its tier, `low` included, because
+the `Agent` call's `effort` overrides the frontmatter `effort: low`,
+which decides only a spawn that names none. No other agent's spawn
+passes an `effort`.
 
-```bash
-for v in medium high xhigh; do
-  diff plugins/sdlc/agents/theorem-generator.md \
-       plugins/sdlc/agents/theorem-generator-$v.md
-done
-```
+The generator cannot be relied on to know the tier it runs at, so it
+records none: the spawner writes it as the `effort` of the
+generate-stage `spawn` record — `--agent theorem-generator --model
+default --effort <tier>` — in the round's log, round 0's for the seed.
+That record is where the tier lives afterwards: the reviewer's Review
+method section reads the tier that ran from it, the time report's
+"Generator tiers" section lists every round's from it, and the generate
+stage's result file is `list-theorem-generator` whatever the tier, so
+its name carries none. The spawner's own memory of the call is no
+source either: a resumed reviewer reads a `spawn` an earlier instance
+made.
 
-Only those lines and that sentence may differ. A skeleton must not
-carry generation guidance, and must not *enumerate* what the skill
-supplies — a list of the skill's sections is byte-identical across all
-four skeletons, so the `diff` passes while every copy names a section
-set the skill no longer has. Point at the whole file instead.
-
-`theorem-disprover` and `counterexample-verifier` are deliberately not
-skeleton sets: one definition each, no tiers, and a `model` the
-reviewer routes per spawn by the theorem's settle mode — a cheaper
-model for a `mechanical` theorem, whose grep-shaped claim a cheap model
-settles as well as any other, and none for a `semantic` one. A
-frontmatter `model:` is only the default for an unrouted spawn, not a
-floor or a ceiling — the `Agent` tool's `model` parameter may name a
-lower, higher or equal model for a single spawn — and no file outside
-that frontmatter spells the value, which is what keeps a model change a
-one-file edit. If a harness ever refuses to route below the declared
-default, the mechanical spawn runs at that default: costlier, never
-wrong.
+`theorem-disprover` and `counterexample-verifier` take no tier; each is
+one definition with a `model` the reviewer routes per spawn by the
+theorem's settle mode — a cheaper model for a `mechanical` theorem,
+whose grep-shaped claim a cheap model settles as well as any other, and
+none for a `semantic` one. A frontmatter `model:` is only the default
+for an unrouted spawn, not a floor or a ceiling — the `Agent` tool's
+`model` parameter may name a lower, higher or equal model for a single
+spawn — and no file outside that frontmatter spells the value, which is
+what keeps a model change a one-file edit. If a harness ever refuses to
+route below the declared default, the mechanical spawn runs at that
+default: costlier, never wrong.
 
 ## Dependencies
 
