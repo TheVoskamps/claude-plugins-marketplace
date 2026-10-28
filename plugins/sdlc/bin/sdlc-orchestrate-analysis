@@ -3,7 +3,7 @@
 # PR it produced, as Markdown tables on stdout.
 #
 # Its sources, each read as it stands and never substituted for one
-# another: the PR's review rounds, read only through
+# another: the PR's review rounds and its round-0 seed, read only through
 # sdlc-agent-result-persist's print modes and the result-file and
 # transcript paths those modes print; the orchestrator session's
 # transcript, found from the transcript paths on the round logs' enter
@@ -109,7 +109,8 @@ fi
 
 # Round 0 is the seed rather than a review round, so its log is read for
 # the seed generator's spawn record alone, in the same "<round><TAB><log
-# line>" shape.
+# line>" shape. A PR reviewed without a seed has no round 0 at all, so a
+# missing round-0 log is named only when round 0 holds the seed's records.
 seed_log=
 if log=$(persist --mode print --round 0 2>/dev/null || exit); then
   seed_log="$(printf '%s\n' "$log" | awk '{print "0\t" $0}')$NL"
