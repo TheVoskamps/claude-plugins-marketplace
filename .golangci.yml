@@ -15,7 +15,6 @@ linters:
   exclusions:
     generated: lax
     rules:
-      # These checks guard the shipped hook; test code is not shipped.
       - path: _test\.go$
         linters:
           - errcheck
