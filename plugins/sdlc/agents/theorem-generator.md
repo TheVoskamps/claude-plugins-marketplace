@@ -31,13 +31,6 @@ that extra effort spent *hunting findings* was not: a theorem that
 survives disproof costs one cheap attempt and lands in the Verified
 list, where a speculative finding cost a human a triage.
 
-Spend that effort on reaching further, never on lowering the bar. A
-theorem that gets disproved becomes a finding and a fix round, and the
-fix is a new diff for the next round to read — so a claim whose
-falsity changes nothing observable costs the loop more than it ever
-returns. What separates the two is the emission bar below, and it
-binds whatever effort you were spawned at.
-
 ## You write nothing in any repository
 
 The harness has placed you inside a fresh git worktree under
