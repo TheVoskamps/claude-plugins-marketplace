@@ -2351,10 +2351,13 @@ Every ASK, DENY and DEFER is appended to an evolution log
 in the override is resolved the way the kernel resolves it — after the
 symlinks ahead of it — so the record lands in the file the path as
 written names, never in the one a lexical clean would pick, as long as
-the directory the kernel resolves to already exists. The directory the
-gate creates is the one a lexical clean of the override names, so when
-the kernel-resolved directory is missing the gate creates that lexical
-directory, drops the record, and opens nothing. A record
+the directory the kernel resolves to already exists and the directory a
+lexical clean of the override names can be created. The directory the
+gate creates is that lexical one, so when the kernel-resolved directory
+is missing the gate creates the lexical directory, drops the record, and
+opens nothing; and when the lexical directory cannot be created — a
+regular file sits at its path, say — the record is dropped even though
+the kernel-resolved directory exists. A record
 that has an account to give
 carries the gate's own **analysis** — the `analysis` field holds the
 Decision's reason ("the destination is built from an expansion or
