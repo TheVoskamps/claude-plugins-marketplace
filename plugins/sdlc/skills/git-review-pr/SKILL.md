@@ -22,13 +22,11 @@ one `theorem-disprover` per live theorem in parallel, then one
 spawning the harness supports, so the fan-outs happen inside the
 agent.
 
-This path **computes** no `--generator`. The reviewer's own tier
-rubric picks between `theorem-generator` (low) and
-`theorem-generator-medium` (medium) from the round's delta, and it
-never routes to
-`theorem-generator-high` or `theorem-generator-xhigh`. A user who
-wants a specific tier for a one-off review passes
-`--generator <name>` to this skill and it goes through unchanged; a
+This path **computes** no `--generator-effort`. The reviewer's own
+tier rubric picks `low` or `medium` from the round's delta, and it
+never picks `high` or `xhigh`. A user who wants a specific tier for a
+one-off review passes `--generator-effort <low|medium|high|xhigh>` to
+this skill and it goes through unchanged; a
 user who wants the retired theorems re-checked passes `--full` the
 same way. Both are human overrides, and neither is something this
 skill computes.
@@ -38,7 +36,7 @@ skill computes.
 1. **Take the PR.** The first positional token in `$ARGUMENTS` is the
    PR to review, in any form `/github-prs:pr-view` accepts — a number,
    `#N`, a `host/owner/repo#N` reference or a PR URL among them. Any
-   `--generator <name>` and `--full` tokens alongside it are the human
+   `--generator-effort <tier>` and `--full` tokens alongside it are the human
    overrides above, and a `--mode <mode>` token names the classes the
    round reviews, per the reviewer's own Inputs; none of them is part
    of the PR, and each passes through to the reviewer spawn in step 2
@@ -59,12 +57,12 @@ skill computes.
    ```
 
    Unless the user asked for an override, this path passes `--pr`
-   alone — no `--issues`, no `--branch`, no `--generator`, no `--full`
-   and no `--mode` — which is what makes it the
+   alone — no `--issues`, no `--branch`, no `--generator-effort`, no
+   `--full` and no `--mode` — which is what makes it the
    reviewer's **standalone** path: with no orchestrator brief naming
    the issues, the reviewer takes its claim from
    `/github-prs:pr-closing-issues <PR>` and reconciles it against the
-   branch itself. Add `--generator <name>`, `--full` or `--mode <mode>`
+   branch itself. Add `--generator-effort <tier>`, `--full` or `--mode <mode>`
    to the brief only when the user passed one.
 
    The reviewer reads `issue-link-prefix` from the repo's

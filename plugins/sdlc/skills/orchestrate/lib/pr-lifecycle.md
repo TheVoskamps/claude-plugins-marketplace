@@ -91,9 +91,21 @@ seed's rulings transcribed onto it:
 Ids are never reused. A merged, rewritten, split or added claim is the
 human's words once adopted.
 
-Round 0 holds that file and nothing else — no log, no result files,
-no review. The reviewer's round 1 reads it as its carried records and
-takes the delta path over the whole branch.
+Then record the seed generator's tier in round 0's log — the tier you
+passed as its `effort` and held in your scratchpad. This is the round
+log's record of the spawn, apart from the agents-log `agent` record of
+its agent id the link step wrote:
+
+```bash
+sdlc-agent-result-persist --mode spawn \
+  --pr <PR_REF> --round 0 --theorem list --stage generate \
+  --agent theorem-generator --model default --effort <tier>
+```
+
+Round 0 holds that file and that log line and nothing else — no
+anchor, no result files, no review. The reviewer's round 1 reads the
+file as its carried records and takes the delta path over the whole
+branch.
 
 ## The PR body is frozen for the loop
 

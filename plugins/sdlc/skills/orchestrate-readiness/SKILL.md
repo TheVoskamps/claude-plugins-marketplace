@@ -1,6 +1,6 @@
 ---
 name: orchestrate-readiness
-description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, and the check that returns what an issue is missing as a gap list. Invoked by the grooming skill that writes bodies to the bar, by the orchestrator that refuses an issue below it, and preloaded into each theorem-generator variant that reads the grammar; not invoked from the user's slash menu.
+description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, and the check that returns what an issue is missing as a gap list. Invoked by the grooming skill that writes bodies to the bar, by the orchestrator that refuses an issue below it, and preloaded into sdlc:theorem-generator, which reads the grammar; not invoked from the user's slash menu.
 user-invocable: false
 ---
 

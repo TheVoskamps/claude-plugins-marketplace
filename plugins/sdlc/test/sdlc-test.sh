@@ -16,8 +16,8 @@
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution
-# of its PR against a stub pr-view, its reading of a fixer brief and its
-# round-type column. It checks
+# of its PR against a stub pr-view, its reading of a fixer brief, its
+# round-type column and its generator tiers. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
@@ -949,6 +949,26 @@ check_contains "$OUT" "| 1 | code-and-instruction-markdown | whole round |" "ana
 check_contains "$OUT" "| 2 | documentation | whole round |" "analysis: the documentation round's row names its type"
 check_contains "$OUT" "| 2 | documentation | generator |" "analysis: a stage row names its round's type"
 
+# The seed's and each round's generate-stage spawn records: the report
+# names every generator's tier, round 0 included, and no review round 0.
+new_case analysis-generator-tiers
+mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+printf 'spawn list generate 2026-01-01T00:00:00Z theorem-generator default low\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/log"
+printf 'anchor 2026-01-02T00:00:00Z abc code-and-instruction-markdown\nspawn list generate 2026-01-02T00:01:00Z theorem-generator default medium\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: generator tiers exit 0"
+check_contains "$OUT" "| 0 (seed) | 2026-01-01T00:00:00Z | theorem-generator | low |" \
+  "analysis: the seed's tier is read from round 0's spawn record"
+check_contains "$OUT" "| 1 | 2026-01-02T00:01:00Z | theorem-generator | medium |" \
+  "analysis: a review round's tier is read from its spawn record"
+check "$(printf '%s\n' "$OUT" | grep -c '^| 0 | ')" "0" "analysis: round 0 gets no review-round row"
+
 new_case operand-other-mode
 "$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "refusal: a mode other than list takes no repository operand"
@@ -1137,6 +1157,17 @@ check "$OUT" "--- comment 2026-01-02T00:00:00Z ---
 after the PR opened
 $ADJUSTMENT" "pr-adjustments: with no review and no log below, cuts at the PR's createdAt"
 
+pr_case adjust-seed-log "$(adjust_json '[]' 'after the PR opened')"
+mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0"
+printf 'spawn list generate 2026-01-03T00:00:00Z theorem-generator default medium\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/log"
+pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 1
+check "$OUT" "--- comment 2026-01-02T00:00:00Z ---
+after the PR opened
+$ADJUSTMENT" "pr-adjustments: round 1 cuts at the PR's createdAt past a round-0 log"
+check "$CALLS" "gh pr view 7 --repo h.example/o/r --json reviews,comments,createdAt" \
+  "pr-adjustments: round 1 reads no round-0 log"
+
 pr_case adjust-empty-log "$(adjust_json '[]' 'after the PR opened')"
 mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
 : >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
@@ -1247,7 +1278,6 @@ printf 'T1\nclaim: seed\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round0/records"
 state_file round1/T2-theorem-disprover 50
 state_file round1/T1-counterexample-verifier 50
 state_file round1/T1-theorem-disprover 50
-state_file round1/list-theorem-generator-medium 50
 state_file round1/list-theorem-generator 50
 state_file round1/review 50
 state_file round1/records 60 T1
@@ -1258,7 +1288,6 @@ check "$RC:$OUT" "0:https://h.example/o/r/pull/7#issuecomment-1" \
 check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
 ## \`round1/records\`
 ## \`round1/list-theorem-generator\`
-## \`round1/list-theorem-generator-medium\`
 ## \`round1/review\`
 ## \`round1/T1-theorem-disprover\`
 ## \`round1/T1-counterexample-verifier\`

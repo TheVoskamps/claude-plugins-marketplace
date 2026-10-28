@@ -1,6 +1,6 @@
 ---
 name: agent-result-persist-interface
-description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, the theorem-generator variants, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -147,7 +147,8 @@ the paths do not change with the type. The `anchor` call is where the
 type is written, as `--round-type <type>`, and every read bounded by a
 round takes that round's type from there: a round whose log carries no
 anchor naming
-a type — round 0, which holds only the seed, or a round anchored before
+a type — round 0, which holds the seed and its generator's `spawn`
+record and no anchor, or a round anchored before
 rounds had a type — is a `code-and-instruction-markdown` round. A round
 carries only the records of its own type, so the first documentation
 round carries nothing; theorem ids run in one sequence across both
@@ -277,7 +278,9 @@ it lists across the state root.
     the fresh round's theorem from the voided tree.
 - **`spawn`** — appends one `spawn` record for `--theorem` in
   `--stage`, carrying `--agent`, `--model` and `--effort`. The
-  caller's, once per child it spawns. Model and effort are on this
+  caller's, once per child it spawns, and the orchestrator's once, at
+  `--round 0`, for the seed generator it spawned before the PR existed.
+  Model and effort are on this
   record because the caller chose them and a child can read neither;
   pass the token `default` where the spawn named none and the
   definition's own frontmatter decided.
