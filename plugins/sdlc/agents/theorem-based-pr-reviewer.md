@@ -592,16 +592,15 @@ for a re-emit.
 ### Assemble the round's live list
 
 The **live list** is the theorems that get a disprover this round, and
-`next` and `dispose` derive it, per the preloaded
-`sdlc:agent-result-persist-interface` skill → "The derivation modes",
-from the carried records and two files you stage with `Write` under
-`.claude/tmp/<task-slug>/`, each holding your decisions and nothing
-else:
+`next` and `dispose` derive it from the carried records and two files
+you stage with `Write` under `.claude/tmp/<task-slug>/`, each holding
+your decisions and nothing else:
 
 - **The edits file** — this round's adjustments to the carried records,
-  in that skill's edit line shape: each retirement an adjustment comment
-  or a `RETIREMENTS` line caused, as its `state` and `state-detail`, and
-  each `severity-override`. No disposition goes here yet.
+  one `--mode records --carry` edit line each: each retirement an
+  adjustment comment or a `RETIREMENTS` line caused, as its `state` and
+  `state-detail`, and each `severity-override`. No disposition goes here
+  yet.
 - **The new-records file** — every theorem first recorded this round,
   generated or minted, in id order, with the fields of "The theorem
   contract" and no `state`.
@@ -701,12 +700,11 @@ sdlc-agent-result-persist --mode dispose \
 ```
 
 Its rows give each live theorem's disposition, class, severity and
-stamps, and its verdict lines the per-issue and overall verdicts, by
-the tables the preloaded `sdlc:agent-result-persist-interface` skill →
-"The derivation modes" owns. Write the argued review from them and the
-result files behind them, transcribing, never re-deriving or
-re-grading. An exit 3 names a theorem with no result file for its
-stage: the loop has not exited, so return to `next`'s arm.
+stamps, and its verdict lines the per-issue and overall verdicts. Write
+the argued review from them and the result files behind them,
+transcribing, never re-deriving or re-grading. An exit 3 names a
+theorem with no result file for its stage: the loop has not exited, so
+return to `next`'s arm.
 
 A finding row's entry uses the format in "Findings must quote, not
 paraphrase", its `**Evidence:**` block the disprover's quote
