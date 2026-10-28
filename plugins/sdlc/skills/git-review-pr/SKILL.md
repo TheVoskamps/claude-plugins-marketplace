@@ -26,9 +26,9 @@ This path **computes** no `--generator-effort`; the reviewer picks the
 tier itself (see the `sdlc:theorem-based-pr-reviewer` agent → "Pick
 the generator tier"). A user who wants a specific tier for a one-off
 review passes `--generator-effort <tier>` to this skill and it goes
-through unchanged; a user who wants the retired theorems re-checked
-passes `--full` the same way. Both are human overrides, and neither is
-something this skill computes.
+through unchanged; a user who wants the retired theorems re-checked,
+all but those a human refuted, passes `--full` the same way. Both are
+human overrides, and neither is something this skill computes.
 
 ## Process
 
