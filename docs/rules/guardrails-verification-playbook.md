@@ -948,8 +948,9 @@ So after editing any `.go` file under `hooks/permission-gate/`, run
 `golangci-lint fmt --diff` from the module, rebuild every committed
 arch with the README's exact commands, and stage the binaries in the
 same commit. They cross-compile from macOS with no extra setup. Run
-`golangci-lint fmt --diff` even when you touched no Go file: an unformatted map alignment left by an
-earlier round is cheapest to catch here.
+`golangci-lint fmt --diff` even when you touched no Go file: an
+unformatted map alignment left by an earlier round is cheapest to catch
+here.
 
 ## An unrunnable-binary case needs a wrong GOOS, not a wrong GOARCH
 

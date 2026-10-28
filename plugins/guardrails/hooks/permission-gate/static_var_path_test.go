@@ -505,7 +505,7 @@ func TestForLoopBraceInListDotDotAllInRepoContained(t *testing.T) {
 	wantBucket(t, d, BucketAllow, "follow-up: all-in-repo '..'-bearing brace list resolves and contains")
 }
 
-// TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied pins the
+// TestForLoopBraceInListDotDotThreeMemberEscapingThirdDenied pins the
 // escaping third member of a 3-member ".."-bearing list. On mvdan.cc/sh
 // v3.14.1, expand.BracesSeq returns all three members of `{a,b,../c}` —
 // "a", "b" and "../c" — so the escaping member reaches containment either
@@ -517,7 +517,7 @@ func TestForLoopBraceInListDotDotAllInRepoContained(t *testing.T) {
 // staticExpandItem's independent hasDotDotBraceMember raw-text cross-check
 // (not just the subWords' own content) keeps that from recurring, as defense
 // in depth.
-func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied(t *testing.T) {
+func TestForLoopBraceInListDotDotThreeMemberEscapingThirdDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
