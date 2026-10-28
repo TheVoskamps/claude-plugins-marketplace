@@ -771,7 +771,8 @@ and the live list under `--edits`, `--from` and `--full`; every row of
 forcing `BLOCKED`, a member of `--issues` no record tags, the refusal
 without `--loop-exited`, and the round that spawned nothing; and the
 body `summary` renders, its carried-forward paths and its refusals. It
-needs bash, `awk` and the POSIX utilities, and reaches no network.
+needs bash, `awk`, `mktemp` and the POSIX utilities, and reaches no
+network.
 
 ## The round is derived from the log, never from memory
 
