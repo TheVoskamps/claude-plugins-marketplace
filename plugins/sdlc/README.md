@@ -22,7 +22,9 @@ restate the fact.
 | --- | --- |
 | Which skills, agents and executables the plugin ships, and its `dependencies` edges | this file |
 | What one agent does | that agent's own file under `agents/` |
-| What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
+| What a review checks, and the sections of the argued review it stores | `agents/theorem-based-pr-reviewer.md` |
+| The round derivations — the arm a resumed round is in and the work left in each stage, each theorem's disposition, class, severity and stamped state, the per-issue and overall verdicts, and the posted review body — and the tables and rules they apply | `bin/sdlc-agent-result-persist`, under the contract `skills/agent-result-persist-interface/SKILL.md` states |
+| The judgment calls that remain in the review — the tier rubric, reading an adjustment comment into an edit, the argued review's prose, each child's brief, and raising a `NEEDS_CHANGES` to `BLOCKED` for a fix outside the issue's scope | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
 | How the orchestrator sequences the flow, what it branches on when a teammate returns, and how it briefs the teammates it spawns during the code loop | `skills/orchestrate/SKILL.md` |
 | The procedure the orchestrator runs at one moment of the flow, and the briefs it spawns at that moment | the file for that moment under `skills/orchestrate/lib/` |
@@ -627,11 +629,12 @@ stages only its decisions — an edits file and a new-records file, each
 written with `Write`. Building the whole file was a mechanical
 transform the reviewer used to perform with a program of its own, and
 the auto-mode classifier denies a per-instance program, so a round
-whose build was denied stored nothing and posted nothing. The script
-makes no decision: a carried record changes only where an edit names
-it, and which state each theorem takes stays the reviewer's judgment.
-Round 0's seed is the one records file still stored whole, because it
-has nothing to carry.
+whose build was denied stored nothing and posted nothing. The carry
+form makes no decision: a carried record changes only where an edit
+names it, and the state each edit stamps is the one `--mode dispose`
+derived for the theorem, transcribed by the reviewer into the edits it
+stages. Round 0's seed is the one records file still stored whole,
+because it has nothing to carry.
 
 The generator reads the carried records out of the PR's state itself,
 on a delta round, with the repository, PR and round its brief already
@@ -702,15 +705,22 @@ first line; a child whose call failed hands back a failure report
 carrying no verdict, so nothing in it can be mistaken for the file
 that was never written. Because the record lands before the child
 returns, a `<task-notification>` arriving for a child the log still
-shows in flight is final rather than a race, and the reviewer writes
-that child off at once and re-spawns its theorem.
+shows in flight is final rather than a race. The reviewer records the
+notification as a `return` record, and `--mode next` prints a child
+with a `return` and no `leave` as `returned-unsaved` — work at once,
+whatever its deadline, since a child that returned without saving will
+never save — so the reviewer writes that child off and re-spawns its
+theorem on the resume that reads the line. A child past its deadline
+with no `return` is printed `overdue`, and the deadline is a figure the
+reviewer passes, not one the script holds.
 
 Which children are in flight is the script's answer, through
-`--mode print-in-flight`, rather than something the reviewer derives
-from the log itself. The derivation used to be an `awk` snippet in the
-interface skill, run by the reviewer by hand, which the suite could not
-drive; it now lives beside the rest of the state logic, where the suite
-does. Moving it into the script also fixed how a `stopped` record is
+`--mode print-in-flight` and `--mode next`, rather than something the
+reviewer derives from the log itself. The derivation used to be an
+`awk` snippet in the interface skill, run by the reviewer by hand, which
+the suite could not drive; it now lives beside the rest of the state
+logic, where the suite does. Moving it into the script also fixed how a
+`stopped` record is
 matched to a child: it names the child's agent id, and a `stopped` is
 matched to the `enter` carrying that id, never to whichever `enter` of
 the theorem it happens to follow. A `stopped` keyed on the theorem
@@ -726,12 +736,14 @@ names it. Each piece has one owner:
 | What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off | `skills/agent-result-persist-interface/SKILL.md` |
 | The shape of a child's hand-back after a `leave` that succeeded, and after one that failed | `skills/agent-result-persist-interface/SKILL.md` |
 | That each child calls `leave` before composing its hand-back | that child's own file under `agents/` |
+| The `returned-unsaved`, `overdue` and `in-flight` lines `next` prints, and what makes a child each | `skills/agent-result-persist-interface/SKILL.md` |
 | The immediate write-off of a child that handed back without a `leave`, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
 
 `test/sdlc-test.sh` drives the script's records and round-log modes
 against a state root of its own — the seed write, the carry form, each
 refusal it makes, the bounded read, the generator's id check at
-`leave`, the path `leave` prints, the in-flight derivation with a
+`leave`, the path `leave` prints and its refusal of a result path
+carrying whitespace, the in-flight derivation with a
 `stopped` landing after its replacement's `enter`, and the round types:
 the type an anchor writes and the refusals around it, the `round-type`
 line `print` ends with, a first documentation round carrying nothing
@@ -747,6 +759,19 @@ round's log through the persist script and nothing else — and checks
 that a command any executable under `bin/` does not handle exits
 through that executable's own failure status. It needs only bash,
 `jq` and the POSIX utilities, and reaches no network.
+
+`bin/test/sdlc-agent-result-persist-test.sh` drives the derivation
+modes the same way, each case against a state root of its own: every
+arm `next` names and every child state it prints — a `stopped` after
+its `enter`, a duplicate `leave`, a moved head, a malformed `DISPROVED`
+report that earns no verifier, a generator replaced at another tier,
+and the live list under `--edits`, `--from` and `--full`; every row of
+`dispose`'s disposition table with the state it stamps, a
+`class-underivable` finding, a human override, an unsettled theorem
+forcing `BLOCKED`, a member of `--issues` no record tags, the refusal
+without `--loop-exited`, and the round that spawned nothing; and the
+body `summary` renders, its carried-forward paths and its refusals. It
+needs bash, `awk` and the POSIX utilities, and reaches no network.
 
 ## The round is derived from the log, never from memory
 
@@ -766,6 +791,72 @@ the harness can drop a notification outright. Every loss a round has to
 survive is of that shape — never a child that failed to run — so each
 child records its own entry and exit, and nothing the reviewer derives
 depends on having heard back.
+
+## The derivations are the script's, and the judgment calls the reviewer's
+
+The reviewer used to carry a state machine in prose — which arm a
+resumed round is in, which theorems are outstanding, in flight or past
+their deadline, the disposition table, the class-to-severity
+transcription, the per-issue and overall verdicts and the posted body's
+shape — and the model ran it by hand on every resume, with the
+interface skill's `awk` one-liners as its tools. Each run of a
+derivation by a model is a fresh chance to get it wrong, and nothing
+could test it. So the derivations moved into
+`bin/sdlc-agent-result-persist`, as pure reads over the round's log,
+records and result files: `--mode next` prints the arm and the work
+left in each stage, `--mode dispose` prints each live theorem's
+disposition, class, severity and the state to stamp, then the verdicts,
+and `--mode summary` renders the posted body from the stored records
+and review. The reviewer runs them and transcribes; the behavior each
+derives is what the prose specified, now deterministic and driven by a
+suite.
+
+The invariants the reviewer used to hold as prose are now properties of
+the script's output. **One child per theorem per stage**: `next` never
+prints a theorem with a child in flight as `outstanding`, and the
+reviewer spawns only on `outstanding` lines, so no instance can spawn
+beside a running child. **A verdict's only admissible source is the
+child's own result file**: `dispose` reads verdicts from result files
+and nothing else, so a theorem whose child wrote no report has no
+verdict and takes its stage's no-verdict row, and a `<task-notification>`
+can never be read as one.
+
+What stays with the reviewer is what no script can decide: the tier
+rubric, reading an adjustment comment into the edit it means, the
+issue-set findings and their grading, the argued review's prose, the
+briefs it writes, and raising a `NEEDS_CHANGES` to `BLOCKED` because a
+fix lies outside the issue's scope and needs a human. Nothing lowers a
+verdict `dispose` printed. The reviewer stages its decisions — an
+edits file of this round's retirements and severity overrides, and a
+new-records file of the theorems first recorded this round — and
+`next` and `dispose` derive the live list from the carried records and
+those two files, so the list is read from what the reviewer wrote down
+and never from what it remembers.
+
+The adjustments the reviewer used to make between the class table and
+the human override were **deleted, not moved**: the floor that raised a
+finding on an acceptance-criterion theorem to at least High, and the
+cap that held a finding whose whole remedy was a comment change to at
+most Low. Severity is a property of the consequence of merging the PR
+as it stands, and both adjustments graded by something else — the
+theorem's origin, the remedy's size — on top of a class an agent that
+read the code had already assigned. A severity is now that class's, or
+High where no class could be derived, or the human's override, and
+nothing else.
+
+The script being the classifier settled what a round does at its
+edges. A `DISPROVED` report whose `CONSEQUENCE-CLASS` line holds no token is
+**well formed with its class underivable**, where the disprover's own
+output rule had counted it malformed: a report routed to "could not be
+settled" on that line alone would never reach a verifier, and the
+`class-underivable` finding — verifier malformed, disprover's proposal
+no token — would be unreachable. And **a stalled stage posts**: when
+the resume-pass loop exits with `disprove`- or `verify`-stage theorems
+lacking a verdict, each takes its no-verdict row and the review posts,
+because an unsettled theorem already forces `BLOCKED` and the round has
+something to say. Only a loop exit in the `generate` stage is still an
+in-progress escalation, since a round with no theorem list has nothing
+to post.
 
 ## A stall is reported as what the log shows, never as starvation
 
@@ -797,8 +888,9 @@ disprover's figure until one is measured for it.
 ## A moved head voids the round, and the restart never mixes trees
 
 The round's `anchor` record carries the head SHA its theorems were
-generated against, and a head that differs from it — at the anchor
-step, or at the fetch before the disprovers fan out — voids the round:
+generated against, and a head that differs from it — reported by
+`--mode next` as `moved-head` at the anchor step, or found at the fetch
+before the disprovers fan out — voids the round:
 the records describe a tree that no longer exists, so they are set
 aside and the review names both SHAs. This is not hypothetical; the
 scheduled rebase sweep force-rebases open PR branches and can fire
@@ -819,16 +911,21 @@ without rejecting it. The same failure is why a finding must quote its
 evidence verbatim: paraphrase produced fabricated findings, where the
 "offending text" the reviewer claimed to see did not exist (issue #64).
 
-The cheaper check runs first. A `DISPROVED` report whose counterexample
-is not a verbatim quote from the PR head never reaches a verifier. The
+The cheaper check runs first, and it is a check of shape. A `DISPROVED`
+report that lacks the lines its template requires — a quote block under
+its `EVIDENCE:` line among them — is malformed, never reaches a
+verifier, and its theorem is left unsettled and live again next round:
+spawning a verifier against it would waste the check on a report that
+has already failed a cheaper one, and spawning a second disprover would
+break the one-child-per-theorem invariant. Whether the quote is
+**verbatim** is not a question of shape, so a `DISPROVED` report whose
+quote is present but matches nothing at the head commit is well formed
+and reaches a verifier, which is the reader briefed to reject it. The
 canonical instance is a quote taken from another ref, such as `main` or
 `origin/<base>`, which reads as real prose and matches nothing at the
 head commit; a filesystem quote from the primary clone is the rarer
 instance, because the permission gate denies a read naming a
-primary-clone path. Spawning a verifier against such a report would
-waste the check on evidence that has already failed a cheaper one, and
-spawning a second disprover would break the one-child-per-theorem
-invariant, so the theorem is left unsettled and live again next round.
+primary-clone path.
 
 ## One disprover per theorem is a starting point
 
@@ -868,10 +965,10 @@ A theorem that survived its round retires and gets no disprover on a
 later default round. That is the whole saving: the disprovers that do
 run are unbounded, and only the list is smaller. Between a theorem's
 retirement and a `--full` run a fix can silently break the retired
-claim, and `--full` — which re-disproves every recorded theorem the
-human has not ruled on — is the bounded-cost check for that, priced
-once instead of every round. A design that re-disproved everything
-every round would have no gap and no saving either.
+claim, and `--full` — the one round that puts retired theorems back on
+the live list — is the bounded-cost check for that, priced once instead
+of every round. A design that re-disproved everything every round would
+have no gap and no saving either.
 
 No rule forces a `--full` round, deliberately. Whether one becomes
 mandatory before a merge blessing is a policy decision to take with
@@ -914,7 +1011,7 @@ verdict then reflects it.
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
 | `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
-| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, `theorem-generator`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar, and the tables and rules its derivation modes apply | preloaded into the reviewer, `theorem-generator`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer`, `docs-writer` and `pr-finalizer` |
 | `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator` |
 
@@ -1024,7 +1121,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 
 | Executable | Purpose | Contract |
 | ------- | --------- | --------------- |
-| `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
+| `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state, and derives from it the arm a round is in, each theorem's disposition and severity, the verdicts and the posted review body; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
 | `bin/sdlc-pr-round` | Prints the number of the review round under way: the PR's review count plus one | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
@@ -1142,7 +1239,12 @@ on its command line. The writer stages it with the `Write` tool in the
 session scratchpad and names that file by path, with `--from` or, for
 the carry form's edits, `--edits`; the
 staging file is the pipeline's one write outside XDG state, it lies
-outside every repository as well, and it dies with the session. That
+outside every repository as well, and it dies with the session. The
+derivation modes read the same staged files: `next` and `dispose` take
+the round's edits and new records through `--edits` and `--from`, before
+any state is stamped, so the live list they derive comes from the files
+the reviewer later stores the round through, and from nothing it holds
+in memory. That
 staging is why the theorem children carry the file-writing tools while
 the review pipeline stays non-mutating. Why a file rather than a heredoc, and how
 the staging path is named, are owned by
@@ -1174,7 +1276,7 @@ PR's repository's directory, and `<round-dir>` for
 | `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against; round 0's holds the seed generator's `spawn` record and no anchor |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round of its type carries forward — built by the script from the round of that type below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
-| `<round-dir>/review` | the round's argued review, which the posted review summarises; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
+| `<round-dir>/review` | the round's argued review, from which `--mode summary` renders the posted review; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 | `<repo-dir>/pr<pr>/agents` | the PR's agents log: one record per agent spawned for the PR, naming the definition and the agent id, beside the rounds because a spawn belongs to no round and a voided round's rename must not carry it away |
 
