@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -24,7 +25,8 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 	cmd.Env = append(os.Environ(), logEnvVar+"="+logPath)
 	out, err := cmd.Output()
 	code := 0
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		code = exitErr.ExitCode()
 	} else if err != nil {
 		t.Fatalf("run binary: %v", err)
@@ -272,7 +274,8 @@ func TestLoggingFailureChangesNoVerdict(t *testing.T) {
 			cmd.Env = append(os.Environ(), logEnvVar+"="+logPath)
 			out, err := cmd.Output()
 			code := 0
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				code = exitErr.ExitCode()
 			} else if err != nil {
 				t.Fatalf("run binary: %v", err)
@@ -285,6 +288,37 @@ func TestLoggingFailureChangesNoVerdict(t *testing.T) {
 				t.Errorf("a logging failure changed the verdict: wanted %q, got %q (%s)", tc.want, got, out)
 			}
 		})
+	}
+}
+
+// A `..` after a symlinked directory in the override steps out of the
+// symlink's target, as the kernel resolves it, not out of the directory the
+// symlink sits in. Cleaning the override as written would put the log in the
+// second place.
+func TestLogOverrideDotDotAfterASymlinkOpensTheFileTheKernelResolves(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "real", "dir")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(logEnvVar, link+"/../gate.jsonl")
+
+	appendLogRecord(logRecord{Operation: "test:symlink-dotdot"})
+
+	kernelPath := filepath.Join(root, "real", "gate.jsonl")
+	raw, err := os.ReadFile(kernelPath)
+	if err != nil {
+		t.Fatalf("the log did not land where the kernel resolves the override (%s): %v", kernelPath, err)
+	}
+	if !strings.Contains(string(raw), "test:symlink-dotdot") {
+		t.Errorf("the record is missing from %s; got %q", kernelPath, raw)
+	}
+	if _, err := os.Stat(filepath.Join(root, "gate.jsonl")); !os.IsNotExist(err) {
+		t.Errorf("the log landed at the lexically cleaned path %s; stat error %v", filepath.Join(root, "gate.jsonl"), err)
 	}
 }
 

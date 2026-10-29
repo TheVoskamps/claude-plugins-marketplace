@@ -1345,7 +1345,7 @@ func TestOperatorCarveOutWithholdsNonPathOpening(t *testing.T) {
 	// `less -x` hands the pager an option rather than an operand, so that
 	// spelling is no control for the `-` opening.
 	isControl := func(sp string, p string) bool {
-		return movable[sp] && !(sp == "less" && p == "-x")
+		return movable[sp] && (sp != "less" || p != "-x")
 	}
 	for _, p := range controls {
 		for _, sp := range bashCarveOutSpellings {

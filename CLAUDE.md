@@ -74,19 +74,6 @@ PR-body claim stays in the body: the orchestrator collects it, and
 runs, whoever changes the mechanism corrects the body claim. Keep the
 convention and its rationale; drop the enforcement story.
 
-## MD041 on a SKILL.md is convention, not debt
-
-`npx --no-install markdownlint-cli2` reports `MD041/first-line-heading/first-line-h1`
-on a `plugins/*/skills/**/SKILL.md` whose body opens with an instruction
-rather than an H1. Both openings are in use, within a plugin as well as
-between, so run the linter rather than predicting a hit from the
-convention. Leave one alone: a SKILL.md body is a prompt, and an H1
-changes the payload the model receives. When you edit one, re-lint the
-base and compare counts to confirm you introduced no **new** error
-class, and say so in the PR body.
-
-`lib/*.md` under a plugin's `skills/` carry an H1 and lint clean.
-
 ## Grade a repo statement an issue contradicts, don't pick a side
 
 An issue can specify something a repo document already forbids. Never

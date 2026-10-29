@@ -1603,7 +1603,7 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 			sc.hasUnknownExpansion = true
 		}
 		switch r.Op {
-		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
+		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.RdrClob:
 			if target != "/dev/null" {
 				sc.hasRedirectToFile = true
 				// Record the destination so a classifier can GRADE it
@@ -2139,7 +2139,7 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // concrete literal values. It handles, in order:
 //
 //  1. Brace expansion (`{a,b}.md`, `{a,b}$X.md`) via the upstream
-//     syntax.SplitBraces + expand.Braces pair, which performs the
+//     syntax.SplitBraces + expand.BracesSeq pair, which performs the
 //     cross-product fan-out itself. mvdan.cc/sh does NOT pre-expand braces
 //     during parsing (that is correct upstream behavior — matching happens
 //     at expansion time, not parse time), so this step is required even for
@@ -2156,28 +2156,24 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 //     (globAnchorable), or (if none of the above apply) irreducibly dynamic
 //     → fail closed.
 //
-// mvdan.cc/sh's own syntax.SplitBraces declines to split any brace element
-// containing "..", as a guard against ambiguity with the `{x..y}` sequence
-// form. Real bash has no such hesitation: `{a,../../../etc/passwd}` splits
-// cleanly into "a" and "../../../etc/passwd" (verified live:
-// `bash -c 'for f in {a,../../../etc/passwd}; do echo "$f"; done'`).
-// Empirically, upstream's decline is not merely "leave literal braces in the
-// text" — for 3+-member lists it can silently DROP members instead
-// (`{a,b,../c}` expands to only "a","b", quietly losing "../c"; see
-// staticExpandBraceFallback's doc comment for the full probe). A silent drop
-// is worse than a residual `{}`: it would let the fan-out walk the body over
-// an incomplete item set, an ALLOW-shaped false negative. So whenever a
-// sub-word's resolved text still contains "{"/"}" (declined, residual
-// braces) OR the raw pre-split word contains a ".."-bearing top-level
-// brace-comma-list (declined, silently short — the residual check alone
-// would miss this), staticExpandBraceFallback below does the comma-list
-// split itself, so every member (including the escaping one) still flows
-// through the existing containment pipeline and gets its own worst-wins
-// verdict rather than being silently dropped or bulk-escalated. staticExpandBraceFallback
-// only understands the single unnested `{x,y,z}` comma-list grammar; a
-// range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
-// closed exactly as before — the accepted carve-out: a brace form the
-// fallback does not handle falls closed rather than being guessed at.
+// On mvdan.cc/sh v3.14.1, syntax.SplitBraces and expand.BracesSeq split a
+// ".."-bearing comma-list member as bash does: `{a,b,../c}` yields "a", "b"
+// and "../c", the same three members
+// `bash -c 'for f in {a,b,../c}; do echo "$f"; done'` prints. An escaping
+// member missing from the sub-words would let the fan-out walk the body over
+// an incomplete item set, an ALLOW-shaped false negative, and a residual
+// "{"/"}" in the resolved text would not show that loss. So, as defense in
+// depth against an upstream that declines or drops such a member, whenever a
+// sub-word's resolved text still contains "{"/"}" OR the raw pre-split word
+// contains a ".."-bearing top-level brace-comma-list, the sub-words are not
+// trusted: staticExpandBraceFallback below does the comma-list split itself,
+// so every member (including the escaping one) still flows through the
+// existing containment pipeline and gets its own worst-wins verdict.
+// staticExpandBraceFallback only understands the single unnested `{x,y,z}`
+// comma-list grammar; a range form (`{1..9}`, `{a..z}`) it does not
+// recognize is left to fail closed — the accepted carve-out: a brace
+// form the fallback does not handle falls closed rather than being guessed
+// at.
 func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
@@ -2200,7 +2196,17 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 	// copies each *syntax.Lit it rewrites rather than editing it in place.
 	split := *w
 	syntax.SplitBraces(&split)
-	subWords := expand.Braces(&split)
+	// BracesSeq stops with an error once an expansion passes its element
+	// limit. Reporting that as not static keeps the loop on the unbound walk,
+	// which is where a list that long goes anyway, since the limit sits far
+	// above maxForFanOut.
+	var subWords []*syntax.Word
+	for sw, err := range expand.BracesSeq(&expand.Config{}, &split) {
+		if err != nil {
+			return nil, false
+		}
+		subWords = append(subWords, sw)
+	}
 
 	declined := false
 	items := make([]string, 0, len(subWords))
@@ -2219,13 +2225,12 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 		items = append(items, val)
 	}
 
-	// Even when no residual "{"/"}" survived, upstream can still have
-	// silently dropped a ".."-bearing member (the 3+-element case above).
-	// Cross-check independently of subWords' shape: if the raw word (before
-	// SplitBraces ran) contains a ".."-bearing top-level brace-comma-list,
-	// never trust the count/content upstream returned — always resolve via
-	// our own splitter for this item, whether upstream declined outright or
-	// quietly under-counted.
+	// A dropped ".."-bearing member leaves no residual "{"/"}", so the check
+	// above cannot see it. Cross-check independently of subWords' shape: if
+	// the raw word (before SplitBraces ran) contains a ".."-bearing top-level
+	// brace-comma-list, resolve this item with our own splitter rather than
+	// trust the count/content upstream returned. Upstream splits such a list
+	// correctly on mvdan.cc/sh v3.14.1; this is defense in depth.
 	if !declined && hasDotDotBraceMember(raw) {
 		declined = true
 	}
@@ -2252,7 +2257,7 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 // hasDotDotBraceMember reports whether raw contains a top-level (unnested)
 // brace-comma-list `{...,...}` with at least one comma-separated member
 // containing "..". This is a cheap textual pre-check used purely to decide
-// whether to distrust upstream's expand.Braces output shape — it does not
+// whether to distrust upstream's expand.BracesSeq output shape — it does not
 // itself resolve anything. A false positive here just means
 // staticExpandBraceFallback gets consulted and, if the form is anything more
 // exotic than a single unnested comma-list, correctly declines (fail closed).
@@ -2294,12 +2299,12 @@ func hasDotDotBraceMember(raw string) bool {
 }
 
 // staticExpandBraceFallback splits ONE `for … in` item's raw printed text
-// when upstream's syntax.SplitBraces/expand.Braces declined (or, worse,
-// silently under-counted — see staticExpandItem's doc comment) on a
-// ".."-bearing member. It handles exactly the single, unnested comma-list
-// grammar `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list
-// brace-expansion semantics for that shape (verified live: `bash -c 'for f
-// in {a,../b,c}; do echo "$f"; done'` prints all three members unchanged).
+// when staticExpandItem does not trust upstream's SplitBraces/BracesSeq
+// result: residual braces, or a ".."-bearing member (see staticExpandItem's
+// doc comment). It handles exactly the single, unnested comma-list grammar
+// `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list brace-expansion
+// semantics for that shape (verified live: `bash -c 'for f in {a,../b,c}; do
+// echo "$f"; done'` prints all three members unchanged).
 // It deliberately does NOT attempt: a range form (`{1..9}`, `{a..z}` — ok is
 // false, e.g. because the sole group's members don't contain a comma, so
 // depth-1 commaCount stays 0), nested braces (`{a,{b,c}}` — ok is false

@@ -94,14 +94,23 @@ func appendLogRecord(rec logRecord) {
 	if path == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// Cleaning the path as given would drop a `..` lexically, before the
+	// kernel follows a symlink ahead of it, and so move the log. Resolving the
+	// directory's symlinks first leaves a path that cleans to the file the
+	// kernel opens for the path as given.
+	dir, file := filepath.Split(path)
+	dir, err = filepath.EvalSymlinks(dir)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	f, err := os.OpenFile(filepath.Clean(filepath.Join(dir, file)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write(append(line, '\n'))
 }
 

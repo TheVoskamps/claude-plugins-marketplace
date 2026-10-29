@@ -1,0 +1,37 @@
+---
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - bodyclose
+    - gosec
+    - nolintlint
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go$
+        linters:
+          - errcheck
+          - bodyclose
+          - gosec
+      # The gate runs git with arguments it has already classified.
+      - path: (^|/)engine_b_containment\.go$
+        linters:
+          - gosec
+        text: G204
+      # The operator config path is the operator's own file, read by design.
+      - path: (^|/)operator_carveout\.go$
+        linters:
+          - gosec
+        text: G304
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

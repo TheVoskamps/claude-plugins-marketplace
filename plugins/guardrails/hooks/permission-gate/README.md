@@ -571,16 +571,23 @@ The gate's engines feed that decision:
   files a direct read of them does not. Every expanded item
   is checked (worst-wins), so an escaping item anywhere in the list is
   still reported even when earlier items were safe. A brace element
-  containing `..` (`{a,../../../etc/passwd}`) is where the upstream
-  parser's own `SplitBraces` declines to split — its guard against
-  ambiguity with the `{x..y}` sequence form — and can even silently
-  drop a member from a 3+-element list rather than merely leaving
-  residual `{`/`}` text; a fallback splitter (matching real bash's
-  actual comma-list semantics, verified live) detects both the decline
-  and the silent-drop shape and performs the split itself, so every
-  member — including the escaping one — still flows through normal
-  containment (worst-wins) instead of the whole list falling back to
-  an unnecessary escalation. The split runs on a copy of the header
+  containing `..` (`{a,../../../etc/passwd}`) is split by the upstream
+  parser's `SplitBraces` and `expand.BracesSeq` as bash splits it — on
+  mvdan.cc/sh v3.14.1 `{a,b,../c}` yields all three members — but the
+  gate does not take that on trust: an upstream that declined such a
+  member, or silently dropped it from a 3+-element list, would leave the
+  fan-out walking an incomplete item set with no residual `{`/`}` text
+  to show the loss, an allow-shaped false negative. So whenever residual
+  braces survive or the raw header word carries a `..`-bearing
+  top-level comma-list, a fallback splitter (matching real bash's
+  actual comma-list semantics, verified live) performs the split itself
+  as defense in depth, so every member — including the escaping one —
+  still flows through normal containment (worst-wins) instead of the
+  whole list falling back to an unnecessary escalation. `BracesSeq`
+  stops with an error once an expansion passes its element limit, which
+  the gate reports as not static; that limit sits far above the fan-out
+  cap above, so such a list reaches the unbound walk it was headed for
+  anyway. The split runs on a copy of the header
   word, never on the parsed tree: the outer loop of a nested `for`
   re-walks the inner statement once per outer item, and `syntax.Walk`
   panics on the `*syntax.BraceExp` that `SplitBraces` leaves behind, so
@@ -2339,7 +2346,19 @@ bucket, the field absent for a defer and present for the other three.
 
 Every ASK, DENY and DEFER is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
-`PERMISSION_GATE_LOG`), and a record that has an account to give
+`PERMISSION_GATE_LOG`). A log the gate creates is mode `0600` in a
+`0750` directory; an existing file or directory keeps its mode. A `..`
+in the override is resolved the way the kernel resolves it — after the
+symlinks ahead of it — so the record lands in the file the path as
+written names, never in the one a lexical clean would pick, as long as
+the directory the kernel resolves to already exists and the directory a
+lexical clean of the override names can be created. The directory the
+gate creates is that lexical one, so when the kernel-resolved directory
+is missing the gate creates the lexical directory, drops the record, and
+opens nothing; and when the lexical directory cannot be created — a
+regular file sits at its path, say — the record is dropped even though
+the kernel-resolved directory exists. A record
+that has an account to give
 carries the gate's own **analysis** — the `analysis` field holds the
 Decision's reason ("the destination is built from an expansion or
 command substitution"), where `operation` holds only the taxonomy
@@ -2466,7 +2485,12 @@ the same grep finds.
 ```sh
 # From the repo root (the hook lives under plugins/guardrails/):
 go -C plugins/guardrails/hooks/permission-gate test ./...   # run the test suite
-go -C plugins/guardrails/hooks/permission-gate vet ./...    # static checks
+go -C plugins/guardrails/hooks/permission-gate vet ./...    # go's own static checks
+
+# Lint and format under the repo-root .golangci.yml, which golangci-lint
+# discovers upward from the module directory it runs in:
+(cd plugins/guardrails/hooks/permission-gate && golangci-lint run)         # expect "0 issues."
+(cd plugins/guardrails/hooks/permission-gate && golangci-lint fmt --diff)  # expect no output
 
 # Rebuild the committed binaries (pure Go, CGo disabled). Build into a
 # gitignored scratch directory with the tree clean, then copy in:

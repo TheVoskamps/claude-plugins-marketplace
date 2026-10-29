@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,7 +131,8 @@ func runBinary(t *testing.T, bin, stdin string) (string, int) {
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.Output()
 	code := 0
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		code = exitErr.ExitCode()
 	} else if err != nil {
 		t.Fatalf("run binary: %v", err)

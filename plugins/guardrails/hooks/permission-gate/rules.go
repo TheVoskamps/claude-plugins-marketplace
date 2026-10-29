@@ -5,39 +5,6 @@ import (
 	"strings"
 )
 
-// gitReadOnlySubcommands is the high-confidence read-only / non-mutating git
-// subcommand allow set. Deliberately conservative: anything not listed
-// here defers to the normal pipeline. `config` is intentionally absent — its
-// read forms are common but its write forms mutate, and parsing the two apart
-// for an allow is not worth the risk; it defers.
-var gitReadOnlySubcommands = map[string]bool{
-	"status":        true,
-	"log":           true,
-	"diff":          true,
-	"show":          true,
-	"rev-parse":     true,
-	"rev-list":      true,
-	"describe":      true,
-	"blame":         true,
-	"shortlog":      true,
-	"ls-files":      true,
-	"ls-tree":       true,
-	"ls-remote":     true,
-	"cat-file":      true,
-	"show-ref":      true,
-	"symbolic-ref":  true,
-	"for-each-ref":  true,
-	"reflog":        true, // `reflog` alone lists; `reflog expire` mutates (handled below)
-	"name-rev":      true,
-	"merge-base":    true,
-	"whatchanged":   true,
-	"grep":          true,
-	"count-objects": true,
-	"var":           true,
-	"help":          true,
-	"version":       true,
-}
-
 // classifyGh classifies a `gh` invocation. Every path through it is ACCOUNTED
 // FOR: it reaches a verdict carrying an operation label and an analysis, never
 // a bare unlabelled defer. Under the "two boundaries, split
