@@ -369,10 +369,10 @@ under "The derivation modes", for what they derive.
   child's agent id and the instant of its `enter`, which is what its
   deadline runs from. `--stage` and `--agent` are required, `--agent`
   naming the definition whose result file settles the theorem —
-  `theorem-disprover` or `counterexample-verifier`, and for the theorem
-  `list` the generator the last `spawn` record names. "What the reader
-  derives" below states what in flight means. Exits non-zero when the
-  log does not exist, as `print` does.
+  `theorem-generator`, `theorem-disprover` or
+  `counterexample-verifier`. "What the reader derives" below states
+  what in flight means. Exits non-zero when the log does not exist, as
+  `print` does.
 - **`records`** — writes the round's theorem records to the round's
   `records` file. Without `--carry` it stores its payload whole: the
   orchestrator's once, at `--round 0`, for the ruled seed, and the
@@ -812,11 +812,9 @@ record settles nothing, and a hand-back is never read. The two are
 almost always the same fact, and the second is what covers a child that
 wrote its report and died before the record landed.
 
-The result file is the one under the stage's agent, `theorem-disprover`
-or `counterexample-verifier`. For `list` it is the file of the generator
-the last `spawn` record for `list` names, or of any generator while none
-does; once a `spawn` record names one, a `leave` settles `list` only
-when it wrote that generator's file.
+The result file is the one under the stage's agent, `theorem-generator`,
+`theorem-disprover` or `counterexample-verifier`, whatever effort a
+`spawn` record gave it.
 
 A stage's **outstanding** theorems are its members, over the live list
 rather than over the theorems the log was told about, less the settled
@@ -850,20 +848,15 @@ what names the stopped child's worktree for cleanup.
 
 **A duplicate `leave` is a diagnostic, not a conflict, and the later
 one wins.** A child written off as lost can report anyway, leaving one
-theorem with two `leave` records. When the replacement carried the
-same `--agent` name as the child it replaced — which every stage but
-`generate` guarantees, there being one definition per stage — the two
-share a result-file name and there is one file, the later child's,
-since its rename overwrote the earlier report. So the theorem's
-verdict is the later child's by construction: it is the verdict in the
-one file there is to read, and no reader has a tie to break. A
-replacement carrying a different `--agent` name writes a file of its
-own instead, leaving the theorem two; `dispose` reads only the
-disprover's and the verifier's, so this arises only for `list`, whose
-file is the one the last `spawn` record names. Both records stay in the
-log, because the pair is evidence that a child believed dead was
-alive, and the reader reports it as such. No line is revised, so
-concurrent appends cannot collide.
+theorem with two `leave` records. There being one definition per
+stage, the replacement carries the same `--agent` name as the child it
+replaced, so the two share a result-file name and there is one file,
+the later child's, since its rename overwrote the earlier report. So
+the theorem's verdict is the later child's by construction: it is the
+verdict in the one file there is to read, and no reader has a tie to
+break. Both records stay in the log, because the pair is evidence that
+a child believed dead was alive, and the reader reports it as such. No
+line is revised, so concurrent appends cannot collide.
 
 ## A child's hand-back
 

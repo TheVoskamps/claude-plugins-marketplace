@@ -928,23 +928,16 @@ derive_lib() {
   function is_class(c) {
     return c ~ /^(breaks-production|behavior-broken-or-criterion-unmet|defect-no-shipped-breakage|optional-polish)$/
   }
-  function stage_agent(st) { return st == "disprove" ? "theorem-disprover" : "counterexample-verifier" }
-  # A stage other than generate has one definition, and its file is the
-  # one. The list is the file of the generator the last spawn record for
-  # list names, since a replacement at another tier writes a file of its
-  # own; the file of any generator settles it while no spawn record names
-  # one.
-  function has_result(st, t) {
-    if (st != "generate") return (t SUBSEP stage_agent(st)) in result
-    return (t in gen_agent) ? ((t SUBSEP gen_agent[t]) in result) : list_result
+  # stage_agent(st): the one definition each stage spawns, whose result
+  # file settles a theorem in it.
+  function stage_agent(st) {
+    if (st == "generate") return "theorem-generator"
+    return st == "disprove" ? "theorem-disprover" : "counterexample-verifier"
   }
+  function has_result(st, t) { return (t SUBSEP stage_agent(st)) in result }
   # settled(st, t): whether the stage is done with the theorem, by a
-  # leave record for it or by its result file. For the list, only a leave
-  # by the generator the last spawn record names counts.
-  function settled(st, t) {
-    if (st == "generate" && (t in gen_agent)) return ((t SUBSEP gen_agent[t]) in left_as) || has_result(st, t)
-    return ((st SUBSEP t) in left) || has_result(st, t)
-  }
+  # leave record for it or by its result file.
+  function settled(st, t) { return ((st SUBSEP t) in left) || has_result(st, t) }
   function read_report(path, stage,    line, key, v, nv, has, content, val, quoted, last) {
     split("", has); split("", content); split("", val)
     nv = 0; quoted = 0; last = ""
@@ -999,27 +992,16 @@ derive_lib() {
     if ($1 == "anchor") { if (anchor == "") anchor = $3; next }
     if ($1 == "spawn" || $1 == "enter") fanned = 1
     t = $2; st = $3
-    if ($1 == "spawn" && st == "generate") gen_agent[t] = $5
     if ($1 == "enter") {
       if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
       child[st, t] = $5; at[st, t] = $4
     }
-    if ($1 == "leave") {
-      left[st, t] = 1; ended[st, t, $5] = 1
-      # The agent a leave wrote for is the name of its result file past
-      # the theorem and its dash.
-      name = $6; sub(/.*\//, "", name)
-      if (st == "generate") left_as[t, substr(name, length(t) + 2)] = 1
-    }
+    if ($1 == "leave") { left[st, t] = 1; ended[st, t, $5] = 1 }
     if ($1 == "stopped") ended[st, t, $5] = 1
     if ($1 == "return") returned[st, t, $5] = 1
     next
   }
-  FILENAME == results_file {
-    result[$1, $2] = $3
-    if ($1 == "list") list_result = 1
-    next
-  }
+  FILENAME == results_file { result[$1, $2] = $3; next }
   function derive_live(    i, t, s) {
     for (i = 1; i <= nid; i++) {
       t = ids[i]

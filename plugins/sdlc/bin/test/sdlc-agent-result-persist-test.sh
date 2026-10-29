@@ -8,7 +8,8 @@
 #     prints: outstanding, in flight, overdue past --deadline-minutes, and
 #     returned without saving; a stopped after its enter, a duplicate
 #     leave, a malformed DISPROVED report that earns no verifier, a
-#     generator replaced at another tier, and a --full round's live list.
+#     generator re-spawned at another effort, and a --full round's live
+#     list.
 #   - --mode dispose over result files for every row of the disposition
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
@@ -205,30 +206,21 @@ run --mode next --round 1
 assert_eq "next: a generator in flight keeps the generate arm" "generate" "$(first_line)"
 assert_contains "next: the generator in flight names its agent id" "generate${TAB}list${TAB}in-flight${TAB}G${TAB}" "$(rest)"
 
-new_case next-generator-replaced
+new_case next-generator-settled
 add_seed T1 "a claim" "#1"
 seed
 must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
-must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator --model default --effort default
+must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator --model default --effort low
 report "$CASE/r" "no new theorems"
 leave G list generate theorem-generator
 run --mode next --round 1
-assert_eq "next: the file of the generator the spawn record names settles the list" "disprove" "$(first_line)"
+assert_eq "next: the generator's file settles the list" "disprove" "$(first_line)"
 run --mode print --round 1
 assert_contains "print: a result line per result file" \
   "result list theorem-generator $PR_DIR/round1/list-theorem-generator" "$OUT"
-must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator-medium --model default --effort default
+must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator --model default --effort medium
 run --mode next --round 1
-assert_eq "next: a list replaced at another tier is unsettled until that tier's file lands" "generate" "$(first_line)"
-assert_eq "next: the replacement not yet entered is outstanding" "generate${TAB}list${TAB}outstanding${TAB}${TAB}" "$(rest)"
-as_child M --mode enter --round 1 --theorem list --stage generate
-run --mode next --round 1
-assert_contains "next: the replacement in flight" "generate${TAB}list${TAB}in-flight${TAB}M${TAB}" "$(rest)"
-run --mode print-in-flight --round 1 --stage generate --agent theorem-generator-medium
-assert_contains "print-in-flight: agrees that the replacement is in flight" "list M " "$OUT"
-as_child M --mode leave --round 1 --theorem list --stage generate --agent theorem-generator-medium --from "$CASE/r"
-run --mode next --round 1
-assert_eq "next: the replacement's file settles the list" "disprove" "$(first_line)"
+assert_eq "next: a spawn at another effort leaves a settled list settled" "disprove" "$(first_line)"
 
 # --- next: disprove, its child states, and the barrier --------------------
 
