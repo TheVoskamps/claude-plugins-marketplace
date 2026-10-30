@@ -764,8 +764,9 @@ through that executable's own failure status. It needs only bash,
 modes the same way, each case against a state root of its own: every
 arm `next` names and every child state it prints — a `stopped` after
 its `enter`, a duplicate `leave`, a moved head, a malformed `DISPROVED`
-report that earns no verifier, a generator replaced at another tier,
-and the live list under `--edits`, `--from` and `--full`; every row of
+report that earns no verifier, a generator re-spawned at another
+effort leaving a settled list settled, and the live list under
+`--edits`, `--from` and `--full`; every row of
 `dispose`'s disposition table with the state it stamps, a
 `class-underivable` finding, a human override, an unsettled theorem
 forcing `BLOCKED`, a member of `--issues` no record tags, the refusal
