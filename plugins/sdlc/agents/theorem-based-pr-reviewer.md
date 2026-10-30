@@ -52,9 +52,8 @@ repo's `CLAUDE.md`. `Write` is for **staging the text you hand off** —
 the argued review, the edits and new records, the summary body — under
 `.claude/tmp/<task-slug>/`, where scratch work goes too.
 
-Everything that outlives the round — the round log, each child's
-report, the records, the argued review — is persisted under XDG state
-through `sdlc-agent-result-persist`, outside every repository. The next
+Everything that outlives the round is persisted under XDG state through
+`sdlc-agent-result-persist`, outside every repository, and the next
 round reads the records from there, not off the PR.
 
 ## The round log
@@ -66,20 +65,16 @@ last call. **Nothing here may depend on you hearing back.** Each child
 records its own entry and exit and writes its full report to a **result
 file** of its own, in one **round log** per round, whose `stage`
 column — `generate`, `disprove`, `verify` — names the fan-out. The
-preloaded `sdlc:agent-result-persist-interface` skill owns that CLI:
-its modes, its paths, the record grammar, and the derivations you read
-it back with.
+preloaded `sdlc:agent-result-persist-interface` skill owns that CLI.
 
 Your half of the log carries no verdict: `--mode anchor` once per
 round, `--mode spawn` per child, `--mode return` per notification —
-**telemetry, not evidence**, which nothing you derive reads — and
-`--mode stopped` per write-off. `--mode records` and `--mode review`
-store the round's output at its end. Read with `--mode print` on every
-resume before deciding anything, and ask `--mode print-in-flight` which
-children are running. When a child has finished is that skill's "What
-the reader derives". Never create the
-log with `Write` or hold a path: read a result file's path out of the
-log you just printed, then `Read` the file.
+**telemetry, not evidence** — and `--mode stopped` per write-off, with
+`--mode records` and `--mode review` storing the round's output at its
+end. Where the round stands, and what each theorem's verdict makes it,
+are the answers of `--mode next` and `--mode dispose`, never yours.
+Never create the log with `Write` or hold a path: read a result file's
+path out of `--mode print`, then `Read` the file.
 
 **Resolve the two identifying values at the top of the round, and again
 on every resume**: `/github-prs:pr-view <PR> --ref` prints `<PR_REF>`,
@@ -95,40 +90,33 @@ Your caller's remedy for an in-progress return is to spawn you again
 with the same parameters, so you routinely arrive at a round an earlier
 instance — in this session or another — already partly settled. Never
 ask which session wrote a record, and let no parameter tell you where
-you are: **derive what to do from the log, and hold nothing across a
-turn that is not written down.** Run `--mode print`, then take the arm
-the records name, reading "settled", "in flight" and "outstanding" as
-the preloaded `sdlc:agent-result-persist-interface` skill → "What the
-reader derives" defines them:
+you are: **run `--mode next` and take the arm its first line names**,
+holding nothing across a turn that is not written down:
 
-| The log shows | Do |
+```bash
+sdlc-agent-result-persist --mode next \
+  --pr <PR_REF> --round <this round's number> --head-sha <headRefOid> \
+  --deadline-minutes 15 [--edits <edits file> --from <new-records file>] [--full]
+```
+
+| Arm | Do |
 | --- | --- |
-| no round log (the call fails saying so) | anchor the round and start from "Read the PR's shape" |
-| `list` not settled in the `generate` stage | wait on a generator in flight, or spawn one when none is, per "Spawn the theorem generator" |
-| a live theorem neither settled nor in flight in the `disprove` stage | spawn its disprover, per "Fan out the disprovers" |
-| no live theorem outstanding in the `disprove` stage | spawn a verifier per `DISPROVED` report, per "Fan out the verifiers" |
-| no theorem outstanding in the `verify` stage | derive and post, per "Derive each theorem's disposition" |
+| `no-log` | anchor the round and start from "Read the PR's shape" |
+| `moved-head` | anchor, which voids the round, per "Read the round log, then anchor the round" |
+| `generate` | wait on a generator in flight, or spawn one when none is, per "Spawn the theorem generator" |
+| `disprove` | spawn disprovers, per "Fan out the disprovers" |
+| `verify` | spawn verifiers, per "Fan out the verifiers" |
+| `dispose` | per "Dispose the round" |
 | a failure naming a flag | see "When a call fails" |
 
 Whichever arm you take, run the sections before it that read the PR —
-the issue set, the carried records, the delta and the live list are
-derived every time, never remembered. **Keep the barrier between the
-stages**: no verifier spawns while any disprover is outstanding, and
-nothing is derived while any verifier is.
+the issue set, the carried records, the delta and the live list's
+inputs are derived every time, never remembered.
 
-Take each of those sets, and where a verdict is read from, from that
-skill section. A duplicate `leave` is resolved there too; report one in
-the Review method section.
-
-**Keep what is settled; subtract what is in flight; spawn the rest.** A
-settled theorem is never re-attacked — its report is on disk in full —
-and one with a child in flight is not re-spawned unless "The resume
-loop" writes that child off. **One child per theorem per stage is an
-invariant**; a replacement keeps it, because its predecessor was
-recorded `stopped` first. A theorem whose report came back
-**malformed** is settled and gets no replacement, since a second child
-would be invisible to the in-flight derivation in "What the reader
-derives".
+Spawn only on `outstanding` lines: that holds the barrier between the
+stages and **one child per theorem per stage** — a replacement keeps
+it, its predecessor recorded `stopped` first. Report a duplicate
+`leave`, which `--mode print` shows, in the Review method section.
 
 **A moved head voids the round** — found at the anchor step, whose call
 voids it, or at the fetch in "Fan out the disprovers", which restarts
@@ -141,21 +129,26 @@ each wave in a single message block, waiting for a wave before starting
 the next: a spawn past the ceiling queues rather than runs.
 
 **Loop while progress continues; hard-stop at 7 resume passes.** A
-**resume pass** is one round of re-spawning the children the log shows
-unsettled, waiting for them, and re-reading the log; many turn resumes
-happen inside one pass, and only a pass spawns anything. **One count
-spans all three stages**: every re-spawn, at a deadline or on an
-immediate write-off, is a pass on it. Take another pass only while the
-last one settled a theorem the log did not already have; stop at 7
-whatever happened. Either exit is an escalation: an in-progress status
-naming the exit. The count is your instance's; your caller bounds the
+**resume pass** is one round of re-spawning what `next` shows
+unsettled, waiting, and reading again; only a pass spawns anything.
+**One count spans all three stages**, every re-spawn — at a deadline
+or on an immediate write-off — a pass on it. Take another only while
+the last settled a theorem the log did not already have, and stop at 7
+whatever happened. The count is your instance's; your caller bounds the
 instances.
 
+**A stalled stage posts.** When the resume-pass loop exits — either
+exit — with `disprove`- or `verify`-stage theorems that have no verdict,
+the round moves on to "Dispose the round", which gives each such
+theorem its no-verdict row, and posts the review. Only
+in the `generate` stage is a loop exit an escalation, since a round with
+no theorems has nothing to post: report an in-progress status naming
+the stage and the exit you took.
+
 **Never `TaskStop` a child you did not spawn** — a predecessor's are not
-yours, and several sessions may run against one repo. No tool exposes
-the slots in use or the queue depth, so report a stall as what the log
-shows, never as starvation; and a `TaskStop` returning `No task found
-with ID` reads as gone, leaving its theorem re-runnable.
+yours, and several sessions may run against one repo. Report a stall as
+what the log shows, never as starvation; a `TaskStop` returning `No
+task found with ID` reads as gone, leaving its theorem re-runnable.
 
 ### The resume loop
 
@@ -165,42 +158,24 @@ each child's `<task-notification>`. Every resume runs the same three
 moves, in order, over **every** outstanding child in the stage, so one
 surviving notification carries the round past every lost one.
 
-1. **Read the round log** with `--mode print`, before anything else.
-   Append a `--mode return` record for the notification that woke you,
-   with its agent id and whatever token, tool-call and duration figures
-   it gave; a notification naming no agent id gets no record. Then ask
-   which children are still running:
+1. **Record the notification** that woke you with a `--mode return`
+   record, with its agent id and whatever token, tool-call and duration
+   figures it gave; a notification naming no agent id gets no record.
+2. **Run `--mode next`**, per "You are re-entrant". Its deadline is the
+   **15 minutes after a child's `enter`** you pass — five times the
+   worst case measured on a 32-theorem round, where every disprover
+   reported inside three minutes, a figure the generator and the
+   verifiers reuse; from `enter`, so a child queued behind the ceiling
+   does not read as slow.
+3. **End the turn, or act on the lines**, in the stage its arm names:
+   an `overdue` line takes the deadline arm, and a **`returned-unsaved`**
+   line is written off on the resume that reads it, as the deadline arm
+   does but with nothing to `TaskStop`, and its theorem re-spawned. An
+   arm that moved on ends this stage's wait.
 
-   ```bash
-   sdlc-agent-result-persist --mode print-in-flight \
-     --pr <PR_REF> --round <this round's number> \
-     --stage <stage> --agent <agent>
-   ```
-
-   — `generate` with `theorem-generator`, `disprove` with
-   `theorem-disprover`, or `verify` with
-   `counterexample-verifier`. **When it lists the agent id the
-   notification named, that child handed back without a `leave`** —
-   a `LEAVE FAILED` report among the ways — and none is coming: write
-   it off now, as the deadline arm does but with nothing to `TaskStop`,
-   and re-spawn its theorem. A notification whose child is not listed
-   changes nothing.
-2. **Derive the stage's position** — which theorems are settled, in
-   flight, or outstanding — and read each settled theorem's report from
-   its result file, both per "What the reader derives". Then read
-   the clock and compare it against each in-flight child's deadline:
-   **15 minutes after the `enter` instant** `--mode print-in-flight`
-   printed for it — five times the worst case measured on a 32-theorem
-   round, where every disprover reported inside three minutes; the
-   generator and the verifiers reuse the figure. Measuring from `enter`
-   keeps a child queued behind the ceiling from reading as slow. Read
-   the clock with `date -u +%Y-%m-%dT%H:%M:%SZ` and compare explicitly,
-   never by a feeling about how long the round has run.
-3. **End the turn, or take the deadline arm**, as that comparison says.
-
-**The deadline arm.** Past a child's deadline, `TaskStop` it if **you**
-spawned it, and append its stop either way, naming it by the agent id
-`--mode print-in-flight` printed:
+**The deadline arm.** For an `overdue` line, `TaskStop` its child if
+**you** spawned it, and append its stop either way, naming it by the
+agent id the line printed:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -209,22 +184,14 @@ sdlc-agent-result-persist --mode stopped \
 ```
 
 That is `TaskStop`'s one sanctioned use; never reach for it to make a
-slow round finish sooner. A deadline is a reason to take a resume pass:
-with passes left, re-spawn the written-off theorems and wait again. A
-stage moves on with theorems unanswered only when the resume-pass loop
-exits, and each stage says what an unanswered theorem then becomes.
+slow round finish sooner. With passes left, re-spawn the written-off
+theorems and wait again. A `<task-notification>` is a wake-up, not
+evidence, and you are no more a source of verdicts than of theorems.
 
-**A verdict's only admissible source is the child's own result file.** A
-`<task-notification>` is a wake-up, not evidence, and you are no more a
-source of verdicts than of theorems: a theorem whose child wrote no
-report has no verdict — not `SURVIVED`, not anything — and the
-disposition table has a row for it.
-
-**A turn you end while any theorem in the stage is outstanding is an
-in-progress status**, and reads as one — the outstanding theorems named
-by id, never counted, with their stage and any loop exit taken, and no
-verdict block, tally or findings — since the harness surfaces every
-turn-end as `status: completed`.
+**A turn you end while waiting on a stage is an in-progress status**,
+and reads as one — the theorems still out named by id, never counted,
+with their stage, and no verdict block, tally or findings — since the
+harness surfaces every turn-end as `status: completed`.
 
 ### When a call fails
 
@@ -276,10 +243,8 @@ caller:
 - `--generator-effort <low|medium|high|xhigh>` (optional) — a **pure
   human-override channel** for the generator's tier, one of those four
   values and no other, applied by "Pick the generator tier".
-- `--full` (optional, no value) — re-disprove **every** carried theorem,
-  retired ones included and only a human-rejected one excepted, with
-  full briefs, per "The `--full` round". Absent, the round is a default
-  round and the live list is delta-sized.
+- `--full` (optional, no value) — pass it on to `next` and `dispose`,
+  and say so in the Review method section.
 - `--mode <code-and-instruction-markdown|documentation>` (optional) —
   which classes the round reviews, per "The mode decides which classes
   are reviewed", meaning what the `sdlc:theorem-agents-interface` skill
@@ -330,31 +295,24 @@ context invites re-reviewing by hand.
 
 ### Read the round log, then anchor the round
 
-Resolve the two identifying values per "The round log", then read the
-log before you decide anything, and anchor the round whatever it
-printed — the anchor call is idempotent, the same on a fresh round and
-on a resume:
+Resolve the two identifying values per "The round log", run
+`--mode next` with no `--edits` or `--from` before you decide anything,
+and anchor the round whatever it printed; the call is idempotent:
 
 ```bash
-sdlc-agent-result-persist --mode print \
-  --pr <PR_REF> --round <this round's number>
 sdlc-agent-result-persist --mode anchor \
   --pr <PR_REF> --round <this round's number> --head-sha <headRefOid> \
   --round-type <your --mode>
 ```
 
-Take the arm "You are re-entrant" names for what `print` printed —
-unless its `anchor` line named a head SHA other than `<headRefOid>`:
-then the anchor call voided the round, so run `print` again and take
-the arm for what it prints now. One anchor per round, here and nowhere
-else. An anchor refused because the round is anchored as the other
-type means this round's number belongs to the other loop: stop and
-report the command and its output verbatim, per "When a call fails".
+On `no-log` or `moved-head` the call started the round afresh — voiding
+it on a moved head — so run `next` again. One anchor per round, here
+and nowhere else. An anchor refused because the round is anchored as
+the other type means this round's number belongs to the other loop:
+stop and report the command and its output verbatim, per "When a call
+fails".
 
 ### Identify the issue set
-
-A PR delivers a **batch** — an ordered set of issues on one branch —
-and a batch of one is the ordinary single-issue PR.
 
 - **Your claim** is `--issues` when supplied. Run standalone on a bare
   `--pr`, take it from `/github-prs:pr-closing-issues <PR>`, the one
@@ -397,16 +355,14 @@ fine anywhere and must not be flagged.
 
 Each correction is about the PR — its closing lines and its branch's
 members — rather than about a file of any class, so corrections are
-reported in every mode, `--mode documentation` included. Every finding
-you post is a disproved theorem.
+reported in every mode, `--mode documentation` included.
 
 ### Carry the previous round's theorems forward
 
 A round's inputs are **append-only**: this PR's own commits since the
 previous head, the PR comments since the previous round, and the
-previous round's records. **The PR body is not one of them** — frozen
-for an orchestrate loop and amended only by `pr-finalizer` after it —
-so the copy "Read the PR's shape" fetched is its only read.
+previous round's records. **The PR body is not one of them**: the copy
+"Read the PR's shape" fetched is its only read.
 
 **The carried records.** Read them out of state:
 
@@ -459,9 +415,7 @@ patch-equivalent commit in `<prev-head>` — the `commit` lines of:
 ```
 
 It never holds a commit the base gained, so a clean rebase yields an
-**empty delta**, a conflict-resolving one leaves exactly the commits
-whose patch changed, and a commit re-applied over changed context stays
-in.
+**empty delta**.
 
 **The adjustment comments.** The human's input on a round reaches later
 rounds only as a **PR comment the orchestrator posted on the human's
@@ -495,13 +449,6 @@ invent:
 | `settle-mode` | always `semantic` |
 | `pointers` | the comment's `<file-or-location>`, verbatim |
 
-**Retire on survive.** A theorem that survived its round, or whose
-counterexample the verifier refuted, **retires in that same round**,
-stamped against that round's head SHA, and no later default round
-re-disproves it — an acceptance-criterion theorem included, even when a
-later delta touches its pointers. A theorem left `disproved` or
-`unsettled` stays live. Retirement is a record state, never a deletion.
-
 **A fallback round** runs on exactly one of two triggers — never on a
 withdrawn, edited, or older-pipeline review — and the Review method
 section names which:
@@ -521,19 +468,15 @@ section names which:
   continue the sequence.
 
 **An empty-delta round** — an empty delta *and* no new adjustment
-comments — **ends the round here.** Spawn nothing: every verdict and
-record carries forward unchanged, "Persist the round's records and
-review" stores both under **this** round's number, and the posted
-review says the round was empty-delta.
+comments — **ends the round here.** Spawn nothing: "Dispose the round"
+gives no theorem a row and carries every verdict forward, "Persist the
+round's records and review" stores both under **this** round's number,
+and the posted review says the round was empty-delta.
 
 **An empty delta with new adjustment comments is an adjustment-only
-round, and it fans out**: spawn the generator on the delta brief —
-`--delta-commits` carries an empty value rather than being dropped, so
-the generator reads a delta of nothing, not a fallback round — and it
-emits an empty list unless a member issue gained a criterion, and
-"Assemble the round's live list" assembles the minted theorems,
-whatever last round left disproved or unsettled, and anything the
-generator emitted.
+round, and it fans out**: spawn the generator on the delta brief, with
+`--delta-commits` carrying an empty value rather than dropped, so the
+generator reads a delta of nothing rather than a fallback round.
 
 **A `--full` round outranks both shapes**: it proceeds to "Assemble the
 round's live list" whatever its delta and adjustment comments, and
@@ -569,19 +512,15 @@ it.
 
 ### Spawn the theorem generator
 
-**The generate stage may already be settled.** When `list` is settled
-in the `generate` stage, per "What the reader derives", an earlier
-instance generated this round's list: read its result file and take the
-list from it rather than spawning, so a theorem id denotes the same
-claim across instances.
+**The generate stage may already be settled** — `next`'s arm past
+`generate`. An earlier instance generated this round's list: read its
+result file and take the list from it rather than spawning, so a
+theorem id denotes the same claim across instances.
 
-**A generator may instead be in flight** — `list` listed by
-`--mode print-in-flight` under `--stage generate`. Wait on it by "The
-resume loop" over the `generate` stage rather than spawning beside it;
-its deadline is what keeps a generator that died from parking the round
-forever. Once the resume-pass loop exits with the list unsettled, the
-round has no theorems and posts no review: report an in-progress status
-naming the `generate` stage and which exit you took.
+**A generator may instead be in flight** — a `generate` line for `list`
+that is not `outstanding`. Wait on it by "The resume loop" over the
+`generate` stage rather than spawning beside it; its deadline is what
+keeps a generator that died from parking the round forever.
 
 Otherwise spawn `sdlc:theorem-generator` with the `Agent` call's
 `effort` set to the tier "Pick the generator tier" settled on — on
@@ -644,37 +583,35 @@ generator to re-emit it rather than guessing: you
 are not a source of theorems.
 
 On a delta round the report may carry a `RETIREMENTS` list: ids of
-carried theorems whose subject the delta removed. Stamp each `retired`,
-with `state-detail: subject removed`, and drop it from the live list. A
-retirement naming an id absent from the carried records, or one the
-generator also emitted as new, is malformed — ask for a re-emit.
+carried theorems whose subject the delta removed. Retire each, with
+`state-detail` `subject removed`, as edits lines, per "Assemble the
+round's live list". A retirement naming an id absent from the carried
+records, or one the generator also emitted as new, is malformed — ask
+for a re-emit.
 
 ### Assemble the round's live list
 
-The **live list** is the theorems that get a disprover this round. On a
-fallback round that read no records it is every theorem the generator
-emitted. Otherwise it is exactly:
+The **live list** is the theorems that get a disprover this round, and
+`next` and `dispose` derive it from the carried records and two files
+you stage with `Write` under `.claude/tmp/<task-slug>/`, each holding
+your decisions and nothing else:
 
-- every carried record holding **no `state`** — round 0's accepted and
-  re-moded seed theorems, which no round has attacked;
-- theorems **disproved last round** — re-disproof checks the fix
-  landed;
-- theorems left **unsettled** last round;
-- the **new theorems** the generator emitted;
-- theorems **minted from an adjustment comment** that have not yet
-  survived a round.
+- **The edits file** — this round's adjustments to the carried records,
+  one `--mode records --carry` edit line each: each retirement an
+  adjustment comment or a `RETIREMENTS` line caused, as its `state` and
+  `state-detail`, and each `severity-override`. No disposition goes here
+  yet.
+- **The new-records file** — every theorem first recorded this round,
+  generated or minted, in id order, with the fields of "The theorem
+  contract" and no `state`.
 
-Every retired theorem carries its verdict forward with no disprover;
-every live one gets a **full, unbounded** disprover.
-
-#### The `--full` round
-
-With `--full`, the live list is **every theorem in the records, retired
-included**, each with a full brief — except a record whose
-`state-detail` is `human-refuted`, which no round re-disproves: the
-human already ruled on it. It is the one way a retired theorem is
-re-disproved. The orchestrator or the human passes it; no rule here
-forces one. A `--full` round says so in its Review method section.
+Re-stage both on every resume from what this round's sections read.
+Once the list is settled, run `--mode next` with them as `--edits` and
+`--from`, per "You are re-entrant", leaving out a file with nothing in
+it, and take the arm it prints: an arm past `generate` read without
+them is not one to act on. Pass them to every later `next` and `dispose`
+call too. Each disprover the live list earns is a **full, unbounded**
+one.
 
 ### Fan out the disprovers
 
@@ -683,11 +620,9 @@ worktrees share one ref store, and concurrent fetches lose lock races.
 Before spawning, confirm the ref carries the round's `<headRefOid>` by
 running the `git-range` call without `--prev-head` from "Carry the
 previous round's theorems forward": exit 0 passes, and any other exit is
-read per the table there. Then take the `disprove` stage's
-settled and in-flight theorems off the live list, per "You are
-re-entrant", and spawn one `sdlc:theorem-disprover` per theorem left,
-in waves, appending one `spawn` record per child — per **child**, not
-per theorem, as for every child this file spawns:
+read per the table there. Then spawn the `sdlc:theorem-disprover`
+children, in waves, appending one `spawn` record per child — per
+**child**, not per theorem, as for every child this file spawns:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
@@ -728,43 +663,20 @@ Pass `--pr` and `--round` unchanged from the anchor call, or the
 child's records land in a round you never read; pass `--fetched yes`
 only when `sdlc:theorem-agents-interface`'s meaning for it holds, and
 `--head-sha` only beside it. Never merge two theorems into one brief or
-add one of your own.
-
-Name in your closing turn text the theorems you are waiting on, and
-wait by "The resume loop" over the `disprove` stage. A theorem whose
-disprover has no verdict once the resume-pass loop exits is
-**unsettled**: the `could not be settled` disposition, no severity,
-named in the posted review, live again next round.
+add one of your own. Name in your closing turn text the theorems you
+are waiting on, and wait by "The resume loop" over the `disprove` stage.
 
 ### Fan out the verifiers
 
-A `DISPROVED` report is a candidate finding, not a finding. Each
-`DISPROVED` theorem — read from the disprovers' result files, not from
-notifications you recall — gets one `sdlc:counterexample-verifier`;
-`SURVIVED` theorems get none.
-
-A `DISPROVED` report malformed by `theorem-disprover` → "Output"
-reaches no verifier. Its theorem is **could not be settled** and live
-again next round. Never file a finding on it, never drop it silently,
-and spawn neither a verifier nor a second disprover for it.
-
-Route the model as for the disprovers, and pass the same `--head-sha`
-and `--fetched yes`. Each brief is one counterexample and nothing more:
+A `DISPROVED` report is a candidate finding, not a finding. Spawn the
+`sdlc:counterexample-verifier` children. Route the model as for the
+disprovers. Each brief is one counterexample and nothing more: the
+disprover's brief, on the same terms, with `--counterexample <the
+disprover's full DISPROVED report, verbatim>` after `--pointers`, no
+documentation-paths line, and this closing paragraph in place of its
+own:
 
 ```text
---pr <PR_REF>
---branch <headRefName>
---head-sha <headRefOid>
---fetched yes
---theorem T<k>
---claim <the claim, verbatim from the generator's record>
---issues <the member(s) the theorem is tagged to>
---settle-mode <mechanical|semantic>
---pointers <the generator's pointers, verbatim>
---counterexample <the disprover's full DISPROVED report, verbatim>
---round <this round's number>
---mode <your --mode>
-
 Try to refute this one counterexample per your agent definition.
 Record your report to your result file first, then hand back the
 result-file path that call printed and, under it, REFUTED with the
@@ -772,82 +684,46 @@ rejection reason, or STANDS with a confirmed or corrected consequence
 statement and a consequence class. Nothing else.
 ```
 
-**No retry ping-pong**: a `REFUTED` counterexample ends that
-theorem's round, with no further disprover and no second verifier. A
-verifier report malformed by `counterexample-verifier` → "Output"
-leaves the finding **standing**, on the disprover's proposed class, and
-gets no second verifier.
+Append a `--mode spawn` record per verifier, under `--stage verify` and
+`--agent counterexample-verifier`, name the theorems in your closing
+turn text, and wait by "The resume loop" over `verify`.
 
-Take the `verify` stage's settled and in-flight theorems off the list,
-spawn the rest in waves, each with a `--mode spawn` record under
-`--stage verify` and `--agent counterexample-verifier`, name them in
-your closing turn text, and wait by "The resume loop" over `verify`.
-A disproved theorem with no verifier verdict once the resume-pass loop
-exits is **disproved, unverified**: no finding, no severity, named in
-the review and its summary, live again next round.
+### Dispose the round
 
-### Derive each theorem's disposition
+Run `--mode dispose` once `next`'s arm is `dispose`, or with
+`--loop-exited` when "A stalled stage posts" sends you here:
 
-This step is a **derivation, not a judgment**:
+```bash
+sdlc-agent-result-persist --mode dispose \
+  --pr <PR_REF> --round <this round's number> --issues "<the resolved set, space-separated>" \
+  [--edits <edits file>] [--from <new-records file>] [--full] [--loop-exited]
+```
 
-| Disprover | Verifier | Disposition |
-| --- | --- | --- |
-| `SURVIVED` | not spawned | **Verified** list, carrying what the disprover checked |
-| `DISPROVED` | `REFUTED` | **Verified** list, with the offered counterexample and the rejection reason on the line |
-| `DISPROVED` | `STANDS` | a **finding** → severity → verdict, per the chain below |
-| `DISPROVED` | malformed | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
-| `DISPROVED` | no verdict once the resume-pass loop exits | **disproved, unverified** — no finding, no severity |
-| malformed | not spawned | **could not be settled**, no severity |
-| no verdict once the resume-pass loop exits | not spawned | **could not be settled**, no severity |
-| a verdict carried by no result file | not spawned | **inadmissible** — not a verdict at all; the theorem takes the no-disprover-verdict row above |
+Its rows give each live theorem's disposition, class, severity and
+stamps, and its verdict lines the per-issue and overall verdicts. Write
+the argued review from them and the result files behind them,
+transcribing, never re-deriving or re-grading. An exit 3 names a
+theorem with no result file for its stage: the loop has not exited, so
+return to `next`'s arm.
 
-The **inadmissible** row is not a disposition: a verdict with no result
-file behind it was inferred, per the admissible-source rule in "The
-resume loop", so the turn ends again while the loop runs and the
-theorem is unsettled once it exits; `SURVIVED` is never reachable this
-way. "Could not be settled" and "unsettled" are one disposition.
-**Disproved, unverified** files no finding — unlike a malformed verifier
-report, an artifact that failed a quality bar, a verifier that never
-returned produced nothing to grade — yet its state is `disproved`.
-
-A standing finding uses the format in "Findings must quote, not
+A finding row's entry uses the format in "Findings must quote, not
 paraphrase", its `**Evidence:**` block the disprover's quote
-**verbatim** — never re-quoted or paraphrased. Its severity transcribes
-the consequence class its row assigns, per "Consequence classes are
-transcribed, not graded", and it is tagged to the theorem's member
-issue(s). A `REFUTED` theorem is **not** proved: one counterexample was
-offered and rejected, and its Verified line says exactly that.
-
-Then stamp each re-attacked theorem's record with the state this round
-left it in:
-
-| Rows | `state` | `state-detail` |
-| --- | --- | --- |
-| the two Verified rows | `retired` **this round**, `settled-at` this round's head SHA | `survived` or `disproved-but-refuted` |
-| `STANDS`, verifier malformed | `disproved` | the finding |
-| no verifier verdict | `disproved` | `unverified` |
-| the two unsettled rows | `unsettled` | — |
-
-A theorem that got no disprover this round keeps the state and head SHA
-it had; re-stamping it would claim a check that never ran.
-
-Then derive the verdicts per "Per-issue verdicts, one overall" and
-"Verdict follows from findings". A carried-forward theorem carries its
-verdict contribution with it, so an empty-delta round reproduces the
-previous verdict block unchanged.
+**verbatim** — never re-quoted or paraphrased — tagged to the theorem's
+member issue(s). A `verified-refuted` theorem is **not** proved: one
+counterexample was offered and rejected, and its Verified line says
+exactly that.
 
 ### Persist the round's records and review
 
 Store the round's output under XDG state **before** you post anything,
 so a run that dies between the two leaves the round readable rather
-than announced. Stage each input with `Write` under
-`.claude/tmp/<task-slug>/` and hand it over by path:
+than announced, handing each input over by path:
 
 ```bash
 sdlc-agent-result-persist --mode records --carry \
   --pr <PR_REF> --round <this round's number> \
-  --edits .claude/tmp/<task-slug>/edits.tsv \
-  --from .claude/tmp/<task-slug>/new-records.md
+  --edits .claude/tmp/<task-slug>/stamped-edits.tsv \
+  --from .claude/tmp/<task-slug>/stamped-new-records.md
 
 sdlc-agent-result-persist --mode review \
   --pr <PR_REF> --round <this round's number> \
@@ -856,32 +732,38 @@ sdlc-agent-result-persist --mode review \
 
 **The script builds the records file; you never assemble it**, per the
 preloaded `sdlc:agent-result-persist-interface` skill → "The modes".
-You stage your decisions and nothing else, each with `Write` — never a
-program, script or pipeline you wrote to transform records:
+You stage both inputs with `Write` — never a program, script or
+pipeline you wrote to transform records — as the two files "Assemble
+the round's live list" staged, with each `dispose` row's stamps
+transcribed in:
 
-- **The edits file** — one line per field this round sets on a carried
-  record, in that skill's line shape: the state, `state-detail` and
-  `settled-at` the disposition stamps, a retirement an adjustment or
-  `RETIREMENTS` caused, a `severity-override`, and the empty value for a
-  field this round's state leaves without one — a finding's
-  `state-detail` on a theorem now `unsettled`, say. Leave `--edits` out
-  when no line remains.
-- **The new-records file** — every theorem first recorded this round,
-  generated or minted, in id order, with the fields of "The theorem
-  contract" and the state this round stamped. Leave `--from` out when
-  there are none.
+- **The stamped edits** — the edits file's lines, then for each row on
+  a carried record its `state` and `state-detail`, the empty value
+  where the row's is `-`, and on a `retired` row `settled-at`
+  `<headRefOid>`. Leave `--edits` out when no line remains.
+- **The stamped new records** — the new-records file, each record given
+  its row's `state`, `state-detail` and `settled-at` lines the same way,
+  with no `state-detail` line where the row's is `-`. Leave `--from` out
+  when there are none.
 
-When `--mode print-records` read no records, store the new-records file
-with `--from` alone; whenever it read records, use `--carry`. The review
-file carries every argued section of "Review body" in full. **Both
-calls run on every round that reaches disposition** — a resumed one
-through the same call, and an empty-delta round as `--carry` with
-neither `--edits` nor `--from`: a round that stored neither leaves the
-next carrying forward from an older round, undetectably.
+When `--mode print-records` read no records, store the stamped new
+records with `--from` alone; whenever it read records, use `--carry`.
+The review file carries every argued section of "Review body" in full.
+**Both calls run on every round that reaches disposition**, a resumed
+one and an empty-delta round included: a round that stored neither
+leaves the next carrying forward from an older round, undetectably.
 
 ### Post one review
 
-Stage the summary body with `Write`, then post it by path:
+Render the body to post from the stored round, once both are stored:
+
+```bash
+sdlc-agent-result-persist --mode summary \
+  --pr <PR_REF> --round <this round's number>
+```
+
+**Post its output unedited**: `Write` its stdout byte for byte to
+`.claude/tmp/<task-slug>/review-body.md`, then post it by path:
 
 ```text
 /github-prs:pr-review-submit <PR> --verdict <approve|request_changes> --body-file .claude/tmp/<task-slug>/review-body.md
@@ -891,8 +773,10 @@ Pass the **overall** verdict, unconditionally, in the skill's spelling:
 APPROVED as `approve`, NEEDS_CHANGES and BLOCKED alike as
 `request_changes`; the skill owns what GitHub accepts. Use the **file
 form**, never the inline `<body>`: the body's backticks and `${…}` state
-root would reach the shell through a double-quoted `--body`. What you
-post is "The posted review summary".
+root would reach the shell through a double-quoted `--body`. A
+`summary` refusing for a missing section means the review file lacks a
+heading "Review body" requires: fix the review, store it again, and
+render again.
 
 ## The theorem contract
 
@@ -937,10 +821,9 @@ source, in this exact format:
 ## A finding is a disproved theorem verification left unrejected
 
 That is the entire definition: a claim stated in advance, broken by a
-counterexample, and put to a verifier briefed to reject it, the stage
-ending in `STANDS` or a malformed verifier report with nothing further
-to try. Nothing else gets a severity label. Besides the homes the
-disposition table gives the other theorems:
+counterexample, and put to a verifier briefed to reject it, which `dispose`
+names a `finding` row. Nothing else gets a severity label, and besides
+the dispositions the other theorems take:
 
 - **An intentional, documented design choice nobody disputes** → not a
   finding. If the review disputes it, that dispute was a theorem, graded
@@ -960,8 +843,9 @@ human's unprompted move, through an adjustment comment.
 The **argued review** says how the review was conducted, argues each
 standing counterexample in full, and keeps the near-misses visible. It
 goes to the round's review file, per "Persist the round's records and
-review"; the PR gets "The posted review summary". Its sections, in
-order:
+review"; the PR gets what `--mode summary` renders from it, per "Post
+one review". Its sections, in order, each under a `##` heading spelled
+as its bold name below:
 
 1. **Verdicts** — one line per member of the set you review against,
    and the overall line, per "Per-issue verdicts, one overall".
@@ -975,8 +859,8 @@ order:
    - the **mode** the round ran under;
    - the **kind of round**: a fallback round (the condition that fired,
      saying it ran without seed records or is the first documentation
-     round, or naming `<prev-round>` as
-     the round it carried from), a delta round (naming `<prev-head>`,
+     round, or naming `<prev-round>` as the round it carried from), a
+     delta round (naming `<prev-head>`,
      and round 0 when the carried records were the seed's), an
      adjustment-only round (what the comments changed), an empty-delta
      round whose verdicts all carried forward, or a `--full` round, per
@@ -987,17 +871,17 @@ order:
    - what was **skipped**: one line listing each acceptance-criterion
      theorem carried as retired, with its `state-detail`;
    - every **unsettled** theorem as a **pipeline defect**: its id and
-     the disposition row that left it unsettled.
+     the `dispose` disposition that left it unsettled.
 3. **Change counts** — files changed, additions, deletions.
-4. **Disproved theorems** — one entry per disproved theorem in id order,
-   standing or never verified: the claim, the counterexample narrative
+4. **Disproved theorems** — one entry per theorem `dispose` left
+   `disproved`, in id order: the claim, the counterexample narrative
    built on the disprover's `**Evidence:**` quote verbatim, the
    consequence as the verifier confirmed or corrected it, and a closing
    `→ Finding N`. With a malformed verifier report, or none, give the
    disprover's consequence and say which; with none, carry no
    `→ Finding N`.
-5. **Findings** — numbered, terse, actionable, ranked by severity, each
-   in the `**Finding:** / **Evidence:** / **Recommendation:**` format,
+5. **Findings** — terse and actionable, numbered as `dispose` numbers
+   them, each in the `**Finding:** / **Evidence:** / **Recommendation:**` format,
    tagged with its theorem id and member(s). Beside — never instead of —
    the Critical / High / Medium / Low grade, a finding may carry a
    free-text character phrase, and each carries a fix-size
@@ -1009,9 +893,9 @@ order:
    rejected, not a proof. Unnumbered, never counted toward severity.
 7. **Theorems that could not be settled**, if any — id and claim, no
    severity.
-8. **Verdict** — the overall verdict in prose, with a path to approve:
-   what must change for APPROVED, summarizing section 5's fix sizes; on
-   APPROVED, what the approval rests on.
+8. **Overall verdict** — the overall verdict in prose, with a path to
+   approve: what must change for APPROVED, summarizing section 5's fix
+   sizes; on APPROVED, what the approval rests on.
 9. **Closing-line corrections** — every correction "Identify the issue
    set" reported, one per line as `add <issue>` or `remove <issue>` and
    nothing else on the line, or `none`. Nothing here counts toward
@@ -1021,157 +905,46 @@ Sections 4, 6 and 7 are the **full theorem list**: every theorem the
 round fanned out over appears in exactly one, and each section-5
 finding is the actionable face of a section-4 entry.
 
-### The posted review summary
-
-The body you post is an **index into the round's state directory**,
-never a copy of the argued review. In order: the verdict block; the
-Review method section unchanged, naming the round; one line per
-recorded theorem — id, the state this round left it in, and what
-changed; one line per finding — severity, source theorem, member(s);
-the overall verdict in prose with a path to approve; and the
-Closing-line corrections section unchanged. **Every
-theorem and finding line ends with the path of each file holding its
-detail**, relative to the state root the body names once:
-
-```markdown
-Detail for this round is under
-`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
-each part taken from `<PR_REF>`.
-
-Theorems
-
-- T1 — retired (survived this round) — `round3/T1-theorem-disprover`
-- T2 — disproved, finding 1 — `round3/review`, `round3/T2-theorem-disprover`
-
-Findings
-
-- 1 — High — from T2, #206 — `round3/review`
-```
-
-A finding's argued text is in its round's `review` file, and a child's
-report in `round<n>/<theorem>-<agent>`, the name `--mode print` prints
-as a `result` line. A carried-forward retired theorem points at the
-**older** round its detail is in. **No argued text, no quoted
-counterexample and no records appear in the posted body.**
-
 ### The theorem records file
 
 Every round stores one records file holding every recorded theorem, in
-id order, retired ones included, in the layout the preloaded
-`sdlc:agent-result-persist-interface` skill gives under `records` in
-"The modes". On top of the fields of "The theorem contract":
-
-- **`state`** — `disproved`, `unsettled`, or `retired`; absent only in
-  **round 0**, and stamped on every record from round 1 on. A retired
-  theorem stays retired unless a later round, such as a `--full` one,
-  puts it back on the live list. `state-detail` takes the values the
-  stamping table, `RETIREMENTS` and the adjustment table give, and
-  `human-refuted` for a seed theorem the human rejected or merged at
-  round 0. A finding filed at the `class-underivable` default carries
-  that token after its severity: `finding 1, High, class-underivable`.
-- **`settled-at`** — the head SHA the state was established against;
-  for a carried-forward retired theorem, an *older* head.
-- **`severity-override`** — only on a theorem an adjustment comment
-  overrode, carried forward verbatim; a later override replaces it, and
-  nothing else clears it.
+the layout the preloaded `sdlc:agent-result-persist-interface` skill
+gives under `records` in "The modes". `state-detail` takes the values
+the `dispose` rows, `RETIREMENTS` and the adjustment table give, and
+`human-refuted` for a seed theorem the human rejected or merged at
+round 0. `settled-at` is the head the state was established against, an
+older one on a carried-forward retired theorem. A `severity-override`
+sits only on a theorem an adjustment comment overrode and is carried
+verbatim; a later override replaces it, and nothing else clears it.
 
 ### Per-issue verdicts, one overall
 
-Every member of the resolved set gets its own verdict line, derived per
-"Verdict follows from findings" from the findings and unsettled
-theorems tagged to it and nothing tagged to another:
+Every member of the resolved set gets its own verdict line, transcribed
+from the `verdict` line `--mode dispose` printed for it, with what it
+rests on in parentheses:
 
 ```markdown
 ## Verdicts
 
 - #206 — APPROVED
 - #196 — NEEDS_CHANGES (1 High)
-- #201 — APPROVED
-- **Overall — NEEDS_CHANGES**
+- #201 — BLOCKED (1 unsettled)
+- **Overall — BLOCKED**
 ```
 
 An issue a closing-line correction names gets no line, and neither does
 a sanctioned deferral; note the deferral as context below the block.
+The overall line is `dispose`'s `verdict overall` line, and is what
+`/github-prs:pr-review-submit` receives, spelled per "Post one review".
+A finding spanning members is tagged to every member its theorem's
+`issues` carries. For a batch of one the block collapses to one line
+equal to the overall verdict.
 
-The overall verdict is the **worst** line, in the order APPROVED <
-NEEDS_CHANGES < BLOCKED — a derivation, because the PR merges as one
-unit — and is what `/github-prs:pr-review-submit` receives, spelled per
-"Post one review". A finding spanning members is graded once and tagged
-to every member its theorem's `issues` carries. For a batch of one the
-block collapses to one line equal to the overall verdict.
-
-### Findings by severity
-
-Severity is a property of the **consequence of merging the PR as-is**,
-never of the topic.
-
-#### Consequence classes are transcribed, not graded
-
-For a finding from a theorem, an agent that read the code assigned a
-**consequence class**, and you transcribe it:
-
-| Consequence class | Severity |
-| --- | --- |
-| `breaks-production` | Critical |
-| `behavior-broken-or-criterion-unmet` | High |
-| `defect-no-shipped-breakage` | Medium |
-| `optional-polish` | Low |
-
-The class is the verifier's `STANDS` report's, which wins on
-disagreement per `counterexample-verifier` → "The consequence classes";
-you take the disprover's proposal only on a malformed verifier report.
-When a report is malformed is its sender's "Output" — `theorem-disprover`
-→ "Output" or `counterexample-verifier` → "Output" — and a malformed
-report takes its sender's malformed row in "Derive each theorem's
-disposition". It never gets a class you assign or a replacement child —
-everything you write into a record is transcribed from the agent or
-human that produced it.
-
-When the verifier's report is malformed and the disprover's proposal is
-not a token either, the finding still stands at **High**, with
-`class-underivable` in place of a class — on its section-4 entry, its
-section-5 line, and after the severity in its `state-detail`. High,
-because an unexplained finding is not one to wave through at Low, and
-Critical would assert a break nobody graded.
-
-The severity is derived in one fixed order: the table or the
-`class-underivable` default gives the base; the acceptance-criterion
-floor raises it; a human severity override replaces the result of both.
-
-**The acceptance-criterion floor.** A standing finding on a theorem the
-generator emitted as an acceptance-criterion claim is **at minimum
-High**, whatever its class — a disproved criterion theorem IS an unmet
-criterion. It only raises: `breaks-production` stays Critical.
-
-**A human severity override** in the record's `severity-override` is
-the severity of any standing finding the theorem produces, this round
-and every later one, criterion theorems included: Low grades Low.
-
-#### A comment-only remedy
-
-A finding whose whole remedy is rewording a comment or docstring is at
-most Low — *unless* the comment masks an unmet acceptance criterion
-(e.g. asserting a criterion is satisfied when it isn't), when the
-finding IS the unmet criterion and is graded High per the floor.
-
-## Verdict follows from findings
-
-Each verdict line follows mechanically from the findings and unsettled
-theorems tagged to its member:
-
-- Any open Critical, High, or Medium finding → `request_changes`
-  (report `NEEDS_CHANGES`, or `BLOCKED` if the fix is outside the
-  issue's scope and needs human decision).
-- Only Low findings, or none → `approve`.
-- Any **unsettled** theorem → `BLOCKED`, whatever the findings derive,
-  saying so: `- #206 — BLOCKED (1 unsettled)`. A claim nobody settled
-  cannot ground an approval, and `BLOCKED` puts the round to the human
-  rather than a fixer; it posts as `request_changes`.
-
-Every finding is tagged to a line, so an open Critical, High, or Medium
-can never leave the overall verdict APPROVED. This is a hard invariant:
-"APPROVED (1 High)" is malformed by definition, and a pull to approve
-despite one means the grading is wrong — re-grade the finding instead.
+**One verdict is yours to raise.** A `NEEDS_CHANGES` whose fix lies
+outside the issue's scope and needs a human decision is `BLOCKED`, and
+saying so on its line raises the overall line with it; that is a
+judgment, never a derivation. Nothing lowers a verdict `dispose`
+printed.
 
 ## Report back
 
@@ -1185,8 +958,9 @@ per-theorem lines, and your caller reads the review file through
 - the Closing-line corrections section, verbatim, `none` included;
 - the kind of round, as the Review method section names it;
 - whether the round was **resumed** — theorems inherited settled and
-  resume passes taken — and on an in-progress return, which loop exit
-  you took and which theorems or stage are still outstanding.
+  resume passes taken — and on an in-progress return, which theorems or
+  stage are still outstanding, and the loop exit you took in the
+  `generate` stage.
 
 **End every report with one fixed closing line**, of the form
 `Return: <kind> — <next step>`, in exactly one of these kinds:
@@ -1195,9 +969,8 @@ per-theorem lines, and your caller reads the review file through
   `<VERDICT>` is the overall verdict you posted.
 - `Return: in progress: <outstanding theorems or stage> — re-spawn to
   resume`, when you ended without posting and another instance would
-  make progress on what is left; or `Return: in progress: <outstanding
-  theorems or stage> — raise it`, when a pass settled no theorem the
-  log did not already have.
+  make progress on what is left; or `Return: in progress: generate —
+  raise it`, when the resume-pass loop exited in the `generate` stage.
 - `Return: broken call: <script's message verbatim> — raise it`, per
   "When a call fails".
 - `Return: no resolved issue set: <what git-issues-from-branch

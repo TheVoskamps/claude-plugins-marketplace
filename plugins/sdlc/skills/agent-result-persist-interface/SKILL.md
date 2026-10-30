@@ -1,6 +1,6 @@
 ---
 name: agent-result-persist-interface
-description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, and the per-round records and review files it stores. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, the per-round records and review files it stores, and the derivation modes — next, dispose and summary — that derive a round's arm and outstanding work, its dispositions, severities and verdicts, and its review body. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -11,8 +11,9 @@ every worktree: a **round log** of one-line records, one **result file**
 per child holding that child's full report, the round's **records file**
 holding its theorem records, and the round's **review file** holding the
 argued review it composed. Any instance of
-`sdlc:theorem-based-pr-reviewer` derives what is left to do from the log
-and the result files, and from nothing it heard back; the next round
+`sdlc:theorem-based-pr-reviewer` learns what is left to do from the
+script's derivation modes, which read the log and the result files and
+nothing it heard back; the next round
 reads its predecessor's theorem records out of the records file, and the
 end of an orchestrate loop assembles the run's detail out of the review
 files. Beside the rounds, the PR's **agents log** records every agent
@@ -60,8 +61,9 @@ because this plugin ships no permission rules.
 `leave`, `records` and `review` each store a **payload** — a report, a
 round's records, a round's review. The payload is read from the file
 `--from <path>` names, or from **stdin** when no `--from` is passed.
-With both present, `--from` wins and stdin is not read. Every other mode
-refuses `--from`, since it has no payload to store.
+With both present, `--from` wins and stdin is not read. `next` and
+`dispose` read the round's new records from `--from`, per "The
+derivation modes" below; every other mode refuses it.
 
 Pass the payload with `--from`, naming a file you wrote with the Write
 tool. The harness's worktree-isolation guard grades a heredoc on the
@@ -94,7 +96,8 @@ then Write again.
 - A `--from` file that exists but cannot be read is refused, non-zero,
   with a message naming that file.
 - An empty payload is refused either way, except by `records --carry`,
-  whose payload is only the round's new records. With no `--from`, empty stdin
+  whose payload is only the round's new records, and by `next` and
+  `dispose`, which read the same. With no `--from`, empty stdin
   gets `--mode <mode> takes the <noun> on stdin, and nothing arrived`;
   an empty `--from` file gets a message naming that file.
 - The file is read, never moved or removed: it stays where its writer
@@ -166,11 +169,11 @@ all.
 
 A caller does spell the PR's state root
 `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/` in
-prose that points a **human** at the directory: the posted review
-summary names it once and hangs a round-relative path off each theorem
-and finding line, and every file that tells a reader where a round's
-detail is spells the same root. That is a signpost, not a route:
-nothing composes it to open a file with.
+prose that points a **human** at the directory: the review body
+`--mode summary` renders names it once and hangs a round-relative path
+off each theorem and finding line, and every file that tells a reader
+where a round's detail is spells the same root. That is a signpost, not
+a route: nothing composes it to open a file with.
 
 The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
@@ -251,8 +254,9 @@ One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
 round, `print-root` for the PR directory it names, `print-agents` for
 the agent ids it reads across the PR's logs, `list` and `delete`
-for what they do across a repo's PR directories, and `repos` for what
-it lists across the state root.
+for what they do across a repo's PR directories, `repos` for what
+it lists across the state root, and `next`, `dispose` and `summary`,
+under "The derivation modes", for what they derive.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`
   and `--round-type <type>`, both required. One call per round, and
@@ -308,9 +312,10 @@ it lists across the state root.
   good. The rename is what makes the file appear complete or not at
   all, and the `-<pid>` suffix is what keeps two writers from staging
   over each other. A refused report — empty, a `--from` file that
-  could not be read, a `THEOREM:` mismatch or an id refusal below —
-  leaves nothing behind: the staging file is removed before the call exits non-zero,
-  and no `leave` record is appended.
+  could not be read, a result-file path carrying whitespace, a
+  `THEOREM:` mismatch or an id refusal below — leaves nothing behind:
+  the staging file is removed before the call exits non-zero, and no
+  `leave` record is appended.
 
   With `--stage disprove` or `--stage verify`, the report must answer
   the theorem it is filed under. The first line of the report that
@@ -364,10 +369,10 @@ it lists across the state root.
   child's agent id and the instant of its `enter`, which is what its
   deadline runs from. `--stage` and `--agent` are required, `--agent`
   naming the definition whose result file settles the theorem —
-  `theorem-disprover` or `counterexample-verifier`, and for the theorem
-  `list` the generator the last `spawn` record names. "What the reader
-  derives" below states what in flight means. Exits non-zero when the
-  log does not exist, as `print` does.
+  `theorem-generator`, `theorem-disprover` or
+  `counterexample-verifier`. "What the reader derives" below states
+  what in flight means. Exits non-zero when the log does not exist, as
+  `print` does.
 - **`records`** — writes the round's theorem records to the round's
   `records` file. Without `--carry` it stores its payload whole: the
   orchestrator's once, at `--round 0`, for the ruled seed, and the
@@ -440,8 +445,8 @@ it lists across the state root.
   - `--carry` when no round below `--round` of its type holds a records
     file, naming the type, or when a round above it does, naming that
     round;
-  - `--edits` without `--carry`, and `--carry` in any mode but
-    `records`.
+  - `--edits` without `--carry` in any mode but `next` and `dispose`,
+    and `--carry` in any mode but `records`.
 - **`review`** — writes the round's argued review, read as its payload,
   to the round's `review` file, on the same terms as `records`.
 - **`print-records`** — writes to stdout the records of the
@@ -520,10 +525,10 @@ it lists across the state root.
   `mismatch` when it names another, the repository being the file's
   `<host>/<owner>/<repo>` either way. A directory two levels down
   that has no `repo.yml` in it or one level down, and holds
-  `pr<n>/` directories directly, is old-layout state: `old <owner>/<repo> <owner>/<repo>`,
-  its host unknown. It takes **no repository, no `--pr` and no
-  `--round`**, refuses each, moves nothing, and prints nothing for a
-  state root that does not exist.
+  `pr<n>/` directories directly, is old-layout state:
+  `old <owner>/<repo> <owner>/<repo>`, its host unknown. It takes **no
+  repository, no `--pr` and no `--round`**, refuses each, moves nothing,
+  and prints nothing for a state root that does not exist.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
@@ -538,6 +543,193 @@ record was made.
 
 A refusal and a malformed call both exit non-zero, so the status says
 only that the call did nothing. The message says which.
+
+### The derivation modes
+
+`next`, `dispose` and `summary` each read one round, named by `--pr`
+and `--round`, store no record and no file, and create no directory.
+In the line shapes below `\t` is the one tab that separates two fields,
+and in a field `-` stands for no value.
+
+**The round's theorems.** `next` and `dispose` read the round's records
+from three inputs:
+
+- the **carried records** — those `print-records --round <round>` would
+  print, refused as that read refuses, and none when no round below
+  holds records;
+- **`--edits <path>`** — this round's adjustments to the carried
+  records, a retirement or a `severity-override`, one per line in the
+  carry form's edit grammar;
+- **`--from <path>`** — this round's new records, generated and minted,
+  in the record shape, before any `state` is stamped.
+
+Each file is optional and may be empty, and each is refused on the
+carry form's terms, with its messages. The **live list** is the
+theorems that get a disprover this round: every record this round's
+edits do not retire that holds no `state`, or `disproved` or
+`unsettled`. `--full` makes it every record whose `state-detail` is not
+`human-refuted`, retired ones included, except those this round's edits
+retire.
+
+**A report's grammar.** A disprover's or verifier's result file is
+classified on the template its sender's file gives under "Output" —
+`theorem-disprover.md` and `counterexample-verifier.md`. Exactly one
+`VERDICT:` line is required, and then:
+
+| Verdict | Well formed when it carries |
+| --- | --- |
+| `SURVIVED` | a non-empty `CHECKED:` |
+| `DISPROVED` | a non-empty `COUNTEREXAMPLE:`, an `EVIDENCE:` line followed by a `>` quote, a non-empty `CONSEQUENCE:`, and a `CONSEQUENCE-CLASS:` line |
+| `REFUTED` | a non-empty `REASON:` |
+| `STANDS` | a non-empty `CONSEQUENCE:`, and a `CONSEQUENCE-CLASS:` holding one of the four tokens |
+
+Any other report is malformed. A `DISPROVED` report whose class line
+holds no token is well formed with its class underivable. The grammar
+does not check that a quote is verbatim; the verifier does.
+
+- **`next`** — prints the arm the round is in, alone on the first line,
+  then one line per theorem with work left in each stage up to that
+  arm's:
+
+  ```text
+  <stage>\t<theorem-id>\t<outstanding|in-flight|overdue|returned-unsaved>\t<agent-id>\t<enter-time>
+  ```
+
+  The last two fields are empty for `outstanding`. It takes
+  `--head-sha <sha>`, `--deadline-minutes <n>`, `--edits`, `--from` and
+  `--full`, all optional.
+
+  | Token | The log shows |
+  | --- | --- |
+  | `no-log` | no round log; nothing else is read or printed |
+  | `moved-head` | an `anchor` naming a head other than `--head-sha`, only when `--head-sha` is given; nothing else is printed |
+  | `generate` | `list` not settled in the `generate` stage |
+  | `disprove` | a live theorem neither settled nor in flight in the `disprove` stage, or one in flight there |
+  | `verify` | no live theorem outstanding in the `disprove` stage, and a well-formed `DISPROVED` report whose verifier is unsettled |
+  | `dispose` | no theorem outstanding in the `verify` stage |
+
+  A stage's members are `list` for `generate`, the live list for
+  `disprove`, and for `verify` the live theorems whose disprover report
+  is a well-formed `DISPROVED` one; a malformed one earns no verifier.
+  Outstanding and in flight are as "What the reader derives" below
+  defines them. An outstanding theorem is printed `outstanding`, and a
+  theorem with a child in flight is printed with its child's state and
+  never as `outstanding`, member or not:
+
+  - **`returned-unsaved`** — a `return` record in the stage names the
+    child. It returned without saving and never will, so this is work at
+    once, whatever the deadline;
+  - **`overdue`** — the child, with no `return`, has an `enter` at least
+    `--deadline-minutes` before the clock at the time of the call.
+    Without `--deadline-minutes` nothing is overdue;
+  - **`in-flight`** — any other child in flight.
+- **`dispose`** — prints one row per live theorem, in id order, then one
+  verdict line per member of `--issues`, in the order given, and per
+  other issue the records tag, in first-tagged order, then the overall
+  verdict:
+
+  ```text
+  <theorem-id>\t<disposition>\t<class>\t<severity>\t<state>\t<state-detail>
+  verdict\t<issue-number>\t<verdict>
+  verdict\toverall\t<verdict>
+  ```
+
+  `<issue-number>` is the issue without its `#`. `--issues <issues>`,
+  required, is the issue set under review, its members separated by
+  spaces or commas, each `N` or `#N`. It also takes `--edits`,
+  `--from`, `--full` and `--loop-exited`, all optional.
+  `--loop-exited` says the resume-pass loop has exited for the round.
+  Without it, a live theorem with no result file for its stage gets no
+  row: the mode prints nothing on stdout, names each such theorem and
+  its stage on stderr, and exits 3. With it, such a theorem takes its
+  stage's no-verdict row.
+
+  | Disprover | Verifier | `<disposition>` |
+  | --- | --- | --- |
+  | `SURVIVED` | not spawned | `verified-survived` |
+  | `DISPROVED` | `REFUTED` | `verified-refuted` |
+  | `DISPROVED` | `STANDS` | `finding`, class from the verifier |
+  | `DISPROVED` | malformed | `finding-verifier-malformed`, class from the disprover's proposal |
+  | `DISPROVED` | no result file, with `--loop-exited` | `disproved-unverified` — no finding, no severity |
+  | malformed | not spawned | `unsettled-disprover-malformed`, no severity |
+  | no result file, with `--loop-exited` | not spawned | `unsettled-no-verdict`, no severity |
+
+  "Could not be settled" and "unsettled" name the two `unsettled-` rows.
+  `<class>` and `<severity>` are `-` on every row but a finding's. The
+  state each row stamps:
+
+  | Rows | `<state>` | `<state-detail>` |
+  | --- | --- | --- |
+  | the two `verified-` rows | `retired`, its `settled-at` this round's head SHA | `survived` or `disproved-but-refuted` |
+  | the two `finding` rows | `disproved` | `finding <n>, <severity>`, with `, class-underivable` after it on such a finding |
+  | `disproved-unverified` | `disproved` | `unverified` |
+  | the two `unsettled-` rows | `unsettled` | `-`, the field emptied |
+
+  Findings are numbered from 1 by severity, highest first, then by id. A
+  theorem that got no disprover this round has no row and keeps the
+  state and head SHA it had; a round whose log holds no `spawn` and no
+  `enter` record — the empty-delta round — gives no theorem a row.
+
+  **The severity** is the class table's, or High where the class is
+  underivable, and a `severity-override` on the record,
+  case-insensitively one of the four severities, replaces it. Nothing
+  else adjusts it. An override that is none of the four is refused,
+  exit 2, on a theorem whose finding it would grade.
+
+  | Consequence class | Severity |
+  | --- | --- |
+  | `breaks-production` | Critical |
+  | `behavior-broken-or-criterion-unmet` | High |
+  | `defect-no-shipped-breakage` | Medium |
+  | `optional-polish` | Low |
+
+  The class is **underivable** — `class-underivable` in `<class>` — when
+  the verifier's report is malformed and the disprover's proposal is not
+  a token either.
+
+  **The verdicts** are derived per issue, over the findings and
+  unsettled theorems tagged to it, and overall over all of them: any
+  unsettled theorem → `BLOCKED`, whatever the findings; else any
+  Critical, High or Medium finding → `NEEDS_CHANGES`; else, with only
+  Low findings or none, `APPROVED`. A theorem with a row contributes by
+  its row; any other by the state it carries — `unsettled` as an
+  unsettled theorem, and `disproved` with a `finding <n>, <severity>`
+  state-detail as a finding at that severity, or at its override.
+- **`summary`** — renders the review body to post from the round's
+  `records` and `review` files, and prints it as Markdown and nothing
+  else. It takes no flag but the two identifying ones, and exits
+  non-zero, printing nothing, when the round lacks either file or the
+  review lacks a section it copies. The body is an index into the round's state
+  directory, never a copy of the argued review. In order:
+
+  1. the review's `## Verdicts` section, copied through unchanged;
+  2. its `## Review method` section, copied through unchanged;
+  3. `## Theorems`, naming the state root once as
+     `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
+     then one line per recorded theorem in id order —
+     `- <id> — <state>, <state-detail> — <what changed> — <paths>` —
+     where what changed is `new` for a record the carried records lack,
+     `unchanged` when its state, state-detail and `settled-at` are as
+     they held them, and otherwise `was <state>, <state-detail>` as they
+     held it, `unattacked` standing for no state;
+  4. `## Findings`, one line per finding in number order —
+     `- <n> — <severity> — from <id>, <issues> — <paths>` — or `none`;
+  5. its `## Overall verdict` section, copied through unchanged;
+  6. its `## Closing-line corrections` section, copied through
+     unchanged.
+
+  A review section runs from its `## <name>` heading to the next
+  level-two heading outside a code fence. `, <state-detail>` is left
+  out where a theorem has none. Every `<paths>` is the backquoted paths,
+  relative to that root, of each file holding the line's detail: a
+  finding's argued text is in its round's `review` file, and a child's
+  report in `round<n>/<theorem>-<agent>`, this round's when it has one,
+  else the highest round below holding one — so a carried-forward
+  retired theorem points at the older round its detail is in. A
+  theorem with no report anywhere points at this round's `records`. No
+  argued text, no quoted counterexample and no record field but a
+  theorem's state and state-detail and a finding's `issues` appear in
+  the output.
 
 ## The line grammar
 
@@ -610,38 +802,34 @@ verdicts from two trees must never be mixed.
 
 **Everything that changes as the round runs is derived on each read,
 never stored.** A stored list is a line that must be revised to stay
-true; a derived one cannot go stale.
+true; a derived one cannot go stale. The script is the reader: `next`
+and `dispose`, under "The derivation modes", apply the rules below, and
+a caller asks them rather than deriving anything off the log itself.
 
 **A theorem is settled in a stage when its child wrote `leave`, or when
-its result file exists** — never when the caller heard back. The two
-are almost always the same fact, and the second is what covers a child
-that wrote its report and died before the record landed:
+its result file exists** — never when the caller heard back: a `return`
+record settles nothing, and a hand-back is never read. The two are
+almost always the same fact, and the second is what covers a child that
+wrote its report and died before the record landed.
 
-```bash
-awk '$1=="spawn"  && $3==stage {s[$2]=1}
-     $1=="leave"  && $3==stage {delete s[$2]}
-     $1=="result" && $3==agent {delete s[$2]}
-     END{for(t in s) print t}' stage=disprove agent=theorem-disprover
-```
+The result file is the one under the stage's agent, `theorem-generator`,
+`theorem-disprover` or `counterexample-verifier`, whatever effort a
+`spawn` record gave it.
 
-What that leaves is the stage's **outstanding** set, over the theorems
-the log was told about. A caller holding a list of its own — the round's
-live list, say — asks the question the other way round and subtracts the
-settled and in-flight sets from that list, which is what puts a theorem
-no instance ever spawned back in play.
+A stage's **outstanding** theorems are its members, over the live list
+rather than over the theorems the log was told about, less the settled
+and the in-flight ones, which is what puts a theorem no instance ever
+spawned back in play.
 
-The verdict itself
-is in the result file, which the `leave` line names and the `result`
-line names again — read the file, do not infer the verdict from the
-log.
+The verdict itself is in the result file, which the `leave` line names
+and the `result` line names again, and is never inferred from the log.
 
 **Whether an outstanding theorem has a child in flight is a second
 question, and it is keyed on the child rather than on the theorem.** A
 theorem is in flight when its **last** `enter` in that stage carries an
 agent id that no `leave` and no `stopped` of that theorem carries, and
 no result file for it under `--agent` exists. `--mode print-in-flight`
-is that derivation, and the only one: ask it rather than reading the
-answer off the log yourself. A `stopped` is matched to an `enter` by
+and `--mode next` apply that derivation. A `stopped` is matched to an `enter` by
 agent id, never by where it lands, so an original child's `stopped`
 that lands after its replacement's `enter` writes off the original
 alone and leaves the replacement in flight.
@@ -660,19 +848,15 @@ what names the stopped child's worktree for cleanup.
 
 **A duplicate `leave` is a diagnostic, not a conflict, and the later
 one wins.** A child written off as lost can report anyway, leaving one
-theorem with two `leave` records. When the replacement carried the
-same `--agent` name as the child it replaced — which every stage but
-`generate` guarantees, there being one definition per stage — the two
-share a result-file name and there is one file, the later child's,
-since its rename overwrote the earlier report. So the theorem's
-verdict is the later child's by construction: it is the verdict in the
-one file there is to read, and no reader has a tie to break. A
-replacement carrying a different `--agent` name writes a file of its
-own instead, leaving the theorem two, and the reader picks between
-them by the log rather than by the directory. Both records stay in the
-log, because the pair is evidence that a child believed dead was
-alive, and the reader reports it as such. No line is revised, so
-concurrent appends cannot collide.
+theorem with two `leave` records. There being one definition per
+stage, the replacement carries the same `--agent` name as the child it
+replaced, so the two share a result-file name and there is one file,
+the later child's, since its rename overwrote the earlier report. So
+the theorem's verdict is the later child's by construction: it is the
+verdict in the one file there is to read, and no reader has a tie to
+break. Both records stay in the log, because the pair is evidence that
+a child believed dead was alive, and the reader reports it as such. No
+line is revised, so concurrent appends cannot collide.
 
 ## A child's hand-back
 

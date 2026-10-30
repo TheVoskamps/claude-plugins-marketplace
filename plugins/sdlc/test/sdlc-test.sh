@@ -5,7 +5,8 @@
 # round-0 seed write, the carry form that builds a later round's records
 # file from the carried round, an edits file and the new records, each
 # refusal the carry form makes, print-records with and without a --round
-# bound, the path leave prints, stopped's --agent-id and
+# bound, the path leave prints and its refusal of one carrying
+# whitespace, stopped's --agent-id and
 # print-in-flight's matching of a stopped to its child, the agent
 # record and the agent ids print-agents reads back, a generator's
 # leave refused for ids that do not continue the carried records, the
@@ -475,6 +476,17 @@ printf 'VERDICT: SURVIVED\nTHEOREM: T1\nCHECKED: x\n' >"$CASE/report"
 as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/report"
 check "$RC:$OUT" "0:$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-disprover" \
   "leave: prints the result file's path"
+
+new_case leave-spaced-state-root
+export XDG_STATE_HOME="$CASE/state root"
+as_child G --mode enter --round 1 --theorem list --stage generate
+printf 'no new theorems\n' >"$CASE/report"
+as_child G --mode leave --round 1 --theorem list --stage generate --agent theorem-generator --from "$CASE/report"
+check "$RC:$OUT" "2:" "leave: a result path carrying whitespace is refused"
+check_contains "$ERR" "carries whitespace" "leave: the refusal names the whitespace"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/list-theorem-generator" ] && echo written || echo none)" "none" \
+  "leave: a refused leave writes no result file"
+check "$(round_log 1 | grep -c '^leave')" "0" "leave: a refused leave appends no leave record"
 
 # --- the agents a PR's state names ------------------------------------------
 
