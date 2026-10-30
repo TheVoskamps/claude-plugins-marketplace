@@ -25,7 +25,7 @@
 #
 #   plugins/sdlc/bin/test/sdlc-agent-result-persist-test.sh
 #
-# Needs bash, awk, mktemp, git and the POSIX utilities. Reaches no network.
+# Reaches no network.
 
 set -uo pipefail
 
