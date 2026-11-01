@@ -69,15 +69,20 @@ settings do with them. The
 half: it tunes and personalizes that configuration.
 
 **The Bash-to-file-tool redirect is graded on the command's shape, not
-on what the file holds or what the pipe does.** With
-`redirect-bash-file-work` turned on in `~/.config/guardrails/config.yml`,
-a Bash command that reads, edits in place or writes a file the way the
-Read, Edit or Write tool does is denied and sent to that tool. The
-grading accepts these consequences rather than carving exceptions for
-them:
+on what the file holds or what the pipe does.** Unless
+`redirect-bash-file-work` in `~/.config/guardrails/config.yml` is set
+to `off`, a Bash command that reads, edits in place or writes a file the
+way the Read, Edit or Write tool does is denied and sent to that tool —
+in every linked worktree by default, and in every session under
+`always`. The grading accepts these consequences rather than carving
+exceptions for them:
 
 - `sed -i` on a file that is not valid UTF-8 is denied and sent to Edit,
   although Edit refuses such a file.
+- An `awk` whose program only selects lines is denied and sent to Read,
+  while one that prints a field or sets a separator is not, although
+  both read the file: Read can reproduce the first's output and not the
+  second's.
 - A covered read is denied only when its output is not consumed by a
   command outside the reader set, so piping it into a filter that
   changes nothing (`cat f | tr a a`) passes.
