@@ -17,7 +17,7 @@ import (
 // which is on there by default. A test that needs another config, or a home of
 // another shape, installs its own with t.Setenv.
 func TestMain(m *testing.M) {
-	os.Exit(runWithEmptyHome(m))
+	os.Exit(runWithFixtureHome(m))
 }
 
 // goHomeEnv are the Go toolchain locations that default to paths under the
@@ -25,9 +25,9 @@ func TestMain(m *testing.M) {
 // so a test that builds the gate keeps its build and module caches.
 var goHomeEnv = []string{"GOCACHE", "GOMODCACHE", "GOPATH"}
 
-// runWithEmptyHome is TestMain's body, split out so the fixture home is
+// runWithFixtureHome is TestMain's body, split out so the fixture home is
 // removed after the run.
-func runWithEmptyHome(m *testing.M) int {
+func runWithFixtureHome(m *testing.M) int {
 	out, err := exec.Command("go", append([]string{"env"}, goHomeEnv...)...).Output()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "go env:", err)
