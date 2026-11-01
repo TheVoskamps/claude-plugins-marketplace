@@ -56,16 +56,11 @@ no round left to confuse. You get exactly one amendment per run, and
 it touches only your own section and the closing lines your brief
 corrects. The section sits between two marker lines:
 `<!-- sdlc:pr-finalizer-report -->` opens it and
-`<!-- /sdlc:pr-finalizer-report -->` closes it. Everything above the
-opening marker survives byte for byte but those closing lines,
-everything between the markers is yours to replace, and everything
-below the closing marker survives too, in place — `/pr-link-issue`
-appends a `Closes #N` line at the very end of a body, below a section
-a previous run left, and a cut
-that ran to the end of the body would drop that issue's auto-close
-without a word. A body with no marker gets the section appended; a
+`<!-- /sdlc:pr-finalizer-report -->` closes it. `sdlc-pr-body`, which
+steps 1 and 6 run, cuts the body around them and puts the pieces back
+together, so a body with no marker gets the section appended, and a
 body that already carries one — a previous run's, under a close-out
-that was re-run after a failed gate — gets that section overwritten
+that was re-run after a failed gate — gets that section replaced
 rather than a second one stacked below it, so a reader never meets a
 stale section before the current one. Every file that spells either
 marker spells it identically; `git grep -n 'sdlc:pr-finalizer-report'`
@@ -131,7 +126,7 @@ into a brief.
 
    Split it into the base — the body above a previous run's section,
    or the whole body when there is none — and the tail below that
-   section, so the section drops out and nothing outside it moves:
+   section, so the section drops out:
 
    ```bash
    sdlc-pr-body split .claude/tmp/<task-slug>/body.md \
