@@ -375,7 +375,8 @@ That log is what makes a **read** verdict distinguishable from an
 inferred one: a procedure that requires a verdict per child, with no
 record of which children finished, will have one supplied. State that a
 verdict's only admissible source is the child's own result file, and
-give the disposition table a row for the child that has not reported.
+have whatever turns verdicts into dispositions give the child that has
+not reported a disposition of its own.
 
 **The log is append-only, and the procedure has to say so.**
 Extend it one record per line with an append, and revise no line

@@ -26,9 +26,8 @@ This path **computes** no `--generator-effort`; the reviewer picks the
 tier itself (see the `sdlc:theorem-based-pr-reviewer` agent → "Pick
 the generator tier"). A user who wants a specific tier for a one-off
 review passes `--generator-effort <tier>` to this skill and it goes
-through unchanged; a user who wants the retired theorems re-checked
-passes `--full` the same way. Both are human overrides, and neither is
-something this skill computes.
+through unchanged, and `--full` goes through the same way. Both are
+human overrides, and neither is something this skill computes.
 
 ## Process
 
@@ -116,15 +115,19 @@ something this skill computes.
    what tells them apart, and on any kind but a posted review, do not
    present the partial text as a review outcome.
 
+   - `Return: posted review <VERDICT> — act on the verdict`: the round
+     finished and its review is on the PR; relay it per step 4, with
+     `<VERDICT>` as the overall verdict.
    - `Return: in progress: … — re-spawn to resume`: tell the user the
      round did not finish, say no review was posted, and offer to
      re-spawn the reviewer on the same PR — that re-spawn resumes the
      stalled round from its round log rather than starting it over, so
      the theorems already settled stay settled.
-   - `Return: in progress: … — raise it`: tell the user the same, and
-     relay the reviewer's line verbatim with no offer, since this exit
-     means the reviewer judged that another pass would settle nothing
-     new.
+   - `Return: in progress: generate — raise it`: tell the user the same,
+     and relay the reviewer's line verbatim with no offer, since this
+     exit means the reviewer's resume passes ended — on no progress or
+     at its pass limit — before the round had a theorem list to review
+     against.
    - `Return: broken call: … — raise it`: quote the script's message
      verbatim to the user with no offer, for a different reason: no
      fan-out ran, and a re-spawn composes the same call again.

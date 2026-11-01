@@ -320,11 +320,9 @@ Further rules govern **findings** wherever you pass them onward — into
 an `issue-fixer` brief or to the human:
 
 - **Never pre-set or soften a severity.** A severity is transcribed
-  mechanically from a consequence class one of the review agents
-  assigned, by the rules in the `sdlc:theorem-based-pr-reviewer` agent
-  → "Findings by severity"; re-tiering a finding on its way into a brief
-  substitutes your judgment for that derivation, and the fixer gives
-  back the tier you handed it.
+  by the review's `dispose` and is never re-tiered: re-tiering a finding
+  on its way into a brief substitutes your judgment for that
+  transcription, and the fixer gives back the tier you handed it.
 - **Supply consequence, not a consistency checklist.** The question is
   whether being wrong changes what someone does. A doc claim that
   teaches a wrong security boundary qualifies; a row-count footnote
@@ -777,11 +775,8 @@ given more effort than the diff has stakes for spends it manufacturing
 immaterial claims, each of which drives a fix round when disproved. An
 override is something to argue for rather than a default to reach past.
 
-`--full` is the other override, and it is the human's or yours: it
-re-disproves every recorded theorem, retired ones included and only a
-human-rejected one excepted. Say in the round's report which tier ran,
-whether the rubric or an override picked it, and whether the round was
-a `--full` one.
+Say in the round's report which tier ran and whether the rubric or an
+override picked it.
 
 ### Handling review findings — the fix loop
 
@@ -1018,8 +1013,8 @@ Review adjustments for round <N>:
 
 Each adjustment binds the rest of the PR's rounds, so the human is
 never asked to repeat one. A rejection retires the theorem for good:
-no later round re-attacks it, `--full` included, and a human who
-changes their mind reports a missed defect instead. A severity override
+no later round re-attacks it, and a human who changes their mind
+reports a missed defect instead. A severity override
 is written on the theorem's record and grades every standing finding
 that theorem produces from then on, until a later override on the same
 theorem replaces it.
