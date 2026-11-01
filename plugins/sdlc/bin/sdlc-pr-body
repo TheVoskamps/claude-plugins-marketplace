@@ -24,8 +24,9 @@
 #
 # Exit statuses:
 #   0  the output files are written
-#   1  a command the script ran failed, such as reading an input that is
-#      not there; its own error is on stderr above the script's line
+#   1  no file is at split's <body>; or a command the script ran failed,
+#      such as join reading an input that is not there, and its own error
+#      is on stderr above the script's line
 #   2  a usage error; nothing was read or written
 set -uo pipefail
 

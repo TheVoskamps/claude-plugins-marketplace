@@ -18,8 +18,9 @@
 #
 # Exit statuses:
 #   0  <dest> holds the range
-#   1  a command the script ran failed, such as reading a <src> that is
-#      not there; its own error is on stderr above the script's line
+#   1  no file is at <src>; or a command the script ran failed, such as
+#      writing a <dest> it cannot create, and its own error is on stderr
+#      above the script's line
 #   2  a usage error; nothing was read or written
 #   3  <src> holds fewer than <end> lines; nothing was written
 set -uo pipefail
