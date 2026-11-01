@@ -305,10 +305,10 @@ func awkSelectsLines(args []string) bool {
 }
 
 // awkLineSelector reports whether an awk program is a pattern alone, or a
-// pattern followed by `{print}` or `{print $0}`, either one optionally ending
-// in `;`. The pattern is a selector, or a range of two selectors joined by a
-// comma; a selector is a comparison of NR with a decimal number, or a bare
-// /re/.
+// pattern followed by `{print}` or `{print $0}`, either one optionally with a
+// `;` before its closing brace. The pattern is a selector, or a range of two
+// selectors joined by a comma; a selector is a comparison of NR with a decimal
+// number, or a bare /re/.
 func awkLineSelector(prog string) bool {
 	rest, ok := awkSelector(strings.TrimSpace(prog))
 	if !ok {
@@ -409,7 +409,9 @@ func fileWorkInPlace(prog string, args []string) bool {
 // awkInPlace reports whether awk's options, which end at the first argument
 // that is not one, load gawk's inplace extension: `-i inplace`, `-iinplace`,
 // `--include inplace` or `--include=inplace`, the library also spelled
-// `inplace.awk`.
+// `inplace.awk`. The value of a value-taking option, such as the program text
+// `-e` and `--source` carry, is skipped rather than read as the end of the
+// options.
 func awkInPlace(args []string) bool {
 	inplace := func(lib string) bool { return lib == "inplace" || lib == "inplace.awk" }
 	for i := 0; i < len(args); i++ {
@@ -431,11 +433,19 @@ func awkInPlace(args []string) bool {
 			if inplace(a[2:]) {
 				return true
 			}
-		case awkOperandValueFlags[a]:
+		case awkOperandValueFlags[a] || awkInPlaceValueFlags[a]:
 			i++
 		}
 	}
 	return false
+}
+
+// awkInPlaceValueFlags are the gawk options outside awkOperandValueFlags
+// (readonly_util.go) that take their value as the next argument: `-e` and
+// `--source` the program text, `-l` and `--load` an extension.
+var awkInPlaceValueFlags = map[string]bool{
+	"-e": true, "--source": true,
+	"-l": true, "--load": true,
 }
 
 // perlInPlace reports whether perl's switches, which end at the first argument
