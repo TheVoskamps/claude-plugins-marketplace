@@ -32,7 +32,7 @@ restate the fact.
 | What ends the monitor loop | `agents/pr-monitor.md` |
 | Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
-| How the finalizer's section is found and replaced on a re-run | `agents/pr-finalizer.md` |
+| How a PR body is cut around the finalizer's section and put back together, so a re-run replaces the section | `bin/sdlc-pr-body` |
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
 | In what order the review detail is assembled, how it is chunked under GitHub's comment cap, and what a piece too large for one comment becomes | `bin/sdlc-pr-post-theorem-records` |
 | How the generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `agents/theorem-generator.md` |
@@ -1132,6 +1132,8 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, and one for a body with neither section; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
 | `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — review state through `sdlc-agent-result-persist`, worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
+| `bin/sdlc-pr-body` | `split` cuts a PR body file into the base above the finalizer's section and the tail below it, dropping the section; `join` writes a base, a section and a tail into one body file; reads and writes only the files it is given | its own header comment |
+| `bin/sdlc-extract-lines` | Copies a line range of one file, verbatim, into another, refusing a range the source does not reach with nothing written; reads and writes only the files it is given | its own header comment |
 
 `sdlc-readiness-check` is a script because the grading it replaces was
 an injection path: a `### Mechanical` bullet used to name the command
@@ -1183,6 +1185,28 @@ read a fake clock, so the budget cases run without waiting; reading wall
 time through `date +%s` is what makes that stub possible without a hook
 in the script.
 
+`sdlc-pr-body` and `sdlc-extract-lines` are scripts because the
+permission gate's file-work redirect, on by default in every linked
+worktree an agent runs in, denies the Bash spellings they replace: a
+`cat` of several files redirected into one, which assembled the
+finalizer's body, and a `sed -n '<start>,<end>p'` redirected into a
+file, which lifted a function body out of a script for a test harness,
+are each a covered read whose output no command consumes. Neither has a
+file-tool equivalent — Write cannot take its text from other files —
+so each shape became a program that reads and writes the files it is
+named, under a contract its header states. `test/sdlc-pr-body-test.sh`
+drives the body script against bodies of its own: a body with no
+section, with a section and a tail, with an opening marker and no
+closing one, with CRLF line endings, the base's trailing blank lines
+dropped and its inner ones kept, a split and join re-run reproducing
+the body byte for byte, the usage errors and a missing input.
+`test/sdlc-extract-lines-test.sh` drives the extractor against a source
+of its own: a range, a single line, the whole file, a destination
+replaced, a last line with no newline, a range past the end refused
+with nothing written, the usage errors and a missing source. Each
+needs only bash, `mktemp` and the POSIX utilities, and reaches no
+network.
+
 The PR-read scripts and the detail poster share one sourced helper,
 `bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
 canonical PR reference they take, makes the one `gh pr view` read the
@@ -1207,8 +1231,9 @@ executable's concern.
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,
 never the tool's own status — the PR-read scripts, the detail poster,
-the readiness check, the PR monitor and the cleanup exit 1, the persist
-script and the time report route it through their existing exit 2 — so
+the readiness check, the PR monitor, the cleanup, the body script and
+the line extractor exit 1, the persist script and the time report route
+it through their existing exit 2 — so
 a caller branching on an exit sees only the statuses each contract
 documents.
 

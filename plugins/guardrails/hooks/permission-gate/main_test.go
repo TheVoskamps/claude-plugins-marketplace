@@ -9,12 +9,15 @@ import (
 	"testing"
 )
 
-// TestMain runs the package's tests against an empty home, so no test reads
+// TestMain runs the package's tests against a fixture home, so no test reads
 // the driving machine's own ~/.config/guardrails/config.yml or writes its
-// evolution log. A test that needs a config, or a home of another shape,
-// installs its own with t.Setenv.
+// evolution log. The fixture's config sets nothing but
+// `redirect-bash-file-work: off`, so a test of another track run from a linked
+// worktree gets that track's verdict rather than the file-work redirect's,
+// which is on there by default. A test that needs another config, or a home of
+// another shape, installs its own with t.Setenv.
 func TestMain(m *testing.M) {
-	os.Exit(runWithEmptyHome(m))
+	os.Exit(runWithFixtureHome(m))
 }
 
 // goHomeEnv are the Go toolchain locations that default to paths under the
@@ -22,9 +25,9 @@ func TestMain(m *testing.M) {
 // so a test that builds the gate keeps its build and module caches.
 var goHomeEnv = []string{"GOCACHE", "GOMODCACHE", "GOPATH"}
 
-// runWithEmptyHome is TestMain's body, split out so the fixture home is
+// runWithFixtureHome is TestMain's body, split out so the fixture home is
 // removed after the run.
-func runWithEmptyHome(m *testing.M) int {
+func runWithFixtureHome(m *testing.M) int {
 	out, err := exec.Command("go", append([]string{"env"}, goHomeEnv...)...).Output()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "go env:", err)
@@ -46,7 +49,14 @@ func runWithEmptyHome(m *testing.M) int {
 	}
 	defer os.RemoveAll(dir)
 	home := filepath.Join(dir, "home")
-	if err := os.Mkdir(home, 0o755); err != nil {
+	configDir := filepath.Join(home, operatorCarveOutConfigDirName, operatorCarveOutPluginDir)
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	config := fmt.Sprintf("schema-version: %d\n%s: %s\n", operatorCarveOutSchemaVersion, redirectBashFileWorkKey,
+		fileWorkOff)
+	if err := os.WriteFile(filepath.Join(configDir, operatorCarveOutFileName), []byte(config), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}

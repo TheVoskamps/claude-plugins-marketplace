@@ -56,16 +56,11 @@ no round left to confuse. You get exactly one amendment per run, and
 it touches only your own section and the closing lines your brief
 corrects. The section sits between two marker lines:
 `<!-- sdlc:pr-finalizer-report -->` opens it and
-`<!-- /sdlc:pr-finalizer-report -->` closes it. Everything above the
-opening marker survives byte for byte but those closing lines,
-everything between the markers is yours to replace, and everything
-below the closing marker survives too, in place — `/pr-link-issue`
-appends a `Closes #N` line at the very end of a body, below a section
-a previous run left, and a cut
-that ran to the end of the body would drop that issue's auto-close
-without a word. A body with no marker gets the section appended; a
+`<!-- /sdlc:pr-finalizer-report -->` closes it. `sdlc-pr-body`, which
+steps 1 and 6 run, cuts the body around them and puts the pieces back
+together, so a body with no marker gets the section appended, and a
 body that already carries one — a previous run's, under a close-out
-that was re-run after a failed gate — gets that section overwritten
+that was re-run after a failed gate — gets that section replaced
 rather than a second one stacked below it, so a reader never meets a
 stale section before the current one. Every file that spells either
 marker spells it identically; `git grep -n 'sdlc:pr-finalizer-report'`
@@ -129,33 +124,16 @@ into a brief.
 
    with its output saved to `.claude/tmp/<task-slug>/body.md`.
 
-   The base is everything above the first line that is the opening
-   marker `<!-- sdlc:pr-finalizer-report -->`, or the whole body when
-   no line is, less any blank lines at its end. The tail is everything
-   below the first closing marker `<!-- /sdlc:pr-finalizer-report -->`
-   that follows it, kept verbatim, and it is empty when there is no
-   such line. Cut both by line, so a previous run's section — the
-   markers and everything between them — drops out and nothing
-   outside it moves; dropping the base's trailing blank lines is what
-   makes a re-run reproduce the previous run's body byte for byte
-   instead of widening the gap above the marker each time. A body
-   edited in GitHub's web UI comes back with CRLF line endings, and an
-   exact-match test on the marker line never fires on one, so each
-   marker is matched with an optional `\r` and a blank line is one
-   that is empty or holds only `\r`; a blank line that is kept keeps
-   its own bytes:
+   Split it into the base — the body above a previous run's section,
+   or the whole body when there is none — and the tail below that
+   section, so the section drops out:
 
    ```bash
-   : > .claude/tmp/<task-slug>/tail.md
-   awk -v tail=.claude/tmp/<task-slug>/tail.md '
-     part == 0 && /^<!-- sdlc:pr-finalizer-report -->\r?$/ { part = 1; next }
-     part == 1 && /^<!-- \/sdlc:pr-finalizer-report -->\r?$/ { part = 2; next }
-     part == 1 { next }
-     part == 2 { print > tail; next }
-     /^\r?$/ { blanks = blanks $0 "\n"; next }
-     { printf "%s", blanks; blanks = ""; print }' \
-     .claude/tmp/<task-slug>/body.md > .claude/tmp/<task-slug>/base.md
+   sdlc-pr-body split .claude/tmp/<task-slug>/body.md \
+     .claude/tmp/<task-slug>/base.md .claude/tmp/<task-slug>/tail.md
    ```
+
+   On a non-zero exit, stop and report it, quoting its stderr.
 
    Keep `body.md` as well: it is what you restore if the amendment
    fails in step 8.
@@ -307,9 +285,13 @@ into a brief.
    ```
 
    ```bash
-   cat .claude/tmp/<task-slug>/base.md .claude/tmp/<task-slug>/section.md \
-     .claude/tmp/<task-slug>/tail.md > .claude/tmp/<task-slug>/body-final.md
+   sdlc-pr-body join .claude/tmp/<task-slug>/base.md \
+     .claude/tmp/<task-slug>/section.md .claude/tmp/<task-slug>/tail.md \
+     .claude/tmp/<task-slug>/body-final.md
    ```
+
+   On a non-zero exit, stop and report it, quoting its stderr: the body
+   is still the one step 1 read.
 
 7. **Amend the body** by path, so the shell never reads the section's
    own backticks and `$`:

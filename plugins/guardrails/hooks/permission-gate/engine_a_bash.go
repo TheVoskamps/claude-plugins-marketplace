@@ -102,7 +102,7 @@ type cwdCtx struct {
 // the arm below) and an unhandled AST construct yields a DEFER carrying that as
 // its analysis (the gate cannot prove the line safe), never allow.
 //
-// When the operator turned it on, the file-work redirect (classify_file_work.go)
+// When its mode fires for the event, the file-work redirect (classify_file_work.go)
 // grades each simple command too, and its deny ranks below every other deny:
 // a line any other rule denies anywhere reports that rule's deny instead.
 func classifyBash(command string, ev *Event) Decision {

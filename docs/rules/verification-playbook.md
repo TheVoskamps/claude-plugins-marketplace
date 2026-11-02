@@ -69,7 +69,7 @@ cannot get you there: `trap "" TERM` only survives to the SIGKILL rung,
 and nothing in userspace survives SIGKILL.
 
 Extract the real function bodies verbatim
-(`sed -n '<start>,<end>p' src.sh > reap.inc`), source them in a
+(`sdlc-extract-lines <start> <end> src.sh reap.inc`), source them in a
 harness, shorten the tick constants, and stub `kill` as a shell
 function so the process appears immortal:
 

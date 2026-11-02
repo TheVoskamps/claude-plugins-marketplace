@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# sdlc-extract-lines -- copy lines <start> through <end> of a file,
+# verbatim, into another file, such as a function body lifted out of a
+# script to source in a test harness. Reads and writes only the files it
+# is given. Runs under the bash 3.2 macOS ships.
+#
+# Usage: sdlc-extract-lines <start> <end> <src> <dest>
+#
+#   <start>  the first line to copy, from 1
+#   <end>    the last line to copy, no lower than <start>
+#   <src>    the file to copy from
+#   <dest>   the file to write, replaced when it exists
+#
+# A <src> holding fewer than <end> lines is refused, with nothing
+# written: a range cut short would hand the caller less than it asked
+# for with no sign of it.
+#
+# Exit statuses:
+#   0  <dest> holds the range
+#   1  no file is at <src>; or a command the script ran failed, such as
+#      writing a <dest> it cannot create, and its own error is on stderr
+#      above the script's line
+#   2  a usage error; nothing was read or written
+#   3  <src> holds fewer than <end> lines; nothing was written
+set -uo pipefail
+
+PROGRAM=${0##*/}
+
+# fail <status> <message> -- print the message on stderr, prefixed with
+# the program name, and exit with the status.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command. `set -E` carries the trap into command
+# substitutions.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+usage="usage: $PROGRAM <start> <end> <src> <dest>"
+[ "$#" -eq 4 ] || fail 2 "$PROGRAM takes 4 arguments, not $#. $usage"
+start=$1
+end=$2
+src=$3
+dest=$4
+for n in "$start" "$end"; do
+  case "$n" in
+    '' | *[!0-9]*) fail 2 "not a line number: $n. $usage" ;;
+  esac
+done
+[ "$start" -ge 1 ] || fail 2 "<start> must be at least 1. $usage"
+[ "$end" -ge "$start" ] || fail 2 "<end> ($end) is below <start> ($start). $usage"
+
+[ -f "$src" ] || fail 1 "no file at $src"
+lines=$(awk 'END { print NR }' "$src")
+[ "$lines" -ge "$end" ] || fail 3 "$src holds $lines lines, fewer than <end> ($end); nothing was written"
+
+sed -n "${start},${end}p" "$src" >"$dest"

@@ -1099,7 +1099,10 @@ func listedCarveOutPaths(home string) []string {
 // every Bash spelling that grades it, from the repo root and from a linked
 // worktree alike, and the allow reason names the listing. Each spelling runs
 // first with no config file, which must not allow — the negative control that
-// the allow comes from the listing and not from the track's own terminal.
+// the allow comes from the listing and not from the track's own terminal. The
+// config carrying the listing also sets `redirect-bash-file-work: off`: in its
+// default worktree mode the redirect's deny would replace the listing's allow
+// on the worktree's covered reads and writes.
 func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 	for _, cwdShape := range []string{"repo root", "worktree"} {
 		t.Run(cwdShape, func(t *testing.T) {
@@ -1124,7 +1127,7 @@ func TestOperatorCarveOutReachesBashTracks(t *testing.T) {
 				}
 			}
 
-			writeCarveOutConfig(t, home, carveOutConfig)
+			writeCarveOutConfig(t, home, carveOutConfig+redirectBashFileWorkKey+": off\n")
 			for _, target := range listedCarveOutPaths(home) {
 				for _, sp := range bashCarveOutSpellings {
 					cmd := sp.cmd(target)

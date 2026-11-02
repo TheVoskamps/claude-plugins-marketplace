@@ -822,38 +822,66 @@ The gate's engines feed that decision:
   only the writing form routes here.
 - **File-work redirect** (`classify_file_work.go`): a deny-with-teaching
   arm that sends file work done through Bash to the tool built for it.
-  It is **off** unless the operator's `~/.config/guardrails/config.yml`
-  sets `redirect-bash-file-work`: `worktree` fires only when the event's
-  `cwd` is inside a linked worktree, whatever the event's `agent_type`,
-  and `always` fires for every caller. `off`, an absent key, an empty
-  value and an absent file never fire; any other value — a different
-  case, a non-scalar — is read as `off` and logged as a warning naming
-  the file, the key and the value. Worktree mode asks
-  `repoContext.isLinkedWorktree()`, and a `cwd` that resolves to no
-  repository leaves the arm off. The walk covers every statement of the
-  line — lists, pipelines, subshells, blocks, control flow, function
-  bodies and command and process substitutions — and grades each simple
-  command, spelled bare, by path or behind `env`, by where its effect
-  lands:
+  The reason is what the tools do that Bash does not: Read, Edit and
+  Write are what load a path's on-demand instructions — the `CLAUDE.md`
+  of a directory the path sits under, and a `.claude/rules/*.md` file
+  whose `paths:` frontmatter covers it — so a session that reads or
+  changes a file through `sed -i`, `awk` or a shell redirect changes it
+  without ever loading them. The deny text names only what is blocked
+  and the tool to use. The arm's mode is `redirect-bash-file-work` in
+  the operator's `~/.config/guardrails/config.yml`, which **defaults to
+  `worktree`**: no config file, an absent key, an empty value and a file
+  stamped below the pin all resolve to it, and so does any other value —
+  a different case, a non-scalar — with a warning logged naming the
+  file, the key, the value and `worktree` as the value used. Only an
+  explicit `off` turns the arm off. The default is `worktree` rather
+  than `always` or `off` because agents run in linked worktrees and so
+  get the redirect with no configuration, an interactive session in the
+  main checkout keeps the behaviour it had, and a typo cannot silently
+  disable the guard; what `worktree` does not give is the loading
+  guarantee in every session, which needs `always`. `worktree` fires
+  only when the event's `cwd` is inside a linked worktree, whatever the
+  event's `agent_type`, and `always` fires for every caller. Worktree
+  mode asks `repoContext.isLinkedWorktree()`, and a `cwd` that resolves
+  to no repository leaves the arm off. The walk covers every statement
+  of the line — lists, pipelines, subshells, blocks, control flow,
+  function bodies and command and process substitutions — and grades
+  each simple command, spelled bare, by path or behind `env`, by where
+  its effect lands:
   - **Read** (`bash-file-work:read`): `cat`, `head`, `tail` (`-f`/`-F`
-    included), `sed -n`, `nl` and `less`, each only when it names at
-    least one file operand by its own option grammar — `-` is stdin, an
-    option's value (`head -n 5`, `nl -ba`, a sed script, `less +G`,
-    `tail +2`) is no file, and less's long options resolve by unique
-    prefix as less itself reads them. A read is denied unless its stdout
-    is piped into a command outside that reader set or captured by a
-    command or process substitution: `head -n 5 f | sort`,
-    `cat f | jq .` and `x=$(cat f)` pass; `cat f`, `cat f && make`,
-    `cat a; cat b`, `cat f | cat` and `cat f | head` deny. A pipe into a
-    construct the walk cannot name as a first command — a loop, a
-    conditional — counts as consuming. A `sed` is a reader when any
-    reading of its argv carries `-n` and none edits in place, whether or
-    not the gate can grade its script whole: an opaque script withholds
-    the allow tracks' ALLOW, and the redirect to Read still stands.
+    included), `sed -n`, `nl`, `less` and a line-selecting `awk`, each
+    only when it names at least one file operand by its own option
+    grammar — `-` is stdin, an option's value (`head -n 5`, `nl -ba`, a
+    sed script, `less +G`, `tail +2`) is no file, and less's long
+    options resolve by unique prefix as less itself reads them. A read
+    is denied unless its stdout is piped into a command outside that
+    reader set or captured by a command or process substitution:
+    `head -n 5 f | sort`, `cat f | jq .` and `x=$(cat f)` pass; `cat f`,
+    `cat f > g`, `cat f && make`, `cat a; cat b`, `cat f | cat` and
+    `cat f | head` deny. A pipe into a construct the walk cannot name as
+    a first command — a loop, a conditional — counts as consuming. A
+    `sed` is a reader when any reading of its argv carries `-n` and none
+    edits in place, whether or not the gate can grade its script whole:
+    an opaque script withholds the allow tracks' ALLOW, and the redirect
+    to Read still stands. An `awk` is a reader when its program only
+    selects lines, which Read with an offset and a limit also does: no
+    option, no `var=value` operand, and a program that is a selector —
+    `NR` compared with a decimal number, or a bare `/re/` — or a comma
+    range of two selectors, either optionally followed by `{print}` or
+    `{print $0}`. So `awk 'NR==5' f`, `awk 'NR==2,NR==5 {print}' f`,
+    `awk '/^## /' f` and `awk '/^## /,/^---/{print $0}' f` are reads.
+    Any program that does more — a field (`{print $1}`), `printf`, an
+    assignment, `BEGIN`/`END`, `&&`, a negation — or any option (`-F`,
+    `-v`, `-f`) is a transform whose output Read cannot produce, and the
+    redirect leaves it alone.
   - **Edit** (`bash-file-work:edit`): `sed` in any in-place spelling its
     parse recognizes — `-i`, `-i.bak`, BSD `-I`, `--in-place` and its
-    unique prefixes, `-i` inside a short cluster — and `perl -i` in any
-    switch cluster, wherever they sit in the line.
+    unique prefixes, `-i` inside a short cluster — `perl -i` in any
+    switch cluster, and gawk's in-place form, `awk -i inplace` in each
+    spelling that loads the extension (`-i inplace`, `-iinplace`,
+    `--include inplace`, `--include=inplace`, the library also spelled
+    `inplace.awk`) wherever it sits among awk's options, wherever they
+    sit in the line.
   - **Write** (`bash-file-work:write`): `echo` or `printf` whose own
     stdout redirect (`>`, `>>`, `>|`, `&>`, `&>>`, an explicit fd 1)
     targets a file, `cat` of a here-document so redirected, and a
@@ -863,10 +891,14 @@ The gate's engines feed that decision:
     and `tee` on a stream that is not a here-document are not covered:
     Write cannot capture a command's output, so a deny would leave them
     no tool to go to.
-  - **Never covered:** `grep`, `find` and `ls`. Read, Edit and Write do
-    none of what search and listing do.
-  Each deny names the tool to use and the setting that turned the arm
-  on. The arm's deny is one more verdict in `classifyBash`'s per-line
+  - **Never covered:** `grep`, `find` and `ls`, since Read, Edit and
+    Write do none of what search and listing do; and an interpreter
+    one-liner — `python -c`, `perl -e`, `ruby -e`, `node -e` — since
+    whether its program touches a file is not statically detectable.
+    `perl -i` stays covered: the switch names the edit whatever the
+    program does.
+  Each deny names the tool to use and the setting that controls the
+  arm. The arm's deny is one more verdict in `classifyBash`'s per-line
   ranking and sits **below every other deny**: a line any other rule
   denies anywhere — a cross-repo read, a `git -C /abs` — reports that
   rule's deny, while an allow, an ask or a defer is replaced by the
@@ -2039,7 +2071,7 @@ The gate's engines feed that decision:
   resolve-xdg-environment-variables: yes   # optional, default no
   config-home-default: ~/.config           # optional
   state-home-default: ~/.local/state       # optional
-  redirect-bash-file-work: off             # optional, default off
+  redirect-bash-file-work: worktree        # optional, default worktree
   config-home:
     read:
       - macos-setup/**
@@ -2072,8 +2104,9 @@ The gate's engines feed that decision:
   `redirect-bash-file-work` is the one key here that relaxes nothing:
   it is the file-work redirect's setting, `off`, `worktree` or `always`.
   It is decoded on its own, as a YAML node, so a value of another type
-  is an unknown value — read as `off`, with a warning — rather than a
-  document that fails to parse and takes the carve-out down with it.
+  is an unknown value — read as `worktree`, with a warning — rather
+  than a document that fails to parse and takes the carve-out down with
+  it.
   It needs the same stamp as the rest of the file: below the pin, the
   whole file is read as absent.
 
@@ -2101,18 +2134,19 @@ The gate's engines feed that decision:
   out nothing, and the tell is the deny the listed path still earns.
 
   **Absent, or stamped below `schema-version: 2` → no usable entry
-  anywhere and the redirect off → the behaviour the machine had before
-  the file existed**, on every path, with nothing reported anywhere: the
-  carve-out fails closed, and a machine without the file is the ordinary
-  case rather than an error. **A file that exists but cannot be read or
-  parsed is different: the gate DENIES every gated tool call**, as
-  `config:unusable`, naming the file and the error, until the file is
-  fixed or removed — a write to the file included, so the repair is the
-  human's. Both the carve-out and the redirect come from this file, and
-  a gate that guessed at a broken one would be applying policy the
-  operator did not write; a `PreToolUse` hook cannot abort, so a deny on
-  every call is the loudest signal it has, and the same one an
-  unprovisioned platform gets. The file is read in Go with
+  anywhere, and the redirect in its `worktree` default**, with nothing
+  reported anywhere: the carve-out fails closed, and a machine without
+  the file is the ordinary case rather than an error, so every path
+  keeps the behaviour it had before the file existed except the file
+  work the redirect denies in a linked worktree. **A file that exists
+  but cannot be read or parsed is different: the gate DENIES every gated
+  tool call**, as `config:unusable`, naming the file and the error,
+  until the file is fixed or removed — a write to the file included, so
+  the repair is the human's. Both the carve-out and the redirect come
+  from this file, and a gate that guessed at a broken one would be
+  applying policy the operator did not write; a `PreToolUse` hook cannot
+  abort, so a deny on every call is the loudest signal it has, and the
+  same one an unprovisioned platform gets. The file is read in Go with
   `gopkg.in/yaml.v3`, once per event — every reader of the event's
   config sees the same load — and not as a tool call, so the carve-out
   does not gate its own config; the process is fresh per event, so
@@ -2440,10 +2474,11 @@ so the wrapper's path stays even though this plugin does not ship the
 file it names. The operator's config file,
 `~/.config/guardrails/config.yml`, is the other sanctioned name: a
 Reason that cites it — the allow reason that names the listing, the
-redirect's note of the setting that turned it on, the unusable-config
-deny — names a file whose schema this README owns and whose location
-the gate alone fixes, and it is spelled from `~` so that no Reason
-carries the host's absolute home path. No test guards this one:
+redirect's note naming `redirect-bash-file-work` as the setting that
+controls it, written whether or not the file exists, the
+unusable-config deny — names a file whose schema this README owns and
+whose location the gate alone fixes, and it is spelled from `~` so that
+no Reason carries the host's absolute home path. No test guards this one:
 `trackerRefInReason` is issue-pointer-shaped only, so it is held by
 inspection whenever a Reason is written.
 

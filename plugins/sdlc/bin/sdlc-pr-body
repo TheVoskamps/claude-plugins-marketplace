@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+#
+# sdlc-pr-body -- cut a PR body around pr-finalizer's section, and put a
+# new section back between the pieces. Reads and writes only the files it
+# is given. Runs under the bash 3.2 macOS ships.
+#
+# Usage:
+#   sdlc-pr-body split <body> <base> <tail>
+#   sdlc-pr-body join <base> <section> <tail> <out>
+#
+# split writes to <base> everything in <body> above the first line that
+# is the opening marker `<!-- sdlc:pr-finalizer-report -->`, or the whole
+# body when no line is, less any blank lines at its end; and to <tail>
+# everything below the first closing marker
+# `<!-- /sdlc:pr-finalizer-report -->` that follows the opening one,
+# verbatim, or nothing when there is no such line. The markers and every
+# line between them are dropped. Each marker matches with an optional
+# trailing `\r`, and a blank line is one that is empty or holds only
+# `\r`, so a body saved from GitHub's web form, with CRLF line endings,
+# cuts the same way; a blank line that is kept keeps its own bytes. Every
+# line written ends in a newline, the body's last line included.
+#
+# join writes <base>, <section> and <tail>, in that order, to <out>.
+#
+# Exit statuses:
+#   0  the output files are written
+#   1  no file is at split's <body>; or a command the script ran failed,
+#      such as join reading an input that is not there, and its own error
+#      is on stderr above the script's line
+#   2  a usage error; nothing was read or written
+set -uo pipefail
+
+PROGRAM=${0##*/}
+
+# fail <status> <message> -- print the message on stderr, prefixed with
+# the program name, and exit with the status.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+# A command that fails where the script does not handle it exits 1
+# naming the command.
+set -E
+trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
+
+usage="usage: $PROGRAM split <body> <base> <tail> | $PROGRAM join <base> <section> <tail> <out>"
+[ "$#" -ge 1 ] || fail 2 "No subcommand was supplied. $usage"
+
+case "$1" in
+  split)
+    [ "$#" -eq 4 ] || fail 2 "\`split\` takes 3 arguments, not $(($# - 1)). $usage"
+    body=$2
+    base=$3
+    tail=$4
+    [ -f "$body" ] || fail 1 "no body file at $body"
+    : >"$tail"
+    SDLC_PR_BODY_TAIL=$tail awk '
+      part == 0 && /^<!-- sdlc:pr-finalizer-report -->\r?$/ { part = 1; next }
+      part == 1 && /^<!-- \/sdlc:pr-finalizer-report -->\r?$/ { part = 2; next }
+      part == 1 { next }
+      part == 2 { print > ENVIRON["SDLC_PR_BODY_TAIL"]; next }
+      /^\r?$/ { blanks = blanks $0 "\n"; next }
+      { printf "%s", blanks; blanks = ""; print }' "$body" >"$base"
+    ;;
+  join)
+    [ "$#" -eq 5 ] || fail 2 "\`join\` takes 4 arguments, not $(($# - 1)). $usage"
+    cat "$2" "$3" "$4" >"$5"
+    ;;
+  *)
+    fail 2 "\`$1\` is not a subcommand $PROGRAM takes. $usage"
+    ;;
+esac
