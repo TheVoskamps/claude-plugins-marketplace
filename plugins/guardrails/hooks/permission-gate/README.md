@@ -2134,18 +2134,19 @@ The gate's engines feed that decision:
   out nothing, and the tell is the deny the listed path still earns.
 
   **Absent, or stamped below `schema-version: 2` → no usable entry
-  anywhere and the redirect off → the behaviour the machine had before
-  the file existed**, on every path, with nothing reported anywhere: the
-  carve-out fails closed, and a machine without the file is the ordinary
-  case rather than an error. **A file that exists but cannot be read or
-  parsed is different: the gate DENIES every gated tool call**, as
-  `config:unusable`, naming the file and the error, until the file is
-  fixed or removed — a write to the file included, so the repair is the
-  human's. Both the carve-out and the redirect come from this file, and
-  a gate that guessed at a broken one would be applying policy the
-  operator did not write; a `PreToolUse` hook cannot abort, so a deny on
-  every call is the loudest signal it has, and the same one an
-  unprovisioned platform gets. The file is read in Go with
+  anywhere, and the redirect in its `worktree` default**, with nothing
+  reported anywhere: the carve-out fails closed, and a machine without
+  the file is the ordinary case rather than an error, so every path
+  keeps the behaviour it had before the file existed except the file
+  work the redirect denies in a linked worktree. **A file that exists
+  but cannot be read or parsed is different: the gate DENIES every gated
+  tool call**, as `config:unusable`, naming the file and the error,
+  until the file is fixed or removed — a write to the file included, so
+  the repair is the human's. Both the carve-out and the redirect come
+  from this file, and a gate that guessed at a broken one would be
+  applying policy the operator did not write; a `PreToolUse` hook cannot
+  abort, so a deny on every call is the loudest signal it has, and the
+  same one an unprovisioned platform gets. The file is read in Go with
   `gopkg.in/yaml.v3`, once per event — every reader of the event's
   config sees the same load — and not as a tool call, so the carve-out
   does not gate its own config; the process is fresh per event, so
@@ -2473,10 +2474,11 @@ so the wrapper's path stays even though this plugin does not ship the
 file it names. The operator's config file,
 `~/.config/guardrails/config.yml`, is the other sanctioned name: a
 Reason that cites it — the allow reason that names the listing, the
-redirect's note of the setting that turned it on, the unusable-config
-deny — names a file whose schema this README owns and whose location
-the gate alone fixes, and it is spelled from `~` so that no Reason
-carries the host's absolute home path. No test guards this one:
+redirect's note naming `redirect-bash-file-work` as the setting that
+controls it, written whether or not the file exists, the
+unusable-config deny — names a file whose schema this README owns and
+whose location the gate alone fixes, and it is spelled from `~` so that
+no Reason carries the host's absolute home path. No test guards this one:
 `trackerRefInReason` is issue-pointer-shaped only, so it is held by
 inspection whenever a Reason is written.
 

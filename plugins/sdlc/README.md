@@ -1204,7 +1204,8 @@ the body byte for byte, the usage errors and a missing input.
 of its own: a range, a single line, the whole file, a destination
 replaced, a last line with no newline, a range past the end refused
 with nothing written, the usage errors and a missing source. Each
-needs only bash and the POSIX utilities, and reaches no network.
+needs only bash, `mktemp` and the POSIX utilities, and reaches no
+network.
 
 The PR-read scripts and the detail poster share one sourced helper,
 `bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
