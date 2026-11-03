@@ -377,11 +377,16 @@ rule means for one.
   sentence that settles it, and the human is not asked. When a fixer
   round follows, that ruling goes on the round's fixer brief — on its
   finding line when the review filed it, as an owner ruling otherwise.
-  When none follows, one a review filed takes a `dropped (scope
-  ruling)` line of the round's adjustments comment, keyed to its
-  theorem and quoting that sentence; one no review filed goes into the
-  round's report and into the scope notes you hand `pr-finalizer`, and
-  takes no adjustments line. One the repo leaves open is put to the
+  One a review filed takes a `dropped (scope ruling)` line of the
+  round's adjustments comment, keyed to its theorem and quoting that
+  sentence, when the repo settles it with no fix, whether or not a
+  fixer round follows, and when no fixer round follows at all — as step
+  1 of "Handling review findings — the fix loop" treats a Design
+  Decision the repo settles with no fix, so the next round retires the
+  theorem rather than filing it again. One no review filed takes no
+  adjustments line; when no fixer round follows, it goes into the
+  round's report and into the scope notes you hand `pr-finalizer`. One
+  the repo leaves open is put to the
   human while the PR is still open, with the consequence of each
   option stated in the question.
   An option that would make the PR depart from an issue's text carries
@@ -1074,9 +1079,10 @@ of the diff into the next round's theorem list, which is exactly what
 is the `dropped (scope ruling)` line — a ruling read off the repo, not
 a reading of the diff — for a Design Decision the repo settles with no
 fix, per step 1 of "Handling review findings — the fix loop", and for
-an out-of-scope observation a review filed that the repo settles when
-no fixer round follows, per "Rule on an out-of-scope observation while
-the PR is open", each quoting the sentence that settles it. Its shape
+an out-of-scope observation a review filed that the repo settles with
+no fix, or settles when no fixer round follows, per "Rule on an
+out-of-scope observation while the PR is open", each quoting the
+sentence that settles it. Its shape
 names you as the actor, so nothing
 downstream records it as the human's rejection.
 
