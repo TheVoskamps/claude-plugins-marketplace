@@ -374,14 +374,15 @@ rule means for one.
   follows. Trivial and adjacent to the diff goes into the round's
   fixer brief — as the `— in scope` ruling on its finding line when
   the review filed it, as an owner ruling otherwise — or is dropped;
-  when no fixer round follows, the choice is drop or ask. That path
-  is a scope ruling, yours to make by size alone, and no check of
-  whether the repo settles it gates it. Anything larger is put to the
-  human while the PR is still open, with the consequence of each
-  option stated in the question. Before you put one to the human,
-  check whether the repo already decides it, the issue body included:
-  one the repo settles is your ruling, quoting the sentence that
-  settles it, and the human is not asked. An option that would make
+  when no fixer round follows, the choice is drop or ask, and of the
+  two only the drop is a scope ruling, yours to make by size alone.
+  Anything larger
+  is put to the human while the PR is still open, with the consequence
+  of each option stated in the question. Before you put any
+  observation to the human, trivial or larger, check whether the repo
+  already decides it, the issue body included: one the repo settles is
+  your ruling, quoting the sentence that settles it, and the human is
+  not asked. An option that would make
   the PR depart from an issue's text carries the issue edit inside the
   same option. Label the
   options yourself, outside any quoted block, and never ask the human
@@ -832,9 +833,10 @@ member)**:
    Before you ask, check whether the repo already decides it, the
    issue body included: a Design Decision the repo settles is your
    ruling, carried on its finding's line in the fixer brief, and the
-   human is not asked. The line ends `— in scope` when the sentence
-   that settles it calls for the fix, and `— settled, no fix: <that
-   sentence>` when it settles the finding with no fix; the latter is
+   human is not asked. The line ends `— in scope: <the sentence that
+   settles it>` when that sentence calls for the fix, and `— settled,
+   no fix: <that sentence>` when it settles the finding with no fix;
+   the latter is
    also posted as a `dropped (scope ruling)` line quoting that
    sentence, per "Posting the human's review adjustments as a PR
    comment", so the next round retires the theorem rather than filing
@@ -867,9 +869,12 @@ member)**:
    the issue it belongs to and each ending in its scope ruling:
    <paste every finding from the round's review file, un-tiered,
    keeping the review's per-issue tags, and end each line with one of:
-   `— in scope`, followed by the arm to take where the finding offers
-   two, or by the reason when it is an out-of-scope observation ruled
-   trivial and adjacent;
+   `— in scope`, followed by `; ` and the arm to take where the finding
+   offers two, or by `; ` and the reason when it is an out-of-scope
+   observation ruled trivial and adjacent;
+   `— in scope: <the sentence that settles it>`, for a Design Decision
+   step 1 found the repo settles with a fix, which the fixer makes as
+   that sentence calls for;
    `— settled, no fix: <the sentence that settles it>`, for a Design
    Decision step 1 found the repo settles with no fix, which the fixer
    leaves alone;

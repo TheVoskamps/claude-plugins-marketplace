@@ -776,6 +776,7 @@ for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
       theorem_block "$r" "$id" "From the \"Review adjustments for round $r\" comment posted $t:" "$q"
     else
       case "$q" in
+        *"— in scope: "*) lead="Settled by the repo with a fix, per the fixer brief posted $t:" ;;
         *"— in scope"*) lead="Accepted into the fixer brief posted $t:" ;;
         *"— settled, no fix"*) lead="Settled by the repo with no fix, per the fixer brief posted $t:" ;;
         *"— outside the issue; dropped"*) lead="Dropped on a scope ruling in the fixer brief posted $t:" ;;
