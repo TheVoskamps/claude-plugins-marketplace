@@ -994,9 +994,14 @@ the review adjustments — with these differences:
 
 The human's input on a round — a rejected finding, a severity
 override, occasionally a missed defect — reaches you in conversation,
-and the PR is the only channel the pipeline reads. An adjustment the
-human means to **bind later rounds** is therefore posted on the PR as
-a comment, by you, on their instruction.
+and the reviewer reads it from adjustment comments alone, never from a
+fixer brief. So every human ruling that settles a finding, rejects or
+changes a theorem, overrides a theorem's severity, or overrides an
+issue's stated requirement is posted on the PR as an adjustments
+comment, by you, before the fixer brief that acts on it, without
+waiting to be told to post it. The fixer brief still carries
+the ruling on its finding line or owner-ruling line; the comment is
+what the reviewer reads.
 
 Post one comment per round of adjustments, naming each theorem id it
 touches and what it does to it:
@@ -1011,6 +1016,14 @@ Review adjustments for round <N>:
   <file-or-location>.
 ```
 
+Each ruling takes one of those line kinds:
+
+- a ruling that settles a finding, rejects a theorem, or overrides an
+  issue's stated requirement is a `rejected` line on the theorem;
+- a ruling that changes a theorem is a `rejected` line on the original
+  theorem plus a `new` line carrying the revised claim;
+- a severity ruling is a `severity override` line.
+
 Each adjustment binds the rest of the PR's rounds, so the human is
 never asked to repeat one. A rejection retires the theorem for good:
 no later round re-attacks it, and a human who changes their mind
@@ -1019,11 +1032,11 @@ is written on the theorem's record and grades every standing finding
 that theorem produces from then on, until a later override on the same
 theorem replaces it.
 
-Write only what the human told you to write. This is a relay, not a
+Each line carries only what the human said. This is a relay, not a
 judgment: an adjustment you author yourself would put your own reading
 of the diff into the next round's theorem list, which is exactly what
-"Spawn-prompt principle" forbids. Ask the human first, and post
-nothing they did not say. The one line that is yours to author is the
+"Spawn-prompt principle" forbids. The one line that is yours to author
+is the
 `dropped (scope ruling)` line for a finding ruled `— outside the issue;
 dropped:` — a scope ruling read off the issue's
 `## Code and instruction Markdown acceptance` section, not a reading of
@@ -1242,8 +1255,8 @@ What you do yourself is orchestration mechanics:
   commit an agent authored but could not push. Branch and worktree
   removal is not on this list: the post-merge tail's
   `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
-- **Comment on a PR** — orchestration metadata, the human's dictated
-  review adjustments, and the fixer brief. Findings you relay
+- **Comment on a PR** — orchestration metadata, the human's review
+  adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write
   onto a PR, whether it lands in a brief or as an adjustments comment's
   `dropped (scope ruling)` line.
