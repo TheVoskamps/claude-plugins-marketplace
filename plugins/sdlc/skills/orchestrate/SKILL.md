@@ -1232,12 +1232,11 @@ definition, `CLAUDE.md` or global rules file already states.
   `git rebase` or `git merge` or hand-edit conflict markers in the
   primary clone; and never delete, transfer or rewrite a captured
   memory entry. Doing any of it to save a spawn is not a saving — see
-  "Token Efficiency". Any scratchpad file is yours to write and edit,
-  such as the run state this file tells you to hold there. The one
-  file you write that is persisted into a PR's state is the round-0
-  records file, staged in the scratchpad for the persist script to
-  read. It is **transcription**: every claim in it is the generator's
-  or the human's, and every state on it is a ruling the human gave.
+  "Token Efficiency". The one file you write that is persisted into a
+  PR's state is the round-0 records file, staged in the scratchpad for
+  the persist script to read. It is **transcription**: every claim in
+  it is the generator's or the human's, and every state on it is a
+  ruling the human gave.
 - **Never write a closing keyword immediately before an issue
   reference, and never instruct a teammate to.** A closing keyword
   (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
