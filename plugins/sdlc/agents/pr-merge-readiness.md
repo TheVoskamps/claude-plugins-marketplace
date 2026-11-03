@@ -153,10 +153,10 @@ no fixer brief, and the row the gate landed in runs as with no ruling —
 on `BEHIND` or `DIRTY` a fixer round with no ruling, on any other state
 a fresh question. That discards a `BEHIND` ruling when the unchanged
 branch comes back `DIRTY` with the same conflicts, and the fixer
-escalates on them again, so the human is asked twice — the accepted
-cost of the rule, since a `BEHIND` question and a `DIRTY` question are
-different questions. Name a discarded ruling in your report. Every question this
-loop can return has its arm:
+escalates on them again, so the question is ruled on twice — the
+accepted cost of the rule, since a `BEHIND` question and a `DIRTY`
+question are different questions. Name a discarded ruling in your
+report. Every question this loop can return has its arm:
 
 - **A `DIRTY`**: the fixer escalated on the conflicts it could not
   resolve, and the ruling is the resolution for each. It travels in the
@@ -176,10 +176,10 @@ loop can return has its arm:
   three things, and each is acted on the same way whichever of those
   questions it answers:
   - **the state to proceed as** — `CLEAN`, say, for a `BLOCKED` whose
-    failing check the human has judged not to gate: leave the loop
+    failing check the ruling judged not to gate: leave the loop
     and return with that as the terminal state, the gate's own state
     named beside it;
-  - **the check to stop waiting on** — a running check the human has
+  - **the check to stop waiting on** — a running check the ruling
     released the loop from: it no longer holds the wait, so a report
     whose running checks are all released ones is acted on as one
     that lists none;
@@ -189,8 +189,8 @@ loop can return has its arm:
     a `BEHIND` is handled.
 
 A ruling that names none of these cannot be consumed: return with the
-report as the question again, the ruling quoted beside it, so the
-human sees what it did not settle rather than the identical question.
+report as the question again, the ruling quoted beside it, so whoever
+gave it sees what it did not settle rather than the identical question.
 
 ## The fixer brief, and the remedy spawns
 

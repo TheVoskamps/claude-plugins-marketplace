@@ -287,16 +287,17 @@ more branch work is still expected.
 
 Give it the PR reference and the branch name — after a
 `documentation loop needed` return, the same brief as a first spawn —
-and, on a re-spawn after it returned with a question, the human's
-ruling, with the state and
-the cause the question named, both copied from the `Question:` line of
-the report that asked it: a ruling answers only the question it was
-asked, and the state and cause together are how the re-spawn tells
-whether the gate is still asking it:
+and, on a re-spawn after it returned with a question, the ruling —
+yours or the human's — with the state and the cause the question
+named, both copied from the `Question:` line of the report that asked
+it: a ruling answers only the question it was asked, and the state and
+cause together are how the re-spawn tells whether the gate is still
+asking it:
 
 ```text
 PR <PR_REF> has been blessed. Branch: <branch-name>
-Ruling on <STATE> (<cause>): <the human's answer, quoted, to the
+Ruling on <STATE> (<cause>): <the orchestrator's ruling, quoting the
+sentence that settles it, or the human's answer, quoted, on the
 question your last spawn returned with; <STATE> and <cause> are the
 state and the cause that question named — or omit the line on the
 first spawn>
@@ -333,10 +334,10 @@ and linear:
    PR <PR_REF> has finished its review loop. Branch: <branch-name>
 
    Scope notes this run settled, for the final section:
-   <the deferrals, dropped members, and rulings the human made that
-   the rounds do not carry; every PR-body claim the run made stale,
-   quoted, with what is true now; and docs-writer's per-file list
-   verbatim — or "none">
+   <the deferrals, dropped members, and rulings, the orchestrator's or
+   the human's, that the rounds do not carry; every PR-body claim the
+   run made stale, quoted, with what is true now; and docs-writer's
+   per-file list verbatim — or "none">
    Closing-line corrections:
    <the last review round's Closing-line corrections section, verbatim:
    one per line, as `add <issue>` or `remove <issue>` — or "none">

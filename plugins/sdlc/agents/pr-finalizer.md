@@ -93,10 +93,10 @@ You must be given:
   `<PR>` every step below passes on as it stands
 - Branch name
 - The scope notes the run settled — deferrals, dropped members,
-  rulings the human made that the rounds do not carry, every claim in
-  the PR body the run made stale, quoted, with what is true now, and
-  `docs-writer`'s per-file list of the documentation it changed in the
-  documentation loop. May be "none".
+  rulings, the orchestrator's or the human's, that the rounds do not
+  carry, every claim in the PR body the run made stale, quoted, with
+  what is true now, and `docs-writer`'s per-file list of the
+  documentation it changed in the documentation loop. May be "none".
 - The closing-line corrections, one per line as `add <issue>` or
   `remove <issue>`. May be "none".
 
@@ -243,9 +243,10 @@ into a brief.
    orchestrator's rulings on how to fix them and on any work that is
    not itself a finding. A brief from the close-out's merge-readiness
    gate carries no finding at all: its body is the gate's report — the
-   state it found, for `DIRTY` the conflicts, and the human's ruling on
-   that state when one was carried — and the commit it drove is a
-   merge-readiness remedy, a rebase unless the ruling named another,
+   state it found, for `DIRTY` the conflicts, and the ruling on that
+   state, the orchestrator's or the human's, when one was carried — and
+   the commit it drove is a merge-readiness remedy, a rebase unless the
+   ruling named another,
    which "What changed in response" names as such rather than as a
    fix. Together the briefs are the loop's own account of what drove
    which commits. The PR's other comments — the human's review
@@ -421,10 +422,10 @@ The rest of the section belongs to no type, and carries:
 
 - **Where the full detail now is** — the complete comment chain, named
   as such, whether this run posted it or a previous one did.
-- **The merge-readiness remedies** — each a rebase unless the human's
-  ruling named another, and the change it drove, drawn from the
-  commits and the fixer briefs. Leave the part out when there were
-  none.
+- **The merge-readiness remedies** — each a rebase unless the ruling,
+  the orchestrator's or the human's, named another, and the change it
+  drove, drawn from the commits and the fixer briefs. Leave the part
+  out when there were none.
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
   grounds, a finding dropped on the orchestrator's scope ruling — worded

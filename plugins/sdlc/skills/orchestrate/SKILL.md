@@ -374,8 +374,9 @@ rule means for one.
   follows. Trivial and adjacent to the diff goes into the round's
   fixer brief — as the `— in scope` ruling on its finding line when
   the review filed it, as an owner ruling otherwise — or is dropped;
-  when no fixer round follows, the choice is drop or ask. Anything
-  larger is put to the
+  when no fixer round follows, the choice is drop or ask. That path
+  is a scope ruling, yours to make by size alone, and no check of
+  whether the repo settles it gates it. Anything larger is put to the
   human while the PR is still open, with the consequence of each
   option stated in the question. Before you put one to the human,
   check whether the repo already decides it, the issue body included:
@@ -865,15 +866,17 @@ member)**:
    <paste every finding from the round's review file, un-tiered,
    keeping the review's per-issue tags, and end each line with one of:
    `— in scope`, followed by the arm to take where the finding offers
-   two, or by the reason when it is an out-of-scope observation ruled
-   trivial and adjacent;
+   two, by the sentence that settles it for a Design Decision step 1
+   found the repo settles, or by the reason when it is an out-of-scope
+   observation ruled trivial and adjacent;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
    the issue that step 1 put to the human;
    `— outside the issue; dropped: <reason>`>
 
    Owner rulings — in-scope work that is not itself a finding, and
-   human decisions that belong to no single finding:
+   decisions, the orchestrator's or the human's, that belong to no
+   single finding:
    <every such ruling you made this round. Omit the whole section
    when you made none.>
 
@@ -1030,7 +1033,8 @@ Review adjustments for round <N>:
 
 - T7 — rejected. <the human's reason>
 - T11 — severity override: High → Low. <the human's reason>
-- T13 — dropped (scope ruling). <the reason it is outside the issue>
+- T13 — dropped (scope ruling). <the reason it is outside the issue,
+  or the sentence that settles it>
 - new — <the defect the human says the round missed>, in
   <file-or-location>.
 ```
@@ -1039,10 +1043,10 @@ Each ruling takes one of those line kinds:
 
 - a ruling that settles a finding, rejects a theorem, or overrides an
   issue's stated requirement is a `rejected` line on the theorem; an
-  override that belongs to no finding names no theorem and takes no
-  line — it travels in the fixer brief as an owner ruling only, and a
-  theorem a later round files against it gets the `rejected` line
-  then;
+  override that names no theorem, because no theorem tests the
+  requirement, takes no line — it travels in the fixer brief as an
+  owner ruling only, and a theorem a later round files against it gets
+  the `rejected` line then;
 - a ruling that changes a theorem is a `rejected` line on the original
   theorem plus a `new` line carrying the revised claim;
 - a severity ruling is a `severity override` line.
@@ -1171,7 +1175,7 @@ the PR is good enough to move forward:
    did not consume, or one the fixer's rebase did not need, whatever
    state the fixer's brief named — is relayed to the human beside the
    question or the state it returned with, so the human knows the
-   earlier answer lapsed rather than took effect.
+   earlier ruling, yours or theirs, lapsed rather than took effect.
    Count each `issue-fixer` round its report names, with the state
    that drove it, toward the summary's `Readiness Remedies` cell, and
    pass the scrubber lines it relays through to the human as it wrote
