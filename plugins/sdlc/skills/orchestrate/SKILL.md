@@ -349,10 +349,10 @@ rule means for one.
   corroboration is a false claim about evidence, and it is false in
   the direction that makes the run look more thorough than it was.
 - **Own the synthesis.** When reports conflict, hedge, or come back
-  thin, judge them, and decide whatever the reports, the repo and the
-  issue body settle — then report the decision, the reasoning behind
-  it, and the disagreement it resolved. What they leave open is the
-  human's, and reaches the human with your analysis beside it. Handing
+  thin, judge them, and decide whatever the repo settles, the issue
+  body included — then report the decision, the reasoning behind
+  it, and the disagreement it resolved. What the repo leaves open is
+  the human's, and reaches the human with your analysis beside it. Handing
   the human an ambiguity you could have settled, or one you have not
   analysed, as a status update is abdication dressed as transparency.
 - **Verify a load-bearing claim before acting on it or relaying it.**
@@ -378,10 +378,11 @@ rule means for one.
   larger is put to the
   human while the PR is still open, with the consequence of each
   option stated in the question. Before you put one to the human,
-  check whether the issue body already decides it: one the issue body
-  settles is your ruling, quoting the sentence that settles it, and the
-  human is not asked. An option that would make the PR depart from an
-  issue's text carries the issue edit inside the same option. Label the
+  check whether the repo already decides it, the issue body included:
+  one the repo settles is your ruling, quoting the sentence that
+  settles it, and the human is not asked. An option that would make
+  the PR depart from an issue's text carries the issue edit inside the
+  same option. Label the
   options yourself, outside any quoted block, and never ask the human
   to answer by a label that exists only inside one. An observation
   never travels to the final report, and never becomes a follow-up
@@ -827,10 +828,14 @@ member)**:
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
-   Before you ask, check whether the issue body already decides it: a
-   Design Decision the issue body settles is your ruling, quoting the
-   sentence that settles it, carried on its finding's line in the
-   fixer brief, and the human is not asked. An option that would make
+   Before you ask, check whether the repo already decides it, the
+   issue body included: a Design Decision the repo settles is your
+   ruling, quoting the sentence that settles it, carried on its
+   finding's line in the fixer brief, and the human is not asked. One
+   that settles its finding with no fix is also posted as a
+   `dropped (scope ruling)` line quoting that sentence, per "Posting
+   the human's review adjustments as a PR comment", so the next round
+   retires the theorem rather than filing it again. An option that would make
    the PR depart from an issue's text carries the issue edit inside the
    same option. Label the options yourself, outside any quoted block,
    and never ask the human to answer by a label that exists only
@@ -1011,7 +1016,7 @@ override, occasionally a missed defect — reaches you in conversation,
 and the reviewer reads it from adjustment comments alone, never from a
 fixer brief. So every human ruling that settles a finding, rejects or
 changes a theorem, overrides a theorem's severity, or overrides an
-issue's stated requirement is posted on the PR as an adjustments
+issue's stated requirement a theorem tests is posted on the PR as an adjustments
 comment, by you, before the fixer brief that acts on it, without
 waiting to be told to post it. The fixer brief still carries
 the ruling on its finding line or owner-ruling line; the comment is
@@ -1033,7 +1038,11 @@ Review adjustments for round <N>:
 Each ruling takes one of those line kinds:
 
 - a ruling that settles a finding, rejects a theorem, or overrides an
-  issue's stated requirement is a `rejected` line on the theorem;
+  issue's stated requirement is a `rejected` line on the theorem; an
+  override that belongs to no finding names no theorem and takes no
+  line — it travels in the fixer brief as an owner ruling only, and a
+  theorem a later round files against it gets the `rejected` line
+  then;
 - a ruling that changes a theorem is a `rejected` line on the original
   theorem plus a `new` line carrying the revised claim;
 - a severity ruling is a `severity override` line.
@@ -1050,12 +1059,13 @@ Each line carries only what the human said. This is a relay, not a
 judgment: an adjustment you author yourself would put your own reading
 of the diff into the next round's theorem list, which is exactly what
 "Spawn-prompt principle" forbids. The one line that is yours to author
-is the
-`dropped (scope ruling)` line for a finding ruled `— outside the issue;
-dropped:` — a scope ruling read off the issue's
+is the `dropped (scope ruling)` line, for a finding ruled `— outside
+the issue; dropped:` — a scope ruling read off the issue's
 `## Code and instruction Markdown acceptance` section, not a reading of
-the diff — and its shape names you as the
-actor, so nothing downstream records it as the human's rejection.
+the diff — and for a Design Decision the repo settles with no fix, per
+step 1 of "Handling review findings — the fix loop", quoting the
+sentence that settles it. Its shape names you as the actor, so nothing
+downstream records it as the human's rejection.
 
 ### When a teammate escalates
 
@@ -1068,8 +1078,9 @@ completion-then-followup rather than an early stop.
 
 When a teammate escalates:
 
-1. Before you ask, check whether the issue body already decides the
-   question: a decision the issue body settles is your ruling, quoting
+1. Before you ask, check whether the repo already decides the
+   question, the issue body included: a decision the repo settles is
+   your ruling, quoting
    the sentence that settles it, and the human is not asked. Otherwise
    relay the teammate's report to the human whole and unaltered, and
    follow it with a separate section of your own: what you checked,
@@ -1093,8 +1104,11 @@ turned out materially larger than scoped — is an escalation scoped to
 the dropped member, not to the PR. A developer that reports a drop
 *and* a finished PR has completed its run, so do **not** stall that
 PR's loop waiting for the answer; run it on the landed subset while
-the human decides what becomes of the dropped issue. Unless the human
-says otherwise:
+the human decides what becomes of the dropped issue. The check in step
+1 of "When a teammate escalates", of whether the repo settles the
+question, does not apply to a drop: the PR already landed without the
+member, so what becomes of it stays the human's. Unless the human says
+otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
   The PR closes only the landed subset, and the developer names the
