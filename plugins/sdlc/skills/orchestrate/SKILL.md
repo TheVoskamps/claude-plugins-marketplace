@@ -351,11 +351,7 @@ rule means for one.
   thin, judge and decide — then report the decision, the reasoning
   behind it, and the disagreement it resolved. Handing the ambiguity
   to the human as a status update is abdication dressed as
-  transparency. The carve-out is escalation: a teammate that stops
-  mid-run and escalates gets relayed **verbatim**, undecided, because
-  the lifecycle decision is the human's (see "When a teammate
-  escalates"). Synthesis is for the reports of teammates that
-  completed.
+  transparency.
 - **Verify a load-bearing claim before acting on it or relaying it.**
   A reported pushed SHA, a posted review, a claimed no-op: when your
   next step or the human's decision rests on it, spend the one tool
@@ -378,8 +374,15 @@ rule means for one.
   when no fixer round follows, the choice is drop or ask. Anything
   larger is put to the
   human while the PR is still open, with the consequence of each
-  option stated in the question. It never travels to the final report,
-  and it never becomes a follow-up issue on your initiative.
+  option stated in the question. Before you put one to the human,
+  check whether the issue body already decides it: one the issue body
+  settles is your ruling, quoting the sentence that settles it, and the
+  human is not asked. An option that would make the PR depart from an
+  issue's text carries the issue edit inside the same option. Label the
+  options yourself, outside any quoted block, and never ask the human
+  to answer by a label that exists only inside one. An observation
+  never travels to the final report, and never becomes a follow-up
+  issue on your initiative.
 
 ### A batch with no code to implement skips the code loop
 
@@ -821,6 +824,14 @@ member)**:
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
+   Before you ask, check whether the issue body already decides it: a
+   Design Decision the issue body settles is your ruling, quoting the
+   sentence that settles it, carried on its finding's line in the
+   fixer brief, and the human is not asked. An option that would make
+   the PR depart from an issue's text carries the issue edit inside the
+   same option. Label the options yourself, outside any quoted block,
+   and never ask the human to answer by a label that exists only
+   inside one.
 2. **Post the fix instructions as a PR comment**, then spawn an
    `issue-fixer` with the PR reference and nothing else.
 
@@ -1054,16 +1065,22 @@ completion-then-followup rather than an early stop.
 
 When a teammate escalates:
 
-1. Relay the full escalation to the human verbatim. Do not summarize,
-   and do not pre-decide between the options the teammate listed. This
-   is the named carve-out from "Own the synthesis" in
-   "Report-consumption principle": an escalation is an incomplete run
-   whose lifecycle decision is the human's, so the verbatim forward is
-   the correct move rather than an abdication.
-2. Wait for direction.
-3. If the human's direction is "retry," re-dispatch a fresh subagent
-   rather than resuming the escalated one: resume inherits whatever
-   environmental state caused the escalation.
+1. Before you ask, check whether the issue body already decides the
+   question: a decision the issue body settles is your ruling, quoting
+   the sentence that settles it, and the human is not asked. Otherwise
+   relay the teammate's report to the human whole and unaltered, and
+   follow it with a separate section of your own: what you checked,
+   which of the teammate's options survive the check, any option the
+   teammate missed, and your recommendation. An option that would make
+   the PR depart from an issue's text carries the issue edit inside the
+   same option. Label the options yourself, in your own section, and
+   never ask the human to answer by a label that exists only inside
+   the relayed report.
+2. Wait for direction, unless your ruling settled the question.
+3. If the human's direction is "retry," or your ruling settled the
+   question, re-dispatch a fresh subagent rather than resuming the
+   escalated one, with any ruling in its brief: resume inherits
+   whatever environmental state caused the escalation.
 
 #### A dropped batch member
 
@@ -1120,12 +1137,12 @@ the PR is good enough to move forward:
    question, carrying the gate's output verbatim.
 
    - A **terminal state** proceeds to the close-out.
-   - A **question** is relayed to the human verbatim, per "When a
-     teammate escalates", and ends your turn. On the answer, spawn
-     `pr-merge-readiness` again with the ruling in the brief, keyed to
-     the state and cause the question named; it runs the gate afresh
-     and carries on from there. Nothing else is spawned for the PR
-     until it returns with a terminal state.
+   - A **question** is handled per "When a teammate escalates", and
+     one put to the human ends your turn. On the answer, or on your
+     ruling, spawn `pr-merge-readiness` again with it in the brief,
+     keyed to the state and cause the question named; it runs the gate
+     afresh and carries on from there. Nothing else is spawned for the
+     PR until it returns with a terminal state.
    - **`documentation loop needed`** — a fixer round deferred a
      documentation edit or resolved a conflict in a documentation file,
      and spawned no `docs-writer`. Run the documentation loop, its
