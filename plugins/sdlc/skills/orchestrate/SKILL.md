@@ -831,12 +831,14 @@ member)**:
    stop, and bring this up to the human for review and a decision.
    Before you ask, check whether the repo already decides it, the
    issue body included: a Design Decision the repo settles is your
-   ruling, quoting the sentence that settles it, carried on its
-   finding's line in the fixer brief, and the human is not asked. One
-   that settles its finding with no fix is also posted as a
-   `dropped (scope ruling)` line quoting that sentence, per "Posting
-   the human's review adjustments as a PR comment", so the next round
-   retires the theorem rather than filing it again. An option that would make
+   ruling, carried on its finding's line in the fixer brief, and the
+   human is not asked. The line ends `— in scope` when the sentence
+   that settles it calls for the fix, and `— settled, no fix: <that
+   sentence>` when it settles the finding with no fix; the latter is
+   also posted as a `dropped (scope ruling)` line quoting that
+   sentence, per "Posting the human's review adjustments as a PR
+   comment", so the next round retires the theorem rather than filing
+   it again. An option that would make
    the PR depart from an issue's text carries the issue edit inside the
    same option. Label the options yourself, outside any quoted block,
    and never ask the human to answer by a label that exists only
@@ -866,9 +868,11 @@ member)**:
    <paste every finding from the round's review file, un-tiered,
    keeping the review's per-issue tags, and end each line with one of:
    `— in scope`, followed by the arm to take where the finding offers
-   two, by the sentence that settles it for a Design Decision step 1
-   found the repo settles, or by the reason when it is an out-of-scope
-   observation ruled trivial and adjacent;
+   two, or by the reason when it is an out-of-scope observation ruled
+   trivial and adjacent;
+   `— settled, no fix: <the sentence that settles it>`, for a Design
+   Decision step 1 found the repo settles with no fix, which the fixer
+   leaves alone;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
    the issue that step 1 put to the human;
@@ -948,11 +952,12 @@ member)**:
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
-**When every open Critical/High/Medium finding is ruled dropped**,
-steps 2 to 4 do not run: no `issue-fixer` spawns on a brief with
-nothing to fix. Instead, post the drop rulings as a review-adjustments
-comment, each as a `dropped (scope ruling)` line carrying the ruling's
-reason, and re-spawn the reviewer as step 5 says, so the next round
+**When every open Critical/High/Medium finding is ruled dropped or
+settled with no fix**, steps 2 to 4 do not run: no `issue-fixer`
+spawns on a brief with nothing to fix. Instead, post those rulings as
+a review-adjustments comment, each as a `dropped (scope ruling)` line
+carrying the ruling's reason or the sentence that settles it, and
+re-spawn the reviewer as step 5 says, so the next round
 retires those theorems as scope-dropped rather than filing them again.
 That re-review posts a review, so it counts as a round against the
 cap.

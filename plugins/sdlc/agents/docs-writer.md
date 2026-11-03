@@ -158,14 +158,14 @@ review.
 The brief names the branch, the issue set, and the findings — a
 documentation review's, a documentation style check's, or a criterion
 you reported `not met` — each on a line ending in its scope ruling:
-`— in scope`, `— outside the issue; put to the human: <question> →
-<answer>`, `— put to the human: <question> → <answer>`, or `— outside
-the issue; dropped: <reason>`. Check out the branch it names, per
-"Setup", then:
+`— in scope`, `— settled, no fix: <the sentence that settles it>`,
+`— outside the issue; put to the human: <question> → <answer>`,
+`— put to the human: <question> → <answer>`, or `— outside the issue;
+dropped: <reason>`. Check out the branch it names, per "Setup", then:
 
 - Fix every finding ruled in scope, Low included, and one put to the
   human exactly as the answer on its line says. Fix none ruled
-  dropped.
+  dropped or settled with no fix.
 - A finding line with no ruling is a malformed brief: stop and report
   it, quoting the line, and fix nothing.
 - A finding whose fix lies outside documentation is not yours to make:
