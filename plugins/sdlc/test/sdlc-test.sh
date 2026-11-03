@@ -915,7 +915,7 @@ for given in 7 '#7' 'https://h.example/o/r/pull/7'; do
 done
 
 # A timeline carrying a fixer brief: the report names it as one, and
-# lists the finding it rules on.
+# lists each finding it rules on under the lead its ruling's kind takes.
 new_case analysis-fixer-brief
 mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
 printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
