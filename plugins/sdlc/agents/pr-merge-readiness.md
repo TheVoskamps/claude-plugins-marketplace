@@ -282,8 +282,7 @@ Your report carries:
     asked" defines it, then the gate's report verbatim — and, for
     `DIRTY`, the `pr-merge-conflicts` output — and what a ruling has
     to settle; when a fixer escalated, its report verbatim beneath
-    them. The orchestrator rules on it or puts it to the human, and
-    re-spawns you with that ruling, the state and cause beside it.
+    them.
   - `documentation loop needed` — the last `issue-fixer` round
     deferred a documentation edit or resolved a conflict in a
     documentation file, so the gate was not run after it. Follow it

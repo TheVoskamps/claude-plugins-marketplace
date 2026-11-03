@@ -377,14 +377,7 @@ rule means for one.
   sentence that settles it, and the human is not asked. When a fixer
   round follows, that ruling goes on the round's fixer brief — on its
   finding line when the review filed it, as an owner ruling otherwise.
-  One a review filed takes a `dropped (scope ruling)` line of the
-  round's adjustments comment, keyed to its theorem and quoting that
-  sentence, when the repo settles it with no fix, whether or not a
-  fixer round follows, and when no fixer round follows at all — as step
-  1 of "Handling review findings — the fix loop" treats a Design
-  Decision the repo settles with no fix, so the next round retires the
-  theorem rather than filing it again. One no review filed takes no
-  adjustments line; when no fixer round follows, it goes into the
+  One no review filed, when no fixer round follows, goes into the
   round's report and into the scope notes you hand `pr-finalizer`. One
   the repo leaves open is put to the
   human while the PR is still open, with the consequence of each
@@ -841,12 +834,8 @@ member)**:
    ruling, carried on its finding's line in the fixer brief, and the
    human is not asked. The line ends `— in scope: <the sentence that
    settles it>` when that sentence calls for the fix, and `— settled,
-   no fix: <that sentence>` when it settles the finding with no fix;
-   the latter is
-   also posted as a `dropped (scope ruling)` line quoting that
-   sentence, per "Posting the human's review adjustments as a PR
-   comment", so the next round retires the theorem rather than filing
-   it again. An option that would make
+   no fix: <that sentence>` when it settles the finding with no fix.
+   An option that would make
    the PR depart from an issue's text carries the issue edit inside the
    same option. Label the options yourself, outside any quoted block,
    and never ask the human to answer by a label that exists only
@@ -963,13 +952,9 @@ member)**:
 
 **When every open Critical/High/Medium finding is ruled settled with
 no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
-with nothing to fix. Instead, post those rulings as a
-review-adjustments comment, each as a `dropped (scope ruling)` line
-quoting the sentence that settles it, and
-re-spawn the reviewer as step 5 says, so the next round
-retires those theorems as scope-dropped rather than filing them again.
-That re-review posts a review, so it counts as a round against the
-cap.
+with nothing to fix. Instead, post the round's review-adjustments
+comment and re-spawn the reviewer as step 5 says. That re-review
+posts a review, so it counts as a round against the cap.
 
 **A closing-line correction goes to `pr-finalizer`, in either loop.**
 The reviewer reports its corrections, in every mode, in a section of
@@ -1077,14 +1062,13 @@ judgment: an adjustment you author yourself would put your own reading
 of the diff into the next round's theorem list, which is exactly what
 "Spawn-prompt principle" forbids. The one line that is yours to author
 is the `dropped (scope ruling)` line — a ruling read off the repo, not
-a reading of the diff — for a Design Decision the repo settles with no
-fix, per step 1 of "Handling review findings — the fix loop", and for
-an out-of-scope observation a review filed that the repo settles with
-no fix, or settles when no fixer round follows, per "Rule on an
-out-of-scope observation while the PR is open", each quoting the
-sentence that settles it. Its shape
-names you as the actor, so nothing
-downstream records it as the human's rejection.
+a reading of the diff. Post one, keyed to the theorem and quoting the
+sentence that settles it, for every finding a review filed that the
+repo settles and no fixer will act on — settled with no fix, or
+settled in a round no fixer round follows. Without it the next round
+files the theorem again rather than retiring it as scope-dropped. Its
+shape names you as the actor, so nothing downstream records it as the
+human's rejection.
 
 ### When a teammate escalates
 
