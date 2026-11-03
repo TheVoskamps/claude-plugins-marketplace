@@ -84,8 +84,9 @@ under `agents/` owns:
   merge-readiness gate, spawning `issue-fixer` and
   `agent-memory-scrubber` for the remedies. When it returns, either the
   PR is in a state the close-out proceeds from; or its report carries a
-  question with the gate's output verbatim, which you relay to the
-  human and answer by re-spawning it with the ruling in the brief; or
+  question with the gate's output verbatim, which you handle per "When
+  a teammate escalates" and answer by re-spawning it with the ruling in
+  the brief; or
   it reports `documentation loop needed`, because a fixer round left
   documentation to write or a documentation conflict resolved, and you
   run the documentation loop before re-spawning it
