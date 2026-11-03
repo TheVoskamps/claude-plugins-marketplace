@@ -86,8 +86,7 @@ from its issue.
    scope ruling — `— in scope`, `— in scope: <the sentence that settles
    it>`, `— settled, no fix: <the sentence that settles it>`,
    `— outside the issue; put to the human: <question> →
-   <answer>`, `— put to the human: <question> → <answer>`, or
-   `— outside the issue; dropped: <reason>` — plus an
+   <answer>`, or `— put to the human: <question> → <answer>` — plus an
    owner-rulings section for work that is not itself a finding, the
    issue set the PR closes, and the branch name.
    `<branch-name>` in the rest of this document means the branch it
@@ -97,9 +96,9 @@ from its issue.
    report it, quoting the line, rather than fixing anything: the
    ruling is the orchestrator's answer to whether the fix is inside
    the issue, and a fixer that supplies its own answer widens the PR
-   past what the human admitted. A finding ruled `dropped` or
-   `settled, no fix` is not fixed — the repo already decides the
-   latter, in the sentence its line quotes; one ruled `in scope:` with
+   past what the human admitted. A finding ruled `settled, no fix` is
+   not fixed — the repo already decides it, in the sentence its line
+   quotes; one ruled `in scope:` with
    a quoted sentence is fixed as that sentence calls for, and one ruled
    `put to the human` exactly as the answer on its line says, and
    neither otherwise.
