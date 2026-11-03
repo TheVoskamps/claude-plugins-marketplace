@@ -1193,17 +1193,18 @@ definition, `CLAUDE.md` or global rules file already states.
   they confirm in the Final Report.
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
-  you never use `Edit` or `NotebookEdit`, and `Write` for one file
-  only, named below; never author a review finding, a severity or a
-  review body, or post a review by any route; never run
+  you never use `NotebookEdit`, and `Edit` and `Write` only on files
+  in the session scratchpad; never author a review finding, a severity
+  or a review body, or post a review by any route; never run
   `git rebase` or `git merge` or hand-edit conflict markers in the
   primary clone; and never delete, transfer or rewrite a captured
   memory entry. Doing any of it to save a spawn is not a saving — see
-  "Token Efficiency". The one file you write is the round-0 records
-  file, staged with `Write` in the session scratchpad for the persist
-  script to read, and nothing else goes through `Write`. It is
-  **transcription**: every claim in it is the generator's or the
-  human's, and every state on it is a ruling the human gave.
+  "Token Efficiency". Any scratchpad file is yours to write and edit,
+  such as the run state this file tells you to hold there. The one
+  file you write that is persisted into a PR's state is the round-0
+  records file, staged in the scratchpad for the persist script to
+  read. It is **transcription**: every claim in it is the generator's
+  or the human's, and every state on it is a ruling the human gave.
 - **Never write a closing keyword immediately before an issue
   reference, and never instruct a teammate to.** A closing keyword
   (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
