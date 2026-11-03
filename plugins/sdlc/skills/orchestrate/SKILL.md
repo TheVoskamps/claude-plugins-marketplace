@@ -352,9 +352,12 @@ rule means for one.
   thin, judge them, and decide whatever the repo settles, the issue
   body included — then report the decision, the reasoning behind
   it, and the disagreement it resolved. What the repo leaves open is
-  the human's, and reaches the human with your analysis beside it. Handing
-  the human an ambiguity you could have settled, or one you have not
-  analysed, as a status update is abdication dressed as transparency.
+  the human's, and reaches the human with your analysis beside it, with
+  one exception: dropping a trivial out-of-scope observation the repo
+  leaves open is yours, by size alone, per "Rule on an out-of-scope
+  observation while the PR is open" below. Handing the human an
+  ambiguity you could have settled, or one you have not analysed, as a
+  status update is abdication dressed as transparency.
 - **Verify a load-bearing claim before acting on it or relaying it.**
   A reported pushed SHA, a posted review, a claimed no-op: when your
   next step or the human's decision rests on it, spend the one tool
@@ -371,22 +374,25 @@ rule means for one.
   teammate reports things outside the diff it was briefed on, and the
   cheap moment to act on one is now. Rule on it before the next spawn
   for that PR, or before the loop ends for that PR when no spawn
-  follows. Trivial and adjacent to the diff goes into the round's
-  fixer brief — as the `— in scope` ruling on its finding line when
-  the review filed it, as an owner ruling otherwise — or is dropped;
-  when no fixer round follows, the choice is drop or ask, and of the
-  two only the drop is a scope ruling, yours to make by size alone.
-  Anything larger
-  is put to the human while the PR is still open, with the consequence
-  of each option stated in the question. Before you put any
-  observation to the human, trivial or larger, check whether the repo
-  already decides it, the issue body included: one the repo settles is
-  your ruling, quoting the sentence that settles it, and the human is
-  not asked. An option that would make
-  the PR depart from an issue's text carries the issue edit inside the
-  same option. Label the
-  options yourself, outside any quoted block, and never ask the human
-  to answer by a label that exists only inside one. An observation
+  follows. Before any disposition of an observation, a drop included,
+  check whether the repo already decides it, the issue body included:
+  one the repo settles is your ruling, quoting the sentence that
+  settles it, and the human is not asked. That ruling goes on the
+  round's fixer brief when a fixer round follows — on its finding line
+  when the review filed it, as an owner ruling otherwise — and
+  otherwise on a `dropped (scope ruling)` line of the round's
+  adjustments comment, quoting that sentence. One the repo leaves open
+  is ruled by size. Trivial and adjacent to the diff goes into the
+  round's fixer brief — as the `— in scope` ruling on its finding line
+  when the review filed it, as an owner ruling otherwise — or is
+  dropped; when no fixer round follows, the choice is drop or ask, and
+  of the two only the drop is a scope ruling, yours to make by size
+  alone. Anything larger is put to the human while the PR is still
+  open, with the consequence of each option stated in the question.
+  An option that would make the PR depart from an issue's text carries
+  the issue edit inside the same option. Label the options yourself,
+  outside any quoted block, and never ask the human to answer by a
+  label that exists only inside one. An observation
   never travels to the final report, and never becomes a follow-up
   issue on your initiative.
 
@@ -873,11 +879,11 @@ member)**:
    offers two, or by `; ` and the reason when it is an out-of-scope
    observation ruled trivial and adjacent;
    `— in scope: <the sentence that settles it>`, for a Design Decision
-   step 1 found the repo settles with a fix, which the fixer makes as
-   that sentence calls for;
+   step 1, or an out-of-scope observation, found the repo settles with
+   a fix, which the fixer makes as that sentence calls for;
    `— settled, no fix: <the sentence that settles it>`, for a Design
-   Decision step 1 found the repo settles with no fix, which the fixer
-   leaves alone;
+   Decision step 1, or an out-of-scope observation, found the repo
+   settles with no fix, which the fixer leaves alone;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
    the issue that step 1 put to the human;
@@ -1076,9 +1082,11 @@ of the diff into the next round's theorem list, which is exactly what
 is the `dropped (scope ruling)` line, for a finding ruled `— outside
 the issue; dropped:` — a scope ruling read off the issue's
 `## Code and instruction Markdown acceptance` section, not a reading of
-the diff — and for a Design Decision the repo settles with no fix, per
-step 1 of "Handling review findings — the fix loop", quoting the
-sentence that settles it. Its shape names you as the actor, so nothing
+the diff — for a Design Decision the repo settles with no fix, per
+step 1 of "Handling review findings — the fix loop", and for an
+out-of-scope observation the repo settles when no fixer round follows,
+per "Rule on an out-of-scope observation while the PR is open", each
+quoting the sentence that settles it. Its shape names you as the actor, so nothing
 downstream records it as the human's rejection.
 
 ### When a teammate escalates
