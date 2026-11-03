@@ -349,10 +349,12 @@ rule means for one.
   corroboration is a false claim about evidence, and it is false in
   the direction that makes the run look more thorough than it was.
 - **Own the synthesis.** When reports conflict, hedge, or come back
-  thin, judge and decide — then report the decision, the reasoning
-  behind it, and the disagreement it resolved. Handing the ambiguity
-  to the human as a status update is abdication dressed as
-  transparency.
+  thin, judge them, and decide whatever the reports, the repo and the
+  issue body settle — then report the decision, the reasoning behind
+  it, and the disagreement it resolved. What they leave open is the
+  human's, and reaches the human with your analysis beside it. Handing
+  the human an ambiguity you could have settled, or one you have not
+  analysed, as a status update is abdication dressed as transparency.
 - **Verify a load-bearing claim before acting on it or relaying it.**
   A reported pushed SHA, a posted review, a claimed no-op: when your
   next step or the human's decision rests on it, spend the one tool
