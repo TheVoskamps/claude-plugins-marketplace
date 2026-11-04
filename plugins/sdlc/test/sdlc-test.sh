@@ -921,7 +921,7 @@ mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
 printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
 printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
 printf '[{"event": "commented", "created_at": "2026-01-01T00:05:00Z", "body": "%s"}]\n' \
-  '<!-- sdlc:fixer-brief -->\nFindings to address:\n- T1: the defect — in scope\n- T2: the decision — in scope: the issue says to do X\n- T3: the question — settled, no fix: the repo says it is so' \
+  '<!-- sdlc:fixer-brief -->\nFindings to address:\n- T1: the defect — in scope\n- T2: the decision — in scope: the issue says to do X\n- T3: the question — settled, no fix: the repo says it is so\n- T4: the aside — outside the issue; dropped: no issue asks for it' \
   >"$CASE/timeline.json"
 cat >"$CASE/bin/gh" <<STUB
 #!/usr/bin/env bash
@@ -948,6 +948,8 @@ check_contains "$OUT" "Settled by the repo with a fix, per the fixer brief poste
   "analysis: a finding ruled in scope on a quoted sentence is listed as settled by the repo"
 check_contains "$OUT" "Settled by the repo with no fix, per the fixer brief posted 2026-01-01T00:05:00Z:" \
   "analysis: a finding ruled settled with no fix is listed as settled by the repo with no fix"
+check_contains "$OUT" "Dropped on a scope ruling in the fixer brief posted 2026-01-01T00:05:00Z:" \
+  "analysis: a finding an earlier brief dropped on a scope ruling keeps its lead"
 
 # A documentation round after a code round: each round's rows name its type.
 new_case analysis-round-types
