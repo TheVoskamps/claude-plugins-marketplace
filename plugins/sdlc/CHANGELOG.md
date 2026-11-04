@@ -1,5 +1,32 @@
 # sdlc changelog
 
+## 0.76.0 — 2026-11-04
+
+`/sdlc:orchestrate` rules on what the repo already settles, the issue
+body included, and puts only the rest to you, with its own analysis
+beside it.
+
+- A teammate's escalation, a Design Decision a review names, an
+  out-of-scope observation and a merge-readiness question each get the
+  same check first: a decision the repo settles becomes the
+  orchestrator's ruling, quoting the sentence that settles it, and you
+  are not asked. What stays open reaches you with the teammate's report
+  whole, followed by what the orchestrator checked, which options
+  survive, any option missed, and a recommendation, under labels the
+  orchestrator assigned.
+- A fixer-brief finding line can now end `— in scope: <sentence>` or
+  `— settled, no fix: <sentence>`; the `— outside the issue; dropped`
+  ending is gone, and `/sdlc:orchestrate-analysis` names each kind.
+- Every ruling you give that settles a finding, rejects or changes a
+  theorem, overrides a severity, or overrides an issue's requirement is
+  posted as a review adjustment before the fixer brief that acts on it,
+  so no later round re-files what you settled.
+- An approved round's Low findings are put to you before the
+  close-out, each to leave as it is or file as a follow-up issue, and
+  the wrap-up lists them in a table of their own.
+- The orchestrator may `Write` and `Edit` files in its session
+  scratchpad, where it already keeps run state.
+
 ## 0.75.0 — 2026-11-01
 
 Agents keep working under the permission gate's file-work redirect,

@@ -294,11 +294,12 @@ defaults the config contract owns. Each bound, in either place, is a
 declared starting value rather than a measured one.
 
 A loop agent never asks; it returns. The orchestrator is the only
-party in a position to put a question to the human, so a state that
-needs a ruling ends the agent's run: it returns with the gate's report
-verbatim as its question, the orchestrator relays the question, and on
-the answer spawns the agent again with the ruling in the brief, keyed
-to the state and cause the question named. A merge conflict is not by
+party in a position to rule on a question or put it to the human, so a
+state that needs a ruling ends the agent's run: it returns with the
+gate's report verbatim as its question, the orchestrator rules on it
+when the repo settles it and relays it to the human otherwise, and on
+the ruling spawns the agent again with it in the brief, keyed to the
+state and cause the question named. A merge conflict is not by
 itself such a state: `BEHIND` and `DIRTY` both go to the fixer first,
 ruling or not, because a conflict a repo rule already settles — a
 plugin `version` line under the version-bump rule — would otherwise
@@ -307,8 +308,8 @@ could not settle comes back as a question, with the fixer's report
 naming it. A ruling answers only that
 question: the re-spawn runs the gate afresh, and a ruling the new
 report does not consume is discarded and named in the agent's report,
-so the human learns that an earlier answer lapsed rather than took
-effect.
+so whoever gave it learns that an earlier ruling lapsed rather than
+took effect.
 
 Because every failed gate means the close-out is run again, each of
 its steps is safe to repeat: the status flips repeat harmlessly, the
@@ -370,7 +371,7 @@ prose asking for judgment, and each slot has one owner:
 | --- | --- |
 | The `Scope:` block that ends the developer's report | `agents/issue-developer.md` |
 | The gate that reads that block before the first review round | `skills/orchestrate/SKILL.md` |
-| The ruling every finding line of a fixer brief ends in — a scope ruling, or the human's answer on a finding the orchestrator put to them — and what it is derived from | `skills/orchestrate/SKILL.md` |
+| The ruling every finding line of a fixer brief ends in — a scope ruling, the orchestrator's ruling quoting the repo sentence that settles the finding, or the human's answer on a finding the orchestrator put to them — and what it is derived from | `skills/orchestrate/SKILL.md` |
 | The cases in which a finding is put to the human at all, and that an in-scope finding is never one of them | `skills/orchestrate/SKILL.md` |
 | That a finding carries one recommendation, the fix, and no rejection alternative or intent question of its own | `agents/theorem-based-pr-reviewer.md` |
 | What a fixer does with a ruled finding line, and with one that has no ruling | `agents/issue-fixer.md` |
