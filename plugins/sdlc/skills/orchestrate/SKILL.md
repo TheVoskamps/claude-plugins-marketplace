@@ -831,7 +831,15 @@ they chose: step 2 below, its fixer brief carrying those Lows and no
 other finding, each line ending in its ruling as step 2 derives it,
 then steps 3 to 5 — even when the APPROVED round was the last the
 review-round cap allows, since that answer is the human's decision to
-go past the cap. That round's verdict is handled as any round's.
+go past the cap. Step 1 does not run in that round, so a Low whose
+ruling step 2 cannot otherwise derive — a Design Decision the repo
+leaves open, or a Low outside the issue — ends `— put to the human:
+fix in this PR? → this PR`, the human's answer. That round's verdict
+is handled as any round's. A Low the human answers "later" for, in the
+same reply as a "this PR" answer or alone, goes into the scope notes
+you hand `pr-finalizer` as a ruling the rounds do not carry, and when
+a later round files that Low again you list it with that ruling rather
+than asking the human about it again.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
