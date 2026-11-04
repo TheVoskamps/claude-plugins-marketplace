@@ -825,7 +825,11 @@ Low's fix is made in this PR or later. A Low the repo settles with a
 fix is listed with the sentence that settles it, which is where your
 ruling on it goes when no fixer brief follows; that ruling is not put
 to the human, and when the fix is made is all the human decides of
-it. Do not spawn the fixer — no loop runs for Lows alone.
+it. No loop runs for Lows unless the human asks for one. When the
+human answers "this PR" for any Low, run one round for exactly the Lows
+they chose: step 2 below, its fixer brief carrying those Lows and no
+other finding, each line ending in its ruling as step 2 derives it,
+then steps 3 to 5. That round's verdict is handled as any round's.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
@@ -1146,8 +1150,11 @@ the human's end-of-loop confirmation, per PR, that the loop is done and
 the PR is good enough to move forward:
 
 - **The code loop's confirmation** starts the PR's documentation loop,
-  per "The documentation loop", and nothing else. A batch with no code
-  to implement has no code loop, and so no such confirmation.
+  per "The documentation loop", and nothing else. A reply that asks for
+  a Low's fix in this PR is not that confirmation: it runs the Low round
+  per "If APPROVED with Low findings", and the loop ends again on the
+  confirmation that follows that round. A batch with no code to
+  implement has no code loop, and so no such confirmation.
 - **The documentation loop's confirmation**, and only that, sends the
   PR through the stages below, in this order. The confirmation
   authorizes the ready flip and nothing past it: the merge stays the
