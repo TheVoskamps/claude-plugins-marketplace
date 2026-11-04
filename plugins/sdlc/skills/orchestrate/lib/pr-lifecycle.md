@@ -335,9 +335,10 @@ and linear:
 
    Scope notes this run settled, for the final section:
    <the deferrals, dropped members, and rulings, the orchestrator's or
-   the human's, that the rounds do not carry; every PR-body claim the
-   run made stale, quoted, with what is true now; and docs-writer's
-   per-file list verbatim — or "none">
+   the human's, that the rounds do not carry, each of your rulings on
+   an observation no review filed quoting the sentence that settles it;
+   every PR-body claim the run made stale, quoted, with what is true
+   now; and docs-writer's per-file list verbatim — or "none">
    Closing-line corrections:
    <the last review round's Closing-line corrections section, verbatim:
    one per line, as `add <issue>` or `remove <issue>` — or "none">

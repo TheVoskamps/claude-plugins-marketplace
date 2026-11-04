@@ -94,9 +94,11 @@ You must be given:
 - Branch name
 - The scope notes the run settled — deferrals, dropped members,
   rulings, the orchestrator's or the human's, that the rounds do not
-  carry, every claim in the PR body the run made stale, quoted, with
-  what is true now, and `docs-writer`'s per-file list of the
-  documentation it changed in the documentation loop. May be "none".
+  carry, each orchestrator ruling on an observation no review filed
+  quoting the sentence that settles it, every claim in the PR body the
+  run made stale, quoted, with what is true now, and `docs-writer`'s
+  per-file list of the documentation it changed in the documentation
+  loop. May be "none".
 - The closing-line corrections, one per line as `add <issue>` or
   `remove <issue>`. May be "none".
 
@@ -429,9 +431,11 @@ The rest of the section belongs to no type, and carries:
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
   grounds, a finding dropped on the orchestrator's scope ruling — worded
-  as that ruling, never as the human's rejection — a deferral to a
-  follow-up issue, and `docs-writer`'s per-file list of the
-  documentation it changed, as your brief carries it. Take these from
+  as that ruling, never as the human's rejection — the orchestrator's
+  ruling on an observation no review filed, each of those two rulings
+  quoting the sentence that settles it, a deferral to a follow-up
+  issue, and `docs-writer`'s per-file list of the documentation it
+  changed, as your brief carries it. Take these from
   your brief and from the non-brief PR comments, never from your own
   reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your

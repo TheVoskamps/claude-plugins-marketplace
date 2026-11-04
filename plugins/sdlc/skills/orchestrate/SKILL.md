@@ -1064,11 +1064,12 @@ of the diff into the next round's theorem list, which is exactly what
 is the `dropped (scope ruling)` line — a ruling read off the repo, not
 a reading of the diff. Post one, keyed to the theorem and quoting the
 sentence that settles it, for every finding a review filed that the
-repo settles and no fixer will act on — settled with no fix, or
-settled in a round no fixer round follows. Without it the next round
-files the theorem again rather than retiring it as scope-dropped. Its
-shape names you as the actor, so nothing downstream records it as the
-human's rejection.
+repo settles with no fix. Without it the next round files the theorem
+again rather than retiring it as scope-dropped. Its shape names you as
+the actor, so nothing downstream records it as the human's rejection.
+A finding the repo settles with a fix takes no such line, in any round:
+its theorem stays live until a fix makes it hold, and in an APPROVED
+round it stays on the Lows you list for the human.
 
 ### When a teammate escalates
 
