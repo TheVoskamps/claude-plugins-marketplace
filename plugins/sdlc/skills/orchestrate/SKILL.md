@@ -824,8 +824,7 @@ that finding to the human.
 `pr-finalizer` is spawned, tagged by member and un-tiered, asking, for
 each Low, whether it is left as it is or filed as a follow-up issue. A
 "filed as a follow-up issue" answer travels to `pr-finalizer` as a
-scope note, and the final report lists each Low with its answer. Do not
-spawn the fixer — no loop runs for Lows alone.
+scope note. Do not spawn the fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
