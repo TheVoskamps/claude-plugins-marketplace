@@ -430,7 +430,8 @@ The rest of the section belongs to no type, and carries:
   out when there were none.
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
-  grounds, a finding dropped on the orchestrator's scope ruling — worded
+  grounds, any other ruling of the human's that the rounds do not
+  carry, a finding dropped on the orchestrator's scope ruling — worded
   as that ruling, never as the human's rejection — the orchestrator's
   ruling on an observation no review filed, each of those two rulings
   quoting the sentence that settles it, a deferral to a follow-up

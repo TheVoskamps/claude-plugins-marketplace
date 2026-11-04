@@ -379,15 +379,17 @@ rule means for one.
   finding line when the review filed it, as an owner ruling otherwise.
   One no review filed, when no fixer round follows, goes into the
   round's report and into the scope notes you hand `pr-finalizer`. One
-  the repo leaves open is put to the
-  human while the PR is still open, with the consequence of each
-  option stated in the question.
+  a review filed in an APPROVED round, settled with a fix, goes on the
+  Lows you list in the final report, per "Handling review findings —
+  the fix loop". One the repo leaves open is put to the human while
+  the PR is still open, with the consequence of each option stated in
+  the question.
   An option that would make the PR depart from an issue's text carries
   the issue edit inside the same option. Label the options yourself,
   outside any quoted block, and never ask the human to answer by a
-  label that exists only inside one. An observation
-  never travels to the final report, and never becomes a follow-up
-  issue on your initiative.
+  label that exists only inside one. An observation no review filed
+  never travels to the final report, and no observation becomes a
+  follow-up issue on your initiative.
 
 ### A batch with no code to implement skips the code loop
 
@@ -818,8 +820,10 @@ detail", or the reviewer is re-spawned and the new round supersedes
 it — and nothing spawns until they do.
 
 **If APPROVED with Low findings**: List the Lows in the final report
-for human decision, tagged by member and un-tiered. Do not spawn the
-fixer — no loop runs for Lows alone.
+for human decision, tagged by member and un-tiered. A Low the repo
+settles with a fix is listed with the sentence that settles it, which
+is where your ruling on it goes when no fixer brief follows. Do not
+spawn the fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
