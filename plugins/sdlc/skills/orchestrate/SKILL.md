@@ -829,7 +829,9 @@ it. No loop runs for Lows unless the human asks for one. When the
 human answers "this PR" for any Low, run one round for exactly the Lows
 they chose: step 2 below, its fixer brief carrying those Lows and no
 other finding, each line ending in its ruling as step 2 derives it,
-then steps 3 to 5. That round's verdict is handled as any round's.
+then steps 3 to 5 — even when the APPROVED round was the last the
+review-round cap allows, since that answer is the human's decision to
+go past the cap. That round's verdict is handled as any round's.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
