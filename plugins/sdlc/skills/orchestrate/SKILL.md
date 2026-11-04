@@ -817,12 +817,14 @@ detail", or the reviewer is re-spawned and the new round supersedes
 it — and nothing spawns until they do.
 
 **A finding a review filed that the repo settles with a fix is listed
-with the sentence that settles it** as your ruling, wherever the final
-report lists that finding.
+with the sentence that settles it** as your ruling, wherever you list
+that finding to the human.
 
-**If APPROVED with Low findings**: List the Lows in the final report,
-tagged by member and un-tiered, asking the human, for each Low,
-whether it is left as it is or filed as a follow-up issue. Do not
+**If APPROVED with Low findings**: Put the Lows to the human before
+`pr-finalizer` is spawned, tagged by member and un-tiered, asking, for
+each Low, whether it is left as it is or filed as a follow-up issue. A
+"filed as a follow-up issue" answer travels to `pr-finalizer` as a
+scope note, and the final report lists each Low with its answer. Do not
 spawn the fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.

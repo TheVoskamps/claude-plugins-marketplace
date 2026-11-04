@@ -39,6 +39,12 @@ post-merge tail has run, deliver a summary:
 |-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
 | E | <link-prefix>107 | <PR4> | Approved | 1 code, 1 documentation | 0 | 0 | none |
 
+### Low Findings
+| Issue | PR | Finding | Question | Answer |
+|-------|----|---------|----------|--------|
+| <link-prefix>101 | <PR1> | <the finding> | Left as it is, or filed as a follow-up issue? | left as it is |
+| <link-prefix>106 | <PR2> | <the finding>; ruling: <the sentence that settles it> | Left as it is, or filed as a follow-up issue? | filed as a follow-up issue |
+
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
@@ -61,6 +67,11 @@ Under `merge-wait: skip`, every PR the run flipped ready goes under
 **Ready, not monitored** rather than **Merged**: it is ready and
 unmerged, and nothing is watching it. Leave that table out when it has
 no rows.
+
+A **Low Findings** row carries the answer the human gave to its
+question, or `unanswered` when the PR never reached `pr-finalizer`,
+which leaves the question open. Leave that table out when it has no
+rows.
 
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop
