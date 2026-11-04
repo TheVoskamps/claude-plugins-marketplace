@@ -6,8 +6,6 @@ A PR that modifies any file under `plugins/<name>/` MUST also bump that
 plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`, in
 the same PR, as a separate, deliberate edit — a post-review README edit
 included; an agent barred from `plugin.json` reports the bump as owed.
-A file named `CHANGELOG.md` is the one exception: it changes no plugin
-behavior, so a PR changing only those files bumps nothing.
 
 A PR that bumps a version adds that version's entry to
 `plugins/<name>/CHANGELOG.md`: a `## <version> — <date>` heading, newest
