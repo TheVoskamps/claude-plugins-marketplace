@@ -777,6 +777,9 @@ for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
     else
       # The bare "— in scope" pattern also matches a ruling that quotes
       # the settling sentence, so the "— in scope: " arm must stay above it.
+      # The orchestrate skill's fixer brief offers no "— outside the issue;
+      # dropped" ruling, but a PR's timeline can still hold a brief that
+      # carries one, which its arm reads.
       case "$q" in
         *"— in scope: "*) lead="Settled by the repo with a fix, per the fixer brief posted $t:" ;;
         *"— in scope"*) lead="Accepted into the fixer brief posted $t:" ;;
