@@ -7,6 +7,13 @@ plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`, in
 the same PR, as a separate, deliberate edit — a post-review README edit
 included; an agent barred from `plugin.json` reports the bump as owed.
 
+A PR that bumps a version adds that version's entry to
+`plugins/<name>/CHANGELOG.md`: a `## <version> — <date>` heading, newest
+first, over prose or bullets that tell a plugin user what changed
+without following a link, so no PR links or numbers. A PR that adds,
+delists or retires a plugin also adds a dated bullet to the root
+`CHANGELOG.md`.
+
 After rebasing such a branch, re-read each touched plugin's `version`
 against the default branch and bump again if they now match. When both
 sides applied the same bump, git resolves it silently — no conflict, no
