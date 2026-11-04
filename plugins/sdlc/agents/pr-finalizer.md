@@ -92,13 +92,8 @@ You must be given:
 - The PR, by its canonical reference `<host>/<owner>/<repo>#<N>` — the
   `<PR>` every step below passes on as it stands
 - Branch name
-- The scope notes the run settled — deferrals, dropped members,
-  rulings, the orchestrator's or the human's, that the rounds do not
-  carry, each orchestrator ruling on an observation no review filed
-  quoting the sentence that settles it, every claim in the PR body the
-  run made stale, quoted, with what is true now, and `docs-writer`'s
-  per-file list of the documentation it changed in the documentation
-  loop. May be "none".
+- The scope notes the run settled, each of a kind the scope-notes part
+  of "The section you write" lists. May be "none".
 - The closing-line corrections, one per line as `add <issue>` or
   `remove <issue>`. May be "none".
 
@@ -428,23 +423,24 @@ The rest of the section belongs to no type, and carries:
   the orchestrator's or the human's, named another, and the change it
   drove, drawn from the commits and the fixer briefs. Leave the part
   out when there were none.
-- **The scope notes the run settled** — a dropped batch member and why
-  it is not in this PR, a finding the human rejected and on what
-  grounds, any other ruling of the human's that the rounds do not
-  carry, a finding dropped on the orchestrator's scope ruling — worded
-  as that ruling, never as the human's rejection — the orchestrator's
-  ruling on an observation no review filed, each of those two rulings
-  quoting the sentence that settles it, a deferral to a follow-up
-  issue, and `docs-writer`'s per-file list of the documentation it
-  changed, as your brief carries it. Take these from
-  your brief and from the non-brief PR comments, never from your own
-  reading of the diff.
+- **The scope notes the run settled** — the one list of what a scope
+  note is: a dropped batch member and why it is not in this PR, a
+  finding the human rejected and on what grounds, any other ruling,
+  the orchestrator's or the human's, that the rounds do not carry, a
+  finding dropped on the orchestrator's scope ruling — worded as that
+  ruling, never as the human's rejection — the orchestrator's ruling on
+  an observation no review filed, each of those two rulings quoting the
+  sentence that settles it, a deferral to a follow-up issue,
+  `docs-writer`'s per-file list of the documentation it changed, as
+  your brief carries it, and each PR-body claim the run made stale,
+  quoted, with what is true now, which the next part writes rather
+  than this one. Take these from your brief and from the non-brief PR
+  comments, never from your own reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
-  scope notes name, quoted, with what is true now. The claim stays
-  where it is, since you never edit outside your own markers but for
-  the closing-line corrections your brief names; this part of the
-  section is what corrects it. Leave the part out when the scope
-  notes name none.
+  scope notes name. The claim stays where it is, since you never edit
+  outside your own markers but for the closing-line corrections your
+  brief names; this part of the section is what corrects it. Leave the
+  part out when the scope notes name none.
 
 Write it as prose a human deciding whether to merge would want, not as
 a log. Leave out anything the body already says, anything a reader

@@ -132,8 +132,8 @@ A PR-body claim the run made stale is not lost by this. Collect every
 one the teammate reports name — a finding whose remedy is a body
 change, a body change a fixer reports it did not make, a claim
 `docs-writer` says a change falsified — say so in the round's report,
-and carry each into the scope notes you hand `pr-finalizer`, quoted,
-with what is true now. The fix lands once, at the end.
+and carry each into the scope notes you hand `pr-finalizer`. The fix
+lands once, at the end.
 
 Closing-line corrections need no collecting. Each round's reviewer
 report carries a Closing-line corrections section, and the body does
@@ -326,19 +326,16 @@ and linear:
    in response, and any scope notes the run settled, replacing the
    section a previous run of this close-out left, and makes the
    closing-line corrections. Give it `<PR_REF>`, the branch name,
-   the scope notes the run settled that the rounds themselves do not
-   carry, and the last review round's Closing-line corrections
-   section:
+   the scope notes the run settled, and the last review round's
+   Closing-line corrections section:
 
    ```text
    PR <PR_REF> has finished its review loop. Branch: <branch-name>
 
    Scope notes this run settled, for the final section:
-   <the deferrals, dropped members, and rulings, the orchestrator's or
-   the human's, that the rounds do not carry, each of your rulings on
-   an observation no review filed quoting the sentence that settles it;
-   every PR-body claim the run made stale, quoted, with what is true
-   now; and docs-writer's per-file list verbatim — or "none">
+   <every scope note the run settled, of each kind the scope-notes part
+   of the final section in `agents/pr-finalizer.md` lists — or
+   "none">
    Closing-line corrections:
    <the last review round's Closing-line corrections section, verbatim:
    one per line, as `add <issue>` or `remove <issue>` — or "none">
