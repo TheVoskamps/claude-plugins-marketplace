@@ -816,31 +816,14 @@ the round stands, its verdict and findings read per "Reading a round's
 detail", or the reviewer is re-spawned and the new round supersedes
 it — and nothing spawns until they do.
 
-**A finding a review filed that the repo settles with a fix, and that
-no fixer brief carries, is listed in the final report with the
-sentence that settles it** as your ruling, wherever the report lists
-that finding.
+**A finding a review filed that the repo settles with a fix is listed
+with the sentence that settles it** as your ruling, wherever the final
+report lists that finding.
 
 **If APPROVED with Low findings**: List the Lows in the final report,
-tagged by member and un-tiered, for the human to decide whether each
-Low's fix is made in this PR or later. Your ruling on a Low the repo
-settles with a fix is not put to the human: when the fix is made is
-all the human decides of it. No loop runs for Lows unless the human
-asks for one. When the human answers "this PR" for any Low, run one
-round for exactly the Lows they chose: step 2 below, its fixer brief
-carrying those Lows and no other finding, each line ending in its
-ruling as step 2 derives it,
-then steps 3 to 5 — even when the APPROVED round was the last the
-review-round cap allows, since that answer is the human's decision to
-go past the cap. Step 1 does not run in that round, so a Low whose
-ruling step 2 cannot otherwise derive — a Design Decision the repo
-leaves open, or a Low outside the issue — ends `— put to the human:
-fix in this PR? → this PR`, the human's answer. That round's verdict
-is handled as any round's. A Low the human answers "later" for, in the
-same reply as a "this PR" answer or alone, goes into the scope notes
-you hand `pr-finalizer` as a ruling the rounds do not carry, and when
-a later round files that Low again you list it with that ruling rather
-than asking the human about it again.
+tagged by member and un-tiered, asking the human, for each Low,
+whether it is left as it is or filed as a follow-up issue. Do not
+spawn the fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
@@ -969,7 +952,8 @@ member)**:
 6. Repeat this loop until APPROVED or until the review-round cap
    (see "Your own boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
-   the human in the final report.
+   the human in the final report, listing each finding still open on
+   its own.
 
 **When every open Critical/High/Medium finding is ruled settled with
 no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
@@ -1158,11 +1142,8 @@ the human's end-of-loop confirmation, per PR, that the loop is done and
 the PR is good enough to move forward:
 
 - **The code loop's confirmation** starts the PR's documentation loop,
-  per "The documentation loop", and nothing else. A reply that asks for
-  a Low's fix in this PR is not that confirmation: it runs the Low round
-  per "If APPROVED with Low findings", and the loop ends again on the
-  confirmation that follows that round. A batch with no code to
-  implement has no code loop, and so no such confirmation.
+  per "The documentation loop", and nothing else. A batch with no code
+  to implement has no code loop, and so no such confirmation.
 - **The documentation loop's confirmation**, and only that, sends the
   PR through the stages below, in this order. The confirmation
   authorizes the ready flip and nothing past it: the merge stays the

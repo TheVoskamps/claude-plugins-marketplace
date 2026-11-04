@@ -42,7 +42,8 @@ post-merge tail has run, deliver a summary:
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
-| <link-prefix>102  | <PR3> | Critical finding persists at review-round cap |
+| <link-prefix>102  | <PR3> | T14 (Critical) persists at review-round cap: <the finding> |
+| <link-prefix>102  | <PR3> | T15 (Medium) persists at review-round cap: <the finding>; ruling: <the sentence that settles it> |
 | <link-prefix>105  | —     | Dropped from batch C — needs a design decision its issue doesn't answer; not on <PR3>, still In Progress |
 
 ### Sequential Queue (not yet started)
