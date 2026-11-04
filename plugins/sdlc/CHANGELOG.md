@@ -18,9 +18,11 @@ beside it.
   `— settled, no fix: <sentence>`; the `— outside the issue; dropped`
   ending is gone, and `/sdlc:orchestrate-analysis` names each kind.
 - Every ruling you give that settles a finding, rejects or changes a
-  theorem, overrides a severity, or overrides an issue's requirement is
-  posted as a review adjustment before the fixer brief that acts on it,
-  so no later round re-files what you settled.
+  theorem, overrides a severity, or overrides an issue's requirement a
+  theorem tests is posted as a review adjustment before the fixer brief
+  that acts on it, so no later round re-files what you settled. An
+  override no theorem tests travels in the fixer brief alone, as an
+  owner ruling.
 - An approved round's Low findings are put to you before the
   close-out, each to leave as it is or file as a follow-up issue, and
   the wrap-up lists them in a table of their own.

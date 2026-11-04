@@ -328,10 +328,12 @@ the ceiling of the code loop's fix loop, not its floor; its
 that section asks for is `docs-writer`'s, in the documentation loop,
 where that section and the documentation the diff made stale are the
 ceiling in turn. A review finding whose fix lies outside the ceiling is
-the human's to admit or refuse, and so is a developer's diff that
-reaches a plugin the issue does not name or renames or deletes a file
-the issue does not specify; the orchestrator never admits either on its
-own. The issue's
+the orchestrator's ruling when the repo settles it, quoting the
+sentence that settles it, and the human's to admit or refuse otherwise.
+A developer's diff that reaches a plugin the issue does not name or
+renames or deletes a file the issue does not specify is the human's to
+admit or refuse; the orchestrator never admits one on its own. The
+issue's
 files-affected section is no ceiling at all. It is a floor: the
 implementer is expected to touch paths it does not list, so an
 unlisted path is not a gate trigger, not a design decision, not a
