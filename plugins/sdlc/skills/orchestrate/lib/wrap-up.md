@@ -68,7 +68,7 @@ Under `merge-wait: skip`, every PR the run flipped ready goes under
 unmerged, and nothing is watching it. Leave that table out when it has
 no rows.
 
-Leave that table out when it has no rows.
+Leave the **Low Findings** table out when it has no rows.
 
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop
