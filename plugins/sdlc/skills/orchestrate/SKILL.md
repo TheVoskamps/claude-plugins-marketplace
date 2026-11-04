@@ -379,11 +379,8 @@ rule means for one.
   finding line when the review filed it, as an owner ruling otherwise.
   One no review filed, when no fixer round follows, goes into the
   round's report and into the scope notes you hand `pr-finalizer`. One
-  a review filed in an APPROVED round, settled with a fix, goes on the
-  Lows you list in the final report, per "Handling review findings —
-  the fix loop". One the repo leaves open is put to the human while
-  the PR is still open, with the consequence of each option stated in
-  the question.
+  the repo leaves open is put to the human while the PR is still open,
+  with the consequence of each option stated in the question.
   An option that would make the PR depart from an issue's text carries
   the issue edit inside the same option. Label the options yourself,
   outside any quoted block, and never ask the human to answer by a
@@ -819,16 +816,20 @@ the round stands, its verdict and findings read per "Reading a round's
 detail", or the reviewer is re-spawned and the new round supersedes
 it — and nothing spawns until they do.
 
+**A finding a review filed that the repo settles with a fix, and that
+no fixer brief carries, is listed in the final report with the
+sentence that settles it** as your ruling, wherever the report lists
+that finding.
+
 **If APPROVED with Low findings**: List the Lows in the final report,
 tagged by member and un-tiered, for the human to decide whether each
-Low's fix is made in this PR or later. A Low the repo settles with a
-fix is listed with the sentence that settles it, which is where your
-ruling on it goes when no fixer brief follows; that ruling is not put
-to the human, and when the fix is made is all the human decides of
-it. No loop runs for Lows unless the human asks for one. When the
-human answers "this PR" for any Low, run one round for exactly the Lows
-they chose: step 2 below, its fixer brief carrying those Lows and no
-other finding, each line ending in its ruling as step 2 derives it,
+Low's fix is made in this PR or later. Your ruling on a Low the repo
+settles with a fix is not put to the human: when the fix is made is
+all the human decides of it. No loop runs for Lows unless the human
+asks for one. When the human answers "this PR" for any Low, run one
+round for exactly the Lows they chose: step 2 below, its fixer brief
+carrying those Lows and no other finding, each line ending in its
+ruling as step 2 derives it,
 then steps 3 to 5 — even when the APPROVED round was the last the
 review-round cap allows, since that answer is the human's decision to
 go past the cap. Step 1 does not run in that round, so a Low whose
@@ -968,8 +969,7 @@ member)**:
 6. Repeat this loop until APPROVED or until the review-round cap
    (see "Your own boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
-   the human in the final report, listing each finding a review filed
-   that the repo settles with a fix with the sentence that settles it.
+   the human in the final report.
 
 **When every open Critical/High/Medium finding is ruled settled with
 no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
@@ -1089,9 +1089,7 @@ repo settles with no fix. Without it the next round files the theorem
 again rather than retiring it as scope-dropped. Its shape names you as
 the actor, so nothing downstream records it as the human's rejection.
 A finding the repo settles with a fix takes no such line, in any round:
-its theorem stays live until a fix makes it hold; in an APPROVED round
-it stays on the Lows you list for the human, and at the round cap on
-the escalation step 7 makes.
+its theorem stays live until a fix makes it hold.
 
 ### When a teammate escalates
 
