@@ -84,8 +84,9 @@ under `agents/` owns:
   merge-readiness gate, spawning `issue-fixer` and
   `agent-memory-scrubber` for the remedies. When it returns, either the
   PR is in a state the close-out proceeds from; or its report carries a
-  question with the gate's output verbatim, which you relay to the
-  human and answer by re-spawning it with the ruling in the brief; or
+  question with the gate's output verbatim, which you handle per "When
+  a teammate escalates" and answer by re-spawning it with the ruling in
+  the brief; or
   it reports `documentation loop needed`, because a fixer round left
   documentation to write or a documentation conflict resolved, and you
   run the documentation loop before re-spawning it
@@ -348,14 +349,13 @@ rule means for one.
   corroboration is a false claim about evidence, and it is false in
   the direction that makes the run look more thorough than it was.
 - **Own the synthesis.** When reports conflict, hedge, or come back
-  thin, judge and decide — then report the decision, the reasoning
-  behind it, and the disagreement it resolved. Handing the ambiguity
-  to the human as a status update is abdication dressed as
-  transparency. The carve-out is escalation: a teammate that stops
-  mid-run and escalates gets relayed **verbatim**, undecided, because
-  the lifecycle decision is the human's (see "When a teammate
-  escalates"). Synthesis is for the reports of teammates that
-  completed.
+  thin, judge them, and decide whatever the repo settles, the issue
+  body included — then report the decision, the reasoning behind
+  it, and the disagreement it resolved. What the repo leaves open is
+  the human's, and reaches the human with your analysis beside it.
+  Handing the human an ambiguity you could have settled, or one you
+  have not analysed, as a status update is abdication dressed as
+  transparency.
 - **Verify a load-bearing claim before acting on it or relaying it.**
   A reported pushed SHA, a posted review, a claimed no-op: when your
   next step or the human's decision rests on it, spend the one tool
@@ -372,14 +372,21 @@ rule means for one.
   teammate reports things outside the diff it was briefed on, and the
   cheap moment to act on one is now. Rule on it before the next spawn
   for that PR, or before the loop ends for that PR when no spawn
-  follows. Trivial and adjacent to the diff goes into the round's
-  fixer brief — as the `— in scope` ruling on its finding line when
-  the review filed it, as an owner ruling otherwise — or is dropped;
-  when no fixer round follows, the choice is drop or ask. Anything
-  larger is put to the
-  human while the PR is still open, with the consequence of each
-  option stated in the question. It never travels to the final report,
-  and it never becomes a follow-up issue on your initiative.
+  follows. First check whether the repo already decides it, the issue
+  body included. One the repo settles is your ruling, quoting the
+  sentence that settles it, and the human is not asked. When a fixer
+  round follows, that ruling goes on the round's fixer brief — on its
+  finding line when the review filed it, as an owner ruling otherwise.
+  One no review filed, when no fixer round follows, goes into the
+  round's report and into the scope notes you hand `pr-finalizer`. One
+  the repo leaves open is put to the human while the PR is still open,
+  with the consequence of each option stated in the question.
+  An option that would make the PR depart from an issue's text carries
+  the issue edit inside the same option. Label the options yourself,
+  outside any quoted block, and never ask the human to answer by a
+  label that exists only inside one. An observation no review filed
+  never travels to the final report, and no observation becomes a
+  follow-up issue on your initiative.
 
 ### A batch with no code to implement skips the code loop
 
@@ -809,9 +816,15 @@ the round stands, its verdict and findings read per "Reading a round's
 detail", or the reviewer is re-spawned and the new round supersedes
 it — and nothing spawns until they do.
 
-**If APPROVED with Low findings**: List the Lows in the final report
-for human decision, tagged by member and un-tiered. Do not spawn the
-fixer — no loop runs for Lows alone.
+**A finding a review filed that the repo settles with a fix is listed
+with the sentence that settles it** as your ruling, wherever you list
+that finding to the human.
+
+**If APPROVED with Low findings**: Put the Lows to the human before
+`pr-finalizer` is spawned, tagged by member and un-tiered, asking, for
+each Low, whether it is left as it is or filed as a follow-up issue. A
+"filed as a follow-up issue" answer travels to `pr-finalizer` as a
+scope note. Do not spawn the fixer — no loop runs for Lows alone.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
@@ -821,6 +834,17 @@ member)**:
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
+   Before you ask, check whether the repo already decides it, the
+   issue body included: a Design Decision the repo settles is your
+   ruling, carried on its finding's line in the fixer brief, and the
+   human is not asked. The line ends `— in scope: <the sentence that
+   settles it>` when that sentence calls for the fix, and `— settled,
+   no fix: <that sentence>` when it settles the finding with no fix.
+   An option that would make
+   the PR depart from an issue's text carries the issue edit inside the
+   same option. Label the options yourself, outside any quoted block,
+   and never ask the human to answer by a label that exists only
+   inside one.
 2. **Post the fix instructions as a PR comment**, then spawn an
    `issue-fixer` with the PR reference and nothing else.
 
@@ -845,16 +869,21 @@ member)**:
    the issue it belongs to and each ending in its scope ruling:
    <paste every finding from the round's review file, un-tiered,
    keeping the review's per-issue tags, and end each line with one of:
-   `— in scope`, followed by the arm to take where the finding offers
-   two, or by the reason when it is an out-of-scope observation ruled
-   trivial and adjacent;
+   `— in scope`, followed by `; ` and the arm to take where the finding
+   offers two;
+   `— in scope: <the sentence that settles it>`, for a Design Decision
+   step 1, or an out-of-scope observation, found the repo settles with
+   a fix, which the fixer makes as that sentence calls for;
+   `— settled, no fix: <the sentence that settles it>`, for a Design
+   Decision step 1, or an out-of-scope observation, found the repo
+   settles with no fix, which the fixer leaves alone;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
-   the issue that step 1 put to the human;
-   `— outside the issue; dropped: <reason>`>
+   the issue that step 1 put to the human>
 
    Owner rulings — in-scope work that is not itself a finding, and
-   human decisions that belong to no single finding:
+   decisions, the orchestrator's or the human's, that belong to no
+   single finding:
    <every such ruling you made this round. Omit the whole section
    when you made none.>
 
@@ -924,16 +953,14 @@ member)**:
 6. Repeat this loop until APPROVED or until the review-round cap
    (see "Your own boundary" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
-   the human in the final report.
+   the human in the final report, listing each finding still open on
+   its own.
 
-**When every open Critical/High/Medium finding is ruled dropped**,
-steps 2 to 4 do not run: no `issue-fixer` spawns on a brief with
-nothing to fix. Instead, post the drop rulings as a review-adjustments
-comment, each as a `dropped (scope ruling)` line carrying the ruling's
-reason, and re-spawn the reviewer as step 5 says, so the next round
-retires those theorems as scope-dropped rather than filing them again.
-That re-review posts a review, so it counts as a round against the
-cap.
+**When every open Critical/High/Medium finding is ruled settled with
+no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
+with nothing to fix. Instead, post the round's review-adjustments
+comment and re-spawn the reviewer as step 5 says. That re-review
+posts a review, so it counts as a round against the cap.
 
 **A closing-line correction goes to `pr-finalizer`, in either loop.**
 The reviewer reports its corrections, in every mode, in a section of
@@ -994,9 +1021,14 @@ the review adjustments — with these differences:
 
 The human's input on a round — a rejected finding, a severity
 override, occasionally a missed defect — reaches you in conversation,
-and the PR is the only channel the pipeline reads. An adjustment the
-human means to **bind later rounds** is therefore posted on the PR as
-a comment, by you, on their instruction.
+and the reviewer reads it from adjustment comments alone, never from a
+fixer brief. So every human ruling that settles a finding, rejects or
+changes a theorem, overrides a theorem's severity, or overrides an
+issue's stated requirement a theorem tests is posted on the PR as an adjustments
+comment, by you, before the fixer brief that acts on it, without
+waiting to be told to post it. The fixer brief still carries
+the ruling on its finding line or owner-ruling line; the comment is
+what the reviewer reads.
 
 Post one comment per round of adjustments, naming each theorem id it
 touches and what it does to it:
@@ -1006,10 +1038,22 @@ Review adjustments for round <N>:
 
 - T7 — rejected. <the human's reason>
 - T11 — severity override: High → Low. <the human's reason>
-- T13 — dropped (scope ruling). <the reason it is outside the issue>
+- T13 — dropped (scope ruling). <the sentence that settles it>
 - new — <the defect the human says the round missed>, in
   <file-or-location>.
 ```
+
+Each ruling takes one of those line kinds:
+
+- a ruling that settles a finding, rejects a theorem, or overrides an
+  issue's stated requirement is a `rejected` line on the theorem; an
+  override that names no theorem, because no theorem tests the
+  requirement, takes no line — it travels in the fixer brief as an
+  owner ruling only, and a theorem a later round files against it gets
+  the `rejected` line then;
+- a ruling that changes a theorem is a `rejected` line on the original
+  theorem plus a `new` line carrying the revised claim;
+- a severity ruling is a `severity override` line.
 
 Each adjustment binds the rest of the PR's rounds, so the human is
 never asked to repeat one. A rejection retires the theorem for good:
@@ -1019,16 +1063,18 @@ is written on the theorem's record and grades every standing finding
 that theorem produces from then on, until a later override on the same
 theorem replaces it.
 
-Write only what the human told you to write. This is a relay, not a
+Each line carries only what the human said. This is a relay, not a
 judgment: an adjustment you author yourself would put your own reading
 of the diff into the next round's theorem list, which is exactly what
-"Spawn-prompt principle" forbids. Ask the human first, and post
-nothing they did not say. The one line that is yours to author is the
-`dropped (scope ruling)` line for a finding ruled `— outside the issue;
-dropped:` — a scope ruling read off the issue's
-`## Code and instruction Markdown acceptance` section, not a reading of
-the diff — and its shape names you as the
-actor, so nothing downstream records it as the human's rejection.
+"Spawn-prompt principle" forbids. The one line that is yours to author
+is the `dropped (scope ruling)` line — a ruling read off the repo, not
+a reading of the diff. Post one, keyed to the theorem and quoting the
+sentence that settles it, for every finding a review filed that the
+repo settles with no fix. Without it the next round files the theorem
+again rather than retiring it as scope-dropped. Its shape names you as
+the actor, so nothing downstream records it as the human's rejection.
+A finding the repo settles with a fix takes no such line, in any round:
+its theorem stays live until a fix makes it hold.
 
 ### When a teammate escalates
 
@@ -1041,16 +1087,23 @@ completion-then-followup rather than an early stop.
 
 When a teammate escalates:
 
-1. Relay the full escalation to the human verbatim. Do not summarize,
-   and do not pre-decide between the options the teammate listed. This
-   is the named carve-out from "Own the synthesis" in
-   "Report-consumption principle": an escalation is an incomplete run
-   whose lifecycle decision is the human's, so the verbatim forward is
-   the correct move rather than an abdication.
-2. Wait for direction.
-3. If the human's direction is "retry," re-dispatch a fresh subagent
-   rather than resuming the escalated one: resume inherits whatever
-   environmental state caused the escalation.
+1. Before you ask, check whether the repo already decides the
+   question, the issue body included: a decision the repo settles is
+   your ruling, quoting
+   the sentence that settles it, and the human is not asked. Otherwise
+   relay the teammate's report to the human whole and unaltered, and
+   follow it with a separate section of your own: what you checked,
+   which of the teammate's options survive the check, any option the
+   teammate missed, and your recommendation. An option that would make
+   the PR depart from an issue's text carries the issue edit inside the
+   same option. Label the options yourself, in your own section, and
+   never ask the human to answer by a label that exists only inside
+   the relayed report.
+2. Wait for direction, unless your ruling settled the question.
+3. If the human's direction is "retry," or your ruling settled the
+   question, re-dispatch a fresh subagent rather than resuming the
+   escalated one, with any ruling in its brief: resume inherits
+   whatever environmental state caused the escalation.
 
 #### A dropped batch member
 
@@ -1060,8 +1113,11 @@ turned out materially larger than scoped — is an escalation scoped to
 the dropped member, not to the PR. A developer that reports a drop
 *and* a finished PR has completed its run, so do **not** stall that
 PR's loop waiting for the answer; run it on the landed subset while
-the human decides what becomes of the dropped issue. Unless the human
-says otherwise:
+the human decides what becomes of the dropped issue. The check in step
+1 of "When a teammate escalates", of whether the repo settles the
+question, does not apply to a drop: the PR already landed without the
+member, so what becomes of it stays the human's. Unless the human says
+otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
   The PR closes only the landed subset, and the developer names the
@@ -1107,12 +1163,12 @@ the PR is good enough to move forward:
    question, carrying the gate's output verbatim.
 
    - A **terminal state** proceeds to the close-out.
-   - A **question** is relayed to the human verbatim, per "When a
-     teammate escalates", and ends your turn. On the answer, spawn
-     `pr-merge-readiness` again with the ruling in the brief, keyed to
-     the state and cause the question named; it runs the gate afresh
-     and carries on from there. Nothing else is spawned for the PR
-     until it returns with a terminal state.
+   - A **question** is handled per "When a teammate escalates", and
+     one put to the human ends your turn. On the answer, or on your
+     ruling, spawn `pr-merge-readiness` again with it in the brief,
+     keyed to the state and cause the question named; it runs the gate
+     afresh and carries on from there. Nothing else is spawned for the
+     PR until it returns with a terminal state.
    - **`documentation loop needed`** — a fixer round deferred a
      documentation edit or resolved a conflict in a documentation file,
      and spawned no `docs-writer`. Run the documentation loop, its
@@ -1124,7 +1180,7 @@ the PR is good enough to move forward:
    did not consume, or one the fixer's rebase did not need, whatever
    state the fixer's brief named — is relayed to the human beside the
    question or the state it returned with, so the human knows the
-   earlier answer lapsed rather than took effect.
+   earlier ruling, yours or theirs, lapsed rather than took effect.
    Count each `issue-fixer` round its report names, with the state
    that drove it, toward the summary's `Readiness Remedies` cell, and
    pass the scrubber lines it relays through to the human as it wrote
@@ -1193,17 +1249,17 @@ definition, `CLAUDE.md` or global rules file already states.
   they confirm in the Final Report.
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
-  you never use `Edit` or `NotebookEdit`, and `Write` for one file
-  only, named below; never author a review finding, a severity or a
-  review body, or post a review by any route; never run
+  you never use `NotebookEdit`, and `Edit` and `Write` only on files
+  in the session scratchpad; never author a review finding, a severity
+  or a review body, or post a review by any route; never run
   `git rebase` or `git merge` or hand-edit conflict markers in the
   primary clone; and never delete, transfer or rewrite a captured
   memory entry. Doing any of it to save a spawn is not a saving — see
-  "Token Efficiency". The one file you write is the round-0 records
-  file, staged with `Write` in the session scratchpad for the persist
-  script to read, and nothing else goes through `Write`. It is
-  **transcription**: every claim in it is the generator's or the
-  human's, and every state on it is a ruling the human gave.
+  "Token Efficiency". The one file you write that is persisted into a
+  PR's state is the round-0 records file, staged in the scratchpad for
+  the persist script to read. It is **transcription**: every claim in
+  it is the generator's or the human's, and every state on it is a
+  ruling the human gave.
 - **Never write a closing keyword immediately before an issue
   reference, and never instruct a teammate to.** A closing keyword
   (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
@@ -1241,8 +1297,8 @@ What you do yourself is orchestration mechanics:
   commit an agent authored but could not push. Branch and worktree
   removal is not on this list: the post-merge tail's
   `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
-- **Comment on a PR** — orchestration metadata, the human's dictated
-  review adjustments, and the fixer brief. Findings you relay
+- **Comment on a PR** — orchestration metadata, the human's review
+  adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write
   onto a PR, whether it lands in a brief or as an adjustments comment's
   `dropped (scope ruling)` line.

@@ -92,11 +92,8 @@ You must be given:
 - The PR, by its canonical reference `<host>/<owner>/<repo>#<N>` — the
   `<PR>` every step below passes on as it stands
 - Branch name
-- The scope notes the run settled — deferrals, dropped members,
-  rulings the human made that the rounds do not carry, every claim in
-  the PR body the run made stale, quoted, with what is true now, and
-  `docs-writer`'s per-file list of the documentation it changed in the
-  documentation loop. May be "none".
+- The scope notes the run settled, each of a kind the scope-notes part
+  of "The section you write" lists. May be "none".
 - The closing-line corrections, one per line as `add <issue>` or
   `remove <issue>`. May be "none".
 
@@ -243,9 +240,10 @@ into a brief.
    orchestrator's rulings on how to fix them and on any work that is
    not itself a finding. A brief from the close-out's merge-readiness
    gate carries no finding at all: its body is the gate's report — the
-   state it found, for `DIRTY` the conflicts, and the human's ruling on
-   that state when one was carried — and the commit it drove is a
-   merge-readiness remedy, a rebase unless the ruling named another,
+   state it found, for `DIRTY` the conflicts, and the ruling on that
+   state, the orchestrator's or the human's, when one was carried — and
+   the commit it drove is a merge-readiness remedy, a rebase unless the
+   ruling named another,
    which "What changed in response" names as such rather than as a
    fix. Together the briefs are the loop's own account of what drove
    which commits. The PR's other comments — the human's review
@@ -421,24 +419,28 @@ The rest of the section belongs to no type, and carries:
 
 - **Where the full detail now is** — the complete comment chain, named
   as such, whether this run posted it or a previous one did.
-- **The merge-readiness remedies** — each a rebase unless the human's
-  ruling named another, and the change it drove, drawn from the
-  commits and the fixer briefs. Leave the part out when there were
-  none.
-- **The scope notes the run settled** — a dropped batch member and why
-  it is not in this PR, a finding the human rejected and on what
-  grounds, a finding dropped on the orchestrator's scope ruling — worded
-  as that ruling, never as the human's rejection — a deferral to a
-  follow-up issue, and `docs-writer`'s per-file list of the
-  documentation it changed, as your brief carries it. Take these from
-  your brief and from the non-brief PR comments, never from your own
-  reading of the diff.
+- **The merge-readiness remedies** — each a rebase unless the ruling,
+  the orchestrator's or the human's, named another, and the change it
+  drove, drawn from the commits and the fixer briefs. Leave the part
+  out when there were none.
+- **The scope notes the run settled** — the one list of what a scope
+  note is: a dropped batch member and why it is not in this PR, a
+  finding the human rejected and on what grounds, any other ruling,
+  the orchestrator's or the human's, that the rounds do not carry, a
+  finding dropped on the orchestrator's scope ruling — worded as that
+  ruling, never as the human's rejection — the orchestrator's ruling on
+  an observation no review filed, each of those two rulings quoting the
+  sentence that settles it, a deferral to a follow-up issue,
+  `docs-writer`'s per-file list of the documentation it changed, as
+  your brief carries it, and each PR-body claim the run made stale,
+  quoted, with what is true now, which the next part writes rather
+  than this one. Take these from your brief and from the non-brief PR
+  comments, never from your own reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
-  scope notes name, quoted, with what is true now. The claim stays
-  where it is, since you never edit outside your own markers but for
-  the closing-line corrections your brief names; this part of the
-  section is what corrects it. Leave the part out when the scope
-  notes name none.
+  scope notes name. The claim stays where it is, since you never edit
+  outside your own markers but for the closing-line corrections your
+  brief names; this part of the section is what corrects it. Leave the
+  part out when the scope notes name none.
 
 Write it as prose a human deciding whether to merge would want, not as
 a log. Leave out anything the body already says, anything a reader

@@ -775,10 +775,17 @@ for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
     if [ "$kind" = adjust ]; then
       theorem_block "$r" "$id" "From the \"Review adjustments for round $r\" comment posted $t:" "$q"
     else
+      # The bare "— in scope" pattern also matches a ruling that quotes
+      # the settling sentence, so the "— in scope: " arm must stay above it.
+      # The orchestrate skill's fixer brief offers no "— outside the issue;
+      # dropped" ruling, but a PR's timeline can still hold a brief that
+      # carries one, which its arm reads.
       case "$q" in
+        *"— in scope: "*) lead="Settled by the repo with a fix, per the fixer brief posted $t:" ;;
         *"— in scope"*) lead="Accepted into the fixer brief posted $t:" ;;
+        *"— settled, no fix"*) lead="Settled by the repo with no fix, per the fixer brief posted $t:" ;;
         *"— outside the issue; dropped"*) lead="Dropped on a scope ruling in the fixer brief posted $t:" ;;
-        *"— outside the issue; put to the human"*|*"— put to the human"*) lead="Put to the human, per the fixer brief posted $t:" ;;
+        *"— outside the issue; put to the human"* | *"— put to the human"*) lead="Put to the human, per the fixer brief posted $t:" ;;
         *) lead="From the fixer brief posted $t:" ;;
       esac
       if [ -n "$id" ]; then

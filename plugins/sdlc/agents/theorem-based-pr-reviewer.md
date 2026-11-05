@@ -418,10 +418,10 @@ It never holds a commit the base gained, so a clean rebase yields an
 **empty delta**.
 
 **The adjustment comments.** The human's input on a round reaches later
-rounds only as a **PR comment the orchestrator posted on the human's
-instruction**, and a finding the orchestrator dropped on its own scope
-ruling travels the same way. Read only those posted since the previous
-round — every comment would re-mint an adjustment already minted:
+rounds only as a **PR comment the orchestrator posted**, and so does
+the orchestrator's own `dropped (scope ruling)` line.
+Read only those posted since the previous round — every comment would
+re-mint an adjustment already minted:
 
 ```bash
 sdlc-pr-adjustments --pr <PR_REF> --round <this round's number>

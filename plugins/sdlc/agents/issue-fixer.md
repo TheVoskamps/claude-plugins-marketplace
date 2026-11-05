@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR reference alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves each conflict a ruling or a resolvability condition settles, escalating the rest — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or the human rules a remedy on another state it reported.
+description: Addresses PR review feedback, or a merge-readiness remedy, for an existing issue branch. Given a PR reference alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names — or rebases the branch onto its base and resolves each conflict a ruling or a resolvability condition settles, escalating the rest — and pushes updates. Use this after the PR review pipeline requests changes, or after the merge-readiness gate reports the branch BEHIND or DIRTY, or a ruling, the orchestrator's or the human's, names a remedy on another state it reported.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
@@ -83,9 +83,10 @@ from its issue.
    of it where the orchestrator's judgment belongs.
 
    The brief carries the findings, each on a line that ends with its
-   scope ruling — `— in scope`, `— outside the issue; put to the
-   human: <question> → <answer>`, `— put to the human: <question> →
-   <answer>`, or `— outside the issue; dropped: <reason>` — plus an
+   scope ruling — `— in scope`, `— in scope: <the sentence that settles
+   it>`, `— settled, no fix: <the sentence that settles it>`,
+   `— outside the issue; put to the human: <question> →
+   <answer>`, or `— put to the human: <question> → <answer>` — plus an
    owner-rulings section for work that is not itself a finding, the
    issue set the PR closes, and the branch name.
    `<branch-name>` in the rest of this document means the branch it
@@ -95,9 +96,12 @@ from its issue.
    report it, quoting the line, rather than fixing anything: the
    ruling is the orchestrator's answer to whether the fix is inside
    the issue, and a fixer that supplies its own answer widens the PR
-   past what the human admitted. A finding ruled `dropped` is not
-   fixed; one ruled `put to the human` is fixed exactly as the answer
-   on its line says, and not otherwise.
+   past what the human admitted. A finding ruled `settled, no fix` is
+   not fixed — the repo already decides it, in the sentence its line
+   quotes; one ruled `in scope:` with
+   a quoted sentence is fixed as that sentence calls for, and one ruled
+   `put to the human` exactly as the answer on its line says, and
+   neither otherwise.
 
    A brief that carries no findings but names a merge state is the
    other kind of brief, and "Merge-readiness briefs" below says what
@@ -120,7 +124,8 @@ from its issue.
    every finding the brief rules in scope, including Low — the review
    pipeline has already graded severity; your job is to fix, not to
    re-tier. An owner ruling names in-scope work that is not itself a
-   finding, or a human decision that belongs to no single finding;
+   finding, or a decision, the orchestrator's or the human's, that
+   belongs to no single finding;
    both are yours to carry out. Before you act on either, re-verify
    what it claims about the world at head (see "Before you write a
    remedy" below).
@@ -281,10 +286,11 @@ and which never rebases or resolves a conflict itself; when the gate
 reports a state whose remedy is on the branch, the remedy is yours,
 and `pr-merge-readiness` — not the orchestrator — spawns you with a
 fixer brief whose body is the gate's report verbatim, followed by the
-human's ruling when it carries one — a ruling answers only the question
-it was asked, so one that reaches you was given on the state the brief
-names. Such a brief names no findings and carries no branch line; take
-the head and base branches from the PR:
+ruling, the orchestrator's or the human's, when it carries one — a
+ruling answers only the question it was asked, so one that reaches you
+was given on the state the brief names. Such a brief names no findings
+and carries no branch line; take the head and base branches from the
+PR:
 
 ```text
 /github-prs:pr-view <PR_number> --json headRefName,baseRefName
@@ -355,7 +361,8 @@ conflict the rebase reached, quoting it. A conflict you resolved
 earlier in the same
 rebase is undone by the abort, and resolved again on the next round.
 `pr-merge-readiness` returns your report as the question, and the
-human's ruling reaches you in the next brief.
+ruling on it, the orchestrator's or the human's, reaches you in the
+next brief.
 
 Run the tests after the rebase, as for any other change. Then capture
 memory, clean up, and report back per the workflow: which state the

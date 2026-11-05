@@ -132,8 +132,8 @@ A PR-body claim the run made stale is not lost by this. Collect every
 one the teammate reports name — a finding whose remedy is a body
 change, a body change a fixer reports it did not make, a claim
 `docs-writer` says a change falsified — say so in the round's report,
-and carry each into the scope notes you hand `pr-finalizer`, quoted,
-with what is true now. The fix lands once, at the end.
+and carry each into the scope notes you hand `pr-finalizer`. The fix
+lands once, at the end.
 
 Closing-line corrections need no collecting. Each round's reviewer
 report carries a Closing-line corrections section, and the body does
@@ -287,16 +287,17 @@ more branch work is still expected.
 
 Give it the PR reference and the branch name — after a
 `documentation loop needed` return, the same brief as a first spawn —
-and, on a re-spawn after it returned with a question, the human's
-ruling, with the state and
-the cause the question named, both copied from the `Question:` line of
-the report that asked it: a ruling answers only the question it was
-asked, and the state and cause together are how the re-spawn tells
-whether the gate is still asking it:
+and, on a re-spawn after it returned with a question, the ruling —
+yours or the human's — with the state and the cause the question
+named, both copied from the `Question:` line of the report that asked
+it: a ruling answers only the question it was asked, and the state and
+cause together are how the re-spawn tells whether the gate is still
+asking it:
 
 ```text
 PR <PR_REF> has been blessed. Branch: <branch-name>
-Ruling on <STATE> (<cause>): <the human's answer, quoted, to the
+Ruling on <STATE> (<cause>): <the orchestrator's ruling, quoting the
+sentence that settles it, or the human's answer, quoted, on the
 question your last spawn returned with; <STATE> and <cause> are the
 state and the cause that question named — or omit the line on the
 first spawn>
@@ -325,18 +326,16 @@ and linear:
    in response, and any scope notes the run settled, replacing the
    section a previous run of this close-out left, and makes the
    closing-line corrections. Give it `<PR_REF>`, the branch name,
-   the scope notes the run settled that the rounds themselves do not
-   carry, and the last review round's Closing-line corrections
-   section:
+   the scope notes the run settled, and the last review round's
+   Closing-line corrections section:
 
    ```text
    PR <PR_REF> has finished its review loop. Branch: <branch-name>
 
    Scope notes this run settled, for the final section:
-   <the deferrals, dropped members, and rulings the human made that
-   the rounds do not carry; every PR-body claim the run made stale,
-   quoted, with what is true now; and docs-writer's per-file list
-   verbatim — or "none">
+   <every scope note the run settled, of each kind the scope-notes part
+   of the final section in `agents/pr-finalizer.md` lists — or
+   "none">
    Closing-line corrections:
    <the last review round's Closing-line corrections section, verbatim:
    one per line, as `add <issue>` or `remove <issue>` — or "none">
