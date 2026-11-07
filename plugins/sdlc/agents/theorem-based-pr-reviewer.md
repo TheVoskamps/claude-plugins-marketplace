@@ -169,13 +169,15 @@ surviving notification carries the round past every lost one.
    does not read as slow.
 3. **End the turn, or act on the lines**, in the stage its arm names:
    an `overdue` line takes the deadline arm, and a **`returned-unsaved`**
-   line is written off on the resume that reads it, as the deadline arm
-   does but with nothing to `TaskStop`, and its theorem re-spawned. An
-   arm that moved on ends this stage's wait.
+   line takes it too, on the resume that reads it, whatever its
+   deadline: a child that handed back can still be running, and its
+   late `leave` would overwrite its replacement's. An arm that moved on
+   ends this stage's wait.
 
-**The deadline arm.** For an `overdue` line, `TaskStop` its child if
-**you** spawned it, and append its stop either way, naming it by the
-agent id the line printed:
+**The deadline arm.** For an `overdue` or `returned-unsaved` line,
+`TaskStop` its child if **you** spawned it, before its theorem is
+re-spawned, and append its stop either way, naming it by the agent id
+the line printed:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
