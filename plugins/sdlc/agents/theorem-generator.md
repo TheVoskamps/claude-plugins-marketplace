@@ -199,6 +199,13 @@ given, and step 7.
    `leave` call and no path line: the hand-back is the theorem list
    alone, and the only copy there is. Nothing else goes in your report.
 
+**Never end your turn while background work of your own is running** —
+a command you ran with `run_in_background`, or any other task you
+started. A turn ended over it does not end your run: you wake again
+when that work exits, so your spawner cannot tell from its notification
+whether you have finished. Wait for the work, or stop it, before you
+end a turn.
+
 ## Theorem sources
 
 These are the sources of a `code-and-instruction-markdown` round and

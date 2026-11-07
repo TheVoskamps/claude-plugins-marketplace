@@ -68,8 +68,8 @@ column — `generate`, `disprove`, `verify` — names the fan-out. The
 preloaded `sdlc:agent-result-persist-interface` skill owns that CLI.
 
 Your half of the log carries no verdict: `--mode anchor` once per
-round, `--mode spawn` per child, `--mode return` per notification —
-**telemetry, not evidence** — and `--mode stopped` per write-off, with
+round, `--mode spawn` per child, `--mode return` per final notification
+— **telemetry, not evidence** — and `--mode stopped` per write-off, with
 `--mode records` and `--mode review` storing the round's output at its
 end. Where the round stands, and what each theorem's verdict makes it,
 are the answers of `--mode next` and `--mode dispose`, never yours.
@@ -152,15 +152,20 @@ task found with ID` reads as gone, leaving its theorem re-runnable.
 
 ### The resume loop
 
-Every wait in this file is this loop, over one stage. You hold no
-blocking primitive: you end your turn, and the harness resumes you on
-each child's `<task-notification>`. Every resume runs the same three
+Every wait in this file is this loop, over one stage. You end your
+turn, and the harness resumes you on a child's `<task-notification>` or
+on the exit of the wait command below. Every resume runs the same three
 moves, in order, over **every** outstanding child in the stage, so one
 surviving notification carries the round past every lost one.
 
 1. **Record the notification** that woke you with a `--mode return`
    record, with its agent id and whatever token, tool-call and duration
-   figures it gave; a notification naming no agent id gets no record.
+   figures it gave — only when it is **final**, saying the child has
+   finished. A notification saying the child may still be running is
+   **interim**, whatever its wording: give it no record and write
+   nothing off on it, since that child wakes again and can still
+   `leave`. A notification naming no agent id, and the wait command's
+   exit, get no record either.
 2. **Run `--mode next`**, per "You are re-entrant". Its deadline is the
    **15 minutes after a child's `enter`** you pass — five times the
    worst case measured on a 32-theorem round, where every disprover
@@ -173,6 +178,23 @@ surviving notification carries the round past every lost one.
    deadline: a child that handed back can still be running, and its
    late `leave` would overwrite its replacement's. An arm that moved on
    ends this stage's wait.
+
+**Start the wait command before you end a turn that waits on a stage**,
+with the Bash tool's `run_in_background`, so that a wait you started
+over that stage is running whenever such a turn ends — skip the start
+only while one you started over the stage has not yet exited:
+
+```bash
+sdlc-agent-result-persist --mode wait \
+  --pr <PR_REF> --round <this round's number> --stage <stage> --deadline-minutes 15
+```
+
+It exits when a child in the stage leaves, at the earliest child's
+deadline, or at once when the stage has no child to wait on. While it
+runs, your run outlives a child that ended its turn over background
+work of its own, and its exit wakes you at a deadline even when no
+notification arrives. Its exit is a resume like any other: run this
+loop.
 
 **The deadline arm.** For an `overdue` or `returned-unsaved` line,
 `TaskStop` its child if **you** spawned it, before its theorem is

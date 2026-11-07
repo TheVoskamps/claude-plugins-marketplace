@@ -44,7 +44,7 @@ trap 'die "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                       |print-in-flight|records|review|print-records
+                       |print-in-flight|wait|records|review|print-records
                        |print-round-records|print-review|print-root|agent
                        |print-agents|delete|next|dispose|summary
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
@@ -144,7 +144,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  anchor|spawn|enter|leave|return|stopped|print|print-in-flight) ;;
+  anchor|spawn|enter|leave|return|stopped|print|print-in-flight|wait) ;;
   records|review|print-records|print-round-records|print-review|print-root) ;;
   agent|print-agents|list|delete|repos|next|dispose|summary) ;;
   '') die "--mode is required" ;;
@@ -333,7 +333,7 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  spawn|enter|leave|return|stopped|print-in-flight)
+  spawn|enter|leave|return|stopped|print-in-flight|wait)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
       generate|disprove|verify) ;;
@@ -430,15 +430,22 @@ if [ -n "$edits" ]; then
 fi
 
 # --full widens the live list next and dispose derive; --deadline-minutes
-# is next's alone, and --loop-exited dispose's.
+# is next's and wait's, which cannot end without one, and --loop-exited
+# dispose's.
 if [ -n "$full" ]; then
   case "$mode" in
     next|dispose) ;;
     *) die "--full is not accepted in --mode $mode" ;;
   esac
 fi
+if [ "$mode" = wait ] && [ -z "$deadline_minutes" ]; then
+  die "--deadline-minutes is required in --mode wait"
+fi
 if [ -n "$deadline_minutes" ]; then
-  [ "$mode" = next ] || die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes"
+  case "$mode" in
+    next|wait) ;;
+    *) die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes" ;;
+  esac
   case "$deadline_minutes" in
     *[!0-9]*) die "--deadline-minutes must be a number: $deadline_minutes" ;;
   esac
@@ -1031,14 +1038,10 @@ derive() {
       "$@" "$(derive_lib)$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
 }
 
-# next: the arm the round is in, then one line per theorem of each stage
-# up to the arm's that is outstanding, in flight, overdue or returned
-# without saving; or moved-head alone, when --head-sha names a head other
-# than the anchor's.
-readonly next_prog='
-  # epoch(ts): the seconds since 1970 of a UTC YYYY-MM-DDTHH:MM:SSZ
-  # timestamp, by the days-from-civil count, since awk has no portable
-  # time parser.
+# epoch(ts), as awk source next and wait load: the seconds since 1970 of
+# a UTC YYYY-MM-DDTHH:MM:SSZ timestamp, by the days-from-civil count,
+# since awk has no portable time parser.
+readonly epoch_fn='
   function epoch(ts,    y, m, d, era, yoe, doy, doe) {
     y = substr(ts, 1, 4) + 0; m = substr(ts, 6, 2) + 0; d = substr(ts, 9, 2) + 0
     if (m <= 2) y--
@@ -1047,7 +1050,13 @@ readonly next_prog='
     doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
     return (era * 146097 + doe - 719468) * 86400 \
       + substr(ts, 12, 2) * 3600 + substr(ts, 15, 2) * 60 + substr(ts, 18, 2)
-  }
+  }'
+
+# next: the arm the round is in, then one line per theorem of each stage
+# up to the arm's that is outstanding, in flight, overdue or returned
+# without saving; or moved-head alone, when --head-sha names a head other
+# than the anchor's.
+readonly next_prog="$epoch_fn"'
   # flight(st, t): the state of the child the theorem has in flight in
   # the stage, or empty when it has none. A child is in flight when the
   # last enter of the theorem names it, no leave or stopped names it, and
@@ -1111,6 +1120,48 @@ readonly next_prog='
       if (index(" " upto " ", " " f[1] " ")) print out[i]
     }
   }'
+
+# wait: one poll of the round log (log_file) and the stage's result files
+# (results_file, as list_results prints them), printing the line wait
+# exits with, or nothing while it should keep waiting. A leave in the
+# stage past the log's first start lines is what wakes it; otherwise the
+# children it waits on are each theorem's child in flight, as next derives
+# one, and a theorem spawned more often than entered, whose child has yet
+# to write its enter. A child in flight runs from its enter and one yet to
+# enter from its last spawn, and the earliest of those deadlines passing
+# ends the wait too. With none to wait on, it ends at once.
+wait_prog() {
+  printf '%s\n' "$epoch_fn"
+  cat <<'AWK'
+  FILENAME == results_file { if ($2 == agent) result[$1] = 1; next }
+  $3 != stage { next }
+  {
+    t = $2
+    if (!(t in seen)) { seen[t] = 1; order[++n] = t }
+  }
+  $1 == "spawn" { spawns[t]++; spawned_at[t] = $4 }
+  $1 == "enter" { enters[t]++; child[t] = $5; at[t] = $4 }
+  $1 == "leave" || $1 == "stopped" { ended[t, $5] = 1 }
+  $1 == "leave" && FNR > start && woke == "" { woke = "leave\t" t "\t" $5 }
+  END {
+    if (woke != "") { print woke; exit }
+    for (i = 1; i <= n; i++) {
+      t = order[i]
+      if (t in result) continue
+      if ((t in child) && !((t SUBSEP child[t]) in ended)) { since = at[t]; id = child[t] }
+      else if (spawns[t] + 0 > enters[t] + 0) { since = spawned_at[t]; id = "-" }
+      else continue
+      due = epoch(since) + deadline * 60
+      if (pick == "" || due < pick_due) { pick = t; pick_id = id; pick_due = due }
+    }
+    if (pick == "") { print "none"; exit }
+    if (now + 0 >= pick_due) print "deadline\t" pick "\t" pick_id
+  }
+AWK
+}
+
+# How long wait sleeps between two reads of the round log.
+readonly wait_poll_seconds=2
 
 # dispose: one row per live theorem, then the verdicts, one for each of
 # members, the space-separated issue set, and for each other issue a
@@ -1353,7 +1404,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print|print-in-flight|print-records|print-round-records|print-review|print-root|print-agents|list|delete) ;;
+  print|print-in-flight|wait|print-records|print-round-records|print-review|print-root|print-agents|list|delete) ;;
   next|dispose|summary) ;;
   records) [ -n "$carry" ] || make_dir ;;
   agent)
@@ -1460,6 +1511,34 @@ case "$mode" in
       }' "$file" | while read -r t id entered; do
       [ -e "$dir/$t-$agent" ] && continue
       printf '%s %s %s\n' "$t" "$id" "$entered"
+    done
+    ;;
+  wait)
+    # Blocks, so the caller runs it in the background and is woken when it
+    # exits. Only a leave appended after the call started wakes it, so a
+    # leave already in the log when it starts does not end it at once.
+    if [ ! -e "$file" ]; then
+      printf 'none\n'
+      exit 0
+    fi
+    case "$stage" in
+      generate) stage_agent='theorem-generator' ;;
+      disprove) stage_agent='theorem-disprover' ;;
+      verify)   stage_agent='counterexample-verifier' ;;
+    esac
+    make_work
+    start=$(awk 'END { print NR }' "$file" || exit) || die "could not read the round log at $file"
+    while :; do
+      list_results "$dir" > "$work/results"
+      woke=$(awk -v stage="$stage" -v agent="$stage_agent" -v start="$start" \
+          -v deadline="$deadline_minutes" -v now="$(date -u +%s)" -v results_file="$work/results" \
+          "$(wait_prog)" "$work/results" "$file" || exit) \
+        || die "could not read the round log at $file"
+      if [ -n "$woke" ]; then
+        printf '%s\n' "$woke"
+        exit 0
+      fi
+      sleep "$wait_poll_seconds"
     done
     ;;
   print)
