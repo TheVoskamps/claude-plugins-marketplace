@@ -522,6 +522,14 @@ check "$RC" "0" "agents: print-agents exits 0"
 check "$(printf '%s\n' "$OUT" | tr '\n' ' ')" "d1 g1 old r1 v1 " \
   "agents: every recorded spawn and every child that entered a round, voided rounds included, once each"
 
+new_case agents-written-off-before-enter
+persist --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+persist --mode spawn --round 1 --theorem T1 --stage disprove --agent theorem-disprover --model default --effort default
+persist --mode agent --agent theorem-disprover --agent-id w1
+persist --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+print_agents
+check "$RC:$OUT" "0:w1" "agents: a review child written off before its enter is named by its agent record"
+
 new_case agents-refusals
 persist --mode agent --agent issue-developer
 check "$RC" "2" "agents: an agent record without --agent-id is refused"

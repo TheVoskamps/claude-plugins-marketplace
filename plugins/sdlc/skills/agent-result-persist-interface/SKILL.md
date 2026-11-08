@@ -514,8 +514,9 @@ derive.
   `worktree-agent-<agent-id>` branch. The spawner's, once per agent it
   spawns for the PR, whether or not that agent runs in a worktree of its
   own. A child
-  of the review pipeline writes an `enter` instead, which names its agent
-  id the same way. It takes **no `--round`** and refuses one; both
+  of the review pipeline gets one too, from the reviewer that spawned it,
+  besides the `enter` it writes itself, so a child written off before
+  its `enter` is still named. It takes **no `--round`** and refuses one; both
   `--agent` and `--agent-id` are required.
 - **`print-agents`** — writes to stdout every agent id the PR's state
   names, one per line, sorted and each once: every `agent` record's,

@@ -77,6 +77,19 @@ are the answers of `--mode next` and `--mode dispose`, never yours.
 Never create the log with `Write` or hold a path: read a result file's
 path out of `--mode print`, then `Read` the file.
 
+**Record every child you spawn in the PR's agents log** as soon as its
+`Agent` call returns, by the id that call returned, whatever its stage:
+
+```bash
+sdlc-agent-result-persist --mode agent \
+  --pr <PR_REF> --agent <the child's definition, e.g. theorem-disprover> \
+  --agent-id <the id its Agent call returned>
+```
+
+A child written off before its `enter` names its worktree nowhere else,
+and the PR's cleanup finds a child's worktree by the agent id its state
+names.
+
 **Resolve the two identifying values at the top of the round, and again
 on every resume**: `/github-prs:pr-view <PR> --ref` prints `<PR_REF>`,
 the canonical reference every `--pr` below carries, and
