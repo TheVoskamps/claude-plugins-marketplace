@@ -797,13 +797,16 @@ flattening them.
 
 **Read the report's closing `Return:` line first, and do what it
 says.** The harness surfaces every return as `status: completed`, so
-that line is what tells a finished round from an unfinished one.
-Before acting on a posted review, and on an in-progress line too,
-confirm what the PR carries by re-deriving the round's number per "Run
-the review pipeline": a round log numbered above the review count means
-that for this line the PR carries no review, and any review the PR
-shows is a previous round's; none above it means the PR carries this
-round's review.
+that line is what tells a finished round from an unfinished one. A
+reviewer notification carrying no `Return:` line is interim — the
+reviewer ended a turn over a wait of its own and is still running the
+round — so you neither relay it, re-spawn on it nor raise it; its later
+notification carries the line. Before acting on a posted review, and
+on an in-progress line too, confirm what the PR carries by re-deriving
+the round's number per "Run the review pipeline": a round log numbered
+above the review count means that for this line the PR carries no
+review, and any review the PR shows is a previous round's; none above
+it means the PR carries this round's review.
 
 A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the

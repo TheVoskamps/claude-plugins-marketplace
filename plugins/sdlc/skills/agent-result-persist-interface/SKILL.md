@@ -347,7 +347,10 @@ derive.
   rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
   `--stage`, carrying `--agent-id`, the id of the child it writes off,
-  as that child's `enter` record names it. The caller's, when it writes
+  as that child's `enter` record names it — or `-`, as `--mode next`
+  prints it, for a child written off before it wrote its `enter`. A `-`
+  record matches no `enter`, so it takes no child out of flight and
+  names no worktree for cleanup. The caller's, when it writes
   a child off. It writes one whether or not it `TaskStop`ped that
   child — a predecessor instance's child is never its to stop, and the
   record is what says the child was written off either way.

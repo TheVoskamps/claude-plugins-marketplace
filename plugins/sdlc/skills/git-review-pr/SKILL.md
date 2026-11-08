@@ -113,7 +113,11 @@ human overrides, and neither is something this skill computes.
    with the closing message as the result, so a round that did not
    finish reads like a finished review unless you look; the line is
    what tells them apart, and on any kind but a posted review, do not
-   present the partial text as a review outcome.
+   present the partial text as a review outcome. A notification
+   carrying no `Return:` line is interim — the reviewer ended a turn
+   over a wait of its own and is still running the round — so neither
+   relay it, re-spawn on it nor raise it; its later notification
+   carries the line.
 
    - `Return: posted review <VERDICT> — act on the verdict`: the round
      finished and its review is on the PR; relay it per step 4, with
