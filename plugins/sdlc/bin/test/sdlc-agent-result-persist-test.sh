@@ -10,9 +10,9 @@
 #     the deadline from its last spawn; a stopped after its enter, one
 #     before its enter that leaves the theorem outstanding, and a
 #     replacement spawned after such a write-off that entered and was
-#     stopped, which leaves it outstanding too; a duplicate leave, a malformed DISPROVED report that earns no
-#     verifier, a generator re-spawned at another effort, and a --full
-#     round's live list.
+#     stopped, which leaves it outstanding too; a duplicate leave, a
+#     malformed DISPROVED report that earns no verifier, a generator
+#     re-spawned at another effort, and a --full round's live list.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included,
 #     and a replacement spawned after its predecessor was written off --

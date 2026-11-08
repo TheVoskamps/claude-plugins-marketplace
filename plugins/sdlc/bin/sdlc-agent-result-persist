@@ -925,15 +925,15 @@ load_round_records() {
 # enter by agent id, never by position, so an original child's stopped
 # landing after its replacement's enter writes off the original alone.
 # child[st, t] is the agent id and at[st, t] the time of the theorem's
-# last enter in the stage. awaiting_enter(st, t) is whether the
-# theorem's last spawn in the stage is followed by neither an enter nor a
-# stopped there, a child spawned that has yet to write its enter, and
-# spawned_at[st, t] that spawn's time. It follows the order of the
-# records, never a count of them. A stopped naming a child an earlier
-# enter of the theorem in the stage named writes off that child alone, so
-# landing after a later spawn it leaves the replacement awaited; any
-# other stopped, - included, writes off the child the last spawn started. entered[st, 1..nentered[st]] lists the theorems entered in the
-# stage, in first-enter order.
+# last enter in the stage. awaiting_enter(st, t) is whether the child the
+# theorem's last spawn in the stage started has yet to write its enter,
+# and spawned_at[st, t] is that spawn's time. An enter after that spawn
+# ends the wait for it, and so does a stopped, unless the stopped names a
+# child an earlier enter of the theorem in the stage named: that writes
+# off the earlier child alone and leaves the replacement awaited. It
+# follows the order of the records, never a count of them.
+# entered[st, 1..nentered[st]] lists the theorems entered in the stage,
+# in first-enter order.
 flight_lib() {
   cat <<'AWK'
   function flight_line(    t, st) {
@@ -1114,11 +1114,11 @@ readonly next_prog="$epoch_fn"'
   }
   # consider(st, t, member): adds the line the theorem gets in the stage,
   # if any, and says whether the stage still has work on it. A theorem
-  # with no child in flight that the stage has not settled is spawned
-  # while it is awaiting_enter, overdue once the deadline has passed
-  # since its last spawn, and otherwise outstanding only when it is a
-  # member of the stage, so a child written off before its enter leaves
-  # its theorem outstanding. A theorem already considered in
+  # with no child in flight that the stage has not settled is, while it
+  # is awaiting_enter, overdue once the deadline has passed since its
+  # last spawn and spawned before that. Otherwise it is outstanding only
+  # when it is a member of the stage, so a child written off before its
+  # enter leaves its theorem outstanding. A theorem already considered in
   # the stage adds no second line and returns 0, so the answer of the
   # first call is the one that counts.
   function consider(st, t, member,    f) {
@@ -1175,11 +1175,13 @@ readonly next_prog="$epoch_fn"'
 # wait: one poll of the round log and the stage's result files
 # (results_file, as list_results prints them), printing the line wait
 # exits with, or nothing while it should keep waiting. A leave in the
-# stage past the log's first start lines is what wakes it; otherwise the
+# stage past the log's first start lines is what wakes it. Otherwise the
 # children it waits on are each theorem's child in flight and each child
-# awaiting its enter, as flight_lib derives them. A child in flight runs from its enter and one yet to enter from its last
-# spawn, and the earliest of those deadlines passing ends the wait too.
-# With none to wait on, it ends at once.
+# awaiting its enter, as flight_lib derives them, on a theorem with no
+# result file under agent. A child in flight's deadline runs from its
+# enter and one yet to enter from its last spawn, and the earliest of
+# those deadlines passing ends the wait too. With none to wait on, it
+# ends at once.
 wait_prog() {
   printf '%s\n' "$epoch_fn"
   flight_lib
