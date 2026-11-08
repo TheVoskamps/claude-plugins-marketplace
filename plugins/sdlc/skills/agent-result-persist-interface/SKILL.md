@@ -852,11 +852,16 @@ rather than over the theorems the log was told about, less the settled
 ones, the in-flight ones and those with a child yet to enter, which is
 what puts a theorem no instance ever spawned back in play.
 
-A theorem has a **child yet to enter** in a stage when the stage holds
-more `spawn` than `enter` records for it, unless a `stopped` naming
-agent id `-` follows its last `spawn` there: that child was written off
-before its `enter`, so the theorem is outstanding again until a later
-`spawn`. `--mode next` and `--mode wait` apply that one rule.
+A theorem has a **child yet to enter** in a stage exactly when its last
+`spawn` there is followed by neither an `enter` nor a `stopped` there.
+`--mode next` and `--mode wait` apply that one rule, deciding it by the
+order of the records, never by comparing counts of `spawn` and `enter`
+records. A `stopped` naming an earlier child — one an `enter` of the
+theorem in the stage named before it — writes off that child alone, so
+landing after a later `spawn` it leaves the replacement yet to enter.
+Any other `stopped`, `-` included, writes off the child the last
+`spawn` started, before its `enter`, so the theorem is outstanding
+again until a later `spawn`.
 
 The verdict itself is in the result file, which the `leave` line names
 and the `result` line names again, and is never inferred from the log.

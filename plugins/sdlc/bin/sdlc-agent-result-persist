@@ -925,33 +925,33 @@ load_round_records() {
 # enter by agent id, never by position, so an original child's stopped
 # landing after its replacement's enter writes off the original alone.
 # child[st, t] is the agent id and at[st, t] the time of the theorem's
-# last enter in the stage. unentered(st, t) is whether the theorem has
-# more spawn than enter records in the stage, a child spawned that has
-# yet to write its enter, and spawned_at[st, t] its last spawn's time.
-# awaiting_enter(st, t) is unentered(st, t) unless a stopped naming agent
-# id - followed the theorem's last spawn in the stage: that child was
-# written off before its enter, so nothing is awaited from it until a
-# later spawn. entered[st, 1..nentered[st]] lists the theorems entered
-# in the stage, in first-enter order.
+# last enter in the stage. awaiting_enter(st, t) is whether the
+# theorem's last spawn in the stage is followed by neither an enter nor a
+# stopped there, a child spawned that has yet to write its enter, and
+# spawned_at[st, t] that spawn's time. It follows the order of the
+# records, never a count of them. A stopped naming a child an earlier
+# enter of the theorem in the stage named writes off that child alone, so
+# landing after a later spawn it leaves the replacement awaited; any
+# other stopped, - included, writes off the child the last spawn started. entered[st, 1..nentered[st]] lists the theorems entered in the
+# stage, in first-enter order.
 flight_lib() {
   cat <<'AWK'
   function flight_line(    t, st) {
     t = $2; st = $3
-    if ($1 == "spawn") { spawns[st, t]++; spawned_at[st, t] = $4; written_off[st, t] = 0 }
+    if ($1 == "spawn") { awaited[st, t] = 1; spawned_at[st, t] = $4 }
     if ($1 == "enter") {
       if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
-      enters[st, t]++; child[st, t] = $5; at[st, t] = $4
+      awaited[st, t] = 0; child[st, t] = $5; at[st, t] = $4; named[st, t, $5] = 1
     }
+    if ($1 == "stopped" && !((st SUBSEP t SUBSEP $5) in named)) awaited[st, t] = 0
     if ($1 == "leave" || $1 == "stopped") ended[st, t, $5] = 1
-    if ($1 == "stopped" && $5 == "-") written_off[st, t] = 1
   }
   function in_flight(st, t, agent) {
     if (!((st SUBSEP t) in child)) return ""
     if ((st SUBSEP t SUBSEP child[st, t]) in ended || (t SUBSEP agent) in result) return ""
     return child[st, t]
   }
-  function unentered(st, t) { return spawns[st, t] + 0 > enters[st, t] + 0 }
-  function awaiting_enter(st, t) { return unentered(st, t) && !written_off[st, t] }
+  function awaiting_enter(st, t) { return awaited[st, t] + 0 }
 AWK
 }
 
