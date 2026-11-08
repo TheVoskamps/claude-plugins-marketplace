@@ -818,9 +818,8 @@ printf 'x\n' >"$CASE/payload"
 for given in "--round 1" "--head-sha aaa" "--round-type documentation" "--theorem T1" "--stage disprove" \
     "--agent theorem-disprover" "--model default" "--effort low" "--agent-id A" "--tokens 1" "--tools 1" \
     "--ms 1" "--from $CASE/payload" "--carry" "--edits $CASE/payload" "--loop-exited" "--issues 1"; do
-  flag=${given%% *}
-  # shellcheck disable=SC2086 # each given is a flag and its value, split on purpose
-  "$PERSIST" --mode repos $given >/dev/null 2>"$CASE/err" </dev/null
+  read -r flag value <<<"$given"
+  "$PERSIST" --mode repos "$flag" ${value:+"$value"} >/dev/null 2>"$CASE/err" </dev/null
   check "$?" "2" "repos: $flag is refused"
   check_contains "$(cat "$CASE/err")" "$flag" "repos: the $flag refusal names it"
 done

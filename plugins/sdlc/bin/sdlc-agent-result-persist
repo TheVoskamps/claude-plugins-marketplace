@@ -431,7 +431,6 @@ if [ -n "$edits" ]; then
   [ -f "$edits" ] || die "--edits names no file: $edits"
 fi
 
-
 # --issues is the issue set dispose gives a verdict line each, whether or
 # not a record tags it: the members separated by spaces or commas, each
 # with or without its leading #.
