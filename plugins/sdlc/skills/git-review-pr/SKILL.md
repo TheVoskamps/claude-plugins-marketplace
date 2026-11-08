@@ -117,7 +117,12 @@ human overrides, and neither is something this skill computes.
    carrying no `Return:` line is interim — the reviewer ended a turn
    over a wait of its own and is still running the round — so neither
    relay it, re-spawn on it nor raise it; its later notification
-   carries the line.
+   carries the line. That reading holds until 20 minutes pass from it
+   with no later notification — the reviewer's 15-minute wait deadline
+   plus a 5-minute margin, since the wait a running reviewer ends its
+   turn over exits inside that deadline and resumes it — and after
+   that treat the notification as
+   `Return: in progress: … — re-spawn to resume` below.
 
    - `Return: posted review <VERDICT> — act on the verdict`: the round
      finished and its review is on the PR; relay it per step 4, with
