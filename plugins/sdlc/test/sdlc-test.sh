@@ -823,6 +823,14 @@ for given in "--round 1" "--head-sha aaa" "--round-type documentation" "--theore
   check "$?" "2" "repos: $flag is refused"
   check_contains "$(cat "$CASE/err")" "$flag" "repos: the $flag refusal names it"
 done
+# A flag is refused by its presence, so an empty value is refused too.
+for flag in --pr --round --head-sha --round-type --theorem --stage --agent --model --effort --agent-id \
+    --tokens --tools --ms --from --edits --deadline-minutes --issues; do
+  "$PERSIST" --mode repos "$flag" "" >/dev/null 2>"$CASE/err" </dev/null
+  check "$?" "2" "repos: $flag with an empty value is refused"
+  check_contains "$(cat "$CASE/err")" "$flag is not accepted in --mode repos" \
+    "repos: the empty $flag refusal names it"
+done
 
 # A current-layout <host>/<owner> directory with no repo.yml beneath it,
 # empty or holding a repository directory, holds no pr<n> directory of its

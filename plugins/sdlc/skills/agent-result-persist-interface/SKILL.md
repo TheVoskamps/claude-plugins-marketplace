@@ -857,7 +857,8 @@ theorem in the stage named before it — writes off that child alone, so
 landing after a later `spawn` it leaves the replacement yet to enter.
 Any other `stopped`, `-` included, writes off the child the last
 `spawn` started, before its `enter`, so the theorem is outstanding
-again until a later `spawn`.
+again until a later `spawn` — unless an earlier child of the theorem is
+still in flight in the stage, which leaves it in flight.
 
 The verdict itself is in the result file, which the `leave` line names
 and the `result` line names again, and is never inferred from the log.

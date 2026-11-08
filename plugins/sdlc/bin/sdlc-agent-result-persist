@@ -85,9 +85,15 @@ full=
 loop_exited=
 deadline_minutes=
 issues=
+# Every flag but --mode the caller gave, by name, whatever its value.
+given_flags=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
+  case "$flag" in
+    --mode) ;;
+    --*) given_flags="$given_flags $flag" ;;
+  esac
   case "$flag" in
     --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits|--deadline-minutes|--issues)
       [ "$#" -ge 2 ] || die "$flag needs a value"
@@ -152,6 +158,16 @@ case "$mode" in
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
+
+# repos reads across every repository the state root holds, so it takes
+# no flag but --mode. It refuses each by its presence, before any refusal
+# below that decides from a flag's value whether it was given, so an
+# empty value is refused like any other.
+if [ "$mode" = repos ]; then
+  for given in $given_flags; do
+    die "$given is not accepted in --mode repos"
+  done
+fi
 
 # The state root as the script opens it, and as the signpost a human is
 # shown, unexpanded; the two spell the same fallback and change together.
@@ -454,16 +470,9 @@ for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
   esac
 done
 
-# repos reads across every repository the state root holds, so it takes
-# no flag but --mode. It runs after every refusal above, which leaves it
-# only the flags those never refuse to refuse here. It reads each
-# repository from its repo.yml, and names a directory of the old layout,
-# which has none, by its path.
+# repos reads each repository from its repo.yml, and names a directory of
+# the old layout, which has none, by its path.
 if [ "$mode" = repos ]; then
-  for pair in "pr:$pr_ref" "head-sha:$head_sha" "theorem:$theorem" "stage:$stage" "agent:$agent" \
-      "model:$model" "effort:$effort" "agent-id:$agent_id" "tokens:$tokens" "tools:$tools" "ms:$ms"; do
-    [ -z "${pair#*:}" ] || die "--${pair%%:*} is not accepted in --mode repos: ${pair#*:}"
-  done
   [ -d "$state_root" ] || exit 0
   find "$state_root" -name repo.yml -type f | sort | while IFS= read -r yml; do
     at=${yml%/repo.yml}
@@ -1117,9 +1126,10 @@ readonly next_prog="$epoch_fn"'
   # is awaiting_enter, overdue once the deadline has passed since its
   # last spawn and spawned before that. Otherwise it is outstanding only
   # when it is a member of the stage, so a child written off before its
-  # enter leaves its theorem outstanding. A theorem already considered in
-  # the stage adds no second line and returns 0, so the answer of the
-  # first call is the one that counts.
+  # enter leaves its theorem outstanding when no earlier child of it is
+  # still in flight, and in flight when one is. A theorem already
+  # considered in the stage adds no second line and returns 0, so the
+  # answer of the first call is the one that counts.
   function consider(st, t, member,    f) {
     if ((st SUBSEP t) in seen) return 0
     seen[st, t] = 1
