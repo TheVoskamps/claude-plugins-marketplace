@@ -7,12 +7,13 @@
 #     head, generate, disprove, verify, dispose -- and over the states it
 #     prints: outstanding, in flight, overdue past --deadline-minutes,
 #     returned without saving, and spawned and yet to enter, overdue past
-#     the deadline from its last spawn; a stopped after its enter, a duplicate
-#     leave, a malformed DISPROVED report that earns no verifier, a
-#     generator re-spawned at another effort, and a --full round's live
-#     list.
+#     the deadline from its last spawn; a stopped after its enter, a
+#     duplicate leave, a malformed DISPROVED report that earns no
+#     verifier, a generator re-spawned at another effort, and a --full
+#     round's live list.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
-#     child's deadline -- a child spawned and not yet entered included --
+#     child's deadline -- a child spawned and not yet entered included,
+#     and a replacement spawned after its predecessor was written off --
 #     and at once with no child in flight in the stage, a child written
 #     off before its enter included; and the refusal without
 #     --deadline-minutes.

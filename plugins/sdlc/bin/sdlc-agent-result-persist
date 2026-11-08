@@ -923,9 +923,9 @@ load_round_records() {
 # enter by agent id, never by position, so an original child's stopped
 # landing after its replacement's enter writes off the original alone.
 # child[st, t] is the agent id and at[st, t] the time of the theorem's
-# last enter in the stage. unentered(st, t) is whether the theorem has more spawn than enter
-# records in the stage, a child spawned that has yet to write its enter,
-# and spawned_at[st, t] its last spawn's time.
+# last enter in the stage. unentered(st, t) is whether the theorem has
+# more spawn than enter records in the stage, a child spawned that has
+# yet to write its enter, and spawned_at[st, t] its last spawn's time.
 # entered[st, 1..nentered[st]] lists the theorems entered in the stage,
 # in first-enter order.
 flight_lib() {
