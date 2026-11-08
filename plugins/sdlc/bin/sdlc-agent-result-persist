@@ -146,7 +146,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  anchor | spawn | enter | leave | return | stopped | print | print-in-flight | wait) ;;
+  anchor|spawn|enter|leave|return|stopped|print|print-in-flight|wait) ;;
   records|review|print-records|print-round-records|print-review|print-root) ;;
   agent|print-agents|list|delete|repos|next|dispose|summary) ;;
   '') die "--mode is required" ;;
@@ -335,7 +335,7 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  spawn | enter | leave | return | stopped | print-in-flight | wait)
+  spawn|enter|leave|return|stopped|print-in-flight|wait)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
       generate|disprove|verify) ;;
@@ -445,7 +445,7 @@ if [ "$mode" = wait ] && [ -z "$deadline_minutes" ]; then
 fi
 if [ -n "$deadline_minutes" ]; then
   case "$mode" in
-    next | wait) ;;
+    next|wait) ;;
     *) die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes" ;;
   esac
   case "$deadline_minutes" in
@@ -1406,7 +1406,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print | print-in-flight | wait | print-records | print-round-records | print-review | print-root | print-agents | list | delete) ;;
+  print|print-in-flight|wait|print-records|print-round-records|print-review|print-root|print-agents|list|delete) ;;
   next|dispose|summary) ;;
   records) [ -n "$carry" ] || make_dir ;;
   agent)
