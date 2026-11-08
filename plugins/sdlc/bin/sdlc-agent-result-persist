@@ -180,8 +180,8 @@ is_old_layout() {
 }
 
 # --full widens the live list next and dispose derive; --deadline-minutes
-# is next's and wait's, and required by wait, which cannot end without
-# one, and --loop-exited dispose's.
+# is next's and wait's, and required by wait, where it is the only bound
+# on a child that never leaves, and --loop-exited dispose's.
 if [ -n "$full" ]; then
   case "$mode" in
     next|dispose) ;;
