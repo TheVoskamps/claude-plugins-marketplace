@@ -13,8 +13,9 @@
 #     list.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included --
-#     and at once with no child in flight in the stage; and the refusal
-#     without --deadline-minutes.
+#     and at once with no child in flight in the stage, a child written
+#     off before its enter included; and the refusal without
+#     --deadline-minutes.
 #   - --mode dispose over result files for every row of the disposition
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
@@ -314,6 +315,27 @@ must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-ma
 printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
 run --mode wait --round 1 --stage disprove --deadline-minutes 15
 assert_eq "wait: a child spawned and not yet entered is waited on to its deadline" \
+  "deadline${TAB}T1${TAB}-" "$OUT"
+
+new_case wait-written-off-before-enter
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a child written off before its enter is not waited on" "none" "$OUT"
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a spawn after the write-off is waited on to its deadline" \
+  "deadline${TAB}T1${TAB}-" "$OUT"
+
+new_case wait-stopped-names-earlier-child
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id A
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a stopped naming an entered child leaves its replacement waited on" \
   "deadline${TAB}T1${TAB}-" "$OUT"
 
 new_case wait-leave

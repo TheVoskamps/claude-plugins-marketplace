@@ -381,7 +381,10 @@ derive.
   time, then exits zero. `--stage` and `--deadline-minutes` are required.
   It waits on each theorem with a child in flight in the stage, and on
   each theorem the stage has more `spawn` records than `enter` records
-  for, whose child has yet to write its `enter`. It exits on whichever
+  for, whose child has yet to write its `enter` — unless a `stopped`
+  naming agent id `-` follows that theorem's last `spawn` in the stage,
+  since its child was written off before its `enter` and none has been
+  spawned in its place. It exits on whichever
   comes first, printing one line, `\t` standing for a tab:
 
   - `leave\t<theorem>\t<agent-id>` — a `leave` record in the stage

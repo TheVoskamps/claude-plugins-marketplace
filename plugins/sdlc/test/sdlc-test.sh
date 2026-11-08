@@ -805,6 +805,13 @@ old old/one old/one" "repos: each directory by its repo.yml, a mismatch, and old
 check "$?" "2" "repos: --pr is refused"
 "$PERSIST" --mode repos h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "repos: a repository operand is refused"
+"$PERSIST" --mode repos --deadline-minutes 5 >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "repos: --deadline-minutes is refused"
+check_contains "$(cat "$CASE/err")" "--deadline-minutes is not accepted in --mode repos" \
+  "repos: the --deadline-minutes refusal says so"
+"$PERSIST" --mode repos --full >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "2" "repos: --full is refused"
+check_contains "$(cat "$CASE/err")" "--full is not accepted in --mode repos" "repos: the --full refusal says so"
 
 # A current-layout <host>/<owner> directory with no repo.yml beneath it,
 # empty or holding a repository directory, holds no pr<n> directory of its

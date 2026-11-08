@@ -179,6 +179,32 @@ is_old_layout() {
   return 1
 }
 
+# --full widens the live list next and dispose derive; --deadline-minutes
+# is next's and wait's, and required by wait, which cannot end without
+# one, and --loop-exited dispose's. The checks run before repos exits, so
+# repos refuses all three as well.
+if [ -n "$full" ]; then
+  case "$mode" in
+    next|dispose) ;;
+    *) die "--full is not accepted in --mode $mode" ;;
+  esac
+fi
+if [ "$mode" = wait ] && [ -z "$deadline_minutes" ]; then
+  die "--deadline-minutes is required in --mode wait"
+fi
+if [ -n "$deadline_minutes" ]; then
+  case "$mode" in
+    next|wait) ;;
+    *) die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes" ;;
+  esac
+  case "$deadline_minutes" in
+    *[!0-9]*) die "--deadline-minutes must be a number: $deadline_minutes" ;;
+  esac
+fi
+if [ -n "$loop_exited" ] && [ "$mode" != dispose ]; then
+  die "--loop-exited is not accepted in --mode $mode"
+fi
+
 # An operand names a repository, which list alone takes in that form:
 # every other mode is named by its PR, and repos by nothing.
 if [ "$operands" -gt 0 ]; then
@@ -431,30 +457,6 @@ if [ -n "$edits" ]; then
   [ -f "$edits" ] || die "--edits names no file: $edits"
 fi
 
-# --full widens the live list next and dispose derive; --deadline-minutes
-# is next's and wait's, and required by wait, which cannot end without
-# one, and --loop-exited dispose's.
-if [ -n "$full" ]; then
-  case "$mode" in
-    next|dispose) ;;
-    *) die "--full is not accepted in --mode $mode" ;;
-  esac
-fi
-if [ "$mode" = wait ] && [ -z "$deadline_minutes" ]; then
-  die "--deadline-minutes is required in --mode wait"
-fi
-if [ -n "$deadline_minutes" ]; then
-  case "$mode" in
-    next|wait) ;;
-    *) die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes" ;;
-  esac
-  case "$deadline_minutes" in
-    *[!0-9]*) die "--deadline-minutes must be a number: $deadline_minutes" ;;
-  esac
-fi
-if [ -n "$loop_exited" ] && [ "$mode" != dispose ]; then
-  die "--loop-exited is not accepted in --mode $mode"
-fi
 
 # --issues is the issue set dispose gives a verdict line each, whether or
 # not a record tags it: the members separated by spaces or commas, each
@@ -1167,10 +1169,12 @@ readonly next_prog="$epoch_fn"'
 # exits with, or nothing while it should keep waiting. A leave in the
 # stage past the log's first start lines is what wakes it; otherwise the
 # children it waits on are each theorem's child in flight and each child
-# spawned and yet to enter, as flight_lib derives them. A child in flight
-# runs from its enter and one yet to enter from its last spawn, and the
-# earliest of those deadlines passing ends the wait too. With none to
-# wait on, it ends at once.
+# spawned and yet to enter, as flight_lib derives them, unless a stopped
+# naming agent id - followed the theorem's last spawn: that child was
+# written off before its enter, and nothing is spawned in its place. A
+# child in flight runs from its enter and one yet to enter from its last
+# spawn, and the earliest of those deadlines passing ends the wait too.
+# With none to wait on, it ends at once.
 wait_prog() {
   printf '%s\n' "$epoch_fn"
   flight_lib
@@ -1182,6 +1186,8 @@ wait_prog() {
     if (!(t in seen)) { seen[t] = 1; order[++n] = t }
     flight_line()
   }
+  $1 == "spawn" { written_off[t] = 0 }
+  $1 == "stopped" && $5 == "-" { written_off[t] = 1 }
   $1 == "leave" && FNR > start && woke == "" { woke = "leave\t" t "\t" $5 }
   END {
     if (woke != "") { print woke; exit }
@@ -1190,7 +1196,7 @@ wait_prog() {
       if ((t SUBSEP agent) in result) continue
       id = in_flight(stage, t, agent)
       if (id != "") since = at[stage, t]
-      else if (unentered(stage, t)) { since = spawned_at[stage, t]; id = "-" }
+      else if (unentered(stage, t) && !written_off[t]) { since = spawned_at[stage, t]; id = "-" }
       else continue
       due = epoch(since) + deadline * 60
       if (pick == "" || due < pick_due) { pick = t; pick_id = id; pick_due = due }
