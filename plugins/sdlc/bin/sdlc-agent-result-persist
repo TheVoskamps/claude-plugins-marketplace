@@ -7,8 +7,10 @@
 # disk rather than off the PR. It derives what a reviewer reads off that
 # state — the arm a resumed round is in, each theorem's disposition,
 # severity, state and the verdicts, and the posted review body — so no
-# model re-derives them by hand. It also records every agent spawned for
-# a PR and prints the agent ids its state names, lists the PRs a repo
+# model re-derives them by hand. It waits on a stage, too, blocking until
+# a child in it leaves or runs out of time, so a caller running it in the
+# background is woken when it exits. It also records every agent spawned
+# for a PR and prints the agent ids its state names, lists the PRs a repo
 # holds state for and deletes one PR's state whole, which is the only way
 # any of it is ever removed, and lists the repositories the state root
 # holds.
@@ -1121,7 +1123,7 @@ readonly next_prog="$epoch_fn"'
     }
   }'
 
-# wait: one poll of the round log (log_file) and the stage's result files
+# wait: one poll of the round log and the stage's result files
 # (results_file, as list_results prints them), printing the line wait
 # exits with, or nothing while it should keep waiting. A leave in the
 # stage past the log's first start lines is what wakes it; otherwise the

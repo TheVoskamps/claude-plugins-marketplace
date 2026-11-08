@@ -12,7 +12,8 @@
 #     list.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included --
-#     and at once with no child in flight in the stage.
+#     and at once with no child in flight in the stage; and the refusal
+#     without --deadline-minutes.
 #   - --mode dispose over result files for every row of the disposition
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
