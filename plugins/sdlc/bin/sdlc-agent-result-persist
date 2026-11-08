@@ -910,6 +910,40 @@ load_round_records() {
     > "$work/records" || exit 2
 }
 
+# The in-flight derivation print-in-flight, next and wait share, as awk
+# source each loads. Each calls flight_line() on the round-log lines it
+# derives from and loads the result files into result[theorem, agent], as
+# list_results prints them. in_flight(st, t, agent) is then the agent id of the child t
+# has in flight in stage st, or empty when it has none: a child is in
+# flight when the last enter of the theorem in the stage names it, no
+# leave or stopped of the theorem there names it, and no result file of
+# agent settles the theorem. A stopped is matched to the enter by agent
+# id, never by position, so an original child's stopped landing after its
+# replacement's enter writes off the original alone. unentered(st, t) is
+# whether the theorem has more spawn than enter records in the stage,
+# a child spawned that has yet to write its enter, and spawned_at[st, t]
+# its last spawn's time. entered[st, 1..nentered[st]] lists the theorems
+# entered in the stage, in first-enter order.
+flight_lib() {
+  cat <<'AWK'
+  function flight_line(    t, st) {
+    t = $2; st = $3
+    if ($1 == "spawn") { spawns[st, t]++; spawned_at[st, t] = $4 }
+    if ($1 == "enter") {
+      if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
+      enters[st, t]++; child[st, t] = $5; at[st, t] = $4
+    }
+    if ($1 == "leave" || $1 == "stopped") ended[st, t, $5] = 1
+  }
+  function in_flight(st, t, agent) {
+    if (!((st SUBSEP t) in child)) return ""
+    if ((st SUBSEP t SUBSEP child[st, t]) in ended || (t SUBSEP agent) in result) return ""
+    return child[st, t]
+  }
+  function unentered(st, t) { return spawns[st, t] + 0 > enters[st, t] + 0 }
+AWK
+}
+
 # The derivation next and dispose share, as awk source. It reads the
 # round's records (records_file), the --edits file (edits_file), the round
 # log (log_file) and the round's result files (results_file, as
@@ -932,6 +966,7 @@ load_round_records() {
 # Whether a quote is verbatim is the verifier's to check, not the
 # grammar's.
 derive_lib() {
+  flight_lib
   cat <<'AWK'
   function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
   function is_class(c) {
@@ -1000,13 +1035,9 @@ derive_lib() {
   FILENAME == log_file {
     if ($1 == "anchor") { if (anchor == "") anchor = $3; next }
     if ($1 == "spawn" || $1 == "enter") fanned = 1
+    flight_line()
     t = $2; st = $3
-    if ($1 == "enter") {
-      if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
-      child[st, t] = $5; at[st, t] = $4
-    }
-    if ($1 == "leave") { left[st, t] = 1; ended[st, t, $5] = 1 }
-    if ($1 == "stopped") ended[st, t, $5] = 1
+    if ($1 == "leave") left[st, t] = 1
     if ($1 == "return") returned[st, t, $5] = 1
     next
   }
@@ -1055,34 +1086,40 @@ readonly epoch_fn='
   }'
 
 # next: the arm the round is in, then one line per theorem of each stage
-# up to the arm's that is outstanding, in flight, overdue or returned
-# without saving; or moved-head alone, when --head-sha names a head other
-# than the anchor's.
+# up to the arm's that is outstanding, in flight, spawned and yet to
+# enter, overdue or returned without saving; or moved-head alone, when
+# --head-sha names a head other than the anchor's.
 readonly next_prog="$epoch_fn"'
+  # overdue(since): whether --deadline-minutes have passed since since.
+  function overdue(since) { return deadline != "" && now + 0 >= epoch(since) + deadline * 60 }
   # flight(st, t): the state of the child the theorem has in flight in
-  # the stage, or empty when it has none. A child is in flight when the
-  # last enter of the theorem names it, no leave or stopped names it, and
-  # no result file settles the theorem.
+  # the stage, or empty when it has none, as in_flight derives one.
   function flight(st, t,    id) {
-    if (!((st SUBSEP t) in child)) return ""
-    id = child[st, t]
-    if ((st SUBSEP t SUBSEP id) in ended || has_result(st, t)) return ""
+    id = in_flight(st, t, stage_agent(st))
+    if (id == "") return ""
     if ((st SUBSEP t SUBSEP id) in returned) return "returned-unsaved"
-    if (deadline != "" && now + 0 >= epoch(at[st, t]) + deadline * 60) return "overdue"
+    if (overdue(at[st, t])) return "overdue"
     return "in-flight"
   }
   # consider(st, t, member): adds the line the theorem gets in the stage,
   # if any, and says whether the stage still has work on it. A theorem
-  # with no child in flight is outstanding only when it is a member of
-  # the stage and the stage has not settled it. A theorem already
-  # considered in the stage adds no second line and returns 0, so the
-  # answer of the first call is the one that counts.
+  # with no child in flight that the stage has not settled is spawned
+  # while a child spawned for it has yet to enter, overdue once the
+  # deadline has passed since its last spawn, and otherwise outstanding
+  # only when it is a member of the stage. A theorem already considered in
+  # the stage adds no second line and returns 0, so the answer of the
+  # first call is the one that counts.
   function consider(st, t, member,    f) {
     if ((st SUBSEP t) in seen) return 0
     seen[st, t] = 1
     f = flight(st, t)
     if (f != "") {
       out[++nout] = st "\t" t "\t" f "\t" child[st, t] "\t" at[st, t]
+      return 1
+    }
+    if (unentered(st, t) && !settled(st, t)) {
+      f = overdue(spawned_at[st, t]) ? "overdue" : "spawned"
+      out[++nout] = st "\t" t "\t" f "\t-\t" spawned_at[st, t]
       return 1
     }
     if (member && !settled(st, t)) {
@@ -1127,31 +1164,31 @@ readonly next_prog="$epoch_fn"'
 # (results_file, as list_results prints them), printing the line wait
 # exits with, or nothing while it should keep waiting. A leave in the
 # stage past the log's first start lines is what wakes it; otherwise the
-# children it waits on are each theorem's child in flight, as next derives
-# one, and a theorem spawned more often than entered, whose child has yet
-# to write its enter. A child in flight runs from its enter and one yet to
-# enter from its last spawn, and the earliest of those deadlines passing
-# ends the wait too. With none to wait on, it ends at once.
+# children it waits on are each theorem's child in flight and each child
+# spawned and yet to enter, as flight_lib derives them. A child in flight
+# runs from its enter and one yet to enter from its last spawn, and the
+# earliest of those deadlines passing ends the wait too. With none to
+# wait on, it ends at once.
 wait_prog() {
   printf '%s\n' "$epoch_fn"
+  flight_lib
   cat <<'AWK'
-  FILENAME == results_file { if ($2 == agent) result[$1] = 1; next }
+  FILENAME == results_file { result[$1, $2] = 1; next }
   $3 != stage { next }
   {
     t = $2
     if (!(t in seen)) { seen[t] = 1; order[++n] = t }
+    flight_line()
   }
-  $1 == "spawn" { spawns[t]++; spawned_at[t] = $4 }
-  $1 == "enter" { enters[t]++; child[t] = $5; at[t] = $4 }
-  $1 == "leave" || $1 == "stopped" { ended[t, $5] = 1 }
   $1 == "leave" && FNR > start && woke == "" { woke = "leave\t" t "\t" $5 }
   END {
     if (woke != "") { print woke; exit }
     for (i = 1; i <= n; i++) {
       t = order[i]
-      if (t in result) continue
-      if ((t in child) && !((t SUBSEP child[t]) in ended)) { since = at[t]; id = child[t] }
-      else if (spawns[t] + 0 > enters[t] + 0) { since = spawned_at[t]; id = "-" }
+      if ((t SUBSEP agent) in result) continue
+      id = in_flight(stage, t, agent)
+      if (id != "") since = at[stage, t]
+      else if (unentered(stage, t)) { since = spawned_at[stage, t]; id = "-" }
       else continue
       due = epoch(since) + deadline * 60
       if (pick == "" || due < pick_due) { pick = t; pick_id = id; pick_due = due }
@@ -1491,29 +1528,20 @@ case "$mode" in
     done | sort -u
     ;;
   print-in-flight)
-    # A theorem is in flight in --stage when its last enter there names a
-    # child that no leave and no stopped of that theorem names, and no
-    # result file for it under --agent exists. A stopped is matched to
-    # the enter by agent id, never by position, so an original child's
-    # stopped landing after its replacement's enter writes off the
-    # original alone.
+    # In flight as flight_lib derives it, with --agent's result files.
     [ -e "$file" ] || die "no round log at $file"
-    awk -v stage="$stage" '
-      $3 != stage { next }
-      $1 == "enter" {
-        if (!($2 in child)) order[++n] = $2
-        child[$2] = $5; at[$2] = $4
-      }
-      $1 == "leave" || $1 == "stopped" { ended[$2 " " $5] = 1 }
+    make_work
+    list_results "$dir" >"$work/results"
+    awk -v stage="$stage" -v agent="$agent" -v results_file="$work/results" "$(flight_lib)"'
+      FILENAME == results_file { result[$1, $2] = 1; next }
+      $3 == stage { flight_line() }
       END {
-        for (i = 1; i <= n; i++) {
-          t = order[i]
-          if (!((t " " child[t]) in ended)) print t, child[t], at[t]
+        for (i = 1; i <= nentered[stage]; i++) {
+          t = entered[stage, i]
+          id = in_flight(stage, t, agent)
+          if (id != "") print t, id, at[stage, t]
         }
-      }' "$file" | while read -r t id entered; do
-      [ -e "$dir/$t-$agent" ] && continue
-      printf '%s %s %s\n' "$t" "$id" "$entered"
-    done
+      }' "$work/results" "$file" || die "could not read the round log at $file"
     ;;
   wait)
     # Blocks, so the caller runs it in the background and is woken when it

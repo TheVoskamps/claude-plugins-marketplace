@@ -5,8 +5,9 @@
 #
 #   - --mode next over a fixture log per arm it names -- no log, a moved
 #     head, generate, disprove, verify, dispose -- and over the states it
-#     prints: outstanding, in flight, overdue past --deadline-minutes, and
-#     returned without saving; a stopped after its enter, a duplicate
+#     prints: outstanding, in flight, overdue past --deadline-minutes,
+#     returned without saving, and spawned and yet to enter, overdue past
+#     the deadline from its last spawn; a stopped after its enter, a duplicate
 #     leave, a malformed DISPROVED report that earns no verifier, a
 #     generator re-spawned at another effort, and a --full round's live
 #     list.
@@ -261,6 +262,29 @@ assert_contains "next: a child past --deadline-minutes is overdue" \
   "disprove${TAB}T1${TAB}overdue${TAB}D${TAB}2000-01-01T00:00:00Z" "$(rest)"
 run --mode next --round 1
 assert_contains "next: without --deadline-minutes nothing is overdue" "disprove${TAB}T1${TAB}in-flight${TAB}D${TAB}" "$(rest)"
+
+new_case next-spawned
+add_seed T1 "first" "#1"
+add_seed T2 "second" "#1"
+add_seed T3 "third" "#1"
+seed
+a_generated_list
+must --mode spawn --round 1 --theorem T1 --stage disprove --agent theorem-disprover --model default --effort default
+must --mode spawn --round 1 --theorem T2 --stage disprove --agent theorem-disprover --model default --effort default
+as_child B --mode enter --round 1 --theorem T2 --stage disprove
+"$PERSIST" --pr "$PR" --mode stopped --round 1 --theorem T2 --stage disprove --agent-id B >/dev/null
+must --mode spawn --round 1 --theorem T2 --stage disprove --agent theorem-disprover --model default --effort default
+printf 'spawn T3 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child spawned and yet to enter keeps the disprove arm" "disprove" "$(first_line)"
+assert_contains "next: a theorem spawned and not entered is spawned" "disprove${TAB}T1${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_lacks "next: a theorem spawned and not entered is never outstanding" "disprove${TAB}T1${TAB}outstanding" "$(rest)"
+assert_contains "next: a replacement spawned after a stopped is spawned" "disprove${TAB}T2${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_contains "next: a spawn past --deadline-minutes with no enter is overdue" \
+  "disprove${TAB}T3${TAB}overdue${TAB}-${TAB}2000-01-01T00:00:00Z" "$(rest)"
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+run --mode next --round 1 --deadline-minutes 15
+assert_contains "next: the spawned child's enter puts it in flight" "disprove${TAB}T1${TAB}in-flight${TAB}A${TAB}" "$(rest)"
 
 # --- wait: a leave, a deadline, and no child to wait on ------------------
 

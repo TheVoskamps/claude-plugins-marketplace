@@ -609,10 +609,11 @@ does not check that a quote is verbatim; the verifier does.
   arm's:
 
   ```text
-  <stage>\t<theorem-id>\t<outstanding|in-flight|overdue|returned-unsaved>\t<agent-id>\t<enter-time>
+  <stage>\t<theorem-id>\t<outstanding|in-flight|spawned|overdue|returned-unsaved>\t<agent-id>\t<enter-time>
   ```
 
-  The last two fields are empty for `outstanding`. It takes
+  The last two fields are empty for `outstanding`; for a child yet to
+  enter they are `-` and its theorem's last `spawn` time. It takes
   `--head-sha <sha>`, `--deadline-minutes <n>`, `--edits`, `--from` and
   `--full`, all optional.
 
@@ -640,6 +641,14 @@ does not check that a quote is verbatim; the verifier does.
     `--deadline-minutes` before the clock at the time of the call.
     Without `--deadline-minutes` nothing is overdue;
   - **`in-flight`** — any other child in flight.
+
+  A theorem with no child in flight that the stage has not settled, and
+  more `spawn` than `enter` records in it, has a child yet to enter, and
+  is printed with that child's state, never as `outstanding`:
+
+  - **`overdue`** — its last `spawn` is at least `--deadline-minutes`
+    before the clock at the time of the call;
+  - **`spawned`** — otherwise.
 - **`dispose`** — prints one row per live theorem, in id order, then one
   verdict line per member of `--issues`, in the order given, and per
   other issue the records tag, in first-tagged order, then the overall
@@ -835,8 +844,8 @@ The result file is the one under the stage's agent, `theorem-generator`,
 
 A stage's **outstanding** theorems are its members, over the live list
 rather than over the theorems the log was told about, less the settled
-and the in-flight ones, which is what puts a theorem no instance ever
-spawned back in play.
+ones, the in-flight ones and those with a child yet to enter, which is
+what puts a theorem no instance ever spawned back in play.
 
 The verdict itself is in the result file, which the `leave` line names
 and the `result` line names again, and is never inferred from the log.
@@ -845,11 +854,11 @@ and the `result` line names again, and is never inferred from the log.
 question, and it is keyed on the child rather than on the theorem.** A
 theorem is in flight when its **last** `enter` in that stage carries an
 agent id that no `leave` and no `stopped` of that theorem carries, and
-no result file for it under `--agent` exists. `--mode print-in-flight`
-and `--mode next` apply that derivation. A `stopped` is matched to an `enter` by
-agent id, never by where it lands, so an original child's `stopped`
-that lands after its replacement's `enter` writes off the original
-alone and leaves the replacement in flight.
+no result file for it under `--agent` exists. `--mode print-in-flight`,
+`--mode next` and `--mode wait` apply that derivation. A `stopped` is
+matched to an `enter` by agent id, never by where it lands, so an
+original child's `stopped` that lands after its replacement's `enter`
+writes off the original alone and leaves the replacement in flight.
 
 That is the question a deadline arm asks — an outstanding theorem with
 no child in flight has nothing to be overdue — and the one the next
