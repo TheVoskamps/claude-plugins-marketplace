@@ -122,7 +122,12 @@ human overrides, and neither is something this skill computes.
    plus a 5-minute margin, since the wait a running reviewer ends its
    turn over exits inside that deadline and resumes it — and after
    that treat the notification as
-   `Return: in progress: … — re-spawn to resume` below.
+   `Return: in progress: … — re-spawn to resume` below. Nothing else
+   wakes you when that time runs out, so on reading such a notification
+   start a background 20-minute timer, `sleep 1200` with the Bash tool's
+   `run_in_background`, whose exit wakes you to apply that bound. A
+   timer that exits after a later notification from that reviewer
+   applies nothing; the later notification's own timer bounds it.
 
    - `Return: posted review <VERDICT> — act on the verdict`: the round
      finished and its review is on the PR; relay it per step 4, with

@@ -806,7 +806,12 @@ from it with no later notification — the reviewer's 15-minute wait
 deadline plus a 5-minute margin, since the wait a running reviewer
 ends its turn over exits inside that deadline and resumes it — and
 after that you treat the notification as an in-progress return:
-re-spawn the reviewer to resume, counted as below. Before acting on a
+re-spawn the reviewer to resume, counted as below. Nothing else wakes
+you when that time runs out, so on reading such a notification start a
+background 20-minute timer, `sleep 1200` with the Bash tool's
+`run_in_background`, whose exit wakes you to apply that bound. A timer
+that exits after a later notification from that reviewer applies
+nothing; the later notification's own timer bounds it. Before acting on a
 posted review, and on an in-progress line too, confirm what the PR carries by re-deriving
 the round's number per "Run the review pipeline": a round log numbered
 above the review count means that for this line the PR carries no
