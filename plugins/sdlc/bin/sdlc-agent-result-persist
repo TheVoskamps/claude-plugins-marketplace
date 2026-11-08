@@ -8,12 +8,12 @@
 # state — the arm a resumed round is in, each theorem's disposition,
 # severity, state and the verdicts, and the posted review body — so no
 # model re-derives them by hand. It waits on a stage, too, blocking until
-# a child in it leaves or runs out of time, so a caller running it in the
-# background is woken when it exits. It also records every agent spawned
-# for a PR and prints the agent ids its state names, lists the PRs a repo
-# holds state for and deletes one PR's state whole, which is the only way
-# any of it is ever removed, and lists the repositories the state root
-# holds.
+# a child in it leaves or runs out of time, or none is left to wait on, so
+# a caller running it in the background is woken when it exits. It also
+# records every agent spawned for a PR and prints the agent ids its state
+# names, lists the PRs a repo holds state for and deletes one PR's state
+# whole, which is the only way any of it is ever removed, and lists the
+# repositories the state root holds.
 #
 # Every path is composed here and nowhere else — the repository's
 # repo.yml, the round log, each result file, the records file, the
