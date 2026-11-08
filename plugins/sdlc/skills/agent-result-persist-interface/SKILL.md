@@ -348,9 +348,8 @@ derive.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
   `--stage`, carrying `--agent-id`, the id of the child it writes off,
   as that child's `enter` record names it — or `-`, as `--mode next`
-  prints it, for a child written off before it wrote its `enter`. A `-`
-  record matches no `enter`, so it takes no child out of flight and
-  names no worktree for cleanup. The caller's, when it writes
+  prints it, for a child written off before it wrote its `enter`. The
+  caller's, when it writes
   a child off. It writes one whether or not it `TaskStop`ped that
   child — a predecessor instance's child is never its to stop, and the
   record is what says the child was written off either way.
@@ -513,11 +512,8 @@ derive.
   the harness's `.claude/worktrees/agent-<agent-id>` worktree and its
   `worktree-agent-<agent-id>` branch. The spawner's, once per agent it
   spawns for the PR, whether or not that agent runs in a worktree of its
-  own. A child
-  of the review pipeline gets one too, from the reviewer that spawned it,
-  besides the `enter` it writes itself, so a child written off before
-  its `enter` is still named. It takes **no `--round`** and refuses one; both
-  `--agent` and `--agent-id` are required.
+  own. It takes **no `--round`** and refuses one; both `--agent` and
+  `--agent-id` are required.
 - **`print-agents`** — writes to stdout every agent id the PR's state
   names, one per line, sorted and each once: every `agent` record's,
   and every `enter` record's in every round log, the

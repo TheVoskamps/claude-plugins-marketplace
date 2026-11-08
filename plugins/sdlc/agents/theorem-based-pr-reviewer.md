@@ -86,10 +86,6 @@ sdlc-agent-result-persist --mode agent \
   --agent-id <the id its Agent call returned>
 ```
 
-A child written off before its `enter` names its worktree nowhere else,
-and the PR's cleanup finds a child's worktree by the agent id its state
-names.
-
 **Resolve the two identifying values at the top of the round, and again
 on every resume**: `/github-prs:pr-view <PR> --ref` prints `<PR_REF>`,
 the canonical reference every `--pr` below carries, and
@@ -127,8 +123,8 @@ Whichever arm you take, run the sections before it that read the PR —
 the issue set, the carried records, the delta and the live list's
 inputs are derived every time, never remembered.
 
-Spawn only on `outstanding` lines, and never on a `spawned` one, whose
-child has yet to write its `enter`: that holds the barrier between the
+Spawn only on `outstanding` lines, and never on a `spawned` one: that
+holds the barrier between the
 stages and **one child per theorem per stage** — a replacement keeps
 it, its predecessor recorded `stopped` first. Report a duplicate
 `leave`, which `--mode print` shows, in the Review method section.
@@ -207,9 +203,9 @@ when no notification arrives: run this loop.
 **The deadline arm.** For an `overdue` or `returned-unsaved` line,
 `TaskStop` its child if **you** spawned it, before its theorem is
 re-spawned, and append its stop either way, naming it by the agent id
-the line printed. An `overdue` line whose agent id is `-` is a child
-that never wrote its `enter`: `TaskStop` it by the id its `Agent` call
-returned, and append the stop with `-`:
+the line printed. For an `overdue` line whose agent id is `-`,
+`TaskStop` its child by the id its `Agent` call returned, and append the
+stop with `-`:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -219,8 +215,7 @@ sdlc-agent-result-persist --mode stopped \
 
 A write-off is `TaskStop`'s one sanctioned use; never reach for it to
 make a slow round finish sooner. With passes left, run `--mode next`
-again: each written-off theorem now reads `outstanding`, and its
-re-spawn is the spawn on that line; then wait again. A
+again, spawn on its `outstanding` lines, and wait again. A
 `<task-notification>` is a wake-up, not
 evidence, and you are no more a source of verdicts than of theorems.
 
