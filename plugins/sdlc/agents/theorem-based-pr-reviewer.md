@@ -218,8 +218,10 @@ sdlc-agent-result-persist --mode stopped \
 ```
 
 A write-off is `TaskStop`'s one sanctioned use; never reach for it to
-make a slow round finish sooner. With passes left, re-spawn the written-off
-theorems and wait again. A `<task-notification>` is a wake-up, not
+make a slow round finish sooner. With passes left, run `--mode next`
+again: each written-off theorem now reads `outstanding`, and its
+re-spawn is the spawn on that line; then wait again. A
+`<task-notification>` is a wake-up, not
 evidence, and you are no more a source of verdicts than of theorems.
 
 **A turn you end while a `--mode wait` you started is running is not a

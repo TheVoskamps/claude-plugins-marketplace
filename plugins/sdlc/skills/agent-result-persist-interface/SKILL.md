@@ -380,11 +380,8 @@ derive.
 - **`wait`** — blocks until a child in `--stage` settles or runs out of
   time, then exits zero. `--stage` and `--deadline-minutes` are required.
   It waits on each theorem with a child in flight in the stage, and on
-  each theorem the stage has more `spawn` records than `enter` records
-  for, whose child has yet to write its `enter` — unless a `stopped`
-  naming agent id `-` follows that theorem's last `spawn` in the stage,
-  since its child was written off before its `enter` and none has been
-  spawned in its place. It exits on whichever
+  each with a child yet to enter there, as "What the reader derives"
+  below defines both. It exits on whichever
   comes first, printing one line, `\t` standing for a tab:
 
   - `leave\t<theorem>\t<agent-id>` — a `leave` record in the stage
@@ -551,8 +548,9 @@ derive.
   that has no `repo.yml` in it or one level down, and holds
   `pr<n>/` directories directly, is old-layout state:
   `old <owner>/<repo> <owner>/<repo>`, its host unknown. It takes **no
-  repository, no `--pr` and no `--round`**, refuses each, moves nothing,
-  and prints nothing for a state root that does not exist.
+  repository and no flag but `--mode`**, refuses each with exit 2 before
+  it lists anything, moves nothing, and prints nothing for a state root
+  that does not exist.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
@@ -650,8 +648,8 @@ does not check that a quote is verbatim; the verifier does.
   - **`in-flight`** — any other child in flight.
 
   A theorem with no child in flight that the stage has not settled, and
-  more `spawn` than `enter` records in it, has a child yet to enter, and
-  is printed with that child's state, never as `outstanding`:
+  a child yet to enter there, as "What the reader derives" below defines
+  one, is printed with that child's state, never as `outstanding`:
 
   - **`overdue`** — its last `spawn` is at least `--deadline-minutes`
     before the clock at the time of the call;
@@ -853,6 +851,12 @@ A stage's **outstanding** theorems are its members, over the live list
 rather than over the theorems the log was told about, less the settled
 ones, the in-flight ones and those with a child yet to enter, which is
 what puts a theorem no instance ever spawned back in play.
+
+A theorem has a **child yet to enter** in a stage when the stage holds
+more `spawn` than `enter` records for it, unless a `stopped` naming
+agent id `-` follows its last `spawn` there: that child was written off
+before its `enter`, so the theorem is outstanding again until a later
+`spawn`. `--mode next` and `--mode wait` apply that one rule.
 
 The verdict itself is in the result file, which the `leave` line names
 and the `result` line names again, and is never inferred from the log.

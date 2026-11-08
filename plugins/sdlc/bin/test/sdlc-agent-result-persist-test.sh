@@ -7,7 +7,8 @@
 #     head, generate, disprove, verify, dispose -- and over the states it
 #     prints: outstanding, in flight, overdue past --deadline-minutes,
 #     returned without saving, and spawned and yet to enter, overdue past
-#     the deadline from its last spawn; a stopped after its enter, a
+#     the deadline from its last spawn; a stopped after its enter, one
+#     before its enter that leaves the theorem outstanding, a
 #     duplicate leave, a malformed DISPROVED report that earns no
 #     verifier, a generator re-spawned at another effort, and a --full
 #     round's live list.
@@ -287,6 +288,20 @@ assert_contains "next: a spawn past --deadline-minutes with no enter is overdue"
 as_child A --mode enter --round 1 --theorem T1 --stage disprove
 run --mode next --round 1 --deadline-minutes 15
 assert_contains "next: the spawned child's enter puts it in flight" "disprove${TAB}T1${TAB}in-flight${TAB}A${TAB}" "$(rest)"
+
+new_case next-written-off-before-enter
+add_seed T1 "first" "#1"
+seed
+a_generated_list
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child written off before its enter is outstanding" \
+  "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}" "$(rest)"
+must --mode spawn --round 1 --theorem T1 --stage disprove --agent theorem-disprover --model default --effort default
+run --mode next --round 1 --deadline-minutes 15
+assert_contains "next: a spawn after the write-off is spawned" "disprove${TAB}T1${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_lacks "next: a spawn after the write-off is not outstanding" "disprove${TAB}T1${TAB}outstanding" "$(rest)"
 
 # --- wait: a leave, a deadline, and no child to wait on ------------------
 

@@ -812,6 +812,18 @@ check_contains "$(cat "$CASE/err")" "--deadline-minutes is not accepted in --mod
 "$PERSIST" --mode repos --full >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "repos: --full is refused"
 check_contains "$(cat "$CASE/err")" "--full is not accepted in --mode repos" "repos: the --full refusal says so"
+# Every other flag is refused too, the file-naming ones given a file that
+# exists so only the mode can refuse them.
+printf 'x\n' >"$CASE/payload"
+for given in "--round 1" "--head-sha aaa" "--round-type documentation" "--theorem T1" "--stage disprove" \
+    "--agent theorem-disprover" "--model default" "--effort low" "--agent-id A" "--tokens 1" "--tools 1" \
+    "--ms 1" "--from $CASE/payload" "--carry" "--edits $CASE/payload" "--loop-exited" "--issues 1"; do
+  flag=${given%% *}
+  # shellcheck disable=SC2086 # each given is a flag and its value, split on purpose
+  "$PERSIST" --mode repos $given >/dev/null 2>"$CASE/err" </dev/null
+  check "$?" "2" "repos: $flag is refused"
+  check_contains "$(cat "$CASE/err")" "$flag" "repos: the $flag refusal names it"
+done
 
 # A current-layout <host>/<owner> directory with no repo.yml beneath it,
 # empty or holding a repository directory, holds no pr<n> directory of its
