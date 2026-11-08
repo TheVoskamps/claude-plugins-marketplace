@@ -432,8 +432,8 @@ if [ -n "$edits" ]; then
 fi
 
 # --full widens the live list next and dispose derive; --deadline-minutes
-# is next's and wait's, which cannot end without one, and --loop-exited
-# dispose's.
+# is next's and wait's, and required by wait, which cannot end without
+# one, and --loop-exited dispose's.
 if [ -n "$full" ]; then
   case "$mode" in
     next|dispose) ;;
@@ -920,7 +920,8 @@ load_round_records() {
 # result file of agent settles the theorem. A stopped is matched to the
 # enter by agent id, never by position, so an original child's stopped
 # landing after its replacement's enter writes off the original alone.
-# unentered(st, t) is whether the theorem has more spawn than enter
+# child[st, t] is the agent id and at[st, t] the time of the theorem's
+# last enter in the stage. unentered(st, t) is whether the theorem has more spawn than enter
 # records in the stage, a child spawned that has yet to write its enter,
 # and spawned_at[st, t] its last spawn's time.
 # entered[st, 1..nentered[st]] lists the theorems entered in the stage,
