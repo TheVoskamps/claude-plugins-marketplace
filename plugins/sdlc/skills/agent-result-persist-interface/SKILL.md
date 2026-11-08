@@ -342,12 +342,9 @@ derive.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a final `<task-notification>`
-  it received, one saying the child has finished; a notification saying
-  the child may still be running is interim, per "A child's hand-back"
-  below, and gets no record. It is **best-effort telemetry and never
-  evidence**: no derivation below reads it, and a stage never waits on
-  one. An omitted
-  number leaves its column empty rather than dropping the column.
+  it received. It is **best-effort telemetry and never evidence**, and a
+  stage never waits on one. An omitted number leaves its column empty
+  rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
   `--stage`, carrying `--agent-id`, the id of the child it writes off,
   as that child's `enter` record names it. The caller's, when it writes
@@ -378,8 +375,7 @@ derive.
   what in flight means. Exits non-zero when the log does not exist, as
   `print` does.
 - **`wait`** — blocks until a child in `--stage` settles or runs out of
-  time, then exits zero, so a caller that runs it in the background is
-  woken when it exits. `--stage` and `--deadline-minutes` are required.
+  time, then exits zero. `--stage` and `--deadline-minutes` are required.
   It waits on each theorem with a child in flight in the stage, and on
   each theorem the stage has more `spawn` records than `enter` records
   for, whose child has yet to write its `enter`. It exits on whichever
@@ -638,9 +634,8 @@ does not check that a quote is verbatim; the verifier does.
   never as `outstanding`, member or not:
 
   - **`returned-unsaved`** — a `return` record in the stage names the
-    child. Only a final notification gets a `return`, so the child
-    finished without saving, and this is work at once, whatever the
-    deadline;
+    child, which finished without saving and never will, so this is work
+    at once, whatever the deadline;
   - **`overdue`** — the child, with no `return`, has an `enter` at least
     `--deadline-minutes` before the clock at the time of the call.
     Without `--deadline-minutes` nothing is overdue;

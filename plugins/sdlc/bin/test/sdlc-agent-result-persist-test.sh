@@ -301,7 +301,11 @@ as_child B --mode enter --round 1 --theorem T2 --stage disprove
 WAIT_PID=$!
 # Let it read the log's length before the leave lands.
 sleep 1
-assert_eq "wait: two children in flight keep it waiting" "0" "$(kill -0 "$WAIT_PID" 2>/dev/null; echo $?)"
+if kill -0 "$WAIT_PID" 2>/dev/null; then
+  pass "wait: two children in flight keep it waiting"
+else
+  fail "wait: two children in flight keep it waiting" "it exited before any leave"
+fi
 survived T1
 as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/r"
 for _ in $(seq 1 40); do

@@ -158,14 +158,10 @@ on the exit of the wait command below. Every resume runs the same three
 moves, in order, over **every** outstanding child in the stage, so one
 surviving notification carries the round past every lost one.
 
-1. **Record the notification** that woke you with a `--mode return`
+1. **Record a final notification** that woke you with a `--mode return`
    record, with its agent id and whatever token, tool-call and duration
-   figures it gave — only when it is **final**, saying the child has
-   finished. A notification saying the child may still be running is
-   **interim**, whatever its wording: give it no record and write
-   nothing off on it, since that child wakes again and can still
-   `leave`. A notification naming no agent id, and the wait command's
-   exit, get no record either.
+   figures it gave. A notification naming no agent id, and the wait
+   command's exit, get no record.
 2. **Run `--mode next`**, per "You are re-entrant". Its deadline is the
    **15 minutes after a child's `enter`** you pass — five times the
    worst case measured on a 32-theorem round, where every disprover
@@ -189,12 +185,9 @@ sdlc-agent-result-persist --mode wait \
   --pr <PR_REF> --round <this round's number> --stage <stage> --deadline-minutes 15
 ```
 
-It exits when a child in the stage leaves, at the earliest child's
-deadline, or at once when the stage has no child to wait on. While it
-runs, your run outlives a child that ended its turn over background
-work of its own, and its exit wakes you at a deadline even when no
-notification arrives. Its exit is a resume like any other: run this
-loop.
+While it runs, your run outlives a child that ended its turn over
+background work of its own. Its exit is a resume like any other, even
+when no notification arrives: run this loop.
 
 **The deadline arm.** For an `overdue` or `returned-unsaved` line,
 `TaskStop` its child if **you** spawned it, before its theorem is
