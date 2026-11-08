@@ -797,26 +797,13 @@ flattening them.
 
 **Read the report's closing `Return:` line first, and do what it
 says.** The harness surfaces every return as `status: completed`, so
-that line is what tells a finished round from an unfinished one. A
-reviewer notification carrying no `Return:` line is interim — the
-reviewer ended a turn over a wait of its own and is still running the
-round — so you neither relay it, re-spawn on it nor raise it; its later
-notification carries the line. That reading holds until 20 minutes pass
-from it with no later notification — the reviewer's 15-minute wait
-deadline plus a 5-minute margin, since the wait a running reviewer
-ends its turn over exits inside that deadline and resumes it — and
-after that you treat the notification as an in-progress return:
-re-spawn the reviewer to resume, counted as below. Nothing else wakes
-you when that time runs out, so on reading such a notification start a
-background 20-minute timer, `sleep 1200` with the Bash tool's
-`run_in_background`, whose exit wakes you to apply that bound. A timer
-that exits after a later notification from that reviewer applies
-nothing; the later notification's own timer bounds it. Before acting on a
-posted review, and on an in-progress line too, confirm what the PR carries by re-deriving
-the round's number per "Run the review pipeline": a round log numbered
-above the review count means that for this line the PR carries no
-review, and any review the PR shows is a previous round's; none above
-it means the PR carries this round's review.
+that line is what tells a finished round from an unfinished one.
+Before acting on a posted review, and on an in-progress line too,
+confirm what the PR carries by re-deriving the round's number per "Run
+the review pipeline": a round log numbered above the review count means
+that for this line the PR carries no review, and any review the PR
+shows is a previous round's; none above it means the PR carries this
+round's review.
 
 A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
