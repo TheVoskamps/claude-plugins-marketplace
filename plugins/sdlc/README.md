@@ -776,12 +776,12 @@ names it. Each piece has one owner:
 | Slot | Owner |
 | --- | --- |
 | What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off, or `-` for one that never entered | `skills/agent-result-persist-interface/SKILL.md` |
-| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, and which notification is final and which interim | `skills/agent-result-persist-interface/SKILL.md` |
+| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, which notification is final and which interim, and that an interim one writes nothing off because its child's `leave` can still land | `skills/agent-result-persist-interface/SKILL.md` |
 | That each child calls `leave` before composing its hand-back, and never ends a turn over background work of its own | that child's own file under `agents/` |
 | The `returned-unsaved`, `overdue`, `in-flight` and `spawned` lines `next` prints, and what makes a child each | `skills/agent-result-persist-interface/SKILL.md` |
 | What `wait` waits on, each line it exits with, and how often it reads the log | `skills/agent-result-persist-interface/SKILL.md` |
 | The rule that a theorem awaits its child's `enter` by the order of its records, and which `stopped` ends that wait | `skills/agent-result-persist-interface/SKILL.md` |
-| That an interim notification gets no `return` and writes nothing off, and that a final one is recorded | `agents/theorem-based-pr-reviewer.md` |
+| That only a final notification is recorded, with a `return` | `agents/theorem-based-pr-reviewer.md` |
 | The immediate write-off of a child that handed back without a `leave`, that it `TaskStop`s a child the reviewer spawned before re-spawning, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
 | That a `wait` the reviewer started is running whenever it ends a turn waiting on a stage, and that such a turn is not a hand-back | `agents/theorem-based-pr-reviewer.md` |
 | That the reviewer records each child it spawns with `--mode agent`, and spawns nothing on a `spawned` line | `agents/theorem-based-pr-reviewer.md` |
