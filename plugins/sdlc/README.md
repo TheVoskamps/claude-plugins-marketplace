@@ -713,21 +713,25 @@ than a race. A notification saying the child may still be running is
 not: a child that ends its turn over background work of its own wakes
 when that work exits and carries on, so its `leave` can still land.
 Such a notification is interim, and the reviewer judges it by its
-meaning rather than by matching any fixed wording: it gets no `return`
-record and writes nothing off. The first version of this rule read
-every notification as final, and a generator mid-run was written off
-on its interim one, its list landing minutes after the round had ended
-with nothing posted. The reviewer records a final notification as a
-`return` record, and `--mode next` prints a child with a `return` and
-no `leave` as `returned-unsaved` — work at once, whatever its deadline,
-since a child that finished without saving will never save — so the
-reviewer writes that child off and re-spawns its theorem on the resume
-that reads the line. The write-off `TaskStop`s the child first when the
-reviewer spawned it, as a deadline write-off does: a child that handed
-back can still be running, and its late `leave` and result file would
-overwrite its replacement's, stopping the round on a list conflict. A
-child past its deadline with no `return` is printed `overdue`, and the
-deadline is a figure the reviewer passes, not one the script holds.
+meaning rather than by matching any fixed wording. That an interim
+notification writes nothing off follows from the reviewer recording
+only a final one, as a `return` record: a write-off ahead of the
+deadline needs a `return`, so a child with none stays in flight until
+its `leave` lands or its deadline passes. The first version of this
+rule read every notification as final, and a generator mid-run was
+written off on its interim one, its list landing minutes after the
+round had ended with nothing posted. The reviewer records a final
+notification as a `return` record, and `--mode next` prints a child
+with a `return` and no `leave` as `returned-unsaved` — work at once,
+whatever its deadline, since a child that finished without saving will
+never save — so the reviewer writes that child off and re-spawns its
+theorem on the resume that reads the line. The write-off `TaskStop`s
+the child first when the reviewer spawned it, as a deadline write-off
+does: a child that handed back can still be running, and its late
+`leave` and result file would overwrite its replacement's, stopping the
+round on a list conflict. A child past its deadline with no `return` is
+printed `overdue`, and the deadline is a figure the reviewer passes,
+not one the script holds.
 
 A reviewer that only ends its turn and waits for a notification cannot
 survive a child in the waiting state: a nested parent that ends its
@@ -776,7 +780,7 @@ names it. Each piece has one owner:
 | Slot | Owner |
 | --- | --- |
 | What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off, or `-` for one that never entered | `skills/agent-result-persist-interface/SKILL.md` |
-| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, which notification is final and which interim, and that an interim one writes nothing off because its child's `leave` can still land | `skills/agent-result-persist-interface/SKILL.md` |
+| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, which notification is final and which interim, and that an interim child's `leave` can still land | `skills/agent-result-persist-interface/SKILL.md` |
 | That each child calls `leave` before composing its hand-back, and never ends a turn over background work of its own | that child's own file under `agents/` |
 | The `returned-unsaved`, `overdue`, `in-flight` and `spawned` lines `next` prints, and what makes a child each | `skills/agent-result-persist-interface/SKILL.md` |
 | What `wait` waits on, each line it exits with, and how often it reads the log | `skills/agent-result-persist-interface/SKILL.md` |
