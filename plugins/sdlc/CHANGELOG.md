@@ -1,5 +1,46 @@
 # sdlc changelog
 
+## 0.77.0 — 2026-11-08
+
+The theorem-based reviewer no longer writes off a child that is still
+running, and stops one it does write off before re-spawning its
+theorem.
+
+- A notification saying a child may still be running — one a child
+  produces when it ends a turn over background work of its own — is
+  interim: the reviewer records no `return` for it and writes nothing
+  off. Only a final notification gets a `return`, so `returned-unsaved`
+  now means a child that finished without saving. The theorem
+  generator, disprover and verifier each never end a turn while
+  background work of their own is running.
+- Every write-off of a child the reviewer spawned, a `returned-unsaved`
+  one included, runs `TaskStop` on that child before its theorem is
+  re-spawned: a child that handed back can still be running, and its
+  late `leave` would overwrite its replacement's. A child the reviewer
+  did not spawn is still never stopped.
+- `sdlc-agent-result-persist --mode wait` blocks until a `leave` lands
+  in the stage, the earliest awaited child's deadline passes, or there
+  is no child to wait on, then prints one line and exits. The reviewer
+  runs it in the background before ending any turn that waits on a
+  stage, so its run survives a child in the waiting state and it wakes
+  at a deadline even when no notification arrives.
+- `--mode next` prints a theorem whose child is spawned but has not yet
+  entered as `spawned`, never `outstanding`, with the deadline measured
+  from its last `spawn`; the reviewer spawns nothing on a `spawned`
+  line. A theorem is awaited exactly when its last `spawn` in the stage
+  is followed by neither an `enter` nor a `stopped`, decided by the
+  order of the records and never by comparing counts. After a `-`
+  write-off of a child that never entered, the theorem prints
+  `outstanding` again unless an earlier child of it is still in flight.
+- The reviewer records every child it spawns with `--mode agent` by the
+  id its `Agent` call returned, so a child written off before its
+  `enter` still names its worktree for cleanup. `--mode stopped` takes
+  `-` as the agent id for such a child.
+- The in-flight derivation is stated once and applied alike by
+  `--mode print-in-flight`, `--mode next` and `--mode wait`.
+- `--mode repos` refuses every flag but `--mode`, with exit 2, before
+  it lists anything.
+
 ## 0.76.0 — 2026-11-04
 
 `/sdlc:orchestrate` rules on what the repo already settles, the issue

@@ -7,11 +7,13 @@
 # disk rather than off the PR. It derives what a reviewer reads off that
 # state — the arm a resumed round is in, each theorem's disposition,
 # severity, state and the verdicts, and the posted review body — so no
-# model re-derives them by hand. It also records every agent spawned for
-# a PR and prints the agent ids its state names, lists the PRs a repo
-# holds state for and deletes one PR's state whole, which is the only way
-# any of it is ever removed, and lists the repositories the state root
-# holds.
+# model re-derives them by hand. It waits on a stage, too, blocking until
+# a child in it leaves or runs out of time, or none is left to wait on, so
+# a caller running it in the background is woken when it exits. It also
+# records every agent spawned for a PR and prints the agent ids its state
+# names, lists the PRs a repo holds state for and deletes one PR's state
+# whole, which is the only way any of it is ever removed, and lists the
+# repositories the state root holds.
 #
 # Every path is composed here and nowhere else — the repository's
 # repo.yml, the round log, each result file, the records file, the
@@ -44,7 +46,7 @@ trap 'die "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                       |print-in-flight|records|review|print-records
+                       |print-in-flight|wait|records|review|print-records
                        |print-round-records|print-review|print-root|agent
                        |print-agents|delete|next|dispose|summary
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
@@ -83,9 +85,15 @@ full=
 loop_exited=
 deadline_minutes=
 issues=
+# Every flag but --mode the caller gave, by name, whatever its value.
+given_flags=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
+  case "$flag" in
+    --mode) ;;
+    --*) given_flags="$given_flags $flag" ;;
+  esac
   case "$flag" in
     --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits|--deadline-minutes|--issues)
       [ "$#" -ge 2 ] || die "$flag needs a value"
@@ -144,12 +152,22 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  anchor|spawn|enter|leave|return|stopped|print|print-in-flight) ;;
+  anchor|spawn|enter|leave|return|stopped|print|print-in-flight|wait) ;;
   records|review|print-records|print-round-records|print-review|print-root) ;;
   agent|print-agents|list|delete|repos|next|dispose|summary) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
+
+# repos reads across every repository the state root holds, so it takes
+# no flag but --mode. It refuses each by its presence, before any refusal
+# below that decides from a flag's value whether it was given, so an
+# empty value is refused like any other.
+if [ "$mode" = repos ]; then
+  for given in $given_flags; do
+    die "$given is not accepted in --mode repos"
+  done
+fi
 
 # The state root as the script opens it, and as the signpost a human is
 # shown, unexpanded; the two spell the same fallback and change together.
@@ -177,36 +195,36 @@ is_old_layout() {
   return 1
 }
 
+# --full widens the live list next and dispose derive; --deadline-minutes
+# is next's and wait's, and required by wait, where it is the only bound
+# on a child that never leaves, and --loop-exited dispose's.
+if [ -n "$full" ]; then
+  case "$mode" in
+    next|dispose) ;;
+    *) die "--full is not accepted in --mode $mode" ;;
+  esac
+fi
+if [ "$mode" = wait ] && [ -z "$deadline_minutes" ]; then
+  die "--deadline-minutes is required in --mode wait"
+fi
+if [ -n "$deadline_minutes" ]; then
+  case "$mode" in
+    next|wait) ;;
+    *) die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes" ;;
+  esac
+  case "$deadline_minutes" in
+    *[!0-9]*) die "--deadline-minutes must be a number: $deadline_minutes" ;;
+  esac
+fi
+if [ -n "$loop_exited" ] && [ "$mode" != dispose ]; then
+  die "--loop-exited is not accepted in --mode $mode"
+fi
+
 # An operand names a repository, which list alone takes in that form:
 # every other mode is named by its PR, and repos by nothing.
 if [ "$operands" -gt 0 ]; then
   [ "$mode" = list ] || die "--mode $mode takes no operand: $operand"
   [ "$operands" -eq 1 ] || die "--mode list takes at most one repository"
-fi
-
-# repos reads across every repository the state root holds, so it takes
-# no identifying flag. It reads each repository from its repo.yml, and
-# names a directory of the old layout, which has none, by its path.
-if [ "$mode" = repos ]; then
-  for pair in "pr:$pr_ref" "round:$round"; do
-    [ -z "${pair#*:}" ] || die "--${pair%%:*} is not accepted in --mode repos: ${pair#*:}"
-  done
-  [ -d "$state_root" ] || exit 0
-  find "$state_root" -name repo.yml -type f | sort | while IFS= read -r yml; do
-    at=${yml%/repo.yml}
-    at=${at#"$state_root"/}
-    named=$(awk -F': *' '$1=="host"{h=$2} $1=="owner"{o=$2} $1=="repo"{r=$2} END{print h "/" o "/" r}' "$yml")
-    if [ "$named" = "$at" ]; then
-      printf 'repo %s %s\n' "$named" "$at"
-    else
-      printf 'mismatch %s %s\n' "$named" "$at"
-    fi
-  done
-  for at in "$state_root"/*/*; do
-    is_old_layout "$at" || continue
-    printf 'old %s %s\n' "${at#"$state_root"/}" "${at#"$state_root"/}"
-  done
-  exit 0
 fi
 
 # split_repo <host/owner/repo> <message>: sets repo_ref to the reference
@@ -276,7 +294,7 @@ if [ "$mode" = list ]; then
       ;;
   esac
   split_repo "$given" "$bad_operand"
-else
+elif [ "$mode" != repos ]; then
   [ -n "$pr_ref" ] || die "--pr is required"
   bad_pr="--pr takes <host>/<owner>/<repo>#<n>: $pr_ref"
   case "$pr_ref" in
@@ -292,13 +310,13 @@ fi
 
 # A mode refuses an identifying flag it does not act at: delete removes
 # a whole PR's directory, print-root names it, agent and print-agents
-# write and read the PR's agents log beside its rounds, and list reads
-# above every PR's, so a caller passing one would be naming a round the
-# mode is not going to touch. print-records selects the round itself, so
-# a --round given to it bounds that selection from above rather than
-# naming the round.
+# write and read the PR's agents log beside its rounds, and list and
+# repos read above every PR's, so a caller passing one would be naming a
+# round the mode is not going to touch. print-records selects the round
+# itself, so a --round given to it bounds that selection from above
+# rather than naming the round.
 case "$mode" in
-  delete|list|print-root|agent|print-agents)
+  delete|list|print-root|agent|print-agents|repos)
     [ -z "$round" ] || die "--round is not accepted in --mode $mode: $round"
     ;;
   print-records)
@@ -333,7 +351,7 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  spawn|enter|leave|return|stopped|print-in-flight)
+  spawn|enter|leave|return|stopped|print-in-flight|wait)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
       generate|disprove|verify) ;;
@@ -429,24 +447,6 @@ if [ -n "$edits" ]; then
   [ -f "$edits" ] || die "--edits names no file: $edits"
 fi
 
-# --full widens the live list next and dispose derive; --deadline-minutes
-# is next's alone, and --loop-exited dispose's.
-if [ -n "$full" ]; then
-  case "$mode" in
-    next|dispose) ;;
-    *) die "--full is not accepted in --mode $mode" ;;
-  esac
-fi
-if [ -n "$deadline_minutes" ]; then
-  [ "$mode" = next ] || die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes"
-  case "$deadline_minutes" in
-    *[!0-9]*) die "--deadline-minutes must be a number: $deadline_minutes" ;;
-  esac
-fi
-if [ -n "$loop_exited" ] && [ "$mode" != dispose ]; then
-  die "--loop-exited is not accepted in --mode $mode"
-fi
-
 # --issues is the issue set dispose gives a verdict line each, whether or
 # not a record tags it: the members separated by spaces or commas, each
 # with or without its leading #.
@@ -469,6 +469,27 @@ for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
     *[!0-9]*) die "--$name must be a number: $given" ;;
   esac
 done
+
+# repos reads each repository from its repo.yml, and names a directory of
+# the old layout, which has none, by its path.
+if [ "$mode" = repos ]; then
+  [ -d "$state_root" ] || exit 0
+  find "$state_root" -name repo.yml -type f | sort | while IFS= read -r yml; do
+    at=${yml%/repo.yml}
+    at=${at#"$state_root"/}
+    named=$(awk -F': *' '$1=="host"{h=$2} $1=="owner"{o=$2} $1=="repo"{r=$2} END{print h "/" o "/" r}' "$yml")
+    if [ "$named" = "$at" ]; then
+      printf 'repo %s %s\n' "$named" "$at"
+    else
+      printf 'mismatch %s %s\n' "$named" "$at"
+    fi
+  done
+  for at in "$state_root"/*/*; do
+    is_old_layout "$at" || continue
+    printf 'old %s %s\n' "${at#"$state_root"/}" "${at#"$state_root"/}"
+  done
+  exit 0
+fi
 
 # The round gets a directory of its own under XDG state, composed from
 # the identifying flags alone: no session is part of the path, so a
@@ -901,6 +922,47 @@ load_round_records() {
     > "$work/records" || exit 2
 }
 
+# The in-flight derivation print-in-flight, next and wait share, as awk
+# source each loads. Each calls flight_line() on the round-log lines it
+# derives from and loads the result files into result[theorem, agent], as
+# list_results prints them. in_flight(st, t, agent) is then the agent id
+# of the child t has in flight in stage st, or empty when it has none: a
+# child is in flight when the last enter of the theorem in the stage
+# names it, no leave or stopped of the theorem there names it, and no
+# result file of agent settles the theorem. A stopped is matched to the
+# enter by agent id, never by position, so an original child's stopped
+# landing after its replacement's enter writes off the original alone.
+# child[st, t] is the agent id and at[st, t] the time of the theorem's
+# last enter in the stage. awaiting_enter(st, t) is whether the child the
+# theorem's last spawn in the stage started has yet to write its enter,
+# and spawned_at[st, t] is that spawn's time. An enter after that spawn
+# ends the wait for it, and so does a stopped, unless the stopped names a
+# child an earlier enter of the theorem in the stage named: that writes
+# off the earlier child alone and leaves the replacement awaited. It
+# follows the order of the records, never a count of them.
+# entered[st, 1..nentered[st]] lists the theorems entered in the stage,
+# in first-enter order.
+flight_lib() {
+  cat <<'AWK'
+  function flight_line(    t, st) {
+    t = $2; st = $3
+    if ($1 == "spawn") { awaited[st, t] = 1; spawned_at[st, t] = $4 }
+    if ($1 == "enter") {
+      if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
+      awaited[st, t] = 0; child[st, t] = $5; at[st, t] = $4; named[st, t, $5] = 1
+    }
+    if ($1 == "stopped" && !((st SUBSEP t SUBSEP $5) in named)) awaited[st, t] = 0
+    if ($1 == "leave" || $1 == "stopped") ended[st, t, $5] = 1
+  }
+  function in_flight(st, t, agent) {
+    if (!((st SUBSEP t) in child)) return ""
+    if ((st SUBSEP t SUBSEP child[st, t]) in ended || (t SUBSEP agent) in result) return ""
+    return child[st, t]
+  }
+  function awaiting_enter(st, t) { return awaited[st, t] + 0 }
+AWK
+}
+
 # The derivation next and dispose share, as awk source. It reads the
 # round's records (records_file), the --edits file (edits_file), the round
 # log (log_file) and the round's result files (results_file, as
@@ -923,6 +985,7 @@ load_round_records() {
 # Whether a quote is verbatim is the verifier's to check, not the
 # grammar's.
 derive_lib() {
+  flight_lib
   cat <<'AWK'
   function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
   function is_class(c) {
@@ -991,13 +1054,9 @@ derive_lib() {
   FILENAME == log_file {
     if ($1 == "anchor") { if (anchor == "") anchor = $3; next }
     if ($1 == "spawn" || $1 == "enter") fanned = 1
+    flight_line()
     t = $2; st = $3
-    if ($1 == "enter") {
-      if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
-      child[st, t] = $5; at[st, t] = $4
-    }
-    if ($1 == "leave") { left[st, t] = 1; ended[st, t, $5] = 1 }
-    if ($1 == "stopped") ended[st, t, $5] = 1
+    if ($1 == "leave") left[st, t] = 1
     if ($1 == "return") returned[st, t, $5] = 1
     next
   }
@@ -1031,14 +1090,10 @@ derive() {
       "$@" "$(derive_lib)$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
 }
 
-# next: the arm the round is in, then one line per theorem of each stage
-# up to the arm's that is outstanding, in flight, overdue or returned
-# without saving; or moved-head alone, when --head-sha names a head other
-# than the anchor's.
-readonly next_prog='
-  # epoch(ts): the seconds since 1970 of a UTC YYYY-MM-DDTHH:MM:SSZ
-  # timestamp, by the days-from-civil count, since awk has no portable
-  # time parser.
+# epoch(ts), as awk source next and wait load: the seconds since 1970 of
+# a UTC YYYY-MM-DDTHH:MM:SSZ timestamp, by the days-from-civil count,
+# since awk has no portable time parser.
+readonly epoch_fn='
   function epoch(ts,    y, m, d, era, yoe, doy, doe) {
     y = substr(ts, 1, 4) + 0; m = substr(ts, 6, 2) + 0; d = substr(ts, 9, 2) + 0
     if (m <= 2) y--
@@ -1047,23 +1102,32 @@ readonly next_prog='
     doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
     return (era * 146097 + doe - 719468) * 86400 \
       + substr(ts, 12, 2) * 3600 + substr(ts, 15, 2) * 60 + substr(ts, 18, 2)
-  }
+  }'
+
+# next: the arm the round is in, then one line per theorem of each stage
+# up to the arm's that is outstanding, in flight, spawned and yet to
+# enter, overdue or returned without saving; or moved-head alone, when
+# --head-sha names a head other than the anchor's.
+readonly next_prog="$epoch_fn"'
+  # overdue(since): whether --deadline-minutes have passed since since.
+  function overdue(since) { return deadline != "" && now + 0 >= epoch(since) + deadline * 60 }
   # flight(st, t): the state of the child the theorem has in flight in
-  # the stage, or empty when it has none. A child is in flight when the
-  # last enter of the theorem names it, no leave or stopped names it, and
-  # no result file settles the theorem.
+  # the stage, or empty when it has none, as in_flight derives one.
   function flight(st, t,    id) {
-    if (!((st SUBSEP t) in child)) return ""
-    id = child[st, t]
-    if ((st SUBSEP t SUBSEP id) in ended || has_result(st, t)) return ""
+    id = in_flight(st, t, stage_agent(st))
+    if (id == "") return ""
     if ((st SUBSEP t SUBSEP id) in returned) return "returned-unsaved"
-    if (deadline != "" && now + 0 >= epoch(at[st, t]) + deadline * 60) return "overdue"
+    if (overdue(at[st, t])) return "overdue"
     return "in-flight"
   }
   # consider(st, t, member): adds the line the theorem gets in the stage,
   # if any, and says whether the stage still has work on it. A theorem
-  # with no child in flight is outstanding only when it is a member of
-  # the stage and the stage has not settled it. A theorem already
+  # with no child in flight that the stage has not settled is, while it
+  # is awaiting_enter, overdue once the deadline has passed since its
+  # last spawn and spawned before that. Otherwise it is outstanding only
+  # when it is a member of the stage, so a child written off before its
+  # enter leaves its theorem outstanding when no earlier child of it is
+  # still in flight, and in flight when one is. A theorem already
   # considered in the stage adds no second line and returns 0, so the
   # answer of the first call is the one that counts.
   function consider(st, t, member,    f) {
@@ -1072,6 +1136,11 @@ readonly next_prog='
     f = flight(st, t)
     if (f != "") {
       out[++nout] = st "\t" t "\t" f "\t" child[st, t] "\t" at[st, t]
+      return 1
+    }
+    if (awaiting_enter(st, t) && !settled(st, t)) {
+      f = overdue(spawned_at[st, t]) ? "overdue" : "spawned"
+      out[++nout] = st "\t" t "\t" f "\t-\t" spawned_at[st, t]
       return 1
     }
     if (member && !settled(st, t)) {
@@ -1111,6 +1180,49 @@ readonly next_prog='
       if (index(" " upto " ", " " f[1] " ")) print out[i]
     }
   }'
+
+# wait: one poll of the round log and the stage's result files
+# (results_file, as list_results prints them), printing the line wait
+# exits with, or nothing while it should keep waiting. A leave in the
+# stage past the log's first start lines is what wakes it. Otherwise the
+# children it waits on are each theorem's child in flight and each child
+# awaiting its enter, as flight_lib derives them, on a theorem with no
+# result file under agent. A child in flight's deadline runs from its
+# enter and one yet to enter from its last spawn, and the earliest of
+# those deadlines passing ends the wait too. With none to wait on, it
+# ends at once.
+wait_prog() {
+  printf '%s\n' "$epoch_fn"
+  flight_lib
+  cat <<'AWK'
+  FILENAME == results_file { result[$1, $2] = 1; next }
+  $3 != stage { next }
+  {
+    t = $2
+    if (!(t in seen)) { seen[t] = 1; order[++n] = t }
+    flight_line()
+  }
+  $1 == "leave" && FNR > start && woke == "" { woke = "leave\t" t "\t" $5 }
+  END {
+    if (woke != "") { print woke; exit }
+    for (i = 1; i <= n; i++) {
+      t = order[i]
+      if ((t SUBSEP agent) in result) continue
+      id = in_flight(stage, t, agent)
+      if (id != "") since = at[stage, t]
+      else if (awaiting_enter(stage, t)) { since = spawned_at[stage, t]; id = "-" }
+      else continue
+      due = epoch(since) + deadline * 60
+      if (pick == "" || due < pick_due) { pick = t; pick_id = id; pick_due = due }
+    }
+    if (pick == "") { print "none"; exit }
+    if (now + 0 >= pick_due) print "deadline\t" pick "\t" pick_id
+  }
+AWK
+}
+
+# How long wait sleeps between two reads of the round log.
+readonly wait_poll_seconds=2
 
 # dispose: one row per live theorem, then the verdicts, one for each of
 # members, the space-separated issue set, and for each other issue a
@@ -1353,7 +1465,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print|print-in-flight|print-records|print-round-records|print-review|print-root|print-agents|list|delete) ;;
+  print|print-in-flight|wait|print-records|print-round-records|print-review|print-root|print-agents|list|delete) ;;
   next|dispose|summary) ;;
   records) [ -n "$carry" ] || make_dir ;;
   agent)
@@ -1438,28 +1550,47 @@ case "$mode" in
     done | sort -u
     ;;
   print-in-flight)
-    # A theorem is in flight in --stage when its last enter there names a
-    # child that no leave and no stopped of that theorem names, and no
-    # result file for it under --agent exists. A stopped is matched to
-    # the enter by agent id, never by position, so an original child's
-    # stopped landing after its replacement's enter writes off the
-    # original alone.
+    # In flight as flight_lib derives it, with --agent's result files.
     [ -e "$file" ] || die "no round log at $file"
-    awk -v stage="$stage" '
-      $3 != stage { next }
-      $1 == "enter" {
-        if (!($2 in child)) order[++n] = $2
-        child[$2] = $5; at[$2] = $4
-      }
-      $1 == "leave" || $1 == "stopped" { ended[$2 " " $5] = 1 }
+    make_work
+    list_results "$dir" >"$work/results"
+    awk -v stage="$stage" -v agent="$agent" -v results_file="$work/results" "$(flight_lib)"'
+      FILENAME == results_file { result[$1, $2] = 1; next }
+      $3 == stage { flight_line() }
       END {
-        for (i = 1; i <= n; i++) {
-          t = order[i]
-          if (!((t " " child[t]) in ended)) print t, child[t], at[t]
+        for (i = 1; i <= nentered[stage]; i++) {
+          t = entered[stage, i]
+          id = in_flight(stage, t, agent)
+          if (id != "") print t, id, at[stage, t]
         }
-      }' "$file" | while read -r t id entered; do
-      [ -e "$dir/$t-$agent" ] && continue
-      printf '%s %s %s\n' "$t" "$id" "$entered"
+      }' "$work/results" "$file" || die "could not read the round log at $file"
+    ;;
+  wait)
+    # Blocks, so the caller runs it in the background and is woken when it
+    # exits. Only a leave appended after the call started wakes it, so a
+    # leave already in the log when it starts does not end it at once.
+    if [ ! -e "$file" ]; then
+      printf 'none\n'
+      exit 0
+    fi
+    case "$stage" in
+      generate) stage_agent='theorem-generator' ;;
+      disprove) stage_agent='theorem-disprover' ;;
+      verify) stage_agent='counterexample-verifier' ;;
+    esac
+    make_work
+    start=$(awk 'END { print NR }' "$file" || exit) || die "could not read the round log at $file"
+    while :; do
+      list_results "$dir" >"$work/results"
+      woke=$(awk -v stage="$stage" -v agent="$stage_agent" -v start="$start" \
+        -v deadline="$deadline_minutes" -v now="$(date -u +%s)" -v results_file="$work/results" \
+        "$(wait_prog)" "$work/results" "$file" || exit) ||
+        die "could not read the round log at $file"
+      if [ -n "$woke" ]; then
+        printf '%s\n' "$woke"
+        exit 0
+      fi
+      sleep "$wait_poll_seconds"
     done
     ;;
   print)

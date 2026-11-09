@@ -707,19 +707,62 @@ file and the record have landed, and that path is the hand-back's
 first line; a child whose call failed hands back a failure report
 carrying no verdict, so nothing in it can be mistaken for the file
 that was never written. Because the record lands before the child
-returns, a `<task-notification>` arriving for a child the log still
-shows in flight is final rather than a race. The reviewer records the
+returns, a final `<task-notification>` — one saying the child finished
+— arriving for a child the log still shows in flight is final rather
+than a race. A notification saying the child may still be running is
+not: a child that ends its turn over background work of its own wakes
+when that work exits and carries on, so its `leave` can still land.
+Such a notification is interim, and the reviewer judges it by its
+meaning rather than by matching any fixed wording. That an interim
+notification writes nothing off follows from the reviewer recording
+only a final one, as a `return` record: a write-off ahead of the
+deadline needs a `return`, so a child with none stays in flight until
+its `leave` lands or its deadline passes. The first version of this
+rule read every notification as final, and a generator mid-run was
+written off on its interim one, its list landing minutes after the
+round had ended with nothing posted. The reviewer records a final
 notification as a `return` record, and `--mode next` prints a child
 with a `return` and no `leave` as `returned-unsaved` — work at once,
-whatever its deadline, since a child that returned without saving will
+whatever its deadline, since a child that finished without saving will
 never save — so the reviewer writes that child off and re-spawns its
-theorem on the resume that reads the line. A child past its deadline
-with no `return` is printed `overdue`, and the deadline is a figure the
-reviewer passes, not one the script holds.
+theorem on the resume that reads the line. The write-off `TaskStop`s
+the child first when the reviewer spawned it, as a deadline write-off
+does: a child that handed back can still be running, and its late
+`leave` and result file would overwrite its replacement's, stopping the
+round on a list conflict. A child past its deadline with no `return` is
+printed `overdue`, and the deadline is a figure the reviewer passes,
+not one the script holds.
 
-Which children are in flight is the script's answer, through
-`--mode print-in-flight` and `--mode next`, rather than something the
-reviewer derives from the log itself. The derivation used to be an
+A reviewer that only ends its turn and waits for a notification cannot
+survive a child in the waiting state: a nested parent that ends its
+turn while its only child has ended a turn over background work is
+made to hand back, and the child's final report then goes to the main
+session rather than to the parent. A parent holding a background
+command of its own is not made to hand back. So before ending any turn
+that waits on a stage, the reviewer ensures a
+`sdlc-agent-result-persist --mode wait` it started over that stage is
+running in the background. The command blocks until a `leave` lands in
+the stage, the earliest awaited child's deadline passes, or no child is
+left to wait on, and its exit resumes the reviewer like any
+notification — which also wakes it at a deadline when no notification
+ever arrives. The wait's deadline is the same figure the reviewer passes
+`next`, measured from a child's `enter`, or from its theorem's last
+`spawn` while it has not yet entered, so a wait started right after a
+spawn does not exit before the child has written its `enter`. The
+reviewer records every child it spawns with `--mode agent` by the id
+its `Agent` call returned, so a child written off before its `enter`
+still has a record naming its worktree for cleanup, and the `stopped`
+that writes one off names it `-`.
+
+Which children are in flight, and which are spawned and yet to enter,
+is the script's answer, through `--mode print-in-flight`, `--mode next`
+and `--mode wait`, rather than something the reviewer derives from the
+log itself. A theorem is awaiting its child's `enter` exactly when its
+last `spawn` in the stage is followed by neither an `enter` nor a
+`stopped`, decided by the order of the records and never by comparing
+counts of `spawn` and `enter` records: a count would let a `stopped`
+for an earlier child, landing after a later `spawn`, cancel the
+replacement's wait. The derivation used to be an
 `awk` snippet in the interface skill, run by the reviewer by hand, which
 the suite could not drive; it now lives beside the rest of the state
 logic, where the suite does. Moving it into the script also fixed how a
@@ -736,18 +779,25 @@ names it. Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
-| What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off | `skills/agent-result-persist-interface/SKILL.md` |
-| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed | `skills/agent-result-persist-interface/SKILL.md` |
-| That each child calls `leave` before composing its hand-back | that child's own file under `agents/` |
-| The `returned-unsaved`, `overdue` and `in-flight` lines `next` prints, and what makes a child each | `skills/agent-result-persist-interface/SKILL.md` |
-| The immediate write-off of a child that handed back without a `leave`, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
+| What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off, or `-` for one that never entered | `skills/agent-result-persist-interface/SKILL.md` |
+| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, which notification is final and which interim, and that an interim child's `leave` can still land | `skills/agent-result-persist-interface/SKILL.md` |
+| That each child calls `leave` before composing its hand-back, and never ends a turn over background work of its own | that child's own file under `agents/` |
+| The `returned-unsaved`, `overdue`, `in-flight` and `spawned` lines `next` prints, and what makes a child each | `skills/agent-result-persist-interface/SKILL.md` |
+| What `wait` waits on, each line it exits with, and how often it reads the log | `skills/agent-result-persist-interface/SKILL.md` |
+| The rule that a theorem awaits its child's `enter` by the order of its records, and which `stopped` ends that wait | `skills/agent-result-persist-interface/SKILL.md` |
+| That only a final notification is recorded, with a `return` | `agents/theorem-based-pr-reviewer.md` |
+| The immediate write-off of a child that handed back without a `leave`, that it `TaskStop`s a child the reviewer spawned before re-spawning, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
+| That a `wait` the reviewer started is running whenever it ends a turn waiting on a stage, and that such a turn is not a hand-back | `agents/theorem-based-pr-reviewer.md` |
+| That the reviewer records each child it spawns with `--mode agent`, and spawns nothing on a `spawned` line | `agents/theorem-based-pr-reviewer.md` |
 
 `test/sdlc-test.sh` drives the script's records and round-log modes
 against a state root of its own — the seed write, the carry form, each
 refusal it makes, the bounded read, the generator's id check at
 `leave`, the path `leave` prints and its refusal of a result path
 carrying whitespace, the in-flight derivation with a
-`stopped` landing after its replacement's `enter`, and the round types:
+`stopped` landing after its replacement's `enter`, a child written off
+before its `enter` named by its `agent` record, `repos`' refusal of
+every flag but `--mode`, and the round types:
 the type an anchor writes and the refusals around it, the `round-type`
 line `print` ends with, a first documentation round carrying nothing
 while its ids continue the code rounds', a code round carrying past a
@@ -766,10 +816,15 @@ through that executable's own failure status. It needs only bash,
 `bin/test/sdlc-agent-result-persist-test.sh` drives the derivation
 modes the same way, each case against a state root of its own: every
 arm `next` names and every child state it prints — a `stopped` after
-its `enter`, a duplicate `leave`, a moved head, a malformed `DISPROVED`
-report that earns no verifier, a generator re-spawned at another
-effort leaving a settled list settled, and the live list under
-`--edits`, `--from` and `--full`; every row of
+its `enter`, a child `spawned` and yet to enter and one overdue from
+its last `spawn`, a `-` write-off before the `enter` and a replacement
+spawned after it, a duplicate `leave`, a moved head, a malformed
+`DISPROVED` report that earns no verifier, a generator re-spawned at
+another effort leaving a settled list settled, and the live list under
+`--edits`, `--from` and `--full`; `wait` ending on a `leave`, on the
+earliest child's deadline with a child yet to enter included, and at
+once with no child to wait on, and its refusal without
+`--deadline-minutes`; every row of
 `dispose`'s disposition table with the state it stamps, a
 `class-underivable` finding, a human override, an unsettled theorem
 forcing `BLOCKED`, a member of `--issues` no record tags, the refusal
@@ -817,13 +872,14 @@ suite.
 
 The invariants the reviewer used to hold as prose are now properties of
 the script's output. **One child per theorem per stage**: `next` never
-prints a theorem with a child in flight as `outstanding`, and the
-reviewer spawns only on `outstanding` lines, so no instance can spawn
-beside a running child. **A verdict's only admissible source is the
-child's own result file**: `dispose` reads verdicts from result files
-and nothing else, so a theorem whose child wrote no report has no
-verdict and takes its stage's no-verdict row, and a `<task-notification>`
-can never be read as one.
+prints a theorem with a child in flight, or one spawned and yet to
+enter, as `outstanding`, and the reviewer spawns only on `outstanding`
+lines, so no instance can spawn beside a running child or beside one
+that has not yet written its `enter`. **A verdict's only admissible
+source is the child's own result file**: `dispose` reads verdicts from
+result files and nothing else, so a theorem whose child wrote no report
+has no verdict and takes its stage's no-verdict row, and a
+`<task-notification>` can never be read as one.
 
 What stays with the reviewer is what no script can decide: the tier
 rubric, reading an adjustment comment into the edit it means, the
@@ -1073,10 +1129,11 @@ grading:
   it leaves is detached, and the reviewer's children check out
   detached from the start; a sweep that matched worktrees by the PR's
   branch or its commits missed most of them. So every spawn made for a
-  PR is recorded in the PR's state — the orchestrator and
-  `pr-merge-readiness` record each one through
-  `sdlc-agent-result-persist --mode agent`, and a review child records
-  itself at `enter` — and the `<PR>` scope removes exactly the
+  PR is recorded in the PR's state — the orchestrator,
+  `pr-merge-readiness` and the reviewer record each one through
+  `sdlc-agent-result-persist --mode agent`, and a review child also
+  records itself at `enter`, so a child the reviewer writes off before
+  its `enter` is still named — and the `<PR>` scope removes exactly the
   `.claude/worktrees/agent-<id>` worktree and the `worktree-agent-<id>`
   branch of each id the state names, nested worktrees included, plus
   any worktree under `.claude/worktrees/` still holding a branch it
@@ -1392,9 +1449,10 @@ worktree during a run: the reviewer leaves its children's worktrees
 where the harness made them, and `sdlc-orchestrate-cleanup` removes
 them once the PR has merged, finding each by the agent id the PR's
 state names. That is why every spawn made for a PR is recorded there:
-the orchestrator and `pr-merge-readiness` record each agent they spawn
-through `sdlc-agent-result-persist --mode agent`, and a review child
-records itself when it enters a round. The orchestrator's seed
+the orchestrator, `pr-merge-readiness` and the reviewer record each
+agent they spawn through `sdlc-agent-result-persist --mode agent`, and
+a review child also records itself when it enters a round, so one
+written off before it enters is still named. The orchestrator's seed
 generator and the batch's developer are spawned before the PR has a
 reference, so their ids are held and recorded once the PR is linked.
 

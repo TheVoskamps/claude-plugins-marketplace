@@ -5,11 +5,21 @@
 #
 #   - --mode next over a fixture log per arm it names -- no log, a moved
 #     head, generate, disprove, verify, dispose -- and over the states it
-#     prints: outstanding, in flight, overdue past --deadline-minutes, and
-#     returned without saving; a stopped after its enter, a duplicate
-#     leave, a malformed DISPROVED report that earns no verifier, a
-#     generator re-spawned at another effort, and a --full round's live
-#     list.
+#     prints: outstanding, in flight, overdue past --deadline-minutes,
+#     returned without saving, and spawned and yet to enter, overdue past
+#     the deadline from its last spawn; a stopped after its enter, one
+#     before its enter that leaves the theorem outstanding, and a
+#     replacement spawned after such a write-off that entered and was
+#     stopped, which leaves it outstanding too; a duplicate leave, a
+#     malformed DISPROVED report that earns no verifier, a generator
+#     re-spawned at another effort, and a --full round's live list.
+#   - --mode wait ending on a leave for a child in flight, on the earliest
+#     child's deadline -- a child spawned and not yet entered included,
+#     and a replacement spawned after its predecessor was written off --
+#     and at once with no child in flight in the stage, a child written
+#     off before its enter included, and a replacement that entered and
+#     was stopped after such a write-off; and the refusal without
+#     --deadline-minutes.
 #   - --mode dispose over result files for every row of the disposition
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
@@ -257,6 +267,145 @@ assert_contains "next: a child past --deadline-minutes is overdue" \
   "disprove${TAB}T1${TAB}overdue${TAB}D${TAB}2000-01-01T00:00:00Z" "$(rest)"
 run --mode next --round 1
 assert_contains "next: without --deadline-minutes nothing is overdue" "disprove${TAB}T1${TAB}in-flight${TAB}D${TAB}" "$(rest)"
+
+new_case next-spawned
+add_seed T1 "first" "#1"
+add_seed T2 "second" "#1"
+add_seed T3 "third" "#1"
+seed
+a_generated_list
+must --mode spawn --round 1 --theorem T1 --stage disprove --agent theorem-disprover --model default --effort default
+must --mode spawn --round 1 --theorem T2 --stage disprove --agent theorem-disprover --model default --effort default
+as_child B --mode enter --round 1 --theorem T2 --stage disprove
+"$PERSIST" --pr "$PR" --mode stopped --round 1 --theorem T2 --stage disprove --agent-id B >/dev/null
+must --mode spawn --round 1 --theorem T2 --stage disprove --agent theorem-disprover --model default --effort default
+printf 'spawn T3 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child spawned and yet to enter keeps the disprove arm" "disprove" "$(first_line)"
+assert_contains "next: a theorem spawned and not entered is spawned" "disprove${TAB}T1${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_lacks "next: a theorem spawned and not entered is never outstanding" "disprove${TAB}T1${TAB}outstanding" "$(rest)"
+assert_contains "next: a replacement spawned after a stopped is spawned" "disprove${TAB}T2${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_contains "next: a spawn past --deadline-minutes with no enter is overdue" \
+  "disprove${TAB}T3${TAB}overdue${TAB}-${TAB}2000-01-01T00:00:00Z" "$(rest)"
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+run --mode next --round 1 --deadline-minutes 15
+assert_contains "next: the spawned child's enter puts it in flight" "disprove${TAB}T1${TAB}in-flight${TAB}A${TAB}" "$(rest)"
+
+new_case next-written-off-before-enter
+add_seed T1 "first" "#1"
+seed
+a_generated_list
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child written off before its enter is outstanding" \
+  "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}" "$(rest)"
+must --mode spawn --round 1 --theorem T1 --stage disprove --agent theorem-disprover --model default --effort default
+run --mode next --round 1 --deadline-minutes 15
+assert_contains "next: a spawn after the write-off is spawned" "disprove${TAB}T1${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_lacks "next: a spawn after the write-off is not outstanding" "disprove${TAB}T1${TAB}outstanding" "$(rest)"
+
+new_case next-replacement-entered-and-stopped
+add_seed T1 "first" "#1"
+seed
+a_generated_list
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+as_child B --mode enter --round 1 --theorem T1 --stage disprove
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id B
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a replacement that entered and was stopped leaves the theorem outstanding" \
+  "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}" "$(rest)"
+
+# --- wait: a leave, a deadline, and no child to wait on ------------------
+
+new_case wait-no-child
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: no round log exits 0" "0" "$RC"
+assert_eq "wait: no round log is no child to wait on" "none" "$OUT"
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+as_child A --mode enter --round 1 --theorem T1 --stage generate
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: no child in flight in the stage exits 0 at once" "0" "$RC"
+assert_eq "wait: a child in flight in another stage is not waited on" "none" "$OUT"
+run --mode wait --round 1 --stage disprove
+assert_eq "wait: without --deadline-minutes it is refused" "2" "$RC"
+assert_contains "wait: the refusal names --deadline-minutes" "--deadline-minutes" "$ERR"
+
+new_case wait-deadline
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+as_child A --mode enter --round 1 --theorem T2 --stage disprove
+printf 'enter T1 disprove 2000-01-01T00:00:00Z D -\n' >>"$PR_DIR/round1/log"
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: the earliest child's deadline passing exits 0" "0" "$RC"
+assert_eq "wait: the deadline line names the earliest child" "deadline${TAB}T1${TAB}D" "$OUT"
+
+new_case wait-spawned
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a child spawned and not yet entered is waited on to its deadline" \
+  "deadline${TAB}T1${TAB}-" "$OUT"
+
+new_case wait-written-off-before-enter
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a child written off before its enter is not waited on" "none" "$OUT"
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a spawn after the write-off is waited on to its deadline" \
+  "deadline${TAB}T1${TAB}-" "$OUT"
+
+new_case wait-replacement-entered-and-stopped
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id -
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+as_child B --mode enter --round 1 --theorem T1 --stage disprove
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id B
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a replacement that entered and was stopped is not waited on" "none" "$OUT"
+
+new_case wait-stopped-names-earlier-child
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+printf 'spawn T1 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id A
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: a stopped naming an entered child leaves its replacement waited on" \
+  "deadline${TAB}T1${TAB}-" "$OUT"
+
+new_case wait-leave
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+as_child B --mode enter --round 1 --theorem T2 --stage disprove
+"$PERSIST" --pr "$PR" --mode wait --round 1 --stage disprove --deadline-minutes 15 \
+  >"$CASE/wait-out" 2>"$CASE/wait-err" </dev/null &
+WAIT_PID=$!
+# Let it read the log's length before the leave lands.
+sleep 1
+if kill -0 "$WAIT_PID" 2>/dev/null; then
+  pass "wait: two children in flight keep it waiting"
+else
+  fail "wait: two children in flight keep it waiting" "it exited before any leave"
+fi
+survived T1
+as_child A --mode leave --round 1 --theorem T1 --stage disprove --agent theorem-disprover --from "$CASE/r"
+for _ in $(seq 1 40); do
+  kill -0 "$WAIT_PID" 2>/dev/null || break
+  sleep 0.25
+done
+if kill -0 "$WAIT_PID" 2>/dev/null; then
+  kill "$WAIT_PID"
+  fail "wait: a leave ends the wait" "still running 10 seconds after the leave"
+fi
+wait "$WAIT_PID"
+assert_eq "wait: a leave for a child in flight exits 0" "0" "$?"
+assert_eq "wait: the leave line names the child that left" "leave${TAB}T1${TAB}A" "$(cat "$CASE/wait-out")"
 
 new_case next-verify-dispose
 add_seed T1 "first" "#1"

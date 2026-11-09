@@ -255,8 +255,9 @@ record, or the file — the `print` modes for the ones that read one
 round, `print-root` for the PR directory it names, `print-agents` for
 the agent ids it reads across the PR's logs, `list` and `delete`
 for what they do across a repo's PR directories, `repos` for what
-it lists across the state root, and `next`, `dispose` and `summary`,
-under "The derivation modes", for what they derive.
+it lists across the state root, `wait` for what it does, and `next`,
+`dispose` and `summary`, under "The derivation modes", for what they
+derive.
 
 - **`anchor`** — writes the `anchor` line carrying `--head-sha <sha>`
   and `--round-type <type>`, both required. One call per round, and
@@ -340,13 +341,15 @@ under "The derivation modes", for what they derive.
   be, too, when a round above `--round` holds records.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
-  `--tools` and `--ms`. The caller's, from a `<task-notification>` it
-  received. It is **best-effort telemetry and never evidence**: no
-  derivation below reads it, and a stage never waits on one. An omitted
-  number leaves its column empty rather than dropping the column.
+  `--tools` and `--ms`. The caller's, from a final `<task-notification>`
+  it received. It is **best-effort telemetry and never evidence**, and a
+  stage never waits on one. An omitted number leaves its column empty
+  rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
   `--stage`, carrying `--agent-id`, the id of the child it writes off,
-  as that child's `enter` record names it. The caller's, when it writes
+  as that child's `enter` record names it — or `-`, as `--mode next`
+  prints it, for a child written off before it wrote its `enter`. The
+  caller's, when it writes
   a child off. It writes one whether or not it `TaskStop`ped that
   child — a predecessor instance's child is never its to stop, and the
   record is what says the child was written off either way.
@@ -373,6 +376,22 @@ under "The derivation modes", for what they derive.
   `counterexample-verifier`. "What the reader derives" below states
   what in flight means. Exits non-zero when the log does not exist, as
   `print` does.
+- **`wait`** — blocks until a child in `--stage` settles or runs out of
+  time, then exits zero. `--stage` and `--deadline-minutes` are required.
+  It waits on each theorem with a child in flight in the stage, and on
+  each with a child yet to enter there, as "What the reader derives"
+  below defines both. It exits on whichever
+  comes first, printing one line, `\t` standing for a tab:
+
+  - `leave\t<theorem>\t<agent-id>` — a `leave` record in the stage
+    landed after the call started;
+  - `deadline\t<theorem>\t<agent-id>` — `--deadline-minutes` have passed
+    since the `enter` of the earliest child it waits on, or since the
+    last `spawn` of a child yet to enter, whose agent id is `-`;
+  - `none` — no child is left to wait on, at once when there was none
+    from the start, a round with no log included.
+
+  It reads the log every two seconds, and writes and creates nothing.
 - **`records`** — writes the round's theorem records to the round's
   `records` file. Without `--carry` it stores its payload whole: the
   orchestrator's once, at `--round 0`, for the ruled seed, and the
@@ -493,10 +512,8 @@ under "The derivation modes", for what they derive.
   the harness's `.claude/worktrees/agent-<agent-id>` worktree and its
   `worktree-agent-<agent-id>` branch. The spawner's, once per agent it
   spawns for the PR, whether or not that agent runs in a worktree of its
-  own. A child
-  of the review pipeline writes an `enter` instead, which names its agent
-  id the same way. It takes **no `--round`** and refuses one; both
-  `--agent` and `--agent-id` are required.
+  own. It takes **no `--round`** and refuses one; both `--agent` and
+  `--agent-id` are required.
 - **`print-agents`** — writes to stdout every agent id the PR's state
   names, one per line, sorted and each once: every `agent` record's,
   and every `enter` record's in every round log, the
@@ -527,8 +544,9 @@ under "The derivation modes", for what they derive.
   that has no `repo.yml` in it or one level down, and holds
   `pr<n>/` directories directly, is old-layout state:
   `old <owner>/<repo> <owner>/<repo>`, its host unknown. It takes **no
-  repository, no `--pr` and no `--round`**, refuses each, moves nothing,
-  and prints nothing for a state root that does not exist.
+  repository and no flag but `--mode`**, refuses each with exit 2 before
+  it lists anything, moves nothing, and prints nothing for a state root
+  that does not exist.
 
   **`delete` is the only mode that deletes stored state.** The one
   thing any other mode removes is its own staging file, when `leave`,
@@ -592,10 +610,11 @@ does not check that a quote is verbatim; the verifier does.
   arm's:
 
   ```text
-  <stage>\t<theorem-id>\t<outstanding|in-flight|overdue|returned-unsaved>\t<agent-id>\t<enter-time>
+  <stage>\t<theorem-id>\t<outstanding|in-flight|spawned|overdue|returned-unsaved>\t<agent-id>\t<enter-time>
   ```
 
-  The last two fields are empty for `outstanding`. It takes
+  The last two fields are empty for `outstanding`; for a child yet to
+  enter they are `-` and its theorem's last `spawn` time. It takes
   `--head-sha <sha>`, `--deadline-minutes <n>`, `--edits`, `--from` and
   `--full`, all optional.
 
@@ -617,12 +636,20 @@ does not check that a quote is verbatim; the verifier does.
   never as `outstanding`, member or not:
 
   - **`returned-unsaved`** — a `return` record in the stage names the
-    child. It returned without saving and never will, so this is work at
-    once, whatever the deadline;
+    child, which finished without saving and never will, so this is work
+    at once, whatever the deadline;
   - **`overdue`** — the child, with no `return`, has an `enter` at least
     `--deadline-minutes` before the clock at the time of the call.
     Without `--deadline-minutes` nothing is overdue;
   - **`in-flight`** — any other child in flight.
+
+  A theorem with no child in flight that the stage has not settled, and
+  a child yet to enter there, as "What the reader derives" below defines
+  one, is printed with that child's state, never as `outstanding`:
+
+  - **`overdue`** — its last `spawn` is at least `--deadline-minutes`
+    before the clock at the time of the call;
+  - **`spawned`** — otherwise.
 - **`dispose`** — prints one row per live theorem, in id order, then one
   verdict line per member of `--issues`, in the order given, and per
   other issue the records tag, in first-tagged order, then the overall
@@ -818,8 +845,20 @@ The result file is the one under the stage's agent, `theorem-generator`,
 
 A stage's **outstanding** theorems are its members, over the live list
 rather than over the theorems the log was told about, less the settled
-and the in-flight ones, which is what puts a theorem no instance ever
-spawned back in play.
+ones, the in-flight ones and those with a child yet to enter, which is
+what puts a theorem no instance ever spawned back in play.
+
+A theorem has a **child yet to enter** in a stage exactly when its last
+`spawn` there is followed by neither an `enter` nor a `stopped` there.
+`--mode next` and `--mode wait` apply that one rule, deciding it by the
+order of the records, never by comparing counts of `spawn` and `enter`
+records. A `stopped` naming an earlier child — one an `enter` of the
+theorem in the stage named before it — writes off that child alone, so
+landing after a later `spawn` it leaves the replacement yet to enter.
+Any other `stopped`, `-` included, writes off the child the last
+`spawn` started, before its `enter`, so the theorem is outstanding
+again until a later `spawn` — unless an earlier child of the theorem is
+still in flight in the stage, which leaves it in flight.
 
 The verdict itself is in the result file, which the `leave` line names
 and the `result` line names again, and is never inferred from the log.
@@ -828,11 +867,11 @@ and the `result` line names again, and is never inferred from the log.
 question, and it is keyed on the child rather than on the theorem.** A
 theorem is in flight when its **last** `enter` in that stage carries an
 agent id that no `leave` and no `stopped` of that theorem carries, and
-no result file for it under `--agent` exists. `--mode print-in-flight`
-and `--mode next` apply that derivation. A `stopped` is matched to an `enter` by
-agent id, never by where it lands, so an original child's `stopped`
-that lands after its replacement's `enter` writes off the original
-alone and leaves the replacement in flight.
+no result file for it under `--agent` exists. `--mode print-in-flight`,
+`--mode next` and `--mode wait` apply that derivation. A `stopped` is
+matched to an `enter` by agent id, never by where it lands, so an
+original child's `stopped` that lands after its replacement's `enter`
+writes off the original alone and leaves the replacement in flight.
 
 That is the question a deadline arm asks — an outstanding theorem with
 no child in flight has nothing to be overdue — and the one the next
@@ -861,8 +900,12 @@ line is revised, so concurrent appends cannot collide.
 ## A child's hand-back
 
 A child's `leave` record and result file land before the child
-returns, so by the time its `<task-notification>` reaches the caller a
-missing `leave` is final rather than a race. A child therefore makes
+returns, so by the time its final `<task-notification>` — the one
+saying it finished — reaches the caller a missing `leave` is final
+rather than a race. A notification saying the child may still be
+running is interim: a child that ends its turn with background work of
+its own running wakes when that work exits and carries on, so its
+`leave` can still land. A child therefore makes
 its `leave` call before it composes its hand-back, and composes one only
 from what that call did:
 

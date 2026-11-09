@@ -186,6 +186,12 @@ calls in a subagent context.
    section shows, carrying no verdict — never the report the file was
    meant to hold.
 
+**Never end your turn while background work of your own is running** —
+a command you ran with `run_in_background`, or any other task you
+started. A turn ended over it does not end your run: you wake again
+when that work exits. Wait for the work, or stop it, before you end a
+turn.
+
 ## Establishing a fact
 
 A counterexample is only worth as much as the check that produced it.

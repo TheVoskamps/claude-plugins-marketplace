@@ -59,7 +59,8 @@ round reads the records from there, not off the PR.
 ## The round log
 
 A fan-out wait ends your turn and resumes it on a child's
-`<task-notification>`, so nothing you merely remember survives the
+`<task-notification>` or on the exit of the wait command "The resume
+loop" starts, so nothing you merely remember survives the
 boundary, and a notification can be dropped or a child can skip its own
 last call. **Nothing here may depend on you hearing back.** Each child
 records its own entry and exit and writes its full report to a **result
@@ -68,13 +69,22 @@ column — `generate`, `disprove`, `verify` — names the fan-out. The
 preloaded `sdlc:agent-result-persist-interface` skill owns that CLI.
 
 Your half of the log carries no verdict: `--mode anchor` once per
-round, `--mode spawn` per child, `--mode return` per notification —
-**telemetry, not evidence** — and `--mode stopped` per write-off, with
+round, `--mode spawn` per child, `--mode return` per final notification
+— **telemetry, not evidence** — and `--mode stopped` per write-off, with
 `--mode records` and `--mode review` storing the round's output at its
 end. Where the round stands, and what each theorem's verdict makes it,
 are the answers of `--mode next` and `--mode dispose`, never yours.
 Never create the log with `Write` or hold a path: read a result file's
 path out of `--mode print`, then `Read` the file.
+
+**Record every child you spawn in the PR's agents log** as soon as its
+`Agent` call returns, by the id that call returned, whatever its stage:
+
+```bash
+sdlc-agent-result-persist --mode agent \
+  --pr <PR_REF> --agent <the child's definition, e.g. theorem-disprover> \
+  --agent-id <the id its Agent call returned>
+```
 
 **Resolve the two identifying values at the top of the round, and again
 on every resume**: `/github-prs:pr-view <PR> --ref` prints `<PR_REF>`,
@@ -113,7 +123,8 @@ Whichever arm you take, run the sections before it that read the PR —
 the issue set, the carried records, the delta and the live list's
 inputs are derived every time, never remembered.
 
-Spawn only on `outstanding` lines: that holds the barrier between the
+Spawn only on `outstanding` lines, and never on a `spawned` one: that
+holds the barrier between the
 stages and **one child per theorem per stage** — a replacement keeps
 it, its predecessor recorded `stopped` first. Report a duplicate
 `leave`, which `--mode print` shows, in the Review method section.
@@ -152,15 +163,16 @@ task found with ID` reads as gone, leaving its theorem re-runnable.
 
 ### The resume loop
 
-Every wait in this file is this loop, over one stage. You hold no
-blocking primitive: you end your turn, and the harness resumes you on
-each child's `<task-notification>`. Every resume runs the same three
+Every wait in this file is this loop, over one stage. You end your
+turn, and the harness resumes you on a child's `<task-notification>` or
+on the exit of the wait command below. Every resume runs the same three
 moves, in order, over **every** outstanding child in the stage, so one
 surviving notification carries the round past every lost one.
 
-1. **Record the notification** that woke you with a `--mode return`
+1. **Record a final notification** that woke you with a `--mode return`
    record, with its agent id and whatever token, tool-call and duration
-   figures it gave; a notification naming no agent id gets no record.
+   figures it gave. A notification naming no agent id, and the wait
+   command's exit, get no record.
 2. **Run `--mode next`**, per "You are re-entrant". Its deadline is the
    **15 minutes after a child's `enter`** you pass — five times the
    worst case measured on a 32-theorem round, where every disprover
@@ -169,13 +181,31 @@ surviving notification carries the round past every lost one.
    does not read as slow.
 3. **End the turn, or act on the lines**, in the stage its arm names:
    an `overdue` line takes the deadline arm, and a **`returned-unsaved`**
-   line is written off on the resume that reads it, as the deadline arm
-   does but with nothing to `TaskStop`, and its theorem re-spawned. An
-   arm that moved on ends this stage's wait.
+   line takes it too, on the resume that reads it, whatever its
+   deadline: a child that handed back can still be running, and its
+   late `leave` would overwrite its replacement's. An arm that moved on
+   ends this stage's wait.
 
-**The deadline arm.** For an `overdue` line, `TaskStop` its child if
-**you** spawned it, and append its stop either way, naming it by the
-agent id the line printed:
+**Start the wait command before you end a turn that waits on a stage**,
+with the Bash tool's `run_in_background`, so that a wait you started
+over that stage is running whenever such a turn ends — skip the start
+only while one you started over the stage has not yet exited:
+
+```bash
+sdlc-agent-result-persist --mode wait \
+  --pr <PR_REF> --round <this round's number> --stage <stage> --deadline-minutes 15
+```
+
+While it runs, your run outlives a child that ended its turn over
+background work of its own. Its exit is a resume like any other, even
+when no notification arrives: run this loop.
+
+**The deadline arm.** For an `overdue` or `returned-unsaved` line,
+`TaskStop` its child if **you** spawned it, before its theorem is
+re-spawned, and append its stop either way, naming it by the agent id
+the line printed. For an `overdue` line whose agent id is `-`,
+`TaskStop` its child by the id its `Agent` call returned, and append the
+stop with `-`:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -183,15 +213,19 @@ sdlc-agent-result-persist --mode stopped \
   --theorem <T<k>, or list> --stage <stage> --agent-id <that child's agent id>
 ```
 
-That is `TaskStop`'s one sanctioned use; never reach for it to make a
-slow round finish sooner. With passes left, re-spawn the written-off
-theorems and wait again. A `<task-notification>` is a wake-up, not
+A write-off is `TaskStop`'s one sanctioned use; never reach for it to
+make a slow round finish sooner. With passes left, run `--mode next`
+again, spawn on its `outstanding` lines, and wait again. A
+`<task-notification>` is a wake-up, not
 evidence, and you are no more a source of verdicts than of theorems.
 
-**A turn you end while waiting on a stage is an in-progress status**,
-and reads as one — the theorems still out named by id, never counted,
-with their stage, and no verdict block, tally or findings — since the
-harness surfaces every turn-end as `status: completed`.
+**A turn you end while a `--mode wait` you started is running is not a
+hand-back**: its exit resumes you, so the turn carries no report and no
+`Return:` line. Only when you stop with stages unfinished and no such
+wait running do you hand back an in-progress status, and it reads as
+one — the theorems still out named by id, never counted, with their
+stage, and no verdict block, tally or findings — since the harness
+surfaces every turn-end as `status: completed`.
 
 ### When a call fails
 
