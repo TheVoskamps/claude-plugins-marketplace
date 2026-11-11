@@ -690,7 +690,8 @@ Try to disprove this one claim per your agent definition. Record your
 report to your result file first, then hand back the result-file path
 that call printed and, under it, DISPROVED with a verbatim-quoted
 counterexample, a consequence statement, and a proposed consequence
-class, or SURVIVED with what you checked. Nothing else.
+class, SURVIVED with what you checked, or UNSETTLED with what settling
+the claim needs that you cannot run and what you checked. Nothing else.
 ```
 
 Pass `--pr` and `--round` unchanged from the anchor call, or the

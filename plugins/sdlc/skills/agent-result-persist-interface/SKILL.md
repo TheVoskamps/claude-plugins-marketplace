@@ -597,6 +597,7 @@ classified on the template its sender's file gives under "Output" —
 | Verdict | Well formed when it carries |
 | --- | --- |
 | `SURVIVED` | a non-empty `CHECKED:` |
+| `UNSETTLED` | a non-empty `REASON:` and a non-empty `CHECKED:` |
 | `DISPROVED` | a non-empty `COUNTEREXAMPLE:`, an `EVIDENCE:` line followed by a `>` quote, a non-empty `CONSEQUENCE:`, and a `CONSEQUENCE-CLASS:` line |
 | `REFUTED` | a non-empty `REASON:` |
 | `STANDS` | a non-empty `CONSEQUENCE:`, and a `CONSEQUENCE-CLASS:` holding one of the four tokens |
@@ -678,10 +679,11 @@ does not check that a quote is verbatim; the verifier does.
   | `DISPROVED` | `STANDS` | `finding`, class from the verifier |
   | `DISPROVED` | malformed | `finding-verifier-malformed`, class from the disprover's proposal |
   | `DISPROVED` | no result file, with `--loop-exited` | `disproved-unverified` — no finding, no severity |
+  | `UNSETTLED` | not spawned | `unsettled-disprover-unsettled`, no severity |
   | malformed | not spawned | `unsettled-disprover-malformed`, no severity |
   | no result file, with `--loop-exited` | not spawned | `unsettled-no-verdict`, no severity |
 
-  "Could not be settled" and "unsettled" name the two `unsettled-` rows.
+  "Could not be settled" and "unsettled" name the `unsettled-` rows.
   `<class>` and `<severity>` are `-` on every row but a finding's. The
   state each row stamps:
 
@@ -690,7 +692,7 @@ does not check that a quote is verbatim; the verifier does.
   | the two `verified-` rows | `retired`, its `settled-at` this round's head SHA | `survived` or `disproved-but-refuted` |
   | the two `finding` rows | `disproved` | `finding <n>, <severity>`, with `, class-underivable` after it on such a finding |
   | `disproved-unverified` | `disproved` | `unverified` |
-  | the two `unsettled-` rows | `unsettled` | `-`, the field emptied |
+  | the `unsettled-` rows | `unsettled` | `-`, the field emptied |
 
   Findings are numbered from 1 by severity, highest first, then by id. A
   theorem that got no disprover this round has no row and keeps the
