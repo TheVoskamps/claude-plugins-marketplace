@@ -1,5 +1,20 @@
 # sdlc changelog
 
+## 0.78.0 — 2026-11-11
+
+A theorem disprover that cannot settle a claim from the tree and the
+commands it can run now reports it `UNSETTLED` rather than `SURVIVED`,
+so a survival resting on general knowledge no longer reaches the review
+as a checked claim.
+
+- The `UNSETTLED` report carries a `REASON` naming what settling the
+  claim needs — a live run, a remote event, a runtime — and a `CHECKED`
+  coverage record. Its theorem is disposed
+  `unsettled-disprover-unsettled`, which blocks the review and is
+  reported as a pipeline defect.
+- An `UNSETTLED` report missing either line is malformed, disposed
+  `unsettled-disprover-malformed` as before.
+
 ## 0.77.0 — 2026-11-08
 
 The theorem-based reviewer no longer writes off a child that is still

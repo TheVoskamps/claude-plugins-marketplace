@@ -165,6 +165,15 @@ refuted() { report "$CASE/r" "VERDICT: REFUTED" "THEOREM: $1" "REASON: the quote
 stands() { report "$CASE/r" "VERDICT: STANDS" "THEOREM: $1" "CONSEQUENCE: it ships broken" "CONSEQUENCE-CLASS: $2"; }
 stands_classless() { report "$CASE/r" "VERDICT: STANDS" "THEOREM: $1" "CONSEQUENCE: it ships broken"; }
 
+# unsettled <theorem> <line>...: writes to $CASE/r an UNSETTLED report
+# answering <theorem>, each further argument a line of it, so a case
+# chooses which of REASON and CHECKED it carries.
+unsettled() {
+  local theorem=$1
+  shift
+  report "$CASE/r" "VERDICT: UNSETTLED" "THEOREM: $theorem" "$@"
+}
+
 # leave <agent-id> <theorem> <stage> <agent>: a child's enter, then its
 # leave carrying the report last written.
 leave() {
@@ -479,6 +488,9 @@ add_seed T7 "overridden by a human" "#3"
 add_seed T8 "never verified" "#4"
 add_seed T9 "disprover malformed" "#4"
 add_seed T10 "never disproved" "#5"
+add_seed T11 "out of the disprover's reach" "#4"
+add_seed T12 "unsettled with no reason" "#4"
+add_seed T13 "unsettled with nothing checked" "#4"
 seed
 a_generated_list
 survived T1
@@ -507,6 +519,12 @@ disproved T8 breaks-production
 leave D8 T8 disprove theorem-disprover
 report "$CASE/r" "VERDICT: SURVIVED" "THEOREM: T9"
 leave D9 T9 disprove theorem-disprover
+unsettled T11 "REASON: it needs a live run" "CHECKED: read a.md"
+leave D11 T11 disprove theorem-disprover
+unsettled T12 "CHECKED: read a.md"
+leave D12 T12 disprove theorem-disprover
+unsettled T13 "REASON: it needs a live run" "CHECKED:"
+leave D13 T13 disprove theorem-disprover
 printf 'T7\tseverity-override\tLow\n' >"$CASE/edits"
 
 run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited
@@ -531,6 +549,9 @@ T7${TAB}finding${TAB}behavior-broken-or-criterion-unmet${TAB}Low${TAB}disproved$
 T8${TAB}disproved-unverified${TAB}-${TAB}-${TAB}disproved${TAB}unverified
 T9${TAB}unsettled-disprover-malformed${TAB}-${TAB}-${TAB}unsettled${TAB}-
 T10${TAB}unsettled-no-verdict${TAB}-${TAB}-${TAB}unsettled${TAB}-
+T11${TAB}unsettled-disprover-unsettled${TAB}-${TAB}-${TAB}unsettled${TAB}-
+T12${TAB}unsettled-disprover-malformed${TAB}-${TAB}-${TAB}unsettled${TAB}-
+T13${TAB}unsettled-disprover-malformed${TAB}-${TAB}-${TAB}unsettled${TAB}-
 verdict${TAB}1${TAB}APPROVED
 verdict${TAB}2${TAB}NEEDS_CHANGES
 verdict${TAB}3${TAB}APPROVED

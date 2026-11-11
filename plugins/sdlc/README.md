@@ -826,8 +826,10 @@ earliest child's deadline with a child yet to enter included, and at
 once with no child to wait on, and its refusal without
 `--deadline-minutes`; every row of
 `dispose`'s disposition table with the state it stamps, a
-`class-underivable` finding, a human override, an unsettled theorem
-forcing `BLOCKED`, a member of `--issues` no record tags, the refusal
+`class-underivable` finding, a human override, an `UNSETTLED` report
+missing its `REASON` or its `CHECKED` taking the malformed row, an
+unsettled theorem forcing `BLOCKED`, a member of `--issues` no record
+tags, the refusal
 without `--loop-exited`, and the round that spawned nothing; and the
 body `summary` renders, its carried-forward paths and its refusals. It
 reaches no network.
@@ -986,6 +988,25 @@ canonical instance is a quote taken from another ref, such as `main` or
 head commit; a filesystem quote from the primary clone is the rarer
 instance, because the permission gate denies a read naming a
 primary-clone path.
+
+## A claim the disprover cannot reach is unsettled, never survived
+
+A survival is a claim checked against the tree or a command's output.
+Some claims cannot be checked that way — settling them needs a live
+run, a remote event, or a runtime the disprover cannot exercise — and
+with only `DISPROVED` and `SURVIVED` to report under, a disprover that
+reached the edge of what it could run reported a survival on general
+knowledge of the runtime it never ran (issue #668). That survival
+reached the posted review with the weight of a checked one, and the
+theorem retired on it, so no later default round looked again.
+
+So the disprover has a verdict for that edge, `UNSETTLED`, and it is
+graded as a pipeline defect rather than as a result: the theorem is
+stamped `unsettled`, which blocks the review and keeps it on the live
+list for the next round, so the gap reaches a human instead of retiring
+as checked. The report carries both why the claim is out of reach and
+what was checked, so the human reading the block can tell a claim
+nobody can settle from one the disprover gave up on.
 
 ## One disprover per theorem is a starting point
 

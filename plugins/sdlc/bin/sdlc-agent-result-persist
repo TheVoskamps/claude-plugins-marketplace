@@ -1023,6 +1023,7 @@ derive_lib() {
     rok = 0
     if (stage == "disprove") {
       if (rv == "SURVIVED") rok = ("CHECKED" in content)
+      else if (rv == "UNSETTLED") rok = ("REASON" in content) && ("CHECKED" in content)
       else if (rv == "DISPROVED")
         rok = ("COUNTEREXAMPLE" in content) && quoted && ("CONSEQUENCE" in content) && ("CONSEQUENCE-CLASS" in has)
     } else {
@@ -1290,6 +1291,7 @@ readonly dispose_prog='
         read_report(result[t, "theorem-disprover"], "disprove")
         if (!rok) disp = "unsettled-disprover-malformed"
         else if (rv == "SURVIVED") disp = "verified-survived"
+        else if (rv == "UNSETTLED") disp = "unsettled-disprover-unsettled"
         else {
           dclass = rc
           if (!has_result("verify", t)) {
