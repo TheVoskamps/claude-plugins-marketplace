@@ -164,11 +164,14 @@ into a brief.
 2. **Read the review rounds out of state.** Each round wrote its
    argued review — verdicts, findings, counterexamples and all — to a
    file of its own, and the last round of each type to reach
-   disposition wrote that type's theorem records. Walk the rounds from
-   1 upward, taking each round's type from the `round-type` line its
-   `--mode print` ends with, then read each type's records:
+   disposition wrote that type's theorem records. Visit every round
+   `--mode rounds` prints, in the order it prints them, taking each
+   round's type from the `round-type` line its `--mode print` ends
+   with, then read each type's records:
 
    ```bash
+   sdlc-agent-result-persist --mode rounds --pr <PR>
+
    sdlc-agent-result-persist --mode print \
      --pr <PR> --round <n>
    sdlc-agent-result-persist --mode print-review \
@@ -178,11 +181,13 @@ into a brief.
      --pr <PR> --round-type <code-and-instruction-markdown|documentation>
    ```
 
-   **The walk ends at the first round whose `--mode print` fails**: no
-   log means no such round ever ran, and every round the loop did run is
-   numbered below it. A round whose log exists but whose
-   `--mode print-review` fails contributes no review either way, and it
-   is worth naming rather than skipping in silence. Do not call it a
+   A round number `--mode rounds` skips is no round to report, wherever
+   it falls: the numbers need not start at 1 or run unbroken. A
+   `--mode print` failure on a round it printed is a failure — stop and
+   report the command and its output verbatim. A round whose log exists
+   but whose `--mode print-review` fails contributes no review either
+   way, and it is worth naming rather than skipping in silence. Do not
+   call it a
    round that did not finish unless you can tell that it did not: a
    round that ran under the older design, which kept its argued review
    in the body it posted, leaves exactly the same gap on disk as one

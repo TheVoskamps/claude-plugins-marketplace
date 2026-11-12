@@ -6,10 +6,12 @@
 # `--- comment <createdAt> ---` line.
 # What a comment asks for is the reader's to decide. Read-only.
 #
-# The cut instant is the newest review's submittedAt; with no review,
-# the newest instant on any line `sdlc-agent-result-persist --mode print`
-# prints for the round below, when that is round 1 or later; and with no
-# review and no such instant, the PR's createdAt.
+# The cut instant is the newest pipeline review's submittedAt; with no
+# pipeline review, the newest instant on any line
+# `sdlc-agent-result-persist --mode print` prints for the round below,
+# when that is round 1 or later; and with no pipeline review and no such
+# instant, the PR's createdAt. Any other review, such as a code-scanning
+# or a human one, never sets the cut.
 #
 # The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
 set -euo pipefail
@@ -44,7 +46,7 @@ sp_parse_pr "$ref"
 
 json=$(sp_pr_view reviews,comments,createdAt) || exit $?
 
-cut=$(jq -r '[.reviews[] | .submittedAt // empty] | max // empty' <<<"$json")
+cut=$(jq -r "$(sp_jq_prelude)"'[.reviews[] | select(pipeline_review) | .submittedAt // empty] | max // empty' <<<"$json")
 if [ -z "$cut" ]; then
   # Round 0 is the seed, settled before the PR was reviewed, so round 1
   # cuts at the PR's createdAt and never reads it: its log holds only the

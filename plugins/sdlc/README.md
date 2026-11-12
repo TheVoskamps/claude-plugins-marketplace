@@ -43,7 +43,7 @@ restate the fact.
 | Which file class a path falls in — code, instruction Markdown, or documentation | the global Claude configuration, outside this repository; no file in this plugin restates it |
 | Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
-| What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with | `skills/pr-read-cli-interface/SKILL.md` |
+| What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with, and which of a PR's reviews are pipeline reviews | `skills/pr-read-cli-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
 | What the cleanup removes in each scope and in what order, what it keeps, the lines it prints and what it exits with | `bin/sdlc-orchestrate-cleanup` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
@@ -578,10 +578,11 @@ reference, and none exists yet — until the developer's PR is open and
 linked, when the ruled list is written as round 0's records file and
 the tier the seed generator was spawned at as the generate-stage
 `spawn` record in round 0's log. Round 0 holds that file and that log
-line, and no anchor, result file or review, so a walk that starts at
-round 1 never sees it, and a PR with no round 0 — one reviewed outside the
-orchestrate loop, or one whose seed was lost with the session that
-took it — is reviewed from its whole diff, with the review saying so.
+line, and no anchor, result file or review, and `--mode rounds` leaves
+it out, so a walk over a PR's rounds never sees it, and a PR with no
+round 0 — one reviewed outside the orchestrate loop, or one whose seed
+was lost with the session that took it — is reviewed from its whole
+diff, with the review saying so.
 The seed is the code loop's: a documentation round carries only
 records of its own type, so the first one reads no seed and generates
 from the whole PR the same way, with the review saying so, and a batch
@@ -803,11 +804,17 @@ line `print` ends with, a first documentation round carrying nothing
 while its ids continue the code rounds', a code round carrying past a
 documentation round, the carry's cross-type id floor, and
 `print-records`' selection by type. It drives the detail poster
-posting each type's records and the time report's type column against
-the same root. The same suite
+posting each type's records, and every round with a log where the logs
+start above round 1 or skip a number, and the time report's type column
+against the same root. The same suite
 drives the PR-read scripts against a stub `gh` that serves a PR's
-reviews and comments — each script's output and exits, every case of
-the adjustment cut, and that the adjustments read reaches the previous
+reviews and comments — each script's output and exits; the round
+number over stamped, unstamped, code-scanning and human reviews beside
+round logs that start above 1, skip a number, hold a round begun and
+not posted or a round with a log and no review file, or are absent, and
+its exit on a failed state read; every case of
+the adjustment cut, a code-scanning or human review that must not set
+it among them; and that the adjustments read reaches the previous
 round's log through the persist script and nothing else — and checks
 that a command any executable under `bin/` does not handle exits
 through that executable's own failure status. It needs only bash,
@@ -830,9 +837,11 @@ once with no child to wait on, and its refusal without
 missing its `REASON` or its `CHECKED` taking the malformed row, an
 unsettled theorem forcing `BLOCKED`, a member of `--issues` no record
 tags, the refusal
-without `--loop-exited`, and the round that spawned nothing; and the
-body `summary` renders, its carried-forward paths and its refusals. It
-reaches no network.
+without `--loop-exited`, and the round that spawned nothing; the
+body `summary` renders, the stamp it opens with, its carried-forward
+paths and its refusals; and `rounds` over a PR with no state and over
+rounds with and without a log, round 0 and a voided round among them,
+and its refusal of `--round`. It reaches no network.
 
 ## The round is derived from the log, never from memory
 
@@ -1205,8 +1214,8 @@ enabled. A PR that adds or removes an executable edits this roster.
 | ------- | --------- | --------------- |
 | `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state, and derives from it the arm a round is in, each theorem's disposition and severity, the verdicts and the posted review body; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
-| `bin/sdlc-pr-round` | Prints the number of the review round under way: the PR's review count plus one | `skills/pr-read-cli-interface/SKILL.md` |
-| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-round` | Prints the number of the review round under way, from the PR's pipeline reviews and its rounds' state: the round after the newest posted pipeline review, or a round above that one already begun | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest pipeline review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
@@ -1291,13 +1300,18 @@ network.
 The PR-read scripts and the detail poster share one sourced helper,
 `bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
 canonical PR reference they take, makes the one `gh pr view` read the
-PR-read scripts share, and spells the two comment markers sdlc writes —
-the fixer brief's first line, and the review-detail chunk's in both the
-regex that filters on it and the printf form that writes it — as the
-only place under `bin/` that does, so every script that filters on or
-writes a marker reads it from there. The detail chunk's marker is
-written nowhere else; the brief's is spelled once more, by whatever
-writes a brief. The PR-read scripts
+PR-read scripts share, and defines the fixer brief's first-line marker
+as a literal, and the review-detail chunk's marker and the review-round
+stamp each as both a regex that matches it and a function that prints
+it.
+It also holds the one test of whether a review is a pipeline review,
+so the round number and the adjustments cut cannot disagree about
+which reviews count. `sdlc-agent-result-persist` sources
+the helper for the stamp alone, keeping its own failure exits, and
+finds it beside the path it was run by, so it runs from `bin/` or
+through a wrapper that execs it there, never through a symlink placed
+in another directory.
+The PR-read scripts
 read and cut and decide nothing: whether an adjustment is a rejection,
 an override, a scope drop or a missed defect, and what a brief asks,
 stay the reading agent's judgment. They exist as scripts because each
@@ -1308,6 +1322,25 @@ failure wording. `sdlc-pr-adjustments` reaches the previous round's log
 only through `sdlc-agent-result-persist --mode print`, the same rule
 the time report follows, so where that state lives stays one
 executable's concern.
+
+A round's number comes from the PR's pipeline reviews and its rounds'
+state, never from its review count. GitHub lists every review alike, so
+counting them let a code-scanning review ahead of the first round
+number that round 2, and a human review between two rounds leave a
+number unused; the newest review of any kind likewise set the
+adjustments cut, past comments no round had read. The stamp settles
+which round a review posted without any local state, which is what
+lets a machine holding none of
+the PR's state still number the next round. A review posted before the
+stamp existed is told by its `## Verdicts` and `## Review method`
+headings instead, and its round by the review files the state holds;
+where the state holds fewer of those than the PR has pipeline reviews,
+the count of pipeline reviews is all there is to number from. Numbers
+a PR already skipped stay skipped, so nothing that visits a PR's
+rounds counts up from 1: the detail poster and `pr-finalizer` visit the
+rounds
+`sdlc-agent-result-persist --mode rounds` lists, where stopping at the
+first number with no log used to drop every round above it.
 
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,

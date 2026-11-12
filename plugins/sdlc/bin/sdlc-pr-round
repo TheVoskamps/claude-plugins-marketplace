@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 #
 # sdlc-pr-round -- print the number of the review round under way on a
-# PR: its review count plus one. Read-only.
+# PR, from its pipeline reviews and its rounds' state. Read-only.
+#
+# `base` is the round of the newest posted pipeline review: the highest
+# stamped round when any review is stamped; otherwise the Pth round
+# holding a review file, P being the number of pipeline reviews, or 0
+# when P is 0. With no stamp and fewer than P rounds holding a review
+# file, as on a machine without this PR's state, it prints P + 1.
+# Otherwise it prints the lowest round with a log above `base`, or
+# `base + 1` when there is none.
 #
 # The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
 set -euo pipefail
@@ -16,5 +24,49 @@ usage() {
 sp_parse_pr "$1"
 
 json=$(sp_pr_view reviews) || exit $?
-count=$(jq '.reviews | length' <<<"$json")
-printf '%s\n' "$((count + 1))"
+stamped=$(jq -r "$(sp_jq_prelude)"'[.reviews[] | review_round // empty] | max // empty' <<<"$json")
+pipeline=$(jq "$(sp_jq_prelude)"'[.reviews[] | select(pipeline_review)] | length' <<<"$json")
+
+rounds=$(sdlc-agent-result-persist --mode rounds --pr "$SP_REF" || exit) ||
+  sp_fail 1 "sdlc-agent-result-persist --mode rounds failed"
+
+# has_review <round>: whether the round holds a review file. A failure
+# other than the file's absence is the script's. The absence is told by a
+# fragment of the error sdlc-agent-result-persist dies with when the file
+# is absent, so it changes with that script's wording.
+has_review() {
+  local rc=0 err
+  err=$(sdlc-agent-result-persist --mode print-review --pr "$SP_REF" --round "$1" 2>&1 >/dev/null || exit) || rc=$?
+  [ "$rc" -ne 0 ] || return 0
+  case "$err" in
+    *"no round review at "*) return 1 ;;
+  esac
+  printf '%s\n' "$err" >&2
+  sp_fail 1 "sdlc-agent-result-persist --mode print-review --round $1 failed (exit $rc)"
+}
+
+if [ -n "$stamped" ]; then
+  base=$stamped
+else
+  base=0
+  held=0
+  for round in $rounds; do
+    [ "$held" -lt "$pipeline" ] || break
+    if has_review "$round"; then
+      held=$((held + 1))
+      base=$round
+    fi
+  done
+  if [ "$held" -lt "$pipeline" ]; then
+    printf '%s\n' "$((pipeline + 1))"
+    exit 0
+  fi
+fi
+
+for round in $rounds; do
+  if [ "$round" -gt "$base" ]; then
+    printf '%s\n' "$round"
+    exit 0
+  fi
+done
+printf '%s\n' "$((base + 1))"

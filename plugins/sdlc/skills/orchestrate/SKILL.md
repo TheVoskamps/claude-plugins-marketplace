@@ -705,10 +705,10 @@ sdlc-agent-result-persist --mode print \
   --pr <PR_REF> --round <R>
 ```
 
-A `print` that succeeds means a round above the PR's reviews has begun
-and not posted, so this round is `R` and the PR carries no review of
-it; one that fails saying there is no round log means this round is
-`R-1`.
+A `print` that succeeds means a round above the PR's pipeline reviews
+has begun and not posted, so this round is `R` and the PR carries no
+review of it; one that fails saying there is no round log means this
+round is `R-1`.
 
 Pass no `--generator-effort`, no effort, and no model. The reviewer
 picks the generator's tier itself from the round's delta;
@@ -744,16 +744,17 @@ sdlc-agent-result-persist --mode print-review \
   --pr <PR_REF> --round <N>
 ```
 
-The round that has just posted is numbered by the PR's current review
-count. A finding whose child report you need — the disprover's or the
-verifier's own words — is reached the same way: the summary's line for
-it names the file, and `--mode print --round <N>` lists every result
-file that round holds.
+The round that has just posted is the one below what `sdlc-pr-round`
+prints now. A finding whose child report you need — the disprover's or
+the verifier's own words — is reached the same way: the summary's line
+for it names the file, and `--mode print --round <N>` lists every
+result file that round holds.
 
-**Consult the posted review for its existence, read as the review
-count, and for its verdict block, which the reviewer cannot revise
-once posted.** Everything else about a round comes out of the review
-file; the detail reaches the PR once, when `pr-finalizer` posts it.
+**Consult the posted review for its existence, read as a posted
+pipeline review of that round, and for its verdict block, which the
+reviewer cannot revise once posted.** Everything else about a round
+comes out of the review file; the detail reaches the PR once, when
+`pr-finalizer` posts it.
 
 ### Overriding the generator tier
 
@@ -800,7 +801,8 @@ says.** The harness surfaces every return as `status: completed`, so
 that line is what tells a finished round from an unfinished one.
 Before acting on a posted review, and on an in-progress line too,
 confirm what the PR carries by re-deriving the round's number per "Run
-the review pipeline": a round log numbered above the review count means
+the review pipeline": a round log numbered above the PR's pipeline
+reviews means
 that for this line the PR carries no review, and any review the PR
 shows is a previous round's; none above it means the PR carries this
 round's review.

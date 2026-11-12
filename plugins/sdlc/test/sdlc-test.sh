@@ -22,9 +22,10 @@
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
-# stub gh serving a PR's reviews and comments, and
-# sdlc-pr-post-theorem-records against a stub sdlc-records-chain and a
-# stub pr-comment.
+# stub gh serving a PR's reviews and comments -- stamped, legacy,
+# code-scanning and human reviews among them, beside round logs that
+# start above 1 or skip a number -- and sdlc-pr-post-theorem-records
+# against a stub sdlc-records-chain and a stub pr-comment.
 #
 # Needs bash, jq and the POSIX utilities. Reaches no network.
 #
@@ -80,6 +81,14 @@ persist() {
 
 round_records() {
   cat "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$1/records" 2>/dev/null
+}
+
+# link_persist <dir>: puts into <dir> an sdlc-agent-result-persist that
+# runs the real one, for a script that calls it off PATH. A symlink would
+# not do: the script sources its lib from beside the path it was run by.
+link_persist() {
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$PERSIST" >"$1/sdlc-agent-result-persist"
+  chmod +x "$1/sdlc-agent-result-persist"
 }
 
 SEED='T1
@@ -936,7 +945,7 @@ for given in 7 '#7' 'https://h.example/o/r/pull/7'; do
   printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
   printf '#!/bin/sh\necho "pr-view $*" >>"%s/calls"\necho "h.example/o/r#7"\n' "$CASE" >"$CASE/bin/pr-view"
   printf '#!/bin/sh\necho "gh $*" >>"%s/calls"\nexit 1\n' "$CASE" >"$CASE/bin/gh"
-  ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+  link_persist "$CASE/bin"
   chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
   OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" "$given" 2>"$CASE/err" </dev/null)
   check "$?" "0" "analysis $given: exit 0"
@@ -971,7 +980,7 @@ case "\$*" in
   *) exit 1 ;;
 esac
 STUB
-ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+link_persist "$CASE/bin"
 chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
 OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
 check "$?" "0" "analysis: a timeline with a fixer brief exits 0"
@@ -994,7 +1003,7 @@ printf 'anchor 2026-01-02T00:00:00Z def documentation\nspawn list generate 2026-
   >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/log"
 printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
 printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
-ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+link_persist "$CASE/bin"
 chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
 OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
 check "$?" "0" "analysis: rounds of both types exit 0"
@@ -1012,7 +1021,7 @@ printf 'anchor 2026-01-02T00:00:00Z abc code-and-instruction-markdown\nspawn lis
   >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
 printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
 printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
-ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+link_persist "$CASE/bin"
 chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
 OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
 check "$?" "0" "analysis: generator tiers exit 0"
@@ -1043,7 +1052,7 @@ mkdir -p "$CASE/bin"
 printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
 printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
 printf '#!/bin/sh\nexit 9\n' >"$CASE/bin/sort"
-ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+link_persist "$CASE/bin"
 chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh" "$CASE/bin/sort"
 PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "analysis: a failing sort exits 2, not sort's 9"
@@ -1088,14 +1097,122 @@ for script in sdlc-pr-round sdlc-pr-adjustments sdlc-fixer-brief sdlc-records-ch
   check "$([ -x "$TEST_DIR/../bin/$script" ] && echo yes)" "yes" "$script is executable"
 done
 
-pr_case round-two '{"reviews": [{"submittedAt": "2026-01-01T00:00:00Z"}, {"submittedAt": "2026-01-02T00:00:00Z"}]}'
-pr_read sdlc-pr-round 'h.example/o/r#7'
-check "$RC:$OUT" "0:3" "pr-round: two reviews make round 3"
-check "$CALLS" "gh pr view 7 --repo h.example/o/r --json reviews" "pr-round: reads the reviews of the reference's PR"
+# The reviews a PR can carry. A stamped one has a verdict line above its
+# stamp, as pr-review-submit posts it; a legacy one is a pipeline review
+# from before the stamp; the code-scanning and human ones are neither.
+# Each takes the day of the month it was submitted on, and a stamped one
+# the round its stamp names.
+stamped_review() {
+  printf '{"submittedAt": "2026-01-%02dT00:00:00Z", "body": "APPROVED\\n\\n<!-- sdlc:review-round %s -->\\n\\n## Verdicts\\n\\n## Review method"}' "$1" "$2"
+}
+legacy_review() {
+  printf '{"submittedAt": "2026-01-%02dT00:00:00Z", "body": "APPROVED\\n\\n## Verdicts\\n\\n- APPROVED\\n\\n## Review method\\n\\nHead abc."}' "$1"
+}
+scanning_review() {
+  printf '{"submittedAt": "2026-01-%02dT00:00:00Z", "author": {"login": "github-advanced-security"}, "body": ""}' "$1"
+}
+human_review() {
+  printf '{"submittedAt": "2026-01-%02dT00:00:00Z", "body": "## Verdicts are mine to give\\nLooks good."}' "$1"
+}
+
+# logs <round>...: gives each round a log. posted <round>...: gives each
+# round a log and a review file.
+logs() {
+  local n
+  for n in "$@"; do
+    mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$n"
+    printf 'anchor 2026-01-01T00:00:00Z abc code-and-instruction-markdown\n' \
+      >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$n/log"
+  done
+}
+posted() {
+  local n
+  logs "$@"
+  for n in "$@"; do
+    printf '## Verdicts\n' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round$n/review"
+  done
+}
+
+# reviews <review>...: prints a PR's JSON carrying those reviews.
+reviews() {
+  local IFS=,
+  printf '{"reviews": [%s]}' "$*"
+}
 
 pr_case round-none '{"reviews": []}'
 pr_read sdlc-pr-round 'h.example/o/r#7'
 check "$RC:$OUT" "0:1" "pr-round: no review makes round 1"
+check "$CALLS" "gh pr view 7 --repo h.example/o/r --json reviews
+persist --mode rounds --pr h.example/o/r#7" "pr-round: reads the reviews of the reference's PR, then its rounds"
+
+pr_case round-scanning "$(reviews "$(scanning_review 1)")"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:1" "pr-round: no logs and a code-scanning review make round 1"
+
+pr_case round-one-to-three "$(reviews "$(stamped_review 1 1)" "$(stamped_review 2 2)" "$(stamped_review 3 3)")"
+posted 1 2 3
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:4" "pr-round: logs 1 to 3 all posted make round 4"
+
+given=("$(scanning_review 1)")
+for n in 2 3 4 5 6 7 8 9 10; do
+  given+=("$(stamped_review "$n" "$n")")
+done
+pr_case round-two-to-ten "$(reviews "${given[@]}")"
+posted 2 3 4 5 6 7 8 9 10
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:11" "pr-round: logs 2 to 10 all posted, a code-scanning review first, make round 11"
+logs 11
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:11" "pr-round: logs 2 to 10 posted and 11 begun make round 11"
+
+pr_case round-gap "$(reviews "$(stamped_review 1 1)" "$(stamped_review 2 2)" "$(human_review 3)" \
+  "$(stamped_review 4 4)" "$(stamped_review 5 5)")"
+posted 1 2 4 5
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:6" "pr-round: logs 1, 2, 4 and 5 all posted make round 6"
+
+pr_case round-gap-begun "$(reviews "$(stamped_review 1 1)" "$(stamped_review 2 2)")"
+posted 1 2
+logs 4
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:4" "pr-round: logs 1 and 2 posted and 4 begun make round 4"
+
+given=()
+for n in 1 2 3 4 5 6 7 8 9; do
+  given+=("$(legacy_review "$n")")
+done
+pr_case round-placeholder "$(reviews "${given[@]}")"
+logs 1
+posted 2 3 4 5 6 7 8 9 10
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:11" "pr-round: unstamped, a placeholder round 1 with 2 to 10 posted makes round 11"
+
+pr_case round-stamped-no-state "$(reviews "$(stamped_review 1 2)" "$(stamped_review 2 3)")"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:4" "pr-round: stamped reviews with no local state number from the highest stamp"
+
+pr_case round-legacy-no-state "$(reviews "$(legacy_review 1)" "$(legacy_review 2)")"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:3" "pr-round: unstamped, fewer rounds holding a review than pipeline reviews make P + 1"
+
+pr_case round-human "$(reviews "$(legacy_review 1)" "$(human_review 2)" "$(legacy_review 3)")"
+posted 1 2
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "0:3" "pr-round: a human review with neither stamp nor headings does not shift the number"
+
+pr_case round-state-fails "$(reviews "$(legacy_review 1)")"
+posted 1
+printf '#!/bin/sh\necho "stub persist: refused" >&2\nexit 2\n' >"$CASE/bin/sdlc-agent-result-persist"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "1:" "pr-round: a failed rounds read exits 1"
+check_contains "$ERR" "stub persist: refused" "pr-round: the state read's own error passes through"
+printf '#!/bin/sh\ncase "$*" in *print-review*) echo "stub persist: refused" >&2; exit 2 ;; esac\nexec "%s" "$@"\n' \
+  "$PERSIST" >"$CASE/bin/sdlc-agent-result-persist"
+pr_read sdlc-pr-round 'h.example/o/r#7'
+check "$RC:$OUT" "1:" "pr-round: a failed review read exits 1"
+check_contains "$ERR" "sdlc-pr-round: sdlc-agent-result-persist --mode print-review --round 1 failed (exit 2)" \
+  "pr-round: the script's line names the review read"
 
 pr_case round-refs '{"reviews": []}'
 for bad in 7 '#7' 'o/r#7' 'https://h.example/o/r/pull/7' 'h.example/o/r/x#7' 'h.example/o/..#7' 'h.example/o/r#'; do
@@ -1187,12 +1304,19 @@ ADJUSTMENT="--- comment 2026-01-05T00:00:00Z ---
 Review adjustments for round 1:
 - T2 rejected"
 
-pr_case adjust-review "$(adjust_json '[{"submittedAt": "2026-01-03T00:00:00Z"}, {"submittedAt": "2026-01-02T12:00:00Z"}]' 'before the review')"
+pr_case adjust-review "$(adjust_json '[{"submittedAt": "2026-01-03T00:00:00Z", "body": "<!-- sdlc:review-round 2 -->"},
+  {"submittedAt": "2026-01-02T12:00:00Z", "body": "<!-- sdlc:review-round 1 -->"}]' 'before the review')"
 pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 3
 check "$RC" "0" "pr-adjustments: exit 0"
-check "$OUT" "$ADJUSTMENT" "pr-adjustments: cuts at the newest review, and returns no marker comment"
+check "$OUT" "$ADJUSTMENT" "pr-adjustments: cuts at the newest pipeline review, and returns no marker comment"
 check "$CALLS" "gh pr view 7 --repo h.example/o/r --json reviews,comments,createdAt" \
-  "pr-adjustments: with a review, reads the PR alone"
+  "pr-adjustments: with a pipeline review, reads the PR alone"
+
+pr_case adjust-scanning "$(adjust_json "[$(legacy_review 1), $(scanning_review 3)]" 'before the code-scanning review')"
+pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 2
+check "$OUT" "--- comment 2026-01-02T00:00:00Z ---
+before the code-scanning review
+$ADJUSTMENT" "pr-adjustments: a code-scanning review after a comment leaves the comment in the adjustments"
 
 pr_case adjust-log "$(adjust_json '[]' 'before the log ends')"
 mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
@@ -1203,12 +1327,12 @@ check "$OUT" "$ADJUSTMENT" "pr-adjustments: with no review, cuts at the newest i
 check_contains "$CALLS" "persist --mode print --pr h.example/o/r#7 --round 1" \
   "pr-adjustments: reads that log through sdlc-agent-result-persist --mode print"
 
-pr_case adjust-seed "$(adjust_json '[]' 'after the PR opened')"
+pr_case adjust-seed "$(adjust_json "[$(scanning_review 3), $(human_review 3)]" 'after the PR opened')"
 pr_read sdlc-pr-adjustments --pr 'h.example/o/r#7' --round 1
-check "$RC" "0" "pr-adjustments: round 1 with no review exits 0"
+check "$RC" "0" "pr-adjustments: round 1 with no pipeline review exits 0"
 check "$OUT" "--- comment 2026-01-02T00:00:00Z ---
 after the PR opened
-$ADJUSTMENT" "pr-adjustments: with no review and no log below, cuts at the PR's createdAt"
+$ADJUSTMENT" "pr-adjustments: with no pipeline review and no log below, ignores the other reviews and cuts at the PR's createdAt"
 
 pr_case adjust-seed-log "$(adjust_json '[]' 'after the PR opened')"
 mkdir -p "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0"
@@ -1272,7 +1396,7 @@ cp "\$3" "$CASE/posted/\$n"
 echo "pr-comment \$1 \$2" >>"$CASE/calls"
 echo "https://h.example/o/r/pull/7#issuecomment-\$n"
 STUB
-  ln -s "$PERSIST" "$CASE/bin/sdlc-agent-result-persist"
+  link_persist "$CASE/bin"
   chmod +x "$CASE/bin/sdlc-records-chain" "$CASE/bin/pr-comment"
 }
 
@@ -1363,6 +1487,27 @@ check "$RC" "0" "post: a PR with rounds of both types exits 0"
 check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
 ## \`round1/records\`
 ## \`round2/records\`" "post: the latest records of each round type, code and instruction Markdown first"
+
+# A round number with no log, before the first round or between two,
+# ends nothing: every round with a log is posted.
+post_case post-from-round-two
+state_file round2/review 50
+state_file round3/review 50
+post 'h.example/o/r#7'
+check "$RC" "0" "post: logs starting at round 2 exit 0"
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+## \`round2/review\`
+## \`round3/review\`" "post: every round with a log, when logs start at round 2"
+
+post_case post-middle-gap
+state_file round1/review 50
+state_file round2/review 50
+state_file round4/review 50
+post 'h.example/o/r#7'
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+## \`round1/review\`
+## \`round2/review\`
+## \`round4/review\`" "post: every round with a log, when a middle round has none"
 
 # Pieces of 25,000, 40,000 (T1's two reports) and 30,000 bytes: no two
 # adjacent pieces fit one chunk.

@@ -1,5 +1,34 @@
 # sdlc changelog
 
+## 0.79.0 — 2026-11-12
+
+A review the pipeline did not post — a code-scanning review, a human
+review — no longer shifts a PR's round numbers or moves the adjustments
+cut, and a round number with no log no longer hides the rounds above it.
+
+- The review body `sdlc-agent-result-persist --mode summary` renders
+  opens with a stamp, `<!-- sdlc:review-round <n> -->`, naming its
+  round. A review carrying the stamp on any line is a pipeline review;
+  so is an unstamped one with both a `## Verdicts` and a
+  `## Review method` line, as reviews posted before this version are.
+  No other review is one.
+- `sdlc-pr-round` numbers the round under way from the PR's pipeline
+  reviews and its rounds' state rather than from its review count: the
+  round after the highest stamped one, or, with no stamp, after the
+  round holding the newest posted review's file. A round above that
+  already begun and not yet posted keeps its number. A failed state
+  read exits 1.
+- `sdlc-agent-result-persist --mode rounds` lists each round from 1
+  that has a log, ascending, leaving out the seed round and voided
+  rounds.
+- The review detail `pr-finalizer` posts, and the rounds its final
+  section reports, cover every round that mode lists. Both used to
+  count up from round 1 and stop at the first number with no log, which
+  dropped every round on a PR whose first round was numbered 2.
+- `sdlc-pr-adjustments` cuts at the newest pipeline review, so a comment
+  posted before a code-scanning or human review still reaches the next
+  round as an adjustment.
+
 ## 0.78.0 — 2026-11-11
 
 A theorem disprover that cannot settle a claim from the tree and the

@@ -1,12 +1,15 @@
 # shellcheck shell=bash
 #
 # sdlc-pr-common.sh -- sourced by the sdlc scripts that read a PR's
-# reviews and comments, and by sdlc-pr-post-theorem-records, which posts
-# the review detail. It spells the two comment markers sdlc writes,
-# parses the canonical PR reference those scripts take, makes the one
-# `gh` read they share, and holds the failure exits, so a marker, a
-# reference and an exit status mean the same thing in every one of them.
-# Runs under the bash 3.2 macOS ships.
+# reviews and comments, by sdlc-pr-post-theorem-records, which posts the
+# review detail, and by sdlc-agent-result-persist, which writes the
+# review-round marker. It spells the markers sdlc writes, parses the
+# canonical PR reference those scripts take, makes the one `gh` read
+# they share, and holds the failure exits, so a marker, a reference and
+# an exit status mean the same thing in every one of them.
+# sdlc-agent-result-persist takes only the marker: its own ERR trap
+# replaces this file's, and its exits are its own. Runs under the bash
+# 3.2 macOS ships.
 #
 # Exit statuses, shared by the scripts that report through it:
 #   0  the script did what it says
@@ -31,6 +34,18 @@ SP_RECORDS_MARKER_RE='^<!-- sdlc:theorem-records (?<i>[0-9]+)/(?<n>[0-9]+) -->$'
 # <N>, without a newline, for the script that writes it.
 sp_records_marker() {
   printf '<!-- sdlc:theorem-records %s/%s -->' "$1" "$2"
+}
+
+# A line of the body sdlc-agent-result-persist --mode summary renders for
+# a pipeline review, <!-- sdlc:review-round <n> -->, naming the round the
+# review posts, as a jq regex capturing the round as `n`. It need not be
+# the body's first line: pr-review-submit puts a verdict line above it.
+SP_REVIEW_ROUND_MARKER_RE='^<!-- sdlc:review-round (?<n>[0-9]+) -->$'
+
+# sp_review_round_marker <n> -- print the same marker for round <n>,
+# without a newline, for the script that writes it.
+sp_review_round_marker() {
+  printf '<!-- sdlc:review-round %s -->' "$1"
 }
 
 # sp_fail <status> <message> -- print <message>, prefixed with the
@@ -111,17 +126,29 @@ sp_pr_view() {
   [ "$rc" -eq 0 ] || sp_fail 1 "gh pr view of $SP_REF failed (exit $rc)"
 }
 
-# sp_jq_prelude -- print the text a jq filter over PR comments starts
-# with: it defines `first_line`, a comment body's first line without the
-# trailing carriage return a body posted from GitHub's web form carries,
-# and binds the two markers above as $brief and $records. Call it as
+# sp_jq_prelude -- print the text a jq filter over PR comments or reviews
+# starts with. It defines `first_line`, a comment body's first line
+# without the trailing carriage return a body posted from GitHub's web
+# form carries, and `body_lines`, a body's lines each without it, and
+# binds the markers above as $brief, $records and $review_round. Over a
+# review it defines `review_round`, the highest round the
+# review's stamp lines name, or null when it carries none, and
+# `pipeline_review`, whether the review is one a review round posted: a
+# stamped one, or, from before the stamp existed, one whose body has both
+# a `## Verdicts` line and a `## Review method` line. Call it as
 # `jq "$(sp_jq_prelude)"'<filter>'`.
 sp_jq_prelude() {
   printf '%s' 'def first_line: (split("\n") | .[0] // "") | rtrimstr("\r"); '
+  printf '%s' 'def body_lines: (.body // "") | split("\n") | map(rtrimstr("\r")); '
   sp_jq_string "$SP_FIXER_BRIEF_MARKER"
   printf '%s' " as \$brief | "
   sp_jq_string "$SP_RECORDS_MARKER_RE"
   printf '%s' " as \$records | "
+  sp_jq_string "$SP_REVIEW_ROUND_MARKER_RE"
+  printf '%s' " as \$review_round | "
+  printf '%s' "def review_round: [body_lines[] | capture(\$review_round).n | tonumber] | max; "
+  printf '%s' 'def pipeline_review: review_round != null'
+  printf '%s' ' or (body_lines | index(["## Verdicts"]) != null and index(["## Review method"]) != null); '
 }
 
 # sp_jq_string <text> -- print <text> as a jq string literal.

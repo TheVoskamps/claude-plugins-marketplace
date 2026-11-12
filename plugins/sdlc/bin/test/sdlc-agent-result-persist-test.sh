@@ -26,7 +26,10 @@
 #     the verdicts with an unsettled theorem forcing BLOCKED and a member
 #     of --issues no record tags, the refusal without --loop-exited, and
 #     the round that spawned nothing.
-#   - --mode summary over a stored records file and review file.
+#   - --mode summary over a stored records file and review file, and the
+#     review-round stamp it opens with.
+#   - --mode rounds over rounds with and without a log, round 0 and a
+#     voided round among them.
 #
 # Every fixture is built under mktemp -d with its own state root. The
 # first failing case ends the run.
@@ -650,6 +653,8 @@ must --mode review --round 1 --from "$CASE/review"
 run --mode summary --round 1
 assert_eq "summary: exits 0" "0" "$RC"
 cat >"$CASE/expected" <<'EOF'
+<!-- sdlc:review-round 1 -->
+
 ## Verdicts
 
 - #1 — NEEDS_CHANGES (1 High)
@@ -699,11 +704,35 @@ assert_contains "summary: a carried-forward retired theorem points at the older 
   "- T1 — retired, survived — unchanged — \`round1/T1-theorem-disprover\`" "$OUT"
 assert_contains "summary: a theorem settled this round says what it was" \
   "- T2 — retired, survived — was disproved, finding 1, High — \`round2/T2-theorem-disprover\`" "$OUT"
+assert_eq "summary: the stamp names the round it renders" "<!-- sdlc:review-round 2 -->" "${OUT%%$'\n'*}"
 
 sed '/^## Overall verdict/,/^Fix/d' "$CASE/review" >"$CASE/short-review"
 must --mode review --round 2 --from "$CASE/short-review"
 run --mode summary --round 2
 assert_eq "summary: a review missing a copied section is refused" "2" "$RC"
 assert_contains "summary: the refusal names the section" '"## Overall verdict"' "$ERR"
+
+# --- rounds ----------------------------------------------------------------
+
+new_case rounds-none
+run --mode rounds
+assert_eq "rounds: a PR with no state prints nothing and exits 0" "0:" "$RC:$OUT"
+assert_eq "rounds: creates nothing" "absent" "$([ -e "$PR_DIR" ] && echo made || echo absent)"
+
+new_case rounds
+for n in 0 2 3 5 10; do
+  mkdir -p "$PR_DIR/round$n"
+  printf 'anchor 2026-01-01T00:00:00Z abc code-and-instruction-markdown\n' >"$PR_DIR/round$n/log"
+done
+mkdir -p "$PR_DIR/round4" "$PR_DIR/round6.voided-20260101T000000Z"
+printf 'T1\n' >"$PR_DIR/round4/records"
+printf 'anchor 2026-01-01T00:00:00Z abc code-and-instruction-markdown\n' >"$PR_DIR/round6.voided-20260101T000000Z/log"
+run --mode rounds
+assert_eq "rounds: every round from 1 with a log, ascending, round 0 and voided rounds left out" "0:2
+3
+5
+10" "$RC:$OUT"
+run --mode rounds --round 2
+assert_eq "rounds: --round is refused" "2" "$RC"
 
 echo "$PASSED passed"
