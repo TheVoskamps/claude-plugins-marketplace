@@ -1300,16 +1300,13 @@ network.
 The PR-read scripts and the detail poster share one sourced helper,
 `bin/lib/sdlc-pr-common.sh`, which is not itself callable: it parses the
 canonical PR reference they take, makes the one `gh pr view` read the
-PR-read scripts share, and spells the markers sdlc writes — the fixer
-brief's first line, and the review-detail chunk's and the review-round
-stamp's, each in both the regex that filters on it and the printf form
-that writes it — so every script that filters on or writes a marker
-takes it from there.
+PR-read scripts share, and defines the fixer brief's first-line marker
+as a literal, and the review-detail chunk's marker and the review-round
+stamp each as both a regex that matches it and a function that prints
+it.
 It also holds the one test of whether a review is a pipeline review,
 so the round number and the adjustments cut cannot disagree about
-which reviews count. The detail chunk's marker and the stamp are
-written through those printf forms and by nothing else; the brief's is
-written by whatever writes a brief. `sdlc-agent-result-persist` sources
+which reviews count. `sdlc-agent-result-persist` sources
 the helper for the stamp alone, keeping its own failure exits, and
 finds it beside the path it was run by, so it runs from `bin/` or
 through a wrapper that execs it there, never through a symlink placed
