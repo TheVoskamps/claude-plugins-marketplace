@@ -14,7 +14,8 @@
 #   1. the final theorem records of each round type, code and
 #      instruction Markdown first, from --mode print-records
 #      --round-type, unless no round of that type holds any;
-#   2. per round, from round 1 up to the first round with no log: its
+#   2. per round, ascending, every round from 1 with a log, as
+#      sdlc-agent-result-persist --mode rounds lists them: its
 #      generator files, list-<agent>, in agent-name order; its review,
 #      when it stored one; then its children's result files grouped by
 #      theorem, in theorem-id order, a theorem's disprover report before
@@ -161,8 +162,13 @@ for round_type in code-and-instruction-markdown documentation; do
   fi
 done
 
-round=1
-while read_state 'no round log at ' --mode print --round "$round"; do
+# Every round --mode rounds lists, so a round number with no log, at the
+# start or between two rounds, ends nothing.
+rounds=$(persist --mode rounds || exit) ||
+  sp_fail 1 "sdlc-agent-result-persist --mode rounds failed"
+for round in $rounds; do
+  read_state 'no round log at ' --mode print --round "$round" ||
+    sp_fail 1 "round $round, which sdlc-agent-result-persist --mode rounds listed, has no round log"
   : >"$work/generators"
   : >"$work/children"
   while IFS=' ' read -r kind theorem agent path; do
@@ -211,8 +217,6 @@ while read_state 'no round log at ' --mode print --round "$round"; do
     fi
     add_file "$relative" "$path"
   done <"$work/sorted"
-
-  round=$((round + 1))
 done
 
 if [ "$pieces" -eq 0 ]; then

@@ -42,11 +42,34 @@ Every script shares these:
 
 ## The scripts
 
+`sdlc-pr-round` and `sdlc-pr-adjustments` read only a PR's **pipeline
+reviews**, the ones review rounds posted; a code-scanning review or a
+human review is never one. A review is a pipeline review when a line of
+its body, any line, is the stamp `<!-- sdlc:review-round <n> -->` that
+`sdlc-agent-result-persist --mode summary` writes, naming round `<n>`.
+A review with no stamp is a pipeline review only when its body has both
+a line exactly `## Verdicts` and a line exactly `## Review method`, as
+a review posted before the stamp existed does.
+
 ### `sdlc-pr-round <PR_REF>`
 
-Prints one line: the number of the PR's reviews plus one — the number
-of the review round under way, since a round's review lands only when
-the round posts. A PR with no review is round `1`. Never exits 3.
+Prints one line: the number of the review round under way, from the
+PR's pipeline reviews and its rounds' state. It first finds `base`, the
+round of the newest posted review:
+
+1. When any review is stamped, `base` is the highest stamped round.
+2. Otherwise, with `P` the number of pipeline reviews, `base` is the
+   `P`th round holding a review file, or `0` when `P` is `0`. A round
+   holding a review file is one `sdlc-agent-result-persist --mode
+   rounds` prints whose `--mode print-review` succeeds, so a round with
+   a log and no review file, such as a placeholder round 1, never
+   becomes `base`. When fewer than `P` rounds hold one, as on a machine
+   without this PR's state, the script prints `P + 1` and stops.
+
+It then prints the lowest round with a log above `base`, or `base + 1`
+when there is none, so a round begun and not yet posted keeps its
+number. A PR with no review and no state is round `1`. A failed state
+read exits 1. Never exits 3.
 
 ### `sdlc-pr-adjustments --pr <PR_REF> --round <n>`
 
@@ -62,14 +85,17 @@ oldest first, each preceded by a line of its own:
 its `createdAt` is later than the **cut instant**, which is the first of
 these that exists:
 
-1. the newest `submittedAt` among the PR's reviews;
-2. with no review, the newest instant on any line
+1. the newest `submittedAt` among the PR's pipeline reviews;
+2. with no pipeline review, the newest instant on any line
    `sdlc-agent-result-persist --mode print` prints for round `<n>-1`,
    when that is round 1 or later — the script reads that round's log
    through that call and through nothing else, and never reads round
    0's, which holds the seed generator's `spawn` record and no review;
-3. the PR's `createdAt`, when there is no review and that log is empty,
-   absent or round 0's.
+3. the PR's `createdAt`, when there is no pipeline review and that log
+   is empty, absent or round 0's.
+
+Any other review never sets the cut, so a comment posted before a
+code-scanning or human review still reaches the next round.
 
 A comment whose first line is a fixer-brief marker or a
 theorem-records chunk marker is never printed: each is sdlc's own

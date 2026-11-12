@@ -705,10 +705,10 @@ sdlc-agent-result-persist --mode print \
   --pr <PR_REF> --round <R>
 ```
 
-A `print` that succeeds means a round above the PR's reviews has begun
-and not posted, so this round is `R` and the PR carries no review of
-it; one that fails saying there is no round log means this round is
-`R-1`.
+A `print` that succeeds means a round above the PR's pipeline reviews
+has begun and not posted, so this round is `R` and the PR carries no
+review of it; one that fails saying there is no round log means this
+round is `R-1`.
 
 Pass no `--generator-effort`, no effort, and no model. The reviewer
 picks the generator's tier itself from the round's delta;
@@ -800,7 +800,8 @@ says.** The harness surfaces every return as `status: completed`, so
 that line is what tells a finished round from an unfinished one.
 Before acting on a posted review, and on an in-progress line too,
 confirm what the PR carries by re-deriving the round's number per "Run
-the review pipeline": a round log numbered above the review count means
+the review pipeline": a round log numbered above the PR's pipeline
+reviews means
 that for this line the PR carries no review, and any review the PR
 shows is a previous round's; none above it means the PR carries this
 round's review.

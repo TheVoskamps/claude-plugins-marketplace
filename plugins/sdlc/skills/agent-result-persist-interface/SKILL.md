@@ -108,8 +108,9 @@ then Write again.
 These two go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
 refuses it: `delete` removes the whole PR's directory, `print-root`
-names it, and `agent` and `print-agents` write and read the PR's agents
-log beside its rounds, so each refuses `--round`, `list` reads across
+names it, `agent` and `print-agents` write and read the PR's agents
+log beside its rounds, and `rounds` lists the rounds themselves, so each
+refuses `--round`, `list` reads across
 every PR of a repository, so it refuses `--pr` and `--round` alike and takes the
 repository instead, and
 `repos` reads across every repository, so it refuses both and takes no
@@ -253,7 +254,8 @@ wanted.
 One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
 round, `print-root` for the PR directory it names, `print-agents` for
-the agent ids it reads across the PR's logs, `list` and `delete`
+the agent ids it reads across the PR's logs, `rounds` for the rounds it
+lists, `list` and `delete`
 for what they do across a repo's PR directories, `repos` for what
 it lists across the state root, `wait` for what it does, and `next`,
 `dispose` and `summary`, under "The derivation modes", for what they
@@ -520,6 +522,13 @@ derive.
   `.voided-<instant>` rounds included, since a voided round's children
   left worktrees too. It takes **no `--round`** and refuses one, creates
   nothing, and prints nothing for a PR with no state.
+- **`rounds`** — writes to stdout one round number per line, ascending,
+  for each round from 1 whose log exists. Round 0, the seed, is not
+  printed, nor is a `.voided-<instant>` round. The numbers need not
+  start at 1 or run unbroken, so a caller visiting every round visits
+  what this prints rather than counting up from 1. It takes **no
+  `--round`** and refuses one, creates nothing, and prints nothing and
+  exits zero for a PR with no log.
 - **`list`** — writes to stdout one PR per line, as the
   `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
   order of `<n>`, one per `pr<n>/` directory under the repository's
@@ -731,9 +740,11 @@ does not check that a quote is verbatim; the verifier does.
   review lacks a section it copies. The body is an index into the round's state
   directory, never a copy of the argued review. In order:
 
-  1. the review's `## Verdicts` section, copied through unchanged;
-  2. its `## Review method` section, copied through unchanged;
-  3. `## Theorems`, naming the state root once as
+  1. the stamp `<!-- sdlc:review-round <n> -->`, `<n>` being
+     `--round`, which marks the posted review as this round's;
+  2. the review's `## Verdicts` section, copied through unchanged;
+  3. its `## Review method` section, copied through unchanged;
+  4. `## Theorems`, naming the state root once as
      `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<N>/`,
      then one line per recorded theorem in id order —
      `- <id> — <state>, <state-detail> — <what changed> — <paths>` —
@@ -741,10 +752,10 @@ does not check that a quote is verbatim; the verifier does.
      `unchanged` when its state, state-detail and `settled-at` are as
      they held them, and otherwise `was <state>, <state-detail>` as they
      held it, `unattacked` standing for no state;
-  4. `## Findings`, one line per finding in number order —
+  5. `## Findings`, one line per finding in number order —
      `- <n> — <severity> — from <id>, <issues> — <paths>` — or `none`;
-  5. its `## Overall verdict` section, copied through unchanged;
-  6. its `## Closing-line corrections` section, copied through
+  6. its `## Overall verdict` section, copied through unchanged;
+  7. its `## Closing-line corrections` section, copied through
      unchanged.
 
   A review section runs from its `## <name>` heading to the next
