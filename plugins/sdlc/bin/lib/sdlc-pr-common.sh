@@ -1,12 +1,15 @@
 # shellcheck shell=bash
 #
 # sdlc-pr-common.sh -- sourced by the sdlc scripts that read a PR's
-# reviews and comments, and by sdlc-pr-post-theorem-records, which posts
-# the review detail. It spells the two comment markers sdlc writes,
-# parses the canonical PR reference those scripts take, makes the one
-# `gh` read they share, and holds the failure exits, so a marker, a
-# reference and an exit status mean the same thing in every one of them.
-# Runs under the bash 3.2 macOS ships.
+# reviews and comments, by sdlc-pr-post-theorem-records, which posts the
+# review detail, and by sdlc-agent-result-persist, which writes the
+# review-round marker. It spells the markers sdlc writes, parses the
+# canonical PR reference those scripts take, makes the one `gh` read
+# they share, and holds the failure exits, so a marker, a reference and
+# an exit status mean the same thing in every one of them.
+# sdlc-agent-result-persist takes only the marker: its own ERR trap
+# replaces this file's, and its exits are its own. Runs under the bash
+# 3.2 macOS ships.
 #
 # Exit statuses, shared by the scripts that report through it:
 #   0  the script did what it says
@@ -126,8 +129,9 @@ sp_pr_view() {
 # sp_jq_prelude -- print the text a jq filter over PR comments or reviews
 # starts with. It defines `first_line`, a comment body's first line
 # without the trailing carriage return a body posted from GitHub's web
-# form carries, and binds the comment markers above as $brief and
-# $records. Over a review it defines `review_round`, the highest round the
+# form carries, and `body_lines`, a body's lines each without it, and
+# binds the markers above as $brief, $records and $review_round. Over a
+# review it defines `review_round`, the highest round the
 # review's stamp lines name, or null when it carries none, and
 # `pipeline_review`, whether the review is one a review round posted: a
 # stamped one, or, from before the stamp existed, one whose body has both
