@@ -31,7 +31,9 @@ rounds=$(sdlc-agent-result-persist --mode rounds --pr "$SP_REF" || exit) ||
   sp_fail 1 "sdlc-agent-result-persist --mode rounds failed"
 
 # has_review <round>: whether the round holds a review file. A failure
-# other than the file's absence is the script's.
+# other than the file's absence is the script's. The absence is told by a
+# fragment of the error sdlc-agent-result-persist dies with when the file
+# is absent, so it changes with that script's wording.
 has_review() {
   local rc=0 err
   err=$(sdlc-agent-result-persist --mode print-review --pr "$SP_REF" --round "$1" 2>&1 >/dev/null || exit) || rc=$?
