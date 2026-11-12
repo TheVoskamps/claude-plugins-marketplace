@@ -744,16 +744,17 @@ sdlc-agent-result-persist --mode print-review \
   --pr <PR_REF> --round <N>
 ```
 
-The round that has just posted is numbered by the PR's current review
-count. A finding whose child report you need — the disprover's or the
-verifier's own words — is reached the same way: the summary's line for
-it names the file, and `--mode print --round <N>` lists every result
-file that round holds.
+The round that has just posted is the one below what `sdlc-pr-round`
+prints now. A finding whose child report you need — the disprover's or
+the verifier's own words — is reached the same way: the summary's line
+for it names the file, and `--mode print --round <N>` lists every
+result file that round holds.
 
-**Consult the posted review for its existence, read as the review
-count, and for its verdict block, which the reviewer cannot revise
-once posted.** Everything else about a round comes out of the review
-file; the detail reaches the PR once, when `pr-finalizer` posts it.
+**Consult the posted review for its existence, read as a posted
+pipeline review of that round, and for its verdict block, which the
+reviewer cannot revise once posted.** Everything else about a round
+comes out of the review file; the detail reaches the PR once, when
+`pr-finalizer` posts it.
 
 ### Overriding the generator tier
 
