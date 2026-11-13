@@ -42,6 +42,7 @@ const NOT_A_BUDGET = `not a plain decimal integer of at least ${MIN_BUDGET}`;
 // mapping, or with its value on a later line.
 const BUDGET_MENTION = new RegExp(`(?:^|[\\s{,"'])${BUDGET_KEY}["']?\\s*:`);
 
+/** One tool call in a transcript message: `text` is the text of the call's result. */
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
 type Message = { role: "user" | "assistant"; text: string; toolUses?: readonly ToolUse[] };
 
