@@ -1392,8 +1392,8 @@ POST="$TEST_DIR/../bin/sdlc-pr-post-theorem-records"
 POST_PATH_TAIL=/usr/bin:/bin
 PR_DIR_REL=sdlc/h.example/o/r/pr7
 
-# post_case <name> [<chain line> <chain exit>]: a case whose PR carries
-# the chain sdlc-records-chain reports, by default none. Its pr-comment
+# post_case <name> [<chain lines> <chain exit>]: a case whose PR carries
+# the chains sdlc-records-chain reports, by default none. Its pr-comment
 # refuses the post numbered in the case's comment-fails-at file, when the
 # case writes one.
 post_case() {
