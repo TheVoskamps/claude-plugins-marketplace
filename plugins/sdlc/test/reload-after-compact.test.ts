@@ -23,6 +23,8 @@ type Disk = {
   env?: Record<string, string>;
   /** What `next(e)` resolves to; the summary alone by default. */
   compacted?: object;
+  /** Collects the text of every `$.ui.log` call. */
+  logs?: string[];
 };
 
 /**
@@ -34,6 +36,10 @@ function host(on, disk: Disk = {}): Record<string, string> {
   const read = disk.read ?? (() => undefined);
   const exists = disk.exists ?? ((path: string) => read(path) !== undefined);
   mock.env(on, { HOME, ...disk.env });
+  on("ui.log", ($, e) => {
+    disk.logs?.push(e.text);
+    return { value: undefined };
+  });
   on("session.root", () => ({ value: ROOT }));
   on("session.id", () => ({ value: SESSION }));
   on("fs.exists", ($, e) => ({ value: e.path in written || exists(e.path) }));
@@ -58,6 +64,13 @@ function stub(on, files: Record<string, string>, refused: Record<string, string>
     read: (path) => (path in refused ? { deny: refused[path] } : files[path]),
     env,
   });
+}
+
+/** `stub`, returning the text of every `$.ui.log` call the hook makes. */
+function logged(on, files: Record<string, string>, refused: Record<string, string> = {}): string[] {
+  const logs: string[] = [];
+  host(on, { read: (path) => (path in refused ? { deny: refused[path] } : files[path]), logs });
+  return logs;
 }
 
 function assistant(...toolUses) {
@@ -588,9 +601,9 @@ test("past the budget, the most recently used are appended and the rest listed",
   expect(text).toContain(`budget of ${MIN_BUDGET} tokens`);
 });
 
-test("the budget is 100000 tokens when no tier sets it", async ($, on) => {
+test("the budget is 100000 tokens when no tier exists", async ($, on) => {
   const [a, b, c] = ["a", "b", "c"].map((name) => `${ROOT}/docs/rules/${name}.md`);
-  stub(on, { [a]: "a".repeat(4), [b]: "b".repeat(200000), [c]: "c".repeat(200000) });
+  const logs = logged(on, { [a]: "a".repeat(4), [b]: "b".repeat(200000), [c]: "c".repeat(200000) });
   const text = reload(
     await $.session.compact({ trigger: "auto", messages: [read(a), read(b), read(c)] }),
   );
@@ -599,6 +612,7 @@ test("the budget is 100000 tokens when no tier sets it", async ($, on) => {
   expect(text).toContain(`- ${c} (appended below)`);
   expect(text).toContain(`- ${b} (appended below)`);
   expect(text).toContain(`- ${a} (not appended: read it before acting on it)`);
+  expect(logs).toEqual([]);
 });
 
 test("a higher tier's budget wins over a lower one's", async ($, on) => {
@@ -606,7 +620,7 @@ test("a higher tier's budget wins over a lower one's", async ($, on) => {
   stub(on, {
     [rule]: "rule",
     [`${HOME}/.config/sdlc/user-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: 70005\n`,
-    [`${ROOT}/.sdlc/user-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: 70007 # mine\n`,
+    [`${ROOT}/.sdlc/user-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: 70007\n`,
   });
   const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
   expect(text).toContain("budget of 70007 tokens");
@@ -624,51 +638,82 @@ test("XDG_CONFIG_HOME locates the global tier", async ($, on) => {
   expect(text).toContain("budget of 70009 tokens");
 });
 
-for (const [name, config] of [
-  ["zero", `schema-version: 1\n${BUDGET_KEY}: 0\n`],
-  ["a signed zero", `schema-version: 1\n${BUDGET_KEY}: +0\n`],
-  ["an integer just below the floor", `schema-version: 1\n${BUDGET_KEY}: ${MIN_BUDGET - 1}\n`],
-  ["a small integer", `schema-version: 1\n${BUDGET_KEY}: 50000\n`],
-  ["a signed integer", `schema-version: 1\n${BUDGET_KEY}: +70000\n`],
-  ["an integer with leading zeros", `schema-version: 1\n${BUDGET_KEY}: 0070000\n`],
-  ["a hex integer", `schema-version: 1\n${BUDGET_KEY}: 0x11170\n`],
-  ["an integer with underscores", `schema-version: 1\n${BUDGET_KEY}: 70_000\n`],
-  ["a quoted string", `schema-version: 1\n${BUDGET_KEY}: "70000"\n`],
-  ["a float", `schema-version: 1\n${BUDGET_KEY}: 70000.5\n`],
-  ["a flow mapping", `schema-version: 1\n{${BUDGET_KEY}: 70000}\n`],
-  ["a value on the next line", `schema-version: 1\n${BUDGET_KEY}:\n  70000\n`],
-  ["a quoted key", `schema-version: 1\n"${BUDGET_KEY}": 70000\n`],
-  ["a sequence entry's key", `schema-version: 1\nitems:\n  - ${BUDGET_KEY}: 70000\n`],
-  ["the key twice", `schema-version: 1\n${BUDGET_KEY}: 70000\n${BUDGET_KEY}: 80000\n`],
-  ["no schema-version", `${BUDGET_KEY}: 70000\n`],
+/**
+ * Compacts a loop that read one rule file, with `files` on the disk beside it, and checks that the
+ * hook appended no reload message and wrote one `$.ui.log` line, which it returns.
+ */
+async function compactBroken($, on, files: Record<string, string>, refused = {}): Promise<string> {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const logs = logged(on, { [rule]: "rule", ...files }, refused);
+  const result = await $.session.compact({ trigger: "auto", messages: [read(rule)] });
+  expect(result.messages).toEqual([SUMMARY]);
+  expect(logs).toHaveLength(1);
+  return logs[0];
+}
+
+for (const [name, line] of [
+  ["zero", `${BUDGET_KEY}: 0`],
+  ["a signed zero", `${BUDGET_KEY}: +0`],
+  ["an integer just below the floor", `${BUDGET_KEY}: ${MIN_BUDGET - 1}`],
+  ["a small integer", `${BUDGET_KEY}: 50000`],
+  ["a signed integer", `${BUDGET_KEY}: +70000`],
+  ["a hex integer", `${BUDGET_KEY}: 0x11170`],
+  ["an integer with underscores", `${BUDGET_KEY}: 70_000`],
+  ["a quoted string", `${BUDGET_KEY}: "70000"`],
+  ["a float", `${BUDGET_KEY}: 70000.5`],
+  ["a trailing comment", `${BUDGET_KEY}: 70000 # mine`],
+  ["a tab after the colon", `${BUDGET_KEY}:\t70000`],
+  ["two spaces after the colon", `${BUDGET_KEY}:  70000`],
+  ["trailing whitespace", `${BUDGET_KEY}: 70000 `],
+  ["an indented key", `  ${BUDGET_KEY}: 70000`],
+  ["a flow mapping", `{${BUDGET_KEY}: 70000}`],
+  ["a flow-sequence pair", `[${BUDGET_KEY}: 70000]`],
+  ["an explicit key", `? ${BUDGET_KEY}\n: 70000`],
+  ["a tag", `!!str ${BUDGET_KEY}: 70000`],
+  ["an anchor", `&a ${BUDGET_KEY}: 70000`],
+  ["a value on the next line", `${BUDGET_KEY}:\n  70000`],
+  ["a quoted key", `"${BUDGET_KEY}": 70000`],
+  ["a sequence entry's key", `items:\n  - ${BUDGET_KEY}: 70000`],
+  ["a comment mentioning the key", `# ${BUDGET_KEY}: 70000`],
+  ["a trailing comment mentioning the key", `other: 1 # see ${BUDGET_KEY}`],
+  ["the key named inside another key's value", `description: see ${BUDGET_KEY}: 5`],
+  ["the key after a comma", `other: 1, ${BUDGET_KEY}: 5`],
+  ["a block-scalar line naming the key", `notes: |\n  set ${BUDGET_KEY} here`],
+  ["the key twice", `${BUDGET_KEY}: 70000\n${BUDGET_KEY}: 80000`],
 ]) {
-  test(`a tier holding ${name} falls back to the default and names the path`, async ($, on) => {
-    const rule = `${ROOT}/docs/rules/a.md`;
+  test(`a tier holding ${name} reloads nothing and logs the path`, async ($, on) => {
     const tier = `${ROOT}/.sdlc/repo-config.yml`;
-    stub(on, {
-      [rule]: "rule",
-      [tier]: config,
+    const log = await compactBroken($, on, {
+      [tier]: `schema-version: 1\n${line}\n`,
       [`${ROOT}/.sdlc/user-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: 70003\n`,
     });
-    const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
-    expect(text).toContain(`budget of ${DEFAULT_BUDGET} tokens`);
-    expect(text).toContain(`- ${tier}: `);
-    expect(text).toContain(block(rule, "rule"));
+    expect(log).toContain(`${tier}: `);
   });
 }
 
-test("a budget below the floor is named with the floor", async ($, on) => {
-  const rule = `${ROOT}/docs/rules/a.md`;
+test("a valid budget line beside a comment mentioning the key reloads nothing", async ($, on) => {
   const tier = `${ROOT}/.sdlc/repo-config.yml`;
-  stub(on, { [rule]: "rule", [tier]: `schema-version: 1\n${BUDGET_KEY}: 50000\n` });
-  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
-  expect(text).toContain(
-    `- ${tier}: \`${BUDGET_KEY}\` is \`50000\`, not a plain decimal integer of at least ${MIN_BUDGET}`,
-  );
+  const log = await compactBroken($, on, {
+    [tier]: `schema-version: 1\n${BUDGET_KEY}: 70017\n# ${BUDGET_KEY} was 64000\n`,
+  });
+  expect(log).toContain(`${tier}: \`# ${BUDGET_KEY} was 64000\` is not a`);
+});
+
+test("a tier with no schema-version reloads nothing and logs the path", async ($, on) => {
+  const tier = `${ROOT}/.sdlc/repo-config.yml`;
+  const log = await compactBroken($, on, { [tier]: `${BUDGET_KEY}: 70000\n` });
+  expect(log).toContain(`${tier}: \`schema-version\` is absent`);
+});
+
+test("a budget below the floor is logged with the floor", async ($, on) => {
+  const tier = `${ROOT}/.sdlc/repo-config.yml`;
+  const log = await compactBroken($, on, { [tier]: `schema-version: 1\n${BUDGET_KEY}: 50000\n` });
+  expect(log).toContain(`${tier}: \`${BUDGET_KEY}\` is 50000, below the floor of ${MIN_BUDGET}`);
 });
 
 for (const [name, config, budget] of [
   ["the floor itself", `schema-version: 1\n${BUDGET_KEY}: ${MIN_BUDGET}\n`, MIN_BUDGET],
+  ["an integer with leading zeros", `schema-version: 1\n${BUDGET_KEY}: 0070001\n`, 70001],
   [
     "unlisted keys with quoted and dotted names",
     `schema-version: 1\n"odd key": x\nmerge.wait: skip\n'other': 2\n${BUDGET_KEY}: 70011\n`,
@@ -679,35 +724,60 @@ for (const [name, config, budget] of [
     `schema-version: 1\nthis is not yaml\n${BUDGET_KEY}: 70013\n`,
     70013,
   ],
-  [
-    "a commented-out budget line",
-    `schema-version: 1\n# ${BUDGET_KEY}: 0\n${BUDGET_KEY}: 70017\n`,
-    70017,
-  ],
-  [
-    "the key named inside another key's value",
-    `schema-version: 1\ndescription: see ${BUDGET_KEY}: 5\n${BUDGET_KEY}: 70019\n`,
-    70019,
-  ],
 ] as const) {
   test(`a tier holding ${name} sets the budget`, async ($, on) => {
     const rule = `${ROOT}/docs/rules/a.md`;
-    stub(on, { [rule]: "rule", [`${ROOT}/.sdlc/repo-config.yml`]: config });
+    const logs = logged(on, { [rule]: "rule", [`${ROOT}/.sdlc/repo-config.yml`]: config });
     const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
     expect(text).toContain(`budget of ${budget} tokens`);
-    expect(text).not.toContain("Config:");
+    expect(logs).toEqual([]);
   });
 }
 
-test("a tier that cannot be read falls back to the default and names the path and error", async ($, on) => {
-  const rule = `${ROOT}/docs/rules/a.md`;
+test("a tier that cannot be read reloads nothing and logs the path and error", async ($, on) => {
   const tier = `${HOME}/.config/sdlc/user-config.yml`;
-  stub(on, { [rule]: "rule" }, { [tier]: "EACCES: permission denied" });
-  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
-  expect(text).toContain(`budget of ${DEFAULT_BUDGET} tokens`);
-  expect(text).toContain(`- ${tier}: `);
-  expect(text).toContain("EACCES: permission denied");
+  const log = await compactBroken($, on, {}, { [tier]: "EACCES: permission denied" });
+  expect(log).toContain(`${tier}: `);
+  expect(log).toContain("EACCES: permission denied");
+});
+
+test("a broken tier names its error in no message the model receives", async ($, on) => {
+  const tier = `${ROOT}/.sdlc/repo-config.yml`;
+  const stale = {
+    role: "user",
+    text: `${MARKER}\n\nFiles, most recently used first:`,
+    toolUses: [],
+  };
+  const logs: string[] = [];
+  host(on, {
+    read: (path) => ({ [tier]: `schema-version: 1\n${BUDGET_KEY}: 5\n` })[path],
+    compacted: { messages: [SUMMARY, stale] },
+    logs,
+  });
+  const result = await $.session.compact({
+    trigger: "auto",
+    messages: [read(`${ROOT}/docs/rules/a.md`)],
+  });
+  expect(result.messages).toEqual([SUMMARY]);
+  expect(logs).toHaveLength(1);
+});
+
+test("uses recorded while a tier was broken are reloaded once it is repaired", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const tier = `${ROOT}/.sdlc/repo-config.yml`;
+  const files: Record<string, string> = {
+    [rule]: "rule",
+    [tier]: `schema-version: 1\n${BUDGET_KEY}: 5\n`,
+  };
+  const logs: string[] = [];
+  host(on, { read: (path) => files[path], logs });
+  const broken = await $.session.compact({ trigger: "auto", messages: [read(rule)] });
+  expect(broken.messages).toEqual([SUMMARY]);
+  files[tier] = `schema-version: 1\n${BUDGET_KEY}: 70021\n`;
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY] }));
   expect(text).toContain(block(rule, "rule"));
+  expect(text).toContain("budget of 70021 tokens");
+  expect(logs).toHaveLength(1);
 });
 
 test("a file that cannot be read is named with its error, and the compaction completes", async ($, on) => {

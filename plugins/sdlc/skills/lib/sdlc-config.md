@@ -11,12 +11,14 @@ The one exception is the `reload-after-compact` hook, which resolves
 `reload-after-compact-token-budget` itself on every compaction, per
 "Reading", because it runs outside any orchestrate run and has no brief
 to receive a value. It checks only a file's read, its `schema-version`
-and that key's value, reading `schema-version` off its own top-level
-line, the key off the one line shape its description allows, and
-ignoring every other line, so YAML malformed elsewhere in the file goes
-unchecked. Where "Reading" aborts on one of those checks it uses the
-key's default instead and names the path and the error in the text it
-appends, so the compaction still completes.
+and that key's budget lines, as the key's description defines them,
+reading `schema-version` off its own top-level line. It parses no YAML,
+so YAML malformed elsewhere in the file goes unchecked. Where "Reading"
+aborts on one of those checks the hook reloads nothing: it appends no
+reload message, the compaction completes on the summary alone, and it
+writes one `$.ui.log` line to the human naming the path and the error.
+It never falls back to the key's default for such a tier, and never
+names a config error in text sent to the model.
 
 ## The tiers
 
@@ -54,7 +56,7 @@ merge-poll-interval-seconds: 300
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
 | `merge-max-unchanged-polls` | positive integer | `15` |
-| `reload-after-compact-token-budget` | plain decimal integer, at least `64000` | `100000` |
+| `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
@@ -73,15 +75,12 @@ merge-poll-interval-seconds: 300
   The files past it are listed by path, to be read before acting on
   them. The floor of `64000` holds an orchestrate run's whole working
   set past its opening, about 42k tokens, with headroom for the files
-  the run's own work reads. The value is valid only on a line that
-  starts at column 0 with `reload-after-compact-token-budget:`, then
-  whitespace, then a decimal integer of at least `64000` with no sign,
-  leading zero, underscore or quote, then at most whitespace and a `#`
-  comment. Any other value, a smaller number included, and any
-  other line that writes the key — quoted, indented, in a flow mapping,
-  with its value on the next line, or a second time — is outside its
-  allowed values. A line whose first non-blank character is `#` is a
-  comment and sets nothing.
+  the run's own work reads. Any line of a tier file that contains
+  `reload-after-compact-token-budget` is a budget line, a comment or
+  another key's value included. A budget line is valid only when it
+  matches `^reload-after-compact-token-budget: [0-9]+$` and its number
+  is at least `64000`. Every other budget line, a second one included,
+  is outside its allowed values.
 
 ## Reading
 

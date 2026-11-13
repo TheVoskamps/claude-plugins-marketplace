@@ -34,17 +34,8 @@ const OPENING_FILES = [
   "/skills/orchestrate/lib/plan.md",
 ];
 const SCHEMA_LINE = /^(["']?)schema-version\1:(?:\s+(.*))?$/;
-// The one shape a budget may take: the key at column 0, then a decimal integer with no sign or
-// leading zero, then at most a comment. `parseTier` holds the integer to `MIN_BUDGET`.
-const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}:[ \\t]+([1-9][0-9]*)(?:[ \\t]+#.*)?[ \\t]*$`);
-const NOT_A_BUDGET = `not a plain decimal integer of at least ${MIN_BUDGET}`;
-// Any line that writes the budget key as a mapping key, in whatever shape: quoted, indented, as a
-// sequence entry's key, in a flow mapping, or with its value on a later line. The key counts only
-// where it opens the line, after indentation and `- ` entry markers, or follows a `{` or a `,`,
-// so `description: see <key>: 5`, which names it inside another key's value, is no budget line.
-const BUDGET_MENTION = new RegExp(
-  `(?:^[ \\t]*(?:-[ \\t]+)*|[{,][ \\t]*)(["']?)${BUDGET_KEY}\\1[ \\t]*:`,
-);
+// The one valid budget line. `parseTier` holds its integer to `MIN_BUDGET`.
+const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}: ([0-9]+)$`);
 
 /** One tool call in a transcript message: `text` is the text of the call's result. */
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
@@ -59,6 +50,7 @@ type Mods = {
     write: (path: string, text: string) => Promise<void>;
     exists: (path: string) => Promise<boolean>;
   };
+  ui: { log: (text: string) => Promise<void> };
 };
 
 /** What a compaction resolves to: its messages, or in `skip` the reason it did not compact. */
@@ -116,8 +108,8 @@ const NO_STATE: State = { uses: [], orchestrate: "none" };
 /**
  * Registers the `session.compact` hook, which lets the compaction run, removes every reload
  * message from its messages, and then appends one fresh reload message after them. When the loop
- * loaded nothing to reload and its state file raised no error it appends none, so the compaction
- * ends with no reload message at all.
+ * loaded nothing to reload and its state file raised no error, or a config tier failed, it
+ * appends none, so the compaction ends with no reload message at all.
  */
 export function register(on: On): void {
   // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
@@ -137,9 +129,11 @@ export function register(on: On): void {
 
 /**
  * Records the compacting loop's uses in its state file and builds the reload message, or `''`
- * when the loop loaded nothing to reload and the state file raised no error. A file, config tier
- * or state file that cannot be read or written is named in the text with its error rather than
- * rejecting.
+ * when the loop loaded nothing to reload and the state file raised no error. A file or state file
+ * that cannot be read or written is named in the text with its error rather than rejecting. A
+ * config tier that cannot be read or that `parseTier` refuses makes it `''` too, with one
+ * `$.ui.log` line to the human naming each such tier's path and error, and nothing about it in
+ * the text.
  */
 async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   const home = (await $.env.get("HOME")) ?? "";
@@ -165,6 +159,16 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
     }
   }
 
+  // The uses are recorded above even when a tier failed, so the compaction after the tier is
+  // repaired still reloads them.
+  const { budget, errors } = await readBudget($, home);
+  if (errors.length > 0) {
+    await $.ui.log(
+      `reload-after-compact reloaded nothing, because a config tier failed: ${errors.join("; ")}`,
+    );
+    return "";
+  }
+
   const items: Item[] = [];
   for (const [path, seq] of uses.paths) items.push({ label: path, seq });
   for (const [name, seq] of uses.skills) {
@@ -178,7 +182,6 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   if (kept.length === 0 && stateNotes.length === 0) return "";
   kept.sort((a, b) => b.seq - a.seq);
 
-  const { budget, notes } = await readBudget($, home);
   const manifest: string[] = [];
   const blocks: string[] = [];
   let spent = 0;
@@ -219,14 +222,6 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
       `${budget} tokens: read it with the Read tool before acting on it.`,
     ["Files, most recently used first:", ...manifest].join("\n"),
   ];
-  if (notes.length > 0) {
-    parts.push(
-      [
-        `Config: the budget is the default, ${DEFAULT_BUDGET} tokens, because a tier of \`${BUDGET_KEY}\` failed:`,
-        ...notes.map((note) => `- ${note}`),
-      ].join("\n"),
-    );
-  }
   if (stateNotes.length > 0) {
     parts.push(
       [
@@ -567,10 +562,10 @@ function installedVersion(installs: unknown, root: string): string | undefined {
 
 /**
  * Resolves `reload-after-compact-token-budget` over the sdlc config tiers, highest tier
- * winning. A tier that cannot be read, or that `parseTier` refuses, makes the budget the default
- * and adds a note naming the path and the error.
+ * winning. A tier that does not exist contributes nothing. A tier that cannot be read, or that
+ * `parseTier` refuses, adds an error naming the path, and the caller uses no budget at all.
  */
-async function readBudget($: Mods, home: string): Promise<{ budget: number; notes: string[] }> {
+async function readBudget($: Mods, home: string): Promise<{ budget: number; errors: string[] }> {
   const xdg = await $.env.get("XDG_CONFIG_HOME");
   const configHome = xdg !== undefined && xdg !== "" ? xdg : `${home}/.config`;
   const root = await $.session.root();
@@ -580,28 +575,29 @@ async function readBudget($: Mods, home: string): Promise<{ budget: number; note
     `${root}/.sdlc/user-config.yml`,
   ];
   let budget = DEFAULT_BUDGET;
-  const notes: string[] = [];
+  const errors: string[] = [];
   for (const path of tiers) {
     let text: string;
     try {
       if (!(await $.fs.exists(path))) continue;
       text = await $.fs.read(path);
     } catch (err) {
-      notes.push(`${path}: ${errorText(err)}`);
+      errors.push(`${path}: ${errorText(err)}`);
       continue;
     }
     const tier = parseTier(text);
-    if (tier.error !== undefined) notes.push(`${path}: ${tier.error}`);
+    if (tier.error !== undefined) errors.push(`${path}: ${tier.error}`);
     else if (tier.value !== undefined) budget = tier.value;
   }
-  return { budget: notes.length > 0 ? DEFAULT_BUDGET : budget, notes };
+  return { budget, errors };
 }
 
 /**
- * Reads `schema-version` off its own top-level line and the budget off its one valid shape, as
- * `skills/lib/sdlc-config.md` → "The keys" and "Reading" state, and validates both. A comment
- * line is skipped, a line writing the budget key in any other shape is refused, and every other
- * line is ignored, so the rest of the file's YAML is left to the orchestrator.
+ * Reads `schema-version` off its own top-level line and the budget off its budget line, as
+ * `skills/lib/sdlc-config.md` → "The keys" and "Reading" state, and validates both. Every line
+ * that contains `BUDGET_KEY`, a comment included, is a budget line, valid only as `BUDGET_LINE`
+ * and only once. Of every other line only `schema-version`'s is read, so the rest of the file's
+ * YAML is left to the orchestrator.
  */
 function parseTier(text: string): { value?: number; error?: string } {
   let schema: string | undefined;
@@ -609,30 +605,22 @@ function parseTier(text: string): { value?: number; error?: string } {
   let budgetError: string | undefined;
   for (const raw of text.split("\n")) {
     const line = raw.replace(/\r$/, "");
-    if (/^\s*#/.test(line)) continue;
-    const schemaMatch = SCHEMA_LINE.exec(line);
-    if (schemaMatch !== null) {
-      schema = (schemaMatch[2] ?? "").replace(/\s+#.*$/, "").trim();
+    if (line.includes(BUDGET_KEY)) {
+      if (budgetError !== undefined) continue;
+      const budgetMatch = BUDGET_LINE.exec(line);
+      if (budgetMatch === null) {
+        budgetError = `\`${line}\` is not a \`${BUDGET_KEY}: <digits>\` line`;
+      } else if (value !== undefined) {
+        budgetError = `\`${BUDGET_KEY}\` is set more than once`;
+      } else if (Number(budgetMatch[1]) < MIN_BUDGET) {
+        budgetError = `\`${BUDGET_KEY}\` is ${budgetMatch[1]}, below the floor of ${MIN_BUDGET}`;
+      } else {
+        value = Number(budgetMatch[1]);
+      }
       continue;
     }
-    if (!BUDGET_MENTION.test(line) || budgetError !== undefined) continue;
-    const budgetMatch = BUDGET_LINE.exec(line);
-    if (budgetMatch === null) {
-      const rest = line.slice(BUDGET_KEY.length + 1).trim();
-      if (!line.startsWith(`${BUDGET_KEY}:`)) {
-        budgetError = `\`${line.trim()}\` is not a column-0 \`${BUDGET_KEY}: <digits>\` line`;
-      } else if (rest === "") {
-        budgetError = `\`${BUDGET_KEY}\` has no value on its own line`;
-      } else {
-        budgetError = `\`${BUDGET_KEY}\` is \`${rest}\`, ${NOT_A_BUDGET}`;
-      }
-    } else if (value !== undefined) {
-      budgetError = `\`${BUDGET_KEY}\` is set more than once`;
-    } else if (Number(budgetMatch[1]) < MIN_BUDGET) {
-      budgetError = `\`${BUDGET_KEY}\` is \`${budgetMatch[1]}\`, ${NOT_A_BUDGET}`;
-    } else {
-      value = Number(budgetMatch[1]);
-    }
+    const schemaMatch = SCHEMA_LINE.exec(line);
+    if (schemaMatch !== null) schema = (schemaMatch[2] ?? "").replace(/\s+#.*$/, "").trim();
   }
   if (schema === undefined) return { error: "`schema-version` is absent" };
   if (!/^\d+$/.test(schema))
