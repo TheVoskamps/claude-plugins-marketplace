@@ -1576,6 +1576,19 @@ check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-4 1/1 -->
 ## \`round2/review\`
 ## \`round4/review\`" "post: every round with a log, when a middle round has none"
 
+# Rounds 1 and 3 have a log and nothing stored: the chain's range still
+# takes them in.
+post_case post-empty-rounds
+state_file round2/review 50
+mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round1" "$XDG_STATE_HOME/$PR_DIR_REL/round3"
+printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round1/log"
+printf 'anchor 2026-01-01T00:00:00Z abc\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round3/log"
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:posted chain: rounds 1-3, 1 comments
+https://h.example/o/r/pull/7#issuecomment-1" "post: a round with a log and nothing stored, at either end, is in the chain's range"
+check "$(head -n 1 "$CASE/posted/1")" "<!-- sdlc:theorem-records 1-3 1/1 -->" \
+  "post: the marker names the rounds with a log and nothing stored"
+
 # Pieces of 25,000, 40,000 (T1's two reports) and 30,000 bytes: no two
 # adjacent pieces fit one chunk.
 post_case post-chunks
@@ -1657,6 +1670,119 @@ grep -h -v -e '^<!--' -e '^## ' -e '^$' "$CASE/posted/1" "$CASE/posted/2" "$CASE
 check "$(LC_ALL=C awk '{ gsub(/é/, "") } $0 != "" && $0 != "a" { bad++ } END { print NR, bad + 0 }' "$CASE/parts")" "3 0" \
   "post: a line is cut at a UTF-8 character boundary, each part whole characters"
 check "$(tr -d '\n' <"$CASE/parts")" "a$wide" "post: the cut line's parts rejoin to the whole line"
+
+# A chunk body's budget, the room a one-round chain's widest marker line
+# leaves; the heading of round1/T1-theorem-disprover; and the room a
+# continuation chunk of that file leaves after its heading.
+POST_WIDEST='<!-- sdlc:theorem-records 1-1 9999/9999 -->'
+POST_BUDGET=$((60000 - ${#POST_WIDEST} - 1))
+POST_HEADING="## \`round1/T1-theorem-disprover\`
+
+"
+POST_CONTINUED="
+## \`round1/T1-theorem-disprover\` (continued)
+
+"
+POST_ROOM=$((POST_BUDGET - ${#POST_CONTINUED}))
+
+# x_line <bytes>: a line of <bytes> x, without its newline.
+x_line() {
+  head -c "$1" /dev/zero | tr '\0' x
+}
+
+# short_then_long <bytes>: a report of 1,000 short lines, then one line of
+# <bytes> x.
+short_then_long() {
+  {
+    for n in $(seq 1000); do
+      printf 'short\n'
+    done
+    x_line "$1"
+    printf '\n'
+  } >"$CASE/report"
+}
+
+# A line that just fits a continuation chunk's room follows other lines:
+# it moves to the next chunk whole.
+post_case post-line-fits-room
+short_then_long $((POST_ROOM - 1))
+put_state round1/T1-theorem-disprover "$CASE/report"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:2" "post: a line that fits a continuation chunk's room takes one chunk break"
+check "$(awk '/^x+$/ { print length }' "$CASE/posted/1" "$CASE/posted/2")" "$((POST_ROOM - 1))" \
+  "post: a line that fits a continuation chunk's room is not cut"
+check "$(tail -n +2 "$CASE/posted/2" | wc -c | tr -d ' ')" "$POST_BUDGET" \
+  "post: that line fills its continuation chunk's budget"
+
+# One byte longer, the line fits no continuation chunk, so it is cut, its
+# first part filling the chunk it follows the short lines in.
+post_case post-line-over-room
+short_then_long "$POST_ROOM"
+put_state round1/T1-theorem-disprover "$CASE/report"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:2" "post: a line one byte over a continuation chunk's room is cut across two chunks"
+check "$(for n in 1 2; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk of a line cut after other lines exceeds 60,000 bytes"
+check "$(tail -n 1 "$CASE/posted/1" | grep -c '^x')" "1" "post: the cut line's first part ends the chunk the short lines are in"
+check "$(grep -h '^x' "$CASE/posted/1" "$CASE/posted/2" | tr -d '\n')" "$(x_line "$POST_ROOM")" \
+  "post: the line cut after other lines rejoins to the whole line"
+
+# A fence-opening line that fills a chunk with its heading and the
+# fence's closing line, so it leaves a continuation chunk no room beside
+# it, then 40 lines inside the fence: the continuation reopens the fence
+# with its bare marker.
+post_case post-long-fence-open
+fence_open='```'$(x_line $((POST_BUDGET - 1 - ${#POST_HEADING} - 1 - 4 - 3)))
+{
+  printf '%s\n' "$fence_open"
+  for n in $(seq 40); do
+    printf '%099d\n' 0 | tr 0 y
+  done
+  printf '```\n'
+} >"$CASE/report"
+put_state round1/T1-theorem-disprover "$CASE/report"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:2" "post: a fence-opening line that leaves a continuation chunk no room is posted"
+check "$(for n in 1 2; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk after a fence-opening line that leaves no room exceeds 60,000 bytes"
+check "$(sed -n '3,5p' "$CASE/posted/2")" "## \`round1/T1-theorem-disprover\` (continued)
+
+\`\`\`" "post: the continuation reopens the fence with its bare marker when the opening line leaves no room"
+check "$(cat "$CASE/posted/1" "$CASE/posted/2" | awk '/^y+$/ { n++ } END { print n }')" "40" \
+  "post: every line inside that fence is posted"
+
+# A fence-opening line too long for any chunk is cut, and the fence its
+# first part opens is closed there and reopened with its bare marker.
+post_case post-cut-fence-open
+fence_open='```'$(x_line 70000)
+{
+  printf '%s\n' "$fence_open"
+  printf 'inside\n```\nafter\n'
+} >"$CASE/report"
+put_state round1/T1-theorem-disprover "$CASE/report"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:2" "post: a fence-opening line over the chunk limit is cut across chunks"
+check "$(for n in 1 2; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk of a cut fence-opening line exceeds 60,000 bytes"
+check "$(tail -n 1 "$CASE/posted/1")" '```' "post: the fence a cut opening line opens is closed in its chunk"
+check "$(sed -n '3,5p' "$CASE/posted/2")" "## \`round1/T1-theorem-disprover\` (continued)
+
+\`\`\`" "post: the fence a cut opening line opens is reopened with its bare marker"
+check "$(grep -h -e '^```x' -e '^x' "$CASE/posted/1" "$CASE/posted/2" | tr -d '\n')" "$fence_open" \
+  "post: the cut fence-opening line's parts rejoin to the whole line"
+check_contains "$(cat "$CASE/posted/2")" 'inside
+```
+after' "post: the lines after a cut fence-opening line are posted whole"
+
+# A fence marker of 59,990 backticks leaves no room for any part of a
+# line, so the layout fails and nothing is posted.
+post_case post-no-room
+head -c 59990 /dev/zero | tr '\0' '`' >"$CASE/report"
+printf '\n' >>"$CASE/report"
+put_state round1/T1-theorem-disprover "$CASE/report"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "1:0" "post: a line no chunk has room for exits 1 and posts nothing"
+check_contains "$ERR" "leaves no room" "post: stderr says the line leaves no room"
 
 post_case post-empty
 post 'h.example/o/r#7'

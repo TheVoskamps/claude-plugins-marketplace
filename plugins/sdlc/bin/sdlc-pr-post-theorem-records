@@ -33,11 +33,15 @@
 # MAX_CHUNK_BYTES, and a chunk breaks between pieces except inside a
 # piece too large for a chunk of its own, which starts a chunk and
 # continues across as many consecutive chunks as it needs. Such a piece
-# breaks between lines, and only a line too long for a chunk by itself
-# is cut, at a UTF-8 character boundary. A code fence open at a break is
-# closed in that chunk and reopened with the same fence line in the
-# next, and each continuation chunk opens with its file's heading plus
-# `(continued)`.
+# breaks between lines, and only a line too long for the room the next
+# chunk would leave it is cut, at a UTF-8 character boundary, its first
+# part filling the chunk it is in. A code fence open at a break is
+# closed in that chunk and reopened in the next with the same fence
+# line, or with its bare marker when that line leaves no room in a
+# chunk for the line that follows, and each continuation chunk opens
+# with its file's heading plus `(continued)`. When a continuation chunk
+# has no room for any part of a line, the layout fails and nothing is
+# posted.
 #
 # On success it exits 0 and prints on stdout:
 #
@@ -214,7 +218,6 @@ for round in $rounds; do
   above_covered "$round" || continue
   read_state 'no round log at ' --mode print --round "$round" ||
     sp_fail 1 "round $round, which sdlc-agent-result-persist --mode rounds listed, has no round log"
-  before=$pieces
   : >"$work/generators"
   : >"$work/children"
   while IFS=' ' read -r kind theorem agent path; do
@@ -265,9 +268,7 @@ for round in $rounds; do
     add_file "$relative" "$path"
   done <"$work/sorted"
 
-  if [ "$pieces" -gt "$before" ]; then
-    hold "$round"
-  fi
+  hold "$round"
 done
 
 if [ "$pieces" -eq 0 ]; then
@@ -366,20 +367,47 @@ function fence_after(line,   run) {
   }
 }
 
-# break_chunk(rel): ends the chunk inside file rel, closing an open
-# fence, and opens the next as that file'"'"'s continuation.
-function break_chunk(rel) {
-  if (in_fence) put(mark "\n")
+# continued(rel): the heading a continuation chunk of file rel opens
+# with, after the chunk'"'"'s opening blank line.
+function continued(rel) {
+  return "\n## `" rel "` (continued)\n\n"
+}
+
+# reopen(rel, f_mark, f_open, need): the line a continuation chunk of
+# file rel reopens a fence with before a line needing need bytes, f_mark
+# being the fence'"'"'s marker and f_open its opening line: f_open, or f_mark
+# alone when f_open leaves no room for that line.
+function reopen(rel, f_mark, f_open, need) {
+  if (length(continued(rel)) + length(f_open) + 1 + need <= budget) return f_open
+  return f_mark
+}
+
+# room(rel, f_in, f_mark): the most bytes a continuation chunk of file
+# rel leaves for its lines, the fence being open when f_in is set and
+# reopened with its marker f_mark alone.
+function room(rel, f_in, f_mark) {
+  return budget - length(continued(rel)) - (f_in ? length(f_mark) + 1 : 0)
+}
+
+# break_chunk(rel, f_in, f_mark, f_open, need): ends the chunk inside file
+# rel, closing the fence when f_in is set, and opens the next as that
+# file'"'"'s continuation, reopening the fence there before a line needing
+# need bytes.
+function break_chunk(rel, f_in, f_mark, f_open, need) {
+  if (f_in) put(f_mark "\n")
   open_chunk()
-  put("\n## `" rel "` (continued)\n\n")
-  if (in_fence) put(open_line "\n")
+  put(continued(rel))
+  if (f_in) put(reopen(rel, f_mark, f_open, need) "\n")
 }
 
 # put_head(j, head, need): puts file j'"'"'s heading, in a fresh chunk when
-# the heading and need more bytes do not fit the current one and it
-# holds more than its opening blank line.
-function put_head(j, head, need) {
-  if (used + length(head) + need > budget && used > 1) {
+# the heading and need more bytes do not fit the current one, it holds
+# more than its opening blank line, and either need fits a fresh chunk or
+# the current one has no room for a part of a cut line after the heading.
+function put_head(j, head, need,   fresh) {
+  fresh = 1 + length(heading(rel[j]))
+  if (used + length(head) + need > budget && used > 1 &&
+      (fresh + need <= budget || used + length(head) + MIN_PART > budget)) {
     open_chunk()
     put("\n" heading(rel[j]))
   } else {
@@ -389,8 +417,9 @@ function put_head(j, head, need) {
 
 # split_piece(): lays out the piece whose files are rel[1..nfiles] from a
 # fresh chunk across as many consecutive chunks as it needs, breaking
-# between lines and cutting only a line too long for a chunk by itself.
-function split_piece(   j, head, pending, need, cut) {
+# between lines and cutting only a line too long for the room the next
+# chunk would leave it.
+function split_piece(   j, head, pending, need, cut, broke) {
   open_chunk()
   put("\n")
   for (j = 1; j <= nfiles; j++) {
@@ -403,19 +432,32 @@ function split_piece(   j, head, pending, need, cut) {
       if (pending) {
         put_head(j, head, need)
         pending = 0
-      } else if (used + need > budget) {
-        break_chunk(rel[j])
+      } else if (used + need > budget && need <= room(rel[j], in_fence, mark)) {
+        break_chunk(rel[j], in_fence, mark, open_line, need)
       }
-      # Only a line too long for a chunk by itself is cut, never inside
-      # a UTF-8 character: a cut backs off over continuation bytes.
+      # A line too long for that room is cut, its first part filling the
+      # chunk it is in, never inside a UTF-8 character: a cut backs off
+      # over continuation bytes, and a part is cut only where a chunk has
+      # room for MIN_PART - 1 bytes, the longest character. A chunk breaks
+      # after each part in the fence state after the line, so a cut
+      # fence-opening line is closed and reopened like any fence. A chunk
+      # with less room than that straight after a break can take no part,
+      # so the layout fails rather than spin.
+      broke = 0
       while (used + need > budget) {
-        cut = budget - used - 1 - (in_fence ? length(mark) + 1 : 0)
-        if (cut < 1) cut = 1
+        cut = budget - used - 1 - (NEXT_IN ? length(NEXT_MARK) + 1 : 0)
+        if (cut < MIN_PART - 1) {
+          if (broke) fail("a line of " rel[j] " leaves no room for a part in a continuation chunk")
+          break_chunk(rel[j], in_fence, mark, open_line, need)
+          broke = 1
+          continue
+        }
         while (cut > 1 && index(CONT, substr(LINE, cut + 1, 1))) cut--
         put(substr(LINE, 1, cut) "\n")
         LINE = substr(LINE, cut + 1)
         need = length(LINE) + 1 + (NEXT_IN ? length(NEXT_MARK) + 1 : 0)
-        break_chunk(rel[j])
+        break_chunk(rel[j], NEXT_IN, NEXT_MARK, NEXT_OPEN, need)
+        broke = 1
       }
       put(LINE "\n")
       in_fence = NEXT_IN
@@ -449,6 +491,8 @@ function place(   j, size) {
 
 BEGIN {
   for (n = 128; n < 192; n++) CONT = CONT sprintf("%c", n)
+  # The longest UTF-8 character and its newline.
+  MIN_PART = 5
 }
 
 {
