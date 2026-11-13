@@ -89,6 +89,39 @@ test("a skill the main conversation invoked is reloaded whole", async ($, on) =>
   expect(text).toContain(`- ${path} (appended below)`);
 });
 
+test("each of several Skill calls in one message is reloaded from its own expansion", async ($, on) => {
+  const [first, second] = ["orchestrate", "git-review-pr"].map((name) => `${SKILLS}/${name}`);
+  stub(on, { [`${first}/SKILL.md`]: "first skill", [`${second}/SKILL.md`]: "second skill" });
+  const call = (name: string) => ({ tool_use_id: name, tool: "Skill", input: { skill: name } });
+  const expansion = (base: string) => ({
+    role: "user",
+    text: `Base directory for this skill: ${base}\n\nThe skill's text.`,
+    toolUses: [],
+  });
+  const messages = [
+    assistant(call("sdlc:orchestrate"), call("sdlc:git-review-pr")),
+    expansion(first),
+    expansion(second),
+  ];
+  const text = reload(await $.session.compact({ trigger: "auto", messages }));
+  expect(text).toContain(block(`${first}/SKILL.md`, "first skill"));
+  expect(text).toContain(block(`${second}/SKILL.md`, "second skill"));
+});
+
+test("a skill invoked as a slash command is reloaded", async ($, on) => {
+  const path = `${SKILLS}/orchestrate/SKILL.md`;
+  stub(on, { [path]: "orchestrate" });
+  const messages = [
+    {
+      role: "user",
+      text: `<command-name>/sdlc:orchestrate</command-name>\nBase directory for this skill: ${SKILLS}/orchestrate\n\nThe skill's text.`,
+      toolUses: [],
+    },
+  ];
+  const text = reload(await $.session.compact({ trigger: "manual", messages }));
+  expect(text).toContain(block(path, "orchestrate"));
+});
+
 test("every agent type the main conversation spawned is reloaded, and no other", async ($, on) => {
   const own = `${SKILLS.replace("/skills", "")}/agents/issue-developer.md`;
   const project = `${ROOT}/.claude/agents/helper.md`;
@@ -120,25 +153,68 @@ test("an agent of the hook's own plugin with no skill loaded resolves under the 
   expect(paths.some((path) => path.endsWith("/sdlc/agents/pr-monitor.md"))).toBe(true);
 });
 
-test("an agent of another plugin with no skill loaded resolves to its highest cached version", async ($, on) => {
-  const listed: string[] = [];
-  stub(on, {});
-  on("fs.list", ($, e) => {
-    listed.push(e.path);
-    return {
-      value: [
-        { name: "0.9.0", kind: "dir", size: 0, mtimeMs: 0, isLink: false },
-        { name: "0.11.0", kind: "dir", size: 0, mtimeMs: 0, isLink: false },
-      ],
-    };
+test("an agent of another plugin with no skill loaded resolves to its installed version", async ($, on) => {
+  // The hook's own plugin root names the marketplace, so the first compaction reads it off the
+  // path the hook reads for an agent of its own plugin.
+  const reads: string[] = [];
+  const files: Record<string, string> = {};
+  mock.env(on, { HOME });
+  on("session.root", () => ({ value: ROOT }));
+  on("fs.exists", () => ({ value: false }));
+  on("fs.read", ($, e) => {
+    reads.push(e.path);
+    return e.path in files ? { value: files[e.path] } : { deny: `ENOENT: ${e.path}` };
   });
+  on("session.compact", () => ({ messages: [SUMMARY] }));
+  reload(await $.session.compact({ trigger: "auto", messages: [spawn("sdlc:pr-monitor")] }));
+  const root = reads[0].slice(0, -"/agents/pr-monitor.md".length);
+  const marketplace = root.split("/").at(-3);
+  const cache = `${HOME}/.claude/plugins/cache/${marketplace}/git-tools`;
+  const install = (version: string, projectPath?: string) => ({
+    scope: projectPath === undefined ? "user" : "local",
+    ...(projectPath === undefined ? {} : { projectPath }),
+    installPath: `${cache}/${version}`,
+    version,
+  });
+  files[`${HOME}/.claude/plugins/installed_plugins.json`] = JSON.stringify({
+    version: 2,
+    plugins: {
+      [`git-tools@${marketplace}`]: [install("0.11.0", "/elsewhere"), install("0.9.0")],
+    },
+  });
+  files[`${cache}/0.9.0/agents/branch-helper.md`] = "installed definition";
+  files[`${cache}/0.11.0/agents/branch-helper.md`] = "newer definition";
   const text = reload(
     await $.session.compact({ trigger: "auto", messages: [spawn("git-tools:branch-helper")] }),
   );
-  expect(listed).toHaveLength(1);
-  expect(listed[0].startsWith(`${HOME}/.claude/plugins/cache/`)).toBe(true);
-  expect(listed[0].endsWith("/git-tools")).toBe(true);
-  expect(text).toContain(`${listed[0]}/0.11.0/agents/branch-helper.md (could not be read:`);
+  expect(text).toContain(block(`${cache}/0.9.0/agents/branch-helper.md`, "installed definition"));
+  expect(text).not.toContain("0.11.0");
+});
+
+test("an agent of another plugin with no install recorded is named with the error", async ($, on) => {
+  stub(on, {});
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [spawn("git-tools:branch-helper")] }),
+  );
+  expect(text).toContain("- agent git-tools:branch-helper (could not be read: ");
+  expect(text).toContain("installed_plugins.json");
+});
+
+test("an agent with no plugin prefix resolves under ~/.claude/agents when the project has none", async ($, on) => {
+  const user = `${HOME}/.claude/agents/mine.md`;
+  const shadowed = `${HOME}/.claude/agents/helper.md`;
+  const project = `${ROOT}/.claude/agents/helper.md`;
+  stub(on, { [user]: "user definition", [shadowed]: "shadowed", [project]: "project definition" });
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [spawn("mine"), spawn("helper"), spawn("general-purpose")],
+    }),
+  );
+  expect(text).toContain(block(user, "user definition"));
+  expect(text).toContain(block(project, "project definition"));
+  expect(text).not.toContain("shadowed");
+  expect(text).not.toContain("general-purpose");
 });
 
 test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other files are not", async ($, on) => {
@@ -239,10 +315,10 @@ test("XDG_CONFIG_HOME locates the global tier", async ($, on) => {
 
 for (const [name, config] of [
   ["zero", `schema-version: 1\n${BUDGET_KEY}: 0\n`],
+  ["a signed zero", `schema-version: 1\n${BUDGET_KEY}: +0\n`],
   ["a quoted string", `schema-version: 1\n${BUDGET_KEY}: "500"\n`],
   ["a float", `schema-version: 1\n${BUDGET_KEY}: 1.5\n`],
   ["no schema-version", `${BUDGET_KEY}: 50\n`],
-  ["malformed YAML", `schema-version: 1\nthis is not yaml\n`],
 ]) {
   test(`a tier holding ${name} falls back to the default and names the path`, async ($, on) => {
     const rule = `${ROOT}/docs/rules/a.md`;
@@ -256,6 +332,25 @@ for (const [name, config] of [
     expect(text).toContain(`budget of ${DEFAULT_BUDGET} tokens`);
     expect(text).toContain(`- ${tier}: `);
     expect(text).toContain(block(rule, "rule"));
+  });
+}
+
+for (const [name, config, budget] of [
+  ["a signed integer", `schema-version: 1\n${BUDGET_KEY}: +50000\n`, 50000],
+  ["an integer with leading zeros", `schema-version: 1\n${BUDGET_KEY}: 007\n`, 7],
+  [
+    "unlisted keys with quoted and dotted names",
+    `schema-version: 1\n"odd key": x\nmerge.wait: skip\n'other': 2\n${BUDGET_KEY}: 11\n`,
+    11,
+  ],
+  ["a line that is no key of its own", `schema-version: 1\nthis is not yaml\n${BUDGET_KEY}: 13\n`, 13],
+] as const) {
+  test(`a tier holding ${name} sets the budget`, async ($, on) => {
+    const rule = `${ROOT}/docs/rules/a.md`;
+    stub(on, { [rule]: "rule", [`${ROOT}/.sdlc/repo-config.yml`]: config });
+    const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+    expect(text).toContain(`budget of ${budget} tokens`);
+    expect(text).not.toContain("Config:");
   });
 }
 
@@ -285,12 +380,20 @@ test("a file that cannot be read is named with its error, and the compaction com
 test("a second compaction reloads what the first one reloaded", async ($, on) => {
   const rule = `${ROOT}/docs/rules/a.md`;
   const later = `${ROOT}/docs/rules/b.md`;
+  const agent = "- agent git-tools:branch-helper (could not be read: ";
   stub(on, { [rule]: "rule", [later]: "later" });
-  const first = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  const first = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [read(rule), spawn("git-tools:branch-helper")],
+    }),
+  );
+  expect(first).toContain(agent);
   const messages = [SUMMARY, { role: "user", text: first, toolUses: [] }, read(later)];
   const second = reload(await $.session.compact({ trigger: "auto", messages }));
   expect(second).toContain(block(rule, "rule"));
   expect(second).toContain(block(later, "later"));
+  expect(second).toContain(agent);
   expect(second.indexOf(`- ${later} `)).toBeLessThan(second.indexOf(`- ${rule} `));
 });
 
@@ -313,7 +416,7 @@ test("a skipped compaction passes through untouched", async ($, on) => {
   expect(result).toEqual({ skip: "blocked" });
 });
 
-test("a reload already in the result is replaced, not repeated", async ($, on) => {
+test("a reload already in the result is replaced, and what it named is reloaded", async ($, on) => {
   const rule = `${ROOT}/docs/rules/a.md`;
   const later = `${ROOT}/docs/rules/b.md`;
   const stale = {
@@ -326,9 +429,20 @@ test("a reload already in the result is replaced, not repeated", async ($, on) =
   on("fs.exists", () => ({ value: false }));
   on("fs.read", ($, e) => ({ value: e.path === rule ? "rule" : "later" }));
   on("session.compact", () => ({ messages: [SUMMARY, stale] }));
-  const text = reload(
-    await $.session.compact({ trigger: "auto", messages: [read(rule), read(later)] }),
-  );
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(later)] }));
   expect(text).toContain(block(rule, "rule"));
   expect(text).toContain(block(later, "later"));
+});
+
+test("a reload in the result is kept when there is nothing fresh to reload", async ($, on) => {
+  const stale = { role: "user", text: `${MARKER}\n\nNothing named.`, toolUses: [] };
+  mock.env(on, { HOME });
+  on("session.root", () => ({ value: ROOT }));
+  on("fs.exists", () => ({ value: false }));
+  on("session.compact", () => ({ messages: [SUMMARY, stale] }));
+  const result = await $.session.compact({
+    trigger: "auto",
+    messages: [read(`${ROOT}/src/main.go`)],
+  });
+  expect(result.messages).toEqual([SUMMARY, stale]);
 });

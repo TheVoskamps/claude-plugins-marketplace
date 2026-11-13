@@ -14,8 +14,9 @@ const MANIFEST_HEADING = "Files, most recently used first:";
 const APPENDED = "appended below";
 const NOT_APPENDED = "not appended: read it before acting on it";
 const UNREADABLE = "could not be read";
-const SKILL_BASE = /Base directory for this skill: (.+)/;
+const SKILL_BASE = /Base directory for this skill: (.+)/g;
 const RULE_DIRS = ["/rules/", "/skills/", "/agents/"];
+const TIER_KEY = new RegExp(`^(["']?)(schema-version|${BUDGET_KEY})\\1:(?:\\s+(.*))?$`);
 
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
 type Message = { role: "user" | "assistant"; text: string; toolUses?: readonly ToolUse[] };
@@ -27,7 +28,6 @@ type Mods = {
   fs: {
     read: (path: string) => Promise<string>;
     exists: (path: string) => Promise<boolean>;
-    list: (path: string) => Promise<{ name: string; kind: string }[]>;
   };
 };
 
@@ -40,12 +40,26 @@ type Item = { label: string; seq: number; error?: string };
 /** What the walk over a transcript finds, each keyed to the position of its last use. */
 type Uses = { paths: Map<string, number>; agents: Map<string, number> };
 
+/**
+ * The skills a transcript loaded: `calls` holds the base directory each `Skill` call resolved to,
+ * and `invoked` the base directories no call claimed, by the index of the message naming them,
+ * as a slash command's expansion leaves them.
+ */
+type Skills = { calls: Map<ToolUse, string>; invoked: Map<number, string[]> };
+
+/** One line of an earlier reload message's manifest: a file's path, or an unresolved agent type. */
+type Entry = { path: string } | { agent: string };
+
+/** One install of a plugin, as `installed_plugins.json` records it. */
+type Install = { projectPath?: unknown; version?: unknown } | null;
+
 type Next = (e: CompactEvent) => Promise<Compacted>;
 type On = (event: string, hook: unknown) => { catch: (handler: unknown) => void };
 
 /**
  * Registers the `session.compact` hook, which lets the compaction run and then appends one reload
- * message after its messages, replacing any reload message already among them.
+ * message after its messages, replacing any reload message already among them. With nothing to
+ * reload it returns the compaction as `next` resolved it.
  */
 export function register(on: On): void {
   // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
@@ -53,11 +67,13 @@ export function register(on: On): void {
   on("session.compact", async ($: Mods, e: CompactEvent, next: Next) => {
     const result = await next(e);
     if (result.skip !== undefined || result.messages === undefined) return result;
-    // A result can already carry a reload message, as one core reuses from a precompute does, and
-    // the fresh one supersedes it, since its manifest names every file the old one did.
+    // A result can already carry a reload message, as one core reuses from a precompute does. The
+    // fresh one replaces it, and counts every file its manifest names as used before the
+    // transcript's own uses, so a file only the old one named is not lost.
+    const stale = result.messages.filter(isReload);
+    const text = await reloadText($, [...stale, ...e.messages]);
+    if (text === "") return result;
     const kept = result.messages.filter((message) => !isReload(message));
-    const text = await reloadText($, e.messages);
-    if (text === "") return { ...result, messages: kept };
     return { ...result, messages: [...kept, { role: "user", text, toolUses: [] }] };
   }).catch(($: Mods, e: CompactEvent, next: Next) => next(e));
 }
@@ -69,10 +85,11 @@ export function register(on: On): void {
  */
 async function reloadText($: Mods, messages: readonly Message[]): Promise<string> {
   const home = (await $.env.get("HOME")) ?? "";
-  const uses = collectUses(messages);
+  const skills = resolveSkills(messages);
+  const uses = collectUses(messages, skills);
   const items: Item[] = [];
   for (const [path, seq] of uses.paths) items.push({ label: path, seq });
-  const pluginDirs = skillPluginDirs(messages);
+  const pluginDirs = skillPluginDirs(messages, skills);
   for (const [type, seq] of uses.agents) {
     const item = await agentItem($, type, seq, pluginDirs, home);
     if (item !== undefined) items.push(item);
@@ -136,19 +153,24 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
 /**
  * Walks the transcript oldest first and records the last position at which each skill file,
  * rule file and agent type was used. A reload message from an earlier compaction counts as a
- * use of every file its manifest names, so a second compaction reloads them again.
+ * use of every file and unresolved agent type its manifest names, so a second compaction
+ * reloads them again.
  */
-function collectUses(messages: readonly Message[]): Uses {
+function collectUses(messages: readonly Message[], skills: Skills): Uses {
   const paths = new Map<string, number>();
   const agents = new Map<string, number>();
   let seq = 0;
   messages.forEach((message, index) => {
     if (isReload(message)) {
-      for (const path of manifestPaths(message.text).reverse()) paths.set(path, seq++);
+      for (const entry of manifestEntries(message.text).reverse()) {
+        if ("path" in entry) paths.set(entry.path, seq++);
+        else agents.set(entry.agent, seq++);
+      }
     }
+    for (const base of skills.invoked.get(index) ?? []) paths.set(`${base}/SKILL.md`, seq++);
     for (const use of message.toolUses ?? []) {
       if (use.tool === "Skill") {
-        const base = skillBaseDir(messages, index, use);
+        const base = skills.calls.get(use);
         if (base !== undefined) paths.set(`${base}/SKILL.md`, seq++);
       } else if (use.tool === "Agent" || use.tool === "Task") {
         const type = use.input.subagent_type;
@@ -175,33 +197,48 @@ function isReinjected(path: string, home: string): boolean {
 }
 
 /**
- * The base directory a Skill call's result names, searched in the call's own result and then in
- * the messages up to the next assistant message, where the harness puts the expanded skill text.
+ * Resolves every `Skill` call to the base directory its expansion names. A call whose own result
+ * names one takes it. The other calls of one message take, in call order, the base directories
+ * the messages up to the next assistant message name, where the harness puts each expanded
+ * skill's text. A base directory no call takes is a skill invoked as a slash command.
  */
-function skillBaseDir(
-  messages: readonly Message[],
-  index: number,
-  use: ToolUse,
-): string | undefined {
-  const texts = [use.text ?? ""];
-  for (let i = index + 1; i < messages.length && messages[i].role !== "assistant"; i++) {
-    texts.push(messages[i].text);
-  }
-  for (const text of texts) {
-    const match = SKILL_BASE.exec(text);
-    if (match !== null) return match[1].trim().replace(/\/+$/, "");
-  }
-  return undefined;
+function resolveSkills(messages: readonly Message[]): Skills {
+  const calls = new Map<ToolUse, string>();
+  const invoked = new Map<number, string[]>();
+  messages.forEach((message, index) => {
+    if (message.role !== "assistant" && !isReload(message)) {
+      invoked.set(index, baseDirs(message.text));
+    }
+  });
+  messages.forEach((message, index) => {
+    const pending: ToolUse[] = [];
+    for (const use of message.toolUses ?? []) {
+      if (use.tool !== "Skill") continue;
+      const own = baseDirs(use.text ?? "")[0];
+      if (own !== undefined) calls.set(use, own);
+      else pending.push(use);
+    }
+    for (let i = index + 1; i < messages.length && messages[i].role !== "assistant"; i++) {
+      const bases = invoked.get(i) ?? [];
+      while (pending.length > 0 && bases.length > 0) calls.set(pending.shift()!, bases.shift()!);
+    }
+  });
+  return { calls, invoked };
+}
+
+/** Every skill base directory a text names, in order, without a trailing slash. */
+function baseDirs(text: string): string[] {
+  return [...text.matchAll(SKILL_BASE)].map((match) => match[1].trim().replace(/\/+$/, ""));
 }
 
 /** Each plugin's directory, as the base directory of a skill it loaded names it. */
-function skillPluginDirs(messages: readonly Message[]): Map<string, string> {
+function skillPluginDirs(messages: readonly Message[], skills: Skills): Map<string, string> {
   const dirs = new Map<string, string>();
-  messages.forEach((message, index) => {
+  messages.forEach((message) => {
     for (const use of message.toolUses ?? []) {
       const skill = use.input.skill;
       if (use.tool !== "Skill" || typeof skill !== "string" || !skill.includes(":")) continue;
-      const base = skillBaseDir(messages, index, use);
+      const base = skills.calls.get(use);
       const cut = base?.lastIndexOf("/skills/") ?? -1;
       if (base !== undefined && cut > 0)
         dirs.set(skill.slice(0, skill.indexOf(":")), base.slice(0, cut));
@@ -211,9 +248,10 @@ function skillPluginDirs(messages: readonly Message[]): Map<string, string> {
 }
 
 /**
- * Resolves an agent type to its definition file. A project agent with no file under the project's
- * `.claude/agents/` is a built-in one and resolves to nothing. A plugin whose directory cannot be
- * found resolves to an item carrying the error.
+ * Resolves an agent type to its definition file. An agent type with no plugin prefix resolves
+ * under the project's `.claude/agents/`, then under `~/.claude/agents/`, and with a file in
+ * neither is a built-in one and resolves to nothing. A plugin whose directory cannot be found
+ * resolves to an item carrying the error.
  */
 async function agentItem(
   $: Mods,
@@ -225,8 +263,10 @@ async function agentItem(
   const colon = type.indexOf(":");
   if (colon < 0) {
     try {
-      const path = `${await $.session.root()}/.claude/agents/${type}.md`;
-      return (await $.fs.exists(path)) ? { label: path, seq } : undefined;
+      const project = `${await $.session.root()}/.claude/agents/${type}.md`;
+      if (await $.fs.exists(project)) return { label: project, seq };
+      const user = `${home}/.claude/agents/${type}.md`;
+      return home !== "" && (await $.fs.exists(user)) ? { label: user, seq } : undefined;
     } catch (err) {
       return { label: `agent ${type}`, seq, error: errorText(err) };
     }
@@ -247,31 +287,32 @@ async function agentItem(
 
 /**
  * A plugin's directory in the cache of the marketplace this hook module was installed from:
- * `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`, at the highest version present.
- * Rejects when the plugin's cache directory cannot be listed or holds no version directory.
+ * `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`, at the version
+ * `~/.claude/plugins/installed_plugins.json` records for the install of `<plugin>@<marketplace>`
+ * whose `projectPath` is the session's root, or else for the install with no `projectPath`.
+ * Rejects when that file cannot be read or parsed, or records no such install.
  */
 async function cachedPluginDir($: Mods, plugin: string, home: string): Promise<string> {
   const marketplace = baseName(dirName(dirName($.plugin.root)));
-  const base = `${home}/.claude/plugins/cache/${marketplace}/${plugin}`;
-  const versions = (await $.fs.list(base))
-    .filter((entry) => entry.kind === "dir")
-    .map((entry) => entry.name);
-  if (versions.length === 0) throw new Error(`no installed version under ${base}`);
-  versions.sort(compareVersions);
-  return `${base}/${versions[versions.length - 1]}`;
-}
-
-/** Orders `x.y.z` versions numerically, part by part. */
-function compareVersions(a: string, b: string): number {
-  const left = a.split(".");
-  const right = b.split(".");
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const x = left[i] ?? "";
-    const y = right[i] ?? "";
-    const delta = /^\d+$/.test(x) && /^\d+$/.test(y) ? Number(x) - Number(y) : x.localeCompare(y);
-    if (delta !== 0) return delta;
+  const id = `${plugin}@${marketplace}`;
+  const registry = `${home}/.claude/plugins/installed_plugins.json`;
+  const text = await $.fs.read(registry);
+  let installs: unknown;
+  try {
+    installs = JSON.parse(text)?.plugins?.[id];
+  } catch (err) {
+    throw new Error(`${registry}: ${errorText(err)}`);
   }
-  return 0;
+  const list = (Array.isArray(installs) ? installs : []) as Install[];
+  const root = await $.session.root();
+  const install =
+    list.find((entry) => entry?.projectPath === root) ??
+    list.find((entry) => entry?.projectPath === undefined || entry?.projectPath === null);
+  const version = install?.version;
+  if (typeof version !== "string" || version === "") {
+    throw new Error(`${registry} records no installed version of ${id}`);
+  }
+  return `${home}/.claude/plugins/cache/${marketplace}/${plugin}/${version}`;
 }
 
 /**
@@ -307,20 +348,19 @@ async function readBudget($: Mods, home: string): Promise<{ budget: number; note
 }
 
 /**
- * Reads one tier's top-level keys and validates `schema-version` and the budget key, as
- * `skills/lib/sdlc-config.md` → "Reading" states. Every other key is left to the orchestrator.
+ * Reads `schema-version` and the budget key off their own top-level lines and validates them, as
+ * `skills/lib/sdlc-config.md` → "Reading" states. Every other line is ignored, so the rest of the
+ * file's YAML is left to the orchestrator.
  */
 function parseTier(text: string): { value?: number; error?: string } {
   let schema: string | undefined;
   let value: string | undefined;
   for (const raw of text.split("\n")) {
-    const line = raw.replace(/\r$/, "");
-    if (/^\s*(#.*)?$/.test(line) || /^\s/.test(line) || line === "---") continue;
-    const match = /^([A-Za-z0-9_-]+):(?:\s+(.*))?$/.exec(line);
-    if (match === null) return { error: `the YAML is malformed at \`${line}\`` };
-    const scalar = (match[2] ?? "").replace(/\s+#.*$/, "").trim();
-    if (match[1] === "schema-version") schema = scalar;
-    if (match[1] === BUDGET_KEY) value = scalar;
+    const match = TIER_KEY.exec(raw.replace(/\r$/, ""));
+    if (match === null) continue;
+    const scalar = (match[3] ?? "").replace(/\s+#.*$/, "").trim();
+    if (match[2] === "schema-version") schema = scalar;
+    else value = scalar;
   }
   if (schema === undefined) return { error: "`schema-version` is absent" };
   if (!/^\d+$/.test(schema))
@@ -329,7 +369,7 @@ function parseTier(text: string): { value?: number; error?: string } {
     return { error: `\`schema-version\` is ${schema}, lower than the pin ${SCHEMA_PIN}` };
   }
   if (value === undefined) return {};
-  if (!/^[1-9]\d*$/.test(value))
+  if (!/^\+?\d+$/.test(value) || Number(value) < 1)
     return { error: `\`${BUDGET_KEY}\` is \`${value}\`, not a positive integer` };
   return { value: Number(value) };
 }
@@ -339,19 +379,24 @@ function isReload(message: Message): boolean {
   return message.role === "user" && message.text.startsWith(MARKER);
 }
 
-/** The paths an earlier reload message's manifest names, in its order. */
-function manifestPaths(text: string): string[] {
+/**
+ * The paths and unresolved agent types an earlier reload message's manifest names, in its order.
+ */
+function manifestEntries(text: string): Entry[] {
   const lines = text.split("\n");
   const start = lines.indexOf(MANIFEST_HEADING);
   if (start < 0) return [];
-  const paths: string[] = [];
-  const entry = new RegExp(`^- (/.+?) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`);
+  const entries: Entry[] = [];
+  const entry = new RegExp(
+    `^- (?:(/.+?)|agent (\\S+)) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`,
+  );
   for (const line of lines.slice(start + 1)) {
     if (!line.startsWith("- ")) break;
     const match = entry.exec(line);
-    if (match !== null) paths.push(match[1]);
+    if (match === null) continue;
+    entries.push(match[1] !== undefined ? { path: match[1] } : { agent: match[2] });
   }
-  return paths;
+  return entries;
 }
 
 /** Keeps one item per label, at its most recent use. */

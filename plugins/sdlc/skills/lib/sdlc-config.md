@@ -10,10 +10,12 @@ run, and a value a teammate needs travels in that teammate's brief.
 The one exception is the `reload-after-compact` hook, which resolves
 `reload-after-compact-token-budget` itself on every compaction, per
 "Reading", because it runs outside any orchestrate run and has no brief
-to receive a value. It checks only a file's read, its YAML, its
-`schema-version` and that key's value, and where "Reading" aborts on
-one of those it uses the key's default instead and names the path and
-the error in the text it appends, so the compaction still completes.
+to receive a value. It checks only a file's read, its `schema-version`
+and that key's value, reading each key off its own top-level line and
+ignoring every other line, so YAML malformed elsewhere in the file goes
+unchecked. Where "Reading" aborts on one of those checks it uses the
+key's default instead and names the path and the error in the text it
+appends, so the compaction still completes.
 
 ## The tiers
 
