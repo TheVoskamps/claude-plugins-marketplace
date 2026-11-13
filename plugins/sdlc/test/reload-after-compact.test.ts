@@ -352,8 +352,10 @@ const OPENING = [
 ];
 
 /**
- * Compacts `messages` after the conversation invoked the readiness skill and read the two
- * orchestrate opening files, every file reading as its own path, and returns the reload text.
+ * Compacts the transcript `messages` builds and returns the reload text, every file reading as its
+ * own path. `messages` receives the orchestrate opening, as the messages that invoke the readiness
+ * skill and read the two orchestrate opening files, and a read of one rule file, and places either
+ * where the test needs it, or leaves it out.
  */
 async function compactOpening($, on, messages): Promise<string> {
   mock.env(on, { HOME });
