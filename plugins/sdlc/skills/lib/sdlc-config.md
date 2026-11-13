@@ -11,7 +11,8 @@ The one exception is the `reload-after-compact` hook, which resolves
 `reload-after-compact-token-budget` itself on every compaction, per
 "Reading", because it runs outside any orchestrate run and has no brief
 to receive a value. It checks only a file's read, its `schema-version`
-and that key's value, reading each key off its own top-level line and
+and that key's value, reading `schema-version` off its own top-level
+line, the key off the one line shape its description allows, and
 ignoring every other line, so YAML malformed elsewhere in the file goes
 unchecked. Where "Reading" aborts on one of those checks it uses the
 key's default instead and names the path and the error in the text it
@@ -53,7 +54,7 @@ merge-poll-interval-seconds: 300
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
 | `merge-max-unchanged-polls` | positive integer | `15` |
-| `reload-after-compact-token-budget` | positive integer | `100000` |
+| `reload-after-compact-token-budget` | plain decimal integer, 1 or more | `100000` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
@@ -70,7 +71,14 @@ merge-poll-interval-seconds: 300
   as characters ÷ 4, of skill and rule-file text the
   `reload-after-compact` hook appends to a compacted conversation.
   The files past it are listed by path, to be read before acting on
-  them.
+  them. The value is valid only on a line that starts at column 0 with
+  `reload-after-compact-token-budget:`, then whitespace, then a decimal
+  integer of 1 or more with no sign, leading zero, underscore or quote,
+  then at most whitespace and a `#` comment. Any other value, and any
+  other line that writes the key — quoted, indented, in a flow mapping,
+  with its value on the next line, or a second time — is outside its
+  allowed values. A line whose first non-blank character is `#` is a
+  comment and sets nothing.
 
 ## Reading
 
@@ -92,7 +100,8 @@ of these that applies:
   values** — abort, naming the path and the key. A positive integer is
   a YAML integer of 1 or more; `0`, a negative, a float and a quoted
   string are all outside it, and so is an integer above the key's
-  stated maximum.
+  stated maximum. A key whose description states a narrower shape
+  takes only that shape.
 - **Otherwise** — the tier contributes every key from the table above
   that it sets. A key the table does not list is ignored, and so is a
   `schema-version` above the pin.
@@ -119,8 +128,8 @@ Each writer owns one tier's file and runs these steps against it.
    show the value the lower tiers resolve to and the tier it comes
    from, and the value the writer's own file sets now, if any. Offer
    every allowed value and **leave unchanged**. A positive-integer key
-   takes a typed value, re-asked until it is a positive integer within
-   the key's stated maximum.
+   takes a typed value, re-asked until it is within the key's allowed
+   values.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and

@@ -4,26 +4,60 @@ import { BUDGET_KEY, DEFAULT_BUDGET, MARKER } from "../hooks/reload-after-compac
 
 const HOME = "/home/u";
 const ROOT = "/work";
+const SESSION = "5f0c3e1a-7b2d-4c8e-9a10-2b3c4d5e6f70";
 const SUMMARY = {
   role: "user",
   text: "This session is being continued from a previous conversation.",
   toolUses: [],
 };
 const SKILLS = "/plugins/sdlc/0.1.0/skills";
+const STATE = `${HOME}/.local/state/sdlc/reload-after-compact/${SESSION}`;
+
+type Disk = {
+  /** A file's text, `{ deny }` to refuse its read, or `undefined` when it does not exist. */
+  read?: (path: string) => string | { deny: string } | undefined;
+  /** Whether a file exists; by default, whether `read` returns anything for it. */
+  exists?: (path: string) => boolean;
+  /** A reason to refuse every write with, or `undefined` to let each land. */
+  refuseWrite?: string;
+  env?: Record<string, string>;
+  /** What `next(e)` resolves to; the summary alone by default. */
+  compacted?: object;
+};
 
 /**
- * Stubs everything the hook reaches: `files` is the file system by absolute path, a path in
- * `refused` rejects its read with the given reason, and `next(e)` resolves to the summary alone.
+ * Stubs everything the hook reaches, with `disk` as the file system behind an in-memory store of
+ * the files the hook writes, which the returned map holds by path.
  */
-function stub(on, files: Record<string, string>, refused: Record<string, string> = {}, env = {}) {
-  mock.env(on, { HOME, ...env });
+function host(on, disk: Disk = {}): Record<string, string> {
+  const written: Record<string, string> = {};
+  const read = disk.read ?? (() => undefined);
+  const exists = disk.exists ?? ((path: string) => read(path) !== undefined);
+  mock.env(on, { HOME, ...disk.env });
   on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", ($, e) => ({ value: e.path in files || e.path in refused }));
+  on("session.id", () => ({ value: SESSION }));
+  on("fs.exists", ($, e) => ({ value: e.path in written || exists(e.path) }));
   on("fs.read", ($, e) => {
-    if (e.path in refused) return { deny: refused[e.path] };
-    return e.path in files ? { value: files[e.path] } : { deny: `ENOENT: no such file, ${e.path}` };
+    if (e.path in written) return { value: written[e.path] };
+    const text = read(e.path);
+    if (text === undefined) return { deny: `ENOENT: no such file, ${e.path}` };
+    return typeof text === "string" ? { value: text } : text;
   });
-  on("session.compact", () => ({ messages: [SUMMARY] }));
+  on("fs.write", ($, e) => {
+    if (disk.refuseWrite !== undefined) return { deny: disk.refuseWrite };
+    written[e.path] = e.text;
+    return { value: undefined };
+  });
+  on("session.compact", () => disk.compacted ?? { messages: [SUMMARY] });
+  return written;
+}
+
+/** `host` over `files` by absolute path, with a path in `refused` refusing its read. */
+function stub(on, files: Record<string, string>, refused: Record<string, string> = {}, env = {}) {
+  return host(on, {
+    read: (path) => (path in refused ? { deny: refused[path] } : files[path]),
+    env,
+  });
 }
 
 function assistant(...toolUses) {
@@ -158,14 +192,13 @@ function launched(name: string) {
 
 test("a slash-typed skill whose message names no base directory is reloaded by its name", async ($, on) => {
   const reads: string[] = [];
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("fs.read", ($, e) => {
-    reads.push(e.path);
-    return { value: "orchestrate skill" };
+  host(on, {
+    read: (path) => {
+      reads.push(path);
+      return "orchestrate skill";
+    },
+    exists: () => false,
   });
-  on("session.compact", () => ({ messages: [SUMMARY] }));
   const text = reload(
     await $.session.compact({ trigger: "auto", messages: [typed("sdlc:orchestrate")] }),
   );
@@ -176,14 +209,13 @@ test("a slash-typed skill whose message names no base directory is reloaded by i
 
 test("a Skill call whose result names no base directory is reloaded by its name", async ($, on) => {
   const reads: string[] = [];
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("fs.read", ($, e) => {
-    reads.push(e.path);
-    return { value: "cli interface" };
+  host(on, {
+    read: (path) => {
+      reads.push(path);
+      return "cli interface";
+    },
+    exists: () => false,
   });
-  on("session.compact", () => ({ messages: [SUMMARY] }));
   const text = reload(
     await $.session.compact({
       trigger: "auto",
@@ -194,6 +226,38 @@ test("a Skill call whose result names no base directory is reloaded by its name"
   const path = reads.find((read) => read.endsWith("/sdlc/skills/pr-read-cli-interface/SKILL.md"));
   expect(path).toBeDefined();
   expect(text).toContain(block(path!, "cli interface"));
+});
+
+test("every command tag in one message is reloaded", async ($, on) => {
+  const [mine, theirs] = ["mine", "theirs"].map(
+    (name) => `${ROOT}/.claude/skills/${name}/SKILL.md`,
+  );
+  stub(on, { [mine]: "mine", [theirs]: "theirs" });
+  const message = {
+    role: "user",
+    text: "<command-name>/mine</command-name>\n<command-name>/theirs</command-name>",
+    toolUses: [],
+  };
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [message] }));
+  expect(text).toContain(block(mine, "mine"));
+  expect(text).toContain(block(theirs, "theirs"));
+});
+
+test("a command tag and its base directory in the next message are recorded once, by the file", async ($, on) => {
+  const base = `${HOME}/.claude/plugins/cache/market/git-tools/0.11.0/skills/git-branch-sync`;
+  stub(on, { [`${base}/SKILL.md`]: "branch sync" });
+  const messages = [
+    typed("git-tools:git-branch-sync"),
+    {
+      role: "user",
+      text: `Base directory for this skill: ${base}\n\nThe skill's text.`,
+      toolUses: [],
+    },
+  ];
+  const text = reload(await $.session.compact({ trigger: "auto", messages }));
+  expect(text).toContain(block(`${base}/SKILL.md`, "branch sync"));
+  expect(text).not.toContain("skill git-tools:git-branch-sync");
+  expect(text.split("git-branch-sync/SKILL.md (")).toHaveLength(2);
 });
 
 test("a skill with no plugin prefix resolves under the project, then ~/.claude/skills", async ($, on) => {
@@ -207,6 +271,30 @@ test("a skill with no plugin prefix resolves under the project, then ~/.claude/s
   expect(text).not.toContain("compact/SKILL.md");
 });
 
+test("a skill with no plugin prefix in neither skills directory resolves in an installed plugin", async ($, on) => {
+  const cache = `${HOME}/.claude/plugins/cache/market`;
+  const file = `${cache}/issues/0.14.1/skills/issue-view/SKILL.md`;
+  stub(on, {
+    [`${HOME}/.claude/plugins/installed_plugins.json`]: JSON.stringify({
+      version: 2,
+      plugins: {
+        "git-tools@market": [{ scope: "user", version: "0.11.0" }],
+        "issues@market": [{ scope: "user", version: "0.14.1" }],
+      },
+    }),
+    [file]: "issue view",
+  });
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [typed("issue-view"), typed("compact")],
+    }),
+  );
+  expect(text).toContain(block(file, "issue view"));
+  expect(text).not.toContain("compact/SKILL.md");
+  expect(text).not.toContain("could not be read");
+});
+
 test("a skill of another plugin with no install recorded is named, and named again", async ($, on) => {
   const entry = "- skill git-tools:git-branch-sync (could not be read: ";
   stub(on, {});
@@ -214,45 +302,48 @@ test("a skill of another plugin with no install recorded is named, and named aga
     await $.session.compact({ trigger: "auto", messages: launched("git-tools:git-branch-sync") }),
   );
   expect(first).toContain(entry);
-  const messages = [SUMMARY, { role: "user", text: first, toolUses: [] }];
-  const second = reload(await $.session.compact({ trigger: "auto", messages }));
+  const second = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY] }));
   expect(second).toContain(entry);
 });
 
-test("no agent definition is reloaded for an agent type the conversation spawned", async ($, on) => {
+test("a file read under an agents/ directory is not appended", async ($, on) => {
   const reads: string[] = [];
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: true }));
-  on("fs.read", ($, e) => {
-    reads.push(e.path);
-    return { value: "text" };
-  });
-  on("session.compact", () => ({ messages: [SUMMARY] }));
   const rule = `${ROOT}/docs/rules/a.md`;
+  const agents = [
+    `${ROOT}/plugins/sdlc/agents/issue-developer.md`,
+    `${HOME}/.claude/agents/helper.md`,
+    `${ROOT}/plugins/sdlc/skills/lib/agents/brief.md`,
+    `${ROOT}/docs/rules/agents/notes.md`,
+  ];
+  host(on, {
+    read: (path) => {
+      reads.push(path);
+      return path === rule ? "text" : undefined;
+    },
+  });
   const messages = [
     spawn("sdlc:issue-developer"),
     spawn("helper"),
-    spawn("git-tools:branch-helper"),
+    ...agents.map(read),
     read(rule),
   ];
   const text = reload(await $.session.compact({ trigger: "auto", messages }));
   expect(text).toContain(block(rule, "text"));
   expect(reads.filter((path) => path.includes("/agents/"))).toEqual([]);
+  expect(text).not.toContain("/agents/");
   expect(text).not.toContain("issue-developer");
   expect(text).not.toContain("helper");
 });
 
 test("a skill of the hook's own plugin with no base directory resolves under the plugin root", async ($, on) => {
   const paths: string[] = [];
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("fs.read", ($, e) => {
-    paths.push(e.path);
-    return { value: "skill" };
+  host(on, {
+    read: (path) => {
+      paths.push(path);
+      return "skill";
+    },
+    exists: () => false,
   });
-  on("session.compact", () => ({ messages: [SUMMARY] }));
   reload(await $.session.compact({ trigger: "auto", messages: launched("sdlc:git-review-pr") }));
   expect(paths.some((path) => path.endsWith("/sdlc/skills/git-review-pr/SKILL.md"))).toBe(true);
   expect(paths.some((path) => path.includes("installed_plugins.json"))).toBe(false);
@@ -263,14 +354,13 @@ test("a skill of another plugin resolves to its installed version", async ($, on
   // path the hook reads for a skill of its own plugin.
   const reads: string[] = [];
   const files: Record<string, string> = {};
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("fs.read", ($, e) => {
-    reads.push(e.path);
-    return e.path in files ? { value: files[e.path] } : { deny: `ENOENT: ${e.path}` };
+  host(on, {
+    read: (path) => {
+      reads.push(path);
+      return files[path];
+    },
+    exists: () => false,
   });
-  on("session.compact", () => ({ messages: [SUMMARY] }));
   reload(await $.session.compact({ trigger: "auto", messages: launched("sdlc:git-review-pr") }));
   const root = reads[0].slice(0, -"/skills/git-review-pr/SKILL.md".length);
   const marketplace = root.split("/").at(-3);
@@ -336,6 +426,8 @@ test("a subagent's compaction reloads what its own transcript loaded", async ($,
   on("session.messages", () => ({
     value: [...skill("sdlc:orchestrate", `${SKILLS}/orchestrate`), read(mainRule)],
   }));
+  // The main conversation compacts first, so its uses are in its own state file.
+  reload(await $.session.compact({ trigger: "auto", messages: [read(mainRule)] }));
   const messages = [...skill("sdlc:git-review-pr", `${SKILLS}/git-review-pr`), read(rule)];
   const text = reload(await $.session.compact({ trigger: "auto", agentId: "a1", messages }));
   expect(text).toContain(block(own, "review skill"));
@@ -351,99 +443,128 @@ const OPENING = [
   "skills/orchestrate/lib/plan.md",
 ];
 
-/**
- * Compacts the transcript `messages` builds and returns the reload text, every file reading as its
- * own path. `messages` receives the orchestrate opening, as the messages that invoke the readiness
- * skill and read the two orchestrate opening files, and a read of one rule file, and places either
- * where the test needs it, or leaves it out.
- */
+/** The messages that invoke the readiness skill and read the two orchestrate opening files. */
+const OPENING_MESSAGES = [
+  ...launched("sdlc:orchestrate-readiness"),
+  read(`${SKILLS}/orchestrate/lib/pre-flight.md`),
+  read(`${SKILLS}/orchestrate/lib/plan.md`),
+];
+const RULE = read(`${ROOT}/docs/rules/a.md`);
+
+/** Stubs a disk on which every file reads as its own path and no config tier exists. */
+function openingHost(on) {
+  host(on, { read: (path) => path, exists: () => false });
+}
+
 async function compactOpening($, on, messages): Promise<string> {
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("fs.read", ($, e) => ({ value: e.path }));
-  on("session.compact", () => ({ messages: [SUMMARY] }));
-  const opening = [
-    ...launched("sdlc:orchestrate-readiness"),
-    read(`${SKILLS}/orchestrate/lib/pre-flight.md`),
-    read(`${SKILLS}/orchestrate/lib/plan.md`),
-  ];
-  const rule = `${ROOT}/docs/rules/a.md`;
-  return reload(
-    await $.session.compact({
-      trigger: "auto",
-      messages: messages(opening, read(rule)),
-    }),
-  );
+  openingHost(on);
+  return reload(await $.session.compact({ trigger: "auto", messages }));
 }
 
 test("orchestrate's opening files are dropped once an Agent call follows its invocation", async ($, on) => {
-  const text = await compactOpening($, on, (opening, rule) => [
+  const text = await compactOpening($, on, [
     typed("sdlc:orchestrate"),
-    ...opening,
+    ...OPENING_MESSAGES,
     spawn("sdlc:issue-developer"),
-    rule,
+    RULE,
   ]);
   for (const file of OPENING) expect(text).not.toContain(file);
   expect(text).toContain("/docs/rules/a.md (appended below)");
 });
 
+test("an orchestrate invocation in a message's second command tag opens a run", async ($, on) => {
+  const invocation = {
+    role: "user",
+    text: "<command-name>/other</command-name>\n<command-name>/sdlc:orchestrate</command-name>",
+    toolUses: [],
+  };
+  const text = await compactOpening($, on, [
+    invocation,
+    ...OPENING_MESSAGES,
+    spawn("sdlc:issue-developer"),
+    RULE,
+  ]);
+  for (const file of OPENING) expect(text).not.toContain(file);
+});
+
 test("orchestrate's opening files are reloaded before an Agent call follows its invocation", async ($, on) => {
-  const text = await compactOpening($, on, (opening, rule) => [
+  const text = await compactOpening($, on, [
     ...skill("sdlc:orchestrate", `${SKILLS}/orchestrate`),
-    ...opening,
-    rule,
+    ...OPENING_MESSAGES,
+    RULE,
   ]);
   for (const file of OPENING) expect(text).toMatch(new RegExp(`/${file} \\(appended below\\)`));
 });
 
 test("an Agent call before the orchestrate invocation leaves its opening files live", async ($, on) => {
-  const text = await compactOpening($, on, (opening, rule) => [
+  const text = await compactOpening($, on, [
     spawn("sdlc:pr-monitor"),
     typed("sdlc:orchestrate"),
-    ...opening,
-    rule,
+    ...OPENING_MESSAGES,
+    RULE,
   ]);
   for (const file of OPENING) expect(text).toMatch(new RegExp(`/${file} \\(appended below\\)`));
 });
 
 test("a later orchestrate invocation makes its opening files live until its own Agent call", async ($, on) => {
-  const live = await compactOpening($, on, (opening, rule) => [
+  const live = await compactOpening($, on, [
     typed("sdlc:orchestrate"),
-    ...opening,
+    ...OPENING_MESSAGES,
     spawn("sdlc:issue-developer"),
     ...launched("sdlc:orchestrate"),
-    rule,
+    RULE,
   ]);
   for (const file of OPENING) expect(live).toMatch(new RegExp(`/${file} \\(appended below\\)`));
 });
 
 test("a later orchestrate invocation's own Agent call drops its opening files again", async ($, on) => {
-  const text = await compactOpening($, on, (opening, rule) => [
+  const text = await compactOpening($, on, [
     typed("sdlc:orchestrate"),
-    ...opening,
+    ...OPENING_MESSAGES,
     spawn("sdlc:issue-developer"),
     ...launched("sdlc:orchestrate"),
-    rule,
+    RULE,
     spawn("sdlc:issue-fixer"),
   ]);
   for (const file of OPENING) expect(text).not.toContain(file);
 });
 
-test("an opening file an earlier reload named is dropped once the run is past its opening", async ($, on) => {
-  const preFlight = `${SKILLS}/orchestrate/lib/pre-flight.md`;
-  const stale = {
-    role: "user",
-    text: `${MARKER}\n\nFiles, most recently used first:\n- ${preFlight} (appended below)`,
-    toolUses: [],
-  };
-  const text = await compactOpening($, on, (opening, rule) => [
-    stale,
-    typed("sdlc:orchestrate"),
-    spawn("sdlc:issue-developer"),
-    rule,
-  ]);
-  expect(text).not.toContain("pre-flight.md");
+test("a run past its opening stays past it once a compaction summarized its invocation away", async ($, on) => {
+  openingHost(on);
+  const first = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [
+        typed("sdlc:orchestrate"),
+        ...OPENING_MESSAGES,
+        spawn("sdlc:issue-developer"),
+        RULE,
+      ],
+    }),
+  );
+  for (const file of OPENING) expect(first).not.toContain(file);
+  const second = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY, RULE] }));
+  for (const file of OPENING) expect(second).not.toContain(file);
+  expect(second).toContain("/docs/rules/a.md (appended below)");
+});
+
+test("an Agent call after an invocation an earlier compaction summarized away ends the opening", async ($, on) => {
+  openingHost(on);
+  const first = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [typed("sdlc:orchestrate"), ...OPENING_MESSAGES, RULE],
+    }),
+  );
+  for (const file of OPENING) expect(first).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+  const second = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [SUMMARY, spawn("sdlc:issue-developer"), RULE],
+    }),
+  );
+  for (const file of OPENING) expect(second).not.toContain(file);
+  expect(second).toContain("/docs/rules/a.md (appended below)");
 });
 
 test("past the budget, the most recently used are appended and the rest listed", async ($, on) => {
@@ -504,8 +625,16 @@ test("XDG_CONFIG_HOME locates the global tier", async ($, on) => {
 for (const [name, config] of [
   ["zero", `schema-version: 1\n${BUDGET_KEY}: 0\n`],
   ["a signed zero", `schema-version: 1\n${BUDGET_KEY}: +0\n`],
+  ["a signed integer", `schema-version: 1\n${BUDGET_KEY}: +50000\n`],
+  ["an integer with leading zeros", `schema-version: 1\n${BUDGET_KEY}: 007\n`],
+  ["a hex integer", `schema-version: 1\n${BUDGET_KEY}: 0x1000\n`],
+  ["an integer with underscores", `schema-version: 1\n${BUDGET_KEY}: 1_000\n`],
   ["a quoted string", `schema-version: 1\n${BUDGET_KEY}: "500"\n`],
   ["a float", `schema-version: 1\n${BUDGET_KEY}: 1.5\n`],
+  ["a flow mapping", `schema-version: 1\n{${BUDGET_KEY}: 500}\n`],
+  ["a value on the next line", `schema-version: 1\n${BUDGET_KEY}:\n  500\n`],
+  ["a quoted key", `schema-version: 1\n"${BUDGET_KEY}": 500\n`],
+  ["the key twice", `schema-version: 1\n${BUDGET_KEY}: 500\n${BUDGET_KEY}: 600\n`],
   ["no schema-version", `${BUDGET_KEY}: 50\n`],
 ]) {
   test(`a tier holding ${name} falls back to the default and names the path`, async ($, on) => {
@@ -524,8 +653,6 @@ for (const [name, config] of [
 }
 
 for (const [name, config, budget] of [
-  ["a signed integer", `schema-version: 1\n${BUDGET_KEY}: +50000\n`, 50000],
-  ["an integer with leading zeros", `schema-version: 1\n${BUDGET_KEY}: 007\n`, 7],
   [
     "unlisted keys with quoted and dotted names",
     `schema-version: 1\n"odd key": x\nmerge.wait: skip\n'other': 2\n${BUDGET_KEY}: 11\n`,
@@ -536,6 +663,7 @@ for (const [name, config, budget] of [
     `schema-version: 1\nthis is not yaml\n${BUDGET_KEY}: 13\n`,
     13,
   ],
+  ["a commented-out budget line", `schema-version: 1\n# ${BUDGET_KEY}: 0\n${BUDGET_KEY}: 17\n`, 17],
 ] as const) {
   test(`a tier holding ${name} sets the budget`, async ($, on) => {
     const rule = `${ROOT}/docs/rules/a.md`;
@@ -569,7 +697,7 @@ test("a file that cannot be read is named with its error, and the compaction com
   expect(text).toContain(block(rule, "rule"));
 });
 
-test("a second compaction reloads what the first one reloaded", async ($, on) => {
+test("a file used before an earlier compaction is still reloaded at a later one", async ($, on) => {
   const rule = `${ROOT}/docs/rules/a.md`;
   const later = `${ROOT}/docs/rules/b.md`;
   const unresolved = "- skill git-tools:git-branch-sync (could not be read: ";
@@ -581,12 +709,71 @@ test("a second compaction reloads what the first one reloaded", async ($, on) =>
     }),
   );
   expect(first).toContain(unresolved);
-  const messages = [SUMMARY, { role: "user", text: first, toolUses: [] }, read(later)];
-  const second = reload(await $.session.compact({ trigger: "auto", messages }));
+  // The earlier reload message is left out of the transcript, so nothing can be read off it.
+  const second = reload(
+    await $.session.compact({ trigger: "auto", messages: [SUMMARY, read(later)] }),
+  );
   expect(second).toContain(block(rule, "rule"));
   expect(second).toContain(block(later, "later"));
   expect(second).toContain(unresolved);
   expect(second.indexOf(`- ${later} `)).toBeLessThan(second.indexOf(`- ${rule} `));
+  const third = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY] }));
+  expect(third).toContain(block(rule, "rule"));
+  expect(third).toContain(block(later, "later"));
+});
+
+test("an earlier reload message's text is never read as a use", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const later = `${ROOT}/docs/rules/b.md`;
+  stub(on, { [rule]: "rule", [later]: "later" });
+  const earlier = {
+    role: "user",
+    text: `${MARKER}\n\nFiles, most recently used first:\n- ${rule} (appended below)\n\n${block(rule, "rule")}`,
+    toolUses: [],
+  };
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [SUMMARY, earlier, read(later)] }),
+  );
+  expect(text).toContain(block(later, "later"));
+  expect(text).not.toContain(rule);
+});
+
+test("uses are recorded under XDG_STATE_HOME, by session and by loop", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const written = stub(on, { [rule]: "rule" }, {}, { XDG_STATE_HOME: "/xdg-state" });
+  reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  reload(await $.session.compact({ trigger: "auto", agentId: "a1", messages: [read(rule)] }));
+  const dir = `/xdg-state/sdlc/reload-after-compact/${SESSION}`;
+  expect(Object.keys(written).sort()).toEqual([`${dir}/agent-a1.json`, `${dir}/main.json`]);
+});
+
+test("a state file that cannot be read is named with its error, and the compaction completes", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  stub(on, { [rule]: "rule" }, { [`${STATE}/main.json`]: "EACCES: permission denied" });
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  expect(text).toContain(`- ${STATE}/main.json: `);
+  expect(text).toContain("EACCES: permission denied");
+  expect(text).toContain(block(rule, "rule"));
+});
+
+test("a state file that holds no state is named with its error, and the compaction completes", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  stub(on, { [rule]: "rule", [`${STATE}/main.json`]: "not json" });
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  expect(text).toContain(`- ${STATE}/main.json: not JSON`);
+  expect(text).toContain(block(rule, "rule"));
+});
+
+test("a state file that cannot be written is named with its error, and the compaction completes", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  host(on, {
+    read: (path) => (path === rule ? "rule" : undefined),
+    refuseWrite: "EROFS: read-only file system",
+  });
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  expect(text).toContain(`- ${STATE}/main.json: `);
+  expect(text).toContain("EROFS: read-only file system");
+  expect(text).toContain(block(rule, "rule"));
 });
 
 test("nothing is appended when the transcript loaded nothing", async ($, on) => {
@@ -608,7 +795,7 @@ test("a skipped compaction passes through untouched", async ($, on) => {
   expect(result).toEqual({ skip: "blocked" });
 });
 
-test("a reload already in the result is replaced, and what it named is reloaded", async ($, on) => {
+test("a reload already in the result is replaced, and its text is not read", async ($, on) => {
   const rule = `${ROOT}/docs/rules/a.md`;
   const later = `${ROOT}/docs/rules/b.md`;
   const stale = {
@@ -616,25 +803,43 @@ test("a reload already in the result is replaced, and what it named is reloaded"
     text: `${MARKER}\n\nFiles, most recently used first:\n- ${rule} (appended below)`,
     toolUses: [],
   };
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("fs.read", ($, e) => ({ value: e.path === rule ? "rule" : "later" }));
-  on("session.compact", () => ({ messages: [SUMMARY, stale] }));
+  host(on, {
+    read: (path) => ({ [rule]: "rule", [later]: "later" })[path],
+    compacted: { messages: [SUMMARY, stale] },
+  });
   const text = reload(await $.session.compact({ trigger: "auto", messages: [read(later)] }));
-  expect(text).toContain(block(rule, "rule"));
   expect(text).toContain(block(later, "later"));
+  expect(text).not.toContain(rule);
 });
 
-test("a reload in the result is kept when there is nothing fresh to reload", async ($, on) => {
+test("a reload in the result is dropped when there is nothing fresh to reload", async ($, on) => {
   const stale = { role: "user", text: `${MARKER}\n\nNothing named.`, toolUses: [] };
-  mock.env(on, { HOME });
-  on("session.root", () => ({ value: ROOT }));
-  on("fs.exists", () => ({ value: false }));
-  on("session.compact", () => ({ messages: [SUMMARY, stale] }));
+  host(on, { compacted: { messages: [SUMMARY, stale] } });
   const result = await $.session.compact({
     trigger: "auto",
     messages: [read(`${ROOT}/src/main.go`)],
   });
-  expect(result.messages).toEqual([SUMMARY, stale]);
+  expect(result.messages).toEqual([SUMMARY]);
+});
+
+test("a reload in the result naming opening files is dropped once the run is past its opening", async ($, on) => {
+  const preFlight = `${SKILLS}/orchestrate/lib/pre-flight.md`;
+  const stale = {
+    role: "user",
+    text: `${MARKER}\n\nFiles, most recently used first:\n- ${preFlight} (appended below)`,
+    toolUses: [],
+  };
+  host(on, {
+    read: (path) => path,
+    exists: () => false,
+    compacted: { messages: [SUMMARY, stale] },
+  });
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [typed("sdlc:orchestrate"), read(preFlight), spawn("sdlc:issue-developer")],
+    }),
+  );
+  expect(text).toContain("/sdlc/skills/orchestrate/SKILL.md (appended below)");
+  expect(text).not.toContain("pre-flight.md");
 });

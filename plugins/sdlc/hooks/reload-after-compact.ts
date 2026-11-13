@@ -1,6 +1,7 @@
 // After a compaction, appends to the compacted conversation the full text of the skills and rule
 // files the compacting loop loaded before it, so the loop works from those files rather than from
-// the summary's truncated account of them.
+// the summary's truncated account of them. A reload message the compacted conversation already
+// holds is removed, so it holds at most the one this compaction appends.
 
 // The key and its default must match the key table in `skills/lib/sdlc-config.md`, and
 // `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
@@ -8,17 +9,17 @@
 export const DEFAULT_BUDGET = 100000;
 /** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */
 export const BUDGET_KEY = "reload-after-compact-token-budget";
-/** The opening of every reload message, by which a later compaction recognises one. */
+/** The opening of every reload message, by which the hook tells one from any other message. */
 export const MARKER = "<reload-after-compact>";
 
 const SCHEMA_PIN = 1;
-const MANIFEST_HEADING = "Files, most recently used first:";
 const APPENDED = "appended below";
 const NOT_APPENDED = "not appended: read it before acting on it";
 const UNREADABLE = "could not be read";
 const SKILL_BASE = /Base directory for this skill: (.+)/g;
-const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/;
-const RULE_DIRS = ["/rules/", "/skills/", "/agents/"];
+const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/g;
+const RULE_DIRS = ["/rules/", "/skills/"];
+const AGENTS_DIR = "/agents/";
 const ORCHESTRATE = "sdlc:orchestrate";
 // The files that serve only the opening of an orchestrate run, which spawns no agent until
 // pre-flight, the readiness gate and the plan confirmation are done.
@@ -27,7 +28,13 @@ const OPENING_FILES = [
   "/skills/orchestrate/lib/pre-flight.md",
   "/skills/orchestrate/lib/plan.md",
 ];
-const TIER_KEY = new RegExp(`^(["']?)(schema-version|${BUDGET_KEY})\\1:(?:\\s+(.*))?$`);
+const SCHEMA_LINE = /^(["']?)schema-version\1:(?:\s+(.*))?$/;
+// The one shape a budget may take: the key at column 0, then a decimal integer of 1 or more with
+// no sign or leading zero, then at most a comment.
+const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}:[ \\t]+([1-9][0-9]*)(?:[ \\t]+#.*)?[ \\t]*$`);
+// Any line that writes the budget key as a key, in whatever shape: quoted, indented, in a flow
+// mapping, or with its value on a later line.
+const BUDGET_MENTION = new RegExp(`(?:^|[\\s{,"'])${BUDGET_KEY}["']?\\s*:`);
 
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
 type Message = { role: "user" | "assistant"; text: string; toolUses?: readonly ToolUse[] };
@@ -35,15 +42,16 @@ type Message = { role: "user" | "assistant"; text: string; toolUses?: readonly T
 type Mods = {
   plugin: { name: string; root: string };
   env: { get: (name: string) => Promise<string | undefined> };
-  session: { root: () => Promise<string> };
+  session: { root: () => Promise<string>; id: () => Promise<string> };
   fs: {
     read: (path: string) => Promise<string>;
+    write: (path: string, text: string) => Promise<void>;
     exists: (path: string) => Promise<boolean>;
   };
 };
 
 type Compacted = { messages?: readonly Message[]; skip?: string };
-type CompactEvent = { trigger: string; messages: readonly Message[] };
+type CompactEvent = { trigger: string; agentId?: string; messages: readonly Message[] };
 
 /** One file to reload: `label` is its absolute path, or a description when no path resolved. */
 type Item = { label: string; seq: number; error?: string };
@@ -60,17 +68,29 @@ type Uses = {
 /**
  * The skills a transcript loaded: `calls` holds the base directory each `Skill` call resolved to,
  * `invoked` the base directories no call claimed, by the index of the message naming them, and
- * `commands` the skill name of each slash command whose message names no base directory, by the
- * index of that message.
+ * `commands` the skill names of the slash commands no base directory was paired with, by the
+ * index of the message naming them.
  */
 type Skills = {
   calls: Map<ToolUse, string>;
   invoked: Map<number, string[]>;
-  commands: Map<number, string>;
+  commands: Map<number, string[]>;
 };
 
-/** One line of an earlier reload message's manifest: a file's path, or an unresolved skill name. */
-type Entry = { path: string } | { skill: string };
+/** One use the state file records: a file's absolute path, or a skill known only by name. */
+type Use = { path: string } | { skill: string };
+
+/**
+ * Where the loop's most recent `/sdlc:orchestrate` run stands: never invoked, invoked with no
+ * `Agent` call since, or past its opening.
+ */
+type Orchestrate = "none" | "opening" | "opened";
+
+/**
+ * What the state file carries from one compaction of a loop to the next: every use, oldest
+ * first, and where the loop's orchestrate run stands.
+ */
+type State = { uses: Use[]; orchestrate: Orchestrate };
 
 /** One install of a plugin, as `installed_plugins.json` records it. */
 type Install = { projectPath?: unknown; version?: unknown } | null;
@@ -78,10 +98,12 @@ type Install = { projectPath?: unknown; version?: unknown } | null;
 type Next = (e: CompactEvent) => Promise<Compacted>;
 type On = (event: string, hook: unknown) => { catch: (handler: unknown) => void };
 
+const NO_STATE: State = { uses: [], orchestrate: "none" };
+
 /**
- * Registers the `session.compact` hook, which lets the compaction run and then appends one reload
- * message after its messages, replacing any reload message already among them. With nothing to
- * reload it returns the compaction as `next` resolved it.
+ * Registers the `session.compact` hook, which lets the compaction run, removes every reload
+ * message from its messages, and then appends one fresh reload message after them. With nothing
+ * to reload it appends none, so the compaction ends with no reload message at all.
  */
 export function register(on: On): void {
   // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
@@ -89,37 +111,55 @@ export function register(on: On): void {
   on("session.compact", async ($: Mods, e: CompactEvent, next: Next) => {
     const result = await next(e);
     if (result.skip !== undefined || result.messages === undefined) return result;
-    // A result can already carry a reload message, as one core reuses from a precompute does. The
-    // fresh one replaces it, and counts every file its manifest names as used before the
-    // transcript's own uses, so a file only the old one named is not lost.
-    const stale = result.messages.filter(isReload);
-    const text = await reloadText($, [...stale, ...e.messages]);
-    if (text === "") return result;
+    // A result can already carry a reload message, as one core reuses from a precompute does.
+    // Its text is never read: the files it named are the uses this hook recorded in the state
+    // file when it wrote that message.
     const kept = result.messages.filter((message) => !isReload(message));
+    const text = await reloadText($, e);
+    if (text === "") return { ...result, messages: kept };
     return { ...result, messages: [...kept, { role: "user", text, toolUses: [] }] };
   }).catch(($: Mods, e: CompactEvent, next: Next) => next(e));
 }
 
 /**
- * Builds the reload message for a transcript about to be compacted, or `''` when the transcript
- * loaded nothing to reload. A file or config tier that cannot be read is named in the text with
- * its error rather than rejecting.
+ * Records the compacting loop's uses in its state file and builds the reload message, or `''`
+ * when the loop loaded nothing to reload and the state file raised no error. A file, config tier
+ * or state file that cannot be read or written is named in the text with its error rather than
+ * rejecting.
  */
-async function reloadText($: Mods, messages: readonly Message[]): Promise<string> {
+async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   const home = (await $.env.get("HOME")) ?? "";
-  const skills = resolveSkills(messages);
-  const uses = collectUses(messages, skills);
+  const stateNotes: string[] = [];
+  let statePath: string | undefined;
+  let recorded = NO_STATE;
+  try {
+    statePath = await stateFile($, home, e.agentId);
+    recorded = await readState($, statePath);
+  } catch (err) {
+    stateNotes.push(`${statePath ?? "the state file"}: ${errorText(err)}`);
+  }
+  const skills = resolveSkills(e.messages);
+  const uses = collectUses(e.messages, skills, recorded.uses);
+  const orchestrate = orchestrateState(e.messages, recorded.orchestrate);
+  if (statePath !== undefined) {
+    try {
+      await $.fs.write(statePath, JSON.stringify({ uses: orderedUses(uses), orchestrate }));
+    } catch (err) {
+      stateNotes.push(`${statePath}: ${errorText(err)}`);
+    }
+  }
+
   const items: Item[] = [];
   for (const [path, seq] of uses.paths) items.push({ label: path, seq });
   for (const [name, seq] of uses.skills) {
     const item = await skillItem($, name, seq, home);
     if (item !== undefined) items.push(item);
   }
-  const isOpened = isOrchestrateOpened(messages);
+  const isOpened = orchestrate === "opened";
   const kept = mergeByLabel(items).filter(
     (item) => !isReinjected(item.label, home) && !(isOpened && isOpeningFile(item.label)),
   );
-  if (kept.length === 0) return "";
+  if (kept.length === 0 && stateNotes.length === 0) return "";
   kept.sort((a, b) => b.seq - a.seq);
 
   const { budget, notes } = await readBudget($, home);
@@ -153,6 +193,7 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
     manifest.push(`- ${item.label} (${APPENDED})`);
     blocks.push(`<file path="${item.label}">\n${content}\n</file>`);
   }
+  if (manifest.length === 0) manifest.push("(none)");
 
   const parts = [
     MARKER,
@@ -160,7 +201,7 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
       "files the conversation loaded before it. Their full text follows; act on it rather than on " +
       "the summary's account of them. A file listed as not appended is past the reload budget of " +
       `${budget} tokens: read it with the Read tool before acting on it.`,
-    [MANIFEST_HEADING, ...manifest].join("\n"),
+    ["Files, most recently used first:", ...manifest].join("\n"),
   ];
   if (notes.length > 0) {
     parts.push(
@@ -170,30 +211,90 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
       ].join("\n"),
     );
   }
+  if (stateNotes.length > 0) {
+    parts.push(
+      [
+        "State: the files used before an earlier compaction may be missing from this reload or a " +
+          "later one, because the state file that records them failed:",
+        ...stateNotes.map((note) => `- ${note}`),
+      ].join("\n"),
+    );
+  }
   parts.push(...blocks, "</reload-after-compact>");
   return parts.join("\n\n");
 }
 
 /**
- * Walks the transcript oldest first and records the last position at which each skill and rule
- * file was used. A skill counts by its file when the transcript names its base directory, and by
- * its name otherwise. A reload message from an earlier compaction counts as a use of every file
- * and unresolved skill its manifest names, so a second compaction reloads them again.
+ * The compacting loop's state file:
+ * `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/reload-after-compact/<session>/<loop>.json`, with
+ * `<loop>` `main` for the main conversation and `agent-<agentId>` for a subagent's own loop.
+ * Rejects when the session id cannot be read, or neither `XDG_STATE_HOME` nor `HOME` is set.
  */
-function collectUses(messages: readonly Message[], skills: Skills): Uses {
+async function stateFile($: Mods, home: string, agentId: string | undefined): Promise<string> {
+  const xdg = await $.env.get("XDG_STATE_HOME");
+  if ((xdg === undefined || xdg === "") && home === "") {
+    throw new Error("neither XDG_STATE_HOME nor HOME is set");
+  }
+  const stateHome = xdg !== undefined && xdg !== "" ? xdg : `${home}/.local/state`;
+  const session = encodeURIComponent(await $.session.id());
+  const loop = agentId === undefined ? "main" : `agent-${encodeURIComponent(agentId)}`;
+  return `${stateHome}/sdlc/reload-after-compact/${session}/${loop}.json`;
+}
+
+/**
+ * The state a loop's earlier compactions recorded, or `NO_STATE` when the file does not exist.
+ * Rejects when it cannot be read, or does not hold a state this hook wrote.
+ */
+async function readState($: Mods, path: string): Promise<State> {
+  if (!(await $.fs.exists(path))) return NO_STATE;
+  const text = await $.fs.read(path);
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`not JSON: ${errorText(err)}`);
+  }
+  const state = data as { uses?: unknown; orchestrate?: unknown } | null;
+  const uses = state?.uses;
+  const orchestrate = state?.orchestrate;
+  const isUse = (use: unknown): use is Use =>
+    typeof (use as { path?: unknown } | null)?.path === "string" ||
+    typeof (use as { skill?: unknown } | null)?.skill === "string";
+  if (
+    !Array.isArray(uses) ||
+    !uses.every(isUse) ||
+    (orchestrate !== "none" && orchestrate !== "opening" && orchestrate !== "opened")
+  ) {
+    throw new Error("not a state file this hook wrote");
+  }
+  return { uses, orchestrate };
+}
+
+/** Every use, oldest first, as the state file records them. */
+function orderedUses(uses: Uses): Use[] {
+  const all: { use: Use; seq: number }[] = [];
+  for (const [path, seq] of uses.paths) all.push({ use: { path }, seq });
+  for (const [skill, seq] of uses.skills) all.push({ use: { skill }, seq });
+  return all.sort((a, b) => a.seq - b.seq).map((entry) => entry.use);
+}
+
+/**
+ * Walks the recorded uses and then the transcript, oldest first, and records the last position at
+ * which each skill and rule file was used, so a use the transcript repeats moves past every
+ * recorded one. A skill counts by its file when the transcript names its base directory, and by
+ * its name otherwise.
+ */
+function collectUses(messages: readonly Message[], skills: Skills, recorded: readonly Use[]): Uses {
   const paths = new Map<string, number>();
   const names = new Map<string, number>();
   let seq = 0;
+  for (const use of recorded) {
+    if ("path" in use) paths.set(use.path, seq++);
+    else names.set(use.skill, seq++);
+  }
   messages.forEach((message, index) => {
-    if (isReload(message)) {
-      for (const entry of manifestEntries(message.text).reverse()) {
-        if ("path" in entry) paths.set(entry.path, seq++);
-        else names.set(entry.skill, seq++);
-      }
-    }
     for (const base of skills.invoked.get(index) ?? []) paths.set(`${base}/SKILL.md`, seq++);
-    const command = skills.commands.get(index);
-    if (command !== undefined) names.set(command, seq++);
+    for (const command of skills.commands.get(index) ?? []) names.set(command, seq++);
     for (const use of message.toolUses ?? []) {
       if (use.tool === "Skill") {
         const base = skills.calls.get(use);
@@ -210,27 +311,23 @@ function collectUses(messages: readonly Message[], skills: Skills): Uses {
 }
 
 /**
- * True when an `Agent` call follows the transcript's most recent `/sdlc:orchestrate` invocation,
- * as a `Skill` call or a slash command. That run's opening is then over, so its opening files are
- * not reloaded. A reload message from an earlier compaction is no invocation.
+ * Where the loop's most recent `/sdlc:orchestrate` run stands after the transcript, starting from
+ * where the state file left it. An invocation, as a `Skill` call or a slash command, opens a run,
+ * and an `Agent` call after one ends its opening, so its opening files are no longer reloaded. A
+ * reload message is no invocation.
  */
-function isOrchestrateOpened(messages: readonly Message[]): boolean {
-  let isInvoked = false;
-  let isOpened = false;
+function orchestrateState(messages: readonly Message[], recorded: Orchestrate): Orchestrate {
+  let state = recorded;
   for (const message of messages) {
     if (message.role === "user" && !isReload(message)) {
-      if (COMMAND_NAME.exec(message.text)?.[1] === ORCHESTRATE)
-        [isInvoked, isOpened] = [true, false];
+      if (commandNames(message.text).includes(ORCHESTRATE)) state = "opening";
     }
     for (const use of message.toolUses ?? []) {
-      if (use.tool === "Skill" && use.input.skill === ORCHESTRATE) {
-        [isInvoked, isOpened] = [true, false];
-      } else if (use.tool === "Agent" && isInvoked) {
-        isOpened = true;
-      }
+      if (use.tool === "Skill" && use.input.skill === ORCHESTRATE) state = "opening";
+      else if (use.tool === "Agent" && state !== "none") state = "opened";
     }
   }
-  return isOpened;
+  return state;
 }
 
 /** True for a path ending in one of `OPENING_FILES`, under whichever directory holds the plugin. */
@@ -238,9 +335,13 @@ function isOpeningFile(path: string): boolean {
   return OPENING_FILES.some((file) => path.endsWith(file));
 }
 
-/** True for a Markdown file under a `rules/`, `skills/` or `agents/` directory. */
+/** True for a Markdown file under a `rules/` or `skills/` directory and under no `agents/` one. */
 function isRuleFile(path: string): boolean {
-  return path.endsWith(".md") && RULE_DIRS.some((dir) => path.includes(dir));
+  return (
+    path.endsWith(".md") &&
+    !path.includes(AGENTS_DIR) &&
+    RULE_DIRS.some((dir) => path.includes(dir))
+  );
 }
 
 /** True for a file the harness itself re-injects after a compaction. */
@@ -256,22 +357,24 @@ function isReinjected(path: string, home: string): boolean {
  * message take, in call order, the base directories the messages up to the next assistant message
  * name. A base directory no call takes is a skill invoked as a slash command.
  *
+ * A slash command's `<command-name>` tag is then paired with a base directory no call took whose
+ * last directory is the skill's name, in the tag's own message or else in the user message right
+ * after it, so a skill whose tag and expansion arrive apart is recorded once, by its file. A tag
+ * left unpaired records the skill by its name.
+ *
  * The harness keeps a skill's expansion out of the messages a `session.compact` hook receives,
  * for a `Skill` call and a slash command alike: the call's result reads `Launching skill: <name>`
  * and the slash command's message holds only its `<command-message>`, `<command-name>` and
- * `<command-args>` tags. So a slash command whose message names no base directory is recorded by
- * the name in its `<command-name>` tag.
+ * `<command-args>` tags. So most slash commands are recorded by name.
  */
 function resolveSkills(messages: readonly Message[]): Skills {
   const calls = new Map<ToolUse, string>();
   const invoked = new Map<number, string[]>();
-  const commands = new Map<number, string>();
+  const tags = new Map<number, string[]>();
   messages.forEach((message, index) => {
     if (message.role === "assistant" || isReload(message)) return;
-    const bases = baseDirs(message.text);
-    invoked.set(index, bases);
-    const command = COMMAND_NAME.exec(message.text)?.[1];
-    if (bases.length === 0 && command !== undefined) commands.set(index, command);
+    invoked.set(index, baseDirs(message.text));
+    tags.set(index, commandNames(message.text));
   });
   messages.forEach((message, index) => {
     const pending: ToolUse[] = [];
@@ -286,6 +389,25 @@ function resolveSkills(messages: readonly Message[]): Skills {
       while (pending.length > 0 && bases.length > 0) calls.set(pending.shift()!, bases.shift()!);
     }
   });
+  const paired = new Set<string>();
+  const commands = new Map<number, string[]>();
+  for (const [index, names] of tags) {
+    const unpaired = names.filter((name) => {
+      const skill = name.slice(name.indexOf(":") + 1);
+      for (const at of [index, index + 1]) {
+        const bases = invoked.get(at) ?? [];
+        const found = bases.findIndex(
+          (base, i) => !paired.has(`${at}:${i}`) && baseName(base) === skill,
+        );
+        if (found >= 0) {
+          paired.add(`${at}:${found}`);
+          return false;
+        }
+      }
+      return true;
+    });
+    if (unpaired.length > 0) commands.set(index, unpaired);
+  }
   return { calls, invoked, commands };
 }
 
@@ -294,12 +416,19 @@ function baseDirs(text: string): string[] {
   return [...text.matchAll(SKILL_BASE)].map((match) => match[1].trim().replace(/\/+$/, ""));
 }
 
+/** The skill name in every `<command-name>` tag a text holds, in order, without its slash. */
+function commandNames(text: string): string[] {
+  return [...text.matchAll(COMMAND_NAME)].map((match) => match[1]);
+}
+
 /**
  * Resolves a skill known only by name to its `SKILL.md`. A plugin skill `<plugin>:<name>`
  * resolves to `skills/<name>/SKILL.md` in the plugin's directory, as `pluginDir` finds it. A
  * name with no plugin prefix resolves under the project's `.claude/skills/`, then under
- * `~/.claude/skills/`, and with a file in neither is a built-in command and resolves to nothing.
- * A plugin whose directory cannot be found resolves to an item carrying the error.
+ * `~/.claude/skills/`, then in an installed plugin, as `pluginSkill` finds it, and with a file in
+ * none of them is a built-in command and resolves to nothing. A plugin whose directory cannot be
+ * found, or an installed-plugin registry that cannot be read, resolves to an item carrying the
+ * error.
  */
 async function skillItem(
   $: Mods,
@@ -316,10 +445,38 @@ async function skillItem(
     const project = `${await $.session.root()}/.claude/skills/${name}/SKILL.md`;
     if (await $.fs.exists(project)) return { label: project, seq };
     const user = `${home}/.claude/skills/${name}/SKILL.md`;
-    return home !== "" && (await $.fs.exists(user)) ? { label: user, seq } : undefined;
+    if (home !== "" && (await $.fs.exists(user))) return { label: user, seq };
+    const plugin = await pluginSkill($, name, home);
+    return plugin === undefined ? undefined : { label: plugin, seq };
   } catch (err) {
     return { label: `skill ${name}`, seq, error: errorText(err) };
   }
+}
+
+/**
+ * The first installed plugin's `skills/<name>/SKILL.md` that exists: the hook's own plugin's,
+ * then that of each plugin `~/.claude/plugins/installed_plugins.json` records an install of for
+ * the session's root, in the file's order, each at the cache directory `cachedPluginDir` names.
+ * Resolves to nothing when no plugin has the skill or the registry does not exist, and rejects
+ * when the registry cannot be read or parsed.
+ */
+async function pluginSkill($: Mods, name: string, home: string): Promise<string | undefined> {
+  const own = `${$.plugin.root}/skills/${name}/SKILL.md`;
+  if (await $.fs.exists(own)) return own;
+  if (home === "") return undefined;
+  const registry = `${home}/.claude/plugins/installed_plugins.json`;
+  if (!(await $.fs.exists(registry))) return undefined;
+  const plugins = await readRegistry($, registry);
+  const root = await $.session.root();
+  for (const [id, installs] of Object.entries(plugins)) {
+    const at = id.lastIndexOf("@");
+    const version = installedVersion(installs, root);
+    if (at <= 0 || version === undefined) continue;
+    const dir = `${home}/.claude/plugins/cache/${id.slice(at + 1)}/${id.slice(0, at)}/${version}`;
+    const file = `${dir}/skills/${name}/SKILL.md`;
+    if (await $.fs.exists(file)) return file;
+  }
+  return undefined;
 }
 
 /**
@@ -334,30 +491,47 @@ async function pluginDir($: Mods, plugin: string, home: string): Promise<string>
  * A plugin's directory in the cache of the marketplace this hook module was installed from:
  * `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`, at the version
  * `~/.claude/plugins/installed_plugins.json` records for the install of `<plugin>@<marketplace>`
- * whose `projectPath` is the session's root, or else for the install with no `projectPath`.
- * Rejects when that file cannot be read or parsed, or records no such install.
+ * that `installedVersion` picks. Rejects when that file cannot be read or parsed, or records no
+ * such install.
  */
 async function cachedPluginDir($: Mods, plugin: string, home: string): Promise<string> {
   const marketplace = baseName(dirName(dirName($.plugin.root)));
   const id = `${plugin}@${marketplace}`;
   const registry = `${home}/.claude/plugins/installed_plugins.json`;
+  const plugins = await readRegistry($, registry);
+  const version = installedVersion(plugins[id], await $.session.root());
+  if (version === undefined) throw new Error(`${registry} records no installed version of ${id}`);
+  return `${home}/.claude/plugins/cache/${marketplace}/${plugin}/${version}`;
+}
+
+/**
+ * The `plugins` map of `installed_plugins.json`, by `<plugin>@<marketplace>`. Rejects when the
+ * file cannot be read or parsed.
+ */
+async function readRegistry($: Mods, registry: string): Promise<Record<string, unknown>> {
   const text = await $.fs.read(registry);
-  let installs: unknown;
+  let plugins: unknown;
   try {
-    installs = JSON.parse(text)?.plugins?.[id];
+    plugins = JSON.parse(text)?.plugins;
   } catch (err) {
     throw new Error(`${registry}: ${errorText(err)}`);
   }
+  return typeof plugins === "object" && plugins !== null
+    ? (plugins as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * The version of the install among `installs` whose `projectPath` is the session's root, or else
+ * of the install with no `projectPath`, or `undefined` when neither records one.
+ */
+function installedVersion(installs: unknown, root: string): string | undefined {
   const list = (Array.isArray(installs) ? installs : []) as Install[];
-  const root = await $.session.root();
   const install =
     list.find((entry) => entry?.projectPath === root) ??
     list.find((entry) => entry?.projectPath === undefined || entry?.projectPath === null);
   const version = install?.version;
-  if (typeof version !== "string" || version === "") {
-    throw new Error(`${registry} records no installed version of ${id}`);
-  }
-  return `${home}/.claude/plugins/cache/${marketplace}/${plugin}/${version}`;
+  return typeof version === "string" && version !== "" ? version : undefined;
 }
 
 /**
@@ -393,19 +567,39 @@ async function readBudget($: Mods, home: string): Promise<{ budget: number; note
 }
 
 /**
- * Reads `schema-version` and the budget key off their own top-level lines and validates them, as
- * `skills/lib/sdlc-config.md` → "Reading" states. Every other line is ignored, so the rest of the
- * file's YAML is left to the orchestrator.
+ * Reads `schema-version` off its own top-level line and the budget off its one valid shape, as
+ * `skills/lib/sdlc-config.md` → "The keys" and "Reading" state, and validates both. A comment
+ * line is skipped, a line writing the budget key in any other shape is refused, and every other
+ * line is ignored, so the rest of the file's YAML is left to the orchestrator.
  */
 function parseTier(text: string): { value?: number; error?: string } {
   let schema: string | undefined;
-  let value: string | undefined;
+  let value: number | undefined;
+  let budgetError: string | undefined;
   for (const raw of text.split("\n")) {
-    const match = TIER_KEY.exec(raw.replace(/\r$/, ""));
-    if (match === null) continue;
-    const scalar = (match[3] ?? "").replace(/\s+#.*$/, "").trim();
-    if (match[2] === "schema-version") schema = scalar;
-    else value = scalar;
+    const line = raw.replace(/\r$/, "");
+    if (/^\s*#/.test(line)) continue;
+    const schemaMatch = SCHEMA_LINE.exec(line);
+    if (schemaMatch !== null) {
+      schema = (schemaMatch[2] ?? "").replace(/\s+#.*$/, "").trim();
+      continue;
+    }
+    if (!BUDGET_MENTION.test(line) || budgetError !== undefined) continue;
+    const budgetMatch = BUDGET_LINE.exec(line);
+    if (budgetMatch === null) {
+      const rest = line.slice(BUDGET_KEY.length + 1).trim();
+      if (!line.startsWith(`${BUDGET_KEY}:`)) {
+        budgetError = `\`${line.trim()}\` is not a column-0 \`${BUDGET_KEY}: <digits>\` line`;
+      } else if (rest === "") {
+        budgetError = `\`${BUDGET_KEY}\` has no value on its own line`;
+      } else {
+        budgetError = `\`${BUDGET_KEY}\` is \`${rest}\`, not a plain decimal integer of 1 or more`;
+      }
+    } else if (value !== undefined) {
+      budgetError = `\`${BUDGET_KEY}\` is set more than once`;
+    } else {
+      value = Number(budgetMatch[1]);
+    }
   }
   if (schema === undefined) return { error: "`schema-version` is absent" };
   if (!/^\d+$/.test(schema))
@@ -413,34 +607,13 @@ function parseTier(text: string): { value?: number; error?: string } {
   if (Number(schema) < SCHEMA_PIN) {
     return { error: `\`schema-version\` is ${schema}, lower than the pin ${SCHEMA_PIN}` };
   }
-  if (value === undefined) return {};
-  if (!/^\+?\d+$/.test(value) || Number(value) < 1)
-    return { error: `\`${BUDGET_KEY}\` is \`${value}\`, not a positive integer` };
-  return { value: Number(value) };
+  if (budgetError !== undefined) return { error: budgetError };
+  return value === undefined ? {} : { value };
 }
 
 /** True for a reload message this hook appended at an earlier compaction. */
 function isReload(message: Message): boolean {
   return message.role === "user" && message.text.startsWith(MARKER);
-}
-
-/** The paths and unresolved skill names an earlier reload message's manifest names, in its order. */
-function manifestEntries(text: string): Entry[] {
-  const lines = text.split("\n");
-  const start = lines.indexOf(MANIFEST_HEADING);
-  if (start < 0) return [];
-  const entries: Entry[] = [];
-  const entry = new RegExp(
-    `^- (?:(/.+?)|skill (\\S+)) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`,
-  );
-  for (const line of lines.slice(start + 1)) {
-    if (!line.startsWith("- ")) break;
-    const match = entry.exec(line);
-    if (match === null) continue;
-    if (match[1] !== undefined) entries.push({ path: match[1] });
-    else entries.push({ skill: match[2] });
-  }
-  return entries;
 }
 
 /** Keeps one item per label, at its most recent use. */
