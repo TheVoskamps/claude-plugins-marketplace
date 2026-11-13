@@ -1,5 +1,49 @@
 # sdlc changelog
 
+## 0.80.0 — 2026-11-13
+
+After a context compaction, a conversation gets back the full text of
+the skills and rule files it was working from, rather than the
+compaction summary's truncated account of them. The plugin now ships a
+hook, `reload-after-compact`, that appends that text in one message
+once the compaction has run.
+
+- It reloads every skill the compacted loop invoked, through the
+  `Skill` tool or as a slash command, and every `.md` file the loop
+  opened with `Read` under a `rules/` or `skills/` directory. A plugin
+  skill is found in its plugin's installed version, and a skill named
+  without a plugin under the project's `.claude/skills/`, then
+  `~/.claude/skills/`, then the installed plugins.
+- It does not reload a `CLAUDE.md` or a file under `~/.claude/rules/`,
+  which the harness re-injects itself, an agent definition, or any file
+  opened under an `agents/` directory.
+- A subagent's compaction reloads what that subagent invoked and read,
+  and the main conversation's reloads its own.
+- Once an `/sdlc:orchestrate` run has spawned its first agent, the
+  files that serve only its opening — the readiness skill and the
+  pre-flight and plan lib files — are no longer reloaded.
+- A file used before an earlier compaction is reloaded again at a later
+  one. The hook carries each loop's uses in a state file under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/reload-after-compact/`,
+  keyed by session and loop, rather than reading them back from an
+  earlier reload message. Earlier reload messages are removed, so the
+  conversation holds at most one.
+- A new config key, `reload-after-compact-token-budget`, caps the
+  reload, with tokens counted as characters ÷ 4. It defaults to
+  `100000` and takes an integer of at least `64000`, written as one
+  `reload-after-compact-token-budget: <digits>` line starting in the
+  first column. Files are appended most recently used first, and the
+  ones past the budget are listed by absolute path with an instruction
+  to read each before acting on it.
+- When a config tier file cannot be read, fails its `schema-version`
+  check or holds an invalid budget line, the hook reloads nothing and
+  writes one log line to the human naming the path and the error. It
+  never falls back to the default for a broken tier. Any other line
+  containing the key's name, a commented-out one or a second budget
+  line included, makes the tier invalid.
+- A file that cannot be read is named in the reload message with its
+  error, and the compaction still completes.
+
 ## 0.79.0 — 2026-11-12
 
 A review the pipeline did not post — a code-scanning review, a human
