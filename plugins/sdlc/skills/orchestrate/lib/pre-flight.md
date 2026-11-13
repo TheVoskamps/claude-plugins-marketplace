@@ -55,7 +55,8 @@ sdlc config:
   merge-wait: monitor (default)
   merge-poll-interval-seconds: 300 (repo user)
   merge-max-unchanged-polls: 15 (default)
+  reload-after-compact-token-budget: 100000 (default)
 ```
 
 Throughout the rest of the run, each key's name means its resolved
-value. Nothing re-reads a config file after this point.
+value. No step of the run re-reads a config file after this point.

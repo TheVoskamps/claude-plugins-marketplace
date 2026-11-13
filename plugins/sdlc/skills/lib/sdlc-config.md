@@ -7,6 +7,13 @@ not an executable script.
 
 No agent reads these files. The orchestrator resolves them once per
 run, and a value a teammate needs travels in that teammate's brief.
+The one exception is the `reload-after-compact` hook, which resolves
+`reload-after-compact-token-budget` itself on every compaction, per
+"Reading", because it runs outside any orchestrate run and has no brief
+to receive a value. It checks only a file's read, its YAML, its
+`schema-version` and that key's value, and where "Reading" aborts on
+one of those it uses the key's default instead and names the path and
+the error in the text it appends, so the compaction still completes.
 
 ## The tiers
 
@@ -44,6 +51,7 @@ merge-poll-interval-seconds: 300
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
 | `merge-max-unchanged-polls` | positive integer | `15` |
+| `reload-after-compact-token-budget` | positive integer | `100000` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
@@ -56,6 +64,11 @@ merge-poll-interval-seconds: 300
 - **`merge-max-unchanged-polls`** — how many consecutive polls with no
   change in state `pr-monitor` runs before it asks whether to keep
   waiting.
+- **`reload-after-compact-token-budget`** — how many tokens, counted
+  as characters ÷ 4, of skill, agent-definition and rule-file text the
+  `reload-after-compact` hook appends to a compacted conversation.
+  The files past it are listed by path, to be read before acting on
+  them.
 
 ## Reading
 
