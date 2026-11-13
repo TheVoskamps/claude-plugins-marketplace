@@ -825,8 +825,8 @@ check_contains "$(cat "$CASE/err")" "--full is not accepted in --mode repos" "re
 # exists so only the mode can refuse them.
 printf 'x\n' >"$CASE/payload"
 for given in "--round 1" "--head-sha aaa" "--round-type documentation" "--theorem T1" "--stage disprove" \
-    "--agent theorem-disprover" "--model default" "--effort low" "--agent-id A" "--tokens 1" "--tools 1" \
-    "--ms 1" "--from $CASE/payload" "--carry" "--edits $CASE/payload" "--loop-exited" "--issues 1"; do
+  "--agent theorem-disprover" "--model default" "--effort low" "--agent-id A" "--tokens 1" "--tools 1" \
+  "--ms 1" "--from $CASE/payload" "--carry" "--edits $CASE/payload" "--loop-exited" "--issues 1"; do
   read -r flag value <<<"$given"
   "$PERSIST" --mode repos "$flag" ${value:+"$value"} >/dev/null 2>"$CASE/err" </dev/null
   check "$?" "2" "repos: $flag is refused"
@@ -834,7 +834,7 @@ for given in "--round 1" "--head-sha aaa" "--round-type documentation" "--theore
 done
 # A flag is refused by its presence, so an empty value is refused too.
 for flag in --pr --round --head-sha --round-type --theorem --stage --agent --model --effort --agent-id \
-    --tokens --tools --ms --from --edits --deadline-minutes --issues; do
+  --tokens --tools --ms --from --edits --deadline-minutes --issues; do
   "$PERSIST" --mode repos "$flag" "" >/dev/null 2>"$CASE/err" </dev/null
   check "$?" "2" "repos: $flag with an empty value is refused"
   check_contains "$(cat "$CASE/err")" "$flag is not accepted in --mode repos" \
