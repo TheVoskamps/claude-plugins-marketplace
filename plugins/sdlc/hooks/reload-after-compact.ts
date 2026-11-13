@@ -102,8 +102,9 @@ const NO_STATE: State = { uses: [], orchestrate: "none" };
 
 /**
  * Registers the `session.compact` hook, which lets the compaction run, removes every reload
- * message from its messages, and then appends one fresh reload message after them. With nothing
- * to reload it appends none, so the compaction ends with no reload message at all.
+ * message from its messages, and then appends one fresh reload message after them. When the loop
+ * loaded nothing to reload and its state file raised no error it appends none, so the compaction
+ * ends with no reload message at all.
  */
 export function register(on: On): void {
   // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
@@ -455,8 +456,9 @@ async function skillItem(
 
 /**
  * The first installed plugin's `skills/<name>/SKILL.md` that exists: the hook's own plugin's,
- * then that of each plugin `~/.claude/plugins/installed_plugins.json` records an install of for
- * the session's root, in the file's order, each at the cache directory `cachedPluginDir` names.
+ * then that of each `<plugin>@<marketplace>` `~/.claude/plugins/installed_plugins.json` records
+ * an install of, in the file's order, each in `~/.claude/plugins/cache/<marketplace>/<plugin>/`
+ * at the version `installedVersion` picks.
  * Resolves to nothing when no plugin has the skill or the registry does not exist, and rejects
  * when the registry cannot be read or parsed.
  */
