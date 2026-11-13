@@ -3,10 +3,15 @@
 // the summary's truncated account of them. A reload message the compacted conversation already
 // holds is removed, so it holds at most the one this compaction appends.
 
-// The key and its default must match the key table in `skills/lib/sdlc-config.md`, and
-// `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
+// The key, its default and its floor must match the key table in `skills/lib/sdlc-config.md`,
+// and `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
 /** The reload budget when no config tier sets one, in tokens counted as characters divided by 4. */
 export const DEFAULT_BUDGET = 100000;
+/**
+ * The smallest budget a config tier may set: an orchestrate run's whole working set past its
+ * opening, about 42k tokens, with headroom for the files the run's own work reads.
+ */
+export const MIN_BUDGET = 64000;
 /** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */
 export const BUDGET_KEY = "reload-after-compact-token-budget";
 /** The opening of every reload message, by which the hook tells one from any other message. */
@@ -29,9 +34,10 @@ const OPENING_FILES = [
   "/skills/orchestrate/lib/plan.md",
 ];
 const SCHEMA_LINE = /^(["']?)schema-version\1:(?:\s+(.*))?$/;
-// The one shape a budget may take: the key at column 0, then a decimal integer of 1 or more with
-// no sign or leading zero, then at most a comment.
+// The one shape a budget may take: the key at column 0, then a decimal integer with no sign or
+// leading zero, then at most a comment. `parseTier` holds the integer to `MIN_BUDGET`.
 const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}:[ \\t]+([1-9][0-9]*)(?:[ \\t]+#.*)?[ \\t]*$`);
+const NOT_A_BUDGET = `not a plain decimal integer of at least ${MIN_BUDGET}`;
 // Any line that writes the budget key as a key, in whatever shape: quoted, indented, in a flow
 // mapping, or with its value on a later line.
 const BUDGET_MENTION = new RegExp(`(?:^|[\\s{,"'])${BUDGET_KEY}["']?\\s*:`);
@@ -304,7 +310,9 @@ function collectUses(messages: readonly Message[], skills: Skills, recorded: rea
         else if (typeof skill === "string" && skill !== "") names.set(skill, seq++);
       } else if (use.tool === "Read") {
         const path = use.input.file_path;
-        if (typeof path === "string" && isRuleFile(path)) paths.set(path, seq++);
+        if (typeof path === "string" && isRuleFile(path) && !isUnderAgents(path)) {
+          paths.set(path, seq++);
+        }
       }
     }
   });
@@ -336,13 +344,14 @@ function isOpeningFile(path: string): boolean {
   return OPENING_FILES.some((file) => path.endsWith(file));
 }
 
-/** True for a Markdown file under a `rules/` or `skills/` directory and under no `agents/` one. */
+/** True for a Markdown file under a `rules/` or `skills/` directory. */
 function isRuleFile(path: string): boolean {
-  return (
-    path.endsWith(".md") &&
-    !path.includes(AGENTS_DIR) &&
-    RULE_DIRS.some((dir) => path.includes(dir))
-  );
+  return path.endsWith(".md") && RULE_DIRS.some((dir) => path.includes(dir));
+}
+
+/** True for a file opened under an `agents/` directory, which is not reloaded. */
+function isUnderAgents(path: string): boolean {
+  return path.includes(AGENTS_DIR);
 }
 
 /** True for a file the harness itself re-injects after a compaction. */
@@ -595,10 +604,12 @@ function parseTier(text: string): { value?: number; error?: string } {
       } else if (rest === "") {
         budgetError = `\`${BUDGET_KEY}\` has no value on its own line`;
       } else {
-        budgetError = `\`${BUDGET_KEY}\` is \`${rest}\`, not a plain decimal integer of 1 or more`;
+        budgetError = `\`${BUDGET_KEY}\` is \`${rest}\`, ${NOT_A_BUDGET}`;
       }
     } else if (value !== undefined) {
       budgetError = `\`${BUDGET_KEY}\` is set more than once`;
+    } else if (Number(budgetMatch[1]) < MIN_BUDGET) {
+      budgetError = `\`${BUDGET_KEY}\` is \`${budgetMatch[1]}\`, ${NOT_A_BUDGET}`;
     } else {
       value = Number(budgetMatch[1]);
     }

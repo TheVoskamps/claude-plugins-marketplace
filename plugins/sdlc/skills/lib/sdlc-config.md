@@ -54,7 +54,7 @@ merge-poll-interval-seconds: 300
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
 | `merge-max-unchanged-polls` | positive integer | `15` |
-| `reload-after-compact-token-budget` | plain decimal integer, 1 or more | `100000` |
+| `reload-after-compact-token-budget` | plain decimal integer, at least `64000` | `100000` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
@@ -71,10 +71,13 @@ merge-poll-interval-seconds: 300
   as characters ÷ 4, of skill and rule-file text the
   `reload-after-compact` hook appends to a compacted conversation.
   The files past it are listed by path, to be read before acting on
-  them. The value is valid only on a line that starts at column 0 with
-  `reload-after-compact-token-budget:`, then whitespace, then a decimal
-  integer of 1 or more with no sign, leading zero, underscore or quote,
-  then at most whitespace and a `#` comment. Any other value, and any
+  them. The floor of `64000` holds an orchestrate run's whole working
+  set past its opening, about 42k tokens, with headroom for the files
+  the run's own work reads. The value is valid only on a line that
+  starts at column 0 with `reload-after-compact-token-budget:`, then
+  whitespace, then a decimal integer of at least `64000` with no sign,
+  leading zero, underscore or quote, then at most whitespace and a `#`
+  comment. Any other value, a smaller number included, and any
   other line that writes the key — quoted, indented, in a flow mapping,
   with its value on the next line, or a second time — is outside its
   allowed values. A line whose first non-blank character is `#` is a
