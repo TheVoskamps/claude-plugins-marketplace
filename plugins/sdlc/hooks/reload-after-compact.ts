@@ -4,7 +4,9 @@
 
 // The key and its default must match the key table in `skills/lib/sdlc-config.md`, and
 // `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
+/** The reload budget when no config tier sets one, in tokens counted as characters divided by 4. */
 export const DEFAULT_BUDGET = 100000;
+/** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */
 export const BUDGET_KEY = "reload-after-compact-token-budget";
 /** The opening of every reload message, by which a later compaction recognises one. */
 export const MARKER = "<reload-after-compact>";
