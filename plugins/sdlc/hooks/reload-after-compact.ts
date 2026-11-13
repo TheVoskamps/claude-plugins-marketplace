@@ -41,6 +41,10 @@ const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}: ([0-9]+)$`);
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
 type Message = { role: "user" | "assistant"; text: string; toolUses?: readonly ToolUse[] };
 
+/**
+ * The host modules the hook reaches through `$`: `plugin.root` is the directory of the hook's own
+ * plugin install, and `session.root` the project's root.
+ */
 type Mods = {
   plugin: { name: string; root: string };
   env: { get: (name: string) => Promise<string | undefined> };
