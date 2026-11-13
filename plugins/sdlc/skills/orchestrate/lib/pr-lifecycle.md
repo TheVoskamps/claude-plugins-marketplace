@@ -375,9 +375,8 @@ and linear:
 
 A close-out that fails partway is re-run from the merge-readiness loop
 once the cause is settled, with no manual cleanup: a status flip
-repeats harmlessly, the finalizer posts no round a complete detail
-chain already holds and overwrites its own section rather than
-stacking one, and the ready flip no-ops on a PR already ready.
+repeats harmlessly, the finalizer overwrites its own section rather
+than stacking one, and the ready flip no-ops on a PR already ready.
 
 ### Reopening the review loop after a close-out
 
