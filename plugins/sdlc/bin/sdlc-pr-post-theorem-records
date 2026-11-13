@@ -76,6 +76,7 @@ set -euo pipefail
 # least one byte, so a byte limit below that holds whatever the
 # characters are, with headroom.
 readonly MAX_CHUNK_BYTES=60000
+# The largest total the marker's room, reserved for four digits, numbers.
 readonly MAX_CHUNKS=9999
 readonly TAB=$'\t'
 
@@ -158,6 +159,7 @@ hold() {
   fi
 }
 
+# new_piece: starts a piece and makes it the one add_file appends to.
 new_piece() {
   pieces=$((pieces + 1))
 }
@@ -206,8 +208,8 @@ for round_type in code-and-instruction-markdown documentation; do
   fi
 done
 
-# Every round --mode rounds lists, so a round number with no log, at the
-# start or between two rounds, ends nothing.
+# Every round above the covered round that --mode rounds lists, so a round
+# number with no log, at the start or between two rounds, ends nothing.
 for round in $rounds; do
   above_covered "$round" || continue
   read_state 'no round log at ' --mode print --round "$round" ||
@@ -292,6 +294,8 @@ fi
 
 # shellcheck disable=SC2016 # awk's own syntax, not shell
 layout='
+# fail(message): writes message to stderr and exits 1. An exit still runs
+# END, so END checks failed before it lays out or prints anything.
 function fail(message) {
   printf "%s\n", message >"/dev/stderr"
   failed = 1
@@ -302,6 +306,8 @@ function heading(rel) {
   return "## `" rel "`\n\n"
 }
 
+# open_chunk(): closes the current chunk'"'"'s file and makes the next,
+# empty chunk the one put writes to.
 function open_chunk() {
   if (chunk) close(out)
   chunk++
@@ -309,6 +315,7 @@ function open_chunk() {
   used = 0
 }
 
+# put(s): appends s to the current chunk and counts its bytes in used.
 function put(s) {
   printf "%s", s >out
   used += length(s)
@@ -380,6 +387,9 @@ function put_head(j, head, need) {
   }
 }
 
+# split_piece(): lays out the piece whose files are rel[1..nfiles] from a
+# fresh chunk across as many consecutive chunks as it needs, breaking
+# between lines and cutting only a line too long for a chunk by itself.
 function split_piece(   j, head, pending, need, cut) {
   open_chunk()
   put("\n")
