@@ -2,8 +2,11 @@
 // definitions and rule files the compacting loop loaded before it, so the loop works from those
 // files rather than from the summary's truncated account of them.
 
+// The key and its default must match the key table in `skills/lib/sdlc-config.md`, and
+// `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
 export const DEFAULT_BUDGET = 100000;
 export const BUDGET_KEY = "reload-after-compact-token-budget";
+/** The opening of every reload message, by which a later compaction recognises one. */
 export const MARKER = "<reload-after-compact>";
 
 const SCHEMA_PIN = 1;
@@ -40,6 +43,10 @@ type Uses = { paths: Map<string, number>; agents: Map<string, number> };
 type Next = (e: CompactEvent) => Promise<Compacted>;
 type On = (event: string, hook: unknown) => { catch: (handler: unknown) => void };
 
+/**
+ * Registers the `session.compact` hook, which lets the compaction run and then appends one reload
+ * message after its messages, replacing any reload message already among them.
+ */
 export function register(on: On): void {
   // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
   // with no reload.
@@ -241,6 +248,7 @@ async function agentItem(
 /**
  * A plugin's directory in the cache of the marketplace this hook module was installed from:
  * `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`, at the highest version present.
+ * Rejects when the plugin's cache directory cannot be listed or holds no version directory.
  */
 async function cachedPluginDir($: Mods, plugin: string, home: string): Promise<string> {
   const marketplace = baseName(dirName(dirName($.plugin.root)));
@@ -267,7 +275,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 /**
- * Resolves `reload-after-compact-token-budget` over the three sdlc config tiers, highest tier
+ * Resolves `reload-after-compact-token-budget` over the sdlc config tiers, highest tier
  * winning. A tier that cannot be read, or that `parseTier` refuses, makes the budget the default
  * and adds a note naming the path and the error.
  */
