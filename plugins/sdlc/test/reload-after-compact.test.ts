@@ -25,6 +25,8 @@ type Disk = {
   compacted?: object;
   /** Collects the text of every `$.ui.log` call. */
   logs?: string[];
+  /** A reason to refuse every `$.session.root` call with, or `undefined` to answer `ROOT`. */
+  refuseRoot?: string;
 };
 
 /**
@@ -40,7 +42,9 @@ function host(on, disk: Disk = {}): Record<string, string> {
     disk.logs?.push(e.text);
     return { value: undefined };
   });
-  on("session.root", () => ({ value: ROOT }));
+  on("session.root", () =>
+    disk.refuseRoot !== undefined ? { deny: disk.refuseRoot } : { value: ROOT },
+  );
   on("session.id", () => ({ value: SESSION }));
   on("fs.exists", ($, e) => ({ value: e.path in written || exists(e.path) }));
   on("fs.read", ($, e) => {
@@ -651,43 +655,89 @@ async function compactBroken($, on, files: Record<string, string>, refused = {})
   return logs[0];
 }
 
-for (const [name, line] of [
-  ["zero", `${BUDGET_KEY}: 0`],
-  ["a signed zero", `${BUDGET_KEY}: +0`],
-  ["an integer just below the floor", `${BUDGET_KEY}: ${MIN_BUDGET - 1}`],
-  ["a small integer", `${BUDGET_KEY}: 50000`],
-  ["a signed integer", `${BUDGET_KEY}: +70000`],
-  ["a hex integer", `${BUDGET_KEY}: 0x11170`],
-  ["an integer with underscores", `${BUDGET_KEY}: 70_000`],
-  ["a quoted string", `${BUDGET_KEY}: "70000"`],
-  ["a float", `${BUDGET_KEY}: 70000.5`],
-  ["a trailing comment", `${BUDGET_KEY}: 70000 # mine`],
-  ["a tab after the colon", `${BUDGET_KEY}:\t70000`],
-  ["two spaces after the colon", `${BUDGET_KEY}:  70000`],
-  ["trailing whitespace", `${BUDGET_KEY}: 70000 `],
-  ["an indented key", `  ${BUDGET_KEY}: 70000`],
-  ["a flow mapping", `{${BUDGET_KEY}: 70000}`],
-  ["a flow-sequence pair", `[${BUDGET_KEY}: 70000]`],
-  ["an explicit key", `? ${BUDGET_KEY}\n: 70000`],
-  ["a tag", `!!str ${BUDGET_KEY}: 70000`],
-  ["an anchor", `&a ${BUDGET_KEY}: 70000`],
-  ["a value on the next line", `${BUDGET_KEY}:\n  70000`],
-  ["a quoted key", `"${BUDGET_KEY}": 70000`],
-  ["a sequence entry's key", `items:\n  - ${BUDGET_KEY}: 70000`],
-  ["a comment mentioning the key", `# ${BUDGET_KEY}: 70000`],
-  ["a trailing comment mentioning the key", `other: 1 # see ${BUDGET_KEY}`],
-  ["the key named inside another key's value", `description: see ${BUDGET_KEY}: 5`],
-  ["the key after a comma", `other: 1, ${BUDGET_KEY}: 5`],
-  ["a block-scalar line naming the key", `notes: |\n  set ${BUDGET_KEY} here`],
-  ["the key twice", `${BUDGET_KEY}: 70000\n${BUDGET_KEY}: 80000`],
+/** The error a tier's budget line `line` is logged with when it does not match `BUDGET_LINE`. */
+function notBudgetLine(line: string): string {
+  return `\`${line}\` is not a \`${BUDGET_KEY}: <digits>\` line`;
+}
+
+/** The error a tier's budget of `value` is logged with when it is below the floor. */
+function belowFloor(value: number | string): string {
+  return `\`${BUDGET_KEY}\` is ${value}, below the floor of ${MIN_BUDGET}`;
+}
+
+for (const [name, line, error] of [
+  ["zero", `${BUDGET_KEY}: 0`, belowFloor(0)],
+  ["a signed zero", `${BUDGET_KEY}: +0`, notBudgetLine(`${BUDGET_KEY}: +0`)],
+  [
+    "an integer just below the floor",
+    `${BUDGET_KEY}: ${MIN_BUDGET - 1}`,
+    belowFloor(MIN_BUDGET - 1),
+  ],
+  ["a small integer", `${BUDGET_KEY}: 50000`, belowFloor(50000)],
+  ["a signed integer", `${BUDGET_KEY}: +70000`, notBudgetLine(`${BUDGET_KEY}: +70000`)],
+  ["a hex integer", `${BUDGET_KEY}: 0x11170`, notBudgetLine(`${BUDGET_KEY}: 0x11170`)],
+  ["an integer with underscores", `${BUDGET_KEY}: 70_000`, notBudgetLine(`${BUDGET_KEY}: 70_000`)],
+  ["a quoted string", `${BUDGET_KEY}: "70000"`, notBudgetLine(`${BUDGET_KEY}: "70000"`)],
+  ["a float", `${BUDGET_KEY}: 70000.5`, notBudgetLine(`${BUDGET_KEY}: 70000.5`)],
+  [
+    "a trailing comment",
+    `${BUDGET_KEY}: 70000 # mine`,
+    notBudgetLine(`${BUDGET_KEY}: 70000 # mine`),
+  ],
+  ["a tab after the colon", `${BUDGET_KEY}:\t70000`, notBudgetLine(`${BUDGET_KEY}:\t70000`)],
+  ["two spaces after the colon", `${BUDGET_KEY}:  70000`, notBudgetLine(`${BUDGET_KEY}:  70000`)],
+  ["trailing whitespace", `${BUDGET_KEY}: 70000 `, notBudgetLine(`${BUDGET_KEY}: 70000 `)],
+  ["an indented key", `  ${BUDGET_KEY}: 70000`, notBudgetLine(`  ${BUDGET_KEY}: 70000`)],
+  ["a flow mapping", `{${BUDGET_KEY}: 70000}`, notBudgetLine(`{${BUDGET_KEY}: 70000}`)],
+  ["a flow-sequence pair", `[${BUDGET_KEY}: 70000]`, notBudgetLine(`[${BUDGET_KEY}: 70000]`)],
+  ["an explicit key", `? ${BUDGET_KEY}\n: 70000`, notBudgetLine(`? ${BUDGET_KEY}`)],
+  ["a tag", `!!str ${BUDGET_KEY}: 70000`, notBudgetLine(`!!str ${BUDGET_KEY}: 70000`)],
+  ["an anchor", `&a ${BUDGET_KEY}: 70000`, notBudgetLine(`&a ${BUDGET_KEY}: 70000`)],
+  ["a value on the next line", `${BUDGET_KEY}:\n  70000`, notBudgetLine(`${BUDGET_KEY}:`)],
+  ["a quoted key", `"${BUDGET_KEY}": 70000`, notBudgetLine(`"${BUDGET_KEY}": 70000`)],
+  [
+    "a sequence entry's key",
+    `items:\n  - ${BUDGET_KEY}: 70000`,
+    notBudgetLine(`  - ${BUDGET_KEY}: 70000`),
+  ],
+  [
+    "a comment mentioning the key",
+    `# ${BUDGET_KEY}: 70000`,
+    notBudgetLine(`# ${BUDGET_KEY}: 70000`),
+  ],
+  [
+    "a trailing comment mentioning the key",
+    `other: 1 # see ${BUDGET_KEY}`,
+    notBudgetLine(`other: 1 # see ${BUDGET_KEY}`),
+  ],
+  [
+    "the key named inside another key's value",
+    `description: see ${BUDGET_KEY}: 5`,
+    notBudgetLine(`description: see ${BUDGET_KEY}: 5`),
+  ],
+  [
+    "the key after a comma",
+    `other: 1, ${BUDGET_KEY}: 5`,
+    notBudgetLine(`other: 1, ${BUDGET_KEY}: 5`),
+  ],
+  [
+    "a block-scalar line naming the key",
+    `notes: |\n  set ${BUDGET_KEY} here`,
+    notBudgetLine(`  set ${BUDGET_KEY} here`),
+  ],
+  [
+    "the key twice",
+    `${BUDGET_KEY}: 70000\n${BUDGET_KEY}: 80000`,
+    `\`${BUDGET_KEY}\` is set more than once`,
+  ],
 ]) {
-  test(`a tier holding ${name} reloads nothing and logs the path`, async ($, on) => {
+  test(`a tier holding ${name} reloads nothing and logs the path and error`, async ($, on) => {
     const tier = `${ROOT}/.sdlc/repo-config.yml`;
     const log = await compactBroken($, on, {
       [tier]: `schema-version: 1\n${line}\n`,
       [`${ROOT}/.sdlc/user-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: 70003\n`,
     });
-    expect(log).toContain(`${tier}: `);
+    expect(log).toContain(`${tier}: ${error}`);
   });
 }
 
@@ -760,6 +810,25 @@ test("a broken tier names its error in no message the model receives", async ($,
   });
   expect(result.messages).toEqual([SUMMARY]);
   expect(logs).toHaveLength(1);
+});
+
+// A `$.ui.log` call the stub refuses is dropped and resolves, so `$.session.root` stands in for a
+// call that rejects after the compaction resolved.
+test("a call that rejects after the compaction resolved still removes a reload message", async ($, on) => {
+  const stale = {
+    role: "user",
+    text: `${MARKER}\n\nFiles, most recently used first:`,
+    toolUses: [],
+  };
+  host(on, {
+    compacted: { messages: [SUMMARY, stale] },
+    refuseRoot: "the session has no root",
+  });
+  const result = await $.session.compact({
+    trigger: "auto",
+    messages: [read(`${ROOT}/docs/rules/a.md`)],
+  });
+  expect(result.messages).toEqual([SUMMARY]);
 });
 
 test("uses recorded while a tier was broken are reloaded once it is repaired", async ($, on) => {

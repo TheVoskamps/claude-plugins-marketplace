@@ -117,18 +117,27 @@ const NO_STATE: State = { uses: [], orchestrate: "none" };
  */
 export function register(on: On): void {
   // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
-  // with no reload.
+  // less any reload message, so it appends none and keeps none.
   on("session.compact", async ($: Mods, e: CompactEvent, next: Next) => {
     const result = await next(e);
     if (result.skip !== undefined || result.messages === undefined) return result;
     // A result can already carry a reload message, as one core reuses from a precompute does.
     // Its text is never read: the files it named are the uses this hook recorded in the state
     // file when it wrote that message.
-    const kept = result.messages.filter((message) => !isReload(message));
+    const kept = withoutReload(result.messages);
     const text = await reloadText($, e);
     if (text === "") return { ...result, messages: kept };
     return { ...result, messages: [...kept, { role: "user", text, toolUses: [] }] };
-  }).catch(($: Mods, e: CompactEvent, next: Next) => next(e));
+  }).catch(async ($: Mods, e: CompactEvent, next: Next) => {
+    const result = await next(e);
+    if (result.skip !== undefined || result.messages === undefined) return result;
+    return { ...result, messages: withoutReload(result.messages) };
+  });
+}
+
+/** `messages` without any reload message. */
+function withoutReload(messages: readonly Message[]): Message[] {
+  return messages.filter((message) => !isReload(message));
 }
 
 /**
