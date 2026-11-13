@@ -638,6 +638,7 @@ for (const [name, config] of [
   ["a flow mapping", `schema-version: 1\n{${BUDGET_KEY}: 70000}\n`],
   ["a value on the next line", `schema-version: 1\n${BUDGET_KEY}:\n  70000\n`],
   ["a quoted key", `schema-version: 1\n"${BUDGET_KEY}": 70000\n`],
+  ["a sequence entry's key", `schema-version: 1\nitems:\n  - ${BUDGET_KEY}: 70000\n`],
   ["the key twice", `schema-version: 1\n${BUDGET_KEY}: 70000\n${BUDGET_KEY}: 80000\n`],
   ["no schema-version", `${BUDGET_KEY}: 70000\n`],
 ]) {
@@ -682,6 +683,11 @@ for (const [name, config, budget] of [
     "a commented-out budget line",
     `schema-version: 1\n# ${BUDGET_KEY}: 0\n${BUDGET_KEY}: 70017\n`,
     70017,
+  ],
+  [
+    "the key named inside another key's value",
+    `schema-version: 1\ndescription: see ${BUDGET_KEY}: 5\n${BUDGET_KEY}: 70019\n`,
+    70019,
   ],
 ] as const) {
   test(`a tier holding ${name} sets the budget`, async ($, on) => {
@@ -781,6 +787,19 @@ test("a state file that holds no state is named with its error, and the compacti
   const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
   expect(text).toContain(`- ${STATE}/main.json: not JSON`);
   expect(text).toContain(block(rule, "rule"));
+});
+
+test("a state file whose use has a field of the wrong type is named, and rewritten", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const state = `${STATE}/main.json`;
+  const written = stub(on, {
+    [rule]: "rule",
+    [state]: JSON.stringify({ uses: [{ skill: "x", path: 5 }], orchestrate: "none" }),
+  });
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  expect(text).toContain(`- ${state}: not a state file this hook wrote`);
+  expect(text).toContain(block(rule, "rule"));
+  expect(JSON.parse(written[state])).toEqual({ uses: [{ path: rule }], orchestrate: "none" });
 });
 
 test("a state file that cannot be written is named with its error, and the compaction completes", async ($, on) => {

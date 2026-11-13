@@ -38,9 +38,13 @@ const SCHEMA_LINE = /^(["']?)schema-version\1:(?:\s+(.*))?$/;
 // leading zero, then at most a comment. `parseTier` holds the integer to `MIN_BUDGET`.
 const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}:[ \\t]+([1-9][0-9]*)(?:[ \\t]+#.*)?[ \\t]*$`);
 const NOT_A_BUDGET = `not a plain decimal integer of at least ${MIN_BUDGET}`;
-// Any line that writes the budget key as a key, in whatever shape: quoted, indented, in a flow
-// mapping, or with its value on a later line.
-const BUDGET_MENTION = new RegExp(`(?:^|[\\s{,"'])${BUDGET_KEY}["']?\\s*:`);
+// Any line that writes the budget key as a mapping key, in whatever shape: quoted, indented, as a
+// sequence entry's key, in a flow mapping, or with its value on a later line. The key counts only
+// where it opens the line, after indentation and `- ` entry markers, or follows a `{` or a `,`,
+// so `description: see <key>: 5`, which names it inside another key's value, is no budget line.
+const BUDGET_MENTION = new RegExp(
+  `(?:^[ \\t]*(?:-[ \\t]+)*|[{,][ \\t]*)(["']?)${BUDGET_KEY}\\1[ \\t]*:`,
+);
 
 /** One tool call in a transcript message: `text` is the text of the call's result. */
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
@@ -150,6 +154,8 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   const uses = collectUses(e.messages, skills, recorded.uses);
   const orchestrate = orchestrateState(e.messages, recorded.orchestrate);
   if (statePath !== undefined) {
+    // `$.fs.write` creates the file's missing directories, and `$.fs` has no call of its own that
+    // creates one, so a loop's first write lands with no directory made beforehand.
     try {
       await $.fs.write(statePath, JSON.stringify({ uses: orderedUses(uses), orchestrate }));
     } catch (err) {
@@ -265,9 +271,6 @@ async function readState($: Mods, path: string): Promise<State> {
   const state = data as { uses?: unknown; orchestrate?: unknown } | null;
   const uses = state?.uses;
   const orchestrate = state?.orchestrate;
-  const isUse = (use: unknown): use is Use =>
-    typeof (use as { path?: unknown } | null)?.path === "string" ||
-    typeof (use as { skill?: unknown } | null)?.skill === "string";
   if (
     !Array.isArray(uses) ||
     !uses.every(isUse) ||
@@ -276,6 +279,20 @@ async function readState($: Mods, path: string): Promise<State> {
     throw new Error("not a state file this hook wrote");
   }
   return { uses, orchestrate };
+}
+
+/**
+ * True for a use as `orderedUses` writes it: an object whose one field is a string `path` or a
+ * string `skill`.
+ */
+function isUse(use: unknown): use is Use {
+  if (typeof use !== "object" || use === null || Array.isArray(use)) return false;
+  const fields = Object.entries(use);
+  return (
+    fields.length === 1 &&
+    (fields[0][0] === "path" || fields[0][0] === "skill") &&
+    typeof fields[0][1] === "string"
+  );
 }
 
 /** Every use, oldest first, as the state file records them. */
