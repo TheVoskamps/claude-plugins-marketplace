@@ -343,7 +343,11 @@ for (const [name, config, budget] of [
     `schema-version: 1\n"odd key": x\nmerge.wait: skip\n'other': 2\n${BUDGET_KEY}: 11\n`,
     11,
   ],
-  ["a line that is no key of its own", `schema-version: 1\nthis is not yaml\n${BUDGET_KEY}: 13\n`, 13],
+  [
+    "a line that is no key of its own",
+    `schema-version: 1\nthis is not yaml\n${BUDGET_KEY}: 13\n`,
+    13,
+  ],
 ] as const) {
   test(`a tier holding ${name} sets the budget`, async ($, on) => {
     const rule = `${ROOT}/docs/rules/a.md`;
