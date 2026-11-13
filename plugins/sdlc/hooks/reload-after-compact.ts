@@ -1,6 +1,6 @@
-// After a compaction, appends to the compacted conversation the full text of the skills, agent
-// definitions and rule files the compacting loop loaded before it, so the loop works from those
-// files rather than from the summary's truncated account of them.
+// After a compaction, appends to the compacted conversation the full text of the skills and rule
+// files the compacting loop loaded before it, so the loop works from those files rather than from
+// the summary's truncated account of them.
 
 // The key and its default must match the key table in `skills/lib/sdlc-config.md`, and
 // `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
@@ -19,6 +19,14 @@ const UNREADABLE = "could not be read";
 const SKILL_BASE = /Base directory for this skill: (.+)/g;
 const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/;
 const RULE_DIRS = ["/rules/", "/skills/", "/agents/"];
+const ORCHESTRATE = "sdlc:orchestrate";
+// The files that serve only the opening of an orchestrate run, which spawns no agent until
+// pre-flight, the readiness gate and the plan confirmation are done.
+const OPENING_FILES = [
+  "/skills/orchestrate-readiness/SKILL.md",
+  "/skills/orchestrate/lib/pre-flight.md",
+  "/skills/orchestrate/lib/plan.md",
+];
 const TIER_KEY = new RegExp(`^(["']?)(schema-version|${BUDGET_KEY})\\1:(?:\\s+(.*))?$`);
 
 type ToolUse = { tool: string; input: Record<string, unknown>; text?: string };
@@ -46,7 +54,6 @@ type Item = { label: string; seq: number; error?: string };
  */
 type Uses = {
   paths: Map<string, number>;
-  agents: Map<string, number>;
   skills: Map<string, number>;
 };
 
@@ -62,11 +69,8 @@ type Skills = {
   commands: Map<number, string>;
 };
 
-/**
- * One line of an earlier reload message's manifest: a file's path, or an unresolved agent type
- * or skill name.
- */
-type Entry = { path: string } | { agent: string } | { skill: string };
+/** One line of an earlier reload message's manifest: a file's path, or an unresolved skill name. */
+type Entry = { path: string } | { skill: string };
 
 /** One install of a plugin, as `installed_plugins.json` records it. */
 type Install = { projectPath?: unknown; version?: unknown } | null;
@@ -107,16 +111,14 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
   const uses = collectUses(messages, skills);
   const items: Item[] = [];
   for (const [path, seq] of uses.paths) items.push({ label: path, seq });
-  const pluginDirs = skillPluginDirs(messages, skills);
-  for (const [type, seq] of uses.agents) {
-    const item = await agentItem($, type, seq, pluginDirs, home);
-    if (item !== undefined) items.push(item);
-  }
   for (const [name, seq] of uses.skills) {
-    const item = await skillItem($, name, seq, pluginDirs, home);
+    const item = await skillItem($, name, seq, home);
     if (item !== undefined) items.push(item);
   }
-  const kept = mergeByLabel(items).filter((item) => !isReinjected(item.label, home));
+  const isOpened = isOrchestrateOpened(messages);
+  const kept = mergeByLabel(items).filter(
+    (item) => !isReinjected(item.label, home) && !(isOpened && isOpeningFile(item.label)),
+  );
   if (kept.length === 0) return "";
   kept.sort((a, b) => b.seq - a.seq);
 
@@ -154,10 +156,10 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
 
   const parts = [
     MARKER,
-    "The conversation was just compacted, and its summary truncates or omits the skills, agent " +
-      "definitions and rule files the conversation loaded before it. Their full text follows; act " +
-      "on it rather than on the summary's account of them. A file listed as not appended is past " +
-      `the reload budget of ${budget} tokens: read it with the Read tool before acting on it.`,
+    "The conversation was just compacted, and its summary truncates or omits the skills and rule " +
+      "files the conversation loaded before it. Their full text follows; act on it rather than on " +
+      "the summary's account of them. A file listed as not appended is past the reload budget of " +
+      `${budget} tokens: read it with the Read tool before acting on it.`,
     [MANIFEST_HEADING, ...manifest].join("\n"),
   ];
   if (notes.length > 0) {
@@ -173,22 +175,19 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
 }
 
 /**
- * Walks the transcript oldest first and records the last position at which each skill, rule
- * file and agent type was used. A skill counts by its file when the transcript names its base
- * directory, and by its name otherwise. A reload message from an earlier compaction counts as a
- * use of every file, unresolved agent type and unresolved skill its manifest names, so a second
- * compaction reloads them again.
+ * Walks the transcript oldest first and records the last position at which each skill and rule
+ * file was used. A skill counts by its file when the transcript names its base directory, and by
+ * its name otherwise. A reload message from an earlier compaction counts as a use of every file
+ * and unresolved skill its manifest names, so a second compaction reloads them again.
  */
 function collectUses(messages: readonly Message[], skills: Skills): Uses {
   const paths = new Map<string, number>();
-  const agents = new Map<string, number>();
   const names = new Map<string, number>();
   let seq = 0;
   messages.forEach((message, index) => {
     if (isReload(message)) {
       for (const entry of manifestEntries(message.text).reverse()) {
         if ("path" in entry) paths.set(entry.path, seq++);
-        else if ("agent" in entry) agents.set(entry.agent, seq++);
         else names.set(entry.skill, seq++);
       }
     }
@@ -201,16 +200,42 @@ function collectUses(messages: readonly Message[], skills: Skills): Uses {
         const skill = use.input.skill;
         if (base !== undefined) paths.set(`${base}/SKILL.md`, seq++);
         else if (typeof skill === "string" && skill !== "") names.set(skill, seq++);
-      } else if (use.tool === "Agent" || use.tool === "Task") {
-        const type = use.input.subagent_type;
-        if (typeof type === "string" && type !== "") agents.set(type, seq++);
       } else if (use.tool === "Read") {
         const path = use.input.file_path;
         if (typeof path === "string" && isRuleFile(path)) paths.set(path, seq++);
       }
     }
   });
-  return { paths, agents, skills: names };
+  return { paths, skills: names };
+}
+
+/**
+ * True when an `Agent` call follows the transcript's most recent `/sdlc:orchestrate` invocation,
+ * as a `Skill` call or a slash command. That run's opening is then over, so its opening files are
+ * not reloaded. A reload message from an earlier compaction is no invocation.
+ */
+function isOrchestrateOpened(messages: readonly Message[]): boolean {
+  let isInvoked = false;
+  let isOpened = false;
+  for (const message of messages) {
+    if (message.role === "user" && !isReload(message)) {
+      if (COMMAND_NAME.exec(message.text)?.[1] === ORCHESTRATE)
+        [isInvoked, isOpened] = [true, false];
+    }
+    for (const use of message.toolUses ?? []) {
+      if (use.tool === "Skill" && use.input.skill === ORCHESTRATE) {
+        [isInvoked, isOpened] = [true, false];
+      } else if (use.tool === "Agent" && isInvoked) {
+        isOpened = true;
+      }
+    }
+  }
+  return isOpened;
+}
+
+/** True for a path ending in one of `OPENING_FILES`, under whichever directory holds the plugin. */
+function isOpeningFile(path: string): boolean {
+  return OPENING_FILES.some((file) => path.endsWith(file));
 }
 
 /** True for a Markdown file under a `rules/`, `skills/` or `agents/` directory. */
@@ -269,71 +294,23 @@ function baseDirs(text: string): string[] {
   return [...text.matchAll(SKILL_BASE)].map((match) => match[1].trim().replace(/\/+$/, ""));
 }
 
-/** Each plugin's directory, as the base directory of a skill it loaded names it. */
-function skillPluginDirs(messages: readonly Message[], skills: Skills): Map<string, string> {
-  const dirs = new Map<string, string>();
-  messages.forEach((message) => {
-    for (const use of message.toolUses ?? []) {
-      const skill = use.input.skill;
-      if (use.tool !== "Skill" || typeof skill !== "string" || !skill.includes(":")) continue;
-      const base = skills.calls.get(use);
-      const cut = base?.lastIndexOf("/skills/") ?? -1;
-      if (base !== undefined && cut > 0)
-        dirs.set(skill.slice(0, skill.indexOf(":")), base.slice(0, cut));
-    }
-  });
-  return dirs;
-}
-
-/**
- * Resolves an agent type to its definition file. An agent type with no plugin prefix resolves
- * under the project's `.claude/agents/`, then under `~/.claude/agents/`, and with a file in
- * neither is a built-in one and resolves to nothing. A plugin whose directory cannot be found
- * resolves to an item carrying the error.
- */
-async function agentItem(
-  $: Mods,
-  type: string,
-  seq: number,
-  pluginDirs: Map<string, string>,
-  home: string,
-): Promise<Item | undefined> {
-  const colon = type.indexOf(":");
-  if (colon < 0) {
-    try {
-      const project = `${await $.session.root()}/.claude/agents/${type}.md`;
-      if (await $.fs.exists(project)) return { label: project, seq };
-      const user = `${home}/.claude/agents/${type}.md`;
-      return home !== "" && (await $.fs.exists(user)) ? { label: user, seq } : undefined;
-    } catch (err) {
-      return { label: `agent ${type}`, seq, error: errorText(err) };
-    }
-  }
-  try {
-    const dir = await pluginDir($, type.slice(0, colon), pluginDirs, home);
-    return { label: `${dir}/agents/${type.slice(colon + 1)}.md`, seq };
-  } catch (err) {
-    return { label: `agent ${type}`, seq, error: errorText(err) };
-  }
-}
-
 /**
  * Resolves a skill known only by name to its `SKILL.md`. A plugin skill `<plugin>:<name>`
- * resolves to `skills/<name>/SKILL.md` in the plugin's directory, as `agentItem` finds it. A
+ * resolves to `skills/<name>/SKILL.md` in the plugin's directory, as `pluginDir` finds it. A
  * name with no plugin prefix resolves under the project's `.claude/skills/`, then under
  * `~/.claude/skills/`, and with a file in neither is a built-in command and resolves to nothing.
+ * A plugin whose directory cannot be found resolves to an item carrying the error.
  */
 async function skillItem(
   $: Mods,
   name: string,
   seq: number,
-  pluginDirs: Map<string, string>,
   home: string,
 ): Promise<Item | undefined> {
   const colon = name.indexOf(":");
   try {
     if (colon >= 0) {
-      const dir = await pluginDir($, name.slice(0, colon), pluginDirs, home);
+      const dir = await pluginDir($, name.slice(0, colon), home);
       return { label: `${dir}/skills/${name.slice(colon + 1)}/SKILL.md`, seq };
     }
     const project = `${await $.session.root()}/.claude/skills/${name}/SKILL.md`;
@@ -346,17 +323,11 @@ async function skillItem(
 }
 
 /**
- * A plugin's directory: the one a skill it loaded names, else the hook's own plugin root for its
- * own plugin, else the plugin's install in the cache. Rejects as `cachedPluginDir` does.
+ * A plugin's directory: the hook's own plugin root for its own plugin, else the plugin's install
+ * in the cache. Rejects as `cachedPluginDir` does.
  */
-async function pluginDir(
-  $: Mods,
-  plugin: string,
-  pluginDirs: Map<string, string>,
-  home: string,
-): Promise<string> {
-  const dir = pluginDirs.get(plugin) ?? (plugin === $.plugin.name ? $.plugin.root : undefined);
-  return dir ?? (await cachedPluginDir($, plugin, home));
+async function pluginDir($: Mods, plugin: string, home: string): Promise<string> {
+  return plugin === $.plugin.name ? $.plugin.root : await cachedPluginDir($, plugin, home);
 }
 
 /**
@@ -453,25 +424,21 @@ function isReload(message: Message): boolean {
   return message.role === "user" && message.text.startsWith(MARKER);
 }
 
-/**
- * The paths, unresolved agent types and unresolved skill names an earlier reload message's
- * manifest names, in its order.
- */
+/** The paths and unresolved skill names an earlier reload message's manifest names, in its order. */
 function manifestEntries(text: string): Entry[] {
   const lines = text.split("\n");
   const start = lines.indexOf(MANIFEST_HEADING);
   if (start < 0) return [];
   const entries: Entry[] = [];
   const entry = new RegExp(
-    `^- (?:(/.+?)|agent (\\S+)|skill (\\S+)) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`,
+    `^- (?:(/.+?)|skill (\\S+)) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`,
   );
   for (const line of lines.slice(start + 1)) {
     if (!line.startsWith("- ")) break;
     const match = entry.exec(line);
     if (match === null) continue;
     if (match[1] !== undefined) entries.push({ path: match[1] });
-    else if (match[2] !== undefined) entries.push({ agent: match[2] });
-    else entries.push({ skill: match[3] });
+    else entries.push({ skill: match[2] });
   }
   return entries;
 }

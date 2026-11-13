@@ -219,40 +219,48 @@ test("a skill of another plugin with no install recorded is named, and named aga
   expect(second).toContain(entry);
 });
 
-test("every agent type the main conversation spawned is reloaded, and no other", async ($, on) => {
-  const own = `${SKILLS.replace("/skills", "")}/agents/issue-developer.md`;
-  const project = `${ROOT}/.claude/agents/helper.md`;
-  stub(on, { [own]: "developer definition", [project]: "helper definition" });
+test("no agent definition is reloaded for an agent type the conversation spawned", async ($, on) => {
+  const reads: string[] = [];
+  mock.env(on, { HOME });
+  on("session.root", () => ({ value: ROOT }));
+  on("fs.exists", () => ({ value: true }));
+  on("fs.read", ($, e) => {
+    reads.push(e.path);
+    return { value: "text" };
+  });
+  on("session.compact", () => ({ messages: [SUMMARY] }));
+  const rule = `${ROOT}/docs/rules/a.md`;
   const messages = [
-    ...skill("sdlc:orchestrate", `${SKILLS}/orchestrate`),
     spawn("sdlc:issue-developer"),
     spawn("helper"),
-    spawn("general-purpose"),
+    spawn("git-tools:branch-helper"),
+    read(rule),
   ];
   const text = reload(await $.session.compact({ trigger: "auto", messages }));
-  expect(text).toContain(block(own, "developer definition"));
-  expect(text).toContain(block(project, "helper definition"));
-  expect(text).not.toContain("theorem-disprover");
-  expect(text).not.toContain("general-purpose");
+  expect(text).toContain(block(rule, "text"));
+  expect(reads.filter((path) => path.includes("/agents/"))).toEqual([]);
+  expect(text).not.toContain("issue-developer");
+  expect(text).not.toContain("helper");
 });
 
-test("an agent of the hook's own plugin with no skill loaded resolves under the plugin root", async ($, on) => {
+test("a skill of the hook's own plugin with no base directory resolves under the plugin root", async ($, on) => {
   const paths: string[] = [];
   mock.env(on, { HOME });
   on("session.root", () => ({ value: ROOT }));
   on("fs.exists", () => ({ value: false }));
   on("fs.read", ($, e) => {
     paths.push(e.path);
-    return { value: "definition" };
+    return { value: "skill" };
   });
   on("session.compact", () => ({ messages: [SUMMARY] }));
-  reload(await $.session.compact({ trigger: "auto", messages: [spawn("sdlc:pr-monitor")] }));
-  expect(paths.some((path) => path.endsWith("/sdlc/agents/pr-monitor.md"))).toBe(true);
+  reload(await $.session.compact({ trigger: "auto", messages: launched("sdlc:git-review-pr") }));
+  expect(paths.some((path) => path.endsWith("/sdlc/skills/git-review-pr/SKILL.md"))).toBe(true);
+  expect(paths.some((path) => path.includes("installed_plugins.json"))).toBe(false);
 });
 
-test("an agent of another plugin with no skill loaded resolves to its installed version", async ($, on) => {
+test("a skill of another plugin resolves to its installed version", async ($, on) => {
   // The hook's own plugin root names the marketplace, so the first compaction reads it off the
-  // path the hook reads for an agent of its own plugin.
+  // path the hook reads for a skill of its own plugin.
   const reads: string[] = [];
   const files: Record<string, string> = {};
   mock.env(on, { HOME });
@@ -263,8 +271,8 @@ test("an agent of another plugin with no skill loaded resolves to its installed 
     return e.path in files ? { value: files[e.path] } : { deny: `ENOENT: ${e.path}` };
   });
   on("session.compact", () => ({ messages: [SUMMARY] }));
-  reload(await $.session.compact({ trigger: "auto", messages: [spawn("sdlc:pr-monitor")] }));
-  const root = reads[0].slice(0, -"/agents/pr-monitor.md".length);
+  reload(await $.session.compact({ trigger: "auto", messages: launched("sdlc:git-review-pr") }));
+  const root = reads[0].slice(0, -"/skills/git-review-pr/SKILL.md".length);
   const marketplace = root.split("/").at(-3);
   const cache = `${HOME}/.claude/plugins/cache/${marketplace}/git-tools`;
   const install = (version: string, projectPath?: string) => ({
@@ -279,39 +287,23 @@ test("an agent of another plugin with no skill loaded resolves to its installed 
       [`git-tools@${marketplace}`]: [install("0.11.0", "/elsewhere"), install("0.9.0")],
     },
   });
-  files[`${cache}/0.9.0/agents/branch-helper.md`] = "installed definition";
-  files[`${cache}/0.11.0/agents/branch-helper.md`] = "newer definition";
+  const skillFile = (version: string) => `${cache}/${version}/skills/git-branch-sync/SKILL.md`;
+  files[skillFile("0.9.0")] = "installed skill";
+  files[skillFile("0.11.0")] = "newer skill";
   const text = reload(
-    await $.session.compact({ trigger: "auto", messages: [spawn("git-tools:branch-helper")] }),
+    await $.session.compact({ trigger: "auto", messages: launched("git-tools:git-branch-sync") }),
   );
-  expect(text).toContain(block(`${cache}/0.9.0/agents/branch-helper.md`, "installed definition"));
+  expect(text).toContain(block(skillFile("0.9.0"), "installed skill"));
   expect(text).not.toContain("0.11.0");
 });
 
-test("an agent of another plugin with no install recorded is named with the error", async ($, on) => {
+test("a skill of another plugin with no install recorded is named with the error", async ($, on) => {
   stub(on, {});
   const text = reload(
-    await $.session.compact({ trigger: "auto", messages: [spawn("git-tools:branch-helper")] }),
+    await $.session.compact({ trigger: "auto", messages: [typed("git-tools:git-branch-sync")] }),
   );
-  expect(text).toContain("- agent git-tools:branch-helper (could not be read: ");
+  expect(text).toContain("- skill git-tools:git-branch-sync (could not be read: ");
   expect(text).toContain("installed_plugins.json");
-});
-
-test("an agent with no plugin prefix resolves under ~/.claude/agents when the project has none", async ($, on) => {
-  const user = `${HOME}/.claude/agents/mine.md`;
-  const shadowed = `${HOME}/.claude/agents/helper.md`;
-  const project = `${ROOT}/.claude/agents/helper.md`;
-  stub(on, { [user]: "user definition", [shadowed]: "shadowed", [project]: "project definition" });
-  const text = reload(
-    await $.session.compact({
-      trigger: "auto",
-      messages: [spawn("mine"), spawn("helper"), spawn("general-purpose")],
-    }),
-  );
-  expect(text).toContain(block(user, "user definition"));
-  expect(text).toContain(block(project, "project definition"));
-  expect(text).not.toContain("shadowed");
-  expect(text).not.toContain("general-purpose");
 });
 
 test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other files are not", async ($, on) => {
@@ -337,22 +329,119 @@ test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other fil
 });
 
 test("a subagent's compaction reloads what its own transcript loaded", async ($, on) => {
-  const own = `${SKILLS.replace("/skills", "")}/agents/theorem-disprover.md`;
+  const own = `${SKILLS}/git-review-pr/SKILL.md`;
   const rule = `${ROOT}/docs/rules/hook-event-notes.md`;
-  stub(on, { [own]: "disprover definition", [rule]: "notes" });
+  const mainRule = `${ROOT}/docs/rules/main-only.md`;
+  stub(on, { [own]: "review skill", [rule]: "notes", [mainRule]: "main" });
   on("session.messages", () => ({
-    value: [...skill("sdlc:orchestrate", `${SKILLS}/orchestrate`), spawn("sdlc:issue-developer")],
+    value: [...skill("sdlc:orchestrate", `${SKILLS}/orchestrate`), read(mainRule)],
   }));
-  const messages = [
-    ...skill("sdlc:git-review-pr", `${SKILLS}/git-review-pr`),
-    spawn("sdlc:theorem-disprover"),
-    read(rule),
-  ];
+  const messages = [...skill("sdlc:git-review-pr", `${SKILLS}/git-review-pr`), read(rule)];
   const text = reload(await $.session.compact({ trigger: "auto", agentId: "a1", messages }));
-  expect(text).toContain(block(own, "disprover definition"));
+  expect(text).toContain(block(own, "review skill"));
   expect(text).toContain(block(rule, "notes"));
   expect(text).not.toContain("orchestrate/SKILL.md");
-  expect(text).not.toContain("issue-developer");
+  expect(text).not.toContain("main-only");
+});
+
+// The opening files as the hook's own plugin root resolves them, by their path below that root.
+const OPENING = [
+  "skills/orchestrate-readiness/SKILL.md",
+  "skills/orchestrate/lib/pre-flight.md",
+  "skills/orchestrate/lib/plan.md",
+];
+
+/**
+ * Compacts `messages` after the conversation invoked the readiness skill and read the two
+ * orchestrate opening files, every file reading as its own path, and returns the reload text.
+ */
+async function compactOpening($, on, messages): Promise<string> {
+  mock.env(on, { HOME });
+  on("session.root", () => ({ value: ROOT }));
+  on("fs.exists", () => ({ value: false }));
+  on("fs.read", ($, e) => ({ value: e.path }));
+  on("session.compact", () => ({ messages: [SUMMARY] }));
+  const opening = [
+    ...launched("sdlc:orchestrate-readiness"),
+    read(`${SKILLS}/orchestrate/lib/pre-flight.md`),
+    read(`${SKILLS}/orchestrate/lib/plan.md`),
+  ];
+  const rule = `${ROOT}/docs/rules/a.md`;
+  return reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: messages(opening, read(rule)),
+    }),
+  );
+}
+
+test("orchestrate's opening files are dropped once an Agent call follows its invocation", async ($, on) => {
+  const text = await compactOpening($, on, (opening, rule) => [
+    typed("sdlc:orchestrate"),
+    ...opening,
+    spawn("sdlc:issue-developer"),
+    rule,
+  ]);
+  for (const file of OPENING) expect(text).not.toContain(file);
+  expect(text).toContain("/docs/rules/a.md (appended below)");
+});
+
+test("orchestrate's opening files are reloaded before an Agent call follows its invocation", async ($, on) => {
+  const text = await compactOpening($, on, (opening, rule) => [
+    ...skill("sdlc:orchestrate", `${SKILLS}/orchestrate`),
+    ...opening,
+    rule,
+  ]);
+  for (const file of OPENING) expect(text).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+});
+
+test("an Agent call before the orchestrate invocation leaves its opening files live", async ($, on) => {
+  const text = await compactOpening($, on, (opening, rule) => [
+    spawn("sdlc:pr-monitor"),
+    typed("sdlc:orchestrate"),
+    ...opening,
+    rule,
+  ]);
+  for (const file of OPENING) expect(text).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+});
+
+test("a later orchestrate invocation makes its opening files live until its own Agent call", async ($, on) => {
+  const live = await compactOpening($, on, (opening, rule) => [
+    typed("sdlc:orchestrate"),
+    ...opening,
+    spawn("sdlc:issue-developer"),
+    ...launched("sdlc:orchestrate"),
+    rule,
+  ]);
+  for (const file of OPENING) expect(live).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+});
+
+test("a later orchestrate invocation's own Agent call drops its opening files again", async ($, on) => {
+  const text = await compactOpening($, on, (opening, rule) => [
+    typed("sdlc:orchestrate"),
+    ...opening,
+    spawn("sdlc:issue-developer"),
+    ...launched("sdlc:orchestrate"),
+    rule,
+    spawn("sdlc:issue-fixer"),
+  ]);
+  for (const file of OPENING) expect(text).not.toContain(file);
+});
+
+test("an opening file an earlier reload named is dropped once the run is past its opening", async ($, on) => {
+  const preFlight = `${SKILLS}/orchestrate/lib/pre-flight.md`;
+  const stale = {
+    role: "user",
+    text: `${MARKER}\n\nFiles, most recently used first:\n- ${preFlight} (appended below)`,
+    toolUses: [],
+  };
+  const text = await compactOpening($, on, (opening, rule) => [
+    stale,
+    typed("sdlc:orchestrate"),
+    spawn("sdlc:issue-developer"),
+    rule,
+  ]);
+  expect(text).not.toContain("pre-flight.md");
 });
 
 test("past the budget, the most recently used are appended and the rest listed", async ($, on) => {
@@ -481,20 +570,20 @@ test("a file that cannot be read is named with its error, and the compaction com
 test("a second compaction reloads what the first one reloaded", async ($, on) => {
   const rule = `${ROOT}/docs/rules/a.md`;
   const later = `${ROOT}/docs/rules/b.md`;
-  const agent = "- agent git-tools:branch-helper (could not be read: ";
+  const unresolved = "- skill git-tools:git-branch-sync (could not be read: ";
   stub(on, { [rule]: "rule", [later]: "later" });
   const first = reload(
     await $.session.compact({
       trigger: "auto",
-      messages: [read(rule), spawn("git-tools:branch-helper")],
+      messages: [read(rule), ...launched("git-tools:git-branch-sync")],
     }),
   );
-  expect(first).toContain(agent);
+  expect(first).toContain(unresolved);
   const messages = [SUMMARY, { role: "user", text: first, toolUses: [] }, read(later)];
   const second = reload(await $.session.compact({ trigger: "auto", messages }));
   expect(second).toContain(block(rule, "rule"));
   expect(second).toContain(block(later, "later"));
-  expect(second).toContain(agent);
+  expect(second).toContain(unresolved);
   expect(second.indexOf(`- ${later} `)).toBeLessThan(second.indexOf(`- ${rule} `));
 });
 

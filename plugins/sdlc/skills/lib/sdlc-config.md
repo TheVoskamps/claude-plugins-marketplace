@@ -67,7 +67,7 @@ merge-poll-interval-seconds: 300
   change in state `pr-monitor` runs before it asks whether to keep
   waiting.
 - **`reload-after-compact-token-budget`** — how many tokens, counted
-  as characters ÷ 4, of skill, agent-definition and rule-file text the
+  as characters ÷ 4, of skill and rule-file text the
   `reload-after-compact` hook appends to a compacted conversation.
   The files past it are listed by path, to be read before acting on
   them.
