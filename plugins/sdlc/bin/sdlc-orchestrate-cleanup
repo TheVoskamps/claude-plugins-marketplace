@@ -17,12 +17,12 @@
 # whichever of its worktrees the script runs in. Runs under the bash 3.2
 # macOS ships.
 #
-# Usage: sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
-#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--dry-run]
+# Usage: sdlc-orchestrate-cleanup --pr <PR> [--review-state] [--dry-run]
+#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--review-state] [--dry-run]
 #
 #   --pr <PR>           the pull request, in any form pr-view accepts. It
 #                       must be merged or closed, and in this checkout's
-#                       repository. Removes its review state; every
+#                       repository. Removes every
 #                       worktree under .claude/worktrees/, nested ones
 #                       included, named agent-<id> for an agent id its
 #                       state names, and each such agent's local
@@ -32,7 +32,7 @@
 #                       and every top-level .claude/tmp/ entry
 #                       named `<anything>-<N>` for an issue <N> its body
 #                       closes.
-#   --all               the whole repository: its review state, every
+#   --all               the whole repository: every
 #                       worktree under .claude/worktrees/, every local
 #                       branch but the default branch, every top-level
 #                       .claude/tmp/ entry, and every per-session
@@ -41,6 +41,11 @@
 #                       is `scratchpad`; the directory two levels above
 #                       it holds one <session-id>/scratchpad/ per
 #                       session. It is kept.
+#   --review-state      also delete the review state of the scope: the
+#                       PR's under --pr, every PR's in this repository
+#                       under --all. Without it no review state is
+#                       deleted or listed; under --pr the agents it
+#                       names are still read.
 #   --dry-run           print what a real run would act on, and act on
 #                       nothing; the `sdlc-agent-result-persist` calls
 #                       that find the review state still move old-layout
@@ -85,7 +90,7 @@ fail() {
   exit "$1"
 }
 
-usage="usage: $PROGRAM --pr <PR> [--dry-run] | --all --scratchpad <path> [--dry-run]"
+usage="usage: $PROGRAM --pr <PR> [--review-state] [--dry-run] | --all --scratchpad <path> [--review-state] [--dry-run]"
 
 # usage_error <message> -- print <message> and the synopsis, and exit 2.
 usage_error() {
@@ -107,6 +112,7 @@ trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 pr=
 all=
 scratchpad=
+review_state=
 dry=
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -121,6 +127,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --all)
       all=yes
+      shift
+      ;;
+    --review-state)
+      review_state=yes
       shift
       ;;
     --dry-run)
@@ -285,7 +295,10 @@ deletes_branch() {
 }
 
 # --- review state ------------------------------------------------------
-if [ -n "$pr" ]; then
+listed=
+if [ -z "$review_state" ]; then
+  :
+elif [ -n "$pr" ]; then
   listed=$(sdlc-agent-result-persist --mode list "${ref%'#'*}" || exit) ||
     fail 1 "sdlc-agent-result-persist --mode list ${ref%'#'*} failed"
 else

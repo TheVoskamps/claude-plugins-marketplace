@@ -240,13 +240,11 @@ host from `--pr` or from `list`'s repository, and writes its
 state at both paths refuses, non-zero, naming both, and moves nothing.
 
 **Nothing here is deleted but by `--mode delete`, and that mode is
-called only by `sdlc-orchestrate-cleanup`, which the human invokes and
-which `/sdlc:orchestrate` runs for a PR after that PR has merged.** A
+called only by `sdlc-orchestrate-cleanup --review-state`, which only
+the human invokes.** A
 round's files are the evidence a stalled or voided round is diagnosed
 from, so no mode that runs during a review removes one, and none ever
-expires: a PR's directory stays until `/sdlc:orchestrate` cleans up
-after the PR's merge — a merged PR's evidence is no longer needed to
-diagnose a round — or the human decides its evidence is no longer
+expires: a PR's directory stays until the human decides its evidence is no longer
 wanted.
 
 ## The modes

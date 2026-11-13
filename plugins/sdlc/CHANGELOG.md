@@ -1,5 +1,13 @@
 # sdlc changelog
 
+## 0.80.0 — 2026-11-13
+
+`/sdlc:orchestrate-cleanup` keeps review state by default, in both the
+`<PR>` and the `--all` form, so `/sdlc:orchestrate-analysis` can still
+report on a merged PR's run. Pass `--review-state` to delete it as
+before. The post-merge tail of `/sdlc:orchestrate` no longer deletes a
+merged PR's review state.
+
 ## 0.79.0 — 2026-11-12
 
 A review the pipeline did not post — a code-scanning review, a human

@@ -247,6 +247,14 @@ delete branch worktree-agent-b
 remove scratch $PRIMARY/.claude/tmp/issue-7"
 BEFORE=$(snapshot)
 run --pr 7 --dry-run
+check "$RC" "0" "--pr without --review-state, dry run: exit 0"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 1d | sed 's/^/would-/')" \
+  "--pr without --review-state, dry run: every item but the review state"
+check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode print-agents --pr $PR" \
+  "--pr without --review-state: the agents are read, and review state is not listed"
+
+rm -f "$SERVE/sdlc-agent-result-persist.args"
+run --pr 7 --review-state --dry-run
 check "$RC" "0" "--pr dry run: exit 0"
 check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--pr dry run: every item as would-<action>"
 check "$(snapshot)" "$BEFORE" "--pr dry run: nothing removed"
@@ -255,7 +263,7 @@ check "$(grep -cE 'fetch|pull|switch|prune|remove|unlock|branch -D' "$SERVE/git.
   "--pr dry run: no git call acts"
 
 rm -f "$SERVE/sdlc-agent-result-persist.args" "$SERVE/gh.args"
-run --pr 7
+run --pr 7 --review-state
 check "$RC" "0" "--pr: exit 0"
 check "$OUT" "$EXPECTED" "--pr: the dry run's items, acted on"
 check "$(cat "$SERVE/deleted")" "$PR" "--pr: only the PR's review state is deleted"
@@ -424,12 +432,19 @@ remove scratchpad $SESSIONS/s2/scratchpad
 remove scratchpad $SESSIONS/s3/scratchpad"
 BEFORE=$(snapshot)
 run --all --scratchpad "$PAD/" --dry-run
+check "$RC" "0" "--all without --review-state, dry run: exit 0"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 1,2d | sed 's/^/would-/')" \
+  "--all without --review-state, dry run: every item but the review state"
+check "$([ -f "$SERVE/sdlc-agent-result-persist.args" ] && echo ran)" "" \
+  "--all without --review-state: no review state is read"
+
+run --all --scratchpad "$PAD/" --review-state --dry-run
 check "$RC" "0" "--all dry run: exit 0"
 check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--all dry run: every item as would-<action>"
 check "$(snapshot)" "$BEFORE" "--all dry run: nothing removed"
 check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode list" "--all: review state is listed for this repository, and nothing else is read"
 
-run --all --scratchpad "$PAD"
+run --all --scratchpad "$PAD" --review-state
 check "$RC" "0" "--all: exit 0"
 check "$OUT" "$EXPECTED" "--all: the dry run's items, acted on"
 check "$(cat "$SERVE/deleted" | tr '\n' ' ')" "$PR h.example/o/r#8 " "--all: every PR's review state is deleted"
@@ -445,7 +460,7 @@ untouched_origin "--all"
 build failing
 git -C "$PRIMARY" checkout -q other-branch
 echo 'h.example/o/r#8' >"$SERVE/delete.fail"
-run --all --scratchpad "$PAD"
+run --all --scratchpad "$PAD" --review-state
 check "$RC" "1" "a failed action: exit 1"
 check_contains "$OUT" "delete review-state h.example/o/r#8
 failed delete review-state h.example/o/r#8: persist: stub refused h.example/o/r#8
@@ -463,7 +478,7 @@ untouched_origin "a failed action"
 build usage
 BEFORE=$(snapshot)
 rm -f "$SERVE/git-default-branch.args"
-for args in "" "--dry-run" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr 7 --scratchpad $PAD" \
+for args in "" "--dry-run" "--review-state" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr 7 --scratchpad $PAD" \
   "--all --scratchpad $CASE" "--all --scratchpad $SESSIONS/s9/scratchpad" "--pr 7 --bogus"; do
   read -r -a argv <<<"$args"
   run ${argv[@]+"${argv[@]}"}

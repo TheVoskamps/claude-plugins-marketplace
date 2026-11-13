@@ -5,8 +5,8 @@ implemented without stopping to ask, plan and delegate the
 implementation of one or more issues across parallel teammate agents,
 review the resulting PRs through a theorem-based pipeline, hand the
 human a set of PRs to bless, watch each blessed PR until it merges,
-and remove what each merged PR left behind — its review state, the
-worktrees its agents ran in, its local branch and its scratch — or,
+and remove what each merged PR left behind — the worktrees its agents
+ran in, its local branch and its scratch, keeping its review state — or,
 when the human asks, everything every run left in the repo.
 
 ## Find the owner of a statement before you edit it
@@ -1094,8 +1094,8 @@ verdict then reflects it.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator-effort <low\|medium\|high\|xhigh>] [--full] [--mode <mode>]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `/sdlc:orchestrate-cleanup <PR> [--dry-run]` | Remove what one merged or closed PR left behind — its review state, the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; `--dry-run` lists what would go and removes nothing | main session |
-| `/sdlc:orchestrate-cleanup --all [--dry-run]` | Remove everything every run left in this repo — all review state, every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; `--dry-run` shows the list and asks nothing | main session, interactive |
+| `/sdlc:orchestrate-cleanup <PR> [--review-state] [--dry-run]` | Remove what one merged or closed PR left behind — the worktrees of the agents its state records, its local head branch, the `.claude/tmp/` scratch of the issues it closes and, with `--review-state`, its review state — asking nothing, then bring the default branch up to date; `--dry-run` lists what would go and removes nothing | main session |
+| `/sdlc:orchestrate-cleanup --all [--review-state] [--dry-run]` | Remove everything every run left in this repo — every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch, every other session's scratchpad and, with `--review-state`, all review state — after showing the full list and asking one go-ahead; `--dry-run` shows the list and asks nothing | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
@@ -1139,10 +1139,11 @@ why grooming is interactive rather than an agent is owned by
 `/sdlc:orchestrate-cleanup` is the pass behind the flow, and its two
 forms are two scopes of one script, `bin/sdlc-orchestrate-cleanup`.
 The `<PR>` form is what `/sdlc:orchestrate`'s post-merge tail runs,
-once for each PR the run merged, asking nothing: a merged PR's evidence
-is no longer needed to diagnose a round, so its review state goes with
-the worktrees, branch and scratch that produced it, and a PR the run
-did not see merge keeps all of it. The `--all` form is the human's, for
+once for each PR the run merged, asking nothing: the worktrees, branch
+and scratch that produced a merged PR go, and a PR the run did not see
+merge keeps all of it. Review state is kept in both forms unless
+`--review-state` is passed, so `/sdlc:orchestrate-analysis` can still
+read a merged PR's run; the flag is how a human clears it. The `--all` form is the human's, for
 clearing up after many runs, and it is the one form that asks — a
 single question, put over the full list a dry run printed. The skill
 owns which form asks and what it shows first; what each scope removes,
@@ -1485,11 +1486,9 @@ across a turn, and a finished run's time report is reconstructed from
 them after every worktree that produced them is gone. The one `sdlc`
 surface that deletes state is the script's `--mode delete`, which
 removes a whole `pr<N>/`, and its only caller is
-`sdlc-orchestrate-cleanup`, which `/sdlc:orchestrate` runs for a PR
-once that PR has merged and the human runs otherwise; so a `pr<N>/`
-outlives every round of its PR, and goes when the PR has merged — its
-evidence is no longer needed to diagnose a round — or when the human
-decides it is no longer wanted.
+`sdlc-orchestrate-cleanup --review-state`, which only the human runs; so
+a `pr<N>/` outlives its PR's merge, and goes when the human decides it
+is no longer wanted.
 
 ## Agents
 
