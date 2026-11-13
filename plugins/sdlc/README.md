@@ -335,8 +335,8 @@ the summary alone, and one `$.ui.log` line tells the human the path and
 the error. It never falls back to the default for such a tier, and
 never puts a config error in text sent to the model. The loop's uses
 are still recorded, so the first compaction after the tier is repaired
-reloads them. A throw or a timeout inside the hook ends the same way:
-the compaction stands, with no reload message.
+reloads them. A throw inside the hook after the compaction has resolved
+leaves the compaction standing, with any reload message removed.
 
 ## A blessed PR is gated on merge readiness, and the gate never remedies
 
