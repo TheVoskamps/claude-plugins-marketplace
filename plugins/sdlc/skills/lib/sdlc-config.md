@@ -73,14 +73,14 @@ merge-poll-interval-seconds: 300
   as characters ÷ 4, of skill and rule-file text the
   `reload-after-compact` hook appends to a compacted conversation.
   The files past it are listed by path, to be read before acting on
-  them. The floor of `64000` holds an orchestrate run's whole working
-  set past its opening, about 42k tokens, with headroom for the files
-  the run's own work reads. Any line of a tier file that contains
+  them. The table's floor holds an orchestrate run's whole working set
+  past its opening, about 42k tokens, with headroom for the files the
+  run's own work reads. Any line of a tier file that contains
   `reload-after-compact-token-budget` is a budget line, a comment or
   another key's value included. A budget line is valid only when it
   matches `^reload-after-compact-token-budget: [0-9]+$` and its number
-  is at least `64000`. Every other budget line, a second one included,
-  is outside its allowed values.
+  is not below that floor. Every other budget line, a second one
+  included, is outside its allowed values.
 
 ## Reading
 
