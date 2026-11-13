@@ -169,8 +169,8 @@ test("a skill invoked as a slash command is reloaded", async ($, on) => {
   expect(text).toContain(block(path, "orchestrate"));
 });
 
-// The two shapes below are copied from the messages a live `session.compact` hook received: the
-// harness keeps a skill's expanded text, and with it the base directory, out of those messages.
+// The harness keeps a skill's expanded text, and with it the base directory, out of the messages a
+// `session.compact` hook receives, so the two shapes below carry neither.
 
 /** A slash-typed skill, as the main conversation's message for it arrives. */
 function typed(name: string) {
