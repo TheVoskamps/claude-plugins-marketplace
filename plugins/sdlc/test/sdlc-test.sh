@@ -1269,27 +1269,45 @@ pr_case brief-usage '{"comments": []}'
 pr_read sdlc-fixer-brief --every 'h.example/o/r#7'
 check "$RC:$CALLS" "2:" "fixer-brief: an unknown flag is a usage error that reads nothing"
 
-# chunk <day> <i>/<N>: prints one comment's JSON, created on 2026-01-0<day>,
-# whose first line is the records marker for chunk <i> of <N>.
+# chunk <day> <marker>: prints one comment's JSON, created on 2026-01-0<day>,
+# whose first line is the records marker carrying <marker>, as
+# `<first>-<last> <i>/<N>` or, in the old form, `<i>/<N>`.
 chunk() { printf '{"createdAt": "2026-01-0%sT00:00:00Z", "body": "<!-- sdlc:theorem-records %s -->\\ndetail"}' "$1" "$2"; }
-pr_case chain-complete "{\"comments\": [$(chunk 4 3/3), $(chunk 2 1/3), $(chunk 1 2/3), $(chunk 3 1/2),
-  {\"createdAt\": \"2026-01-05T00:00:00Z\", \"body\": \"<!-- sdlc:theorem-records i/N --> prose\"}]}"
+pr_case chain-complete "{\"comments\": [$(chunk 4 '1-3 3/3'), $(chunk 2 '1-3 1/3'), $(chunk 1 '1-3 2/3'),
+  $(chunk 3 '1-2 1/2'),
+  {\"createdAt\": \"2026-01-05T00:00:00Z\", \"body\": \"<!-- sdlc:theorem-records 1-3 i/N --> prose\"}]}"
 pr_read sdlc-records-chain 'h.example/o/r#7'
-check "$RC:$OUT" "0:complete${TAB}3" "records-chain: markers covering 1..N print complete and exit 0"
+check "$RC:$OUT" "0:complete${TAB}1-3${TAB}3" "records-chain: markers covering 1..N print complete with the chain's range and exit 0"
 
-pr_case chain-partial "{\"comments\": [$(chunk 2 2/3), $(chunk 1 1/3)]}"
+pr_case chain-two "{\"comments\": [$(chunk 3 '4-5 2/2'), $(chunk 1 '1-3 1/1'), $(chunk 2 '4-5 1/2'),
+  $(chunk 4 '6-6 1/2')]}"
+pr_read sdlc-records-chain 'h.example/o/r#7'
+check "$RC:$OUT" "0:complete${TAB}1-3${TAB}1
+complete${TAB}4-5${TAB}2" "records-chain: one line per complete chain, oldest first, a partial chain beside them left out"
+
+pr_case chain-same-total "{\"comments\": [$(chunk 1 '1-3 1/2'), $(chunk 2 '4-5 2/2')]}"
+pr_read sdlc-records-chain 'h.example/o/r#7'
+check "$RC:$OUT" "3:partial${TAB}1-3${TAB}1/2
+partial${TAB}4-5${TAB}2/2" "records-chain: chunks of two chains with the same total never form one complete chain"
+
+pr_case chain-old-form "{\"comments\": [$(chunk 2 2/2), $(chunk 1 1/2)]}"
+pr_read sdlc-records-chain 'h.example/o/r#7'
+check "$RC:$OUT" "0:complete${TAB}-${TAB}2" "records-chain: a complete chain of the old form prints - as its range"
+
+pr_case chain-partial "{\"comments\": [$(chunk 2 '1-2 2/3'), $(chunk 1 '1-2 1/3')]}"
 pr_read sdlc-records-chain 'h.example/o/r#7'
 check "$RC" "3" "records-chain: an incomplete chain exits 3"
-check "$OUT" "partial${TAB}1/3
-partial${TAB}2/3" "records-chain: one partial line per marker, oldest first"
+check "$OUT" "partial${TAB}1-2${TAB}1/3
+partial${TAB}1-2${TAB}2/3" "records-chain: one partial line per marker, oldest first"
 
 pr_case chain-none '{"comments": [{"createdAt": "2026-01-01T00:00:00Z", "body": "hello"}]}'
 pr_read sdlc-records-chain 'h.example/o/r#7'
 check "$RC:$OUT" "3:" "records-chain: no marker prints nothing and exits 3"
 
 # The adjustment cut. Each case's PR carries a fixer brief, a records
-# chunk and one adjustment, all after the cut, and one other comment,
-# which falls before the cut in some cases and after it in others.
+# chunk in each marker form and one adjustment, all after the cut, and
+# one other comment, which falls before the cut in some cases and after
+# it in others.
 
 # adjust_json <reviews> <other body>: prints such a PR's JSON, its reviews
 # the JSON array <reviews> and its other comment's body <other body>.
@@ -1298,6 +1316,7 @@ adjust_json() {
     {"createdAt": "2026-01-05T00:00:00Z", "body": "Review adjustments for round 1:\\n- T2 rejected"},
     {"createdAt": "2026-01-04T00:00:00Z", "body": "<!-- sdlc:fixer-brief -->\\nFindings"},
     {"createdAt": "2026-01-04T12:00:00Z", "body": "<!-- sdlc:theorem-records 1/1 -->\\ndetail"},
+    {"createdAt": "2026-01-04T18:00:00Z", "body": "<!-- sdlc:theorem-records 1-2 1/1 -->\\ndetail"},
     {"createdAt": "2026-01-02T00:00:00Z", "body": "%s"}]}' "$1" "$2"
 }
 ADJUSTMENT="--- comment 2026-01-05T00:00:00Z ---
@@ -1442,14 +1461,61 @@ check "$([ -e "$XDG_STATE_HOME/sdlc" ] && echo made || echo absent)" "absent" "p
 "$PERSIST" --mode print-root --pr 'h.example/o/r#7' --round 1 >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "persist print-root: --round is refused"
 
-post_case post-existing "complete${TAB}2" 0
+post_case post-existing "complete${TAB}1-2${TAB}2" 0
 state_file round1/review 100
+state_file round2/review 100
 post 'h.example/o/r#7'
-check "$RC:$OUT" "0:existing chain: 2 comments" "post: a complete chain already present is reported with its total"
-check "$POSTED" "0" "post: a complete chain already present posts nothing"
+check "$RC:$OUT" "0:existing chain: rounds 1-2, 2 comments" \
+  "post: a complete chain covering the latest round is reported with its rounds and total"
+check "$POSTED" "0" "post: a re-run with no round above the covered one posts nothing"
 check "$CALLS" "records-chain h.example/o/r#7" "post: asks sdlc-records-chain about the reference's PR"
 
-post_case post-partial "partial${TAB}1/2" 3
+# A chain posted at a close-out covers rounds 1 and 2, and round 3 ran
+# after it. Round 2 is documentation, so its records are that type's
+# latest, and they stay out: they are not above the covered round.
+post_case post-supplementary "complete${TAB}1-2${TAB}1" 0
+state_file round1/records 60 T1
+state_file round1/review 50
+mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round2"
+printf 'anchor 2026-01-01T00:00:00Z abc documentation\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round2/log"
+state_file round2/records 60 T2
+state_file round2/review 50
+state_file round3/records 60 T1
+state_file round3/review 50
+state_file round3/T1-theorem-disprover 50
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:existing chain: rounds 1-2, 1 comments
+posted chain: rounds 3-3, 1 comments
+https://h.example/o/r/pull/7#issuecomment-1" "post: a round after the covered one gets a supplementary chain, reported after the existing one"
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 3-3 1/1 -->
+## \`round3/records\`
+## \`round3/review\`
+## \`round3/T1-theorem-disprover\`" "post: the supplementary chain holds only the rounds above the covered one"
+
+# Two complete chains, the later a supplementary one, cover up to round 3.
+post_case post-two-chains "complete${TAB}1-2${TAB}1
+complete${TAB}3-3${TAB}1" 0
+state_file round1/review 50
+state_file round3/review 50
+state_file round4/review 50
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:existing chain: rounds 1-2, 1 comments
+existing chain: rounds 3-3, 1 comments
+posted chain: rounds 4-4, 1 comments
+https://h.example/o/r/pull/7#issuecomment-1" "post: the covered round is the highest any complete chain covers"
+
+# A chain of the old form names no rounds, so it covers none.
+post_case post-old-form "complete${TAB}-${TAB}2" 0
+state_file round1/review 50
+state_file round2/review 50
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:posted chain: rounds 1-2, 1 comments
+https://h.example/o/r/pull/7#issuecomment-1" "post: an old-form chain covers no round, so a full chain is posted"
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-2 1/1 -->
+## \`round1/review\`
+## \`round2/review\`" "post: the full chain after an old-form one holds every round"
+
+post_case post-partial "partial${TAB}1-1${TAB}1/2" 3
 mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round0"
 printf 'T1\nclaim: seed\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round0/records"
 state_file round1/T2-theorem-disprover 50
@@ -1460,9 +1526,10 @@ state_file round1/review 50
 state_file round1/records 60 T1
 state_file round2/review 50
 post 'h.example/o/r#7'
-check "$RC:$OUT" "0:https://h.example/o/r/pull/7#issuecomment-1" \
-  "post: a partial chain gets a complete chain posted, its URL printed"
-check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+check "$RC:$OUT" "0:posted chain: rounds 1-2, 1 comments
+https://h.example/o/r/pull/7#issuecomment-1" \
+  "post: a partial chain covers no round, so a complete chain is posted, its URL printed"
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-2 1/1 -->
 ## \`round1/records\`
 ## \`round1/list-theorem-generator\`
 ## \`round1/review\`
@@ -1484,7 +1551,7 @@ printf 'anchor 2026-01-01T00:00:00Z abc documentation\n' >"$XDG_STATE_HOME/$PR_D
 state_file round2/records 60 T2
 post 'h.example/o/r#7'
 check "$RC" "0" "post: a PR with rounds of both types exits 0"
-check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-2 1/1 -->
 ## \`round1/records\`
 ## \`round2/records\`" "post: the latest records of each round type, code and instruction Markdown first"
 
@@ -1495,7 +1562,7 @@ state_file round2/review 50
 state_file round3/review 50
 post 'h.example/o/r#7'
 check "$RC" "0" "post: logs starting at round 2 exit 0"
-check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 2-3 1/1 -->
 ## \`round2/review\`
 ## \`round3/review\`" "post: every round with a log, when logs start at round 2"
 
@@ -1504,7 +1571,7 @@ state_file round1/review 50
 state_file round2/review 50
 state_file round4/review 50
 post 'h.example/o/r#7'
-check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1/1 -->
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-4 1/1 -->
 ## \`round1/review\`
 ## \`round2/review\`
 ## \`round4/review\`" "post: every round with a log, when a middle round has none"
@@ -1517,37 +1584,79 @@ state_file round1/T1-theorem-disprover 20000
 state_file round1/T1-counterexample-verifier 20000
 state_file round1/T2-theorem-disprover 30000
 post 'h.example/o/r#7'
-check "$RC:$OUT" "0:https://h.example/o/r/pull/7#issuecomment-1
+check "$RC:$OUT" "0:posted chain: rounds 1-1, 3 comments
+https://h.example/o/r/pull/7#issuecomment-1
 https://h.example/o/r/pull/7#issuecomment-2
 https://h.example/o/r/pull/7#issuecomment-3" "post: several chunks print one URL each, in chunk order"
-check "$(for n in 1 2 3; do head -n 1 "$CASE/posted/$n"; done)" '<!-- sdlc:theorem-records 1/3 -->
-<!-- sdlc:theorem-records 2/3 -->
-<!-- sdlc:theorem-records 3/3 -->' "post: each chunk opens with its marker, the chain complete"
+check "$(for n in 1 2 3; do head -n 1 "$CASE/posted/$n"; done)" '<!-- sdlc:theorem-records 1-1 1/3 -->
+<!-- sdlc:theorem-records 1-1 2/3 -->
+<!-- sdlc:theorem-records 1-1 3/3 -->' "post: each chunk opens with its marker, the chain complete"
 check "$(for n in 1 2 3; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
   "post: no chunk exceeds 60,000 bytes"
-check "$(posted_headers 2)" "<!-- sdlc:theorem-records 2/3 -->
+check "$(posted_headers 2)" "<!-- sdlc:theorem-records 1-1 2/3 -->
 ## \`round1/T1-theorem-disprover\`
 ## \`round1/T1-counterexample-verifier\`" "post: a theorem's disprover and verifier reports share one chunk"
 check "$(awk '/^x+$/ { print length }' "$CASE/posted/2")" '19999
 19999' "post: neither report in the shared chunk is cut"
 
-post_case post-oversize
-state_file round1/review 100
-state_file round1/T1-theorem-disprover 70000 OVERSIZE-TOKEN
-state_file round1/T1-counterexample-verifier 100
-state_file round1/T2-theorem-disprover 100
+# put_state <round>/<file> <source>: copies <source> into the state as
+# that file, and gives its round a log.
+put_state() {
+  local at="$XDG_STATE_HOME/$PR_DIR_REL/$1"
+  mkdir -p "${at%/*}"
+  [ -e "${at%/*}/log" ] || printf 'anchor 2026-01-01T00:00:00Z abc\n' >"${at%/*}/log"
+  cp -- "$2" "$at"
+}
+
+# A report of about 80,000 bytes, most of it one code fence of 99-byte
+# lines of y, between two small pieces.
+post_case post-split-fence
+line=$(printf '%099d' 0 | tr 0 y)
+{
+  printf 'intro\n```text\n'
+  for n in $(seq 800); do
+    printf '%s\n' "$line"
+  done
+  printf '```\nafter\n'
+} >"$CASE/report"
+state_file round1/review 50
+put_state round1/T1-theorem-disprover "$CASE/report"
+state_file round1/T2-theorem-disprover 50
 post 'h.example/o/r#7'
-check "$RC:$POSTED" "0:3" "post: an oversize piece is posted as a chunk of its own"
-check "$(posted_headers 2)" '<!-- sdlc:theorem-records 2/3 -->
-## Too large to post' "post: the oversize piece's chunk says it was too large"
-check_contains "$(cat "$CASE/posted/2")" "- \`round1/T1-theorem-disprover\`
-- \`round1/T1-counterexample-verifier\`" "post: the oversize chunk names each of the piece's files"
-check "$(cat "$CASE/posted/"* | grep -c OVERSIZE-TOKEN)" "0" "post: no part of the oversize piece is posted"
-check_contains "$(cat "$CASE/posted/2")" "\`\${XDG_STATE_HOME:-\$HOME/.local/state}/$PR_DIR_REL/\`" \
-  "post: the oversize chunk names the PR's state root as its signpost"
-check "$(grep -c -- "$XDG_STATE_HOME" "$CASE/posted/2")" "0" "post: the oversize chunk carries no expanded state path"
-check "$(posted_headers 3)" "<!-- sdlc:theorem-records 3/3 -->
-## \`round1/T2-theorem-disprover\`" "post: the pieces after it are posted whole"
+check "$RC:$POSTED" "0:3" "post: a piece over the chunk limit is split across consecutive chunks"
+check "$(for n in 1 2 3; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk of a split piece exceeds 60,000 bytes"
+check "$(posted_headers 2)" "<!-- sdlc:theorem-records 1-1 2/3 -->
+## \`round1/T1-theorem-disprover\`" "post: a split piece starts a chunk of its own"
+check "$(tail -n 1 "$CASE/posted/2")" '```' "post: a code fence open at the break is closed in that chunk"
+check "$(sed -n '3,5p' "$CASE/posted/3")" "## \`round1/T1-theorem-disprover\` (continued)
+
+\`\`\`text" "post: the continuation opens with the file's heading plus (continued), then the same fence line"
+check "$(cat "$CASE/posted/2" "$CASE/posted/3" | awk '/^y+$/ { n++; if (length != 99) cut++ } END { print n, cut + 0 }')" \
+  "800 0" "post: every line of the split piece is posted, none cut"
+check_contains "$(cat "$CASE/posted/3")" '```
+after' "post: the split piece's tail is posted after its fence closes"
+check "$(posted_headers 3)" "<!-- sdlc:theorem-records 1-1 3/3 -->
+## \`round1/T1-theorem-disprover\` (continued)
+## \`round1/T2-theorem-disprover\`" "post: the piece after a split one follows it in its last chunk"
+
+# One line of 131,073 bytes: an a, then 65,536 two-byte characters, so
+# a cut at a byte count alone would land inside a character.
+post_case post-split-line
+wide=é
+for n in $(seq 16); do
+  wide=$wide$wide
+done
+printf 'a%s\n' "$wide" >"$CASE/report"
+put_state round1/T1-theorem-disprover "$CASE/report"
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:3" "post: a line over the chunk limit is cut across chunks"
+check "$(for n in 1 2 3; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk of a cut line exceeds 60,000 bytes"
+grep -h -v -e '^<!--' -e '^## ' -e '^$' "$CASE/posted/1" "$CASE/posted/2" "$CASE/posted/3" >"$CASE/parts"
+check "$(LC_ALL=C awk '{ gsub(/é/, "") } $0 != "" && $0 != "a" { bad++ } END { print NR, bad + 0 }' "$CASE/parts")" "3 0" \
+  "post: a line is cut at a UTF-8 character boundary, each part whole characters"
+check "$(tr -d '\n' <"$CASE/parts")" "a$wide" "post: the cut line's parts rejoin to the whole line"
 
 post_case post-empty
 post 'h.example/o/r#7'
@@ -1563,11 +1672,11 @@ check "$CALLS" "" "post: a missing command is found before anything is read"
 
 post_case post-command-fails
 state_file round1/review 100
-printf '#!/bin/sh\necho "stub tail: refused" >&2\nexit 7\n' >"$CASE/bin/tail"
-chmod +x "$CASE/bin/tail"
+printf '#!/bin/sh\necho "stub wc: refused" >&2\nexit 7\n' >"$CASE/bin/wc"
+chmod +x "$CASE/bin/wc"
 post 'h.example/o/r#7'
 check "$RC:$POSTED" "1:0" "post: a failed command it does not handle exits 1 and posts nothing"
-check_contains "$ERR" "tail -c 1" "post: stderr names the command that failed"
+check_contains "$ERR" "wc -c" "post: stderr names the command that failed"
 
 post_case post-chain-fails "" 1
 state_file round1/review 100

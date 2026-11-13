@@ -98,9 +98,10 @@ Any other review never sets the cut, so a comment posted before a
 code-scanning or human review still reaches the next round.
 
 A comment whose first line is a fixer-brief marker or a
-theorem-records chunk marker is never printed: each is sdlc's own
-output, not an adjustment. Nothing printed means no comment was posted
-since the cut. Never exits 3.
+theorem-records chunk marker, in either form `sdlc-records-chain`
+reads, is never printed: each is sdlc's own output, not an adjustment.
+Nothing printed means no comment was posted since the cut. Never exits
+3.
 
 ### `sdlc-fixer-brief [--all] <PR_REF>`
 
@@ -120,16 +121,30 @@ GitHub's web form carries, still counts.
 ### `sdlc-records-chain <PR_REF>`
 
 Reads the first line of every comment for the theorem-records chunk
-marker, `<i>/<N>` being a chunk's 1-based position and the chain's
-total. When the markers for one total `N` cover every position `1`
-through `N`, prints one line and exits 0:
+marker:
 
 ```text
-complete\t<N>
+<!-- sdlc:theorem-records <first>-<last> <i>/<N> -->
 ```
 
-`\t` is a tab. When more than one total is complete, `N` is the one
-whose newest chunk is newest. Otherwise it prints one
-`partial\t<i>/<N>` line per marker found, oldest first, and **exits
-3**; with no marker on the PR at all it prints nothing on stdout and
-exits 3.
+`<first>` and `<last>` are the lowest and highest round the chain
+holds, and `<i>/<N>` the chunk's 1-based position and the chain's
+total. A round number inside the range with no log was never run. The
+old form, `<!-- sdlc:theorem-records <i>/<N> -->`, names no rounds.
+
+A chain is the chunks sharing one range and one total, so chunks of two
+chains with the same total never combine; old-form chunks share the
+range `-`. When at least one chain's markers cover every position `1`
+through `N`, it prints one line per such chain, ordered by its newest
+chunk, oldest first, and exits 0:
+
+```text
+complete\t<first>-<last>\t<N>
+complete\t-\t<N>
+```
+
+`\t` is a tab, and the second shape is a complete old-form chain.
+Otherwise it prints one `partial\t<range>\t<i>/<N>` line per marker
+found, oldest first, `<range>` being `<first>-<last>` or `-`, and
+**exits 3**; with no marker on the PR at all it prints nothing on
+stdout and exits 3.

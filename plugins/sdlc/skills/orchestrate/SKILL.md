@@ -1305,8 +1305,10 @@ What you do yourself is orchestration mechanics:
   onto a PR, whether it lands in a brief or as an adjustments comment's
   `dropped (scope ruling)` line.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
-  `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and
-  `/pr-ready <PR>`. They set or read the PR's state; none of them
+  `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`,
+  `/pr-ready <PR>`, and `/pr-draft <PR>` when the human reopens the
+  review loop on a ready PR, per the PR-lifecycle file. They set or
+  read the PR's state; none of them
   remedies it. The merge-readiness gate and the conflict listing are
   `pr-merge-readiness`'s and `pr-monitor`'s to run, not yours.
 - **Set issue status via `/issue-set-status`, and assign via

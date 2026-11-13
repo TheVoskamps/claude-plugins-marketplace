@@ -2,37 +2,54 @@
 #
 # sdlc-pr-post-theorem-records -- post a finished PR's review detail,
 # assembled from its state under XDG state, as a chain of comments whose
-# first lines are <!-- sdlc:theorem-records <i>/<N> -->, unless the PR
-# already carries a complete chain. pr-finalizer runs it once per
-# close-out.
+# first lines are <!-- sdlc:theorem-records <first>-<last> <i>/<N> -->,
+# <first> and <last> being the lowest and highest round the chain holds.
+# pr-finalizer runs it once per close-out.
 #
 #   usage: sdlc-pr-post-theorem-records <host>/<owner>/<repo>#<n>
 #
-# The detail is assembled in this order, each file headed by its path
-# relative to the PR's state root, round<n>/<file>:
+# The covered round is the highest <last> among the complete chains
+# sdlc-records-chain reports. A partial chain covers no round, and nor
+# does a complete chain of the old form, which names none. The chain this
+# script posts holds only what lies above the covered round, so a review
+# round run after a close-out reaches the PR as a supplementary chain and
+# nothing already posted is posted again. It is assembled in this order,
+# each file headed by its path relative to the PR's state root,
+# round<n>/<file>:
 #
 #   1. the final theorem records of each round type, code and
 #      instruction Markdown first, from --mode print-records
-#      --round-type, unless no round of that type holds any;
-#   2. per round, ascending, every round from 1 with a log, as
-#      sdlc-agent-result-persist --mode rounds lists them: its
+#      --round-type, when their round is above the covered round and no
+#      higher than the latest round with a log;
+#   2. per round above the covered round, ascending, every round with a
+#      log, as sdlc-agent-result-persist --mode rounds lists them: its
 #      generator files, list-<agent>, in agent-name order; its review,
 #      when it stored one; then its children's result files grouped by
 #      theorem, in theorem-id order, a theorem's disprover report before
 #      its verifier report.
 #
 # Each of those is a piece, except that one theorem's result files in a
-# round form one piece together. A chunk breaks between pieces and never
-# inside one, and no chunk, marker line included, exceeds
-# MAX_CHUNK_BYTES. A piece too large to fit a chunk of its own becomes a
-# chunk naming its files and saying it was too large to post: nothing is
-# truncated.
+# round form one piece together. No chunk, marker line included, exceeds
+# MAX_CHUNK_BYTES, and a chunk breaks between pieces except inside a
+# piece too large for a chunk of its own, which starts a chunk and
+# continues across as many consecutive chunks as it needs. Such a piece
+# breaks between lines, and only a line too long for a chunk by itself
+# is cut, at a UTF-8 character boundary. A code fence open at a break is
+# closed in that chunk and reopened with the same fence line in the
+# next, and each continuation chunk opens with its file's heading plus
+# `(continued)`.
 #
-# On success it exits 0 and prints exactly one of these on stdout:
+# On success it exits 0 and prints on stdout:
 #
-#   one posted comment URL per line, in chunk order
-#   existing chain: <N> comments     a complete chain is already there
-#   nothing to assemble              the state holds no piece
+#   existing chain: rounds <first>-<last>, <N> comments
+#       one line per complete chain already there that names its rounds,
+#       in the order sdlc-records-chain reports them; then
+#   posted chain: rounds <first>-<last>, <N> comments
+#       when it posted a chain, followed by one comment URL per line, in
+#       chunk order.
+#
+# With nothing above the covered round it posts nothing and prints only
+# the existing chain lines, or `nothing to assemble` when there are none.
 #
 # Every other exit writes its reason to stderr:
 #
@@ -42,8 +59,10 @@
 #   3  a required command is not on PATH; stderr names it
 #   4  sdlc-records-chain failed; the chain state is unknown and nothing
 #      was posted
-#   5  a pr-comment post failed; stderr names the chunk, and stdout still
-#      lists the URLs of the chunks already posted
+#   5  a pr-comment post failed; stderr names the chunk, and stdout lists
+#      only the URLs of the chunks already posted
+#   6  the chain needs more chunks than the marker's four digits can
+#      number; nothing was posted
 #
 # It reaches the state directory through sdlc-agent-result-persist and
 # the result-file paths that script prints, and calls it, pr-comment and
@@ -57,6 +76,7 @@ set -euo pipefail
 # least one byte, so a byte limit below that holds whatever the
 # characters are, with headroom.
 readonly MAX_CHUNK_BYTES=60000
+readonly MAX_CHUNKS=9999
 readonly TAB=$'\t'
 
 usage() {
@@ -77,25 +97,35 @@ persist() {
   sdlc-agent-result-persist --pr "$SP_REF" "$@"
 }
 
-# The PR's state root, expanded to strip from a result file's path, and
-# as the signpost a placeholder chunk shows a human.
+# The PR's state root, expanded, to strip from a result file's path.
 roots=$(persist --mode print-root || exit) ||
   sp_fail 1 "sdlc-agent-result-persist --mode print-root failed"
 root=${roots%%$'\n'*}
-signpost=${roots#*$'\n'}
 
-# --- an existing chain ----------------------------------------------------
+# --- the chains already posted ----------------------------------------------
 
 rc=0
-chain=$(sdlc-records-chain "$SP_REF" 2>"$work/err" || exit) || rc=$?
+chains=$(sdlc-records-chain "$SP_REF" 2>"$work/err" || exit) || rc=$?
+covered=
+existing=
 case "$rc" in
   0)
-    case "$chain" in
-      "complete$TAB"[0-9]*) ;;
-      *) sp_fail 4 "sdlc-records-chain printed \`$chain\`, not a complete chain's total; nothing was posted." ;;
-    esac
-    printf 'existing chain: %s comments\n' "${chain#"complete$TAB"}"
-    exit 0
+    while IFS="$TAB" read -r state range total; do
+      case "$state:$range" in
+        complete:-) continue ;;
+        complete:?*-?*) ;;
+        *) sp_fail 4 "sdlc-records-chain printed \`$state$TAB$range$TAB$total\`, not a complete chain's line; nothing was posted." ;;
+      esac
+      case "${range%-*}:${range#*-}:$total" in
+        *[!0-9:]* | *::* | :* | *:)
+          sp_fail 4 "sdlc-records-chain printed \`$state$TAB$range$TAB$total\`, not a complete chain's line; nothing was posted."
+          ;;
+      esac
+      if [ -z "$covered" ] || [ "${range#*-}" -gt "$covered" ]; then
+        covered=${range#*-}
+      fi
+      existing="${existing}existing chain: rounds $range, $total comments"$'\n'
+    done <<<"$chains"
     ;;
   3) ;;
   *)
@@ -105,33 +135,37 @@ case "$rc" in
 esac
 
 # --- the pieces -------------------------------------------------------------
-# Piece <k> is $work/piece-<k>, its files' paths relative to the state
-# root one per line in $work/piece-<k>.files.
+# $work/manifest holds one line per file, <piece> <relative path> <content
+# path>, tab-separated, the relative path being under the state root.
 
 pieces=0
+first=
+last=
+: >"$work/manifest"
 
-# new_piece: starts an empty piece and makes it the one add_file appends
-# to.
-new_piece() {
-  pieces=$((pieces + 1))
-  : >"$work/piece-$pieces"
-  : >"$work/piece-$pieces.files"
+# above_covered <round>: whether <round> lies above the covered round.
+above_covered() {
+  [ -z "$covered" ] || [ "$1" -gt "$covered" ]
 }
 
-# add_file <relative path> <content file>: appends one file, headed by
-# its path, to the current piece.
+# hold <round>: widens the chain's range to take in <round>.
+hold() {
+  if [ -z "$first" ] || [ "$1" -lt "$first" ]; then
+    first=$1
+  fi
+  if [ -z "$last" ] || [ "$1" -gt "$last" ]; then
+    last=$1
+  fi
+}
+
+new_piece() {
+  pieces=$((pieces + 1))
+}
+
+# add_file <relative path> <content file>: appends one file to the
+# current piece.
 add_file() {
-  local final
-  if [ -s "$work/piece-$pieces" ]; then
-    printf '\n' >>"$work/piece-$pieces"
-  fi
-  printf "## \`%s\`\n\n" "$1" >>"$work/piece-$pieces"
-  cat -- "$2" >>"$work/piece-$pieces"
-  final=$(tail -c 1 "$2")
-  if [ -n "$final" ]; then
-    printf '\n' >>"$work/piece-$pieces"
-  fi
-  printf '%s\n' "$1" >>"$work/piece-$pieces.files"
+  printf '%s\t%s\t%s\n' "$pieces" "$1" "$2" >>"$work/manifest"
 }
 
 # read_state <absent message> <persist args...>: runs persist into
@@ -151,24 +185,34 @@ read_state() {
   sp_fail 1 "sdlc-agent-result-persist $* failed (exit $rc)"
 }
 
+rounds=$(persist --mode rounds || exit) ||
+  sp_fail 1 "sdlc-agent-result-persist --mode rounds failed"
+latest=
+for round in $rounds; do
+  latest=$round
+done
+
 # Each round carries only the records of its own type, so the latest
 # records of one type say nothing of the other's theorems.
 for round_type in code-and-instruction-markdown documentation; do
   if read_state ' holds a records file' --mode print-records --round-type "$round_type"; then
     records_round=$(sed -n '1s/^round //p' "$work/out")
-    sed '1d' "$work/out" >"$work/records"
+    above_covered "$records_round" || continue
+    [ -z "$latest" ] || [ "$records_round" -le "$latest" ] || continue
+    sed '1d' "$work/out" >"$work/records-$round_type"
     new_piece
-    add_file "round$records_round/records" "$work/records"
+    hold "$records_round"
+    add_file "round$records_round/records" "$work/records-$round_type"
   fi
 done
 
 # Every round --mode rounds lists, so a round number with no log, at the
 # start or between two rounds, ends nothing.
-rounds=$(persist --mode rounds || exit) ||
-  sp_fail 1 "sdlc-agent-result-persist --mode rounds failed"
 for round in $rounds; do
+  above_covered "$round" || continue
   read_state 'no round log at ' --mode print --round "$round" ||
     sp_fail 1 "round $round, which sdlc-agent-result-persist --mode rounds listed, has no round log"
+  before=$pieces
   : >"$work/generators"
   : >"$work/children"
   while IFS=' ' read -r kind theorem agent path; do
@@ -204,84 +248,229 @@ for round in $rounds; do
   done <"$work/sorted"
 
   if read_state 'no round review at ' --mode print-review --round "$round"; then
+    cp -- "$work/out" "$work/review-$round"
     new_piece
-    add_file "round$round/review" "$work/out"
+    add_file "round$round/review" "$work/review-$round"
   fi
 
   LC_ALL=C sort -t "$TAB" -k1,1n -k2,2 -k3,3n -k4,4 "$work/children" >"$work/sorted"
-  last=
+  last_theorem=
   while IFS="$TAB" read -r id theorem rank agent relative path; do
-    if [ "$theorem" != "$last" ]; then
+    if [ "$theorem" != "$last_theorem" ]; then
       new_piece
-      last=$theorem
+      last_theorem=$theorem
     fi
     add_file "$relative" "$path"
   done <"$work/sorted"
+
+  if [ "$pieces" -gt "$before" ]; then
+    hold "$round"
+  fi
 done
 
 if [ "$pieces" -eq 0 ]; then
-  echo "nothing to assemble"
+  if [ -n "$existing" ]; then
+    printf '%s' "$existing"
+  else
+    echo "nothing to assemble"
+  fi
   exit 0
 fi
 
 # --- the chunks -------------------------------------------------------------
-# A chunk is its marker line, then each of its pieces after a blank line.
-# The marker's width depends on the total, which is known only once the
-# pieces are placed, so room is reserved for a four-digit total; the size
-# check on each built chunk below catches a chain longer than that.
+# A chunk is its marker line, then each of its parts after a blank line,
+# a part being a whole piece or one chunk's share of a split one. The
+# marker's width depends on the total, which is known only once the
+# pieces are laid out, so room is reserved for a four-digit total.
+#
+# The layout reads the manifest and writes each chunk's text after its
+# marker line to $work/body-<i>, printing the number of chunks. A file's
+# text is its heading line, a blank line, then its lines, the last ending
+# in a newline whether or not the file's does, and a piece's files are
+# joined by a blank line. It runs under LC_ALL=C, so length() counts
+# bytes.
 
-widest=$(sp_records_marker 9999 9999)
-marker_room=$((${#widest} + 1))
-budget=$((MAX_CHUNK_BYTES - marker_room))
-chunks=0
-used=$budget
-
-# placeholder <piece> <bytes>: writes $work/piece-<piece>.placeholder,
-# which names the piece's files in place of their text.
-placeholder() {
-  {
-    printf '## Too large to post\n\n'
-    printf 'This piece is %s bytes, more than one comment carries, so it is not posted. ' "$2"
-    printf "Its files are under the PR's state root, \`%s\`:\n\n" "$signpost"
-    while IFS= read -r relative; do
-      printf -- "- \`%s\`\n" "$relative"
-    done <"$work/piece-$1.files"
-  } >"$work/piece-$1.placeholder"
+# shellcheck disable=SC2016 # awk's own syntax, not shell
+layout='
+function fail(message) {
+  printf "%s\n", message >"/dev/stderr"
+  failed = 1
+  exit 1
 }
 
-k=1
-while [ "$k" -le "$pieces" ]; do
-  size=$(($(wc -c <"$work/piece-$k") + 1))
-  file=$work/piece-$k
-  if [ "$size" -gt "$budget" ]; then
-    placeholder "$k" "$((size - 1))"
-    file=$work/piece-$k.placeholder
-    size=$(($(wc -c <"$file") + 1))
-    used=$budget
-  fi
-  if [ $((used + size)) -gt "$budget" ]; then
-    chunks=$((chunks + 1))
-    : >"$work/chunk-$chunks.pieces"
-    used=0
-  fi
-  printf '%s\n' "$file" >>"$work/chunk-$chunks.pieces"
-  used=$((used + size))
-  # A placeholder holds its chunk alone.
-  case "$file" in
-    *.placeholder) used=$budget ;;
-  esac
-  k=$((k + 1))
-done
+function heading(rel) {
+  return "## `" rel "`\n\n"
+}
+
+function open_chunk() {
+  if (chunk) close(out)
+  chunk++
+  out = work "/body-" chunk
+  used = 0
+}
+
+function put(s) {
+  printf "%s", s >out
+  used += length(s)
+}
+
+# read_line(j): reads the next line of piece file j into LINE, returning
+# whether there was one, and closes the file at its end.
+function read_line(j,   r) {
+  r = (getline LINE <path[j])
+  if (r < 0) fail("cannot read " path[j])
+  if (r == 0) close(path[j])
+  return r > 0
+}
+
+# fence_run(s): the fence run a line opens with, after up to three
+# spaces, or "" when it opens with none; RUN_REST is what follows it.
+function fence_run(s,   k, c, n) {
+  k = 0
+  while (k < 3 && substr(s, 1, 1) == " ") {
+    s = substr(s, 2)
+    k++
+  }
+  c = substr(s, 1, 1)
+  if (c != "`" && c != "~") return ""
+  n = 0
+  while (substr(s, n + 1, 1) == c) n++
+  if (n < 3) return ""
+  RUN_REST = substr(s, n + 1)
+  return substr(s, 1, n)
+}
+
+# fence_after(line): sets NEXT_IN, NEXT_MARK and NEXT_OPEN to the fence
+# state after line, from the state before it in in_fence, mark and
+# open_line.
+function fence_after(line,   run) {
+  NEXT_IN = in_fence
+  NEXT_MARK = mark
+  NEXT_OPEN = open_line
+  run = fence_run(line)
+  if (run == "") return
+  if (!in_fence) {
+    if (substr(run, 1, 1) == "`" && index(RUN_REST, "`")) return
+    NEXT_IN = 1
+    NEXT_MARK = run
+    NEXT_OPEN = line
+  } else if (substr(run, 1, 1) == substr(mark, 1, 1) && length(run) >= length(mark) && RUN_REST ~ /^[ \t]*$/) {
+    NEXT_IN = 0
+  }
+}
+
+# break_chunk(rel): ends the chunk inside file rel, closing an open
+# fence, and opens the next as that file'"'"'s continuation.
+function break_chunk(rel) {
+  if (in_fence) put(mark "\n")
+  open_chunk()
+  put("\n## `" rel "` (continued)\n\n")
+  if (in_fence) put(open_line "\n")
+}
+
+# put_head(j, head, need): puts file j'"'"'s heading, in a fresh chunk when
+# the heading and need more bytes do not fit the current one and it
+# holds more than its opening blank line.
+function put_head(j, head, need) {
+  if (used + length(head) + need > budget && used > 1) {
+    open_chunk()
+    put("\n" heading(rel[j]))
+  } else {
+    put(head)
+  }
+}
+
+function split_piece(   j, head, pending, need, cut) {
+  open_chunk()
+  put("\n")
+  for (j = 1; j <= nfiles; j++) {
+    in_fence = 0
+    head = (j > 1 ? "\n" : "") heading(rel[j])
+    pending = 1
+    while (read_line(j)) {
+      fence_after(LINE)
+      need = length(LINE) + 1 + (NEXT_IN ? length(NEXT_MARK) + 1 : 0)
+      if (pending) {
+        put_head(j, head, need)
+        pending = 0
+      } else if (used + need > budget) {
+        break_chunk(rel[j])
+      }
+      # Only a line too long for a chunk by itself is cut, never inside
+      # a UTF-8 character: a cut backs off over continuation bytes.
+      while (used + need > budget) {
+        cut = budget - used - 1 - (in_fence ? length(mark) + 1 : 0)
+        if (cut < 1) cut = 1
+        while (cut > 1 && index(CONT, substr(LINE, cut + 1, 1))) cut--
+        put(substr(LINE, 1, cut) "\n")
+        LINE = substr(LINE, cut + 1)
+        need = length(LINE) + 1 + (NEXT_IN ? length(NEXT_MARK) + 1 : 0)
+        break_chunk(rel[j])
+      }
+      put(LINE "\n")
+      in_fence = NEXT_IN
+      mark = NEXT_MARK
+      open_line = NEXT_OPEN
+    }
+    if (pending) put_head(j, head, 0)
+  }
+}
+
+# place(): lays out the piece whose files are rel[1..nfiles], whole when
+# it fits a chunk and split otherwise.
+function place(   j, size) {
+  size = 1
+  for (j = 1; j <= nfiles; j++) {
+    size += (j > 1) + length(heading(rel[j]))
+    while (read_line(j)) size += length(LINE) + 1
+  }
+  if (size > budget) {
+    split_piece()
+  } else {
+    if (!chunk || used + size > budget) open_chunk()
+    put("\n")
+    for (j = 1; j <= nfiles; j++) {
+      put((j > 1 ? "\n" : "") heading(rel[j]))
+      while (read_line(j)) put(LINE "\n")
+    }
+  }
+  nfiles = 0
+}
+
+BEGIN {
+  for (n = 128; n < 192; n++) CONT = CONT sprintf("%c", n)
+}
+
+{
+  if ($1 != piece && piece != "") place()
+  piece = $1
+  nfiles++
+  rel[nfiles] = $2
+  path[nfiles] = $3
+}
+
+END {
+  if (failed) exit 1
+  if (piece != "") place()
+  if (failed) exit 1
+  if (chunk) close(out)
+  print chunk
+}'
+
+widest=$(sp_records_marker "$first" "$last" "$MAX_CHUNKS" "$MAX_CHUNKS")
+budget=$((MAX_CHUNK_BYTES - ${#widest} - 1))
+chunks=$(LC_ALL=C awk -F "$TAB" -v budget="$budget" -v work="$work" "$layout" "$work/manifest" || exit) ||
+  sp_fail 1 "laying out the chunks failed; nothing was posted."
+
+[ "$chunks" -le "$MAX_CHUNKS" ] ||
+  sp_fail 6 "the chain came to $chunks chunks, more than the marker's four digits can number; nothing was posted."
 
 i=1
 while [ "$i" -le "$chunks" ]; do
   {
-    sp_records_marker "$i" "$chunks"
+    sp_records_marker "$first" "$last" "$i" "$chunks"
     printf '\n'
-    while IFS= read -r file; do
-      printf '\n'
-      cat -- "$file"
-    done <"$work/chunk-$i.pieces"
+    cat -- "$work/body-$i"
   } >"$work/chunk-$i"
   bytes=$(wc -c <"$work/chunk-$i")
   [ "$bytes" -le "$MAX_CHUNK_BYTES" ] ||
@@ -291,12 +480,19 @@ done
 
 # --- the posts --------------------------------------------------------------
 
+urls=
 i=1
 while [ "$i" -le "$chunks" ]; do
   rc=0
   url=$(pr-comment "$SP_REF" --body-file "$work/chunk-$i" || exit) || rc=$?
-  [ "$rc" -eq 0 ] ||
+  if [ "$rc" -ne 0 ]; then
+    printf '%s' "$urls"
     sp_fail 5 "pr-comment failed (exit $rc) posting chunk $i of $chunks; the chunks before it are posted."
-  printf '%s\n' "$url"
+  fi
+  urls="$urls$url"$'\n'
   i=$((i + 1))
 done
+
+printf '%s' "$existing"
+printf 'posted chain: rounds %s-%s, %s comments\n' "$first" "$last" "$chunks"
+printf '%s' "$urls"

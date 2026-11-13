@@ -375,9 +375,28 @@ and linear:
 
 A close-out that fails partway is re-run from the merge-readiness loop
 once the cause is settled, with no manual cleanup: a status flip
-repeats harmlessly, the finalizer leaves a detail chain it finds
-complete alone and overwrites its own section rather than stacking
-one, and the ready flip no-ops on a PR already ready.
+repeats harmlessly, the finalizer posts no round a complete detail
+chain already holds and overwrites its own section rather than
+stacking one, and the ready flip no-ops on a PR already ready.
+
+### Reopening the review loop after a close-out
+
+Only the human may reopen the review loop once a close-out has run, at
+any point before merge; never reopen it on your own judgment, whatever
+the gate, the monitor or a later comment turns up. A PR already marked
+ready goes back to draft before the loop reopens:
+
+```text
+/github-prs:pr-draft <PR_REF>
+```
+
+The loop then runs as any review loop does, and the human's
+end-of-loop confirmation sends the PR through the stages from the
+pre-readiness spawn on again, so the close-out flips it ready once
+more.
+That close-out's finalizer posts the rounds the PR's detail chains are
+missing, as one supplementary chain; nothing already posted is posted
+again.
 
 ## The brief for `pr-monitor`
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #
-# sdlc-records-chain -- report whether a PR carries a complete chain of
-# the review-detail chunks pr-finalizer posts: `complete\t<N>` when the
-# chunk markers for one total N cover every position 1..N, or else one
-# `partial\t<i>/<N>` line per marker found, oldest first. Read-only.
+# sdlc-records-chain -- report which complete chains of the review-detail
+# chunks pr-finalizer posts a PR carries: one `complete\t<range>\t<N>`
+# line per chain whose chunk markers for one range and total N cover
+# every position 1..N, or else one `partial\t<range>\t<i>/<N>` line per
+# marker found, oldest first. <range> is <first>-<last>, or `-` for a
+# marker of the old form, which names no rounds. Read-only.
 #
 # The contract is plugins/sdlc/skills/pr-read-cli-interface/SKILL.md.
 set -euo pipefail
@@ -19,17 +21,23 @@ sp_parse_pr "$1"
 
 json=$(sp_pr_view comments) || exit $?
 
-# Every marker as {i, n}, oldest first. A total is complete when its
-# markers hold every position 1..N; when more than one is, the one whose
-# newest marker is newest is the chain to follow.
+# Every marker as {range, i, n, at}, oldest first, `at` being its place in
+# that order. A chain is the markers sharing one range and one total, so
+# two chains with the same total never combine; it is complete when its
+# markers hold every position 1..N. Complete chains print in the order of
+# their newest marker.
 report=$(jq -r "$(sp_jq_prelude)"'
-  [.comments | sort_by(.createdAt)[] | .body | first_line
-   | capture($records)? | {i: (.i | tonumber), n: (.n | tonumber)}] as $m
-  | [$m[] | .n] | unique
-  | map(. as $n | select(([range(1; $n + 1)] - [$m[] | select(.n == $n) | .i]) == [])) as $complete
+  [.comments | sort_by(.createdAt)[] | .body | first_line | capture($records)?
+   | {range: (if .first == null then "-" else "\(.first | tonumber)-\(.last | tonumber)" end),
+      i: (.i | tonumber), n: (.n | tonumber)}]
+  | to_entries | map(.value + {at: .key}) as $m
+  | [$m | group_by([.range, .n])[]
+     | select(([range(1; .[0].n + 1)] - map(.i)) == [])
+     | {range: .[0].range, n: .[0].n, at: (map(.at) | max)}]
+  | sort_by(.at) as $complete
   | if ($complete | length) > 0
-    then "complete\t\([$m[] | select(.n as $n | $complete | any(. == $n))] | last | .n)"
-    else ($m[] | "partial\t\(.i)/\(.n)")
+    then ($complete[] | "complete\t\(.range)\t\(.n)")
+    else ($m[] | "partial\t\(.range)\t\(.i)/\(.n)")
     end' <<<"$json")
 
 case "$report" in
