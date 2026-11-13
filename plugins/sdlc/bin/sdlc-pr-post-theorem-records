@@ -301,6 +301,7 @@ function fail(message) {
   exit 1
 }
 
+# heading(rel): the heading line of file rel and the blank line after it.
 function heading(rel) {
   return "## `" rel "`\n\n"
 }
