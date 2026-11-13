@@ -285,15 +285,14 @@ fi
 # marker's width depends on the total, which is known only once the
 # pieces are laid out, so room is reserved for a four-digit total.
 #
-# The layout reads the manifest and writes each chunk's text after its
-# marker line to $work/body-<i>, printing the number of chunks. A file's
-# text is its heading line, a blank line, then its lines, the last ending
-# in a newline whether or not the file's does, and a piece's files are
-# joined by a blank line. It runs under LC_ALL=C, so length() counts
-# bytes.
-
-# shellcheck disable=SC2016 # awk's own syntax, not shell
-layout='
+# layout <budget>: reads the manifest and writes each chunk's text after
+# its marker line to $work/body-<i>, at most <budget> bytes, printing the
+# number of chunks. A file's text is its heading line, a blank line, then
+# its lines, the last ending in a newline whether or not the file's does,
+# and a piece's files are joined by a blank line. It runs under LC_ALL=C,
+# so length() counts bytes.
+layout() {
+  LC_ALL=C awk -F "$TAB" -v budget="$1" -v work="$work" '
 # fail(message): writes message to stderr and exits 1. An exit still runs
 # END, so END checks failed before it lays out or prints anything.
 function fail(message) {
@@ -465,11 +464,12 @@ END {
   if (failed) exit 1
   if (chunk) close(out)
   print chunk
-}'
+}' "$work/manifest"
+}
 
 widest=$(sp_records_marker "$first" "$last" "$MAX_CHUNKS" "$MAX_CHUNKS")
 budget=$((MAX_CHUNK_BYTES - ${#widest} - 1))
-chunks=$(LC_ALL=C awk -F "$TAB" -v budget="$budget" -v work="$work" "$layout" "$work/manifest" || exit) ||
+chunks=$(layout "$budget" || exit) ||
   sp_fail 1 "laying out the chunks failed; nothing was posted."
 
 [ "$chunks" -le "$MAX_CHUNKS" ] ||
