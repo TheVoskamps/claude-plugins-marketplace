@@ -61,7 +61,9 @@ type Mods = {
   };
 };
 
+/** What a compaction resolves to: its messages, or in `skip` the reason it did not compact. */
 type Compacted = { messages?: readonly Message[]; skip?: string };
+/** One loop's compaction: `agentId` is set for a subagent's loop and absent for the main one. */
 type CompactEvent = { trigger: string; agentId?: string; messages: readonly Message[] };
 
 /** One file to reload: `label` is its absolute path, or a description when no path resolved. */
