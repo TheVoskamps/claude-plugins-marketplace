@@ -122,6 +122,103 @@ test("a skill invoked as a slash command is reloaded", async ($, on) => {
   expect(text).toContain(block(path, "orchestrate"));
 });
 
+// The two shapes below are copied from the messages a live `session.compact` hook received: the
+// harness keeps a skill's expanded text, and with it the base directory, out of those messages.
+
+/** A slash-typed skill, as the main conversation's message for it arrives. */
+function typed(name: string) {
+  return {
+    role: "user",
+    text: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>probe</command-args>`,
+    toolUses: [],
+    handle: "01d26a9a-a4bf-4754-a7a8-be1320593cb7",
+  };
+}
+
+/** A `Skill` call and its result message, as they arrive. */
+function launched(name: string) {
+  const result = { success: true, commandName: name };
+  const text = `Launching skill: ${name}`;
+  return [
+    {
+      role: "assistant",
+      text: "",
+      toolUses: [{ tool_use_id: "toolu_1", tool: "Skill", input: { skill: name }, result, text }],
+      handle: "928a1507-fc24-41a7-9c82-2871abeb5e39",
+    },
+    {
+      role: "user",
+      text: "",
+      toolUses: [],
+      toolResults: [{ tool_use_id: "toolu_1", text, isError: false, result }],
+      handle: "e20daff1-8373-46c4-ab5d-f680f573b720",
+    },
+  ];
+}
+
+test("a slash-typed skill whose message names no base directory is reloaded by its name", async ($, on) => {
+  const reads: string[] = [];
+  mock.env(on, { HOME });
+  on("session.root", () => ({ value: ROOT }));
+  on("fs.exists", () => ({ value: false }));
+  on("fs.read", ($, e) => {
+    reads.push(e.path);
+    return { value: "orchestrate skill" };
+  });
+  on("session.compact", () => ({ messages: [SUMMARY] }));
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [typed("sdlc:orchestrate")] }),
+  );
+  const path = reads.find((read) => read.endsWith("/sdlc/skills/orchestrate/SKILL.md"));
+  expect(path).toBeDefined();
+  expect(text).toContain(block(path!, "orchestrate skill"));
+});
+
+test("a Skill call whose result names no base directory is reloaded by its name", async ($, on) => {
+  const reads: string[] = [];
+  mock.env(on, { HOME });
+  on("session.root", () => ({ value: ROOT }));
+  on("fs.exists", () => ({ value: false }));
+  on("fs.read", ($, e) => {
+    reads.push(e.path);
+    return { value: "cli interface" };
+  });
+  on("session.compact", () => ({ messages: [SUMMARY] }));
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      agentId: "adbd5e68bcdff90af",
+      messages: launched("sdlc:pr-read-cli-interface"),
+    }),
+  );
+  const path = reads.find((read) => read.endsWith("/sdlc/skills/pr-read-cli-interface/SKILL.md"));
+  expect(path).toBeDefined();
+  expect(text).toContain(block(path!, "cli interface"));
+});
+
+test("a skill with no plugin prefix resolves under the project, then ~/.claude/skills", async ($, on) => {
+  const project = `${ROOT}/.claude/skills/mine/SKILL.md`;
+  const user = `${HOME}/.claude/skills/theirs/SKILL.md`;
+  stub(on, { [project]: "project skill", [user]: "user skill" });
+  const messages = [typed("mine"), ...launched("theirs"), typed("compact")];
+  const text = reload(await $.session.compact({ trigger: "auto", messages }));
+  expect(text).toContain(block(project, "project skill"));
+  expect(text).toContain(block(user, "user skill"));
+  expect(text).not.toContain("compact/SKILL.md");
+});
+
+test("a skill of another plugin with no install recorded is named, and named again", async ($, on) => {
+  const entry = "- skill git-tools:git-branch-sync (could not be read: ";
+  stub(on, {});
+  const first = reload(
+    await $.session.compact({ trigger: "auto", messages: launched("git-tools:git-branch-sync") }),
+  );
+  expect(first).toContain(entry);
+  const messages = [SUMMARY, { role: "user", text: first, toolUses: [] }];
+  const second = reload(await $.session.compact({ trigger: "auto", messages }));
+  expect(second).toContain(entry);
+});
+
 test("every agent type the main conversation spawned is reloaded, and no other", async ($, on) => {
   const own = `${SKILLS.replace("/skills", "")}/agents/issue-developer.md`;
   const project = `${ROOT}/.claude/agents/helper.md`;

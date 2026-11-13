@@ -17,6 +17,7 @@ const APPENDED = "appended below";
 const NOT_APPENDED = "not appended: read it before acting on it";
 const UNREADABLE = "could not be read";
 const SKILL_BASE = /Base directory for this skill: (.+)/g;
+const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/;
 const RULE_DIRS = ["/rules/", "/skills/", "/agents/"];
 const TIER_KEY = new RegExp(`^(["']?)(schema-version|${BUDGET_KEY})\\1:(?:\\s+(.*))?$`);
 
@@ -39,18 +40,33 @@ type CompactEvent = { trigger: string; messages: readonly Message[] };
 /** One file to reload: `label` is its absolute path, or a description when no path resolved. */
 type Item = { label: string; seq: number; error?: string };
 
-/** What the walk over a transcript finds, each keyed to the position of its last use. */
-type Uses = { paths: Map<string, number>; agents: Map<string, number> };
+/**
+ * What the walk over a transcript finds, each keyed to the position of its last use: `skills`
+ * holds the skills known only by name, which `skillItem` resolves to a file.
+ */
+type Uses = {
+  paths: Map<string, number>;
+  agents: Map<string, number>;
+  skills: Map<string, number>;
+};
 
 /**
  * The skills a transcript loaded: `calls` holds the base directory each `Skill` call resolved to,
- * and `invoked` the base directories no call claimed, by the index of the message naming them,
- * as a slash command's expansion leaves them.
+ * `invoked` the base directories no call claimed, by the index of the message naming them, and
+ * `commands` the skill name of each slash command whose message names no base directory, by the
+ * index of that message.
  */
-type Skills = { calls: Map<ToolUse, string>; invoked: Map<number, string[]> };
+type Skills = {
+  calls: Map<ToolUse, string>;
+  invoked: Map<number, string[]>;
+  commands: Map<number, string>;
+};
 
-/** One line of an earlier reload message's manifest: a file's path, or an unresolved agent type. */
-type Entry = { path: string } | { agent: string };
+/**
+ * One line of an earlier reload message's manifest: a file's path, or an unresolved agent type
+ * or skill name.
+ */
+type Entry = { path: string } | { agent: string } | { skill: string };
 
 /** One install of a plugin, as `installed_plugins.json` records it. */
 type Install = { projectPath?: unknown; version?: unknown } | null;
@@ -94,6 +110,10 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
   const pluginDirs = skillPluginDirs(messages, skills);
   for (const [type, seq] of uses.agents) {
     const item = await agentItem($, type, seq, pluginDirs, home);
+    if (item !== undefined) items.push(item);
+  }
+  for (const [name, seq] of uses.skills) {
+    const item = await skillItem($, name, seq, pluginDirs, home);
     if (item !== undefined) items.push(item);
   }
   const kept = mergeByLabel(items).filter((item) => !isReinjected(item.label, home));
@@ -153,27 +173,34 @@ async function reloadText($: Mods, messages: readonly Message[]): Promise<string
 }
 
 /**
- * Walks the transcript oldest first and records the last position at which each skill file,
- * rule file and agent type was used. A reload message from an earlier compaction counts as a
- * use of every file and unresolved agent type its manifest names, so a second compaction
- * reloads them again.
+ * Walks the transcript oldest first and records the last position at which each skill, rule
+ * file and agent type was used. A skill counts by its file when the transcript names its base
+ * directory, and by its name otherwise. A reload message from an earlier compaction counts as a
+ * use of every file, unresolved agent type and unresolved skill its manifest names, so a second
+ * compaction reloads them again.
  */
 function collectUses(messages: readonly Message[], skills: Skills): Uses {
   const paths = new Map<string, number>();
   const agents = new Map<string, number>();
+  const names = new Map<string, number>();
   let seq = 0;
   messages.forEach((message, index) => {
     if (isReload(message)) {
       for (const entry of manifestEntries(message.text).reverse()) {
         if ("path" in entry) paths.set(entry.path, seq++);
-        else agents.set(entry.agent, seq++);
+        else if ("agent" in entry) agents.set(entry.agent, seq++);
+        else names.set(entry.skill, seq++);
       }
     }
     for (const base of skills.invoked.get(index) ?? []) paths.set(`${base}/SKILL.md`, seq++);
+    const command = skills.commands.get(index);
+    if (command !== undefined) names.set(command, seq++);
     for (const use of message.toolUses ?? []) {
       if (use.tool === "Skill") {
         const base = skills.calls.get(use);
+        const skill = use.input.skill;
         if (base !== undefined) paths.set(`${base}/SKILL.md`, seq++);
+        else if (typeof skill === "string" && skill !== "") names.set(skill, seq++);
       } else if (use.tool === "Agent" || use.tool === "Task") {
         const type = use.input.subagent_type;
         if (typeof type === "string" && type !== "") agents.set(type, seq++);
@@ -183,7 +210,7 @@ function collectUses(messages: readonly Message[], skills: Skills): Uses {
       }
     }
   });
-  return { paths, agents };
+  return { paths, agents, skills: names };
 }
 
 /** True for a Markdown file under a `rules/`, `skills/` or `agents/` directory. */
@@ -199,18 +226,27 @@ function isReinjected(path: string, home: string): boolean {
 }
 
 /**
- * Resolves every `Skill` call to the base directory its expansion names. A call whose own result
- * names one takes it. The other calls of one message take, in call order, the base directories
- * the messages up to the next assistant message name, where the harness puts each expanded
- * skill's text. A base directory no call takes is a skill invoked as a slash command.
+ * Resolves every `Skill` call to the base directory its expansion names, when the transcript
+ * carries the expansion. A call whose own result names one takes it. The other calls of one
+ * message take, in call order, the base directories the messages up to the next assistant message
+ * name. A base directory no call takes is a skill invoked as a slash command.
+ *
+ * The harness keeps a skill's expansion out of the messages a `session.compact` hook receives,
+ * for a `Skill` call and a slash command alike: the call's result reads `Launching skill: <name>`
+ * and the slash command's message holds only its `<command-message>`, `<command-name>` and
+ * `<command-args>` tags. So a slash command whose message names no base directory is recorded by
+ * the name in its `<command-name>` tag.
  */
 function resolveSkills(messages: readonly Message[]): Skills {
   const calls = new Map<ToolUse, string>();
   const invoked = new Map<number, string[]>();
+  const commands = new Map<number, string>();
   messages.forEach((message, index) => {
-    if (message.role !== "assistant" && !isReload(message)) {
-      invoked.set(index, baseDirs(message.text));
-    }
+    if (message.role === "assistant" || isReload(message)) return;
+    const bases = baseDirs(message.text);
+    invoked.set(index, bases);
+    const command = COMMAND_NAME.exec(message.text)?.[1];
+    if (bases.length === 0 && command !== undefined) commands.set(index, command);
   });
   messages.forEach((message, index) => {
     const pending: ToolUse[] = [];
@@ -225,7 +261,7 @@ function resolveSkills(messages: readonly Message[]): Skills {
       while (pending.length > 0 && bases.length > 0) calls.set(pending.shift()!, bases.shift()!);
     }
   });
-  return { calls, invoked };
+  return { calls, invoked, commands };
 }
 
 /** Every skill base directory a text names, in order, without a trailing slash. */
@@ -273,18 +309,54 @@ async function agentItem(
       return { label: `agent ${type}`, seq, error: errorText(err) };
     }
   }
-  const plugin = type.slice(0, colon);
-  const name = type.slice(colon + 1);
-  let dir = pluginDirs.get(plugin);
-  if (dir === undefined && plugin === $.plugin.name) dir = $.plugin.root;
-  if (dir === undefined) {
-    try {
-      dir = await cachedPluginDir($, plugin, home);
-    } catch (err) {
-      return { label: `agent ${type}`, seq, error: errorText(err) };
-    }
+  try {
+    const dir = await pluginDir($, type.slice(0, colon), pluginDirs, home);
+    return { label: `${dir}/agents/${type.slice(colon + 1)}.md`, seq };
+  } catch (err) {
+    return { label: `agent ${type}`, seq, error: errorText(err) };
   }
-  return { label: `${dir}/agents/${name}.md`, seq };
+}
+
+/**
+ * Resolves a skill known only by name to its `SKILL.md`. A plugin skill `<plugin>:<name>`
+ * resolves to `skills/<name>/SKILL.md` in the plugin's directory, as `agentItem` finds it. A
+ * name with no plugin prefix resolves under the project's `.claude/skills/`, then under
+ * `~/.claude/skills/`, and with a file in neither is a built-in command and resolves to nothing.
+ */
+async function skillItem(
+  $: Mods,
+  name: string,
+  seq: number,
+  pluginDirs: Map<string, string>,
+  home: string,
+): Promise<Item | undefined> {
+  const colon = name.indexOf(":");
+  try {
+    if (colon >= 0) {
+      const dir = await pluginDir($, name.slice(0, colon), pluginDirs, home);
+      return { label: `${dir}/skills/${name.slice(colon + 1)}/SKILL.md`, seq };
+    }
+    const project = `${await $.session.root()}/.claude/skills/${name}/SKILL.md`;
+    if (await $.fs.exists(project)) return { label: project, seq };
+    const user = `${home}/.claude/skills/${name}/SKILL.md`;
+    return home !== "" && (await $.fs.exists(user)) ? { label: user, seq } : undefined;
+  } catch (err) {
+    return { label: `skill ${name}`, seq, error: errorText(err) };
+  }
+}
+
+/**
+ * A plugin's directory: the one a skill it loaded names, else the hook's own plugin root for its
+ * own plugin, else the plugin's install in the cache. Rejects as `cachedPluginDir` does.
+ */
+async function pluginDir(
+  $: Mods,
+  plugin: string,
+  pluginDirs: Map<string, string>,
+  home: string,
+): Promise<string> {
+  const dir = pluginDirs.get(plugin) ?? (plugin === $.plugin.name ? $.plugin.root : undefined);
+  return dir ?? (await cachedPluginDir($, plugin, home));
 }
 
 /**
@@ -382,7 +454,8 @@ function isReload(message: Message): boolean {
 }
 
 /**
- * The paths and unresolved agent types an earlier reload message's manifest names, in its order.
+ * The paths, unresolved agent types and unresolved skill names an earlier reload message's
+ * manifest names, in its order.
  */
 function manifestEntries(text: string): Entry[] {
   const lines = text.split("\n");
@@ -390,13 +463,15 @@ function manifestEntries(text: string): Entry[] {
   if (start < 0) return [];
   const entries: Entry[] = [];
   const entry = new RegExp(
-    `^- (?:(/.+?)|agent (\\S+)) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`,
+    `^- (?:(/.+?)|agent (\\S+)|skill (\\S+)) \\((?:${APPENDED}|${NOT_APPENDED}|${UNREADABLE})`,
   );
   for (const line of lines.slice(start + 1)) {
     if (!line.startsWith("- ")) break;
     const match = entry.exec(line);
     if (match === null) continue;
-    entries.push(match[1] !== undefined ? { path: match[1] } : { agent: match[2] });
+    if (match[1] !== undefined) entries.push({ path: match[1] });
+    else if (match[2] !== undefined) entries.push({ agent: match[2] });
+    else entries.push({ skill: match[3] });
   }
   return entries;
 }
