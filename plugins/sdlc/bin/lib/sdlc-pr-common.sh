@@ -27,9 +27,10 @@ SP_PROGRAM=${0##*/}
 SP_FIXER_BRIEF_MARKER='<!-- sdlc:fixer-brief -->'
 # The first line of one chunk of the review detail pr-finalizer posts,
 # <!-- sdlc:theorem-records <first>-<last> <i>/<N> -->, as a jq regex
-# capturing the chain's rounds as `first` and `last`, the chunk's position as `i` and the chain's total as `n`. It
-# also matches the old form, <!-- sdlc:theorem-records <i>/<N> -->,
-# capturing `first` and `last` as null.
+# capturing the chain's rounds as `first` and `last`, the chunk's
+# position as `i` and the chain's total as `n`. It also matches the old
+# form, <!-- sdlc:theorem-records <i>/<N> -->, capturing `first` and
+# `last` as null.
 SP_RECORDS_MARKER_RE='^<!-- sdlc:theorem-records (?:(?<first>[0-9]+)-(?<last>[0-9]+) )?(?<i>[0-9]+)/(?<n>[0-9]+) -->$'
 
 # sp_records_marker <first> <last> <i> <N> -- print the marker for chunk
