@@ -81,6 +81,7 @@ function assistant(...toolUses) {
   return { role: "assistant", text: "", toolUses };
 }
 
+/** A `Skill` call for `name`, then the user message holding its expansion, which names `base`. */
 function skill(name: string, base: string) {
   return [
     assistant({
@@ -473,6 +474,7 @@ function openingHost(on) {
   host(on, { read: (path) => path, exists: () => false });
 }
 
+/** Compacts `messages` on the `openingHost` disk and returns the reload message's text. */
 async function compactOpening($, on, messages): Promise<string> {
   openingHost(on);
   return reload(await $.session.compact({ trigger: "auto", messages }));

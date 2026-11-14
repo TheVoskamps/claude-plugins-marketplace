@@ -104,6 +104,7 @@ type State = { uses: Use[]; orchestrate: Orchestrate };
 /** One install of a plugin, as `installed_plugins.json` records it. */
 type Install = { projectPath?: unknown; version?: unknown } | null;
 
+/** Runs the compaction a `session.compact` hook wraps, resolving to what it compacted to. */
 type Next = (e: CompactEvent) => Promise<Compacted>;
 type On = (event: string, hook: unknown) => { catch: (handler: unknown) => void };
 
@@ -660,14 +661,17 @@ function mergeByLabel(items: Item[]): Item[] {
   return [...byLabel.values()];
 }
 
+/** An `Error`'s message, or any other thrown value as a string. */
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** The text after a path's last `/`, or the whole path when it has none. */
 function baseName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 
+/** The text before a path's last `/`, or `''` when that `/` leads the path or there is none. */
 function dirName(path: string): string {
   return path.slice(0, Math.max(path.lastIndexOf("/"), 0));
 }
