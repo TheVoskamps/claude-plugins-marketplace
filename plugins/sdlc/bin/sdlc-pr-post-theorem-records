@@ -370,7 +370,10 @@ function fence_run(s,   k, c, n) {
 
 # fence_after(line): sets NEXT_IN, NEXT_MARK and NEXT_OPEN to the fence
 # state after line, from the state before it in in_fence, mark and
-# open_line.
+# open_line. The tests are CommonMark'"'"'s: a backtick run with a backtick
+# after it on the line opens no fence, and a fence closes only on a run
+# of its own character at least as long as its marker, with nothing but
+# whitespace after it.
 function fence_after(line,   run) {
   NEXT_IN = in_fence
   NEXT_MARK = mark
