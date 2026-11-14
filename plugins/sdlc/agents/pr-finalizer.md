@@ -387,7 +387,9 @@ sdlc-pr-post-theorem-records <PR>
 On exit 0 its stdout tells your section where the detail is:
 
 - **`existing chain: rounds <first>-<last>, <N> comments`** — one line
-  per complete chain a previous run posted.
+  per complete chain a previous run posted whose marker names its
+  rounds. A complete chain of the old form, whose marker names none,
+  covers no round and gets no line.
 - **`posted chain: rounds <first>-<last>, <N> comments`**, then one
   comment URL per line — this run posted that chain. Name it by its
   first URL.
