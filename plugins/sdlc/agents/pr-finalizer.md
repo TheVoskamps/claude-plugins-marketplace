@@ -393,9 +393,11 @@ On exit 0 its stdout tells your section where the detail is:
 - **`posted chain: rounds <first>-<last>, <N> comments`**, then one
   comment URL per line — this run posted that chain. Name it by its
   first URL.
-- **`nothing to assemble`** — no chain is there and the state directory
-  holds nothing to post. Your section names no chain, and your report
-  says so.
+- **`nothing to assemble`** — no complete chain whose marker names its
+  rounds is there, though a complete chain of the old form may be, and
+  the state
+  directory holds nothing to post. Your section names no chain, and your
+  report says so.
 
 Every chain the report names is part of where the detail is. A partial
 chain an earlier run left covers no round and stays, since you delete

@@ -4,8 +4,10 @@
 # assembled from its state under XDG state, as a chain of comments whose
 # first lines are <!-- sdlc:theorem-records <first>-<last> <i>/<N> -->,
 # <first> and <last> being the lowest and highest round the chain holds
-# of those sdlc-agent-result-persist --mode rounds lists, or the round of
-# the records it holds when it holds none of those.
+# of those sdlc-agent-result-persist --mode rounds lists. With no round
+# log there is no listed round, and a records file the chain holds names
+# the range by its own round, listed or not: the seed's records alone
+# post as 0-0.
 # pr-finalizer runs it once per close-out.
 #
 #   usage: sdlc-pr-post-theorem-records <host>/<owner>/<repo>#<n>
@@ -204,9 +206,13 @@ done
 
 # Each round carries only the records of its own type, so the latest
 # records of one type say nothing of the other's theorems. The records'
-# round widens the range only when no round --mode rounds lists is held:
-# a listed one is held by the loop below, and an unlisted one, such as
-# the seed's round 0, would name a round no other read reaches.
+# round widens the range only when no round has a log. With one, a
+# records file is held only above the covered round and no higher than
+# the latest round, so the loop below holds that latest round and the
+# range is the listed rounds', and an unlisted records round, such as
+# the seed's round 0, widens nothing. With none, the
+# records' own round is the range, listed or not, so the seed's records
+# alone post as 0-0.
 records_rounds=
 for round_type in code-and-instruction-markdown documentation; do
   if read_state ' holds a records file' --mode print-records --round-type "$round_type"; then

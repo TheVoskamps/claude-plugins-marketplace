@@ -128,9 +128,11 @@ marker:
 ```
 
 `<first>` and `<last>` are the lowest and highest round the chain
-holds of those `sdlc-agent-result-persist --mode rounds` lists, or the
-round of the records it holds when it holds none of those, and
-`<i>/<N>` the chunk's 1-based position and the chain's total. A round
+holds of those `sdlc-agent-result-persist --mode rounds` lists, and
+`<i>/<N>` the chunk's 1-based position and the chain's total. With no
+round log there is no listed round, and a records file the chain holds
+names the range by its own round, listed or not: the seed's records
+alone post as `0-0`. A round
 number inside the range with no log was never run. The old form,
 `<!-- sdlc:theorem-records <i>/<N> -->`, names no rounds.
 
