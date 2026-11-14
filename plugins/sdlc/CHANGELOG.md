@@ -26,7 +26,7 @@ replaced by a pointer at local state the post-merge cleanup deletes.
   close-out posts a whole chain beside either.
 - Its stdout is now one
   `existing chain: rounds <first>-<last>, <N> comments` line per
-  complete chain already there, then
+  complete chain already there that names its rounds, then
   `posted chain: rounds <first>-<last>, <N> comments` and the comment
   URLs when it posted one.
 - Oversized-piece splitting: a piece too large for one chunk is split

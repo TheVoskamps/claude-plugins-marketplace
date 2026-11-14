@@ -805,8 +805,10 @@ round below it, and a code round reads past the documentation rounds,
 because a documentation round's verdicts answer none of a code round's
 questions. The ids are what the split leaves whole. A new theorem's id
 is one above the highest id any round below holds, of either type, so
-an id names one theorem across the PR and the detail chain never holds
-the same id twice.
+an id names one theorem across the PR. A later detail chain can carry
+an id an earlier one holds, because it posts its round type's latest
+records again, and the record in the chain covering the higher rounds
+is that theorem's latest state.
 
 The ids a generator gives its new theorems are checked at its `leave`,
 against the same carried records its read returned and the same id
