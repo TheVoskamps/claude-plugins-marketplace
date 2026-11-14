@@ -1693,6 +1693,22 @@ check "$(grep -c '^```' "$CASE/posted/1")" "2" "post: the chunk a file's open fe
 check "$(for n in 1 2; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
   "post: no chunk with a fence closed at a file's end exceeds 60,000 bytes"
 
+# A theorem's disprover report ends inside a fence it never closes, in a
+# piece small enough to be posted whole, its verifier report after it and
+# a review piece before it in the same chunk.
+post_case post-whole-unclosed-fence
+printf 'intro\n~~~~text\ninside\n' >"$CASE/report"
+state_file round1/review 50
+put_state round1/T1-theorem-disprover "$CASE/report"
+state_file round1/T1-counterexample-verifier 50
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:1" "post: a whole piece with a file that leaves a fence open is posted in one chunk"
+check "$(grep -B 2 -F "## \`round1/T1-counterexample-verifier\`" "$CASE/posted/1" | head -n 1)" '~~~~' \
+  "post: a whole piece closes a fence a file leaves open at that file's end, before the next file's heading"
+check "$(grep -c -e '^```' -e '^~~~' "$CASE/posted/1")" "2" "post: the chunk a whole piece's open fence ends in balances its fences"
+check "$(grep -A 3 -F "## \`round1/T1-theorem-disprover\`" "$CASE/posted/1" | tail -n 2)" 'intro
+~~~~text' "post: a whole piece's file is posted verbatim up to its closing line"
+
 # One line of 131,073 bytes: an a, then 65,536 two-byte characters, so
 # a cut at a byte count alone would land inside a character.
 post_case post-split-line
