@@ -116,8 +116,8 @@ const NO_STATE: State = { uses: [], orchestrate: "none" };
  * appends none, so the compaction ends with no reload message at all.
  */
 export function register(on: On): void {
-  // The `.catch` handler makes a throw or a timeout leave the compaction as `next` resolved it,
-  // less any reload message, so it appends none and keeps none.
+  // The `.catch` handler makes a throw after the compaction has resolved leave the compaction
+  // standing, as `next` resolved it, less any reload message, so it appends none and keeps none.
   on("session.compact", async ($: Mods, e: CompactEvent, next: Next) => {
     const result = await next(e);
     if (result.skip !== undefined || result.messages === undefined) return result;
