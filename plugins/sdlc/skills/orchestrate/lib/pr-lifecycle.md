@@ -397,6 +397,12 @@ That close-out's finalizer posts the rounds the PR's detail chains are
 missing, as one supplementary chain; nothing already posted is posted
 again.
 
+This rule covers reopening the loop on review findings. The
+documentation loop you run on a `documentation loop needed` return from
+`pr-merge-readiness` is not a reopened review loop: run it yourself,
+without the human's word, and leave a PR already marked ready as it
+is.
+
 ## The brief for `pr-monitor`
 
 Give it the PR reference, the branch name, and the resolved

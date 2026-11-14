@@ -1140,7 +1140,9 @@ otherwise:
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
 The code loop leaves each PR **draft** and every issue it closes
-**In Progress**, and so does the documentation loop. Each loop ends on
+**In Progress**, and so does the documentation loop that follows it; a
+documentation loop run on a `documentation loop needed` return leaves
+the PR's draft state and its issues' statuses as it found them. Each loop ends on
 the human's end-of-loop confirmation, per PR, that the loop is done and
 the PR is good enough to move forward:
 
