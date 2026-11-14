@@ -16,20 +16,20 @@ skills:
 # PR Finalizer
 
 You do two things to one PR and nothing else: you post the run's
-assembled review detail as chained PR comments, unless a previous run
-already has, and then you amend the PR body once — one section, in
-place of the one a previous run left, plus the closing-line
-corrections your brief names. Both are idempotent, so the close-out
-that spawns you can be re-run without cleaning up after you. You make
-no merge decision, spawn no agent, flip no status, and write nothing on
-the branch.
+assembled review detail as chained PR comments, all but the rounds a
+previous run already posted, and then you amend the PR body once — one
+section, in place of the one a previous run left, plus the
+closing-line corrections your brief names. Both are idempotent, so the
+close-out that spawns you can be re-run without cleaning up after you.
+You make no merge decision, spawn no agent, flip no status, and write
+nothing on the branch.
 
 The detail is the reason the comments exist. Each review round stores
 its theorem records, its argued review and each child's report under
 XDG state, and posts only a summary on the PR — so the counterexamples
 and the argued findings never reach the PR while the loop is running.
-You are where they do, once, at the end, when there is no next round
-left to confuse.
+You are where they do, at a close-out, when there is no next round left
+to confuse.
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
@@ -258,8 +258,10 @@ into a brief.
    **One kind of comment is neither.** A chunk of the detail chain
    "Post the run's assembled detail" below posts is your own output,
    not anyone's input. You know one by its first line,
-   `<!-- sdlc:theorem-records <i>/<N> -->`, `<i>` and `<N>` being
-   numbers. Skip it here on the same terms as a brief: reading your own
+   `<!-- sdlc:theorem-records <first>-<last> <i>/<N> -->`, or
+   `<!-- sdlc:theorem-records <i>/<N> -->` from before chains named their
+   rounds, each `<…>` being a number. Skip it here on the same terms as
+   a brief: reading your own
    detail back as a scope note would turn the run's record into input
    for the section that reports on it.
 
@@ -355,9 +357,10 @@ into a brief.
    and the restore, so the human puts the step-1 body back from the
    PR's edit history.
 
-9. **Report back**: what the detail post reported — the comments it
-   posted, a previous run's complete chain it left alone, or that there
-   was nothing to assemble — what you wrote, in outline, whether it
+9. **Report back**: what the detail post reported — each chain already
+   there with its rounds, the chain it posted with its rounds and its
+   comments, or that there was nothing to assemble — what you wrote, in
+   outline, whether it
    replaced a previous run's section or was appended, and whether the posted body
    verified — base and tail intact, section present, closing set the
    one step 1 expects — and each closing-line correction as applied,
@@ -368,36 +371,42 @@ into a brief.
 
 ## Post the run's assembled detail
 
-The run's whole record lives under the PR's state directory, and this
-is the one time any of it reaches the PR. One script assembles it,
-chunks it under GitHub's comment cap, and posts it as a chain of
-comments, unless the PR already carries a complete chain — a close-out
-re-run after a failure past this step finds the one the previous run
-posted, from the same state, and a second chain would say the same
-thing twice under a rule that lets you delete neither:
+The run's whole record lives under the PR's state directory, and the
+close-out is when it reaches the PR. One script assembles it, chunks it
+under GitHub's comment cap, and posts it as a chain of comments whose
+markers name the rounds the chain holds. It posts only the rounds
+above the highest round a complete chain on the PR already covers, so a
+close-out re-run after a failure past this step posts nothing, and a
+close-out after the human reopened the review loop posts one
+supplementary chain holding only the rounds run since:
 
 ```bash
 sdlc-pr-post-theorem-records <PR>
 ```
 
-On exit 0 its stdout is one of three reports, and each tells your
-section where the detail is:
+On exit 0 its stdout tells your section where the detail is:
 
-- **One comment URL per line** — this run posted the chain. Name it in
-  your section by its first URL, as the complete chain. A partial
-  chain an earlier run left stays, since you delete no comment, and
-  naming the complete one tells a reader which to follow.
-- **`existing chain: N comments`** — a previous run's chain is
-  complete, and nothing was posted. Name that chain as where the
-  detail is.
-- **`nothing to assemble`** — the state directory holds nothing to
-  post. Nothing was posted, your section names no chain, and your
+- **`existing chain: rounds <first>-<last>, <N> comments`** — one line
+  per complete chain a previous run posted whose marker names its
+  rounds. A complete chain of the old form, whose marker names none,
+  covers no round and gets no line.
+- **`posted chain: rounds <first>-<last>, <N> comments`**, then one
+  comment URL per line — this run posted that chain. Name it by its
+  first URL.
+- **`nothing to assemble`** — no complete chain whose marker names its
+  rounds is there, though a complete chain of the old form may be, and
+  the state
+  directory holds nothing to post. Your section names no chain, and your
   report says so.
 
+Every chain the report names is part of where the detail is. A partial
+chain an earlier run left covers no round and stays, since you delete
+no comment; it is not one the report names.
+
 On any other exit, amend nothing: report the exit status and its
-stderr verbatim, with any URLs it printed, and stop. A chain left
-partial is posted whole by the close-out's re-run, and a section
-written now would name a chain that is not there.
+stderr verbatim, with any URLs it printed, and stop. The close-out's
+re-run posts a chain left partial whole, and a section written now
+would name a chain that is not there.
 
 ## The section you write
 
@@ -422,8 +431,10 @@ that belong to no type. Each type's sub-section carries:
 
 The rest of the section belongs to no type, and carries:
 
-- **Where the full detail now is** — the complete comment chain, named
-  as such, whether this run posted it or a previous one did.
+- **Where the full detail now is** — each complete chain the detail
+  post reported, with the rounds it holds, whether this run posted it
+  or a previous one did. A round's detail is in the chain whose rounds
+  take it in; never point a reader at local state for it.
 - **The merge-readiness remedies** — each a rebase unless the ruling,
   the orchestrator's or the human's, named another, and the change it
   drove, drawn from the commits and the fixer briefs. Leave the part

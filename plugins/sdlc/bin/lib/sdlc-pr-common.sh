@@ -26,14 +26,18 @@ SP_PROGRAM=${0##*/}
 # The first line of a brief to issue-fixer.
 SP_FIXER_BRIEF_MARKER='<!-- sdlc:fixer-brief -->'
 # The first line of one chunk of the review detail pr-finalizer posts,
-# <!-- sdlc:theorem-records <i>/<N> -->, as a jq regex capturing the
-# chunk's position as `i` and the total as `n`.
-SP_RECORDS_MARKER_RE='^<!-- sdlc:theorem-records (?<i>[0-9]+)/(?<n>[0-9]+) -->$'
+# <!-- sdlc:theorem-records <first>-<last> <i>/<N> -->, as a jq regex
+# capturing the chain's rounds as `first` and `last`, the chunk's
+# position as `i` and the chain's total as `n`. It also matches the old
+# form, <!-- sdlc:theorem-records <i>/<N> -->, capturing `first` and
+# `last` as null.
+SP_RECORDS_MARKER_RE='^<!-- sdlc:theorem-records (?:(?<first>[0-9]+)-(?<last>[0-9]+) )?(?<i>[0-9]+)/(?<n>[0-9]+) -->$'
 
-# sp_records_marker <i> <N> -- print the same marker for chunk <i> of
-# <N>, without a newline, for the script that writes it.
+# sp_records_marker <first> <last> <i> <N> -- print the marker for chunk
+# <i> of <N> of a chain holding rounds <first> to <last>, without a
+# newline, for the script that writes it.
 sp_records_marker() {
-  printf '<!-- sdlc:theorem-records %s/%s -->' "$1" "$2"
+  printf '<!-- sdlc:theorem-records %s-%s %s/%s -->' "$1" "$2" "$3" "$4"
 }
 
 # A line of the body sdlc-agent-result-persist --mode summary renders for

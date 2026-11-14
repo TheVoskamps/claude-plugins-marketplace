@@ -35,7 +35,7 @@ restate the fact.
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How a PR body is cut around the finalizer's section and put back together, so a re-run replaces the section | `bin/sdlc-pr-body` |
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
-| In what order the review detail is assembled, how it is chunked under GitHub's comment cap, and what a piece too large for one comment becomes | `bin/sdlc-pr-post-theorem-records` |
+| In what order the review detail is assembled, which rounds a chain holds when the PR already carries chains, how it is chunked under GitHub's comment cap, and how a piece too large for one chunk is split across chunks | `bin/sdlc-pr-post-theorem-records` |
 | How the generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `agents/theorem-generator.md` |
 | The tier the generator runs at on one spawn, and where it is recorded | the `effort` of the `Agent` call that spawns it, written to the generate-stage `spawn` record by its spawner — `agents/theorem-based-pr-reviewer.md` for a review round, `skills/orchestrate/lib/pr-lifecycle.md` for the seed |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
@@ -84,7 +84,7 @@ the body, in one of two shapes:
 | `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
 | `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
-| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn on the human's confirmation that the documentation loop is done, the close-out, and the briefs for the two loop agents |
+| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn on the human's confirmation that the documentation loop is done, the close-out, reopening the review loop after one, and the briefs for the two loop agents |
 | `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
 
 A step the orchestrator runs is run by exactly one of the body, a lib
@@ -408,12 +408,56 @@ took effect.
 
 Because every failed gate means the close-out is run again, each of
 its steps is safe to repeat: the status flips repeat harmlessly, the
-ready flip no-ops on a PR already ready, and `pr-finalizer` finds a
-detail chain a previous run posted and leaves it alone, finds its own
+ready flip no-ops on a PR already ready, and `pr-finalizer` posts only
+the rounds above those the PR's complete detail chains cover, which is
+nothing when no round ran since, finds its own
 marked section in the body and overwrites it, so a reader never meets
 a stale section before the current one, and reports a closing-line
 correction the body already satisfies as satisfied rather than
 applying it twice.
+
+## A detail chain names its rounds, so a later close-out adds to it
+
+The review detail has to reach the PR in full, because the PR is the
+one place it survives: the state it is assembled from is local to one
+machine, and the cleanup deletes it once the PR is merged or closed.
+Each of these used to keep part of it off the PR.
+
+**A round run after a close-out.** A chain's marker once carried only
+a chunk's position and the chain's total, so a complete chain said
+nothing about which rounds it held, and the detail poster treated any
+complete chain as the whole record. When the human reopened the review
+loop after a close-out, the later rounds' detail stayed in state. The
+marker now names the lowest and highest round its chain holds. The
+highest round any complete chain covers is the covered round, and a
+close-out posts one supplementary chain holding only the rounds above
+it. Nothing is posted twice, because `pr-finalizer` deletes no comment
+and a repeated chain would sit beside the first for good. A chain a
+failed post left partial covers no round, so the re-run posts that
+chain whole. A complete chain posted before markers named their rounds
+covers none either: which rounds it held cannot be read off it, so the
+next close-out posts a full chain beside it, and that duplication is
+the price of losing no round.
+
+**A piece too large for one comment.** Such a piece was replaced by a
+placeholder naming its files under the PR's state root, which pointed
+at nothing once the cleanup ran. It is now split across consecutive
+chunks of its chain, so every piece reaches the PR, and the final
+section never names local state as where a round's detail is.
+
+Only the human reopens the review loop after a close-out, at any point
+before merge; the orchestrator never does on its own judgment. A PR
+already marked ready goes back to draft first, so it cannot merge
+while rounds are still running over it, and the close-out that follows
+flips it ready again.
+
+| Slot | Owner |
+| --- | --- |
+| The chunk marker, as a regex matching both its forms and a function printing the current one | `bin/lib/sdlc-pr-common.sh` |
+| What makes a chain complete, and the lines reported for complete and partial chains | `skills/pr-read-cli-interface/SKILL.md` |
+| The covered round, which rounds and records a chain holds, where a split piece breaks, and what happens to a code fence open at a break | `bin/sdlc-pr-post-theorem-records` |
+| What each line of the detail post's report means, and that the final section lists each chain with its rounds | `agents/pr-finalizer.md` |
+| Who may reopen the review loop after a close-out, and the return to draft before it reopens | `skills/orchestrate/lib/pr-lifecycle.md` |
 
 ## The issue is the ceiling of the fix loop
 
@@ -604,7 +648,8 @@ below. Theorem ids do not split: they run in one sequence across both
 types, so an id names one theorem across the whole PR, and the
 generator's `leave` holds a documentation round's first new id to one
 above the highest id any round holds. Each type has a records chain of
-its own, so the detail poster posts the latest records of each, the
+its own, so the detail poster posts the latest records of each whose
+round no chain on the PR already covers, the
 time report names the type on every round's row, and `pr-finalizer`
 writes one sub-section per type.
 
@@ -624,14 +669,17 @@ the diff made stale — the sources a documentation round generates from
 — and a closing-line correction gets no ruling at all, per "The issue
 is the ceiling of the fix loop".
 
-**A merge-readiness remedy that touches documentation re-opens the
-loop.** `pr-merge-readiness` used to spawn `docs-writer` itself when a
-fixer deferred an edit, and that commit reached the gate with no round
-over it. It now spawns none: a fixer round that defers a documentation
-edit or resolves a rebase conflict in a documentation file ends its
-run with `documentation loop needed`, the orchestrator runs the
-documentation loop with those entries in the writing brief, scrubs
-memory again, and spawns `pr-merge-readiness` afresh.
+**A merge-readiness remedy that touches documentation gets a
+documentation loop over it.** `pr-merge-readiness` used to spawn
+`docs-writer` itself when a fixer deferred an edit, and that commit
+reached the gate with no round over it. It now spawns none: a fixer
+round that defers a documentation edit or resolves a rebase conflict
+in a documentation file ends its run with `documentation loop needed`,
+the orchestrator runs the documentation loop with those entries in the
+writing brief, scrubs memory again, and spawns `pr-merge-readiness`
+afresh. That loop is the gate's own remedy, not a reopened review
+loop: the orchestrator runs it without the human's word, and a PR
+already marked ready stays ready through it.
 
 **The documentation-only path.** A batch none of whose members carries
 a `## Code and instruction Markdown acceptance` section has nothing for
@@ -655,7 +703,7 @@ owner:
 | How `docs-writer` reads a fixer brief, grades a criterion, and creates the branch and PR on the documentation-only path | `agents/docs-writer.md` |
 | The `documentation loop needed` return, and that no `docs-writer` is spawned for a remedy | `agents/pr-merge-readiness.md` |
 | One final-section sub-section per round type, and which records each is read from | `agents/pr-finalizer.md` |
-| That the latest records of each type are posted, and in which order | `bin/sdlc-pr-post-theorem-records` |
+| When a chain carries a type's latest records, and in which order | `bin/sdlc-pr-post-theorem-records` |
 | The type column on the time report's per-round rows | `bin/sdlc-orchestrate-analysis` |
 
 ## The theorem set is seeded from the issues before the developer runs
@@ -760,8 +808,10 @@ round below it, and a code round reads past the documentation rounds,
 because a documentation round's verdicts answer none of a code round's
 questions. The ids are what the split leaves whole. A new theorem's id
 is one above the highest id any round below holds, of either type, so
-an id names one theorem across the PR and the detail chain never holds
-the same id twice.
+an id names one theorem across the PR. A later detail chain can carry
+an id an earlier one holds, because it posts its round type's latest
+records again, and the record in the chain covering the higher rounds
+is that theorem's latest state.
 
 The ids a generator gives its new theorems are checked at its `leave`,
 against the same carried records its read returned and the same id
@@ -900,8 +950,13 @@ while its ids continue the code rounds', a code round carrying past a
 documentation round, the carry's cross-type id floor, and
 `print-records`' selection by type. It drives the detail poster
 posting each type's records, and every round with a log where the logs
-start above round 1 or skip a number, and the time report's type column
-against the same root. The same suite
+start above round 1 or skip a number; a supplementary chain over the
+rounds above those the PR's complete chains cover, with an old-form
+or partial chain covering none and a re-run with no new round posting
+nothing; and a piece over the chunk limit split across chunks, with a
+code fence open at the break and a line cut at a character boundary.
+It drives the time report's type column against the same root. The
+same suite
 drives the PR-read scripts against a stub `gh` that serves a PR's
 reviews and comments — each script's output and exits; the round
 number over stamped, unstamped, code-scanning and human reviews beside
@@ -1312,8 +1367,8 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-pr-round` | Prints the number of the review round under way, from the PR's pipeline reviews and its rounds' state: the round after the newest posted pipeline review, or a round above that one already begun | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest pipeline review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
-| `bin/sdlc-records-chain` | Reports whether the review-detail chunks posted on a PR form one complete chain, and which chunks are there when they do not | `skills/pr-read-cli-interface/SKILL.md` |
-| `bin/sdlc-pr-post-theorem-records` | Assembles a finished PR's review detail out of its state, chunks it under GitHub's comment cap and posts it as one marked chain, unless the PR already carries a complete one | its own header comment |
+| `bin/sdlc-records-chain` | Reports each complete chain of review-detail chunks posted on a PR, with the range of rounds the chain holds and its total, and which chunks are there when no chain is complete | `skills/pr-read-cli-interface/SKILL.md` |
+| `bin/sdlc-pr-post-theorem-records` | Assembles a PR's review detail out of its state, chunks it under GitHub's comment cap, splitting a piece too large for one chunk across several, and posts it as one chain whose markers name the rounds it holds; a PR whose complete chains are missing later rounds gets a supplementary chain holding only those rounds, and one whose chains cover the latest round gets nothing posted | its own header comment |
 | `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, and one for a body with neither section; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
 | `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — review state through `sdlc-agent-result-persist`, worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
@@ -1523,7 +1578,7 @@ PR's repository's directory, and `<round-dir>` for
 | `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against; round 0's holds the seed generator's `spawn` record and no anchor |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round of its type carries forward — built by the script from the round of that type below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
-| `<round-dir>/review` | the round's argued review, from which `--mode summary` renders the posted review; the detail chain `pr-finalizer` posts once the loop concludes carries it whole, or names it by path when it is too large for one comment |
+| `<round-dir>/review` | the round's argued review, from which `--mode summary` renders the posted review; the detail chain `pr-finalizer` posts at a close-out carries it whole, split across chunks when it is too large for one |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 | `<repo-dir>/pr<pr>/agents` | the PR's agents log: one record per agent spawned for the PR, naming the definition and the agent id, beside the rounds because a spawn belongs to no round and a voided round's rename must not carry it away |
 

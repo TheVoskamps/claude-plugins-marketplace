@@ -1140,7 +1140,9 @@ otherwise:
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
 The code loop leaves each PR **draft** and every issue it closes
-**In Progress**, and so does the documentation loop. Each loop ends on
+**In Progress**, and so does the documentation loop that follows it; a
+documentation loop run on a `documentation loop needed` return leaves
+the PR's draft state and its issues' statuses as it found them. Each loop ends on
 the human's end-of-loop confirmation, per PR, that the loop is done and
 the PR is good enough to move forward:
 
@@ -1305,8 +1307,10 @@ What you do yourself is orchestration mechanics:
   onto a PR, whether it lands in a brief or as an adjustments comment's
   `dropped (scope ruling)` line.
 - **Manage a PR's lifecycle via the `/github-prs:*` skills** —
-  `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`, and
-  `/pr-ready <PR>`. They set or read the PR's state; none of them
+  `/pr-link-issue <PR> <issues>`, `/pr-closing-issues <PR>`,
+  `/pr-ready <PR>`, and `/pr-draft <PR>` when the human reopens the
+  review loop on a ready PR, per the PR-lifecycle file. They set or
+  read the PR's state; none of them
   remedies it. The merge-readiness gate and the conflict listing are
   `pr-merge-readiness`'s and `pr-monitor`'s to run, not yours.
 - **Set issue status via `/issue-set-status`, and assign via

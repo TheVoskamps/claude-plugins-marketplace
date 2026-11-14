@@ -1,5 +1,52 @@
 # sdlc changelog
 
+## 0.81.0 — 2026-11-13
+
+A review round run after a close-out now reaches the PR, and a piece of
+review detail too large for one comment is posted in full rather than
+replaced by a pointer at local state the post-merge cleanup deletes.
+
+- A detail chunk's first line is now
+  `<!-- sdlc:theorem-records <first>-<last> <i>/<N> -->`, naming the
+  lowest and highest round its chain holds. The seed's round-0 records
+  ride in a chain without widening its range, unless no round has a
+  log, when they post as `0-0`. Chunks in the old `<i>/<N>` form are
+  still recognized, so `sdlc-pr-adjustments` keeps leaving them out.
+- `sdlc-records-chain` groups chunks by range plus total, so chunks of
+  two chains with the same total never combine, and prints one
+  `complete\t<first>-<last>\t<N>` line per complete chain, oldest
+  first. A complete old-form chain prints `-` as its range, and each
+  `partial` line carries the range too.
+- Supplementary chains: `sdlc-pr-post-theorem-records` posts one chain
+  holding only the rounds above the highest round a complete chain on
+  the PR already covers, with a round type's latest records only when
+  their round is among them. Nothing already posted is posted again,
+  and with no round above the covered one it posts nothing and exits 0.
+  A partial chain and an old-form chain cover no round, so the next
+  close-out posts a whole chain beside either.
+- Its stdout is now one
+  `existing chain: rounds <first>-<last>, <N> comments` line per
+  complete chain already there that names its rounds, then
+  `posted chain: rounds <first>-<last>, <N> comments` and the comment
+  URLs when it posted one.
+- Oversized-piece splitting: a piece too large for one chunk is split
+  across consecutive chunks of its chain, and the "Too large to post"
+  placeholder is gone. A split breaks between lines, and only a line
+  too long for a chunk is cut, at a UTF-8 character boundary. A code
+  fence open at a break is closed in that chunk and reopened in the
+  next, and each continuation chunk opens with its file's heading plus
+  `(continued)`. A fence a file leaves open is closed at that file's
+  end, in a split piece and a whole one alike. A chain needing more
+  than 9999 chunks exits 6 and posts nothing.
+- `pr-finalizer`'s final section lists each chain with the rounds it
+  holds as where the detail is, and never names local state for a
+  round's detail.
+- Only the human may reopen the review loop after a close-out, at any
+  point before merge. The orchestrator returns a PR already marked
+  ready to draft with `/github-prs:pr-draft` first, and the next
+  close-out posts the rounds the chains are missing and flips it ready
+  again.
+
 ## 0.80.0 — 2026-11-13
 
 After a context compaction, a conversation gets back the full text of
