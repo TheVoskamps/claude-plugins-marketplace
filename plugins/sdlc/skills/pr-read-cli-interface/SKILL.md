@@ -133,7 +133,8 @@ holds of those `sdlc-agent-result-persist --mode rounds` lists, and
 round log there is no listed round, and a records file the chain holds
 names the range by its own round, listed or not: the seed's records
 alone post as `0-0`. A round
-number inside the range with no log was never run. The old form,
+number inside the range that has no log and that the chain holds no
+records for was never run. The old form,
 `<!-- sdlc:theorem-records <i>/<N> -->`, names no rounds.
 
 A chain is the chunks sharing one range and one total, so chunks of two
