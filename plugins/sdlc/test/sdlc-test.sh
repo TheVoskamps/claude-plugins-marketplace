@@ -1542,6 +1542,27 @@ check "$(sed -n '3,5p' "$CASE/posted/1")" "## \`round1/records\`
 T1" "post: the records piece leaves out print-records' round line"
 check_contains "$CALLS" "pr-comment h.example/o/r#7 --body-file" "post: posts on the reference's PR by body file"
 
+# The seed's round-0 records are the latest, and round 1 has a log: the
+# records ride in the chain, and its range names round 1 alone.
+post_case post-seed-records
+mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round0"
+printf 'T1\nclaim: seed\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round0/records"
+state_file round1/review 50
+post 'h.example/o/r#7'
+check "$RC:$OUT" "0:posted chain: rounds 1-1, 1 comments
+https://h.example/o/r/pull/7#issuecomment-1" "post: the seed's round-0 records do not widen the range to round 0"
+check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-1 1/1 -->
+## \`round0/records\`
+## \`round1/review\`" "post: the seed's round-0 records still ride in the chain"
+
+# With no round listed, the seed's records alone name the range.
+post_case post-seed-only
+mkdir -p "$XDG_STATE_HOME/$PR_DIR_REL/round0"
+printf 'T1\nclaim: seed\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round0/records"
+post 'h.example/o/r#7'
+check "$RC:$(head -n 1 "$CASE/posted/1" 2>/dev/null)" "0:<!-- sdlc:theorem-records 0-0 1/1 -->" \
+  "post: records with no round listed name their own round as the range"
+
 # Round 1 reviews code and round 2 documentation: each type's latest
 # records are posted, code first.
 post_case post-round-types
@@ -1652,6 +1673,25 @@ after' "post: the split piece's tail is posted after its fence closes"
 check "$(posted_headers 3)" "<!-- sdlc:theorem-records 1-1 3/3 -->
 ## \`round1/T1-theorem-disprover\` (continued)
 ## \`round1/T2-theorem-disprover\`" "post: the piece after a split one follows it in its last chunk"
+
+# A theorem's disprover report ends inside a fence it never closes, and
+# its verifier report does not fit the chunk after it, so the split piece
+# breaks at the verifier report's heading.
+post_case post-unclosed-fence
+{
+  printf '```text\n'
+  for n in $(seq 590); do
+    printf '%s\n' "$line"
+  done
+} >"$CASE/report"
+put_state round1/T1-theorem-disprover "$CASE/report"
+state_file round1/T1-counterexample-verifier 5000
+post 'h.example/o/r#7'
+check "$RC:$POSTED" "0:2" "post: a split piece breaking at a file after an unclosed fence is posted"
+check "$(tail -n 1 "$CASE/posted/1")" '```' "post: a fence a file leaves open is closed at that file's end"
+check "$(grep -c '^```' "$CASE/posted/1")" "2" "post: the chunk a file's open fence ends in balances its fences"
+check "$(for n in 1 2; do [ "$(wc -c <"$CASE/posted/$n")" -le 60000 ] || echo "$n over"; done)" "" \
+  "post: no chunk with a fence closed at a file's end exceeds 60,000 bytes"
 
 # One line of 131,073 bytes: an a, then 65,536 two-byte characters, so
 # a cut at a byte count alone would land inside a character.

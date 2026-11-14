@@ -3,7 +3,9 @@
 # sdlc-pr-post-theorem-records -- post a finished PR's review detail,
 # assembled from its state under XDG state, as a chain of comments whose
 # first lines are <!-- sdlc:theorem-records <first>-<last> <i>/<N> -->,
-# <first> and <last> being the lowest and highest round the chain holds.
+# <first> and <last> being the lowest and highest round the chain holds
+# of those sdlc-agent-result-persist --mode rounds lists, or the round of
+# the records it holds when it holds none of those.
 # pr-finalizer runs it once per close-out.
 #
 #   usage: sdlc-pr-post-theorem-records <host>/<owner>/<repo>#<n>
@@ -39,9 +41,10 @@
 # closed in that chunk and reopened in the next with the same fence
 # line, or with its bare marker when that line leaves no room in a
 # chunk for the line that follows, and each continuation chunk opens
-# with its file's heading plus `(continued)`. When a continuation chunk
-# has no room for any part of a line, the layout fails and nothing is
-# posted.
+# with its file's heading plus `(continued)`. A fence one of the piece's
+# files leaves open is closed at that file's end. When a continuation
+# chunk has no room for any part of a line, the layout fails and nothing
+# is posted.
 #
 # On success it exits 0 and prints on stdout:
 #
@@ -199,7 +202,11 @@ for round in $rounds; do
 done
 
 # Each round carries only the records of its own type, so the latest
-# records of one type say nothing of the other's theorems.
+# records of one type say nothing of the other's theorems. The records'
+# round widens the range only when no round --mode rounds lists is held:
+# a listed one is held by the loop below, and an unlisted one, such as
+# the seed's round 0, would name a round no other read reaches.
+records_rounds=
 for round_type in code-and-instruction-markdown documentation; do
   if read_state ' holds a records file' --mode print-records --round-type "$round_type"; then
     records_round=$(sed -n '1s/^round //p' "$work/out")
@@ -207,7 +214,7 @@ for round_type in code-and-instruction-markdown documentation; do
     [ -z "$latest" ] || [ "$records_round" -le "$latest" ] || continue
     sed '1d' "$work/out" >"$work/records-$round_type"
     new_piece
-    hold "$records_round"
+    records_rounds="$records_rounds $records_round"
     add_file "round$records_round/records" "$work/records-$round_type"
   fi
 done
@@ -270,6 +277,12 @@ for round in $rounds; do
 
   hold "$round"
 done
+
+if [ -z "$first" ]; then
+  for records_round in $records_rounds; do
+    hold "$records_round"
+  done
+fi
 
 if [ "$pieces" -eq 0 ]; then
   if [ -n "$existing" ]; then
@@ -465,6 +478,9 @@ function split_piece(   j, head, pending, need, cut, broke) {
       open_line = NEXT_OPEN
     }
     if (pending) put_head(j, head, 0)
+    # A fence the file leaves open is closed before the next file'"'"'s
+    # heading. Its last line reserved room for this closing line.
+    if (in_fence) put(mark "\n")
   }
 }
 

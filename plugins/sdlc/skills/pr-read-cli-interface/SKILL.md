@@ -128,8 +128,9 @@ marker:
 ```
 
 `<first>` and `<last>` are the lowest and highest round the chain
-holds, and `<i>/<N>` the chunk's 1-based position and the chain's
-total. A round number inside the range with no log was never run. The
+holds of those `sdlc-agent-result-persist --mode rounds` lists, or the
+round of the records it holds when it holds none of those, and
+`<i>/<N>` the chunk's 1-based position and the chain's total. A round number inside the range with no log was never run. The
 old form, `<!-- sdlc:theorem-records <i>/<N> -->`, names no rounds.
 
 A chain is the chunks sharing one range and one total, so chunks of two
