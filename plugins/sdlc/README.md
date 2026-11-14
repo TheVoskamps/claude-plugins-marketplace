@@ -669,14 +669,17 @@ the diff made stale — the sources a documentation round generates from
 — and a closing-line correction gets no ruling at all, per "The issue
 is the ceiling of the fix loop".
 
-**A merge-readiness remedy that touches documentation re-opens the
-loop.** `pr-merge-readiness` used to spawn `docs-writer` itself when a
-fixer deferred an edit, and that commit reached the gate with no round
-over it. It now spawns none: a fixer round that defers a documentation
-edit or resolves a rebase conflict in a documentation file ends its
-run with `documentation loop needed`, the orchestrator runs the
-documentation loop with those entries in the writing brief, scrubs
-memory again, and spawns `pr-merge-readiness` afresh.
+**A merge-readiness remedy that touches documentation gets a
+documentation loop over it.** `pr-merge-readiness` used to spawn
+`docs-writer` itself when a fixer deferred an edit, and that commit
+reached the gate with no round over it. It now spawns none: a fixer
+round that defers a documentation edit or resolves a rebase conflict
+in a documentation file ends its run with `documentation loop needed`,
+the orchestrator runs the documentation loop with those entries in the
+writing brief, scrubs memory again, and spawns `pr-merge-readiness`
+afresh. That loop is the gate's own remedy, not a reopened review
+loop: the orchestrator runs it without the human's word, and a PR
+already marked ready stays ready through it.
 
 **The documentation-only path.** A batch none of whose members carries
 a `## Code and instruction Markdown acceptance` section has nothing for
