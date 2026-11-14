@@ -21,8 +21,8 @@
 #
 #   1. the final theorem records of each round type, code and
 #      instruction Markdown first, from --mode print-records
-#      --round-type, when their round is above the covered round and no
-#      higher than the latest round with a log;
+#      --round-type, when their round is above the covered round and,
+#      when any round has a log, no higher than the latest one;
 #   2. per round above the covered round, ascending, every round with a
 #      log, as sdlc-agent-result-persist --mode rounds lists them: its
 #      generator files, list-<agent>, in agent-name order; its review,
