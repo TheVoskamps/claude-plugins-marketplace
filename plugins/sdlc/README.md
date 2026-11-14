@@ -20,7 +20,7 @@ restate the fact.
 
 | Fact | Owner |
 | --- | --- |
-| Which skills, agents and executables the plugin ships, and its `dependencies` edges | this file |
+| Which skills, agents, executables and hooks the plugin ships, and its `dependencies` edges | this file |
 | What one agent does | that agent's own file under `agents/` |
 | What a review checks, and the sections of the argued review it stores | `agents/theorem-based-pr-reviewer.md` |
 | The round derivations — the arm a resumed round is in and the work left in each stage, each theorem's disposition, class, severity and stamped state, the per-issue and overall verdicts, and the posted review body — and the tables and rules they apply | `bin/sdlc-agent-result-persist`, under the contract `skills/agent-result-persist-interface/SKILL.md` states |
@@ -31,6 +31,7 @@ restate the fact.
 | What the merge-readiness loop does on each state the gate reports, which of those it returns as a question, how a ruling is matched to the question it answered, and the bounds on its waits | `agents/pr-merge-readiness.md` |
 | What ends the monitor loop | `agents/pr-monitor.md` |
 | Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
+| Which files a compaction reloads, how a skill's name is resolved to its file, what the reload message holds, and what is recorded from one compaction to the next | `hooks/reload-after-compact.ts` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How a PR body is cut around the finalizer's section and put back together, so a re-run replaces the section | `bin/sdlc-pr-body` |
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
@@ -195,17 +196,19 @@ blessed PR goes through and the split between the gate that reports a
 merge state and the teammate that remedies it, so a PR that reorders
 those stages or moves a remedy edits it here.
 
-## The run's waits are configured in tiers only the orchestrator reads
+## The config lives in tiers no agent reads
 
 Two moments of the flow are waits on a human: the ruling on the seed
 theorem list before a batch's developer runs, and the monitor loop
 after a PR's ready flip. Those two, and the monitor's poll interval and
 unchanged-poll bound, are what sdlc's config turns — `seed-review`,
 `merge-wait`, `merge-poll-interval-seconds` and
-`merge-max-unchanged-polls`. Every default is the unconfigured
-behaviour, so a repo with no config file at any tier waits for the
-ruling and monitors exactly as before the keys existed. A PR that adds
-a key edits this list.
+`merge-max-unchanged-polls`. One key belongs to no moment of the flow:
+`reload-after-compact-token-budget` bounds how much text the
+`reload-after-compact` hook appends after a compaction. Every default
+is the unconfigured behaviour, so a repo with no config file at any
+tier waits for the ruling and monitors exactly as before the keys
+existed. A PR that adds a key edits this list.
 
 The config is three YAML files — a global user file outside every
 repository, a shared repo file that is tracked, and a repo user file
@@ -228,6 +231,12 @@ from the run that spawned it. The brief that carries a key and the
 receiving agent's `## Inputs` are therefore one change, the same as any
 other spawn-template field.
 
+The `reload-after-compact` hook is the one reader besides the
+orchestrator. It runs on every compaction, inside an orchestrate run or
+outside one, and has no brief to receive a value in, so it resolves the
+tiers itself and takes its budget key alone from them. It is not an
+agent, so the decision above stands as worded.
+
 What the two switches leave alone is as deliberate as what they skip:
 
 - `seed-review: auto-accept` skips only the wait. The candidate list
@@ -242,6 +251,92 @@ What the two switches leave alone is as deliberate as what they skip:
   Nothing re-runs the merge-readiness gate after that flip, so a PR
   that falls `BEHIND` or `DIRTY` while it waits is the human's to
   remedy, not the run's.
+
+## A compaction reloads the skills and rule files a loop was working from
+
+After a compaction a conversation works from the compaction's summary.
+The summary truncates the text of the skills it lists, and the rule
+files the conversation read on demand are not reopened, so a rule
+stated only in one of those files is applied from memory — an invalid
+`--mode` value written into a brief, an owner ruling placed where the
+receiving agent never looks. The `reload-after-compact` hook closes
+that gap: once a compaction has run, it appends one message holding
+the full text of the files the compacted loop depended on.
+
+What it reloads:
+
+- **Skills** the loop invoked, through the `Skill` tool or as a slash
+  command. The compaction event carries a skill's name and seldom its
+  base directory; where a message does name one, the hook uses it, and
+  otherwise it resolves the name itself: a
+  `<plugin>:<name>` skill in this plugin's own root, or in the cache
+  directory of the version `~/.claude/plugins/installed_plugins.json`
+  records as installed; an unprefixed name under the project's
+  `.claude/skills/`, then `~/.claude/skills/`, then the installed
+  plugins. An unprefixed name found in none of them is a built-in
+  command and is skipped.
+- **Rule files**: each `.md` file the loop opened with `Read` under a
+  `rules/` or `skills/` directory.
+
+What it leaves out is as deliberate:
+
+- **Every `CLAUDE.md` and every file under `~/.claude/rules/`**, which
+  the harness re-injects after a compaction on its own.
+- **Agent definitions, and any file opened under an `agents/`
+  directory.** An agent's definition is its own system prompt, and the
+  briefs a loop writes for the agents it spawns are stated in that
+  loop's skills, which are reloaded.
+- **Another loop's files.** A subagent's compaction reloads what that
+  subagent's transcript invoked and read, and the main conversation's
+  reloads its own.
+- **The files that serve only the opening of an `/sdlc:orchestrate`
+  run** — the readiness skill, and the orchestrator's pre-flight and
+  plan lib files — once an `Agent` call follows the loop's most recent
+  `/sdlc:orchestrate` invocation. The orchestrator spawns no agent
+  until pre-flight, the readiness gate and the plan confirmation are
+  done, so from that call on those files are spent, and reloading them
+  would spend the budget on text the run never returns to. A later
+  invocation makes them live again until its own first `Agent` call.
+
+A file used before an earlier compaction is still a use at the next
+one, although the tool call that used it has been summarized away. The
+hook therefore records each loop's uses, in order of recency, in a
+state file keyed by session and by loop, and merges them with what the
+transcript shows at each compaction. It never reads the uses back out
+of an earlier reload message, which is itself part of the conversation
+the next compaction summarizes. Every earlier reload message is instead
+removed from the compacted conversation, which then holds at most the
+fresh one. A state file that cannot be read or written is named with
+its error in the reload message, and the reload proceeds on the
+transcript alone.
+
+The reload is bounded by `reload-after-compact-token-budget`, with
+tokens estimated as characters ÷ 4. Files are appended whole, most
+recently used first; the first file that does not fit, and every file
+after it, is listed by absolute path with an instruction to read it
+before acting on it. A file that cannot be read is listed with its
+error. The key defaults to `100000` and has a floor of `64000`: an
+orchestrate run's working set past its opening — its skill, its lib
+files and the shared interface files — is about 42k tokens, and the
+floor leaves headroom above that for the files the run's own work
+reads, so no accepted budget is too small to carry the orchestrator
+through a compaction.
+
+The hook parses no YAML, so it accepts one shape of budget line and no
+other spelling YAML would allow. A tier file holding any other line
+that contains the key's name is invalid, a commented-out line or a
+second budget line included. The exact shape is owned by
+`skills/lib/sdlc-config.md`.
+
+**A broken tier reloads nothing.** When a tier file exists and cannot
+be read, fails the `schema-version` check, or holds an invalid budget
+line, the hook appends no reload message, the compaction completes on
+the summary alone, and one `$.ui.log` line tells the human the path and
+the error. It never falls back to the default for such a tier, and
+never puts a config error in text sent to the model. The loop's uses
+are still recorded, so the first compaction after the tier is repaired
+reloads them. A throw inside the hook after the compaction has resolved
+leaves the compaction standing, with any reload message removed.
 
 ## A blessed PR is gated on merge readiness, and the gate never remedies
 
@@ -1363,6 +1458,18 @@ have backed is printed — the report never reads a substitute, so a
 missing row is evidence that a source is gone, not a guess about what
 it held.
 
+## Hooks
+
+`hooks/hooks.json` names the hook modules the plugin ships. A PR that
+adds or removes one edits this roster.
+
+| Module | Event | Purpose |
+| ------- | --------- | --------------- |
+| `hooks/reload-after-compact.ts` | `session.compact` | Lets the compaction run, removes every earlier reload message from the compacted conversation, and appends one fresh message holding the full text of the skills and rule files the compacted loop used, within the `reload-after-compact-token-budget` budget |
+
+Its test, `test/reload-after-compact.test.ts`, runs under
+`claude plugin test`.
+
 ## Files it writes
 
 Everything the **review pipeline** persists is written by
@@ -1490,6 +1597,17 @@ once that PR has merged and the human runs otherwise; so a `pr<N>/`
 outlives every round of its PR, and goes when the PR has merged — its
 evidence is no longer needed to diagnose a round — or when the human
 decides it is no longer wanted.
+
+The `reload-after-compact` hook's state is outside the review
+pipeline's and is not written through that script. It lives under the
+same root, at
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/reload-after-compact/<session>/<loop>.json`,
+with `<loop>` reading `main` for the main conversation and
+`agent-<agent-id>` for a subagent's own loop: one JSON file per loop,
+holding the loop's uses oldest first and where its orchestrate run
+stands. The hook rewrites it on every compaction of that loop. No
+`sdlc` surface removes these files, `sdlc-orchestrate-cleanup`
+included.
 
 ## Agents
 
