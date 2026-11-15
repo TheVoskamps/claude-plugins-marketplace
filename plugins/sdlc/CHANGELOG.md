@@ -1,5 +1,46 @@
 # sdlc changelog
 
+## 0.83.0 — 2026-11-15
+
+`/sdlc:orchestrate`'s review loops are now configurable, a Low finding
+is fixed like any other, and a documentation round with no theorems can
+post its review.
+
+- New config keys `code-review-max-rounds` and
+  `docs-review-max-rounds`: the most review rounds the code loop and
+  the documentation loop run per PR. Each takes a positive integer or
+  `unlimited`, and defaults to `5`, the cap both loops had before.
+  Under `unlimited` a loop runs until a review approves with no
+  findings.
+- New config keys `loop-end` and `docs-loop-end`, each `ask` or
+  `auto-when-clean`, default `ask`. `loop-end` governs the code loop's
+  end, before the documentation loop starts; `docs-loop-end` governs
+  the documentation loop's end, before the merge stages and the ready
+  flip. Under `auto-when-clean`, a loop whose last review round is
+  APPROVED with no open finding of any severity ends with no question
+  and the next stage starts. A loop at its round cap, or one the
+  human's ruling ended, still asks. Each key is set on its own, and
+  with neither set every loop end waits for the human as before.
+- Pre-flight prints all four new keys beside the tier each came from,
+  and the `sdlc-config-*` verbs offer them.
+- An APPROVED round with an open Low finding now runs a fixer round,
+  with no question to the human. A loop ends on a round approved with
+  no findings, and a Low still open at a loop's cap is escalated with
+  the other open findings.
+- The run summary's Low Findings table is gone. A finding still open at
+  a cap, a Low included, is a Needs Your Attention row naming the key
+  of the loop it persisted in.
+- A style-check finding against text the issue body requires is settled
+  by the orchestrator, quoting the issue's sentence, and is no longer
+  put to the human.
+- For a defect the PR's own diff introduced, the orchestrator
+  recommends the fix in that PR, never a follow-up issue or leaving it.
+- `sdlc-agent-result-persist --mode records` stores an empty payload,
+  from `--from` or stdin, as an empty records file. A first
+  documentation round whose generator emitted no theorems used to be
+  refused there, which stopped the reviewer before it posted. `--mode
+  review` and `--mode leave` still refuse an empty payload.
+
 ## 0.82.0 — 2026-11-15
 
 The cleanup now keeps review state by default. It used to delete a

@@ -1,0 +1,14 @@
+root = true
+
+# shfmt matches these sections by the language it detects, so they reach
+# extensionless scripts by their shebang. Any parser or printer flag
+# given to shfmt on the command line sets these options aside.
+[[shell]]
+indent_style = space
+indent_size = 2
+switch_case_indent = true
+
+[[bash]]
+indent_style = space
+indent_size = 2
+switch_case_indent = true

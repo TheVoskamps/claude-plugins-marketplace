@@ -4,7 +4,9 @@
 # records and round-log modes against a state root of its own: the
 # round-0 seed write, the carry form that builds a later round's records
 # file from the carried round, an edits file and the new records, each
-# refusal the carry form makes, print-records with and without a --round
+# refusal the carry form makes, the empty payload the plain form stores
+# and review and leave refuse, the plain form's refusal of a --from it
+# cannot read, print-records with and without a --round
 # bound, the path leave prints and its refusal of one carrying
 # whitespace, stopped's --agent-id and
 # print-in-flight's matching of a stopped to its child, the agent
@@ -702,6 +704,85 @@ print_records --round 4 --round-type documentation
 check_contains "$RC:$ERR" "2:" "round type: --round-type beside --round is refused"
 check_contains "$ERR" "--round-type is not accepted with --round in --mode print-records" \
   "round type: the refusal says the round's anchor names its type"
+
+# --- an empty payload ------------------------------------------------------
+
+# Round 1 reviews code; round 2 is a first documentation round whose
+# generator emitted no theorems, and round 3 the documentation round after.
+new_case empty-records-from
+seed_round 0 "$SEED"
+anchor 1 code-and-instruction-markdown
+seed_round 1 "$SEVENTEEN"
+anchor 2 documentation
+: >"$CASE/new"
+persist --mode records --round 2 --from "$CASE/new"
+check "$RC" "0" "empty records: an empty --from file is stored by the plain form"
+check "$([ -f "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/records" ] && wc -c <"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/records" | tr -d ' ')" "0" \
+  "empty records: the round's records file is stored empty"
+anchor 3 documentation
+print_records --round 3
+check "$RC:$OUT" "0:round 2" "empty records: a later round of the type finds the round that stored them"
+persist --mode records --round 3 --carry --from "$CASE/new"
+check "$RC" "0" "empty records: a later round of the type carries them forward"
+check "$([ -f "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round3/records" ] && echo stored || echo none)" "stored" \
+  "empty records: the carried round's records file is stored"
+
+new_case empty-records-stdin
+persist --mode records --round 1
+check "$RC" "0" "empty records: nothing on stdin is stored by the plain form"
+check "$([ -f "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/records" ] && wc -c <"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/records" | tr -d ' ')" "0" \
+  "empty records: the records file from empty stdin is stored empty"
+
+new_case records-from-missing
+persist --mode records --round 1 --from "$CASE/absent"
+check "$RC" "2" "records: a --from naming no file is refused"
+check_contains "$ERR" "--from names no file: $CASE/absent" "records: the refusal names the path"
+check "$(round_records 1)" "" "records: a refused --from stores no records"
+
+new_case records-from-unreadable
+printf 'T1\n' >"$CASE/locked"
+chmod 000 "$CASE/locked"
+if [ -r "$CASE/locked" ]; then
+  echo "SKIP  records: an unreadable --from file is refused (the file stays readable to this user)"
+else
+  persist --mode records --round 1 --from "$CASE/locked"
+  check_contains "$RC:$ERR" "2:" "records: an unreadable --from file is refused"
+  check_contains "$ERR" "$CASE/locked could not be read" "records: the refusal names the file"
+  check "$([ -f "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/records" ] && echo stored || echo none)" "none" \
+    "records: an unreadable --from file stores no records"
+fi
+chmod 600 "$CASE/locked"
+
+new_case empty-review
+: >"$CASE/empty"
+persist --mode review --round 1 --from "$CASE/empty"
+check "$RC" "2" "empty review: an empty --from file is refused"
+check_contains "$ERR" "--mode review takes the review from --from, and $CASE/empty is empty" \
+  "empty review: the refusal names the file"
+persist --mode review --round 1
+check "$RC" "2" "empty review: nothing on stdin is refused"
+check_contains "$ERR" "--mode review takes the review on stdin, and nothing arrived" \
+  "empty review: the refusal says nothing arrived"
+check "$([ -e "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/review" ] && echo stored || echo none)" "none" \
+  "empty review: a refused review stores nothing"
+
+# empty_report <stage> <agent> <theorem>: leaves an empty report for
+# <theorem> at <stage> and checks it is refused with nothing stored.
+empty_report() {
+  as_child A --mode leave --round 1 --theorem "$3" --stage "$1" --agent "$2" --from "$CASE/empty"
+  check "$RC:$OUT" "2:" "empty report: an empty $1 report is refused"
+  check_contains "$ERR" "--mode leave takes the report from --from, and $CASE/empty is empty" \
+    "empty report: the $1 refusal names the file"
+  check "$([ -e "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/$3-$2" ] && echo stored || echo none)" "none" \
+    "empty report: a refused $1 report stores no result file"
+}
+
+new_case empty-report
+: >"$CASE/empty"
+empty_report generate theorem-generator list
+empty_report disprove theorem-disprover T1
+empty_report verify counterexample-verifier T1
+check "$(round_log 1 | grep -c '^leave')" "0" "empty report: a refused report appends no leave record"
 
 # --- the repository's state directory ------------------------------------
 

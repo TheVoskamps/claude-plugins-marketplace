@@ -174,7 +174,7 @@ owns — but never a finding, a location, or an implementation shape.
     - `--draft` is REQUIRED: every PR is born as a draft. A draft PR
       cannot be auto-merged (the repo's auto-merge workflow filters
       `isDraft == false`), so it stays inert until the orchestrator
-      flips it to ready, after the human blesses it. The closing
+      flips it to ready, once the documentation loop has ended. The closing
       keyword only fires on merge to the default branch, so it too
       stays inert while the PR is draft.
     - The closing keywords in the **PR body** (never a commit message)

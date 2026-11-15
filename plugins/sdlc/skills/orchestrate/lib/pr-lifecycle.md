@@ -4,9 +4,9 @@ What the orchestrator does to a PR from the moment its developer
 reports it open to the moment it is flipped ready: the link to its
 issues, the round-0 write that follows it, the body freeze that holds
 through both loops, the documentation loop's briefs and round
-mechanics, the spawn that runs on the human's confirmation of that
-loop's end, the close-out, and the briefs for the two agents that
-carry the loops on either side of the close-out.
+mechanics, the spawn that runs once that loop ends, the close-out, and
+the briefs for the two agents that carry the loops on either side of
+the close-out.
 
 ## Link the PR to its issues, once the developer reports back
 
@@ -123,7 +123,8 @@ The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
 so a body edit contributes nothing to any round's delta: every later
 round is empty-delta, carries its verdicts forward, and re-reports the
-finding the edit fixed until the round cap runs out. So everything in
+finding the edit fixed until the loop's round cap —
+`code-review-max-rounds` or `docs-review-max-rounds` — runs out. So everything in
 flight travels as a **PR comment** — the human's review adjustments
 you relay and the fixer brief you write — which is append-only and
 carries a timestamp the next round can cut against.
@@ -245,13 +246,14 @@ the commit SHA you pushed.
 Its commit opens the next round.
 
 **The loop ends** on a round whose review is APPROVED with no finding
-above Low and whose `docs-writer` report graded no criterion
-`not met`, or when the documentation loop's round bound is reached
-with a finding above Low still open, which goes to the human in the
-final report. Either way the human's end-of-loop confirmation is what
-moves the PR on.
+and whose `docs-writer` report graded no criterion `not met`, or when
+the loop has run `docs-review-max-rounds` rounds with a finding of any
+severity still open, which goes to the human in the final report;
+under `unlimited` it ends only on the first. Either way,
+what moves the PR on from that end is in `skills/orchestrate/SKILL.md`
+→ "Final Report".
 
-## The pre-readiness spawn, once the documentation loop is confirmed
+## The pre-readiness spawn, once the documentation loop has ended
 
 **Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
 By now every teammate that writes memory has captured into the
@@ -389,8 +391,9 @@ ready goes back to draft before the loop reopens:
 /github-prs:pr-draft <PR_REF>
 ```
 
-The loop then runs as any review loop does, and the human's
-end-of-loop confirmation sends the PR through the stages from the
+The loop then runs as any review loop does. A reopened code loop's
+end starts the documentation loop, as any code loop's end does. Only
+the documentation loop's end sends the PR through the stages from the
 pre-readiness spawn on again, so the close-out flips it ready once
 more.
 That close-out's finalizer posts the rounds the PR's detail chains are

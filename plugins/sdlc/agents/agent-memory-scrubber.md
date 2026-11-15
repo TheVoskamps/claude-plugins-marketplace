@@ -1,6 +1,6 @@
 ---
 name: agent-memory-scrubber
-description: Curates the agent memory a PR's run accumulated. Given a PR reference and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate on the human's confirmation that a PR's documentation loop has ended, and by pr-merge-readiness after every issue-fixer round it runs that needs no documentation loop — whenever a memory-declaring teammate was spawned after the scrubber last ran.
+description: Curates the agent memory a PR's run accumulated. Given a PR reference and branch name, checks the branch out and runs the agent-memory-inbox-cleanup skill over the session's inbox for that branch, then verifies whatever that skill committed reached the remote. Spawned by /sdlc:orchestrate when a PR's documentation loop ends, and by pr-merge-readiness after every issue-fixer round it runs that needs no documentation loop — whenever a memory-declaring teammate was spawned after the scrubber last ran.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium

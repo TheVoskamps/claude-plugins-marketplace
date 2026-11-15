@@ -631,13 +631,18 @@ your findings, or that there are none.
 On **no findings**, proceed to the review without a pause.
 
 On **findings**, a finding quotes the rule the diff violates, so the
-rule has already answered fix-or-ignore: do not ask. Pause on a finding
-only when its rule cannot settle it:
+rule has already answered fix-or-ignore: do not ask.
+
+A finding against text the issue body requires is ruled by the issue
+body, and is your ruling: its line ends `— settled, no fix: <the issue
+sentence that requires the text>`, quoted, and it is never put to the
+human, whatever else below holds of it.
+
+Pause on any other finding only when its rule cannot settle it:
 
 - the last style-fix round's `issue-fixer` reported it unfixed;
 - it comes back after a style-fix round on this PR addressed it — the
-  same rule, at the same place in the same file;
-- applying the rule would contradict the issue the PR closes.
+  same rule, at the same place in the same file.
 
 A paused finding goes to the human as `style-checker` reported it — its
 quoted rule and offending lines — with the condition that paused it,
@@ -648,9 +653,10 @@ Post one fixer brief on the PR — at once when nothing paused, after
 the human's answer otherwise — in the shape "Handling review
 findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
 marker included, carrying every finding of the round, each with its
-quoted rule and offending lines: an unpaused finding ends `— in
-scope`, and a paused one ends `— put to the human: <question> →
-<answer>`, the answer being the human's fix or ignore.
+quoted rule and offending lines: a finding the issue body rules ends
+in that ruling, any other unpaused finding ends `— in scope`, and a
+paused one ends `— put to the human: <question> → <answer>`, the
+answer being the human's fix or ignore.
 Then spawn `issue-fixer` with the standard spawn prompt, so a round
 spawns one fixer however its findings split. That round puts commits on
 the branch, so `code-documenter` and `style-checker` run again after
@@ -661,13 +667,17 @@ reports a finding the human already ruled ignore, its line carries that
 ruling again rather than `— in scope` or a new question, so an ignored
 finding is never fixed on your say-so.
 
+An issue-body ruling binds the same way: a finding it settled carries
+that ruling again whenever `style-checker` reports it.
+
 The loop exits when `style-checker` reports no findings, or when the
-human's rulings leave nothing to fix — every finding of the round
-ruled ignore — and then proceeds to the review with no brief posted.
+rulings leave nothing to fix — every finding of the round ruled ignore
+or settled by the issue body — and then proceeds to the review with no
+brief posted.
 
 The style-fix loop keeps its own count and has no cap. A style-fix
 round is one `issue-fixer` spawned from a style-findings brief; it does
-not count against the review-round cap. Track the number per PR and
+not count against `code-review-max-rounds`. Track the number per PR and
 report it in the Final Report summary.
 
 ### Run the review pipeline
@@ -725,8 +735,9 @@ You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
 the review is **posted** on the PR, so whether it says what the
-reviewer reported back is one `/github-prs:pr-view` away: verify before a cap
-escalation or a Final Report hand-off rests on it. An empty-delta round's
+reviewer reported back is one `/github-prs:pr-view` away: verify before
+an escalation at `code-review-max-rounds` or a Final Report hand-off
+rests on it. An empty-delta round's
 verdicts are carried forward from the previous round rather than
 freshly checked, and the reviewer says which kind of round it ran.
 
@@ -810,7 +821,7 @@ round's review.
 A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
 first such return, quoting the reviewer's line verbatim. A re-spawn to
-resume is **not a new round** against the review-round cap — count it
+resume is **not a new round** against `code-review-max-rounds` — count it
 in the round's report instead — and after two on one PR, raise it as a
 **Needs Your Attention** row rather than re-spawning again. A review
 the PR carries under an in-progress line is the human's to rule on —
@@ -822,16 +833,20 @@ it — and nothing spawns until they do.
 with the sentence that settles it** as your ruling, wherever you list
 that finding to the human.
 
-**If APPROVED with Low findings**: Put the Lows to the human before
-`pr-finalizer` is spawned, tagged by member and un-tiered, asking, for
-each Low, whether it is left as it is or filed as a follow-up issue. A
-"filed as a follow-up issue" answer travels to `pr-finalizer` as a
-scope note. Do not spawn the fixer — no loop runs for Lows alone.
+**A defect this PR's diff introduced is fixed in this PR.** Wherever
+you put one to the human — a finding of any severity, an out-of-scope
+observation, an escalation — your recommendation is the fix in this
+PR. Never recommend a follow-up issue or leaving the defect, and give
+neither the round count nor the size of the PR as a reason for any
+recommendation about it.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
 **If NEEDS_CHANGES (any open Critical/High/Medium finding, on any
-member)**:
+member), or APPROVED with an open Low**, run the steps below. A Low is
+a finding like any other: it goes into the fixer brief under the same
+scope ruling, a round runs for Lows alone, and no question about a Low
+as such goes to the human.
 
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
@@ -952,17 +967,19 @@ member)**:
    new round's delta; a round in which the pick missed a defect the
    human caught is a reason to ask the human for a
    `--generator-effort` override, per "Overriding the generator tier".
-6. Repeat this loop until APPROVED or until the review-round cap
-   (see "Your own boundary" below) is reached.
-7. If findings above Low persist when the cap is reached, escalate to
-   the human in the final report, listing each finding still open on
-   its own.
+6. Repeat this loop until a round is APPROVED with no findings or
+   until the code loop has run `code-review-max-rounds` rounds (see
+   "Your own boundary" below); under `unlimited`, until the first.
+7. If findings of any severity persist when `code-review-max-rounds`
+   is reached, escalate to the human in the final report, listing each
+   finding still open on its own, a Low included.
 
-**When every open Critical/High/Medium finding is ruled settled with
-no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
+**When every open finding is ruled settled with no fix**, steps 2 to 4
+do not run: no `issue-fixer` spawns on a brief
 with nothing to fix. Instead, post the round's review-adjustments
 comment and re-spawn the reviewer as step 5 says. That re-review
-posts a review, so it counts as a round against the cap.
+posts a review, so it counts as a round against
+`code-review-max-rounds`.
 
 **A closing-line correction goes to `pr-finalizer`, in either loop.**
 The reviewer reports its corrections, in every mode, in a section of
@@ -991,10 +1008,9 @@ file — in each round's report.
 ### The documentation loop
 
 The code loop reviews no documentation, so a second loop does: it runs
-on the human's end-of-loop confirmation of the code loop, per "Final
-Report", and again on a `documentation loop needed` return from
-`pr-merge-readiness`. It takes the code loop's round rules and its
-end-of-loop confirmation as they stand — the style-fix loop, the
+when the code loop ends, per "Final Report", and again on a
+`documentation loop needed` return from `pr-merge-readiness`. It takes
+the code loop's round rules as they stand — the style-fix loop, the
 reviewer spawn and its `Return:` line, the fix loop's decision points,
 the review adjustments — with these differences:
 
@@ -1013,11 +1029,14 @@ the review adjustments — with these differences:
   the issue, ruled as the code loop rules one.
 - **A closing-line correction gets no scope ruling**: it goes to
   `pr-finalizer`, per "Handling review findings — the fix loop".
-- **Its rounds count against a bound of their own.** Rounds of both
-  loops share one numbering per PR, so the reviewer's first
-  documentation round takes the number after the last code round, but
-  only documentation rounds count against the documentation loop's
-  bound, per "Your own boundary".
+- **Its rounds count against a cap of their own,
+  `docs-review-max-rounds`.** Rounds of both loops share one numbering
+  per PR, so the reviewer's first documentation round takes the number
+  after the last code round, but only documentation rounds count
+  against `docs-review-max-rounds`, per "Your own boundary". Where the
+  code loop's rules name `code-review-max-rounds`, this loop reads
+  `docs-review-max-rounds`.
+- **Its end has a key of its own**, per "Final Report".
 
 ### Posting the human's review adjustments as a PR comment
 
@@ -1137,23 +1156,35 @@ otherwise:
 
 ## Final Report
 
-### End-of-loop lifecycle transitions (per PR, on human confirmation)
+### End-of-loop lifecycle transitions (per PR)
 
 The code loop leaves each PR **draft** and every issue it closes
 **In Progress**, and so does the documentation loop that follows it; a
 documentation loop run on a `documentation loop needed` return leaves
-the PR's draft state and its issues' statuses as it found them. Each loop ends on
-the human's end-of-loop confirmation, per PR, that the loop is done and
-the PR is good enough to move forward:
+the PR's draft state and its issues' statuses as it found them. Each
+loop's end does what the resolved value of its key calls for, as
+`skills/lib/sdlc-config.md` defines that key: ask the human and wait,
+or start the next stage with no question. Read whether an end is clean
+off the PR's stored round state, never off the reviewer's report:
 
-- **The code loop's confirmation** starts the PR's documentation loop,
+```bash
+sdlc-agent-result-persist --mode summary \
+  --pr <PR_REF> --round <N>
+```
+
+with `<N>` the loop's last round, per "Reading a round's detail" —
+the verdict off the output's `## Verdicts` overall line, and the open
+findings off its `## Findings` section, which reads `none` when there
+are none.
+
+- **The code loop's end** starts the PR's documentation loop,
   per "The documentation loop", and nothing else. A batch with no code
-  to implement has no code loop, and so no such confirmation.
-- **The documentation loop's confirmation**, and only that, sends the
-  PR through the stages below, in this order. The confirmation
-  authorizes the ready flip and nothing past it: the merge stays the
-  human's, by hand or by the repo's auto-merge, and the monitor loop
-  only watches for it.
+  to implement has no code loop, and so no such end.
+- **The documentation loop's end**, and only that, sends the
+  PR through the stages below, in this order. That end authorizes the
+  ready flip and nothing past it:
+  the merge stays the human's, by hand or by the repo's auto-merge, and
+  the monitor loop only watches for it.
 
 1. **The pre-readiness spawn** — `agent-memory-scrubber`, with the
    brief the PR-lifecycle file carries. It puts a commit on the branch,
@@ -1177,8 +1208,8 @@ the PR is good enough to move forward:
      documentation edit or resolved a conflict in a documentation file,
      and spawned no `docs-writer`. Run the documentation loop, its
      writing brief carrying the entries the report relays, then step 1
-     again on its end-of-loop confirmation, then spawn
-     `pr-merge-readiness` again with no ruling.
+     again once it ends, then spawn `pr-merge-readiness` again with no
+     ruling.
 
    A ruling its report names as discarded — one the gate's report
    did not consume, or one the fixer's rebase did not need, whatever
@@ -1200,7 +1231,7 @@ the PR is good enough to move forward:
    PR's stages end at the ready flip, and the summary lists it as
    ready and unmonitored. Otherwise it polls until one of its outcomes:
 
-   - **Merged** — the PR's stages are done; start the next confirmed
+   - **Merged** — the PR's stages are done; start the next
      PR's, or the post-merge tail when this was the last.
    - **`BEHIND` or `DIRTY`** — spawn `pr-merge-readiness` again as in
      step 2, then `pr-monitor` again.
@@ -1215,8 +1246,9 @@ the PR is good enough to move forward:
      quoting the error verbatim and the state the last poll found, if
      any poll ran.
 
-**One PR goes through these stages at a time.** When the human confirms
-more than one PR, take them in the order confirmed, and start the next
+**One PR goes through these stages at a time.** When more than one
+PR's documentation loop has ended, take them in the order the loops
+ended, and start the next
 PR's stages — the pre-readiness spawn onward — only when the previous
 PR's monitor loop has ended, whether by a merge, a close, an error, or
 the human declining to keep waiting; under `merge-wait: skip`, when the previous
@@ -1250,7 +1282,7 @@ what you do and do not do yourself, and it keeps only what no agent
 definition, `CLAUDE.md` or global rules file already states.
 
 - **Never merge a PR.** The merge is the human's, after the ready flip
-  they confirm in the Final Report.
+  the documentation loop's end authorizes, per "Final Report".
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
   you never use `NotebookEdit`, and `Edit` and `Write` only on files
@@ -1278,18 +1310,20 @@ definition, `CLAUDE.md` or global rules file already states.
   is settled at the Discovery and Planning confirm step; once a branch
   carries commits and a PR, the only way a member leaves the batch is
   the developer's drop protocol (see "A dropped batch member").
-- **Max review rounds per PR: 5 per loop**, counted separately: 5
-  code-loop rounds, and 5 documentation-loop rounds, which no code-loop
-  round counts against. Escalate to the human after a loop reaches its
-  bound. A
-  round is one `theorem-based-pr-reviewer` spawn **that posted a
-  review**, however many children its fan-outs spawned and at whatever
-  generator tier. The `code-documenter` and `style-checker` passes are
-  not reviews, a style-fix round is counted by its own loop, and a
-  reviewer spawn that posted no review — an in-progress return, a
-  broken call, or no resolved issue set — is not a round; a spawn that
-  returned without a verdict block having posted a review anyway
-  counts, because the review is there.
+- **Max review rounds per PR: `code-review-max-rounds` for the code
+  loop and `docs-review-max-rounds` for the documentation loop**,
+  counted separately, so no code-loop round counts against the
+  documentation loop's cap. A loop whose key is `unlimited` has no cap
+  and runs until a review approves with no findings. Escalate to the
+  human after a loop reaches its cap. A round is one
+  `theorem-based-pr-reviewer` spawn **that posted a review**, however
+  many children its fan-outs spawned and at whatever generator tier.
+  The `code-documenter` and `style-checker` passes are not reviews, a
+  style-fix round is counted by its own loop, and a reviewer spawn that
+  posted no review — an in-progress return, a broken call, or no
+  resolved issue set — is not a round; a spawn that returned without a
+  verdict block having posted a review anyway counts, because the
+  review is there.
 
 What you do yourself is orchestration mechanics:
 

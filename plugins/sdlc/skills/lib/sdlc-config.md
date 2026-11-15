@@ -57,6 +57,10 @@ merge-poll-interval-seconds: 300
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
 | `merge-max-unchanged-polls` | positive integer | `15` |
 | `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
+| `code-review-max-rounds` | positive integer \| `unlimited` | `5` |
+| `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
+| `loop-end` | `ask` \| `auto-when-clean` | `ask` |
+| `docs-loop-end` | `ask` \| `auto-when-clean` | `ask` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
@@ -81,6 +85,30 @@ merge-poll-interval-seconds: 300
   matches `^reload-after-compact-token-budget: [0-9]+$` and its number
   is not below that floor. Every other budget line, a second one
   included, is outside its allowed values.
+- **`code-review-max-rounds`** — the most review rounds the code loop
+  runs per PR. `unlimited` runs the loop until a review approves with
+  no findings.
+  `unlimited` is the one string allowed beside a positive integer; any
+  other string is outside the allowed values, as `0`, a negative and a
+  float are.
+- **`docs-review-max-rounds`** — the most review rounds the
+  documentation loop runs per PR; no code-loop round counts against it.
+  Its values are `code-review-max-rounds`'s, applied to the
+  documentation loop.
+- **`loop-end`** — governs the code loop's end, before the
+  documentation loop starts, and has no effect on the documentation
+  loop's. `ask` waits for the human's confirmation, per PR, that the
+  loop is done and the PR is good enough to move forward.
+  `auto-when-clean` ends a clean loop with no question and starts the
+  next stage, because under that value the human confirmed every clean
+  end of the loop in advance. A loop's end is **clean** when its last
+  review round is APPROVED with no open finding of any severity. Every
+  other end still asks, under either value: a round at the loop's cap,
+  and a round the human's ruling ended.
+- **`docs-loop-end`** — governs the documentation loop's end, before
+  the merge stages and the ready flip, and has no effect on the code
+  loop's. Its values, and what a clean end is, are `loop-end`'s,
+  applied to the documentation loop.
 
 ## Reading
 
@@ -131,7 +159,8 @@ Each writer owns one tier's file and runs these steps against it.
    from, and the value the writer's own file sets now, if any. Offer
    every allowed value and **leave unchanged**. A positive-integer key
    takes a typed value, re-asked until it is within the key's allowed
-   values.
+   values; `code-review-max-rounds` and `docs-review-max-rounds` offer
+   `unlimited` beside it.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and

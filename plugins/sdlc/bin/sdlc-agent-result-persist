@@ -98,7 +98,7 @@ while [ "$#" -gt 0 ]; do
     --*) given_flags="$given_flags $flag" ;;
   esac
   case "$flag" in
-    --mode|--pr|--round|--head-sha|--round-type|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms|--from|--edits|--deadline-minutes|--issues)
+    --mode | --pr | --round | --head-sha | --round-type | --theorem | --stage | --agent | --model | --effort | --agent-id | --tokens | --tools | --ms | --from | --edits | --deadline-minutes | --issues)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -118,7 +118,7 @@ while [ "$#" -gt 0 ]; do
       shift
       continue
       ;;
-    -h|--help)
+    -h | --help)
       usage
       exit 0
       ;;
@@ -133,33 +133,33 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
   case "$flag" in
-    --mode)       mode=$value ;;
-    --pr)         pr_ref=$value ;;
-    --round)      round=$value ;;
-    --head-sha)   head_sha=$value ;;
+    --mode) mode=$value ;;
+    --pr) pr_ref=$value ;;
+    --round) round=$value ;;
+    --head-sha) head_sha=$value ;;
     --round-type) round_type=$value ;;
-    --theorem)    theorem=$value ;;
-    --stage)      stage=$value ;;
-    --agent)      agent=$value ;;
-    --model)      model=$value ;;
-    --effort)     effort=$value ;;
-    --agent-id)   agent_id=$value ;;
-    --tokens)     tokens=$value ;;
-    --tools)      tools=$value ;;
-    --ms)         ms=$value ;;
-    --from)       from=$value ;;
-    --edits)      edits=$value ;;
+    --theorem) theorem=$value ;;
+    --stage) stage=$value ;;
+    --agent) agent=$value ;;
+    --model) model=$value ;;
+    --effort) effort=$value ;;
+    --agent-id) agent_id=$value ;;
+    --tokens) tokens=$value ;;
+    --tools) tools=$value ;;
+    --ms) ms=$value ;;
+    --from) from=$value ;;
+    --edits) edits=$value ;;
     --deadline-minutes) deadline_minutes=$value ;;
-    --issues)     issues=$value ;;
+    --issues) issues=$value ;;
   esac
 done
 
 case "$mode" in
-  anchor|spawn|enter|leave|return|stopped|print|print-in-flight|wait) ;;
-  records|review|print-records|print-round-records|print-review|print-root) ;;
-  agent|print-agents|rounds|list|delete|repos|next|dispose|summary) ;;
+  anchor | spawn | enter | leave | return | stopped | print | print-in-flight | wait) ;;
+  records | review | print-records | print-round-records | print-review | print-root) ;;
+  agent | print-agents | rounds | list | delete | repos | next | dispose | summary) ;;
   '') die "--mode is required" ;;
-  *)  die "unknown --mode: $mode" ;;
+  *) die "unknown --mode: $mode" ;;
 esac
 
 # repos reads across every repository the state root holds, so it takes
@@ -191,7 +191,7 @@ is_old_layout() {
   done
   for found in "$1"/pr*; do
     case "${found##*/}" in
-      pr|pr*[!0-9]*) continue ;;
+      pr | pr*[!0-9]*) continue ;;
     esac
     [ -d "$found" ] && return 0
   done
@@ -203,7 +203,7 @@ is_old_layout() {
 # on a child that never leaves, and --loop-exited dispose's.
 if [ -n "$full" ]; then
   case "$mode" in
-    next|dispose) ;;
+    next | dispose) ;;
     *) die "--full is not accepted in --mode $mode" ;;
   esac
 fi
@@ -212,7 +212,7 @@ if [ "$mode" = wait ] && [ -z "$deadline_minutes" ]; then
 fi
 if [ -n "$deadline_minutes" ]; then
   case "$mode" in
-    next|wait) ;;
+    next | wait) ;;
     *) die "--deadline-minutes is not accepted in --mode $mode: $deadline_minutes" ;;
   esac
   case "$deadline_minutes" in
@@ -242,7 +242,7 @@ fi
 # outside the state root that every mode reads, writes or deletes under.
 split_repo() {
   case "$1" in
-    */*/*/*|*//*|/*|*/) die "$2" ;;
+    */*/*/* | *//* | /* | */) die "$2" ;;
     ?*/?*/?*) ;;
     *) die "$2" ;;
   esac
@@ -253,8 +253,9 @@ split_repo() {
   repo=${1##*/}
   for given in "$host" "$owner" "$repo"; do
     case "$given" in
-      *[!A-Za-z0-9._-]*|.|..)
-        die "a repository's segments may hold only letters, digits, ., _ and -, and none may be . or ..: $repo_ref" ;;
+      *[!A-Za-z0-9._-]* | . | ..)
+        die "a repository's segments may hold only letters, digits, ., _ and -, and none may be . or ..: $repo_ref"
+        ;;
     esac
   done
 }
@@ -263,8 +264,8 @@ split_repo() {
 # gh reports for the checkout, whose remote names the host. Dies when gh
 # cannot resolve it.
 current_repo() {
-  url=$(gh repo view --json url --jq .url || exit) \
-    || die "cannot resolve the current repository with gh repo view"
+  url=$(gh repo view --json url --jq .url || exit) ||
+    die "cannot resolve the current repository with gh repo view"
   url=${url#https://}
   printf '%s\n' "${url%/}"
 }
@@ -283,7 +284,7 @@ if [ "$mode" = list ]; then
       given=${operand#https://}
       given=${given%/}
       ;;
-    *://*|-*) die "$bad_operand" ;;
+    *://* | -*) die "$bad_operand" ;;
     */*/*) given=$operand ;;
     */*)
       [ -n "${operand%%/*}" ] || die "$bad_operand"
@@ -306,7 +307,7 @@ elif [ "$mode" != repos ]; then
   esac
   pr=${pr_ref##*'#'}
   case "$pr" in
-    ''|*[!0-9]*) die "$bad_pr" ;;
+    '' | *[!0-9]*) die "$bad_pr" ;;
   esac
   split_repo "${pr_ref%'#'*}" "$bad_pr"
 fi
@@ -319,7 +320,7 @@ fi
 # touch. print-records selects the round itself, so a --round given to
 # it bounds that selection from above rather than naming the round.
 case "$mode" in
-  delete|list|print-root|agent|print-agents|rounds|repos)
+  delete | list | print-root | agent | print-agents | rounds | repos)
     [ -z "$round" ] || die "--round is not accepted in --mode $mode: $round"
     ;;
   print-records)
@@ -342,7 +343,7 @@ single_token() {
 }
 
 case "$mode" in
-  spawn|enter|leave|return|stopped)
+  spawn | enter | leave | return | stopped)
     [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
     single_token theorem "$theorem"
     # A result file is named <theorem>-<agent> and --mode print splits
@@ -354,10 +355,10 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  spawn|enter|leave|return|stopped|print-in-flight|wait)
+  spawn | enter | leave | return | stopped | print-in-flight | wait)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
-      generate|disprove|verify) ;;
+      generate | disprove | verify) ;;
       *) die "--stage must be generate, disprove or verify: $stage" ;;
     esac
     ;;
@@ -367,7 +368,7 @@ esac
 # it is half the result file's name, which is what print-in-flight
 # looks for.
 case "$mode" in
-  spawn|leave|print-in-flight|agent)
+  spawn | leave | print-in-flight | agent)
     [ -n "$agent" ] || die "--agent is required in --mode $mode"
     single_token agent "$agent"
     ;;
@@ -390,7 +391,7 @@ fi
 # included. An agent record names the spawned agent's worktree,
 # agent-<agent-id>, which is what the cleanup removes.
 case "$mode" in
-  return|stopped|agent)
+  return | stopped | agent)
     [ -n "$agent_id" ] || die "--agent-id is required in --mode $mode"
     single_token agent-id "$agent_id"
     ;;
@@ -419,7 +420,7 @@ if [ -n "$round_type" ]; then
     *) die "--round-type is not accepted in --mode $mode: $round_type" ;;
   esac
   case "$round_type" in
-    code-and-instruction-markdown|documentation) ;;
+    code-and-instruction-markdown | documentation) ;;
     *) die "--round-type must be code-and-instruction-markdown or documentation: $round_type" ;;
   esac
 fi
@@ -430,7 +431,7 @@ fi
 # file the caller expected to be read.
 if [ -n "$from" ]; then
   case "$mode" in
-    leave|records|review|next|dispose) ;;
+    leave | records | review | next | dispose) ;;
     *) die "--from is not accepted in --mode $mode: $from" ;;
   esac
   [ -f "$from" ] || die "--from names no file: $from"
@@ -444,7 +445,7 @@ if [ -n "$carry" ] && [ "$mode" != records ]; then
 fi
 if [ -n "$edits" ]; then
   case "$mode" in
-    next|dispose) ;;
+    next | dispose) ;;
     *) [ -n "$carry" ] || die "--edits is accepted only with --carry, or in --mode next or dispose: $edits" ;;
   esac
   [ -f "$edits" ] || die "--edits names no file: $edits"
@@ -454,8 +455,8 @@ fi
 # not a record tags it: the members separated by spaces or commas, each
 # with or without its leading #.
 if [ "$mode" = dispose ]; then
-  issue_list=$(printf '%s\n' "$issues" \
-    | awk '{ gsub(/,/, " "); for (i = 1; i <= NF; i++) { s = $i; sub(/^#/, "", s); printf "%s ", s } }')
+  issue_list=$(printf '%s\n' "$issues" |
+    awk '{ gsub(/,/, " "); for (i = 1; i <= NF; i++) { s = $i; sub(/^#/, "", s); printf "%s ", s } }')
   [ -n "$issue_list" ] || die "--issues is required in --mode dispose"
   case "$issue_list" in
     *[!A-Za-z0-9._\ -]*) die "--issues must name each issue as N or #N: $issues" ;;
@@ -526,7 +527,7 @@ now() {
 write_repo_yml() {
   [ -e "$repo_dir/repo.yml" ] && return 0
   printf 'schema-version: 1\nhost: %s\nowner: %s\nrepo: %s\n' "$host" "$owner" "$repo" \
-    > "$repo_dir/repo.yml.partial-$$"
+    >"$repo_dir/repo.yml.partial-$$"
   mv -- "$repo_dir/repo.yml.partial-$$" "$repo_dir/repo.yml"
 }
 
@@ -537,8 +538,8 @@ write_repo_yml() {
 migrate_old_layout() {
   old="$state_root/$owner/$repo"
   is_old_layout "$old" || return 0
-  [ ! -e "$repo_dir" ] \
-    || die "state for $repo_ref is at both $old and $repo_dir; move one aside before running again"
+  [ ! -e "$repo_dir" ] ||
+    die "state for $repo_ref is at both $old and $repo_dir; move one aside before running again"
   mkdir -p -- "${repo_dir%/*}"
   if ! mv -- "$old" "$repo_dir"; then
     # A failed move leaves no empty <host> or <host>/<owner> directory
@@ -565,7 +566,10 @@ this_agent_id() {
 # the common git dir rather than from $PWD. Any part of that being
 # unavailable yields a dash: the record is worth more than the path.
 transcript_path() {
-  common=$(git rev-parse --git-common-dir 2>/dev/null || exit) || { printf -- '-\n'; return; }
+  common=$(git rev-parse --git-common-dir 2>/dev/null || exit) || {
+    printf -- '-\n'
+    return
+  }
   case "$common" in
     /*) ;;
     *) common=$PWD/$common ;;
@@ -592,10 +596,10 @@ make_work() {
 # when one is named and from stdin otherwise, to <dest>.
 read_payload() {
   if [ -n "$from" ]; then
-    cat -- "$from" > "$1" \
-      || die "--mode $mode takes the $2 from --from, and $from could not be read"
+    cat -- "$from" >"$1" ||
+      die "--mode $mode takes the $2 from --from, and $from could not be read"
   else
-    cat > "$1"
+    cat >"$1"
   fi
 }
 
@@ -617,22 +621,16 @@ install_whole() {
   mv -- "$staged" "$2"
 }
 
-# store_payload <target> <noun>: stores the payload whole at <target>,
-# refusing an empty one.
-store_payload() {
-  make_work
-  read_payload "$work/payload" "$2"
-  if [ ! -s "$work/payload" ]; then
-    if [ -n "$from" ]; then
-      die "--mode $mode takes the $2 from --from, and $from is empty"
-    fi
-    die "--mode $mode takes the $2 on stdin, and nothing arrived"
+# refuse_empty_payload <file> <noun>: refuses the payload read into
+# <file> when it is empty. A review or a report with nothing in it is a
+# broken call; the records are not, since a round whose generator
+# emitted no theorems has none.
+refuse_empty_payload() {
+  [ -s "$1" ] && return 0
+  if [ -n "$from" ]; then
+    die "--mode $mode takes the $2 from --from, and $from is empty"
   fi
-  if [ "$mode" = leave ]; then
-    check_report_theorem "$work/payload"
-    check_report_ids "$work/payload"
-  fi
-  install_whole "$work/payload" "$1"
+  die "--mode $mode takes the $2 on stdin, and nothing arrived"
 }
 
 # A disprover's or verifier's report names the theorem it answers on its
@@ -643,7 +641,7 @@ store_payload() {
 # generator's report is a theorem list and carries no such line.
 check_report_theorem() {
   case "$stage" in
-    disprove|verify) ;;
+    disprove | verify) ;;
     *) return 0 ;;
   esac
   answered=$(awk '/^THEOREM:/ {
@@ -755,7 +753,7 @@ latest_records_round() {
     esac
     n=${base#round}
     case "$n" in
-      ''|*[!0-9]*) continue ;;
+      '' | *[!0-9]*) continue ;;
     esac
     [ -f "$candidate/records" ] || continue
     if [ -n "${1-}" ] && [ "$n" -ge "$1" ]; then
@@ -785,8 +783,8 @@ latest_records_round() {
 # hold is no longer the latest state.
 records_below_round() {
   latest_records_round "$round" "$(round_type_of "$dir")"
-  [ -z "$above_round" ] \
-    || die "--mode $mode${carry:+ --carry} --round $round refused: round $above_round, above it, holds a records file"
+  [ -z "$above_round" ] ||
+    die "--mode $mode${carry:+ --carry} --round $round refused: round $above_round, above it, holds a records file"
 }
 
 # The carry form: the carried records with the edits applied, then the
@@ -804,7 +802,7 @@ records_below_round() {
 # before its states are stamped.
 build_carried_records() {
   awk -v prog="$PROGRAM" -v round="$round" -v floor="$4" -v unstamped_ok="${5-}" \
-      -v carried_file="$1" -v edits_file="$2" -v new_file="$3" "$new_id_rule"'
+    -v carried_file="$1" -v edits_file="$2" -v new_file="$3" "$new_id_rule"'
     function refuse(msg) {
       printf "%s: %s\n", prog, msg | "cat 1>&2"
       failed = 1
@@ -907,7 +905,7 @@ list_results() {
     [ -e "$found" ] || continue
     rest=${found##*/}
     case "$rest" in
-      log|records|review|*.partial-*) continue ;;
+      log | records | review | *.partial-*) continue ;;
     esac
     printf '%s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
   done
@@ -922,7 +920,7 @@ load_round_records() {
   carried_file=/dev/null
   [ -z "$best" ] || carried_file=$best/records
   build_carried_records "$carried_file" "${edits:-/dev/null}" "${from:-/dev/null}" "$id_floor" unstamped \
-    > "$work/records" || exit 2
+    >"$work/records" || exit 2
 }
 
 # The in-flight derivation print-in-flight, next and wait share, as awk
@@ -1086,12 +1084,12 @@ AWK
 derive() {
   prog=$1
   shift
-  list_results "$dir" > "$work/results"
+  list_results "$dir" >"$work/results"
   log_in=/dev/null
   [ ! -e "$file" ] || log_in=$file
   awk -v prog="$PROGRAM" -v full="$full" -v records_file="$work/records" \
-      -v edits_file="${edits:-/dev/null}" -v log_file="$log_in" -v results_file="$work/results" \
-      "$@" "$(derive_lib)$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
+    -v edits_file="${edits:-/dev/null}" -v log_file="$log_in" -v results_file="$work/results" \
+    "$@" "$(derive_lib)$prog" "$work/records" "${edits:-/dev/null}" "$log_in" "$work/results"
 }
 
 # epoch(ts), as awk source next and wait load: the seconds since 1970 of
@@ -1472,8 +1470,8 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print|print-in-flight|wait|print-records|print-round-records|print-review|print-root|print-agents|rounds|list|delete) ;;
-  next|dispose|summary) ;;
+  print | print-in-flight | wait | print-records | print-round-records | print-review | print-root | print-agents | rounds | list | delete) ;;
+  next | dispose | summary) ;;
   records) [ -n "$carry" ] || make_dir ;;
   agent)
     mkdir -p "$pr_dir"
@@ -1493,7 +1491,7 @@ case "$mode" in
       old_head=$(awk '$1=="anchor"{print $3; exit}' "$file")
     fi
     if [ -z "$old_head" ]; then
-      printf 'anchor %s %s %s\n' "$(now)" "$head_sha" "$round_type" >> "$file"
+      printf 'anchor %s %s %s\n' "$(now)" "$head_sha" "$round_type" >>"$file"
     elif [ "$old_head" != "$head_sha" ]; then
       # A different head means the records describe a tree that no
       # longer exists, so they answer for nothing the new round will ask
@@ -1506,7 +1504,7 @@ case "$mode" in
       stamp=$(date -u +%Y%m%dT%H%M%SZ)
       mv -- "$dir" "$dir.voided-$stamp"
       mkdir -p "$dir"
-      printf 'anchor %s %s %s\n' "$(now)" "$head_sha" "$round_type" > "$file"
+      printf 'anchor %s %s %s\n' "$(now)" "$head_sha" "$round_type" >"$file"
     elif [ "$(round_type_of "$dir")" != "$round_type" ]; then
       # The same head under another type is not this round: its records
       # answer the other loop's questions, and voiding them would discard
@@ -1518,32 +1516,37 @@ case "$mode" in
     ;;
   spawn)
     printf 'spawn %s %s %s %s %s %s\n' \
-      "$theorem" "$stage" "$(now)" "$agent" "$model" "$effort" >> "$file"
+      "$theorem" "$stage" "$(now)" "$agent" "$model" "$effort" >>"$file"
     ;;
   enter)
     printf 'enter %s %s %s %s %s\n' \
-      "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$(transcript_path)" >> "$file"
+      "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$(transcript_path)" >>"$file"
     ;;
   leave)
     # The report is written before the record that names it, so a run
     # that dies between the two leaves the report readable rather than a
     # record pointing at nothing.
-    store_payload "$result_file" report
+    make_work
+    read_payload "$work/payload" report
+    refuse_empty_payload "$work/payload" report
+    check_report_theorem "$work/payload"
+    check_report_ids "$work/payload"
+    install_whole "$work/payload" "$result_file"
     printf 'leave %s %s %s %s %s\n' \
-      "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
+      "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >>"$file"
     # The path is printed only once both writes landed, so a child that
     # opens its hand-back with it is reporting a leave that happened.
     printf '%s\n' "$result_file"
     ;;
   return)
     printf 'return %s %s %s %s tokens=%s tools=%s ms=%s\n' \
-      "$theorem" "$stage" "$(now)" "$agent_id" "$tokens" "$tools" "$ms" >> "$file"
+      "$theorem" "$stage" "$(now)" "$agent_id" "$tokens" "$tools" "$ms" >>"$file"
     ;;
   stopped)
-    printf 'stopped %s %s %s %s\n' "$theorem" "$stage" "$(now)" "$agent_id" >> "$file"
+    printf 'stopped %s %s %s %s\n' "$theorem" "$stage" "$(now)" "$agent_id" >>"$file"
     ;;
   agent)
-    printf 'agent %s %s %s\n' "$(now)" "$agent" "$agent_id" >> "$agents_file"
+    printf 'agent %s %s %s\n' "$(now)" "$agent" "$agent_id" >>"$agents_file"
     ;;
   print-agents)
     # Every agent the PR's state names: the spawns recorded in its agents
@@ -1565,7 +1568,7 @@ case "$mode" in
       n=${found%/log}
       n=${n##*/round}
       case "$n" in
-        ''|*[!0-9]*|0) continue ;;
+        '' | *[!0-9]* | 0) continue ;;
       esac
       printf '%s\n' "$n"
     done | sort -n
@@ -1629,29 +1632,37 @@ case "$mode" in
     ;;
   records)
     if [ -z "$carry" ]; then
-      store_payload "$records_file" records
+      # An empty payload is stored as it stands, so a round of a type no
+      # earlier round holds records for, whose generator emitted no
+      # theorems, still leaves a records file a later round of its type
+      # carries forward.
+      make_work
+      read_payload "$work/payload" records
+      install_whole "$work/payload" "$records_file"
     else
       # The carried round is the one below --round, so a resumed reviewer
       # whose earlier instance already stored this round's records
       # rebuilds them from the same input rather than from its own
       # output.
       records_below_round
-      [ -n "$best" ] \
-        || die "--carry found no round below --round $round under $pr_dir holding a records file of type $(round_type_of "$dir")"
-      # The new records may be empty, so the payload is read rather than
-      # stored through store_payload, which refuses an empty one. The
-      # result is built beside it and installed into the round's
-      # directory only once nothing refused it.
+      [ -n "$best" ] ||
+        die "--carry found no round below --round $round under $pr_dir holding a records file of type $(round_type_of "$dir")"
+      # The new records may be empty. The result is built beside them
+      # and installed into the round's directory only once nothing
+      # refused it.
       make_work
       read_payload "$work/new" "new records"
-      build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" "$id_floor" > "$work/records" \
-        || exit 2
+      build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" "$id_floor" >"$work/records" ||
+        exit 2
       make_dir
       install_whole "$work/records" "$records_file"
     fi
     ;;
   review)
-    store_payload "$review_file" review
+    make_work
+    read_payload "$work/payload" review
+    refuse_empty_payload "$work/payload" review
+    install_whole "$work/payload" "$review_file"
     ;;
   print-records)
     # The caller does not name the round to read, and which round wrote
@@ -1664,8 +1675,8 @@ case "$mode" in
     # narrows the selection to the rounds of that type.
     if [ -n "$round" ]; then
       records_below_round
-      [ -n "$best" ] \
-        || die "no round below --round $round under $pr_dir holds a records file of type $(round_type_of "$dir")"
+      [ -n "$best" ] ||
+        die "no round below --round $round under $pr_dir holds a records file of type $(round_type_of "$dir")"
     else
       latest_records_round "" "$round_type"
       [ -n "$best" ] || die "no round under $pr_dir holds a records file${round_type:+ of type $round_type}"
@@ -1696,7 +1707,7 @@ case "$mode" in
       [ -d "$found" ] || continue
       n=${found##*/pr}
       case "$n" in
-        ''|*[!0-9]*) continue ;;
+        '' | *[!0-9]*) continue ;;
       esac
       printf '%s\n' "$n"
     done | sort -n | while IFS= read -r n; do
@@ -1716,15 +1727,15 @@ case "$mode" in
     fi
     make_work
     load_round_records
-    derive "$next_prog" -v head="$head_sha" -v deadline="$deadline_minutes" -v now="$(date -u +%s)" \
-      || exit 2
+    derive "$next_prog" -v head="$head_sha" -v deadline="$deadline_minutes" -v now="$(date -u +%s)" ||
+      exit 2
     ;;
   dispose)
     make_work
     load_round_records
     status=0
-    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" -v members="$issue_list" \
-      || status=$?
+    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" -v members="$issue_list" ||
+      status=$?
     # 3 is a theorem with no result file for its stage, named on stderr;
     # any other failure is a refusal.
     case "$status" in
@@ -1744,17 +1755,17 @@ case "$mode" in
       [ -d "$candidate" ] || continue
       n=${candidate##*/round}
       case "$n" in
-        ''|*[!0-9]*) continue ;;
+        '' | *[!0-9]*) continue ;;
       esac
       [ "$n" -le "$round" ] || continue
       list_results "$candidate" | while read -r t _ found; do
         printf '%s %s %s\n' "$n" "$t" "${found##*/}"
       done
-    done > "$work/results"
+    done >"$work/results"
     awk -v prog="$PROGRAM" -v round="$round" -v review_file="$review_file" \
-        -v records_file="$records_file" -v prev_file="$prev_file" -v results_file="$work/results" \
-        -v root="$state_root_form/$host/$owner/$repo/pr$pr/" -v marker="$(sp_review_round_marker "$round")" \
-        "$(summary_prog)" "$review_file" "$records_file" "$prev_file" "$work/results" \
-      || exit 2
+      -v records_file="$records_file" -v prev_file="$prev_file" -v results_file="$work/results" \
+      -v root="$state_root_form/$host/$owner/$repo/pr$pr/" -v marker="$(sp_review_round_marker "$round")" \
+      "$(summary_prog)" "$review_file" "$records_file" "$prev_file" "$work/results" ||
+      exit 2
     ;;
 esac
