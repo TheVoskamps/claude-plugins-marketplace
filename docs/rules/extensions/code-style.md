@@ -10,7 +10,8 @@ Every Code file the diff touches passes the linter named here for its
 format, each run as the binary on `PATH`:
 
 - Shell script — `shellcheck`, `bash -n` for syntax, and `shfmt` for
-  formatting.
+  formatting, given no formatting flag so that it takes its options from
+  the repo-root `.editorconfig`.
 - Go — `golangci-lint run` to check and `golangci-lint fmt` to rewrite
   files with the formatters, run from the Go module's directory under
   the repo-root `.golangci.yml`. `gosec`, `gofmt` and `goimports` run
