@@ -95,9 +95,12 @@ merge-poll-interval-seconds: 300
   Its values are `code-review-max-rounds`'s, and `unlimited` runs the
   loop until the review approves.
 - **`loop-end`** — governs the code loop's end, before the
-  documentation loop starts.
+  documentation loop starts. `ask` waits for the human's confirmation
+  that the loop is done. `auto-when-clean` ends a clean loop without
+  asking.
 - **`docs-loop-end`** — governs the documentation loop's end, before
-  the merge stages and the ready flip.
+  the merge stages and the ready flip. Its values are `loop-end`'s,
+  applied to the documentation loop.
 
 ## Reading
 
