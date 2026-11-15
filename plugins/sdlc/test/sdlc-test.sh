@@ -5,7 +5,8 @@
 # round-0 seed write, the carry form that builds a later round's records
 # file from the carried round, an edits file and the new records, each
 # refusal the carry form makes, the empty payload the plain form stores
-# and review and leave refuse, print-records with and without a --round
+# and review and leave refuse, the plain form's refusal of a --from it
+# cannot read, print-records with and without a --round
 # bound, the path leave prints and its refusal of one carrying
 # whitespace, stopped's --agent-id and
 # print-in-flight's matching of a stopped to its child, the agent
