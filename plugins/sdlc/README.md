@@ -1308,11 +1308,10 @@ diagnose a round. That reasoning missed the other reader: review state
 is what `/sdlc:orchestrate-analysis` builds a run's time report from,
 and a merged PR's run is as much that report's subject as any other,
 so every merge and every `--all` sweep destroyed the evidence the
-report needed. The
-post-merge tail never passes the flag, so a merged PR's review state
-survives the run, and deleting it is a decision only the human makes.
-Without the flag the script neither lists nor deletes review state and
-prints no line for it, a dry run included.
+report needed. The post-merge tail never passes the flag, so a merged
+PR's review state survives the run, and deleting it is a decision only
+the human makes. Without the flag the script neither lists nor deletes
+review state and prints no line for it, a dry run included.
 
 The script replaces two step lists the model re-derived on every run,
 which graded each item against a gate and asked the human to pick from
@@ -1663,10 +1662,10 @@ these files and from nothing else, since the reviewer holds no state
 across a turn, and a finished run's time report is reconstructed from
 them after every worktree that produced them is gone. The one `sdlc`
 surface that deletes state is the script's `--mode delete`, which
-removes a whole `pr<N>/`, and its only caller is
-`sdlc-orchestrate-cleanup --review-state`, which only the human runs:
-the cleanup `/sdlc:orchestrate` runs for a merged PR passes no such
-flag, and review state is kept unless it is passed. So a `pr<N>/`
+removes a whole `pr<N>/`, and the only call of it that deletes is
+`sdlc-orchestrate-cleanup --review-state`'s, which only the human
+runs: the cleanup `/sdlc:orchestrate` runs for a merged PR passes no
+such flag, and review state is kept unless it is passed. So a `pr<N>/`
 outlives every round of its PR and the PR's merge, and goes only when
 the human decides its evidence is no longer wanted.
 
