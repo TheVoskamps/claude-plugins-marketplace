@@ -239,9 +239,9 @@ host from `--pr` or from `list`'s repository, and writes its
 `repo.yml`; no mode reads the old path afterwards. A run that finds
 state at both paths refuses, non-zero, naming both, and moves nothing.
 
-**Nothing here is deleted but by `--mode delete`, and that mode is
-called only by `sdlc-orchestrate-cleanup --review-state`, which only the
-human runs.** A round's files are the evidence a stalled or voided round
+**Nothing here is deleted but by `--mode delete`, and the only call of
+it that deletes is `sdlc-orchestrate-cleanup --review-state`'s, which
+only the human runs.** A round's files are the evidence a stalled or voided round
 is diagnosed from, and that `/sdlc:orchestrate-analysis` reads, so no
 mode that runs during a review removes one, and none ever expires: a
 PR's directory stays until the human deletes it.
