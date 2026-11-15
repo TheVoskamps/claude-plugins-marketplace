@@ -17,33 +17,37 @@
 # whichever of its worktrees the script runs in. Runs under the bash 3.2
 # macOS ships.
 #
-# Usage: sdlc-orchestrate-cleanup --pr <PR> [--dry-run]
-#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--dry-run]
+# Usage: sdlc-orchestrate-cleanup --pr <PR> [--review-state] [--dry-run]
+#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--review-state] [--dry-run]
 #
 #   --pr <PR>           the pull request, in any form pr-view accepts. It
 #                       must be merged or closed, and in this checkout's
-#                       repository. Removes its review state; every
-#                       worktree under .claude/worktrees/, nested ones
-#                       included, named agent-<id> for an agent id its
-#                       state names, and each such agent's local
-#                       worktree-agent-<id> branch; its local head
-#                       branch, and every worktree under
-#                       .claude/worktrees/ holding a branch it deletes;
-#                       and every top-level .claude/tmp/ entry
-#                       named `<anything>-<N>` for an issue <N> its body
-#                       closes.
-#   --all               the whole repository: its review state, every
-#                       worktree under .claude/worktrees/, every local
-#                       branch but the default branch, every top-level
-#                       .claude/tmp/ entry, and every per-session
-#                       scratchpad beside --scratchpad's.
+#                       repository. Removes every worktree under
+#                       .claude/worktrees/, nested ones included, named
+#                       agent-<id> for an agent id its state names, and
+#                       each such agent's local worktree-agent-<id>
+#                       branch; its local head branch, and every
+#                       worktree under .claude/worktrees/ holding a
+#                       branch it deletes; and every top-level
+#                       .claude/tmp/ entry named `<anything>-<N>` for an
+#                       issue <N> its body closes.
+#   --all               the whole repository: every worktree under
+#                       .claude/worktrees/, every local branch but the
+#                       default branch, every top-level .claude/tmp/
+#                       entry, and every per-session scratchpad beside
+#                       --scratchpad's.
 #   --scratchpad <path> this session's scratchpad, whose last component
 #                       is `scratchpad`; the directory two levels above
 #                       it holds one <session-id>/scratchpad/ per
 #                       session. It is kept.
+#   --review-state      also delete review state: the PR's under --pr,
+#                       every PR's in the repository under --all. Without
+#                       it review state is kept, and neither listed nor
+#                       deleted; --pr still reads the agent ids the PR's
+#                       state names.
 #   --dry-run           print what a real run would act on, and act on
 #                       nothing; the `sdlc-agent-result-persist` calls
-#                       that find the review state still move old-layout
+#                       that read the review state still move old-layout
 #                       state into place, as every call of that CLI does
 #
 # Stdout is one line per item, `<action> <category> <item>`, the action
@@ -85,7 +89,7 @@ fail() {
   exit "$1"
 }
 
-usage="usage: $PROGRAM --pr <PR> [--dry-run] | --all --scratchpad <path> [--dry-run]"
+usage="usage: $PROGRAM --pr <PR> [--review-state] [--dry-run] | --all --scratchpad <path> [--review-state] [--dry-run]"
 
 # usage_error <message> -- print <message> and the synopsis, and exit 2.
 usage_error() {
@@ -108,6 +112,7 @@ pr=
 all=
 scratchpad=
 dry=
+review_state=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pr | --scratchpad)
@@ -125,6 +130,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dry-run)
       dry=yes
+      shift
+      ;;
+    --review-state)
+      review_state=yes
       shift
       ;;
     *) usage_error "\`$1\` is not an argument $PROGRAM takes." ;;
@@ -259,8 +268,9 @@ EOF
   case "$closing" in
     *' closes issues '*) issues=${closing##* closes issues } && issues=${issues//,/} ;;
   esac
-  # Read before the review state is deleted, which takes the records
-  # naming the agents with it.
+  # Read with or without --review-state, and before --review-state
+  # deletes the review state, which takes the records naming the agents
+  # with it.
   agents=$(sdlc-agent-result-persist --mode print-agents --pr "$ref" || exit) ||
     fail 1 "sdlc-agent-result-persist --mode print-agents --pr $ref failed"
   agents=$'\n'$agents$'\n'
@@ -285,20 +295,22 @@ deletes_branch() {
 }
 
 # --- review state ------------------------------------------------------
-if [ -n "$pr" ]; then
-  listed=$(sdlc-agent-result-persist --mode list "${ref%'#'*}" || exit) ||
-    fail 1 "sdlc-agent-result-persist --mode list ${ref%'#'*} failed"
-else
-  listed=$(sdlc-agent-result-persist --mode list || exit) ||
-    fail 1 "sdlc-agent-result-persist --mode list failed"
-fi
-while IFS= read -r item; do
-  [ -n "$item" ] || continue
-  [ -z "$pr" ] || [ "$item" = "$ref" ] || continue
-  act delete review-state "$item" sdlc-agent-result-persist --mode delete --pr "$item"
-done <<EOF
+if [ -n "$review_state" ]; then
+  if [ -n "$pr" ]; then
+    listed=$(sdlc-agent-result-persist --mode list "${ref%'#'*}" || exit) ||
+      fail 1 "sdlc-agent-result-persist --mode list ${ref%'#'*} failed"
+  else
+    listed=$(sdlc-agent-result-persist --mode list || exit) ||
+      fail 1 "sdlc-agent-result-persist --mode list failed"
+  fi
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    [ -z "$pr" ] || [ "$item" = "$ref" ] || continue
+    act delete review-state "$item" sdlc-agent-result-persist --mode delete --pr "$item"
+  done <<EOF
 $listed
 EOF
+fi
 
 # --- worktrees ---------------------------------------------------------
 while IFS=$SEP read -r path head branch locked; do

@@ -5,9 +5,10 @@ implemented without stopping to ask, plan and delegate the
 implementation of one or more issues across parallel teammate agents,
 review the resulting PRs through a theorem-based pipeline, hand the
 human a set of PRs to bless, watch each blessed PR until it merges,
-and remove what each merged PR left behind — its review state, the
-worktrees its agents ran in, its local branch and its scratch — or,
-when the human asks, everything every run left in the repo.
+and remove what each merged PR left behind — the worktrees its agents
+ran in, its local branch and its scratch — or, when the human asks,
+everything every run left in the repo. Review state is kept through
+both, and deleted only when the human passes `--review-state`.
 
 ## Find the owner of a statement before you edit it
 
@@ -419,9 +420,10 @@ applying it twice.
 ## A detail chain names its rounds, so a later close-out adds to it
 
 The review detail has to reach the PR in full, because the PR is the
-one place it survives: the state it is assembled from is local to one
-machine, and the cleanup deletes it once the PR is merged or closed.
-Each of these used to keep part of it off the PR.
+one place every reader can reach it: the state it is assembled from is
+local to one machine, and gone from there once the human runs the
+cleanup with `--review-state`. Each of these used to keep part of it
+off the PR.
 
 **A round run after a close-out.** A chain's marker once carried only
 a chunk's position and the chain's total, so a complete chain said
@@ -441,7 +443,8 @@ the price of losing no round.
 
 **A piece too large for one comment.** Such a piece was replaced by a
 placeholder naming its files under the PR's state root, which pointed
-at nothing once the cleanup ran. It is now split across consecutive
+at nothing on any other machine, or once that state was deleted. It is
+now split across consecutive
 chunks of its chain, so every piece reaches the PR, and the final
 section never names local state as where a round's detail is.
 
@@ -1244,8 +1247,8 @@ verdict then reflects it.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues, refusing any that fails the readiness check | main session |
 | `/sdlc:git-review-pr <PR> [--generator-effort <low\|medium\|high\|xhigh>] [--full] [--mode <mode>]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `/sdlc:orchestrate-cleanup <PR> [--dry-run]` | Remove what one merged or closed PR left behind — its review state, the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; `--dry-run` lists what would go and removes nothing | main session |
-| `/sdlc:orchestrate-cleanup --all [--dry-run]` | Remove everything every run left in this repo — all review state, every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; `--dry-run` shows the list and asks nothing | main session, interactive |
+| `/sdlc:orchestrate-cleanup <PR> [--review-state] [--dry-run]` | Remove what one merged or closed PR left behind — the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; the PR's review state is kept, and removed too only with `--review-state`; `--dry-run` lists what would go and removes nothing | main session |
+| `/sdlc:orchestrate-cleanup --all [--review-state] [--dry-run]` | Remove everything every run left in this repo — every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; review state is kept, and every PR's is removed too only with `--review-state`; `--dry-run` shows the list and asks nothing | main session, interactive |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
@@ -1289,14 +1292,26 @@ why grooming is interactive rather than an agent is owned by
 `/sdlc:orchestrate-cleanup` is the pass behind the flow, and its two
 forms are two scopes of one script, `bin/sdlc-orchestrate-cleanup`.
 The `<PR>` form is what `/sdlc:orchestrate`'s post-merge tail runs,
-once for each PR the run merged, asking nothing: a merged PR's evidence
-is no longer needed to diagnose a round, so its review state goes with
-the worktrees, branch and scratch that produced it, and a PR the run
-did not see merge keeps all of it. The `--all` form is the human's, for
-clearing up after many runs, and it is the one form that asks — a
-single question, put over the full list a dry run printed. The skill
-owns which form asks and what it shows first; what each scope removes,
-the lines it prints and its exits are the script's.
+once for each PR the run merged, asking nothing: the worktrees, branch
+and scratch that produced a merged PR go, and a PR the run did not see
+merge keeps all of them. The `--all` form is the human's, for clearing
+up after many runs, and it is the one form that asks — a single
+question, put over the full list a dry run printed. The skill owns
+which form asks and what it shows first; what each scope removes, the
+lines it prints and its exits are the script's.
+
+Neither form removes review state unless `--review-state` is passed,
+and then the `<PR>` form deletes that PR's and the `--all` form every
+PR's in the repository. Both forms once deleted it unconditionally, on
+the reasoning that a merged PR's evidence is no longer needed to
+diagnose a round. That reasoning missed the other reader: review state
+is what `/sdlc:orchestrate-analysis` builds a run's time report from,
+and a merged PR's run is as much that report's subject as any other,
+so every merge and every `--all` sweep destroyed the evidence the
+report needed. The post-merge tail never passes the flag, so a merged
+PR's review state survives the run, and deleting it is a decision only
+the human makes. Without the flag the script neither lists nor deletes
+review state and prints no line for it, a dry run included.
 
 The script replaces two step lists the model re-derived on every run,
 which graded each item against a gate and asked the human to pick from
@@ -1317,8 +1332,9 @@ grading:
   `.claude/worktrees/agent-<id>` worktree and the `worktree-agent-<id>`
   branch of each id the state names, nested worktrees included, plus
   any worktree under `.claude/worktrees/` still holding a branch it
-  deletes. A spawn nobody recorded is left behind, and `--all` is the
-  backstop that takes it.
+  deletes. It reads those ids with or without `--review-state`, and
+  before the flag deletes the state that names them. A spawn nobody
+  recorded is left behind, and `--all` is the backstop that takes it.
 - **Removal is forced.** The `<PR>` scope runs only for a merged or
   closed PR, so a worktree's uncommitted edit, unpushed commit or lock
   is leftover from a run that has ended, not work in flight; the
@@ -1371,7 +1387,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-pr-post-theorem-records` | Assembles a PR's review detail out of its state, chunks it under GitHub's comment cap, splitting a piece too large for one chunk across several, and posts it as one chain whose markers name the rounds it holds; a PR whose complete chains are missing later rounds gets a supplementary chain holding only those rounds, and one whose chains cover the latest round gets nothing posted | its own header comment |
 | `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, and one for a body with neither section; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
-| `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — review state through `sdlc-agent-result-persist`, worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
+| `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; keeps review state, and deletes it through `sdlc-agent-result-persist` only with `--review-state`; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
 | `bin/sdlc-pr-body` | `split` cuts a PR body file into the base above the finalizer's section and the tail below it, dropping the section; `join` writes a base, a section and a tail into one body file; reads and writes only the files it is given | its own header comment |
 | `bin/sdlc-extract-lines` | Copies a line range of one file, verbatim, into another, refusing a range the source does not reach with nothing written; reads and writes only the files it is given | its own header comment |
 
@@ -1646,12 +1662,12 @@ these files and from nothing else, since the reviewer holds no state
 across a turn, and a finished run's time report is reconstructed from
 them after every worktree that produced them is gone. The one `sdlc`
 surface that deletes state is the script's `--mode delete`, which
-removes a whole `pr<N>/`, and its only caller is
-`sdlc-orchestrate-cleanup`, which `/sdlc:orchestrate` runs for a PR
-once that PR has merged and the human runs otherwise; so a `pr<N>/`
-outlives every round of its PR, and goes when the PR has merged — its
-evidence is no longer needed to diagnose a round — or when the human
-decides it is no longer wanted.
+removes a whole `pr<N>/`, and the only call of it that deletes is
+`sdlc-orchestrate-cleanup --review-state`'s, which only the human
+runs: the cleanup `/sdlc:orchestrate` runs for a merged PR passes no
+such flag, and review state is kept unless it is passed. So a `pr<N>/`
+outlives every round of its PR and the PR's merge, and goes only when
+the human decides its evidence is no longer wanted.
 
 The `reload-after-compact` hook's state is outside the review
 pipeline's and is not written through that script. It lives under the

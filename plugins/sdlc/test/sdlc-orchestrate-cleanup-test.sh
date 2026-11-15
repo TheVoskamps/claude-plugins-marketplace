@@ -10,9 +10,11 @@
 # nothing; --pr removing only the worktrees its state names an agent
 # for -- whatever their HEAD, nested ones included -- those agents'
 # worktree-agent-<id> branches, its local head branch and its issues'
-# scratch, reading the agents before it deletes the review state, and
-# any other worktree under .claude/worktrees/ holding a branch it
-# deletes; a branch checked out outside .claude/worktrees/ kept rather
+# scratch, and any other worktree under .claude/worktrees/ holding a
+# branch it deletes; review state neither listed nor deleted in either
+# scope without --review-state, and with it the PR's or every PR's
+# deleted, --pr reading the agents before it deletes the review state;
+# a branch checked out outside .claude/worktrees/ kept rather
 # than failed; the primary clone detached off the head branch when
 # another worktree holds the default branch; --all
 # removing every worktree, every branch but the default branch, all
@@ -238,8 +240,7 @@ check "$([ -x "$SCRIPT" ] && echo yes)" "yes" "sdlc-orchestrate-cleanup is execu
 
 # --- --pr ---------------------------------------------------------------
 build pr
-EXPECTED="delete review-state $PR
-remove worktree $WT/agent-b/.claude/worktrees/agent-n
+EXPECTED="remove worktree $WT/agent-b/.claude/worktrees/agent-n
 remove worktree $WT/agent-b
 remove worktree $WT/agent-a
 delete branch issue-7-feat
@@ -248,25 +249,23 @@ remove scratch $PRIMARY/.claude/tmp/issue-7"
 BEFORE=$(snapshot)
 run --pr 7 --dry-run
 check "$RC" "0" "--pr dry run: exit 0"
-check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--pr dry run: every item as would-<action>"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--pr dry run: every item as would-<action>, no review-state line"
 check "$(snapshot)" "$BEFORE" "--pr dry run: nothing removed"
 check "$(git -C "$PRIMARY" rev-parse main)" "$BASE" "--pr dry run: the default branch is not pulled"
 check "$(grep -cE 'fetch|pull|switch|prune|remove|unlock|branch -D' "$SERVE/git.log")" "0" \
   "--pr dry run: no git call acts"
+check "$(awk '{print $2}' "$SERVE/sdlc-agent-result-persist.args" | tr '\n' ' ')" "print-agents " \
+  "--pr dry run: review state is neither listed nor deleted, only the agents read"
 
 rm -f "$SERVE/sdlc-agent-result-persist.args" "$SERVE/gh.args"
 run --pr 7
 check "$RC" "0" "--pr: exit 0"
 check "$OUT" "$EXPECTED" "--pr: the dry run's items, acted on"
-check "$(cat "$SERVE/deleted")" "$PR" "--pr: only the PR's review state is deleted"
+check "$([ -f "$SERVE/deleted" ] && echo deleted)" "" "--pr: no review state is deleted"
 check "$(sed -n 1p "$SERVE/pr-view.args")" "7 --ref" "--pr: the PR is resolved to its reference"
 check "$(cat "$SERVE/gh.args")" "repo view --json url --jq .url" "--pr: this checkout's repository comes from gh repo view"
-check "$(awk '{print $2}' "$SERVE/sdlc-agent-result-persist.args" | tr '\n' ' ')" "print-agents list delete " \
-  "--pr: the PR's agents are read before its review state is deleted"
-check "$(sed -n 1p "$SERVE/sdlc-agent-result-persist.args")" "--mode print-agents --pr $PR" \
-  "--pr: the agents are read for the PR's reference"
-check "$(sed -n 2p "$SERVE/sdlc-agent-result-persist.args")" "--mode list h.example/o/r" \
-  "--pr: review state is listed for the PR's repository"
+check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode print-agents --pr $PR" \
+  "--pr: the agents are read for the PR's reference, and review state is neither listed nor deleted"
 check "$([ -e "$WT/agent-a" ] || [ -e "$WT/agent-b" ] && echo left)" "" \
   "--pr: the agents' worktrees are gone, dirty, unpushed, locked and off the PR's commits included"
 check "$([ -d "$WT/agent-c" ] && [ -d "$WT/agent-d" ] && echo kept)" "kept" \
@@ -279,6 +278,33 @@ check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/scratchpad $SESSIONS/
   "--pr: no scratchpad is touched"
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "--pr: the default branch is fast-forwarded in place"
 untouched_origin "--pr"
+
+# --- --pr --review-state -----------------------------------------------------
+build pr-review-state
+EXPECTED="delete review-state $PR
+remove worktree $WT/agent-b/.claude/worktrees/agent-n
+remove worktree $WT/agent-b
+remove worktree $WT/agent-a
+delete branch issue-7-feat
+delete branch worktree-agent-b
+remove scratch $PRIMARY/.claude/tmp/issue-7"
+BEFORE=$(snapshot)
+run --review-state --pr 7 --dry-run
+check "$RC" "0" "--pr --review-state dry run: exit 0"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" \
+  "--pr --review-state dry run: every item as would-<action>, the review state included"
+check "$(snapshot)" "$BEFORE" "--pr --review-state dry run: nothing removed"
+
+rm -f "$SERVE/sdlc-agent-result-persist.args"
+run --pr 7 --review-state
+check "$RC" "0" "--pr --review-state: exit 0"
+check "$OUT" "$EXPECTED" "--pr --review-state: the dry run's items, acted on"
+check "$(cat "$SERVE/deleted")" "$PR" "--pr --review-state: only the PR's review state is deleted"
+check "$(awk '{print $2}' "$SERVE/sdlc-agent-result-persist.args" | tr '\n' ' ')" "print-agents list delete " \
+  "--pr --review-state: the PR's agents are read before its review state is deleted"
+check "$(sed -n 2p "$SERVE/sdlc-agent-result-persist.args")" "--mode list h.example/o/r" \
+  "--pr --review-state: review state is listed for the PR's repository"
+check "$(branches)" "main other-branch worktree-agent-c " "--pr --review-state: only the head branch and the agents' branches are deleted"
 
 # --- --pr with the head branch checked out in the primary clone ------------
 build pr-switch
@@ -406,9 +432,7 @@ check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "HEAD" "default branch 
 
 # --- --all ----------------------------------------------------------------
 build all
-EXPECTED="delete review-state $PR
-delete review-state h.example/o/r#8
-remove worktree $WT/agent-d
+EXPECTED="remove worktree $WT/agent-d
 remove worktree $WT/agent-c
 remove worktree $WT/agent-b/.claude/worktrees/agent-n
 remove worktree $WT/agent-b
@@ -425,14 +449,14 @@ remove scratchpad $SESSIONS/s3/scratchpad"
 BEFORE=$(snapshot)
 run --all --scratchpad "$PAD/" --dry-run
 check "$RC" "0" "--all dry run: exit 0"
-check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--all dry run: every item as would-<action>"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "--all dry run: every item as would-<action>, no review-state line"
 check "$(snapshot)" "$BEFORE" "--all dry run: nothing removed"
-check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode list" "--all: review state is listed for this repository, and nothing else is read"
+check "$([ -f "$SERVE/sdlc-agent-result-persist.args" ] && echo ran)" "" "--all dry run: review state is neither listed nor deleted"
 
 run --all --scratchpad "$PAD"
 check "$RC" "0" "--all: exit 0"
 check "$OUT" "$EXPECTED" "--all: the dry run's items, acted on"
-check "$(cat "$SERVE/deleted" | tr '\n' ' ')" "$PR h.example/o/r#8 " "--all: every PR's review state is deleted"
+check "$([ -f "$SERVE/sdlc-agent-result-persist.args" ] && echo ran)" "" "--all: review state is neither listed nor deleted"
 check "$(git -C "$PRIMARY" worktree list --porcelain | grep -c '^worktree ')" "1" "--all: only the primary clone remains"
 check "$([ -e "$WT" ] && ls -A "$WT")" "" "--all: no worktree directory is left"
 check "$(branches)" "main " "--all: only the default branch is left"
@@ -441,11 +465,28 @@ check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/tasks " "--all: only 
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "--all: the default branch is fast-forwarded"
 untouched_origin "--all"
 
+# --- --all --review-state ----------------------------------------------------
+build all-review-state
+RS_EXPECTED="delete review-state $PR
+delete review-state h.example/o/r#8"
+run --all --review-state --scratchpad "$PAD" --dry-run
+check "$RC" "0" "--all --review-state dry run: exit 0"
+check "$(printf '%s\n' "$OUT" | grep ' review-state ')" "$(printf '%s\n' "$RS_EXPECTED" | sed 's/^/would-/')" \
+  "--all --review-state dry run: every PR's review state as would-delete"
+check "$([ -f "$SERVE/deleted" ] && echo deleted)" "" "--all --review-state dry run: no review state is deleted"
+check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode list" \
+  "--all --review-state dry run: review state is listed for this repository, and nothing else is read"
+run --review-state --all --scratchpad "$PAD"
+check "$RC" "0" "--all --review-state: exit 0"
+check "$(printf '%s\n' "$OUT" | sed -n 1,2p)" "$RS_EXPECTED" "--all --review-state: the review state is deleted first"
+check "$(cat "$SERVE/deleted" | tr '\n' ' ')" "$PR h.example/o/r#8 " "--all --review-state: every PR's review state is deleted"
+check "$(branches)" "main " "--all --review-state: only the default branch is left"
+
 # --- an action that fails, and the switch to the default branch -------------
 build failing
 git -C "$PRIMARY" checkout -q other-branch
 echo 'h.example/o/r#8' >"$SERVE/delete.fail"
-run --all --scratchpad "$PAD"
+run --all --scratchpad "$PAD" --review-state
 check "$RC" "1" "a failed action: exit 1"
 check_contains "$OUT" "delete review-state h.example/o/r#8
 failed delete review-state h.example/o/r#8: persist: stub refused h.example/o/r#8
@@ -463,7 +504,7 @@ untouched_origin "a failed action"
 build usage
 BEFORE=$(snapshot)
 rm -f "$SERVE/git-default-branch.args"
-for args in "" "--dry-run" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr 7 --scratchpad $PAD" \
+for args in "" "--dry-run" "--review-state" "--review-state --dry-run" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr 7 --scratchpad $PAD" \
   "--all --scratchpad $CASE" "--all --scratchpad $SESSIONS/s9/scratchpad" "--pr 7 --bogus"; do
   read -r -a argv <<<"$args"
   run ${argv[@]+"${argv[@]}"}

@@ -1,5 +1,26 @@
 # sdlc changelog
 
+## 0.82.0 — 2026-11-15
+
+The cleanup now keeps review state by default. It used to delete a
+merged PR's review state after every `/sdlc:orchestrate` run, and every
+PR's on an `--all` sweep, which destroyed what
+`/sdlc:orchestrate-analysis` reads and what a round is diagnosed from.
+
+- `/sdlc:orchestrate-cleanup` and `sdlc-orchestrate-cleanup` take a new
+  flag, `--review-state`, in both forms. With it, review state is
+  deleted as before: the PR's under `<PR>`, every PR's in the
+  repository under `--all`. Without it, review state is neither listed
+  nor deleted, and no `review-state` line is printed, `--dry-run`
+  included.
+- `/sdlc:orchestrate`'s post-merge cleanup passes no `--review-state`,
+  so a merged PR's review state survives the run until the human
+  deletes it.
+- The `<PR>` form still removes the worktrees and branches of the
+  agents the PR's state names, with or without the flag.
+- Under `--all`, the list shown before the go-ahead includes review
+  state only when `--review-state` was passed.
+
 ## 0.81.0 — 2026-11-13
 
 A review round run after a close-out now reaches the PR, and a piece of
