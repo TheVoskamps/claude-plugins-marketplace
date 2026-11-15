@@ -9,8 +9,8 @@ them.
 Each issue's board status tracks its lifecycle via `/issue-set-status`:
 In Progress before its batch's developer spawns, In Review in the
 close-out — after the merge-readiness loop has passed, not on the
-confirmation that starts it, and after `pr-finalizer`'s amendment of
-the PR body — for every member the PR then closes. The
+documentation loop's end that starts it, and after `pr-finalizer`'s
+amendment of the PR body — for every member the PR then closes. The
 assign that accompanies the first is outside this file's gate: it is
 not a status, it happens once, and nothing later unassigns — a member
 dropped from a batch mid-run keeps its assignee.

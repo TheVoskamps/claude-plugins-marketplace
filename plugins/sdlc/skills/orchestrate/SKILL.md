@@ -1015,14 +1015,11 @@ file — in each round's report.
 ### The documentation loop
 
 The code loop reviews no documentation, so a second loop does: it runs
-when the code loop ends — on the human's end-of-loop confirmation, or
-with no question on a clean end under `loop-end: auto-when-clean`,
-which the human confirmed in advance, per "Final Report" — and again on
-a `documentation loop needed` return from `pr-merge-readiness`. It
-takes the code loop's round rules and its end-of-loop confirmation as
-they stand — the style-fix loop, the reviewer spawn and its `Return:`
-line, the fix loop's decision points, the review adjustments — with
-these differences:
+when the code loop ends, per "Final Report", and again on a
+`documentation loop needed` return from `pr-merge-readiness`. It takes
+the code loop's round rules as they stand — the style-fix loop, the
+reviewer spawn and its `Return:` line, the fix loop's decision points,
+the review adjustments — with these differences:
 
 - **Every round runs under `--mode documentation`** — `style-checker`
   and `theorem-based-pr-reviewer` both get it, so the round checks and
@@ -1046,10 +1043,7 @@ these differences:
   against `docs-review-max-rounds`, per "Your own boundary". Where the
   code loop's rules name `code-review-max-rounds`, this loop reads
   `docs-review-max-rounds`.
-- **Its end is governed by `docs-loop-end`**, never by `loop-end`: it
-  waits for the human's confirmation, except a clean end under
-  `docs-loop-end: auto-when-clean`, which the human confirmed in
-  advance, per "Final Report".
+- **Its end has a key of its own**, per "Final Report".
 
 ### Posting the human's review adjustments as a PR comment
 
@@ -1204,9 +1198,8 @@ and its `## Findings` section reads `none`.
   per "The documentation loop", and nothing else. A batch with no code
   to implement has no code loop, and so no such end.
 - **The documentation loop's end**, and only that, sends the
-  PR through the stages below, in this order. The confirmation — or,
-  under `docs-loop-end: auto-when-clean`, the clean end the human
-  confirmed in advance — authorizes the ready flip and nothing past it:
+  PR through the stages below, in this order. That end authorizes the
+  ready flip and nothing past it:
   the merge stays the human's, by hand or by the repo's auto-merge, and
   the monitor loop only watches for it.
 
@@ -1232,10 +1225,8 @@ and its `## Findings` section reads `none`.
      documentation edit or resolved a conflict in a documentation file,
      and spawned no `docs-writer`. Run the documentation loop, its
      writing brief carrying the entries the report relays, then step 1
-     again once it ends — on its end-of-loop confirmation, or on a clean
-     end under `docs-loop-end: auto-when-clean`, which the human
-     confirmed in advance — then spawn `pr-merge-readiness` again with
-     no ruling.
+     again once it ends, then spawn `pr-merge-readiness` again with no
+     ruling.
 
    A ruling its report names as discarded — one the gate's report
    did not consume, or one the fixer's rebase did not need, whatever
@@ -1274,8 +1265,7 @@ and its `## Findings` section reads `none`.
 
 **One PR goes through these stages at a time.** When more than one
 PR's documentation loop has ended, take them in the order the loops
-ended — the human's confirmation, or a clean end under
-`docs-loop-end: auto-when-clean`, ends one — and start the next
+ended, and start the next
 PR's stages — the pre-readiness spawn onward — only when the previous
 PR's monitor loop has ended, whether by a merge, a close, an error, or
 the human declining to keep waiting; under `merge-wait: skip`, when the previous
