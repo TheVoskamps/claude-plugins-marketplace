@@ -677,7 +677,7 @@ brief posted.
 
 The style-fix loop keeps its own count and has no cap. A style-fix
 round is one `issue-fixer` spawned from a style-findings brief; it does
-not count against the review-round cap. Track the number per PR and
+not count against `code-review-max-rounds`. Track the number per PR and
 report it in the Final Report summary.
 
 ### Run the review pipeline
@@ -735,8 +735,9 @@ You write none of the reviewer's briefs, so a review finding is
 independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
 the review is **posted** on the PR, so whether it says what the
-reviewer reported back is one `/github-prs:pr-view` away: verify before a cap
-escalation or a Final Report hand-off rests on it. An empty-delta round's
+reviewer reported back is one `/github-prs:pr-view` away: verify before
+an escalation at `code-review-max-rounds` or a Final Report hand-off
+rests on it. An empty-delta round's
 verdicts are carried forward from the previous round rather than
 freshly checked, and the reviewer says which kind of round it ran.
 
@@ -820,7 +821,7 @@ round's review.
 A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
 first such return, quoting the reviewer's line verbatim. A re-spawn to
-resume is **not a new round** against the review-round cap — count it
+resume is **not a new round** against `code-review-max-rounds` — count it
 in the round's report instead — and after two on one PR, raise it as a
 **Needs Your Attention** row rather than re-spawning again. A review
 the PR carries under an in-progress line is the human's to rule on —
@@ -975,7 +976,8 @@ member)**:
 6. Repeat this loop until APPROVED or until the code loop has run
    `code-review-max-rounds` rounds (see "Your own boundary" below);
    under `unlimited`, until APPROVED.
-7. If findings above Low persist when the cap is reached, escalate to
+7. If findings above Low persist when `code-review-max-rounds` is
+   reached, escalate to
    the human in the final report, listing each finding still open on
    its own.
 
@@ -983,7 +985,8 @@ member)**:
 no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
 with nothing to fix. Instead, post the round's review-adjustments
 comment and re-spawn the reviewer as step 5 says. That re-review
-posts a review, so it counts as a round against the cap.
+posts a review, so it counts as a round against
+`code-review-max-rounds`.
 
 **A closing-line correction goes to `pr-finalizer`, in either loop.**
 The reviewer reports its corrections, in every mode, in a section of
@@ -1183,7 +1186,8 @@ effect on the other loop's end.
 A loop's end is **clean** when its last review round is APPROVED with
 no open finding of any severity. Every other end still asks, under
 either value: an APPROVED round with an open Low, a round at the loop's
-cap, and a round the human's ruling ended. Take the verdict and the
+cap — `code-review-max-rounds` or `docs-review-max-rounds` — and a
+round the human's ruling ended. Take the verdict and the
 open findings from the PR's stored round state, never from the
 reviewer's report:
 

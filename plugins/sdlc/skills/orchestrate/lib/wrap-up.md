@@ -42,14 +42,14 @@ post-merge tail has run, deliver a summary:
 ### Low Findings
 | Issue | PR | Finding | Question |
 |-------|----|---------|----------|
-| <link-prefix>101 | <PR1> | <the finding> | Left as it is, or filed as a follow-up issue? |
-| <link-prefix>106 | <PR2> | <the finding>; ruling: <the sentence that settles it> | Left as it is, or filed as a follow-up issue? |
+| <link-prefix>101 | <PR1> | <the finding> | Fixed in this PR, left as it is, or filed as a follow-up issue? |
+| <link-prefix>106 | <PR2> | <the finding>; ruling: <the sentence that settles it> | Fixed in this PR, left as it is, or filed as a follow-up issue? |
 
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
-| <link-prefix>102  | <PR3> | T14 (Critical) persists at review-round cap: <the finding> |
-| <link-prefix>102  | <PR3> | T15 (Medium) persists at review-round cap: <the finding>; ruling: <the sentence that settles it> |
+| <link-prefix>102  | <PR3> | T14 (Critical) persists at the `code-review-max-rounds` cap: <the finding> |
+| <link-prefix>102  | <PR3> | T15 (Medium) persists at the `code-review-max-rounds` cap: <the finding>; ruling: <the sentence that settles it> |
 | <link-prefix>105  | —     | Dropped from batch C — needs a design decision its issue doesn't answer; not on <PR3>, still In Progress |
 
 ### Sequential Queue (not yet started)

@@ -125,7 +125,8 @@ The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
 so a body edit contributes nothing to any round's delta: every later
 round is empty-delta, carries its verdicts forward, and re-reports the
-finding the edit fixed until the round cap runs out. So everything in
+finding the edit fixed until the loop's round cap —
+`code-review-max-rounds` or `docs-review-max-rounds` — runs out. So everything in
 flight travels as a **PR comment** — the human's review adjustments
 you relay and the fixer brief you write — which is append-only and
 carries a timestamp the next round can cut against.
@@ -395,12 +396,15 @@ ready goes back to draft before the loop reopens:
 /github-prs:pr-draft <PR_REF>
 ```
 
-The loop then runs as any review loop does, and its end — the human's
-end-of-loop confirmation, or a clean end under the key that governs
-that loop, `loop-end` or `docs-loop-end`, set to `auto-when-clean`,
-which the human confirmed in advance — sends the PR through the
-stages from the pre-readiness spawn on again, so the close-out flips
-it ready once more.
+The loop then runs as any review loop does. A reopened code loop's
+end — the human's end-of-loop confirmation, or a clean end under
+`loop-end: auto-when-clean`, which the human confirmed in advance —
+starts the documentation loop, as any code loop's end does. Only the
+documentation loop's end — the human's end-of-loop confirmation, or a
+clean end under `docs-loop-end: auto-when-clean`, which the human
+confirmed in advance — sends the PR through the stages from the
+pre-readiness spawn on again, so the close-out flips it ready once
+more.
 That close-out's finalizer posts the rounds the PR's detail chains are
 missing, as one supplementary chain; nothing already posted is posted
 again.
