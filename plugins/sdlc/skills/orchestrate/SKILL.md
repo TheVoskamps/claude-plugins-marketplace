@@ -952,8 +952,9 @@ member)**:
    new round's delta; a round in which the pick missed a defect the
    human caught is a reason to ask the human for a
    `--generator-effort` override, per "Overriding the generator tier".
-6. Repeat this loop until APPROVED or until the review-round cap
-   (see "Your own boundary" below) is reached.
+6. Repeat this loop until APPROVED or until the code loop has run
+   `code-review-max-rounds` rounds (see "Your own boundary" below);
+   under `unlimited`, until APPROVED.
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report, listing each finding still open on
    its own.
@@ -1013,11 +1014,13 @@ the review adjustments — with these differences:
   the issue, ruled as the code loop rules one.
 - **A closing-line correction gets no scope ruling**: it goes to
   `pr-finalizer`, per "Handling review findings — the fix loop".
-- **Its rounds count against a bound of their own.** Rounds of both
-  loops share one numbering per PR, so the reviewer's first
-  documentation round takes the number after the last code round, but
-  only documentation rounds count against the documentation loop's
-  bound, per "Your own boundary".
+- **Its rounds count against a cap of their own,
+  `docs-review-max-rounds`.** Rounds of both loops share one numbering
+  per PR, so the reviewer's first documentation round takes the number
+  after the last code round, but only documentation rounds count
+  against `docs-review-max-rounds`, per "Your own boundary". Where the
+  code loop's rules name `code-review-max-rounds`, this loop reads
+  `docs-review-max-rounds`.
 
 ### Posting the human's review adjustments as a PR comment
 
@@ -1278,10 +1281,12 @@ definition, `CLAUDE.md` or global rules file already states.
   is settled at the Discovery and Planning confirm step; once a branch
   carries commits and a PR, the only way a member leaves the batch is
   the developer's drop protocol (see "A dropped batch member").
-- **Max review rounds per PR: 5 per loop**, counted separately: 5
-  code-loop rounds, and 5 documentation-loop rounds, which no code-loop
-  round counts against. Escalate to the human after a loop reaches its
-  bound. A
+- **Max review rounds per PR: `code-review-max-rounds` for the code
+  loop and `docs-review-max-rounds` for the documentation loop**,
+  counted separately, so no code-loop round counts against the
+  documentation loop's cap. A loop whose key is `unlimited` has no cap
+  and runs until the review approves. Escalate to the human after a
+  loop reaches its cap. A
   round is one `theorem-based-pr-reviewer` spawn **that posted a
   review**, however many children its fan-outs spawned and at whatever
   generator tier. The `code-documenter` and `style-checker` passes are

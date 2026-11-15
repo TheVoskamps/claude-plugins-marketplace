@@ -246,9 +246,9 @@ Its commit opens the next round.
 
 **The loop ends** on a round whose review is APPROVED with no finding
 above Low and whose `docs-writer` report graded no criterion
-`not met`, or when the documentation loop's round bound is reached
+`not met`, or when the loop has run `docs-review-max-rounds` rounds
 with a finding above Low still open, which goes to the human in the
-final report. Either way the human's end-of-loop confirmation is what
+final report; under `unlimited` it ends only on the first. Either way the human's end-of-loop confirmation is what
 moves the PR on.
 
 ## The pre-readiness spawn, once the documentation loop is confirmed

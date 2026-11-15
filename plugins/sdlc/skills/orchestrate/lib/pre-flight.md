@@ -56,6 +56,8 @@ sdlc config:
   merge-poll-interval-seconds: 300 (repo user)
   merge-max-unchanged-polls: 15 (default)
   reload-after-compact-token-budget: 100000 (default)
+  code-review-max-rounds: 5 (default)
+  docs-review-max-rounds: unlimited (shared repo)
 ```
 
 Throughout the rest of the run, each key's name means its resolved
