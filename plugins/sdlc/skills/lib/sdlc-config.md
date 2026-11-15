@@ -95,13 +95,9 @@ merge-poll-interval-seconds: 300
   Its values are `code-review-max-rounds`'s, and `unlimited` runs the
   loop until the review approves.
 - **`loop-end`** — governs the code loop's end, before the
-  documentation loop starts. `ask` waits for the human's confirmation.
-  `auto-when-clean` ends a cleanly approved loop with no question, and
-  asks on any other end; `skills/orchestrate/SKILL.md` states what a
-  clean end is.
+  documentation loop starts.
 - **`docs-loop-end`** — governs the documentation loop's end, before
-  the merge stages and the ready flip, with `loop-end`'s values. The two
-  keys are independent: neither has any effect on the other loop's end.
+  the merge stages and the ready flip.
 
 ## Reading
 
