@@ -58,6 +58,8 @@ sdlc config:
   reload-after-compact-token-budget: 100000 (default)
   code-review-max-rounds: 5 (default)
   docs-review-max-rounds: unlimited (shared repo)
+  loop-end: auto-when-clean (global user)
+  docs-loop-end: ask (default)
 ```
 
 Throughout the rest of the run, each key's name means its resolved

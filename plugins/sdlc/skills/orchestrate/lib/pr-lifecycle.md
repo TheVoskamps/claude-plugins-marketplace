@@ -4,8 +4,10 @@ What the orchestrator does to a PR from the moment its developer
 reports it open to the moment it is flipped ready: the link to its
 issues, the round-0 write that follows it, the body freeze that holds
 through both loops, the documentation loop's briefs and round
-mechanics, the spawn that runs on the human's confirmation of that
-loop's end, the close-out, and the briefs for the two agents that
+mechanics, the spawn that runs once that loop ends — on the human's
+confirmation, or on a clean end under `docs-loop-end: auto-when-clean`,
+which the human confirmed in advance — the close-out, and the briefs
+for the two agents that
 carry the loops on either side of the close-out.
 
 ## Link the PR to its issues, once the developer reports back
@@ -248,10 +250,14 @@ Its commit opens the next round.
 above Low and whose `docs-writer` report graded no criterion
 `not met`, or when the loop has run `docs-review-max-rounds` rounds
 with a finding above Low still open, which goes to the human in the
-final report; under `unlimited` it ends only on the first. Either way the human's end-of-loop confirmation is what
-moves the PR on.
+final report; under `unlimited` it ends only on the first. Either way
+the human's end-of-loop confirmation is what moves the PR on, except a
+clean end under `docs-loop-end: auto-when-clean`, which moves it on
+with no question because the human confirmed every clean end of this
+loop in advance; `skills/orchestrate/SKILL.md` → "Final Report" says
+what a clean end is.
 
-## The pre-readiness spawn, once the documentation loop is confirmed
+## The pre-readiness spawn, once the documentation loop has ended
 
 **Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
 By now every teammate that writes memory has captured into the
@@ -389,10 +395,12 @@ ready goes back to draft before the loop reopens:
 /github-prs:pr-draft <PR_REF>
 ```
 
-The loop then runs as any review loop does, and the human's
-end-of-loop confirmation sends the PR through the stages from the
-pre-readiness spawn on again, so the close-out flips it ready once
-more.
+The loop then runs as any review loop does, and its end — the human's
+end-of-loop confirmation, or a clean end under the key that governs
+that loop, `loop-end` or `docs-loop-end`, set to `auto-when-clean`,
+which the human confirmed in advance — sends the PR through the
+stages from the pre-readiness spawn on again, so the close-out flips
+it ready once more.
 That close-out's finalizer posts the rounds the PR's detail chains are
 missing, as one supplementary chain; nothing already posted is posted
 again.

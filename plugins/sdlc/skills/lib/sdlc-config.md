@@ -59,6 +59,8 @@ merge-poll-interval-seconds: 300
 | `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
 | `code-review-max-rounds` | positive integer \| `unlimited` | `5` |
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
+| `loop-end` | `ask` \| `auto-when-clean` | `ask` |
+| `docs-loop-end` | `ask` \| `auto-when-clean` | `ask` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
@@ -92,6 +94,14 @@ merge-poll-interval-seconds: 300
   documentation loop runs per PR; no code-loop round counts against it.
   Its values are `code-review-max-rounds`'s, and `unlimited` runs the
   loop until the review approves.
+- **`loop-end`** — governs the code loop's end, before the
+  documentation loop starts. `ask` waits for the human's confirmation.
+  `auto-when-clean` ends a cleanly approved loop with no question, and
+  asks on any other end; `skills/orchestrate/SKILL.md` states what a
+  clean end is.
+- **`docs-loop-end`** — governs the documentation loop's end, before
+  the merge stages and the ready flip, with `loop-end`'s values. The two
+  keys are independent: neither has any effect on the other loop's end.
 
 ## Reading
 

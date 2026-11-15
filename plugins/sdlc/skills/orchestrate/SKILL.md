@@ -631,13 +631,18 @@ your findings, or that there are none.
 On **no findings**, proceed to the review without a pause.
 
 On **findings**, a finding quotes the rule the diff violates, so the
-rule has already answered fix-or-ignore: do not ask. Pause on a finding
-only when its rule cannot settle it:
+rule has already answered fix-or-ignore: do not ask.
+
+A finding against text the issue body requires is ruled by the issue
+body, and is your ruling: its line ends `— settled, no fix: <the issue
+sentence that requires the text>`, quoted, and it is never put to the
+human, whatever else below holds of it.
+
+Pause on any other finding only when its rule cannot settle it:
 
 - the last style-fix round's `issue-fixer` reported it unfixed;
 - it comes back after a style-fix round on this PR addressed it — the
-  same rule, at the same place in the same file;
-- applying the rule would contradict the issue the PR closes.
+  same rule, at the same place in the same file.
 
 A paused finding goes to the human as `style-checker` reported it — its
 quoted rule and offending lines — with the condition that paused it,
@@ -648,9 +653,10 @@ Post one fixer brief on the PR — at once when nothing paused, after
 the human's answer otherwise — in the shape "Handling review
 findings — the fix loop" defines, the `<!-- sdlc:fixer-brief -->`
 marker included, carrying every finding of the round, each with its
-quoted rule and offending lines: an unpaused finding ends `— in
-scope`, and a paused one ends `— put to the human: <question> →
-<answer>`, the answer being the human's fix or ignore.
+quoted rule and offending lines: a finding the issue body rules ends
+in that ruling, any other unpaused finding ends `— in scope`, and a
+paused one ends `— put to the human: <question> → <answer>`, the
+answer being the human's fix or ignore.
 Then spawn `issue-fixer` with the standard spawn prompt, so a round
 spawns one fixer however its findings split. That round puts commits on
 the branch, so `code-documenter` and `style-checker` run again after
@@ -661,9 +667,13 @@ reports a finding the human already ruled ignore, its line carries that
 ruling again rather than `— in scope` or a new question, so an ignored
 finding is never fixed on your say-so.
 
+An issue-body ruling binds the same way: a finding it settled carries
+that ruling again whenever `style-checker` reports it.
+
 The loop exits when `style-checker` reports no findings, or when the
-human's rulings leave nothing to fix — every finding of the round
-ruled ignore — and then proceeds to the review with no brief posted.
+rulings leave nothing to fix — every finding of the round ruled ignore
+or settled by the issue body — and then proceeds to the review with no
+brief posted.
 
 The style-fix loop keeps its own count and has no cap. A style-fix
 round is one `issue-fixer` spawned from a style-findings brief; it does
@@ -822,11 +832,21 @@ it — and nothing spawns until they do.
 with the sentence that settles it** as your ruling, wherever you list
 that finding to the human.
 
+**A defect this PR's diff introduced is fixed in this PR.** Wherever
+you put one to the human — a finding of any severity, an out-of-scope
+observation, an escalation — your recommendation is the fix in this
+PR. Never recommend a follow-up issue or leaving the defect, and give
+neither the round count nor the size of the PR as a reason for any
+recommendation about it.
+
 **If APPROVED with Low findings**: Put the Lows to the human before
 `pr-finalizer` is spawned, tagged by member and un-tiered, asking, for
-each Low, whether it is left as it is or filed as a follow-up issue. A
-"filed as a follow-up issue" answer travels to `pr-finalizer` as a
-scope note. Do not spawn the fixer — no loop runs for Lows alone.
+each Low, whether it is fixed in this PR, left as it is, or filed as a
+follow-up issue. A "filed as a follow-up issue" answer travels to
+`pr-finalizer` as a scope note. Spawn no fixer unless the human answers
+"fixed in this PR" for a Low — no loop runs for Lows alone otherwise;
+on that answer, run NEEDS_CHANGES steps 2 to 5 for the Lows so ruled,
+each line ending `— put to the human: <question> → fixed in this PR`.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
@@ -992,12 +1012,14 @@ file — in each round's report.
 ### The documentation loop
 
 The code loop reviews no documentation, so a second loop does: it runs
-on the human's end-of-loop confirmation of the code loop, per "Final
-Report", and again on a `documentation loop needed` return from
-`pr-merge-readiness`. It takes the code loop's round rules and its
-end-of-loop confirmation as they stand — the style-fix loop, the
-reviewer spawn and its `Return:` line, the fix loop's decision points,
-the review adjustments — with these differences:
+when the code loop ends — on the human's end-of-loop confirmation, or
+with no question on a clean end under `loop-end: auto-when-clean`,
+which the human confirmed in advance, per "Final Report" — and again on
+a `documentation loop needed` return from `pr-merge-readiness`. It
+takes the code loop's round rules and its end-of-loop confirmation as
+they stand — the style-fix loop, the reviewer spawn and its `Return:`
+line, the fix loop's decision points, the review adjustments — with
+these differences:
 
 - **Every round runs under `--mode documentation`** — `style-checker`
   and `theorem-based-pr-reviewer` both get it, so the round checks and
@@ -1021,6 +1043,10 @@ the review adjustments — with these differences:
   against `docs-review-max-rounds`, per "Your own boundary". Where the
   code loop's rules name `code-review-max-rounds`, this loop reads
   `docs-review-max-rounds`.
+- **Its end is governed by `docs-loop-end`**, never by `loop-end`: it
+  waits for the human's confirmation, except a clean end under
+  `docs-loop-end: auto-when-clean`, which the human confirmed in
+  advance, per "Final Report".
 
 ### Posting the human's review adjustments as a PR comment
 
@@ -1140,23 +1166,45 @@ otherwise:
 
 ## Final Report
 
-### End-of-loop lifecycle transitions (per PR, on human confirmation)
+### End-of-loop lifecycle transitions (per PR)
 
 The code loop leaves each PR **draft** and every issue it closes
 **In Progress**, and so does the documentation loop that follows it; a
 documentation loop run on a `documentation loop needed` return leaves
 the PR's draft state and its issues' statuses as it found them. Each loop ends on
 the human's end-of-loop confirmation, per PR, that the loop is done and
-the PR is good enough to move forward:
+the PR is good enough to move forward — except a clean end of a loop
+whose key is `auto-when-clean`, which ends with no question and starts
+the next stage, because under that value the human confirmed every
+clean end of that loop in advance. `loop-end` governs the code loop's
+end and `docs-loop-end` the documentation loop's, and neither has any
+effect on the other loop's end.
 
-- **The code loop's confirmation** starts the PR's documentation loop,
+A loop's end is **clean** when its last review round is APPROVED with
+no open finding of any severity. Every other end still asks, under
+either value: an APPROVED round with an open Low, a round at the loop's
+cap, and a round the human's ruling ended. Take the verdict and the
+open findings from the PR's stored round state, never from the
+reviewer's report:
+
+```bash
+sdlc-agent-result-persist --mode summary \
+  --pr <PR_REF> --round <N>
+```
+
+with `<N>` the loop's last round, per "Reading a round's detail". The
+end is clean when the output's `## Verdicts` overall line is APPROVED
+and its `## Findings` section reads `none`.
+
+- **The code loop's end** starts the PR's documentation loop,
   per "The documentation loop", and nothing else. A batch with no code
-  to implement has no code loop, and so no such confirmation.
-- **The documentation loop's confirmation**, and only that, sends the
-  PR through the stages below, in this order. The confirmation
-  authorizes the ready flip and nothing past it: the merge stays the
-  human's, by hand or by the repo's auto-merge, and the monitor loop
-  only watches for it.
+  to implement has no code loop, and so no such end.
+- **The documentation loop's end**, and only that, sends the
+  PR through the stages below, in this order. The confirmation — or,
+  under `docs-loop-end: auto-when-clean`, the clean end the human
+  confirmed in advance — authorizes the ready flip and nothing past it:
+  the merge stays the human's, by hand or by the repo's auto-merge, and
+  the monitor loop only watches for it.
 
 1. **The pre-readiness spawn** — `agent-memory-scrubber`, with the
    brief the PR-lifecycle file carries. It puts a commit on the branch,
@@ -1180,8 +1228,10 @@ the PR is good enough to move forward:
      documentation edit or resolved a conflict in a documentation file,
      and spawned no `docs-writer`. Run the documentation loop, its
      writing brief carrying the entries the report relays, then step 1
-     again on its end-of-loop confirmation, then spawn
-     `pr-merge-readiness` again with no ruling.
+     again once it ends — on its end-of-loop confirmation, or on a clean
+     end under `docs-loop-end: auto-when-clean`, which the human
+     confirmed in advance — then spawn `pr-merge-readiness` again with
+     no ruling.
 
    A ruling its report names as discarded — one the gate's report
    did not consume, or one the fixer's rebase did not need, whatever
@@ -1203,7 +1253,7 @@ the PR is good enough to move forward:
    PR's stages end at the ready flip, and the summary lists it as
    ready and unmonitored. Otherwise it polls until one of its outcomes:
 
-   - **Merged** — the PR's stages are done; start the next confirmed
+   - **Merged** — the PR's stages are done; start the next
      PR's, or the post-merge tail when this was the last.
    - **`BEHIND` or `DIRTY`** — spawn `pr-merge-readiness` again as in
      step 2, then `pr-monitor` again.
@@ -1218,8 +1268,10 @@ the PR is good enough to move forward:
      quoting the error verbatim and the state the last poll found, if
      any poll ran.
 
-**One PR goes through these stages at a time.** When the human confirms
-more than one PR, take them in the order confirmed, and start the next
+**One PR goes through these stages at a time.** When more than one
+PR's documentation loop has ended, take them in the order the loops
+ended — the human's confirmation, or a clean end under
+`docs-loop-end: auto-when-clean`, ends one — and start the next
 PR's stages — the pre-readiness spawn onward — only when the previous
 PR's monitor loop has ended, whether by a merge, a close, an error, or
 the human declining to keep waiting; under `merge-wait: skip`, when the previous
@@ -1253,7 +1305,7 @@ what you do and do not do yourself, and it keeps only what no agent
 definition, `CLAUDE.md` or global rules file already states.
 
 - **Never merge a PR.** The merge is the human's, after the ready flip
-  they confirm in the Final Report.
+  the documentation loop's end authorizes, per "Final Report".
 - **Never do work an agent owns**, even when the agent has already run
   once on this PR. The roster at the top names the owner of each kind:
   you never use `NotebookEdit`, and `Edit` and `Write` only on files
