@@ -617,22 +617,16 @@ install_whole() {
   mv -- "$staged" "$2"
 }
 
-# store_payload <target> <noun>: stores the payload whole at <target>,
-# refusing an empty one.
-store_payload() {
-  make_work
-  read_payload "$work/payload" "$2"
-  if [ ! -s "$work/payload" ]; then
-    if [ -n "$from" ]; then
-      die "--mode $mode takes the $2 from --from, and $from is empty"
-    fi
-    die "--mode $mode takes the $2 on stdin, and nothing arrived"
+# refuse_empty_payload <file> <noun>: refuses the payload read into
+# <file> when it is empty. A review or a report with nothing in it is a
+# broken call; the records are not, since a round whose generator
+# emitted no theorems has none.
+refuse_empty_payload() {
+  [ -s "$1" ] && return 0
+  if [ -n "$from" ]; then
+    die "--mode $mode takes the $2 from --from, and $from is empty"
   fi
-  if [ "$mode" = leave ]; then
-    check_report_theorem "$work/payload"
-    check_report_ids "$work/payload"
-  fi
-  install_whole "$work/payload" "$1"
+  die "--mode $mode takes the $2 on stdin, and nothing arrived"
 }
 
 # A disprover's or verifier's report names the theorem it answers on its
@@ -1528,7 +1522,12 @@ case "$mode" in
     # The report is written before the record that names it, so a run
     # that dies between the two leaves the report readable rather than a
     # record pointing at nothing.
-    store_payload "$result_file" report
+    make_work
+    read_payload "$work/payload" report
+    refuse_empty_payload "$work/payload" report
+    check_report_theorem "$work/payload"
+    check_report_ids "$work/payload"
+    install_whole "$work/payload" "$result_file"
     printf 'leave %s %s %s %s %s\n' \
       "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
     # The path is printed only once both writes landed, so a child that
@@ -1629,7 +1628,13 @@ case "$mode" in
     ;;
   records)
     if [ -z "$carry" ]; then
-      store_payload "$records_file" records
+      # An empty payload is stored as it stands, so a round of a type no
+      # earlier round holds records for, whose generator emitted no
+      # theorems, still leaves a records file a later round of its type
+      # carries forward.
+      make_work
+      read_payload "$work/payload" records
+      install_whole "$work/payload" "$records_file"
     else
       # The carried round is the one below --round, so a resumed reviewer
       # whose earlier instance already stored this round's records
@@ -1638,10 +1643,9 @@ case "$mode" in
       records_below_round
       [ -n "$best" ] \
         || die "--carry found no round below --round $round under $pr_dir holding a records file of type $(round_type_of "$dir")"
-      # The new records may be empty, so the payload is read rather than
-      # stored through store_payload, which refuses an empty one. The
-      # result is built beside it and installed into the round's
-      # directory only once nothing refused it.
+      # The new records may be empty. The result is built beside them
+      # and installed into the round's directory only once nothing
+      # refused it.
       make_work
       read_payload "$work/new" "new records"
       build_carried_records "$best/records" "${edits:-/dev/null}" "$work/new" "$id_floor" > "$work/records" \
@@ -1651,7 +1655,10 @@ case "$mode" in
     fi
     ;;
   review)
-    store_payload "$review_file" review
+    make_work
+    read_payload "$work/payload" review
+    refuse_empty_payload "$work/payload" review
+    install_whole "$work/payload" "$review_file"
     ;;
   print-records)
     # The caller does not name the round to read, and which round wrote

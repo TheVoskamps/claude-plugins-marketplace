@@ -95,11 +95,13 @@ then Write again.
   with a message naming the path, before anything is written.
 - A `--from` file that exists but cannot be read is refused, non-zero,
   with a message naming that file.
-- An empty payload is refused either way, except by `records --carry`,
-  whose payload is only the round's new records, and by `next` and
-  `dispose`, which read the same. With no `--from`, empty stdin
-  gets `--mode <mode> takes the <noun> on stdin, and nothing arrived`;
-  an empty `--from` file gets a message naming that file.
+- An empty payload is refused either way by `review` and by `leave`,
+  the per-theorem report mode. With no `--from`, empty stdin gets
+  `--mode <mode> takes the <noun> on stdin, and nothing arrived`; an
+  empty `--from` file gets a message naming that file. `records` takes
+  an empty payload in both forms, since a round whose generator emitted
+  no theorems has no records to store, and so do `next` and `dispose`,
+  which read the same.
 - The file is read, never moved or removed: it stays where its writer
   put it.
 
@@ -397,11 +399,14 @@ derive.
   reviewer's on a round with nothing to carry. With `--carry`, below, it
   builds the file from the carried round: the reviewer's on every other
   round that reaches disposition, an empty-delta round included. In the
-  plain form empty input is refused, and in both the bytes land in a
-  staging name and are renamed into place only once whole, for the
-  reason `leave` gives: a reader takes the file's existence as the
-  round's records, and half a file would carry half a round's theorems
-  into the next round with nothing saying so.
+  plain form empty input is stored as an empty records file, so a round
+  of a type no round below holds records for, whose generator emitted no
+  theorems, still leaves records a later round of its type carries. In
+  both forms the bytes land in a staging name and are renamed into
+  place only once whole, for the reason `leave` gives: a reader takes
+  the file's existence as the round's records, and half a file would
+  carry half a round's theorems into the next round with nothing saying
+  so.
 
   A records file is a sequence of records in id order, separated by one
   blank line. Each opens with its id, `T<n>`, on a line of its own,
@@ -555,12 +560,12 @@ derive.
   that does not exist.
 
   **`delete` is the only mode that deletes stored state.** The one
-  thing any other mode removes is its own staging file, when `leave`,
-  `records` or `review` refuses its payload as empty or as a `--from`
-  file that could not be read, or `leave` refuses a report whose
-  `THEOREM:` line does not name `--theorem` or a theorem list whose ids
-  do not continue the carried records; `anchor` renames a voided round rather
-  than removing it.
+  thing any other mode removes is its own staging file, when `leave` or
+  `review` refuses its payload as empty, when `leave`, `records` or
+  `review` refuses a `--from` file that could not be read, or `leave`
+  refuses a report whose `THEOREM:` line does not name `--theorem` or
+  a theorem list whose ids do not continue the carried records;
+  `anchor` renames a voided round rather than removing it.
 
 The script stamps every record's time itself: the writer owns when the
 record was made.
