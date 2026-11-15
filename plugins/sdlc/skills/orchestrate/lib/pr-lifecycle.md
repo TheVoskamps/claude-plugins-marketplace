@@ -246,10 +246,10 @@ the commit SHA you pushed.
 Its commit opens the next round.
 
 **The loop ends** on a round whose review is APPROVED with no finding
-above Low and whose `docs-writer` report graded no criterion
-`not met`, or when the loop has run `docs-review-max-rounds` rounds
-with a finding above Low still open, which goes to the human in the
-final report; under `unlimited` it ends only on the first. Either way,
+and whose `docs-writer` report graded no criterion `not met`, or when
+the loop has run `docs-review-max-rounds` rounds with a finding of any
+severity still open, which goes to the human in the final report;
+under `unlimited` it ends only on the first. Either way,
 what moves the PR on from that end is in `skills/orchestrate/SKILL.md`
 → "Final Report".
 

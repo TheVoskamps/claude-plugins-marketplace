@@ -86,20 +86,28 @@ merge-poll-interval-seconds: 300
   is not below that floor. Every other budget line, a second one
   included, is outside its allowed values.
 - **`code-review-max-rounds`** — the most review rounds the code loop
-  runs per PR. `unlimited` runs the loop until the review approves.
+  runs per PR. `unlimited` runs the loop until a review approves with
+  no findings.
   `unlimited` is the one string allowed beside a positive integer; any
   other string is outside the allowed values, as `0`, a negative and a
   float are.
 - **`docs-review-max-rounds`** — the most review rounds the
   documentation loop runs per PR; no code-loop round counts against it.
-  Its values are `code-review-max-rounds`'s, and `unlimited` runs the
-  loop until the review approves.
+  Its values are `code-review-max-rounds`'s, applied to the
+  documentation loop.
 - **`loop-end`** — governs the code loop's end, before the
-  documentation loop starts. `ask` waits for the human's confirmation
-  that the loop is done. `auto-when-clean` ends a clean loop without
-  asking.
+  documentation loop starts, and has no effect on the documentation
+  loop's. `ask` waits for the human's confirmation, per PR, that the
+  loop is done and the PR is good enough to move forward.
+  `auto-when-clean` ends a clean loop with no question and starts the
+  next stage, because under that value the human confirmed every clean
+  end of the loop in advance. A loop's end is **clean** when its last
+  review round is APPROVED with no open finding of any severity. Every
+  other end still asks, under either value: a round at the loop's cap,
+  and a round the human's ruling ended.
 - **`docs-loop-end`** — governs the documentation loop's end, before
-  the merge stages and the ready flip. Its values are `loop-end`'s,
+  the merge stages and the ready flip, and has no effect on the code
+  loop's. Its values, and what a clean end is, are `loop-end`'s,
   applied to the documentation loop.
 
 ## Reading

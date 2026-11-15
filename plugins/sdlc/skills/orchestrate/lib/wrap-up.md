@@ -39,17 +39,12 @@ post-merge tail has run, deliver a summary:
 |-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
 | E | <link-prefix>107 | <PR4> | Approved | 1 code, 1 documentation | 0 | 0 | none |
 
-### Low Findings
-| Issue | PR | Finding | Ruled |
-|-------|----|---------|-------|
-| <link-prefix>101 | <PR1> | <the finding> | fixed in this PR |
-| <link-prefix>106 | <PR2> | <the finding>; ruling: <the sentence that settles it> | filed as a follow-up issue |
-
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
 | <link-prefix>102  | <PR3> | T14 (Critical) persists at the `code-review-max-rounds` cap: <the finding> |
 | <link-prefix>102  | <PR3> | T15 (Medium) persists at the `docs-review-max-rounds` cap: <the finding>; ruling: <the sentence that settles it> |
+| <link-prefix>102  | <PR3> | T16 (Low) persists at the `docs-review-max-rounds` cap: <the finding> |
 | <link-prefix>105  | —     | Dropped from batch C — needs a design decision its issue doesn't answer; not on <PR3>, still In Progress |
 
 ### Sequential Queue (not yet started)
@@ -68,14 +63,11 @@ Under `merge-wait: skip`, every PR the run flipped ready goes under
 unmerged, and nothing is watching it. Leave that table out when it has
 no rows.
 
-A **Low Findings** row records how its Low was ruled when it was put
-to the human before `pr-finalizer`, in the human's words: fixed in this
-PR, left as it is, or filed as a follow-up issue. The summary asks
-nothing about a Low. Leave the table out when it has no rows.
-
 A round-cap row names the key of the loop the finding persisted in:
 `code-review-max-rounds` for the code loop, `docs-review-max-rounds`
-for the documentation loop.
+for the documentation loop. Every finding still open at a cap gets
+one, a Low included; the summary lists no other Low, and asks nothing
+about one.
 
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop

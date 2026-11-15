@@ -840,19 +840,13 @@ PR. Never recommend a follow-up issue or leaving the defect, and give
 neither the round count nor the size of the PR as a reason for any
 recommendation about it.
 
-**If APPROVED with Low findings**: Put the Lows to the human before
-`pr-finalizer` is spawned, tagged by member and un-tiered, asking, for
-each Low, whether it is fixed in this PR, left as it is, or filed as a
-follow-up issue. A "filed as a follow-up issue" answer travels to
-`pr-finalizer` as a scope note. Spawn no fixer unless the human answers
-"fixed in this PR" for a Low — no loop runs for Lows alone otherwise;
-on that answer, run NEEDS_CHANGES steps 2 to 5 for the Lows so ruled,
-each line ending `— put to the human: <question> → fixed in this PR`.
-
 **If APPROVED with no findings**: No further action needed for this PR.
 
 **If NEEDS_CHANGES (any open Critical/High/Medium finding, on any
-member)**:
+member), or APPROVED with an open Low**, run the steps below. A Low is
+a finding like any other: it goes into the fixer brief under the same
+scope ruling, a round runs for Lows alone, and no question about a Low
+as such goes to the human.
 
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
@@ -973,16 +967,15 @@ member)**:
    new round's delta; a round in which the pick missed a defect the
    human caught is a reason to ask the human for a
    `--generator-effort` override, per "Overriding the generator tier".
-6. Repeat this loop until APPROVED or until the code loop has run
-   `code-review-max-rounds` rounds (see "Your own boundary" below);
-   under `unlimited`, until APPROVED.
-7. If findings above Low persist when `code-review-max-rounds` is
-   reached, escalate to
-   the human in the final report, listing each finding still open on
-   its own.
+6. Repeat this loop until a round is APPROVED with no findings or
+   until the code loop has run `code-review-max-rounds` rounds (see
+   "Your own boundary" below); under `unlimited`, until the first.
+7. If findings of any severity persist when `code-review-max-rounds`
+   is reached, escalate to the human in the final report, listing each
+   finding still open on its own, a Low included.
 
-**When every open Critical/High/Medium finding is ruled settled with
-no fix**, steps 2 to 4 do not run: no `issue-fixer` spawns on a brief
+**When every open finding is ruled settled with no fix**, steps 2 to 4
+do not run: no `issue-fixer` spawns on a brief
 with nothing to fix. Instead, post the round's review-adjustments
 comment and re-spawn the reviewer as step 5 says. That re-review
 posts a review, so it counts as a round against
@@ -1168,31 +1161,21 @@ otherwise:
 The code loop leaves each PR **draft** and every issue it closes
 **In Progress**, and so does the documentation loop that follows it; a
 documentation loop run on a `documentation loop needed` return leaves
-the PR's draft state and its issues' statuses as it found them. Each loop ends on
-the human's end-of-loop confirmation, per PR, that the loop is done and
-the PR is good enough to move forward — except a clean end of a loop
-whose key is `auto-when-clean`, which ends with no question and starts
-the next stage, because under that value the human confirmed every
-clean end of that loop in advance. `loop-end` governs the code loop's
-end and `docs-loop-end` the documentation loop's, and neither has any
-effect on the other loop's end.
-
-A loop's end is **clean** when its last review round is APPROVED with
-no open finding of any severity. Every other end still asks, under
-either value: an APPROVED round with an open Low, a round at the loop's
-cap — `code-review-max-rounds` or `docs-review-max-rounds` — and a
-round the human's ruling ended. Take the verdict and the
-open findings from the PR's stored round state, never from the
-reviewer's report:
+the PR's draft state and its issues' statuses as it found them. Each
+loop's end does what the resolved value of its key calls for, as
+`skills/lib/sdlc-config.md` defines that key: ask the human and wait,
+or start the next stage with no question. Read whether an end is clean
+off the PR's stored round state, never off the reviewer's report:
 
 ```bash
 sdlc-agent-result-persist --mode summary \
   --pr <PR_REF> --round <N>
 ```
 
-with `<N>` the loop's last round, per "Reading a round's detail". The
-end is clean when the output's `## Verdicts` overall line is APPROVED
-and its `## Findings` section reads `none`.
+with `<N>` the loop's last round, per "Reading a round's detail" —
+the verdict off the output's `## Verdicts` overall line, and the open
+findings off its `## Findings` section, which reads `none` when there
+are none.
 
 - **The code loop's end** starts the PR's documentation loop,
   per "The documentation loop", and nothing else. A batch with no code
@@ -1331,16 +1314,16 @@ definition, `CLAUDE.md` or global rules file already states.
   loop and `docs-review-max-rounds` for the documentation loop**,
   counted separately, so no code-loop round counts against the
   documentation loop's cap. A loop whose key is `unlimited` has no cap
-  and runs until the review approves. Escalate to the human after a
-  loop reaches its cap. A
-  round is one `theorem-based-pr-reviewer` spawn **that posted a
-  review**, however many children its fan-outs spawned and at whatever
-  generator tier. The `code-documenter` and `style-checker` passes are
-  not reviews, a style-fix round is counted by its own loop, and a
-  reviewer spawn that posted no review — an in-progress return, a
-  broken call, or no resolved issue set — is not a round; a spawn that
-  returned without a verdict block having posted a review anyway
-  counts, because the review is there.
+  and runs until a review approves with no findings. Escalate to the
+  human after a loop reaches its cap. A round is one
+  `theorem-based-pr-reviewer` spawn **that posted a review**, however
+  many children its fan-outs spawned and at whatever generator tier.
+  The `code-documenter` and `style-checker` passes are not reviews, a
+  style-fix round is counted by its own loop, and a reviewer spawn that
+  posted no review — an in-progress return, a broken call, or no
+  resolved issue set — is not a round; a spawn that returned without a
+  verdict block having posted a review anyway counts, because the
+  review is there.
 
 What you do yourself is orchestration mechanics:
 
