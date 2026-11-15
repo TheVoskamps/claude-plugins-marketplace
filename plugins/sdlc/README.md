@@ -85,7 +85,7 @@ the body, in one of two shapes:
 | `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
 | `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
-| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn on the human's confirmation that the documentation loop is done, the close-out, reopening the review loop after one, and the briefs for the two loop agents |
+| `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn once the documentation loop has ended, the close-out, reopening the review loop after one, and the briefs for the two loop agents |
 | `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
 
 A step the orchestrator runs is run by exactly one of the body, a lib
@@ -199,16 +199,45 @@ those stages or moves a remedy edits it here.
 
 ## The config lives in tiers no agent reads
 
-Two moments of the flow are waits on a human: the ruling on the seed
-theorem list before a batch's developer runs, and the monitor loop
-after a PR's ready flip. Those two, and the monitor's poll interval and
-unchanged-poll bound, are what sdlc's config turns — `seed-review`,
-`merge-wait`, `merge-poll-interval-seconds` and
-`merge-max-unchanged-polls`. One key belongs to no moment of the flow:
+Sdlc's config turns the flow's waits on a human and the bounds on its
+loops:
+
+- `seed-review` — the ruling on the seed theorem list before a batch's
+  developer runs.
+- `merge-wait`, `merge-poll-interval-seconds` and
+  `merge-max-unchanged-polls` — the monitor loop after a PR's ready
+  flip, its poll interval and its unchanged-poll bound.
+- `code-review-max-rounds` and `docs-review-max-rounds` — the most
+  review rounds the code loop and the documentation loop run per PR.
+  Each is a positive integer or `unlimited`, and defaults to `5`. The
+  loops count separately, so no code-loop round counts against
+  `docs-review-max-rounds`. A loop that reaches its cap escalates to
+  the human with every finding still open; under `unlimited` it has no
+  cap and runs until a review approves with no findings.
+- `loop-end` and `docs-loop-end` — whether a loop's end waits for the
+  human. `loop-end` governs the code loop's end, before the
+  documentation loop starts, and `docs-loop-end` the documentation
+  loop's end, before the merge stages and the ready flip. Each is `ask`
+  or `auto-when-clean`, defaults to `ask`, and has no effect on the
+  other loop's end, so the confirmation before the ready flip stays
+  until `docs-loop-end` is set too. `ask` waits for the human's
+  confirmation at every end of its loop. `auto-when-clean` skips that
+  confirmation for a clean end — a last review round that is APPROVED
+  with no open finding of any severity — and starts the next stage.
+  Every other end still asks, under either value: a loop at its round
+  cap, and a loop the human's ruling ended.
+
+That a loop ends only on the human's confirmation is a policy, and
+`auto-when-clean` is its one exception: under that value the human
+confirmed every clean end of the loop in advance. Whether an end is
+clean is read off the PR's stored round state, never off the reviewer's
+report, so the question is skipped only on a verdict the state holds.
+
+One key belongs to no moment of the flow:
 `reload-after-compact-token-budget` bounds how much text the
 `reload-after-compact` hook appends after a compaction. Every default
 is the unconfigured behaviour, so a repo with no config file at any
-tier waits for the ruling and monitors exactly as before the keys
+tier waits, monitors and caps its loops exactly as before the keys
 existed. A PR that adds a key edits this list.
 
 The config is three YAML files — a global user file outside every
@@ -341,9 +370,10 @@ leaves the compaction standing, with any reload message removed.
 
 ## A blessed PR is gated on merge readiness, and the gate never remedies
 
-The human's blessing — the confirmation that ends the PR's
-documentation loop — authorizes the ready flip and nothing past it,
-and the flip is not the next thing that happens. "Ready for review" is
+The human's blessing is the end of the PR's documentation loop: their
+confirmation of it, or, under `docs-loop-end: auto-when-clean`, a clean
+end they confirmed in advance. It authorizes the ready flip and nothing
+past it, and the flip is not the next thing that happens. "Ready for review" is
 a draft flag; it says nothing about whether the branch is current with
 its base, merges cleanly, or passes its required checks, and a final
 section written while the branch is behind its base describes commits
@@ -610,12 +640,13 @@ it once the code loop has ended — and until it had a loop of its own,
 nothing read what it wrote. A `## Documentation acceptance` criterion
 it missed, or a README restatement the change had made stale, reached
 the merge unchecked, and an issue whose criteria were all documentation
-had no path through the orchestrator at all. So the human's
-confirmation that the code loop is done starts a **documentation loop**
-rather than the close-out. It takes the code loop's round rules as they
-stand — the style-fix loop, the reviewer spawn and its `Return:` line,
-the fix loop's decision points, the review adjustments, the end-of-loop
-confirmation — with `docs-writer` as its implementer: it writes on the
+had no path through the orchestrator at all. So the code loop's end
+starts a **documentation loop** rather than the close-out. It takes the
+code loop's round rules as they stand — the style-fix loop, the
+reviewer spawn and its `Return:` line, the fix loop's decision points,
+the review adjustments — and its end follows `docs-loop-end` as the
+code loop's follows `loop-end`. Its implementer is `docs-writer`: it
+writes on the
 first round and, on each later one, fixes the fixer brief the
 orchestrator posts on the PR, read off the PR's most recent comment as
 `issue-fixer` reads its own. `code-documenter` does not run in it,
@@ -656,10 +687,10 @@ round no chain on the PR already covers, the
 time report names the type on every round's row, and `pr-finalizer`
 writes one sub-section per type.
 
-**A bound per loop.** The documentation loop's round bound is the code
-loop's value, counted on its own, so a PR that spent its code rounds
-still gets its documentation rounds; the summary's `Review Rounds`
-cell carries each loop's count.
+**A bound per loop.** The documentation loop's round bound is a key of
+its own, `docs-review-max-rounds`, counted on its own, so a PR that
+spent its code rounds still gets its documentation rounds; the
+summary's `Review Rounds` cell carries each loop's count.
 
 **`docs-writer` grades the criteria, and the grade can be a finding.**
 Its report marks each criterion in its brief `met` or
