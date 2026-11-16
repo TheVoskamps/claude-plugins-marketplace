@@ -449,14 +449,13 @@ cmd_release() {
 # without running `release`: detach that worktree's HEAD, delete the
 # local <branch> and its recorded tip, and print the holder's path, or
 # nothing when no worktree held it. Exits 14, changing nothing, when the
-# work on <branch> is unfinished — the holder is mid-rebase or dirty
-# outside the paths each --exclude <pathspec> matches, relative to its
-# top level, or the local branch has commits origin/<branch> lacks —
-# whatever --holder-ended says, and a holder git cannot be run in as
-# itself, as worktree_gitdir decides, is never mid-rebase or dirty; and
-# 15 when the holder's lock names a
-# running process and --holder-ended is absent. Removes no worktree and
-# no lock.
+# work on <branch> is unfinished, whatever --holder-ended says: the
+# holder is mid-rebase or dirty outside the paths each --exclude
+# <pathspec> matches, relative to its top level, or the local branch has
+# commits origin/<branch> lacks. A holder git cannot be run in as itself,
+# as worktree_gitdir decides, is never mid-rebase or dirty. Exits 15,
+# changing nothing, when the holder's lock names a running process and
+# --holder-ended is absent. Removes no worktree and no lock.
 cmd_reclaim() {
   local branch="" ended="" local_tip remote found="" dirty where gitdir admin
   local -a excludes=()
