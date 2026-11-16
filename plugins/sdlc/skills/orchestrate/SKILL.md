@@ -109,7 +109,8 @@ Every teammate but `pr-merge-readiness` and `pr-monitor` declares
 one's worktree under `.claude/worktrees/` and starts the subagent
 inside it. You don't manage worktree paths and you never pass them in
 spawn prompts. Those two run in the primary clone and write nothing to
-it.
+it but the refs a `git-branch-sync reclaim` of `pr-merge-readiness`'s
+fetches or deletes.
 
 **Record every agent you spawn for a PR** in its state, as soon as the
 spawn's `Agent` tool result names its agent id and the PR has a
@@ -1126,6 +1127,26 @@ When a teammate escalates:
    escalated one, with any ruling in its brief: resume inherits
    whatever environmental state caused the escalation.
 
+#### A checkout refused because another worktree holds the branch
+
+A teammate that reports exit 13 from `git-branch-sync checkout` found
+its branch claimed by a worktree whose agent never released it. That
+is not a question, and steps 1 to 3 above do not run for it. Run, in
+the primary clone:
+
+```bash
+git-branch-sync reclaim --exclude .claude/agent-memory/ <branch-name>
+```
+
+Add `--holder-ended` only when you know the holder's agent has ended:
+the holder's path, which the exit-13 line names, ends in
+`agent-<id>`, and that id is an agent you spawned whose `Agent` call
+has returned or whose `<task-notification>` has arrived. On exit 0,
+re-spawn the reporting agent fresh with the brief it had, once. A
+second exit 13 from that agent, or a `reclaim` that exits non-zero, is
+a **Needs Your Attention** row carrying the teammate's report and the
+`reclaim` output verbatim, and nothing more is spawned for the PR.
+
 #### A dropped batch member
 
 An `issue-developer`'s drop protocol — a member it stopped working
@@ -1305,7 +1326,11 @@ definition, `CLAUDE.md` or global rules file already states.
   from a commit message. The PR body's closing lines are the one place
   they belong, and `/pr-link-issue` writes those.
 - **Never repair an escalating teammate's environment** — worktree,
-  lock, branch claim, in-flight commits — on your own.
+  lock, branch claim, in-flight commits — on your own. The one
+  exception is `git-branch-sync reclaim` on a branch claim, per "A
+  checkout refused because another worktree holds the branch":
+  `reclaim` refuses to discard unfinished work, so releasing a dead
+  agent's claim makes no decision that belongs to the human.
 - **Never regroup a batch after its developer has spawned.** Grouping
   is settled at the Discovery and Planning confirm step; once a branch
   carries commits and a PR, the only way a member leaves the batch is
@@ -1331,10 +1356,12 @@ What you do yourself is orchestration mechanics:
   `git log`, `git diff`, file reads. Reading is planning, and what it
   turns up stays yours.
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
-  long-lived branches the primary clone tracks, and `git push` of a
-  commit an agent authored but could not push. Branch and worktree
-  removal is not on this list: the post-merge tail's
-  `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
+  long-lived branches the primary clone tracks, `git push` of a commit
+  an agent authored but could not push, and `git-branch-sync reclaim`
+  on a branch a teammate's checkout found held. Branch and worktree
+  removal is not on this list, beyond the local branch `reclaim`
+  deletes so a teammate can check the branch out again: the post-merge
+  tail's `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's review
   adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write

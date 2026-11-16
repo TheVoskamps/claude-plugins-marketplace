@@ -1,6 +1,6 @@
 ---
 name: git-branch-sync
-description: Run the fixed git steps around work on an existing branch — check it out fast-forward only and record the remote tip it saw, rebase it onto origin/<base>, finish or abort a rebase stopped on conflicts, push it against that recorded tip (refusing a branch behind it, with a lease exactly when it is not an ancestor of HEAD) and verify the push landed, and release the local branch and its record at the end of a run. Resolving a conflict stays with the caller.
+description: Run the fixed git steps around work on an existing branch — check it out fast-forward only and record the remote tip it saw, rebase it onto origin/<base>, finish or abort a rebase stopped on conflicts, push it against that recorded tip (refusing a branch behind it, with a lease exactly when it is not an ancestor of HEAD) and verify the push landed, release the local branch and its record at the end of a run, and reclaim a branch another worktree still holds after its agent ended, refusing while that work is unfinished or the holder's lock names a running process. Resolving a conflict stays with the caller.
 ---
 
 # Git Branch Sync
@@ -27,6 +27,7 @@ git-branch-sync continue <path>…
 git-branch-sync abort
 git-branch-sync push [--exclude <pathspec>]…
 git-branch-sync release <branch>
+git-branch-sync reclaim [--holder-ended] [--exclude <pathspec>]… <branch>
 ```
 
 No subcommand ever opens an editor.
@@ -39,7 +40,9 @@ No subcommand ever opens an editor.
   of `origin/<branch>` is checked out as it is. It then records the
   `origin/<branch>` tip it saw in the ref
   `refs/git-branch-sync/<branch>`, the recorded tip `push` decides
-  against.
+  against. When another worktree holds `<branch>` — has it checked out,
+  or is rebasing it — it exits 13 naming that worktree's path, and
+  checks out and records nothing.
 - **`rebase <base>`** — fetches `origin` and rebases the current branch
   onto `origin/<base>`. It leaves the recorded tip alone.
 - **`continue <path>…`** — stages the given paths, then commits the
@@ -75,19 +78,42 @@ No subcommand ever opens an editor.
   otherwise keeps every other worktree from checking the branch out. It
   deletes whatever the branch holds: run it only once the branch's work
   is pushed, or when there was none.
+- **`reclaim [--holder-ended] [--exclude <pathspec>]… <branch>`** —
+  releases the claim a worktree whose agent ended without `release`
+  still holds. It fetches `origin` and finds the holder: the worktree
+  that has `<branch>` checked out, or is rebasing it. Then, in order:
+  1. When the holder is mid-rebase, or has uncommitted changes outside
+     the paths `--exclude` matches, relative to the holder's top level,
+     or the local `<branch>` has commits `origin/<branch>` lacks — with
+     or without a holder — it exits 14 and changes nothing.
+  2. When the holder's lock reads `claude agent agent-<id> (pid <pid>
+     start <date>)` and `<pid>` is a running process whose start time
+     equals `<date>`, runs of spaces collapsed, and `--holder-ended` is
+     absent, it exits 15 and changes nothing. No lock, a lock in any
+     other form, or a PID that is gone or started at another time is no
+     evidence of life.
+  3. Otherwise it detaches the holder's HEAD, deletes the local
+     `<branch>` and its recorded tip, and prints the holder's path, or
+     nothing when no worktree held the branch.
+
+  `--holder-ended` asserts that the caller knows the holder's agent has
+  ended; it overrides step 2 and never step 1, since a live PID names
+  the session that spawned the agent, and an agent can die inside a
+  live session. It removes no worktree and no lock.
 
 ## Exit status
 
 Each status below is produced by exactly the condition it names, with
 the stderr line shown, prefixed with the program's name and a colon.
 Stdout is empty
-on every status but 3.
+on every status but 3, and on a `reclaim` exit 0 that released a holder,
+where it is the holder's path.
 
 | Exit | Condition | Stderr |
 | --- | --- | --- |
 | 0 | success | — |
 | 1 | a failure the script did not classify, such as a failed fetch, no `origin/<branch>` on `checkout` or `origin/<base>` on `rebase`, a dirty tree blocking a checkout, or a push the remote refused for its own reason; git's own status is never passed through | names the failed command or condition |
-| 2 | usage error: an unknown subcommand, or a missing or extra argument; nothing was run | `` `<subcommand>` is not a subcommand git-branch-sync takes. ``, `` `<subcommand>` takes <n> argument(s), not <m>. ``, `` `continue` needs at least one resolved path. ``, `` `--exclude` needs a pathspec. ``, `` `push` takes no argument `<argument>`. `` or `No subcommand was supplied.`, then the synopsis |
+| 2 | usage error: an unknown subcommand, or a missing or extra argument; nothing was run | `` `<subcommand>` is not a subcommand git-branch-sync takes. ``, `` `<subcommand>` takes <n> argument(s), not <m>. ``, `` `continue` needs at least one resolved path. ``, `` `--exclude` needs a pathspec. ``, `` `push` takes no argument `<argument>`. ``, `` `reclaim` takes no option `<option>`. `` or `No subcommand was supplied.`, then the synopsis |
 | 3 | `rebase` or `continue`: the rebase stopped on conflicts. Stdout is the conflicted paths, one per line, verbatim and unquoted, and nothing else | `the rebase stopped on conflicts in the paths on stdout` |
 | 4 | `checkout`: the local branch has diverged from `origin/<branch>`; nothing was checked out, reset or recorded | `local <branch> (<sha>) has diverged from origin/<branch> (<sha>); nothing was reset` |
 | 5 | `continue`: a conflicted path remains unresolved after staging the given paths; nothing was committed | the unresolved paths, one per line, then `a conflicted path is still unresolved: the paths above` |
@@ -98,6 +124,9 @@ on every status but 3.
 | 10 | `push`: verification failed, the working tree is dirty outside the paths `--exclude` matches | `the working tree is dirty after the push` |
 | 11 | `push`: the local branch is behind the recorded tip — HEAD is a strict ancestor of it; nothing was pushed | `local <branch> (<sha>) is behind its recorded tip (<sha>); nothing was pushed` |
 | 12 | `push`: no tip is recorded for the branch — `checkout` did not run in this clone; nothing was pushed | `` no tip is recorded for <branch>: run `checkout <branch>` first; nothing was pushed `` |
+| 13 | `checkout`: another worktree holds the branch — has it checked out or is rebasing it; nothing was checked out or recorded | `<branch> is held by the worktree at <path>` |
+| 14 | `reclaim`: the branch carries unfinished work — the holder is mid-rebase or has uncommitted changes outside the paths `--exclude` matches, or the local branch has commits `origin/<branch>` lacks; nothing was changed, whatever `--holder-ended` says | `<branch>, held by the worktree at <path>, has unfinished work: <what it found>; nothing was changed`, or `held by no worktree` in place of the holder |
+| 15 | `reclaim`: the holder's lock names a running process with a matching start time, and `--holder-ended` is absent; nothing was changed | `<branch> is held by the worktree at <path>, whose lock names the running process <pid>; nothing was changed` |
 
 On 3 the rebase is still in progress: resolve the paths and run
 `continue`, or run `abort`. On 5 the given paths stay staged and the

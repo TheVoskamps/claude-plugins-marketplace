@@ -137,6 +137,10 @@ usage_case push x
 usage_case push --exclude
 usage_case push --exclude a x
 usage_case release
+usage_case reclaim
+usage_case reclaim a b
+usage_case reclaim --exclude
+usage_case reclaim --bogus a
 
 # --- push before any checkout -----------------------------------------------
 : >"$PUSH_LOG"
@@ -565,6 +569,146 @@ check "$(recorded feature)" "none" "release: the recorded tip is deleted"
 git -C "$CLONE" checkout -q -b unrecorded
 branch_sync release unrecorded
 check "$RC" "0" "release with no recorded tip: exit 0"
+
+# --- a branch another worktree holds ----------------------------------------
+# A linked worktree of the clone plays the dead agent's, holding `claimed`.
+git -C "$SEED" checkout -q main
+git -C "$SEED" checkout -q -b claimed
+commit_file "$SEED" claimed1.txt "c1" "claimed one" >/dev/null
+CLAIMED=$(commit_file "$SEED" claimed2.txt "c2" "claimed two")
+git -C "$SEED" push -q origin claimed
+git -C "$CLONE" checkout -q --detach
+git -C "$CLONE" fetch -q origin
+HOLDER="$SANDBOX/holder"
+git -C "$CLONE" worktree add -q "$HOLDER" -b claimed refs/remotes/origin/claimed
+git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+
+# A process that stays running, its start time as the harness writes it
+# — in UTC — with runs of spaces collapsed, and one that has ended. The running one is started
+# from a subshell, so it is no job of this shell's and killing it prints
+# no job notice.
+LIVE=$(
+  sleep 600 >/dev/null 2>&1 &
+  echo "$!"
+)
+trap 'kill "$LIVE" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
+LIVE_START=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$LIVE" | tr -s ' ')
+sleep 0 &
+GONE=$!
+wait "$GONE"
+
+# claim -- put the holder back on `claimed` at origin's tip, clean, with
+# the tip recorded and no lock.
+claim() {
+  git -C "$HOLDER" rebase --abort 2>/dev/null
+  git -C "$HOLDER" checkout -q -B claimed refs/remotes/origin/claimed
+  git -C "$HOLDER" clean -q -f -d
+  git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+  git -C "$CLONE" worktree unlock "$HOLDER" 2>/dev/null
+}
+# lock_holder <reason> -- lock the holder's worktree with <reason>.
+lock_holder() { git -C "$CLONE" worktree lock --reason "$1" "$HOLDER"; }
+holder_branch() { git -C "$HOLDER" branch --show-current; }
+local_claimed() { git -C "$CLONE" rev-parse -q --verify refs/heads/claimed || echo gone; }
+canonical() { (cd "$1" && pwd -P); }
+
+# unchanged <label> -- check that a refused reclaim left the claim whole.
+unchanged() {
+  check "$(holder_branch)" "claimed" "$1: the holder keeps the branch"
+  check "$(local_claimed)" "$CLAIMED" "$1: the local branch is kept"
+  check "$(recorded claimed)" "$CLAIMED" "$1: the recorded tip is kept"
+}
+
+branch_sync checkout claimed
+check "$RC" "13" "checkout of a held branch: exit 13"
+check_contains "$ERR" "claimed is held by the worktree at" "checkout of a held branch: stderr names the holder"
+check_contains "$ERR" "/holder" "checkout of a held branch: stderr carries the holder's path"
+check "$(git -C "$CLONE" branch --show-current)" "" "checkout of a held branch: nothing was checked out"
+check "$(recorded claimed)" "$CLAIMED" "checkout of a held branch: nothing was recorded"
+
+claim
+printf 'dirty\n' >>"$HOLDER/claimed1.txt"
+branch_sync reclaim claimed
+check "$RC:$OUT" "14:" "reclaim, holder dirty: exit 14"
+check_contains "$ERR" "uncommitted changes" "reclaim, holder dirty: stderr names what it found"
+check_contains "$ERR" "/holder" "reclaim, holder dirty: stderr names the holder's path"
+unchanged "reclaim, holder dirty"
+branch_sync reclaim --holder-ended claimed
+check "$RC" "14" "reclaim --holder-ended, holder dirty: exit 14"
+unchanged "reclaim --holder-ended, holder dirty"
+git -C "$HOLDER" checkout -q -- claimed1.txt
+
+claim
+commit_file "$HOLDER" unpushed.txt "u" "unpushed" >/dev/null
+UNPUSHED=$(git -C "$HOLDER" rev-parse HEAD)
+branch_sync reclaim --holder-ended claimed
+check "$RC" "14" "reclaim, unpushed commits: exit 14"
+check_contains "$ERR" "commits origin/claimed lacks" "reclaim, unpushed commits: stderr names what it found"
+check "$(holder_branch):$(local_claimed)" "claimed:$UNPUSHED" "reclaim, unpushed commits: nothing was changed"
+
+claim
+git -C "$HOLDER" rebase -q -x false HEAD~1 >/dev/null 2>&1
+check "$(holder_branch)" "" "mid-rebase setup: the holder is detached"
+branch_sync checkout claimed
+check "$RC" "13" "checkout of a branch a worktree is rebasing: exit 13"
+branch_sync reclaim --holder-ended claimed
+check "$RC" "14" "reclaim, holder mid-rebase: exit 14"
+check_contains "$ERR" "a rebase in progress" "reclaim, holder mid-rebase: stderr names what it found"
+check "$(local_claimed):$(recorded claimed)" "$CLAIMED:$CLAIMED" "reclaim, holder mid-rebase: nothing was changed"
+check "$([ -d "$(git -C "$HOLDER" rev-parse --absolute-git-dir)/rebase-merge" ] && echo yes)" "yes" \
+  "reclaim, holder mid-rebase: the rebase is still in progress"
+
+claim
+lock_holder "claude agent agent-live (pid $LIVE start $LIVE_START)"
+# Run in a zone five hours off UTC, so a local-time comparison would miss.
+TZ=Etc/GMT+5 branch_sync reclaim claimed
+check "$RC:$OUT" "15:" "reclaim, holder's lock names a running process: exit 15"
+check_contains "$ERR" "running process $LIVE" "reclaim, live lock: stderr names the PID"
+check_contains "$ERR" "/holder" "reclaim, live lock: stderr names the holder's path"
+unchanged "reclaim, live lock"
+branch_sync reclaim --holder-ended claimed
+check "$RC" "0" "reclaim --holder-ended, live lock: exit 0"
+check "$(canonical "$OUT")" "$(canonical "$HOLDER")" "reclaim --holder-ended, live lock: stdout is the holder's path"
+check_contains "$(git -C "$CLONE" worktree list --porcelain)" "locked claude agent agent-live" \
+  "reclaim --holder-ended, live lock: the lock is kept"
+
+claim
+lock_holder "claude agent agent-gone (pid $GONE start $LIVE_START)"
+branch_sync reclaim claimed
+check "$RC" "0" "reclaim, lock names a PID that is gone: exit 0"
+
+claim
+lock_holder "claude agent agent-other (pid $LIVE start Thu Jan  1 00:00:00 1970)"
+branch_sync reclaim claimed
+check "$RC" "0" "reclaim, lock's start time differs: exit 0"
+
+claim
+mkdir -p "$HOLDER/.claude/agent-memory"
+printf 'entry\n' >"$HOLDER/.claude/agent-memory/x.md"
+branch_sync reclaim claimed
+check "$RC" "14" "reclaim, holder dirty only under agent memory, no --exclude: exit 14"
+branch_sync reclaim --exclude .claude/agent-memory/ claimed
+check "$RC" "0" "reclaim, no lock, dirty only under the excluded path: exit 0"
+check "$(canonical "$OUT")" "$(canonical "$HOLDER")" "reclaim: stdout is the holder's path"
+check "$(holder_branch)" "" "reclaim: the holder's HEAD is detached"
+check "$(local_claimed)" "gone" "reclaim: the local branch is deleted"
+check "$(recorded claimed)" "none" "reclaim: the recorded tip is deleted"
+check "$([ -d "$HOLDER" ] && echo kept)" "kept" "reclaim: the holder's worktree is kept"
+branch_sync checkout claimed
+check "$RC:$(git -C "$CLONE" branch --show-current)" "0:claimed" "after reclaim: checkout in another worktree succeeds"
+
+# No worktree holds the branch: a local copy and a record are let go.
+git -C "$CLONE" checkout -q --detach
+git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+branch_sync reclaim claimed
+check "$RC:$OUT" "0:" "reclaim, no holder: exit 0, nothing on stdout"
+check "$(local_claimed):$(recorded claimed)" "gone:none" "reclaim, no holder: the local branch and record are deleted"
+
+git -C "$CLONE" branch -q claimed "$UNPUSHED"
+branch_sync reclaim claimed
+check "$RC" "14" "reclaim, no holder, unpushed commits: exit 14"
+check_contains "$ERR" "held by no worktree" "reclaim, no holder, unpushed commits: stderr says no worktree holds it"
+check "$(local_claimed)" "$UNPUSHED" "reclaim, no holder, unpushed commits: the local branch is kept"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
