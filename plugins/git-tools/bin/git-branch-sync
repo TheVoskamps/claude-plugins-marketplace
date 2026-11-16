@@ -176,10 +176,9 @@ holder_block() {
     HOLDER=$path HOLDER_LOCK=$lock
     return 0
   fi
-  [ -d "$path" ] || return 0
-  # A worktree whose .git file names a gitdir that is gone is not entered
-  # for its rebase state, as one whose directory is gone is not.
-  gitdir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null || true)
+  # A worktree git cannot be run in as itself is not entered for its
+  # rebase state.
+  gitdir=$(worktree_gitdir "$path") || exit
   [ -n "$gitdir" ] || return 0
   for state in rebase-merge rebase-apply; do
     if [ -f "$gitdir/$state/head-name" ] && [ "$(cat "$gitdir/$state/head-name")" = "$want" ]; then
@@ -194,6 +193,16 @@ holder_block() {
 # names <path>/.git, or exit 1 when none does. It is read from the
 # repository's side, so it is found when <path> itself is gone.
 admin_dir() {
+  local admin
+  admin=$(find_admin_dir "$1") || exit
+  [ -n "$admin" ] ||
+    fail 1 "no administrative directory under $(git rev-parse --path-format=absolute --git-common-dir)/worktrees names the worktree at $1"
+  printf '%s\n' "$admin"
+}
+
+# find_admin_dir <path> -- print the administrative directory admin_dir
+# describes, or nothing when none names <path>.
+find_admin_dir() {
   local common entry
   common=$(git rev-parse --path-format=absolute --git-common-dir)
   for entry in "$common"/worktrees/*/gitdir; do
@@ -202,7 +211,33 @@ admin_dir() {
       return 0
     fi
   done
-  fail 1 "no administrative directory under $common/worktrees names the worktree at $1"
+}
+
+# worktree_gitdir <path> -- print the git dir of the worktree at <path>
+# when `git -C <path>` resolves to that worktree itself: the top level it
+# reports is <path>, and the git dir it reports is <path>'s own — the
+# common git dir for the main worktree, its administrative directory for
+# a linked one. Print nothing otherwise: when <path> is gone, when its
+# .git names a gitdir that is gone, or when its .git is missing and git
+# resolves to a repository enclosing <path>.
+worktree_gitdir() {
+  local path=$1 top gitdir own list main
+  [ -d "$path" ] || return 0
+  top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] && [ "$(canonical "$top")" = "$(canonical "$path")" ] || return 0
+  gitdir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null || true)
+  [ -n "$gitdir" ] || return 0
+  # The main worktree is the first `git worktree list` names.
+  list=$(git worktree list --porcelain)
+  main=${list%%$'\n'*}
+  main=${main#worktree }
+  if [ "$(canonical "$main")" = "$(canonical "$path")" ]; then
+    own=$(git rev-parse --path-format=absolute --git-common-dir)
+  else
+    own=$(find_admin_dir "$path") || exit
+  fi
+  [ -n "$own" ] && [ "$(canonical "$gitdir")" = "$(canonical "$own")" ] || return 0
+  printf '%s\n' "$gitdir"
 }
 
 # squeeze <text> -- print <text> with each run of spaces collapsed to one
@@ -417,9 +452,9 @@ cmd_release() {
 # work on <branch> is unfinished — the holder is mid-rebase or dirty
 # outside the paths each --exclude <pathspec> matches, relative to its
 # top level, or the local branch has commits origin/<branch> lacks —
-# whatever --holder-ended says, and a holder whose directory is gone, or
-# whose .git file names a gitdir that is gone, is never mid-rebase or
-# dirty; and 15 when the holder's lock names a
+# whatever --holder-ended says, and a holder git cannot be run in as
+# itself, as worktree_gitdir decides, is never mid-rebase or dirty; and
+# 15 when the holder's lock names a
 # running process and --holder-ended is absent. Removes no worktree and
 # no lock.
 cmd_reclaim() {
@@ -448,13 +483,12 @@ cmd_reclaim() {
   git fetch -q origin || fail 1 "git fetch origin failed"
   find_holder "$branch"
   gitdir=""
-  if [ -n "$HOLDER" ] && [ -d "$HOLDER" ]; then
-    gitdir=$(git -C "$HOLDER" rev-parse --absolute-git-dir 2>/dev/null || true)
+  if [ -n "$HOLDER" ]; then
+    gitdir=$(worktree_gitdir "$HOLDER") || exit
   fi
   if [ -n "$HOLDER" ] && [ -z "$gitdir" ]; then
-    # A holder whose directory is gone, or whose .git file names a gitdir
-    # that is gone, has no working tree left to be dirty or mid-rebase
-    # in; only the commits check below applies.
+    # A holder git cannot be run in as itself has no working tree left to
+    # be dirty or mid-rebase in; only the commits check below applies.
     where="held by the worktree at $HOLDER"
   elif [ -n "$HOLDER" ]; then
     where="held by the worktree at $HOLDER"

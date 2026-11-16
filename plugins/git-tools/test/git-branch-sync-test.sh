@@ -774,6 +774,30 @@ branch_sync checkout claimed
 check "$RC:$(git -C "$CLONE" branch --show-current)" "0:claimed" \
   "after reclaim of a holder whose gitdir is missing: checkout succeeds"
 
+# --- a holder inside the clone whose .git is missing ------------------------
+# As an agent's worktree sits under .claude/worktrees/ in the primary
+# clone, ignored there: with its .git file gone, git run in it resolves
+# to the clone, which reclaim must neither probe nor detach.
+git -C "$CLONE" checkout -q feature
+git -C "$CLONE" branch -q -D claimed
+printf '.claude/\n' >>"$CLONE/.git/info/exclude"
+NESTED="$CLONE/.claude/worktrees/nested-holder"
+git -C "$CLONE" worktree add -q "$NESTED" -b claimed refs/remotes/origin/claimed
+git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+NESTED_ADMIN=$(git -C "$NESTED" rev-parse --absolute-git-dir)
+rm "$NESTED/.git"
+branch_sync checkout claimed
+check "$RC:$(git -C "$CLONE" branch --show-current)" "13:feature" "checkout, holder's .git missing: exit 13"
+branch_sync reclaim claimed
+check "$RC" "0" "reclaim, holder's .git missing: exit 0"
+check "$(canonical "$OUT")" "$(canonical "$NESTED")" "reclaim, holder's .git missing: stdout is the holder's path"
+check "$(git -C "$CLONE" branch --show-current)" "feature" \
+  "reclaim, holder's .git missing: the enclosing clone keeps its branch"
+check "$(git --git-dir="$NESTED_ADMIN" symbolic-ref -q HEAD || echo detached)" "detached" \
+  "reclaim, holder's .git missing: the holder's HEAD is detached"
+check "$(local_claimed):$(recorded claimed)" "gone:none" \
+  "reclaim, holder's .git missing: the local branch and record are deleted"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all passed"
