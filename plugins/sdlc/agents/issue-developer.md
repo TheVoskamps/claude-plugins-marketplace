@@ -1,6 +1,6 @@
 ---
 name: issue-developer
-description: Implements a batch of one or more issues on a single branch, runs tests, makes one commit per issue, pushes, and creates one PR closing them all. Use this for initial implementation of each batch.
+description: Implements a batch of one or more issues on a single branch, runs tests, makes one commit per issue, pushes, and creates one PR closing them all. Use this for initial implementation of each batch. Briefed with an approved resolving install, it stops after pushing the manifest changes, opening no PR, so the install can run; briefed with a branch to continue on, it checks that branch out instead of creating one and carries on from its commits.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
