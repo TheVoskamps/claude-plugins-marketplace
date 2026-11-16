@@ -86,7 +86,8 @@ No subcommand ever opens an editor.
      the paths `--exclude` matches, relative to the holder's top level,
      or the local `<branch>` has commits `origin/<branch>` lacks — with
      or without a holder — it exits 14 and changes nothing. A holder
-     whose directory is gone is never mid-rebase or dirty.
+     whose directory is gone, or whose `.git` file names a gitdir that
+     is gone, has no working tree, so it is never mid-rebase or dirty.
   2. When the holder's lock reads `claude agent agent-<id> (pid <pid>
      start <date>)` and `<pid>` is a running process whose start time
      equals `<date>`, runs of spaces collapsed, and `--holder-ended` is
@@ -94,7 +95,7 @@ No subcommand ever opens an editor.
      other form, or a PID that is gone or started at another time is no
      evidence of life.
   3. Otherwise it detaches the holder's HEAD — through the worktree's
-     administrative directory when its directory is gone — deletes the
+     administrative directory when it has no working tree — deletes the
      local `<branch>` and its recorded tip, and prints the holder's path,
      or nothing when no worktree held the branch.
 

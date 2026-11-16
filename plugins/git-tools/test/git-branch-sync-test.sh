@@ -748,6 +748,32 @@ branch_sync checkout feature
 check "$RC:$(git -C "$CLONE" branch --show-current)" "0:feature" \
   "checkout past a worktree whose gitdir is missing: exit 0"
 
+# A holder of `claimed` whose .git file names a missing gitdir: first
+# with a commit origin lacks, then with that commit dropped.
+git -C "$CLONE" checkout -q --detach
+git -C "$CLONE" branch -q -D claimed
+BROKEN_HOLDER="$SANDBOX/broken-holder"
+git -C "$CLONE" worktree add -q "$BROKEN_HOLDER" -b claimed refs/remotes/origin/claimed
+git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+commit_file "$BROKEN_HOLDER" stranded.txt "stranded" "stranded" >/dev/null
+STRANDED=$(git -C "$BROKEN_HOLDER" rev-parse HEAD)
+printf 'gitdir: %s\n' "$SANDBOX/nowhere" >"$BROKEN_HOLDER/.git"
+branch_sync reclaim claimed
+check "$RC:$OUT" "14:" "reclaim, holder's gitdir missing, unpushed commits: exit 14"
+check_contains "$ERR" "commits origin/claimed lacks" "reclaim, holder's gitdir missing: stderr names the commits"
+check "$(local_claimed):$(recorded claimed)" "$STRANDED:$CLAIMED" \
+  "reclaim, holder's gitdir missing, unpushed commits: nothing was changed"
+git -C "$CLONE" update-ref refs/heads/claimed "$CLAIMED"
+branch_sync reclaim claimed
+check "$RC" "0" "reclaim, holder's gitdir missing: exit 0"
+check_contains "$OUT" "/broken-holder" "reclaim, holder's gitdir missing: stdout is the holder's path"
+check "$(local_claimed):$(recorded claimed)" "gone:none" \
+  "reclaim, holder's gitdir missing: the local branch and record are deleted"
+check "$([ -d "$BROKEN_HOLDER" ] && echo kept)" "kept" "reclaim, holder's gitdir missing: the holder's directory is kept"
+branch_sync checkout claimed
+check "$RC:$(git -C "$CLONE" branch --show-current)" "0:claimed" \
+  "after reclaim of a holder whose gitdir is missing: checkout succeeds"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all passed"
