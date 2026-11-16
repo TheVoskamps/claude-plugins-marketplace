@@ -58,6 +58,11 @@ You must be given:
   the grouping criteria the orchestrator applied. It is context for
   scope calls — which shared surface the members are expected to
   collide on — not an instruction.
+- **An approved resolving install**, when the batch's change
+  regenerates a lockfile: the command and the directory the human
+  approved at plan time, per "The approved resolving install" below.
+- **A branch to continue on**, when an earlier developer stopped for
+  that install and the orchestrator has since run it on the branch.
 
 Nothing of the issues' *content* is an input. You read each issue
 yourself in step 1, and you derive the files a fix touches yourself;
@@ -102,6 +107,17 @@ owns — but never a finding, a location, or an implementation shape.
    branch; `/git-tools:git-branch-create` switches you off of it onto
    `<branch-name>`.
 
+   Given a branch to continue on, create none: check that branch out
+   instead, and it is `<branch-name>`:
+
+   ```bash
+   git-branch-sync checkout <branch-name>
+   ```
+
+   The commits already on it are the batch's work so far, the
+   install's lockfile commit among them; read them before step 4, and
+   carry on from where they stop.
+
 3. Read relevant files before changing anything.
 
 4. **Work the issues one at a time, in the order given.** For each
@@ -121,6 +137,10 @@ owns — but never a finding, a location, or an implementation shape.
 
    Do not interleave members. Finish and commit one before starting
    the next, so the commit boundary stays honest.
+
+   Briefed with an approved resolving install, stop at the checkpoint
+   "The approved resolving install" below describes, once the
+   manifest changes are made.
 
 5. Build and lint what you changed, with the project's own commands —
    the ones its `CLAUDE.md`, package scripts, or tool config declare,
@@ -283,6 +303,22 @@ The batch does not die with the member. The default remedy:
 
 Report the drop even if you finish everything else successfully — the
 decision is the human's, and the report is how it reaches them.
+
+## The approved resolving install
+
+The orchestrator runs the install the human approved, not you. Briefed
+with one:
+
+1. Make the manifest changes the batch needs, and commit them per
+   step 7 as the work of the member they belong to. Steps 5 and 6 wait
+   for the developer that continues after the install.
+2. Push the branch, then run step 11. Skip step 12: the orchestrator
+   runs the install in this worktree, on this branch.
+3. Stop, and report that the approved resolving install is due, with
+   its command and directory, the commit you pushed, and the members
+   still to work. Open no PR.
+
+Run no resolving install yourself, and do not escalate for one.
 
 ## Verify the claims in your own prose
 

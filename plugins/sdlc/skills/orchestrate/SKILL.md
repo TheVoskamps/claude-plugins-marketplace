@@ -31,7 +31,10 @@ under `agents/` owns:
 
 - `issue-developer` — implements one **batch** (an ordered set of one
   or more issues). When it returns, a pushed branch and an open draft
-  PR exist for the members it landed
+  PR exist for the members it landed — or, briefed with an approved
+  resolving install, it has pushed the manifest changes and stopped for
+  the install, per "When a developer stops for the approved resolving
+  install"
 - `issue-fixer` — addresses PR review feedback, or a merge-readiness
   remedy. When it returns, the branch carries new commits for the
   review to see again — or, on a merge-readiness brief, has been
@@ -536,6 +539,7 @@ repo, as one batch: one branch, one PR closing all of them.
 Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
+Approved resolving install: <command>, in <directory>
 
 Edit code and instruction Markdown, and no documentation; docs-writer
 writes the PR's documentation after the code loop, from the
@@ -556,7 +560,37 @@ edit.
 For a batch of one, drop the batch scaffolding: the opening line reads
 "You are fixing issue `<link-prefix><N>` in this repo", and the
 `Implementation order`, `Compound slug`, and `Why these are batched`
-lines all go away.
+lines all go away. The `Approved resolving install` line goes in only
+for a batch whose resolving-install decision item the human approved
+at the plan, with the command and directory that item stated.
+
+### When a developer stops for the approved resolving install
+
+A developer briefed with an `Approved resolving install` line pushes
+the batch's manifest changes and stops, reporting that the install is
+due, with its command and directory. It opens no PR and keeps its
+claim on the branch. Then, in order:
+
+1. In the worktree `git worktree list` names as holding the batch
+   branch, run the approved command exactly as approved, in the
+   approved directory under that worktree.
+2. Read that worktree's `git status --porcelain`. A command that exited
+   non-zero, or a change to any file outside `.claude/agent-memory/` but
+   a lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`), is a
+   **Needs Your Attention** row
+   carrying the command's output verbatim and that status, and nothing
+   more spawns for the batch.
+3. Commit the lockfile change in that worktree, and push the branch.
+4. Release the developer's claim with `git-branch-sync reclaim
+   --holder-ended --exclude .claude/agent-memory/ <branch-name>`, its
+   `Agent` call having returned; a non-zero exit is a **Needs Your
+   Attention** row carrying its output verbatim.
+5. Spawn a fresh `issue-developer` on the same branch: the batch's
+   brief with the `Approved resolving install` line replaced by
+   `Continue on branch: <branch-name>`.
+
+The fresh developer's report is the one the link step below reads.
+Record both developers' agent ids at that step.
 
 ### After each issue-developer reports back: link the PR to its issues
 
@@ -1312,7 +1346,12 @@ definition, `CLAUDE.md` or global rules file already states.
   `git rebase` or `git merge` or hand-edit conflict markers in the
   primary clone; and never delete, transfer or rewrite a captured
   memory entry. Doing any of it to save a spawn is not a saving — see
-  "Token Efficiency". The one file you write that is persisted into a
+  "Token Efficiency". The one exception is the approved resolving
+  install, per "When a developer stops for the approved resolving
+  install" — running it, and committing and pushing the lockfile change
+  it makes: the plan-time approval makes the install the human's
+  directed act, and you are the one party in the run that holds that
+  approval. The one file you write that is persisted into a
   PR's state is the round-0 records file, staged in the scratchpad for
   the persist script to read. It is **transcription**: every claim in
   it is the generator's or the human's, and every state on it is a
@@ -1358,7 +1397,8 @@ What you do yourself is orchestration mechanics:
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
   long-lived branches the primary clone tracks, `git push` of a commit
   an agent authored but could not push, and `git-branch-sync reclaim`
-  on a branch a teammate's checkout found held. Branch and worktree
+  on a branch a teammate's checkout found held or a developer stopped
+  on for the approved resolving install. Branch and worktree
   removal is not on this list, beyond the local branch `reclaim`
   deletes so a teammate can check the branch out again: the post-merge
   tail's `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
