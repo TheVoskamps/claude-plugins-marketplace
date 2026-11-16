@@ -584,9 +584,9 @@ git -C "$CLONE" worktree add -q "$HOLDER" -b claimed refs/remotes/origin/claimed
 git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
 
 # A process that stays running, its start time as the harness writes it
-# — in UTC — with runs of spaces collapsed, and one that has ended. The running one is started
-# from a subshell, so it is no job of this shell's and killing it prints
-# no job notice.
+# — in UTC — with runs of spaces collapsed, and one that has ended. The
+# running one is started from a subshell, so it is no job of this
+# shell's and killing it prints no job notice.
 LIVE=$(
   sleep 600 >/dev/null 2>&1 &
   echo "$!"
@@ -606,7 +606,6 @@ claim() {
   git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
   git -C "$CLONE" worktree unlock "$HOLDER" 2>/dev/null
 }
-# lock_holder <reason> -- lock the holder's worktree with <reason>.
 lock_holder() { git -C "$CLONE" worktree lock --reason "$1" "$HOLDER"; }
 holder_branch() { git -C "$HOLDER" branch --show-current; }
 local_claimed() { git -C "$CLONE" rev-parse -q --verify refs/heads/claimed || echo gone; }
