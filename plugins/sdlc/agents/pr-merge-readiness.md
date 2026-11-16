@@ -282,8 +282,8 @@ and that id is an agent you spawned whose `Agent` call has returned.
 On exit 0, re-spawn the reporting agent with the brief it had, once,
 and carry on from its return as from the first. A second exit 13 from
 that agent, or a `reclaim` that exits non-zero, is returned as your
-question — the spawn's report and the `reclaim` output verbatim — and
-neither the rest of the spawns nor the gate runs.
+question, shaped as "Report back" states it, and neither the rest of
+the spawns nor the gate runs.
 
 Then run the gate again. No code review round follows a remedy: the
 fixer's commits are a rebase of what the loop already approved, and
@@ -303,6 +303,9 @@ Your report carries:
     asked" defines it, then the gate's report verbatim — and, for
     `DIRTY`, the `pr-merge-conflicts` output — and what a ruling has
     to settle; when a fixer escalated, its report verbatim beneath
+    them; when a `reclaim` did not free the branch — the re-spawned
+    agent reported exit 13 again, or `reclaim` exited non-zero — the
+    reporting agent's report and the `reclaim` output verbatim beneath
     them.
   - `documentation loop needed` — the last `issue-fixer` round
     deferred a documentation edit or resolved a conflict in a

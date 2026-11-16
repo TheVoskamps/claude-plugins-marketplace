@@ -85,16 +85,18 @@ No subcommand ever opens an editor.
   1. When the holder is mid-rebase, or has uncommitted changes outside
      the paths `--exclude` matches, relative to the holder's top level,
      or the local `<branch>` has commits `origin/<branch>` lacks — with
-     or without a holder — it exits 14 and changes nothing.
+     or without a holder — it exits 14 and changes nothing. A holder
+     whose directory is gone is never mid-rebase or dirty.
   2. When the holder's lock reads `claude agent agent-<id> (pid <pid>
      start <date>)` and `<pid>` is a running process whose start time
      equals `<date>`, runs of spaces collapsed, and `--holder-ended` is
      absent, it exits 15 and changes nothing. No lock, a lock in any
      other form, or a PID that is gone or started at another time is no
      evidence of life.
-  3. Otherwise it detaches the holder's HEAD, deletes the local
-     `<branch>` and its recorded tip, and prints the holder's path, or
-     nothing when no worktree held the branch.
+  3. Otherwise it detaches the holder's HEAD — through the worktree's
+     administrative directory when its directory is gone — deletes the
+     local `<branch>` and its recorded tip, and prints the holder's path,
+     or nothing when no worktree held the branch.
 
   `--holder-ended` asserts that the caller knows the holder's agent has
   ended; it overrides step 2 and never step 1, since a live PID names

@@ -709,6 +709,45 @@ check "$RC" "14" "reclaim, no holder, unpushed commits: exit 14"
 check_contains "$ERR" "held by no worktree" "reclaim, no holder, unpushed commits: stderr says no worktree holds it"
 check "$(local_claimed)" "$UNPUSHED" "reclaim, no holder, unpushed commits: the local branch is kept"
 
+# --- a holder whose directory is gone ---------------------------------------
+# The agent's worktree directory was deleted while git still lists it,
+# locked, as holding `claimed`: first with a commit origin lacks, then
+# with that commit dropped.
+git -C "$CLONE" branch -q -D claimed
+GONE_HOLDER="$SANDBOX/gone-holder"
+git -C "$CLONE" worktree add -q "$GONE_HOLDER" -b claimed refs/remotes/origin/claimed
+git -C "$CLONE" worktree lock --reason "claude agent agent-gone (pid $GONE start $LIVE_START)" "$GONE_HOLDER"
+git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+commit_file "$GONE_HOLDER" lost.txt "lost" "lost" >/dev/null
+LOST=$(git -C "$GONE_HOLDER" rev-parse HEAD)
+rm -rf "$GONE_HOLDER"
+branch_sync checkout claimed
+check "$RC" "13" "checkout, holder's directory gone: exit 13"
+branch_sync reclaim claimed
+check "$RC:$OUT" "14:" "reclaim, holder's directory gone, unpushed commits: exit 14"
+check_contains "$ERR" "commits origin/claimed lacks" "reclaim, holder's directory gone: stderr names the commits"
+check "$(local_claimed):$(recorded claimed)" "$LOST:$CLAIMED" "reclaim, holder's directory gone, unpushed commits: nothing was changed"
+git -C "$CLONE" update-ref refs/heads/claimed "$CLAIMED"
+branch_sync reclaim claimed
+check "$RC" "0" "reclaim, holder's directory gone: exit 0"
+check_contains "$OUT" "/gone-holder" "reclaim, holder's directory gone: stdout is the holder's path"
+check "$(local_claimed):$(recorded claimed)" "gone:none" "reclaim, holder's directory gone: the local branch and record are deleted"
+check_contains "$(git -C "$CLONE" worktree list --porcelain)" "locked claude agent agent-gone" \
+  "reclaim, holder's directory gone: the worktree and its lock are kept"
+branch_sync checkout claimed
+check "$RC:$(git -C "$CLONE" branch --show-current)" "0:claimed" \
+  "after reclaim of a holder whose directory is gone: checkout succeeds"
+
+# --- a worktree whose .git file names a missing gitdir ----------------------
+# It holds `broken`; checking out a branch nobody holds walks past it.
+git -C "$CLONE" checkout -q --detach
+BROKEN="$SANDBOX/broken"
+git -C "$CLONE" worktree add -q "$BROKEN" -b broken refs/remotes/origin/main
+printf 'gitdir: %s\n' "$SANDBOX/nowhere" >"$BROKEN/.git"
+branch_sync checkout feature
+check "$RC:$(git -C "$CLONE" branch --show-current)" "0:feature" \
+  "checkout past a worktree whose gitdir is missing: exit 0"
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all passed"

@@ -177,13 +177,32 @@ holder_block() {
     return 0
   fi
   [ -d "$path" ] || return 0
-  gitdir=$(git -C "$path" rev-parse --absolute-git-dir)
+  # A worktree whose .git file names a gitdir that is gone is not entered
+  # for its rebase state, as one whose directory is gone is not.
+  gitdir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null || true)
+  [ -n "$gitdir" ] || return 0
   for state in rebase-merge rebase-apply; do
     if [ -f "$gitdir/$state/head-name" ] && [ "$(cat "$gitdir/$state/head-name")" = "$want" ]; then
       HOLDER=$path HOLDER_LOCK=$lock
       return 0
     fi
   done
+}
+
+# admin_dir <path> -- print the administrative directory of the linked
+# worktree at <path>, the one under the common git dir whose gitdir file
+# names <path>/.git, or exit 1 when none does. It is read from the
+# repository's side, so it is found when <path> itself is gone.
+admin_dir() {
+  local common entry
+  common=$(git rev-parse --path-format=absolute --git-common-dir)
+  for entry in "$common"/worktrees/*/gitdir; do
+    if [ -f "$entry" ] && [ "$(cat "$entry")" = "$1/.git" ]; then
+      printf '%s\n' "${entry%/gitdir}"
+      return 0
+    fi
+  done
+  fail 1 "no administrative directory under $common/worktrees names the worktree at $1"
 }
 
 # squeeze <text> -- print <text> with each run of spaces collapsed to one
@@ -398,11 +417,12 @@ cmd_release() {
 # work on <branch> is unfinished — the holder is mid-rebase or dirty
 # outside the paths each --exclude <pathspec> matches, relative to its
 # top level, or the local branch has commits origin/<branch> lacks —
-# whatever --holder-ended says; and 15 when the holder's lock names a
+# whatever --holder-ended says, and a holder whose directory is gone is
+# never mid-rebase or dirty; and 15 when the holder's lock names a
 # running process and --holder-ended is absent. Removes no worktree and
 # no lock.
 cmd_reclaim() {
-  local branch="" ended="" local_tip remote found="" dirty where gitdir
+  local branch="" ended="" local_tip remote found="" dirty where gitdir admin
   local -a excludes=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -426,7 +446,11 @@ cmd_reclaim() {
   [ -n "$branch" ] || usage_error "\`reclaim\` takes 1 argument(s), not 0."
   git fetch -q origin || fail 1 "git fetch origin failed"
   find_holder "$branch"
-  if [ -n "$HOLDER" ]; then
+  if [ -n "$HOLDER" ] && [ ! -d "$HOLDER" ]; then
+    # A holder whose directory is gone has no working tree left to be
+    # dirty or mid-rebase in; only the commits check below applies.
+    where="held by the worktree at $HOLDER"
+  elif [ -n "$HOLDER" ]; then
     where="held by the worktree at $HOLDER"
     gitdir=$(git -C "$HOLDER" rev-parse --absolute-git-dir)
     if [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; then
@@ -452,7 +476,12 @@ cmd_reclaim() {
   if [ -n "$HOLDER" ] && [ -z "$ended" ] && lock_is_live "$HOLDER_LOCK"; then
     fail 15 "$branch is held by the worktree at $HOLDER, whose lock names the running process $LOCK_PID; nothing was changed"
   fi
-  if [ -n "$HOLDER" ]; then
+  if [ -n "$HOLDER" ] && [ ! -d "$HOLDER" ]; then
+    # Detach through the administrative directory, where git keeps the
+    # holder's HEAD; there is no working tree to run checkout in.
+    admin=$(admin_dir "$HOLDER") || exit
+    git --git-dir="$admin" update-ref --no-deref HEAD "$(git --git-dir="$admin" rev-parse HEAD)"
+  elif [ -n "$HOLDER" ]; then
     git -C "$HOLDER" checkout -q --detach
   fi
   if [ -n "$local_tip" ]; then

@@ -257,7 +257,10 @@ owns — but never a finding, a location, or an implementation shape.
     branch name, and — per member — what you implemented, its commit,
     and its test result. Name any dropped member and why, and any
     design decision you stopped on, with its options. (The worktree
-    path isn't something you need to surface.)
+    path isn't something you need to surface.) On a branch you
+    continued, report each member from every commit the branch carries
+    for it, the earlier developer's included, and name the install's
+    lockfile commit.
 
     Then a fixed `Deferred to docs-writer:` line, one entry per
     documentation file your change made wrong, each as `<path> — <what
@@ -274,8 +277,9 @@ owns — but never a finding, a location, or an implementation shape.
     ```
 
     A line with no entries reads `none`; a line is never omitted.
-    Derive each line from the diff you pushed rather than from what
-    you meant to touch.
+    Derive each line from the branch's whole diff against its base
+    rather than from what you meant to touch, so a continued branch's
+    earlier commits are counted too.
 
 ## Drop protocol
 

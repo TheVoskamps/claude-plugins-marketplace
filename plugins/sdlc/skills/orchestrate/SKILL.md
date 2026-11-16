@@ -87,7 +87,9 @@ under `agents/` owns:
   merge-readiness gate, spawning `issue-fixer` and
   `agent-memory-scrubber` for the remedies. When it returns, either the
   PR is in a state the close-out proceeds from; or its report carries a
-  question with the gate's output verbatim, which you handle per "When
+  question with the gate's output verbatim and, beneath it, any
+  escalating fixer's report, or a spawn's report and `reclaim` output
+  when a `reclaim` did not free the branch, which you handle per "When
   a teammate escalates" and answer by re-spawning it with the ruling in
   the brief; or
   it reports `documentation loop needed`, because a fixer round left
@@ -576,8 +578,7 @@ claim on the branch. Then, in order:
    approved directory under that worktree.
 2. Read that worktree's `git status --porcelain`. A command that exited
    non-zero, or a change to any file outside `.claude/agent-memory/` but
-   a lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`), is a
-   **Needs Your Attention** row
+   a lockfile, is a **Needs Your Attention** row
    carrying the command's output verbatim and that status, and nothing
    more spawns for the batch.
 3. Commit the lockfile change in that worktree, and push the branch.
