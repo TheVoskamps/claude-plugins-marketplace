@@ -476,6 +476,12 @@ landed". Each is settled against the round files and the commits you
 already read, in seconds. A count is the same shape: count it, or do
 not state it.
 
+A theorem's claim has the author its record names: one carrying
+`minted-by: assessor` is the assessor's, applied with no human step,
+and never the generator's or the human's. Any other is the generator's,
+or the human's where an adjustment comment or the seed ruling minted
+it.
+
 The one claim you must never make from inference is that a finding was
 fixed. A finding vanishing from the next round's review is consistent
 with a fix, with the theorem going unsettled, and with the round

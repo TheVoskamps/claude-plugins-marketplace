@@ -174,7 +174,7 @@ points at the skill for the rest.
 `sdlc`'s theorem agents are the worked instance:
 `plugins/sdlc/skills/theorem-agents-interface/SKILL.md` states each
 brief parameter and each consequence class once, and is preloaded into
-`theorem-generator`, `theorem-disprover`, and
+`theorem-generator`, `theorem-assessor`, `theorem-disprover`, and
 `counterexample-verifier`. `agents/theorem-based-pr-reviewer.md`
 writes the briefs and says only what it puts in each; it keeps the
 class-to-severity mapping, which is its own policy over the shared
@@ -220,7 +220,8 @@ than relying on the runner to recognize a bare name.
 
 `sdlc`'s PR review is the worked instance:
 `plugins/sdlc/agents/theorem-based-pr-reviewer.md` spawns a
-`theorem-generator`, then one `theorem-disprover` per live theorem,
+`theorem-generator`, then a `theorem-assessor` over its list, then one
+`theorem-disprover` per live theorem,
 then one `counterexample-verifier` per disproved theorem — two
 fan-outs in one procedure, the second stage reading only what the
 first broke. Both callers — `/sdlc:git-review-pr` and

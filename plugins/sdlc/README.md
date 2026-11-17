@@ -38,6 +38,7 @@ restate the fact.
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
 | In what order the review detail is assembled, which rounds a chain holds when the PR already carries chains, how it is chunked under GitHub's comment cap, and how a piece too large for one chunk is split across chunks | `bin/sdlc-pr-post-theorem-records` |
 | How the generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `agents/theorem-generator.md` |
+| What a generated theorem list is judged on before any disprover runs, what the assessment recommends, and the format it is written in | `agents/theorem-assessor.md` |
 | The tier the generator runs at on one spawn, and where it is recorded | the `effort` of the `Agent` call that spawns it, written to the generate-stage `spawn` record by its spawner — `agents/theorem-based-pr-reviewer.md` for a review round, `skills/orchestrate/lib/pr-lifecycle.md` for the seed |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
 | How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
@@ -295,8 +296,8 @@ agent, so the decision above stands as worded.
 What the two switches leave alone is as deliberate as what they skip:
 
 - `seed-review: auto-accept` skips only the wait. The candidate list
-  and the orchestrator's assessment of it are still shown, with none of
-  the assessment's recommendations applied, and the list is still
+  and `theorem-assessor`'s assessment of it are still shown, with none
+  of the assessment's recommendations applied, and the list is still
   written as round 0 of the PR's state as the generator emitted it, so
   the first review round starts from the same records whichever way the
   seed was settled; the setting changes who settled it, not what is
@@ -864,7 +865,8 @@ list the human already owns. That seed is **round 0**: rounds count
 implementer passes from 1, and 0 is the pre-loop stage. The generator
 runs on an issues-only brief and its return is held, not persisted —
 every path `bin/sdlc-agent-result-persist` composes is keyed on a PR
-reference, and none exists yet — until the developer's PR is open and
+reference, and none exists yet, so the assessment of that list is held
+the same way — until the developer's PR is open and
 linked, when the ruled list is written as round 0's records file and
 the tier the seed generator was spawned at as the generate-stage
 `spawn` record in round 0's log. Round 0 holds that file and that log
@@ -878,40 +880,107 @@ records of its own type, so the first one reads no seed and generates
 from the whole PR the same way, with the review saying so, and a batch
 with no code to implement has no seed at all.
 
-The candidates do not reach the human raw. The orchestrator assesses
-the list before it asks — in its own session, with no spawn, because
-it already holds the issue bodies and the source branch the judgment
-needs — judging each theorem against the issues and the source branch:
-whether an issue requires it or it reaches past the batch, which
-acceptance criterion or stated behavior it tests, whether a
-counterexample would matter, what it duplicates, whether its settle
-mode and wording fit a disprovable claim, whether it asserts more than
-one thing and should be split, whether it already holds or fails before
-the developer runs, and whether its pointers exist. Across the set it
+The candidates do not reach the human raw. `theorem-assessor` makes
+the assessment: the orchestrator spawns it on the seed generator's
+list before it asks, and the agent judges each theorem against the
+issues and the tree of the source branch. The orchestrator once made
+that assessment itself, in its own session with no spawn; it is an
+agent's now so that the seed and every review round judge a list on
+the same criteria, stated in one file. Across the set the assessor
 names the code and instruction Markdown criteria no candidate tests,
 each with a proposed theorem to add; a documentation criterion is never
-a gap, since no seed theorem is made from one. From that it recommends
-one action per theorem with a one-line reason, and presents the
+a gap, since no seed theorem is made from one. It recommends one action
+per theorem with a one-line reason, and the orchestrator presents the
 theorems recommended for a change first, then the coverage gaps with
 their proposed adds, then the "accept" group, so the human reads what
 needs a decision first. The human's
 ruling set is accept, reject, change settle mode, merge, split, rewrite
 and add. The assessment is advice: a theorem the human does not name is
 accepted as the generator emitted it, not as recommended, and a claim
-the orchestrator proposed becomes a ruled claim only when the human
+the assessor proposed becomes a ruled claim only when the human
 adopts it, all at once or by name. That keeps round 0 a transcription —
-every claim in it is the generator's or the human's — and keeps the
+every claim in it is the generator's or the human's, so no round-0
+record is marked as the assessor's — and keeps the
 orchestrator from carrying review vocabulary on the human's behalf.
 Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The issues-only brief, and what the generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `agents/theorem-generator.md` |
-| The seed spawn, the tier pick against the issue bodies, the assessment's dimensions and recommendations, the ruling set the human chooses from, and the per-theorem ruling or its `auto-accept` skip | `skills/orchestrate/SKILL.md` |
-| The round-0 write — the record outcome of every ruling, what each one transcribes onto round 0's records, and the seed generator's `spawn` record carrying its tier | `skills/orchestrate/lib/pr-lifecycle.md` |
+| The seed generator's spawn and its tier pick against the issue bodies, the seed assessor's spawn, the order the candidates are shown in, the ruling set the human chooses from, and the per-theorem ruling or its `auto-accept` skip | `skills/orchestrate/SKILL.md` |
+| The assessment's criteria, the coverage gaps, the recommendations and the format they are written in | `agents/theorem-assessor.md` |
+| The assessor's seed brief | `skills/theorem-agents-interface/SKILL.md` |
+| The round-0 write — the record outcome of every ruling, what each one transcribes onto round 0's records, that none of them carries `minted-by`, and the seed generator's `spawn` record carrying its tier | `skills/orchestrate/lib/pr-lifecycle.md` |
 | Round 0 as a valid round number holding a records file and a log with the seed's `spawn` record and no anchor, read as a code round | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
 | That the seed generator reads the files-affected section in place of a diff | `agents/theorem-generator.md` |
+
+## Every generated list is assessed before a disprover runs
+
+A review round's generator adds theorems, and only the seed list used
+to be assessed, so a duplicate, a compound claim, or a claim that only
+a live run of the merged change could settle reached a disprover
+unchallenged. Every round whose generator ran now gets an assessment
+too, in either mode, a fallback round and an adjustment-only round
+included: the reviewer spawns `theorem-assessor` on what the generator
+emitted, after the generate stage and before the disprovers fan out.
+The assessor runs even when the generator emitted no theorem, because
+naming the criteria no theorem tests is part of the assessment. An
+empty-delta round spawns no generator and so no assessor, and a theorem
+minted from an adjustment comment is never assessed, since its claim
+quotes the human.
+
+A round's assessment is applied with no human step, where the seed's
+is advice the human rules on. The reviewer transcribes every
+recommendation onto the round's new records and assigns every id: a
+rejected theorem is recorded as retired, a rewritten one keeps its id
+under the proposed claim, a split keeps the id for its first part and
+mints one for each further part, a merge retires its originals and
+mints the merged claim, and each coverage gap's proposed theorem is
+minted as an add. The round's review lists each recommendation applied
+other than an accept, so the human reads what the assessor changed
+after the fact rather than ruling on it before.
+
+The carried records are context to the assessor, which reads them out
+of the PR's state itself, as the generator does. It recommends nothing
+on one, counts a carried theorem that passed a round as covering its
+criterion, and treats a claim the human refuted as closed: it
+recommends rejecting a new theorem that makes it and proposes no add
+that would.
+
+The assessment is a stage of the round log, `assess`, between
+`generate` and `disprove`, settled by the assessor's result file.
+`next` prints no disprover work until that stage is settled, so no
+disprover spawns on an unassessed list, and a resumed reviewer applies
+the stored assessment rather than spawning the assessor again.
+
+Two marks on the records keep an assessor's ruling apart from a
+human's and from the generator's:
+
+- A theorem the assessor rejected, or merged away, is retired as
+  `assessor-rejected`, never as `human-refuted`. A `--full` round
+  leaves only `human-refuted` records off its live list, so it
+  disproves an `assessor-rejected` theorem, one rejected in that same
+  round included: a human's rejection is final, and an assessor's is
+  re-tried by the same round that re-tries every other retirement.
+- A record whose claim came from an applied merge, split, rewrite or
+  add carries `minted-by: assessor`, every part of a split included,
+  so the posted review and the PR's final section never attribute that
+  claim to the generator or the human. Only an automatically applied
+  recommendation is stamped; a seed claim the human adopted is the
+  human's.
+
+Each piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| What each theorem is judged on, the coverage gaps, which carried records count as coverage, and the assessment's output format | `agents/theorem-assessor.md` |
+| The assessor's review-round brief, and the `--base` parameter that names the tree before the change | `skills/theorem-agents-interface/SKILL.md` |
+| Which rounds are assessed, which theorems the assessor is handed, the record each recommendation becomes, the order ids are assigned in, and which records carry `minted-by` | `agents/theorem-based-pr-reviewer.md` |
+| The `assess` stage and its arm in `next`, the `minted-by` field, and which retired records a `--full` round's live list holds | `skills/agent-result-persist-interface/SKILL.md` |
+| That a `minted-by: assessor` claim is the assessor's in the final section | `agents/pr-finalizer.md` |
+| The assessor's phase in the time report, and the report the seed-ruling wait is measured from | `bin/sdlc-orchestrate-analysis` |
+| That a round's assessment follows the list it assesses in the review detail | `bin/sdlc-pr-post-theorem-records` |
 
 ## Carried records move through state, not a brief or an agent-built file
 
@@ -1102,7 +1171,9 @@ rounds above those the PR's complete chains cover, with an old-form
 or partial chain covering none and a re-run with no new round posting
 nothing; and a piece over the chunk limit split across chunks, with a
 code fence open at the break and a line cut at a character boundary.
-It drives the time report's type column against the same root. The
+It drives the time report's type column, and its row for the assess
+stage, against the same root, and the detail poster placing a round's
+assessment after the list it assesses. The
 same suite
 drives the PR-read scripts against a stub `gh` that serves a PR's
 reviews and comments — each script's output and exits; the round
@@ -1124,8 +1195,12 @@ its `enter`, a child `spawned` and yet to enter and one overdue from
 its last `spawn`, a `-` write-off before the `enter` and a replacement
 spawned after it, a duplicate `leave`, a moved head, a malformed
 `DISPROVED` report that earns no verifier, a generator re-spawned at
-another effort leaving a settled list settled, and the live list under
-`--edits`, `--from` and `--full`; `wait` ending on a `leave`, on the
+another effort leaving a settled list settled, the `assess` arm with
+no disprover line printed before the assessor's file settles it, an
+empty assessment refused at `leave`, and the live list under
+`--edits`, `--from` and `--full`, with a theorem the assessor rejected
+that round off a default round's list and on a `--full` round's;
+`wait` over the `assess` stage, and ending on a `leave`, on the
 earliest child's deadline with a child yet to enter included, and at
 once with no child to wait on, and its refusal without
 `--deadline-minutes`; every row of
@@ -1134,7 +1209,9 @@ once with no child to wait on, and its refusal without
 missing its `REASON` or its `CHECKED` taking the malformed row, an
 unsettled theorem forcing `BLOCKED`, a member of `--issues` no record
 tags, the refusal
-without `--loop-exited`, and the round that spawned nothing; the
+without `--loop-exited`, the round that spawned nothing, and an
+`assessor-rejected` theorem given a row on a `--full` round and none on
+a default one; the
 body `summary` renders, the stamp it opens with, its carried-forward
 paths and its refusals; and `rounds` over a PR with no state and over
 rounds with and without a log, round 0 and a voided round among them,
@@ -1222,9 +1299,9 @@ no token — would be unreachable. And **a stalled stage posts**: when
 the resume-pass loop exits with `disprove`- or `verify`-stage theorems
 lacking a verdict, each takes its no-verdict row and the review posts,
 because an unsettled theorem already forces `BLOCKED` and the round has
-something to say. Only a loop exit in the `generate` stage is still an
-in-progress escalation, since a round with no theorem list has nothing
-to post.
+something to say. Only a loop exit in the `generate` or `assess` stage
+is still an in-progress escalation, since a round with no settled
+theorem list has nothing to post.
 
 ## A stall is reported as what the log shows, never as starvation
 
@@ -1397,17 +1474,18 @@ verdict then reflects it.
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
 | `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
-| `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean | preloaded into each theorem agent |
-| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar, and the tables and rules its derivation modes apply | preloaded into the reviewer, `theorem-generator`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
+| `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean, and which brief the generator and the assessor each receive | preloaded into each theorem agent |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar, and the tables and rules its derivation modes apply | preloaded into the reviewer, `theorem-generator`, `theorem-assessor`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer`, `docs-writer` and `pr-finalizer` |
-| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator` |
+| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator` and `theorem-assessor` |
 
 The rows with no leading slash are not user verbs — each declares
 `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
-`orchestrate-readiness` is preloaded into `theorem-generator` through
-that agent's `skills:` frontmatter, and `theorem-agents-interface` into
-every theorem agent — `theorem-generator`, `theorem-disprover`, and
+`orchestrate-readiness` is preloaded into `theorem-generator` and
+`theorem-assessor` through each agent's `skills:` frontmatter, and
+`theorem-agents-interface` into every theorem agent —
+`theorem-generator`, `theorem-assessor`, `theorem-disprover`, and
 `counterexample-verifier` — the same way, and `pr-read-cli-interface`
 into each agent that runs one of the PR-read scripts.
 `theorem-based-pr-reviewer` reads `theorem-agents-interface` by name as
@@ -1842,8 +1920,9 @@ the orchestrator, `pr-merge-readiness` and the reviewer record each
 agent they spawn through `sdlc-agent-result-persist --mode agent`, and
 a review child also records itself when it enters a round, so one
 written off before it enters is still named. The orchestrator's seed
-generator and the batch's developer are spawned before the PR has a
-reference, so their ids are held and recorded once the PR is linked.
+generator, its seed assessor and the batch's developer are spawned
+before the PR has a reference, so their ids are held and recorded once
+the PR is linked.
 
 | Agent | Purpose |
 | ------- | --------- |
@@ -1856,8 +1935,9 @@ reference, so their ids are held and recorded once the PR is linked.
 | `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held and re-spawns that agent once, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, and corrects the closing lines its brief names |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
-| `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
+| `theorem-based-pr-reviewer` | Reviews one PR, spawning the generator, the assessor, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove, at the reasoning tier its spawner names |
+| `theorem-assessor` | Assesses one generated theorem list against the issues it was drawn from — the seed's, or a review round's — recommending an action per theorem and a theorem for each criterion none tests |
 | `theorem-disprover` | Tries to break exactly one theorem |
 | `counterexample-verifier` | Tries to reject exactly one disprover's counterexample |
 
@@ -1871,6 +1951,9 @@ agent that writes any file — a commit on the branch, a memory entry, a
 staging file in the session scratchpad, scratch under `.claude/tmp/` —
 declares all three, and an agent whose contract says it edits no
 tracked file holds that contract in its body, not by leaving a tool out.
+`theorem-assessor` is the exception: it writes one file, the staged
+payload of its assessment, and changes none, so its line names `Read`
+and `Write` and no `Edit`.
 `pr-monitor` is the one agent that writes nothing; its line is
 `Read, Bash, Monitor, TaskStop`. It asks for every wait between polls
 as a foreground `sdlc-pr-monitor` call, because a wait on a Monitor
@@ -1913,7 +1996,7 @@ passes an `effort`.
 
 The override is the human's to volunteer: the orchestrator never asks
 for a tier, and one the human names unprompted, at the plan or later,
-holds for the whole batch — the seed spawn's `effort` when the seed has
+holds for the whole batch — the seed generator's `effort` when the seed has
 not yet spawned, and `--generator-effort` on every reviewer spawn for
 the batch's PR.
 
@@ -1928,6 +2011,10 @@ stage's result file is `list-theorem-generator` whatever the tier, so
 its name carries none. The spawner's own memory of the call is no
 source either: a resumed reviewer reads a `spawn` an earlier instance
 made.
+
+`theorem-assessor` takes no tier either: its spawn names no `model`
+and no `effort`, at the seed and on a review round alike, so it runs at
+its frontmatter's whatever tier the generator beside it ran at.
 
 `theorem-disprover` and `counterexample-verifier` take no tier; each is
 one definition with a `model` the reviewer routes per spawn by the

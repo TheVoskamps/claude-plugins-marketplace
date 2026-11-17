@@ -69,14 +69,15 @@ under `agents/` owns:
   that spawned it. When it returns, one review is posted on the PR and
   its report carries the verdicts and findings you brief a fixer from.
   It leaves nothing on the branch
-- `theorem-generator`, `theorem-disprover`, and
+- `theorem-generator`, `theorem-assessor`, `theorem-disprover`, and
   `counterexample-verifier` — the reviewer's own children, spawned by
   the review pipeline; each leaves nothing on the branch. You spawn a
   generator yourself exactly once per batch, on the issues-only brief,
   before its developer runs — when it returns, its report is the seed
   candidate list the human rules on — or that `seed-review:
-  auto-accept` accepts whole — per "Seed the theorem set from the
-  issues, and put it to the human"
+  auto-accept` accepts whole — and an assessor on that list, whose
+  report is the recommendation shown beside each candidate, per "Seed
+  the theorem set from the issues, and put it to the human"
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty. You spawn it
@@ -129,9 +130,9 @@ sdlc-agent-result-persist --mode agent --pr <PR_REF> \
 
 That log is how the post-merge tail's `/sdlc:orchestrate-cleanup <PR>`
 finds the PR's worktrees: what is not recorded is left behind. A batch's
-seed generator and its `issue-developer` are spawned before the PR has
-a reference, so hold each one's agent id in your scratchpad and record
-both at the link step.
+seed generator, its seed assessor and its `issue-developer` are spawned
+before the PR has a reference, so hold each one's agent id in your
+scratchpad and record each at the link step.
 
 A teammate that declares `memory: project` captures its entries with
 `/cc-tools:agent-memory-inbox-capture` at end-of-run, and
@@ -449,51 +450,37 @@ generator tier"), its complexity and extent signals read against the
 batch's issue bodies rather than a delta, unless "Overriding the
 generator tier" sets it.
 
-The seed spawn's return is not persisted through
+The seed spawns' returns are not persisted through
 `sdlc-agent-result-persist`: every path it composes is keyed on a PR,
 and none exists. Hold the generator's return, its agent id and the
 tier you passed in your scratchpad; its spawn is recorded, tier
 included, once the PR is linked.
 
-**Assess the candidate list.** You make the assessment yourself, with
-no spawn, from the candidate list, the batch's issue bodies you already
-hold, and the tree of `default-issue-source-branch`. Judge each theorem
-on:
+**Spawn the assessor on the candidate list.** Spawn
+`sdlc:theorem-assessor` on the seed brief the
+`sdlc:theorem-agents-interface` skill defines, with no `model` and no
+`effort` on the `Agent` call — its tier is its frontmatter's, never
+the generator's:
 
-- **necessity** — whether an issue's acceptance criterion or stated
-  behavior actually requires it;
-- **extension beyond the issues** — whether it asserts something no
-  issue in the batch asks for;
-- **usefulness** — whether a counterexample to it would change
-  anything the human would act on;
-- **duplication and overlap** — with which other candidates, fully or
-  partly;
-- **settle mode** — whether `mechanical` or `semantic` fits the claim;
-- **wording** — whether the claim is disprovable as written, or vague,
-  compound or untestable;
-- **criterion mapping** — which acceptance criterion or stated behavior
-  it tests; one that maps to none is a reject candidate;
-- **compound claims** — whether it asserts more than one thing and
-  should be split;
-- **pre-existing truth** — whether it already holds, or already fails,
-  on the source branch, so it tests nothing the developer does;
-- **pointer validity** — whether its pointers name paths and sections
-  that exist on the source branch, and are the right ones.
+```text
+--issues <issue_N1> <issue_N2> …
+--branch <default-issue-source-branch>
+--mode code-and-instruction-markdown
 
-Across the set, find the **coverage gaps**: each code and instruction
-Markdown acceptance criterion or stated behavior no candidate tests,
-with a proposed theorem to add. A documentation acceptance criterion is
-never a gap here.
+Candidates:
+<the seed generator's list, verbatim>
 
-From that, recommend one action per theorem, each with a one-line
-reason: accept; reject; change settle mode; merge, naming the partners
-and proposing the merged claim; split, proposing the parts; or rewrite,
-proposing the new claim. Recommend an add for each coverage gap.
+Assess the candidates per your agent definition, and report the
+assessment back in the output format it defines, and nothing else.
+```
+
+Hold its return and its agent id in your scratchpad, as the
+generator's are. A malformed assessment is one you ask it to re-emit.
 
 **Put every candidate to the human, with the assessment.** Show each
-theorem — id, claim, issues, settle mode, pointers — with its
-recommendation and reason: first every theorem recommended for a
-change, then the coverage gaps with their proposed adds, then the
+theorem — id, claim, issues, settle mode, pointers — with the
+assessor's recommendation and reason: first every theorem recommended
+for a change, then the coverage gaps with their proposed adds, then the
 theorems recommended as is, grouped as "accept". Take one ruling per
 theorem:
 
@@ -512,8 +499,8 @@ individually, by naming it. Under `seed-review: ask` this is a question
 and ends your turn: write nothing until the human has ruled. You carry
 no review vocabulary on the human's behalf — a merged, split, rewritten
 or added claim is the human's words, quoted, per "Posting the human's
-review adjustments as a PR comment", and a claim you proposed becomes
-one only when the human adopts it.
+review adjustments as a PR comment", and a claim the assessor proposed
+becomes one only when the human adopts it.
 
 Under `seed-review: auto-accept`, still show every candidate and the
 assessment the same way, say that the config accepted all of them as
@@ -807,13 +794,13 @@ comes out of the review file; the detail reaches the PR once, when
 You do not pick a review round's tier. The rubric lives in the
 reviewer, next to the delta it reads (see the
 `sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier");
-the seed spawn alone applies it yourself.
+the seed generator's spawn alone applies it yourself.
 
 `--generator-effort <tier>` is a human-override channel, and you pass
 it only when the human names a tier unprompted; you never ask for one.
 A tier the human names, at the plan confirm or later, is that override
-for the whole batch: it is the `effort` of the seed spawn in "Seed the
-theorem set from the issues, and put it to the human" when the seed
+for the whole batch: it is the `effort` of the seed generator's spawn in
+"Seed the theorem set from the issues, and put it to the human" when the seed
 has not yet spawned, and travels as `--generator-effort` on every
 reviewer spawn for the batch's PR.
 
@@ -1409,9 +1396,9 @@ What you do yourself is orchestration mechanics:
 ## Token Efficiency
 
 - Every teammate's `model` and `effort` are its own frontmatter's, and
-  a routine spawn overrides neither; the seed spawn in "Seed the
-  theorem set from the issues, and put it to the human" is not a
-  routine one. For a genuinely hard issue,
+  a routine spawn overrides neither; the seed generator's spawn in
+  "Seed the theorem set from the issues, and put it to the human" is
+  not a routine one. For a genuinely hard issue,
   escalate that single spawn to a stronger model via the `Agent`
   tool's per-call `model` override; the frontmatter `model:` is a
   default, not a floor or a ceiling.

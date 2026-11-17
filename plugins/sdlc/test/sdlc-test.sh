@@ -1080,7 +1080,7 @@ new_case analysis-round-types
 mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2"
 printf 'anchor 2026-01-01T00:00:00Z abc code-and-instruction-markdown\n' \
   >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
-printf 'anchor 2026-01-02T00:00:00Z def documentation\nspawn list generate 2026-01-02T00:01:00Z theorem-generator default default\n' \
+printf 'anchor 2026-01-02T00:00:00Z def documentation\nspawn list generate 2026-01-02T00:01:00Z theorem-generator default default\nspawn list assess 2026-01-02T00:05:00Z theorem-assessor default default\n' \
   >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round2/log"
 printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
 printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
@@ -1091,6 +1091,8 @@ check "$?" "0" "analysis: rounds of both types exit 0"
 check_contains "$OUT" "| 1 | code-and-instruction-markdown | whole round |" "analysis: the code round's row names its type"
 check_contains "$OUT" "| 2 | documentation | whole round |" "analysis: the documentation round's row names its type"
 check_contains "$OUT" "| 2 | documentation | generator |" "analysis: a stage row names its round's type"
+check_contains "$OUT" "| 2 | documentation | assessor | 2026-01-02T00:05:00Z |" \
+  "analysis: the assess stage is a phase of its own"
 
 # The seed's and each round's generate-stage spawn records: the report
 # names every generator's tier, round 0 included, and no review round 0.
@@ -1602,6 +1604,7 @@ printf 'T1\nclaim: seed\n' >"$XDG_STATE_HOME/$PR_DIR_REL/round0/records"
 state_file round1/T2-theorem-disprover 50
 state_file round1/T1-counterexample-verifier 50
 state_file round1/T1-theorem-disprover 50
+state_file round1/list-theorem-assessor 50
 state_file round1/list-theorem-generator 50
 state_file round1/review 50
 state_file round1/records 60 T1
@@ -1613,6 +1616,7 @@ https://h.example/o/r/pull/7#issuecomment-1" \
 check "$(posted_headers 1)" "<!-- sdlc:theorem-records 1-2 1/1 -->
 ## \`round1/records\`
 ## \`round1/list-theorem-generator\`
+## \`round1/list-theorem-assessor\`
 ## \`round1/review\`
 ## \`round1/T1-theorem-disprover\`
 ## \`round1/T1-counterexample-verifier\`

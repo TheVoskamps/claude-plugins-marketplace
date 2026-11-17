@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, which brief the generator and the assessor each receive, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, sdlc:theorem-assessor, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -10,7 +10,8 @@ This is the one statement of what goes into a theorem agent and what
 comes back out. An `## Inputs` section names which of the parameters
 below one agent's brief carries and adds only what is specific to
 that agent, in that agent's own file: `agents/theorem-generator.md`,
-`theorem-disprover`'s and `counterexample-verifier`'s. The meaning of
+`theorem-assessor`'s, `theorem-disprover`'s and
+`counterexample-verifier`'s. The meaning of
 a parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
@@ -62,6 +63,21 @@ whole workflow:
   and the settled list becomes the round-0 records the PR's first
   review round carries.
 
+## The assessor briefs
+
+`theorem-assessor` receives one of two briefs, each ending in a
+`Candidates:` line followed by the theorem records to assess, verbatim
+in the generator's record format, and by nothing on an empty list:
+
+- The **seed brief** — `--issues`, `--branch` naming the default issue
+  source branch, and `--mode code-and-instruction-markdown`, the seed
+  being the code loop's round 0. The candidates are the seed
+  generator's list. No `--pr` exists, so the assessor records nothing.
+- The **review-round brief** — `--pr`, `--issues`, `--branch`,
+  `--base`, `--round` and `--mode`. The candidates are the theorems the
+  round's generator emitted, never one minted from an adjustment
+  comment and never a `RETIREMENTS` line.
+
 ## The brief parameters
 
 - `--pr <host>/<owner>/<repo>#<N>` — the pull request under review, by
@@ -69,11 +85,15 @@ whole workflow:
   number. Every `github-prs` verb takes it as it stands. Absent on the
   issues-only brief.
 - `--branch <name>` — the PR's head branch, or on the issues-only
-  brief the default issue source branch. Every theorem agent checks
+  brief and the assessor's seed brief the default issue source
+  branch. Every theorem agent checks
   it out **detached**, from `origin/<branch>`, in its own worktree.
   Without it, stop and say so rather than reading the branch from
   GitHub yourself. The disprover's and the verifier's own `## Inputs`
   each name what that agent is left with nothing to work against.
+- `--base <name>` — the PR's base branch. Only the assessor receives
+  it, on the review-round brief: the merge base of `origin/<base>` and
+  `origin/<branch>` is the tree before the change.
 - `--head-sha <oid>` — optional. The PR's head commit as the reviewer
   read it. When the agent's `origin/<branch>` already points at it,
   there is nothing to fetch.
@@ -86,9 +106,10 @@ whole workflow:
 - `--claim <text>` — the generator's claim, verbatim from its record:
   the sentence a disprover tries to break, and the one a verifier
   re-reads as written rather than as the disprover restated it.
-- `--issues <N…>` — for a generator, the whole issue set the PR is
-  reviewed against — on the issues-only brief, the batch's resolved
-  issue set; on the whole-PR and delta briefs, the set the pipeline
+- `--issues <N…>` — for a generator or the assessor, the whole issue
+  set the PR is reviewed against — on the issues-only brief and the
+  assessor's seed brief, the batch's resolved issue set; on every other
+  brief, the set the pipeline
   already resolved, so the generator neither re-derives it, parses the
   branch name, nor adds or removes a member; for a disprover or a
   verifier, the member issue(s) the theorem is tagged to, which is
@@ -135,9 +156,10 @@ whole workflow:
   in a file outside that mode's classes as a counterexample.
 
 `--pr`, `--round` and `--mode` say nothing about the claim, and
-**every** theorem agent receives them, the generator included — on
-every brief but the issues-only one, which has no PR to key a path on.
-Each passes `--pr` and `--round`
+**every** theorem agent receives them, the generator and the assessor
+included — on every brief but the issues-only one and the assessor's
+seed brief, which have no PR to key a path on, the seed brief carrying
+`--mode` alone. Each passes `--pr` and `--round`
 straight back — alongside its own stage and its own definition's
 name — to
 `sdlc-agent-result-persist`, per
@@ -147,7 +169,9 @@ derives the agent id from the worktree the agent is standing in, so a
 re-spawned child is distinguishable from the one it replaced without a
 handle travelling in a brief.
 
-One brief line is not a parameter. A generator's or a disprover's
+Two brief lines are not parameters: the assessor's `Candidates:`
+block, which "The assessor briefs" describes, and this one. A
+generator's or a disprover's
 brief can carry `Leave these documentation paths out of every diff you
 read:` — on a generator's delta-round brief, `… every diff and delta
 commit you read:` — followed by paths. Each is a documentation file

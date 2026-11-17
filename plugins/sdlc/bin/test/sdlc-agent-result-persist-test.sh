@@ -4,15 +4,17 @@
 # plugins/sdlc/bin/sdlc-agent-result-persist derives a review round from:
 #
 #   - --mode next over a fixture log per arm it names -- no log, a moved
-#     head, generate, disprove, verify, dispose -- and over the states it
-#     prints: outstanding, in flight, overdue past --deadline-minutes,
-#     returned without saving, and spawned and yet to enter, overdue past
-#     the deadline from its last spawn; a stopped after its enter, one
-#     before its enter that leaves the theorem outstanding, and a
-#     replacement spawned after such a write-off that entered and was
-#     stopped, which leaves it outstanding too; a duplicate leave, a
-#     malformed DISPROVED report that earns no verifier, a generator
-#     re-spawned at another effort, and a --full round's live list.
+#     head, generate, assess, disprove, verify, dispose -- and over the
+#     states it prints: outstanding, in flight, overdue past
+#     --deadline-minutes, returned without saving, and spawned and yet to
+#     enter, overdue past the deadline from its last spawn; a stopped
+#     after its enter, one before its enter that leaves the theorem
+#     outstanding, and a replacement spawned after such a write-off that
+#     entered and was stopped, which leaves it outstanding too; a
+#     duplicate leave, a malformed DISPROVED report that earns no
+#     verifier, a generator re-spawned at another effort, and a --full
+#     round's live list, with a theorem the assessor rejected that round
+#     on it.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included,
 #     and a replacement spawned after its predecessor was written off --
@@ -24,8 +26,9 @@
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
 #     the verdicts with an unsettled theorem forcing BLOCKED and a member
-#     of --issues no record tags, the refusal without --loop-exited, and
-#     the round that spawned nothing.
+#     of --issues no record tags, the refusal without --loop-exited, the
+#     round that spawned nothing, and a theorem the assessor rejected,
+#     which only a --full round gives a row.
 #   - --mode summary over a stored records file and review file, and the
 #     review-round stamp it opens with.
 #   - --mode rounds over rounds with and without a log, round 0 and a
@@ -184,12 +187,14 @@ leave() {
   as_child "$1" --mode leave --round 1 --theorem "$2" --stage "$3" --agent "$4" --from "$CASE/r"
 }
 
-# a_generated_list: round 1 anchored with its theorem list settled and no
-# new theorem in it.
+# a_generated_list: round 1 anchored with its theorem list settled and
+# assessed, and no new theorem in it.
 a_generated_list() {
   must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
   report "$CASE/r" "no new theorems"
   leave G list generate theorem-generator
+  report "$CASE/r" "no theorem to assess"
+  leave S list assess theorem-assessor
 }
 
 # first_line, rest: the arm and the lines below it.
@@ -236,13 +241,50 @@ must --mode spawn --round 1 --theorem list --stage generate --agent theorem-gene
 report "$CASE/r" "no new theorems"
 leave G list generate theorem-generator
 run --mode next --round 1
-assert_eq "next: the generator's file settles the list" "disprove" "$(first_line)"
+assert_eq "next: the generator's file settles the list" "assess" "$(first_line)"
 run --mode print --round 1
 assert_contains "print: a result line per result file" \
   "result list theorem-generator $PR_DIR/round1/list-theorem-generator" "$OUT"
 must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator --model default --effort medium
 run --mode next --round 1
-assert_eq "next: a spawn at another effort leaves a settled list settled" "disprove" "$(first_line)"
+assert_eq "next: a spawn at another effort leaves a settled list settled" "assess" "$(first_line)"
+
+# --- next: assess, between generate and disprove ---------------------------
+
+new_case next-assess
+add_seed T1 "a claim" "#1"
+seed
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+report "$CASE/r" "no new theorems"
+leave G list generate theorem-generator
+run --mode next --round 1
+assert_eq "next: a settled, unassessed list is the assess arm" "assess" "$(first_line)"
+assert_eq "next: no disprove line is printed before the list is assessed" \
+  "assess${TAB}list${TAB}outstanding${TAB}${TAB}" "$(rest)"
+as_child S --mode enter --round 1 --theorem list --stage assess
+run --mode next --round 1
+assert_eq "next: an assessor in flight keeps the assess arm" "assess" "$(first_line)"
+assert_contains "next: the assessor in flight names its agent id" "assess${TAB}list${TAB}in-flight${TAB}S${TAB}" "$(rest)"
+: >"$CASE/empty"
+run --mode leave --round 1 --theorem list --stage assess --agent theorem-assessor --from "$CASE/empty"
+assert_eq "leave: an empty assessment is refused" "2" "$RC"
+report "$CASE/r" "T1" "action: accept" "reason: it tests the criterion"
+as_child S --mode leave --round 1 --theorem list --stage assess --agent theorem-assessor --from "$CASE/r"
+assert_eq "leave: an assessment needs no THEOREM: line and prints its result file" \
+  "$PR_DIR/round1/list-theorem-assessor" "$OUT"
+run --mode next --round 1
+assert_eq "next: the assessor's file settles the assessment" "disprove" "$(first_line)"
+assert_eq "next: the assessed list's live theorems are outstanding" \
+  "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}" "$(rest)"
+
+new_case wait-assess
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+printf 'enter list assess 2000-01-01T00:00:00Z S -\n' >>"$PR_DIR/round1/log"
+run --mode wait --round 1 --stage assess --deadline-minutes 15
+assert_eq "wait: an assessor past its deadline is waited on in the assess stage" \
+  "deadline${TAB}list${TAB}S" "$OUT"
+run --mode wait --round 1 --stage disprove --deadline-minutes 15
+assert_eq "wait: an assessor in flight is not waited on in another stage" "none" "$OUT"
 
 # --- next: disprove, its child states, and the barrier --------------------
 
@@ -474,6 +516,34 @@ assert_eq "next: --full puts a retired theorem back on the live list, never a hu
   "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}
 disprove${TAB}T3${TAB}outstanding${TAB}${TAB}
 disprove${TAB}T4${TAB}outstanding${TAB}${TAB}" "$(rest)"
+# A theorem the assessor rejected this round is a new record retired as
+# assessor-rejected: off a default round's live list, on a --full one's.
+{
+  record T4 "a new one" "#1"
+  printf '\n'
+  record T5 "rejected by the assessor" "#1"
+  printf 'state: retired\nstate-detail: assessor-rejected\nsettled-at: aaa\n'
+} >"$CASE/new-rejected"
+run --mode next --round 1 --from "$CASE/new-rejected"
+assert_eq "next: a theorem the assessor rejected this round is not live" \
+  "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}
+disprove${TAB}T4${TAB}outstanding${TAB}${TAB}" "$(rest)"
+run --mode next --round 1 --full --from "$CASE/new-rejected"
+assert_contains "next: --full puts a theorem the assessor rejected this round back on the live list" \
+  "disprove${TAB}T5${TAB}outstanding${TAB}${TAB}" "$(rest)"
+survived T1
+leave D1 T1 disprove theorem-disprover
+survived T3
+leave D3 T3 disprove theorem-disprover
+survived T4
+leave D4 T4 disprove theorem-disprover
+survived T5
+leave D5 T5 disprove theorem-disprover
+run --mode dispose --round 1 --full --from "$CASE/new-rejected" --issues 1
+assert_contains "dispose: --full disproves an assessor-rejected theorem and stamps its row" \
+  "T5${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived" "$OUT"
+run --mode dispose --round 1 --from "$CASE/new-rejected" --issues 1
+assert_lacks "dispose: a default round gives an assessor-rejected theorem no row" "T5${TAB}" "$OUT"
 printf 'T9\tstate\tretired\n' >"$CASE/bad-edits"
 run --mode next --round 1 --edits "$CASE/bad-edits"
 assert_eq "next: an edit naming no carried record is refused" "2" "$RC"
@@ -543,7 +613,7 @@ assert_contains "dispose: the refusal names the theorem missing its disprover" "
 run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited --issues "#1, #2 #3,#4 #5 #6"
 assert_eq "dispose: with --loop-exited it exits 0" "0" "$RC"
 assert_eq "dispose: every row of the disposition table, its state, severity and the verdicts, a member no record tags approved" \
-"T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived
+  "T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived
 T2${TAB}verified-refuted${TAB}-${TAB}-${TAB}retired${TAB}disproved-but-refuted
 T3${TAB}finding${TAB}optional-polish${TAB}Low${TAB}disproved${TAB}finding 3, Low
 T4${TAB}finding-verifier-malformed${TAB}defect-no-shipped-breakage${TAB}Medium${TAB}disproved${TAB}finding 2, Medium
