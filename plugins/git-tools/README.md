@@ -380,9 +380,11 @@ stays an unclassified failure.
 
 For the claim, a linked worktree of the clone plays the dead agent's.
 The test covers a `checkout` refused for a branch that worktree has
-checked out and for one it is rebasing; each kind of unfinished work
-refused by `reclaim`, with and without `--holder-ended` and with no
-holder; a lock naming a running process, compared from a zone five
+checked out and for one it is rebasing; `reclaim` refused for a dirty
+holder with and without `--holder-ended`, and under `--holder-ended`
+for a holder with unpushed commits and for one mid-rebase; a branch no
+worktree holds, released, and refused once it has unpushed commits; a
+lock naming a running process, compared from a zone five
 hours off UTC, refused and then overridden by `--holder-ended` with the
 lock kept; a lock whose PID is gone, one whose start time differs, and
 no lock, each proceeding; and dirt only under an excluded path. It
