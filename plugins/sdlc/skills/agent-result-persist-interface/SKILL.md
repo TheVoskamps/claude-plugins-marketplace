@@ -602,7 +602,9 @@ from three inputs:
   records, a retirement or a `severity-override`, one per line in the
   carry form's edit grammar;
 - **`--from <path>`** — this round's new records, generated and minted,
-  in the record shape, before any `state` is stamped.
+  in the record shape. No record holds a `state` but one the assessment
+  retired, which carries `state: retired`, `state-detail:
+  assessor-rejected` and `settled-at`.
 
 Each file is optional and may be empty, and each is refused on the
 carry form's terms, with its messages. The **live list** is the

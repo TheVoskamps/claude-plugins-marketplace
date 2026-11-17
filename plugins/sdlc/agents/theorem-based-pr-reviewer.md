@@ -482,7 +482,7 @@ invent:
 
 | Field | Where it comes from |
 | --- | --- |
-| `id` | the next id in the sequence the carried records ended at |
+| `id` | the next id after every id this round's generator and assessment took |
 | `claim` | the defect as the comment states it, quoted, not reworded |
 | `issues` | the member(s) the comment names; the resolved set from "Identify the issue set" when it names none |
 | `settle-mode` | always `semantic` |

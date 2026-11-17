@@ -166,8 +166,10 @@ recommend nothing on a carried record, and give none a block.
 
 - Recommend rejecting a candidate that duplicates a carried record.
 - Propose an add only when neither the candidates nor the carried
-  records cover the criterion. A carried record whose `state` is
-  `retired` counts as no coverage.
+  records cover the criterion. A carried record retired as `survived`
+  or `disproved-but-refuted` passed a round and counts as coverage; one
+  retired as `subject removed`, `assessor-rejected` or `scope-dropped`
+  counts as no coverage.
 - A carried record whose `state-detail` is `human-refuted` blocks the
   claim it makes: recommend rejecting a candidate making that claim,
   and propose no add making it.
