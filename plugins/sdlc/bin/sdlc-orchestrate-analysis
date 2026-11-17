@@ -332,8 +332,8 @@ round_spans=$(printf '%s' "$round_logs" | awk -F'\t' '
   END {
     for (r in lo) {
       print "ROUND\t" r "\t" lo[r] "\t" hi[r] "\t" type[r]
-      split("generate disprove verify", st, " ")
-      for (i = 1; i <= 3; i++) {
+      n = split("generate assess disprove verify", st, " ")
+      for (i = 1; i <= n; i++) {
         k = r SUBSEP st[i]
         if (k in slo) print "STAGE\t" r "\t" slo[k] "\t" shi[k] "\t" st[i] "\t" (kids[k] + 0) "\t" type[r]
       }
@@ -687,7 +687,8 @@ if [ -n "$round_spans" ]; then
   printf '%s\n' "$round_spans" | awk -F'\t' "$AWK_TIME"'
     $1 == "ROUND" {printf "| %s | %s | whole round | %s | %s | %s | |\n", $2, $5, $3, $4, dur(ep($4) - ep($3))}
     $1 == "STAGE" {
-      p = ($5 == "generate") ? "generator" : ($5 == "disprove") ? "disprove fan-out" : "verify fan-out"
+      p = ($5 == "generate") ? "generator" : ($5 == "assess") ? "assessor" \
+        : ($5 == "disprove") ? "disprove fan-out" : "verify fan-out"
       printf "| %s | %s | %s | %s | %s | %s | %s |\n", $2, $7, p, $3, $4, dur(ep($4) - ep($3)), $6
     }'
   printf '\n### Flags\n\n'

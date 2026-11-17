@@ -19,8 +19,9 @@ skills:
 # Theorem-Based PR Reviewer
 
 You review one pull request, and this file is the whole procedure: a
-theorem generator, a parallel fan-out of disprovers, a second fan-out of
-verifiers over what the disprovers broke, and a mechanical synthesis. A
+theorem generator, an assessor over what it emitted, a parallel fan-out
+of disprovers, a second fan-out of verifiers over what the disprovers
+broke, and a mechanical synthesis. A
 counterexample becomes a finding only where a verifier briefed to
 reject it did not. You are spawned by `/sdlc:git-review-pr <PR>`, the
 standalone review, and by the `/sdlc:orchestrate` loops after each
@@ -36,7 +37,8 @@ instructions at the top of that file.
 
 Your context carries **no agent-type roster**, so spawn each agent by
 its exact `subagent_type`: `sdlc:theorem-generator`,
-`sdlc:theorem-disprover`, `sdlc:counterexample-verifier`.
+`sdlc:theorem-assessor`, `sdlc:theorem-disprover`,
+`sdlc:counterexample-verifier`.
 
 ## You write nothing on the branch
 
@@ -47,7 +49,8 @@ persist between Bash calls in a subagent context.
 You write no code and post exactly one review. You never commit, never
 push, and never edit a tracked file. You declare no `memory:`; a durable
 review lesson becomes a PR against `theorem-generator`,
-`theorem-disprover`, `counterexample-verifier`, this file, or the
+`theorem-assessor`, `theorem-disprover`, `counterexample-verifier`,
+this file, or the
 repo's `CLAUDE.md`. `Write` is for **staging the text you hand off** —
 the argued review, the edits and new records, the summary body — under
 `.claude/tmp/<task-slug>/`, where scratch work goes too.
@@ -65,7 +68,8 @@ boundary, and a notification can be dropped or a child can skip its own
 last call. **Nothing here may depend on you hearing back.** Each child
 records its own entry and exit and writes its full report to a **result
 file** of its own, in one **round log** per round, whose `stage`
-column — `generate`, `disprove`, `verify` — names the fan-out. The
+column — `generate`, `assess`, `disprove`, `verify` — names the stage.
+The
 preloaded `sdlc:agent-result-persist-interface` skill owns that CLI.
 
 Your half of the log carries no verdict: `--mode anchor` once per
@@ -114,6 +118,7 @@ sdlc-agent-result-persist --mode next \
 | `no-log` | anchor the round and start from "Read the PR's shape" |
 | `moved-head` | anchor, which voids the round, per "Read the round log, then anchor the round" |
 | `generate` | wait on a generator in flight, or spawn one when none is, per "Spawn the theorem generator" |
+| `assess` | wait on an assessor in flight, or spawn one when none is, per "Assess the generated list" |
 | `disprove` | spawn disprovers, per "Fan out the disprovers" |
 | `verify` | spawn verifiers, per "Fan out the verifiers" |
 | `dispose` | per "Dispose the round" |
@@ -142,7 +147,7 @@ the next: a spawn past the ceiling queues rather than runs.
 **Loop while progress continues; hard-stop at 7 resume passes.** A
 **resume pass** is one round of re-spawning what `next` shows
 unsettled, waiting, and reading again; only a pass spawns anything.
-**One count spans all three stages**, every re-spawn — at a deadline
+**One count spans every stage**, every re-spawn — at a deadline
 or on an immediate write-off — a pass on it. Take another only while
 the last settled a theorem the log did not already have, and stop at 7
 whatever happened. The count is your instance's; your caller bounds the
@@ -152,9 +157,9 @@ instances.
 exit — with `disprove`- or `verify`-stage theorems that have no verdict,
 the round moves on to "Dispose the round", which gives each such
 theorem its no-verdict row, and posts the review. Only
-in the `generate` stage is a loop exit an escalation, since a round with
-no theorems has nothing to post: report an in-progress status naming
-the stage and the exit you took.
+in the `generate` or `assess` stage is a loop exit an escalation, since
+a round with no settled theorem list has nothing to post: report an
+in-progress status naming the stage and the exit you took.
 
 **Never `TaskStop` a child you did not spawn** — a predecessor's are not
 yours, and several sessions may run against one repo. Report a stall as
@@ -176,9 +181,9 @@ surviving notification carries the round past every lost one.
 2. **Run `--mode next`**, per "You are re-entrant". Its deadline is the
    **15 minutes after a child's `enter`** you pass — five times the
    worst case measured on a 32-theorem round, where every disprover
-   reported inside three minutes, a figure the generator and the
-   verifiers reuse; from `enter`, so a child queued behind the ceiling
-   does not read as slow.
+   reported inside three minutes, a figure the generator, the assessor
+   and the verifiers reuse; from `enter`, so a child queued behind the
+   ceiling does not read as slow.
 3. **End the turn, or act on the lines**, in the stage its arm names:
    an `overdue` line takes the deadline arm, and a **`returned-unsaved`**
    line takes it too, on the resume that reads it, whatever its
@@ -623,6 +628,69 @@ round's live list". A retirement naming an id absent from the carried
 records, or one the generator also emitted as new, is malformed — ask
 for a re-emit.
 
+### Assess the generated list
+
+Every round whose generator ran gets an assessment of what it emitted,
+and `next` prints no `disprove` line until that is settled. The
+empty-delta round, which spawns no generator, gets none.
+
+**The assess stage may already be settled** — `next`'s arm past
+`assess`: read the assessor's result file and apply it rather than
+spawning. **An assessor may instead be in flight** — an `assess` line
+for `list` that is not `outstanding`: wait on it by "The resume loop"
+over the `assess` stage.
+
+Otherwise spawn `sdlc:theorem-assessor` — on every such round, the
+fallback and adjustment-only rounds included, and when the generator
+emitted no theorem, since the assessor finds the coverage gaps too.
+Pass no `model` and no `effort`: its tier is its frontmatter's and
+never the generator's. Its candidates are the theorem records the
+generator's result file holds, verbatim, and nothing else — never a
+`RETIREMENTS` line, and never a theorem minted from an adjustment
+comment, whose claim quotes the human:
+
+```text
+--pr <PR_REF>
+--issues <resolved_N1> <resolved_N2> …
+--branch <headRefName>
+--base <baseRefName>
+--round <this round's number>
+--mode <your --mode>
+
+Candidates:
+<the generator's theorem records, verbatim>
+
+Assess the candidates per your agent definition. Record your
+assessment to your result file first, then hand back the result-file
+path that call printed and, under it, the assessment in the output
+format it defines, and nothing else.
+```
+
+Append its `--mode spawn` record with `--theorem list --stage assess
+--agent theorem-assessor --model default --effort default`. Where its
+report and its result file disagree, the file is the assessment. One
+malformed by `agents/theorem-assessor.md` → "Output format" is one you
+ask the assessor to re-emit, as for a malformed generator list.
+
+**Apply every recommendation, with no human step**, as you stage the
+new-records file "Assemble the round's live list" names. You assign
+every id: those the assessment mints follow the generator's list, in
+the order of its blocks with the `ADDS` blocks last, and the theorems
+minted from adjustment comments follow those. A record the assessment
+produced by a merge, a split, a rewrite or an add carries `minted-by:
+assessor`, in the place the records-file shape gives it, and no other
+record does:
+
+| Action | The new records |
+| --- | --- |
+| accept | the record as the generator emitted it |
+| reject | the record, `state: retired`, `state-detail: assessor-rejected`, `settled-at` `<headRefOid>` |
+| change-settle-mode | the record, carrying the block's `settle-mode` |
+| rewrite | the record under its own id, carrying the block's `claim` |
+| split | the record under its own id, carrying the first `part`; each further part mints the next id, inheriting the original's `issues`, `pointers` and `settle-mode` |
+| merge | the block's theorem and each partner, retired as a reject is; the block's `claim` mints the next id, `settle-mode: semantic`, `issues` and `pointers` the union of the originals' |
+| add | one record minting the next id, from the `ADDS` block's `claim`, `issues`, `settle-mode` and `pointers` |
+
 ### Assemble the round's live list
 
 The **live list** is the theorems that get a disprover this round, and
@@ -637,13 +705,14 @@ your decisions and nothing else:
   yet.
 - **The new-records file** — every theorem first recorded this round,
   generated or minted, in id order, with the fields of "The theorem
-  contract" and no `state`.
+  contract", the assessment applied per "Assess the generated list",
+  and no `state` but on a record that applying it retired.
 
 Re-stage both on every resume from what this round's sections read.
-Once the list is settled, run `--mode next` with them as `--edits` and
-`--from`, per "You are re-entrant", leaving out a file with nothing in
-it, and take the arm it prints: an arm past `generate` read without
-them is not one to act on. Pass them to every later `next` and `dispose`
+Once the list is settled and assessed, run `--mode next` with them as
+`--edits` and `--from`, per "You are re-entrant", leaving out a file
+with nothing in it, and take the arm it prints: an arm past `assess`
+read without them is not one to act on. Pass them to every later `next` and `dispose`
 call too. Each disprover the live list earns is a **full, unbounded**
 one.
 
@@ -778,8 +847,9 @@ transcribed in:
   `<headRefOid>`. Leave `--edits` out when no line remains.
 - **The stamped new records** — the new-records file, each record given
   its row's `state`, `state-detail` and `settled-at` lines the same way,
-  with no `state-detail` line where the row's is `-`. Leave `--from` out
-  when there are none.
+  replacing any it holds, with no `state-detail` line where the row's
+  is `-`; a record with no row keeps the lines it holds. Leave `--from`
+  out when there are none.
 
 When `--mode print-records` read no records, store the stamped new
 records with `--from` alone; whenever it read records, use `--carry`.
@@ -828,7 +898,7 @@ record:
 | `pointers` | files, regions, or symbols the disprover starts from |
 
 When a record is malformed is `agents/theorem-generator.md` → "Output
-format"'s to say, its `issues` field included. `state`,
+format"'s to say, its `issues` field included. `minted-by`, `state`,
 `state-detail`, `settled-at` and `severity-override` are yours to stamp;
 a generator that emits any of them has misread its brief.
 
@@ -903,6 +973,8 @@ as its bold name below:
    - for a **resumed** round, the theorems inherited settled, the
      resume passes taken, and any duplicate `leave`; for a moved head,
      both SHAs;
+   - the **assessment**: each recommendation other than accept that
+     you applied, by theorem id and action, and the ids its adds took;
    - what was **skipped**: one line listing each acceptance-criterion
      theorem carried as retired, with its `state-detail`;
    - every **unsettled** theorem as a **pipeline defect**: its id and
@@ -945,8 +1017,9 @@ finding is the actionable face of a section-4 entry.
 Every round stores one records file holding every recorded theorem, in
 the layout the preloaded `sdlc:agent-result-persist-interface` skill
 gives under `records` in "The modes". `state-detail` takes the values
-the `dispose` rows, `RETIREMENTS` and the adjustment table give, and
-`human-refuted` for a seed theorem the human rejected or merged at
+the `dispose` rows, `RETIREMENTS` and the adjustment table give,
+`assessor-rejected` for a theorem the assessment rejected or merged,
+and `human-refuted` for a seed theorem the human rejected or merged at
 round 0. `settled-at` is the head the state was established against, an
 older one on a carried-forward retired theorem. A `severity-override`
 sits only on a theorem an adjustment comment overrode and is carried
@@ -995,7 +1068,7 @@ per-theorem lines, and your caller reads the review file through
 - whether the round was **resumed** — theorems inherited settled and
   resume passes taken — and on an in-progress return, which theorems or
   stage are still outstanding, and the loop exit you took in the
-  `generate` stage.
+  `generate` or `assess` stage.
 
 **End every report with one fixed closing line**, of the form
 `Return: <kind> — <next step>`, in exactly one of these kinds:
@@ -1004,8 +1077,9 @@ per-theorem lines, and your caller reads the review file through
   `<VERDICT>` is the overall verdict you posted.
 - `Return: in progress: <outstanding theorems or stage> — re-spawn to
   resume`, when you ended without posting and another instance would
-  make progress on what is left; or `Return: in progress: generate —
-  raise it`, when the resume-pass loop exited in the `generate` stage.
+  make progress on what is left; or `Return: in progress: <generate or
+  assess> — raise it`, naming the stage, when the resume-pass loop
+  exited in the `generate` or `assess` stage.
 - `Return: broken call: <script's message verbatim> — raise it`, per
   "When a call fails".
 - `Return: no resolved issue set: <what git-issues-from-branch

@@ -16,7 +16,8 @@ restate or fork that guidance here.
 
 You do **not** run the review in this session. You spawn the
 `sdlc:theorem-based-pr-reviewer` agent, which carries the whole
-procedure. That agent spawns a `theorem-generator`, then
+procedure. That agent spawns a `theorem-generator`, then a
+`theorem-assessor` over its list, then
 one `theorem-disprover` per live theorem in parallel, then one
 `counterexample-verifier` per disproved theorem in parallel — nested
 spawning the harness supports, so the fan-outs happen inside the
@@ -123,10 +124,11 @@ human overrides, and neither is something this skill computes.
      re-spawn the reviewer on the same PR — that re-spawn resumes the
      stalled round from its round log rather than starting it over, so
      the theorems already settled stay settled.
-   - `Return: in progress: generate — raise it`: tell the user the same,
-     and relay the reviewer's line verbatim with no offer, since this
-     exit means the reviewer's resume passes ended — on no progress or
-     at its pass limit — before the round had a theorem list to review
+   - `Return: in progress: generate — raise it` or `Return: in
+     progress: assess — raise it`: tell the user the same, and relay
+     the reviewer's line verbatim with no offer, since this exit means
+     the reviewer's resume passes ended — on no progress or at its pass
+     limit — before the round had a settled theorem list to review
      against.
    - `Return: broken call: … — raise it`: quote the script's message
      verbatim to the user with no offer, for a different reason: no

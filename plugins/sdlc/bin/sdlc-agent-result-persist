@@ -54,7 +54,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |print-agents|rounds|delete|next|dispose|summary
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--round-type <type>] [--theorem <id>]
-                [--stage generate|disprove|verify] [--agent <name>]
+                [--stage generate|assess|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
                 [--carry] [--edits <path>] [--full]
@@ -358,8 +358,8 @@ case "$mode" in
   spawn | enter | leave | return | stopped | print-in-flight | wait)
     [ -n "$stage" ] || die "--stage is required in --mode $mode"
     case "$stage" in
-      generate | disprove | verify) ;;
-      *) die "--stage must be generate, disprove or verify: $stage" ;;
+      generate | assess | disprove | verify) ;;
+      *) die "--stage must be generate, assess, disprove or verify: $stage" ;;
     esac
     ;;
 esac
@@ -996,6 +996,7 @@ derive_lib() {
   # file settles a theorem in it.
   function stage_agent(st) {
     if (st == "generate") return "theorem-generator"
+    if (st == "assess") return "theorem-assessor"
     return st == "disprove" ? "theorem-disprover" : "counterexample-verifier"
   }
   function has_result(st, t) { return (t SUBSEP stage_agent(st)) in result }
@@ -1165,6 +1166,10 @@ readonly next_prog="$epoch_fn"'
     derive_live()
     gen_open = consider("generate", "list", 1)
     sweep("generate")
+    # The assessment is of the list the generator emitted, so it is the
+    # stage after generate and before any disprover spawns.
+    ass_open = consider("assess", "list", 1)
+    if (sweep("assess")) ass_open = 1
     dis_open = 0
     for (i = 1; i <= nlive; i++) if (consider("disprove", live[i], 1)) dis_open = 1
     if (sweep("disprove")) dis_open = 1
@@ -1174,9 +1179,10 @@ readonly next_prog="$epoch_fn"'
     if (sweep("verify")) ver_open = 1
     # A stage past the arm is not under way, so its lines would only
     # tempt a spawn across the barrier between stages.
-    arm = gen_open ? "generate" : dis_open ? "disprove" : ver_open ? "verify" : "dispose"
+    arm = gen_open ? "generate" : ass_open ? "assess" : dis_open ? "disprove" : ver_open ? "verify" : "dispose"
     print arm
-    upto = arm == "generate" ? "generate" : arm == "disprove" ? "generate disprove" : "generate disprove verify"
+    upto = arm == "generate" ? "generate" : arm == "assess" ? "generate assess" \
+      : arm == "disprove" ? "generate assess disprove" : "generate assess disprove verify"
     for (i = 1; i <= nout; i++) {
       split(out[i], f, "\t")
       if (index(" " upto " ", " " f[1] " ")) print out[i]
@@ -1599,6 +1605,7 @@ case "$mode" in
     fi
     case "$stage" in
       generate) stage_agent='theorem-generator' ;;
+      assess) stage_agent='theorem-assessor' ;;
       disprove) stage_agent='theorem-disprover' ;;
       verify) stage_agent='counterexample-verifier' ;;
     esac

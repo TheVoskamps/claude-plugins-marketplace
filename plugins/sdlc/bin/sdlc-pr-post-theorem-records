@@ -27,7 +27,9 @@
 #      when any round has a log, no higher than the latest one;
 #   2. per round above the covered round, ascending, every round with a
 #      log, as sdlc-agent-result-persist --mode rounds lists them: its
-#      generator files, list-<agent>, in agent-name order; its review,
+#      list files, list-<agent>, the generator's first, then the rest in
+#      agent-name order, so the assessment follows the list it assesses;
+#      its review,
 #      when it stored one; then its children's result files grouped by
 #      theorem, in theorem-id order, a theorem's disprover report before
 #      its verifier report.
@@ -242,7 +244,11 @@ for round in $rounds; do
     esac
     relative=${path#"$root"}
     if [ "$theorem" = list ]; then
-      printf '%s\t%s\t%s\n' "$agent" "$relative" "$path" >>"$work/generators"
+      case "$agent" in
+        theorem-generator) rank=1 ;;
+        *) rank=2 ;;
+      esac
+      printf '%s\t%s\t%s\t%s\n' "$rank" "$agent" "$relative" "$path" >>"$work/generators"
       continue
     fi
     case "$theorem" in
@@ -260,8 +266,8 @@ for round in $rounds; do
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$theorem" "$rank" "$agent" "$relative" "$path" >>"$work/children"
   done <"$work/out"
 
-  LC_ALL=C sort -t "$TAB" -k1,1 "$work/generators" >"$work/sorted"
-  while IFS="$TAB" read -r agent relative path; do
+  LC_ALL=C sort -t "$TAB" -k1,1 -k2,2 "$work/generators" >"$work/sorted"
+  while IFS="$TAB" read -r _ _ relative path; do
     new_piece
     add_file "$relative" "$path"
   done <"$work/sorted"

@@ -1,6 +1,6 @@
 ---
 name: agent-result-persist-interface
-description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, the per-round records and review files it stores, and the derivation modes — next, dispose and summary — that derive a round's arm and outstanding work, its dispositions, severities and verdicts, and its review body. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
+description: The contract for the sdlc-agent-result-persist CLI — its modes, its flags, the paths it composes, the line grammar of the round log and the agents log it writes, the per-round records and review files it stores, and the derivation modes — next, dispose and summary — that derive a round's arm and outstanding work, its dispositions, severities and verdicts, and its review body. Preloaded into sdlc:theorem-based-pr-reviewer, sdlc:theorem-generator, sdlc:theorem-assessor, sdlc:theorem-disprover, sdlc:counterexample-verifier, sdlc:pr-finalizer, and sdlc:pr-merge-readiness via their skills frontmatter; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -30,8 +30,9 @@ telemetry rather than truth.
 `sdlc:theorem-based-pr-reviewer` anchors the round, records each spawn,
 reads the log back, records a child it writes off, and at the end of the
 round stores its records file and its review file. The theorem
-generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
-each write their own `enter` and `leave`. **Every log record is a
+generator, `sdlc:theorem-assessor`, `sdlc:theorem-disprover` and
+`sdlc:counterexample-verifier` each write their own `enter` and
+`leave`. **Every log record is a
 single atomic append**, so no two writers can be ordered wrongly and no
 call has to know what the log already holds. The records file and the
 review file are not records: each is written whole and replaces
@@ -340,6 +341,10 @@ derive.
   in sequence, is refused, non-zero, with a message naming that id and
   the expected next one. The call is refused as `print-records` would
   be, too, when a round above `--round` holds records.
+
+  With `--stage assess` the report is the assessment of that list,
+  filed under `--theorem list`, and nothing in it is checked but that
+  it is not empty.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a final `<task-notification>`
@@ -373,7 +378,7 @@ derive.
   child's agent id and the instant of its `enter`, which is what its
   deadline runs from. `--stage` and `--agent` are required, `--agent`
   naming the definition whose result file settles the theorem —
-  `theorem-generator`, `theorem-disprover` or
+  `theorem-generator`, `theorem-assessor`, `theorem-disprover` or
   `counterexample-verifier`. "What the reader derives" below states
   what in flight means. Exits non-zero when the log does not exist, as
   `print` does.
@@ -411,9 +416,16 @@ derive.
   A records file is a sequence of records in id order, separated by one
   blank line. Each opens with its id, `T<n>`, on a line of its own,
   followed by one `key: value` line per field: `claim`, `issues`,
-  `settle-mode`, `pointers`, then, when present, `state`,
+  `settle-mode`, `pointers`, then, when present, `minted-by`, `state`,
   `state-detail`, `settled-at`, `severity-override`, in that order. Ids
   are never reused.
+
+  `minted-by: assessor` marks a record whose claim the reviewer took
+  from `theorem-assessor`'s merge, split, rewrite or add and applied
+  with no human step, so no reader attributes that claim to the
+  generator or the human. It is written when the record is first
+  recorded, carried verbatim from then on, and is on no other record —
+  a seed claim the human adopted is the human's. No edit sets it.
 
   **With `--carry` the script builds the file itself** rather than
   taking one whole, and makes no decision while doing so — what each
@@ -598,7 +610,8 @@ theorems that get a disprover this round: every record this round's
 edits do not retire that holds no `state`, or `disproved` or
 `unsettled`. `--full` makes it every record whose `state-detail` is not
 `human-refuted`, retired ones included, except those this round's edits
-retire.
+retire — so an `assessor-rejected` record is live on a `--full` round,
+one this round's `--from` holds retired included.
 
 **A report's grammar.** A disprover's or verifier's result file is
 classified on the template its sender's file gives under "Output" —
@@ -635,12 +648,14 @@ does not check that a quote is verbatim; the verifier does.
   | `no-log` | no round log; nothing else is read or printed |
   | `moved-head` | an `anchor` naming a head other than `--head-sha`, only when `--head-sha` is given; nothing else is printed |
   | `generate` | `list` not settled in the `generate` stage |
-  | `disprove` | a live theorem neither settled nor in flight in the `disprove` stage, or one in flight there |
+  | `assess` | `list` settled in the `generate` stage and not in the `assess` stage |
+  | `disprove` | `list` settled in the `assess` stage, and a live theorem neither settled nor in flight in the `disprove` stage, or one in flight there |
   | `verify` | no live theorem outstanding in the `disprove` stage, and a well-formed `DISPROVED` report whose verifier is unsettled |
   | `dispose` | no theorem outstanding in the `verify` stage |
 
-  A stage's members are `list` for `generate`, the live list for
-  `disprove`, and for `verify` the live theorems whose disprover report
+  A stage's members are `list` for `generate` and for `assess`, the
+  live list for `disprove`, and for `verify` the live theorems whose
+  disprover report
   is a well-formed `DISPROVED` one; a malformed one earns no verifier.
   Outstanding and in flight are as "What the reader derives" below
   defines them. An outstanding theorem is printed `outstanding`, and a
@@ -798,7 +813,7 @@ round-type  <round-type>
 ```
 
 Every instant is `date -u +%Y-%m-%dT%H:%M:%SZ`. `<stage>` is
-`generate`, `disprove` or `verify`, and `<round-type>`
+`generate`, `assess`, `disprove` or `verify`, and `<round-type>`
 `code-and-instruction-markdown` or `documentation`. The script rejects
 any column value carrying whitespace, which would shift its own line's
 columns.
@@ -810,8 +825,9 @@ that does. Which stage a result belongs to follows from the agent that
 wrote it.
 
 The generation stage answers no single theorem, so its theorem column
-is the literal `list` — the thing it produces. Every other stage's is a
-theorem id.
+is the literal `list` — the thing it produces — and so is the
+assessment stage's, whose agent is `theorem-assessor` and which
+assesses that list. Every other stage's is a theorem id.
 
 The agents log holds one record kind, on the same terms — one line per
 record, appended, never revised, every column a single token:
@@ -855,7 +871,8 @@ almost always the same fact, and the second is what covers a child that
 wrote its report and died before the record landed.
 
 The result file is the one under the stage's agent, `theorem-generator`,
-`theorem-disprover` or `counterexample-verifier`, whatever effort a
+`theorem-assessor`, `theorem-disprover` or `counterexample-verifier`,
+whatever effort a
 `spawn` record gave it.
 
 A stage's **outstanding** theorems are its members, over the live list

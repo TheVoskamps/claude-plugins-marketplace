@@ -89,7 +89,8 @@ seed's rulings transcribed onto it:
   `settle-mode: semantic` unless the human said otherwise.
 
 Ids are never reused. A merged, rewritten, split or added claim is the
-human's words once adopted.
+human's words once adopted, the assessor's proposal included, so no
+round-0 record carries a `minted-by` line.
 
 Then record the seed generator's tier in round 0's log — the tier you
 passed as its `effort` and held in your scratchpad. This is the round
