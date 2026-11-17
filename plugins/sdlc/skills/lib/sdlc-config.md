@@ -44,7 +44,7 @@ the first key; every key is kebab-case.
 
 ```yaml
 schema-version: 1
-seed-review: auto-accept
+seed-review: ask
 merge-poll-interval-seconds: 300
 ```
 
@@ -52,15 +52,15 @@ merge-poll-interval-seconds: 300
 
 | Key | Values | Default |
 | --- | --- | --- |
-| `seed-review` | `ask` \| `auto-accept` | `ask` |
+| `seed-review` | `ask` \| `auto-accept` | `auto-accept` |
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
-| `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
-| `merge-max-unchanged-polls` | positive integer | `15` |
+| `merge-poll-interval-seconds` | positive integer, at most `540` | `60` |
+| `merge-max-unchanged-polls` | positive integer | `720` |
 | `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
-| `code-review-max-rounds` | positive integer \| `unlimited` | `5` |
+| `code-review-max-rounds` | positive integer \| `unlimited` | `10` |
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
-| `loop-end` | `ask` \| `auto-when-clean` | `ask` |
-| `docs-loop-end` | `ask` \| `auto-when-clean` | `ask` |
+| `loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
+| `docs-loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
