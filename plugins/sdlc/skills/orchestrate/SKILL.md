@@ -618,11 +618,14 @@ auto-accept`, of the generator's list as emitted — not authored review
 content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
-round. It has exactly two triggers: a plugin the issues' titles and
-bodies do not name, and a rename or deletion the issues do not
-specify. Either goes to the human now, with pulling it out of the PR
-stated as one of the options; the question ends your turn, and nothing
-else is spawned for the PR until it is answered.
+round. The block measures the branch against
+`default-pr-target-branch`, not against a PR, so read it too from a
+developer that landed no member and opened none, when it returns. It
+has exactly two triggers: a plugin the issues' titles and bodies do
+not name, and a rename or deletion the issues do not specify. Either
+goes to the human now, with pulling it out of the branch stated as one
+of the options; the question ends your turn, and nothing else is
+spawned for the branch until it is answered.
 
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
