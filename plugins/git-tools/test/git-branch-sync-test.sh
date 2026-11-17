@@ -798,6 +798,80 @@ check "$(git --git-dir="$NESTED_ADMIN" symbolic-ref -q HEAD || echo detached)" "
 check "$(local_claimed):$(recorded claimed)" "gone:none" \
   "reclaim, holder's .git missing: the local branch and record are deleted"
 
+# --- holders under each worktree.useRelativePaths setting -------------------
+# holder_shapes <true|false> -- with worktree.useRelativePaths set to the
+# argument, which decides whether git writes a holder's gitdir file
+# relative: an intact holder that is dirty and then mid-rebase, the same
+# holder after its directory is deleted, and a holder whose directory is
+# gone with no rebase.
+holder_shapes() {
+  local rel=$1 wt admin lost form want
+  git -C "$CLONE" config worktree.useRelativePaths "$rel"
+  wt="$SANDBOX/shape-$rel"
+  git -C "$CLONE" worktree add -q "$wt" -b claimed refs/remotes/origin/claimed
+  git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+  admin=$(git -C "$wt" rev-parse --absolute-git-dir)
+  case "$(cat "$admin/gitdir")" in
+    /*) form=absolute ;;
+    *) form=relative ;;
+  esac
+  want=absolute
+  [ "$rel" = false ] || want=relative
+  check "$form" "$want" "relative paths $rel: git writes the gitdir file $want"
+
+  printf 'dirty\n' >>"$wt/claimed1.txt"
+  branch_sync reclaim claimed
+  check "$RC:$OUT" "14:" "relative paths $rel, holder dirty: exit 14"
+  check_contains "$ERR" "uncommitted changes" "relative paths $rel, holder dirty: stderr names what it found"
+  check_contains "$ERR" "/shape-$rel" "relative paths $rel, holder dirty: stderr names the holder's path"
+  git -C "$wt" checkout -q -- claimed1.txt
+
+  git -C "$wt" rebase -q -x false HEAD~1 >/dev/null 2>&1
+  branch_sync reclaim --holder-ended claimed
+  check "$RC" "14" "relative paths $rel, holder mid-rebase: exit 14"
+  check_contains "$ERR" "a rebase in progress" "relative paths $rel, holder mid-rebase: stderr names what it found"
+
+  rm -rf "$wt"
+  branch_sync checkout claimed
+  check "$RC" "13" "relative paths $rel, mid-rebase holder's directory gone: checkout exits 13"
+  check_contains "$ERR" "/shape-$rel" "relative paths $rel, mid-rebase holder's directory gone: checkout names the holder"
+  branch_sync reclaim --holder-ended claimed
+  check "$RC:$OUT" "14:" "relative paths $rel, mid-rebase holder's directory gone: reclaim exits 14"
+  check_contains "$ERR" "a rebase in progress" \
+    "relative paths $rel, mid-rebase holder's directory gone: stderr names the rebase"
+  check_contains "$ERR" "/shape-$rel" "relative paths $rel, mid-rebase holder's directory gone: stderr names the holder"
+  check "$(local_claimed):$(recorded claimed)" "$CLAIMED:$CLAIMED" \
+    "relative paths $rel, mid-rebase holder's directory gone: nothing was changed"
+  rm -rf "$admin/rebase-merge"
+  branch_sync reclaim claimed
+  check "$RC" "0" "relative paths $rel, holder's directory gone after its rebase: exit 0"
+  check "$(local_claimed):$(recorded claimed)" "gone:none" \
+    "relative paths $rel, holder's directory gone after its rebase: the local branch and record are deleted"
+
+  wt="$SANDBOX/gone-shape-$rel"
+  git -C "$CLONE" worktree add -q "$wt" -b claimed refs/remotes/origin/claimed
+  git -C "$CLONE" update-ref refs/git-branch-sync/claimed "$CLAIMED"
+  admin=$(git -C "$wt" rev-parse --absolute-git-dir)
+  commit_file "$wt" lost.txt "lost" "lost" >/dev/null
+  lost=$(git -C "$wt" rev-parse HEAD)
+  rm -rf "$wt"
+  branch_sync reclaim claimed
+  check "$RC:$OUT" "14:" "relative paths $rel, holder's directory gone, unpushed commits: exit 14"
+  check_contains "$ERR" "commits origin/claimed lacks" "relative paths $rel, holder's directory gone: stderr names the commits"
+  check "$(local_claimed):$(recorded claimed)" "$lost:$CLAIMED" \
+    "relative paths $rel, holder's directory gone, unpushed commits: nothing was changed"
+  git -C "$CLONE" update-ref refs/heads/claimed "$CLAIMED"
+  branch_sync reclaim claimed
+  check "$RC" "0" "relative paths $rel, holder's directory gone: exit 0"
+  check_contains "$OUT" "/gone-shape-$rel" "relative paths $rel, holder's directory gone: stdout is the holder's path"
+  check "$(git --git-dir="$admin" symbolic-ref -q HEAD || echo detached)" "detached" \
+    "relative paths $rel, holder's directory gone: the holder's HEAD is detached"
+  check "$(local_claimed):$(recorded claimed)" "gone:none" \
+    "relative paths $rel, holder's directory gone: the local branch and record are deleted"
+}
+holder_shapes false
+holder_shapes true
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "all passed"

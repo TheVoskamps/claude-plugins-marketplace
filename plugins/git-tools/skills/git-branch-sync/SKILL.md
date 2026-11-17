@@ -88,10 +88,16 @@ No subcommand ever opens an editor.
      or without a holder — it exits 14 and changes nothing. A holder
      has a working tree only when git run in its directory resolves to
      that worktree itself — the top level is the holder's path and the
-     git dir is the holder's own — so one whose directory is gone, or
-     whose `.git` is missing or names a gitdir that is gone, has none,
-     and is never mid-rebase or dirty. The same test decides whether a
-     worktree is entered for its rebase state when finding the holder.
+     common git dir is this repository's — so one whose directory is
+     gone, or whose `.git` is missing or names a gitdir that is gone,
+     has none. A holder with a working tree has its rebase state read
+     where git run in it puts it. One with none is never dirty, and its
+     rebase state is read from its administrative directory: the one
+     under the common git dir's `worktrees/` whose `gitdir` file names
+     the holder's `.git`, an absolute path as written and a relative
+     one, as `worktree.useRelativePaths` writes it, against that
+     administrative directory, both compared with symlinks resolved.
+     Finding the holder reads each worktree's rebase state the same way.
   2. When the holder's lock reads `claude agent agent-<id> (pid <pid>
      start <date>)` and `<pid>` is a running process whose start time
      equals `<date>`, runs of spaces collapsed, and `--holder-ended` is

@@ -135,10 +135,27 @@ remote_ref() {
   git rev-parse -q --verify "refs/remotes/origin/$1^{commit}" || true
 }
 
-# canonical <path> -- print <path> with every symlink resolved, or <path>
-# as given when it is not a directory that can be entered.
+# canonical <path> -- print <path> with every symlink resolved. A <path>
+# that is not a directory that can be entered keeps its last component
+# and has the rest resolved, so a path that no longer exists still
+# compares equal to the same path spelled through a symlink.
 canonical() {
-  (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+  local path=$1 dir
+  dir=$(cd "$path" 2>/dev/null && pwd -P || true)
+  if [ -n "$dir" ]; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+  case "$path" in
+    */*) ;;
+    *)
+      printf '%s\n' "$path"
+      return 0
+      ;;
+  esac
+  dir=${path%/*}
+  dir=$(canonical "${dir:-/}")
+  printf '%s/%s\n' "${dir%/}" "${path##*/}"
 }
 
 # find_holder <branch> -- set HOLDER to the path of the worktree that has
@@ -170,28 +187,53 @@ EOF
 # for <path>: when it is the first to hold <want-ref>, set HOLDER and
 # HOLDER_LOCK.
 holder_block() {
-  local want=$1 path=$2 ref=$3 lock=$4 gitdir state
+  local want=$1 path=$2 ref=$3 lock=$4 state file
   [ -n "$path" ] && [ -z "$HOLDER" ] || return 0
   if [ "$ref" = "$want" ]; then
     HOLDER=$path HOLDER_LOCK=$lock
     return 0
   fi
-  # A worktree git cannot be run in as itself is not entered for its
-  # rebase state.
-  gitdir=$(worktree_gitdir "$path") || exit
-  [ -n "$gitdir" ] || return 0
   for state in rebase-merge rebase-apply; do
-    if [ -f "$gitdir/$state/head-name" ] && [ "$(cat "$gitdir/$state/head-name")" = "$want" ]; then
+    file=$(worktree_git_path "$path" "$state/head-name") || exit
+    if [ -n "$file" ] && [ -f "$file" ] && [ "$(cat "$file")" = "$want" ]; then
       HOLDER=$path HOLDER_LOCK=$lock
       return 0
     fi
   done
 }
 
+# has_working_tree <path> -- succeed when git run in <path> resolves to
+# the worktree at <path> itself: the top level it reports is <path>, and
+# the common git dir it reports is this repository's. Fail when <path>
+# is gone, when its .git names a gitdir that is gone, or when its .git is
+# missing and git resolves to a repository enclosing <path>.
+has_working_tree() {
+  local path=$1 top common
+  [ -d "$path" ] || return 1
+  top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] && [ "$(canonical "$top")" = "$(canonical "$path")" ] || return 1
+  common=$(git -C "$path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  [ -n "$common" ] &&
+    [ "$(canonical "$common")" = "$(canonical "$(git rev-parse --path-format=absolute --git-common-dir)")" ]
+}
+
+# worktree_git_path <path> <name> -- print where the worktree at <path>
+# keeps <name> in its git dir: as git run in it reports when it has a
+# working tree, and under its administrative directory otherwise.
+# Print nothing for a worktree with neither.
+worktree_git_path() {
+  local admin
+  if has_working_tree "$1"; then
+    git -C "$1" rev-parse --path-format=absolute --git-path "$2"
+    return 0
+  fi
+  admin=$(find_admin_dir "$1") || exit
+  [ -z "$admin" ] || printf '%s/%s\n' "$admin" "$2"
+}
+
 # admin_dir <path> -- print the administrative directory of the linked
-# worktree at <path>, the one under the common git dir whose gitdir file
-# names <path>/.git, or exit 1 when none does. It is read from the
-# repository's side, so it is found when <path> itself is gone.
+# worktree at <path> as find_admin_dir finds it, or exit 1 when none
+# names <path>.
 admin_dir() {
   local admin
   admin=$(find_admin_dir "$1") || exit
@@ -200,44 +242,30 @@ admin_dir() {
   printf '%s\n' "$admin"
 }
 
-# find_admin_dir <path> -- print the administrative directory admin_dir
-# describes, or nothing when none names <path>.
+# find_admin_dir <path> -- print the administrative directory under the
+# common git dir whose gitdir file names <path>/.git, or nothing when
+# none does. It is read from the repository's side, so it is found when
+# <path> has no working tree. The gitdir file is resolved as git
+# resolves it: an absolute path as written, a relative one, as
+# worktree.useRelativePaths writes it, against the administrative
+# directory; both sides are compared canonical.
 find_admin_dir() {
-  local common entry
+  local common entry admin named want
   common=$(git rev-parse --path-format=absolute --git-common-dir)
+  want=$(canonical "$1/.git")
   for entry in "$common"/worktrees/*/gitdir; do
-    if [ -f "$entry" ] && [ "$(cat "$entry")" = "$1/.git" ]; then
-      printf '%s\n' "${entry%/gitdir}"
+    [ -f "$entry" ] || continue
+    admin=${entry%/gitdir}
+    named=$(cat "$entry")
+    case "$named" in
+      /*) ;;
+      *) named=$admin/$named ;;
+    esac
+    if [ "$(canonical "$named")" = "$want" ]; then
+      printf '%s\n' "$admin"
       return 0
     fi
   done
-}
-
-# worktree_gitdir <path> -- print the git dir of the worktree at <path>
-# when `git -C <path>` resolves to that worktree itself: the top level it
-# reports is <path>, and the git dir it reports is <path>'s own — the
-# common git dir for the main worktree, its administrative directory for
-# a linked one. Print nothing otherwise: when <path> is gone, when its
-# .git names a gitdir that is gone, or when its .git is missing and git
-# resolves to a repository enclosing <path>.
-worktree_gitdir() {
-  local path=$1 top gitdir own list main
-  [ -d "$path" ] || return 0
-  top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)
-  [ -n "$top" ] && [ "$(canonical "$top")" = "$(canonical "$path")" ] || return 0
-  gitdir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null || true)
-  [ -n "$gitdir" ] || return 0
-  # The main worktree is the first `git worktree list` names.
-  list=$(git worktree list --porcelain)
-  main=${list%%$'\n'*}
-  main=${main#worktree }
-  if [ "$(canonical "$main")" = "$(canonical "$path")" ]; then
-    own=$(git rev-parse --path-format=absolute --git-common-dir)
-  else
-    own=$(find_admin_dir "$path") || exit
-  fi
-  [ -n "$own" ] && [ "$(canonical "$gitdir")" = "$(canonical "$own")" ] || return 0
-  printf '%s\n' "$gitdir"
 }
 
 # squeeze <text> -- print <text> with each run of spaces collapsed to one
@@ -452,12 +480,13 @@ cmd_release() {
 # work on <branch> is unfinished, whatever --holder-ended says: the
 # holder is mid-rebase or dirty outside the paths each --exclude
 # <pathspec> matches, relative to its top level, or the local branch has
-# commits origin/<branch> lacks. A holder git cannot be run in as itself,
-# as worktree_gitdir decides, is never mid-rebase or dirty. Exits 15,
+# commits origin/<branch> lacks. A holder with no working tree, as
+# has_working_tree decides, is never dirty, and is mid-rebase when its
+# administrative directory holds the rebase state. Exits 15,
 # changing nothing, when the holder's lock names a running process and
 # --holder-ended is absent. Removes no worktree and no lock.
 cmd_reclaim() {
-  local branch="" ended="" local_tip remote found="" dirty where gitdir admin
+  local branch="" ended="" local_tip remote found="" dirty where tree state dir admin
   local -a excludes=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -481,23 +510,25 @@ cmd_reclaim() {
   [ -n "$branch" ] || usage_error "\`reclaim\` takes 1 argument(s), not 0."
   git fetch -q origin || fail 1 "git fetch origin failed"
   find_holder "$branch"
-  gitdir=""
+  tree=""
   if [ -n "$HOLDER" ]; then
-    gitdir=$(worktree_gitdir "$HOLDER") || exit
-  fi
-  if [ -n "$HOLDER" ] && [ -z "$gitdir" ]; then
-    # A holder git cannot be run in as itself has no working tree left to
-    # be dirty or mid-rebase in; only the commits check below applies.
     where="held by the worktree at $HOLDER"
-  elif [ -n "$HOLDER" ]; then
-    where="held by the worktree at $HOLDER"
-    if [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; then
-      found="a rebase in progress"
+    if has_working_tree "$HOLDER"; then
+      tree=yes
     fi
-    # The `${array[@]+...}` form expands an empty array under bash 3.2's
-    # `set -u`.
-    dirty=$(cd "$HOLDER" && git status --porcelain -- . ${excludes[@]+"${excludes[@]}"})
-    [ -z "$dirty" ] || found="${found:+$found, }uncommitted changes"
+    for state in rebase-merge rebase-apply; do
+      dir=$(worktree_git_path "$HOLDER" "$state") || exit
+      if [ -n "$dir" ] && [ -d "$dir" ]; then
+        found="a rebase in progress"
+      fi
+    done
+    # A holder with no working tree has nothing to be dirty in.
+    if [ -n "$tree" ]; then
+      # The `${array[@]+...}` form expands an empty array under bash 3.2's
+      # `set -u`.
+      dirty=$(cd "$HOLDER" && git status --porcelain -- . ${excludes[@]+"${excludes[@]}"})
+      [ -z "$dirty" ] || found="${found:+$found, }uncommitted changes"
+    fi
   else
     where="held by no worktree"
   fi
@@ -514,7 +545,7 @@ cmd_reclaim() {
   if [ -n "$HOLDER" ] && [ -z "$ended" ] && lock_is_live "$HOLDER_LOCK"; then
     fail 15 "$branch is held by the worktree at $HOLDER, whose lock names the running process $LOCK_PID; nothing was changed"
   fi
-  if [ -n "$HOLDER" ] && [ -z "$gitdir" ]; then
+  if [ -n "$HOLDER" ] && [ -z "$tree" ]; then
     # Detach through the administrative directory, where git keeps the
     # holder's HEAD; there is no working tree to run checkout in.
     admin=$(admin_dir "$HOLDER") || exit
