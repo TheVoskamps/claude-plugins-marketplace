@@ -625,9 +625,9 @@ EOF
 fi
 
 # The seed ruling: the wait answered after the seed assessor reported and
-# before the developer was spawned, ruling on every round-0 record. A run
-# whose seed had no assessor, as one before the assessor existed, waits
-# from the seed generator's report instead.
+# before the developer was spawned, ruling on every round-0 record. With
+# no assessor spawned before the developer, the wait runs from the seed
+# generator's report instead.
 seed_wait=
 seed_recs=
 if [ -n "$agents" ] && seed_recs=$(records_of 0); then
