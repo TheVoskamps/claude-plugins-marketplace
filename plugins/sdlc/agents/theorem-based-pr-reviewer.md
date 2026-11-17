@@ -640,26 +640,15 @@ spawning. **An assessor may instead be in flight** — an `assess` line
 for `list` that is not `outstanding`: wait on it by "The resume loop"
 over the `assess` stage.
 
-Otherwise spawn `sdlc:theorem-assessor` — on every such round, the
-fallback and adjustment-only rounds included, and when the generator
-emitted no theorem, since the assessor finds the coverage gaps too.
-Pass no `model` and no `effort`: its tier is its frontmatter's and
-never the generator's. Its candidates are the theorem records the
-generator's result file holds, verbatim, and nothing else — never a
-`RETIREMENTS` line, and never a theorem minted from an adjustment
-comment, whose claim quotes the human:
+Otherwise spawn `sdlc:theorem-assessor` on the review-round brief
+`sdlc:theorem-agents-interface` → "The assessor briefs" defines — on
+every such round, the fallback and adjustment-only rounds included, and
+when the generator emitted no theorem, since the assessor finds the
+coverage gaps too. Pass no `model` and no `effort`: its tier is its
+frontmatter's and never the generator's. The candidates are taken from
+the generator's result file, and this instruction follows them:
 
 ```text
---pr <PR_REF>
---issues <resolved_N1> <resolved_N2> …
---branch <headRefName>
---base <baseRefName>
---round <this round's number>
---mode <your --mode>
-
-Candidates:
-<the generator's theorem records, verbatim>
-
 Assess the candidates per your agent definition. Record your
 assessment to your result file first, then hand back the result-file
 path that call printed and, under it, the assessment in the output
@@ -679,17 +668,17 @@ the order of its blocks with the `ADDS` blocks last, and the theorems
 minted from adjustment comments follow those. A record the assessment
 produced by a merge, a split, a rewrite or an add carries `minted-by:
 assessor`, in the place the records-file shape gives it, and no other
-record does:
+record does.
+
+An accept, a change-settle-mode, a rewrite and an add each take the
+fields their block carries, an add under the next id. The other three
+need fields no block carries:
 
 | Action | The new records |
 | --- | --- |
-| accept | the record as the generator emitted it |
 | reject | the record, `state: retired`, `state-detail: assessor-rejected`, `settled-at` `<headRefOid>` |
-| change-settle-mode | the record, carrying the block's `settle-mode` |
-| rewrite | the record under its own id, carrying the block's `claim` |
-| split | the record under its own id, carrying the first `part`; each further part mints the next id, inheriting the original's `issues`, `pointers` and `settle-mode` |
-| merge | the block's theorem and each partner, retired as a reject is; the block's `claim` mints the next id, `settle-mode: semantic`, `issues` and `pointers` the union of the originals' |
-| add | one record minting the next id, from the `ADDS` block's `claim`, `issues`, `settle-mode` and `pointers` |
+| split | each part after the one the original's id keeps mints the next id, inheriting the original's `issues`, `pointers` and `settle-mode` |
+| merge | the block's theorem and each partner, retired as a reject is; the merged claim mints the next id, `settle-mode: semantic`, `issues` and `pointers` the union of the originals' |
 
 ### Assemble the round's live list
 

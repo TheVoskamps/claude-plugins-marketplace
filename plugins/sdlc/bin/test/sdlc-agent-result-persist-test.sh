@@ -612,7 +612,7 @@ assert_contains "dispose: the refusal names the theorem missing its disprover" "
 run --mode dispose --round 1 --edits "$CASE/edits" --loop-exited --issues "#1, #2 #3,#4 #5 #6"
 assert_eq "dispose: with --loop-exited it exits 0" "0" "$RC"
 assert_eq "dispose: every row of the disposition table, its state, severity and the verdicts, a member no record tags approved" \
-"T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived
+  "T1${TAB}verified-survived${TAB}-${TAB}-${TAB}retired${TAB}survived
 T2${TAB}verified-refuted${TAB}-${TAB}-${TAB}retired${TAB}disproved-but-refuted
 T3${TAB}finding${TAB}optional-polish${TAB}Low${TAB}disproved${TAB}finding 3, Low
 T4${TAB}finding-verifier-malformed${TAB}defect-no-shipped-breakage${TAB}Medium${TAB}disproved${TAB}finding 2, Medium
