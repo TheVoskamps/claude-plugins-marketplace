@@ -1,5 +1,65 @@
 # sdlc changelog
 
+## 0.87.0 — 2026-11-17
+
+An unconfigured `/sdlc:orchestrate` run now applies the seed
+assessment's recommendations instead of setting them aside, and
+`pr-finalizer` corrects PR-body claims the branch contradicts whether
+or not a teammate reported them.
+
+Changed default. To keep the old behaviour, set `seed-review:
+accept-as-emitted` with a `sdlc-config-*` verb:
+
+| Key | Old default | New default |
+| --- | --- | --- |
+| `seed-review` | `auto-accept` | `accept-recommended` |
+
+- `seed-review` takes one of `ask`, `accept-as-emitted` and
+  `accept-recommended`. `ask` is unchanged: the run shows the seed
+  candidates with `theorem-assessor`'s assessment and waits for the
+  human's rulings. `accept-as-emitted` is what `auto-accept` did: it
+  shows both, accepts every candidate as the generator emitted it, and
+  applies no recommendation. `accept-recommended`, new and the default,
+  shows both, applies every recommendation — rejects, settle-mode
+  changes, merges, splits, rewrites and coverage-gap adds — and
+  continues without waiting. Before this version no value applied the
+  assessment without a wait.
+- `auto-accept` is a deprecated alias for `accept-as-emitted`. A config
+  file that sets it keeps its behaviour, pre-flight prints the value as
+  `accept-as-emitted` and names the alias beside its tier, and a
+  `sdlc-config-*` verb that rewrites the file writes
+  `accept-as-emitted` in its place.
+- That a seed recommendation applies only when the human adopts it
+  still holds under `ask`. `accept-recommended` is the one exception:
+  choosing the value adopts every recommendation in advance.
+- Under `accept-recommended`, a seed theorem the assessment rejected or
+  merged away is recorded as retired with `state-detail:
+  assessor-rejected`, and a claim the assessment wrote — by a merge, a
+  split, a rewrite or an add — carries `minted-by: assessor`, as on a
+  review round.
+- Round 0's log carries a new record under `accept-recommended`,
+  `seed-review <instant> accept-recommended`, marking the whole seed as
+  applied by recommendation. `sdlc-agent-result-persist --mode
+  seed-review --round 0 --value accept-recommended` writes it, and is
+  refused at any other round and with any other value. Under `ask` and
+  `accept-as-emitted` round 0's log is unchanged.
+- Where round 0's log carries that record, `/sdlc:orchestrate-analysis`
+  lists the seed's rulings as applied by recommendation under config,
+  quotes no human reply for them and labels no wait as the seed
+  ruling, and the PR's final section attributes the seed's rulings to
+  the recommendations rather than to the human.
+- `pr-finalizer` checks every factual claim in the PR body above its
+  own section — what the change does, and which identifiers, queries,
+  files and settings it uses — against the branch at its head and the
+  round records. Each claim that evidence contradicts is listed under
+  "Corrections to the body above", quoted, with what is true now and
+  the commit or round that shows it. Before this version only a stale
+  claim a teammate's report named was corrected, so a claim a later
+  fixer round falsified could reach the merged PR uncorrected. The
+  body above the section is still never rewritten, a claim the
+  evidence neither confirms nor contradicts is left alone, and a claim
+  a report also named is listed once.
+
 ## 0.86.0 — 2026-11-17
 
 Every theorem list a generator produces is now assessed by a new
