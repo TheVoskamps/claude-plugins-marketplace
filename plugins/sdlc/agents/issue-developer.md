@@ -11,6 +11,7 @@ skills:
   - git-tools:git-branch-create
   - git-tools:git-branch-sync
   - github-prs:pr-create
+  - github-prs:pr-view
   - cc-tools:agent-memory-inbox-capture
 ---
 
@@ -277,9 +278,19 @@ owns — but never a finding, a location, or an implementation shape.
     ```
 
     A line with no entries reads `none`; a line is never omitted.
-    Derive each line from the branch's whole diff against its base
-    rather than from what you meant to touch, so a continued branch's
-    earlier commits are counted too.
+    Derive each line from the branch's whole diff against the base
+    branch of the PR step 10 opened, rather than from what you meant
+    to touch, so a continued branch's earlier commits are counted too.
+    Read that base off the PR and diff from its merge base with the
+    branch, after a fetch:
+
+    ```text
+    /github-prs:pr-view <PR> --json baseRefName --jq .baseRefName
+    ```
+
+    ```bash
+    git diff --name-status origin/<base>...HEAD
+    ```
 
 ## Drop protocol
 
