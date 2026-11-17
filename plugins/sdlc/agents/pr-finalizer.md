@@ -476,9 +476,7 @@ and which identifiers, queries, files and settings it uses — against
 the branch at its head, which step 3 read, and the round records step 2
 read. A claim that evidence contradicts goes under "Corrections to the
 body above". A claim the evidence neither confirms nor contradicts is
-left alone and is not a correction. The check reads the body and edits
-none of it: you still never rewrite, reorder or delete body text above
-your section.
+left alone and is not a correction.
 
 ## Every claim in the section is checked before it is posted
 

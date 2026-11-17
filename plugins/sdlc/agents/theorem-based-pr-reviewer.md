@@ -1010,8 +1010,7 @@ Every round stores one records file holding every recorded theorem, in
 the layout the preloaded `sdlc:agent-result-persist-interface` skill
 gives under `records` in "The modes". `state-detail` takes the values
 the `dispose` rows, `RETIREMENTS` and the adjustment table give,
-`assessor-rejected` for a theorem the assessment rejected or merged, a
-round-0 one applied under `seed-review: accept-recommended` included,
+`assessor-rejected` for a theorem the assessment rejected or merged,
 and `human-refuted` for a seed theorem the human rejected or merged at
 round 0. `settled-at` is the head the state was established against, an
 older one on a carried-forward retired theorem. A `severity-override`

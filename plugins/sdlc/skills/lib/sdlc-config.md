@@ -79,7 +79,7 @@ merge-poll-interval-seconds: 300
   recommendations, and does not wait. `accept-recommended` applies
   every recommendation, coverage-gap adds included, and does not wait.
   `auto-accept` is a deprecated alias: a tier that sets it holds
-  `accept-as-emitted`. Any other value is outside the allowed values.
+  `accept-as-emitted`.
 - **`merge-wait`** — `monitor` spawns `pr-monitor` after a PR's ready
   flip. `skip` spawns none; the PR is left ready and unmonitored.
 - **`merge-poll-interval-seconds`** — the wait between two
