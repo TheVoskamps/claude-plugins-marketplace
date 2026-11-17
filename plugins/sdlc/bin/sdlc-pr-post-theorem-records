@@ -233,7 +233,7 @@ for round in $rounds; do
   above_covered "$round" || continue
   read_state 'no round log at ' --mode print --round "$round" ||
     sp_fail 1 "round $round, which sdlc-agent-result-persist --mode rounds listed, has no round log"
-  : >"$work/generators"
+  : >"$work/lists"
   : >"$work/children"
   while IFS=' ' read -r kind theorem agent path; do
     [ "$kind" = result ] || continue
@@ -247,7 +247,7 @@ for round in $rounds; do
         theorem-generator) rank=1 ;;
         *) rank=2 ;;
       esac
-      printf '%s\t%s\t%s\t%s\n' "$rank" "$agent" "$relative" "$path" >>"$work/generators"
+      printf '%s\t%s\t%s\t%s\n' "$rank" "$agent" "$relative" "$path" >>"$work/lists"
       continue
     fi
     case "$theorem" in
@@ -265,7 +265,7 @@ for round in $rounds; do
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$theorem" "$rank" "$agent" "$relative" "$path" >>"$work/children"
   done <"$work/out"
 
-  LC_ALL=C sort -t "$TAB" -k1,1 -k2,2 "$work/generators" >"$work/sorted"
+  LC_ALL=C sort -t "$TAB" -k1,1 -k2,2 "$work/lists" >"$work/sorted"
   while IFS="$TAB" read -r _ _ relative path; do
     new_piece
     add_file "$relative" "$path"
