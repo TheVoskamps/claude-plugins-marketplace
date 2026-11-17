@@ -39,8 +39,8 @@ instructions at the top of that file.
 You do not read `.issues/repo-config.md` yourself for branch or PR
 mechanics — the `git-tools:git-branch-create` and
 `github-prs:pr-create` skills declared in the `skills:` frontmatter
-above own them, configuration included. Invoke those skills rather
-than re-deriving what they resolve.
+above own them, configuration included, save the one read step 13
+names. Invoke those skills rather than re-deriving what they resolve.
 
 ## Inputs
 
@@ -278,16 +278,22 @@ owns — but never a finding, a location, or an implementation shape.
 
     A line with no entries reads `none`; a line is never omitted.
     Derive each line from the branch's whole diff against
-    `origin/<default-pr-target-branch>`, rather than from what you
-    meant to touch, so a continued branch's earlier commits are counted
-    too. The base depends on no PR, so it is the same whether you
-    opened one, continued a branch, or landed no member. Read
-    `default-pr-target-branch` from `.issues/repo-config.md`, then fetch
-    and diff from the merge base:
+    `origin/<base>`, rather than from what you meant to touch, so a
+    continued branch's earlier commits are counted too. Take `<base>`
+    the way the branch was made, never from the PR: the source branch
+    `/git-tools:git-branch-create` reported rooting it at in step 2.
+    `/github-prs:pr-create` resolves the PR's base internally and
+    reports none, so on a continued branch, where step 2 created no
+    branch, no skill you invoked reports a base. There, and only there,
+    read `default-pr-target-branch` from `.issues/repo-config.md`
+    yourself — the one exception to the rule against reading that file
+    at the top of this file, because the diff needs a base and no skill
+    you can invoke hands you one. Then fetch and diff from the merge
+    base:
 
     ```bash
     git fetch origin
-    git diff --name-status origin/<default-pr-target-branch>...HEAD
+    git diff --name-status origin/<base>...HEAD
     ```
 
 ## Drop protocol
