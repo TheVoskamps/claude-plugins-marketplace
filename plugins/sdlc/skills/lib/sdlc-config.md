@@ -54,7 +54,7 @@ merge-poll-interval-seconds: 300
 | --- | --- | --- |
 | `plan-confirm` | `ask` \| `auto` \| `auto-single-batch` | `auto-single-batch` |
 | `max-issues-per-batch` | positive integer | `8` |
-| `seed-review` | `ask` \| `accept-as-emitted` \| `accept-recommended` | `accept-as-emitted` |
+| `seed-review` | `ask` \| `accept-as-emitted` \| `accept-recommended` | `accept-recommended` |
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `60` |
 | `merge-max-unchanged-polls` | positive integer | `720` |
