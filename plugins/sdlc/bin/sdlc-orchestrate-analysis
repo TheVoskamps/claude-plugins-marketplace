@@ -115,8 +115,8 @@ if [ -z "$round_logs" ]; then
 fi
 
 # Round 0 is the seed rather than a review round, so its log is read for
-# the seed generator's spawn record alone, in the same "<round><TAB><log
-# line>" shape. A PR reviewed without a seed has no round 0 at all, so a
+# the seed generator's spawn record and its seed-review record alone, in
+# the same "<round><TAB><log line>" shape. A PR reviewed without a seed has no round 0 at all, so a
 # missing round-0 log is named only when round 0 holds the seed's records.
 seed_log=
 if log=$(persist --mode print --round 0 2>/dev/null || exit); then
@@ -638,10 +638,10 @@ if [ -n "$seed_review" ]; then
   }
 fi
 
-# The seed ruling: the wait answered after the seed assessor reported and
-# before the developer was spawned, ruling on every round-0 record. With
-# no assessor spawned before the developer, the wait runs from the seed
-# generator's report instead.
+# The seed ruling, on a seed no seed-review record marks: the wait
+# answered after the seed assessor reported and before the developer was
+# spawned, ruling on every round-0 record. With no assessor spawned before
+# the developer, the wait runs from the seed generator's report instead.
 seed_wait=
 if [ -z "$seed_review" ] && [ -n "$agents" ] && seed_recs=$(records_of 0); then
   dev_start=$(printf '%s\n' "$agents" | awk -F'\t' '$3 == "issue-developer" {print $1; exit}')
