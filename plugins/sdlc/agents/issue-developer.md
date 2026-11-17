@@ -285,7 +285,7 @@ owns — but never a finding, a location, or an implementation shape.
     `/github-prs:pr-create` resolves the PR's base internally and
     reports none, so on a continued branch, where step 2 created no
     branch, no skill you invoked reports a base. There, and only there,
-    read `default-pr-target-branch` from `.issues/repo-config.md`
+    read `default-issue-source-branch` from `.issues/repo-config.md`
     yourself — the one exception to the rule against reading that file
     at the top of this file, because the diff needs a base and no skill
     you can invoke hands you one. Then fetch and diff from the merge
