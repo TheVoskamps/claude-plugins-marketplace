@@ -51,15 +51,17 @@ line per key, before the readiness gate:
 
 ```text
 sdlc config:
-  seed-review: ask (default)
+  plan-confirm: auto-single-batch (default)
+  max-issues-per-batch: 8 (default)
+  seed-review: auto-accept (default)
   merge-wait: monitor (default)
   merge-poll-interval-seconds: 300 (repo user)
-  merge-max-unchanged-polls: 15 (default)
+  merge-max-unchanged-polls: 720 (default)
   reload-after-compact-token-budget: 100000 (default)
-  code-review-max-rounds: 5 (default)
+  code-review-max-rounds: 10 (default)
   docs-review-max-rounds: unlimited (shared repo)
-  loop-end: auto-when-clean (global user)
-  docs-loop-end: ask (default)
+  loop-end: ask (global user)
+  docs-loop-end: auto-when-clean (default)
 ```
 
 Throughout the rest of the run, each key's name means its resolved

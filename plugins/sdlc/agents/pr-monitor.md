@@ -1,7 +1,7 @@
 ---
 name: pr-monitor
 description: Watches one ready PR until it merges. Given a PR reference, its branch, a poll interval and an unchanged-poll bound, runs the sdlc-pr-monitor script, which polls the PR once per interval and runs the github-prs:pr-ready-to-merge gate while the PR is open, relaying each poll and the state it found. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after the bound's number of consecutive polls with no change in state, as a question whether to keep waiting; on a script failure, returns its error verbatim. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
-tools: Read, Bash, Monitor
+tools: Read, Bash, Monitor, TaskStop
 model: sonnet
 effort: low
 skills:
@@ -66,6 +66,12 @@ decides what you do next:
 - **A non-zero exit** — report back the script's stderr verbatim as
   your outcome. An `<interval>` above 540 seconds is refused this way.
 
+The harness can move a call that runs past the Bash tool's time limit
+to the background instead of returning it. When it does, wait for that
+call with `Monitor` and read its output from there: its last line, or
+its non-zero exit, decides what you do next exactly as a foreground
+call's does.
+
 Never end your turn between calls: your turn runs from your spawn to
 your report, and every wait happens inside a `sdlc-pr-monitor` call.
 A turn that ends without a report is handed back as one, and the
@@ -94,7 +100,15 @@ human's, by hand or by the repo's auto-merge.
 ## Report back
 
 Report back only once the loop has ended, on a terminal line or a
-non-zero exit, never on a `continue` line. Your report carries:
+non-zero exit, never on a `continue` line.
+
+Before you report, on every outcome, stop with `TaskStop` every
+background task and every `Monitor` watch you started, and confirm
+each has ended. A task that outlives your report keeps watching a PR
+the orchestrator has already moved past, and nothing tells it the task
+is still running.
+
+Your report carries:
 
 - **The outcome** that ended the loop, one of: `Merged`, `Closed
   without merging`, `BEHIND`, `DIRTY`, `No change after <bound> polls
@@ -104,3 +118,5 @@ non-zero exit, never on a `continue` line. Your report carries:
   orchestrator can tell whether the PR is gone or still open, ready,
   and unmerged.
 - **How many polls** you ran: the `Polled` lines across every call.
+- **Whether any call was moved to the background**, and that every task
+  and `Monitor` watch you started has ended.

@@ -83,7 +83,7 @@ the body, in one of two shapes:
 | Lib file | Moment |
 | --- | --- |
 | `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
-| `plan.md` | grouping the issues into batches and waves, the decision item for a batch that needs a resolving install, and the plan the human confirms |
+| `plan.md` | grouping the issues into batches and waves, the decision item for a batch that needs a resolving install, the plan presented before anything spawns, and whether Execution waits for the human to confirm it |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
 | `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn once the documentation loop has ended, the close-out, reopening the review loop after one, and the briefs for the two loop agents |
 | `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
@@ -202,30 +202,51 @@ those stages or moves a remedy edits it here.
 Sdlc's config turns the flow's waits on a human and the bounds on its
 loops:
 
+- `plan-confirm` — whether Execution waits for the human to confirm
+  the plan, which is presented under every value. `ask` always waits.
+  `auto` waits only for a plan carrying a decision item.
+  `auto-single-batch`, the default, waits for that plan and for one of
+  more than one batch, so a plan stops only where it carries a decision
+  or a grouping across batches for the human to rule on. A plan that
+  does not wait says so in place of its prompt, naming the value that
+  let it through.
+- `max-issues-per-batch` — the most issues one batch holds, a positive
+  integer that defaults to `8`. A batch the grouping would make larger
+  is split into more batches.
 - `seed-review` — the ruling on the seed theorem list before a batch's
-  developer runs.
-- `merge-wait`, `merge-poll-interval-seconds` and
-  `merge-max-unchanged-polls` — the monitor loop after a PR's ready
-  flip, its poll interval and its unchanged-poll bound.
-- `code-review-max-rounds` and `docs-review-max-rounds` — the most
-  review rounds the code loop and the documentation loop run per PR.
-  Each is a positive integer or `unlimited`, and defaults to `5`. The
-  loops count separately, so no code-loop round counts against
-  `docs-review-max-rounds`. A loop that reaches its cap escalates to
-  the human with every finding still open; under `unlimited` it has no
-  cap and runs until a review approves with no findings.
-- `loop-end` and `docs-loop-end` — whether a loop's end waits for the
-  human. `loop-end` governs the code loop's end, before the
-  documentation loop starts, and `docs-loop-end` the documentation
-  loop's end, before the merge stages and the ready flip. Each is `ask`
-  or `auto-when-clean`, defaults to `ask`, and has no effect on the
-  other loop's end, so the confirmation before the ready flip stays
-  until `docs-loop-end` is set too. `ask` waits for the human's
-  confirmation at every end of its loop. `auto-when-clean` skips that
-  confirmation for a clean end — a last review round that is APPROVED
-  with no open finding of any severity — and starts the next stage.
-  Every other end still asks, under either value: a loop at its round
-  cap, and a loop the human's ruling ended.
+  developer runs. It defaults to `auto-accept`, which accepts the list
+  as generated without waiting; `ask` stops for the human's ruling.
+- `merge-wait` — whether the monitor loop runs after a PR's ready
+  flip. It defaults to `monitor`; `skip` runs none.
+- `merge-poll-interval-seconds` — the wait between two of that loop's
+  polls, a positive integer of at most `540` that defaults to `60`.
+- `merge-max-unchanged-polls` — how many consecutive polls with no
+  change in state the loop runs before it asks whether to keep
+  waiting, a positive integer that defaults to `720`.
+- `code-review-max-rounds` — the most review rounds the code loop runs
+  per PR, a positive integer or `unlimited`. It defaults to `10`.
+- `docs-review-max-rounds` — the most review rounds the documentation
+  loop runs per PR, with the same values. It defaults to `5`.
+- `loop-end` — whether the code loop's end, before the documentation
+  loop starts, waits for the human. It is `ask` or `auto-when-clean`,
+  and defaults to `auto-when-clean`.
+- `docs-loop-end` — whether the documentation loop's end, before the
+  merge stages and the ready flip, waits for the human. It takes the
+  same values, and defaults to `auto-when-clean`.
+
+The two loops count their rounds separately, so no code-loop round
+counts against `docs-review-max-rounds`. A loop that reaches its cap
+escalates to the human with every finding still open; under `unlimited`
+it has no cap and runs until a review approves with no findings.
+
+Neither loop-end key has any effect on the other loop's end. `ask`
+waits for the human's confirmation at every end of its loop, so
+`docs-loop-end: ask` restores the confirmation before the ready flip,
+and `loop-end: ask` the one before the documentation loop.
+`auto-when-clean` skips that confirmation for a clean end — a last
+review round that is APPROVED with no open finding of any severity —
+and starts the next stage. Every other end still asks, under either
+value: a loop at its round cap, and a loop the human's ruling ended.
 
 That a loop ends only on the human's confirmation is a policy, and
 `auto-when-clean` is its one exception: under that value the human
@@ -235,10 +256,14 @@ report, so the question is skipped only on a verdict the state holds.
 
 One key belongs to no moment of the flow:
 `reload-after-compact-token-budget` bounds how much text the
-`reload-after-compact` hook appends after a compaction. Every default
-is the unconfigured behaviour, so a repo with no config file at any
-tier waits, monitors and caps its loops exactly as before the keys
-existed. A PR that adds a key edits this list.
+`reload-after-compact` hook appends after a compaction.
+
+With no config file at any tier, a run does not wait for the human at
+a plan with one batch and no decision item, at the seed theorem list,
+or at a loop's clean end: the defaults keep the waits where there is
+something to decide. Each key that takes `ask` restores its own wait
+when set to it.
+A PR that adds a key, or changes a default, edits this list.
 
 The config is three YAML files — a global user file outside every
 repository, a shared repo file that is tracked, and a repo user file
@@ -323,8 +348,8 @@ What it leaves out is as deliberate:
   run** — the readiness skill, and the orchestrator's pre-flight and
   plan lib files — once an `Agent` call follows the loop's most recent
   `/sdlc:orchestrate` invocation. The orchestrator spawns no agent
-  until pre-flight, the readiness gate and the plan confirmation are
-  done, so from that call on those files are spent, and reloading them
+  until pre-flight, the readiness gate and the plan are settled, so
+  from that call on those files are spent, and reloading them
   would spend the budget on text the run never returns to. A later
   invocation makes them live again until its own first `Agent` call.
 
@@ -1847,10 +1872,19 @@ staging file in the session scratchpad, scratch under `.claude/tmp/` —
 declares all three, and an agent whose contract says it edits no
 tracked file holds that contract in its body, not by leaving a tool out.
 `pr-monitor` is the one agent that writes nothing; its line is
-`Read, Bash, Monitor`. Its body puts nothing on `Monitor`: every wait
-between polls runs inside a foreground `sdlc-pr-monitor` call, because
-a wait on a Monitor watch ends the agent's turn, and a turn that ends
-without a report is handed back as one and read as final.
+`Read, Bash, Monitor, TaskStop`. It asks for every wait between polls
+as a foreground `sdlc-pr-monitor` call, because a wait on a Monitor
+watch ends the agent's turn, and a turn that ends without a report is
+handed back as one and read as final. `Monitor` and `TaskStop` serve
+the one case the agent does not choose: the harness moves a call that
+runs past the Bash tool's time limit to the background instead of
+returning it. The agent waits on such a call with `Monitor` and acts on
+its last line as on a foreground call's. Before it reports, on every
+outcome, it stops with `TaskStop` every background task and watch it
+started and confirms each has ended, because a task that outlives the
+report keeps watching a PR the run has moved past while the agent
+itself reads as completed, so nothing tells the orchestrator the task
+is still running.
 
 Two entries a reader might expect are absent or inert, each on purpose.
 `Skill` is never listed, and an explicit `tools:` line that omits it
@@ -1876,6 +1910,12 @@ bodies. Every generator spawn names its tier, `low` included, because
 the `Agent` call's `effort` overrides the frontmatter `effort: low`,
 which decides only a spawn that names none. No other agent's spawn
 passes an `effort`.
+
+The override is the human's to volunteer: the orchestrator never asks
+for a tier, and one the human names unprompted, at the plan or later,
+holds for the whole batch — the seed spawn's `effort` when the seed has
+not yet spawned, and `--generator-effort` on every reviewer spawn for
+the batch's PR.
 
 The generator cannot be relied on to know the tier it runs at, so it
 records none: the spawner writes it as the `effort` of the

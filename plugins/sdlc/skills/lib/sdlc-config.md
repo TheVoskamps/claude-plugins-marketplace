@@ -44,7 +44,7 @@ the first key; every key is kebab-case.
 
 ```yaml
 schema-version: 1
-seed-review: auto-accept
+seed-review: ask
 merge-poll-interval-seconds: 300
 ```
 
@@ -52,16 +52,27 @@ merge-poll-interval-seconds: 300
 
 | Key | Values | Default |
 | --- | --- | --- |
-| `seed-review` | `ask` \| `auto-accept` | `ask` |
+| `plan-confirm` | `ask` \| `auto` \| `auto-single-batch` | `auto-single-batch` |
+| `max-issues-per-batch` | positive integer | `8` |
+| `seed-review` | `ask` \| `auto-accept` | `auto-accept` |
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
-| `merge-poll-interval-seconds` | positive integer, at most `540` | `120` |
-| `merge-max-unchanged-polls` | positive integer | `15` |
+| `merge-poll-interval-seconds` | positive integer, at most `540` | `60` |
+| `merge-max-unchanged-polls` | positive integer | `720` |
 | `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
-| `code-review-max-rounds` | positive integer \| `unlimited` | `5` |
+| `code-review-max-rounds` | positive integer \| `unlimited` | `10` |
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
-| `loop-end` | `ask` \| `auto-when-clean` | `ask` |
-| `docs-loop-end` | `ask` \| `auto-when-clean` | `ask` |
+| `loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
+| `docs-loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 
+- **`plan-confirm`** — whether the orchestrator waits for the human's
+  confirmation of the plan before Execution. The plan is presented
+  under every value. `ask` always waits. `auto` continues to Execution
+  without waiting unless the plan's `Decision items` line is not
+  `none`. `auto-single-batch` continues without waiting when the plan
+  has exactly one batch and its `Decision items` line is `none`, and
+  waits otherwise.
+- **`max-issues-per-batch`** — the most issues one batch holds. A batch
+  the grouping would make larger is split into more batches.
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
   theorem list. `auto-accept` accepts every seed theorem as the
   generator emitted it and does not wait.

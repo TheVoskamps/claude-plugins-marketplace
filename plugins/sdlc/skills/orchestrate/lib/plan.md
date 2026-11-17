@@ -1,7 +1,8 @@
 # Plan
 
 How the issues are grouped into batches, how the batches are ordered
-into waves, and the plan the human confirms before anything spawns.
+into waves, the plan presented before anything spawns, and whether
+Execution waits for the human to confirm it.
 
 ## Grouping: assign issues to batches, then order the batches
 
@@ -31,7 +32,9 @@ Batch two issues together when **all** of these hold:
   PR makes three PRs against one plugin conflict on that line by
   construction, and two of them get rebased.
 - **Combined size stays reviewable** — at most one `complex` member,
-  at most 5 members.
+  at most `max-issues-per-batch` members. A batch the other criteria
+  would make larger is split into more batches, each within that
+  bound.
 - **No unmerged external blocker** on any member. A blocker outside
   the set you were given stops the whole batch, not just that member.
 
@@ -118,20 +121,26 @@ directory and whether an external version can move — or "none">
 ### Wave 2 (after Wave 1 PRs open): Batch C
 
 Ready to proceed? (y to continue, or give me adjustments — e.g.
-"split 102 out of B", "merge 101 into B", or "generator high for C")
+"split 102 out of B" or "merge 101 into B")
 ```
 
-The confirm step is the human's escape hatch on grouping, and the only
+Whether you then wait is what `plan-confirm` calls for. A plan that
+waits ends with the `Ready to proceed?` prompt, and the prompt ends
+your turn. A plan that does not wait ends with
+`Proceeding without confirmation (plan-confirm: <value>).` in place of
+the prompt, and Execution starts in the same turn.
+
+A plan that waits is the human's escape hatch on grouping, and the only
 cheap moment for it: regrouping before any spawn is free, and after a
 branch carries commits and a PR it is not. Accept a regrouping
-instruction — re-emit the table with the change applied and confirm
-again. A generator tier the human names here — `low`, `medium`,
-`high` or `xhigh` — is a `--generator-effort` override for that batch:
-it wins outright as the seed spawn's `effort` and as
-`--generator-effort` on every reviewer round on the batch's PR. If the
-run is large (more
-than 8 issues across all batches), split it into two separate sessions
-and say so here before proceeding.
+instruction — re-emit the table with the change applied, and wait on
+the re-emitted plan as `plan-confirm` calls for.
+
+A generator tier the human names unprompted at the plan — `low`,
+`medium`, `high` or `xhigh` — is a `--generator-effort` override for
+that batch, whether or not the plan waited: it is the seed spawn's
+`effort`, and travels as `--generator-effort` on every reviewer round
+on the batch's PR.
 
 ## Wave sequencing
 
