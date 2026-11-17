@@ -51,6 +51,8 @@ line per key, before the readiness gate:
 
 ```text
 sdlc config:
+  plan-confirm: auto-single-batch (default)
+  max-issues-per-batch: 8 (default)
   seed-review: auto-accept (default)
   merge-wait: monitor (default)
   merge-poll-interval-seconds: 300 (repo user)

@@ -219,9 +219,9 @@ when the conflict cost of separating exceeds the blocking cost of
 joining — and the criteria you applied reach the human on the plan's
 `Batch criteria applied` line.
 
-Wait for explicit human confirmation before Execution. Do not spawn
-any teammates yet. The plan file's wave-sequencing rule holds through
-Execution.
+Wait for explicit human confirmation before Execution when the plan
+file says the plan waits, and spawn no teammate while it does. The plan
+file's wave-sequencing rule holds through Execution.
 
 ---
 
@@ -232,7 +232,8 @@ Work in waves of batches, as defined by your plan. Each batch gets one
 
 ### Set each batch's issues to In Progress and assign them before spawning its developer
 
-Immediately after the human confirms the plan and **before spawning
+Immediately after the plan is settled — the human confirmed it, or
+`plan-confirm` let it through without waiting — and **before spawning
 the developer for a given batch**, read
 `skills/orchestrate/lib/issue-lifecycle.md` and make its In Progress
 transition and assign for every member of that batch — a batch
@@ -423,7 +424,7 @@ seeded from the issues alone and the human rules on it, unless
 `seed-review` is `auto-accept` — so a developer that goes beyond the
 issues, or decides something they do not, shows up later against a
 list the human already owns. The gate
-runs once per batch, after the plan is confirmed and the batch's
+runs once per batch, after the plan is settled and the batch's
 members are In Progress, and it is four moves.
 
 **Spawn the generator on the issues-only brief.** The brief carries
@@ -811,24 +812,12 @@ reviewer, next to the delta it reads (see the
 the seed spawn alone applies it yourself.
 
 `--generator-effort <tier>` is a human-override channel, and you pass
-it only when the human names a tier. A tier named at the plan confirm
-is that override for the whole batch: it is the `effort` of the seed
-spawn in "Seed the theorem set from the issues, and put it to the
-human" and travels as `--generator-effort` on every reviewer spawn for
-the batch's PR. The cases that warrant asking the human for one:
-
-- The diff changes the **executable behavior of a shared mechanism**
-  *and* coincides with a security-sensitive surface — the `guardrails`
-  permission-gate, credential handling, or anything that decides what
-  a command is allowed to do.
-- A round at the rubric's pick missed a defect the human then caught.
-  That is direct evidence the tier was too low for this PR, and it
-  holds for the rest of the PR's rounds.
-
-Over-tiering degrades review quality, not just its cost: a generator
-given more effort than the diff has stakes for spends it manufacturing
-immaterial claims, each of which drives a fix round when disproved. An
-override is something to argue for rather than a default to reach past.
+it only when the human names a tier unprompted; you never ask for one.
+A tier the human names, at the plan confirm or later, is that override
+for the whole batch: it is the `effort` of the seed spawn in "Seed the
+theorem set from the issues, and put it to the human" when the seed
+has not yet spawned, and travels as `--generator-effort` on every
+reviewer spawn for the batch's PR.
 
 Say in the round's report which tier ran and whether the rubric or an
 override picked it.

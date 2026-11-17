@@ -17,7 +17,8 @@ dropped from a batch mid-run keeps its assignee.
 
 ### In Progress, and assign, before the batch's developer spawns
 
-Immediately after the human confirms the plan and **before spawning
+Immediately after the plan is settled — the human confirmed it, or
+`plan-confirm` let it through without waiting — and **before spawning
 the developer for a given batch**, transition every member of that
 batch to In Progress and assign it — they start together because one
 developer starts them together:

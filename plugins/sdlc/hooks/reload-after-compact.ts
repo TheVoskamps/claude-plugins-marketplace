@@ -27,7 +27,7 @@ const RULE_DIRS = ["/rules/", "/skills/"];
 const AGENTS_DIR = "/agents/";
 const ORCHESTRATE = "sdlc:orchestrate";
 // The files that serve only the opening of an orchestrate run, which spawns no agent until
-// pre-flight, the readiness gate and the plan confirmation are done.
+// pre-flight, the readiness gate and the plan are settled.
 const OPENING_FILES = [
   "/skills/orchestrate-readiness/SKILL.md",
   "/skills/orchestrate/lib/pre-flight.md",
