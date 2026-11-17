@@ -232,9 +232,7 @@ Work in waves of batches, as defined by your plan. Each batch gets one
 
 ### Set each batch's issues to In Progress and assign them before spawning its developer
 
-Immediately after the plan is settled — the human confirmed it, or
-`plan-confirm` let it through without waiting — and **before spawning
-the developer for a given batch**, read
+**Before spawning the developer for a given batch**, read
 `skills/orchestrate/lib/issue-lifecycle.md` and make its In Progress
 transition and assign for every member of that batch — a batch
 queued behind another wave flips only when its own developer is about

@@ -124,10 +124,9 @@ Ready to proceed? (y to continue, or give me adjustments — e.g.
 "split 102 out of B" or "merge 101 into B")
 ```
 
-Whether you then wait is what `plan-confirm` calls for, as
-`skills/lib/sdlc-config.md` defines that key. A plan that waits ends
-with the `Ready to proceed?` prompt, and the prompt ends your turn. A
-plan that does not wait ends with
+Whether you then wait is what `plan-confirm` calls for. A plan that
+waits ends with the `Ready to proceed?` prompt, and the prompt ends
+your turn. A plan that does not wait ends with
 `Proceeding without confirmation (plan-confirm: <value>).` in place of
 the prompt, and Execution starts in the same turn.
 
@@ -135,12 +134,7 @@ A plan that waits is the human's escape hatch on grouping, and the only
 cheap moment for it: regrouping before any spawn is free, and after a
 branch carries commits and a PR it is not. Accept a regrouping
 instruction — re-emit the table with the change applied, and wait on
-the re-emitted plan as `plan-confirm` calls for. A generator tier the
-human names unprompted, here or later — `low`, `medium`, `high` or
-`xhigh` — is a `--generator-effort` override for that batch: it wins
-outright as the seed spawn's `effort` and as `--generator-effort` on
-every reviewer round on the batch's PR. Never ask the human for a
-tier.
+the re-emitted plan as `plan-confirm` calls for.
 
 ## Wave sequencing
 
