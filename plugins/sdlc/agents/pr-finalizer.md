@@ -453,15 +453,32 @@ The rest of the section belongs to no type, and carries:
   than this one. Take these from your brief and from the non-brief PR
   comments, never from your own reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
-  scope notes name. The claim stays where it is, since you never edit
-  outside your own markers but for the closing-line corrections your
-  brief names; this part of the section is what corrects it. Leave the
-  part out when the scope notes name none.
+  scope notes name, and each claim "Check the body above your section"
+  below finds contradicted, whether or not the scope notes name it. A
+  claim both sources yield is listed once. Quote each claim, then say
+  what is true now and the commit or round that shows it. The claim
+  stays where it is, since you never edit outside your own markers but
+  for the closing-line corrections your brief names; this part of the
+  section is what corrects it. Leave the part out when neither source
+  yields a contradicted claim.
 
 Write it as prose a human deciding whether to merge would want, not as
 a log. Leave out anything the body already says, anything a reader
 gets from the diff, and any offer to file a follow-up — a follow-up
 either exists, in which case name it, or it does not.
+
+## Check the body above your section
+
+The body is frozen while the loops run, so a claim a later commit
+falsified is still in it, and a teammate report names only some of
+them. Check every factual claim in `base.md` — what the change does,
+and which identifiers, queries, files and settings it uses — against
+the branch at its head, which step 3 read, and the round records step 2
+read. A claim that evidence contradicts goes under "Corrections to the
+body above". A claim the evidence neither confirms nor contradicts is
+left alone and is not a correction. The check reads the body and edits
+none of it: you still never rewrite, reorder or delete body text above
+your section.
 
 ## Every claim in the section is checked before it is posted
 

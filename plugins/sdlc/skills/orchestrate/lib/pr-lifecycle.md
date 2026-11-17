@@ -134,8 +134,11 @@ A PR-body claim the run made stale is not lost by this. Collect every
 one the teammate reports name — a finding whose remedy is a body
 change, a body change a fixer reports it did not make, a claim
 `docs-writer` says a change falsified — say so in the round's report,
-and carry each into the scope notes you hand `pr-finalizer`. The fix
-lands once, at the end.
+and carry each into the scope notes you hand `pr-finalizer`. That
+collection is one source of its corrections, not the only one:
+`pr-finalizer` also checks the body against the branch itself, and
+corrects a claim the branch contradicts whether or not a report named
+it. The fix lands once, at the end.
 
 Closing-line corrections need no collecting. Each round's reviewer
 report carries a Closing-line corrections section, and the body does
