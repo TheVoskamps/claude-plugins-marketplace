@@ -1,5 +1,58 @@
 # sdlc changelog
 
+## 0.85.0 — 2026-11-16
+
+An unconfigured `/sdlc:orchestrate` run now stops for the human less
+often, the plan confirm and the batch size are configurable, and
+`pr-monitor` no longer leaves a background task running after it
+reports.
+
+Changed defaults. To keep an old one, set the key to its old value
+with a `sdlc-config-*` verb:
+
+| Key | Old default | New default |
+| --- | --- | --- |
+| `seed-review` | `ask` | `auto-accept` |
+| `merge-poll-interval-seconds` | `120` | `60` |
+| `merge-max-unchanged-polls` | `15` | `720` |
+| `code-review-max-rounds` | `5` | `10` |
+| `loop-end` | `ask` | `auto-when-clean` |
+| `docs-loop-end` | `ask` | `auto-when-clean` |
+
+- With no config, the seed theorem list is accepted as generated, and
+  a loop whose last review round is APPROVED with no open finding ends
+  with no question. A loop at its round cap, or one the human's ruling
+  ended, still asks.
+- With no config, the monitor loop polls every 60 seconds and asks
+  whether to keep waiting after 12 hours without a change in state,
+  where it polled every 120 seconds and asked after 30 minutes.
+- New config key `plan-confirm`: whether Execution waits for the human
+  to confirm the plan. The plan is shown under every value. `ask`
+  always waits. `auto` continues without waiting unless the plan
+  carries a decision item. `auto-single-batch`, the default, continues
+  without waiting only when the plan has exactly one batch and no
+  decision item. A plan that does not wait ends with a line saying so
+  and naming the value. Before this version every plan waited; set
+  `plan-confirm: ask` to keep that.
+- New config key `max-issues-per-batch`, a positive integer, default
+  `8`: the most issues one batch holds. A batch the grouping would
+  make larger is split into more batches. It replaces a fixed limit of
+  5 issues per batch, and the plan no longer tells the human to split a
+  run of more than 8 issues into two sessions.
+- Pre-flight prints both new keys beside the tier each came from, and
+  the `sdlc-config-*` verbs offer them.
+- The orchestrator no longer asks the human for a `theorem-generator`
+  tier. The seed generator runs at the tier the review rubric picks. A
+  tier the human names unprompted, at the plan or later, still
+  overrides the rubric for that batch.
+- `pr-monitor` no longer hands back its report while a background task
+  it started is still running. When the harness moves one of its
+  polling calls to the background, it waits on that call and acts on
+  its result as on a foreground call's. Before it reports, on every
+  outcome, it stops every background task and watch it started and
+  confirms each has ended, and its report says whether a call was
+  moved to the background.
+
 ## 0.84.0 — 2026-11-16
 
 `/sdlc:orchestrate` recovers on its own from a branch a dead agent
