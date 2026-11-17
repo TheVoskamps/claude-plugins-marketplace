@@ -136,6 +136,12 @@ branch carries commits and a PR it is not. Accept a regrouping
 instruction — re-emit the table with the change applied, and wait on
 the re-emitted plan as `plan-confirm` calls for.
 
+A generator tier the human names unprompted at the plan — `low`,
+`medium`, `high` or `xhigh` — is a `--generator-effort` override for
+that batch, whether or not the plan waited: it is the seed spawn's
+`effort`, and travels as `--generator-effort` on every reviewer round
+on the batch's PR.
+
 ## Wave sequencing
 
 Do not start Wave 2 until all Wave 1 issue-developers have reported

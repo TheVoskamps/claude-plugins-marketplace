@@ -987,9 +987,7 @@ as such goes to the human.
    unchecked against the `## For Authors and Checkers` rules.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
    the same parameters. The reviewer re-picks the tier itself from the
-   new round's delta; a round in which the pick missed a defect the
-   human caught is a reason to ask the human for a
-   `--generator-effort` override, per "Overriding the generator tier".
+   new round's delta.
 6. Repeat this loop until a round is APPROVED with no findings or
    until the code loop has run `code-review-max-rounds` rounds (see
    "Your own boundary" below); under `unlimited`, until the first.
