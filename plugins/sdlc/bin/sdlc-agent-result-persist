@@ -638,7 +638,8 @@ refuse_empty_payload() {
 # handed over from another child would settle a theorem it never
 # answered. The check runs on the read copy, before it is installed and
 # before the leave record, so a refused report leaves neither behind. A
-# generator's report is a theorem list and carries no such line.
+# generator's report is a theorem list, and an assessor's is the
+# assessment of one, so neither carries such a line.
 check_report_theorem() {
   case "$stage" in
     disprove | verify) ;;

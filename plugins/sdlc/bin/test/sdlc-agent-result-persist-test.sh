@@ -4,16 +4,17 @@
 # plugins/sdlc/bin/sdlc-agent-result-persist derives a review round from:
 #
 #   - --mode next over a fixture log per arm it names -- no log, a moved
-#     head, generate, assess, disprove, verify, dispose -- and over the states it
-#     prints: outstanding, in flight, overdue past --deadline-minutes,
-#     returned without saving, and spawned and yet to enter, overdue past
-#     the deadline from its last spawn; a stopped after its enter, one
-#     before its enter that leaves the theorem outstanding, and a
-#     replacement spawned after such a write-off that entered and was
-#     stopped, which leaves it outstanding too; a duplicate leave, a
-#     malformed DISPROVED report that earns no verifier, a generator
-#     re-spawned at another effort, and a --full round's live list, a
-#     theorem the assessor rejected that round on it.
+#     head, generate, assess, disprove, verify, dispose -- and over the
+#     states it prints: outstanding, in flight, overdue past
+#     --deadline-minutes, returned without saving, and spawned and yet to
+#     enter, overdue past the deadline from its last spawn; a stopped
+#     after its enter, one before its enter that leaves the theorem
+#     outstanding, and a replacement spawned after such a write-off that
+#     entered and was stopped, which leaves it outstanding too; a
+#     duplicate leave, a malformed DISPROVED report that earns no
+#     verifier, a generator re-spawned at another effort, and a --full
+#     round's live list, with a theorem the assessor rejected that round
+#     on it.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included,
 #     and a replacement spawned after its predecessor was written off --

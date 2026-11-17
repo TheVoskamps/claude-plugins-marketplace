@@ -29,10 +29,9 @@
 #      log, as sdlc-agent-result-persist --mode rounds lists them: its
 #      list files, list-<agent>, the generator's first, then the rest in
 #      agent-name order, so the assessment follows the list it assesses;
-#      its review,
-#      when it stored one; then its children's result files grouped by
-#      theorem, in theorem-id order, a theorem's disprover report before
-#      its verifier report.
+#      its review, when it stored one; then its children's result files
+#      grouped by theorem, in theorem-id order, a theorem's disprover
+#      report before its verifier report.
 #
 # Each of those is a piece, except that one theorem's result files in a
 # round form one piece together. No chunk, marker line included, exceeds
