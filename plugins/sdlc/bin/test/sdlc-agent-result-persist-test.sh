@@ -26,8 +26,9 @@
 #     table, the state each row stamps, the severity derivation -- a
 #     class-underivable finding and a human override on a theorem --
 #     the verdicts with an unsettled theorem forcing BLOCKED and a member
-#     of --issues no record tags, the refusal without --loop-exited, and
-#     the round that spawned nothing.
+#     of --issues no record tags, the refusal without --loop-exited, the
+#     round that spawned nothing, and a theorem the assessor rejected,
+#     which only a --full round gives a row.
 #   - --mode summary over a stored records file and review file, and the
 #     review-round stamp it opens with.
 #   - --mode rounds over rounds with and without a log, round 0 and a
