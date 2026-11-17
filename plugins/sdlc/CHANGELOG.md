@@ -1,5 +1,39 @@
 # sdlc changelog
 
+## 0.84.0 — 2026-11-16
+
+`/sdlc:orchestrate` recovers on its own from a branch a dead agent
+still holds, and asks for a resolving install at the plan rather than
+escalating for one mid-run. Both need `git-tools` 0.12.0.
+
+- An agent whose `git-branch-sync checkout` finds its branch held by
+  another worktree reports exit 13. The orchestrator, or
+  `pr-merge-readiness` for an agent it spawned, runs `git-branch-sync
+  reclaim` on the branch and re-spawns that agent once. It passes
+  `--holder-ended` only when the holder is an agent it spawned whose
+  call has returned.
+- `reclaim` refuses a branch with unfinished work, so this releases
+  nothing unsaved. A second exit 13, or a `reclaim` that refuses, goes
+  to the human with the output verbatim: a Needs Your Attention row
+  from the orchestrator, the question from `pr-merge-readiness`.
+- A batch needs a resolving install when a member issue's
+  files-affected section lists a lockfile or a package manifest tagged
+  `update` or `new`. The plan shows such a batch as a decision item
+  with the install command, its directory, and whether any external
+  version can move. The batch does not spawn until the human says yes.
+- The developer of an approved batch pushes its manifest changes and
+  stops, opening no PR. The orchestrator runs the approved command in
+  that developer's worktree, commits and pushes the lockfile change,
+  and spawns a fresh developer to finish the batch on the same branch.
+- An install that fails, or that changes any file but a lockfile, is a
+  Needs Your Attention row with its output verbatim.
+- A developer continuing on a branch checks it out rather than creating
+  one, and reports each member from every commit the branch carries.
+- The developer's `Scope:` block is taken from the branch's whole diff
+  against the source branch `git-branch-create` reported. On a
+  continued branch, where it created none, the developer reads
+  `default-issue-source-branch` itself.
+
 ## 0.83.0 — 2026-11-15
 
 `/sdlc:orchestrate`'s review loops are now configurable, a Low finding
