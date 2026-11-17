@@ -1,5 +1,50 @@
 # sdlc changelog
 
+## 0.86.0 — 2026-11-17
+
+Every theorem list a generator produces is now assessed by a new
+agent, `theorem-assessor`, before any disprover runs. Before this
+version only the seed list was assessed, by the orchestrator itself,
+so a duplicate, a compound claim, or a claim that only a run of the
+merged change could settle went to a disprover unchallenged on a
+review round.
+
+- New agent `theorem-assessor`. It recommends one action per theorem —
+  accept, reject, change settle mode, merge, split or rewrite — and
+  proposes a theorem for each acceptance criterion or stated behavior
+  no theorem tests. Beyond what the seed assessment judged, it asks
+  whether a disprover can settle the claim before merge, from the
+  branch's tree and commands it can run locally.
+- At the seed, `/sdlc:orchestrate` spawns the assessor instead of
+  assessing the list itself. What the human sees and rules on is
+  unchanged, and so are both `seed-review` values: `auto-accept` still
+  shows the assessment and applies none of it.
+- On a review round, the reviewer spawns the assessor on the theorems
+  the round's generator emitted and applies every recommendation
+  without asking. The posted review lists each recommendation applied
+  other than an accept. A round with no delta and no new adjustment
+  comment spawns neither agent, and a theorem made from an adjustment
+  comment is never assessed.
+- A theorem the assessor rejected or merged away is recorded as
+  retired with `state-detail: assessor-rejected`. A `--full` round
+  disproves it again, as it does every retired theorem but one a human
+  refuted.
+- A theorem whose claim the assessor wrote — by a merge, a split, a
+  rewrite or an add applied on a review round — carries `minted-by:
+  assessor` in the round's records, and the PR's final section
+  attributes it to the assessor rather than to the generator or the
+  human. A seed claim the human adopted carries no such line.
+- `sdlc-agent-result-persist` accepts `--stage assess`, and `--mode
+  next` prints an `assess` arm between `generate` and `disprove`. A
+  reviewer whose resume passes end in that stage returns `in progress:
+  assess — raise it`, as it does for `generate`.
+- `/sdlc:orchestrate-analysis` reports each round's assessment as an
+  `assessor` phase of its own, and measures the wait for the seed
+  ruling from the seed assessor's report rather than the seed
+  generator's.
+- The review detail posted to a PR carries each round's assessment
+  directly after the generator's list.
+
 ## 0.85.0 — 2026-11-16
 
 An unconfigured `/sdlc:orchestrate` run now stops for the human less
