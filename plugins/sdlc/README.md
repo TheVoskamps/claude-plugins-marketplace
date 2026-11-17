@@ -83,7 +83,7 @@ the body, in one of two shapes:
 | Lib file | Moment |
 | --- | --- |
 | `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
-| `plan.md` | grouping the issues into batches and waves, and the plan the human confirms |
+| `plan.md` | grouping the issues into batches and waves, the decision item for a batch that needs a resolving install, and the plan the human confirms |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
 | `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn once the documentation loop has ended, the close-out, reopening the review loop after one, and the briefs for the two loop agents |
 | `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
@@ -367,6 +367,94 @@ never puts a config error in text sent to the model. The loop's uses
 are still recorded, so the first compaction after the tier is repaired
 reloads them. A throw inside the hook after the compaction has resolved
 leaves the compaction standing, with any reload message removed.
+
+## A resolving install is approved at the plan and run by the orchestrator
+
+A resolving install — one that may rewrite a lockfile, such as
+`pnpm install` or a fresh `npm install` — runs only on the human's
+explicit direction, and a task brief does not carry that direction.
+`issue-developer` may run only the lockfile-honoring install, so a
+batch whose change regenerates a lockfile used to fail there and
+escalate after a full spawn, although the need was readable off the
+issue before any agent ran.
+
+So the plan asks. A batch needs a resolving install when a member
+issue's files-affected section lists a lockfile or a package manifest
+tagged `update` or `new`; that section alone decides it, never the
+issue's prose. Such a batch is a decision item on the plan, stating the
+command, the directory it runs in, and whether any external version can
+move. The human's yes to that item is the direction the install needs,
+and until it is given the batch does not spawn, whatever else the plan
+confirm settles.
+
+The developer of an approved batch is briefed with the command and the
+directory. It commits and pushes the manifest changes, opens no PR, and
+stops, reporting the install as due; it neither runs the install nor
+escalates for it. The orchestrator then runs the command exactly as
+approved, in that developer's worktree, commits and pushes the lockfile
+change, releases the stopped developer's claim on the branch with
+`git-branch-sync reclaim`, and spawns a fresh developer that continues
+on the same branch from the commits it carries. A developer's return
+ends its run, which is why a second one finishes the batch rather than
+the first resuming. An install that exits non-zero, or that changes any
+file but a lockfile, the agent-memory directory aside, goes to the
+human as a Needs Your Attention row with its output verbatim, and
+nothing more spawns for the batch.
+
+The orchestrator running the install is a named exception to its rule
+against doing agent-owned work, and the approval is the reason: it
+makes the install the human's directed act, and the orchestrator is the
+one party in the run that holds it.
+
+| Slot | Owner |
+| --- | --- |
+| Which batches need a resolving install, what the decision item states, and that the batch waits on the yes | `skills/orchestrate/lib/plan.md` |
+| The developer's checkpoint under an approved install, and how a developer continues on an existing branch | `agents/issue-developer.md` |
+| Running the install, what sends it to the human, the fresh developer's brief, and the exception to the rule against agent-owned work | `skills/orchestrate/SKILL.md` |
+
+## A dead agent's branch claim is reclaimed, not escalated
+
+A teammate that commits checks its branch out through
+`git-branch-sync checkout` and lets go of it with `release` at the end
+of its run. An agent that dies in between leaves its worktree holding
+the branch, and git lets one worktree at a time hold a branch, so the
+agent re-spawned to continue fails at its first git step. Nothing in
+the run could clear that: the orchestrator's rule against repairing an
+escalating teammate's environment names the branch claim, and the
+cleanup runs only once the PR has merged. Each such death cost the
+human a turn spent on something that decided nothing.
+
+The checkout now reports a held branch as exit 13, naming the holder's
+worktree. Whoever spawned the reporting agent — the orchestrator, or
+`pr-merge-readiness` for an agent it spawned — runs
+`git-branch-sync reclaim` on the branch and re-spawns that agent once,
+with the brief it had. A second exit 13 from the re-spawn, or a
+`reclaim` that exits non-zero, goes to the human with the output
+verbatim: as a Needs Your Attention row from the orchestrator, and as
+its question from `pr-merge-readiness`, which never asks.
+
+This is a named exception to the repair rule, and what makes it safe
+sits in `reclaim` rather than in the spawner's judgment. `reclaim`
+refuses a branch with a rebase in progress, uncommitted changes or
+commits `origin` lacks, so releasing the claim discards nothing and
+makes no decision that belongs to the human. The agent-memory directory
+is left out of that check: its files are an agent's own and never
+committed to the branch.
+
+The one thing the spawner contributes is whether the holder has ended.
+A harness lock naming a running process stops `reclaim` unless
+`--holder-ended` is passed, and a spawner passes it only on knowledge
+it holds itself: the holder's worktree path ends in the id of an agent
+it spawned, and that agent's call has returned. A running process is
+not a running agent — the lock names the session's process, and an
+agent can die inside a live session — which is why the spawner's
+knowledge may override the lock, and why it overrides nothing else.
+
+| Slot | Owner |
+| --- | --- |
+| What `checkout` reports for a held branch, and what `reclaim` refuses and releases | the `git-tools` plugin's `git-branch-sync` skill |
+| The orchestrator's response to exit 13, when it passes `--holder-ended`, and the exception to the repair rule | `skills/orchestrate/SKILL.md` |
+| The same response to a spawn of the merge-readiness loop, and its return as the question | `agents/pr-merge-readiness.md` |
 
 ## A blessed PR is gated on merge readiness, and the gate never remedies
 
@@ -1716,7 +1804,9 @@ included.
 Every agent but `pr-merge-readiness` and `pr-monitor` declares
 `isolation: worktree`, so the harness creates a throwaway worktree per
 spawn. Those two declare no `isolation` and run in the orchestrator's
-primary clone, writing nothing to it: each is a loop over a gate, and
+primary clone, writing nothing to it but the refs a
+`git-branch-sync reclaim` by `pr-merge-readiness` fetches or deletes
+there: each is a loop over a gate, and
 every change to the branch a loop drives is a commit by a teammate it
 spawns or that the orchestrator spawns after it. Nothing removes a
 worktree during a run: the reviewer leaves its children's worktrees
@@ -1732,13 +1822,13 @@ reference, so their ids are held and recorded once the PR is linked.
 
 | Agent | Purpose |
 | ------- | --------- |
-| `issue-developer` | Implements one batch of issues on one branch |
+| `issue-developer` | Implements one batch of issues on one branch, stopping once it has pushed the manifest changes when briefed with an approved resolving install, and continuing on an existing branch when briefed with one |
 | `issue-fixer` | Applies review findings, or a merge-readiness remedy — a rebase onto the base, resolving each conflict a ruling or its own resolvability conditions settle and escalating the rest — to an open PR's branch |
 | `code-documenter` | Adds or corrects the comments in a round's code files, and corrects or deletes those its instruction-Markdown files carry where the diff contradicts them, each file against its own class's style guide, before its review |
 | `style-checker` | Reports a round's style-guide violations in the files of the side of the class split its `--mode` names — code and instruction Markdown in the code loop, documentation in the documentation loop — each file graded against its own class's guide, which the orchestrator sends to the loop's fixer before its review |
 | `docs-writer` | Writes a PR's documentation in the documentation loop that follows its code loop, fixes what that loop's rounds find in it, and for a batch with no code to implement creates the branch and opens the PR |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
+| `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held and re-spawns that agent once, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, and corrects the closing lines its brief names |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |

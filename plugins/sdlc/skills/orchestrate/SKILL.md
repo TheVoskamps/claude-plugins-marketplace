@@ -31,7 +31,10 @@ under `agents/` owns:
 
 - `issue-developer` — implements one **batch** (an ordered set of one
   or more issues). When it returns, a pushed branch and an open draft
-  PR exist for the members it landed
+  PR exist for the members it landed — or, briefed with an approved
+  resolving install, it has pushed the manifest changes and stopped for
+  the install, per "When a developer stops for the approved resolving
+  install"
 - `issue-fixer` — addresses PR review feedback, or a merge-readiness
   remedy. When it returns, the branch carries new commits for the
   review to see again — or, on a merge-readiness brief, has been
@@ -84,7 +87,9 @@ under `agents/` owns:
   merge-readiness gate, spawning `issue-fixer` and
   `agent-memory-scrubber` for the remedies. When it returns, either the
   PR is in a state the close-out proceeds from; or its report carries a
-  question with the gate's output verbatim, which you handle per "When
+  question with the gate's output verbatim and, beneath it, any
+  escalating fixer's report, or a spawn's report and `reclaim` output
+  when a `reclaim` did not free the branch, which you handle per "When
   a teammate escalates" and answer by re-spawning it with the ruling in
   the brief; or
   it reports `documentation loop needed`, because a fixer round left
@@ -109,7 +114,8 @@ Every teammate but `pr-merge-readiness` and `pr-monitor` declares
 one's worktree under `.claude/worktrees/` and starts the subagent
 inside it. You don't manage worktree paths and you never pass them in
 spawn prompts. Those two run in the primary clone and write nothing to
-it.
+it but the refs a `git-branch-sync reclaim` of `pr-merge-readiness`'s
+fetches or deletes.
 
 **Record every agent you spawn for a PR** in its state, as soon as the
 spawn's `Agent` tool result names its agent id and the PR has a
@@ -535,6 +541,7 @@ repo, as one batch: one branch, one PR closing all of them.
 Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
+Approved resolving install: <command>, in <directory>
 
 Edit code and instruction Markdown, and no documentation; docs-writer
 writes the PR's documentation after the code loop, from the
@@ -555,7 +562,36 @@ edit.
 For a batch of one, drop the batch scaffolding: the opening line reads
 "You are fixing issue `<link-prefix><N>` in this repo", and the
 `Implementation order`, `Compound slug`, and `Why these are batched`
-lines all go away.
+lines all go away. The `Approved resolving install` line goes in only
+for a batch whose resolving-install decision item the human approved
+at the plan, with the command and directory that item stated.
+
+### When a developer stops for the approved resolving install
+
+A developer briefed with an `Approved resolving install` line pushes
+the batch's manifest changes and stops, reporting that the install is
+due, with its command and directory. It opens no PR and keeps its
+claim on the branch. Then, in order:
+
+1. In the worktree `git worktree list` names as holding the batch
+   branch, run the approved command exactly as approved, in the
+   approved directory under that worktree.
+2. Read that worktree's `git status --porcelain`. A command that exited
+   non-zero, or a change to any file outside `.claude/agent-memory/` but
+   a lockfile, is a **Needs Your Attention** row
+   carrying the command's output verbatim and that status, and nothing
+   more spawns for the batch.
+3. Commit the lockfile change in that worktree, and push the branch.
+4. Release the developer's claim with `git-branch-sync reclaim
+   --holder-ended --exclude .claude/agent-memory/ <branch-name>`, its
+   `Agent` call having returned; a non-zero exit is a **Needs Your
+   Attention** row carrying its output verbatim.
+5. Spawn a fresh `issue-developer` on the same branch: the batch's
+   brief with the `Approved resolving install` line replaced by
+   `Continue on branch: <branch-name>`.
+
+The fresh developer's report is the one the link step below reads.
+Record both developers' agent ids at that step.
 
 ### After each issue-developer reports back: link the PR to its issues
 
@@ -1126,6 +1162,26 @@ When a teammate escalates:
    escalated one, with any ruling in its brief: resume inherits
    whatever environmental state caused the escalation.
 
+#### A checkout refused because another worktree holds the branch
+
+A teammate that reports exit 13 from `git-branch-sync checkout` found
+its branch claimed by a worktree whose agent never released it. That
+is not a question, and steps 1 to 3 above do not run for it. Run, in
+the primary clone:
+
+```bash
+git-branch-sync reclaim --exclude .claude/agent-memory/ <branch-name>
+```
+
+Add `--holder-ended` only when you know the holder's agent has ended:
+the holder's path, which the exit-13 line names, ends in
+`agent-<id>`, and that id is an agent you spawned whose `Agent` call
+has returned or whose `<task-notification>` has arrived. On exit 0,
+re-spawn the reporting agent fresh with the brief it had, once. A
+second exit 13 from that agent, or a `reclaim` that exits non-zero, is
+a **Needs Your Attention** row carrying the teammate's report and the
+`reclaim` output verbatim, and nothing more is spawned for the PR.
+
 #### A dropped batch member
 
 An `issue-developer`'s drop protocol — a member it stopped working
@@ -1291,7 +1347,12 @@ definition, `CLAUDE.md` or global rules file already states.
   `git rebase` or `git merge` or hand-edit conflict markers in the
   primary clone; and never delete, transfer or rewrite a captured
   memory entry. Doing any of it to save a spawn is not a saving — see
-  "Token Efficiency". The one file you write that is persisted into a
+  "Token Efficiency". The one exception is the approved resolving
+  install, per "When a developer stops for the approved resolving
+  install" — running it, and committing and pushing the lockfile change
+  it makes: the plan-time approval makes the install the human's
+  directed act, and you are the one party in the run that holds that
+  approval. The one file you write that is persisted into a
   PR's state is the round-0 records file, staged in the scratchpad for
   the persist script to read. It is **transcription**: every claim in
   it is the generator's or the human's, and every state on it is a
@@ -1305,7 +1366,11 @@ definition, `CLAUDE.md` or global rules file already states.
   from a commit message. The PR body's closing lines are the one place
   they belong, and `/pr-link-issue` writes those.
 - **Never repair an escalating teammate's environment** — worktree,
-  lock, branch claim, in-flight commits — on your own.
+  lock, branch claim, in-flight commits — on your own. The one
+  exception is `git-branch-sync reclaim` on a branch claim, per "A
+  checkout refused because another worktree holds the branch":
+  `reclaim` refuses to discard unfinished work, so releasing a dead
+  agent's claim makes no decision that belongs to the human.
 - **Never regroup a batch after its developer has spawned.** Grouping
   is settled at the Discovery and Planning confirm step; once a branch
   carries commits and a PR, the only way a member leaves the batch is
@@ -1331,10 +1396,13 @@ What you do yourself is orchestration mechanics:
   `git log`, `git diff`, file reads. Reading is planning, and what it
   turns up stays yours.
 - **Run git plumbing** — `git fetch`, `git pull --ff-only` on the
-  long-lived branches the primary clone tracks, and `git push` of a
-  commit an agent authored but could not push. Branch and worktree
-  removal is not on this list: the post-merge tail's
-  `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
+  long-lived branches the primary clone tracks, `git push` of a commit
+  an agent authored but could not push, and `git-branch-sync reclaim`
+  on a branch a teammate's checkout found held or a developer stopped
+  on for the approved resolving install. Branch and worktree
+  removal is not on this list, beyond the local branch `reclaim`
+  deletes so a teammate can check the branch out again: the post-merge
+  tail's `/sdlc:orchestrate-cleanup <PR>` invocation owns it.
 - **Comment on a PR** — orchestration metadata, the human's review
   adjustments, and the fixer brief. Findings you relay
   un-tiered; a ruling — scope or owner — is the one judgment you write

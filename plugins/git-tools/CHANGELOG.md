@@ -1,5 +1,34 @@
 # git-tools changelog
 
+## 0.12.0 — 2026-11-16
+
+A branch left held by a worktree whose agent ended without `release`
+can now be reclaimed, and `git-branch-sync checkout` says when a branch
+is held.
+
+- `checkout` exits 13 when another worktree has the branch checked out
+  or is rebasing it, naming that worktree's path. Nothing is checked
+  out or recorded.
+- New `reclaim [--holder-ended] [--exclude <pathspec>]… <branch>`
+  detaches the holder's HEAD, deletes the local branch and its recorded
+  tip, and prints the holder's path, or nothing when no worktree held
+  the branch. It removes no worktree and no lock.
+- `reclaim` exits 14, changing nothing, when the holder is mid-rebase,
+  has uncommitted changes outside the paths `--exclude` matches, or the
+  local branch has commits `origin` lacks. `--holder-ended` does not
+  override this.
+- `reclaim` exits 15, changing nothing, when the holder's harness lock
+  names a running process with a matching start time. `--holder-ended`
+  overrides it. The start time is read in UTC, as the harness writes
+  it. No lock, another kind of lock, or a PID that is gone or started
+  at another time does not refuse.
+- A holder whose directory is gone, or whose `.git` is missing or names
+  a gitdir that is gone, is released through its administrative
+  directory. It is never read as dirty, and one left mid-rebase is
+  still refused with 14.
+- Finding the holder works whether git wrote its `gitdir` file absolute
+  or, under `worktree.useRelativePaths`, relative.
+
 ## 0.11.0 — 2026-10-18
 
 Adds the `git-default-branch` executable, which prints the repo's default

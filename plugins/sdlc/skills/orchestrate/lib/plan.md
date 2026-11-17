@@ -65,6 +65,31 @@ batch's shared change
 surface, e.g. `guardrails-gate-sweep`. A batch of one needs no slug —
 the skill derives it from the issue title.
 
+### A batch that needs a resolving install
+
+A batch whose change regenerates a lockfile needs a resolving install —
+`pnpm install`, say, or a fresh `npm install` that creates a
+`package-lock.json` — which runs only on the human's explicit direction.
+The need is knowable from the issues, so the plan is where that
+direction is asked for, before any agent spawns.
+
+A batch needs one when any member's files-affected section, as
+`sdlc:orchestrate-readiness` defines it, lists a lockfile
+(`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`) or a package
+manifest (`package.json`, `pnpm-workspace.yaml`) tagged `update` or
+`new`. Read the section and nothing else: no prose decides it.
+
+Such a batch is a decision item on the plan, stating:
+
+- the install command that will run;
+- the directory it runs in;
+- whether any external version can move — no when every specifier the
+  change touches is `catalog:` or `workspace:*`, yes otherwise.
+
+The human's yes to that item is the explicit direction the install
+needs. Until the human gives it, the batch does not spawn, whatever
+else the plan confirm settles.
+
 ## Present the plan
 
 Present the plan to the human in this format before proceeding:
@@ -86,7 +111,8 @@ shared-change-surface / internal-dependency / size it turned on, and
 the conflict-cost-vs-blocking-cost call you made>
 Decision items: <one per body instruction you did not agree with on
 reading the file — the sentence quoted, and what you would do instead
-— or "none">
+— and one per batch that needs a resolving install, with its command,
+directory and whether an external version can move — or "none">
 
 ### Wave 1 (parallel): Batch A, Batch B
 ### Wave 2 (after Wave 1 PRs open): Batch C

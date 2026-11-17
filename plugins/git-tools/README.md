@@ -58,6 +58,13 @@ whether a rebase ran. The one step that is judgment stays with the
 caller: resolving a conflict, after which the resolved paths are handed
 back and the rebase walks on.
 
+Git lets one worktree at a time hold a branch, so an agent that dies
+between `checkout` and `release` leaves a claim that fails its
+successor at the first git step. `checkout` reports a held branch with
+a status of its own, naming the worktree that holds it, and `reclaim`
+releases that claim — but only when releasing it discards nothing and
+nothing says the holder is still at work.
+
 ## What it needs first
 
 - **A git working tree with an `origin` remote.** `/git-branch-create`
@@ -121,7 +128,7 @@ Reading a branch back is one line, with a claimed list optional:
 | `/git-branch-create <issue>… [<slug>]` | Create the issue branch — one issue or a batch — off the configured source branch, named per the repo's convention |
 | `/git-issues-from-branch <branch> [<claimed-issue>…]` | Recover the ordered issue set and slug a branch name encodes; reconcile a claimed list against it when one is given |
 | `/git-range --base <base-ref> --head-ref <head-ref> --head <sha> [--prev-head <sha>]` | Fetch `origin` once, confirm `origin/<head-ref>` is still `<sha>`, and print that head's merge base with `origin/<base-ref>` and its own commits since a previous head — never a commit the base gained |
-| `/git-branch-sync <subcommand> [<argument>…]` | Check an existing branch out fast-forward only and record the remote tip it saw, rebase it onto `origin/<base>`, finish or abort a rebase stopped on conflicts, push it against that recorded tip and verify the push landed, or release the local branch and its record at the end of a run |
+| `/git-branch-sync <subcommand> [<argument>…]` | Check an existing branch out fast-forward only and record the remote tip it saw, rebase it onto `origin/<base>`, finish or abort a rebase stopped on conflicts, push it against that recorded tip and verify the push landed, release the local branch and its record at the end of a run, or reclaim a branch another worktree still holds after its agent ended, refusing while that work is unfinished or the holder's lock names a running process |
 | `/test-generate` | Generate unit tests for the code at hand — a general dev utility, not a git operation |
 
 Each skill defines its own procedure — how it drives its script, what
@@ -291,7 +298,8 @@ a resumed rebase never waits on a prompt and never rewrites the
 commit's provenance.
 The tip `checkout` saw is kept in the ref `refs/git-branch-sync/<branch>`
 in the clone itself, so it survives between invocations with no state
-file and goes when `release` deletes it, and `push`'s lease is
+file and goes when `release` or `reclaim` deletes it, and `push`'s
+lease is
 `--force-with-lease=refs/heads/<branch>:<that tip>`: git refuses it
 when the remote holds anything else, which is what a lease on a freshly
 fetched tip cannot do. A push git reports `[rejected]` — stale info,
@@ -300,7 +308,61 @@ reports `[remote rejected]` is a hook or a rule, and stays an
 unclassified 1. The push is then confirmed against the remote rather
 than the local log: a fetch, `origin/<branch>` compared with local
 HEAD, and `status --porcelain` run from the top level so an untracked
-file in another directory is not missed. It depends on `git` alone.
+file in another directory is not missed. It depends on `git` alone,
+but for the one `ps` call `reclaim` reads a process's start time with.
+
+`checkout` reports a branch another worktree holds as exit 13, with the
+holder's path, so a caller can tell a held branch from a broken
+checkout. The holder is the worktree that has the branch checked out or
+is rebasing it: a rebasing worktree is detached, so git lists no branch
+for it, and it is found by the branch its rebase state names.
+
+`reclaim` releases that claim, and refuses for two reasons that guard
+different things, in a fixed order:
+
+- **Unfinished work is refused first, and nothing overrides it.**
+  Releasing the claim deletes the local branch, so a rebase in
+  progress, uncommitted changes, or commits `origin/<branch>` lacks
+  would be lost with it, and nothing a caller knows about the agent
+  makes that work any less unsaved. The commits are checked with no
+  holder too, since a local branch nobody holds can still carry them.
+  `--exclude` is for files a holder owns but never commits, which are
+  not work the branch is waiting on.
+- **A live lock is refused second, and only by default.** The harness
+  locks an agent's worktree with a reason naming a PID and that
+  process's start time. A running process with that PID and that start
+  time is evidence the holder may still be working; the start time is
+  compared because a PID alone is reused. It is evidence about the
+  session rather than the agent, though: the PID names the session that
+  spawned the agent, and an agent can die inside a live session. So
+  `--holder-ended`, the caller's assertion that it knows the agent has
+  ended, overrides this refusal and never the first. No lock, a lock in
+  any other form, or a PID that is gone or started at another time is
+  no evidence of life.
+
+The harness writes the lock's start time in UTC, with the C locale's
+day and month names, and `ps` prints a start time in the local zone
+unless told otherwise. The script therefore reads `ps` under
+`TZ=UTC LC_ALL=C`, and compares the two with runs of spaces collapsed,
+since `ps` pads a one-digit day. A local-time comparison would read
+every live lock as stale wherever the zone is not UTC.
+
+A holder git still lists may have no working tree left: its directory
+deleted, or its `.git` file missing or naming a gitdir that is gone.
+Git run in such a path fails, or — for a worktree nested inside the
+clone, with its `.git` gone — resolves to the enclosing clone, which
+`reclaim` must neither read as the holder nor detach. So a holder has a
+working tree only when git run in its directory reports that directory
+as the top level and this repository's common git dir. Any other holder
+is read and detached through its administrative directory under the
+common git dir's `worktrees/`, found by the `gitdir` file naming it,
+whether git wrote that path absolute or, under
+`worktree.useRelativePaths`, relative. Such a holder has nothing to be
+dirty in, and its rebase state and the branch's unpushed commits still
+refuse.
+
+`reclaim` removes no worktree and no lock: freeing the branch needs
+neither.
 
 `test/git-branch-sync-test.sh` drives its script against a bare
 `origin`, a seed checkout that plays the other writer, and a clone,
@@ -315,6 +377,26 @@ refusals: a second writer who pushed after the checkout, with and
 without a rebase in between, a `post-receive` hook that moves the branch
 so the verification fails, and a `pre-receive` hook that refuses, which
 stays an unclassified failure.
+
+For the claim, a linked worktree of the clone plays the dead agent's.
+The test covers a `checkout` refused for a branch that worktree has
+checked out and for one it is rebasing; `reclaim` refused for a dirty
+holder with and without `--holder-ended`, and under `--holder-ended`
+for a holder with unpushed commits and for one mid-rebase; a branch no
+worktree holds, released, and refused once it has unpushed commits; a
+lock naming a running process, compared from a zone five
+hours off UTC, refused and then overridden by `--holder-ended` with the
+lock kept; a lock whose PID is gone, one whose start time differs, and
+no lock, each proceeding; and dirt only under an excluded path. It
+covers the holders with no working tree: a directory that is gone and a
+`.git` file naming a missing gitdir, each refused while the branch has
+unpushed commits and released once it has none, and a worktree nested
+in the clone whose `.git` is missing, released while the enclosing
+clone keeps its branch. A `checkout` of an unheld branch walks past a
+worktree whose gitdir is missing. A dirty holder, a mid-rebase one, a
+mid-rebase one whose directory is then deleted, which is still
+refused, and one whose directory is gone with no rebase each run once
+with `worktree.useRelativePaths` off and once with it on.
 
 ### `git-default-branch`
 
@@ -374,6 +456,13 @@ a failing command the script does not handle.
   and no exit of `push` moves the local branch, so no failed push
   removes a local commit. `release` is the one subcommand that discards
   anything, and it discards whatever the local branch still holds.
+  `reclaim` deletes a local branch too, but only one whose every commit
+  is on `origin`, held by a worktree with no rebase under way and
+  nothing uncommitted outside the paths the caller excluded, and it
+  leaves those files where they are.
+- **`reclaim` never decides that an agent has ended.** It reads a lock
+  as evidence of life and never of death, and takes `--holder-ended` as
+  the caller's assertion. It removes no worktree and no lock.
 
 ## Editing this plugin
 
@@ -404,6 +493,14 @@ leave that record alone, and nothing else records whether a rebase ran
 — so a change that lets `push` fetch before it decides, or lets a
 rebase touch the record, changes what the lease refuses, and the
 other-writer cases in the test are what re-check it.
+
+`reclaim`'s refusals keep their order: the unfinished-work check runs
+before the lock check, and `--holder-ended` reaches only the lock
+check. A change that lets the flag skip the first makes `reclaim` a
+second subcommand that discards work. Every read of a holder, and its
+detach, goes through the test for whether it has a working tree,
+because git run in a path that is no longer the holder's worktree
+answers for whatever repository encloses it.
 
 `git-default-branch`'s non-zero exit is what a caller reads as "no
 protected branch is known", so a new source for the name goes in ahead

@@ -1,6 +1,6 @@
 ---
 name: pr-merge-readiness
-description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question, and returning documentation loop needed, spawning no docs-writer, when the fixer deferred a documentation edit or resolved a conflict in a documentation file; waits out a running check; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after the documentation loop and agent-memory-scrubber, again with a ruling after it returns with a question, again after the documentation loop it returned for, and again when pr-monitor reports the PR BEHIND or DIRTY.
+description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question, and returning documentation loop needed, spawning no docs-writer, when the fixer deferred a documentation edit or resolved a conflict in a documentation file; waits out a running check; reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held, and re-spawns that agent once; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after the documentation loop and agent-memory-scrubber, again with a ruling after it returns with a question, again after the documentation loop it returned for, and again when pr-monitor reports the PR BEHIND or DIRTY.
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 model: opus
 effort: medium
@@ -8,6 +8,7 @@ skills:
   - github-prs:pr-ready-to-merge
   - github-prs:pr-merge-conflicts
   - github-prs:pr-comment
+  - git-tools:git-branch-sync
   - sdlc:agent-result-persist-interface
 ---
 
@@ -20,10 +21,12 @@ the gate **reports**, `issue-fixer` rebases and resolves, and you run
 the gate again.
 
 You declare no `isolation`, so you run in the orchestrator's primary
-clone. Nothing below writes to it: your one file write is the brief
-body under `.claude/tmp/`, every record you make goes to the PR's state
-outside every repository, and every change to the branch is a
-teammate's, made in that teammate's own worktree.
+clone. Nothing below writes to it but a `git-branch-sync reclaim`,
+which fetches `origin` and deletes the local branch and its recorded
+tip: your one file write is the brief body under `.claude/tmp/`, every
+record you make goes to the PR's state outside every repository, and
+every change to the branch is a teammate's, made in that teammate's
+own worktree.
 
 ## You never ask; you return
 
@@ -234,7 +237,7 @@ Then run the remedy spawns, sequentially, waiting for each to return:
 
    A fixer that returns without having pushed — a conflict neither a
    ruling nor its resolvability conditions settle, an aborted rebase —
-   has escalated: return with the
+   has escalated, unless it reports the exit 13 below: return with the
    question shaped as "Report back" states it — the gate's report
    verbatim and, for `DIRTY`, the `pr-merge-conflicts` output, with
    the fixer's report verbatim beneath them — and run none of the
@@ -264,6 +267,24 @@ Then run the remedy spawns, sequentially, waiting for each to return:
    SHA you pushed — or, if nothing was staged, why.
    ```
 
+**A spawn that reports exit 13 from `git-branch-sync checkout`** found
+the branch claimed by a worktree whose agent never released it; that
+report is neither an escalation nor a pushed remedy. Run, through the
+preloaded `git-tools:git-branch-sync` skill:
+
+```bash
+git-branch-sync reclaim --exclude .claude/agent-memory/ <branch-name>
+```
+
+Add `--holder-ended` only when you know the holder's agent has ended:
+the holder's path, which the exit-13 line names, ends in `agent-<id>`,
+and that id is an agent you spawned whose `Agent` call has returned.
+On exit 0, re-spawn the reporting agent with the brief it had, once,
+and carry on from its return as from the first. A second exit 13 from
+that agent, or a `reclaim` that exits non-zero, is returned as your
+question, shaped as "Report back" states it, and neither the rest of
+the spawns nor the gate runs.
+
 Then run the gate again. No code review round follows a remedy: the
 fixer's commits are a rebase of what the loop already approved, and
 the gate is what checks them.
@@ -282,6 +303,9 @@ Your report carries:
     asked" defines it, then the gate's report verbatim — and, for
     `DIRTY`, the `pr-merge-conflicts` output — and what a ruling has
     to settle; when a fixer escalated, its report verbatim beneath
+    them; when a `reclaim` did not free the branch — the re-spawned
+    agent reported exit 13 again, or `reclaim` exited non-zero — the
+    reporting agent's report and the `reclaim` output verbatim beneath
     them.
   - `documentation loop needed` — the last `issue-fixer` round
     deferred a documentation edit or resolved a conflict in a

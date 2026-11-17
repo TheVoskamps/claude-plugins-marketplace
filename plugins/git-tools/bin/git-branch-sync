@@ -2,8 +2,9 @@
 #
 # git-branch-sync -- the fixed git steps around work on an existing
 # branch: check it out, rebase it onto its base, finish or abort a
-# stopped rebase, push it and verify the push landed, and release it at
-# the end of a run.
+# stopped rebase, push it and verify the push landed, release it at the
+# end of a run, and reclaim it from a worktree whose agent ended without
+# releasing it.
 #
 # The contract is plugins/git-tools/skills/git-branch-sync/SKILL.md.
 #
@@ -14,6 +15,7 @@
 #   git-branch-sync abort
 #   git-branch-sync push [--exclude <pathspec>]...
 #   git-branch-sync release <branch>
+#   git-branch-sync reclaim [--holder-ended] [--exclude <pathspec>]... <branch>
 #
 # Exit statuses:
 #   0   success
@@ -29,12 +31,15 @@
 #   10  push: the working tree is dirty
 #   11  push: the local branch is behind the recorded tip; nothing pushed
 #   12  push: no tip is recorded for the branch; nothing pushed
+#   13  checkout: another worktree holds the branch; nothing checked out
+#   14  reclaim: the branch carries unfinished work; nothing changed
+#   15  reclaim: the holder's lock names a running process; nothing changed
 #
 # `checkout` records the origin/<branch> tip it saw in
 # refs/git-branch-sync/<branch>; `push` decides and leases against that
 # recorded tip, never one it fetches itself, so a commit another writer
 # pushed after the checkout is refused rather than replaced. `release`
-# deletes the record.
+# and `reclaim` delete the record.
 set -euo pipefail
 
 PROGRAM=${0##*/}
@@ -60,6 +65,7 @@ usage: $PROGRAM checkout <branch>
        $PROGRAM abort
        $PROGRAM push [--exclude <pathspec>]...
        $PROGRAM release <branch>
+       $PROGRAM reclaim [--holder-ended] [--exclude <pathspec>]... <branch>
 EOF
 }
 
@@ -129,6 +135,163 @@ remote_ref() {
   git rev-parse -q --verify "refs/remotes/origin/$1^{commit}" || true
 }
 
+# canonical <path> -- print <path> with every symlink resolved. A <path>
+# that is not a directory that can be entered keeps its last component
+# and has the rest resolved, so a path that no longer exists still
+# compares equal to the same path spelled through a symlink.
+canonical() {
+  local path=$1 dir
+  dir=$(cd "$path" 2>/dev/null && pwd -P || true)
+  if [ -n "$dir" ]; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+  case "$path" in
+    */*) ;;
+    *)
+      printf '%s\n' "$path"
+      return 0
+      ;;
+  esac
+  dir=${path%/*}
+  dir=$(canonical "${dir:-/}")
+  printf '%s/%s\n' "${dir%/}" "${path##*/}"
+}
+
+# find_holder <branch> -- set HOLDER to the path of the worktree that has
+# <branch> checked out or is rebasing it, and HOLDER_LOCK to that
+# worktree's lock reason; both are empty when no worktree holds <branch>.
+# A rebasing worktree is detached, so it is found by the branch its
+# rebase state names, not by a `branch` line.
+find_holder() {
+  local want="refs/heads/$1" list line path="" ref="" lock=""
+  HOLDER="" HOLDER_LOCK=""
+  list=$(git worktree list --porcelain)
+  while IFS= read -r line; do
+    case "$line" in
+      'worktree '*)
+        holder_block "$want" "$path" "$ref" "$lock"
+        path=${line#worktree } ref="" lock=""
+        ;;
+      'branch '*) ref=${line#branch } ;;
+      locked) lock="" ;;
+      'locked '*) lock=${line#locked } ;;
+    esac
+  done <<EOF
+$list
+EOF
+  holder_block "$want" "$path" "$ref" "$lock"
+}
+
+# holder_block <want-ref> <path> <ref> <lock> -- the worktree-list block
+# for <path>: when it is the first to hold <want-ref>, set HOLDER and
+# HOLDER_LOCK.
+holder_block() {
+  local want=$1 path=$2 ref=$3 lock=$4 state file
+  [ -n "$path" ] && [ -z "$HOLDER" ] || return 0
+  if [ "$ref" = "$want" ]; then
+    HOLDER=$path HOLDER_LOCK=$lock
+    return 0
+  fi
+  for state in rebase-merge rebase-apply; do
+    file=$(worktree_git_path "$path" "$state/head-name") || exit
+    if [ -n "$file" ] && [ -f "$file" ] && [ "$(cat "$file")" = "$want" ]; then
+      HOLDER=$path HOLDER_LOCK=$lock
+      return 0
+    fi
+  done
+}
+
+# has_working_tree <path> -- succeed when git run in <path> resolves to
+# the worktree at <path> itself: the top level it reports is <path>, and
+# the common git dir it reports is this repository's. Fail when <path>
+# is gone, when its .git names a gitdir that is gone, or when its .git is
+# missing and git resolves to a repository enclosing <path>.
+has_working_tree() {
+  local path=$1 top common
+  [ -d "$path" ] || return 1
+  top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] && [ "$(canonical "$top")" = "$(canonical "$path")" ] || return 1
+  common=$(git -C "$path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+  [ -n "$common" ] &&
+    [ "$(canonical "$common")" = "$(canonical "$(git rev-parse --path-format=absolute --git-common-dir)")" ]
+}
+
+# worktree_git_path <path> <name> -- print where the worktree at <path>
+# keeps <name> in its git dir: as git run in it reports when it has a
+# working tree, and under its administrative directory otherwise.
+# Print nothing for a worktree with neither.
+worktree_git_path() {
+  local admin
+  if has_working_tree "$1"; then
+    git -C "$1" rev-parse --path-format=absolute --git-path "$2"
+    return 0
+  fi
+  admin=$(find_admin_dir "$1") || exit
+  [ -z "$admin" ] || printf '%s/%s\n' "$admin" "$2"
+}
+
+# admin_dir <path> -- print the administrative directory of the linked
+# worktree at <path> as find_admin_dir finds it, or exit 1 when none
+# names <path>.
+admin_dir() {
+  local admin
+  admin=$(find_admin_dir "$1") || exit
+  [ -n "$admin" ] ||
+    fail 1 "no administrative directory under $(git rev-parse --path-format=absolute --git-common-dir)/worktrees names the worktree at $1"
+  printf '%s\n' "$admin"
+}
+
+# find_admin_dir <path> -- print the administrative directory under the
+# common git dir whose gitdir file names <path>/.git, or nothing when
+# none does. It is read from the repository's side, so it is found when
+# <path> has no working tree. The gitdir file is resolved as git
+# resolves it: an absolute path as written, a relative one, as
+# worktree.useRelativePaths writes it, against the administrative
+# directory; both sides are compared canonical.
+find_admin_dir() {
+  local common entry admin named want
+  common=$(git rev-parse --path-format=absolute --git-common-dir)
+  want=$(canonical "$1/.git")
+  for entry in "$common"/worktrees/*/gitdir; do
+    [ -f "$entry" ] || continue
+    admin=${entry%/gitdir}
+    named=$(cat "$entry")
+    case "$named" in
+      /*) ;;
+      *) named=$admin/$named ;;
+    esac
+    if [ "$(canonical "$named")" = "$want" ]; then
+      printf '%s\n' "$admin"
+      return 0
+    fi
+  done
+}
+
+# squeeze <text> -- print <text> with each run of spaces collapsed to one
+# and no space at either end.
+squeeze() {
+  local text
+  text=$(printf '%s' "$1" | tr -s ' ')
+  text=${text# }
+  printf '%s\n' "${text% }"
+}
+
+# lock_is_live <reason> -- succeed when <reason> is a harness lock,
+# `claude agent agent-<id> (pid <pid> start <date>)`, whose <pid> is a
+# running process that started at <date>, setting LOCK_PID to <pid>. Any
+# other reason, a <pid> that is gone, or one with another start time is
+# no evidence of life.
+lock_is_live() {
+  local re='^claude agent agent-[^ ]+ \(pid ([0-9]+) start (.+)\)$' start started
+  [[ $1 =~ $re ]] || return 1
+  LOCK_PID=${BASH_REMATCH[1]} start=${BASH_REMATCH[2]}
+  # The harness writes <date> in UTC, in the C locale's day and month
+  # names; ps prints the start time in the local zone unless told not to.
+  started=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$LOCK_PID" 2>/dev/null || true)
+  [ -n "$started" ] && [ "$(squeeze "$started")" = "$(squeeze "$start")" ]
+}
+
 # after_rebase_step <status> -- classify how a `git rebase` or
 # `git rebase --continue` that exited <status> left the checkout: exit 0
 # when it finished, 3 with the conflicted paths on stdout when it stopped
@@ -152,14 +315,19 @@ after_rebase_step() {
 # cmd_checkout <branch> -- check out <branch> at origin's tip: create it
 # tracking origin/<branch> when there is no local copy, fast-forward one
 # that is behind, and leave one that is ahead; then record origin's tip
-# for `push`. Exits 4 when the local copy has diverged, leaving the
-# local branch and its recorded tip as they were, and 1 when origin
-# lacks the branch.
+# for `push`. Exits 4 when the local copy has diverged and 13 when
+# another worktree holds the branch, each leaving the local branch and
+# its recorded tip as they were, and 1 when origin lacks the branch.
 cmd_checkout() {
   local branch=$1 remote local_tip
   git fetch -q origin || fail 1 "git fetch origin failed"
   remote=$(remote_ref "$branch")
   [ -n "$remote" ] || fail 1 "origin/$branch does not exist after the fetch"
+  find_holder "$branch"
+  if [ -n "$HOLDER" ] &&
+    [ "$(canonical "$HOLDER")" != "$(canonical "$(git rev-parse --show-toplevel)")" ]; then
+    fail 13 "$branch is held by the worktree at $HOLDER"
+  fi
   local_tip=$(git rev-parse -q --verify "refs/heads/$branch^{commit}" || true)
   if [ -z "$local_tip" ]; then
     git checkout -q -b "$branch" --track "refs/remotes/origin/$branch"
@@ -304,6 +472,94 @@ cmd_release() {
   git update-ref -d "$(recorded_ref "$branch")"
 }
 
+# cmd_reclaim [--holder-ended] [--exclude <pathspec>]... <branch> --
+# release <branch> from the worktree holding it, whose agent ended
+# without running `release`: detach that worktree's HEAD, delete the
+# local <branch> and its recorded tip, and print the holder's path, or
+# nothing when no worktree held it. Exits 14, changing nothing, when the
+# work on <branch> is unfinished, whatever --holder-ended says: the
+# holder is mid-rebase or dirty outside the paths each --exclude
+# <pathspec> matches, relative to its top level, or the local branch has
+# commits origin/<branch> lacks. A holder with no working tree, as
+# has_working_tree decides, is never dirty, and is mid-rebase when its
+# administrative directory holds the rebase state. Exits 15,
+# changing nothing, when the holder's lock names a running process and
+# --holder-ended is absent. Removes no worktree and no lock.
+cmd_reclaim() {
+  local branch="" ended="" local_tip remote found="" dirty where tree state dir admin
+  local -a excludes=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --holder-ended)
+        ended=yes
+        shift
+        ;;
+      --exclude)
+        [ "$#" -ge 2 ] || usage_error "\`--exclude\` needs a pathspec."
+        excludes+=(":(exclude)$2")
+        shift 2
+        ;;
+      -*) usage_error "\`reclaim\` takes no option \`$1\`." ;;
+      *)
+        [ -z "$branch" ] || usage_error "\`reclaim\` takes 1 argument(s), not 2."
+        branch=$1
+        shift
+        ;;
+    esac
+  done
+  [ -n "$branch" ] || usage_error "\`reclaim\` takes 1 argument(s), not 0."
+  git fetch -q origin || fail 1 "git fetch origin failed"
+  find_holder "$branch"
+  tree=""
+  if [ -n "$HOLDER" ]; then
+    where="held by the worktree at $HOLDER"
+    if has_working_tree "$HOLDER"; then
+      tree=yes
+    fi
+    for state in rebase-merge rebase-apply; do
+      dir=$(worktree_git_path "$HOLDER" "$state") || exit
+      if [ -n "$dir" ] && [ -d "$dir" ]; then
+        found="a rebase in progress"
+      fi
+    done
+    # A holder with no working tree has nothing to be dirty in.
+    if [ -n "$tree" ]; then
+      # The `${array[@]+...}` form expands an empty array under bash 3.2's
+      # `set -u`.
+      dirty=$(cd "$HOLDER" && git status --porcelain -- . ${excludes[@]+"${excludes[@]}"})
+      [ -z "$dirty" ] || found="${found:+$found, }uncommitted changes"
+    fi
+  else
+    where="held by no worktree"
+  fi
+  local_tip=$(git rev-parse -q --verify "refs/heads/$branch^{commit}" || true)
+  if [ -n "$local_tip" ]; then
+    remote=$(remote_ref "$branch")
+    # With no origin/<branch>, origin lacks every commit the branch has.
+    if [ -z "$remote" ] || [ -n "$(git rev-list -n 1 "$local_tip" "^$remote")" ]; then
+      found="${found:+$found, }commits origin/$branch lacks"
+    fi
+  fi
+  [ -z "$found" ] ||
+    fail 14 "$branch, $where, has unfinished work: $found; nothing was changed"
+  if [ -n "$HOLDER" ] && [ -z "$ended" ] && lock_is_live "$HOLDER_LOCK"; then
+    fail 15 "$branch is held by the worktree at $HOLDER, whose lock names the running process $LOCK_PID; nothing was changed"
+  fi
+  if [ -n "$HOLDER" ] && [ -z "$tree" ]; then
+    # Detach through the administrative directory, where git keeps the
+    # holder's HEAD; there is no working tree to run checkout in.
+    admin=$(admin_dir "$HOLDER") || exit
+    git --git-dir="$admin" update-ref --no-deref HEAD "$(git --git-dir="$admin" rev-parse HEAD)"
+  elif [ -n "$HOLDER" ]; then
+    git -C "$HOLDER" checkout -q --detach
+  fi
+  if [ -n "$local_tip" ]; then
+    git branch -q -D "$branch"
+  fi
+  git update-ref -d "$(recorded_ref "$branch")"
+  [ -z "$HOLDER" ] || printf '%s\n' "$HOLDER"
+}
+
 [ "$#" -ge 1 ] || usage_error "No subcommand was supplied."
 sub=$1
 shift
@@ -330,6 +586,9 @@ case "$sub" in
   release)
     arity 1 release "$@"
     cmd_release "$1"
+    ;;
+  reclaim)
+    cmd_reclaim "$@"
     ;;
   *) usage_error "\`$sub\` is not a subcommand $PROGRAM takes." ;;
 esac

@@ -1,6 +1,6 @@
 ---
 name: issue-developer
-description: Implements a batch of one or more issues on a single branch, runs tests, makes one commit per issue, pushes, and creates one PR closing them all. Use this for initial implementation of each batch.
+description: Implements a batch of one or more issues on a single branch, runs tests, makes one commit per issue, pushes, and creates one PR closing them all. Use this for initial implementation of each batch. Briefed with an approved resolving install, it stops after pushing the manifest changes, opening no PR, so the install can run; briefed with a branch to continue on, it checks that branch out instead of creating one and carries on from its commits.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
@@ -39,8 +39,8 @@ instructions at the top of that file.
 You do not read `.issues/repo-config.md` yourself for branch or PR
 mechanics — the `git-tools:git-branch-create` and
 `github-prs:pr-create` skills declared in the `skills:` frontmatter
-above own them, configuration included. Invoke those skills rather
-than re-deriving what they resolve.
+above own them, configuration included, save the one read step 13
+names. Invoke those skills rather than re-deriving what they resolve.
 
 ## Inputs
 
@@ -58,6 +58,11 @@ You must be given:
   the grouping criteria the orchestrator applied. It is context for
   scope calls — which shared surface the members are expected to
   collide on — not an instruction.
+- **An approved resolving install**, when the batch's change
+  regenerates a lockfile: the command and the directory the human
+  approved at plan time, per "The approved resolving install" below.
+- **A branch to continue on**, when an earlier developer stopped for
+  that install and the orchestrator has since run it on the branch.
 
 Nothing of the issues' *content* is an input. You read each issue
 yourself in step 1, and you derive the files a fix touches yourself;
@@ -102,6 +107,17 @@ owns — but never a finding, a location, or an implementation shape.
    branch; `/git-tools:git-branch-create` switches you off of it onto
    `<branch-name>`.
 
+   Given a branch to continue on, create none: check that branch out
+   instead, and it is `<branch-name>`:
+
+   ```bash
+   git-branch-sync checkout <branch-name>
+   ```
+
+   The commits already on it are the batch's work so far, the
+   install's lockfile commit among them; read them before step 4, and
+   carry on from where they stop.
+
 3. Read relevant files before changing anything.
 
 4. **Work the issues one at a time, in the order given.** For each
@@ -121,6 +137,10 @@ owns — but never a finding, a location, or an implementation shape.
 
    Do not interleave members. Finish and commit one before starting
    the next, so the commit boundary stays honest.
+
+   Briefed with an approved resolving install, stop at the checkpoint
+   "The approved resolving install" below describes, once the
+   manifest changes are made.
 
 5. Build and lint what you changed, with the project's own commands —
    the ones its `CLAUDE.md`, package scripts, or tool config declare,
@@ -237,7 +257,10 @@ owns — but never a finding, a location, or an implementation shape.
     branch name, and — per member — what you implemented, its commit,
     and its test result. Name any dropped member and why, and any
     design decision you stopped on, with its options. (The worktree
-    path isn't something you need to surface.)
+    path isn't something you need to surface.) On a branch you
+    continued, report each member from every commit the branch carries
+    for it, the earlier developer's included, and name the install's
+    lockfile commit.
 
     Then a fixed `Deferred to docs-writer:` line, one entry per
     documentation file your change made wrong, each as `<path> — <what
@@ -254,8 +277,24 @@ owns — but never a finding, a location, or an implementation shape.
     ```
 
     A line with no entries reads `none`; a line is never omitted.
-    Derive each line from the diff you pushed rather than from what
-    you meant to touch.
+    Derive each line from the branch's whole diff against
+    `origin/<base>`, rather than from what you meant to touch, so a
+    continued branch's earlier commits are counted too. Take `<base>`
+    the way the branch was made, never from the PR: the source branch
+    `/git-tools:git-branch-create` reported rooting it at in step 2.
+    `/github-prs:pr-create` resolves the PR's base internally and
+    reports none, so on a continued branch, where step 2 created no
+    branch, no skill you invoked reports a base. There, and only there,
+    read `default-issue-source-branch` from `.issues/repo-config.md`
+    yourself — the one exception to the rule against reading that file
+    at the top of this file, because the diff needs a base and no skill
+    you can invoke hands you one. Then fetch and diff from the merge
+    base:
+
+    ```bash
+    git fetch origin
+    git diff --name-status origin/<base>...HEAD
+    ```
 
 ## Drop protocol
 
@@ -283,6 +322,22 @@ The batch does not die with the member. The default remedy:
 
 Report the drop even if you finish everything else successfully — the
 decision is the human's, and the report is how it reaches them.
+
+## The approved resolving install
+
+The orchestrator runs the install the human approved, not you. Briefed
+with one:
+
+1. Make the manifest changes the batch needs, and commit them per
+   step 7 as the work of the member they belong to. Steps 5 and 6 wait
+   for the developer that continues after the install.
+2. Push the branch, then run step 11. Skip step 12: the orchestrator
+   runs the install in this worktree, on this branch.
+3. Stop, and report that the approved resolving install is due, with
+   its command and directory, the commit you pushed, and the members
+   still to work. Open no PR.
+
+Run no resolving install yourself, and do not escalate for one.
 
 ## Verify the claims in your own prose
 
