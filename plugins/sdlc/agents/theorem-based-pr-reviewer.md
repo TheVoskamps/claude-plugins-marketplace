@@ -419,7 +419,10 @@ and report the command and its output verbatim rather than review.
 
 **Round 0 is the seed** the orchestrator settled before the developer
 ran: an accepted or re-moded theorem there carries **no `state`**, and
-a rejected or merged one is `retired` / `human-refuted`. Round 1 over
+a rejected or merged one is `retired` / `human-refuted`, or
+`retired` / `assessor-rejected` under `seed-review: accept-recommended`,
+where the orchestrator applied the seed assessment with no human step.
+Round 1 over
 it takes the **delta path** with the whole branch as its delta: round 0
 records no head, so read both with no `--prev-head`:
 
@@ -1007,7 +1010,8 @@ Every round stores one records file holding every recorded theorem, in
 the layout the preloaded `sdlc:agent-result-persist-interface` skill
 gives under `records` in "The modes". `state-detail` takes the values
 the `dispose` rows, `RETIREMENTS` and the adjustment table give,
-`assessor-rejected` for a theorem the assessment rejected or merged,
+`assessor-rejected` for a theorem the assessment rejected or merged, a
+round-0 one applied under `seed-review: accept-recommended` included,
 and `human-refuted` for a seed theorem the human rejected or merged at
 round 0. `settled-at` is the head the state was established against, an
 older one on a carried-forward retired theorem. A `severity-override`

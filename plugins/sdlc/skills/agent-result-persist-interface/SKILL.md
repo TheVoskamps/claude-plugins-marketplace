@@ -291,6 +291,15 @@ derive.
   record because the caller chose them and a child can read neither;
   pass the token `default` where the spawn named none and the
   definition's own frontmatter decided.
+- **`seed-review`** — appends one `seed-review` record carrying
+  `--value`, which is required and must be `accept-recommended`. It is
+  the orchestrator's once, at `--round 0`, when that config value
+  applied the seed assessment's recommendations with no human step, and
+  it is refused, non-zero, writing nothing, at any other round. A
+  reader that finds the record attributes the seed's rulings to those
+  recommendations, never to the human. The orchestrator makes no call
+  under any other value, so a round-0 log without the record is a seed
+  the human ruled on or one accepted as emitted.
 - **`enter`** — appends one `enter` record for `--theorem` in
   `--stage`. A child's first act, before it does any work. The script
   derives the agent id from the child's own worktree and composes the
@@ -420,12 +429,14 @@ derive.
   `state-detail`, `settled-at`, `severity-override`, in that order. Ids
   are never reused.
 
-  `minted-by: assessor` marks a record whose claim the reviewer took
-  from `theorem-assessor`'s merge, split, rewrite or add and applied
-  with no human step, so no reader attributes that claim to the
-  generator or the human. It is written when the record is first
-  recorded, carried verbatim from then on, and is on no other record —
-  a seed claim the human adopted is the human's. No edit sets it.
+  `minted-by: assessor` marks a record whose claim was taken from
+  `theorem-assessor`'s merge, split, rewrite or add and applied with no
+  human step — by the reviewer, or by the orchestrator at round 0 under
+  `seed-review: accept-recommended` — so no reader attributes that
+  claim to the generator or the human. It is written when the record is
+  first recorded, carried verbatim from then on, and is on no other
+  record — a seed claim the human adopted is the human's. No edit sets
+  it.
 
   **With `--carry` the script builds the file itself** rather than
   taking one whole, and makes no decision while doing so — what each
@@ -802,7 +813,11 @@ enter   <theorem> <stage> <instant> <agent-id> <transcript-path>
 leave   <theorem> <stage> <instant> <agent-id> <result-file>
 return  <theorem> <stage> <instant> <agent-id> tokens=<n> tools=<n> ms=<n>
 stopped <theorem> <stage> <instant> <agent-id>
+seed-review <instant> <value>
 ```
+
+A `seed-review` record is in round 0's log alone, and `<value>` is
+`accept-recommended`.
 
 `--mode print` adds one line per result file it finds, synthesized from
 the directory at read time and stored nowhere, and then the round's
@@ -844,7 +859,8 @@ vocabulary from drifting the next time a kind is added.** `spawn`,
 one, it heard back about one, it wrote one off. `enter` and `leave` are
 the child's own — it began, and it finished. A caller therefore never
 writes an `enter` or a `leave`, and a child never writes any of the
-other three.
+other three. `seed-review` belongs to neither: it is the orchestrator's
+record of how the seed was settled, and no child is in it.
 
 A `spawn` record is written per child rather than per theorem, so a
 theorem re-spawned in a later wave carries one for each attempt. That

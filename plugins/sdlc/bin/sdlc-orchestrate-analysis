@@ -624,13 +624,26 @@ $rulings
 EOF
 fi
 
+# A seed-review record in round 0's log says seed-review: accept-recommended
+# settled the seed by applying the assessment's recommendations, with no
+# human step, so the seed is ruled on by no wait and its rulings are none
+# of the human's replies. seed_review holds the record's line, as the
+# evidence each seed ruling quotes.
+seed_review=$(printf '%s' "$seed_log" | awk -F'\t' '{split($2, f, " ")} f[1] == "seed-review" {print $2; exit}')
+seed_recs=
+if [ -n "$seed_review" ]; then
+  seed_recs=$(records_of 0) || {
+    seed_recs=
+    note_missing "round 0 records: \`sdlc-agent-result-persist --mode print-round-records --round 0\` found none; no seed ruling listed"
+  }
+fi
+
 # The seed ruling: the wait answered after the seed assessor reported and
 # before the developer was spawned, ruling on every round-0 record. With
 # no assessor spawned before the developer, the wait runs from the seed
 # generator's report instead.
 seed_wait=
-seed_recs=
-if [ -n "$agents" ] && seed_recs=$(records_of 0); then
+if [ -z "$seed_review" ] && [ -n "$agents" ] && seed_recs=$(records_of 0); then
   dev_start=$(printf '%s\n' "$agents" | awk -F'\t' '$3 == "issue-developer" {print $1; exit}')
   seed_end=$(printf '%s\n' "$agents" | awk -F'\t' -v dev="$dev_start" '
     $3 ~ /^theorem-generator/ && gen == "" {gen = $2}
@@ -756,6 +769,22 @@ fi
 
 printf '\n## Rulings\n'
 any_ruling=
+if [ -n "$seed_recs" ] && [ -n "$seed_review" ]; then
+  any_ruling=1
+  printf '\n### The round-0 seed, applied by recommendation under config\n\n'
+  printf "Round 0's log carries a \`seed-review\` record: \`seed-review: accept-recommended\` applied every recommendation of the seed assessment, and no human ruled on the seed.\n\n"
+  for id in $(printf '%s\n' "$seed_recs" | awk '/^T[0-9]+$/'); do
+    detail=$(record_lines "$seed_recs" "$id" state-detail)
+    minted=$(record_lines "$seed_recs" "$id" minted-by)
+    if [ -n "$detail" ]; then
+      theorem_block 0 "$id" "Rejected at the seed by recommendation, applied under config. Round 0's log, and its record:" "$seed_review$NL$detail"
+    elif [ -n "$minted" ]; then
+      theorem_block 0 "$id" "Minted at the seed by recommendation, applied under config. Round 0's log, and its record:" "$seed_review$NL$minted"
+    else
+      theorem_block 0 "$id" "Accepted at the seed by recommendation, applied under config. Round 0's log:" "$seed_review"
+    fi
+  done
+fi
 for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
   mine=$(printf '%s' "$assigned" | awk -F'\t' -v w="$w" '$1 == w && $2 != "" {print $2}')
   if [ -n "$w" ] && [ "$w" = "$seed_wait" ]; then

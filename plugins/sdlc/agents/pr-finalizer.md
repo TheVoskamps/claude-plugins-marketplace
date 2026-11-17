@@ -499,6 +499,22 @@ and never the generator's or the human's. Any other is the generator's,
 or the human's where an adjustment comment or the seed ruling minted
 it.
 
+Who ruled on the seed is in round 0's log, which `--mode rounds` does
+not list, so read it yourself:
+
+```bash
+sdlc-agent-result-persist --mode print --pr <PR> --round 0
+```
+
+When it carries a `seed-review` record, `seed-review:
+accept-recommended` applied the seed assessment's recommendations with
+no human step: attribute every seed ruling — each acceptance, each
+retirement and each claim round 0 minted — to those recommendations,
+applied under config, and never to the human. A call refused with `no
+round log at <path>` means the PR has no round-0 log, and none of its
+seed's rulings is attributed to the config. Any other failure of that call
+is a failure — stop and report the command and its output verbatim.
+
 The one claim you must never make from inference is that a finding was
 fixed. A finding vanishing from the next round's review is consistent
 with a fix, with the theorem going unsettled, and with the round

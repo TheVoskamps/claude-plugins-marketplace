@@ -53,7 +53,7 @@ line per key, before the readiness gate:
 sdlc config:
   plan-confirm: auto-single-batch (default)
   max-issues-per-batch: 8 (default)
-  seed-review: auto-accept (default)
+  seed-review: accept-as-emitted (default)
   merge-wait: monitor (default)
   merge-poll-interval-seconds: 300 (repo user)
   merge-max-unchanged-polls: 720 (default)
@@ -63,6 +63,10 @@ sdlc config:
   loop-end: ask (global user)
   docs-loop-end: auto-when-clean (default)
 ```
+
+A value resolved from a deprecated alias prints as the value it stands
+for, with the alias named after its tier, as in
+`seed-review: accept-as-emitted (shared repo, set as auto-accept)`.
 
 Throughout the rest of the run, each key's name means its resolved
 value. No step of the run re-reads a config file after this point.

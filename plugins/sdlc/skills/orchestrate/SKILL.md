@@ -75,7 +75,8 @@ under `agents/` owns:
   generator yourself exactly once per batch, on the issues-only brief,
   before its developer runs — when it returns, its report is the seed
   candidate list the human rules on — or that `seed-review:
-  auto-accept` accepts whole — and an assessor on that list, whose
+  accept-as-emitted` accepts whole, or `accept-recommended` settles by
+  the assessment — and an assessor on that list, whose
   report is the recommendation shown beside each candidate, per "Seed
   the theorem set from the issues, and put it to the human"
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
@@ -420,7 +421,8 @@ Every other batch takes the sections below.
 
 Before a batch's developer is spawned, the review's theorem set is
 seeded from the issues alone and the human rules on it, unless
-`seed-review` is `auto-accept` — so a developer that goes beyond the
+`seed-review` is `accept-as-emitted` or `accept-recommended` — so a
+developer that goes beyond the
 issues, or decides something they do not, shows up later against a
 list the human already owns. The gate
 runs once per batch, after the plan is settled and the batch's
@@ -495,18 +497,29 @@ theorem:
 A theorem the human does not name is accepted as the generator emitted
 it, not as recommended. A recommendation applies only when the human
 adopts it — all at once, by saying to apply the recommendations, or
-individually, by naming it. Under `seed-review: ask` this is a question
-and ends your turn: write nothing until the human has ruled. You carry
-no review vocabulary on the human's behalf — a merged, split, rewritten
-or added claim is the human's words, quoted, per "Posting the human's
-review adjustments as a PR comment", and a claim the assessor proposed
-becomes one only when the human adopts it.
+individually, by naming it — except under `seed-review:
+accept-recommended`, where the human adopted every recommendation in
+advance by choosing that value in config. Under `seed-review: ask` this
+is a question and ends your turn: write nothing until the human has
+ruled. You carry no review vocabulary on the human's behalf — a merged,
+split, rewritten or added claim is the human's words, quoted, per
+"Posting the human's review adjustments as a PR comment", and a claim
+the assessor proposed becomes one only when the human adopts it — with
+the same `accept-recommended` exception, for the same reason: there
+every claim the assessment proposes is applied as the assessor's, and
+marked as such on round 0's records.
 
-Under `seed-review: auto-accept`, still show every candidate and the
-assessment the same way, say that the config accepted all of them as
-emitted, and continue without waiting: no recommendation is applied,
+Under `seed-review: accept-as-emitted`, still show every candidate and
+the assessment the same way, say that the config accepted all of them
+as emitted, and continue without waiting: no recommendation is applied,
 every theorem is accepted as the generator emitted it, and that list is
 the ruled seed from here on.
+
+Under `seed-review: accept-recommended`, still show every candidate and
+the assessment the same way, say that the config applied the
+recommendations, and continue without waiting: every recommendation is
+applied, each coverage gap's proposed add included, and the list that
+results is the ruled seed from here on.
 
 **Hold the ruled list until the PR exists.** The ruled list is the
 seed, and it is written as round 0 of the PR's state once the
@@ -600,8 +613,9 @@ cheaply. From the moment it returns, the PR body is frozen.
 file, before `code-documenter` and before the first reviewer spawn —
 the PR now exists to key the path on. That write is
 transcription of the human's rulings — or, under `seed-review:
-auto-accept`, of the generator's list as emitted — not authored review
-content, per "Your own boundary".
+accept-as-emitted`, of the generator's list as emitted, and under
+`accept-recommended`, of the assessment's recommendations — not
+authored review content, per "Your own boundary".
 
 Then read the developer's `Scope:` block, before the first review
 round. It has exactly two triggers: a plugin the issues' titles and
@@ -1328,7 +1342,10 @@ definition, `CLAUDE.md` or global rules file already states.
   PR's state is the round-0 records file, staged in the scratchpad for
   the persist script to read. It is **transcription**: every claim in
   it is the generator's or the human's, and every state on it is a
-  ruling the human gave.
+  ruling the human gave — except under `seed-review:
+  accept-recommended`, where a claim the assessment proposed is the
+  assessor's and a retirement is its recommendation, because choosing
+  that value adopted every recommendation in advance.
 - **Never write a closing keyword immediately before an issue
   reference, and never instruct a teammate to.** A closing keyword
   (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
