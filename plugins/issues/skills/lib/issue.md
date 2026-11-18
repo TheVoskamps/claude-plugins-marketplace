@@ -354,7 +354,8 @@ hit wins:
 4. **Built-in default** — `Feature` for `--type`; for `--assignee`,
    `default-assignee` across the two user-config scopes
    (`skills/lib/user-config.md`), then the account
-   `acli jira auth status` reports.
+   `acli jira auth status` reports. `/issue-create --no-assignee`
+   resolves no assignee at all.
 
 Slot flags have no built-in default: with none of the first three, or
 on a `kind: skip` or absent slot, the slot resolves to no value.

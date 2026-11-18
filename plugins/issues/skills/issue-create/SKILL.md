@@ -13,8 +13,8 @@ printed.
 
 ```text
 /issue-create [<repo>] --title "..." --body-file PATH
-              [--type T] [--labels a,b,c] [--assignee u1,u2]
-              [--parent <issue>]
+              [--type T] [--labels a,b,c]
+              [--assignee u1,u2 | --no-assignee] [--parent <issue>]
               [--priority V] [--size V] [--status S]
 ```
 
@@ -43,7 +43,11 @@ printed.
   `default-assignee` from the repo-level user-config, then the
   user-global one (`skills/lib/user-config.md`), then the
   authenticated GitHub user. A user-config file that exists but
-  predates schema-version `1` aborts rather than being skipped.
+  predates schema-version `1` aborts rather than being skipped. An
+  empty value resolves the same default.
+- `--no-assignee` (optional): file the issue with no assignee. No
+  default is resolved and no user-config is read for one. Passing it
+  with `--assignee` is a usage error.
 - `--parent` (optional): the parent issue, as an issue
   reference; the new issue becomes its sub-issue. A reference that
   names no repository resolves in the repo the issue is filed in.
@@ -98,7 +102,7 @@ printed.
 
    ```bash
    issue-create [<repo>] --title "<title>" --body-file <path> [--type <T>] [--labels <a,b>] \
-     [--assignee <u1,u2>] [--parent <issue>] [--priority <V>] [--size <V>] [--status <S>]
+     [--assignee <u1,u2> | --no-assignee] [--parent <issue>] [--priority <V>] [--size <V>] [--status <S>]
    ```
 
    The script validates every value against repo-config before it
@@ -312,7 +316,8 @@ https://github.com/<owner>/<repo>/issues/1042
 - `parent:` appears only when `--parent` was passed.
 - The issue prints as `skills/lib/issue.md` → "Repositories and issue
   references" states.
-- The assignee line is the re-read set. When a requested login did not
+- The assignee line is the re-read set, or `none (--no-assignee)`
+  when that flag was passed. When a requested login did not
   land — GitHub accepts an invalid login on create without an error —
   it reads `<landed> (requested <all>; <missing> did not land)` and the
   script exits non-zero after printing the checklist. A requested label
