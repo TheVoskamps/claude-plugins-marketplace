@@ -1314,6 +1314,7 @@ new_case none
 jq '.scopeless = ["ghe.example.com"] | (.repos, .owners) |= with_entries(.value.host = "ghe.example.com")' \
   "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
 for sub in projects "project 1" "fields 1"; do
+  # shellcheck disable=SC2086 # split "project 1" into the subcommand and its argument
   run issues-discover $sub
   expect "issues-discover: $sub without read:project names the scope and the host" 1 \
     "the gh token for \`ghe.example.com\` lacks the \`read:project\` scope this lookup needs"
@@ -1328,6 +1329,7 @@ expect "issues-discover: any other failure passes gh's error through" 1 \
 
 new_case none
 for call in "" "boards" "project" "project x" "fields 1 2" "projects 1" "viewer extra"; do
+  # shellcheck disable=SC2086 # split each call into its words, "" into none
   run issues-discover $call
   expect "issues-discover: usage error for '$call'" 2 "usage: issues-discover projects | project <number>"
 done

@@ -1,0 +1,3 @@
+# Follow each script's `source=lib/issues-common.sh` directive without `-x`, so
+# a plain `shellcheck` sees the variables the helper sets.
+external-sources=true
