@@ -70,6 +70,11 @@ iss_err_invalid_range() {
   iss_die "${4:-}This repo's \`.issues/repo-config.md\` sets \`$1\`'s range to \`[$2, $3]\`, which is not an integer range with \`min:\` at most \`max:\`. Run \`/repo-config\` to fix it."
 }
 
+iss_err_invalid_link_prefix() {
+  # $1 the configured prefix, $2 message prefix
+  iss_die "${2:-}This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$1\`, which is not \`#\` and contains \`#\` or begins with \`https://\`. Run \`/repo-config\` to fix it."
+}
+
 iss_err_jira() {
   iss_die "\`issues: Jira\` is configured, and this script serves only the GitHub backend. Follow the Jira backend path in the skill's SKILL.md instead."
 }
@@ -364,6 +369,19 @@ iss_config_frontmatter() {
   case "$ISS_ISSUES" in
     GitHub | Jira) ;;
     *) iss_die "${prefix}unsupported \`issues:\` value \`$ISS_ISSUES\` in \`.issues/repo-config.md\`" ;;
+  esac
+  iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX" "$prefix"
+}
+
+# iss_valid_link_prefix <prefix>: whether <prefix> is an issue-link-prefix an
+# operand can carry: `#` itself, or one that contains no `#` and does not
+# begin with `https://`. Any other would make an operand's syntax depend on
+# the prefix, which issue-create cannot read before its first gh call when
+# the prefix is a target repo's.
+iss_valid_link_prefix() {
+  case "$1" in
+    '#') return 0 ;;
+    *'#'* | https://*) return 1 ;;
   esac
 }
 
@@ -693,13 +711,16 @@ iss_init() {
 # iss_peek_link_prefix: set ISS_LINK_PREFIX from the current repo-config's
 # front matter without iss_load_config's checks, so that iss_names_repo can
 # tell a prefixed N apart before any repo-config is gated on. It is '#' when
-# the file or the key is absent.
+# the file or the key is absent. A prefix iss_valid_link_prefix refuses aborts
+# here, since it would decide how every operand parses, one naming another
+# repository included.
 iss_peek_link_prefix() {
   local fm
   ISS_LINK_PREFIX='#'
   [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || return 0
   fm=$(iss_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")") || return 0
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix) || ISS_LINK_PREFIX='#'
+  iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX"
 }
 
 # iss_names_repo <operand>: whether the operand names a repository of its own

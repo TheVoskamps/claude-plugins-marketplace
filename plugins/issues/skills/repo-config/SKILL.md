@@ -183,6 +183,12 @@ The six fields, in order:
    - If the user picked `Jira` for `issues`, do not pre-recommend a
      value — prompt the user to enter the Jira project key plus a
      trailing dash via "Other" (e.g. `SET-`, `PROJ-`).
+
+   Refuse a value that `issue-link-prefix`'s entry in
+   `skills/lib/repo-config.md` → "Front-matter fields" calls invalid,
+   saying why, and ask again; never recommend a carry-over value that
+   entry calls invalid. `repo-config-write` refuses a draft carrying
+   one.
 4. **`default-issue-source-branch`** — branch that new issue work
    branches FROM. Offer the local branches you gathered in Step 2
    as options, plus "Other" for any branch name. Recommend the

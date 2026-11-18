@@ -354,6 +354,57 @@ new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issue-link-prefix.*$//')"
 run issue-view 2
 expect "incomplete front-matter names the field" 1 "is missing the canonical field \`issue-link-prefix\`"
 
+# with_link_prefix <config> <prefix>: the config with issue-link-prefix set to
+# <prefix>.
+with_link_prefix() {
+  printf '%s\n' "$1" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$2\"|"
+}
+BAD_PREFIX_MESSAGE="which is not \`#\` and contains \`#\` or begins with \`https://\`. Run \`/repo-config\` to fix it."
+
+# An issue-link-prefix other than # that contains # or begins with https:// is
+# a config error wherever a repo-config is read: the current repo's, before any
+# gh call, even when every operand names another repository ...
+for verb in $VERBS; do
+  new_case "$(with_link_prefix "$CONFIG_MAIN" 'x##')"
+  args_for "$verb"
+  run "$verb" "${ARGS[@]}"
+  expect "$verb: a local issue-link-prefix with # is refused" 1 \
+    "This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`x##\`, $BAD_PREFIX_MESSAGE"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "$verb: a local issue-link-prefix with #: no gh call"
+done
+new_case "$(with_link_prefix "$CONFIG_MAIN" 'https://h/')"
+run issue-view octo/lib#5
+expect "issue-view: a local https:// issue-link-prefix is refused for another repo's issue too" 1 \
+  "sets \`issue-link-prefix\` to \`https://h/\`, $BAD_PREFIX_MESSAGE"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local https:// issue-link-prefix: no gh call"
+new_case "$(with_link_prefix "$FRONT_MATTER" 'x#')"
+run issue-branch-prefix
+expect "issue-branch-prefix: a local issue-link-prefix with # is refused" 1 \
+  "sets \`issue-link-prefix\` to \`x#\`, $BAD_PREFIX_MESSAGE"
+
+# ... and a target's, before the target's issue is read or written.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+jq --arg cfg "$(with_link_prefix "$CONFIG_MAIN" 'x##')" \
+  '.repos["acme/prefixed"] = {issues: {"1": .repos["acme/other"].issues["3"]}, config: $cfg,
+    validLabels: [], collaborators: ["octocat"]}' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+  mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+TARGET_PREFIX_MESSAGE="target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`x##\`, $BAD_PREFIX_MESSAGE"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md
+expect "issue-create <repo>: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+check "$(state '.repos["acme/prefixed"].issues | length')" 1 "issue-create <repo>: nothing created under a bad target prefix"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md --parent 12
+expect "issue-create <repo> --parent N: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+run issue-view acme/prefixed#1
+expect "issue-view: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+run issue-field-options acme/prefixed --all
+expect "issue-field-options <repo>: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+
+# A prefix with no # that does not begin with https:// is still accepted.
+new_case "$(with_link_prefix "$CONFIG_MAIN" 'GH-')"
+run issue-view GH-2
+expect "issue-view: a #-free issue-link-prefix is accepted" 0 "#2 Widget issue 2    (OPEN)"
+
 # ---------------------------------------------------------------------------
 # Reads.
 # ---------------------------------------------------------------------------
@@ -563,6 +614,11 @@ refuse_write "stale schema" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^schema-ver
   "is at schema-version \`5\`"
 refuse_write "missing front-matter field" "$(printf '%s\n' "$CONFIG_MAIN" | sed '/^issue-branch-naming-prefix:/d')" \
   "missing the canonical field \`issue-branch-naming-prefix\`"
+for prefix in 'x##' 'https://h/'; do
+  refuse_write "issue-link-prefix $prefix" \
+    "$(printf '%s\n' "$CONFIG_MAIN" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$prefix\"|")" \
+    "sets \`issue-link-prefix\` to \`$prefix\`, which is not \`#\` and contains \`#\` or begins with \`https://\`"
+done
 
 new_case none
 run repo-config-write "$CASE_DIR/nosuch.md"
