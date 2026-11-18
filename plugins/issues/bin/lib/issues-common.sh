@@ -106,8 +106,8 @@ iss_err_no_target_config() {
 
 iss_err_pull_request() {
   # $1 the pull request, as the operand spelled it or as iss_ref prints it.
-  # One exit status whether iss_parse_operand finds the pull request in a URL
-  # or iss_try_lookup finds it behind a number.
+  # One exit status whether iss_check_operand_syntax finds the pull request in
+  # a URL or iss_try_lookup finds it behind a number.
   iss_die "\`$1\` is a pull request; the issue verbs take issues only"
 }
 
