@@ -668,8 +668,8 @@ iss_repo_name() {
 # existing issues -- tools, the working tree, and the current repository. Each
 # operand's syntax is checked with iss_check_operand_syntax once the link
 # prefix is known, so a malformed one is refused before any repo-config check
-# or gh call. Only the
-# repo-config of an operand's own repository governs the verb on it, so the
+# or gh call. Only the repo-config of an operand's own repository governs the
+# verb on it, so the
 # current repository's is read here, before any gh call, only when an operand
 # names no repository of its own (iss_names_repo). An operand that does name
 # one is gated by iss_check_repo or iss_operand_config once it is parsed.

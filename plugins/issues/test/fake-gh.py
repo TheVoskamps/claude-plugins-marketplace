@@ -20,6 +20,8 @@ state["repoViewError"] makes `gh repo view` fail with that message.
 
 `issue close` on an open issue records a stateReason -- COMPLETED unless its
 --reason names another -- and, with --duplicate-of, the issue it duplicates as
+duplicateOf. A closed issue is left as it is, whatever the call names, and
+`issue reopen` leaves the issue OPEN with stateReason REOPENED and no
 duplicateOf.
 state["closeAs"] = {"stateReason": R, "duplicateOf": node-id-or-null} makes
 every close record those two values instead of the requested ones.
