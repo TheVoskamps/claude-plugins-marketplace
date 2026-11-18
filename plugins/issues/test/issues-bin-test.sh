@@ -1318,10 +1318,11 @@ for parent in 'not#a#ref' 'bad--owner/lib#5'; do
   expect "issue-create --parent $parent: a usage error while gh repo view fails" 2 "is not a"
   check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create --parent $parent: no gh call"
 done
-run issue-create other --title "Child" --body-file new.md --parent 'not#a#ref'
-expect "issue-create <repo> --parent: a malformed reference while gh repo view fails" 2 \
-  "\`not#a#ref\` is not an issue reference"
-check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create <repo> --parent, a malformed reference: no gh call"
+for parent in 'not#a#ref' 'not#a#5' 'bad--owner/lib#5'; do
+  run issue-create other --title "Child" --body-file new.md --parent "$parent"
+  expect "issue-create <repo> --parent $parent: a usage error while gh repo view fails" 2 "is not a"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create <repo> --parent $parent: no gh call"
+done
 run issue-create --title "Child" --body-file new.md --parent 1
 expect "issue-create --parent: a well-formed reference still meets the failing gh repo view" 1 \
   "could not resolve the current GitHub repository"
