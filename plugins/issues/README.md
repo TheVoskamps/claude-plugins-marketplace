@@ -143,6 +143,17 @@ by calling a catalogue entry and never spells a message of its own. A
 usage error exits 2 before anything is sent; every other failure exits
 non-zero with one catalogue line on stderr.
 
+A malformed issue reference is such a usage error in every verb that
+acts on an existing issue, whichever operand carries it,
+`/issue-close`'s `duplicate-of` target included. Its syntax is checked
+before the current repository is resolved, because that resolution is
+itself a `gh` call: checked after it, a checkout where the call fails
+would report the call's error in place of the usage error. A
+well-formed reference is still resolved afterwards. The one usage error
+that needs a read first is `/issue-close --reason duplicate-of` naming
+the issue being closed, which is known only once both references are
+resolved; it still comes before the comment and the close.
+
 A verb that changes an issue **re-reads what it set** and exits
 non-zero when the re-read does not show it, so a skill never has to
 tell its caller to verify. For `/issue-update` and `/issue-create` that
@@ -243,7 +254,14 @@ auto-add workflow got there first: the add creates the item, keeps it
 out of that many following reads of the issue's project items, and
 fails with GitHub's already-on-the-board message; `addError` makes
 every add fail with a message of the test's choosing, for the case
-that must not be retried. The suite also puts a `sleep` on `PATH`
+that must not be retried. `repoViewError` makes `gh repo view` fail
+with a message of the test's choosing, which is how a test asserts that
+a malformed reference is refused before the current repository is
+resolved. A close records its reason and duplicate target and, as `gh`
+does, leaves an already-closed issue as it is; `closeAs` makes every
+close record a reason and target of the test's choosing instead, for
+the close that reports success and lands as something else. The suite
+also puts a `sleep` on `PATH`
 that returns at once and logs each wait it was asked for, so a test
 asserts how many waits a verb made and how long each was without
 spending the time. The discovery lookups have their own state: an
@@ -343,7 +361,7 @@ each skill's own `SKILL.md`.
 | `/issue-sub-list <parent-issue>` | List a parent's direct sub-issues |
 | `/issue-update <issue>` | Change a title, body, labels or assignees |
 | `/issue-comment <issue> --body-file PATH` | Add a comment, body read from a file |
-| `/issue-close <issue>` | Close an issue, optionally commenting first |
+| `/issue-close <issue> [--reason <reason>]` | Close an issue, optionally commenting first, and optionally set the close reason: completed, not planned, or a duplicate of a named issue |
 | `/issue-set-status <issue> <status>` | Set the status field on the issue's project item |
 | `/issue-set-priority <issue> <value>` | Set the priority slot |
 | `/issue-set-size <issue> <value>` | Set the size slot |
