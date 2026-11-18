@@ -28,7 +28,8 @@ it printed that the option rests on as its `output:`.
 `ask` refuses a problem with fewer than two options or more than four.
 When a problem's options come from a list — the values a field
 accepts, the issues an invocation named, the board options that could
-stand in for a status — fit them so:
+stand in for a status — fit them so. A decision is one the human can
+decline unless the skill asking it says otherwise.
 
 - **A decision the human can decline** carries an option that skips
   the question and leaves things as they are, whatever the list's
@@ -39,8 +40,8 @@ stand in for a status — fit them so:
   another, which the reply then names in its own words.
 
 A list with no entry offers nothing to choose, so it is not put to the
-human, and neither is a list of one for a decision the human cannot
-decline.
+human. Nor is a list of one for a decision the human cannot decline:
+its one entry is taken as the pick, and no record is written for it.
 
 ## Ask through `sdlc-decision ask`
 

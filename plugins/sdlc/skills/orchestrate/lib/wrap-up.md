@@ -65,10 +65,14 @@ Under `merge-wait: skip`, every PR the run flipped ready goes under
 unmerged, and nothing is watching it. Leave that table out when it has
 no rows.
 
-A PR whose loop end the human put to a decision and did not advance —
-any pick but starting the next stage, which leaves the PR draft — goes
-under **Left Draft**, its `Human's Pick` cell naming the pick as the
-reply gave it. Leave that table out when it has no rows too.
+Decide the **Left Draft** rows by each PR's state at the end of the
+run. A PR goes there only when it is still draft then, a pick at a loop
+end the human put to a decision left it so — any pick but starting the
+next stage — and no later stage moved it on; its `Human's Pick` cell
+names the last such pick as the reply gave it. A PR that such a pick
+sent round again and that later went ready or merged is listed under
+the table that state puts it in, and not here. Leave that table out
+when it has no rows too.
 
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop
