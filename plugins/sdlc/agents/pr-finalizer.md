@@ -446,7 +446,10 @@ The rest of the section belongs to no type, and carries:
   finding dropped on the orchestrator's scope ruling — worded as that
   ruling, never as the human's rejection — the orchestrator's ruling on
   an observation no review filed, each of those two rulings quoting the
-  sentence that settles it, a deferral to a follow-up issue,
+  sentence that settles it, a decision a standing ruling resolved —
+  worded as that config key's ruling, naming the key and its value,
+  never as the human's or the orchestrator's — a deferral to a
+  follow-up issue,
   `docs-writer`'s per-file list of the documentation it changed, as
   your brief carries it, and each PR-body claim the run made stale,
   quoted, with what is true now, which the next part writes rather

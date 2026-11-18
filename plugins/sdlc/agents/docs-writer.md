@@ -160,14 +160,16 @@ documentation review's, a documentation style check's, or a criterion
 you reported `not met` — each on a line ending in its scope ruling:
 `— in scope`, `— in scope: <the sentence that settles it>`,
 `— settled, no fix: <the sentence that settles it>`,
+`— outside the issue; resolved by outside-criteria-finding: fix-in-pr`,
 `— outside the issue; put to the human: <question> → <answer>`, or
 `— put to the human: <question> → <answer>`. Check out the branch it
 names, per "Setup", then:
 
 - Fix every finding ruled in scope, Low included — one whose ruling
-  quotes a sentence as that sentence calls for — and one put to the
-  human exactly as the answer on its line says. Fix none settled with
-  no fix.
+  quotes a sentence as that sentence calls for — every finding resolved
+  by `outside-criteria-finding: fix-in-pr`, as the finding states it,
+  and one put to the human exactly as the answer on its line says. Fix
+  none settled with no fix.
 - A finding line with no ruling is a malformed brief: stop and report
   it, quoting the line, and fix nothing.
 - A finding whose fix lies outside documentation is not yours to make:

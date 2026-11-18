@@ -386,9 +386,10 @@ rule means for one.
   finding line when the review filed it, as an owner ruling otherwise.
   One no review filed, when no fixer round follows, goes into the
   round's report and into the scope notes you hand `pr-finalizer`. One
-  the repo leaves open is put to the human while the PR is still open,
-  as a decision of class `outside-criteria-finding`, with the
-  consequence of each option stated in it.
+  the repo leaves open is a decision of class `outside-criteria-finding`
+  while the PR is still open, with the consequence of each option stated
+  in it, under the conditions a filed finding outside the issue is
+  ruled on, per "Handling review findings — the fix loop".
   An option that would make the PR depart from an issue's text carries
   the issue edit inside the same option. An observation no review filed
   never travels to the final report, and no observation becomes a
@@ -932,6 +933,9 @@ as such goes to the human.
    `— settled, no fix: <the sentence that settles it>`, for a Design
    Decision step 1, or an out-of-scope observation, found the repo
    settles with no fix, which the fixer leaves alone;
+   `— outside the issue; resolved by outside-criteria-finding:
+   fix-in-pr`, for a finding outside the issue that standing ruling
+   resolved, which the fixer fixes;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
    the issue that step 1 put to the human>
@@ -959,8 +963,30 @@ as such goes to the human.
    question about that finding, or an alternative it offers such as
    rejecting it, is not a human decision. You put a finding to the
    human only in the cases this section names — a Design Decision, a
-   deviation from the design, a title/summary mismatch, and a finding
-   outside the issue.
+   deviation from the design, a title/summary mismatch, a finding
+   outside the issue that no standing ruling resolves, and a class that
+   recurs past `recurring-finding-class`.
+
+   **A finding outside the issue** is a decision of class
+   `outside-criteria-finding`. Pass `--ruling
+   outside-criteria-finding=<its value>` to its record only when all
+   three of these hold, and none otherwise, so the record is put to the
+   human:
+
+   - every file the fix touches is in this repository;
+   - the PR is still a draft, as `/github-prs:pr-view <PR_REF>` reports
+     it;
+   - the fix needs no decision the issue and the repo leave open. It
+     needs one when you cannot name one fix, with no condition attached,
+     backed by evidence from the finding and the tree.
+
+   A record the ruling resolved puts the finding on the brief ruled
+   `— outside the issue; resolved by outside-criteria-finding:
+   fix-in-pr`, and when the fix makes the PR depart from an issue's
+   text, make that issue's edit with `/issue-update` before the brief is
+   posted. An observation no review filed is ruled the same way, on the
+   same three conditions, and a resolved one goes on the brief as an
+   owner ruling.
 
    Per-finding rulings live only on the finding lines, and the brief is
    not posted until every put-to-human finding has its answer, so a
@@ -1031,15 +1057,21 @@ the loop"; `pr-finalizer` corrects the closing lines at the close-out.
 Until then every round reports it again, since nothing changes the
 body.
 
-**A finding class that produces a new site each round is a design
-question, not a round.** Two findings are the same class when the
-reviewer files them under the same theorem, or when the second's fix
-would edit a file the previous round's fix edited. When the second
-consecutive round files a finding in the same class as the previous
-round's fix, stop briefing and put the class to the human, with
-reverting to the last state the class was clean in stated as one of
-the options. Name the class you are watching — the theorem or the
-file — in each round's report.
+**A finding class that produces a new site each round is a decision,
+not a round.** You judge whether findings on consecutive rounds are the
+same class: they are when the reviewer files them under the same
+theorem, or when the second's fix would edit a file the previous
+round's fix edited. When the second consecutive round files a finding
+in the same class as the previous round's fix, stop briefing the
+reported sites and write a record of class `recurring-finding-class`,
+whose evidence cites both rounds' finding ids, with reverting to the
+last state the class was clean in stated as one of the options. Pass
+`--ruling recurring-finding-class=<its value>`, unless an earlier round
+already ran a brief covering the class and the class recurred after
+it: then pass none, so the record is put to the human. A record the
+ruling resolved makes the next fixer brief cover every instance of the
+class, as an owner ruling naming the class. Name the class you are
+watching — the theorem or the file — in each round's report.
 
 ### The documentation loop
 

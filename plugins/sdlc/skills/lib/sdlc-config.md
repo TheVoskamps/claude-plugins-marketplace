@@ -67,6 +67,8 @@ merge-poll-interval-seconds: 300
 | `follow-up-issue-priority` | `repo-default` \| `ask` \| an option name | `repo-default` |
 | `follow-up-issue-status` | `repo-default` \| `ask` \| an option name | `repo-default` |
 | `follow-up-issue-assignee` | `repo-default` \| `ask` \| `@me` \| `none` \| a login | `repo-default` |
+| `outside-criteria-finding` | `ask` \| `fix-in-pr` | `fix-in-pr` |
+| `recurring-finding-class` | `ask` \| `fix-class` | `fix-class` |
 
 - **`plan-confirm`** — whether the orchestrator waits for the human's
   confirmation of the plan before Execution. The plan is presented
@@ -169,6 +171,19 @@ value is not `ask` to every `sdlc-decision ask` call as
 by the key: no question is asked, and the skill applies the ruling the
 key's description defines. `ask` puts every record of the class to the
 human.
+
+- **`outside-criteria-finding`** — a finding, or an observation no
+  review filed, whose fix lies outside the issue's acceptance criteria.
+  `fix-in-pr` fixes the defect in this PR, with the issue edit the fix
+  needs. It applies only when every file the fix touches is in this
+  repository, the PR is still a draft, and the fix needs no decision the
+  issue and the repo leave open; otherwise the record is put to the
+  human with no ruling passed.
+- **`recurring-finding-class`** — a class of finding filed on two
+  consecutive rounds. `fix-class` makes the next fixer brief cover every
+  instance of the class rather than the reported ones. A class filed
+  again after the round that fixed the class is put to the human with no
+  ruling passed.
 
 ## Reading
 
