@@ -167,7 +167,9 @@ else
   sp_usage_error "Pass --pr <ref> or --issue <ref>."
 fi
 
-readonly dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$SP_REPO/$subject/decisions"
+readonly state_root="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc"
+readonly repo_dir="$state_root/$SP_REPO"
+readonly dir="$repo_dir/$subject/decisions"
 
 now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
@@ -259,9 +261,11 @@ if [ "$mode" = answer ]; then
   elif [ -z "$open" ]; then
     errors="decision $decision: every problem was resolved by a ruling, so there is nothing to answer"
   fi
-  bad=$(printf '%s' "$picks" | awk -v open="$open" '
+  # The open problems reach awk through the environment: BSD awk refuses
+  # a -v value that holds a newline.
+  bad=$(printf '%s' "$picks" | OPEN=$open awk '
     BEGIN {
-      n = split(open, l, "\n")
+      n = split(ENVIRON["OPEN"], l, "\n")
       for (i = 1; i <= n; i++) {split(l[i], f, " "); count[f[1]] = f[2]}
     }
     {
@@ -395,8 +399,17 @@ fi
 
 [ -z "$errors" ] || refuse "$errors"
 
-# The record is sound: number it, store it, then print it.
+# The record is sound: number it, store it, then print it. The
+# repository's directory is laid out as sdlc-agent-result-persist lays
+# it out: state from before the host was part of the path moves into it
+# first, and it carries repo.yml.
+host=${SP_REPO%%/*}
+owner=${SP_REPO#*/}
+owner=${owner%/*}
+repo=${SP_REPO##*/}
+sp_migrate_old_layout "$state_root" "$host" "$owner" "$repo" || exit 1
 mkdir -p "$dir"
+sp_write_repo_yml "$repo_dir" "$host" "$owner" "$repo" || exit 1
 n=$(numbers | awk '{m = $0 + 0} END {print m + 1}')
 # mkdir claims the number, so two concurrent asks never share one.
 until mkdir "$dir/$n" 2>/dev/null; do

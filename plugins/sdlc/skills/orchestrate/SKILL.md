@@ -889,6 +889,12 @@ a finding like any other: it goes into the fixer brief under the same
 scope ruling, a round runs for Lows alone, and no question about a Low
 as such goes to the human.
 
+**If BLOCKED because the reviewer raised a NEEDS_CHANGES whose fix lies
+outside the issue's scope**, run the same steps: the raised verdict
+asks nothing of its own, and the finding behind it is a finding outside
+the issue, ruled as step 2 rules one, so a standing ruling that
+resolves it lets the fix proceed with no question.
+
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
@@ -1070,7 +1076,9 @@ last state the class was clean in stated as one of the options. Pass
 already ran a brief covering the class and the class recurred after
 it: then pass none, so the record is put to the human. A record the
 ruling resolved goes on the next fixer brief as an owner ruling naming
-the class. Name the class you are
+the class — its theorem or its file — and both rounds' finding ids,
+which `issue-fixer` applies to every instance of the class at head,
+not only to the reported sites. Name the class you are
 watching — the theorem or the file — in each round's report.
 
 ### The documentation loop
@@ -1451,6 +1459,9 @@ What you do yourself is orchestration mechanics:
   `pr-merge-readiness`'s and `pr-monitor`'s to run, not yours.
 - **Set issue status via `/issue-set-status`, and assign via
   `/issue-update`**, per the issue-lifecycle file.
+- **Edit an issue's text via `/issue-update`** — only the edit a
+  resolved `outside-criteria-finding` record's fix needs, per "A finding
+  outside the issue".
 - **File follow-up issues via `/issue-create`** — only when the human
   asks for the issue, never on an observation you held, per the
   issue-lifecycle file.

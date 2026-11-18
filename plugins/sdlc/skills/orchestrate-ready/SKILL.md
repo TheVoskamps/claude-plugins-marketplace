@@ -26,6 +26,16 @@ here: the skills read repo-config, dispatch on the repo's tracker, and
 emit the namespace's canonical abort wording, and a raw call silently
 skips all of it.
 
+## Resolve the sdlc config first
+
+Before anything else — the questions "Invocation" below asks included —
+read `skills/lib/sdlc-config.md` and resolve its three tiers per its
+"Reading" section, once. An abort it calls for stops the run before
+any question is asked or the issue is read. Print every key's resolved
+value beside the tier it came from, one `<key>: <value> (<tier>)` line
+per key, under an `sdlc config:` line. Throughout the rest of the run,
+each key's name means its resolved value.
+
 ## Invocation
 
 ```text
@@ -33,19 +43,11 @@ skips all of it.
 ```
 
 Exactly one issue number per invocation, with or without a leading
-`#`. If `$ARGUMENTS` is empty, ask which issue to groom before
-proceeding. If it names more than one, ask the user which single issue
-to groom — grooming is a conversation per issue, and interleaving two
-of them loses track of which decision belongs to which.
-
-## Resolve the sdlc config first
-
-Before step 1 below, read `skills/lib/sdlc-config.md` and resolve its
-three tiers per its "Reading" section, once. An abort it calls for
-stops the run before the issue is read. Print every key's resolved
-value beside the tier it came from, one `<key>: <value> (<tier>)` line
-per key, under an `sdlc config:` line. Throughout the rest of the run,
-each key's name means its resolved value.
+`#`. Once the config is resolved, if `$ARGUMENTS` is empty, ask which
+issue to groom before proceeding. If it names more than one, ask the
+user which single issue to groom — grooming is a conversation per
+issue, and interleaving two of them loses track of which decision
+belongs to which.
 
 ## Putting a decision to the user
 
@@ -246,8 +248,9 @@ under the slot's first line, which carries only the kind and any
 
 - A `Ready` option exists → use it.
 - Otherwise a `Todo` option exists → use it.
-- Otherwise → ask the user which of the configured options means
-  orchestrate-ready, and use their answer.
+- Otherwise → put it to the user as a decision, per "Putting a
+  decision to the user", with one option for each configured option,
+  at most four, that could mean orchestrate-ready, and use the pick.
 
 If it reports the `status` slot as unconfigured, there is nothing to
 flip: say so plainly, deliver the groomed body, and stop rather than

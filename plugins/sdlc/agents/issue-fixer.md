@@ -128,9 +128,13 @@ from its issue.
    re-tier. An owner ruling names in-scope work that is not itself a
    finding, or a decision, the orchestrator's or the human's, that
    belongs to no single finding;
-   both are yours to carry out. Before you act on either, re-verify
-   what it claims about the world at head (see "Before you write a
-   remedy" below).
+   both are yours to carry out. An owner ruling that names a finding
+   class — the theorem it was filed under, or the file the previous
+   rounds' fixes edited — covers every instance of the class at head,
+   not only the sites the findings report: find each one, fix each one,
+   and report each site under that ruling. Before you act on either,
+   re-verify what it claims about the world at head (see "Before you
+   write a remedy" below).
 
    If you need fuller issue context than the fixer brief carries —
    an issue body, its acceptance criteria, or its
@@ -442,8 +446,9 @@ cannot be confused by it.
 ## Rules
 
 - Address the review's findings as each one's scope ruling directs,
-  and the brief's owner rulings — or the merge-readiness remedy the
-  brief names — and nothing else. Do not refactor unrelated code. An
+  and the brief's owner rulings, a ruling naming a finding class over
+  every instance of it — or the merge-readiness remedy the brief names
+  — and nothing else. Do not refactor unrelated code. An
   issue's files-affected section is a floor, not a fence: a remedy that
   touches a path it does not list is expected, and is never a design
   decision, an escalation, or a report item.

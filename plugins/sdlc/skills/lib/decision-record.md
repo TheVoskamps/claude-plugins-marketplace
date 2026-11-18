@@ -25,11 +25,14 @@ skill's own.
    with the `--ruling` arguments `skills/lib/sdlc-config.md` →
    "Standing rulings" calls for. A refusal names each slot it failed
    on; fix the record and ask again.
-3. **Print what it printed, verbatim, as the turn's question**, last in
-   the reply, and end the turn. A relayed report and your own analysis
-   go above it, and name each problem it printed as
-   `resolved by <class>: <value>`.
-4. **Record the reply:**
+3. **When every problem it printed reads
+   `resolved by <class>: <value>`, nothing was asked**: apply each
+   ruling, name it in the run's report, and carry on, with no turn
+   ended and no reply to record. Otherwise **print what it printed,
+   verbatim, as the turn's question**, last in the reply, and end the
+   turn. A relayed report and your own analysis go above it, and name
+   each problem it printed as `resolved by <class>: <value>`.
+4. **Record the reply** to a record that asked:
 
    ```bash
    sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> \

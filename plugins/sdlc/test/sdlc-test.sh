@@ -23,9 +23,11 @@
 # of its PR against a stub pr-view, its reading of a fixer brief, its
 # round-type column, its generator tiers, its wording of a seed the
 # seed-review record marks and its per-class agreement report over the
-# PR's decision records. It drives sdlc-decision's ask, answer and print:
-# a record a ruling resolves, an unclassified one no ruling resolves,
-# where a PR's and an issue's records are stored, and ask's refusal of an
+# decision records of the PR and of the issue it closes. It drives
+# sdlc-decision's ask, answer and print: a record a ruling resolves, an
+# unclassified one no ruling resolves, the answer to a multi-problem
+# record, where a PR's and an issue's records are stored, the repo.yml
+# ask writes and its move of old-layout state, and ask's refusal of an
 # empty problem, an option with no evidence or cost, a malformed
 # recommendation, a class outside the class list, and a file: evidence
 # that does not check out. It checks
@@ -1379,6 +1381,36 @@ decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
 check "$(printf '%s\n' "$OUT" | grep -E '^  P[0-9]+\.[0-9]+ ' | awk '{print $1}' | tr '\n' ' ')" "P1.1 P1.2 P1.3 P2.1 P2.2 " \
   "decision ask: every option of a multi-problem record gets an id of its own"
 check_contains "$OUT" "P2 (unclassified)" "decision ask: the second problem is P2"
+printf 'P1.3, and P2.2.\n' >"$CASE/reply"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.3 --pick P2=P2.2 --reply-file "$CASE/reply"
+check "$RC:$ERR" "0:" "decision answer: a multi-problem record takes a pick per problem"
+decision print --pr 'h.example/o/r#7'
+check_contains "$OUT" "  P1 design-gap recommended P1.3 picked P1.3
+  P2 unclassified recommended P2.1 picked P2.2" "decision print: each problem of a multi-problem record shows its pick"
+
+# The repository's state directory, laid out as sdlc-agent-result-persist
+# lays it out: ask writes its repo.yml, so --mode repos lists it, and moves
+# old-layout state into it first, so persist runs on after it.
+decision_case decision-repo-yml
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_YML" \
+  "decision ask: a state directory ask creates gets repo.yml"
+check "$("$PERSIST" --mode repos 2>&1 </dev/null)" "repo h.example/o/r h.example/o/r" \
+  "decision ask: persist --mode repos lists the directory ask created"
+
+migrate_case decision-migrate
+printf 'first line\nthe quoted line\nthird line\n' >"$CASE/evidence.txt"
+record design-gap
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$RC" "0" "decision ask: exits 0 over old-layout state"
+check "$([ -e "$XDG_STATE_HOME/sdlc/o" ] && echo present || echo gone)" "gone" \
+  "decision ask: old-layout state is moved before the record is stored"
+check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/records" 2>/dev/null)" "$SEED" \
+  "decision ask: the moved state keeps its records"
+OUT=$("$PERSIST" --pr 'h.example/o/r#7' --mode print-records 2>&1 </dev/null)
+check "$?:$OUT" "0:round 0
+$SEED" "decision ask: persist runs on after ask moved old-layout state"
 
 decision_case decision-resolved
 record merge-state
@@ -1442,10 +1474,18 @@ check_contains "$OUT" "  P1 design-gap recommended P1.1 picked none
   reply:
     Neither; drop it." "decision print: a reply in free text is stored as none, beside the reply"
 
-# The agreement report counts each class's problems from the PR's records.
+# The agreement report counts each class's problems from the PR's
+# records and from those of the issue it closes, which the stub pr-view
+# names by URL.
 decision_case analysis-decisions
 mkdir -p "$CASE/bin"
-printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+cat >"$CASE/bin/pr-view" <<'STUB'
+#!/bin/sh
+case "$*" in
+  *closingIssuesReferences*) echo "https://h.example/o/r/issues/9" ;;
+  *) echo "h.example/o/r#7" ;;
+esac
+STUB
 printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
 printf '#!/bin/sh\nexec "%s" "$@"\n' "$DECISION" >"$CASE/bin/sdlc-decision"
 link_persist "$CASE/bin"
@@ -1459,11 +1499,16 @@ decision answer --pr 'h.example/o/r#7' --decision 2 --pick P1=P1.2 --reply-file 
 decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
 record merge-state
 decision ask --pr 'h.example/o/r#7' --ruling merge-state=rebase "$CASE/record.yml"
+record rebase-conflict
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply"
 OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
 check "$?" "0" "analysis: a PR with decision records exits 0"
 check_contains "$OUT" "| design-gap | 3 | 0 | 1 | 1 | 0 |" \
   "analysis: per class, the questions asked, the resolved, and the picks equal to and differing from the recommendation"
 check_contains "$OUT" "| merge-state | 0 | 1 | 0 | 0 | 0 |" "analysis: a record a ruling resolved counts as resolved, not asked"
+check_contains "$OUT" "| rebase-conflict | 1 | 0 | 1 | 0 | 0 |" \
+  "analysis: a record keyed on an issue the PR closes is counted"
 
 # --- unhandled failures in the persist and analysis scripts ---------------
 # A command a script does not handle exits through the script's own

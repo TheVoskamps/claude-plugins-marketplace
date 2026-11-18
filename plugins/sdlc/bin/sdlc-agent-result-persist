@@ -16,10 +16,11 @@
 # deletes one PR's state whole, which is the only way any of it is ever
 # removed, and lists the repositories the state root holds.
 #
-# Every path is composed here and nowhere else — the repository's
-# repo.yml, the round log, each result file, the records file, the
-# review file, the PR's agents log, and each child's harness transcript
-# — so no agent ever opens one of these files by a path string of its
+# Every path is composed here and nowhere else — the round log, each
+# result file, the records file, the review file, the PR's agents log,
+# and each child's harness transcript, and the repository's repo.yml
+# through the layout functions of the file sourced below, which
+# sdlc-decision shares — so no agent ever opens one of these files by a path string of its
 # own, to mistype or to carry across a turn boundary. An agent that names
 # the state root in prose, to point a human at the directory, is doing
 # something else.
@@ -27,7 +28,8 @@
 # The contract this implements — modes, flags, paths, line grammar — is
 # plugins/sdlc/skills/agent-result-persist-interface/SKILL.md.
 set -euo pipefail
-# For the review-round marker --mode summary writes.
+# For the review-round marker --mode summary writes, and the state
+# root's repository layout.
 # shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
 . "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
 
@@ -181,27 +183,6 @@ fi
 # shown, unexpanded; the two spell the same fallback and change together.
 readonly state_root="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc"
 readonly state_root_form="\${XDG_STATE_HOME:-\$HOME/.local/state}/sdlc"
-
-# is_old_layout <dir>: whether a directory two levels below the state
-# root is a repository's state from before the host was part of the
-# path. Such a directory is <owner>/<repo> by position, carries no
-# repo.yml, and holds its pr<n> directories directly. A <host>/<owner>
-# directory of the current layout sits at the same depth and holds
-# repositories, so it is never old, with or without a repo.yml beneath it.
-is_old_layout() {
-  [ -d "$1" ] || return 1
-  [ -e "$1/repo.yml" ] && return 1
-  for found in "$1"/*/repo.yml; do
-    [ -e "$found" ] && return 1
-  done
-  for found in "$1"/pr*; do
-    case "${found##*/}" in
-      pr | pr*[!0-9]*) continue ;;
-    esac
-    [ -d "$found" ] && return 0
-  done
-  return 1
-}
 
 # --full widens the live list next and dispose derive; --deadline-minutes
 # is next's and wait's, and required by wait, where it is the only bound
@@ -507,7 +488,7 @@ if [ "$mode" = repos ]; then
     fi
   done
   for at in "$state_root"/*/*; do
-    is_old_layout "$at" || continue
+    sp_is_old_layout "$at" || continue
     printf 'old %s %s\n' "${at#"$state_root"/}" "${at#"$state_root"/}"
   done
   exit 0
@@ -539,34 +520,18 @@ now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
-# The repository's state directory carries repo.yml naming the repository
-# it holds, so a reader identifies the directory from the file rather than
-# from its path. write_repo_yml writes it into a directory that lacks one.
+# write_repo_yml writes this repository's repo.yml, per the layout the
+# sourced file holds, into a directory that lacks one. A failure exits 2,
+# as die does, below the message the sourced function printed.
 write_repo_yml() {
-  [ -e "$repo_dir/repo.yml" ] && return 0
-  printf 'schema-version: 1\nhost: %s\nowner: %s\nrepo: %s\n' "$host" "$owner" "$repo" \
-    >"$repo_dir/repo.yml.partial-$$"
-  mv -- "$repo_dir/repo.yml.partial-$$" "$repo_dir/repo.yml"
+  sp_write_repo_yml "$repo_dir" "$host" "$owner" "$repo" || exit 2
 }
 
-# State written before the host was part of the path sits at
-# sdlc/<owner>/<repo>/. It moves to this repository's directory, host from
-# the repository split_repo parsed, before any mode reads or writes, so no
-# reader falls back to the old path.
+# State written before the host was part of the path moves to this
+# repository's directory, host from the repository split_repo parsed,
+# before any mode reads or writes.
 migrate_old_layout() {
-  old="$state_root/$owner/$repo"
-  is_old_layout "$old" || return 0
-  [ ! -e "$repo_dir" ] ||
-    die "state for $repo_ref is at both $old and $repo_dir; move one aside before running again"
-  mkdir -p -- "${repo_dir%/*}"
-  if ! mv -- "$old" "$repo_dir"; then
-    # A failed move leaves no empty <host> or <host>/<owner> directory
-    # behind; rmdir removes neither when it holds anything.
-    rmdir -- "${repo_dir%/*}" 2>/dev/null && rmdir -- "$state_root/$host" 2>/dev/null || :
-    die "could not move state for $repo_ref from $old to $repo_dir"
-  fi
-  rmdir -- "$state_root/$owner" 2>/dev/null || :
-  write_repo_yml
+  sp_migrate_old_layout "$state_root" "$host" "$owner" "$repo" || exit 2
 }
 
 # The harness names an isolation: worktree worktree agent-<agent-id>,

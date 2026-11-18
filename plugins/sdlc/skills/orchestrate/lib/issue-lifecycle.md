@@ -63,9 +63,11 @@ case-insensitively, so `"In Progress"` / `"In Review"` resolve to a
 board's `In progress` / `In review` options automatically. But if the
 board has a status slot that **lacks** a matching option — i.e.
 `/issue-set-status` aborts with its "Slot value not in options map"
-error — catch that abort and ask the human which status option to use
-instead, or whether to skip the transition for this run. Never let
-that abort fail the whole run.
+error — catch that abort and put it to the human as a decision, as the
+skill's "Putting a decision to the human" says: one option for each of
+the board's status options, at most three, that could stand in for it,
+and one that skips the transition for this run. Never let that abort
+fail the whole run.
 
 ## The `/issue-*` namespace
 

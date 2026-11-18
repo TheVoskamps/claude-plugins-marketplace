@@ -7,8 +7,9 @@
 # sdlc-agent-result-persist's print modes and the result-file and
 # transcript paths those modes print; the orchestrator session's
 # transcript, found from the transcript paths on the round logs' enter
-# lines; the PR's GitHub timeline; and the PR's decision records, read
-# only through `sdlc-decision print`. A source that is missing is named
+# lines; the PR's GitHub timeline; and the decision records of the PR
+# and of each issue it closes, read only through `sdlc-decision print`.
+# A source that is missing is named
 # in the report, and every row it would have backed is left out.
 #
 # Read-only: nothing here writes a file or mutates anything on GitHub,
@@ -845,17 +846,41 @@ EOF
 done
 [ -n "$any_ruling" ] || printf '\nNo ruling was read.\n'
 
-# The PR's decision records, one problem per line as `sdlc-decision
-# print` writes it: "  P<i> <class> recommended <id>" and then "resolved
-# <value>", "picked <id|none|unanswered>" or "open". A problem a ruling
-# resolved was never asked; every other one was.
+# The decision records of the PR and of each issue it closes, one
+# problem per line as `sdlc-decision print` writes it: "  P<i> <class>
+# recommended <id>" and then "resolved <value>", "picked <id|none|
+# unanswered>" or "open". A problem a ruling resolved was never asked;
+# every other one was. A record asked before the PR existed, or while
+# grooming an issue, is keyed on the issue, which the PR's
+# closingIssuesReferences name by URL, https://<host>/<owner>/<repo>/issues/<n>.
 printf '\n## Decisions\n\n'
 decisions=
 if ! command -v sdlc-decision >/dev/null 2>&1; then
   note_missing "the PR's decision records: sdlc-decision is not on PATH; no agreement report"
-elif ! decisions=$(sdlc-decision print --pr "$ref" 2>/dev/null || exit); then
-  decisions=
-  note_missing "the PR's decision records: \`sdlc-decision print --pr $ref\` failed; no agreement report"
+else
+  if ! decisions=$(sdlc-decision print --pr "$ref" 2>/dev/null || exit); then
+    decisions=
+    note_missing "the PR's decision records: \`sdlc-decision print --pr $ref\` failed; none of them is counted"
+  fi
+  if urls=$(pr-view "$ref" --json closingIssuesReferences --jq '.closingIssuesReferences[].url' 2>/dev/null || exit); then
+    while IFS= read -r url; do
+      case "$url" in
+        https://?*/?*/?*/issues/[1-9]*) ;;
+        *) continue ;;
+      esac
+      at=${url#https://}
+      issue_ref="${at%/issues/*}#${at##*/issues/}"
+      if got=$(sdlc-decision print --issue "$issue_ref" 2>/dev/null || exit); then
+        decisions="$decisions$NL$got"
+      else
+        note_missing "issue $issue_ref's decision records: \`sdlc-decision print --issue $issue_ref\` failed; none of them is counted"
+      fi
+    done <<EOF
+$urls
+EOF
+  else
+    note_missing "the issues PR #$pr closes: \`pr-view --json closingIssuesReferences\` failed; no issue's decision records are counted"
+  fi
 fi
 agreement=$(printf '%s\n' "$decisions" | awk '
   /^  P[0-9]+ / {
