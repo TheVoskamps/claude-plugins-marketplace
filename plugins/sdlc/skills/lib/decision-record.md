@@ -23,6 +23,17 @@ out — is a `command:` evidence instead: the command that printed it,
 such as `issue-view <N>` or `git show <branch>:<path>`, and the lines
 it printed that the option rests on as its `output:`.
 
+## Fit a list of candidates to two to four options
+
+`ask` refuses a problem with fewer than two options or more than four.
+When a problem's options come from a list — the values a field
+accepts, the issues an invocation named, the board options that could
+stand in for a status — and the list has one entry, add an option that
+skips the question and leaves things as they are. When it has more
+than four, offer the three you rank first and an option to name
+another, which the reply then names in its own words. A list with no
+entry offers nothing to choose, so it is not put to the human.
+
 ## Ask through `sdlc-decision ask`
 
 ```bash

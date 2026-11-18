@@ -48,9 +48,9 @@ issue to groom before proceeding; that is not a decision, since it
 offers nothing to choose between and no issue exists yet to key a
 record on. If it names more than one, put to the user which single
 issue to groom as a decision, per "Putting a decision to the user",
-keyed on the first issue named, with one option per issue named, at
-most four — grooming is a conversation per issue, and interleaving two
-of them loses track of which decision belongs to which.
+keyed on the first issue named, with the issues named as its options —
+grooming is a conversation per issue, and interleaving two of them
+loses track of which decision belongs to which.
 
 ## Putting a decision to the user
 
@@ -90,14 +90,18 @@ a side-effect issue — is an approval, not a decision.
 
 3. **Settle the gaps one topic at a time, each as a decision.** Put
    every grooming question to the user per "Putting a decision to the
-   user", one topic per record, because the record is what makes the
-   reply mappable and countable. Its options are what you thought of,
-   and your framing may be what is in question, so they never cap the
-   answer: the user may answer in free text, which `sdlc-decision
-   answer` stores as the pick `none` beside the reply verbatim, and a
-   reply that reframes the topic is its answer. Reflect back what you
-   hear in the user's own words, and move to the next topic once it is
-   settled. Your proposed defaults are proposals; the user decides.
+   user", one topic per record. Do not present a multiple-choice form
+   for an open design question: a form caps the answer space at what
+   you thought of and assumes your framing is right, which is exactly
+   what is in question here. The named exception is the decision
+   record: a grooming question is printed through `sdlc-decision ask`
+   with numbered options, because the record is what makes the reply
+   mappable and countable. Those options never cap the answer: the user
+   may answer in free text, which `sdlc-decision answer` stores as the
+   pick `none` beside the reply verbatim, and a reply that reframes the
+   topic is its answer. Reflect back what you hear in the user's own
+   words, and move to the next topic once it is settled. Your proposed
+   defaults are proposals; the user decides.
 
    **The acceptance sections are a gap like any other.** When the
    body has none, derive candidate criteria from the design prose —
@@ -260,9 +264,8 @@ under the slot's first line, which carries only the kind and any
 - A `Ready` option exists → use it.
 - Otherwise a `Todo` option exists → use it.
 - Otherwise → put it to the user as a decision, per "Putting a
-  decision to the user", with one option for each configured option,
-  at most three, that could mean orchestrate-ready, and one that leaves
-  the status where it is, and use the pick.
+  decision to the user", with the configured options that could mean
+  orchestrate-ready as its options, and use the pick.
 - When no configured option could mean orchestrate-ready, there is
   nothing to choose: treat the slot as unconfigured, below.
 

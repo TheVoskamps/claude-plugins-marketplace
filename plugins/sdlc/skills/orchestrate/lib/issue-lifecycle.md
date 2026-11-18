@@ -64,9 +64,9 @@ board's `In progress` / `In review` options automatically. But if the
 board has a status slot that **lacks** a matching option — i.e.
 `/issue-set-status` aborts with its "Slot value not in options map"
 error — catch that abort and put it to the human as a decision, as the
-skill's "Putting a decision to the human" says: one option for each of
-the board's status options, at most three, that could stand in for it,
-and one that skips the transition for this run. When none of the
+skill's "Putting a decision to the human" says, with the board's status
+options that could stand in for it as its options; leaving things as
+they are skips the transition for this run. When none of the
 board's options could stand in for it, there is nothing to choose:
 skip the transition and warn as for an unconfigured slot. Never let
 that abort fail the whole run.

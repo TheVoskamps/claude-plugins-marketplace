@@ -795,8 +795,8 @@ independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
 the review is **posted** on the PR, so whether it says what the
 reviewer reported back is one `/github-prs:pr-view` away: verify before
-an escalation at `code-review-max-rounds` or a Final Report hand-off
-rests on it. An empty-delta round's
+a decision at `code-review-max-rounds` or a Final Report hand-off rests
+on it. An empty-delta round's
 verdicts are carried forward from the previous round rather than
 freshly checked, and the reviewer says which kind of round it ran.
 
@@ -1046,8 +1046,9 @@ resolves it lets the fix proceed with no question.
    until the code loop has run `code-review-max-rounds` rounds (see
    "Your own boundary" below); under `unlimited`, until the first.
 7. If findings of any severity persist when `code-review-max-rounds`
-   is reached, escalate to the human in the final report, listing each
-   finding still open on its own, a Low included.
+   is reached, the loop ends at its cap, and that end reaches the human
+   as its `loop-cap-reached` decision, per "End-of-loop lifecycle
+   transitions", and nowhere else.
 
 **When every open finding is ruled settled with no fix**, steps 2 to 4
 do not run: no `issue-fixer` spawns on a brief
@@ -1270,8 +1271,8 @@ loop's end does what the resolved value of its key calls for, as
 and wait, or start the next stage with no question. An end put to the
 human is a decision, per "Putting a decision to the human" — of class
 `loop-cap-reached` for a loop at its round cap, its problem listing
-each finding still open on its own — with starting the next stage among
-its options. Read whether an end is clean
+each finding still open on its own, a Low included — with starting
+the next stage among its options. Read whether an end is clean
 off the PR's stored round state, never off the reviewer's report:
 
 ```bash
