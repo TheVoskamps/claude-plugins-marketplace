@@ -49,15 +49,16 @@ json=$(sp_pr_view reviews,comments,createdAt) || exit $?
 cut=$(jq -r "$(sp_jq_prelude)"'[.reviews[] | select(pipeline_review) | .submittedAt // empty] | max // empty' <<<"$json")
 if [ -z "$cut" ]; then
   # Round 0 is the seed, settled before the PR was reviewed, so round 1
-  # cuts at the PR's createdAt and never reads it: its log holds only the
-  # seed generator's spawn record, written after the PR opened. A round
+  # cuts at the PR's createdAt and never reads it: its log holds the seed
+  # generator's spawn record and, under seed-review: accept-recommended, a
+  # seed-review record, both written after the PR opened. A round
   # from 1 has no log when no reviewer of it got as far as writing one;
   # sdlc-agent-result-persist says so, and any other failure is one.
   prev=$((round - 1))
   rc=0
   log=
-  [ "$prev" -eq 0 ] \
-    || log=$(sdlc-agent-result-persist --mode print --pr "$SP_REF" --round "$prev" 2>&1 || exit) || rc=$?
+  [ "$prev" -eq 0 ] ||
+    log=$(sdlc-agent-result-persist --mode print --pr "$SP_REF" --round "$prev" 2>&1 || exit) || rc=$?
   if [ "$rc" -ne 0 ]; then
     case "$log" in
       *"no round log at "*) log= ;;

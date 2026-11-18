@@ -1,6 +1,6 @@
 ---
 name: pr-finalizer
-description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — per round type, what that loop's rounds found and what changed in response, then the scope notes the run settled — replacing the section a previous run left, so re-running it stacks nothing, and corrects the closing lines its brief names. Given a PR's canonical host/owner/repo#N reference, a branch name, those scope notes and the closing-line corrections, reads the rounds out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
+description: Posts the run's assembled review detail to a finished PR as chained comments, then writes the run's final section into the PR body — per round type, what that loop's rounds found and what changed in response, with the seed's rulings attributed to the config rather than the human when round 0's log carries a seed-review record, then the scope notes the run settled, then a correction for each claim in the body above that the branch at its head or the round records contradict — replacing the section a previous run left, so re-running it stacks nothing, and corrects the closing lines its brief names. Given a PR's canonical host/owner/repo#N reference, a branch name, those scope notes and the closing-line corrections, reads the rounds and round 0's log out of the PR's XDG state directory and the commits off the branch, posts the detail, and amends the body once per run. The only agent that edits a PR body. Spawned by /sdlc:orchestrate after the review loop ends and before the PR is flipped ready.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
@@ -453,15 +453,30 @@ The rest of the section belongs to no type, and carries:
   than this one. Take these from your brief and from the non-brief PR
   comments, never from your own reading of the diff.
 - **Corrections to the body above** — each stale PR-body claim your
-  scope notes name. The claim stays where it is, since you never edit
-  outside your own markers but for the closing-line corrections your
-  brief names; this part of the section is what corrects it. Leave the
-  part out when the scope notes name none.
+  scope notes name, and each claim "Check the body above your section"
+  below finds contradicted, whether or not the scope notes name it. A
+  claim both sources yield is listed once. Quote each claim, then say
+  what is true now and the commit or round that shows it. The claim
+  stays where it is, since you never edit outside your own markers but
+  for the closing-line corrections your brief names; this part of the
+  section is what corrects it. Leave the part out when neither source
+  yields a contradicted claim.
 
 Write it as prose a human deciding whether to merge would want, not as
 a log. Leave out anything the body already says, anything a reader
 gets from the diff, and any offer to file a follow-up — a follow-up
 either exists, in which case name it, or it does not.
+
+## Check the body above your section
+
+The body is frozen while the loops run, so a claim a later commit
+falsified is still in it, and a teammate report names only some of
+them. Check every factual claim in `base.md` — what the change does,
+and which identifiers, queries, files and settings it uses — against
+the branch at its head, which step 3 read, and the round records step 2
+read. A claim that evidence contradicts goes under "Corrections to the
+body above". A claim the evidence neither confirms nor contradicts is
+left alone and is not a correction.
 
 ## Every claim in the section is checked before it is posted
 
@@ -481,6 +496,22 @@ A theorem's claim has the author its record names: one carrying
 and never the generator's or the human's. Any other is the generator's,
 or the human's where an adjustment comment or the seed ruling minted
 it.
+
+Who ruled on the seed is in round 0's log, which `--mode rounds` does
+not list, so read it yourself:
+
+```bash
+sdlc-agent-result-persist --mode print --pr <PR> --round 0
+```
+
+When it carries a `seed-review` record, `seed-review:
+accept-recommended` applied the seed assessment's recommendations with
+no human step: attribute every seed ruling — each acceptance, each
+retirement and each claim round 0 minted — to those recommendations,
+applied under config, and never to the human. A call refused with `no
+round log at <path>` means the PR has no round-0 log, and none of its
+seed's rulings is attributed to the config. Any other failure of that call
+is a failure — stop and report the command and its output verbatim.
 
 The one claim you must never make from inference is that a finding was
 fixed. A finding vanishing from the next round's review is consistent

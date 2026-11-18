@@ -14,13 +14,15 @@
 # leave refused for ids that do not continue the carried records, the
 # round type an anchor writes and print's round-type line, the same-type
 # carry and cross-type id sequence that type drives, print-records'
-# --round-type selection, print-root's state root and its signpost, and
+# --round-type selection, print-root's state root and its signpost, the
+# seed-review record and its refusals, and
 # the repository's state directory: its repo.yml, the move of state from
 # the layout that predates the host segment, and --mode repos. It also
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution
 # of its PR against a stub pr-view, its reading of a fixer brief, its
-# round-type column and its generator tiers. It checks
+# round-type column, its generator tiers and its wording of a seed the
+# seed-review record marks. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
@@ -1113,6 +1115,101 @@ check_contains "$OUT" "| 0 (seed) | 2026-01-01T00:00:00Z | theorem-generator | l
 check_contains "$OUT" "| 1 | 2026-01-02T00:01:00Z | theorem-generator | medium |" \
   "analysis: a review round's tier is read from its spawn record"
 check "$(printf '%s\n' "$OUT" | grep -c '^| 0 | ')" "0" "analysis: round 0 gets no review-round row"
+
+# A seed the config settled by recommendation: round 0's log carries the
+# seed-review record, and every seed ruling is worded as applied under
+# config, quoting that record, never as a human's reply.
+new_case analysis-seed-review
+mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0"
+printf 'spawn list generate 2026-01-01T00:00:00Z theorem-generator default low\nseed-review 2026-01-01T00:10:00Z accept-recommended\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/log"
+printf '%s\n' 'T1
+claim: the accepted claim
+issues: #1
+settle-mode: semantic
+pointers: a.md
+
+T2
+claim: the rejected claim
+issues: #1
+settle-mode: semantic
+pointers: b.md
+state: retired
+state-detail: assessor-rejected
+settled-at: abc
+
+T3
+claim: the added claim
+issues: #1
+settle-mode: semantic
+pointers: c.md
+minted-by: assessor' >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/records"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+link_persist "$CASE/bin"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: a seed settled by recommendation exits 0"
+check_contains "$OUT" "### The round-0 seed, applied by recommendation under config" \
+  "analysis: the seed's rulings are listed as applied by recommendation under config"
+check_contains "$OUT" "**Resolution.** Accepted at the seed by recommendation, applied under config. Round 0's log:
+
+> seed-review 2026-01-01T00:10:00Z accept-recommended" "analysis: an accepted seed theorem quotes the seed-review record"
+check_contains "$OUT" "**Resolution.** Rejected at the seed by recommendation, applied under config. Round 0's log, and its record:
+
+> seed-review 2026-01-01T00:10:00Z accept-recommended
+> state-detail: assessor-rejected" "analysis: a rejected seed theorem quotes the record and its retirement"
+check_contains "$OUT" "**Resolution.** Minted at the seed by recommendation, applied under config. Round 0's log, and its record:
+
+> seed-review 2026-01-01T00:10:00Z accept-recommended
+> minted-by: assessor" "analysis: a seed theorem the assessment minted quotes the record and its minted-by"
+check "$(printf '%s\n' "$OUT" | grep -c "human's reply")" "0" "analysis: no seed ruling is worded as the human's reply"
+check "$(printf '%s\n' "$OUT" | grep -c 'the seed ruling')" "0" "analysis: no wait on the human is named the seed ruling"
+
+# Without the record, the same seed is listed under no config heading.
+new_case analysis-seed-no-review
+mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0"
+printf 'spawn list generate 2026-01-01T00:00:00Z theorem-generator default low\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/log"
+printf 'T1\nclaim: the accepted claim\nissues: #1\nsettle-mode: semantic\npointers: a.md\n' \
+  >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/records"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+link_persist "$CASE/bin"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: a seed with no seed-review record exits 0"
+check "$(printf '%s\n' "$OUT" | grep -c 'by recommendation')" "0" \
+  "analysis: a seed with no seed-review record is not worded as applied by recommendation"
+
+# --- the seed-review record -------------------------------------------------
+
+new_case seed-review-record
+seed_round 0 "$SEED"
+persist --mode seed-review --round 0 --value accept-recommended
+check "$RC" "0" "seed-review: the record is written at round 0"
+check "$(awk '{ print $1, $3 }' "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/log")" "seed-review accept-recommended" \
+  "seed-review: round 0's log carries the record and its value"
+check "$(awk '$1 == "seed-review" { print ($2 ~ /^[0-9][0-9-]*T[0-9:]*Z$/) }' \
+  "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round0/log")" "1" "seed-review: the record carries its instant"
+
+new_case seed-review-refusals
+persist --mode seed-review --round 1 --value accept-recommended
+check "$RC" "2" "seed-review: a round other than 0 is refused"
+check_contains "$ERR" "accepted only at --round 0: 1" "seed-review: the refusal names the round"
+check "$(ls "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7" 2>/dev/null)" "" "seed-review: a refused call creates no round"
+persist --mode seed-review --round 0
+check "$RC" "2" "seed-review: a call with no --value is refused"
+check_contains "$ERR" "--value is required in --mode seed-review" "seed-review: the refusal names the missing --value"
+persist --mode seed-review --round 0 --value accept-as-emitted
+check "$RC" "2" "seed-review: a value other than accept-recommended is refused"
+check_contains "$ERR" "--value must be accept-recommended in --mode seed-review: accept-as-emitted" \
+  "seed-review: the refusal names the value"
+check "$(ls "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7" 2>/dev/null)" "" "seed-review: a refused value writes nothing"
+persist --mode spawn --round 0 --theorem list --stage generate --agent theorem-generator --model default --effort low \
+  --value accept-recommended
+check "$RC" "2" "seed-review: --value is refused in another mode"
+check_contains "$ERR" "--value is not accepted in --mode spawn" "seed-review: the refusal names the mode"
 
 new_case operand-other-mode
 "$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null

@@ -419,7 +419,10 @@ and report the command and its output verbatim rather than review.
 
 **Round 0 is the seed** the orchestrator settled before the developer
 ran: an accepted or re-moded theorem there carries **no `state`**, and
-a rejected or merged one is `retired` / `human-refuted`. Round 1 over
+a rejected or merged one is `retired` / `human-refuted`, or
+`retired` / `assessor-rejected` under `seed-review: accept-recommended`,
+where the orchestrator applied the seed assessment with no human step.
+Round 1 over
 it takes the **delta path** with the whole branch as its delta: round 0
 records no head, so read both with no `--prev-head`:
 

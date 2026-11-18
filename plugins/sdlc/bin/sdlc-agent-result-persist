@@ -10,6 +10,7 @@
 # model re-derives them by hand. It waits on a stage, too, blocking until
 # a child in it leaves or runs out of time, or none is left to wait on, so
 # a caller running it in the background is woken when it exits. It also
+# marks a round-0 seed the config settled from the seed assessment,
 # records every agent spawned for a PR and prints the agent ids its state
 # names, lists a PR's rounds, lists the PRs a repo holds state for and
 # deletes one PR's state whole, which is the only way any of it is ever
@@ -52,6 +53,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |print-in-flight|wait|records|review|print-records
                        |print-round-records|print-review|print-root|agent
                        |print-agents|rounds|delete|next|dispose|summary
+                       |seed-review
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--round-type <type>] [--theorem <id>]
                 [--stage generate|assess|disprove|verify] [--agent <name>]
@@ -59,6 +61,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
                 [--carry] [--edits <path>] [--full]
                 [--deadline-minutes <n>] [--loop-exited] [--issues <issues>]
+                [--value accept-recommended]
        $PROGRAM --mode list [((<host>/)<owner>/)<repo> | https://<host>/<owner>/<repo>]
        $PROGRAM --mode repos
 EOF
@@ -88,6 +91,7 @@ full=
 loop_exited=
 deadline_minutes=
 issues=
+value_flag=
 # Every flag but --mode the caller gave, by name, whatever its value.
 given_flags=
 
@@ -98,7 +102,7 @@ while [ "$#" -gt 0 ]; do
     --*) given_flags="$given_flags $flag" ;;
   esac
   case "$flag" in
-    --mode | --pr | --round | --head-sha | --round-type | --theorem | --stage | --agent | --model | --effort | --agent-id | --tokens | --tools | --ms | --from | --edits | --deadline-minutes | --issues)
+    --mode | --pr | --round | --head-sha | --round-type | --theorem | --stage | --agent | --model | --effort | --agent-id | --tokens | --tools | --ms | --from | --edits | --deadline-minutes | --issues | --value)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -151,13 +155,14 @@ while [ "$#" -gt 0 ]; do
     --edits) edits=$value ;;
     --deadline-minutes) deadline_minutes=$value ;;
     --issues) issues=$value ;;
+    --value) value_flag=$value ;;
   esac
 done
 
 case "$mode" in
   anchor | spawn | enter | leave | return | stopped | print | print-in-flight | wait) ;;
   records | review | print-records | print-round-records | print-review | print-root) ;;
-  agent | print-agents | rounds | list | delete | repos | next | dispose | summary) ;;
+  agent | print-agents | rounds | list | delete | repos | next | dispose | summary | seed-review) ;;
   '') die "--mode is required" ;;
   *) die "unknown --mode: $mode" ;;
 esac
@@ -404,6 +409,19 @@ if [ "$mode" = anchor ]; then
 fi
 if [ "$mode" = next ] && [ -n "$head_sha" ]; then
   single_token head-sha "$head_sha"
+fi
+
+# The seed-review record marks a round-0 seed the config settled by
+# applying the assessment's recommendations, so it names round 0 and that
+# one value. A seed the human ruled on, or one accepted as emitted, gets
+# no record.
+if [ "$mode" = seed-review ]; then
+  [ "$round" = 0 ] || die "--mode seed-review is accepted only at --round 0: $round"
+  [ -n "$value_flag" ] || die "--value is required in --mode seed-review"
+  [ "$value_flag" = accept-recommended ] ||
+    die "--value must be accept-recommended in --mode seed-review: $value_flag"
+elif [ -n "$value_flag" ]; then
+  die "--value is not accepted in --mode $mode: $value_flag"
 fi
 
 # A round's type is the class of file it reviews, fixed by its anchor.
@@ -1551,6 +1569,9 @@ case "$mode" in
     ;;
   stopped)
     printf 'stopped %s %s %s %s\n' "$theorem" "$stage" "$(now)" "$agent_id" >>"$file"
+    ;;
+  seed-review)
+    printf 'seed-review %s %s\n' "$(now)" "$value_flag" >>"$file"
     ;;
   agent)
     printf 'agent %s %s %s\n' "$(now)" "$agent" "$agent_id" >>"$agents_file"

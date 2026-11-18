@@ -408,12 +408,11 @@ spawned in the first fan-out.
 
 **Name every mode for what it writes.** A mode called `header` or
 `detail` describes the shape of a call rather than its meaning, and the
-two vocabularies then drift apart file by file. One word per record kind
-— `anchor`, `spawn`, `enter`, `leave`, `return`, `stopped` — is what
-lets a reader move between the CLI, the log and the procedure without a
-translation table. A mode that stores a whole file rather than appending
-a record takes that file's own name, and the mode that reads one back
-takes that name under `print-`.
+two vocabularies then drift apart file by file. One word per record
+kind, the same in the CLI, the log and the procedure, is what lets a
+reader move between them without a translation table. A mode that
+stores a whole file rather than appending a record takes that file's own
+name, and the mode that reads one back takes that name under `print-`.
 
 **One log per round, not one per fan-out.** A stage column on every
 record says which fan-out it belongs to, so two files can never disagree

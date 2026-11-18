@@ -90,7 +90,42 @@ seed's rulings transcribed onto it:
 
 Ids are never reused. A merged, rewritten, split or added claim is the
 human's words once adopted, the assessor's proposal included, so no
-round-0 record carries a `minted-by` line.
+round-0 record carries a `minted-by` line — except under `seed-review:
+accept-recommended`, below.
+
+Under `seed-review: accept-recommended` the recommendations are the
+rulings: the human adopted every one in advance by choosing that value,
+so transcribe each onto the records and assign every id yourself. Ids
+the assessment mints follow the generator's list, in the order of the
+assessment's blocks with the `ADDS` blocks last.
+
+- an **accept** is the candidate as emitted;
+- a **reject** is `state: retired`, `state-detail: assessor-rejected`,
+  `settled-at` the PR head, as a human seed reject's is but for the
+  detail;
+- a **change settle mode** carries the new `settle-mode`;
+- a **rewrite** keeps the original record's id and takes the proposed
+  claim;
+- a **split** keeps the original record's id for the first part, and
+  each further part mints the next id, inheriting the original's
+  `issues`, `pointers` and `settle-mode`;
+- a **merge** retires each merged original as a reject is, and the
+  merged claim mints the next id, with `settle-mode: semantic` and
+  `issues` and `pointers` the union of the originals';
+- an **add** mints the next id from its `ADDS` block.
+
+Every record a merge, split, rewrite or add produces carries
+`minted-by: assessor`, every part of a split included, so no reader
+takes the assessor's claim for the generator's or the human's. Then
+mark round 0 as auto-applied:
+
+```bash
+sdlc-agent-result-persist --mode seed-review \
+  --pr <PR_REF> --round 0 --value accept-recommended
+```
+
+Under `ask` and `accept-as-emitted` make no `seed-review` call: round
+0's log then holds only the `spawn` record below.
 
 Then record the seed generator's tier in round 0's log — the tier you
 passed as its `effort` and held in your scratchpad. This is the round
@@ -103,7 +138,8 @@ sdlc-agent-result-persist --mode spawn \
   --agent theorem-generator --model default --effort <tier>
 ```
 
-Round 0 holds that file and that log line and nothing else — no
+Round 0 holds that file, that log line and, under
+`accept-recommended`, the `seed-review` line, and nothing else — no
 anchor, no result files, no review. The reviewer's round 1 reads the
 file as its carried records and takes the delta path over the whole
 branch.
@@ -134,7 +170,9 @@ A PR-body claim the run made stale is not lost by this. Collect every
 one the teammate reports name — a finding whose remedy is a body
 change, a body change a fixer reports it did not make, a claim
 `docs-writer` says a change falsified — say so in the round's report,
-and carry each into the scope notes you hand `pr-finalizer`. The fix
+and carry each into the scope notes you hand `pr-finalizer`. That
+collection is one source of its corrections, not the only one:
+`pr-finalizer` also checks the body against the branch itself. The fix
 lands once, at the end.
 
 Closing-line corrections need no collecting. Each round's reviewer

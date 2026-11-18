@@ -54,7 +54,7 @@ merge-poll-interval-seconds: 300
 | --- | --- | --- |
 | `plan-confirm` | `ask` \| `auto` \| `auto-single-batch` | `auto-single-batch` |
 | `max-issues-per-batch` | positive integer | `8` |
-| `seed-review` | `ask` \| `auto-accept` | `auto-accept` |
+| `seed-review` | `ask` \| `accept-as-emitted` \| `accept-recommended` | `accept-recommended` |
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer, at most `540` | `60` |
 | `merge-max-unchanged-polls` | positive integer | `720` |
@@ -74,8 +74,12 @@ merge-poll-interval-seconds: 300
 - **`max-issues-per-batch`** — the most issues one batch holds. A batch
   the grouping would make larger is split into more batches.
 - **`seed-review`** — `ask` stops for the human's ruling on the seed
-  theorem list. `auto-accept` accepts every seed theorem as the
-  generator emitted it and does not wait.
+  theorem list. `accept-as-emitted` accepts every seed theorem as the
+  generator emitted it, applies none of `theorem-assessor`'s
+  recommendations, and does not wait. `accept-recommended` applies
+  every recommendation, coverage-gap adds included, and does not wait.
+  `auto-accept` is a deprecated alias: a tier that sets it holds
+  `accept-as-emitted`.
 - **`merge-wait`** — `monitor` spawns `pr-monitor` after a PR's ready
   flip. `skip` spawns none; the PR is left ready and unmonitored.
 - **`merge-poll-interval-seconds`** — the wait between two
@@ -142,7 +146,9 @@ of these that applies:
   a YAML integer of 1 or more; `0`, a negative, a float and a quoted
   string are all outside it, and so is an integer above the key's
   stated maximum. A key whose description states a narrower shape
-  takes only that shape.
+  takes only that shape. A deprecated alias a key's description names
+  is read as the value it stands for before this check, so it is never
+  outside the allowed values.
 - **Otherwise** — the tier contributes every key from the table above
   that it sets. A key the table does not list is ignored, and so is a
   `schema-version` above the pin.
@@ -175,7 +181,10 @@ Each writer owns one tier's file and runs these steps against it.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and
-   never deletes one. Set `schema-version: 1` as the first key; keep
+   never deletes one. A key the file sets to a deprecated alias is
+   written as the value the alias stands for, answered or left
+   unchanged, so no writer writes an alias. Set `schema-version: 1` as
+   the first key; keep
    every other key in its existing order and append new keys after
    them.
 5. **Show the merged file and wait for a yes** that names the write.

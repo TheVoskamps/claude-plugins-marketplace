@@ -214,9 +214,15 @@ loops:
 - `max-issues-per-batch` — the most issues one batch holds, a positive
   integer that defaults to `8`. A batch the grouping would make larger
   is split into more batches.
-- `seed-review` — the ruling on the seed theorem list before a batch's
-  developer runs. It defaults to `auto-accept`, which accepts the list
-  as generated without waiting; `ask` stops for the human's ruling.
+- `seed-review` — how the seed theorem list is settled before a batch's
+  developer runs. `ask` stops for the human's ruling.
+  `accept-as-emitted` accepts the list as generated, applies none of
+  `theorem-assessor`'s recommendations, and does not wait.
+  `accept-recommended`, the default, applies every recommendation,
+  coverage-gap adds included, and does not wait. `auto-accept` is a
+  deprecated alias for `accept-as-emitted`: a file that sets it keeps
+  that behaviour, and a `sdlc-config-*` verb that rewrites the file
+  writes `accept-as-emitted` in its place.
 - `merge-wait` — whether the monitor loop runs after a PR's ready
   flip. It defaults to `monitor`; `skip` runs none.
 - `merge-poll-interval-seconds` — the wait between two of that loop's
@@ -262,16 +268,18 @@ One key belongs to no moment of the flow:
 With no config file at any tier, a run does not wait for the human at
 a plan with one batch and no decision item, at the seed theorem list,
 or at a loop's clean end: the defaults keep the waits where there is
-something to decide. Each key that takes `ask` restores its own wait
-when set to it.
+something to decide. At the seed list it applies the assessment's
+recommendations rather than accepting the list as generated. Each key
+that takes `ask` restores its own wait when set to it.
 A PR that adds a key, or changes a default, edits this list.
 
 The config is three YAML files — a global user file outside every
 repository, a shared repo file that is tracked, and a repo user file
 that is gitignored — and the higher tier wins per key, so a team can
-commit `auto-accept` to the shared file and one user can put the ruling
-back for themselves. The paths, the keys' values and defaults, the read
-aborts and the writer procedure have one owner,
+commit `seed-review: accept-as-emitted` to the shared file and one user
+can put the ruling back for themselves with `ask`. The paths, the
+keys' values and defaults, the read aborts and the writer procedure
+have one owner,
 `skills/lib/sdlc-config.md`; the `sdlc-config-*` verbs are one writer
 per tier, each running that procedure against its own file and
 restating none of it.
@@ -295,13 +303,15 @@ agent, so the decision above stands as worded.
 
 What the two switches leave alone is as deliberate as what they skip:
 
-- `seed-review: auto-accept` skips only the wait. The candidate list
-  and `theorem-assessor`'s assessment of it are still shown, with none
-  of the assessment's recommendations applied, and the list is still
-  written as round 0 of the PR's state as the generator emitted it, so
-  the first review round starts from the same records whichever way the
-  seed was settled; the setting changes who settled it, not what is
-  recorded.
+- A `seed-review` value that does not wait skips only the wait. The
+  candidate list and `theorem-assessor`'s assessment of it are still
+  shown, and the settled list is still written as round 0 of the PR's
+  state, so the first review round starts from round 0's records
+  whichever way the seed was settled. `accept-as-emitted` writes the
+  list as the generator emitted it, with none of the recommendations
+  applied. `accept-recommended` writes it with every recommendation
+  applied, and adds a `seed-review` record to round 0's log so that
+  nothing later takes rulings the config applied for the human's.
 - `merge-wait: skip` ends the PR's stages at the ready flip, and the
   summary lists the PR under its own table as ready and unmonitored.
   Nothing re-runs the merge-readiness gate after that flip, so a PR
@@ -652,6 +662,19 @@ satisfied or not applied; one not applied is the human's, raised before
 the ready flip. That is why the finalizer runs before the In Review
 flips, which read the closing set it leaves.
 
+A claim in the frozen body that a later commit falsified waits for the
+close-out too. The orchestrator collects the stale claims its
+teammates' reports name, but a report names only what its author
+noticed, and a fixer round that changed behaviour the body describes
+used to ship a body misstating the change with nothing in the run
+reporting it. So `pr-finalizer` also checks the body's factual claims
+itself, against the branch at its head and the round records, both of
+which it already reads to write its section, and lists each
+contradicted claim in that section beside the ones the reports named.
+It corrects only what the evidence contradicts: a claim the evidence
+does not settle is left alone, and the text above its section is never
+rewritten.
+
 That boundary is enforced by slots that must be filled rather than by
 prose asking for judgment, and each slot has one owner:
 
@@ -670,6 +693,8 @@ prose asking for judgment, and each slot has one owner:
 | That a closing-line correction is reported outside the findings, in every mode, and takes no part in any verdict | `agents/theorem-based-pr-reviewer.md` |
 | That a closing-line correction gets no ruling and no fixer, and that the last round's section is what reaches `pr-finalizer` | `skills/orchestrate/SKILL.md` |
 | How `pr-finalizer` applies a correction, which it reports as satisfied, and which it refuses to apply | `agents/pr-finalizer.md` |
+| Which claims in the body above the final section are checked against the branch and the round records, and what a contradicted one becomes | `agents/pr-finalizer.md` |
+| That the stale claims the teammate reports name are collected and reach `pr-finalizer` as scope notes | `skills/orchestrate/lib/pr-lifecycle.md` |
 | That the files-affected list is a floor, and that listing a path changes nothing about its class, owner, or review | `skills/orchestrate-readiness/SKILL.md` |
 | That a listed path grounds no theorem about the rest of the tree | `agents/theorem-generator.md` |
 
@@ -857,8 +882,10 @@ owner:
 ## The theorem set is seeded from the issues before the developer runs
 
 The first theorem list the human sees is generated from the issues
-alone and settled — ruled on by the human, or accepted whole under
-`seed-review: auto-accept` — before the batch's developer is spawned,
+alone and settled — ruled on by the human, accepted whole under
+`seed-review: accept-as-emitted`, or settled by the assessment's
+recommendations under `accept-recommended` — before the batch's
+developer is spawned,
 so a developer that goes beyond the issues, or decides something they
 do not, surfaces in the first review round as new theorems against a
 list the human already owns. That seed is **round 0**: rounds count
@@ -869,8 +896,9 @@ reference, and none exists yet, so the assessment of that list is held
 the same way — until the developer's PR is open and
 linked, when the ruled list is written as round 0's records file and
 the tier the seed generator was spawned at as the generate-stage
-`spawn` record in round 0's log. Round 0 holds that file and that log
-line, and no anchor, result file or review, and `--mode rounds` leaves
+`spawn` record in round 0's log. Round 0 holds that file, that log
+line and, under `accept-recommended`, a `seed-review` log line, and no
+anchor, result file or review, and `--mode rounds` leaves
 it out, so a walk over a PR's rounds never sees it, and a PR with no
 round 0 — one reviewed outside the orchestrate loop, or one whose seed
 was lost with the session that took it — is reviewed from its whole
@@ -902,17 +930,40 @@ adopts it, all at once or by name. That keeps round 0 a transcription —
 every claim in it is the generator's or the human's, so no round-0
 record is marked as the assessor's — and keeps the
 orchestrator from carrying review vocabulary on the human's behalf.
+
+That adoption rule is a policy, and `seed-review: accept-recommended`
+is its one exception: by choosing the value in config the human adopted
+every recommendation in advance, so the orchestrator applies each one,
+coverage-gap adds included, with no human step. Round 0 is still a
+transcription, of the assessment rather than of a reply, and its
+records say whose each ruling is: a theorem the assessment rejected or
+merged away is retired as `assessor-rejected`, and a record whose claim
+came from a merge, split, rewrite or add carries `minted-by: assessor`.
+
+Those marks cannot say who accepted a candidate, because an accepted
+candidate's record is the candidate as emitted under every value. So
+under `accept-recommended` round 0's log carries one more record,
+`seed-review <instant> accept-recommended`, marking the whole seed as
+applied by recommendation. Where it is present, the time report lists
+the seed's rulings as applied under config, quotes no human reply for
+them and labels no wait as the seed ruling, and the PR's final
+section attributes the seed's rulings to the recommendations. Under
+`ask` and `accept-as-emitted` the record is not written, and a round-0
+log without it is a seed the human ruled on or one accepted as emitted.
+
 Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
 | The issues-only brief, and what the generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `agents/theorem-generator.md` |
-| The seed generator's spawn and its tier pick against the issue bodies, the seed assessor's spawn, the order the candidates are shown in, the ruling set the human chooses from, and the per-theorem ruling or its `auto-accept` skip | `skills/orchestrate/SKILL.md` |
+| The seed generator's spawn and its tier pick against the issue bodies, the seed assessor's spawn, the order the candidates are shown in, the ruling set the human chooses from, and the per-theorem ruling or what settles the list in its place under a `seed-review` value that does not wait | `skills/orchestrate/SKILL.md` |
 | The assessment's criteria, the coverage gaps, the recommendations and the format they are written in | `agents/theorem-assessor.md` |
 | The assessor's seed brief | `skills/theorem-agents-interface/SKILL.md` |
-| The round-0 write — the record outcome of every ruling, what each one transcribes onto round 0's records, that none of them carries `minted-by`, and the seed generator's `spawn` record carrying its tier | `skills/orchestrate/lib/pr-lifecycle.md` |
-| Round 0 as a valid round number holding a records file and a log with the seed's `spawn` record and no anchor, read as a code round | `skills/agent-result-persist-interface/SKILL.md` |
-| A record without `state`, the seed ruling as a `human-refuted` source, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
+| The round-0 write — the record outcome of every ruling, what each one transcribes onto round 0's records, the record each recommendation becomes under `accept-recommended` and which of those carry `minted-by`, when the `seed-review` record is written, and the seed generator's `spawn` record carrying its tier | `skills/orchestrate/lib/pr-lifecycle.md` |
+| Round 0 as a valid round number holding a records file and a log with the seed's `spawn` record and no anchor, read as a code round, and the `seed-review` mode and its record's grammar | `skills/agent-result-persist-interface/SKILL.md` |
+| A record without `state`, the seed ruling as a `human-refuted` source and the applied seed assessment as an `assessor-rejected` one, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
+| How the time report words a seed's rulings under the `seed-review` record | `bin/sdlc-orchestrate-analysis` |
+| Whose the seed's rulings are in the final section | `agents/pr-finalizer.md` |
 | That the seed generator reads the files-affected section in place of a diff | `agents/theorem-generator.md` |
 
 ## Every generated list is assessed before a disprover runs
@@ -931,7 +982,8 @@ minted from an adjustment comment is never assessed, since its claim
 quotes the human.
 
 A round's assessment is applied with no human step, where the seed's
-is advice the human rules on. The reviewer transcribes every
+is advice the human rules on unless `seed-review: accept-recommended`
+adopted it in advance. The reviewer transcribes every
 recommendation onto the round's new records and assigns every id: a
 rejected theorem is recorded as retired, a rewritten one keeps its id
 under the proposed claim, a split keeps the id for its first part and
@@ -966,9 +1018,10 @@ human's and from the generator's:
 - A record whose claim came from an applied merge, split, rewrite or
   add carries `minted-by: assessor`, every part of a split included,
   so the posted review and the PR's final section never attribute that
-  claim to the generator or the human. Only an automatically applied
-  recommendation is stamped; a seed claim the human adopted is the
-  human's.
+  claim to the generator or the human. Only a recommendation applied
+  with no human step is stamped — a review round's, or the seed's
+  under `seed-review: accept-recommended`; a seed claim the human
+  adopted in reply is the human's.
 
 Each piece has one owner:
 
@@ -1456,7 +1509,10 @@ drives only the model routing, and `semantic` spawns each child at its
 declared default — costlier than the `mechanical` route and never
 weaker. Reading a mode out of the comment would need the human to write
 review vocabulary the orchestrator is forbidden to supply on their
-behalf. `issues` falls back to the whole resolved set because a theorem
+behalf. That rule's one exception, the seed under `seed-review:
+accept-recommended`, where choosing the value adopted the assessment's
+recommendations in advance, reaches no adjustment comment. `issues`
+falls back to the whole resolved set because a theorem
 tagged to no member is malformed, and on a batch that tags the minted
 theorem to every member, which is the safe direction: each member's
 verdict then reflects it.
@@ -1793,14 +1849,16 @@ the staging path is named, are owned by
 `pr-finalizer` reads that state and writes none of it. The orchestrator
 writes round 0's `records` — the seed settled before the developer ran,
 transcribed through the same script — and the generate-stage `spawn`
-record carrying the seed generator's tier into round 0's `log`, and,
-like `pr-merge-readiness`, appends to the PR's agents log for each
-agent it spawns; neither writes anything else here. The `sdlc-config-*`
-verbs write the config files their contract names, on the user's yes,
-and those are the user's files rather than run state. The implementing
-agents are outside the claim entirely and write nothing this
-list owns: those declaring `memory: project` capture their agent memory
-with `/cc-tools:agent-memory-inbox-capture`, each of them but
+record carrying the seed generator's tier into round 0's `log`, with
+the `seed-review` record beside it under `seed-review:
+accept-recommended`, and, like `pr-merge-readiness`, appends to the
+PR's agents log for each agent it spawns; neither writes anything else
+here. The `sdlc-config-*` verbs write the config files their contract
+names, on the user's yes, and those are the user's files rather than
+run state. The implementing agents are outside the claim entirely and
+write nothing this list owns: those declaring `memory: project`
+capture their agent memory with
+`/cc-tools:agent-memory-inbox-capture`, each of them but
 `style-checker` commits its work to the branch, and
 `agent-memory-scrubber` commits what `/cc-tools:agent-memory-inbox-cleanup`
 transfers.
@@ -1813,7 +1871,7 @@ PR's repository's directory, and `<round-dir>` for
 | File | What it holds |
 | ------- | --------------- |
 | `<repo-dir>/repo.yml` | the host, owner and name of the repository whose state the directory holds, written when the directory is created |
-| `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against; round 0's holds the seed generator's `spawn` record and no anchor |
+| `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against; round 0's holds the seed generator's `spawn` record, a `seed-review` record when the config applied the seed assessment, and no anchor |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round of its type carries forward — built by the script from the round of that type below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
 | `<round-dir>/review` | the round's argued review, from which `--mode summary` renders the posted review; the detail chain `pr-finalizer` posts at a close-out carries it whole, split across chunks when it is too large for one |
@@ -1933,7 +1991,7 @@ the PR is linked.
 | `docs-writer` | Writes a PR's documentation in the documentation loop that follows its code loop, fixes what that loop's rounds find in it, and for a batch with no code to implement creates the branch and opens the PR |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held and re-spawns that agent once, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
-| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, and corrects the closing lines its brief names |
+| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, lists there each claim in the body above it that the branch or the round records contradict, and corrects the closing lines its brief names |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, spawning the generator, the assessor, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove, at the reasoning tier its spawner names |
