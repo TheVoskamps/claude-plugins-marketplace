@@ -1423,7 +1423,7 @@ check "$(grep '^resolved ' "$XDG_STATE_HOME/$DECISIONS_REL/1/log")" "resolved P1
 decision ask --pr 'h.example/o/r#7' --ruling merge-state=ask "$CASE/record.yml"
 check_contains "$OUT" "Problem: " "decision ask: a ruling of ask resolves nothing"
 
-# The two standing rulings sdlc's config defines, each resolving a record
+# The standing rulings sdlc's config defines, each resolving a record
 # of its own class.
 for ruling in outside-criteria-finding=fix-in-pr recurring-finding-class=fix-class; do
   decision_case "decision-resolved-${ruling%%=*}"

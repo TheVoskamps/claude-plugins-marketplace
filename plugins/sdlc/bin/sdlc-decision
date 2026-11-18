@@ -54,7 +54,8 @@
 #   3  the record, or the answer, was refused; stderr names each failing
 #      slot, one per line, and nothing was stored
 set -uo pipefail
-# For the failure exits and the reference parser.
+# For the failure exits, the reference parser and the state root's
+# repository layout.
 # shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
 . "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
 

@@ -2,8 +2,9 @@
 #
 # sdlc-pr-common.sh -- sourced by the sdlc scripts that read a PR's
 # reviews and comments, by sdlc-pr-post-theorem-records, which posts the
-# review detail, and by sdlc-agent-result-persist, which writes the
-# review-round marker. It spells the markers sdlc writes, parses the
+# review detail, by sdlc-agent-result-persist, which writes the
+# review-round marker, and by sdlc-decision, which puts a decision to the
+# human. It spells the markers sdlc writes, parses the
 # canonical PR reference those scripts take, makes the one `gh` read
 # they share, and holds the failure exits, so a marker, a reference and
 # an exit status mean the same thing in every one of them. It also
