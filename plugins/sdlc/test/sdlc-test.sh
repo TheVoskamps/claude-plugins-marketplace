@@ -23,7 +23,8 @@
 # of its PR against a stub pr-view, its reading of a fixer brief, its
 # round-type column, its generator tiers, its wording of a seed the
 # seed-review record marks and its per-class agreement report over the
-# decision records of the PR and of the issue it closes. It drives
+# decision records of the PR, of the issue it closes and of a member its
+# branch names that it does not close. It drives
 # sdlc-decision's ask, answer and print: a record a ruling resolves, an
 # unclassified one no ruling resolves, the answer to a multi-problem
 # record, where a PR's and an issue's records are stored, the repo.yml
@@ -1497,22 +1498,34 @@ check_contains "$OUT" "  P1 design-gap recommended P1.1 picked none
   reply:
     Neither; drop it." "decision print: a reply in free text is stored as none, beside the reply"
 
+decision_case decision-print-newline
+record design-gap
+NL_STATE="$CASE/state
+home"
+OUT=$(XDG_STATE_HOME=$NL_STATE "$DECISION" ask --pr 'h.example/o/r#7' "$CASE/record.yml" 2>&1 </dev/null)
+OUT=$(XDG_STATE_HOME=$NL_STATE "$DECISION" print --pr 'h.example/o/r#7' 2>&1 </dev/null)
+check_contains "$OUT" "  record: $NL_STATE/$DECISIONS_REL/1/record.yml
+  P1 design-gap recommended P1.1 open" "decision print: names the record under a state root whose path holds a newline"
+
 # The agreement report counts each class's problems from the PR's
-# records and from those of the issue it closes, which the stub pr-view
-# names by URL.
+# records and from those of each issue of its batch: the issue it closes,
+# which the stub pr-view names by URL, and issue 8, which its head branch
+# names and it does not close, as a dropped member is.
 decision_case analysis-decisions
 mkdir -p "$CASE/bin"
 cat >"$CASE/bin/pr-view" <<'STUB'
 #!/bin/sh
 case "$*" in
   *closingIssuesReferences*) echo "https://h.example/o/r/issues/9" ;;
+  *headRefName*) echo "issue-8-9-decision-batch" ;;
   *) echo "h.example/o/r#7" ;;
 esac
 STUB
 printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
 printf '#!/bin/sh\nexec "%s" "$@"\n' "$DECISION" >"$CASE/bin/sdlc-decision"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$TEST_DIR/../../git-tools/bin/git-issue-branch" >"$CASE/bin/git-issue-branch"
 link_persist "$CASE/bin"
-chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh" "$CASE/bin/sdlc-decision"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh" "$CASE/bin/sdlc-decision" "$CASE/bin/git-issue-branch"
 record design-gap
 printf 'ok\n' >"$CASE/reply"
 decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
@@ -1525,13 +1538,18 @@ decision ask --pr 'h.example/o/r#7' --ruling merge-state=rebase "$CASE/record.ym
 record rebase-conflict
 decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
 decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply"
+record loop-cap-reached
+decision ask --issue 'h.example/o/r#8' "$CASE/record.yml"
+decision answer --issue 'h.example/o/r#8' --decision 1 --pick P1=none --reply-file "$CASE/reply"
 OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
 check "$?" "0" "analysis: a PR with decision records exits 0"
 check_contains "$OUT" "| design-gap | 3 | 0 | 1 | 1 | 0 |" \
   "analysis: per class, the questions asked, the resolved, and the picks equal to and differing from the recommendation"
 check_contains "$OUT" "| merge-state | 0 | 1 | 0 | 0 | 0 |" "analysis: a record a ruling resolved counts as resolved, not asked"
 check_contains "$OUT" "| rebase-conflict | 1 | 0 | 1 | 0 | 0 |" \
-  "analysis: a record keyed on an issue the PR closes is counted"
+  "analysis: a record keyed on an issue the PR closes, which its branch also names, is counted once"
+check_contains "$OUT" "| loop-cap-reached | 1 | 0 | 0 | 0 | 1 |" \
+  "analysis: a record keyed on a batch member the PR does not close is counted"
 
 # --- unhandled failures in the persist and analysis scripts ---------------
 # A command a script does not handle exits through the script's own

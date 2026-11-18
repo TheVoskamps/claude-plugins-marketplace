@@ -218,7 +218,11 @@ if [ "$mode" = print ]; then
   [ -d "$dir" ] || exit 0
   numbers | while IFS= read -r n; do
     [ -f "$dir/$n/log" ] || continue
-    awk -v n="$n" -v record="$dir/$n/record.yml" '
+    # The record's path reaches awk through the environment: it derives
+    # from XDG_STATE_HOME or HOME, either of which may hold a newline,
+    # and BSD awk refuses a -v value that holds one.
+    RECORD="$dir/$n/record.yml" awk -v n="$n" '
+      BEGIN {record = ENVIRON["RECORD"]}
       $1 == "asked" {asked = $2}
       $1 == "answered" {answered = $2}
       $1 == "problem" {np++; id[np] = $2; class[$2] = $3; rec[$2] = $4}
