@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Report where one /sdlc:orchestrate run's wall-clock time went, for the
-# PR it produced, as Markdown tables on stdout.
+# PR it produced, and, per decision class, how the human's picks compare
+# with the recommendations put to them, as Markdown tables on stdout.
 #
 # Its sources, each read as it stands and never substituted for one
 # another: the PR's review rounds and its round-0 seed, read only through

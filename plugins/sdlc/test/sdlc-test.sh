@@ -40,7 +40,8 @@
 # start above 1 or skip a number -- and sdlc-pr-post-theorem-records
 # against a stub sdlc-records-chain and a stub pr-comment.
 #
-# Needs bash, jq, yq (mikefarah v4+) and the POSIX utilities. Reaches no
+# Needs bash, jq, yq (mikefarah v4+), the POSIX utilities and
+# plugins/git-tools/bin/git-issue-branch in the same checkout. Reaches no
 # network.
 #
 # Usage: sdlc-test.sh    (exit 0 when every case passes)
