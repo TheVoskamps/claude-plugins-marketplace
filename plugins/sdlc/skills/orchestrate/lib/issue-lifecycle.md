@@ -65,8 +65,8 @@ board has a status slot that **lacks** a matching option — i.e.
 `/issue-set-status` aborts with its "Slot value not in options map"
 error — catch that abort and put it to the human as a decision, as the
 skill's "Putting a decision to the human" says, with the board's status
-options that could stand in for it as its options; leaving things as
-they are skips the transition for this run. When none of the
+options that could stand in for it as its options. The human can
+decline it: skipping leaves the status unchanged for this run. When none of the
 board's options could stand in for it, there is nothing to choose:
 skip the transition and warn as for an unconfigured slot. Never let
 that abort fail the whole run.
@@ -91,7 +91,8 @@ options. Each field the order named no value for is filed as its
 `follow-up-issue-*` key calls for, per `skills/lib/sdlc-config.md`. A
 field that file makes a question of its own is put to the human the
 same way, as a problem of the body's decision when there is one, with
-values the target accepts for the field as its options. Raw
+values the target accepts for the field as its options. The human can
+decline it: skipping files the issue without that field. Raw
 `gh issue create` is not a substitute: it files an unconfigured issue.
 After `/issue-create` returns, read the issue back
 with `/issue-view <new-N>` and confirm the type, the configured slot

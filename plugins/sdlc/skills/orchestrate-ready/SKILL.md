@@ -50,7 +50,8 @@ record on. If it names more than one, put to the user which single
 issue to groom as a decision, per "Putting a decision to the user",
 keyed on the first issue named, with the issues named as its options —
 grooming is a conversation per issue, and interleaving two of them
-loses track of which decision belongs to which.
+loses track of which decision belongs to which. The user can decline
+it: skipping grooms no issue and ends the session.
 
 ## Putting a decision to the user
 
@@ -197,7 +198,8 @@ a side-effect issue — is an approval, not a decision.
    no value for is filed as its `follow-up-issue-*` key calls for, per
    `skills/lib/sdlc-config.md`, and a field that file makes a question
    of its own is a decision, per "Putting a decision to the user", with
-   values the target accepts for the field as its options.
+   values the target accepts for the field as its options. The user can
+   decline it: skipping files the issue without that field.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.
    - **In another repo** →
@@ -265,7 +267,9 @@ under the slot's first line, which carries only the kind and any
 - Otherwise a `Todo` option exists → use it.
 - Otherwise → put it to the user as a decision, per "Putting a
   decision to the user", with the configured options that could mean
-  orchestrate-ready as its options, and use the pick.
+  orchestrate-ready as its options, and use the pick. The user can
+  decline it: skipping leaves the status where it is, and step 6 sets
+  none.
 - When no configured option could mean orchestrate-ready, there is
   nothing to choose: treat the slot as unconfigured, below.
 

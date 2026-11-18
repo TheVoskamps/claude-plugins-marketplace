@@ -29,12 +29,12 @@ it printed that the option rests on as its `output:`.
 When a problem's options come from a list — the values a field
 accepts, the issues an invocation named, the board options that could
 stand in for a status — fit them so. A decision is one the human can
-decline unless the skill asking it says otherwise.
+decline only where the skill asking it states what skipping it does.
 
 - **A decision the human can decline** carries an option that skips
-  the question and leaves things as they are, whatever the list's
-  length: beside every entry when the list has three or fewer, and
-  beside the three you rank first when it is longer.
+  the question, worded as the outcome the skill states, whatever the
+  list's length: beside every entry when the list has three or fewer,
+  and beside the three you rank first when it is longer.
 - **Any other decision** offers every entry when the list has four or
   fewer, and otherwise the three you rank first and an option to name
   another, which the reply then names in its own words.
