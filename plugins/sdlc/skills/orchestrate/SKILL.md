@@ -410,7 +410,7 @@ Key a record on `--pr <PR_REF>`, or, before the batch's PR exists, on
 the batch's first member as `--issue <host>/<owner>/<repo>#<N>`. The
 primary clone holds the default branch, so a line on the PR branch is a
 `command:` evidence: `git show <branch>:<path>` and the lines it
-printed. A ruling the script resolved goes into the round's report.
+printed.
 
 ### A batch with no code to implement skips the code loop
 
