@@ -16,8 +16,9 @@ workflow added the issue first: the add fails as "Content already exists in
 this project", and the item it created stays out of the next N reads of the
 issue's project items.
 
-`issue close` records a stateReason -- COMPLETED unless its --reason names
-another -- and, with --duplicate-of, the issue it duplicates as duplicateOf.
+`issue close` on an open issue records a stateReason -- COMPLETED unless its
+--reason names another -- and, with --duplicate-of, the issue it duplicates as
+duplicateOf.
 state["closeAs"] = {"stateReason": R, "duplicateOf": node-id-or-null} makes
 every close record those two values instead of the requested ones.
 

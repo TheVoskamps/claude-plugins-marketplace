@@ -1198,8 +1198,9 @@ expect_absent "issue-create: a dropped label is not a partial run" "the run stop
 # Close reasons.
 # ---------------------------------------------------------------------------
 
-# close_args <number>: the argument lists of the case's `gh issue close` calls
-# on issue <number> in the current repository, one JSON array per line.
+# close_args <number>: the arguments after <number> of the case's
+# `gh issue close` calls that name <number>, in any repository, one JSON array
+# per line.
 close_args() {
   jq -c --arg n "$1" 'select(.[0] == "issue" and .[1] == "close" and .[2] == $n) | .[3:]' "$CASE_DIR/gh.log"
 }
@@ -1240,7 +1241,8 @@ expect "issue-close with no --reason" 0 "Closed issue #9 \"Widget issue 9\"." "s
 expect_absent "issue-close with no --reason prints no reason line" "reason:"
 check "$(close_args 9)" '["--repo","github.com/acme/widgets"]' "issue-close with no --reason passes gh no reason"
 
-# Each usage error is raised before the comment: nothing posted, nothing closed.
+# Each refusal, a usage error or a duplicate-of target that does not resolve to
+# an issue, is raised before the comment: nothing posted, nothing closed.
 new_case "$CONFIG_MAIN"
 run issue-close 3 --comment "Summary." --reason duplicate
 expect "issue-close --reason duplicate: a usage error" 2 \
