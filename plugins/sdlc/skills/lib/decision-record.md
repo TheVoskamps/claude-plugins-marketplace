@@ -22,15 +22,13 @@ skill's own.
    sdlc-decision ask (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]… <record-file>
    ```
 
-   with one `--ruling` per standing-ruling key whose resolved value is
-   not `ask`, per `skills/lib/sdlc-config.md` → "Standing rulings",
-   unless the skill withholds it from the record. A refusal names each
-   slot it failed on; fix the record and ask again.
+   with the `--ruling` arguments `skills/lib/sdlc-config.md` →
+   "Standing rulings" calls for. A refusal names each slot it failed
+   on; fix the record and ask again.
 3. **Print what it printed, verbatim, as the turn's question**, last in
    the reply, and end the turn. A relayed report and your own analysis
-   go above it. A problem it printed as `resolved by <class>: <value>`
-   is not put to the human: apply that ruling with no question, and say
-   so in what you report.
+   go above it, and name each problem it printed as
+   `resolved by <class>: <value>`.
 4. **Record the reply:**
 
    ```bash

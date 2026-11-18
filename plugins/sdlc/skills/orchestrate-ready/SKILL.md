@@ -183,8 +183,7 @@ a side-effect issue — is an approval, not a decision.
    it only after they say yes to that specific issue. One yes covers
    one issue; it does not carry to the next. Each field the user named
    no value for is filed as its `follow-up-issue-*` key calls for, per
-   `skills/lib/sdlc-config.md`, so the user is asked only for a field
-   whose key is `ask`.
+   `skills/lib/sdlc-config.md`.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.
    - **In another repo** →
