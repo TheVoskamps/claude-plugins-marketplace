@@ -180,14 +180,14 @@ iss_lc() {
 # A decimal integer, optionally negative.
 iss_is_int() {
   case "$1" in
-    ''|*[!0-9-]*|?*-*|-) return 1 ;;
+    '' | *[!0-9-]* | ?*-* | -) return 1 ;;
   esac
   return 0
 }
 
 iss_is_digits() {
   case "$1" in
-    ''|*[!0-9]*) return 1 ;;
+    '' | *[!0-9]*) return 1 ;;
   esac
   return 0
 }
@@ -355,14 +355,14 @@ iss_config_frontmatter() {
     iss_err_schema_stale "$version" "$ISS_REPO_CONFIG_SCHEMA" "$prefix"
   fi
   for field in source-control issues issue-link-prefix default-issue-source-branch \
-               default-pr-target-branch issue-branch-naming-prefix; do
+    default-pr-target-branch issue-branch-naming-prefix; do
     iss_fm_get "$fm" "$field" >/dev/null || iss_err_frontmatter_incomplete "$version" "$field" "$prefix"
   done
   ISS_ISSUES=$(iss_fm_get "$fm" issues)
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix)
   ISS_BRANCH_PREFIX_MODE=$(iss_fm_get "$fm" issue-branch-naming-prefix)
   case "$ISS_ISSUES" in
-    GitHub|Jira) ;;
+    GitHub | Jira) ;;
     *) iss_die "${prefix}unsupported \`issues:\` value \`$ISS_ISSUES\` in \`.issues/repo-config.md\`" ;;
   esac
 }
@@ -402,7 +402,7 @@ iss_check_slots() {
           iss_err_invalid_default "$slot" "$value" "an integer in \`[$ISS_NUM_MIN, $ISS_NUM_MAX]\`" "$prefix"
         fi
         ;;
-      single-select|label|issue-field|status|custom-field)
+      single-select | label | issue-field | status | custom-field)
         [ -z "$value" ] || iss_resolve_name all "$value" fields "$slot" options >/dev/null ||
           iss_err_invalid_default "$slot" "$value" "one of its options: \`$(iss_slot_options "$slot")\`" "$prefix"
         ;;
@@ -426,8 +426,8 @@ iss_number_check() {
   ISS_NUM_MIN=${min:--inf}
   ISS_NUM_MAX=${max:-inf}
   if { [ -n "$min" ] && ! iss_is_int "$min"; } ||
-     { [ -n "$max" ] && ! iss_is_int "$max"; } ||
-     { [ -n "$min" ] && [ -n "$max" ] && [ "$min" -gt "$max" ]; }; then
+    { [ -n "$max" ] && ! iss_is_int "$max"; } ||
+    { [ -n "$min" ] && [ -n "$max" ] && [ "$min" -gt "$max" ]; }; then
     iss_err_invalid_range "$slot" "$ISS_NUM_MIN" "$ISS_NUM_MAX" "${3:-}"
   fi
   iss_is_int "$value" || return 1
@@ -470,7 +470,8 @@ iss_load_target_config() {
     ISS_LINK_PREFIX='#'
     return 1
   else
-    err=$(cat "$errf"); rm -f "$errf"
+    err=$(cat "$errf")
+    rm -f "$errf"
     iss_die "could not read \`$name\`'s \`.issues/repo-config.md\`: $err"
   fi
 }
@@ -488,7 +489,7 @@ iss_load_target_config() {
 iss_split_url() {
   local rest=${1%/}
   case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
-  case "$rest" in */*/*/*|*//*|/*|*/) return 1 ;; ?*/?*/?*) ;; *) return 1 ;; esac
+  case "$rest" in */*/*/* | *//* | /* | */) return 1 ;; ?*/?*/?*) ;; *) return 1 ;; esac
   URL_HOST=${rest%%/*}
   rest=${rest#*/}
   URL_OWNER=${rest%/*}
@@ -538,14 +539,14 @@ iss_try_current_repo() {
 # iss_valid_name <name>: whether <name> is a repository name GitHub allows: 1
 # to 100 ASCII letters, digits, ".", "-" and "_", any of them first.
 iss_valid_name() {
-  case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$1" in '' | *[!A-Za-z0-9._-]*) return 1 ;; esac
   [ "${#1}" -le 100 ]
 }
 
 # iss_valid_owner <owner>: whether <owner> is an owner GitHub allows: 1 to 39
 # ASCII letters, digits and "-", not starting with "-" and with no "--".
 iss_valid_owner() {
-  case "$1" in ''|-*|*--*|*[!A-Za-z0-9-]*) return 1 ;; esac
+  case "$1" in '' | -* | *--* | *[!A-Za-z0-9-]*) return 1 ;; esac
   [ "${#1}" -le 39 ]
 }
 
@@ -557,7 +558,7 @@ iss_valid_host() {
   [ "${#1}" -le 253 ] || return 1
   while [ -n "$rest" ]; do
     label=${rest%%.*}
-    case "$label" in ''|-*|*-|*[!A-Za-z0-9-]*) return 1 ;; esac
+    case "$label" in '' | -* | *- | *[!A-Za-z0-9-]*) return 1 ;; esac
     [ "${#label}" -le 63 ] || return 1
     rest=${rest#*.}
   done
@@ -637,7 +638,7 @@ iss_check_repo_syntax() {
       ;;
   esac
   rest=${ref%/}
-  case "$rest" in ''|*//*|/*|*/*/*/*) iss_usage_die "$bad" ;; esac
+  case "$rest" in '' | *//* | /* | */*/*/*) iss_usage_die "$bad" ;; esac
   iss_valid_path "$rest" || iss_usage_die "$bad"
 }
 
@@ -708,7 +709,7 @@ iss_names_repo() {
   local num=${1#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   iss_is_digits "$num" && return 1
-  case "$1" in https://*|?*'#'*) return 0 ;; esac
+  case "$1" in https://* | ?*'#'*) return 0 ;; esac
   return 1
 }
 
@@ -1059,7 +1060,7 @@ iss_conn_nodes() {
   case "$1" in
     labels) printf 'name' ;;
     assignees) printf 'login' ;;
-    subIssues|blockedBy|blocking) printf 'id number title repository { nameWithOwner }' ;;
+    subIssues | blockedBy | blocking) printf 'id number title repository { nameWithOwner }' ;;
     projectItems) printf 'id project { id } %s' "$(iss_conn fieldValues)" ;;
     fieldValues) printf '%s' "$ISS_FIELD_VALUE_NODES" ;;
     issueFieldValues)
@@ -1212,7 +1213,7 @@ iss_slot_resolve() {
         iss_err_out_of_range "${value:-<empty>}" "$slot" "$ISS_NUM_MIN" "$ISS_NUM_MAX"
       SLOT_VALUE=$value
       ;;
-    single-select|label|issue-field)
+    single-select | label | issue-field)
       if canonical=$(iss_resolve_name all "$value" fields "$slot" options); then
         SLOT_VALUE=$canonical
       elif iss_is_int "$value"; then
@@ -1273,7 +1274,7 @@ iss_project_add() {
 # longer resolves, the symptom of an ID cached in repo-config going stale.
 iss_is_stale_id_error() {
   case "$(iss_lc "$ISS_GQL_ERR $ISS_GQL_OUT")" in
-    *"could not resolve to a node"*|*"not found"*|*"does not exist"*) return 0 ;;
+    *"could not resolve to a node"* | *"not found"* | *"does not exist"*) return 0 ;;
   esac
   return 1
 }
@@ -1332,7 +1333,7 @@ iss_slot_write() {
   local kind=$SLOT_KIND sel current item issue_id fid oid ns add remove opt ref repo_arg
   ref=$(iss_ref "$host" "$owner" "$repo" "$number")
   case "$kind" in
-    number|single-select) sel="id url $ISS_SEL_PROJECT_ITEMS" ;;
+    number | single-select) sel="id url $ISS_SEL_PROJECT_ITEMS" ;;
     issue-field) sel="id url viewerCanSetFields $ISS_SEL_ISSUE_FIELDS" ;;
     label) sel="id url $ISS_SEL_LABELS" ;;
   esac
@@ -1353,7 +1354,7 @@ iss_slot_write() {
   fi
 
   case "$kind" in
-    number|single-select)
+    number | single-select)
       fid=$(iss_cfg_get fields "$slot" id)
       item=$(iss_project_item)
       if [ -z "$item" ]; then
@@ -1477,21 +1478,33 @@ iss_type_write() {
 # requested state.
 iss_blocked_by_edge() {
   local action=$1 side=$4 bh bo br bn xh xo xr xn blocked_id blocker_id side_sel list want present doc sref
-  iss_operand "$2"; bh=$OP_HOST; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
-  iss_operand "$3"; xh=$OP_HOST; xo=$OP_OWNER; xr=$OP_REPO; xn=$OP_NUMBER
+  iss_operand "$2"
+  bh=$OP_HOST
+  bo=$OP_OWNER
+  br=$OP_REPO
+  bn=$OP_NUMBER
+  iss_operand "$3"
+  xh=$OP_HOST
+  xo=$OP_OWNER
+  xr=$OP_REPO
+  xn=$OP_NUMBER
   EDGE_BLOCKED=$(iss_ref "$bh" "$bo" "$br" "$bn")
   EDGE_BLOCKER=$(iss_ref "$xh" "$xo" "$xr" "$xn")
   if [ "$side" = blocked ]; then
     list=blockedBy
-    iss_lookup "$xh" "$xo" "$xr" "$xn" id; blocker_id=$(iss_jq .id)
+    iss_lookup "$xh" "$xo" "$xr" "$xn" id
+    blocker_id=$(iss_jq .id)
     side_sel="id url $(iss_conn blockedBy)"
-    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"; blocked_id=$(iss_jq .id)
+    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"
+    blocked_id=$(iss_jq .id)
     want=$blocker_id
   else
     list=blocking
-    iss_lookup "$bh" "$bo" "$br" "$bn" id; blocked_id=$(iss_jq .id)
+    iss_lookup "$bh" "$bo" "$br" "$bn" id
+    blocked_id=$(iss_jq .id)
     side_sel="id url $(iss_conn blocking)"
-    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"; blocker_id=$(iss_jq .id)
+    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"
+    blocker_id=$(iss_jq .id)
     want=$blocked_id
   fi
   present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
@@ -1501,9 +1514,11 @@ iss_blocked_by_edge() {
   if [ "$action" = add ]; then doc=$ISS_DOC_ADD_BLOCKED_BY; else doc=$ISS_DOC_REMOVE_BLOCKED_BY; fi
   iss_gql "$bh" -f query="$doc" -f issueId="$blocked_id" -f blockingIssueId="$blocker_id" || iss_gql_fail
   if [ "$side" = blocked ]; then
-    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"; sref=$EDGE_BLOCKED
+    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"
+    sref=$EDGE_BLOCKED
   else
-    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"; sref=$EDGE_BLOCKER
+    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"
+    sref=$EDGE_BLOCKER
   fi
   present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
   if [ "$action" = add ] && [ "$present" != true ]; then
@@ -1520,12 +1535,21 @@ readonly ISS_SEL_PARENT='id url parent { id number url repository { nameWithOwne
 # /issue-set-parent and /issue-set-child. Prints the verb's output.
 iss_add_sub_issue() {
   local ph po pr pn ch co cr cn parent_id parent_url child_id cur_id cur_num cur_nwo cref pref
-  iss_operand "$1"; ph=$OP_HOST; po=$OP_OWNER; pr=$OP_REPO; pn=$OP_NUMBER
-  iss_operand "$2"; ch=$OP_HOST; co=$OP_OWNER; cr=$OP_REPO; cn=$OP_NUMBER
+  iss_operand "$1"
+  ph=$OP_HOST
+  po=$OP_OWNER
+  pr=$OP_REPO
+  pn=$OP_NUMBER
+  iss_operand "$2"
+  ch=$OP_HOST
+  co=$OP_OWNER
+  cr=$OP_REPO
+  cn=$OP_NUMBER
   pref=$(iss_ref "$ph" "$po" "$pr" "$pn")
   cref=$(iss_ref "$ch" "$co" "$cr" "$cn")
   iss_lookup "$ph" "$po" "$pr" "$pn" "id url"
-  parent_id=$(iss_jq .id); parent_url=$(iss_jq .url)
+  parent_id=$(iss_jq .id)
+  parent_url=$(iss_jq .url)
   iss_lookup "$ch" "$co" "$cr" "$cn" "$ISS_SEL_PARENT"
   child_id=$(iss_jq .id)
   cur_id=$(iss_jq '.parent.id // empty')
@@ -1612,7 +1636,10 @@ iss_default_assignee() {
   v=$(iss_user_config_value default-assignee "${2:-}")
   rc=$?
   case "$rc" in
-    0) printf '%s' "$v"; return 0 ;;
+    0)
+      printf '%s' "$v"
+      return 0
+      ;;
     3) ;;
     *) exit 1 ;;
   esac
@@ -1642,7 +1669,7 @@ iss_branch_prefix() {
     *) exit 1 ;;
   esac
   case "$value" in
-    */*|*[[:space:]]*) iss_err_branch_prefix_invalid "$key" "$value" ;;
+    */* | *[[:space:]]*) iss_err_branch_prefix_invalid "$key" "$value" ;;
   esac
   printf 'mode: %s\nprefix: %s/\n' "$mode" "$value"
 }
