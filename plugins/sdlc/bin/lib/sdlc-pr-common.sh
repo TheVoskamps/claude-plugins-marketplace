@@ -22,7 +22,8 @@
 #   3  the script's own negative outcome, which its contract names
 # sdlc-pr-post-theorem-records shares 0 and 2, widens 1 to any
 # unexpected failure, including ones no command reported, and names its
-# own exits from 3 on, in its header.
+# own exits from 3 on, in its header. sdlc-decision also exits 1 when a
+# layout function below fails, on that function's message alone.
 
 SP_PROGRAM=${0##*/}
 
