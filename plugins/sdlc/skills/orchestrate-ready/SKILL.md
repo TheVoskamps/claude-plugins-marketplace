@@ -58,7 +58,9 @@ You put a decision to the user only by printing what
 `sdlc-decision ask` printed for it. Read `skills/lib/decision-record.md`
 the first time a turn raises one, and put every decision through it,
 keyed on the issue as `--issue <host>/<owner>/<repo>#<N>`, the
-reference read off the URL `/issue-view` prints. An open design
+reference read off the URL `/issue-view` prints. Kernel: what `ask`
+printed goes last in the reply and ends the turn, unless it printed
+every problem as resolved by a standing ruling. An open design
 question is class `design-gap`. A yes to one action you named — filing
 a side-effect issue — is an approval, not a decision.
 

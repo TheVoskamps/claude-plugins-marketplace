@@ -402,7 +402,9 @@ You put a decision to the human — any question that asks the human to
 choose, anywhere in the run, a plan's decision item included — only by
 printing what `sdlc-decision ask` printed for it. Read
 `skills/lib/decision-record.md` the first time a turn raises one, and
-put every decision through it. Two prompts are not decisions and keep
+put every decision through it. Kernel: what `ask` printed goes last in
+the reply and ends the turn, unless it printed every problem as
+resolved by a standing ruling. Two prompts are not decisions and keep
 their own shapes, because each asks for a ruling on a whole artifact
 shown above it: the plan's confirmation prompt, and the per-theorem
 rulings on the seed list under `seed-review: ask`. Asking for the issue
@@ -412,9 +414,7 @@ choose between, and no issue exists yet to key a record on.
 Key a record on `--pr <PR_REF>`, or, before the batch's PR exists, on
 the batch's first member as `--issue <host>/<owner>/<repo>#<N>`. The
 primary clone holds the default branch, so a line on the PR branch is
-text no file there holds, cited as the decision-record file says. A
-decision a standing ruling resolved goes into the scope notes you hand
-`pr-finalizer`, per `skills/orchestrate/lib/pr-lifecycle.md`.
+text no file there holds, cited as the decision-record file says.
 
 ### A batch with no code to implement skips the code loop
 
