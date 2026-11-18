@@ -57,8 +57,8 @@ if [ -z "$cut" ]; then
   prev=$((round - 1))
   rc=0
   log=
-  [ "$prev" -eq 0 ] \
-    || log=$(sdlc-agent-result-persist --mode print --pr "$SP_REF" --round "$prev" 2>&1 || exit) || rc=$?
+  [ "$prev" -eq 0 ] ||
+    log=$(sdlc-agent-result-persist --mode print --pr "$SP_REF" --round "$prev" 2>&1 || exit) || rc=$?
   if [ "$rc" -ne 0 ]; then
     case "$log" in
       *"no round log at "*) log= ;;

@@ -297,9 +297,7 @@ derive.
   applied the seed assessment's recommendations with no human step, and
   it is refused, non-zero, writing nothing, at any other round. A
   reader that finds the record attributes the seed's rulings to those
-  recommendations, never to the human. The orchestrator makes no call
-  under any other value, so a round-0 log without the record is a seed
-  the human ruled on or one accepted as emitted.
+  recommendations, never to the human.
 - **`enter`** — appends one `enter` record for `--theorem` in
   `--stage`. A child's first act, before it does any work. The script
   derives the agent id from the child's own worktree and composes the
