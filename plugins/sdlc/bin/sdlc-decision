@@ -20,7 +20,11 @@
 # problem carries `class`, `problem`, `options`, `recommendation` and
 # `why`; each option carries `does`, `evidence` and `cost`; each piece of
 # evidence is `file: <path>:<line>` with `quote:`, the text found on that
-# line, or `command: <command>` with `output:`. A relative evidence path
+# line, or `command: <command>` with `output:`. A problem's class is one
+# of CLASSES below, `unclassified` when none fits; it holds two to four
+# options, and its recommendation is one of its own option ids with
+# nothing attached. Every option holds at least one evidence, and its
+# cost is `none` when it costs the human nothing. A relative evidence path
 # is read against the top level of the working tree the script runs in,
 # or against the current directory outside a working tree. `ask` never
 # runs a `command:` evidence: it checks only that the command and its

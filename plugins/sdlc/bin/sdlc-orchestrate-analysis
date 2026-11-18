@@ -9,8 +9,8 @@
 # transcript, found from the transcript paths on the round logs' enter
 # lines; the PR's GitHub timeline; and the decision records of the PR
 # and of each issue it closes, read only through `sdlc-decision print`.
-# A source that is missing is named
-# in the report, and every row it would have backed is left out.
+# A source that is missing is named in the report, and every row it
+# would have backed is left out.
 #
 # Read-only: nothing here writes a file or mutates anything on GitHub,
 # which is why every intermediate result lives in a shell variable. The

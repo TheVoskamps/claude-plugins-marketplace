@@ -16,12 +16,12 @@
 # deletes one PR's state whole, which is the only way any of it is ever
 # removed, and lists the repositories the state root holds.
 #
-# Every path is composed here and nowhere else — the round log, each
-# result file, the records file, the review file, the PR's agents log,
-# and each child's harness transcript, and the repository's repo.yml
-# through the layout functions of the file sourced below, which
-# sdlc-decision shares — so no agent ever opens one of these files by a path string of its
-# own, to mistype or to carry across a turn boundary. An agent that names
+# Every path is composed here — the round log, each result file, the
+# records file, the review file, the PR's agents log and each child's
+# harness transcript — or, for the repository's repo.yml, in the layout
+# functions of the file sourced below, which sdlc-decision shares, so no
+# agent ever opens one of these files by a path string of its own, to
+# mistype or to carry across a turn boundary. An agent that names
 # the state root in prose, to point a human at the directory, is doing
 # something else.
 #

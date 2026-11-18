@@ -172,7 +172,7 @@ sp_write_repo_yml() {
 # written before the host was part of the path, at <owner>/<repo> under
 # the state root, to the repository's directory, and write its repo.yml.
 # Each script that writes under the state root runs it before it creates
-# the repository's directory, so neither splits a repository's state
+# the repository's directory, so no script splits a repository's state
 # across both paths.
 sp_migrate_old_layout() {
   local old="$1/$3/$4" new="$1/$2/$3/$4"
