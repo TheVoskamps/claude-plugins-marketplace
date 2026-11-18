@@ -1208,6 +1208,8 @@ gh_calls() {
   jq -c --arg v "$1" --arg n "$2" 'select(.[0] == "issue" and .[1] == $v and .[2] == $n)' "$CASE_DIR/gh.log" |
     wc -l | tr -d ' '
 }
+# reason_of <number>: acme/widgets issue <number>'s state, stateReason and
+# duplicateOf node id, space-separated, with `-` for no duplicateOf.
 reason_of() {
   state ".repos[\"acme/widgets\"].issues[\"$1\"] | [.state, .stateReason, (.duplicateOf // \"-\")] | join(\" \")"
 }

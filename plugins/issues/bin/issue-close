@@ -57,6 +57,7 @@ esac
 
 if [ -n "$dup_arg" ]; then iss_init "$number_arg" "$dup_arg"; else iss_init "$number_arg"; fi
 iss_operand "$number_arg"
+# Copied out of OP_*, which resolving the duplicate-of operand overwrites.
 host=$OP_HOST
 owner=$OP_OWNER
 repo=$OP_REPO
