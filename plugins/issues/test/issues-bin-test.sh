@@ -983,6 +983,23 @@ check "$(state '.repos["acme/widgets"].issues["210"] | [.issueType, .issueFields
 run issue-create --title "Bad" --body-file new.md --priority Extreme
 expect "issue-create: invalid value refused before creating" 1 "value \`Extreme\` is not in \`priority\`'s options"
 check "$(state '.repos["acme/widgets"].issues | has("211")')" false "issue-create: nothing created on a bad value"
+run issue-create --title "Both" --body-file new.md --assignee hubot --no-assignee
+expect "issue-create: --assignee with --no-assignee is a usage error" 2 \
+  "\`--assignee\` cannot be combined with \`--no-assignee\`."
+check "$(state '.repos["acme/widgets"].issues | has("211")')" false "issue-create: nothing created on --assignee with --no-assignee"
+# An unversioned user-config makes the default-assignee lookup abort, so a run
+# that succeeds with it in place never looked the default up.
+mkdir -p "$CASE_DIR/repo/.issues"
+printf -- '---\ndefault-assignee: hubot\n---\n' >"$CASE_DIR/repo/.issues/user-config.md"
+run issue-create --title "Defaulted" --body-file new.md
+expect "issue-create: the default-assignee lookup aborts on an unversioned user-config" 1 \
+  "predates user-config schema versioning"
+run issue-create --title "Unassigned" --body-file new.md --no-assignee
+expect "issue-create --no-assignee: filed with no assignee" 0 \
+  "Created issue #211 \"Unassigned\"" "  assignee:   none (--no-assignee)"
+check "$(state '.repos["acme/widgets"].issues["211"].assignees | length')" 0 "issue-create --no-assignee: no assignee landed"
+check "$(jq -c 'select(.[0] == "issue" and .[1] == "create" and index("Unassigned") != null and index("--assignee") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "issue-create --no-assignee: no assignee sent"
 
 # set_state <jq-update>: change the case's fake GitHub.
 set_state() {

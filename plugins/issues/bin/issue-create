@@ -8,14 +8,16 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage='usage: issue-create [<repo>] --title "..." --body-file PATH [--type T] [--labels a,b,c] [--assignee u1,u2]
-                    [--parent <issue>] [--priority V] [--size V] [--status S]'
+usage='usage: issue-create [<repo>] --title "..." --body-file PATH [--type T] [--labels a,b,c]
+                    [--assignee u1,u2 | --no-assignee] [--parent <issue>] [--priority V] [--size V] [--status S]'
 
 title=
 body_file=
 type_arg=
 labels=
 assignee_arg=
+assignee_set=no
+no_assignee=no
 parent_arg=
 target=
 target_set=no
@@ -29,6 +31,11 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --title|--body-file|--type|--labels|--assignee|--parent|--priority|--size|--status)
       [ "$#" -ge 2 ] || iss_usage_die "$usage"
+      ;;
+    --no-assignee)
+      no_assignee=yes
+      shift
+      continue
       ;;
     --repo)
       iss_usage_die "\`--repo\` is not an issue-create flag; name the repository as the first argument: issue-create <repo> --title \"...\" --body-file PATH"
@@ -47,7 +54,7 @@ while [ "$#" -gt 0 ]; do
     --body-file) body_file=$2 ;;
     --type) type_arg=$2 ;;
     --labels) labels=$2 ;;
-    --assignee) assignee_arg=$2 ;;
+    --assignee) assignee_arg=$2; assignee_set=yes ;;
     --parent) parent_arg=$2 ;;
     --priority) priority_arg=$2; priority_set=yes ;;
     --size) size_arg=$2; size_set=yes ;;
@@ -56,6 +63,8 @@ while [ "$#" -gt 0 ]; do
   shift 2
 done
 [ -n "$title" ] && [ -n "$body_file" ] || iss_usage_die "$usage"
+[ "$assignee_set" = no ] || [ "$no_assignee" = no ] ||
+  iss_usage_die "\`--assignee\` cannot be combined with \`--no-assignee\`."
 
 iss_require_tools
 
@@ -179,7 +188,7 @@ if [ -n "$parent_arg" ]; then
 fi
 
 assignees=$assignee_arg
-if [ -z "$assignees" ] && [ "$no_target_config" = no ]; then
+if [ -z "$assignees" ] && [ "$no_target_config" = no ] && [ "$no_assignee" = no ]; then
   if [ "$target_set" = yes ]; then
     assignees=$(iss_default_assignee "$host" global-only) || exit 1
   else
@@ -269,7 +278,9 @@ if [ -n "$assignees" ] || [ -n "$labels" ]; then
 fi
 
 assignee_line="skipped: no --assignee passed and no built-in default applies"
-if [ -n "$assignees" ]; then
+if [ "$no_assignee" = yes ]; then
+  assignee_line="none (--no-assignee)"
+elif [ -n "$assignees" ]; then
   have=$(iss_jq '.assignees.nodes[].login')
   missing=$(requested_missing "$assignees" "$have")
   if [ -n "$missing" ]; then
