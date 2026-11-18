@@ -1224,11 +1224,14 @@ check "$?" "2" "refusal: a mode other than list takes no repository operand"
 
 # --- sdlc-decision -----------------------------------------------------------
 # A record is written into the case's directory, beside a file its `file:`
-# evidence quotes; DECISIONS is PR 7's record directory.
+# evidence quotes; DECISIONS_REL is PR 7's record directory, relative to
+# $XDG_STATE_HOME.
 
 DECISION="$TEST_DIR/../bin/sdlc-decision"
 DECISIONS_REL=sdlc/h.example/o/r/pr7/decisions
 
+# decision_case <name>: starts a case whose evidence.txt holds "quoted
+# line" on line 2, the line record's default evidence names.
 decision_case() {
   new_case "$1"
   printf 'first line\nthe quoted line\nthird line\n' >"$CASE/evidence.txt"

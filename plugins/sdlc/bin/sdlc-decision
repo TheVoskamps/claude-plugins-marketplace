@@ -194,6 +194,14 @@ numbers() {
 
 # ---------------------------------------------------------------------------
 # print
+#
+# One block per record, then a blank line:
+#   decision <n> asked <instant> (resolved | answered <instant> | open)
+#     record: <path to record.yml>
+#     P<i> <class> recommended <id> (resolved <value> | picked <pick> | open)
+#     reply:              (once answered, then the reply indented by four)
+# sdlc-orchestrate-analysis counts the P<i> lines by field position, so
+# their field order is fixed.
 
 if [ "$mode" = print ]; then
   [ -d "$dir" ] || exit 0
