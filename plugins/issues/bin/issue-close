@@ -83,6 +83,8 @@ url=$(iss_jq .url)
 # What a close with a reason does to an issue already closed: gh changes
 # nothing on a closed issue, so one closed with another reason or duplicate
 # target is reopened first, and one closed exactly as requested is left alone.
+# The duplicate target is resolved here, before the comment is posted, so a
+# target that is no issue, or is this issue, leaves the issue untouched.
 action=close
 dup_id=
 dup_ref=
