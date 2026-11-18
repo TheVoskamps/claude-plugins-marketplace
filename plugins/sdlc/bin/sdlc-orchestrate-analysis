@@ -7,7 +7,8 @@
 # sdlc-agent-result-persist's print modes and the result-file and
 # transcript paths those modes print; the orchestrator session's
 # transcript, found from the transcript paths on the round logs' enter
-# lines; and the PR's GitHub timeline. A source that is missing is named
+# lines; the PR's GitHub timeline; and the PR's decision records, read
+# only through `sdlc-decision print`. A source that is missing is named
 # in the report, and every row it would have backed is left out.
 #
 # Read-only: nothing here writes a file or mutates anything on GitHub,
@@ -842,6 +843,44 @@ $mine
 EOF
 done
 [ -n "$any_ruling" ] || printf '\nNo ruling was read.\n'
+
+# The PR's decision records, one problem per line as `sdlc-decision
+# print` writes it: "  P<i> <class> recommended <id>" and then "resolved
+# <value>", "picked <id|none|unanswered>" or "open". A problem a ruling
+# resolved was never asked; every other one was.
+printf '\n## Decisions\n\n'
+decisions=
+if ! command -v sdlc-decision >/dev/null 2>&1; then
+  note_missing "the PR's decision records: sdlc-decision is not on PATH; no agreement report"
+elif ! decisions=$(sdlc-decision print --pr "$ref" 2>/dev/null || exit); then
+  decisions=
+  note_missing "the PR's decision records: \`sdlc-decision print --pr $ref\` failed; no agreement report"
+fi
+agreement=$(printf '%s\n' "$decisions" | awk '
+  /^  P[0-9]+ / {
+    c = $2
+    if (!(c in seen)) {seen[c] = 1; order[++n] = c}
+    if ($5 == "resolved") resolved[c]++
+    else {
+      asked[c]++
+      if ($5 == "picked" && $6 == "none") free[c]++
+      else if ($5 == "picked" && $6 == $4) same[c]++
+      else if ($5 == "picked" && $6 != "unanswered") differ[c]++
+    }
+  }
+  END {
+    for (i = 1; i <= n; i++) {
+      c = order[i]
+      printf "| %s | %d | %d | %d | %d | %d |\n", c, asked[c], resolved[c], same[c], differ[c], free[c]
+    }
+  }')
+if [ -n "$agreement" ]; then
+  printf '| Class | Asked | Resolved by a ruling | Pick equal to the recommendation | Pick that differs | Answered in free text |\n'
+  printf '| --- | --- | --- | --- | --- | --- |\n'
+  printf '%s\n' "$agreement"
+else
+  printf 'No decision record was read.\n'
+fi
 
 printf '\n## Missing sources\n\n'
 if [ -n "$missing" ]; then printf '%s' "$missing"; else printf 'None.\n'; fi

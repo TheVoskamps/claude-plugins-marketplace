@@ -63,6 +63,10 @@ merge-poll-interval-seconds: 300
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
 | `loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 | `docs-loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
+| `follow-up-issue-type` | `repo-default` \| `ask` \| a type name | `repo-default` |
+| `follow-up-issue-priority` | `repo-default` \| `ask` \| an option name | `repo-default` |
+| `follow-up-issue-status` | `repo-default` \| `ask` \| an option name | `repo-default` |
+| `follow-up-issue-assignee` | `repo-default` \| `ask` \| `@me` \| `none` \| a login | `repo-default` |
 
 - **`plan-confirm`** — whether the orchestrator waits for the human's
   confirmation of the plan before Execution. The plan is presented
@@ -124,6 +128,47 @@ merge-poll-interval-seconds: 300
   the merge stages and the ready flip, and has no effect on the code
   loop's. Its values, and what a clean end is, are `loop-end`'s,
   applied to the documentation loop.
+- **`follow-up-issue-type`**, **`follow-up-issue-priority`**,
+  **`follow-up-issue-status`**, **`follow-up-issue-assignee`** — the
+  fields a follow-up issue the human ordered is filed with, through
+  `/issue-create`, for each field the order named no value for. A field
+  the human named takes the human's value whatever its key holds.
+  - `repo-default` passes the target repository's own default
+    explicitly, so nothing is asked. For priority and status that is
+    the `(default: …)` `/issue-field-options [<repo>] <slot>` reports,
+    passed as `--priority` or `--status`; a slot reporting no default,
+    or reporting itself unconfigured, gets no flag. For the type and the
+    assignee it is the default `/issue-create` itself resolves — the
+    target's `issue-types:` default and its `default-assignee` — so the
+    flag is left off. A higher tier sets `repo-default` to cancel a
+    value a lower tier set.
+  - `ask` leaves the field to `/issue-create`'s own prompt: no flag is
+    passed. For the type and the assignee, which `/issue-create` does
+    not prompt for, the field is a question of its own before the issue
+    is filed.
+  - A type or option name is passed as `--type`, `--priority` or
+    `--status`; a login as `--assignee`. `@me` passes the authenticated
+    GitHub user's login, as `gh api user --jq .login` prints it, and
+    `none` passes `/issue-create`'s unassigned value, `--no-assignee`.
+    Any non-empty string is allowed at read time; `/issue-create`
+    refuses a name or login the target does not accept, before it files
+    anything.
+
+  The size has no key: a configured size slot gets `--size` with the
+  option `/issue-create`'s size evaluation heuristic picks from the
+  issue's body.
+
+### Standing rulings
+
+A **standing ruling** is a key named after a class of the decision
+record — a class `sdlc-decision` defines — whose values are `ask` and
+one or more named rulings. Its default is `ask` unless its row in the
+table above names a ruling. A skill passes each such key whose resolved
+value is not `ask` to every `sdlc-decision ask` call as
+`--ruling <class>=<value>`, and a record of that class is then resolved
+by the key: no question is asked, and the skill applies the ruling the
+key's description defines. `ask` puts every record of the class to the
+human.
 
 ## Reading
 
@@ -177,7 +222,8 @@ Each writer owns one tier's file and runs these steps against it.
    every allowed value and **leave unchanged**. A positive-integer key
    takes a typed value, re-asked until it is within the key's allowed
    values; `code-review-max-rounds` and `docs-review-max-rounds` offer
-   `unlimited` beside it.
+   `unlimited` beside it. A key that takes a name or a login offers its
+   fixed values and takes a typed name beside them.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and

@@ -80,8 +80,11 @@ for it, on the same terms.
 
 A follow-up issue the human asks for is filed via `/issue-create`, and
 the human is asked first when the body would be long-form and
-multi-step. Raw `gh issue create` is not a substitute: it files an
-unconfigured issue. After `/issue-create` returns, read the issue back
+multi-step. Each field the order named no value for is filed as its
+`follow-up-issue-*` key calls for, per `skills/lib/sdlc-config.md`, so
+the human is asked only for a field whose key is `ask`. Raw
+`gh issue create` is not a substitute: it files an unconfigured issue.
+After `/issue-create` returns, read the issue back
 with `/issue-view <new-N>` and confirm the type, the configured slot
 fields and the assignee are populated as repo-config requires; report
 a gap in the same reply rather than declaring the issue filed.

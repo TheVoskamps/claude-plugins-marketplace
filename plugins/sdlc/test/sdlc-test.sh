@@ -21,8 +21,12 @@
 # drives the --pr reference and its refusals, --mode list's repository
 # operand against a stub gh, and sdlc-orchestrate-analysis's resolution
 # of its PR against a stub pr-view, its reading of a fixer brief, its
-# round-type column, its generator tiers and its wording of a seed the
-# seed-review record marks. It checks
+# round-type column, its generator tiers, its wording of a seed the
+# seed-review record marks and its per-class agreement report over the
+# PR's decision records. It drives sdlc-decision's ask, answer and print:
+# each refusal ask makes, a record a ruling resolves, an unclassified one
+# no ruling resolves, and where a PR's and an issue's records are
+# stored. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
@@ -31,7 +35,8 @@
 # start above 1 or skip a number -- and sdlc-pr-post-theorem-records
 # against a stub sdlc-records-chain and a stub pr-comment.
 #
-# Needs bash, jq and the POSIX utilities. Reaches no network.
+# Needs bash, jq, yq (mikefarah v4+) and the POSIX utilities. Reaches no
+# network.
 #
 # Usage: sdlc-test.sh    (exit 0 when every case passes)
 
@@ -1214,6 +1219,233 @@ check_contains "$ERR" "--value is not accepted in --mode spawn" "seed-review: th
 new_case operand-other-mode
 "$PERSIST" --mode delete --pr 'h.example/o/r#7' h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
 check "$?" "2" "refusal: a mode other than list takes no repository operand"
+
+# --- sdlc-decision -----------------------------------------------------------
+# A record is written into the case's directory, beside a file its `file:`
+# evidence quotes; DECISIONS is PR 7's record directory.
+
+DECISION="$TEST_DIR/../bin/sdlc-decision"
+DECISIONS_REL=sdlc/h.example/o/r/pr7/decisions
+
+decision_case() {
+  new_case "$1"
+  printf 'first line\nthe quoted line\nthird line\n' >"$CASE/evidence.txt"
+}
+
+# decision <args...>: runs the script, leaving the exit status in RC,
+# stdout in OUT and stderr in ERR.
+decision() {
+  OUT=$("$DECISION" "$@" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# record <class> [<problem>] [<evidence of P1.1>] [<cost of P1.1>] [<recommendation>]:
+# writes a one-problem record to $CASE/record.yml. An argument given as
+# the empty string leaves its slot empty; `-` leaves the default.
+record() {
+  local class=$1 problem=${2--} evidence=${3--} cost=${4--} rec=${5--}
+  [ "$problem" != - ] || problem='The finding lies outside the criteria.'
+  [ "$evidence" != - ] || evidence="[{file: \"$CASE/evidence.txt:2\", quote: quoted line}]"
+  [ "$cost" != - ] || cost=none
+  [ "$rec" != - ] || rec=P1.1
+  cat >"$CASE/record.yml" <<EOF
+problems:
+  - class: $class
+    problem: "$problem"
+    options:
+      - does: Fix it in this PR.
+        evidence: $evidence
+        cost: "$cost"
+      - does: File a follow-up issue.
+        evidence:
+          - command: "touch $CASE/ran"
+            output: ""
+        cost: Read the follow-up later.
+    recommendation: "$rec"
+    why: The fix is small.
+EOF
+}
+
+decision_case decision-ask
+record design-gap
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$RC" "0" "decision ask: a sound record exits 0"
+check_contains "$OUT" "Decision 1
+
+P1 (design-gap)
+Problem: The finding lies outside the criteria.
+Options:
+  P1.1 Fix it in this PR.
+    Evidence: $CASE/evidence.txt:2: \"quoted line\"
+    Cost to you: none
+  P1.2 File a follow-up issue.
+    Evidence: \`touch $CASE/ran\`, which printed:
+      (nothing)
+    Cost to you: Read the follow-up later.
+Recommendation: P1.1
+Why: The fix is small." "decision ask: prints the problem, each option with its evidence and cost, and the pick"
+check "$([ -e "$CASE/ran" ] && echo ran || echo not-run)" "not-run" "decision ask: a command: evidence is never run"
+check "$([ -f "$XDG_STATE_HOME/$DECISIONS_REL/1/record.yml" ] && echo stored || echo none)" "stored" \
+  "decision ask: a PR's record is stored under pr<n>/decisions/"
+check "$(sed -n 2p "$XDG_STATE_HOME/$DECISIONS_REL/1/log")" "problem P1 design-gap P1.1 2" \
+  "decision ask: the log records the problem's class, recommendation and option count"
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check_contains "$OUT" "Decision 2" "decision ask: the next record takes the next number"
+
+decision_case decision-issue
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+check "$RC" "0" "decision ask --issue: exits 0"
+check "$([ -f "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/record.yml" ] && echo stored || echo none)" "stored" \
+  "decision ask --issue: an issue's record is stored under issue<n>/decisions/"
+decision ask --issue 'o/r#9' "$CASE/record.yml"
+check "$RC" "2" "decision ask --issue: a reference without its host is refused"
+check_contains "$ERR" "is not an issue reference" "decision ask --issue: the refusal names the reference"
+
+# refused <name> <slot message> <record args...>: a record ask refuses,
+# naming the slot, with nothing stored.
+refused() {
+  local name=$1 slot=$2
+  shift 2
+  decision_case "decision-refuse-$name"
+  record "$@"
+  decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+  check "$RC" "3" "decision ask: refuses $name"
+  check_contains "$ERR" "$slot" "decision ask: the refusal of $name names the slot"
+  check "$([ -e "$XDG_STATE_HOME/$DECISIONS_REL" ] && echo stored || echo none)" "none" \
+    "decision ask: a refused $name stores nothing"
+}
+refused "an empty problem statement" "P1 problem: is empty" design-gap ''
+refused "an option with no evidence" "P1.1 evidence: is missing" design-gap - '[]'
+refused "an option with no cost" "P1.1 cost: is missing" design-gap - - ''
+refused "a recommendation naming no option" "P1 recommendation: names no option of P1" design-gap - - - 'the first'
+refused "a recommendation naming two options" "P1 recommendation: names more than one option: P1.1, P1.2" \
+  design-gap - - - 'P1.1 or P1.2'
+refused "a recommendation with a condition" "P1 recommendation: is one option id with nothing attached" \
+  design-gap - - - 'P1.1 unless the cap is near'
+refused "a class outside the class list" "P1 class: is outside the class list: scope-question" scope-question
+QUOTED="$SANDBOX/decision-refuse-a quote not on the named line/evidence.txt"
+refused "a quote not on the named line" "P1.1 evidence 1 quote: is not on line 1 of $QUOTED" \
+  design-gap - "[{file: \"$QUOTED:1\", quote: quoted line}]"
+refused "a file that does not exist" "P1.1 evidence 1 file: $SANDBOX/missing.txt does not exist" \
+  design-gap - "[{file: \"$SANDBOX/missing.txt:1\", quote: x}]"
+
+decision_case decision-relative
+cat >"$CASE/record.yml" <<EOF
+problems:
+  - class: unclassified
+    problem: A relative path is read against the working tree's top level.
+    options:
+      - does: Read it.
+        evidence: {file: "plugins/sdlc/test/sdlc-test.sh:1", quote: "#!/usr/bin/env bash"}
+        cost: none
+      - does: Do not.
+        evidence: {command: "true", output: ""}
+        cost: none
+    recommendation: P1.1
+    why: It exists.
+EOF
+OUT=$(cd "$TEST_DIR" && "$DECISION" ask --pr 'h.example/o/r#7' "$CASE/record.yml" 2>&1)
+check "$?" "0" "decision ask: a relative file: path is read against the working tree's top level"
+
+decision_case decision-multi
+cat >"$CASE/record.yml" <<EOF
+problems:
+  - class: design-gap
+    problem: First.
+    options:
+      - {does: A, evidence: {command: "true", output: ""}, cost: none}
+      - {does: B, evidence: {command: "true", output: ""}, cost: none}
+      - {does: C, evidence: {command: "true", output: ""}, cost: none}
+    recommendation: P1.3
+    why: C.
+  - class: unclassified
+    problem: Second.
+    options:
+      - {does: D, evidence: {command: "true", output: ""}, cost: none}
+      - {does: E, evidence: {command: "true", output: ""}, cost: none}
+    recommendation: P2.1
+    why: D.
+EOF
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$(printf '%s\n' "$OUT" | grep -E '^  P[0-9]+\.[0-9]+ ' | awk '{print $1}' | tr '\n' ' ')" "P1.1 P1.2 P1.3 P2.1 P2.2 " \
+  "decision ask: every option of a multi-problem record gets an id of its own"
+check_contains "$OUT" "P2 (unclassified)" "decision ask: the second problem is P2"
+
+decision_case decision-resolved
+record merge-state
+decision ask --pr 'h.example/o/r#7' --ruling merge-state=rebase "$CASE/record.yml"
+check "$RC:$OUT" "0:Decision 1
+
+P1 resolved by merge-state: rebase" "decision ask: a ruled class prints resolved by <class>: <value> and no question"
+check "$(grep '^resolved ' "$XDG_STATE_HOME/$DECISIONS_REL/1/log")" "resolved P1 rebase" \
+  "decision ask: the record is stored as resolved by the ruling"
+decision ask --pr 'h.example/o/r#7' --ruling merge-state=ask "$CASE/record.yml"
+check_contains "$OUT" "Problem: " "decision ask: a ruling of ask resolves nothing"
+
+decision_case decision-unclassified
+record unclassified
+decision ask --pr 'h.example/o/r#7' --ruling unclassified=fix --ruling design-gap=fix "$CASE/record.yml"
+check "$RC" "0" "decision ask: an unclassified record with rulings exits 0"
+check_contains "$OUT" "P1 (unclassified)
+Problem: " "decision ask: an unclassified record prints the question whatever the rulings"
+check "$(printf '%s\n' "$OUT" | grep -c 'resolved by')" "0" "decision ask: an unclassified record is never resolved"
+
+decision_case decision-ruling-usage
+record design-gap
+decision ask --pr 'h.example/o/r#7' --ruling scope=fix "$CASE/record.yml"
+check "$RC" "2" "decision ask: a ruling for a class outside the class list is a usage error"
+
+decision_case decision-answer
+record design-gap
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+printf 'P1.2, but file it\nunder the docs epic.\n' >"$CASE/reply"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.3 --reply-file "$CASE/reply"
+check "$RC" "3" "decision answer: a pick that is no option of its problem is refused"
+check_contains "$ERR" "P1.3 is not an option of P1" "decision answer: the refusal names the pick"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply"
+check "$RC" "0" "decision answer: a pick of an option exits 0"
+cmp -s "$CASE/reply" "$XDG_STATE_HOME/$DECISIONS_REL/1/reply"
+check "$?" "0" "decision answer: the reply is stored verbatim"
+decision print --pr 'h.example/o/r#7'
+check_contains "$OUT" "  P1 design-gap recommended P1.1 picked P1.2
+  reply:
+    P1.2, but file it
+    under the docs epic." "decision print: shows the pick and the reply"
+check_contains "$OUT" "decision 1 asked " "decision print: names the record and when it was asked"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply"
+check "$RC" "3" "decision answer: a record already answered is refused"
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+printf 'Neither; drop it.\n' >"$CASE/reply"
+decision answer --pr 'h.example/o/r#7' --decision 2 --pick P1=none --reply-file "$CASE/reply"
+decision print --pr 'h.example/o/r#7'
+check_contains "$OUT" "  P1 design-gap recommended P1.1 picked none
+  reply:
+    Neither; drop it." "decision print: a reply in free text is stored as none, beside the reply"
+
+# The agreement report counts each class's problems from the PR's records.
+decision_case analysis-decisions
+mkdir -p "$CASE/bin"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$DECISION" >"$CASE/bin/sdlc-decision"
+link_persist "$CASE/bin"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh" "$CASE/bin/sdlc-decision"
+record design-gap
+printf 'ok\n' >"$CASE/reply"
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply"
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+decision answer --pr 'h.example/o/r#7' --decision 2 --pick P1=P1.2 --reply-file "$CASE/reply"
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+record merge-state
+decision ask --pr 'h.example/o/r#7' --ruling merge-state=rebase "$CASE/record.yml"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: a PR with decision records exits 0"
+check_contains "$OUT" "| design-gap | 3 | 0 | 1 | 1 | 0 |" \
+  "analysis: per class, the questions asked, the resolved, and the picks equal to and differing from the recommendation"
+check_contains "$OUT" "| merge-state | 0 | 1 | 0 | 0 | 0 |" "analysis: a record a ruling resolved counts as resolved, not asked"
 
 # --- unhandled failures in the persist and analysis scripts ---------------
 # A command a script does not handle exits through the script's own

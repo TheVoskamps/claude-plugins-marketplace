@@ -1,0 +1,438 @@
+#!/usr/bin/env bash
+#
+# sdlc-decision -- the one route by which an sdlc skill puts a decision
+# to the human. `ask` checks a decision record, stores it and prints the
+# question; `answer` stores the human's reply against it; `print` lists
+# the records of one PR or one issue. Runs under the bash 3.2 macOS ships.
+#
+# Usage:
+#   sdlc-decision ask    (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]... <record-file>
+#   sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> [--pick <P>=<option-id|none>]...
+#                        --reply-file <path>
+#   sdlc-decision print  (--pr <ref> | --issue <ref>)
+#
+# <ref> is <host>/<owner>/<repo>#<n>. A PR's records are stored under
+# ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<n>/decisions/,
+# an issue's under .../issue<n>/decisions/, one directory per record,
+# numbered from 1 in the order they were asked.
+#
+# The record file is YAML, one document holding a `problems:` list. Each
+# problem carries `class`, `problem`, `options`, `recommendation` and
+# `why`; each option carries `does`, `evidence` and `cost`; each piece of
+# evidence is `file: <path>:<line>` with `quote:`, the text found on that
+# line, or `command: <command>` with `output:`. A relative evidence path
+# is read against the top level of the working tree the script runs in.
+# `ask` never runs a `command:` evidence: it checks only that the command
+# and its output are present.
+#
+# Problems are numbered P1, P2, … in record order, and each problem's
+# options P<i>.1, P<i>.2, …, so every option of a record has an id no
+# other option in it shares. A record is everything one turn puts to the
+# human. A problem whose class has a `--ruling` is resolved by it and
+# printed as `P<i> resolved by <class>: <value>`, with no question; an
+# `unclassified` problem is never resolved by a ruling, and a ruling
+# whose value is `ask` resolves nothing.
+#
+# Each record's directory holds record.yml, the record as given; log,
+# whose lines are
+#   asked <instant>
+#   problem P<i> <class> <recommendation> <option count>
+#   resolved P<i> <value>
+#   answered <instant>
+#   pick P<i> <option id | none | unanswered>
+# and, once answered, reply, the human's reply verbatim.
+#
+# Exit statuses:
+#   0  the script did what it says
+#   1  a command the script ran failed
+#   2  a usage error; nothing was stored
+#   3  the record, or the answer, was refused; stderr names each failing
+#      slot, one per line, and nothing was stored
+set -uo pipefail
+# For the failure exits and the reference parser.
+# shellcheck source-path=SCRIPTDIR source=lib/sdlc-pr-common.sh
+. "${BASH_SOURCE[0]%/*}/lib/sdlc-pr-common.sh"
+
+# The closed class list. A record's class is one of these, and no other
+# file restates the list.
+readonly CLASSES='outside-criteria-finding recurring-finding-class loop-cap-reached merge-state rebase-conflict design-gap unclassified'
+
+usage() {
+  cat <<EOF
+usage: $SP_PROGRAM ask    (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]... <record-file>
+       $SP_PROGRAM answer (--pr <ref> | --issue <ref>) --decision <n> [--pick <P>=<option-id|none>]... --reply-file <path>
+       $SP_PROGRAM print  (--pr <ref> | --issue <ref>)
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  ask | answer | print) mode=$1 ;;
+  '') sp_usage_error "No mode was supplied." ;;
+  *) sp_usage_error "\`$1\` is not a mode $SP_PROGRAM takes." ;;
+esac
+shift
+
+command -v jq >/dev/null 2>&1 || sp_fail 1 "jq is required and is not on PATH"
+readonly NL='
+'
+
+pr_ref=
+issue_ref=
+decision=
+reply_file=
+record_file=
+rulings='{}'
+picks=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pr | --issue | --ruling | --decision | --pick | --reply-file)
+      [ "$#" -ge 2 ] || sp_usage_error "$1 needs a value."
+      ;;
+  esac
+  case "$1" in
+    --pr) pr_ref=$2 ;;
+    --issue) issue_ref=$2 ;;
+    --decision) decision=$2 ;;
+    --reply-file) reply_file=$2 ;;
+    --ruling)
+      class=${2%%=*}
+      value=${2#*=}
+      case "$2" in
+        *=*) ;;
+        *) sp_usage_error "--ruling takes <class>=<value>: $2" ;;
+      esac
+      case " $CLASSES " in
+        *" $class "*) ;;
+        *) sp_usage_error "--ruling names a class outside the class list: $class" ;;
+      esac
+      case "$value" in
+        '' | *[!a-z0-9-]* | -*) sp_usage_error "--ruling takes a kebab-case value: $2" ;;
+      esac
+      prior=$(printf '%s' "$rulings" | jq -r --arg c "$class" '.[$c] // empty')
+      [ -z "$prior" ] || [ "$prior" = "$value" ] ||
+        sp_usage_error "--ruling gives $class two values: $prior and $value"
+      rulings=$(printf '%s' "$rulings" | jq -c --arg c "$class" --arg v "$value" '.[$c] = $v')
+      ;;
+    --pick)
+      case "$2" in
+        P[1-9]*=?*) ;;
+        *) sp_usage_error "--pick takes <P>=<option-id|none>: $2" ;;
+      esac
+      picks="$picks$2$NL"
+      ;;
+    -*) sp_usage_error "\`$1\` is not a flag $SP_PROGRAM takes." ;;
+    *)
+      [ -z "$record_file" ] || sp_usage_error "$SP_PROGRAM takes at most one record file."
+      record_file=$1
+      shift
+      continue
+      ;;
+  esac
+  shift 2
+done
+
+# Each flag belongs to the modes that read it.
+[ "$mode" = ask ] || [ "$rulings" = '{}' ] || sp_usage_error "--ruling is accepted only by ask."
+[ "$mode" = ask ] || [ -z "$record_file" ] || sp_usage_error "$mode takes no record file: $record_file"
+[ "$mode" = answer ] || [ -z "$decision$picks$reply_file" ] ||
+  sp_usage_error "--decision, --pick and --reply-file are accepted only by answer."
+[ "$mode" != ask ] || [ -n "$record_file" ] || sp_usage_error "ask needs a record file."
+if [ "$mode" = answer ]; then
+  case "$decision" in
+    '' | 0* | *[!0-9]*) sp_usage_error "answer needs --decision <n>, a positive number: $decision" ;;
+  esac
+  [ -n "$reply_file" ] || sp_usage_error "answer needs --reply-file <path>."
+fi
+
+# The record set is a PR's or an issue's, named by its canonical
+# reference; sp_parse_pr checks the shape of either.
+if [ -n "$pr_ref" ] && [ -n "$issue_ref" ]; then
+  sp_usage_error "Pass --pr or --issue, not both."
+elif [ -n "$pr_ref" ]; then
+  sp_parse_pr "$pr_ref"
+  subject="pr$SP_PR"
+elif [ -n "$issue_ref" ]; then
+  (sp_parse_pr "$issue_ref") 2>/dev/null ||
+    sp_usage_error "\`$issue_ref\` is not an issue reference. Pass <host>/<owner>/<repo>#<n>."
+  sp_parse_pr "$issue_ref"
+  subject="issue$SP_PR"
+else
+  sp_usage_error "Pass --pr <ref> or --issue <ref>."
+fi
+
+readonly dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$SP_REPO/$subject/decisions"
+
+now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+# refuse <lines> -- the exit-3 failure: one stderr line per failing slot.
+refuse() {
+  printf '%s\n' "$1" | while IFS= read -r line; do
+    printf '%s: %s\n' "$SP_PROGRAM" "$line" >&2
+  done
+  exit 3
+}
+
+# put <path> <text> -- write <text> to <path> whole, through a partial
+# file renamed into place, so a reader never sees half of it.
+put() {
+  printf '%s' "$2" >"$1.partial-$$"
+  mv -- "$1.partial-$$" "$1"
+}
+
+# numbers -- the record numbers stored so far, ascending.
+numbers() {
+  for at in "$dir"/*; do
+    if [ -d "$at" ]; then printf '%s\n' "${at##*/}"; fi
+  done | awk '/^[1-9][0-9]*$/' | sort -n
+}
+
+# ---------------------------------------------------------------------------
+# print
+
+if [ "$mode" = print ]; then
+  [ -d "$dir" ] || exit 0
+  numbers | while IFS= read -r n; do
+    [ -f "$dir/$n/log" ] || continue
+    awk -v n="$n" -v record="$dir/$n/record.yml" '
+      $1 == "asked" {asked = $2}
+      $1 == "answered" {answered = $2}
+      $1 == "problem" {np++; id[np] = $2; class[$2] = $3; rec[$2] = $4}
+      $1 == "resolved" {res[$2] = $3}
+      $1 == "pick" {pick[$2] = $3}
+      END {
+        open = 0
+        for (i = 1; i <= np; i++) if (!(id[i] in res)) open++
+        state = (open == 0) ? "resolved" : (answered != "") ? ("answered " answered) : "open"
+        print "decision " n " asked " asked " " state
+        print "  record: " record
+        for (i = 1; i <= np; i++) {
+          p = id[i]
+          out = "  " p " " class[p] " recommended " rec[p]
+          if (p in res) out = out " resolved " res[p]
+          else if (p in pick) out = out " picked " pick[p]
+          else out = out " open"
+          print out
+        }
+      }' "$dir/$n/log"
+    if [ -f "$dir/$n/reply" ]; then
+      printf '  reply:\n'
+      awk '{print "    " $0}' "$dir/$n/reply"
+    fi
+    printf '\n'
+  done
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# answer
+
+if [ "$mode" = answer ]; then
+  at="$dir/$decision"
+  [ -f "$at/log" ] || refuse "decision $decision: no such record for $SP_REF"
+  log=$(cat "$at/log")
+  [ -f "$reply_file" ] || refuse "--reply-file: not a readable file: $reply_file"
+  # The problems still open, one "<P> <option count>" line each.
+  open=$(printf '%s\n' "$log" | awk '
+    $1 == "problem" {np++; id[np] = $2; count[$2] = $5}
+    $1 == "resolved" {res[$2] = 1}
+    END {for (i = 1; i <= np; i++) if (!(id[i] in res)) print id[i] " " count[id[i]]}')
+  errors=
+  if printf '%s\n' "$log" | grep -q '^answered '; then
+    errors="decision $decision: is already answered"
+  elif [ -z "$open" ]; then
+    errors="decision $decision: every problem was resolved by a ruling, so there is nothing to answer"
+  fi
+  bad=$(printf '%s' "$picks" | awk -v open="$open" '
+    BEGIN {
+      n = split(open, l, "\n")
+      for (i = 1; i <= n; i++) {split(l[i], f, " "); count[f[1]] = f[2]}
+    }
+    {
+      p = substr($0, 1, index($0, "=") - 1); v = substr($0, index($0, "=") + 1)
+      if (!(p in count)) {print "--pick " $0 ": " p " is not an open problem of this record"; next}
+      if (p in seen) {print "--pick " $0 ": " p " is picked twice"; next}
+      seen[p] = 1
+      if (v == "none") next
+      j = substr(v, length(p) + 2)
+      if (substr(v, 1, length(p) + 1) != p "." || j !~ /^[1-9][0-9]*$/ || j + 0 > count[p] + 0)
+        print "--pick " $0 ": " v " is not an option of " p
+    }')
+  errors="$errors${errors:+${bad:+$NL}}$bad"
+  [ -z "$errors" ] || refuse "$errors"
+  # A problem the reply did not pick an option for is recorded as
+  # unanswered, so it can be asked again in a record of its own.
+  stamp=$(now)
+  lines="answered $stamp$NL"
+  while read -r p _; do
+    got=$(printf '%s' "$picks" | awk -F= -v p="$p" '$1 == p {print $2}')
+    lines="${lines}pick $p ${got:-unanswered}$NL"
+  done <<EOF
+$open
+EOF
+  cp -- "$reply_file" "$at/reply.partial-$$"
+  mv -- "$at/reply.partial-$$" "$at/reply"
+  put "$at/log" "$log$NL$lines"
+  printf 'decision %s answered %s\n' "$decision" "$stamp"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# ask
+
+command -v yq >/dev/null 2>&1 || sp_fail 1 "yq (mikefarah v4+) is required and is not on PATH"
+yq --version 2>/dev/null | grep -qiE 'mikefarah|version v?4' ||
+  sp_fail 1 "yq is on PATH but is not the mikefarah v4+ build"
+[ -f "$record_file" ] || sp_usage_error "the record file is not a readable file: $record_file"
+
+docs=$(yq ea -o=json -I=0 '[.]' "$record_file" 2>/dev/null || exit) ||
+  refuse "the record file is not YAML: $record_file"
+
+# The record's own checks, one line per failing slot, every failure
+# reported rather than the first. A scalar slot holds text when it is a
+# string, a number or a boolean; a block scalar's trailing newlines are
+# not part of its text.
+read -r -d '' CHECK_JQ <<'EOF' || true
+def text: if type == "string" then sub("\n+$"; "") elif type == "number" or type == "boolean" then tostring else null end;
+def blank: (text // "") | test("^\\s*$");
+def items: if type == "array" then . elif . == null then [] else [.] end;
+if length != 1 then "record: holds \(length) YAML documents, not one"
+elif (.[0] | type) != "object" or ((.[0].problems | type) != "array") or (.[0].problems | length) == 0
+then "problems: is missing or holds no problem"
+else .[0].problems | to_entries[] | ("P\(.key + 1)") as $p | .value as $q
+  | if ($q | type) != "object" then "\($p): is not a mapping"
+    else ($q.options | items) as $opts | ($opts | length) as $n
+      | (if ($q.class | text) == null then "\($p) class: is missing"
+         elif ($classes | index($q.class | text)) == null then "\($p) class: is outside the class list: \($q.class | text)"
+         else empty end),
+        (if ($q.problem | blank) then "\($p) problem: is empty" else empty end),
+        (if ($q.why | blank) then "\($p) why: is empty" else empty end),
+        (if $n < 2 or $n > 4 then "\($p) options: holds \($n) options, not two to four" else empty end),
+        ($opts | to_entries[] | "\($p).\(.key + 1)" as $o | .value as $x
+         | if ($x | type) != "object" then "\($o): is not a mapping"
+           else
+             (if ($x.does | blank) then "\($o) does: is empty" else empty end),
+             (if ($x.cost | blank) then "\($o) cost: is missing; write none when the option costs the human nothing" else empty end),
+             (if ($x.evidence | items | length) == 0 then "\($o) evidence: is missing" else empty end),
+             ($x.evidence | items | to_entries[] | "\($o) evidence \(.key + 1)" as $e | .value as $v
+              | if ($v | type) != "object" then "\($e): is not a mapping"
+                elif ($v.file != null) == ($v.command != null) then "\($e): needs exactly one of file: and command:"
+                elif $v.file != null then
+                  (if (($v.file | text) // "" | test("^.+:[1-9][0-9]*$")) | not then "\($e) file: is not <path>:<line>: \($v.file | text)" else empty end),
+                  (if ($v.quote | blank) then "\($e) quote: is empty" else empty end)
+                else
+                  (if ($v.command | blank) then "\($e) command: is empty" else empty end),
+                  (if $v.output == null then "\($e) output: is missing" elif ($v.output | text) == null then "\($e) output: is not text" else empty end)
+                end)
+           end),
+        (($q.recommendation | text) as $r
+         | [range(1; $n + 1) | "\($p).\(.)"] as $ids
+         | [($r // "") | scan("P[0-9]+\\.[0-9]+") | select(. as $i | $ids | index($i))] | unique as $named
+         | if ($named | length) == 0 then "\($p) recommendation: names no option of \($p)"
+           elif ($named | length) > 1 then "\($p) recommendation: names more than one option: \($named | join(", "))"
+           elif $r != $named[0] then "\($p) recommendation: is one option id with nothing attached, not: \($r)"
+           else empty end)
+    end
+end
+EOF
+
+errors=$(printf '%s' "$docs" | jq -r --argjson classes "$(printf '%s' "$CLASSES" | jq -R -c 'split(" ")')" "$CHECK_JQ")
+
+# A `file:` evidence names a file that exists, and its quote is on the
+# named line. Checked only once the record's shape holds.
+if [ -z "$errors" ]; then
+  root=$(git rev-parse --show-toplevel 2>/dev/null || exit) || root=$PWD
+  evidence=$(printf '%s' "$docs" | jq -r '
+    def text: if type == "string" then sub("\n+$"; "") else tostring end;
+    .[0].problems | to_entries[] | "P\(.key + 1)" as $p
+    | .value.options | (if type == "array" then . else [.] end) | to_entries[] | "\($p).\(.key + 1)" as $o
+    | .value.evidence | (if type == "array" then . else [.] end) | to_entries[]
+    | select(.value.file != null)
+    | [$o + " evidence \(.key + 1)", (.value.file | text), (.value.quote | text)] | @json')
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    slot=$(printf '%s' "$item" | jq -r '.[0]')
+    named=$(printf '%s' "$item" | jq -r '.[1]')
+    quote=$(printf '%s' "$item" | jq -r '.[2]')
+    path=${named%:*}
+    line=${named##*:}
+    case "$path" in
+      /*) at=$path ;;
+      *) at=$root/$path ;;
+    esac
+    if [ ! -f "$at" ]; then
+      errors="$errors${errors:+$NL}$slot file: $path does not exist"
+      continue
+    fi
+    if ! text=$(awk -v n="$line" 'NR == n {sub(/\r$/, ""); print; found = 1; exit} END {exit !found}' "$at" || exit); then
+      errors="$errors${errors:+$NL}$slot file: $path has no line $line"
+      continue
+    fi
+    case "$text" in
+      *"$quote"*) ;;
+      *) errors="$errors${errors:+$NL}$slot quote: is not on line $line of $path" ;;
+    esac
+  done <<EOF
+$evidence
+EOF
+fi
+
+[ -z "$errors" ] || refuse "$errors"
+
+# The record is sound: number it, store it, then print it.
+mkdir -p "$dir"
+n=$(numbers | awk '{m = $0 + 0} END {print m + 1}')
+# mkdir claims the number, so two concurrent asks never share one.
+until mkdir "$dir/$n" 2>/dev/null; do
+  [ -e "$dir/$n" ] || sp_fail 1 "cannot create $dir/$n"
+  n=$((n + 1))
+done
+
+stamp=$(now)
+log=$(printf '%s' "$docs" | jq -r --arg at "$stamp" --argjson rulings "$rulings" '
+  def text: if type == "string" then sub("\n+$"; "") else tostring end;
+  "asked \($at)",
+  (.[0].problems | to_entries[] | "P\(.key + 1)" as $p | .value as $q
+   | "problem \($p) \($q.class | text) \($q.recommendation | text) \($q.options | if type == "array" then length else 1 end)",
+     (($q.class | text) as $c | if $c != "unclassified" and ($rulings[$c] // "ask") != "ask"
+      then "resolved \($p) \($rulings[$c])" else empty end))')
+cp -- "$record_file" "$dir/$n/record.yml.partial-$$"
+mv -- "$dir/$n/record.yml.partial-$$" "$dir/$n/record.yml"
+put "$dir/$n/log" "$log
+"
+
+printf '%s' "$docs" | jq -r --arg n "$n" --argjson rulings "$rulings" '
+  def text: if type == "string" then sub("\n+$"; "") else tostring end;
+  def items: if type == "array" then . else [.] end;
+  def hang($pad): split("\n") | .[0] + (.[1:] | map("\n" + $pad + .) | join(""));
+  def block($pad): split("\n") | map($pad + .) | join("\n");
+  [.[0].problems | to_entries[] | "P\(.key + 1)" as $p | .value as $q | ($q.class | text) as $c
+   | if $c != "unclassified" and ($rulings[$c] // "ask") != "ask" then
+       {asks: false, text: "\($p) resolved by \($c): \($rulings[$c])"}
+     else
+       {asks: true, text: ([
+         "\($p) (\($c))",
+         "Problem: " + ($q.problem | text | hang("  ")),
+         "Options:",
+         ($q.options | items | to_entries[] | "\($p).\(.key + 1)" as $o | .value
+          | "  \($o) " + (.does | text | hang("    ")),
+            (.evidence | items[]
+             | if .file != null then "    Evidence: \(.file | text): \"\(.quote | text)\""
+               else "    Evidence: `\(.command | text)`, which printed:",
+                 (if (.output | text) == "" then "      (nothing)" else (.output | text | block("      ")) end)
+               end),
+            "    Cost to you: " + (.cost | text | hang("      "))),
+         "Recommendation: \($q.recommendation | text)",
+         "Why: " + ($q.why | text | hang("  "))
+       ] | join("\n"))}
+     end] as $parts
+  | "Decision \($n)",
+    ($parts[] | "", .text),
+    (if any($parts[]; .asks) then
+       "", "Reply with one option id per problem, such as P1.1, or answer in your own words."
+     else empty end)'

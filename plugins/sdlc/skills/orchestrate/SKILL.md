@@ -387,13 +387,29 @@ rule means for one.
   One no review filed, when no fixer round follows, goes into the
   round's report and into the scope notes you hand `pr-finalizer`. One
   the repo leaves open is put to the human while the PR is still open,
-  with the consequence of each option stated in the question.
+  as a decision of class `outside-criteria-finding`, with the
+  consequence of each option stated in it.
   An option that would make the PR depart from an issue's text carries
-  the issue edit inside the same option. Label the options yourself,
-  outside any quoted block, and never ask the human to answer by a
-  label that exists only inside one. An observation no review filed
+  the issue edit inside the same option. An observation no review filed
   never travels to the final report, and no observation becomes a
   follow-up issue on your initiative.
+
+### Putting a decision to the human
+
+You put a decision to the human — any question that asks the human to
+choose, anywhere in the run, a plan's decision item included — only by
+printing what `sdlc-decision ask` printed for it. Read
+`skills/lib/decision-record.md` the first time a turn raises one, and
+put every decision through it. Two prompts are not decisions and keep
+their own shapes, because each asks for a ruling on a whole artifact
+shown above it: the plan's confirmation prompt, and the per-theorem
+rulings on the seed list under `seed-review: ask`.
+
+Key a record on `--pr <PR_REF>`, or, before the batch's PR exists, on
+the batch's first member as `--issue <host>/<owner>/<repo>#<N>`. The
+primary clone holds the default branch, so a line on the PR branch is a
+`command:` evidence: `git show <branch>:<path>` and the lines it
+printed. A ruling the script resolved goes into the round's report.
 
 ### A batch with no code to implement skips the code loop
 
@@ -881,11 +897,9 @@ as such goes to the human.
    human is not asked. The line ends `— in scope: <the sentence that
    settles it>` when that sentence calls for the fix, and `— settled,
    no fix: <that sentence>` when it settles the finding with no fix.
-   An option that would make
-   the PR depart from an issue's text carries the issue edit inside the
-   same option. Label the options yourself, outside any quoted block,
-   and never ask the human to answer by a label that exists only
-   inside one.
+   One the repo leaves open is a decision of class `design-gap`. An
+   option that would make the PR depart from an issue's text carries the
+   issue edit inside the same option.
 2. **Post the fix instructions as a PR comment**, then spawn an
    `issue-fixer` with the PR reference and nothing else.
 
@@ -1135,13 +1149,12 @@ When a teammate escalates:
    your ruling, quoting
    the sentence that settles it, and the human is not asked. Otherwise
    relay the teammate's report to the human whole and unaltered, and
-   follow it with a separate section of your own: what you checked,
-   which of the teammate's options survive the check, any option the
-   teammate missed, and your recommendation. An option that would make
-   the PR depart from an issue's text carries the issue edit inside the
-   same option. Label the options yourself, in your own section, and
-   never ask the human to answer by a label that exists only inside
-   the relayed report.
+   follow it with the decision: what you checked is its evidence, the
+   teammate's options that survive the check and any it missed are its
+   options, and your pick is its recommendation. An option that would
+   make the PR depart from an issue's text carries the issue edit inside
+   the same option. The human answers by the decision's option ids,
+   never by a label that exists only inside the relayed report.
 2. Wait for direction, unless your ruling settled the question.
 3. If the human's direction is "retry," or your ruling settled the
    question, re-dispatch a fresh subagent rather than resuming the

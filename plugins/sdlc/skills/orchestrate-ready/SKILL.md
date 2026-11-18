@@ -38,6 +38,25 @@ proceeding. If it names more than one, ask the user which single issue
 to groom — grooming is a conversation per issue, and interleaving two
 of them loses track of which decision belongs to which.
 
+## Resolve the sdlc config first
+
+Before step 1 below, read `skills/lib/sdlc-config.md` and resolve its
+three tiers per its "Reading" section, once. An abort it calls for
+stops the run before the issue is read. Print every key's resolved
+value beside the tier it came from, one `<key>: <value> (<tier>)` line
+per key, under an `sdlc config:` line. Throughout the rest of the run,
+each key's name means its resolved value.
+
+## Putting a decision to the user
+
+You put a decision to the user only by printing what
+`sdlc-decision ask` printed for it. Read `skills/lib/decision-record.md`
+the first time a turn raises one, and put every decision through it,
+keyed on the issue as `--issue <host>/<owner>/<repo>#<N>`, the
+reference read off the URL `/issue-view` prints. An open design
+question is class `design-gap`. A yes to one action you named — filing
+a side-effect issue — is an approval, not a decision.
+
 ## Procedure
 
 1. **Fetch the issue.**
@@ -66,9 +85,14 @@ of them loses track of which decision belongs to which.
    Do not present a multiple-choice form for an open design question:
    a form caps the answer space at what you thought of and assumes
    your framing is right, which is exactly what is in question here.
-   Ask one plain question, reflect back what you hear in the user's
-   own words, and move to the next topic once it is settled. Your
-   proposed defaults are proposals; the user decides.
+   The named exception is the decision record: a grooming question is
+   printed through `sdlc-decision ask` with numbered options, because
+   the record is what makes the reply mappable and countable. The user
+   may still answer in free text, which `sdlc-decision answer` stores as
+   the pick `none` beside the reply verbatim. Ask about one topic at a
+   time, reflect back what you hear in the user's own words, and move to
+   the next topic once it is settled. Your proposed defaults are
+   proposals; the user decides.
 
    **The acceptance sections are a gap like any other.** When the
    body has none, derive candidate criteria from the design prose —
@@ -157,7 +181,10 @@ of them loses track of which decision belongs to which.
    Where the discussion establishes work that belongs in another repo,
    name it, show the user the title and body you would file, and file
    it only after they say yes to that specific issue. One yes covers
-   one issue; it does not carry to the next.
+   one issue; it does not carry to the next. Each field the user named
+   no value for is filed as its `follow-up-issue-*` key calls for, per
+   `skills/lib/sdlc-config.md`, so the user is asked only for a field
+   whose key is `ask`.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.
    - **In another repo** →

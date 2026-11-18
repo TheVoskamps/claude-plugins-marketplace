@@ -62,6 +62,10 @@ sdlc config:
   docs-review-max-rounds: unlimited (shared repo)
   loop-end: ask (global user)
   docs-loop-end: auto-when-clean (default)
+  follow-up-issue-type: repo-default (default)
+  follow-up-issue-priority: ask (shared repo)
+  follow-up-issue-status: repo-default (default)
+  follow-up-issue-assignee: none (repo user)
 ```
 
 A value resolved from a deprecated alias prints as the value it stands
