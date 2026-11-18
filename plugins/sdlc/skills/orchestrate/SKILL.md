@@ -1370,7 +1370,8 @@ would then rewrite. A monitor loop that never ends holds the queue;
 that is what its poll bound and the question it asks are for.
 
 If the human ends the loop without blessing a PR (e.g. it lands in
-"Needs Your Attention"), leave that PR draft and its issues In
+"Needs Your Attention", or under "Left Draft" on a pick at its loop's
+end), leave that PR draft and its issues In
 Progress, and run none of these stages for it: the loop has not ended,
 so the body stays frozen for whatever round comes next.
 

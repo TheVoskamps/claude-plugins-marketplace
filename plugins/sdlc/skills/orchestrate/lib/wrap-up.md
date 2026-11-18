@@ -39,6 +39,11 @@ post-merge tail has run, deliver a summary:
 |-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
 | E | <link-prefix>107 | <PR4> | Approved | 1 code, 1 documentation | 0 | 0 | none |
 
+### Left Draft
+| Batch | Issues | PR | Review Verdict | Review Rounds | Human's Pick |
+|-------|--------|----|-----------------|---------------|--------------|
+| C | <link-prefix>102 | <PR3> | Needs changes (medium on 102) | 10 code | stop at the code loop's round cap |
+
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
@@ -60,12 +65,18 @@ Under `merge-wait: skip`, every PR the run flipped ready goes under
 unmerged, and nothing is watching it. Leave that table out when it has
 no rows.
 
+A PR whose loop end the human put to a decision and did not advance —
+any pick but starting the next stage, which leaves the PR draft — goes
+under **Left Draft**, its `Human's Pick` cell naming the pick as the
+reply gave it. Leave that table out when it has no rows too.
+
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop
 already had a chance to act on does not qualify — the loop was where
 it was cheap to settle, and holding it to the end spends the human's
 turn on work that was yours. Nor does a finding still open at a loop's
-round cap: the human already ruled on it, as that loop end's decision.
+round cap: the human already ruled on it, as that loop end's decision,
+and a PR that ruling left draft is listed under **Left Draft**.
 The summary lists no Low finding, and asks nothing about one.
 Escalations, a discrepancy your re-read could not settle, a PR closed
 without merging, a monitor loop the human declined to keep waiting on,

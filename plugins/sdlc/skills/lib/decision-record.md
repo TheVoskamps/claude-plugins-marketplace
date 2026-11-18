@@ -28,11 +28,19 @@ it printed that the option rests on as its `output:`.
 `ask` refuses a problem with fewer than two options or more than four.
 When a problem's options come from a list — the values a field
 accepts, the issues an invocation named, the board options that could
-stand in for a status — and the list has one entry, add an option that
-skips the question and leaves things as they are. When it has more
-than four, offer the three you rank first and an option to name
-another, which the reply then names in its own words. A list with no
-entry offers nothing to choose, so it is not put to the human.
+stand in for a status — fit them so:
+
+- **A decision the human can decline** carries an option that skips
+  the question and leaves things as they are, whatever the list's
+  length: beside every entry when the list has three or fewer, and
+  beside the three you rank first when it is longer.
+- **Any other decision** offers every entry when the list has four or
+  fewer, and otherwise the three you rank first and an option to name
+  another, which the reply then names in its own words.
+
+A list with no entry offers nothing to choose, so it is not put to the
+human, and neither is a list of one for a decision the human cannot
+decline.
 
 ## Ask through `sdlc-decision ask`
 
