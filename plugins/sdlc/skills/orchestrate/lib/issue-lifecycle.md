@@ -66,8 +66,10 @@ board has a status slot that **lacks** a matching option — i.e.
 error — catch that abort and put it to the human as a decision, as the
 skill's "Putting a decision to the human" says: one option for each of
 the board's status options, at most three, that could stand in for it,
-and one that skips the transition for this run. Never let that abort
-fail the whole run.
+and one that skips the transition for this run. When none of the
+board's options could stand in for it, there is nothing to choose:
+skip the transition and warn as for an unconfigured slot. Never let
+that abort fail the whole run.
 
 ## The `/issue-*` namespace
 
@@ -80,10 +82,16 @@ the read-only `git` planning commands — raw `gh` and `git` stay the
 tool. A PR call goes through the `/github-prs:*` skill that has a verb
 for it, on the same terms.
 
-A follow-up issue the human asks for is filed via `/issue-create`, and
-the human is asked first when the body would be long-form and
-multi-step. Each field the order named no value for is filed as its
-`follow-up-issue-*` key calls for, per `skills/lib/sdlc-config.md`. Raw
+A follow-up issue the human asks for is filed via `/issue-create`.
+When the body would be long-form and multi-step, draft it to a
+scratchpad file first and put it to the human as a decision, as the
+skill's "Putting a decision to the human" says, citing the draft as
+its evidence, with filing it as drafted and revising it first among its
+options. Each field the order named no value for is filed as its
+`follow-up-issue-*` key calls for, per `skills/lib/sdlc-config.md`. A
+field that file makes a question of its own is put to the human the
+same way, as a problem of the body's decision when there is one, with
+values the target accepts for the field as its options. Raw
 `gh issue create` is not a substitute: it files an unconfigured issue.
 After `/issue-create` returns, read the issue back
 with `/issue-view <new-N>` and confirm the type, the configured slot

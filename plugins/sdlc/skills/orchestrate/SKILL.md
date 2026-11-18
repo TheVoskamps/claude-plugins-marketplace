@@ -359,7 +359,8 @@ rule means for one.
   thin, judge them, and decide whatever the repo settles, the issue
   body included — then report the decision, the reasoning behind
   it, and the disagreement it resolved. What the repo leaves open is
-  the human's, and reaches the human with your analysis beside it.
+  the human's, and reaches the human as a decision, per "Putting a
+  decision to the human", with your analysis as its evidence.
   Handing the human an ambiguity you could have settled, or one you
   have not analysed, as a status update is abdication dressed as
   transparency.
@@ -404,13 +405,16 @@ printing what `sdlc-decision ask` printed for it. Read
 put every decision through it. Two prompts are not decisions and keep
 their own shapes, because each asks for a ruling on a whole artifact
 shown above it: the plan's confirmation prompt, and the per-theorem
-rulings on the seed list under `seed-review: ask`.
+rulings on the seed list under `seed-review: ask`. Asking for the issue
+numbers an invocation left out is not one either: it offers nothing to
+choose between, and no issue exists yet to key a record on.
 
 Key a record on `--pr <PR_REF>`, or, before the batch's PR exists, on
 the batch's first member as `--issue <host>/<owner>/<repo>#<N>`. The
-primary clone holds the default branch, so a line on the PR branch is a
-`command:` evidence: `git show <branch>:<path>` and the lines it
-printed.
+primary clone holds the default branch, so a line on the PR branch is
+text no file there holds, cited as the decision-record file says. A
+decision a standing ruling resolved goes into the scope notes you hand
+`pr-finalizer`, per `skills/orchestrate/lib/pr-lifecycle.md`.
 
 ### A batch with no code to implement skips the code loop
 
@@ -637,9 +641,10 @@ authored review content, per "Your own boundary".
 Then read the developer's `Scope:` block, before the first review
 round. It has exactly two triggers: a plugin the issues' titles and
 bodies do not name, and a rename or deletion the issues do not
-specify. Either goes to the human now, with pulling it out of the PR
-stated as one of the options; the question ends your turn, and nothing
-else is spawned for the PR until it is answered.
+specify. Either is a decision now, per "Putting a decision to the
+human", with keeping it in the PR and pulling it out of the PR among
+its options; the decision ends your turn, and nothing else is spawned
+for the PR until it is answered.
 
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
@@ -697,10 +702,11 @@ Pause on any other finding only when its rule cannot settle it:
 - it comes back after a style-fix round on this PR addressed it — the
   same rule, at the same place in the same file.
 
-A paused finding goes to the human as `style-checker` reported it — its
-quoted rule and offending lines — with the condition that paused it,
-and the human rules fix or ignore. Only the paused findings go to the
-human, and the question ends your turn.
+A paused finding is a decision, per "Putting a decision to the human",
+one problem per finding: its problem is the finding as `style-checker`
+reported it — its quoted rule and offending lines — with the condition
+that paused it, and its options are fix and ignore. Only the paused
+findings go to the human, and the decision ends your turn.
 
 Post one fixer brief on the PR — at once when nothing paused, after
 the human's answer otherwise — in the shape "Handling review
@@ -865,10 +871,11 @@ first such return, quoting the reviewer's line verbatim. A re-spawn to
 resume is **not a new round** against `code-review-max-rounds` — count it
 in the round's report instead — and after two on one PR, raise it as a
 **Needs Your Attention** row rather than re-spawning again. A review
-the PR carries under an in-progress line is the human's to rule on —
+the PR carries under an in-progress line is the human's to rule on, as
+a decision per "Putting a decision to the human" whose options are that
 the round stands, its verdict and findings read per "Reading a round's
-detail", or the reviewer is re-spawned and the new round supersedes
-it — and nothing spawns until they do.
+detail", and that the reviewer is re-spawned and the new round
+supersedes it; nothing spawns until they pick.
 
 **A finding a review filed that the repo settles with a fix is listed
 with the sentence that settles it** as your ruling, wherever you list
@@ -1077,7 +1084,8 @@ already ran a brief covering the class and the class recurred after
 it: then pass none, so the record is put to the human. A record the
 ruling resolved goes on the next fixer brief as an owner ruling naming
 the class — its theorem or its file — and both rounds' finding ids,
-which `issue-fixer` applies to every instance of the class at head,
+which the loop's implementer — `issue-fixer`, or `docs-writer` in the
+documentation loop — applies to every instance of the class at head,
 not only to the reported sites. Name the class you are
 watching — the theorem or the file — in each round's report.
 
@@ -1258,8 +1266,12 @@ The code loop leaves each PR **draft** and every issue it closes
 documentation loop run on a `documentation loop needed` return leaves
 the PR's draft state and its issues' statuses as it found them. Each
 loop's end does what the resolved value of its key calls for, as
-`skills/lib/sdlc-config.md` defines that key: ask the human and wait,
-or start the next stage with no question. Read whether an end is clean
+`skills/lib/sdlc-config.md` defines that key: put the end to the human
+and wait, or start the next stage with no question. An end put to the
+human is a decision, per "Putting a decision to the human" — of class
+`loop-cap-reached` for a loop at its round cap, its problem listing
+each finding still open on its own — with starting the next stage among
+its options. Read whether an end is clean
 off the PR's stored round state, never off the reviewer's report:
 
 ```bash
@@ -1331,10 +1343,12 @@ are none.
    - **`BEHIND` or `DIRTY`** — spawn `pr-merge-readiness` again as in
      step 2, then `pr-monitor` again.
    - **Closed without merging**, or **no change after its poll
-     bound** — the second is a question whether to keep waiting: put
-     it to the human, and spawn `pr-monitor` again on a yes. A close,
-     or a no, ends this PR's stages with a **Needs Your Attention**
-     row naming which it was and the state the last poll found.
+     bound** — the second is a decision whether to keep waiting, per
+     "Putting a decision to the human", whose options are to keep
+     waiting and to stop: spawn `pr-monitor` again on a pick to keep
+     waiting. A close, or a pick to stop, ends this PR's stages with a
+     **Needs Your Attention** row naming which it was and the state the
+     last poll found.
    - **The script's error** — the monitor stopped on a failure, not an
      outcome, and the PR's state is unknown. Spawn no `pr-monitor`
      again; end this PR's stages with a **Needs Your Attention** row

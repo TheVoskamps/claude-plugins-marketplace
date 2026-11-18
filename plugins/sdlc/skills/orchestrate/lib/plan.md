@@ -89,9 +89,10 @@ Such a batch is a decision item on the plan, whose problem states:
 - whether any external version can move — no when every specifier the
   change touches is `catalog:` or `workspace:*`, yes otherwise.
 
-The human's pick of the option that runs the install is the explicit
-direction the install needs. Until the human gives it, the batch does
-not spawn, whatever else the plan confirm settles.
+Its options are running the install as stated and holding the batch
+out of this run. The human's pick of the option that runs the install
+is the explicit direction the install needs. Until the human gives it,
+the batch does not spawn, whatever else the plan confirm settles.
 
 ## Present the plan
 
@@ -128,8 +129,9 @@ The decision items are one decision record, put to the human through
 `sdlc-decision` as the skill's "Putting a decision to the human" says,
 one problem per item, keyed on the first member of the first batch
 that carries one. A body instruction's problem quotes the sentence, and
-one of its options is what you would do instead; a resolving install's
-states the three points above. A plan carrying a decision item always
+its options are following it as written and what you would do instead;
+a resolving install's states the three points above, with the options
+above. A plan carrying a decision item always
 waits, and ends with what `sdlc-decision ask` printed in place of the
 `Ready to proceed?` prompt: the reply both settles the items and
 confirms the plan, and an adjustment in it is a regrouping instruction

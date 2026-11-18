@@ -455,7 +455,7 @@ is.
 Give it the PR reference, the branch name, and the resolved
 `merge-poll-interval-seconds` and `merge-max-unchanged-polls` from
 pre-flight, on every spawn — the first, and each re-spawn after a
-`BEHIND` or `DIRTY` remedy or a yes to keep waiting:
+`BEHIND` or `DIRTY` remedy or a pick to keep waiting:
 
 ```text
 PR <PR_REF> is ready for review. Branch: <branch-name>

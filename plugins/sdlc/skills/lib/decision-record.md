@@ -16,6 +16,13 @@ header defines. Each problem names its class from the class list that
 script defines, `unclassified` when none fits, and its evidence is what
 you ran or read.
 
+A `file:` evidence names a file on disk where `ask` runs, which it
+reads to check the quote. Text no such file holds — an issue's body, a
+PR's comment, a line on a branch the working tree does not have checked
+out — is a `command:` evidence instead: the command that printed it,
+such as `issue-view <N>` or `git show <branch>:<path>`, and the lines
+it printed that the option rests on as its `output:`.
+
 ## Ask through `sdlc-decision ask`
 
 ```bash
@@ -28,12 +35,12 @@ record and ask again.
 
 ## End the turn on what `ask` printed
 
-When every problem `ask` printed reads `resolved by <class>: <value>`,
-nothing was asked: apply each ruling, name it in the run's report, and
-carry on, with no turn ended and no reply to record. Otherwise what it
-printed goes last in the reply, and the turn ends there. A relayed report and your
-own analysis go above it, and name each problem it printed as
-`resolved by <class>: <value>`.
+A problem `ask` printed as `resolved by <class>: <value>` was not
+asked: apply its ruling, and carry it to wherever your skill says a
+decision a standing ruling resolved is carried. When every problem
+reads so, nothing was asked: carry on, with no turn ended and no reply
+to record. Otherwise what it printed goes last in the reply, and the
+turn ends there. A relayed report and your own analysis go above it.
 
 ## Record the reply to a record that asked
 
