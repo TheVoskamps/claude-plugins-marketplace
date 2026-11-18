@@ -1,5 +1,20 @@
 # issues changelog
 
+## 0.15.0 — 2026-11-17
+
+`/issue-create --no-assignee` files an issue with no assignee, in one
+write.
+
+- Without the flag nothing changes: an absent or empty `--assignee`
+  still resolves the default assignee, so until now an unassigned issue
+  took a second write to remove it.
+- With the flag no default is resolved and no user-config is read for
+  one, so a user-config that would abort the lookup does not stop the
+  create.
+- The summary's assignee line reads `none (--no-assignee)`.
+- Passing it with `--assignee` is a usage error, raised before anything
+  is created.
+
 ## 0.14.1 — 2026-10-25
 
 Filing or updating an issue no longer fails on a board with an auto-add
