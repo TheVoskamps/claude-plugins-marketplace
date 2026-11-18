@@ -956,6 +956,29 @@ check "$([ -e "$XDG_STATE_HOME/sdlc/h.example" ] && echo left || echo removed)" 
 check "$([ -e "$XDG_STATE_HOME/sdlc/o/r/pr7/round0/records" ] && echo kept || echo moved)" "kept" \
   "migration: a failed move leaves the old state where it was"
 
+# A move leaves an old <owner> directory that still holds another
+# repository's state in place, and says nothing about it.
+migrate_case migrate-owner-kept
+mkdir -p "$XDG_STATE_HOME/sdlc/o/other/pr3"
+"$PERSIST" --mode list h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "0" "migration: a move beside another repository of the owner succeeds"
+check "$([ -d "$XDG_STATE_HOME/sdlc/o/other/pr3" ] && echo kept || echo removed)" "kept" \
+  "migration: the old <owner> directory holding another repository is kept"
+check "$(cat "$CASE/err")" "" "migration: keeping a non-empty <owner> directory reports nothing"
+
+# An empty old <owner> directory that cannot be removed is reported, and
+# the move it followed stands.
+migrate_case migrate-rmdir-fails
+mkdir -p "$CASE/fakebin"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/fakebin/rmdir"
+chmod +x "$CASE/fakebin/rmdir"
+PATH="$CASE/fakebin:$PATH" "$PERSIST" --mode list h.example/o/r >/dev/null 2>"$CASE/err" </dev/null
+check "$?" "0" "migration: a failed removal of the empty <owner> directory does not fail the move"
+check_contains "$(cat "$CASE/err")" "could not remove the empty directory $XDG_STATE_HOME/sdlc/o" \
+  "migration: a failed removal of the empty <owner> directory is reported"
+check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_YML" \
+  "migration: the move a failed removal followed gets repo.yml"
+
 # --- list's repository operand -------------------------------------------
 
 # list_case <name>: a state root holding PR 7's state for the current

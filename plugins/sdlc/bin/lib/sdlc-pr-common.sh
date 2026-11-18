@@ -189,13 +189,32 @@ sp_migrate_old_layout() {
   fi
   if ! mv -- "$old" "$new"; then
     # A failed move leaves no empty <host> or <host>/<owner> directory
-    # behind; rmdir removes neither when it holds anything.
-    rmdir -- "${new%/*}" 2>/dev/null && rmdir -- "$1/$2" 2>/dev/null || :
+    # behind.
+    sp_remove_if_empty "${new%/*}"
+    sp_remove_if_empty "$1/$2"
     sp_state_error "could not move state for $2/$3/$4 from $old to $new"
     return 1
   fi
-  rmdir -- "$1/$3" 2>/dev/null || :
+  sp_remove_if_empty "$1/$3"
   sp_write_repo_yml "$new" "$2" "$3" "$4"
+}
+
+# sp_remove_if_empty <dir> -- remove <dir> when it holds nothing, leaving
+# a directory that holds anything in place. A failure to remove an empty
+# one is reported and leaves it in place too: an empty directory there is
+# never read as state, so the caller's own work stands.
+sp_remove_if_empty() {
+  local entry
+  [ -d "$1" ] || return 0
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    if [ -e "$entry" ] || [ -L "$entry" ]; then
+      return 0
+    fi
+  done
+  if ! rmdir -- "$1"; then
+    sp_state_error "could not remove the empty directory $1; it is left in place"
+  fi
+  return 0
 }
 
 # sp_pr_view <fields> -- the PR's JSON for those `gh pr view --json`
