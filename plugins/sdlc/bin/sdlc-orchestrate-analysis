@@ -866,7 +866,8 @@ else
     note_missing "the PR's decision records: \`sdlc-decision print --pr $ref\` failed; none of them is counted"
   fi
   # One issue reference per line, each in the PR's repository for a
-  # branch member, or in the repository its URL names for a closed one.
+  # branch member, or in the repository its URL names for one the PR
+  # closes.
   issue_refs=
   if ! command -v git-issue-branch >/dev/null 2>&1; then
     note_missing "the issues the PR's head branch names: git-issue-branch is not on PATH; only the issues the PR closes are read for decision records"
@@ -893,7 +894,7 @@ EOF
   else
     note_missing "the issues PR #$pr closes: \`pr-view --json closingIssuesReferences\` failed; only the issues its head branch names are read for decision records"
   fi
-  # A closed issue the branch also names is read once.
+  # An issue the PR closes that the branch also names is read once.
   while IFS= read -r issue_ref; do
     [ -n "$issue_ref" ] || continue
     if got=$(sdlc-decision print --issue "$issue_ref" 2>/dev/null || exit); then
