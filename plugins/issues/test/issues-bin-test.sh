@@ -359,11 +359,12 @@ expect "incomplete front-matter names the field" 1 "is missing the canonical fie
 with_link_prefix() {
   printf '%s\n' "$1" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$2\"|"
 }
-BAD_PREFIX_MESSAGE="which is not \`#\` and contains \`#\` or begins with \`https://\`. Run \`/repo-config\` to fix it."
+BAD_PREFIX_MESSAGE="which is neither \`#\` nor made only of letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
 
-# An issue-link-prefix other than # that contains # or begins with https:// is
-# a config error wherever a repo-config is read: the current repo's, before any
-# gh call, even when every operand names another repository ...
+# An issue-link-prefix other than # with a character outside letters, digits,
+# ., _ and - is a config error wherever a repo-config is read: the current
+# repo's, before any gh call, even when every operand names another repository
+# ...
 for verb in $VERBS; do
   new_case "$(with_link_prefix "$CONFIG_MAIN" 'x##')"
   args_for "$verb"
@@ -377,6 +378,11 @@ run issue-view octo/lib#5
 expect "issue-view: a local https:// issue-link-prefix is refused for another repo's issue too" 1 \
   "sets \`issue-link-prefix\` to \`https://h/\`, $BAD_PREFIX_MESSAGE"
 check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local https:// issue-link-prefix: no gh call"
+new_case "$(with_link_prefix "$CONFIG_MAIN" 'a b')"
+run issue-view 'a b2'
+expect "issue-view: a local issue-link-prefix with a space is refused" 1 \
+  "sets \`issue-link-prefix\` to \`a b\`, $BAD_PREFIX_MESSAGE"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local issue-link-prefix with a space: no gh call"
 new_case "$(with_link_prefix "$FRONT_MATTER" 'x#')"
 run issue-branch-prefix
 expect "issue-branch-prefix: a local issue-link-prefix with # is refused" 1 \
@@ -399,11 +405,20 @@ run issue-view acme/prefixed#1
 expect "issue-view: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
 run issue-field-options acme/prefixed --all
 expect "issue-field-options <repo>: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+jq --arg cfg "$(with_link_prefix "$CONFIG_MAIN" 'a b')" '.repos["acme/prefixed"].config = $cfg' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md
+expect "issue-create <repo>: a target issue-link-prefix with a space is refused" 1 \
+  "target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`a b\`, $BAD_PREFIX_MESSAGE"
+check "$(state '.repos["acme/prefixed"].issues | length')" 1 \
+  "issue-create <repo>: nothing created under a target prefix with a space"
 
-# A prefix with no # that does not begin with https:// is still accepted.
-new_case "$(with_link_prefix "$CONFIG_MAIN" 'GH-')"
-run issue-view GH-2
-expect "issue-view: a #-free issue-link-prefix is accepted" 0 "#2 Widget issue 2    (OPEN)"
+# A prefix made only of letters, digits, ., _ and - is accepted.
+for prefix in 'GH-' 'a.B_9-'; do
+  new_case "$(with_link_prefix "$CONFIG_MAIN" "$prefix")"
+  run issue-view "${prefix}2"
+  expect "issue-view: issue-link-prefix $prefix is accepted" 0 "#2 Widget issue 2    (OPEN)"
+done
 
 # ---------------------------------------------------------------------------
 # Reads.
@@ -614,10 +629,10 @@ refuse_write "stale schema" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^schema-ver
   "is at schema-version \`5\`"
 refuse_write "missing front-matter field" "$(printf '%s\n' "$CONFIG_MAIN" | sed '/^issue-branch-naming-prefix:/d')" \
   "missing the canonical field \`issue-branch-naming-prefix\`"
-for prefix in 'x##' 'https://h/'; do
+for prefix in 'x##' 'https://h/' 'a b' 'GH/'; do
   refuse_write "issue-link-prefix $prefix" \
     "$(printf '%s\n' "$CONFIG_MAIN" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$prefix\"|")" \
-    "sets \`issue-link-prefix\` to \`$prefix\`, which is not \`#\` and contains \`#\` or begins with \`https://\`"
+    "sets \`issue-link-prefix\` to \`$prefix\`, $BAD_PREFIX_MESSAGE"
 done
 
 new_case none

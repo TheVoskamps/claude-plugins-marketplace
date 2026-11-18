@@ -72,7 +72,7 @@ iss_err_invalid_range() {
 
 iss_err_invalid_link_prefix() {
   # $1 the configured prefix, $2 message prefix
-  iss_die "${2:-}This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$1\`, which is not \`#\` and contains \`#\` or begins with \`https://\`. Run \`/repo-config\` to fix it."
+  iss_die "${2:-}This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$1\`, which is neither \`#\` nor made only of letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
 }
 
 iss_err_jira() {
@@ -374,14 +374,15 @@ iss_config_frontmatter() {
 }
 
 # iss_valid_link_prefix <prefix>: whether <prefix> is an issue-link-prefix an
-# operand can carry: `#` itself, or one that contains no `#` and does not
-# begin with `https://`. Any other would make an operand's syntax depend on
-# the prefix, which issue-create cannot read before its first gh call when
-# the prefix is a target repo's.
+# operand can carry: `#` itself, or one made only of ASCII letters, digits,
+# ".", "_" and "-". Any other could turn a reference issue-create refuses
+# under the default prefix into a valid one, and issue-create checks a
+# --parent reference under that default before its first gh call, since a
+# target repo's prefix takes a gh read.
 iss_valid_link_prefix() {
   case "$1" in
     '#') return 0 ;;
-    *'#'* | https://*) return 1 ;;
+    *[!A-Za-z0-9._-]*) return 1 ;;
   esac
 }
 
