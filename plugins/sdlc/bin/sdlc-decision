@@ -22,8 +22,9 @@
 # evidence is `file: <path>:<line>` with `quote:`, the text found on that
 # line, or `command: <command>` with `output:`. A relative evidence path
 # is read against the top level of the working tree the script runs in,
-# or against the current directory outside a working tree. `ask` never runs a `command:` evidence: it checks only that the command
-# and its output are present.
+# or against the current directory outside a working tree. `ask` never
+# runs a `command:` evidence: it checks only that the command and its
+# output are present.
 #
 # Problems are numbered P1, P2, … in record order, and each problem's
 # options P<i>.1, P<i>.2, …, so every option of a record has an id no
