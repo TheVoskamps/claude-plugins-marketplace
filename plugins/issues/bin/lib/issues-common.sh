@@ -584,16 +584,16 @@ iss_valid_path() {
 #   host/owner/repo          that repository, on that host
 #   https://host/owner/repo  the same as host/owner/repo; a trailing / is
 #                            ignored
-# Each part is checked by iss_valid_path. A malformed reference is a
+# Each part is checked by iss_check_repo_syntax, so a malformed reference is a
 # usage error before any gh call; a form without a host resolves the current
 # repository with iss_try_current_repo. With no current repository, repo is a
 # usage error and owner/repo gets the empty host.
 iss_parse_repo() {
-  local ref=$1 rest bad
-  bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
+  local ref=$1 rest
+  iss_check_repo_syntax "$ref"
   case "$ref" in
     *://*)
-      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
+      iss_split_url "$ref"
       RP_HOST=$URL_HOST
       RP_OWNER=$URL_OWNER
       RP_REPO=$URL_REPO
@@ -601,8 +601,6 @@ iss_parse_repo() {
       ;;
   esac
   rest=${ref%/}
-  case "$rest" in ''|*//*|/*|*/*/*/*) iss_usage_die "$bad" ;; esac
-  iss_valid_path "$rest" || iss_usage_die "$bad"
   case "$rest" in */*/*) ;; *) iss_try_current_repo || : ;; esac
   case "$rest" in
     */*/*)
@@ -624,6 +622,23 @@ iss_parse_repo() {
       RP_REPO=$rest
       ;;
   esac
+}
+
+# iss_check_repo_syntax <reference>: the syntax half of iss_parse_repo, which
+# makes no gh call. A reference that is none of iss_parse_repo's forms, or
+# whose parts iss_valid_path refuses, is a usage error.
+iss_check_repo_syntax() {
+  local ref=$1 rest bad
+  bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
+  case "$ref" in
+    *://*)
+      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
+      return 0
+      ;;
+  esac
+  rest=${ref%/}
+  case "$rest" in ''|*//*|/*|*/*/*/*) iss_usage_die "$bad" ;; esac
+  iss_valid_path "$rest" || iss_usage_die "$bad"
 }
 
 # iss_same_host <host>: whether <host> is the current repository's host.
@@ -650,8 +665,11 @@ iss_repo_name() {
 }
 
 # iss_init <operand>...: the common opening of every verb that acts on
-# existing issues -- tools, the working tree, and the current repository. Only
-# the repo-config of an operand's own repository governs the verb on it, so the
+# existing issues -- tools, the working tree, and the current repository. Each
+# operand's syntax is checked with iss_check_operand_syntax once the link
+# prefix is known, so a malformed one is refused before any repo-config check
+# or gh call. Only the
+# repo-config of an operand's own repository governs the verb on it, so the
 # current repository's is read here, before any gh call, only when an operand
 # names no repository of its own (iss_names_repo). An operand that does name
 # one is gated by iss_check_repo or iss_operand_config once it is parsed.
@@ -660,6 +678,9 @@ iss_init() {
   iss_require_tools
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
   iss_peek_link_prefix
+  for op in "$@"; do
+    iss_check_operand_syntax "$op"
+  done
   for op in "$@"; do
     iss_names_repo "$op" && continue
     iss_load_config
@@ -767,12 +788,12 @@ EOF
 #   https://host/owner/repo/issues/N
 #                                  the same as host/owner/repo#N; a trailing /
 #                                  is ignored
-# so every reference iss_ref prints is accepted back. A pull request's URL is
-# refused with iss_err_pull_request, and any other malformed operand is a usage
-# error, both before any gh call.
+# so every reference iss_ref prints is accepted back. The operand is checked by
+# iss_check_operand_syntax first, so a pull request's URL and any malformed
+# operand are refused before any gh call.
 iss_parse_operand() {
-  local op=$1 num rest kind bad
-  bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
+  local op=$1 num rest
+  iss_check_operand_syntax "$op"
   num=${op#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   if iss_is_digits "$num"; then
@@ -785,9 +806,40 @@ iss_parse_operand() {
   case "$op" in
     *'#'*)
       num=${op##*'#'}
+      iss_parse_repo "${op%'#'*}"
+      ;;
+    *)
+      rest=${op%/}
+      num=${rest##*/}
+      iss_split_url "${rest%/*/*}"
+      RP_HOST=$URL_HOST
+      RP_OWNER=$URL_OWNER
+      RP_REPO=$URL_REPO
+      ;;
+  esac
+  OP_HOST=$RP_HOST
+  OP_OWNER=$RP_OWNER
+  OP_REPO=$RP_REPO
+  OP_NUMBER=$num
+}
+
+# iss_check_operand_syntax <operand>: the syntax half of iss_parse_operand,
+# which makes no gh call. A pull request's URL is refused with
+# iss_err_pull_request, and an operand that is none of iss_parse_operand's
+# forms, or whose repository part iss_check_repo_syntax refuses, is a usage
+# error.
+iss_check_operand_syntax() {
+  local op=$1 num rest kind bad
+  bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
+  num=${op#"$ISS_LINK_PREFIX"}
+  num=${num#'#'}
+  iss_is_digits "$num" && return 0
+  case "$op" in
+    *'#'*)
+      num=${op##*'#'}
       rest=${op%'#'*}
       { [ -n "$rest" ] && iss_is_digits "$num"; } || iss_usage_die "$bad"
-      iss_parse_repo "$rest"
+      iss_check_repo_syntax "$rest"
       ;;
     https://*)
       rest=${op%/}
@@ -802,16 +854,9 @@ iss_parse_operand() {
         pull) iss_err_pull_request "$op" ;;
         *) iss_usage_die "$bad" ;;
       esac
-      RP_HOST=$URL_HOST
-      RP_OWNER=$URL_OWNER
-      RP_REPO=$URL_REPO
       ;;
     *) iss_usage_die "$bad" ;;
   esac
-  OP_HOST=$RP_HOST
-  OP_OWNER=$RP_OWNER
-  OP_REPO=$RP_REPO
-  OP_NUMBER=$num
 }
 
 # iss_operand <operand>: iss_parse_operand, then iss_check_repo on the

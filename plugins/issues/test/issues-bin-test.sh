@@ -1275,6 +1275,39 @@ expect "issue-close --reason duplicate-of: a malformed reference is a usage erro
 check "$(jq -c 'select(.[0] == "issue" or index("graphql") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
   "issue-close --reason duplicate-of, a malformed reference: no issue read or write"
 
+# Every verb that opens with iss_init refuses a malformed issue reference, in
+# any operand position, before any gh call: a failing `gh repo view` cannot
+# replace the usage error with its own.
+for verb in $VERBS; do
+  case "$verb" in issue-create | issue-field-options) continue ;; esac
+  for i in 0 1; do
+    args_for "$verb"
+    case "${ARGS[$i]-}" in 2 | 3) ;; *) continue ;; esac
+    ARGS[i]='not#a#ref'
+    new_case "$CONFIG_MAIN"
+    set_state '.repoViewError = "no git remotes found"'
+    run "$verb" "${ARGS[@]}"
+    expect "$verb: a malformed reference as operand $((i + 1)) is a usage error" 2 "\`not#a#ref\` is not an issue reference"
+    check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "$verb: a malformed reference as operand $((i + 1)): no gh call"
+  done
+done
+new_case "$CONFIG_MAIN"
+set_state '.repoViewError = "no git remotes found"'
+run issue-close 3 --reason duplicate-of 'not#a#ref'
+expect "issue-close --reason duplicate-of: a malformed reference while gh repo view fails" 2 \
+  "\`not#a#ref\` is not an issue reference"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-close --reason duplicate-of, a malformed reference: no gh call"
+run issue-close 3 --reason duplicate-of 'bad--owner/lib#5'
+expect "issue-close --reason duplicate-of: a malformed repository part while gh repo view fails" 2 \
+  "\`bad--owner/lib\` is not a repository"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-close --reason duplicate-of, a malformed repository part: no gh call"
+run issue-close 3 --reason duplicate-of https://github.com/acme/widgets/pull/50
+expect "issue-close --reason duplicate-of: a pull request URL while gh repo view fails" 1 "is a pull request"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-close --reason duplicate-of, a pull request URL: no gh call"
+run issue-close 3 --reason duplicate-of 4
+expect "issue-close --reason duplicate-of: a well-formed reference still meets the failing gh repo view" 1 \
+  "could not resolve the current GitHub repository"
+
 # An issue already closed: left alone when the reason and target match,
 # reopened and closed again when either differs; the comment is posted in both.
 new_case "$CONFIG_MAIN"

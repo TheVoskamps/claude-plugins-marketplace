@@ -16,6 +16,8 @@ workflow added the issue first: the add fails as "Content already exists in
 this project", and the item it created stays out of the next N reads of the
 issue's project items.
 
+state["repoViewError"] makes `gh repo view` fail with that message.
+
 `issue close` on an open issue records a stateReason -- COMPLETED unless its
 --reason names another -- and, with --duplicate-of, the issue it duplicates as
 duplicateOf.
@@ -463,6 +465,8 @@ def main():
         args = args[:i] + args[i + 2:]
 
     if args[:2] == ["repo", "view"]:
+        if "repoViewError" in state:
+            fail(state["repoViewError"])
         print("https://%s/%s" % (host_of(state, state["current"]), state["current"]))
     elif args[:2] == ["api", "user"]:
         print(login_on(state, host))

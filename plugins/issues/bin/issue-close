@@ -64,8 +64,6 @@ repo=$OP_REPO
 number=$OP_NUMBER
 ref=$(iss_ref "$host" "$owner" "$repo" "$number")
 repo_arg=$(iss_repo_arg "$host" "$owner" "$repo")
-# Parsed before either issue is read, so a malformed duplicate-of reference is
-# a usage error that no lookup failure can mask.
 if [ -n "$dup_arg" ]; then
   iss_operand "$dup_arg"
   dup_host=$OP_HOST
