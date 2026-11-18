@@ -29,7 +29,7 @@ size_set=no
 status_set=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --title|--body-file|--type|--labels|--assignee|--parent|--priority|--size|--status)
+    --title | --body-file | --type | --labels | --assignee | --parent | --priority | --size | --status)
       [ "$#" -ge 2 ] || iss_usage_die "$usage"
       ;;
     --no-assignee)
@@ -54,11 +54,23 @@ while [ "$#" -gt 0 ]; do
     --body-file) body_file=$2 ;;
     --type) type_arg=$2 ;;
     --labels) labels=$2 ;;
-    --assignee) assignee_arg=$2; assignee_set=yes ;;
+    --assignee)
+      assignee_arg=$2
+      assignee_set=yes
+      ;;
     --parent) parent_arg=$2 ;;
-    --priority) priority_arg=$2; priority_set=yes ;;
-    --size) size_arg=$2; size_set=yes ;;
-    --status) status_arg=$2; status_set=yes ;;
+    --priority)
+      priority_arg=$2
+      priority_set=yes
+      ;;
+    --size)
+      size_arg=$2
+      size_set=yes
+      ;;
+    --status)
+      status_arg=$2
+      status_set=yes
+      ;;
   esac
   shift 2
 done
@@ -169,11 +181,14 @@ resolve_slot() {
   fi
 }
 resolve_slot priority "$priority_set" "$priority_arg"
-priority_line=$slot_line; priority_value=$slot_value
+priority_line=$slot_line
+priority_value=$slot_value
 resolve_slot size "$size_set" "$size_arg"
-size_line=$slot_line; size_value=$slot_value
+size_line=$slot_line
+size_value=$slot_value
 resolve_slot status "$status_set" "$status_arg"
-status_line=$slot_line; status_value=$slot_value
+status_line=$slot_line
+status_value=$slot_value
 
 parent_id=
 parent_ref=

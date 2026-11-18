@@ -235,8 +235,8 @@ run_in() {
   shift 2
   OUT=$(cd "$dir" &&
     PATH="$SANDBOX/bin:$PATH" FAKE_GH_STATE="$CASE_DIR/state.json" FAKE_GH_LOG="$CASE_DIR/gh.log" \
-    FAKE_SLEEP_LOG="$CASE_DIR/sleep.log" XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
-    /bin/bash "$BIN/$verb" "$@" 2>&1)
+      FAKE_SLEEP_LOG="$CASE_DIR/sleep.log" XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
+      /bin/bash "$BIN/$verb" "$@" 2>&1)
   RC=$?
 }
 
@@ -252,11 +252,17 @@ failed() {
 expect() {
   local name=$1 rc=$2 s
   shift 2
-  if [ "$RC" != "$rc" ]; then failed "$name" "expected exit $rc, got $RC"; return; fi
+  if [ "$RC" != "$rc" ]; then
+    failed "$name" "expected exit $rc, got $RC"
+    return
+  fi
   for s in "$@"; do
     case "$OUT" in
       *"$s"*) ;;
-      *) failed "$name" "missing: $s"; return ;;
+      *)
+        failed "$name" "missing: $s"
+        return
+        ;;
     esac
   done
   pass "$name"
@@ -277,7 +283,10 @@ state() {
 
 # check <actual> <expected> <name>: the two strings are equal.
 check() {
-  if [ "$1" = "$2" ]; then pass "$3"; else OUT="expected: $2${ISS_NL}actual:   $1"; failed "$3" "state mismatch"; fi
+  if [ "$1" = "$2" ]; then pass "$3"; else
+    OUT="expected: $2${ISS_NL}actual:   $1"
+    failed "$3" "state mismatch"
+  fi
 }
 ISS_NL='
 '
@@ -290,9 +299,10 @@ args_for() {
     issue-create) ARGS=(--title x --body-file x) ;;
     issue-comment) ARGS=(2 --body-file x) ;;
     issue-update) ARGS=(2 --title x) ;;
-    issue-set-blocked-by|issue-set-blocks|issue-unset-blocked-by|issue-unset-blocks|issue-set-child|issue-set-parent|issue-unset-child)
-      ARGS=(2 3) ;;
-    issue-set-priority|issue-set-size|issue-set-status|issue-set-type) ARGS=(2 x) ;;
+    issue-set-blocked-by | issue-set-blocks | issue-unset-blocked-by | issue-unset-blocks | issue-set-child | issue-set-parent | issue-unset-child)
+      ARGS=(2 3)
+      ;;
+    issue-set-priority | issue-set-size | issue-set-status | issue-set-type) ARGS=(2 x) ;;
     *) ARGS=(2) ;;
   esac
 }
@@ -833,7 +843,7 @@ check "$(state '.repos["octo/lib"].issues["5"].state')" CLOSED "issue-close owne
 
 # A board slot is written with the operand's repository's repo-config.
 for call in "issue-set-status octo/lib#5 Done" "issue-set-priority octo/lib#5 low" "issue-set-size octo/lib#5 L" \
-            "issue-set-type octo/lib#5 bug"; do
+  "issue-set-type octo/lib#5 bug"; do
   run $call
   expect "${call%% *} owner/repo#N: a repository with no repo-config is refused by name" 1 \
     "\`octo/lib\` has no \`.issues/repo-config.md\`, and this verb reads its \`github-project:\` block"
@@ -861,10 +871,10 @@ check "$(grep -c '"repos/octo/lib/contents/.issues/repo-config.md"' "$CASE_DIR/g
 
 # A pull request is refused by every verb, by name.
 for call in "issue-view 50" "issue-view-tree 50" "issue-sub-list 50" "issue-close 50" "issue-comment 50 --body-file new.md" \
-            "issue-update 50 --title x" "issue-set-status 50 Done" "issue-set-priority 50 Low" "issue-set-size 50 M" \
-            "issue-set-type 50 Bug" "issue-set-parent 50 1" "issue-set-child 1 50" "issue-unset-parent 50" \
-            "issue-unset-child 1 50" "issue-set-blocked-by 50 1" "issue-set-blocks 1 50" "issue-unset-blocked-by 50 1" \
-            "issue-unset-blocks 1 50"; do
+  "issue-update 50 --title x" "issue-set-status 50 Done" "issue-set-priority 50 Low" "issue-set-size 50 M" \
+  "issue-set-type 50 Bug" "issue-set-parent 50 1" "issue-set-child 1 50" "issue-unset-parent 50" \
+  "issue-unset-child 1 50" "issue-set-blocked-by 50 1" "issue-set-blocks 1 50" "issue-unset-blocked-by 50 1" \
+  "issue-unset-blocks 1 50"; do
   run $call
   expect "${call%% *}: a pull request's number is refused" 1 "\`#50\` is a pull request; the issue verbs take issues only"
 done
@@ -878,11 +888,11 @@ check "$(jq -c 'select(.[0] == "issue" and .[1] != "create")' "$CASE_DIR/gh.log"
 new_case "$CONFIG_MAIN"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
 for call in "issue-view jira#1" "issue-view-tree jira#1" "issue-sub-list jira#1" "issue-close jira#1" \
-            "issue-comment jira#1 --body-file new.md" "issue-update jira#1 --title x" "issue-set-status jira#1 Done" \
-            "issue-set-priority jira#1 Low" "issue-set-size jira#1 M" "issue-set-type jira#1 Bug" \
-            "issue-set-parent 2 jira#1" "issue-set-child jira#1 2" "issue-unset-parent jira#1" "issue-unset-child 2 jira#1" \
-            "issue-set-blocked-by 2 jira#1" "issue-set-blocks jira#1 2" "issue-unset-blocked-by 2 jira#1" \
-            "issue-unset-blocks jira#1 2" "issue-create --title x --body-file new.md --parent jira#1"; do
+  "issue-comment jira#1 --body-file new.md" "issue-update jira#1 --title x" "issue-set-status jira#1 Done" \
+  "issue-set-priority jira#1 Low" "issue-set-size jira#1 M" "issue-set-type jira#1 Bug" \
+  "issue-set-parent 2 jira#1" "issue-set-child jira#1 2" "issue-unset-parent jira#1" "issue-unset-child 2 jira#1" \
+  "issue-set-blocked-by 2 jira#1" "issue-set-blocks jira#1 2" "issue-unset-blocked-by 2 jira#1" \
+  "issue-unset-blocks jira#1 2" "issue-create --title x --body-file new.md --parent jira#1"; do
   run $call
   expect "${call%% *}: an operand in a Jira repository exits non-zero" 1 \
     "\`issues: Jira\` is configured, and this script serves only the GitHub backend."
@@ -1336,7 +1346,10 @@ branch_case() {
 # user_config <repo|global> <front-matter lines>: write that scope's user-config.
 user_config() {
   local path=$CASE_DIR/repo/.issues/user-config.md
-  [ "$1" = repo ] || { mkdir -p "$CASE_DIR/xdg/issues"; path=$CASE_DIR/xdg/issues/user-config.md; }
+  [ "$1" = repo ] || {
+    mkdir -p "$CASE_DIR/xdg/issues"
+    path=$CASE_DIR/xdg/issues/user-config.md
+  }
   printf -- '---\n%s\n---\n' "$2" >"$path"
 }
 
@@ -1424,10 +1437,10 @@ export FAKE_GH_DROP_WRITES=1
 new_case "$CONFIG_MAIN"
 printf 'Hi.\n' >"$CASE_DIR/repo/body.md"
 for call in "issue-set-status 2 Done" "issue-set-priority 3 Low" "issue-set-size 3 L" "issue-set-type 3 Feature" \
-            "issue-set-parent 5 4" "issue-set-child 4 5" "issue-unset-parent 2" "issue-unset-child 1 2" \
-            "issue-set-blocked-by 5 4" "issue-set-blocks 4 5" "issue-unset-blocked-by 2 acme/other#3" \
-            "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-comment 3 --body-file body.md" \
-            "issue-update 3 --title Renamed" "issue-create --title T --body-file body.md"; do
+  "issue-set-parent 5 4" "issue-set-child 4 5" "issue-unset-parent 2" "issue-unset-child 1 2" \
+  "issue-set-blocked-by 5 4" "issue-set-blocks 4 5" "issue-unset-blocked-by 2 acme/other#3" \
+  "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-comment 3 --body-file body.md" \
+  "issue-update 3 --title Renamed" "issue-create --title T --body-file body.md"; do
   run $call
   case "$call" in
     issue-update*) expect "${call%% *}: a dropped write exits non-zero" 1 "did not land" ;;
