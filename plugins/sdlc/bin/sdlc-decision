@@ -49,8 +49,9 @@
 #
 # Exit statuses:
 #   0  the script did what it says
-#   1  a command the script ran failed, or ask found the repository's
-#      state at both its old-layout and its current path
+#   1  a command the script ran failed, jq is not on PATH, ask found no
+#      mikefarah v4+ yq on PATH, or ask found the repository's state at
+#      both its old-layout and its current path
 #   2  a usage error; nothing was stored
 #   3  the record, or the answer, was refused; stderr names each failing
 #      slot, one per line, and nothing was stored
