@@ -1308,6 +1308,24 @@ run issue-close 3 --reason duplicate-of 4
 expect "issue-close --reason duplicate-of: a well-formed reference still meets the failing gh repo view" 1 \
   "could not resolve the current GitHub repository"
 
+# issue-create does not open with iss_init, and refuses a malformed --parent
+# before its first gh call all the same, with a target and without one.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+set_state '.repoViewError = "no git remotes found"'
+for parent in 'not#a#ref' 'bad--owner/lib#5'; do
+  run issue-create --title "Child" --body-file new.md --parent "$parent"
+  expect "issue-create --parent $parent: a usage error while gh repo view fails" 2 "is not a"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create --parent $parent: no gh call"
+done
+run issue-create other --title "Child" --body-file new.md --parent 'not#a#ref'
+expect "issue-create <repo> --parent: a malformed reference while gh repo view fails" 2 \
+  "\`not#a#ref\` is not an issue reference"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create <repo> --parent, a malformed reference: no gh call"
+run issue-create --title "Child" --body-file new.md --parent 1
+expect "issue-create --parent: a well-formed reference still meets the failing gh repo view" 1 \
+  "could not resolve the current GitHub repository"
+
 # An issue already closed: left alone when the reason and target match,
 # reopened and closed again when either differs; the comment is posted in both.
 new_case "$CONFIG_MAIN"

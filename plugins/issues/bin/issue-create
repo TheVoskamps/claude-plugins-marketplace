@@ -84,9 +84,16 @@ iss_require_tools
 # Which repo, and whose repo-config.
 # ---------------------------------------------------------------------------
 
+# A malformed --parent reference is a usage error before the first gh call.
+# The issue-link-prefix a bare N may carry is the filing repo's: the current
+# repo-config's, read here without gh, or a target's, which only gh can read.
+# So with a target, a reference ending in a digit -- which that prefix could
+# make well-formed -- is checked by iss_parse_operand once the prefix is
+# known; any other reference reads the same under every prefix.
 no_target_config=no
 if [ "$target_set" = no ]; then
   iss_load_config
+  [ -z "$parent_arg" ] || iss_check_operand_syntax "$parent_arg"
   iss_current_repo
   host=$ISS_HOST
   owner=$ISS_OWNER
@@ -96,6 +103,13 @@ else
   # without its host or owner, and decides how references print; its
   # repo-config is never read, since the target's alone governs.
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ISS_REPO_ROOT=
+  case "$parent_arg" in
+    '' | *[0-9]) ;;
+    *)
+      ISS_LINK_PREFIX='#'
+      iss_check_operand_syntax "$parent_arg"
+      ;;
+  esac
   iss_parse_repo "$target"
   iss_try_current_repo || :
   host=$RP_HOST
