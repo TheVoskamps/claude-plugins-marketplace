@@ -267,8 +267,8 @@ Variable parts are wrapped in backticks.
 - **Link prefix invalid**
 
   > This repo's `.issues/repo-config.md` sets `issue-link-prefix` to
-  > `<value>`, which is neither `#` nor made only of letters, digits,
-  > `.`, `_` and `-`. Run `/repo-config` to fix it.
+  > `<value>`, which is neither `#`, empty, nor at most 100 letters,
+  > digits, `.`, `_` and `-`. Run `/repo-config` to fix it.
 
   Triggered on every read of a repo-config, the current repo's or
   another repo's, whose `issue-link-prefix` is such a value. Like the
@@ -321,12 +321,13 @@ file. Order is fixed; `schema-version` is always first.
   concatenated with an issue number in commit messages and PR
   bodies. A reader substitutes it as `<issue-link-prefix><N>`. For
   GitHub repos, `#` so references render as `#123`; for Jira, the
-  project key plus dash (e.g. `SET-` for `SET-123`). A value other
-  than `#` is valid only when it is made only of ASCII letters,
-  digits, `.`, `_` and `-`: `issue-create` checks a `--parent`
-  reference that holds a `#` under `#` before it can read a target
-  repo's prefix, and any other prefix could make such a reference
-  valid. Quote the value in YAML if it starts with `#`
+  project key plus dash (e.g. `SET-` for `SET-123`). The value is
+  valid only when it is `#` itself, empty, or a valid repository
+  name — 1 to 100 ASCII letters, digits, `.`, `_` and `-`:
+  `issue-create` checks a `--parent` reference that holds a `#`
+  under `#` before it can read a target repo's prefix, reading the
+  part before the `#` as a repository name, and any other prefix
+  could make such a reference valid. Quote the value in YAML if it starts with `#`
   (otherwise YAML parses it as a comment) — `/repo-config` does this
   automatically.
 

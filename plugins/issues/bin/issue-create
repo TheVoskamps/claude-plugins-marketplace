@@ -92,8 +92,8 @@ iss_require_tools
 # iss_parse_operand once the prefix is known. Any other reference is checked
 # here under the default prefix, so a malformed repository part or a second #
 # is refused whatever the target's prefix is. That rests on the target's
-# prefix being # or made only of the characters a repository name may hold,
-# which iss_config_frontmatter enforces.
+# prefix being #, empty or a valid repository name, which
+# iss_config_frontmatter enforces.
 no_target_config=no
 if [ "$target_set" = no ]; then
   iss_load_config

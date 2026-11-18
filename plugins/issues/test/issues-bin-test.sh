@@ -359,10 +359,12 @@ expect "incomplete front-matter names the field" 1 "is missing the canonical fie
 with_link_prefix() {
   printf '%s\n' "$1" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$2\"|"
 }
-BAD_PREFIX_MESSAGE="which is neither \`#\` nor made only of letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
+BAD_PREFIX_MESSAGE="which is neither \`#\`, empty, nor at most 100 letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
+PREFIX_100=$(printf '%0100d' 0 | tr 0 a)
+PREFIX_101=${PREFIX_100}a
 
-# An issue-link-prefix other than # with a character outside letters, digits,
-# ., _ and - is a config error wherever a repo-config is read: the current
+# An issue-link-prefix other than # or empty that is not a valid repository
+# name is a config error wherever a repo-config is read: the current
 # repo's, before any gh call, even when every operand names another repository
 # ...
 for verb in $VERBS; do
@@ -387,6 +389,11 @@ new_case "$(with_link_prefix "$FRONT_MATTER" 'x#')"
 run issue-branch-prefix
 expect "issue-branch-prefix: a local issue-link-prefix with # is refused" 1 \
   "sets \`issue-link-prefix\` to \`x#\`, $BAD_PREFIX_MESSAGE"
+new_case "$(with_link_prefix "$CONFIG_MAIN" "$PREFIX_101")"
+run issue-view "${PREFIX_101}2"
+expect "issue-view: a local 101-character issue-link-prefix is refused" 1 \
+  "sets \`issue-link-prefix\` to \`$PREFIX_101\`, $BAD_PREFIX_MESSAGE"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local 101-character issue-link-prefix: no gh call"
 
 # ... and a target's, before the target's issue is read or written.
 new_case "$CONFIG_MAIN"
@@ -412,9 +419,17 @@ expect "issue-create <repo>: a target issue-link-prefix with a space is refused"
   "target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`a b\`, $BAD_PREFIX_MESSAGE"
 check "$(state '.repos["acme/prefixed"].issues | length')" 1 \
   "issue-create <repo>: nothing created under a target prefix with a space"
+jq --arg cfg "$(with_link_prefix "$CONFIG_MAIN" "$PREFIX_101")" '.repos["acme/prefixed"].config = $cfg' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md --parent "${PREFIX_101}1"
+expect "issue-create <repo> --parent: a 101-character target issue-link-prefix is refused" 1 \
+  "target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$PREFIX_101\`, $BAD_PREFIX_MESSAGE"
+check "$(state '.repos["acme/prefixed"].issues | length')" 1 \
+  "issue-create <repo>: nothing created under a 101-character target prefix"
 
-# A prefix made only of letters, digits, ., _ and - is accepted.
-for prefix in 'GH-' 'a.B_9-'; do
+# An empty prefix, and one that is a valid repository name, up to 100
+# characters, are accepted.
+for prefix in '' 'GH-' 'a.B_9-' "$PREFIX_100"; do
   new_case "$(with_link_prefix "$CONFIG_MAIN" "$prefix")"
   run issue-view "${prefix}2"
   expect "issue-view: issue-link-prefix $prefix is accepted" 0 "#2 Widget issue 2    (OPEN)"
@@ -629,7 +644,7 @@ refuse_write "stale schema" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^schema-ver
   "is at schema-version \`5\`"
 refuse_write "missing front-matter field" "$(printf '%s\n' "$CONFIG_MAIN" | sed '/^issue-branch-naming-prefix:/d')" \
   "missing the canonical field \`issue-branch-naming-prefix\`"
-for prefix in 'x##' 'https://h/' 'a b' 'GH/'; do
+for prefix in 'x##' 'https://h/' 'a b' 'GH/' "$PREFIX_101"; do
   refuse_write "issue-link-prefix $prefix" \
     "$(printf '%s\n' "$CONFIG_MAIN" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$prefix\"|")" \
     "sets \`issue-link-prefix\` to \`$prefix\`, $BAD_PREFIX_MESSAGE"
