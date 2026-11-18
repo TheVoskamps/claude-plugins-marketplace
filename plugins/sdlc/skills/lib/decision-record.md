@@ -8,37 +8,42 @@ is any question that asks the human to choose. Which prompts a skill
 keeps out of this route, and what it keys its records on, are the
 skill's own.
 
-1. **Write one record for the turn**, a YAML file in the session
-   scratchpad, holding every problem the turn puts to the human, in the
-   shape `bin/sdlc-decision`'s header defines. Each problem names its
-   class from the class list that script defines, `unclassified` when
-   none fits, and its evidence is what you ran or read. `ask` checks a
-   `file:` evidence against the file on disk, so a line on a branch no
-   checkout on disk holds is a `command:` evidence: the command that
-   printed it and what it printed.
-2. **Ask:**
+## Write one record for the turn
 
-   ```bash
-   sdlc-decision ask (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]… <record-file>
-   ```
+The record is a YAML file in the session scratchpad, holding every
+problem the turn puts to the human, in the shape `bin/sdlc-decision`'s
+header defines. Each problem names its class from the class list that
+script defines, `unclassified` when none fits, and its evidence is what
+you ran or read. `ask` checks a `file:` evidence against the file on
+disk, so a line on a branch no checkout on disk holds is a `command:`
+evidence: the command that printed it and what it printed.
 
-   with the `--ruling` arguments `skills/lib/sdlc-config.md` →
-   "Standing rulings" calls for. A refusal names each slot it failed
-   on; fix the record and ask again.
-3. **When every problem it printed reads
-   `resolved by <class>: <value>`, nothing was asked**: apply each
-   ruling, name it in the run's report, and carry on, with no turn
-   ended and no reply to record. Otherwise **print what it printed,
-   verbatim, as the turn's question**, last in the reply, and end the
-   turn. A relayed report and your own analysis go above it, and name
-   each problem it printed as `resolved by <class>: <value>`.
-4. **Record the reply** to a record that asked:
+## Ask through `sdlc-decision ask`
 
-   ```bash
-   sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> \
-     --pick P<i>=<option id>… --reply-file <path>
-   ```
+```bash
+sdlc-decision ask (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]… <record-file>
+```
 
-   with the reply written verbatim to a scratchpad file, `none` as the
-   pick for a problem the reply answered in its own words, and no pick
-   for one it did not address, which goes into the next turn's record.
+Pass the `--ruling` arguments `skills/lib/sdlc-config.md` → "Standing
+rulings" calls for. A refusal names each slot it failed on; fix the
+record and ask again.
+
+## Print what `ask` printed as the turn's question
+
+When every problem `ask` printed reads `resolved by <class>: <value>`,
+nothing was asked: apply each ruling, name it in the run's report, and
+carry on, with no turn ended and no reply to record. Otherwise **print
+what it printed, verbatim, as the turn's question**, last in the reply,
+and end the turn. A relayed report and your own analysis go above it,
+and name each problem it printed as `resolved by <class>: <value>`.
+
+## Record the reply to a record that asked
+
+```bash
+sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> \
+  --pick P<i>=<option id>… --reply-file <path>
+```
+
+Write the reply verbatim to a scratchpad file first. Pick `none` for a
+problem the reply answered in its own words, and give no pick for one it
+did not address, which goes into the next turn's record.
