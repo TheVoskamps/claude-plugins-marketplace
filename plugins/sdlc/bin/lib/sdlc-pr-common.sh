@@ -126,9 +126,10 @@ sp_err_not_pr_ref() {
 # The state root's repository layout. A repository's state directory is
 # <host>/<owner>/<repo> under the state root, and carries repo.yml naming
 # the repository it holds, so a reader identifies the directory from the
-# file rather than from its path. Each function below that can fail
-# prints its message, prefixed with the script's name, and returns 1,
-# for the caller to exit with its own failure status.
+# file rather than from its path. Each layout function that can fail,
+# sp_write_repo_yml and sp_migrate_old_layout, prints its message,
+# prefixed with the script's name, and returns 1, for the caller to exit
+# with its own failure status.
 
 # sp_state_error <message> -- print a layout function's failure message.
 sp_state_error() {

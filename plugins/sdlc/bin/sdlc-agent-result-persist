@@ -529,7 +529,8 @@ write_repo_yml() {
 
 # State written before the host was part of the path moves to this
 # repository's directory, host from the repository split_repo parsed,
-# before any mode reads or writes.
+# before any mode reads or writes. A failure exits 2, as write_repo_yml's
+# does.
 migrate_old_layout() {
   sp_migrate_old_layout "$state_root" "$host" "$owner" "$repo" || exit 2
 }
