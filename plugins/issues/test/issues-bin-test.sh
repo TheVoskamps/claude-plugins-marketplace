@@ -1195,6 +1195,116 @@ expect "issue-create: a dropped label exits non-zero" 1 \
 expect_absent "issue-create: a dropped label is not a partial run" "the run stopped before finishing"
 
 # ---------------------------------------------------------------------------
+# Close reasons.
+# ---------------------------------------------------------------------------
+
+# close_args <number>: the argument lists of the case's `gh issue close` calls
+# on issue <number> in the current repository, one JSON array per line.
+close_args() {
+  jq -c --arg n "$1" 'select(.[0] == "issue" and .[1] == "close" and .[2] == $n) | .[3:]' "$CASE_DIR/gh.log"
+}
+# gh_calls <verb> <number>: how many `gh issue <verb>` calls named <number>.
+gh_calls() {
+  jq -c --arg v "$1" --arg n "$2" 'select(.[0] == "issue" and .[1] == $v and .[2] == $n)' "$CASE_DIR/gh.log" |
+    wc -l | tr -d ' '
+}
+reason_of() {
+  state ".repos[\"acme/widgets\"].issues[\"$1\"] | [.state, .stateReason, (.duplicateOf // \"-\")] | join(\" \")"
+}
+
+new_case "$CONFIG_MAIN"
+run issue-close 3 --reason completed
+expect "issue-close --reason completed" 0 "Closed issue #3 \"Widget issue 3\"." "state:   CLOSED" "reason:  COMPLETED"
+check "$(reason_of 3)" "CLOSED COMPLETED -" "issue-close --reason completed: landed"
+check "$(close_args 3)" '["--repo","github.com/acme/widgets","--reason","completed"]' "issue-close --reason completed: passed to gh"
+run issue-close 4 --reason NOT-Planned
+expect "issue-close --reason not-planned, matched case-insensitively" 0 "reason:  NOT_PLANNED"
+check "$(reason_of 4)" "CLOSED NOT_PLANNED -" "issue-close --reason not-planned: landed"
+check "$(close_args 4)" '["--repo","github.com/acme/widgets","--reason","not planned"]' "issue-close --reason not-planned: passed to gh"
+run issue-close 5 --reason duplicate-of 6
+expect "issue-close --reason duplicate-of N" 0 "reason:  DUPLICATE of #6"
+check "$(reason_of 5)" "CLOSED DUPLICATE I_acme_widgets_6" "issue-close --reason duplicate-of N: landed"
+check "$(close_args 5)" \
+  '["--repo","github.com/acme/widgets","--reason","duplicate","--duplicate-of","https://github.com/acme/widgets/issues/6"]' \
+  "issue-close --reason duplicate-of N: gh gets the duplicate's URL"
+run issue-close 7 --reason duplicate-of octo/lib#5
+expect "issue-close --reason duplicate-of owner/repo#N" 0 "reason:  DUPLICATE of octo/lib#5"
+check "$(reason_of 7)" "CLOSED DUPLICATE I_octo_lib_5" "issue-close --reason duplicate-of owner/repo#N: landed"
+run issue-close 8 --reason Duplicate-Of https://github.com/acme/other/issues/3
+expect "issue-close --reason duplicate-of URL" 0 "reason:  DUPLICATE of other#3"
+check "$(reason_of 8)" "CLOSED DUPLICATE I_acme_other_3" "issue-close --reason duplicate-of URL: landed"
+run issue-close 9
+expect "issue-close with no --reason" 0 "Closed issue #9 \"Widget issue 9\"." "state:   CLOSED"
+expect_absent "issue-close with no --reason prints no reason line" "reason:"
+check "$(close_args 9)" '["--repo","github.com/acme/widgets"]' "issue-close with no --reason passes gh no reason"
+
+# Each usage error is raised before the comment: nothing posted, nothing closed.
+new_case "$CONFIG_MAIN"
+run issue-close 3 --comment "Summary." --reason duplicate
+expect "issue-close --reason duplicate: a usage error" 2 \
+  "\`--reason\` takes \`completed\`, \`not-planned\` or \`duplicate-of <issue>\`, not \`duplicate\`"
+run issue-close 3 --comment "Summary." --reason wontfix
+expect "issue-close --reason wontfix: a usage error" 2 "not \`wontfix\`"
+run issue-close 3 --comment "Summary." --reason duplicate-of
+expect "issue-close --reason duplicate-of with nothing after it: a usage error" 2 \
+  "\`--reason duplicate-of\` needs the issue this one duplicates"
+run issue-close 3 --reason duplicate-of --comment "Summary."
+expect "issue-close --reason duplicate-of followed by a flag: a usage error" 2 \
+  "\`--reason duplicate-of\` needs the issue this one duplicates"
+run issue-close 3 --comment "Summary." --reason duplicate-of 999
+expect "issue-close --reason duplicate-of: a reference that does not resolve" 1 "issue \`#999\` not found in \`acme/widgets\`"
+run issue-close 3 --comment "Summary." --reason duplicate-of 50
+expect "issue-close --reason duplicate-of: a pull request is refused" 1 "\`#50\` is a pull request"
+run issue-close 3 --comment "Summary." --reason duplicate-of 3
+expect "issue-close --reason duplicate-of: the issue itself" 2 "names \`#3\` itself"
+run issue-close 3 --comment "Summary." --reason duplicate-of https://github.com/acme/widgets/issues/3
+expect "issue-close --reason duplicate-of: the issue itself, by URL" 2 "names \`#3\` itself"
+check "$(gh_calls comment 3) $(gh_calls close 3) $(reason_of 3)" "0 0 OPEN  -" \
+  "issue-close --reason usage errors: no comment, no close"
+
+# An issue already closed: left alone when the reason and target match,
+# reopened and closed again when either differs; the comment is posted in both.
+new_case "$CONFIG_MAIN"
+run issue-close 3 --reason duplicate-of 4
+run issue-close 3 --comment "Still a duplicate." --reason duplicate-of 4
+expect "issue-close --reason on an issue closed the same way" 0 \
+  "Issue #3 \"Widget issue 3\" is already closed with that reason; no change." "comment: posted" "reason:  DUPLICATE of #4"
+check "$(gh_calls comment 3) $(gh_calls reopen 3) $(gh_calls close 3)" "1 0 1" \
+  "issue-close --reason on an issue closed the same way: commented, neither reopened nor closed"
+run issue-close 3 --comment "A duplicate of another." --reason duplicate-of 5
+expect "issue-close --reason on an issue closed as a duplicate of another" 0 \
+  "Closed issue #3 \"Widget issue 3\"." "comment: posted" "reason:  DUPLICATE of #5"
+check "$(gh_calls comment 3) $(gh_calls reopen 3) $(gh_calls close 3) $(reason_of 3)" \
+  "2 1 2 CLOSED DUPLICATE I_acme_widgets_5" "issue-close --reason, another target: commented, reopened, closed"
+run issue-close 3 --reason not-planned
+expect "issue-close --reason on an issue closed with another reason" 0 "Closed issue #3" "reason:  NOT_PLANNED"
+check "$(gh_calls reopen 3) $(reason_of 3)" "2 CLOSED NOT_PLANNED -" "issue-close --reason, another reason: reopened, closed"
+run issue-close 3 --reason not-planned
+expect "issue-close --reason not-planned on an issue closed as not planned" 0 \
+  "is already closed with that reason; no change." "reason:  NOT_PLANNED"
+run issue-close 3
+expect "issue-close with no --reason on a closed issue" 0 "Closed issue #3"
+expect_absent "issue-close with no --reason on a closed issue prints no reason line" "reason:"
+check "$(gh_calls reopen 3) $(reason_of 3)" "2 CLOSED NOT_PLANNED -" \
+  "issue-close with no --reason on a closed issue: not reopened"
+
+# The re-read decides: a reason or duplicate target the close did not record
+# exits non-zero after the report.
+new_case "$CONFIG_MAIN"
+set_state '.closeAs = {"stateReason": "COMPLETED"}'
+run issue-close 3 --reason not-planned
+expect "issue-close --reason: a reason that did not land" 1 "reason:  COMPLETED" \
+  "the close reason on issue \`#3\` should read \`NOT_PLANNED\`, but a re-read shows \`COMPLETED\`"
+set_state '.closeAs = {"stateReason": "DUPLICATE", "duplicateOf": null}'
+run issue-close 4 --reason duplicate-of 5
+expect "issue-close --reason duplicate-of: DUPLICATE with no target" 1 "reason:  DUPLICATE${ISS_NL}" \
+  "the duplicate target on issue \`#4\` should read \`#5\`, but a re-read shows \`(none)\`"
+set_state '.closeAs = {"stateReason": "DUPLICATE", "duplicateOf": "I_octo_lib_5"}'
+run issue-close 6 --reason duplicate-of 5
+expect "issue-close --reason duplicate-of: another target recorded" 1 "reason:  DUPLICATE of octo/lib#5" \
+  "the duplicate target on issue \`#6\` should read \`#5\`, but a re-read shows \`octo/lib#5\`"
+
+# ---------------------------------------------------------------------------
 # Paging: every connection read runs to its end (see the fixture's #3, #12).
 # ---------------------------------------------------------------------------
 
@@ -1442,7 +1552,8 @@ printf 'Hi.\n' >"$CASE_DIR/repo/body.md"
 for call in "issue-set-status 2 Done" "issue-set-priority 3 Low" "issue-set-size 3 L" "issue-set-type 3 Feature" \
   "issue-set-parent 5 4" "issue-set-child 4 5" "issue-unset-parent 2" "issue-unset-child 1 2" \
   "issue-set-blocked-by 5 4" "issue-set-blocks 4 5" "issue-unset-blocked-by 2 acme/other#3" \
-  "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-comment 3 --body-file body.md" \
+  "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-close 4 --reason not-planned" \
+  "issue-comment 3 --body-file body.md" \
   "issue-update 3 --title Renamed" "issue-create --title T --body-file body.md"; do
   run $call
   case "$call" in

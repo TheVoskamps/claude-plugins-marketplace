@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Close one issue, optionally posting a summary comment first. The contract is
+# Close one issue, optionally posting a summary comment first and optionally
+# with a close reason. The contract is
 # plugins/issues/skills/issue-close/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage='usage: issue-close <issue> [--comment "summary"]'
+usage='usage: issue-close <issue> [--comment "summary"] [--reason completed | not-planned | duplicate-of <issue>]'
 number_arg=
 comment=
 has_comment=no
+reason=
+dup_arg=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --comment)
@@ -16,6 +19,23 @@ while [ "$#" -gt 0 ]; do
       comment=$2
       has_comment=yes
       shift 2
+      ;;
+    --reason)
+      { [ -z "$reason" ] && [ "$#" -ge 2 ]; } || iss_usage_die "$usage"
+      raw_reason=$2
+      reason=$(iss_lc "$raw_reason")
+      shift 2
+      case "$reason" in
+        completed | not-planned) ;;
+        duplicate-of)
+          case "${1-}" in
+            '' | --*) iss_usage_die "\`--reason duplicate-of\` needs the issue this one duplicates; $usage" ;;
+          esac
+          dup_arg=$1
+          shift
+          ;;
+        *) iss_usage_die "\`--reason\` takes \`completed\`, \`not-planned\` or \`duplicate-of <issue>\`, not \`$raw_reason\`" ;;
+      esac
       ;;
     --*) iss_usage_die "$usage" ;;
     *)
@@ -27,34 +47,119 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$number_arg" ] || iss_usage_die "$usage"
 
-iss_init "$number_arg"
-iss_operand "$number_arg"
-ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
-repo_arg=$(iss_repo_arg "$OP_HOST" "$OP_OWNER" "$OP_REPO")
+# The stateReason a requested reason reads back as.
+case "$reason" in
+  completed) want=COMPLETED ;;
+  not-planned) want=NOT_PLANNED ;;
+  duplicate-of) want=DUPLICATE ;;
+  *) want= ;;
+esac
 
-iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title url"
+if [ -n "$dup_arg" ]; then iss_init "$number_arg" "$dup_arg"; else iss_init "$number_arg"; fi
+iss_operand "$number_arg"
+host=$OP_HOST
+owner=$OP_OWNER
+repo=$OP_REPO
+number=$OP_NUMBER
+ref=$(iss_ref "$host" "$owner" "$repo" "$number")
+repo_arg=$(iss_repo_arg "$host" "$owner" "$repo")
+
+if [ -n "$reason" ]; then
+  iss_lookup "$host" "$owner" "$repo" "$number" "id title url state stateReason duplicateOf { id }"
+else
+  iss_lookup "$host" "$owner" "$repo" "$number" "title url"
+fi
 title=$(iss_jq .title)
 url=$(iss_jq .url)
+
+# What a close with a reason does to an issue already closed: gh changes
+# nothing on a closed issue, so one closed with another reason or duplicate
+# target is reopened first, and one closed exactly as requested is left alone.
+action=close
+dup_id=
+dup_ref=
+if [ -n "$reason" ]; then
+  issue_id=$(iss_jq .id)
+  cur_state=$(iss_jq .state)
+  cur_reason=$(iss_jq '.stateReason // empty')
+  cur_dup_id=$(iss_jq '.duplicateOf.id // empty')
+  if [ -n "$dup_arg" ]; then
+    iss_operand "$dup_arg"
+    dup_ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+    iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "id url"
+    dup_id=$(iss_jq .id)
+    dup_url=$(iss_jq .url)
+    [ "$dup_id" != "$issue_id" ] ||
+      iss_usage_die "\`--reason duplicate-of\` names \`$ref\` itself; an issue cannot duplicate itself"
+  fi
+  if [ "$cur_state" = CLOSED ]; then
+    if [ "$cur_reason" = "$want" ] && { [ -z "$dup_id" ] || [ "$cur_dup_id" = "$dup_id" ]; }; then
+      action=none
+    else
+      action=reopen
+    fi
+  fi
+fi
 
 # Comment first, so a failed close still leaves the summary on the issue; a
 # failed comment stops the run before the close.
 posted="not posted"
 if [ "$has_comment" = yes ]; then
-  gh issue comment "$OP_NUMBER" --repo "$repo_arg" --body "$comment" >/dev/null ||
+  gh issue comment "$number" --repo "$repo_arg" --body "$comment" >/dev/null ||
     iss_die "\`gh issue comment\` failed on issue \`$ref\`; the issue was not closed"
   posted=posted
 fi
 
-gh issue close "$OP_NUMBER" --repo "$repo_arg" >/dev/null ||
-  iss_die "\`gh issue close\` failed on issue \`$ref\`"
+if [ "$action" = reopen ]; then
+  gh issue reopen "$number" --repo "$repo_arg" >/dev/null ||
+    iss_die "\`gh issue reopen\` failed on issue \`$ref\`, which stays closed with its earlier reason"
+fi
+if [ "$action" != none ]; then
+  set -- issue close "$number" --repo "$repo_arg"
+  case "$reason" in
+    completed) set -- "$@" --reason completed ;;
+    not-planned) set -- "$@" --reason "not planned" ;;
+    duplicate-of) set -- "$@" --reason duplicate --duplicate-of "$dup_url" ;;
+  esac
+  gh "$@" >/dev/null || iss_die "\`gh issue close\` failed on issue \`$ref\`"
+fi
 
-iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "state"
+if [ -n "$reason" ]; then
+  iss_lookup "$host" "$owner" "$repo" "$number" "state stateReason duplicateOf { id url }"
+else
+  iss_lookup "$host" "$owner" "$repo" "$number" "state"
+fi
 state=$(iss_jq .state)
 [ "$state" = CLOSED ] || iss_err_write_not_landed state "$ref" CLOSED "$state"
 
-printf 'Closed issue %s "%s".\n' "$ref" "$title"
+if [ -n "$reason" ]; then
+  got_reason=$(iss_jq '.stateReason // "(none)"')
+  got_dup_id=$(iss_jq '.duplicateOf.id // empty')
+  got_dup_ref=
+  if [ -z "$got_dup_id" ]; then
+    :
+  elif [ "$got_dup_id" = "$dup_id" ]; then
+    got_dup_ref=$dup_ref
+  else
+    iss_parse_operand "$(iss_jq .duplicateOf.url)"
+    got_dup_ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
+  fi
+fi
+
+if [ "$action" = none ]; then
+  printf 'Issue %s "%s" is already closed with that reason; no change.\n' "$ref" "$title"
+else
+  printf 'Closed issue %s "%s".\n' "$ref" "$title"
+fi
 printf '  comment: %s\n' "$posted"
 printf '  state:   %s\n' "$state"
+if [ -n "$reason" ]; then
+  if [ "$got_reason" = DUPLICATE ] && [ -n "$got_dup_ref" ]; then
+    printf '  reason:  %s of %s\n' "$got_reason" "$got_dup_ref"
+  else
+    printf '  reason:  %s\n' "$got_reason"
+  fi
+fi
 printf '%s\n' "$url"
 
 if [ "$has_comment" = yes ]; then
@@ -63,5 +168,14 @@ if [ "$has_comment" = yes ]; then
     grep -oE '#[0-9]+' | awk '!seen[$0]++' | iss_join_lines)
   if [ -n "$closing" ]; then
     printf 'note: your comment contained closing keyword(s) referencing %s, which will auto-close that/those issue(s).\n' "$closing"
+  fi
+fi
+
+# A requested reason is checked after the report, so the report shows what the
+# re-read found. A DUPLICATE with no duplicateOf has not recorded the target.
+if [ -n "$reason" ]; then
+  [ "$got_reason" = "$want" ] || iss_err_write_not_landed "the close reason" "$ref" "$want" "$got_reason"
+  if [ -n "$dup_id" ] && [ "$got_dup_id" != "$dup_id" ]; then
+    iss_err_write_not_landed "the duplicate target" "$ref" "$dup_ref" "${got_dup_ref:-(none)}"
   fi
 fi

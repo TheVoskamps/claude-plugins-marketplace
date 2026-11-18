@@ -16,6 +16,11 @@ workflow added the issue first: the add fails as "Content already exists in
 this project", and the item it created stays out of the next N reads of the
 issue's project items.
 
+`issue close` records a stateReason -- COMPLETED unless its --reason names
+another -- and, with --duplicate-of, the issue it duplicates as duplicateOf.
+state["closeAs"] = {"stateReason": R, "duplicateOf": node-id-or-null} makes
+every close record those two values instead of the requested ones.
+
 A pull request is an entry in a repo's "issues" carrying "pullRequest": true,
 since the two share one number sequence.
 
@@ -157,9 +162,14 @@ def render(state, nwo, issue, query, after=None):
     issue_type = None
     if issue.get("issueType"):
         issue_type = {"id": issue["issueType"], "name": state["issueTypes"][issue["issueType"]]}
+    duplicate_of = None
+    if issue.get("duplicateOf"):
+        duplicate_of = brief(state, *by_id(state, issue["duplicateOf"]))
     out = brief(state, nwo, issue)
     out.update({
         "state": issue.get("state", "OPEN"),
+        "stateReason": issue.get("stateReason"),
+        "duplicateOf": duplicate_of,
         "body": issue.get("body", ""),
         "issueType": issue_type,
         "parent": parent,
@@ -516,8 +526,35 @@ def main():
             save(state)
             print("%s#issuecomment-%s" % (issue_url(state, nwo, issue["number"]), cid))
         elif verb == "close":
+            # As gh does, a closed issue is left as it is, whatever reason the
+            # call names.
+            if issue.get("state") == "CLOSED":
+                return
+            reason = {"not planned": "NOT_PLANNED", "duplicate": "DUPLICATE"}.get(flags.get("reason"), "COMPLETED")
+            duplicate_of = None
+            if "duplicate-of" in flags:
+                dup = flags["duplicate-of"]
+                dnwo, dhost, dnum = nwo, host, dup
+                m = re.match(r"https://([^/]+)/([^/]+/[^/]+)/issues/(\d+)$", dup)
+                if m:
+                    dhost, dnwo, dnum = m.group(1), m.group(2), m.group(3)
+                target = by_number(state, dnwo, dnum) if repo_on(state, dnwo, dhost) else None
+                if target is None:
+                    fail("Could not resolve to an issue or pull request with the number of %s." % dnum)
+                duplicate_of = target["id"]
+            if "closeAs" in state:
+                reason = state["closeAs"]["stateReason"]
+                duplicate_of = state["closeAs"].get("duplicateOf")
             if not dropping():
                 issue["state"] = "CLOSED"
+                issue["stateReason"] = reason
+                issue["duplicateOf"] = duplicate_of
+            save(state)
+        elif verb == "reopen":
+            if not dropping():
+                issue["state"] = "OPEN"
+                issue["stateReason"] = "REOPENED"
+                issue["duplicateOf"] = None
             save(state)
         else:
             fail("fake gh: unknown issue verb " + verb)
