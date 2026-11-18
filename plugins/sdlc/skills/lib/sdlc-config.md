@@ -166,24 +166,19 @@ A **standing ruling** is a key named after a class of the decision
 record — a class `sdlc-decision` defines — whose values are `ask` and
 one or more named rulings. Its default is `ask` unless its row in the
 table above names a ruling. A skill passes each such key whose resolved
-value is not `ask` to every `sdlc-decision ask` call as
-`--ruling <class>=<value>`, and a record of that class is then resolved
-by the key: no question is asked, and the skill applies the ruling the
-key's description defines. `ask` puts every record of the class to the
-human.
+value is not `ask` to each `sdlc-decision ask` call its own conditions
+admit, as `--ruling <class>=<value>`, and a record of that class is
+then resolved by the key: no question is asked, and the skill applies
+the ruling the key's description defines. `ask` puts every record of
+the class to the human.
 
 - **`outside-criteria-finding`** — a finding, or an observation no
   review filed, whose fix lies outside the issue's acceptance criteria.
   `fix-in-pr` fixes the defect in this PR, with the issue edit the fix
-  needs. It applies only when every file the fix touches is in this
-  repository, the PR is still a draft, and the fix needs no decision the
-  issue and the repo leave open; otherwise the record is put to the
-  human with no ruling passed.
+  needs.
 - **`recurring-finding-class`** — a class of finding filed on two
   consecutive rounds. `fix-class` makes the next fixer brief cover every
-  instance of the class rather than the reported ones. A class filed
-  again after the round that fixed the class is put to the human with no
-  ruling passed.
+  instance of the class rather than the reported ones.
 
 ## Reading
 

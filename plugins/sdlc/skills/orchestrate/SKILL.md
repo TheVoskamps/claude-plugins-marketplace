@@ -1069,8 +1069,8 @@ last state the class was clean in stated as one of the options. Pass
 `--ruling recurring-finding-class=<its value>`, unless an earlier round
 already ran a brief covering the class and the class recurred after
 it: then pass none, so the record is put to the human. A record the
-ruling resolved makes the next fixer brief cover every instance of the
-class, as an owner ruling naming the class. Name the class you are
+ruling resolved goes on the next fixer brief as an owner ruling naming
+the class. Name the class you are
 watching — the theorem or the file — in each round's report.
 
 ### The documentation loop
