@@ -21,8 +21,8 @@
 # `why`; each option carries `does`, `evidence` and `cost`; each piece of
 # evidence is `file: <path>:<line>` with `quote:`, the text found on that
 # line, or `command: <command>` with `output:`. A relative evidence path
-# is read against the top level of the working tree the script runs in.
-# `ask` never runs a `command:` evidence: it checks only that the command
+# is read against the top level of the working tree the script runs in,
+# or against the current directory outside a working tree. `ask` never runs a `command:` evidence: it checks only that the command
 # and its output are present.
 #
 # Problems are numbered P1, P2, … in record order, and each problem's
@@ -149,7 +149,9 @@ if [ "$mode" = answer ]; then
 fi
 
 # The record set is a PR's or an issue's, named by its canonical
-# reference; sp_parse_pr checks the shape of either.
+# reference; sp_parse_pr checks the shape of either. An issue reference
+# is tried in a subshell first, because sp_parse_pr's own refusal calls
+# the reference a PR.
 if [ -n "$pr_ref" ] && [ -n "$issue_ref" ]; then
   sp_usage_error "Pass --pr or --issue, not both."
 elif [ -n "$pr_ref" ]; then

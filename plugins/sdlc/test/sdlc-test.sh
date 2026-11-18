@@ -24,9 +24,11 @@
 # round-type column, its generator tiers, its wording of a seed the
 # seed-review record marks and its per-class agreement report over the
 # PR's decision records. It drives sdlc-decision's ask, answer and print:
-# each refusal ask makes, a record a ruling resolves, an unclassified one
-# no ruling resolves, and where a PR's and an issue's records are
-# stored. It checks
+# a record a ruling resolves, an unclassified one no ruling resolves,
+# where a PR's and an issue's records are stored, and ask's refusal of an
+# empty problem, an option with no evidence or cost, a malformed
+# recommendation, a class outside the class list, and a file: evidence
+# that does not check out. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
