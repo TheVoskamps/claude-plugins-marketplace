@@ -482,6 +482,11 @@ def main():
     elif args[0] == "issue":
         verb = args[1]
         positional, flags = opts(args[2:])
+        # gh validates the close reason as it parses flags, before any call.
+        close_reasons = {"completed": "COMPLETED", "not planned": "NOT_PLANNED", "duplicate": "DUPLICATE"}
+        if verb == "close" and "reason" in flags and flags["reason"] not in close_reasons:
+            fail('invalid argument "%s" for "-r, --reason" flag: valid values are {completed|not planned|duplicate}'
+                 % flags["reason"])
         parts = flags.get("repo", state["current"]).split("/")
         if len(parts) == 3:
             host = parts[0]
@@ -530,7 +535,8 @@ def main():
             # call names.
             if issue.get("state") == "CLOSED":
                 return
-            reason = {"not planned": "NOT_PLANNED", "duplicate": "DUPLICATE"}.get(flags.get("reason"), "COMPLETED")
+            # With no --reason, GitHub records the close as completed.
+            reason = close_reasons[flags.get("reason", "completed")]
             duplicate_of = None
             if "duplicate-of" in flags:
                 dup = flags["duplicate-of"]

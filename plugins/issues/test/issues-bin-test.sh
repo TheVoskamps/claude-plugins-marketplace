@@ -1264,6 +1264,15 @@ expect "issue-close --reason duplicate-of: the issue itself, by URL" 2 "names \`
 check "$(gh_calls comment 3) $(gh_calls close 3) $(reason_of 3)" "0 0 OPEN  -" \
   "issue-close --reason usage errors: no comment, no close"
 
+# A malformed duplicate-of reference is refused before either issue is read, so
+# a closing issue that does not exist cannot turn it into a lookup error.
+new_case "$CONFIG_MAIN"
+run issue-close 999 --reason duplicate-of 'not#a#ref'
+expect "issue-close --reason duplicate-of: a malformed reference is a usage error" 2 \
+  "\`not#a#ref\` is not an issue reference"
+check "$(jq -c 'select(.[0] == "issue" or index("graphql") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "issue-close --reason duplicate-of, a malformed reference: no issue read or write"
+
 # An issue already closed: left alone when the reason and target match,
 # reopened and closed again when either differs; the comment is posted in both.
 new_case "$CONFIG_MAIN"

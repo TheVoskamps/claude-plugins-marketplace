@@ -57,13 +57,22 @@ esac
 
 if [ -n "$dup_arg" ]; then iss_init "$number_arg" "$dup_arg"; else iss_init "$number_arg"; fi
 iss_operand "$number_arg"
-# Copied out of OP_*, which resolving the duplicate-of operand overwrites.
+# Copied out of OP_*, which parsing the duplicate-of operand overwrites.
 host=$OP_HOST
 owner=$OP_OWNER
 repo=$OP_REPO
 number=$OP_NUMBER
 ref=$(iss_ref "$host" "$owner" "$repo" "$number")
 repo_arg=$(iss_repo_arg "$host" "$owner" "$repo")
+# Parsed before either issue is read, so a malformed duplicate-of reference is
+# a usage error that no lookup failure can mask.
+if [ -n "$dup_arg" ]; then
+  iss_operand "$dup_arg"
+  dup_host=$OP_HOST
+  dup_owner=$OP_OWNER
+  dup_repo=$OP_REPO
+  dup_number=$OP_NUMBER
+fi
 
 if [ -n "$reason" ]; then
   iss_lookup "$host" "$owner" "$repo" "$number" "id title url state stateReason duplicateOf { id }"
@@ -85,9 +94,8 @@ if [ -n "$reason" ]; then
   cur_reason=$(iss_jq '.stateReason // empty')
   cur_dup_id=$(iss_jq '.duplicateOf.id // empty')
   if [ -n "$dup_arg" ]; then
-    iss_operand "$dup_arg"
-    dup_ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
-    iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "id url"
+    dup_ref=$(iss_ref "$dup_host" "$dup_owner" "$dup_repo" "$dup_number")
+    iss_lookup "$dup_host" "$dup_owner" "$dup_repo" "$dup_number" "id url"
     dup_id=$(iss_jq .id)
     dup_url=$(iss_jq .url)
     [ "$dup_id" != "$issue_id" ] ||
