@@ -175,7 +175,9 @@ a side-effect issue — is an approval, not a decision.
 
    The rewrite is also what enforces the readiness bar's exclusions,
    by removing rather than noting: every reference the bar excludes
-   and every provenance sentence comes out, a fact the body needs
+   and every provenance sentence comes out, every sentence that fails
+   "Outcome, not method" comes out and is restated as the outcome it
+   was meant to produce, a fact the body needs
    from a referenced document is restated in the body in the present
    tense, and a dependency the prose stated is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance

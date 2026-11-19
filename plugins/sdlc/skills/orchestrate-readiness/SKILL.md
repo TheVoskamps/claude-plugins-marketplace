@@ -53,6 +53,19 @@ can trigger that stop. The items:
   how the change came to be asked for, what an earlier round did, or
   why an earlier design was rejected is provenance rather than spec —
   it costs the implementer reads that buy nothing.
+- **Outcome, not method**. It fails on a sentence that specifies an
+  implementation step the implementer can derive from the tree or from
+  running a tool, rather than the delivered behavior, a constraint, or
+  a decision. Its failures include a fix prescribed per finding of a
+  tool's report — a linter, a type checker, a test run, a scanner; a
+  file-and-line location given as where to make a change; and a
+  diagnosis taken from a tool's report and stated as fact. The item
+  admits what the implementer cannot derive: the content of a config
+  file, a name, a placement in the tree, a policy such as which findings
+  may be excluded and where, an interface a downstream consumer depends
+  on, and the observable outcome — for tool output, that the tool
+  reports clean. The gap line names the sentence and says to restate it
+  as the outcome it was meant to produce.
 - **Acceptance criteria**. The body carries the acceptance sections
   the grammar below defines, and each bullet in either is one claim
   about the delivered change that a reviewer can attempt to disprove
