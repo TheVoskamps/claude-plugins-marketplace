@@ -36,10 +36,7 @@ const ORCHESTRATE = "sdlc:orchestrate";
 // The files that serve only the opening of an orchestrate run, which spawns no agent until
 // pre-flight, the readiness gate and the plan are settled. The readiness skill is not one: the
 // orchestrator's mid-run handling of a contradicted policy claim uses the terms it defines.
-const OPENING_FILES = [
-  "/skills/orchestrate/lib/pre-flight.md",
-  "/skills/orchestrate/lib/plan.md",
-];
+const OPENING_FILES = ["/skills/orchestrate/lib/pre-flight.md", "/skills/orchestrate/lib/plan.md"];
 const SCHEMA_LINE = /^(["']?)schema-version\1:(?:\s+(.*))?$/;
 // The one valid budget line. `parseTier` holds its integer to `MIN_BUDGET`.
 const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}: ([0-9]+)$`);
