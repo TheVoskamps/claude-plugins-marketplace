@@ -64,6 +64,7 @@ merge-poll-interval-seconds: 300
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
 | `loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 | `docs-loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
+| `ready-rewrite-approval` | `ask` \| `auto` | `ask` |
 | `follow-up-issue-type` | `repo-default` \| `ask` \| a type name | `repo-default` |
 | `follow-up-issue-priority` | `repo-default` \| `ask` \| an option name | `repo-default` |
 | `follow-up-issue-status` | `repo-default` \| `ask` \| an option name | `repo-default` |
@@ -131,6 +132,12 @@ merge-poll-interval-seconds: 300
   the merge stages and the ready flip, and has no effect on the code
   loop's. Its values, and what a clean end is, are `loop-end`'s,
   applied to the documentation loop.
+- **`ready-rewrite-approval`** — whether `/sdlc:orchestrate-ready` asks
+  the human to approve the acceptance criteria and the files-affected
+  list before it rewrites an issue's body. `ask` asks that closing
+  question. `auto` rewrites the body without it once every design gap
+  has the human's stored answer, and prints the criteria and the file
+  list it wrote.
 - **`follow-up-issue-type`**, **`follow-up-issue-priority`**,
   **`follow-up-issue-status`**, **`follow-up-issue-assignee`** — the
   fields a follow-up issue the human ordered is filed with, through

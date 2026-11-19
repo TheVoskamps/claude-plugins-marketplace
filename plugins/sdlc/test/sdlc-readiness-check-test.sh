@@ -9,9 +9,10 @@
 # of it, a [no-match] path absent from the tree, a hostile ERE,
 # fenced blocks and a wrapped bullet, every malformed line under
 # `### Mechanical`, a failing bullet under each of the two acceptance
-# sections and one under an ungraded `## Acceptance`, a body with
-# neither acceptance section and sections with no bullet, and
-# issue-view missing from PATH.
+# sections and one under an ungraded `## Acceptance`, the mechanical gaps
+# for `## Acceptance` and for a files-affected list under another
+# heading, a body with neither acceptance section and sections with no
+# bullet, and issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
 #
@@ -462,7 +463,9 @@ run "## Code and instruction Markdown acceptance
 
 $FILES_ALL"
 check "$RC" 3 "sections: exit 3"
-check_lines "$OUT" 2 "sections: one gap per failing bullet of the two sections, none for ## Acceptance"
+check_lines "$OUT" 3 "sections: one gap per failing bullet of the two sections, and one for ## Acceptance, whose bullets are not graded"
+check_contains "$OUT" 'mechanical: Acceptance criteria: the body carries the forbidden section "## Acceptance"; split its bullets into "## Code and instruction Markdown acceptance" and "## Documentation acceptance"' \
+  "sections: ## Acceptance is a mechanical gap"
 check_contains "$OUT" '"- [exists] src/code.sh" names a file the files-affected section does not list: src/code.sh' "sections: a failing bullet under the code section is graded"
 check_contains "$OUT" '"- [exists] docs/guide.md" names a file the files-affected section does not list: docs/guide.md' "sections: a failing bullet under the documentation section is graded"
 no_marker "sections"
@@ -496,8 +499,47 @@ run "## Acceptance
 - [exists] src/a.sh
 
 $FILES_ALL"
+check "$RC" 3 "neither section beside ## Acceptance: exit 3"
+check_lines "$OUT" 2 "neither section beside ## Acceptance: the forbidden section and the missing headings"
+check_contains "$OUT" 'mechanical: Acceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"' \
+  "neither section beside ## Acceptance: the missing headings are a mechanical gap"
+
+run "## Design
+
+- prose only
+
+$FILES_ALL"
 check "$RC" 3 "neither section: exit 3"
-check "$OUT" 'Acceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"' "neither section: one gap naming both headings"
+check "$OUT" 'Acceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"' \
+  "neither section: one gap naming both headings, not mechanical with no criteria to move"
+
+# --- a files-affected list under another heading ----------------------
+
+run "## Documentation acceptance
+
+### Semantic
+
+- anything
+
+## Files likely affected
+
+- \`src/a.sh\` (update)"
+check "$RC" 3 "files heading: exit 3"
+check "$OUT" 'mechanical: Files affected: the body carries its files-affected list under "## Files likely affected"; retitle it "## Files affected (floor)"' \
+  "files heading: a list under another heading is a mechanical gap"
+
+run "## Documentation acceptance
+
+### Semantic
+
+- anything
+
+## Files affected
+
+- \`src/a.sh\` (update)
+
+$FILES_ALL"
+check "$RC" 0 "files heading beside the right one: exit 0"
 
 run "## Code and instruction Markdown acceptance
 

@@ -1274,19 +1274,22 @@ decision() {
   ERR=$(cat "$CASE/err")
 }
 
-# record <class> [<problem>] [<evidence of P1.1>] [<cost of P1.1>] [<recommendation>]:
-# writes a one-problem record to $CASE/record.yml. An argument given as
-# the empty string leaves its slot empty; `-` leaves the default.
+# record <class> [<problem>] [<evidence of P1.1>] [<cost of P1.1>] [<recommendation>]
+# [<existing pattern>]: writes a one-problem record to $CASE/record.yml.
+# An argument given as the empty string leaves its slot empty; `-` leaves
+# the default.
 record() {
-  local class=$1 problem=${2--} evidence=${3--} cost=${4--} rec=${5--}
+  local class=$1 problem=${2--} evidence=${3--} cost=${4--} rec=${5--} pattern=${6--}
   [ "$problem" != - ] || problem='The finding lies outside the criteria.'
   [ "$evidence" != - ] || evidence="[{file: \"$CASE/evidence.txt:2\", quote: quoted line}]"
   [ "$cost" != - ] || cost=none
   [ "$rec" != - ] || rec=P1.1
+  [ "$pattern" != - ] || pattern="$CASE/evidence.txt:2"
   cat >"$CASE/record.yml" <<EOF
 problems:
   - class: $class
     problem: "$problem"
+    existing-pattern: "$pattern"
     options:
       - does: Fix it in this PR.
         evidence: $evidence
@@ -1309,6 +1312,7 @@ check_contains "$OUT" "Decision 1
 
 P1 (design-gap)
 Problem: The finding lies outside the criteria.
+Existing pattern: $CASE/evidence.txt:2
 Options:
   P1.1 Fix it in this PR.
     Evidence: $CASE/evidence.txt:2: \"quoted line\"
@@ -1318,7 +1322,7 @@ Options:
       (nothing)
     Cost to you: Read the follow-up later.
 Recommendation: P1.1
-Why: The fix is small." "decision ask: prints the problem, each option with its evidence and cost, and the pick"
+Why: The fix is small." "decision ask: prints the problem, the existing pattern, each option with its evidence and cost, and the pick"
 check "$([ -e "$CASE/ran" ] && echo ran || echo not-run)" "not-run" "decision ask: a command: evidence is never run"
 check "$([ -f "$XDG_STATE_HOME/$DECISIONS_REL/1/record.yml" ] && echo stored || echo none)" "stored" \
   "decision ask: a PR's record is stored under pr<n>/decisions/"
@@ -1359,6 +1363,14 @@ refused "a recommendation naming two options" "P1 recommendation: names more tha
 refused "a recommendation with a condition" "P1 recommendation: is one option id with nothing attached" \
   design-gap - - - 'P1.1 unless the cap is near'
 refused "a class outside the class list" "P1 class: is outside the class list: scope-question" scope-question
+refused "a design gap with no existing pattern" "P1 existing-pattern: is empty" design-gap - - - - ''
+
+decision_case decision-pattern-other-class
+record merge-state - - - - ''
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$RC" "0" "decision ask: a problem of another class needs no existing pattern"
+check "$(printf '%s\n' "$OUT" | grep -c '^Existing pattern:')" "0" \
+  "decision ask: an empty existing pattern is not printed"
 QUOTED="$SANDBOX/decision-refuse-a quote not on the named line/evidence.txt"
 refused "a quote not on the named line" "P1.1 evidence 1 quote: is not on line 1 of $QUOTED" \
   design-gap - "[{file: \"$QUOTED:1\", quote: quoted line}]"
@@ -1388,6 +1400,7 @@ cat >"$CASE/record.yml" <<EOF
 problems:
   - class: design-gap
     problem: First.
+    existing-pattern: "grep -rn 'first' . found none"
     options:
       - {does: A, evidence: {command: "true", output: ""}, cost: none}
       - {does: B, evidence: {command: "true", output: ""}, cost: none}
@@ -1498,6 +1511,24 @@ decision print --pr 'h.example/o/r#7'
 check_contains "$OUT" "  P1 design-gap recommended P1.1 picked none
   reply:
     Neither; drop it." "decision print: a reply in free text is stored as none, beside the reply"
+
+decision_case decision-pending
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "0:" "decision pending: an issue with no record exits 0"
+record unclassified
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+decision pending --issue 'h.example/o/r#9'
+check "$RC" "0" "decision pending: an open record with no design gap exits 0"
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+decision pending --issue 'h.example/o/r#9'
+check "$RC" "4" "decision pending: an unanswered design gap exits 4"
+check "$ERR" "sdlc-decision: decision 2 P1: a design gap with no answer from the human" \
+  "decision pending: the refusal names the record and the problem"
+printf 'P1.1\n' >"$CASE/reply"
+decision answer --issue 'h.example/o/r#9' --decision 2 --pick P1=P1.1 --reply-file "$CASE/reply"
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "0:" "decision pending: a design gap the human answered exits 0"
 
 decision_case decision-print-newline
 record design-gap

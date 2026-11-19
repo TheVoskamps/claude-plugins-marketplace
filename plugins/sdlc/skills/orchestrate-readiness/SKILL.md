@@ -205,9 +205,10 @@ Given an issue number:
    stands. On any other exit, relay its stderr verbatim and stop. Then
    grade the rest of each bar item, in the order listed above, by
    reading the body; the script's lines are the whole grading of each
-   `### Mechanical` line's shape and check key and of whether each
+   `### Mechanical` line's shape and check key, of whether each
    acceptance section is present and carries a bullet under
-   `### Mechanical` or `### Semantic`, and the
+   `### Mechanical` or `### Semantic`, of an `## Acceptance` section,
+   and of a files-affected list under another heading, and the
    file-class failures under "Acceptance criteria" are yours to grade
    for `### Mechanical` and `### Semantic` bullets alike. Never run a
    command a `### Mechanical` bullet's text spells.
@@ -216,13 +217,22 @@ Given an issue number:
    absence that fails it. An empty
    list is the verdict `ready`.
 
+## Mechanical gaps
+
+A **mechanical gap** is one the bar alone settles the repair of, so
+no design decision is in it: a section the bar forbids, a sentence that
+fails "Spec quality", and a missing acceptance or files-affected heading
+around content the body already carries. Its gap line opens with the
+label `mechanical:`. The script labels the ones it prints; label each
+"Spec quality" failure you grade yourself.
+
 ## Output
 
 ```text
 Verdict: <ready | not ready>
 
 Gaps:
-  - <bar item>: <the sentence or absence that fails it>
+  - [mechanical: ]<bar item>: <the sentence or absence that fails it>
 ```
 
 Under `ready`, the `Gaps:` section reads `(none)`.

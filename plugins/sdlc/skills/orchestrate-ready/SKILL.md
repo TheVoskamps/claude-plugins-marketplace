@@ -82,27 +82,46 @@ a side-effect issue — is an approval, not a decision.
    after.** Invoke `/sdlc:orchestrate-readiness <N>`; its verdict and
    its gap list are what you report. Open with the verdict, so the
    user knows the size of the conversation before reading the detail.
-   Then list the gaps as a numbered list, each with a **proposed
-   default answer** — your best reading of what the issue intends,
-   stated as a proposal.
+   Then list the gaps as a numbered list, each mechanical gap with the
+   repair step 4 makes and each other gap with a **proposed default
+   answer** — your best reading of what the issue intends, stated as a
+   proposal.
 
    An issue that is already `ready` still gets step 6: the status flip
    is the deliverable even when the body needs no edit.
 
-3. **Settle the gaps one topic at a time, each as a decision.** Put
-   every grooming question to the user per "Putting a decision to the
-   user", one topic per record. Do not present a multiple-choice form
-   for an open design question: a form caps the answer space at what
-   you thought of and assumes your framing is right, which is exactly
-   what is in question here. The named exception is the decision
-   record: a grooming question is printed through `sdlc-decision ask`
-   with numbered options, because the record is what makes the reply
-   mappable and countable. Those options never cap the answer: the user
-   may answer in free text, which `sdlc-decision answer` stores as the
-   pick `none` beside the reply verbatim, and a reply that reframes the
-   topic is its answer. Reflect back what you hear in the user's own
-   words, and move to the next topic once it is settled. Your proposed
-   defaults are proposals; the user decides.
+3. **Settle the gaps one topic at a time.**
+
+   **A mechanical gap is repaired without a question.** Each gap line
+   opening `mechanical:` is repaired in step 4's rewrite — the section
+   or sentence deleted, or the heading added — and listed in step 7's
+   report.
+
+   **A gap about an out-of-scope system is not raised.** A system is
+   out of scope when this repository has no source or config for it:
+   another repository, a remote backend, a third-party service. A gap
+   whose repair lies in one is put to no one; step 4's rewrite states in
+   one sentence what the change assumes of that system, and grooming
+   continues.
+
+   **Every other gap is a design gap, put to the user as a decision**
+   per "Putting a decision to the user", one topic per record: its
+   problem, two to four options, one recommendation, and why. Where a
+   decision is too open to enumerate, such as a name, the options are
+   candidate proposals. The user may always answer in free text, which
+   `sdlc-decision answer` stores as the pick `none` beside the reply
+   verbatim, and a reply that reframes the topic is its answer. Reflect
+   back what you hear in the user's own words, and move to the next
+   topic once it is settled. Your proposed defaults are proposals; the
+   user decides.
+
+   **Look for the existing pattern before writing a design gap's
+   record.** Run at least one repo-wide Grep for the construct, command
+   or name the gap is about, and fill the record's `existing-pattern`
+   slot with the `path:line` that already does the thing, or with the
+   exact search that found none. When a pattern exists, following it is
+   option 1 and the recommendation, unless the record's why states what
+   makes it unfit here.
 
    **The acceptance sections are a gap like any other.** When the
    body has none, derive candidate criteria from the design prose —
@@ -116,10 +135,8 @@ a side-effect issue — is an approval, not a decision.
    name the file, section, or command it is about. A body still
    carrying a single `## Acceptance` section has its bullets moved
    into the two sections the same way. Either way, write the resulting
-   list to a file under `.claude/tmp/orchestrate-ready-<N>/` and put it
-   to the user as a decision before step 4 rewrites the body, citing
-   that file as its evidence, with adopting the list as written among
-   its options.
+   list to a file under `.claude/tmp/orchestrate-ready-<N>/` for the
+   closing approval below.
 
    Write each agreed criterion into the acceptance section of
    `sdlc:orchestrate-readiness`'s grammar that its subject's file class
@@ -141,9 +158,16 @@ a side-effect issue — is an approval, not a decision.
    is a design decision to settle, not a file to guess. When the body
    already has a list, check it against the design prose and the
    tree, and surface any path the prose reaches that the list omits
-   and any bullet the check reported malformed. Put the tagged list to
-   the user as a decision the same way, before step 4 rewrites the
-   body.
+   and any bullet the check reported malformed. Write the tagged list
+   to a file beside the criteria.
+
+   **The closing approval** comes once every design gap has an answer.
+   When `ready-rewrite-approval` is `ask`, put the criteria and the
+   files-affected list to the user as one decision before step 4
+   rewrites the body, citing both files as its evidence, with adopting
+   them as written among its options. When it is `auto`, ask nothing:
+   step 4 rewrites the body once `sdlc-decision pending` exits 0 for the
+   issue, and prints the criteria and the file list it wrote.
 
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped
@@ -177,7 +201,9 @@ a side-effect issue — is an approval, not a decision.
    by removing rather than noting: every reference the bar excludes
    and every provenance sentence comes out, every sentence that fails
    "Outcome, not method" comes out and is restated as the outcome it
-   was meant to produce, a fact the body needs
+   was meant to produce, every mechanical gap is repaired, a gap about
+   an out-of-scope system becomes its one-sentence assumption, a fact
+   the body needs
    from a referenced document is restated in the body in the present
    tense, and a dependency the prose stated is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance
@@ -232,7 +258,16 @@ a side-effect issue — is an approval, not a decision.
    `status` slot reports unconfigured, or the user picks leaving the
    status where it is, per "Status resolution" below.
    Otherwise resolve the
-   orchestrate-ready status name per that section, then:
+   orchestrate-ready status name per that section, then run, directly
+   before the flip and whatever the check printed:
+
+   ```bash
+   sdlc-decision pending --issue <host>/<owner>/<repo>#<N>
+   ```
+
+   A non-zero exit means a design gap still waits on the user's answer:
+   set no status, and report the issue as not ready, naming each
+   problem its stderr names. On exit 0:
 
    ```text
    /issue-set-status <N> <status-name>
@@ -244,7 +279,8 @@ a side-effect issue — is an approval, not a decision.
    the re-read is. Do not claim the flip until you have seen it.
 
 7. **Final report.** State: what changed in the body (the substantive
-   changes, not a diff), which side-effect issues you created and
+   changes, not a diff), each mechanical gap and its repair, which
+   side-effect issues you created and
    where, the status you set and that you confirmed it by re-reading,
    and the issue URL. When step 6 was skipped because a gap is still
    open, say instead that the issue is not ready, name the gaps still
