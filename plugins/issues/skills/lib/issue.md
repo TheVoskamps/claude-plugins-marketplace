@@ -13,8 +13,8 @@ resolution, the GraphQL documents, the post-write re-reads, and the
 error wording. A verb's `SKILL.md` says when to run its script, with
 which arguments, and what the output means. When the repo-config that
 governs a run says `issues: Jira`, the script exits non-zero with one
-fixed message before it reads or writes an issue, and "Jira backend"
-below says whether the verb goes on from there.
+fixed message before it reads or writes an issue, and the verb's
+`SKILL.md` says whether it goes on from there.
 
 ## Repositories and issue references
 
@@ -299,10 +299,10 @@ slot: every slot reads as unconfigured, as if declared `kind: skip`.
 
 ## Jira backend
 
-This section is how every `/issue-*` verb but `/issue-list` runs when
-`.issues/repo-config.md` says `issues: Jira`: the verb's script refuses
-that tracker, so the verb is carried out from this prose. `/issue-list`
-does not support Jira, and its script's refusal ends the run. The surface
+This section is how an `/issue-*` verb whose `SKILL.md` sends it here
+runs when `.issues/repo-config.md` says `issues: Jira`: the verb's
+script refuses that tracker, so the verb is carried out from this
+prose. The surface
 is the GitHub one — the same flags, the same default-resolution order,
 the same name lookups, the same echo formats and the same
 abort-if-missing contract as the verb's `SKILL.md` describes — and only

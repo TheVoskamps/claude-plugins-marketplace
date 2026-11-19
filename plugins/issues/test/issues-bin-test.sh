@@ -760,7 +760,7 @@ run issue-list --status Done
 expect "issue-list: a status slot that is no board field" 1 "the \`status\` slot in \`github-project:\` in \`repo-config.md\` is \`kind: label\`"
 new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/project-id: PVT_1/project-id: PVT_9/')"
 run issue-list --status Done
-expect "issue-list: a board that does not resolve" 1 "project \`PVT_9\` did not resolve to a board on \`github.com\`"
+expect "issue-list: a board that does not resolve" 1 "project \`PVT_9\` did not resolve to a board on \`github.com\`" "\`/issues:repo-config\`"
 
 # ---------------------------------------------------------------------------
 # A slot default: the slot would refuse is an invalid repo-config.

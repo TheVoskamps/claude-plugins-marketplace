@@ -79,7 +79,5 @@ matches no view; the last names the board's views.
 
 ## Jira backend
 
-This verb does not support `issues: Jira`. Under it the script exits
-non-zero with its fixed Jira message before it reads the board; relay
-that message verbatim and stop. There is no Jira procedure to follow
-instead.
+This verb does not support `issues: Jira`: the script's refusal under
+it ends the run, and there is no Jira procedure to follow instead.

@@ -121,7 +121,7 @@ iss_err_stale_project() {
   # $1 project ID, $2 host, empty for gh's default host
   local where="gh's default host"
   [ -z "$2" ] || where="\`$2\`"
-  iss_die "project \`$1\` did not resolve to a board on $where; the cached ID in \`repo-config.md\` may be stale. Run \`/repo-config\` to refresh it."
+  iss_die "project \`$1\` did not resolve to a board on $where; the cached ID in \`repo-config.md\` may be stale. Run \`/issues:repo-config\` to refresh it."
 }
 
 iss_err_no_target_config() {
