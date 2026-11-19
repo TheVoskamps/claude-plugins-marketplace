@@ -1,6 +1,6 @@
 ---
 name: orchestrate-readiness
-description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that returns what an issue is missing as a gap list. Invoked by the grooming skill that writes bodies to the bar, by the orchestrator that refuses an issue below it, and preloaded into the agents that read the grammar or those terms; not invoked from the user's slash menu.
+description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that returns what an issue is missing as a gap list. Not invoked from the user's slash menu.
 user-invocable: false
 ---
 
