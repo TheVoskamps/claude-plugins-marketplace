@@ -1674,8 +1674,8 @@ iss_remove_sub_issue() {
 }
 
 # ---------------------------------------------------------------------------
-# Board listing: /issue-list's reads of the configured board's views and
-# items.
+# Board listing: /issue-list's reads of the configured board's views, fields
+# and items.
 # ---------------------------------------------------------------------------
 
 # The issue fields a board listing reads from each item's content: what
