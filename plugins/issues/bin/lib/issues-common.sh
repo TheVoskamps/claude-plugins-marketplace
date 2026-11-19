@@ -1743,12 +1743,13 @@ iss_node_not_found() {
   [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r 'any(.errors[]?; .type == "NOT_FOUND" and .path == ["node"])' 2>/dev/null)" = true ]
 }
 
-# iss_board_field_key <host> <project-id> <field-id>: set ISS_BOARD_FIELD_KEY
-# to the key the board's filter grammar names the field by: its name on the
-# board, lowercased, each space a "-". GitHub's items(query:) matches such a
-# key without regard to case, and matches no item on the name spelled with its
-# spaces, quoted or not. Aborts when the call fails or the field no longer
-# resolves.
+# iss_board_field_key <host> <project-id> <field-id>: print the key the board's
+# filter grammar names the field by: its name on the board, lowercased, each
+# space a "-". GitHub's items(query:) matches such a key without regard to
+# case, and matches no item on the name spelled with its spaces, quoted or not.
+# Aborts when the call fails or the field no longer resolves. Callers run it in
+# a command substitution and exit on a non-zero status, which is an abort
+# already reported on stderr.
 iss_board_field_key() {
   local name
   if ! iss_gql "$1" -f query="$ISS_DOC_BOARD_FIELD" -f field="$3"; then
@@ -1757,8 +1758,7 @@ iss_board_field_key() {
   fi
   name=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.node.name // empty')
   [ -n "$name" ] || iss_err_stale_project_field "$3" "$2"
-  # shellcheck disable=SC2034 # read by the sourcing script
-  ISS_BOARD_FIELD_KEY=$(printf '%s' "$name" | jq -Rr 'ascii_downcase | gsub(" "; "-")')
+  printf '%s' "$name" | jq -Rr 'ascii_downcase | gsub(" "; "-")'
 }
 
 # iss_board_nodes <host> <project-id> <doc> <connection> [<gh args...>]: run
@@ -1788,12 +1788,10 @@ iss_board_nodes() {
   done
 }
 
-# iss_board_views <host> <project-id>: set ISS_BOARD_VIEWS to every view of
+# iss_board_views <host> <project-id>: set ISS_BOARD_NODES to every view of
 # the board, as a JSON array of { number, name, filter, sortByFields }.
 iss_board_views() {
   iss_board_nodes "$1" "$2" "$(iss_doc_board_views)" views
-  # shellcheck disable=SC2034 # read by the sourcing script
-  ISS_BOARD_VIEWS=$ISS_BOARD_NODES
 }
 
 # iss_board_items <host> <project-id> <query>: set ISS_BOARD_ITEMS to the

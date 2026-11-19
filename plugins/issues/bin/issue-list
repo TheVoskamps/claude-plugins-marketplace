@@ -9,35 +9,37 @@ set -uo pipefail
 # The sort-field dataTypes the view sort can read a value for.
 readonly SORTABLE='NUMBER SINGLE_SELECT TEXT TITLE DATE ITERATION'
 
-# Stable-sort the issue array on stdin by the view's sort fields, $fields, in
-# their order and direction. A field's value is ranked among the values the
-# items hold -- a single-select by its option's position in the field -- and an
-# item with no value sorts after every item with one.
-# shellcheck disable=SC2016 # $p and $fields are jq's, bound with --arg and --argjson
-readonly SORT_PROGRAM='
-def value($f):
-  [.projectItems.nodes[]? | select(.project.id == $p) | .fieldValues.nodes[]?
-   | select(.field.id? == $f.field.id)][0] as $v
-  | $f.field.dataType as $t
-  | if $t == "TITLE" then (.title // null | if . == null then null else ascii_downcase end)
-    elif $v == null then null
-    elif $t == "NUMBER" then $v.number
-    elif $t == "SINGLE_SELECT" then ([$f.field.options[]?.id] | index($v.optionId))
-    elif $t == "TEXT" then ($v.text // null | if . == null then null else ascii_downcase end)
-    elif $t == "DATE" then $v.date
-    elif $t == "ITERATION" then $v.startDate
-    else null end;
-. as $items
-| [$items[] | [$fields[] as $f | value($f)]] as $values
-| [range(0; $fields | length) as $k | [$values[][$k] | select(. != null)] | unique] as $ranks
-| [range(0; $items | length) as $i
-   | {item: $items[$i],
-      key: [range(0; $fields | length) as $k | $values[$i][$k] as $v
-            | if $v == null then [1, 0]
-              else ($ranks[$k] | index($v)) as $r
-                | [0, (if $fields[$k].direction == "DESC" then -$r else $r end)]
-              end]}]
-| sort_by(.key) | map(.item)'
+# sort_items <project-id> <sort-fields>: stable-sort the issue array on stdin
+# by the view's sort fields, in their order and direction. A field's value is
+# ranked among the values the items hold -- a single-select by its option's
+# position in the field -- and an item with no value sorts after every item
+# with one.
+sort_items() {
+  jq -c --arg p "$1" --argjson fields "$2" '
+    def value($f):
+      [.projectItems.nodes[]? | select(.project.id == $p) | .fieldValues.nodes[]?
+       | select(.field.id? == $f.field.id)][0] as $v
+      | $f.field.dataType as $t
+      | if $t == "TITLE" then (.title // null | if . == null then null else ascii_downcase end)
+        elif $v == null then null
+        elif $t == "NUMBER" then $v.number
+        elif $t == "SINGLE_SELECT" then ([$f.field.options[]?.id] | index($v.optionId))
+        elif $t == "TEXT" then ($v.text // null | if . == null then null else ascii_downcase end)
+        elif $t == "DATE" then $v.date
+        elif $t == "ITERATION" then $v.startDate
+        else null end;
+    . as $items
+    | [$items[] | [$fields[] as $f | value($f)]] as $values
+    | [range(0; $fields | length) as $k | [$values[][$k] | select(. != null)] | unique] as $ranks
+    | [range(0; $items | length) as $i
+       | {item: $items[$i],
+          key: [range(0; $fields | length) as $k | $values[$i][$k] as $v
+                | if $v == null then [1, 0]
+                  else ($ranks[$k] | index($v)) as $r
+                    | [0, (if $fields[$k].direction == "DESC" then -$r else $r end)]
+                  end]}]
+    | sort_by(.key) | map(.item)'
+}
 
 # slot_value <slot>: the slot's value on the issue in ISS_ISSUE, or "-" when
 # it is unset or the slot is unconfigured.
@@ -117,11 +119,10 @@ else
   iss_operand_config "$host" "$owner" "$repo" || iss_err_no_target_config "$host" "$owner" "$repo"
   prefix=$ISS_CFG_PREFIX
 fi
-# An issue of the current repository prints with its issue-link-prefix, which
-# only the current repository's own repo-config, read when it is the one
-# listed, supplies.
-here_prefix='#'
-[ -n "$prefix" ] || here_prefix=$ISS_LINK_PREFIX
+# An issue of the current repository prints with the current repo-config's
+# issue-link-prefix whichever repository is listed, the prefix iss_ref decides
+# by, so the reference parses back in this checkout.
+here_prefix=${ISS_HERE_LINK_PREFIX-$(iss_read_link_prefix)}
 
 [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block "$prefix"
 status_kind=$(iss_slot_kind status)
@@ -129,17 +130,17 @@ status_kind=$(iss_slot_kind status)
 status_name=$(iss_resolve_name all "$status" fields status options) ||
   iss_err_not_in_options "$status" status "$(iss_slot_options status)"
 project=$(iss_cfg_get project-id)
-iss_board_field_key "$host" "$project" "$(iss_cfg_get fields status id)"
+status_key=$(iss_board_field_key "$host" "$project" "$(iss_cfg_get fields status id)") || exit 1
 
 view_filter=
 sort_fields='[]'
 if [ "$view_set" = yes ]; then
   iss_board_views "$host" "$project"
-  match=$(printf '%s' "$ISS_BOARD_VIEWS" | jq -c --arg v "$view" '
+  match=$(printf '%s' "$ISS_BOARD_NODES" | jq -c --arg v "$view" '
     first(.[] | select((.number | tostring) == $v))
     // first(.[] | select((.name | ascii_downcase) == ($v | ascii_downcase)))
     // empty')
-  [ -n "$match" ] || iss_err_view_not_found "$view" "$(printf '%s' "$ISS_BOARD_VIEWS" | jq -r '[.[].name] | join(", ")')"
+  [ -n "$match" ] || iss_err_view_not_found "$view" "$(printf '%s' "$ISS_BOARD_NODES" | jq -r '[.[].name] | join(", ")')"
   view_filter=$(printf '%s' "$match" | jq -r '.filter // ""')
   sort_fields=$(printf '%s' "$match" | jq -c '.sortByFields.nodes // []')
   unsortable=$(printf '%s' "$sort_fields" | jq -r --arg ok "$SORTABLE" '
@@ -154,7 +155,7 @@ fi
 # query.
 search=
 [ -z "$view_filter" ] || search="($view_filter) "
-search="${search}repo:$owner/$repo $ISS_BOARD_FIELD_KEY:\"$status_name\" is:issue is:open"
+search="${search}repo:$owner/$repo $status_key:\"$status_name\" is:issue is:open"
 alternatives=
 [ -z "$assignees" ] || alternatives="assignee:$assignees"
 [ "$unassigned" = no ] || alternatives="${alternatives:+$alternatives OR }no:assignee"
@@ -167,7 +168,7 @@ esac
 iss_board_items "$host" "$project" "$search"
 ordered=$ISS_BOARD_ITEMS
 if [ "$sort_fields" != '[]' ]; then
-  ordered=$(printf '%s' "$ISS_BOARD_ITEMS" | jq -c --arg p "$project" --argjson fields "$sort_fields" "$SORT_PROGRAM")
+  ordered=$(printf '%s' "$ISS_BOARD_ITEMS" | sort_items "$project" "$sort_fields")
 fi
 
 while IFS= read -r ISS_ISSUE; do

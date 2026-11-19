@@ -609,9 +609,10 @@ check "$(refs)" "#2 #12 #3" "issue-list: drops no item the connection returns"
 
 # Across pages: 110 more items, in descending position by number.
 new_case "$CONFIG_MAIN"
-# shellcheck disable=SC2016 # $n is jq's
-edit_state 'reduce range(100; 210) as $n (.; .repos["acme/widgets"].issues[$n | tostring].projectItems +=
-  [{id: "PVTI_L\($n)", project: "PVT_1", position: (1000 - $n), fields: {}}])'
+edit_state '.repos["acme/widgets"].issues |= with_entries(
+  if (.key | tonumber) >= 100 and (.key | tonumber) < 210
+  then .value.projectItems += [{id: "PVTI_L\(.key)", project: "PVT_1", position: (1000 - (.key | tonumber)), fields: {}}]
+  else . end)'
 run issue-list --status Backlog
 check "$(refs)" "#2 #12 $(seq -f '#%g' 209 -1 100 | paste -sd' ' -)" "issue-list: lines keep the connection's order across pages"
 check "$(jq -c 'select(any(.[]; startswith("search=")))' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 2 \
@@ -623,11 +624,10 @@ check "$OUT" "" "issue-list: --limit 0 prints nothing"
 
 # A view that sorts by priority descending, then by status in option order.
 new_case "$CONFIG_MAIN"
-# shellcheck disable=SC2016 # the $ names are jq's
 edit_state '
-  def put($n; $pos; $fields): .repos["acme/widgets"].issues[$n | tostring].projectItems +=
-    [{id: "PVTI_L\($n)", project: "PVT_1", position: $pos, fields: $fields}];
-  def st($o; $name): {PVTSSF_status: {name: $name, optionId: $o}};
+  def put(n; pos; fields): .repos["acme/widgets"].issues[n | tostring].projectItems +=
+    [{id: "PVTI_L\(n)", project: "PVT_1", position: pos, fields: fields}];
+  def st(o; name): {PVTSSF_status: {name: name, optionId: o}};
   put(3; 1; st("OPT_backlog"; "Backlog") + {PVTF_prio: {number: 5}})
   | put(4; 2; st("OPT_done"; "Done") + {PVTF_prio: {number: 9}})
   | put(5; 3; st("OPT_backlog"; "Backlog"))
@@ -708,7 +708,8 @@ check "$(refs)" "GH-2 GH-12" "issue-list: an issue here prints with the repo-con
 
 # A repository spelled as the issue-link-prefix here prints with its owner,
 # since its repo#N would read back as an issue here -- whether the verb read
-# the local repo-config itself or only a target's.
+# the local repo-config itself or only a target's. An issue here prints with
+# that prefix even when another repository is listed.
 new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^issue-link-prefix: "#"$/issue-link-prefix: other/')"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
 run issue-create acme/other --title "Elsewhere" --body-file new.md
@@ -721,13 +722,13 @@ jq --arg cfg "$CONFIG_MAIN" '.repos["acme/other"].config = $cfg
   | .repos["acme/other"].issues["3"].projectItems += [{id: "PVTI_O3", project: "PVT_1", position: 1, fields: {}}]' \
   "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
 run issue-list acme/other --status 'In progress'
-check "$(refs)" "#2 #12 acme/other#3" "issue-list <repo>: a repository named as the issue-link-prefix here names its owner"
+check "$(refs)" "other2 other12 acme/other#3" \
+  "issue-list <repo>: an issue here takes the issue-link-prefix here, and a repository named as it names its owner"
 
 # The status group names the board field backing the status slot, as the
 # board's filter grammar spells it.
 new_case "$CONFIG_MAIN"
-# shellcheck disable=SC2016 # $n is jq's
-stage_field='def name($n): .owners.acme.projects[0].fields |= map(if .id == "PVTSSF_status" then .name = $n else . end);'
+stage_field='def name(n): .owners.acme.projects[0].fields |= map(if .id == "PVTSSF_status" then .name = n else . end);'
 edit_state "$stage_field name(\"Stage\")"
 run issue-list --status Done
 check "$(last_search)" 'repo:acme/widgets stage:"Done" is:issue is:open' "issue-list: a status field named Stage filters on stage"
