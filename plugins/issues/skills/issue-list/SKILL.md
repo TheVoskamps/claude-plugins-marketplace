@@ -23,8 +23,9 @@ none until the board gives it one.
   `github-project:` block names.
 - `--status` (required): one option of the configured `status` slot,
   matched case-insensitively.
-- `--view`: a view of the board, by name (case-insensitive) or by
-  number. Its filter narrows the list and its sort orders it.
+- `--view`: a view of the board, by name or by number. A name matches
+  case-insensitively for ASCII letters only, so `é` does not match `É`.
+  Its filter narrows the list and its sort orders it.
 - `--assignee`, repeatable: issues assigned to any of these logins.
   `--unassigned`: issues assigned to no one. With both, an issue
   matching either is listed; with neither, assignees do not filter.
@@ -52,8 +53,10 @@ One line per issue, tab-separated, in this column order:
 <issue-reference>  <status>  <priority>  <size>  <open-blockers>  <assignees>  <title>
 ```
 
-- `<issue-reference>` is the repo-config's `issue-link-prefix` followed
-  by the number.
+- `<issue-reference>` is the current repository's `issue-link-prefix`
+  followed by the number for an issue of the current repository, and
+  otherwise the shortest form `skills/lib/issue.md` → "Repositories and
+  issue references" gives that names the issue's repository.
 - `<priority>` and `<size>` are the slot values, or `-` when unset or
   when the slot is unconfigured.
 - `<open-blockers>` counts the issue's blocked-by issues that are open.
@@ -76,7 +79,7 @@ matches no view; the last names the board's views.
 
 ## Jira backend
 
-The script serves the GitHub backend only. Under `issues: Jira` it
-exits non-zero with its fixed Jira message before it reads the board;
-follow `skills/lib/issue.md` → "Jira backend" → "List" instead, which
-produces the same lines through `acli`.
+This verb does not support `issues: Jira`. Under it the script exits
+non-zero with its fixed Jira message before it reads the board; relay
+that message verbatim and stop. There is no Jira procedure to follow
+instead.

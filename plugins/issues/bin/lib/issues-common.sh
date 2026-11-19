@@ -91,7 +91,7 @@ iss_err_repo_not_found() {
 
 iss_err_no_block() {
   # $1 message prefix
-  iss_die "${1:-}no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
+  iss_die "${1:-}no \`github-project:\` block in \`repo-config.md\`; run \`/issues:repo-config\` to add it"
 }
 
 iss_err_no_issue_types() {
@@ -600,6 +600,16 @@ iss_valid_owner() {
     '' | -* | *--* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
   esac
   [ "${#1}" -le 39 ]
+}
+
+# iss_valid_login <login>: whether <login> can be a user's login: ASCII
+# letters, digits, "-" and "_", not starting with "-". An owner never holds
+# "_", but an Enterprise Managed User's login does, before its shortcode. The
+# letters are spelled out for the same reason as in iss_valid_name.
+iss_valid_login() {
+  case "$1" in
+    '' | -* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) return 1 ;;
+  esac
 }
 
 # iss_valid_host <host>: whether <host> is a DNS hostname: at most 253
@@ -1701,6 +1711,34 @@ iss_doc_board_items() {
 }"
 }
 
+readonly ISS_DOC_BOARD_FIELD="query(\$field: ID!) {
+  node(id: \$field) { ... on ProjectV2FieldCommon { name } }
+}"
+
+# iss_node_not_found: whether the last failed iss_gql call failed because the
+# ID its top-level node(id:) named resolves to nothing -- GitHub's NOT_FOUND on
+# the path ["node"]. Any other failure, whatever its message says, is not.
+iss_node_not_found() {
+  [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r 'any(.errors[]?; .type == "NOT_FOUND" and .path == ["node"])' 2>/dev/null)" = true ]
+}
+
+# iss_board_field_key <host> <project-id> <field-id>: set ISS_BOARD_FIELD_KEY
+# to the key the board's filter grammar names the field by: its name on the
+# board, lowercased, each space a "-". GitHub's items(query:) matches such a
+# key without regard to case, and matches no item on the name spelled with its
+# spaces, quoted or not. Aborts when the field no longer resolves.
+iss_board_field_key() {
+  local name
+  if ! iss_gql "$1" -f query="$ISS_DOC_BOARD_FIELD" -f field="$3"; then
+    iss_node_not_found && iss_err_stale_project_field "$3" "$2"
+    iss_gql_fail
+  fi
+  name=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.node.name // empty')
+  [ -n "$name" ] || iss_err_stale_project_field "$3" "$2"
+  # shellcheck disable=SC2034 # read by the sourcing script
+  ISS_BOARD_FIELD_KEY=$(printf '%s' "$name" | jq -Rr 'ascii_downcase | gsub(" "; "-")')
+}
+
 # iss_board_nodes <host> <project-id> <doc> <connection> [<gh args...>]: run
 # <doc> against the board, page its <connection> to the end, and set
 # ISS_BOARD_NODES to every node, in the order the pages return them, as one
@@ -1715,7 +1753,7 @@ iss_board_nodes() {
     else
       iss_gql "$host" -f query="$doc" -f project="$project" "$@"
     fi || {
-      iss_is_stale_id_error && iss_err_stale_project "$project" "$host"
+      iss_node_not_found && iss_err_stale_project "$project" "$host"
       iss_gql_fail
     }
     page=$(printf '%s' "$ISS_GQL_OUT" | jq -c --arg c "$conn" '.data.node[$c] // empty')

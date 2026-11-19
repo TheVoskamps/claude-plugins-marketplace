@@ -73,11 +73,11 @@ while [ "$#" -gt 0 ]; do
           view_set=yes
           ;;
         --assignee)
-          iss_valid_owner "$2" || iss_usage_die "\`$2\` is not a GitHub login"
+          iss_valid_login "$2" || iss_usage_die "\`$2\` is not a GitHub login"
           assignees=${assignees:+$assignees,}$2
           ;;
         --limit)
-          iss_is_digits "$2" || iss_usage_die "\`--limit\` takes a non-negative integer, not \`$2\`"
+          iss_is_digits "$2" || iss_usage_die "\`--limit\` takes a non-negative integer, not \`$2\`; $usage"
           limit=$2
           ;;
       esac
@@ -111,9 +111,17 @@ else
   host=$RP_HOST
   owner=$RP_OWNER
   repo=$RP_REPO
+  # A host/owner/repo or URL operand leaves the current repository unresolved,
+  # and each printed reference is the shortest form relative to it.
+  iss_try_current_repo || :
   iss_operand_config "$host" "$owner" "$repo" || iss_err_no_target_config "$host" "$owner" "$repo"
   prefix=$ISS_CFG_PREFIX
 fi
+# An issue of the current repository prints with its issue-link-prefix, which
+# only the current repository's own repo-config, read when it is the one
+# listed, supplies.
+here_prefix='#'
+[ -n "$prefix" ] || here_prefix=$ISS_LINK_PREFIX
 
 [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block "$prefix"
 status_kind=$(iss_slot_kind status)
@@ -121,6 +129,7 @@ status_kind=$(iss_slot_kind status)
 status_name=$(iss_resolve_name all "$status" fields status options) ||
   iss_err_not_in_options "$status" status "$(iss_slot_options status)"
 project=$(iss_cfg_get project-id)
+iss_board_field_key "$host" "$project" "$(iss_cfg_get fields status id)"
 
 view_filter=
 sort_fields='[]'
@@ -145,7 +154,7 @@ fi
 # query.
 search=
 [ -z "$view_filter" ] || search="($view_filter) "
-search="${search}repo:$owner/$repo status:\"$status_name\" is:issue is:open"
+search="${search}repo:$owner/$repo $ISS_BOARD_FIELD_KEY:\"$status_name\" is:issue is:open"
 alternatives=
 [ -z "$assignees" ] || alternatives="assignee:$assignees"
 [ "$unassigned" = no ] || alternatives="${alternatives:+$alternatives OR }no:assignee"
@@ -165,12 +174,14 @@ while IFS= read -r ISS_ISSUE; do
   [ -n "$ISS_ISSUE" ] || continue
   # Every field but the last, the title, is non-empty, so none collapses into
   # its neighbour on read, and the title keeps any tab of its own.
-  IFS=$tab read -r number blockers assigned title <<EOF
-$(iss_jq '[.number, ([.blockedBy.nodes[]? | select(.state == "OPEN")] | length),
+  IFS=$tab read -r nwo number blockers assigned title <<EOF
+$(iss_jq '[.repository.nameWithOwner, .number, ([.blockedBy.nodes[]? | select(.state == "OPEN")] | length),
            ([.assignees.nodes[]?.login] | join(",") | if . == "" then "-" else . end), .title // ""]
           | map(tostring) | join("\t")')
 EOF
-  printf '%s%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ISS_LINK_PREFIX" "$number" "$(slot_value status)" \
+  ref=$(iss_ref_nwo "$host" "$nwo" "$number")
+  case "$ref" in '#'*) ref=$here_prefix$number ;; esac
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ref" "$(slot_value status)" \
     "$(slot_value priority)" "$(slot_value size)" "$blockers" "$assigned" "$title"
 done <<EOF
 $(printf '%s' "$ordered" | jq -c --argjson n "${limit:-null}" 'if $n == null then .[] else .[:$n][] end')

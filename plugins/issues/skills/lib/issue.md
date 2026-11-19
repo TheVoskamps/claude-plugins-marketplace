@@ -55,8 +55,8 @@ is read — aborts with exit 1, naming it as a pull request.
 A verb acts on an operand in its own repository, on its own host, and
 only that repository's repo-config governs it. A run reads the current
 repository's repo-config only when it acts there: an operand in the
-current repository, or `/issue-create` and `/issue-field-options` with
-no `<repo>`. A Jira-tracked checkout, or one with no repo-config, stops
+current repository, or `/issue-create`, `/issue-field-options` and
+`/issue-list` with no `<repo>`. A Jira-tracked checkout, or one with no repo-config, stops
 a verb on its own issues and not on another repository's. For an
 operand in another repository, the repo-config that governs it is that
 repository's `.issues/repo-config.md`, read from its default branch:
@@ -295,9 +295,10 @@ slot: every slot reads as unconfigured, as if declared `kind: skip`.
 
 ## Jira backend
 
-This section is how every `/issue-*` verb runs when
+This section is how every `/issue-*` verb but `/issue-list` runs when
 `.issues/repo-config.md` says `issues: Jira`: the verb's script refuses
-that tracker, so the verb is carried out from this prose. The surface
+that tracker, so the verb is carried out from this prose. `/issue-list`
+does not support Jira, and its script's refusal ends the run. The surface
 is the GitHub one — the same flags, the same default-resolution order,
 the same name lookups, the same echo formats and the same
 abort-if-missing contract as the verb's `SKILL.md` describes — and only
@@ -443,51 +444,6 @@ status, labels, issue type, and the custom-field values
   returns every child without a 50-item cap. `/issue-view` and
   `/issue-view-tree` read the inline parent/children from the
   `workitem view` payload and skip the search.
-
-### List (`/issue-list`)
-
-`/issue-list` prints the lines its `SKILL.md` describes from one JQL
-search, made with the `workitem search` template from the
-`/issues-jira:jira-lib` skill (`acli jira workitem search --jql
-"<JQL>" --paginate --json`). A `<repo>` argument naming another
-repository aborts with the "Operand in another repository" wording.
-
-- **Restriction** — `project = <project-key> AND status = "<status>"
-  AND resolution IS EMPTY`, with `<project-key>` the `jira:` block's
-  `project-key:` and `<status>` the `--status` value resolved against
-  the `status` slot's `options` per the lookup rules above. With no
-  `jira:` block, abort with the "No `jira:` block" wording; with the
-  `status` slot `kind: skip` or absent, abort with:
-
-  > no `status` slot in `jira:` in `repo-config.md`; run
-  > `/issues:repo-config` to add it
-
-- **`--view`** — a saved filter, read with `acli jira filter view --id
-  <id> --json` when the value is all digits and otherwise found by name
-  with `acli jira filter search --name "<name>" --paginate --json`,
-  taking the filter whose name equals the value case-insensitively,
-  since `--name` matches partially. Split its `jql` at a top-level
-  `ORDER BY`: AND the part before it, parenthesized, with the
-  restriction. A value matching no filter aborts with:
-
-  > no view `<view>` on the project board. Views: `<comma-separated
-  > names>`
-
-  listing the names `acli jira filter search --paginate --json`
-  returns.
-- **Assignees** — `--assignee` and `--unassigned` become one clause
-  ANDed with the rest: `(assignee in ("<a>", "<b>") OR assignee is
-  EMPTY)` with both, and `assignee in ("<a>", "<b>")` or `assignee is
-  EMPTY` alone, unparenthesized.
-- **Order** — append the saved filter's own `ORDER BY` clause, or
-  `ORDER BY Rank ASC` when there is no filter or it has none. Take the
-  search's results in the order returned, and stop at `--limit` lines.
-- **Columns** — `<issue-reference>` is the work item's key; status,
-  priority and size are read per "Read / view" above, `-` when unset or
-  the slot is unconfigured; `<open-blockers>` counts the work item's
-  `Blocks` links whose other end blocks it and is not in a done status
-  category, read from its `workitem view --json` payload;
-  `<assignees>` is the assignee's email address, or `-`.
 
 ### Create (`/issue-create`)
 

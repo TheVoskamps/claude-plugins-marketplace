@@ -587,7 +587,7 @@ last_search() {
 
 # refs: the issue references OUT lists, in order, joined with spaces.
 refs() {
-  printf '%s\n' "$OUT" | awk -F'\t' '/^#/ { printf "%s%s", sep, $1; sep = " " }'
+  printf '%s\n' "$OUT" | awk -F'\t' 'NF >= 7 { printf "%s%s", sep, $1; sep = " " }'
 }
 
 # Board 1 holds #2 and #12 at position 0. #12 runs past one page in its
@@ -663,6 +663,9 @@ check "$(last_search)" 'repo:acme/widgets status:"Done" is:issue is:open assigne
 run issue-list --status Done --unassigned --view 2
 check "$(last_search)" '(label:bug OR label:docs) repo:acme/widgets status:"Done" is:issue is:open no:assignee' \
   "issue-list: --unassigned alone has no OR"
+run issue-list --status Done --assignee mona_acme --assignee a-b
+check "$(last_search)" 'repo:acme/widgets status:"Done" is:issue is:open assignee:mona_acme,a-b' \
+  "issue-list: an Enterprise Managed User's login, with its _, is an assignee"
 
 # Aborts and usage errors.
 run issue-list --status Ready
@@ -674,6 +677,8 @@ for call in "issue-list" "issue-list --status" "issue-list --status Done --limit
   run $call
   expect "$call: a usage error" 2 "issue-list"
 done
+run issue-list --status Done --limit x
+expect "issue-list: a non-integer --limit prints the synopsis" 2 "\`--limit\` takes a non-negative integer, not \`x\`; usage: issue-list"
 run issue-list acme/other --status Done
 expect "issue-list <repo>: a target without repo-config" 1 "\`acme/other\` has no \`.issues/repo-config.md\`"
 run issue-list acme/jira --status Done
@@ -683,16 +688,53 @@ new_case none
 jq --arg cfg "$CONFIG_MAIN" '.repos["acme/other"].config = $cfg
   | .repos["acme/other"].issues["3"].projectItems += [{id: "PVTI_O3", project: "PVT_1", position: 1, fields: {}}]' \
   "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+# Each line's reference names the issue's own repository, so #2 and #12, which
+# the fake returns whatever the search's repo: says, stay in acme/widgets.
 run issue-list acme/other --status 'In progress'
-check "$(refs)" "#2 #12 #3" "issue-list <repo>: the target's repo-config governs, with none here"
+check "$(refs)" "#2 #12 other#3" "issue-list <repo>: the target's repo-config governs, with none here"
 check "$(last_search)" 'repo:acme/other status:"In progress" is:issue is:open' "issue-list <repo>: the search names the target"
 run issue-list acme/widgets --status 'In progress'
 expect "issue-list <repo>: naming the current repository reads its repo-config" 1 \
   "This repo has no \`.issues/repo-config.md\`."
+jq --arg cfg "$CONFIG_MAIN" '.repos["octo/lib"].config = $cfg
+  | .repos["octo/lib"].issues["5"].projectItems += [{id: "PVTI_L5", project: "PVT_1", position: 1, fields: {}}]' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list github.com/octo/lib --status 'In progress'
+check "$(refs)" "#2 #12 other#3 octo/lib#5" "issue-list <repo>: an issue under another owner names its owner and repository"
+
+new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^issue-link-prefix: "#"$/issue-link-prefix: GH-/')"
+run issue-list --status 'In progress'
+check "$(refs)" "GH-2 GH-12" "issue-list: an issue here prints with the repo-config's issue-link-prefix"
+
+# The status group names the board field backing the status slot, as the
+# board's filter grammar spells it.
+new_case "$CONFIG_MAIN"
+# shellcheck disable=SC2016 # $n is jq's
+stage_field='def name($n): .owners.acme.projects[0].fields |= map(if .id == "PVTSSF_status" then .name = $n else . end);'
+edit_state "$stage_field name(\"Stage\")"
+run issue-list --status Done
+check "$(last_search)" 'repo:acme/widgets stage:"Done" is:issue is:open' "issue-list: a status field named Stage filters on stage"
+edit_state "$stage_field name(\"Work Stage\")"
+run issue-list --status Done
+check "$(last_search)" 'repo:acme/widgets work-stage:"Done" is:issue is:open' \
+  "issue-list: a multi-word status field filters on its hyphenated name"
+edit_state '.owners.acme.projects[0].fields |= map(select(.id != "PVTSSF_status"))'
+run issue-list --status Done
+expect "issue-list: a status field gone from the board aborts" 1 \
+  "project field \`PVTSSF_status\` no longer exists on project \`PVT_1\`"
+check "$(refs)" "" "issue-list: a status field gone from the board prints no issue line"
+
+# Only GitHub's NOT_FOUND on the board's node reads as a stale ID.
+new_case "$CONFIG_MAIN"
+edit_state '.boardError = "Something was not found"'
+run issue-list --status Done
+expect "issue-list: a board read failing otherwise reports GitHub's error" 1 \
+  "GitHub GraphQL call failed: gh: Something was not found"
+expect_absent "issue-list: a board read failing otherwise is not a stale ID" "may be stale"
 
 new_case "$CONFIG_NO_BLOCK"
 run issue-list --status Done
-expect "issue-list: no github-project block" 1 "no \`github-project:\` block in \`repo-config.md\`"
+expect "issue-list: no github-project block" 1 "no \`github-project:\` block in \`repo-config.md\`" "\`/issues:repo-config\`"
 new_case "$CONFIG_NUMBER"
 run issue-list --status Done
 expect "issue-list: no status slot" 1 "no \`status\` slot in \`github-project:\`" "\`/issues:repo-config\`"
@@ -932,7 +974,7 @@ expect "issue-set-status: absent slot warns and exits zero" 0 "has no \`status\`
 
 new_case "$CONFIG_NO_BLOCK"
 run issue-set-priority 2 High
-expect "issue-set-priority: no block aborts" 1 "no \`github-project:\` block in \`repo-config.md\`; run \`/repo-config\` to add it"
+expect "issue-set-priority: no block aborts" 1 "no \`github-project:\` block in \`repo-config.md\`; run \`/issues:repo-config\` to add it"
 
 new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/PVTSSF_status/PVTSSF_gone/')"
 run issue-set-status 2 Done

@@ -266,6 +266,10 @@ def graphql(state, host, args):
         board(state, host, query, fields)
         return
 
+    if not mutation and "field" in fields:
+        board_field(state, host, fields["field"])
+        return
+
     if not mutation and re.search(r"\b(repositoryOwner|issueFields|issueTypes)\b", query):
         discovery(state, host, query, fields)
         return
@@ -384,12 +388,16 @@ def board(state, host, query, fields):
     absent), carrying its "views"; its items are the issues' project items on
     it, ordered by each item's "position", 0 when absent. The fake applies no
     filter: the items query returns every item on the board, whatever its
-    query argument says, so a test sees what the script does with each."""
+    query argument says, so a test sees what the script does with each.
+    state["boardError"] makes every board read fail with that message, as an
+    error of no type."""
+    if "boardError" in state:
+        fail(state["boardError"], {"data": None, "errors": [{"message": state["boardError"]}]})
     project = state.get("projects", {}).get(fields["project"])
     if project is None or project.get("host", DEFAULT_HOST) != host:
         fail("Could not resolve to a node with the global id of '%s'" % fields["project"],
              {"data": {"node": None},
-              "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node"}]})
+              "errors": [{"type": "NOT_FOUND", "path": ["node"], "message": "Could not resolve to a node"}]})
     if "views(" in query:
         views = [{"number": v["number"], "name": v["name"], "filter": v.get("filter", ""),
                   "sortByFields": {"nodes": v.get("sortByFields", [])}} for v in project.get("views", [])]
@@ -405,6 +413,22 @@ def board(state, host, query, fields):
         nodes.append({"id": item["id"], "fieldValues": paginate(query, "fieldValues", field_values(item), None),
                       "content": content})
     print(json.dumps({"data": {"node": {"items": paginate(query, "items", nodes, fields.get("after"))}}}))
+
+
+def board_field(state, host, fid):
+    """A board field read through node(id: $field): its name. The field is
+    one of a board's "fields" under state["owners"], on its owner's host."""
+    for owner in state.get("owners", {}).values():
+        if owner.get("host", DEFAULT_HOST) != host:
+            continue
+        for project in owner["projects"]:
+            for field in project["fields"]:
+                if field["id"] == fid:
+                    print(json.dumps({"data": {"node": {"name": field["name"]}}}))
+                    return
+    fail("Could not resolve to a node with the global id of '%s'" % fid,
+         {"data": {"node": None},
+          "errors": [{"type": "NOT_FOUND", "path": ["node"], "message": "Could not resolve to a node"}]})
 
 
 def login_on(state, host):
