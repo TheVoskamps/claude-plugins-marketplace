@@ -44,14 +44,18 @@ only when to run it.
   and option IDs, and writes them down. A verb acting on an issue here
   reads the file and aborts pointing back at `/repo-config` when it is
   missing, when its `schema-version` is older than the reader requires,
-  or when a slot's `default:` is a value the slot itself would refuse —
-  an option name not among its `options:`, or for `kind: number` a
-  bound or default that is not an integer with `min` at most `max`.
-  That last abort comes whichever slot the verb wanted, because the
-  file is invalid as a whole. A verb whose every operand names another
-  repository reads that repository's config instead and never opens
-  the local file, so a checkout with none, or one tracked in Jira, does
-  not stop work on another repo's issues. The config verbs write config
+  when its `issue-link-prefix` is anything but `#`, empty or a valid
+  repository name, or when a slot's `default:` is a value the slot
+  itself would refuse — an option name not among its `options:`, or
+  for `kind: number` a bound or default that is not an integer with
+  `min` at most `max`. Those last two aborts come whichever slot the
+  verb wanted, because the file is invalid as a whole. A verb whose
+  every operand names another repository reads that repository's
+  config instead. Of the local file, a verb taking an issue reference
+  then reads only the `issue-link-prefix`, because that decides how
+  every reference parses: a checkout with no file, or one tracked in
+  Jira, does not stop work on another repo's issues, and one whose
+  prefix is invalid does. The config verbs write config
   rather than requiring it. It is team-shared and committed, so one
   person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` and `jq` for the
@@ -144,15 +148,32 @@ usage error exits 2 before anything is sent; every other failure exits
 non-zero with one catalogue line on stderr.
 
 A malformed issue reference is such a usage error in every verb that
-acts on an existing issue, whichever operand carries it,
-`/issue-close`'s `duplicate-of` target included. Its syntax is checked
-before the current repository is resolved, because that resolution is
-itself a `gh` call: checked after it, a checkout where the call fails
-would report the call's error in place of the usage error. A
-well-formed reference is still resolved afterwards. The one usage error
-that needs a read first is `/issue-close --reason duplicate-of` naming
-the issue being closed, which is known only once both references are
-resolved; it still comes before the comment and the close.
+takes one, whichever operand carries it — `/issue-close`'s
+`duplicate-of` target and `/issue-create --parent` included. Its
+syntax is checked before the current repository is resolved, because
+that resolution is itself a `gh` call: checked after it, a checkout
+where the call fails would report the call's error in place of the
+usage error. A well-formed reference is still resolved afterwards.
+
+The check needs the `issue-link-prefix` a bare number may carry, and
+the local repo-config supplies it without a call. `/issue-create
+<repo> --parent` is the exception, because there the prefix is the
+target repository's and only a `gh` read fetches it. A `--parent` that
+is malformed whatever the prefix — a repository part the grammar
+refuses, a second `#` before the number — is still refused before any
+call; one with no `#` that ends in a digit, which the target's prefix
+alone can make valid, is judged after that read, and still exits 2.
+Checking ahead of the prefix is sound only while no prefix can turn a
+refused reference into a valid one, so an `issue-link-prefix` is
+confined to `#`, empty, or a valid repository name — ASCII letters,
+digits, `.`, `_` and `-`, at most 100 characters — and any other is a
+config error wherever a repo-config is read, the local one or a
+target's.
+
+One more usage error needs a read first, for another reason:
+`/issue-close --reason duplicate-of` naming the issue being closed is
+known only once both references are resolved. It still comes before
+the comment and the close.
 
 A verb that changes an issue **re-reads what it set** and exits
 non-zero when the re-read does not show it, so a skill never has to
@@ -341,11 +362,12 @@ host, rather than by one character class over the whole path, so a
 repository name may start with `-` while an owner may not. A single
 leading `-` on an argument is therefore not an unknown flag to these
 verbs, whose flags are all `--long`; it reaches the parser as an
-operand. The verbs take issues only: a `pull` URL is a usage error
-before any call, and a number that turns out to be a pull request
-aborts once read, naming it as one, because GitHub's issue endpoints
-accept a pull request's number and a verb must not act on one by
-accident.
+operand. The verbs take issues only: a `pull` URL is refused before
+any call, and a number that turns out to be a pull request aborts once
+read, naming it as one, because GitHub's issue endpoints accept a pull
+request's number and a verb must not act on one by accident. Neither
+is a usage error: both exit 1 with the same message, so the status
+does not depend on how the pull request was spelled.
 
 ## Skills
 

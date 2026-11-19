@@ -20,8 +20,22 @@ duplicate or a won't-do is no longer recorded as completed.
   the comment is posted.
 
 A malformed issue reference is now a usage error before any `gh` call,
-in every verb that acts on an existing issue. A checkout whose
-repository `gh` cannot resolve used to report that failure instead.
+in every verb that takes one, `/issue-create --parent` included. A
+checkout whose repository `gh` cannot resolve used to report that
+failure instead.
+
+- One case waits for a read: `/issue-create <repo> --parent` with a
+  reference that has no `#` and ends in a digit. Only the target
+  repository's `issue-link-prefix` can make that one valid, so it is
+  judged once that prefix is read, and still exits 2.
+- An `issue-link-prefix` must now be `#`, empty, or a valid repository
+  name: ASCII letters, digits, `.`, `_` and `-`, at most 100
+  characters. Any other is a config error in every verb that reads the
+  repo-config, the local one or another repository's, and
+  `/repo-config` refuses to write it.
+- A non-ASCII letter in an `issue-link-prefix`, or in the repository
+  name, owner or host of a reference, is now refused under every
+  locale. A UTF-8 locale could let one through before.
 
 ## 0.15.0 — 2026-11-17
 
