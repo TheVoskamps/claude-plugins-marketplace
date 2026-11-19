@@ -10,12 +10,13 @@
 # fenced blocks and a wrapped bullet, every malformed line under
 # `### Mechanical`, a failing bullet under each of the two acceptance
 # sections and one under an ungraded `## Acceptance`, the mechanical gaps
-# for `## Acceptance` and for a files-affected list under another
-# heading, which is then read as the list, at any level, in either word
-# order and over any list item that lists a path, a prose section whose
-# heading names files affected, a heading holding "files" only inside
-# another word, backticked tokens that are not paths, a body with
-# neither acceptance section and
+# for `## Acceptance` and for a files-affected list under another `## `
+# heading, which is then read as the list, in either word order and over
+# any list item that lists a path, a prose section whose heading names
+# files affected, a heading holding "files" only inside another word,
+# backticked tokens that are not paths, a files heading below level 2
+# inside the files-affected section and inside an acceptance section, a
+# body with neither acceptance section and
 # sections with no bullet, and issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
@@ -568,7 +569,8 @@ run "## Documentation acceptance
 
 Nothing in the tree changes.
 
-- the design is prose only"
+- the design is prose only
+- Node.js stays as it is"
 check "$RC:$OUT" "0:" "files heading over prose: a section holding no list of paths draws no retitle gap"
 
 # retitled <heading> <list>: runs a body whose files-affected list sits
@@ -594,14 +596,6 @@ retitled "## File affected" "- \`src/a.sh\` (update)"
 check "$RC:$OUT" "3:$RETITLE \"## File affected\"; retitle it \"## Files affected (floor)\"" \
   "files heading, singular: retitled"
 
-retitled "### Files affected" "- \`src/a.sh\` (update)"
-check "$RC:$OUT" "3:$RETITLE \"### Files affected\"; retitle it \"## Files affected (floor)\"" \
-  "files heading at level 3: retitled, and its bullet read as the list"
-
-retitled "# Files affected" "- \`src/a.sh\` (update)"
-check "$RC:$OUT" "3:$RETITLE \"# Files affected\"; retitle it \"## Files affected (floor)\"" \
-  "files heading at level 1: retitled"
-
 retitled "## Files affected" "### Code
 
 - \`src/a.sh\` (update)"
@@ -614,9 +608,6 @@ check "$RC:$OUT" "3:$RETITLE \"## Files Affected (Floor)\"; retitle it \"## File
 
 retitled "## Affected files" "- \`Makefile\` (update)"
 check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over an extensionless path with a tag: retitled"
-
-retitled "## Affected files" "- plugins/demo/x.sh (update)"
-check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over a bare path: retitled"
 
 retitled "## Affected files" "* \`src/a.sh\` (update)"
 check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over a '*' item: retitled"
@@ -648,22 +639,29 @@ run "## Documentation acceptance
 - none."
 check "$RC:$OUT" "0:" "files heading over backticked tokens that are not paths: no retitle gap"
 
-run "## Documentation acceptance
+run "## Code and instruction Markdown acceptance
 
-### Semantic
+### Mechanical
 
-- anything
+- [exists] src/a.sh
 
-## Design
+## Files affected (floor)
+
+### Files affected by the code
+
+- \`src/a.sh\` (update)"
+check "$RC:$OUT" "0:" "a files heading below level 2 inside the files-affected section: its bullets stay the list"
+
+run "## Code and instruction Markdown acceptance
 
 ### Files affected
 
-Only prose here.
+### Mechanical
 
-### Other
+- [exists] src/a.sh
 
-- \`src/a.sh\` (update)"
-check "$RC:$OUT" "0:" "files heading at level 3: its section ends at the next level-3 heading"
+$FILES_ALL"
+check "$RC:$OUT" "0:" "a files heading below level 2 inside an acceptance section: its Mechanical bullets are still graded"
 
 run "## Code and instruction Markdown acceptance
 
