@@ -97,7 +97,7 @@ accepts https://ghe-1.example.com/corp/-b/issues/7 "ghe-1.example.com corp -b 7"
 # A given repository is the one N and #N name; a form naming its own
 # repository ignores it.
 for case in "7|ghe.example.com corp tools 7" "#7|ghe.example.com corp tools 7" \
-            "octo/lib#7|github.com octo lib 7"; do
+  "octo/lib#7|github.com octo lib 7"; do
   op=${case%%|*}
   want=${case#*|}
   parse '#' acme "$op" ghe.example.com corp tools
