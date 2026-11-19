@@ -437,17 +437,27 @@ $open
 EOF
   # A stored reply that does not end in a newline gets one, so the next
   # reply starts on a line of its own.
+  staged="$at/reply.partial-$$"
   if [ -f "$at/reply" ]; then
     {
       cat -- "$at/reply"
       [ ! -s "$at/reply" ] || [ -z "$(tail -c 1 -- "$at/reply")" ] || printf '\n'
       cat -- "$reply_file"
-    } >"$at/reply.partial-$$"
+    } >"$staged"
   else
-    cp -- "$reply_file" "$at/reply.partial-$$"
-  fi
-  mv -- "$at/reply.partial-$$" "$at/reply"
-  put "$at/log" "$log$NL$lines" || sp_fail 1 "cannot store $at/log"
+    cp -- "$reply_file" "$staged"
+  fi || {
+    rm -f -- "$staged"
+    sp_fail 1 "cannot store $at/reply"
+  }
+  # The log is written before the reply is moved into place: a failed log
+  # write leaves the record unanswered, and a retried answer must find the
+  # stored reply as it was, or it stores the new reply twice.
+  put "$at/log" "$log$NL$lines" || {
+    rm -f -- "$staged" "$at/log.partial-$$"
+    sp_fail 1 "cannot store $at/log"
+  }
+  mv -- "$staged" "$at/reply" || sp_fail 1 "cannot store $at/reply"
   printf 'decision %s answered %s\n' "$decision" "$stamp"
   exit 0
 fi

@@ -1535,6 +1535,7 @@ case $last in */log) exit 1 ;; esac
 exec /bin/mv "$@"
 STUB
 chmod +x "$CASE/fakebin/mv"
+printf 'earlier\n' >"$XDG_STATE_HOME/$DECISIONS_REL/1/reply"
 printf 'P1.2\n' >"$CASE/reply"
 OUT=$(PATH="$CASE/fakebin:$PATH" "$DECISION" answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 \
   --reply-file "$CASE/reply" 2>"$CASE/err" </dev/null)
@@ -1543,6 +1544,10 @@ check "$(cat "$CASE/err")" "sdlc-decision: cannot store $XDG_STATE_HOME/$DECISIO
   "decision answer: a failed log write names the log"
 check "$(grep -c '^answered ' "$XDG_STATE_HOME/$DECISIONS_REL/1/log")" "0" \
   "decision answer: a failed log write leaves the record unanswered"
+check "$(cat "$XDG_STATE_HOME/$DECISIONS_REL/1/reply")" "earlier" \
+  "decision answer: a failed log write leaves the stored reply unchanged"
+check "$(find "$XDG_STATE_HOME/$DECISIONS_REL/1" -name '*.partial-*')" "" \
+  "decision answer: a failed log write leaves no staged file behind"
 
 decision_case decision-pending
 decision pending --issue 'h.example/o/r#9'
