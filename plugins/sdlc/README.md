@@ -426,15 +426,17 @@ A sound record is stored and printed in a fixed format: problems are
 numbered `P1`, `P2` and on, and each problem's options `P1.1`, `P1.2`
 and on, so every option in a turn has an id no other option shares and
 a reply of bare ids maps to exactly one option per problem. The human
-may still answer in their own words. `answer` then stores the pick as
-`none` beside the reply verbatim. The numbered options make the reply
+may still answer in their own words. The caller records such an answer
+by passing `answer` the pick `none` for that problem, and `answer`
+stores it beside the reply verbatim. The numbered options make the reply
 mappable and countable without capping the answer, which is why a
 grooming question takes the same form as any other: where a decision is
 too open to enumerate, such as a name, its options are candidate
 proposals.
 
-A problem the reply did not address is stored as `unanswered` and
-stays **open** on its own record. `answer` takes that record again
+A problem the reply did not address is passed no pick. `answer` stores
+a problem given no pick as `unanswered`, whatever the reply says, and
+it stays **open** on its own record. `answer` takes that record again
 while any of its problems is open, appending the later reply below the
 earlier one, and `question` prints the record's question again, from
 the text `ask` stored beside it, so the skill re-puts the problem by
@@ -447,7 +449,10 @@ question has it rendered again from the record and its log, as that
 `pending` is the check built on that state. It exits 4, naming each
 one, while a `design-gap` problem of the PR or the issue is open — no
 ruling resolved it, and its latest pick is absent or `unanswered` — and
-0 otherwise. An answer in free text closes the problem like any pick.
+0 otherwise. An answer in free text closes the problem only once it is
+recorded as the pick `none`: `pending` reads the stored pick and never
+the reply, so a free-text answer recorded with no pick leaves the
+problem `unanswered` and `pending` exiting 4.
 
 Some prompts stay outside the record, because each asks for a ruling
 on a whole artifact shown above it rather than a choice between
@@ -582,12 +587,18 @@ each of these and the final report lists it:
   itself.
 - An **"Outcome, not method"** gap. The bar item fails a sentence that
   prescribes an implementation step the implementer can derive from the
-  tree or from running a tool — a fix per finding of a linter's report,
-  a file and line given as where to make a change, a tool's diagnosis
-  stated as fact — and the rewrite restates the sentence as the outcome
-  it was meant to produce. A prescribed step goes stale on a rebase,
-  carries a possible false positive as fact, and has the review test
-  the prescription rather than the outcome.
+  tree or from running a tool: a fix per finding of a tool's report,
+  whether a linter's, a type checker's, a test run's or a scanner's; a
+  file and line given as where to make a change; and a diagnosis taken
+  from a tool's report and stated as fact. It lets through what the
+  implementer cannot derive: a config file's content, a name, a
+  placement in the tree, a policy such as which findings may be
+  excluded and where, an interface a downstream consumer depends on,
+  and the observable outcome, which for a tool's output is that the
+  tool reports clean. The rewrite restates a failing sentence as the
+  outcome it was meant to produce. A prescribed step goes stale on a
+  rebase, carries a possible false positive as fact, and has the review
+  test the prescription rather than the outcome.
 - A gap whose repair lies in an **out-of-scope system**: one this
   repository has no source or config for, such as another repository, a
   remote backend or a third-party service. The body states in one
