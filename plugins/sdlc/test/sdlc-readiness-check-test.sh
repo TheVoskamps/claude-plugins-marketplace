@@ -11,8 +11,11 @@
 # `### Mechanical`, a failing bullet under each of the two acceptance
 # sections and one under an ungraded `## Acceptance`, the mechanical gaps
 # for `## Acceptance` and for a files-affected list under another
-# heading, which is then read as the list, a prose section whose heading
-# names files affected, a body with neither acceptance section and
+# heading, which is then read as the list, at any level, in either word
+# order and over any list item that lists a path, a prose section whose
+# heading names files affected, a heading holding "files" only inside
+# another word, backticked tokens that are not paths, a body with
+# neither acceptance section and
 # sections with no bullet, and issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
@@ -567,6 +570,100 @@ Nothing in the tree changes.
 
 - the design is prose only"
 check "$RC:$OUT" "0:" "files heading over prose: a section holding no list of paths draws no retitle gap"
+
+# retitled <heading> <list>: runs a body whose files-affected list sits
+# under the heading, beside a Mechanical bullet the list covers.
+retitled() {
+  run "## Code and instruction Markdown acceptance
+
+### Mechanical
+
+- [exists] src/a.sh
+
+$1
+
+$2"
+}
+RETITLE='mechanical: Files affected: the body carries its files-affected list under'
+
+retitled "## Affected files" "- \`src/a.sh\` (update)"
+check "$RC:$OUT" "3:$RETITLE \"## Affected files\"; retitle it \"## Files affected (floor)\"" \
+  "files heading, words reversed: retitled, and its bullet read as the list"
+
+retitled "## File affected" "- \`src/a.sh\` (update)"
+check "$RC:$OUT" "3:$RETITLE \"## File affected\"; retitle it \"## Files affected (floor)\"" \
+  "files heading, singular: retitled"
+
+retitled "### Files affected" "- \`src/a.sh\` (update)"
+check "$RC:$OUT" "3:$RETITLE \"### Files affected\"; retitle it \"## Files affected (floor)\"" \
+  "files heading at level 3: retitled, and its bullet read as the list"
+
+retitled "# Files affected" "- \`src/a.sh\` (update)"
+check "$RC:$OUT" "3:$RETITLE \"# Files affected\"; retitle it \"## Files affected (floor)\"" \
+  "files heading at level 1: retitled"
+
+retitled "## Files affected" "### Code
+
+- \`src/a.sh\` (update)"
+check "$RC:$OUT" "3:$RETITLE \"## Files affected\"; retitle it \"## Files affected (floor)\"" \
+  "files heading over a sub-heading: the list under the sub-heading is still its list"
+
+retitled "## Files Affected (Floor)" "- \`src/a.sh\` (update)"
+check "$RC:$OUT" "3:$RETITLE \"## Files Affected (Floor)\"; retitle it \"## Files affected (floor)\"" \
+  "files heading in another case: retitled"
+
+retitled "## Affected files" "- \`Makefile\` (update)"
+check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over an extensionless path with a tag: retitled"
+
+retitled "## Affected files" "- plugins/demo/x.sh (update)"
+check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over a bare path: retitled"
+
+retitled "## Affected files" "* \`src/a.sh\` (update)"
+check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over a '*' item: retitled"
+
+retitled "## Affected files" "1. \`README.md\`"
+check_contains "$OUT" "$RETITLE \"## Affected files\"" "files heading over a numbered path item: retitled"
+
+run "## Documentation acceptance
+
+### Semantic
+
+- anything
+
+## Profiles affected
+
+- \`dev\`
+- \`prod\`"
+check "$RC:$OUT" "0:" "a heading holding 'files' only inside another word: no retitle gap"
+
+run "## Documentation acceptance
+
+### Semantic
+
+- anything
+
+## Files affected
+
+- \`dev\` and \`prod\` keep their profiles
+- none."
+check "$RC:$OUT" "0:" "files heading over backticked tokens that are not paths: no retitle gap"
+
+run "## Documentation acceptance
+
+### Semantic
+
+- anything
+
+## Design
+
+### Files affected
+
+Only prose here.
+
+### Other
+
+- \`src/a.sh\` (update)"
+check "$RC:$OUT" "0:" "files heading at level 3: its section ends at the next level-3 heading"
 
 run "## Code and instruction Markdown acceptance
 

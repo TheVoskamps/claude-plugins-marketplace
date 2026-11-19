@@ -1556,6 +1556,39 @@ check_contains "$OUT" "  P1 design-gap recommended P1.1 picked P1.2
 decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply2"
 check "$RC" "3" "decision answer: a record with no open problem left is refused"
 
+# A stored reply with no final newline is kept apart from the next one.
+decision_case decision-reply-newline
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+printf 'Not now.' >"$CASE/reply"
+decision answer --issue 'h.example/o/r#9' --decision 1 --reply-file "$CASE/reply"
+printf 'P1.2\n' >"$CASE/reply2"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply2"
+check "$RC:$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/reply")" "0:Not now.
+P1.2" "decision answer: a stored reply with no final newline gets one before the next reply"
+
+# question prints a record's question again: the stored file, or the same
+# text rendered from record.yml and the log for a record that has none.
+decision_case decision-question
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+ASKED=$OUT
+decision question --issue 'h.example/o/r#9' --decision 1
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored"
+rm "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/question"
+decision question --issue 'h.example/o/r#9' --decision 1
+check "$RC:$OUT" "0:$ASKED" "decision question: renders the same question for a record with no stored question"
+record merge-state
+decision ask --issue 'h.example/o/r#9' --ruling merge-state=rebase "$CASE/record.yml"
+ASKED=$OUT
+rm "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/2/question"
+decision question --issue 'h.example/o/r#9' --decision 2
+check "$RC:$OUT" "0:$ASKED" "decision question: a problem a ruling resolved renders as resolved, from the log"
+decision question --issue 'h.example/o/r#9' --decision 3
+check "$RC" "3" "decision question: a record that does not exist is refused"
+decision question --issue 'h.example/o/r#9'
+check "$RC" "2" "decision question: --decision is required"
+
 decision_case decision-print-newline
 record design-gap
 NL_STATE="$CASE/state

@@ -114,19 +114,25 @@ a side-effect issue — is an approval, not a decision.
    - a gap line opening `mechanical:` — the section or sentence
      deleted, the heading added, or an `## Acceptance` section's
      bullets moved;
-   - an "Outcome, not method" gap;
-   - a "Self-contained" gap on a reference out of the body;
-   - a "Dependency posture" gap on a dependency the body states that
-     no edge carries.
+   - an "Outcome, not method" gap.
 
    **A gap about an out-of-scope system is not raised.** A system is
    out of scope when this repository has no source or config for it:
    another repository, a remote backend, a third-party service. A gap
    whose repair lies in one is put to no one; step 4's rewrite states in
    one sentence what the change assumes of that system, and grooming
-   continues.
+   continues. A "Sandbox fit" gap is not one: whether the work it names
+   leaves the body, and whether step 5 files it elsewhere, is the
+   user's.
 
-   **Every other gap is a design gap, put to the user as a decision**
+   **An "Acceptance criteria" or "Files affected" gap** that is not
+   `mechanical:` is settled through the closing approval below, as the
+   paragraphs on those sections say, and is not raised on a record of
+   its own; a design decision those paragraphs find inside it is a
+   design gap.
+
+   **Every gap this step names no other handling for is a design gap,
+   put to the user as a decision**
    per "Putting a decision to the user", one topic per record: its
    problem, two to four options, one recommendation, and why. Where a
    decision is too open to enumerate, such as a name, the options are
@@ -148,8 +154,8 @@ a side-effect issue — is an approval, not a decision.
    capability claim only with the test that showed it false and that
    test's verbatim output, as the option's `command:` evidence.
 
-   **The acceptance sections are a gap like any other.** When the
-   body has no criteria, derive candidates from the design prose —
+   **Rework the acceptance sections for the closing approval.** When
+   the body has no criteria, derive candidates from the design prose —
    one per load-bearing commitment it makes, and never past it: a
    commitment the design does not make is a design decision to settle
    first, not a criterion to invent. When the body has them, split a
@@ -178,7 +184,7 @@ a side-effect issue — is an approval, not a decision.
    every PR that changes a plugin bumps its version, and the generator
    makes a theorem of every criterion in that section.
 
-   **The files-affected section is a gap the same way.** Derive the
+   **Rework the files-affected section the same way.** Derive the
    list from the placement decisions settled with the user and from
    the tree: every path the design names or plainly has to touch,
    each tagged with one of the tags `sdlc:orchestrate-readiness`'s
@@ -227,14 +233,16 @@ a side-effect issue — is an approval, not a decision.
    introducing one while resolving the others is self-defeating.
 
    The rewrite is also what enforces the readiness bar's exclusions,
-   by removing rather than noting: every reference the bar excludes
-   and every provenance sentence comes out, every sentence that fails
+   by removing rather than noting: every provenance sentence comes
+   out, every sentence that fails
    "Outcome, not method" comes out and is restated as the outcome it
-   was meant to produce, every mechanical gap is repaired, a gap about
-   an out-of-scope system becomes its one-sentence assumption, a fact
-   the body needs
-   from a referenced document is restated in the body in the present
-   tense, and a dependency the prose stated is created with
+   was meant to produce, every mechanical gap is repaired, and a gap
+   about an out-of-scope system becomes its one-sentence assumption.
+   Each design gap is repaired as the user's answer to its decision
+   says, and only so: a reference the bar excludes comes out, with the
+   facts the answer says the body needs from the referenced document
+   restated in the body in the present tense, and a dependency the
+   answer confirms is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance
    criteria, and each bullet moved out of an `## Acceptance` section
    into the section its subject's file class names, go in as the
@@ -246,8 +254,8 @@ a side-effect issue — is an approval, not a decision.
 
    Then run the check again. The rewrite loop ends when
    `/sdlc:orchestrate-readiness <N>` returns an empty gap list; a gap
-   it still reports goes back to step 3 as a topic, and a malformed
-   files-affected bullet is repaired here without a conversation.
+   it still reports goes back to step 3, which handles it as it
+   handles any gap.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,

@@ -81,11 +81,20 @@ sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> \
 
 Write the reply verbatim to a scratchpad file first. Pick `none` for a
 problem the reply answered in its own words, and give no pick for one it
-did not address, which goes into the next turn's record.
+did not address: that problem stays open on its record.
 
-A problem given no pick stays open on its record, and `answer` takes
-that record again for it. To put it again on the same record rather
-than in a new one, print the `question` file `ask` stored beside the
-`record:` path `sdlc-decision print` names, end the turn on it as on
-what `ask` printed, and record the reply with `answer` on the same
-record number, picking only for the problems still open.
+## Put a problem still open again on its own record
+
+`answer` takes a record again while any of its problems is open. Put
+such a problem again on that record, never in a new one: no answer to a
+new record closes the old record's problem. Print the record's question
+with
+
+```bash
+sdlc-decision question (--pr <ref> | --issue <ref>) --decision <n>
+```
+
+end the turn on what it printed as on what `ask` printed, putting
+nothing else to the human in that turn, since a second record's option
+ids would repeat this one's, and record the reply with `answer` on the
+same record number, picking only for the problems still open.
