@@ -121,9 +121,10 @@ a side-effect issue — is an approval, not a decision.
    another repository, a remote backend, a third-party service. A gap
    whose repair lies in one is put to no one; step 4's rewrite states in
    one sentence what the change assumes of that system, and grooming
-   continues. A "Sandbox fit" gap is not one: whether the work it names
-   leaves the body, and whether step 5 files it elsewhere, is the
-   user's.
+   continues. A "Sandbox fit" gap is handled the same way: the
+   out-of-repo work it names leaves the body for that assumption, with
+   no decision record, and filing the work where it lands is step 5's
+   offer, an approval rather than a decision.
 
    **An "Acceptance criteria" or "Files affected" gap** that is not
    `mechanical:` is settled through the closing approval below, as the
