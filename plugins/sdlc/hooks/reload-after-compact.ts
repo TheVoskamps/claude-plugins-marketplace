@@ -14,9 +14,9 @@ export const DEFAULT_BUDGET = 100000;
  * counts them: `orchestrate/SKILL.md`, `orchestrate/lib/issue-lifecycle.md`,
  * `orchestrate/lib/pr-lifecycle.md`, `orchestrate/lib/wrap-up.md`,
  * `orchestrate-readiness/SKILL.md`, `agent-result-persist-interface/SKILL.md`,
- * `theorem-agents-interface/SKILL.md`, `lib/decision-record.md` and `lib/sdlc-config.md`. The
- * skills the run invokes and the files its own work reads are not counted; the floor's headroom
- * above those files covers them.
+ * `theorem-agents-interface/SKILL.md`, `lib/decision-record.md` and `lib/sdlc-config.md`. Any
+ * other skill the run invokes, and the files its own work reads, are not counted; the floor's
+ * headroom above those files covers them.
  */
 export const MIN_BUDGET = 64000;
 /** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */
