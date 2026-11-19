@@ -761,7 +761,8 @@ iss_init() {
 
 # iss_read_link_prefix: print the current repo-config's issue-link-prefix, read
 # from its front matter without iss_load_config's checks and never refused. It
-# is '#' outside a git working tree and when the file or the key is absent.
+# is '#' outside a git working tree and when the file, its front matter or the
+# key is absent.
 iss_read_link_prefix() {
   local root=${ISS_REPO_ROOT:-} fm prefix
   [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=
