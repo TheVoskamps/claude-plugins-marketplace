@@ -1,5 +1,103 @@
 # sdlc changelog
 
+## 0.90.0 — 2026-11-19
+
+The readiness bar gains two items, and `/sdlc:orchestrate-ready` now
+asks the human only the design decisions a body leaves open, and sets
+an issue Ready only once each has the human's answer.
+
+The readiness bar:
+
+- **Outcome, not method** fails a body that prescribes implementation
+  steps instead of outcomes: a fix per finding of a linter, type
+  checker, test run or scanner, a file and line given as where to make
+  a change, or a tool's diagnosis stated as fact. A config file's
+  content, a name, a placement, a policy, an interface a consumer
+  depends on, and an observable outcome such as "the tool reports
+  clean" all still pass. Grooming restates each failing sentence as its
+  outcome, without a question.
+- **No contradicted repo statement** fails a body that specifies
+  something a `CLAUDE.md`, a file under `docs/rules/`, a skill, an
+  agent file or a touched plugin's root `README.md` forbids, unless the
+  body says the statement is deleted, replaced with given text, or
+  given a named exception with its reason. The check searches those
+  files on every run and reports what it searched on a `Searched:` line
+  ahead of the gaps.
+- A gap with only one possible repair is labelled `mechanical:` — an
+  `## Acceptance` section, the acceptance headings missing beside one,
+  a sentence failing "Spec quality", and a files-affected list under a
+  level-2 heading other than `## Files affected (floor)`. A mistitled
+  list is recognised only under a level-2 heading naming files
+  affected, over items that open with a backticked path or end in a
+  files-affected tag, and its bullets are then read as the list.
+
+Grooming, `/sdlc:orchestrate-ready`:
+
+- A design question's record must now name the existing pattern: the
+  `path:line` in the repository that already does the thing, or the
+  exact search that found none. `sdlc-decision ask` refuses a
+  `design-gap` problem without it and prints it in the question as
+  `Existing pattern:`. A pattern that exists is option 1 and the
+  recommendation, unless the reason given says why it does not fit.
+- Mechanical gaps and "Outcome, not method" gaps are repaired in the
+  rewrite and listed in the final report, with no question.
+- No question is raised about a system the repository holds no source
+  or config for, such as another repository or a remote backend. The
+  body states in one sentence what the change assumes of it. A "Sandbox
+  fit" gap is handled the same way, and the out-of-repo work it removed
+  is offered as a side-effect issue.
+- A "Self-contained" or "Dependency posture" gap is put to the human,
+  and the body is changed only as the answer says.
+- The rule against a multiple-choice form is gone: every design gap is
+  a decision record with two to four options, and the options of a
+  decision too open to enumerate are candidate proposals. An answer in
+  free text is still accepted.
+- The status is flipped only when the readiness check passes and
+  `sdlc-decision pending` finds no design gap waiting on an answer. A
+  body that passes the check on the skill's own proposed text is no
+  longer enough.
+- A design gap a reply left unanswered is asked again on its own
+  record, at the start of the next session included, instead of in a
+  new record.
+- New config key `ready-rewrite-approval`, `ask` or `auto`, default
+  `ask`. Under `auto` the closing approval of the acceptance criteria
+  and the files-affected list is skipped once every design gap is
+  answered, and the skill prints what it wrote.
+
+A contradicted repo statement during `/sdlc:orchestrate`:
+
+- `issue-developer` and `issue-fixer` no longer settle a conflict
+  between an issue and a rule the repo chose. They stop and report the
+  statement and its file, and the orchestrator puts it to the human
+  with the issue edit inside each option.
+- A statement about what the harness or a tool can do is deleted, with
+  every restatement of it, only after a read-only test showed it false,
+  and the test and its output are reported. One that is not tested, or
+  not shown false, goes to the human like a rule.
+- The plugin carries this rule itself. The section of this
+  marketplace's root `CLAUDE.md` that had the implementer settle such a
+  conflict inside the PR is removed.
+
+`sdlc-decision`:
+
+- New mode `pending (--pr <ref> | --issue <ref>)` exits 4, naming each
+  one, while a `design-gap` problem has no ruling and no answer, and 0
+  otherwise.
+- New mode `question (--pr <ref> | --issue <ref>) --decision <n>`
+  prints a record's question again, exactly as `ask` printed it. `ask`
+  now stores the question beside the record. For a record stored before
+  this version, `question` renders the same text from the record, which
+  needs `yq`.
+- `answer` accepts a record again while any of its problems is still
+  open, and records picks only for those. Each reply is appended to the
+  stored replies, starting on a line of its own.
+- `answer` stores its files whole or not at all, and reports a failed
+  write as `cannot store <path>`, as `ask` does.
+
+The `reload-after-compact` hook now reloads the readiness skill for the
+whole of an orchestrate run, where it used to drop it once the run's
+first agent was spawned.
+
 ## 0.89.0 — 2026-11-18
 
 After a compaction, the `reload-after-compact` hook's reload message
