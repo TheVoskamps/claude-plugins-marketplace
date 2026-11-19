@@ -9,13 +9,14 @@
 /** The reload budget when no config tier sets one, in tokens counted as characters divided by 4. */
 export const DEFAULT_BUDGET = 100000;
 /**
- * The smallest budget a config tier may set: an orchestrate run's whole working set past its
- * opening, with headroom for the files the run's own work reads. The working set is these files
- * under `skills/`, about 52k tokens as this hook counts them: `orchestrate/SKILL.md`,
- * `orchestrate/lib/issue-lifecycle.md`, `orchestrate/lib/pr-lifecycle.md`,
- * `orchestrate/lib/wrap-up.md`, `orchestrate-readiness/SKILL.md`,
- * `agent-result-persist-interface/SKILL.md`, `theorem-agents-interface/SKILL.md`,
- * `lib/decision-record.md` and `lib/sdlc-config.md`.
+ * The smallest budget a config tier may set. It holds an orchestrate run's own skill, lib and
+ * interface files past its opening: these files under `skills/`, about 52k tokens as this hook
+ * counts them: `orchestrate/SKILL.md`, `orchestrate/lib/issue-lifecycle.md`,
+ * `orchestrate/lib/pr-lifecycle.md`, `orchestrate/lib/wrap-up.md`,
+ * `orchestrate-readiness/SKILL.md`, `agent-result-persist-interface/SKILL.md`,
+ * `theorem-agents-interface/SKILL.md`, `lib/decision-record.md` and `lib/sdlc-config.md`. The
+ * skills the run invokes and the files its own work reads are not counted; the floor's headroom
+ * above those files covers them.
  */
 export const MIN_BUDGET = 64000;
 /** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */

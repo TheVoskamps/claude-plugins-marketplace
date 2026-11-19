@@ -447,7 +447,7 @@ EOF
     cp -- "$reply_file" "$at/reply.partial-$$"
   fi
   mv -- "$at/reply.partial-$$" "$at/reply"
-  put "$at/log" "$log$NL$lines"
+  put "$at/log" "$log$NL$lines" || sp_fail 1 "cannot store $at/log"
   printf 'decision %s answered %s\n' "$decision" "$stamp"
   exit 0
 fi

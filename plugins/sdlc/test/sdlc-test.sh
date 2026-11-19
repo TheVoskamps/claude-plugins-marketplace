@@ -1522,6 +1522,28 @@ check_contains "$OUT" "  P1 design-gap recommended P1.1 picked none
   reply:
     Neither; drop it." "decision print: a reply in free text is stored as none, beside the reply"
 
+# An answer whose log write fails names the log, as ask does, and leaves
+# the record open.
+decision_case decision-answer-log-fails
+record design-gap
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+mkdir -p "$CASE/fakebin"
+cat >"$CASE/fakebin/mv" <<'STUB'
+#!/bin/sh
+for a in "$@"; do last=$a; done
+case $last in */log) exit 1 ;; esac
+exec /bin/mv "$@"
+STUB
+chmod +x "$CASE/fakebin/mv"
+printf 'P1.2\n' >"$CASE/reply"
+OUT=$(PATH="$CASE/fakebin:$PATH" "$DECISION" answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 \
+  --reply-file "$CASE/reply" 2>"$CASE/err" </dev/null)
+check "$?:$OUT" "1:" "decision answer: a failed log write exits 1 and prints no answered line"
+check "$(cat "$CASE/err")" "sdlc-decision: cannot store $XDG_STATE_HOME/$DECISIONS_REL/1/log" \
+  "decision answer: a failed log write names the log"
+check "$(grep -c '^answered ' "$XDG_STATE_HOME/$DECISIONS_REL/1/log")" "0" \
+  "decision answer: a failed log write leaves the record unanswered"
+
 decision_case decision-pending
 decision pending --issue 'h.example/o/r#9'
 check "$RC:$ERR" "0:" "decision pending: an issue with no record exits 0"
