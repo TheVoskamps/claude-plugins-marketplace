@@ -1657,6 +1657,9 @@ $(iss_conn blockedBy)
 $ISS_SEL_ISSUE_FIELDS"
 readonly ISS_SEL_LIST_ISSUE
 
+# The board-listing lookups, each printing its document: one board's views with
+# their filter and sort fields, and the board's items that $search selects.
+# Each paged connection reads the page after $after.
 iss_doc_board_views() {
   printf '%s' "query(\$project: ID!, \$after: String) {
   node(id: \$project) {
