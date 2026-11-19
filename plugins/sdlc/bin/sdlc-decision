@@ -27,14 +27,13 @@
 # also carries `existing-pattern`: the <path>:<line> in this repository
 # that already does the thing, or the exact search that found none. A
 # problem's class is one of CLASSES below, `unclassified` when none
-# fits; it holds two to four
-# options, and its recommendation is one of its own option ids with
-# nothing attached. Every option holds at least one evidence, and its
-# cost is `none` when it costs the human nothing. A relative evidence path
-# is read against the top level of the working tree the script runs in,
-# or against the current directory outside a working tree. `ask` never
-# runs a `command:` evidence: it checks only that the command and its
-# output are present.
+# fits; it holds two to four options, and its recommendation is one of
+# its own option ids with nothing attached. Every option holds at least
+# one evidence, and its cost is `none` when it costs the human nothing.
+# A relative evidence path is read against the top level of the working
+# tree the script runs in, or against the current directory outside a
+# working tree. `ask` never runs a `command:` evidence: it checks only
+# that the command and its output are present.
 #
 # Problems are numbered P1, P2, … in record order, and each problem's
 # options P<i>.1, P<i>.2, …, so every option of a record has an id no
