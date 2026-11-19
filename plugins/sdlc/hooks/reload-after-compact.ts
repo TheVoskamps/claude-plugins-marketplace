@@ -10,7 +10,7 @@
 export const DEFAULT_BUDGET = 100000;
 /**
  * The smallest budget a config tier may set: an orchestrate run's whole working set past its
- * opening, about 42k tokens, with headroom for the files the run's own work reads.
+ * opening, about 46k tokens, with headroom for the files the run's own work reads.
  */
 export const MIN_BUDGET = 64000;
 /** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */
