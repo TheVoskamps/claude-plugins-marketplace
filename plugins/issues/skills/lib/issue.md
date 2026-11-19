@@ -56,8 +56,9 @@ A verb acts on an operand in its own repository, on its own host, and
 only that repository's repo-config governs it. A run reads the current
 repository's repo-config only when it acts there: an operand in the
 current repository, or `/issue-create`, `/issue-field-options` and
-`/issue-list` with no `<repo>`. A Jira-tracked checkout, or one with no repo-config, stops
-a verb on its own issues and not on another repository's. For an
+`/issue-list` with no `<repo>`. A Jira-tracked checkout, or one with
+no repo-config, stops a verb on its own issues and not on another
+repository's. For an
 operand in another repository, the repo-config that governs it is that
 repository's `.issues/repo-config.md`, read from its default branch:
 
