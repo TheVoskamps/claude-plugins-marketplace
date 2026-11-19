@@ -13,8 +13,8 @@ resolution, the GraphQL documents, the post-write re-reads, and the
 error wording. A verb's `SKILL.md` says when to run its script, with
 which arguments, and what the output means. When the repo-config that
 governs a run says `issues: Jira`, the script exits non-zero with one
-fixed message before it reads or writes an issue, and the verb follows
-"Jira backend" below instead.
+fixed message before it reads or writes an issue, and the verb's
+`SKILL.md` says whether it goes on from there.
 
 ## Repositories and issue references
 
@@ -55,9 +55,10 @@ is read — aborts with exit 1, naming it as a pull request.
 A verb acts on an operand in its own repository, on its own host, and
 only that repository's repo-config governs it. A run reads the current
 repository's repo-config only when it acts there: an operand in the
-current repository, or `/issue-create` and `/issue-field-options` with
-no `<repo>`. A Jira-tracked checkout, or one with no repo-config, stops
-a verb on its own issues and not on another repository's. For an
+current repository, or `/issue-create`, `/issue-field-options` and
+`/issue-list` with no `<repo>`. A Jira-tracked checkout, or one with
+no repo-config, stops a verb on its own issues and not on another
+repository's. For an
 operand in another repository, the repo-config that governs it is that
 repository's `.issues/repo-config.md`, read from its default branch:
 
@@ -73,7 +74,10 @@ repository's `.issues/repo-config.md`, read from its default branch:
 A printed issue reference takes the shortest form that names the
 issue back through the forms above: `#N` in the current repository,
 `repo#N` under its owner on its host, `owner/repo#N` on its host, and
-`host/owner/repo#N` on another host.
+`host/owner/repo#N` on another host. A `repo` spelled exactly as the
+current repo-config's `issue-link-prefix` takes `owner/repo#N` under
+its owner too, because `repo#N` then reads as a prefixed `#N` in the
+current repository.
 
 ## Repo-config parsing
 
@@ -295,9 +299,10 @@ slot: every slot reads as unconfigured, as if declared `kind: skip`.
 
 ## Jira backend
 
-This section is how every `/issue-*` verb runs when
-`.issues/repo-config.md` says `issues: Jira`: the verb's script refuses
-that tracker, so the verb is carried out from this prose. The surface
+This section is how an `/issue-*` verb whose `SKILL.md` sends it here
+runs when `.issues/repo-config.md` says `issues: Jira`: the verb's
+script refuses that tracker, so the verb is carried out from this
+prose. The surface
 is the GitHub one — the same flags, the same default-resolution order,
 the same name lookups, the same echo formats and the same
 abort-if-missing contract as the verb's `SKILL.md` describes — and only

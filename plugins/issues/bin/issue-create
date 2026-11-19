@@ -105,7 +105,9 @@ if [ "$target_set" = no ]; then
 else
   # The current repo anchors a relative --body-file, completes a target named
   # without its host or owner, and decides how references print; its
-  # repo-config is never read, since the target's alone governs.
+  # repo-config never governs, since the target's alone does. iss_ref reads
+  # only its issue-link-prefix, and refuses none, so that a printed reference
+  # parses back here.
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ISS_REPO_ROOT=
   case "$parent_arg" in
     '') ;;
