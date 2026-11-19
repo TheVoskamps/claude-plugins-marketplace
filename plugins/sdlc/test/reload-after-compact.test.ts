@@ -1177,7 +1177,6 @@ test("a reload row counts every entry past an error that spans lines or holds a 
       messages: [read(a), read(b), read(c), read(split), read(blank)],
     }),
   );
-  expect(text).toContain("before a blank line\n\nafter it");
   await expectCollapsed(
     $,
     text,
@@ -1210,6 +1209,40 @@ test("a reload row reads no file block off an error that holds a blank line and 
     await $.session.compact({ trigger: "auto", messages: [read(rule), read(gone)] }),
   );
   await expectCollapsed($, text, `${ONE}; 1 unreadable; state file failed`);
+});
+
+test("a reload row counts an appended file whose path holds the unreadable entry's text", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a (could not be read: b.md`;
+  stub(on, { [rule]: "rule" });
+  drawn(on);
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  await expectCollapsed($, text, ONE);
+});
+
+test("a reload row counts the tokens of a file whose path holds a double quote", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a"b.md`;
+  stub(on, { [rule]: "r".repeat(8000) });
+  drawn(on);
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  await expectCollapsed($, text, "sdlc: reloaded 1 files (2k tokens) after compaction");
+});
+
+test("an error text holding a line break is written on one line, its lines joined with ' | '", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const gone = `${ROOT}/docs/rules/gone.md`;
+  host(on, {
+    read: (path) =>
+      ({ [rule]: "rule", [gone]: { deny: "EIO: first\r\n- second\n\nafter a blank" } })[path],
+    refuseWrite: "EROFS: first\nsecond",
+  });
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [read(rule), read(gone)] }),
+  );
+  const lines = text.split("\n");
+  const entry = lines.find((line) => line.startsWith(`- ${gone} (could not be read: `));
+  expect(entry?.endsWith(": EIO: first | - second |  | after a blank)")).toBe(true);
+  const note = lines.find((line) => line.startsWith(`- ${STATE}/main.json: `));
+  expect(note?.endsWith(": EROFS: first | second")).toBe(true);
 });
 
 for (const [name, text] of [

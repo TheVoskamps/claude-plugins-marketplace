@@ -28,12 +28,6 @@ const STATE_HEAD =
   "one, because the state file that records them failed:";
 const FILE_OPEN = '<file path="';
 const CLOSE = "</reload-after-compact>";
-// A line that opens a file block, its path captured. `.` stops at the line's end.
-const BLOCK_OPEN = /\n\n<file path="(.*)">\n/g;
-// One appended file's block, as `reloadText` writes it. A `</file>` line ends it only where the
-// next block or the message's closing tag follows, so one inside a file's text seldom does.
-const FILE_BLOCK =
-  /<file path="[^"\n]*">\n[\s\S]*?\n<\/file>(?=\n\n(?:<file path="|<\/reload-after-compact>$))/g;
 const SKILL_BASE = /Base directory for this skill: (.+)/g;
 const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/g;
 const RULE_DIRS = ["/rules/", "/skills/"];
@@ -242,7 +236,7 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   let isOver = false;
   for (const item of kept) {
     if (item.error !== undefined) {
-      manifest.push(`- ${item.label} (${UNREADABLE}: ${item.error})`);
+      manifest.push(`- ${item.label} (${UNREADABLE}: ${oneLine(item.error)})`);
       continue;
     }
     if (isOver) {
@@ -253,7 +247,7 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
     try {
       content = await $.fs.read(item.label);
     } catch (err) {
-      manifest.push(`- ${item.label} (${UNREADABLE}: ${errorText(err)})`);
+      manifest.push(`- ${item.label} (${UNREADABLE}: ${oneLine(errorText(err))})`);
       continue;
     }
     const tokens = Math.ceil(content.length / 4);
@@ -277,7 +271,7 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
     [MANIFEST_HEAD, ...manifest].join("\n"),
   ];
   if (stateNotes.length > 0) {
-    parts.push([STATE_HEAD, ...stateNotes.map((note) => `- ${note}`)].join("\n"));
+    parts.push([STATE_HEAD, ...stateNotes.map((note) => `- ${oneLine(note)}`)].join("\n"));
   }
   parts.push(...blocks, CLOSE);
   return parts.join("\n\n");
@@ -289,47 +283,44 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
  * length of the file blocks in tokens, counted as characters divided by 4 and rounded to the
  * thousand.
  *
- * An error text in the manifest or the state paragraph can hold any line, a blank one included,
- * so neither is split into paragraphs. The first file block is the first `<file path="…">` line,
- * after a blank line, whose path an earlier `- <path> (appended below)` line names. The state
- * paragraph is found by its whole first line, after a blank line and before that block, and the
- * manifest runs from its heading line to the state paragraph, else to the first file block. An
- * entry is a manifest line that opens with `- ` and either carries ` (could not be read: ` or ends
- * in ` (appended below)` or ` (not appended: …)`, so an error's further lines are not entries. A
- * reloaded file's text, past the first block, is never read as a manifest line or the state
- * paragraph. Only an error text holding a line of one of those shapes is misread.
+ * `reloadText` writes every error text on one line, so, with no path holding a line break, every
+ * manifest entry and state note is one line. The manifest and the state paragraph each end at the
+ * first blank line after their heading, and the file blocks run from the paragraph after them to
+ * the closing tag, one per appended entry, separated by a blank line each. Their summed length is
+ * that span less the separators, and no block's text is read.
+ * An entry is a manifest line opening with `- `, classified by the suffix that ends it, so a path
+ * holding a suffix's text is read right. An unreadable entry whose error text ends in
+ * ` (appended below` or ` (not appended: …` reads as the entry that suffix names: its line is the
+ * same text as such an entry whose path holds ` (could not be read: `.
  */
 function reloadSummary(text: string): string {
   const opening = `\n\n${MANIFEST_HEAD}\n`;
   const at = text.indexOf(opening);
   const start = at < 0 ? text.length : at + opening.length;
-  let end = text.endsWith(`\n\n${CLOSE}`) ? text.length - CLOSE.length - 2 : text.length;
-  for (const match of text.slice(start).matchAll(BLOCK_OPEN)) {
-    const before = `\n${text.slice(start, start + match.index)}\n`;
-    if (before.includes(`\n- ${match[1]} (${APPENDED})\n`)) {
-      end = start + match.index;
-      break;
-    }
-  }
-  const head = text.slice(start, Math.max(start, end));
-  const state = head.indexOf(`\n\n${STATE_HEAD}\n`);
-  const manifest = (state < 0 ? head : head.slice(0, state)).split("\n");
-  const isEntry = (line: string) => line.startsWith("- ");
-  const isUnreadable = (line: string) => isEntry(line) && line.includes(` (${UNREADABLE}: `);
-  const count = (isKind: (line: string) => boolean) =>
-    manifest.filter((line) => !isUnreadable(line) && isEntry(line) && isKind(line)).length;
-  const appended = count((line) => line.endsWith(` (${APPENDED})`));
-  const notAppended = count((line) => line.endsWith(` (${NOT_APPENDED})`));
-  const unreadable = manifest.filter(isUnreadable).length;
-  const blocks = text.slice(end).matchAll(FILE_BLOCK);
-  const chars = [...blocks].reduce((sum, match) => sum + match[0].length, 0);
+  const manifestEnd = paragraphEnd(text, start);
+  const manifest = text.slice(start, manifestEnd).split("\n");
+  const stateAt = manifestEnd + 2;
+  const hasState = text.startsWith(`${STATE_HEAD}\n`, stateAt);
+  const blocksAt = hasState ? paragraphEnd(text, stateAt) + 2 : stateAt;
+  const blocksEnd = text.endsWith(`\n\n${CLOSE}`) ? text.length - CLOSE.length - 2 : text.length;
+  const entries = manifest.filter((line) => line.startsWith("- "));
+  const appended = entries.filter((line) => line.endsWith(` (${APPENDED})`)).length;
+  const notAppended = entries.filter((line) => line.endsWith(` (${NOT_APPENDED})`)).length;
+  const unreadable = entries.length - appended - notAppended;
+  const chars = appended === 0 ? 0 : Math.max(0, blocksEnd - blocksAt - 2 * (appended - 1));
   const parts = [
     `sdlc: reloaded ${appended} files (${Math.round(chars / 4 / 1000)}k tokens) after compaction`,
   ];
   if (notAppended > 0) parts.push(`${notAppended} not appended`);
   if (unreadable > 0) parts.push(`${unreadable} unreadable`);
-  if (state >= 0) parts.push("state file failed");
+  if (hasState) parts.push("state file failed");
   return parts.join("; ");
+}
+
+/** The index of the first blank line in `text` at or after `from`, or `text`'s length. */
+function paragraphEnd(text: string, from: number): number {
+  const end = text.indexOf("\n\n", from);
+  return end < 0 ? text.length : end;
 }
 
 /**
@@ -747,6 +738,11 @@ function mergeByLabel(items: Item[]): Item[] {
 /** An `Error`'s message, or any other thrown value as a string. */
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** `text` on one line, its lines joined with ` | `. */
+function oneLine(text: string): string {
+  return text.split(/\r\n|\r|\n/).join(" | ");
 }
 
 /** The text after a path's last `/`, or the whole path when it has none. */
