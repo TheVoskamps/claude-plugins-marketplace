@@ -59,10 +59,14 @@ only when to run it.
   prefix is invalid does. `/issue-create <repo>` and
   `/issue-list <repo>` parse no reference under the local prefix —
   `--parent` parses under the target repository's, and a listing takes
-  no reference at all — so the local file never gates them. They read
-  its `issue-link-prefix` all the same, unvalidated, only to spell the
-  references they print so that each parses back in this checkout; with
-  no file the prefix is `#`. The config verbs write config
+  no reference at all — so the local file never gates
+  `/issue-create <repo>`, nor `/issue-list <repo>` when `<repo>` names
+  another repository. They read its `issue-link-prefix` all the same,
+  unvalidated, only to spell the references they print so that each
+  parses back in this checkout; with no file the prefix is `#`.
+  `/issue-list <repo>` with `<repo>` naming the current repository
+  reads the local file as a verb acting on an issue here does, and
+  aborts as one does. The config verbs write config
   rather than requiring it. It is team-shared and committed, so one
   person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` and `jq` for the
@@ -438,9 +442,12 @@ the view's order and be wrong.
 
 An item whose labels, assignees, blockers or field values run past one
 page is read again whole, so a long list never shortens a column. A
-project ID is reported as stale only on GitHub's `NOT_FOUND` for the
-board node itself; any other failed board read reports GitHub's own
-error, so a transient failure does not send the operator to
+project ID is reported as stale on GitHub's `NOT_FOUND` for the board
+node itself, and when a read succeeds but the node it names is not a
+board, as an ID naming some other kind of node answers. The status
+field's ID is reported as stale on the same two conditions, read for a
+board field. Any other failed board read reports GitHub's own error, so
+a transient failure does not send the operator to
 `/issues:repo-config`.
 
 ## Skills
