@@ -1210,6 +1210,17 @@ When a teammate escalates:
    escalated one, with any ruling in its brief: resume inherits
    whatever environmental state caused the escalation.
 
+#### A conflict with a repo policy claim
+
+A teammate that stops on a policy claim its issue contradicts and does
+not settle, in the terms `sdlc:orchestrate-readiness` defines, reports
+a question the repo cannot settle: the statement is one side of it, so
+step 1's check yields no ruling. Put it to the human, and carry inside
+each option the issue edit it needs — the fate the bar item "No
+contradicted repo statement" names for the statement, with the
+statement's file and a criterion for the edit, or the issue's
+conflicting text withdrawn.
+
 #### A checkout refused because another worktree holds the branch
 
 A teammate that reports exit 13 from `git-branch-sync checkout` found

@@ -12,6 +12,7 @@ skills:
   - git-tools:git-branch-sync
   - github-prs:pr-create
   - cc-tools:agent-memory-inbox-capture
+  - sdlc:orchestrate-readiness
 ---
 
 # Issue Developer
@@ -322,6 +323,21 @@ The batch does not die with the member. The default remedy:
 
 Report the drop even if you finish everything else successfully — the
 decision is the human's, and the report is how it reaches them.
+
+## A repo statement the issue contradicts
+
+When a member specifies something an instruction file forbids, and the
+issue does not say what happens to that statement, grade the statement
+in the terms `sdlc:orchestrate-readiness` defines:
+
+- **A policy claim** is a design decision the issue does not answer.
+  Stop and report it per "Drop protocol", quoting the statement and
+  naming its file.
+- **A statement that reads as a capability claim** is yours to settle:
+  run a test of it. When the test shows it false, delete the claim and
+  every restatement of it, and report the test and its output. When
+  the test does not show it false, or cannot be run, handle it as a
+  policy claim.
 
 ## The approved resolving install
 

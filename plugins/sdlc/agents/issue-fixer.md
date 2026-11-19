@@ -13,6 +13,7 @@ skills:
   - git-tools:git-branch-sync
   - cc-tools:agent-memory-inbox-capture
   - sdlc:pr-read-cli-interface
+  - sdlc:orchestrate-readiness
 ---
 
 # Issue Fixer
@@ -283,6 +284,17 @@ the change you make.
    the violation and re-check every cell against it. Check each
    conjunct of a cell separately: a cell that opens compliantly can
    smuggle a violating clause behind an "and".
+4. **Grade a repo statement the issue contradicts.** When the issue
+   calls for something an instruction file forbids, and does not say
+   what happens to that statement, grade the statement in the terms
+   `sdlc:orchestrate-readiness` defines. A policy claim is a design
+   decision the issue does not answer: stop on that fix and report it
+   as one, quoting the statement and naming its file. A statement
+   that reads as a capability claim is yours to settle: run a test of
+   it, and when the test shows it false, delete the claim and every
+   restatement of it, and report the test and its output. When the
+   test does not show it false, or cannot be run, handle it as a policy
+   claim.
 
 ## Merge-readiness briefs
 

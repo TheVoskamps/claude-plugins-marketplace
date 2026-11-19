@@ -79,10 +79,11 @@ a side-effect issue — is an approval, not a decision.
    than inferring them.
 
 2. **Run the check, then report the verdict first and the gaps
-   after.** Invoke `/sdlc:orchestrate-readiness <N>`; its verdict and
-   its gap list are what you report. Open with the verdict, so the
-   user knows the size of the conversation before reading the detail.
-   Then list the gaps as a numbered list, each mechanical gap with the
+   after.** Invoke `/sdlc:orchestrate-readiness <N>`; its verdict, its
+   `Searched:` line and its gap list are what you report. Open with the
+   verdict, so the user knows the size of the conversation before
+   reading the detail. Relay the `Searched:` line as it stands, then
+   list the gaps as a numbered list, each mechanical gap with the
    repair step 4 makes and each other gap with a **proposed default
    answer** — your best reading of what the issue intends, stated as a
    proposal.
@@ -122,6 +123,13 @@ a side-effect issue — is an approval, not a decision.
    exact search that found none. When a pattern exists, following it is
    option 1 and the recommendation, unless the record's why states what
    makes it unfit here.
+
+   **A contradicted repo statement is the user's to settle.** For a
+   "No contradicted repo statement" gap on a policy claim, the user
+   decides what happens to the statement, as a design gap whose options
+   are the statement's fates that bar item names. Propose deleting a
+   capability claim only with the test that showed it false and that
+   test's verbatim output, as the option's `command:` evidence.
 
    **The acceptance sections are a gap like any other.** When the
    body has none, derive candidate criteria from the design prose —
