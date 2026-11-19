@@ -299,8 +299,9 @@ something to decide. At the seed list it applies the assessment's
 recommendations rather than accepting the list as generated. Nor does
 it wait at a finding outside the issue that meets `fix-in-pr`'s
 conditions, at a finding class recurring for the first time, or at the
-fields of a follow-up issue. Each key that takes `ask` restores its own
-wait when set to it.
+fields of a follow-up issue, other than a priority or status slot the
+target repository configures with no default. Each key that takes `ask`
+restores its own wait when set to it.
 A PR that adds a key, or changes a default, edits this list.
 
 The config is three YAML files — a global user file outside every
@@ -387,15 +388,20 @@ slot left empty or an answer left unrecorded, and prose that nothing
 checks is what had let both through. `ask` refuses the record, storing
 nothing and naming every failing slot, when:
 
+- the record file is not YAML, holds more than one YAML document, or
+  has a `problems:` list that is missing or empty;
+- a problem, an option or a piece of evidence is not a mapping;
 - a problem statement or a `why` is empty;
 - the class is missing or outside the class list;
 - a problem holds fewer than two options or more than four;
 - an option does not say what it does, has no cost to the human, or
   has no evidence;
 - a piece of evidence is neither `file:` nor `command:`, or is both;
+- a `file:` value is not `<path>:<line>`, or its quote is empty;
 - a `file:` evidence names a file that does not exist or a line it
   does not have, or its quote is not on that line;
-- a `command:` evidence lacks the command or its output;
+- a `command:` evidence lacks the command or its output, or its output
+  is not text;
 - the recommendation names no option of its problem, names more than
   one, or carries anything beside the option id.
 
