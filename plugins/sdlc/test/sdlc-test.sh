@@ -29,7 +29,8 @@
 # ruling resolves, an unclassified one no ruling resolves, the answer to
 # a multi-problem record, a later answer on a record a reply left a
 # problem open on, where a PR's and an issue's records are stored, the
-# question ask stores and question's rendering of one from the record,
+# question ask stores, question's printing of it, and question's rendering
+# of what an ask that stored none printed, from the record and the log,
 # the repo.yml ask writes and its move of old-layout state, a design gap
 # pending until answered, the existing pattern ask prints for a design
 # gap only, and ask's refusal of an empty problem, an option with no
@@ -1576,25 +1577,89 @@ decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.2 --reply-fi
 check "$RC:$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/reply")" "0:Not now.
 P1.2" "decision answer: a stored reply with no final newline gets one before the next reply"
 
-# question prints a record's question again: the stored file, or the same
-# text rendered from record.yml and the log for a record that has none.
+# question prints a record's question again, exactly as ask printed it:
+# the stored file for a record ask stored one for, and for a record an
+# ask that stored none wrote, the text that ask printed, which showed no
+# existing pattern.
 decision_case decision-question
 record design-gap
 decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
 ASKED=$OUT
 decision question --issue 'h.example/o/r#9' --decision 1
-check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored"
-rm "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/question"
-decision question --issue 'h.example/o/r#9' --decision 1
-check "$RC:$OUT" "0:$ASKED" "decision question: renders the same question for a record with no stored question"
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored for a design gap"
+check_contains "$OUT" "Existing pattern: $CASE/evidence.txt:2" \
+  "decision question: the stored question of a design gap keeps its existing pattern"
+record merge-state
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+ASKED=$OUT
+decision question --issue 'h.example/o/r#9' --decision 2
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored for another class"
 record merge-state
 decision ask --issue 'h.example/o/r#9' --ruling merge-state=rebase "$CASE/record.yml"
 ASKED=$OUT
-rm "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/2/question"
-decision question --issue 'h.example/o/r#9' --decision 2
-check "$RC:$OUT" "0:$ASKED" "decision question: a problem a ruling resolved renders as resolved, from the log"
 decision question --issue 'h.example/o/r#9' --decision 3
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored for a resolved problem"
+decision question --issue 'h.example/o/r#9' --decision 4
 check "$RC" "3" "decision question: a record that does not exist is refused"
+
+# legacy_record <n> <log>: stores $CASE/record.yml and <log> as record <n>
+# of issue 9 with no question file, as an ask that stored none left it.
+legacy_record() {
+  local at="$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/$1"
+  mkdir -p "$at"
+  cp "$CASE/record.yml" "$at/record.yml"
+  printf '%s\n' "$2" >"$at/log"
+}
+# legacy_question <n> <problem lines>: the text an ask that stored no
+# question file printed for record <n> holding one problem asked with
+# record's default options.
+legacy_question() {
+  printf '%s\n' "Decision $1
+
+$2
+Options:
+  P1.1 Fix it in this PR.
+    Evidence: $CASE/evidence.txt:2: \"quoted line\"
+    Cost to you: none
+  P1.2 File a follow-up issue.
+    Evidence: \`touch $CASE/ran\`, which printed:
+      (nothing)
+    Cost to you: Read the follow-up later.
+Recommendation: P1.1
+Why: The fix is small.
+
+Reply with one option id per problem, such as P1.1, or answer in your own words."
+}
+decision_case decision-question-legacy
+record design-gap
+legacy_record 1 "asked 2026-01-01T00:00:00Z
+problem P1 design-gap P1.1 2"
+decision question --issue 'h.example/o/r#9' --decision 1
+check "$RC:$OUT" "0:$(legacy_question 1 "P1 (design-gap)
+Problem: The finding lies outside the criteria.")" \
+  "decision question: a design gap with no stored question prints no existing pattern, as the ask that stored it did"
+record design-gap - - - - ''
+legacy_record 2 "asked 2026-01-01T00:00:00Z
+problem P1 design-gap P1.1 2"
+decision question --issue 'h.example/o/r#9' --decision 2
+check "$RC:$OUT" "0:$(legacy_question 2 "P1 (design-gap)
+Problem: The finding lies outside the criteria.")" \
+  "decision question: a design gap with no stored question and no existing pattern prints as asked"
+record merge-state
+legacy_record 3 "asked 2026-01-01T00:00:00Z
+problem P1 merge-state P1.1 2"
+decision question --issue 'h.example/o/r#9' --decision 3
+check "$RC:$OUT" "0:$(legacy_question 3 "P1 (merge-state)
+Problem: The finding lies outside the criteria.")" \
+  "decision question: another class with no stored question prints as asked"
+legacy_record 4 "asked 2026-01-01T00:00:00Z
+problem P1 merge-state P1.1 2
+resolved P1 rebase"
+decision question --issue 'h.example/o/r#9' --decision 4
+check "$RC:$OUT" "0:Decision 4
+
+P1 resolved by merge-state: rebase" \
+  "decision question: a problem a ruling resolved, with no stored question, renders as resolved, from the log"
 decision question --issue 'h.example/o/r#9'
 check "$RC" "2" "decision question: --decision is required"
 

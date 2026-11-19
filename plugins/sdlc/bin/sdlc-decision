@@ -216,8 +216,7 @@ refuse() {
 # put <path> <text> -- write <text> to <path> whole, through a partial
 # file renamed into place, so a reader never sees half of it.
 put() {
-  printf '%s' "$2" >"$1.partial-$$"
-  mv -- "$1.partial-$$" "$1"
+  printf '%s' "$2" >"$1.partial-$$" && mv -- "$1.partial-$$" "$1"
 }
 
 # numbers -- the record numbers stored so far, ascending.
@@ -234,14 +233,17 @@ need_yq() {
     sp_fail 1 "yq is on PATH but is not the mikefarah v4+ build"
 }
 
-# render <n> <record as a JSON array of documents> <log> -- the question
-# for record <n>, as ask prints it: a problem the log has a `resolved`
-# line for is printed as resolved by its class, with that line's value.
+# render <n> <record as a JSON array of documents> <log> <pattern> -- the
+# question for record <n>: a problem the log has a `resolved` line for is
+# printed as resolved by its class, with that line's value. <pattern> is
+# `pattern` for the question ask prints, which shows a design gap's
+# existing pattern, and `no-pattern` for the one an ask that stored no
+# question file printed, which never showed it.
 render() {
   local resolved
   resolved=$(printf '%s\n' "$3" | awk '$1 == "resolved" {print $2 "\t" $3}' |
     jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add // {}') || return 1
-  printf '%s' "$2" | jq -r --arg n "$1" --argjson resolved "$resolved" '
+  printf '%s' "$2" | jq -r --arg n "$1" --argjson resolved "$resolved" --arg pattern "$4" '
   def text: if type == "string" then sub("\n+$"; "") else tostring end;
   def items: if type == "array" then . else [.] end;
   def hang($pad): split("\n") | .[0] + (.[1:] | map("\n" + $pad + .) | join(""));
@@ -253,7 +255,7 @@ render() {
        {asks: true, text: ([
          "\($p) (\($c))",
          "Problem: " + ($q.problem | text | hang("  ")),
-         (if $c == "design-gap" and ($q["existing-pattern"] // "" | text | test("\\S")) then "Existing pattern: " + ($q["existing-pattern"] | text | hang("  ")) else empty end),
+         (if $pattern == "pattern" and $c == "design-gap" and ($q["existing-pattern"] // "" | text | test("\\S")) then "Existing pattern: " + ($q["existing-pattern"] | text | hang("  ")) else empty end),
          "Options:",
          ($q.options | items | to_entries[] | "\($p).\(.key + 1)" as $o | .value
           | "  \($o) " + (.does | text | hang("    ")),
@@ -357,7 +359,9 @@ fi
 #
 # The question ask printed for the record: its stored question file, or,
 # for a record asked before ask stored one, the same text rendered from
-# record.yml and the log.
+# record.yml and the log. ask writes the question file before the log, so
+# a record with a log and no question file was asked by an ask that
+# stored none, and that ask printed no existing pattern.
 
 if [ "$mode" = question ]; then
   at="$dir/$decision"
@@ -370,7 +374,8 @@ if [ "$mode" = question ]; then
   need_yq
   docs=$(yq ea -o=json -I=0 '[.]' "$at/record.yml" 2>/dev/null || exit) ||
     refuse "decision $decision: its record.yml is not YAML"
-  question=$(render "$decision" "$docs" "$(cat "$at/log")") || sp_fail 1 "jq failed to render decision $decision"
+  question=$(render "$decision" "$docs" "$(cat "$at/log")" no-pattern) ||
+    sp_fail 1 "jq failed to render decision $decision"
   printf '%s\n' "$question"
   exit 0
 fi
@@ -575,14 +580,18 @@ log=$(printf '%s' "$docs" | jq -r --arg at "$stamp" --argjson rulings "$rulings"
    | "problem \($p) \($q.class | text) \($q.recommendation | text) \($q.options | if type == "array" then length else 1 end)",
      (($q.class | text) as $c | if $c != "unclassified" and ($rulings[$c] // "ask") != "ask"
       then "resolved \($p) \($rulings[$c])" else empty end))')
-cp -- "$record_file" "$dir/$n/record.yml.partial-$$"
-mv -- "$dir/$n/record.yml.partial-$$" "$dir/$n/record.yml"
-put "$dir/$n/log" "$log
-"
+if ! cp -- "$record_file" "$dir/$n/record.yml.partial-$$" ||
+  ! mv -- "$dir/$n/record.yml.partial-$$" "$dir/$n/record.yml"; then
+  sp_fail 1 "cannot store $dir/$n/record.yml"
+fi
 
 # The question is stored as printed, so a later turn can put an open
-# problem again by printing it.
-question=$(render "$n" "$docs" "$log") || sp_fail 1 "jq failed to render decision $n"
+# problem again by printing it. It is stored before the log, which is
+# what makes the record exist for every other mode, so no record this
+# ask stores lacks the question it printed.
+question=$(render "$n" "$docs" "$log" pattern) || sp_fail 1 "jq failed to render decision $n"
 put "$dir/$n/question" "$question
-"
+" || sp_fail 1 "cannot store $dir/$n/question"
+put "$dir/$n/log" "$log
+" || sp_fail 1 "cannot store $dir/$n/log"
 printf '%s\n' "$question"

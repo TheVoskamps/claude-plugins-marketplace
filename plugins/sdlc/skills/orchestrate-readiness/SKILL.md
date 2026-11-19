@@ -246,10 +246,13 @@ Given an issue number:
    `### Mechanical` line's shape and check key, of whether each
    acceptance section is present and carries a bullet under
    `### Mechanical` or `### Semantic`, of an `## Acceptance` section,
-   and of a files-affected list under another heading, and the
-   file-class failures under "Acceptance criteria" are yours to grade
-   for `### Mechanical` and `### Semantic` bullets alike. Never run a
-   command a `### Mechanical` bullet's text spells.
+   and of each files-affected list under another heading that it prints
+   a `mechanical: Files affected` line for, and the file-class failures
+   under "Acceptance criteria" are yours to grade for `### Mechanical`
+   and `### Semantic` bullets alike. A list under any other heading is
+   no files-affected section: grade **Files affected** for that body by
+   reading, as for one with no list at all. Never run a command a
+   `### Mechanical` bullet's text spells.
 3. Grade "No contradicted repo statement" by searching the instruction
    files for statements about what the body's design changes, on every
    invocation. At minimum, grep them for every path in the body's

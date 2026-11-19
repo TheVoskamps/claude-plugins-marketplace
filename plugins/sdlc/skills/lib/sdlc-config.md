@@ -101,8 +101,15 @@ merge-poll-interval-seconds: 300
   `reload-after-compact` hook appends to a compacted conversation.
   The files past it are listed by path, to be read before acting on
   them. The table's floor holds an orchestrate run's whole working set
-  past its opening, about 46k tokens, with headroom for the files the
-  run's own work reads. Any line of a tier file that contains
+  past its opening, with headroom for the files the run's own work
+  reads. The working set is these files under `plugins/sdlc/skills/`,
+  about 52k tokens as the hook counts them: `orchestrate/SKILL.md`,
+  `orchestrate/lib/issue-lifecycle.md`,
+  `orchestrate/lib/pr-lifecycle.md`, `orchestrate/lib/wrap-up.md`,
+  `orchestrate-readiness/SKILL.md`,
+  `agent-result-persist-interface/SKILL.md`,
+  `theorem-agents-interface/SKILL.md`, `lib/decision-record.md` and
+  `lib/sdlc-config.md`. Any line of a tier file that contains
   `reload-after-compact-token-budget` is a budget line, a comment or
   another key's value included. A budget line is valid only when it
   matches `^reload-after-compact-token-budget: [0-9]+$` and its number

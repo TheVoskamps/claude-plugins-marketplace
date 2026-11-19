@@ -260,8 +260,10 @@ a side-effect issue — is an approval, not a decision.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,
-   name it, show the user the title and body you would file, and file
-   it only after they say yes to that specific issue. One yes covers
+   and for the out-of-repo work a "Sandbox fit" gap took out of the
+   body, per step 3, name it, show the user the title and body you
+   would file, and file it only after they say yes to that specific
+   issue. One yes covers
    one issue; it does not carry to the next. Each field the user named
    no value for is filed as its `follow-up-issue-*` key calls for, per
    `skills/lib/sdlc-config.md`, and a field that file makes a question
