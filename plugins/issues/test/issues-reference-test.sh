@@ -111,15 +111,22 @@ for case in "7|ghe.example.com corp tools 7" "#7|ghe.example.com corp tools 7" \
   fi
 done
 
+# ref <link-prefix> <host> <owner> <repo> <number>: print iss_ref's reference
+# for the issue, with the current repository acme/widgets on github.com and
+# <link-prefix> as this checkout's issue-link-prefix.
+ref() {
+  /bin/bash -c '
+    . "$1"; ISS_HOST=github.com; ISS_OWNER=acme; ISS_REPO=widgets; ISS_HERE_LINK_PREFIX=$2
+    iss_ref "$3" "$4" "$5" "$6"' _ "$LIB" "$@"
+}
+
 # Each form iss_ref prints parses back to the issue it names.
 for ref in '#7' other#7 octo/lib#7 ghe.example.com/corp/tools#7; do
   parse '#' acme "$ref"
   read -r host owner repo number <<EOF
 $OUT
 EOF
-  back=$(/bin/bash -c '
-    . "$1"; ISS_HOST=github.com; ISS_OWNER=acme; ISS_REPO=widgets; iss_ref "$2" "$3" "$4" "$5"' \
-    _ "$LIB" "$host" "$owner" "$repo" "$number")
+  back=$(ref '#' "$host" "$owner" "$repo" "$number")
   if [ "$RC" = 0 ] && [ "$back" = "$ref" ]; then
     echo "PASS  round trip $ref"
   else
@@ -128,6 +135,51 @@ EOF
     FAILURES=$((FAILURES + 1))
   fi
 done
+
+# Under every kind of issue-link-prefix, each reference iss_ref prints parses
+# back, under that prefix, to the issue it was printed for -- a repository
+# named as the prefix included.
+for prefix in '#' '' GH- other Other widgets lib 7 -b; do
+  for issue in "github.com acme widgets" "github.com acme other" "github.com acme Other" "github.com acme lib" \
+    "github.com acme 7" "github.com acme -b" "github.com octo other" "ghe.example.com acme other"; do
+    read -r host owner repo <<EOF
+$issue
+EOF
+    printed=$(ref "$prefix" "$host" "$owner" "$repo" 7)
+    parse "$prefix" acme "$printed"
+    if [ "$RC" = 0 ] && [ "$OUT" = "$issue 7" ]; then
+      echo "PASS  round trip $issue 7 as $printed under prefix '$prefix'"
+    else
+      echo "FAIL  round trip $issue 7 as $printed under prefix '$prefix'"
+      echo "      parsed back: $RC $OUT"
+      FAILURES=$((FAILURES + 1))
+    fi
+  done
+done
+
+# printed <link-prefix> <host> <owner> <repo> <expected>: iss_ref prints
+# <expected> for issue 7 in the repository under <link-prefix>.
+printed() {
+  local got
+  got=$(ref "$1" "$2" "$3" "$4" 7)
+  if [ "$got" = "$5" ]; then
+    echo "PASS  prints $5 under prefix '$1'"
+  else
+    echo "FAIL  prints $5 under prefix '$1'"
+    echo "      actual: $got"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+# A repository spelled as the prefix takes its owner; any other spelling, and
+# any other prefix, keeps the shortest form.
+printed other github.com acme other acme/other#7
+printed other github.com acme Other Other#7
+printed Other github.com acme other other#7
+printed other github.com acme widgets '#7'
+printed other github.com octo other octo/other#7
+printed '#' github.com acme other other#7
+printed '' github.com acme other other#7
 
 # A pull request's URL, refused with the exit status a pull request's number
 # gets once the lookup finds it.

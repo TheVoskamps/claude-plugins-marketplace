@@ -13,8 +13,8 @@ resolution, the GraphQL documents, the post-write re-reads, and the
 error wording. A verb's `SKILL.md` says when to run its script, with
 which arguments, and what the output means. When the repo-config that
 governs a run says `issues: Jira`, the script exits non-zero with one
-fixed message before it reads or writes an issue, and the verb follows
-"Jira backend" below instead.
+fixed message before it reads or writes an issue, and "Jira backend"
+below says whether the verb goes on from there.
 
 ## Repositories and issue references
 
@@ -74,7 +74,10 @@ repository's `.issues/repo-config.md`, read from its default branch:
 A printed issue reference takes the shortest form that names the
 issue back through the forms above: `#N` in the current repository,
 `repo#N` under its owner on its host, `owner/repo#N` on its host, and
-`host/owner/repo#N` on another host.
+`host/owner/repo#N` on another host. A `repo` spelled exactly as the
+current repo-config's `issue-link-prefix` takes `owner/repo#N` under
+its owner too, because `repo#N` then reads as a prefixed `#N` in the
+current repository.
 
 ## Repo-config parsing
 

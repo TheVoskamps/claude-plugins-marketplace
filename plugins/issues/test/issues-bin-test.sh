@@ -706,6 +706,23 @@ new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^issue-link-prefix: "#"$/issue
 run issue-list --status 'In progress'
 check "$(refs)" "GH-2 GH-12" "issue-list: an issue here prints with the repo-config's issue-link-prefix"
 
+# A repository spelled as the issue-link-prefix here prints with its owner,
+# since its repo#N would read back as an issue here -- whether the verb read
+# the local repo-config itself or only a target's.
+new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^issue-link-prefix: "#"$/issue-link-prefix: other/')"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+run issue-create acme/other --title "Elsewhere" --body-file new.md
+expect "issue-create <repo>: a repository named as the issue-link-prefix here names its owner" 0 \
+  "Created issue acme/other#4 \"Elsewhere\""
+run issue-view 2
+expect "issue-view: a repository named as the issue-link-prefix names its owner" 0 \
+  "Blocked by:${ISS_NL}  - acme/other#3 Other repo issue"
+jq --arg cfg "$CONFIG_MAIN" '.repos["acme/other"].config = $cfg
+  | .repos["acme/other"].issues["3"].projectItems += [{id: "PVTI_O3", project: "PVT_1", position: 1, fields: {}}]' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list acme/other --status 'In progress'
+check "$(refs)" "#2 #12 acme/other#3" "issue-list <repo>: a repository named as the issue-link-prefix here names its owner"
+
 # The status group names the board field backing the status slot, as the
 # board's filter grammar spells it.
 new_case "$CONFIG_MAIN"

@@ -481,7 +481,9 @@ iss_number_check() {
 
 # iss_load_config [frontmatter-only]: read the current repo's
 # .issues/repo-config.md. With frontmatter-only, only iss_config_frontmatter's
-# checks run, so a Jira config is read rather than refused.
+# checks run, so a Jira config is read rather than refused. Its
+# issue-link-prefix is also kept in ISS_HERE_LINK_PREFIX, which a later
+# iss_load_target_config leaves alone.
 iss_load_config() {
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
   [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || iss_err_file_missing
@@ -490,6 +492,7 @@ iss_load_config() {
   else
     iss_parse_config_text "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
   fi
+  ISS_HERE_LINK_PREFIX=$ISS_LINK_PREFIX
 }
 
 # iss_load_target_config <host> <owner> <repo>: read a target repo's
@@ -756,18 +759,29 @@ iss_init() {
   iss_current_repo
 }
 
-# iss_peek_link_prefix: set ISS_LINK_PREFIX from the current repo-config's
-# front matter without iss_load_config's checks, so that iss_names_repo can
-# tell a prefixed N apart before any repo-config is gated on. It is '#' when
-# the file or the key is absent. A prefix iss_valid_link_prefix refuses aborts
-# here, since it would decide how every operand parses, one naming another
-# repository included.
+# iss_read_link_prefix: print the current repo-config's issue-link-prefix, read
+# from its front matter without iss_load_config's checks and never refused. It
+# is '#' outside a git working tree and when the file or the key is absent.
+iss_read_link_prefix() {
+  local root=${ISS_REPO_ROOT:-} fm prefix
+  [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=
+  if [ -n "$root" ] && [ -f "$root/.issues/repo-config.md" ] &&
+    fm=$(iss_frontmatter "$(cat "$root/.issues/repo-config.md")") &&
+    prefix=$(iss_fm_get "$fm" issue-link-prefix); then
+    printf '%s' "$prefix"
+  else
+    printf '#'
+  fi
+}
+
+# iss_peek_link_prefix: set ISS_LINK_PREFIX and ISS_HERE_LINK_PREFIX with
+# iss_read_link_prefix, so that iss_names_repo can tell a prefixed N apart
+# before any repo-config is gated on. A prefix iss_valid_link_prefix refuses
+# aborts here, since it would decide how every operand parses, one naming
+# another repository included.
 iss_peek_link_prefix() {
-  local fm
-  ISS_LINK_PREFIX='#'
-  [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || return 0
-  fm=$(iss_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")") || return 0
-  ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix) || ISS_LINK_PREFIX='#'
+  ISS_LINK_PREFIX=$(iss_read_link_prefix)
+  ISS_HERE_LINK_PREFIX=$ISS_LINK_PREFIX
   iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX"
 }
 
@@ -981,18 +995,24 @@ iss_operand_board_config() {
 }
 
 # iss_ref <host> <owner> <repo> <number>: an issue reference in the shortest
-# form the repository grammar resolves back to the same issue: #N in the
+# form an operand in this checkout resolves back to the same issue: #N in the
 # current repository, repo#N under its owner on its host, owner/repo#N on its
-# host, host/owner/repo#N on another.
+# host, host/owner/repo#N on another. A repo spelled exactly as this checkout's
+# issue-link-prefix takes owner/repo#N under its owner too, since
+# iss_parse_operand strips the prefix from repo#N and reads #N in the current
+# repository. That prefix is ISS_HERE_LINK_PREFIX once iss_peek_link_prefix or
+# iss_load_config has run, and iss_read_link_prefix's otherwise.
 iss_ref() {
   if ! iss_same_host "$1"; then
     printf '%s/%s/%s#%s' "$1" "$2" "$3" "$4"
   elif [ "$(iss_lc "$2")" != "$(iss_lc "$ISS_OWNER")" ]; then
     printf '%s/%s#%s' "$2" "$3" "$4"
-  elif [ "$(iss_lc "$3")" != "$(iss_lc "$ISS_REPO")" ]; then
-    printf '%s#%s' "$3" "$4"
-  else
+  elif [ "$(iss_lc "$3")" = "$(iss_lc "$ISS_REPO")" ]; then
     printf '#%s' "$4"
+  elif [ "$3" = "${ISS_HERE_LINK_PREFIX-$(iss_read_link_prefix)}" ]; then
+    printf '%s/%s#%s' "$2" "$3" "$4"
+  else
+    printf '%s#%s' "$3" "$4"
   fi
 }
 
