@@ -1054,6 +1054,7 @@ async function expectCollapsed($, text: string, line: string) {
   }
 }
 
+/** The line a reload of one file too short to round to a thousand tokens is drawn as. */
 const ONE = "sdlc: reloaded 1 files (0k tokens) after compaction";
 /** A manifest with one line of each kind, as a reloaded file's own text might quote one. */
 const MANIFEST_LINES = [

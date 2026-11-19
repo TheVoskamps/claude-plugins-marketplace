@@ -114,6 +114,10 @@ type Install = { projectPath?: unknown; version?: unknown } | null;
 
 /** Runs the compaction a `session.compact` hook wraps, resolving to what it compacted to. */
 type Next = (e: CompactEvent) => Promise<Compacted>;
+/**
+ * Registers `hook` on `event`, or with `matcher` only at the sites it matches. The form without a
+ * matcher returns a handle whose `catch` takes a handler for the hook's throws.
+ */
 type On = {
   (event: string, hook: unknown): { catch: (handler: unknown) => void };
   (event: string, matcher: object, hook: unknown): unknown;
