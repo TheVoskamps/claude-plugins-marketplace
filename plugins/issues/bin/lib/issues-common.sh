@@ -568,21 +568,27 @@ iss_valid_name() {
 }
 
 # iss_valid_owner <owner>: whether <owner> is an owner GitHub allows: 1 to 39
-# ASCII letters, digits and "-", not starting with "-" and with no "--".
+# ASCII letters, digits and "-", not starting with "-" and with no "--". The
+# letters are spelled out for the same reason as in iss_valid_name.
 iss_valid_owner() {
-  case "$1" in '' | -* | *--* | *[!A-Za-z0-9-]*) return 1 ;; esac
+  case "$1" in
+    '' | -* | *--* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
+  esac
   [ "${#1}" -le 39 ]
 }
 
 # iss_valid_host <host>: whether <host> is a DNS hostname: at most 253
 # characters of "."-separated labels, each 1 to 63 ASCII letters, digits and
-# "-", neither starting nor ending with "-".
+# "-", neither starting nor ending with "-". The letters are spelled out for
+# the same reason as in iss_valid_name.
 iss_valid_host() {
   local rest=$1. label
   [ "${#1}" -le 253 ] || return 1
   while [ -n "$rest" ]; do
     label=${rest%%.*}
-    case "$label" in '' | -* | *- | *[!A-Za-z0-9-]*) return 1 ;; esac
+    case "$label" in
+      '' | -* | *- | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
+    esac
     [ "${#label}" -le 63 ] || return 1
     rest=${rest#*.}
   done

@@ -850,6 +850,14 @@ expect "issue-set-blocked-by: a non-numeric issue part is a usage error" 2 \
   "\`other#x\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
 run issue-set-blocked-by 4 'a/b/c/d#3'
 expect "issue-set-blocked-by: a malformed repository part is a usage error" 2 "\`a/b/c/d\` is not a repository"
+# A non-ASCII letter in an owner or a host is refused under a UTF-8 locale too,
+# where a bracket range can match letters outside ASCII.
+for repo in 'acmé/widgets' 'Àcme/widgets' 'ghé.example.com/corp/tools' 'ghe.exÀmple.com/corp/tools'; do
+  new_case "$CONFIG_MAIN"
+  LC_ALL=en_US.UTF-8 run issue-view "$repo#1"
+  expect "issue-view: a non-ASCII letter in $repo is refused under a UTF-8 locale" 2 "\`$repo\` is not a repository"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a non-ASCII letter in $repo: no gh call"
+done
 
 # Every flag is a --long one, so an argument with a single leading - is an
 # operand, and the parser accepts or refuses it.
