@@ -444,6 +444,51 @@ status, labels, issue type, and the custom-field values
   `/issue-view-tree` read the inline parent/children from the
   `workitem view` payload and skip the search.
 
+### List (`/issue-list`)
+
+`/issue-list` prints the lines its `SKILL.md` describes from one JQL
+search, made with the `workitem search` template from the
+`/issues-jira:jira-lib` skill (`acli jira workitem search --jql
+"<JQL>" --paginate --json`). A `<repo>` argument naming another
+repository aborts with the "Operand in another repository" wording.
+
+- **Restriction** — `project = <project-key> AND status = "<status>"
+  AND resolution IS EMPTY`, with `<project-key>` the `jira:` block's
+  `project-key:` and `<status>` the `--status` value resolved against
+  the `status` slot's `options` per the lookup rules above. With no
+  `jira:` block, abort with the "No `jira:` block" wording; with the
+  `status` slot `kind: skip` or absent, abort with:
+
+  > no `status` slot in `jira:` in `repo-config.md`; run
+  > `/issues:repo-config` to add it
+
+- **`--view`** — a saved filter, read with `acli jira filter view --id
+  <id> --json` when the value is all digits and otherwise found by name
+  with `acli jira filter search --name "<name>" --paginate --json`,
+  taking the filter whose name equals the value case-insensitively,
+  since `--name` matches partially. Split its `jql` at a top-level
+  `ORDER BY`: AND the part before it, parenthesized, with the
+  restriction. A value matching no filter aborts with:
+
+  > no view `<view>` on the project board. Views: `<comma-separated
+  > names>`
+
+  listing the names `acli jira filter search --paginate --json`
+  returns.
+- **Assignees** — `--assignee` and `--unassigned` become one clause
+  ANDed with the rest: `(assignee in ("<a>", "<b>") OR assignee is
+  EMPTY)` with both, and `assignee in ("<a>", "<b>")` or `assignee is
+  EMPTY` alone, unparenthesized.
+- **Order** — append the saved filter's own `ORDER BY` clause, or
+  `ORDER BY Rank ASC` when there is no filter or it has none. Take the
+  search's results in the order returned, and stop at `--limit` lines.
+- **Columns** — `<issue-reference>` is the work item's key; status,
+  priority and size are read per "Read / view" above, `-` when unset or
+  the slot is unconfigured; `<open-blockers>` counts the work item's
+  `Blocks` links whose other end blocks it and is not in a done status
+  category, read from its `workitem view --json` payload;
+  `<assignees>` is the assignee's email address, or `-`.
+
 ### Create (`/issue-create`)
 
 Create a work item with the `workitem create` template from

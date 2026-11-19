@@ -104,6 +104,7 @@ def brief(state, nwo, issue):
         "id": issue["id"],
         "number": issue["number"],
         "title": issue["title"],
+        "state": issue.get("state", "OPEN"),
         "url": issue_url(state, nwo, issue["number"]),
         "repository": {"nameWithOwner": nwo},
     }
@@ -113,11 +114,11 @@ CONNECTIONS = ("labels", "assignees", "subIssues", "blockedBy", "blocking", "pro
 
 
 def paginate(query, name, nodes, after):
-    """The page of `nodes` the query's `name(first: N[, after: $after])`
+    """The page of `nodes` the query's `name(first: N[, after: $after][, ...])`
     selects, as a connection with pageInfo; None when the query does not
-    select `name`. A cursor is the offset of the first node after the page
-    it ends."""
-    m = re.search(r"\b%s\(first: (\d+)(, after: \$after)?\)" % name, query)
+    select `name`. Arguments after `after` are ignored. A cursor is the offset
+    of the first node after the page it ends."""
+    m = re.search(r"\b%s\(first: (\d+)(, after: \$after)?(?:, \w+: \$\w+)*\)" % name, query)
     if m is None:
         return None
     first = int(m.group(1))
@@ -134,6 +135,13 @@ def field_values(item):
         if "number" in value:
             values.append({"__typename": "ProjectV2ItemFieldNumberValue", "field": {"id": fid},
                            "number": value["number"]})
+        elif "text" in value:
+            values.append({"__typename": "ProjectV2ItemFieldTextValue", "field": {"id": fid}, "text": value["text"]})
+        elif "date" in value:
+            values.append({"__typename": "ProjectV2ItemFieldDateValue", "field": {"id": fid}, "date": value["date"]})
+        elif "startDate" in value:
+            values.append({"__typename": "ProjectV2ItemFieldIterationValue", "field": {"id": fid},
+                           "startDate": value["startDate"]})
         else:
             values.append({"__typename": "ProjectV2ItemFieldSingleSelectValue", "field": {"id": fid},
                            "name": value["name"], "optionId": value["optionId"]})
@@ -254,6 +262,10 @@ def graphql(state, host, args):
                     return
         fail("Could not resolve to a node with the global id of '%s'" % fields["item"])
 
+    if not mutation and "project" in fields:
+        board(state, host, query, fields)
+        return
+
     if not mutation and re.search(r"\b(repositoryOwner|issueFields|issueTypes)\b", query):
         discovery(state, host, query, fields)
         return
@@ -364,6 +376,35 @@ def graphql(state, host, args):
         fail("fake gh: unknown mutation " + name)
     save(state)
     print(json.dumps({"data": {name: result}}))
+
+
+def board(state, host, query, fields):
+    """A board read through node(id: $project): its views, or its items. A
+    board is an entry in state["projects"], on its own "host" (github.com when
+    absent), carrying its "views"; its items are the issues' project items on
+    it, ordered by each item's "position", 0 when absent. The fake applies no
+    filter: the items query returns every item on the board, whatever its
+    query argument says, so a test sees what the script does with each."""
+    project = state.get("projects", {}).get(fields["project"])
+    if project is None or project.get("host", DEFAULT_HOST) != host:
+        fail("Could not resolve to a node with the global id of '%s'" % fields["project"],
+             {"data": {"node": None},
+              "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node"}]})
+    if "views(" in query:
+        views = [{"number": v["number"], "name": v["name"], "filter": v.get("filter", ""),
+                  "sortByFields": {"nodes": v.get("sortByFields", [])}} for v in project.get("views", [])]
+        print(json.dumps({"data": {"node": {"views": paginate(query, "views", views, fields.get("after"))}}}))
+        return
+    entries = [(nwo, issue, item) for nwo, issue in all_issues(state) for item in issue["projectItems"]
+               if item["project"] == fields["project"] and host_of(state, nwo) == host]
+    entries.sort(key=lambda e: e[2].get("position", 0))
+    nodes = []
+    for nwo, issue, item in entries:
+        content = render(state, nwo, issue, query)
+        content["__typename"] = "Issue"
+        nodes.append({"id": item["id"], "fieldValues": paginate(query, "fieldValues", field_values(item), None),
+                      "content": content})
+    print(json.dumps({"data": {"node": {"items": paginate(query, "items", nodes, fields.get("after"))}}}))
 
 
 def login_on(state, host):

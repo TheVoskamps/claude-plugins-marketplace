@@ -17,7 +17,7 @@ SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/issues-bin-test.XXXXXX")"
 FAILURES=0
 CASES=0
 
-VERBS="issue-close issue-comment issue-create issue-field-options issue-set-blocked-by issue-set-blocks
+VERBS="issue-close issue-comment issue-create issue-field-options issue-list issue-set-blocked-by issue-set-blocks
 issue-set-child issue-set-parent issue-set-priority issue-set-size issue-set-status issue-set-type
 issue-sub-list issue-unset-blocked-by issue-unset-blocks issue-unset-child issue-unset-parent
 issue-update issue-view issue-view-tree"
@@ -200,6 +200,19 @@ state["repos"]["acme/widgets"]["issueFields"] = [
     {"__typename": "IssueFieldSingleSelect", "name": "Effort", "dataType": "SINGLE_SELECT", "id": "IFSS_effort",
      "options": [{"id": "IFSSO_e_low", "name": "Low"}]},
 ]
+# Board 1's views, for issue-list: one that neither filters nor sorts, one
+# that filters and sorts by a number field descending then the status field's
+# option order, and one sorting by a field issue-list cannot order by.
+status_field = {"id": "PVTSSF_status", "name": "Status", "dataType": "SINGLE_SELECT",
+                "options": [{"id": "OPT_backlog"}, {"id": "OPT_inprogress"}, {"id": "OPT_done"}]}
+state["projects"] = {"PVT_1": {"views": [
+    {"number": 1, "name": "Board", "filter": "", "sortByFields": []},
+    {"number": 2, "name": "Ready queue", "filter": "label:bug OR label:docs", "sortByFields": [
+        {"direction": "DESC", "field": {"id": "PVTF_prio", "name": "Priority", "dataType": "NUMBER"}},
+        {"direction": "ASC", "field": status_field}]},
+    {"number": 3, "name": "Roadmap", "filter": "", "sortByFields": [
+        {"direction": "ASC", "field": {"id": "PVTF_assignees", "name": "Assignees", "dataType": "ASSIGNEES"}}]},
+]}}
 state["repos"]["acme/widgets"]["issueTypes"] = [
     {"id": "IT_bug", "name": "Bug", "isEnabled": True},
     {"id": "IT_legacy", "name": "Legacy", "isEnabled": False},
@@ -303,6 +316,7 @@ args_for() {
       ARGS=(2 3)
       ;;
     issue-set-priority | issue-set-size | issue-set-status | issue-set-type) ARGS=(2 x) ;;
+    issue-list) ARGS=(--status Done) ;;
     *) ARGS=(2) ;;
   esac
 }
@@ -552,6 +566,142 @@ expect "issue-field-options host/owner/repo: a target on another host" 0 "No fie
 check "$(jq -c 'select(.[0] == "api")' "$CASE_DIR/gh.log" | tail -n 1)" \
   '["api","--hostname","ghe.example.com","repos/corp/tools/contents/.issues/repo-config.md","--jq",".content"]' \
   "issue-field-options host/owner/repo: reads the target's repo-config on its host"
+
+# ---------------------------------------------------------------------------
+# Board listing. The fake returns every item on board 1 whatever the search
+# says, so a line for an item the search would exclude shows issue-list
+# printing what it was given rather than filtering it.
+# ---------------------------------------------------------------------------
+
+TAB=$(printf '\t')
+
+# edit_state <jq-program>: rewrite the case's fake GitHub with <jq-program>.
+edit_state() {
+  jq "$1" "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+}
+
+# last_search: the search the case's last board items query sent.
+last_search() {
+  jq -r '.[] | select(startswith("search=")) | sub("^search="; "")' "$CASE_DIR/gh.log" | tail -n 1
+}
+
+# refs: the issue references OUT lists, in order, joined with spaces.
+refs() {
+  printf '%s\n' "$OUT" | awk -F'\t' '/^#/ { printf "%s%s", sep, $1; sep = " " }'
+}
+
+# Board 1 holds #2 and #12 at position 0. #12 runs past one page in its
+# labels, assignees, blockers, field values and native field values.
+new_case "$CONFIG_MAIN"
+run issue-list --status 'in PROGRESS'
+check "$OUT" "#2${TAB}In progress${TAB}High${TAB}S${TAB}1${TAB}octocat${TAB}Widget issue 2${ISS_NL}#12${TAB}In progress${TAB}High${TAB}L${TAB}110${TAB}$(seq -f 'user-%03g' 1 105 | paste -sd, -)${TAB}Many of everything" \
+  "issue-list: one tab-separated line per item, in column order, past one page of each list"
+check "$(last_search)" 'repo:acme/widgets status:"In progress" is:issue is:open' \
+  "issue-list: the search names the repo, the status as configured, and open issues"
+
+edit_state '.repos["acme/other"].issues["3"].state = "CLOSED"
+  | .repos["acme/widgets"].issues["3"].projectItems += [{id: "PVTI_L3", project: "PVT_1", position: 1,
+      fields: {PVTSSF_status: {name: "Done", optionId: "OPT_done"}}}]'
+run issue-list --status Done
+expect "issue-list: a closed blocker is not counted, and an unset slot reads -" 0 \
+  "#2${TAB}In progress${TAB}High${TAB}S${TAB}0${TAB}octocat${TAB}" "#3${TAB}Done${TAB}-${TAB}-${TAB}0${TAB}-${TAB}Widget issue 3"
+check "$(refs)" "#2 #12 #3" "issue-list: drops no item the connection returns"
+
+# Across pages: 110 more items, in descending position by number.
+new_case "$CONFIG_MAIN"
+# shellcheck disable=SC2016 # $n is jq's
+edit_state 'reduce range(100; 210) as $n (.; .repos["acme/widgets"].issues[$n | tostring].projectItems +=
+  [{id: "PVTI_L\($n)", project: "PVT_1", position: (1000 - $n), fields: {}}])'
+run issue-list --status Backlog
+check "$(refs)" "#2 #12 $(seq -f '#%g' 209 -1 100 | paste -sd' ' -)" "issue-list: lines keep the connection's order across pages"
+check "$(jq -c 'select(any(.[]; startswith("search=")))' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 2 \
+  "issue-list: the items are read in two pages"
+run issue-list --status Backlog --limit 3
+check "$(refs)" "#2 #12 #209" "issue-list: --limit prints the first lines after ordering"
+run issue-list --status Backlog --limit 0
+check "$OUT" "" "issue-list: --limit 0 prints nothing"
+
+# A view that sorts by priority descending, then by status in option order.
+new_case "$CONFIG_MAIN"
+# shellcheck disable=SC2016 # the $ names are jq's
+edit_state '
+  def put($n; $pos; $fields): .repos["acme/widgets"].issues[$n | tostring].projectItems +=
+    [{id: "PVTI_L\($n)", project: "PVT_1", position: $pos, fields: $fields}];
+  def st($o; $name): {PVTSSF_status: {name: $name, optionId: $o}};
+  put(3; 1; st("OPT_backlog"; "Backlog") + {PVTF_prio: {number: 5}})
+  | put(4; 2; st("OPT_done"; "Done") + {PVTF_prio: {number: 9}})
+  | put(5; 3; st("OPT_backlog"; "Backlog"))
+  | put(6; 4; st("OPT_inprogress"; "In progress") + {PVTF_prio: {number: 5}})
+  | put(7; 5; st("OPT_backlog"; "Backlog") + {PVTF_prio: {number: 5}})'
+run issue-list --status Backlog
+check "$(refs)" "#2 #12 #3 #4 #5 #6 #7" "issue-list: without --view, position order"
+run issue-list --status Backlog --view board
+check "$(refs)" "#2 #12 #3 #4 #5 #6 #7" "issue-list: a view with no sort fields keeps position order"
+check "$(last_search)" 'repo:acme/widgets status:"Backlog" is:issue is:open' "issue-list: a view with no filter adds no group"
+run issue-list --status Backlog --view 'ready QUEUE'
+check "$(refs)" "#4 #3 #7 #6 #5 #2 #12" \
+  "issue-list: a view's sort fields order the lines, stably, in their direction, with no value last"
+check "$(last_search)" '(label:bug OR label:docs) repo:acme/widgets status:"Backlog" is:issue is:open' \
+  "issue-list: the view's filter leads the search, parenthesized"
+run issue-list --status Backlog --view 2 --limit 2
+check "$(refs)" "#4 #3" "issue-list: a view named by number, and --limit after its sort"
+run issue-list --status Backlog --view roadmap
+expect "issue-list: a sort field it cannot read aborts" 1 \
+  "view \`Roadmap\` sorts by \`Assignees\`, a \`ASSIGNEES\` field, which this verb cannot order by"
+check "$(refs)" "" "issue-list: an unreadable sort field prints no issue line"
+run issue-list --status Backlog --view nope
+expect "issue-list: an unknown view lists the board's views" 1 \
+  "no view \`nope\` on the project board. Views: \`Board, Ready queue, Roadmap\`"
+check "$(refs)" "" "issue-list: an unknown view prints no issue line"
+
+# The assignee group.
+run issue-list --status Done --assignee a --assignee b --unassigned
+check "$(last_search)" 'repo:acme/widgets status:"Done" is:issue is:open (assignee:a,b OR no:assignee)' \
+  "issue-list: --assignee and --unassigned are one parenthesized OR group"
+run issue-list --status Done --assignee a --assignee b
+check "$(last_search)" 'repo:acme/widgets status:"Done" is:issue is:open assignee:a,b' "issue-list: --assignee alone has no OR"
+run issue-list --status Done --unassigned --view 2
+check "$(last_search)" '(label:bug OR label:docs) repo:acme/widgets status:"Done" is:issue is:open no:assignee' \
+  "issue-list: --unassigned alone has no OR"
+
+# Aborts and usage errors.
+run issue-list --status Ready
+expect "issue-list: a status outside the slot's options" 1 \
+  "value \`Ready\` is not in \`status\`'s options. Known options: \`Backlog, In progress, Done\`."
+check "$(refs)" "" "issue-list: an unknown status prints no issue line"
+for call in "issue-list" "issue-list --status" "issue-list --status Done --limit x" "issue-list --status Done --assignee a,b" \
+  "issue-list --status Done --sort x" "issue-list widgets other --status Done"; do
+  run $call
+  expect "$call: a usage error" 2 "issue-list"
+done
+run issue-list acme/other --status Done
+expect "issue-list <repo>: a target without repo-config" 1 "\`acme/other\` has no \`.issues/repo-config.md\`"
+run issue-list acme/jira --status Done
+expect "issue-list <repo>: a Jira-tracked target" 1 "\`issues: Jira\` is configured"
+
+new_case none
+jq --arg cfg "$CONFIG_MAIN" '.repos["acme/other"].config = $cfg
+  | .repos["acme/other"].issues["3"].projectItems += [{id: "PVTI_O3", project: "PVT_1", position: 1, fields: {}}]' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list acme/other --status 'In progress'
+check "$(refs)" "#2 #12 #3" "issue-list <repo>: the target's repo-config governs, with none here"
+check "$(last_search)" 'repo:acme/other status:"In progress" is:issue is:open' "issue-list <repo>: the search names the target"
+run issue-list acme/widgets --status 'In progress'
+expect "issue-list <repo>: naming the current repository reads its repo-config" 1 \
+  "This repo has no \`.issues/repo-config.md\`."
+
+new_case "$CONFIG_NO_BLOCK"
+run issue-list --status Done
+expect "issue-list: no github-project block" 1 "no \`github-project:\` block in \`repo-config.md\`"
+new_case "$CONFIG_NUMBER"
+run issue-list --status Done
+expect "issue-list: no status slot" 1 "no \`status\` slot in \`github-project:\`" "\`/issues:repo-config\`"
+new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/kind: single-select/kind: label/')"
+run issue-list --status Done
+expect "issue-list: a status slot that is no board field" 1 "the \`status\` slot in \`github-project:\` in \`repo-config.md\` is \`kind: label\`"
+new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/project-id: PVT_1/project-id: PVT_9/')"
+run issue-list --status Done
+expect "issue-list: a board that does not resolve" 1 "project \`PVT_9\` did not resolve to a board on \`github.com\`"
 
 # ---------------------------------------------------------------------------
 # A slot default: the slot would refuse is an invalid repo-config.

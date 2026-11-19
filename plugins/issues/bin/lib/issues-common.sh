@@ -99,6 +99,31 @@ iss_err_no_issue_types() {
   iss_die "${1:-}issue-types map missing from \`github-project:\` in \`repo-config.md\`; run \`/repo-config\` to add it"
 }
 
+iss_err_no_status_slot() {
+  # $1 the status slot's kind, $2 message prefix
+  if [ "$1" = skip ]; then
+    iss_die "${2:-}no \`status\` slot in \`github-project:\` in \`repo-config.md\`; run \`/issues:repo-config\` to add it"
+  fi
+  iss_die "${2:-}the \`status\` slot in \`github-project:\` in \`repo-config.md\` is \`kind: $1\`, and listing a board filters on a \`kind: single-select\` board field; run \`/issues:repo-config\` to reconfigure it"
+}
+
+iss_err_view_not_found() {
+  # $1 the view as named, $2 the board's view names
+  iss_die "no view \`$1\` on the project board. Views: \`$2\`"
+}
+
+iss_err_unsortable_field() {
+  # $1 view name, $2 field name, $3 its dataType
+  iss_die "view \`$1\` sorts by \`$2\`, a \`$3\` field, which this verb cannot order by"
+}
+
+iss_err_stale_project() {
+  # $1 project ID, $2 host, empty for gh's default host
+  local where="gh's default host"
+  [ -z "$2" ] || where="\`$2\`"
+  iss_die "project \`$1\` did not resolve to a board on $where; the cached ID in \`repo-config.md\` may be stale. Run \`/repo-config\` to refresh it."
+}
+
 iss_err_no_target_config() {
   # $1 host, $2 owner, $3 repo
   iss_die "\`$(iss_repo_name "$1" "$2" "$3")\` has no \`.issues/repo-config.md\`, and this verb reads its \`github-project:\` block"
@@ -1087,14 +1112,17 @@ readonly ISS_PAGE_SIZE=100
 
 readonly ISS_FIELD_VALUE_NODES='__typename
     ... on ProjectV2ItemFieldNumberValue { field { ... on ProjectV2FieldCommon { id } } number }
-    ... on ProjectV2ItemFieldSingleSelectValue { field { ... on ProjectV2FieldCommon { id } } name optionId }'
+    ... on ProjectV2ItemFieldSingleSelectValue { field { ... on ProjectV2FieldCommon { id } } name optionId }
+    ... on ProjectV2ItemFieldTextValue { field { ... on ProjectV2FieldCommon { id } } text }
+    ... on ProjectV2ItemFieldDateValue { field { ... on ProjectV2FieldCommon { id } } date }
+    ... on ProjectV2ItemFieldIterationValue { field { ... on ProjectV2FieldCommon { id } } startDate }'
 
 # iss_conn_nodes <connection>: the node selection read from each connection.
 iss_conn_nodes() {
   case "$1" in
     labels) printf 'name' ;;
     assignees) printf 'login' ;;
-    subIssues | blockedBy | blocking) printf 'id number title repository { nameWithOwner }' ;;
+    subIssues | blockedBy | blocking) printf 'id number title state repository { nameWithOwner }' ;;
     projectItems) printf 'id project { id } %s' "$(iss_conn fieldValues)" ;;
     fieldValues) printf '%s' "$ISS_FIELD_VALUE_NODES" ;;
     issueFieldValues)
@@ -1612,6 +1640,120 @@ iss_remove_sub_issue() {
   iss_lookup "$1" "$2" "$3" "$4" "$ISS_SEL_PARENT"
   cur_id=$(iss_jq '.parent.id // empty')
   [ "$cur_id" != "$6" ] || iss_err_write_not_landed "the parent" "$7" "(none)" "$8"
+}
+
+# ---------------------------------------------------------------------------
+# Board listing: /issue-list's reads of the configured board's views and
+# items.
+# ---------------------------------------------------------------------------
+
+# The issue fields a board listing reads from each item's content: what
+# iss_slot_read reads for every slot kind but the board's own, which come from
+# the item, and each blocker's state.
+ISS_SEL_LIST_ISSUE="number title state repository { nameWithOwner }
+$ISS_SEL_LABELS
+$(iss_conn assignees)
+$(iss_conn blockedBy)
+$ISS_SEL_ISSUE_FIELDS"
+readonly ISS_SEL_LIST_ISSUE
+
+iss_doc_board_views() {
+  printf '%s' "query(\$project: ID!, \$after: String) {
+  node(id: \$project) {
+    ... on ProjectV2 {
+      views(first: $ISS_PAGE_SIZE, after: \$after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          number name filter
+          sortByFields(first: $ISS_PAGE_SIZE) {
+            nodes {
+              direction
+              field {
+                ... on ProjectV2FieldCommon { id name dataType }
+                ... on ProjectV2SingleSelectField { options { id } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}"
+}
+
+iss_doc_board_items() {
+  printf '%s' "query(\$project: ID!, \$search: String!, \$after: String) {
+  node(id: \$project) {
+    ... on ProjectV2 {
+      items(first: $ISS_PAGE_SIZE, after: \$after, query: \$search) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          $(iss_conn fieldValues)
+          content { __typename ... on Issue { $ISS_SEL_LIST_ISSUE } }
+        }
+      }
+    }
+  }
+}"
+}
+
+# iss_board_nodes <host> <project-id> <doc> <connection> [<gh args...>]: run
+# <doc> against the board, page its <connection> to the end, and set
+# ISS_BOARD_NODES to every node, in the order the pages return them, as one
+# JSON array. Aborts when a call fails or the board does not resolve.
+iss_board_nodes() {
+  local host=$1 project=$2 doc=$3 conn=$4 page cursor=
+  shift 4
+  ISS_BOARD_NODES=[]
+  while :; do
+    if [ -n "$cursor" ]; then
+      iss_gql "$host" -f query="$doc" -f project="$project" "$@" -f after="$cursor"
+    else
+      iss_gql "$host" -f query="$doc" -f project="$project" "$@"
+    fi || {
+      iss_is_stale_id_error && iss_err_stale_project "$project" "$host"
+      iss_gql_fail
+    }
+    page=$(printf '%s' "$ISS_GQL_OUT" | jq -c --arg c "$conn" '.data.node[$c] // empty')
+    [ -n "$page" ] || iss_err_stale_project "$project" "$host"
+    # Through stdin rather than --argjson: a large board outgrows the
+    # argument-length limit.
+    ISS_BOARD_NODES=$(printf '%s\n%s\n' "$ISS_BOARD_NODES" "$page" | jq -cs '.[0] + .[1].nodes')
+    [ "$(printf '%s' "$page" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
+    cursor=$(printf '%s' "$page" | jq -r .pageInfo.endCursor)
+  done
+}
+
+# iss_board_views <host> <project-id>: set ISS_BOARD_VIEWS to every view of
+# the board, as a JSON array of { number, name, filter, sortByFields }.
+iss_board_views() {
+  iss_board_nodes "$1" "$2" "$(iss_doc_board_views)" views
+  # shellcheck disable=SC2034 # read by the sourcing script
+  ISS_BOARD_VIEWS=$ISS_BOARD_NODES
+}
+
+# iss_board_items <host> <project-id> <query>: set ISS_BOARD_ITEMS to the
+# board's items that <query> selects, in the order the items connection
+# returns them, as a JSON array of issue objects shaped as iss_lookup leaves
+# ISS_ISSUE, so iss_slot_read reads them: the item's content, with the item
+# itself as its one project item. An item whose content or field values run
+# past one page is read again whole with iss_lookup, so no list is truncated.
+iss_board_items() {
+  local host=$1 project=$2 i nwo number
+  iss_board_nodes "$host" "$project" "$(iss_doc_board_items)" items -f search="$3"
+  ISS_BOARD_ITEMS=$(printf '%s' "$ISS_BOARD_NODES" | jq -c --arg p "$project" \
+    '[.[] | . as $it | ($it.content // {}) + {projectItems: {nodes: [{id: $it.id, project: {id: $p}, fieldValues: $it.fieldValues}]}}]')
+  for i in $(printf '%s' "$ISS_BOARD_ITEMS" | jq -r '
+    to_entries[]
+    | select([.value.labels, .value.assignees, .value.blockedBy, .value.issueFieldValues,
+              .value.projectItems.nodes[0].fieldValues] | any(.pageInfo.hasNextPage? == true))
+    | .key'); do
+    nwo=$(printf '%s' "$ISS_BOARD_ITEMS" | jq -r --argjson i "$i" '.[$i].repository.nameWithOwner')
+    number=$(printf '%s' "$ISS_BOARD_ITEMS" | jq -r --argjson i "$i" '.[$i].number')
+    iss_lookup "$host" "${nwo%%/*}" "${nwo#*/}" "$number" "$ISS_SEL_LIST_ISSUE $ISS_SEL_PROJECT_ITEMS"
+    ISS_BOARD_ITEMS=$(printf '%s\n%s\n' "$ISS_BOARD_ITEMS" "$ISS_ISSUE" | jq -cs --argjson i "$i" '.[1] as $issue | .[0] | .[$i] = $issue')
+  done
 }
 
 # ---------------------------------------------------------------------------
