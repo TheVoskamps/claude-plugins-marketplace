@@ -346,9 +346,9 @@ iss_validate_config_text() {
   iss_config_jira "$1" "${2:-}"
 }
 
-# iss_config_frontmatter <text> [<message-prefix>]: the schema-version and
-# canonical-field checks; sets ISS_ISSUES, ISS_LINK_PREFIX and
-# ISS_BRANCH_PREFIX_MODE.
+# iss_config_frontmatter <text> [<message-prefix>]: the schema-version,
+# canonical-field and issue-link-prefix checks; sets ISS_ISSUES,
+# ISS_LINK_PREFIX and ISS_BRANCH_PREFIX_MODE.
 iss_config_frontmatter() {
   local text=$1 prefix=${2:-} fm version field
   if ! fm=$(iss_frontmatter "$text"); then
