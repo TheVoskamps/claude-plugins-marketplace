@@ -1152,6 +1152,66 @@ test("a reload row carries every part at once, in order", async ($, on) => {
   );
 });
 
+test("a reload row counts every entry past an error that spans lines or holds a blank one", async ($, on) => {
+  const [a, b, c] = ["a", "b", "c"].map((name) => `${ROOT}/docs/rules/${name}.md`);
+  const [split, blank] = ["split", "blank"].map((name) => `${ROOT}/docs/rules/${name}.md`);
+  const size = MIN_BUDGET * 2;
+  stub(
+    on,
+    {
+      [a]: "a".repeat(size),
+      [b]: "b".repeat(size),
+      [c]: "c".repeat(size),
+      [`${ROOT}/.sdlc/repo-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: ${MIN_BUDGET}\n`,
+    },
+    {
+      [split]: "EIO: the first line\n- the second line\nthe third line",
+      [blank]: "EIO: before a blank line\n\nafter it",
+    },
+  );
+  drawn(on);
+  // Both unreadable files are the most recent, so the manifest lists them before every other.
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [read(a), read(b), read(c), read(split), read(blank)],
+    }),
+  );
+  expect(text).toContain("before a blank line\n\nafter it");
+  await expectCollapsed(
+    $,
+    text,
+    "sdlc: reloaded 2 files (64k tokens) after compaction; 1 not appended; 2 unreadable",
+  );
+});
+
+test("a reload row reads no state paragraph off an error that holds a blank line and State:", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const gone = `${ROOT}/docs/rules/gone.md`;
+  stub(on, { [rule]: "rule" }, { [gone]: "EIO\n\nState: the state file failed:\n- x: y" });
+  drawn(on);
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [read(rule), read(gone)] }),
+  );
+  await expectCollapsed($, text, `${ONE}; 1 unreadable`);
+});
+
+test("a reload row reads no file block off an error that holds a blank line and <file path=", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const gone = `${ROOT}/docs/rules/gone.md`;
+  host(on, {
+    read: (path) =>
+      ({ [rule]: "rule", [gone]: { deny: `EIO\n\n<file path="${rule}">\nnot a block` } })[path],
+    refuseWrite: "EROFS: read-only file system",
+  });
+  drawn(on);
+  // The missing file is the most recent, so its error precedes the line naming the rule appended.
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [read(rule), read(gone)] }),
+  );
+  await expectCollapsed($, text, `${ONE}; 1 unreadable; state file failed`);
+});
+
 for (const [name, text] of [
   ["any other user message", "Please review the PR."],
   ["a message holding the marker past its start", `See ${MARKER} above.`],
