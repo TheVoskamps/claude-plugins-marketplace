@@ -596,8 +596,9 @@ iss_valid_host() {
 
 # iss_valid_path <path>: whether each part of repo, owner/repo or
 # host/owner/repo is valid for its place, by iss_valid_host, iss_valid_owner
-# and iss_valid_name. gp_parse_pr in the github-prs plugin validates by the
-# same rules.
+# and iss_valid_name. gp_parse_pr in the github-prs plugin checks the same
+# shapes, but through letter ranges, so under a UTF-8 locale it also accepts
+# non-ASCII letters such as é that these refuse.
 iss_valid_path() {
   case "$1" in
     */*/*/*) return 1 ;;
