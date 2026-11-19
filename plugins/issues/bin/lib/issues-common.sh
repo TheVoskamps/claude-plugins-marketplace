@@ -556,9 +556,14 @@ iss_try_current_repo() {
 }
 
 # iss_valid_name <name>: whether <name> is a repository name GitHub allows: 1
-# to 100 ASCII letters, digits, ".", "-" and "_", any of them first.
+# to 100 ASCII letters, digits, ".", "-" and "_", any of them first. The
+# letters are spelled out rather than given as ranges, because what a range
+# matches depends on the locale: under a UTF-8 one, the ranges admit letters
+# such as é.
 iss_valid_name() {
-  case "$1" in '' | *[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$1" in
+    '' | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*) return 1 ;;
+  esac
   [ "${#1}" -le 100 ]
 }
 

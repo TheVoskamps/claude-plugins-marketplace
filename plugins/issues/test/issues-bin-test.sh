@@ -394,6 +394,15 @@ run issue-view "${PREFIX_101}2"
 expect "issue-view: a local 101-character issue-link-prefix is refused" 1 \
   "sets \`issue-link-prefix\` to \`$PREFIX_101\`, $BAD_PREFIX_MESSAGE"
 check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local 101-character issue-link-prefix: no gh call"
+# A non-ASCII letter is refused under a UTF-8 locale too, where a bracket range
+# can match letters outside ASCII.
+for prefix in 'é-' 'aé' 'ÀB'; do
+  new_case "$(with_link_prefix "$CONFIG_MAIN" "$prefix")"
+  LC_ALL=en_US.UTF-8 run issue-view "${prefix}2"
+  expect "issue-view: a non-ASCII issue-link-prefix $prefix is refused under a UTF-8 locale" 1 \
+    "sets \`issue-link-prefix\` to \`$prefix\`, $BAD_PREFIX_MESSAGE"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a non-ASCII issue-link-prefix $prefix: no gh call"
+done
 
 # ... and a target's, before the target's issue is read or written.
 new_case "$CONFIG_MAIN"
