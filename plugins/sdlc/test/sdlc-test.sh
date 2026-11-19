@@ -1371,6 +1371,11 @@ decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
 check "$RC" "0" "decision ask: a problem of another class needs no existing pattern"
 check "$(printf '%s\n' "$OUT" | grep -c '^Existing pattern:')" "0" \
   "decision ask: an empty existing pattern is not printed"
+decision_case decision-pattern-other-class-set
+record merge-state
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$RC:$(printf '%s\n' "$OUT" | grep -c '^Existing pattern:')" "0:0" \
+  "decision ask: a problem of another class prints no existing pattern, even one it carries"
 QUOTED="$SANDBOX/decision-refuse-a quote not on the named line/evidence.txt"
 refused "a quote not on the named line" "P1.1 evidence 1 quote: is not on line 1 of $QUOTED" \
   design-gap - "[{file: \"$QUOTED:1\", quote: quoted line}]"

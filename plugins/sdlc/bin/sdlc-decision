@@ -253,7 +253,7 @@ render() {
        {asks: true, text: ([
          "\($p) (\($c))",
          "Problem: " + ($q.problem | text | hang("  ")),
-         (if ($q["existing-pattern"] // "" | text | test("\\S")) then "Existing pattern: " + ($q["existing-pattern"] | text | hang("  ")) else empty end),
+         (if $c == "design-gap" and ($q["existing-pattern"] // "" | text | test("\\S")) then "Existing pattern: " + ($q["existing-pattern"] | text | hang("  ")) else empty end),
          "Options:",
          ($q.options | items | to_entries[] | "\($p).\(.key + 1)" as $o | .value
           | "  \($o) " + (.does | text | hang("    ")),
