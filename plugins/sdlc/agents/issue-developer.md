@@ -328,16 +328,15 @@ decision is the human's, and the report is how it reaches them.
 
 When a member specifies something an instruction file forbids, and the
 issue does not say what happens to that statement, grade the statement
-in the terms `sdlc:orchestrate-readiness` defines:
+in the terms `sdlc:orchestrate-readiness` defines under "Contradicted
+repo statements", and act on the grade:
 
-- **A policy claim** is a design decision the issue does not answer.
-  Stop and report it per "Drop protocol", quoting the statement and
-  naming its file.
-- **A statement that reads as a capability claim** is yours to settle:
-  run a test of it. When the test shows it false, delete the claim and
-  every restatement of it, and report the test and its output. When
-  the test does not show it false, or cannot be run, handle it as a
-  policy claim.
+- **On a policy claim**, stop that member and report it per "Drop
+  protocol", quoting the statement and naming its file.
+- **On a statement that reads as a capability claim**, run a test of
+  it. When the test shows it false, delete the claim and every
+  restatement of it, and report the test and its output. When the test
+  does not show it false, or cannot be run, act as on a policy claim.
 
 ## The approved resolving install
 

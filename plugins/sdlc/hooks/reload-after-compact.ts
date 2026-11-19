@@ -34,9 +34,9 @@ const RULE_DIRS = ["/rules/", "/skills/"];
 const AGENTS_DIR = "/agents/";
 const ORCHESTRATE = "sdlc:orchestrate";
 // The files that serve only the opening of an orchestrate run, which spawns no agent until
-// pre-flight, the readiness gate and the plan are settled.
+// pre-flight, the readiness gate and the plan are settled. The readiness skill is not one: the
+// orchestrator's mid-run handling of a contradicted policy claim uses the terms it defines.
 const OPENING_FILES = [
-  "/skills/orchestrate-readiness/SKILL.md",
   "/skills/orchestrate/lib/pre-flight.md",
   "/skills/orchestrate/lib/plan.md",
 ];

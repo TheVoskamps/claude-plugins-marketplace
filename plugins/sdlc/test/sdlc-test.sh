@@ -1530,6 +1530,32 @@ decision answer --issue 'h.example/o/r#9' --decision 2 --pick P1=P1.1 --reply-fi
 decision pending --issue 'h.example/o/r#9'
 check "$RC:$ERR" "0:" "decision pending: a design gap the human answered exits 0"
 
+# A reply that left a design gap unanswered keeps it pending, and the
+# same record takes the later answer.
+decision_case decision-pending-unanswered
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+cmp -s "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/question" <(printf '%s\n' "$OUT")
+check "$?" "0" "decision ask: the printed question is stored beside the record"
+printf 'Not now.\n' >"$CASE/reply"
+decision answer --issue 'h.example/o/r#9' --decision 1 --reply-file "$CASE/reply"
+check "$RC" "0" "decision answer: a reply that picks nothing exits 0"
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "4:sdlc-decision: decision 1 P1: a design gap with no answer from the human" \
+  "decision pending: a design gap the reply left unanswered is still pending"
+printf 'P1.2\n' >"$CASE/reply2"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply2"
+check "$RC" "0" "decision answer: a record whose problem is still unanswered takes a later answer"
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "0:" "decision pending: the later answer settles the design gap"
+decision print --issue 'h.example/o/r#9'
+check_contains "$OUT" "  P1 design-gap recommended P1.1 picked P1.2
+  reply:
+    Not now.
+    P1.2" "decision print: the later pick wins, and both replies are kept in order"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply2"
+check "$RC" "3" "decision answer: a record with no open problem left is refused"
+
 decision_case decision-print-newline
 record design-gap
 NL_STATE="$CASE/state

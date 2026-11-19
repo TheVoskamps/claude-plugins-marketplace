@@ -8,9 +8,11 @@
 # with no bullet, and one when the body carries neither section. A
 # `## Acceptance` section, and, when `## Files affected (floor)` is
 # absent, each other `## ` heading whose text holds "files" and then
-# "affected" in any case, each get a gap line opening `mechanical: `, as
-# does the neither-section line when the body carries `## Acceptance`.
-# Read-only.
+# "affected" in any case over a section holding a bullet that opens with
+# a backticked path, each get a gap line opening `mechanical: `, as does
+# the neither-section line when the body carries `## Acceptance`. Such a
+# mistitled section's well-formed bullets are then read as the
+# files-affected list. Read-only.
 #
 # The grammar and the key vocabulary are owned by
 # plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The body is read
@@ -64,9 +66,10 @@ view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 # Mechanical` (`X<TAB><line>`), the bullet count of each acceptance
 # section present (`S<TAB><count><TAB><heading>`), the well-formed
 # files-affected bullets (`F<TAB><path><TAB><tag>`), and the headings the
-# mechanical gaps key on: `## Acceptance` (`A<TAB><heading>`), the
-# files-affected heading (`H<TAB><heading>`), and any other `## ` heading
-# naming files affected (`N<TAB><heading>`). No other `## ` section, `##
+# mechanical gaps key on: `## Acceptance` (`A<TAB><heading>`), and, with
+# no `## Files affected (floor)`, each other `## ` heading naming files
+# affected over a list of paths (`N<TAB><heading>`), whose well-formed
+# bullets are then the `F` records. No other `## ` section, `##
 # Acceptance` included, is read past its heading. A bullet is a line
 # opening with `- ` followed by text, and continues onto the indented
 # lines directly below it, with no blank line between; a section's
@@ -78,6 +81,13 @@ records=$(printf '%s\n' "$view" | awk '
   function flush() {
     if (open) print "M\t" bullet
     open = 0; bullet = ""
+  }
+  # The path and tag of a well-formed files-affected bullet, tab-joined.
+  function entry(s,   p, t) {
+    p = s; sub(/^- `/, "", p); t = p
+    sub(/`.*$/, "", p)
+    sub(/^[^`]*` \(/, "", t); sub(/\).*$/, "", t)
+    return p "\t" t
   }
   { sub(/\r$/, "") }
   !inbody { if ($0 == "Body:") inbody = 1; next }
@@ -95,10 +105,10 @@ records=$(printf '%s\n' "$view" | awk '
     flush()
     h = $0; sub(/[ \t]+$/, "", h)
     if (h == "## Acceptance") print "A\t" h
-    if (h == "## Files affected (floor)") print "H\t" h
-    else if (tolower(h) ~ /^## .*files.*affected/) print "N\t" h
-    sec = (h == "## Code and instruction Markdown acceptance" || h == "## Documentation acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : ""
+    sec = (h == "## Code and instruction Markdown acceptance" || h == "## Documentation acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : (tolower(h) ~ /^## .*files.*affected/) ? "named" : ""
     if (sec == "acc") { acc = h; if (!(h in count)) { count[h] = 0; order[++n] = h } }
+    if (sec == "files") canon = 1
+    if (sec == "named") { nn++; named[nn] = h; listing[nn] = 0 }
     sub_ = ""
     next
   }
@@ -116,15 +126,20 @@ records=$(printf '%s\n' "$view" | awk '
     if (/[^ \t]/) print "X\t" $0
     next
   }
-  sec == "files" && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ {
-    p = $0; sub(/^- `/, "", p); t = p
-    sub(/`.*$/, "", p)
-    sub(/^[^`]*` \(/, "", t); sub(/\).*$/, "", t)
-    print "F\t" p "\t" t
+  sec == "files" && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ { print "F\t" entry($0) }
+  sec == "named" && /^- `[^`]+`/ {
+    listing[nn]++
+    if (/^- `[^`]+` \((new|update|delete)\)[ \t]*$/) held[++nh] = entry($0)
   }
   END {
     flush()
     for (i = 1; i <= n; i++) print "S\t" count[order[i]] "\t" order[i]
+    # With no `## Files affected (floor)`, a section holding a list of
+    # paths under another files-affected heading is the list, mistitled.
+    if (!canon) {
+      for (i = 1; i <= nn; i++) if (listing[i]) print "N\t" named[i]
+      for (i = 1; i <= nh; i++) print "F\t" held[i]
+    }
   }
 ') || fail 1 "could not split the body of issue $issue"
 
@@ -399,7 +414,6 @@ done <<<"$records"
 # around content the body already carries — is labelled `mechanical:`.
 sections=0
 forbidden=0
-files_heading=0
 while IFS=$'\t' read -r kind count heading; do
   case "$kind" in
     A)
@@ -407,7 +421,6 @@ while IFS=$'\t' read -r kind count heading; do
       printf 'mechanical: Acceptance criteria: the body carries the forbidden section "## Acceptance"; split its bullets into "## Code and instruction Markdown acceptance" and "## Documentation acceptance"\n'
       GAPS=$((GAPS + 1))
       ;;
-    H) files_heading=1 ;;
     S)
       sections=$((sections + 1))
       if [ "$count" -eq 0 ]; then
@@ -423,12 +436,10 @@ if [ "$sections" -eq 0 ]; then
   printf '%sAcceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"\n' "$label"
   GAPS=$((GAPS + 1))
 fi
-if [ "$files_heading" -eq 0 ]; then
-  while IFS=$'\t' read -r kind heading; do
-    [ "$kind" = N ] || continue
-    printf 'mechanical: Files affected: the body carries its files-affected list under "%s"; retitle it "## Files affected (floor)"\n' "$heading"
-    GAPS=$((GAPS + 1))
-  done <<<"$records"
-fi
+while IFS=$'\t' read -r kind heading; do
+  [ "$kind" = N ] || continue
+  printf 'mechanical: Files affected: the body carries its files-affected list under "%s"; retitle it "## Files affected (floor)"\n' "$heading"
+  GAPS=$((GAPS + 1))
+done <<<"$records"
 
 [ "$GAPS" -eq 0 ] || exit 3

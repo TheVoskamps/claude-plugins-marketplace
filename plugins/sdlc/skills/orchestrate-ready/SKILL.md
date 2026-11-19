@@ -83,20 +83,41 @@ a side-effect issue — is an approval, not a decision.
    `Searched:` line and its gap list are what you report. Open with the
    verdict, so the user knows the size of the conversation before
    reading the detail. Relay the `Searched:` line as it stands, then
-   list the gaps as a numbered list, each mechanical gap with the
-   repair step 4 makes and each other gap with a **proposed default
-   answer** — your best reading of what the issue intends, stated as a
-   proposal.
+   list the gaps as a numbered list, each gap the rewrite repairs, per
+   step 3, with the repair step 4 makes and each other gap with a
+   **proposed default answer** — your best reading of what the issue
+   intends, stated as a proposal.
 
    An issue that is already `ready` still gets step 6: the status flip
    is the deliverable even when the body needs no edit.
 
 3. **Settle the gaps one topic at a time.**
 
-   **A mechanical gap is repaired without a question.** Each gap line
-   opening `mechanical:` is repaired in step 4's rewrite — the section
-   or sentence deleted, or the heading added — and listed in step 7's
-   report.
+   **An earlier session's open design gaps come first.** Before writing
+   any record, run:
+
+   ```bash
+   sdlc-decision pending --issue <host>/<owner>/<repo>#<N>
+   ```
+
+   Exit 0 means no design gap from an earlier session waits on the
+   user. Exit 4 names each one on stderr, by record and problem: put
+   each such record to the user again on that record, as
+   `skills/lib/decision-record.md` says for a problem still open, and
+   raise no new record for a gap it covers. On any other exit, relay
+   its stderr verbatim and stop.
+
+   **A gap the rewrite repairs is not raised.** Each such gap is
+   repaired in step 4's rewrite, as that step says, and listed in step
+   7's report:
+
+   - a gap line opening `mechanical:` — the section or sentence
+     deleted, the heading added, or an `## Acceptance` section's
+     bullets moved;
+   - an "Outcome, not method" gap;
+   - a "Self-contained" gap on a reference out of the body;
+   - a "Dependency posture" gap on a dependency the body states that
+     no edge carries.
 
    **A gap about an out-of-scope system is not raised.** A system is
    out of scope when this repository has no source or config for it:
@@ -117,12 +138,8 @@ a side-effect issue — is an approval, not a decision.
    user decides.
 
    **Look for the existing pattern before writing a design gap's
-   record.** Run at least one repo-wide Grep for the construct, command
-   or name the gap is about, and fill the record's `existing-pattern`
-   slot with the `path:line` that already does the thing, or with the
-   exact search that found none. When a pattern exists, following it is
-   option 1 and the recommendation, unless the record's why states what
-   makes it unfit here.
+   record**, and fill its `existing-pattern` slot from that search, as
+   `skills/lib/decision-record.md` says.
 
    **A contradicted repo statement is the user's to settle.** For a
    "No contradicted repo statement" gap on a policy claim, the user
@@ -132,7 +149,7 @@ a side-effect issue — is an approval, not a decision.
    test's verbatim output, as the option's `command:` evidence.
 
    **The acceptance sections are a gap like any other.** When the
-   body has none, derive candidate criteria from the design prose —
+   body has no criteria, derive candidates from the design prose —
    one per load-bearing commitment it makes, and never past it: a
    commitment the design does not make is a design decision to settle
    first, not a criterion to invent. When the body has them, split a
@@ -140,11 +157,14 @@ a side-effect issue — is an approval, not a decision.
    bullet whose subject spans the two sections' classes one bullet per
    class, drop a bullet that restates the design prose without adding
    a checkable claim, and rewrite a bullet that names no artifact to
-   name the file, section, or command it is about. A body still
-   carrying a single `## Acceptance` section has its bullets moved
-   into the two sections the same way. Either way, write the resulting
-   list to a file under `.claude/tmp/orchestrate-ready-<N>/` for the
-   closing approval below.
+   name the file, section, or command it is about. Write the criteria
+   you derived or reworked to a file under
+   `.claude/tmp/orchestrate-ready-<N>/` for the closing approval below.
+   The bullets of a `## Acceptance` section are criteria the body
+   already has: moving each into the section its subject's file class
+   names is the mechanical repair step 4 makes, listed in step 7 and
+   outside the closing approval, and a moved bullet joins that file
+   only when one of the reworkings above changes it.
 
    Write each agreed criterion into the acceptance section of
    `sdlc:orchestrate-readiness`'s grammar that its subject's file class
@@ -170,12 +190,13 @@ a side-effect issue — is an approval, not a decision.
    to a file beside the criteria.
 
    **The closing approval** comes once every design gap has an answer.
-   When `ready-rewrite-approval` is `ask`, put the criteria and the
-   files-affected list to the user as one decision before step 4
-   rewrites the body, citing both files as its evidence, with adopting
-   them as written among its options. When it is `auto`, ask nothing:
-   step 4 rewrites the body once `sdlc-decision pending` exits 0 for the
-   issue, and prints the criteria and the file list it wrote.
+   When `ready-rewrite-approval` is `ask`, put the files written above
+   — the criteria and the files-affected list — to the user as one
+   decision before step 4 rewrites the body, citing each as its
+   evidence, with adopting them as written among its options. When it
+   is `auto`, ask nothing: step 4 rewrites the body once
+   `sdlc-decision pending` exits 0 for the issue, and prints the
+   criteria and the file list it wrote.
 
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped
@@ -215,7 +236,9 @@ a side-effect issue — is an approval, not a decision.
    from a referenced document is restated in the body in the present
    tense, and a dependency the prose stated is created with
    `/issue-set-blocked-by <blocked> <blocker>`. The agreed acceptance
-   criteria go in as the acceptance sections, each with its two
+   criteria, and each bullet moved out of an `## Acceptance` section
+   into the section its subject's file class names, go in as the
+   acceptance sections, each with its two
    grouped sub-lists and each omitted when no agreed criterion is in
    its class, and the agreed
    files-affected section goes in as its tagged list, both in the
@@ -287,7 +310,8 @@ a side-effect issue — is an approval, not a decision.
    the re-read is. Do not claim the flip until you have seen it.
 
 7. **Final report.** State: what changed in the body (the substantive
-   changes, not a diff), each mechanical gap and its repair, which
+   changes, not a diff), each gap the rewrite repaired and its repair,
+   which
    side-effect issues you created and
    where, the status you set and that you confirmed it by re-reading,
    and the issue URL. When step 6 was skipped because a gap is still

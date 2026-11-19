@@ -456,15 +456,10 @@ test("a subagent's compaction reloads what its own transcript loaded", async ($,
 });
 
 // The opening files as the hook's own plugin root resolves them, by their path below that root.
-const OPENING = [
-  "skills/orchestrate-readiness/SKILL.md",
-  "skills/orchestrate/lib/pre-flight.md",
-  "skills/orchestrate/lib/plan.md",
-];
+const OPENING = ["skills/orchestrate/lib/pre-flight.md", "skills/orchestrate/lib/plan.md"];
 
-/** The messages that invoke the readiness skill and read the two orchestrate opening files. */
+/** The messages that read the two orchestrate opening files. */
 const OPENING_MESSAGES = [
-  ...launched("sdlc:orchestrate-readiness"),
   read(`${SKILLS}/orchestrate/lib/pre-flight.md`),
   read(`${SKILLS}/orchestrate/lib/plan.md`),
 ];
@@ -490,6 +485,17 @@ test("orchestrate's opening files are dropped once an Agent call follows its inv
   ]);
   for (const file of OPENING) expect(text).not.toContain(file);
   expect(text).toMatch(/^- \(appended below\) .*\/docs\/rules\/a\.md$/m);
+});
+
+test("the readiness skill is still reloaded once an Agent call follows orchestrate's invocation", async ($, on) => {
+  const text = await compactOpening($, on, [
+    typed("sdlc:orchestrate"),
+    ...launched("sdlc:orchestrate-readiness"),
+    ...OPENING_MESSAGES,
+    spawn("sdlc:issue-developer"),
+    RULE,
+  ]);
+  expect(text).toMatch(/^- \(appended below\) .*\/skills\/orchestrate-readiness\/SKILL\.md$/m);
 });
 
 test("an orchestrate invocation in a message's second command tag opens a run", async ($, on) => {

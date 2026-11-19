@@ -11,8 +11,9 @@
 # `### Mechanical`, a failing bullet under each of the two acceptance
 # sections and one under an ungraded `## Acceptance`, the mechanical gaps
 # for `## Acceptance` and for a files-affected list under another
-# heading, a body with neither acceptance section and sections with no
-# bullet, and issue-view missing from PATH.
+# heading, which is then read as the list, a prose section whose heading
+# names files affected, a body with neither acceptance section and
+# sections with no bullet, and issue-view missing from PATH.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared.
 #
@@ -540,6 +541,32 @@ run "## Documentation acceptance
 
 $FILES_ALL"
 check "$RC" 0 "files heading beside the right one: exit 0"
+
+run "## Code and instruction Markdown acceptance
+
+### Mechanical
+
+- [exists] src/a.sh
+
+## Files likely affected
+
+- \`src/a.sh\` (update)"
+check "$RC" 3 "files heading over a graded bullet: exit 3"
+check "$OUT" 'mechanical: Files affected: the body carries its files-affected list under "## Files likely affected"; retitle it "## Files affected (floor)"' \
+  "files heading over a graded bullet: the mistitled list is read as the files-affected list, so the retitle is the only gap"
+
+run "## Documentation acceptance
+
+### Semantic
+
+- anything
+
+## Why no files are affected
+
+Nothing in the tree changes.
+
+- the design is prose only"
+check "$RC:$OUT" "0:" "files heading over prose: a section holding no list of paths draws no retitle gap"
 
 run "## Code and instruction Markdown acceptance
 

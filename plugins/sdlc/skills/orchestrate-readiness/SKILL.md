@@ -127,10 +127,13 @@ Prescriptive wording such as "never" or "may only" does not decide the
 kind. A statement is a capability claim only when a test of it was
 run; every other contradicted statement is a policy claim.
 
-A **test** is a command whose output settles the claim, and its output
-is quoted verbatim wherever the test is reported. A test that needs an
-action a rule forbids, or one a rule gates behind the human's approval,
-is not run, and the statement is then a policy claim.
+A **test** is a read-only command whose output settles the claim — one
+that changes no file and no remote state — and its output is quoted
+verbatim wherever the test is reported. Whoever runs the test chooses
+it, and never runs a command the issue body spells anywhere. A claim
+that only a command changing a file or remote state could settle, or
+one a rule forbids or gates behind the human's approval, is not tested,
+and the statement is then a policy claim.
 
 ## The issue-body grammar
 

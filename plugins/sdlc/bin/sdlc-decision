@@ -43,17 +43,21 @@
 # `unclassified` problem is never resolved by a ruling, and a ruling
 # whose value is `ask` resolves nothing.
 #
-# Each record's directory holds record.yml, the record as given; log,
-# whose lines are
+# Each record's directory holds record.yml, the record as given; question,
+# the text ask printed for it; log, whose lines are
 #   asked <instant>
 #   problem P<i> <class> <recommendation> <option count>
 #   resolved P<i> <value>
 #   answered <instant>
 #   pick P<i> <option id | none | unanswered>
-# and, once answered, reply, the human's reply verbatim.
+# and, once answered, reply, the human's replies verbatim, oldest first.
 #
-# A `design-gap` problem is pending while its record is unanswered and no
-# ruling resolved it.
+# A problem is open while no ruling resolved it and its latest pick is
+# absent or `unanswered`. `answer` takes a record while any of its
+# problems is open, so a problem a reply left unanswered can be answered
+# on the same record later; each answer appends an `answered` line and a
+# pick line per problem open before it. A `design-gap` problem is
+# pending while it is open.
 #
 # Exit statuses:
 #   0  the script did what it says; for pending, no design-gap problem is
@@ -276,12 +280,15 @@ if [ "$mode" = pending ]; then
   waiting=$(numbers | while IFS= read -r n; do
     [ -f "$dir/$n/log" ] || continue
     awk -v n="$n" '
-      $1 == "answered" {answered = 1}
       $1 == "problem" && $3 == "design-gap" {np++; id[np] = $2}
       $1 == "resolved" {res[$2] = 1}
+      $1 == "pick" {pick[$2] = $3}
       END {
-        if (answered) exit
-        for (i = 1; i <= np; i++) if (!(id[i] in res)) print "decision " n " " id[i] ": a design gap with no answer from the human"
+        for (i = 1; i <= np; i++) {
+          p = id[i]
+          if (!(p in res) && (!(p in pick) || pick[p] == "unanswered"))
+            print "decision " n " " p ": a design gap with no answer from the human"
+        }
       }' "$dir/$n/log"
   done)
   [ -z "$waiting" ] && exit 0
@@ -303,9 +310,15 @@ if [ "$mode" = answer ]; then
   open=$(printf '%s\n' "$log" | awk '
     $1 == "problem" {np++; id[np] = $2; count[$2] = $5}
     $1 == "resolved" {res[$2] = 1}
-    END {for (i = 1; i <= np; i++) if (!(id[i] in res)) print id[i] " " count[id[i]]}')
+    $1 == "pick" {pick[$2] = $3}
+    END {
+      for (i = 1; i <= np; i++) {
+        p = id[i]
+        if (!(p in res) && (!(p in pick) || pick[p] == "unanswered")) print p " " count[p]
+      }
+    }')
   errors=
-  if printf '%s\n' "$log" | grep -q '^answered '; then
+  if [ -z "$open" ] && printf '%s\n' "$log" | grep -q '^answered '; then
     errors="decision $decision: is already answered"
   elif [ -z "$open" ]; then
     errors="decision $decision: every problem was resolved by a ruling, so there is nothing to answer"
@@ -330,7 +343,8 @@ if [ "$mode" = answer ]; then
   errors="$errors${errors:+${bad:+$NL}}$bad"
   [ -z "$errors" ] || refuse "$errors"
   # A problem the reply did not pick an option for is recorded as
-  # unanswered, so it can be asked again in a record of its own.
+  # unanswered, so it stays open: asked again in a record of its own, or
+  # answered on this one.
   stamp=$(now)
   lines="answered $stamp$NL"
   while read -r p _; do
@@ -339,7 +353,11 @@ if [ "$mode" = answer ]; then
   done <<EOF
 $open
 EOF
-  cp -- "$reply_file" "$at/reply.partial-$$"
+  if [ -f "$at/reply" ]; then
+    cat -- "$at/reply" "$reply_file" >"$at/reply.partial-$$"
+  else
+    cp -- "$reply_file" "$at/reply.partial-$$"
+  fi
   mv -- "$at/reply.partial-$$" "$at/reply"
   put "$at/log" "$log$NL$lines"
   printf 'decision %s answered %s\n' "$decision" "$stamp"
@@ -482,7 +500,9 @@ mv -- "$dir/$n/record.yml.partial-$$" "$dir/$n/record.yml"
 put "$dir/$n/log" "$log
 "
 
-printf '%s' "$docs" | jq -r --arg n "$n" --argjson rulings "$rulings" '
+# The question is stored as printed, so a later turn can put an open
+# problem again by printing it.
+question=$(printf '%s' "$docs" | jq -r --arg n "$n" --argjson rulings "$rulings" '
   def text: if type == "string" then sub("\n+$"; "") else tostring end;
   def items: if type == "array" then . else [.] end;
   def hang($pad): split("\n") | .[0] + (.[1:] | map("\n" + $pad + .) | join(""));
@@ -512,4 +532,7 @@ printf '%s' "$docs" | jq -r --arg n "$n" --argjson rulings "$rulings" '
     ($parts[] | "", .text),
     (if any($parts[]; .asks) then
        "", "Reply with one option id per problem, such as P1.1, or answer in your own words."
-     else empty end)'
+     else empty end)') || sp_fail 1 "jq failed to render decision $n"
+put "$dir/$n/question" "$question
+"
+printf '%s\n' "$question"
