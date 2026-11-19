@@ -214,7 +214,8 @@ refuse() {
 }
 
 # put <path> <text> -- write <text> to <path> whole, through a partial
-# file renamed into place, so a reader never sees half of it.
+# file renamed into place, so a reader never sees half of it. Fails when
+# the write or the rename does, leaving <path> as it was.
 put() {
   printf '%s' "$2" >"$1.partial-$$" && mv -- "$1.partial-$$" "$1"
 }
