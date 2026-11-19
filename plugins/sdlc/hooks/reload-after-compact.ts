@@ -277,9 +277,7 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
     [MANIFEST_HEAD, ...manifest].join("\n"),
   ];
   if (stateNotes.length > 0) {
-    parts.push(
-      [STATE_HEAD, ...stateNotes.map((note) => `- ${note}`)].join("\n"),
-    );
+    parts.push([STATE_HEAD, ...stateNotes.map((note) => `- ${note}`)].join("\n"));
   }
   parts.push(...blocks, CLOSE);
   return parts.join("\n\n");
