@@ -56,8 +56,9 @@ One line per issue, tab-separated, in this column order:
 - `<issue-reference>` is the current repository's `issue-link-prefix`
   followed by the number for an issue of the current repository,
   whichever repository is listed — `#` when the current repository has
-  no repo-config — and otherwise the shortest form `skills/lib/issue.md` → "Repositories and
-  issue references" gives that names the issue's repository.
+  no repo-config — and otherwise the shortest form
+  `skills/lib/issue.md` → "Repositories and issue references" gives
+  that names the issue's repository.
 - `<priority>` and `<size>` are the slot values, or `-` when unset or
   when the slot is unconfigured.
 - `<open-blockers>` counts the issue's blocked-by issues that are open.
