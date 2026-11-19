@@ -189,8 +189,8 @@ sp_migrate_old_layout() {
     return 1
   fi
   if ! mv -- "$old" "$new"; then
-    # A failed move leaves no empty <host> or <host>/<owner> directory
-    # behind.
+    # A failed move removes <host>/<owner> and then <host> when each is
+    # empty; one that rmdir fails to remove is reported and left in place.
     sp_remove_if_empty "${new%/*}"
     sp_remove_if_empty "$1/$2"
     sp_state_error "could not move state for $2/$3/$4 from $old to $new"

@@ -92,9 +92,13 @@ options. Each field the order named no value for is filed as its
 field that file makes a question of its own is put to the human the
 same way, as a problem of the body's decision when there is one, with
 values the target accepts for the field as its options. The human can
-decline it: skipping files the issue without that field. Raw
+decline it. Skipping the type files the issue with the repo's default
+type, passing no `--type`; skipping the assignee files the issue
+unassigned, passing `--no-assignee`. Raw
 `gh issue create` is not a substitute: it files an unconfigured issue.
 After `/issue-create` returns, read the issue back
 with `/issue-view <new-N>` and confirm the type, the configured slot
-fields and the assignee are populated as repo-config requires; report
-a gap in the same reply rather than declaring the issue filed.
+fields and the assignee are populated as repo-config requires, except
+that a field the human declined is checked against its skip outcome
+above instead; report a gap in the same reply rather than declaring
+the issue filed.
