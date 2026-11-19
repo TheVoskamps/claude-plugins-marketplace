@@ -1,7 +1,8 @@
 // After a compaction, appends to the compacted conversation the full text of the skills and rule
 // files the compacting loop loaded before it, so the loop works from those files rather than from
 // the summary's truncated account of them. A reload message the compacted conversation already
-// holds is removed, so it holds at most the one this compaction appends.
+// holds is removed, so it holds at most the one this compaction appends. On screen, the reload
+// message's row is drawn as one summary line, while the model receives its full text.
 
 // The key, its default and its floor must match the key table in `skills/lib/sdlc-config.md`,
 // and `SCHEMA_PIN` the pin its "Reading" section states, since the orchestrator reads them there.
@@ -21,6 +22,12 @@ const SCHEMA_PIN = 1;
 const APPENDED = "appended below";
 const NOT_APPENDED = "not appended: read it before acting on it";
 const UNREADABLE = "could not be read";
+const MANIFEST_HEAD = "Files, most recently used first:";
+const STATE_HEAD =
+  "State: the files used before an earlier compaction may be missing from this reload or a later " +
+  "one, because the state file that records them failed:";
+const FILE_OPEN = '<file path="';
+const CLOSE = "</reload-after-compact>";
 const SKILL_BASE = /Base directory for this skill: (.+)/g;
 const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/g;
 const RULE_DIRS = ["/rules/", "/skills/"];
@@ -106,7 +113,23 @@ type Install = { projectPath?: unknown; version?: unknown } | null;
 
 /** Runs the compaction a `session.compact` hook wraps, resolving to what it compacted to. */
 type Next = (e: CompactEvent) => Promise<Compacted>;
-type On = (event: string, hook: unknown) => { catch: (handler: unknown) => void };
+/**
+ * Registers `hook` on `event`, or with `matcher` only at the sites it matches. The form without a
+ * matcher returns a handle whose `catch` takes a handler for the hook's throws.
+ */
+type On = {
+  (event: string, hook: unknown): { catch: (handler: unknown) => void };
+  (event: string, matcher: object, hook: unknown): unknown;
+};
+
+/** A `UserMessage` render site's event: `props.text` is the message's text. */
+type RenderEvent = { props: { text?: unknown } };
+/** The host modules a `ui.render` hook reaches: `ui.resolve` gives the site's element table. */
+type RenderMods = {
+  ui: { resolve: (e: RenderEvent) => { Text: (props: object) => unknown } };
+};
+/** Draws a render site as the hooks after this one, or Claude Code itself, would draw it. */
+type Draw = (e: RenderEvent) => unknown;
 
 const NO_STATE: State = { uses: [], orchestrate: "none" };
 
@@ -115,8 +138,19 @@ const NO_STATE: State = { uses: [], orchestrate: "none" };
  * message from its messages, and then appends one fresh reload message after them. When the loop
  * loaded nothing to reload and its state file raised no error, or a config tier failed, it
  * appends none, so the compaction ends with no reload message at all.
+ *
+ * Registers a `ui.render` hook too, which draws a reload message's row as the one dim line
+ * `reloadSummary` words, and leaves every other `UserMessage` row to `next`. It changes only the
+ * drawing: the message's text, which the model receives, is the one `session.compact` wrote.
  */
 export function register(on: On): void {
+  on("ui.render", { component: "UserMessage" }, ($: RenderMods, e: RenderEvent, next: Draw) => {
+    const text = e.props.text;
+    if (typeof text !== "string" || !text.startsWith(MARKER)) return next(e);
+    const { Text } = $.ui.resolve(e);
+    return Text({ dimColor: true, children: [reloadSummary(text)] });
+  });
+
   // The `.catch` handler makes a throw after the compaction has resolved leave the compaction
   // standing, as `next` resolved it, less any reload message, so it appends none and keeps none.
   on("session.compact", async ($: Mods, e: CompactEvent, next: Next) => {
@@ -201,30 +235,31 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   let spent = 0;
   let isOver = false;
   for (const item of kept) {
+    const entry = (status: string) => `- (${status}) ${oneLine(item.label)}`;
     if (item.error !== undefined) {
-      manifest.push(`- ${item.label} (${UNREADABLE}: ${item.error})`);
+      manifest.push(entry(`${UNREADABLE}: ${oneLine(item.error)}`));
       continue;
     }
     if (isOver) {
-      manifest.push(`- ${item.label} (${NOT_APPENDED})`);
+      manifest.push(entry(NOT_APPENDED));
       continue;
     }
     let content: string;
     try {
       content = await $.fs.read(item.label);
     } catch (err) {
-      manifest.push(`- ${item.label} (${UNREADABLE}: ${errorText(err)})`);
+      manifest.push(entry(`${UNREADABLE}: ${oneLine(errorText(err))}`));
       continue;
     }
     const tokens = Math.ceil(content.length / 4);
     if (spent + tokens > budget) {
       isOver = true;
-      manifest.push(`- ${item.label} (${NOT_APPENDED})`);
+      manifest.push(entry(NOT_APPENDED));
       continue;
     }
     spent += tokens;
-    manifest.push(`- ${item.label} (${APPENDED})`);
-    blocks.push(`<file path="${item.label}">\n${content}\n</file>`);
+    manifest.push(entry(APPENDED));
+    blocks.push(`${FILE_OPEN}${item.label}">\n${content}\n</file>`);
   }
   if (manifest.length === 0) manifest.push("(none)");
 
@@ -234,19 +269,57 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
       "files the conversation loaded before it. Their full text follows; act on it rather than on " +
       "the summary's account of them. A file listed as not appended is past the reload budget of " +
       `${budget} tokens: read it with the Read tool before acting on it.`,
-    ["Files, most recently used first:", ...manifest].join("\n"),
+    [MANIFEST_HEAD, ...manifest].join("\n"),
   ];
   if (stateNotes.length > 0) {
-    parts.push(
-      [
-        "State: the files used before an earlier compaction may be missing from this reload or a " +
-          "later one, because the state file that records them failed:",
-        ...stateNotes.map((note) => `- ${note}`),
-      ].join("\n"),
-    );
+    parts.push([STATE_HEAD, ...stateNotes.map((note) => `- ${oneLine(note)}`)].join("\n"));
   }
-  parts.push(...blocks, "</reload-after-compact>");
+  parts.push(...blocks, CLOSE);
   return parts.join("\n\n");
+}
+
+/**
+ * The one line a reload message's row is drawn as, read off the message's own text: the count of
+ * manifest entries of each kind, whether the text carries the state paragraph, and the summed
+ * length of the file blocks in tokens, counted as characters divided by 4 and rounded to the
+ * thousand.
+ *
+ * `reloadText` writes every manifest path, error text and state note on one line, so every
+ * manifest entry and state note is one line. The manifest and the state paragraph each end at the
+ * first blank line after their heading, and the file blocks run from the paragraph after them to
+ * the closing tag, one per appended entry, separated by a blank line each. Their summed length is
+ * that span less the separators, and no block's text is read.
+ * An entry is classified by the status that opens it, ahead of its path and of any error text, so
+ * no path or error text changes how it is counted.
+ */
+function reloadSummary(text: string): string {
+  const opening = `\n\n${MANIFEST_HEAD}\n`;
+  const at = text.indexOf(opening);
+  const start = at < 0 ? text.length : at + opening.length;
+  const manifestEnd = paragraphEnd(text, start);
+  const manifest = text.slice(start, manifestEnd).split("\n");
+  const stateAt = manifestEnd + 2;
+  const hasState = text.startsWith(`${STATE_HEAD}\n`, stateAt);
+  const blocksAt = hasState ? paragraphEnd(text, stateAt) + 2 : stateAt;
+  const blocksEnd = text.endsWith(`\n\n${CLOSE}`) ? text.length - CLOSE.length - 2 : text.length;
+  const count = (opening: string) => manifest.filter((line) => line.startsWith(opening)).length;
+  const appended = count(`- (${APPENDED}) `);
+  const notAppended = count(`- (${NOT_APPENDED}) `);
+  const unreadable = count(`- (${UNREADABLE}: `);
+  const chars = appended === 0 ? 0 : Math.max(0, blocksEnd - blocksAt - 2 * (appended - 1));
+  const parts = [
+    `sdlc: reloaded ${appended} files (${Math.round(chars / 4 / 1000)}k tokens) after compaction`,
+  ];
+  if (notAppended > 0) parts.push(`${notAppended} not appended`);
+  if (unreadable > 0) parts.push(`${unreadable} unreadable`);
+  if (hasState) parts.push("state file failed");
+  return parts.join("; ");
+}
+
+/** The index of the first blank line in `text` at or after `from`, or `text`'s length. */
+function paragraphEnd(text: string, from: number): number {
+  const end = text.indexOf("\n\n", from);
+  return end < 0 ? text.length : end;
 }
 
 /**
@@ -664,6 +737,11 @@ function mergeByLabel(items: Item[]): Item[] {
 /** An `Error`'s message, or any other thrown value as a string. */
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** `text` on one line, its lines joined with ` | `. */
+function oneLine(text: string): string {
+  return text.split(/\r\n|\r|\n/).join(" | ");
 }
 
 /** The text after a path's last `/`, or the whole path when it has none. */

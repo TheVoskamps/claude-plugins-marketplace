@@ -1,5 +1,30 @@
 # sdlc changelog
 
+## 0.89.0 — 2026-11-18
+
+After a compaction, the `reload-after-compact` hook's reload message
+is drawn on screen as one summary line, instead of a row holding the
+full text of every reloaded file. The model still receives the full
+text.
+
+- The line reads
+  `sdlc: reloaded <A> files (<T>k tokens) after compaction`, followed
+  by `; <B> not appended`, `; <C> unreadable` and `; state file failed`,
+  each only when it applies. `<A>` counts the files appended, `<B>`
+  those past the reload budget and `<C>` those that could not be read,
+  and `<T>` is the appended text in tokens, counted as characters ÷ 4
+  and rounded to the nearest thousand. It is drawn dim, on every
+  surface.
+- Every other user message is drawn as before.
+- In the reload message's list of files, each entry now states its
+  status ahead of its path: `- (appended below) <path>`,
+  `- (not appended: read it before acting on it) <path>` or
+  `- (could not be read: <error>) <path>`. Before this version the
+  path came first.
+- Every path and error text in that list, and every state-file error
+  in the message's `State:` paragraph, is now written on one line, its
+  lines joined with ` | `.
+
 ## 0.88.0 — 2026-11-18
 
 Every question `/sdlc:orchestrate` and `/sdlc:orchestrate-ready` put to
