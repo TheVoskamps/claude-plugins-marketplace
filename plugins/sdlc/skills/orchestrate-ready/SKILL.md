@@ -199,9 +199,8 @@ a side-effect issue — is an approval, not a decision.
    `skills/lib/sdlc-config.md`, and a field that file makes a question
    of its own is a decision, per "Putting a decision to the user", with
    values the target accepts for the field as its options. The user can
-   decline it. Skipping the type passes no `--type`, which files the
-   issue with the target repo's default type where its repo-config
-   gives one, and with no type otherwise; skipping the assignee files
+   decline it. Skipping the type passes no `--type`, and the issue gets
+   whatever type `/issue-create` resolves; skipping the assignee files
    the issue unassigned, passing `--no-assignee`.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.

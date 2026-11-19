@@ -12,9 +12,9 @@ skill's own.
 
 The record is a YAML file in the session scratchpad, holding every
 problem the turn puts to the human, in the shape `bin/sdlc-decision`'s
-header defines. Each problem names its class from the class list that
-script defines, `unclassified` when none fits, and its evidence is what
-you ran or read.
+header defines. Each problem names its class from the script's
+`CLASSES` constant, `unclassified` when none fits, and its evidence is
+what you ran or read.
 
 A `file:` evidence names a file on disk where `ask` runs, which it
 reads to check the quote. Text no such file holds — an issue's body, a
