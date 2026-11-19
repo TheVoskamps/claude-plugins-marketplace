@@ -1726,7 +1726,8 @@ iss_node_not_found() {
 # to the key the board's filter grammar names the field by: its name on the
 # board, lowercased, each space a "-". GitHub's items(query:) matches such a
 # key without regard to case, and matches no item on the name spelled with its
-# spaces, quoted or not. Aborts when the field no longer resolves.
+# spaces, quoted or not. Aborts when the call fails or the field no longer
+# resolves.
 iss_board_field_key() {
   local name
   if ! iss_gql "$1" -f query="$ISS_DOC_BOARD_FIELD" -f field="$3"; then
