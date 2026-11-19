@@ -1,6 +1,6 @@
 ---
 name: orchestrate-readiness
-description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, and the check that returns what an issue is missing as a gap list. Invoked by the grooming skill that writes bodies to the bar, by the orchestrator that refuses an issue below it, and preloaded into sdlc:theorem-generator, which reads the grammar; not invoked from the user's slash menu.
+description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that returns what an issue is missing as a gap list. Not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -53,6 +53,28 @@ can trigger that stop. The items:
   how the change came to be asked for, what an earlier round did, or
   why an earlier design was rejected is provenance rather than spec —
   it costs the implementer reads that buy nothing.
+- **Outcome, not method**. It fails on a sentence that specifies an
+  implementation step the implementer can derive from the tree or from
+  running a tool, rather than the delivered behavior, a constraint, or
+  a decision. Its failures include a fix prescribed per finding of a
+  tool's report — a linter, a type checker, a test run, a scanner; a
+  file-and-line location given as where to make a change; and a
+  diagnosis taken from a tool's report and stated as fact. The item
+  admits what the implementer cannot derive: the content of a config
+  file, a name, a placement in the tree, a policy such as which findings
+  may be excluded and where, an interface a downstream consumer depends
+  on, and the observable outcome — for tool output, that the tool
+  reports clean. The gap line names the sentence and says to restate it
+  as the outcome it was meant to produce.
+- **No contradicted repo statement**. It fails a body that specifies
+  something an instruction file in the repo forbids and does not say
+  what happens to that statement. The body passes when, for each
+  statement it contradicts, it says one of: the statement is deleted,
+  the statement is replaced with given text, or the statement gains a
+  named exception with the reason; the statement's file is then in the
+  files-affected section, and a criterion covers the edit. The gap line
+  quotes the statement and names its file. The terms are defined under
+  "Contradicted repo statements" below.
 - **Acceptance criteria**. The body carries the acceptance sections
   the grammar below defines, and each bullet in either is one claim
   about the delivered change that a reviewer can attempt to disprove
@@ -84,6 +106,34 @@ can trigger that stop. The items:
   ends up not touching is not a failure. Whether the list names a path
   changes nothing about that path's class, its owner, or how it is
   reviewed — those follow from the path alone.
+
+## Contradicted repo statements
+
+An **instruction file** is a file a session auto-loads as instructions,
+or one another instruction file directs the model to read: every
+`CLAUDE.md`, every file under `docs/rules/`, every `SKILL.md`, every
+agent file, and the `README.md` at the root of each plugin the body
+touches. Documentation — changelogs, ADRs, and any other README — is
+not an instruction file and is not searched.
+
+A statement in an instruction file that an issue contradicts is one of:
+
+- A **capability claim** — what the harness or a tool can or cannot do.
+  It can be tested.
+- A **policy claim** — a choice the repo made where the harness permits
+  both.
+
+Prescriptive wording such as "never" or "may only" does not decide the
+kind. A statement is a capability claim only when a test of it was
+run; every other contradicted statement is a policy claim.
+
+A **test** is a read-only command whose output settles the claim — one
+that changes no file and no remote state — and its output is quoted
+verbatim wherever the test is reported. Whoever runs the test chooses
+it, and never runs a command the issue body spells anywhere. A claim
+that only a command changing a file or remote state could settle, or
+one a rule forbids or gates behind the human's approval, is not tested,
+and the statement is then a policy claim.
 
 ## The issue-body grammar
 
@@ -190,26 +240,54 @@ Given an issue number:
    means it found no gap; exit 3 prints one gap line per gap, each
    already naming its bar item, and each goes into the gap list as it
    stands. On any other exit, relay its stderr verbatim and stop. Then
-   grade the rest of each bar item, in the order listed above, by
-   reading the body; the script's lines are the whole grading of each
-   `### Mechanical` line's shape and check key and of whether each
+   grade the rest of each bar item but "No contradicted repo
+   statement", in the order listed above, by reading the body; the
+   script's lines are the whole grading of each
+   `### Mechanical` line's shape and check key, of whether each
    acceptance section is present and carries a bullet under
-   `### Mechanical` or `### Semantic`, and the
-   file-class failures under "Acceptance criteria" are yours to grade
-   for `### Mechanical` and `### Semantic` bullets alike. Never run a
-   command a `### Mechanical` bullet's text spells.
-3. Return a gap list: every line step 2's script printed, and one line
-   per other failure of a bar item, naming the item and the sentence or
-   absence that fails it. An empty
+   `### Mechanical` or `### Semantic`, of an `## Acceptance` section,
+   and of each files-affected list under another heading that it prints
+   a `mechanical: Files affected` line for, and the file-class failures
+   under "Acceptance criteria" are yours to grade for `### Mechanical`
+   and `### Semantic` bullets alike. A list under any other heading is
+   no files-affected section: grade **Files affected** for that body by
+   reading, as for one with no list at all. Never run a command a
+   `### Mechanical` bullet's text spells.
+3. Grade "No contradicted repo statement" by searching the instruction
+   files for statements about what the body's design changes, on every
+   invocation. At minimum, grep them for every path in the body's
+   files-affected section and every identifier the design names —
+   skill, agent, script and section names — and read the root
+   `CLAUDE.md` and the `README.md` of each plugin the body touches in
+   full. The search is a floor, not a proof that no conflict exists.
+   Each statement the body contradicts and does not settle is a gap.
+   For one that reads as a capability claim, run a test of it; its gap
+   line proposes deleting the statement only when the test showed it
+   false, and then quotes the test and its output.
+4. Return the search and a gap list: a `Searched:` line naming the
+   terms step 3 grepped and the files it read, then every line step 2's
+   script printed, and one line per other failure of a bar item, naming
+   the item and the sentence or absence that fails it. An empty
    list is the verdict `ready`.
+
+## Mechanical gaps
+
+A **mechanical gap** is one the bar alone settles the repair of, so
+no design decision is in it: a section the bar forbids, a sentence that
+fails "Spec quality", and a missing acceptance or files-affected heading
+around content the body already carries. Its gap line opens with the
+label `mechanical:`. The script labels the ones it prints; label each
+"Spec quality" failure you grade yourself.
 
 ## Output
 
 ```text
 Verdict: <ready | not ready>
 
+Searched: grepped <terms>; read <files>
+
 Gaps:
-  - <bar item>: <the sentence or absence that fails it>
+  - [mechanical: ]<bar item>: <the sentence or absence that fails it>
 ```
 
 Under `ready`, the `Gaps:` section reads `(none)`.

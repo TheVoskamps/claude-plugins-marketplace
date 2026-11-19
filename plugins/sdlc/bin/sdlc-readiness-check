@@ -5,7 +5,16 @@
 # acceptance` and `## Documentation acceptance`, against the tree, and
 # print one gap line per failing bullet, per line under `### Mechanical`
 # that is neither a bullet nor its continuation, per acceptance section
-# with no bullet, and one when the body carries neither section.
+# with no bullet, and one when the body carries neither section. A
+# `## Acceptance` section, and, when `## Files affected (floor)` is
+# absent, each other `## ` heading whose text holds the word "file" or
+# "files" and the word "affected", in either order and any case, over a
+# section holding a list item that lists a path, each get a gap line
+# opening `mechanical: `, as does the neither-section line when the body
+# carries `## Acceptance`. An item lists a path when its first token is
+# in backticks and holds a slash or ends in a file extension, or when
+# the item ends in a files-affected tag. Such a mistitled section's
+# well-formed bullets are then read as the files-affected list.
 # Read-only.
 #
 # The grammar and the key vocabulary are owned by
@@ -58,11 +67,17 @@ view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 # Split the body into the Mechanical bullets of both acceptance sections
 # (`M<TAB><bullet>`), every other non-blank line under their `###
 # Mechanical` (`X<TAB><line>`), the bullet count of each acceptance
-# section present (`S<TAB><count><TAB><heading>`), and the well-formed
-# files-affected bullets (`F<TAB><path><TAB><tag>`); any other `## `
-# section, `## Acceptance` included, is not read. A bullet is a line
-# opening with `- ` followed by text, and continues onto the indented
-# lines directly below it, with no blank line between; a section's count is its bullets under `### Mechanical` and `###
+# section present (`S<TAB><count><TAB><heading>`), the well-formed
+# files-affected bullets (`F<TAB><path><TAB><tag>`), and the headings the
+# mechanical gaps key on: `## Acceptance` (`A<TAB><heading>`), and, with
+# no `## Files affected (floor)`, each other `## ` heading naming files
+# affected over a list of paths (`N<TAB><heading>`), whose well-formed
+# bullets are then the `F` records. A section runs to the next `## `
+# heading; no heading at another level ends one. No other `## `
+# section, `## Acceptance` included, is read past its heading. A bullet
+# is a line opening with `- ` followed by text, and continues onto the
+# indented lines directly below it, with no blank line between; a
+# section's count is its bullets under `### Mechanical` and `###
 # Semantic`. A fenced block is never read as grammar, and only a run of
 # its opening character at least as long as its opening run closes it;
 # a fence opening under `### Mechanical` is itself an `X` line.
@@ -70,6 +85,29 @@ records=$(printf '%s\n' "$view" | awk '
   function flush() {
     if (open) print "M\t" bullet
     open = 0; bullet = ""
+  }
+  # The path and tag of a well-formed files-affected bullet, tab-joined.
+  function entry(s,   p, t) {
+    p = s; sub(/^- `/, "", p); t = p
+    sub(/`.*$/, "", p)
+    sub(/^[^`]*` \(/, "", t); sub(/\).*$/, "", t)
+    return p "\t" t
+  }
+  # Whether a heading names files affected: the word "file" or "files"
+  # and the word "affected", in either order and any case.
+  function names_files(h,   w) {
+    w = tolower(h); sub(/^#+[ \t]+/, "", w); gsub(/[^a-z]+/, " ", w); w = " " w " "
+    return w ~ / files? / && w ~ / affected /
+  }
+  # Whether a list item lists a path: its first token is in backticks
+  # and holds a slash or ends in a file extension, or the item ends in a
+  # files-affected tag.
+  function lists_path(s,   b, t) {
+    b = s; sub(/^[ \t]*([-*+]|[0-9]+[.)])[ \t]+/, "", b)
+    if (b ~ /\((new|update|delete)\)[ \t]*$/) return 1
+    if (b !~ /^`[^`]+`/) return 0
+    t = b; sub(/^`/, "", t); sub(/`.*$/, "", t)
+    return t !~ /[ \t]/ && (t ~ /\// || t ~ /[^.\/]\.[A-Za-z0-9_-]+$/)
   }
   { sub(/\r$/, "") }
   !inbody { if ($0 == "Body:") inbody = 1; next }
@@ -86,8 +124,11 @@ records=$(printf '%s\n' "$view" | awk '
   /^## / {
     flush()
     h = $0; sub(/[ \t]+$/, "", h)
+    if (h == "## Acceptance") print "A\t" h
     sec = (h == "## Code and instruction Markdown acceptance" || h == "## Documentation acceptance") ? "acc" : (h == "## Files affected (floor)") ? "files" : ""
     if (sec == "acc") { acc = h; if (!(h in count)) { count[h] = 0; order[++n] = h } }
+    if (sec == "files") canon = 1
+    if (sec == "" && names_files(h)) { sec = "named"; nn++; named[nn] = h; listing[nn] = 0 }
     sub_ = ""
     next
   }
@@ -105,15 +146,20 @@ records=$(printf '%s\n' "$view" | awk '
     if (/[^ \t]/) print "X\t" $0
     next
   }
-  sec == "files" && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ {
-    p = $0; sub(/^- `/, "", p); t = p
-    sub(/`.*$/, "", p)
-    sub(/^[^`]*` \(/, "", t); sub(/\).*$/, "", t)
-    print "F\t" p "\t" t
+  sec == "files" && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ { print "F\t" entry($0) }
+  sec == "named" && /^[ \t]*([-*+]|[0-9]+[.)])[ \t]+[^ \t]/ {
+    if (lists_path($0)) listing[nn]++
+    if (/^- `[^`]+` \((new|update|delete)\)[ \t]*$/) held[++nh] = entry($0)
   }
   END {
     flush()
     for (i = 1; i <= n; i++) print "S\t" count[order[i]] "\t" order[i]
+    # With no `## Files affected (floor)`, a section holding a list of
+    # paths under another files-affected heading is the list, mistitled.
+    if (!canon) {
+      for (i = 1; i <= nn; i++) if (listing[i]) print "N\t" named[i]
+      for (i = 1; i <= nh; i++) print "F\t" held[i]
+    }
   }
 ') || fail 1 "could not split the body of issue $issue"
 
@@ -188,20 +234,44 @@ physical() {
 resolve() {
   local p=$1
   case "$p" in
-    '') REFUSAL='names an empty path'; return 1 ;;
-    -*) REFUSAL="names a path starting with '-': $p"; return 1 ;;
-    /*) REFUSAL="names a path outside the repo root: $p"; return 1 ;;
-    *[*?[]*) REFUSAL="names a glob, not a literal path: $p"; return 1 ;;
+    '')
+      REFUSAL='names an empty path'
+      return 1
+      ;;
+    -*)
+      REFUSAL="names a path starting with '-': $p"
+      return 1
+      ;;
+    /*)
+      REFUSAL="names a path outside the repo root: $p"
+      return 1
+      ;;
+    *[*?[]*)
+      REFUSAL="names a glob, not a literal path: $p"
+      return 1
+      ;;
   esac
-  normalize "$p" || { REFUSAL="names a path outside the repo root: $p"; return 1; }
-  [ -n "$NORM" ] || { REFUSAL="names the repo root, not a path in it: $p"; return 1; }
+  normalize "$p" || {
+    REFUSAL="names a path outside the repo root: $p"
+    return 1
+  }
+  [ -n "$NORM" ] || {
+    REFUSAL="names the repo root, not a path in it: $p"
+    return 1
+  }
   # A symlink anywhere on the path, the path itself included, can lead
   # out of the root: follow each one and check where the path lands.
   physical "$root/$NORM" ||
-    { REFUSAL="names a path that cannot be resolved: $p"; return 1; }
+    {
+      REFUSAL="names a path that cannot be resolved: $p"
+      return 1
+    }
   case "$PHYS/" in
     "$root_phys"/*) ;;
-    *) REFUSAL="names a path outside the repo root: $p"; return 1 ;;
+    *)
+      REFUSAL="names a path outside the repo root: $p"
+      return 1
+      ;;
   esac
 }
 
@@ -252,7 +322,10 @@ no_match() {
   local -a paths
   case "$args" in
     *' in '*) ;;
-    *) gap 'Acceptance criteria' "$bullet" "is malformed: [no-match] takes '<ERE> in <path>...'"; return ;;
+    *)
+      gap 'Acceptance criteria' "$bullet" "is malformed: [no-match] takes '<ERE> in <path>...'"
+      return
+      ;;
   esac
   ere=${args% in *}
   read -r -a paths <<<"${args##* in }"
@@ -287,7 +360,10 @@ no_match() {
     case "$rc" in
       0) ;;
       1) continue ;;
-      *) gap 'Acceptance criteria' "$bullet" "has an ERE grep rejects: ${out%%$'\n'*}"; return ;;
+      *)
+        gap 'Acceptance criteria' "$bullet" "has an ERE grep rejects: ${out%%$'\n'*}"
+        return
+        ;;
     esac
     listed "$NORM" update delete && continue
     while IFS= read -r line; do
@@ -351,20 +427,39 @@ while IFS=$'\t' read -r kind bullet; do
   esac
 done <<<"$records"
 
-# Grade section presence: at least one acceptance section, and a
-# bullet in each one present.
+# Grade the sections: at least one acceptance section, a bullet in each
+# one present, no `## Acceptance`, and a files-affected list under no
+# heading but `## Files affected (floor)`. A gap whose repair is fixed
+# by the grammar alone — a forbidden section, or a heading missing
+# around content the body already carries — is labelled `mechanical:`.
 sections=0
+forbidden=0
 while IFS=$'\t' read -r kind count heading; do
-  [ "$kind" = S ] || continue
-  sections=$((sections + 1))
-  if [ "$count" -eq 0 ]; then
-    printf 'Acceptance criteria: "%s" carries no bullet under "### Mechanical" or "### Semantic"\n' "$heading"
-    GAPS=$((GAPS + 1))
-  fi
+  case "$kind" in
+    A)
+      forbidden=1
+      printf 'mechanical: Acceptance criteria: the body carries the forbidden section "## Acceptance"; split its bullets into "## Code and instruction Markdown acceptance" and "## Documentation acceptance"\n'
+      GAPS=$((GAPS + 1))
+      ;;
+    S)
+      sections=$((sections + 1))
+      if [ "$count" -eq 0 ]; then
+        printf 'Acceptance criteria: "%s" carries no bullet under "### Mechanical" or "### Semantic"\n' "$heading"
+        GAPS=$((GAPS + 1))
+      fi
+      ;;
+  esac
 done <<<"$records"
 if [ "$sections" -eq 0 ]; then
-  printf 'Acceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"\n'
+  label=
+  [ "$forbidden" -eq 0 ] || label='mechanical: '
+  printf '%sAcceptance criteria: the body carries neither "## Code and instruction Markdown acceptance" nor "## Documentation acceptance"\n' "$label"
   GAPS=$((GAPS + 1))
 fi
+while IFS=$'\t' read -r kind heading; do
+  [ "$kind" = N ] || continue
+  printf 'mechanical: Files affected: the body carries its files-affected list under "%s"; retitle it "## Files affected (floor)"\n' "$heading"
+  GAPS=$((GAPS + 1))
+done <<<"$records"
 
 [ "$GAPS" -eq 0 ] || exit 3

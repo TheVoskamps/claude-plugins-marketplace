@@ -23,6 +23,16 @@ out — is a `command:` evidence instead: the command that printed it,
 such as `issue-view <N>` or `git show <branch>:<path>`, and the lines
 it printed that the option rests on as its `output:`.
 
+## Look for the existing pattern before writing a design gap
+
+`ask` refuses a `design-gap` problem whose `existing-pattern` slot is
+empty. Before writing one, run at least one repo-wide Grep for the
+construct, command or name the gap is about, and fill the slot with the
+`path:line` that already does the thing, or with the exact search that
+found none. When a pattern exists, following it is option 1 and the
+recommendation, unless the problem's `why` states what makes it unfit
+here.
+
 ## Fit a list of candidates to two to four options
 
 `ask` refuses a problem with fewer than two options or more than four.
@@ -71,4 +81,20 @@ sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> \
 
 Write the reply verbatim to a scratchpad file first. Pick `none` for a
 problem the reply answered in its own words, and give no pick for one it
-did not address, which goes into the next turn's record.
+did not address: that problem stays open on its record.
+
+## Put a problem still open again on its own record
+
+`answer` takes a record again while any of its problems is open. Put
+such a problem again on that record, never in a new one: no answer to a
+new record closes the old record's problem. Print the record's question
+with
+
+```bash
+sdlc-decision question (--pr <ref> | --issue <ref>) --decision <n>
+```
+
+end the turn on what it printed as on what `ask` printed, putting
+nothing else to the human in that turn, since a second record's option
+ids would repeat this one's, and record the reply with `answer` on the
+same record number, picking only for the problems still open.

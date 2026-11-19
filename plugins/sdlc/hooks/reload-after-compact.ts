@@ -9,8 +9,14 @@
 /** The reload budget when no config tier sets one, in tokens counted as characters divided by 4. */
 export const DEFAULT_BUDGET = 100000;
 /**
- * The smallest budget a config tier may set: an orchestrate run's whole working set past its
- * opening, about 42k tokens, with headroom for the files the run's own work reads.
+ * The smallest budget a config tier may set. It holds an orchestrate run's own skill, lib and
+ * interface files past its opening: these files under `skills/`, about 52k tokens as this hook
+ * counts them: `orchestrate/SKILL.md`, `orchestrate/lib/issue-lifecycle.md`,
+ * `orchestrate/lib/pr-lifecycle.md`, `orchestrate/lib/wrap-up.md`,
+ * `orchestrate-readiness/SKILL.md`, `agent-result-persist-interface/SKILL.md`,
+ * `theorem-agents-interface/SKILL.md`, `lib/decision-record.md` and `lib/sdlc-config.md`. Any
+ * other skill the run invokes, and the files its own work reads, are not counted; the floor's
+ * headroom above those files covers them.
  */
 export const MIN_BUDGET = 64000;
 /** The sdlc config key whose value replaces `DEFAULT_BUDGET`. */
@@ -34,12 +40,9 @@ const RULE_DIRS = ["/rules/", "/skills/"];
 const AGENTS_DIR = "/agents/";
 const ORCHESTRATE = "sdlc:orchestrate";
 // The files that serve only the opening of an orchestrate run, which spawns no agent until
-// pre-flight, the readiness gate and the plan are settled.
-const OPENING_FILES = [
-  "/skills/orchestrate-readiness/SKILL.md",
-  "/skills/orchestrate/lib/pre-flight.md",
-  "/skills/orchestrate/lib/plan.md",
-];
+// pre-flight, the readiness gate and the plan are settled. The readiness skill is not one: the
+// orchestrator's mid-run handling of a contradicted policy claim uses the terms it defines.
+const OPENING_FILES = ["/skills/orchestrate/lib/pre-flight.md", "/skills/orchestrate/lib/plan.md"];
 const SCHEMA_LINE = /^(["']?)schema-version\1:(?:\s+(.*))?$/;
 // The one valid budget line. `parseTier` holds its integer to `MIN_BUDGET`.
 const BUDGET_LINE = new RegExp(`^${BUDGET_KEY}: ([0-9]+)$`);

@@ -81,28 +81,6 @@ PR-body claim stays in the body: the orchestrator collects it, and
 runs, whoever changes the mechanism corrects the body claim. Keep the
 convention and its rationale; drop the enforcement story.
 
-## Grade a repo statement an issue contradicts, don't pick a side
-
-An issue can specify something a repo document already forbids. Never
-ship one half silently: implement the issue **and** settle the
-contradicted statement in the same PR. The issue's version alone leaves
-the repo asserting the opposite in a file a future agent reads as
-policy; the repo's version alone leaves an acceptance criterion unmet
-with no explanation.
-
-The two kinds of claim take opposite repairs. A **capability** claim —
-what the harness can or cannot do — is verifiable, so a false one is
-deleted; carving an exception out of it preserves a false claim as the
-general rule. A **policy** claim — a choice this repo made where the
-harness permits both — is not falsifiable, so an issue may carve a named
-exception out of it with the reason stated inline. Prescriptive wording
-("may only", "never") does not settle the grade; that is exactly how a
-false capability claim reads.
-
-Sweep every restatement rather than the one the issue names, and say in
-the PR body which grade you gave, so the reviewer grades that judgment
-rather than re-finding the contradiction. This is not an escalation.
-
 ## The PR description is a doc surface
 
 A PR body goes stale like a README, nothing tests it, and a hand-listed count

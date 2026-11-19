@@ -40,16 +40,17 @@ restate the fact.
 | How the generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `agents/theorem-generator.md` |
 | What a generated theorem list is judged on before any disprover runs, what the assessment recommends, and the format it is written in | `agents/theorem-assessor.md` |
 | The tier the generator runs at on one spawn, and where it is recorded | the `effort` of the `Agent` call that spawns it, written to the generate-stage `spawn` record by its spawner — `agents/theorem-based-pr-reviewer.md` for a review round, `skills/orchestrate/lib/pr-lifecycle.md` for the seed |
-| The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — and how a body is graded against the rest of the bar | `skills/orchestrate-readiness/SKILL.md` |
-| How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
+| The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — how a body is graded against the rest of the bar, and what a mechanical gap is | `skills/orchestrate-readiness/SKILL.md` |
+| The terms for a repo statement an issue contradicts — instruction file, capability claim, policy claim and test — and the search that looks for one | `skills/orchestrate-readiness/SKILL.md` |
+| How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, which heading and which list items make a section a mistitled files-affected list, which gap lines open `mechanical:`, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | Which file class a path falls in — code, instruction Markdown, or documentation | the global Claude configuration, outside this repository; no file in this plugin restates it |
 | Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
 | What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with, and which of a PR's reviews are pipeline reviews | `skills/pr-read-cli-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, what it names as missing, and what its Decisions table counts per decision class | `bin/sdlc-orchestrate-analysis` |
-| The decision record's file format, what `ask` refuses, the closed class list, how problems and options are numbered, the printed question, and where a record is stored | `bin/sdlc-decision` |
-| How a skill puts a decision to the human through that script: one record per turn, fitting a list of candidates to the option count, ending the turn on what `ask` printed, and recording the reply | `skills/lib/decision-record.md` |
+| The decision record's file format, what `ask` refuses, the closed class list, how problems and options are numbered, the printed question, when a problem is open and when a design gap is pending, and where a record is stored | `bin/sdlc-decision` |
+| How a skill puts a decision to the human through that script: one record per turn, the search behind a design gap's existing pattern, fitting a list of candidates to the option count, ending the turn on what `ask` printed, recording the reply, and putting a problem still open again on its own record | `skills/lib/decision-record.md` |
 | Which prompts a skill keeps out of the decision record, and what it keys its records on | that skill's own `SKILL.md` |
 | What a standing-ruling key is, and what each one's ruling does | `skills/lib/sdlc-config.md` |
 | The conditions under which the orchestrator passes a standing ruling to a record | `skills/orchestrate/SKILL.md` |
@@ -247,6 +248,11 @@ loops:
 - `docs-loop-end` — whether the documentation loop's end, before the
   merge stages and the ready flip, waits for the human. It takes the
   same values, and defaults to `auto-when-clean`.
+- `ready-rewrite-approval` — whether `/sdlc:orchestrate-ready` asks the
+  human to approve the acceptance criteria and the files-affected list
+  before it rewrites an issue's body. `ask`, the default, asks. `auto`
+  rewrites the body without that question once every design gap has
+  the human's stored answer, and prints what it wrote.
 - `follow-up-issue-type`, `follow-up-issue-priority`,
   `follow-up-issue-status` and `follow-up-issue-assignee` — the fields
   a follow-up issue the human ordered is filed with, for each field
@@ -328,8 +334,8 @@ other spawn-template field.
 
 `/sdlc:orchestrate-ready` resolves the tiers too, before its first
 question, and prints them the same way. It spawns no agent, and reads
-them for the `follow-up-issue-*` keys a side-effect issue is filed
-with.
+them for `ready-rewrite-approval` and for the `follow-up-issue-*` keys
+a side-effect issue is filed with.
 
 The `reload-after-compact` hook is the one reader besides those two
 skills. It runs on every compaction, inside an orchestrate run or
@@ -382,6 +388,9 @@ every problem its turn raises, and each problem fills these slots:
   `command:` with the output it printed.
 - **recommendation** — one option id, with nothing attached.
 - **why** — the reason for that pick.
+- **existing-pattern** — on a `design-gap` problem only: the
+  `path:line` in this repository that already does the thing, or the
+  exact search that found none.
 
 The question goes through a script because each failure above was a
 slot left empty or an answer left unrecorded, and prose that nothing
@@ -393,6 +402,7 @@ nothing and naming every failing slot, when:
 - a problem, an option or a piece of evidence is not a mapping;
 - a problem statement or a `why` is empty;
 - the class is missing or outside the class list;
+- a `design-gap` problem's existing-pattern slot is empty;
 - a problem holds fewer than two options or more than four;
 - an option does not say what it does, has no cost to the human, or
   has no evidence;
@@ -416,12 +426,33 @@ A sound record is stored and printed in a fixed format: problems are
 numbered `P1`, `P2` and on, and each problem's options `P1.1`, `P1.2`
 and on, so every option in a turn has an id no other option shares and
 a reply of bare ids maps to exactly one option per problem. The human
-may still answer in their own words. `answer` then stores the pick as
-`none` beside the reply verbatim, and a problem the reply did not
-address is stored as `unanswered`, to be asked again. That is why the
-grooming skill's rule against a multiple-choice form for an open design
-question names the record as its exception: the numbered options make
-the reply mappable and countable without capping the answer.
+may still answer in their own words. The caller records such an answer
+by passing `answer` the pick `none` for that problem, and `answer`
+stores it beside the reply verbatim. The numbered options make the reply
+mappable and countable without capping the answer, which is why a
+grooming question takes the same form as any other: where a decision is
+too open to enumerate, such as a name, its options are candidate
+proposals.
+
+A problem the reply did not address is passed no pick. `answer` stores
+a problem given no pick as `unanswered`, whatever the reply says, and
+it stays **open** on its own record. `answer` takes that record again
+while any of its problems is open, appending the later reply below the
+earlier one, and `question` prints the record's question again, from
+the text `ask` stored beside it, so the skill re-puts the problem by
+printing what the human first saw. The problem is never moved to a new
+record: no answer to a new record closes the old one's problem, so the
+old one would wait for ever. A record stored before `ask` kept its
+question has it rendered again from the record and its log, as that
+`ask` printed it.
+
+`pending` is the check built on that state. It exits 4, naming each
+one, while a `design-gap` problem of the PR or the issue is open — no
+ruling resolved it, and its latest pick is absent or `unanswered` — and
+0 otherwise. An answer in free text closes the problem only once it is
+recorded as the pick `none`: `pending` reads the stored pick and never
+the reply, so a free-text answer recorded with no pick leaves the
+problem `unanswered` and `pending` exiting 4.
 
 Some prompts stay outside the record, because each asks for a ruling
 on a whole artifact shown above it rather than a choice between
@@ -504,10 +535,10 @@ Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
-| The record's slots, what `ask` checks, the class list, the ids, and the `resolved by` line | `bin/sdlc-decision` |
-| The procedure for putting a decision through the record, and how many options a list of candidates becomes | `skills/lib/decision-record.md` |
+| The record's slots, what `ask` checks, the class list, the ids, the `resolved by` line, the stored question, and what `pending` counts | `bin/sdlc-decision` |
+| The procedure for putting a decision through the record, how many options a list of candidates becomes, the search that fills the existing-pattern slot, and re-putting a problem still open | `skills/lib/decision-record.md` |
 | That a decision reaches the human only through the record, the prompts the orchestrator keeps outside it, and what it keys a record on | `skills/orchestrate/SKILL.md` |
-| The same for a grooming session, and the named exception to the rule against a multiple-choice form | `skills/orchestrate-ready/SKILL.md` |
+| The same for a grooming session | `skills/orchestrate-ready/SKILL.md` |
 | The shape of a standing-ruling key, each such key and what its ruling does, and the `follow-up-issue-*` keys | `skills/lib/sdlc-config.md` |
 | The conditions on passing `fix-in-pr`, when `fix-class` is no longer passed, and the fixer-brief ruling a resolved finding carries | `skills/orchestrate/SKILL.md` |
 | What a fixer does with a finding a standing ruling resolved, and with an owner ruling naming a class | `agents/issue-fixer.md`, and `agents/docs-writer.md` in the documentation loop |
@@ -517,6 +548,158 @@ Each piece has one owner:
 | How a follow-up issue's fields are filed, and what declining a field's question does | `skills/orchestrate/lib/issue-lifecycle.md` |
 | What the Decisions table counts and which records it reads | `bin/sdlc-orchestrate-analysis` |
 | The state root's repository layout, shared by the scripts that write under it | `bin/lib/sdlc-pr-common.sh` |
+
+## Grooming asks the human only what is theirs to decide
+
+Most of what `/sdlc:orchestrate-ready` asks is a design decision the
+issue body leaves unstated, and those stay the human's. The way it
+built its questions failed in repeatable ways: it offered options
+without looking for how the repo already did the thing, so the human
+supplied the pattern; it asked about another repository or a remote
+system, and the human ruled each one out of scope; it asked about a gap
+with one possible repair, which the human approved every time; and it
+wrote its own proposed answer into the body, passed the readiness check
+on that text, and set the issue Ready with nothing ruled on. Each has a
+rule now, and the ones a script can hold are held by a script.
+
+**A design gap carries the existing pattern.** Before writing a
+`design-gap` problem the skill runs at least one repo-wide search for
+the construct, command or name the gap is about, and fills the
+problem's existing-pattern slot with the `path:line` that already does
+the thing, or with the exact search that found none. `ask` refuses the
+problem while the slot is empty, and prints the slot in the question on
+an `Existing pattern:` line. A pattern that exists is option 1 and the
+recommendation, unless the problem's why states what makes it unfit
+here. The slot is required rather than advised because a search that
+was skipped and a search that found nothing otherwise read the same to
+the human.
+
+**Some gaps are repaired without a question.** The rewrite repairs
+each of these and the final report lists it:
+
+- A **mechanical gap**, whose gap line opens `mechanical:` — one the
+  bar alone settles the repair of: a section the bar forbids, a
+  sentence that fails "Spec quality", and a missing or mistitled
+  acceptance or files-affected heading around content the body already
+  carries. `sdlc-readiness-check` labels the section and heading gaps.
+  Whether a sentence is provenance or spec is a judgment about meaning,
+  so the model grades "Spec quality" by reading and labels those gaps
+  itself.
+- An **"Outcome, not method"** gap. The bar item fails a sentence that
+  prescribes an implementation step the implementer can derive from the
+  tree or from running a tool: a fix per finding of a tool's report,
+  whether a linter's, a type checker's, a test run's or a scanner's; a
+  file and line given as where to make a change; and a diagnosis taken
+  from a tool's report and stated as fact. It lets through what the
+  implementer cannot derive: a config file's content, a name, a
+  placement in the tree, a policy such as which findings may be
+  excluded and where, an interface a downstream consumer depends on,
+  and the observable outcome, which for a tool's output is that the
+  tool reports clean. The rewrite restates a failing sentence as the
+  outcome it was meant to produce. A prescribed step goes stale on a
+  rebase, carries a possible false positive as fact, and has the review
+  test the prescription rather than the outcome.
+- A gap whose repair lies in an **out-of-scope system**: one this
+  repository has no source or config for, such as another repository, a
+  remote backend or a third-party service. The body states in one
+  sentence what the change assumes of that system. A "Sandbox fit" gap
+  is handled the same way, and the out-of-repo work it took out of the
+  body is offered as a side-effect issue, filed only on a yes.
+
+The acceptance criteria and the files-affected list the skill derives
+or reworks are settled together in one closing approval, which
+`ready-rewrite-approval: auto` skips. Every other gap is a design gap,
+put to the human as a decision record.
+
+**An issue is set Ready only when the readiness check returns no gap
+and no design gap waits on the human.** The second half is
+`sdlc-decision pending`, run directly before the status flip, whatever
+the check printed: while it exits non-zero the skill sets no status and
+reports the issue as not ready. The check alone cannot be the gate,
+because it grades the body, and a body holding the skill's own proposal
+passes it. The skill also runs `pending` before it writes its first
+record, so a design gap an earlier session left open is put again on
+its own record rather than raised a second time.
+
+| Slot | Owner |
+| --- | --- |
+| The existing-pattern slot and its refusal, and what `pending` counts | `bin/sdlc-decision` |
+| The search that fills the slot, and that a found pattern is option 1 and the recommendation | `skills/lib/decision-record.md` |
+| What a mechanical gap is, and the "Outcome, not method" bar item | `skills/orchestrate-readiness/SKILL.md` |
+| Which gap lines the script labels `mechanical:` | `bin/sdlc-readiness-check` |
+| Which gaps the rewrite repairs, which system is out of scope, the closing approval, and the `pending` runs | `skills/orchestrate-ready/SKILL.md` |
+| The `ready-rewrite-approval` key | `skills/lib/sdlc-config.md` |
+
+## An issue that contradicts a repo statement is caught before the PR
+
+An issue can specify something an instruction file in the repo forbids.
+The implementer used to settle that inside the PR, so what happened to
+a rule the repo had chosen was decided by an agent, with the human
+absent, at the most expensive point of the run. The conflict is now
+looked for at grooming, and one found later goes to the human.
+
+The readiness bar's **No contradicted repo statement** item fails a
+body that specifies something an instruction file forbids and does not
+say what happens to that statement. A body passes when, for each
+statement it contradicts, it names the statement's fate — deleted,
+replaced with given text, or given a named exception with its reason —
+lists the statement's file in its files-affected section, and carries a
+criterion for the edit. The gap line quotes the statement and names its
+file.
+
+The readiness check grades the item by searching on every invocation,
+so grooming and the orchestrator's pre-run check both run it: it greps
+the instruction files for each files-affected path and each identifier
+the design names, reads the root `CLAUDE.md` and the `README.md` of
+each plugin the body touches in full, and reports what it searched on a
+`Searched:` line ahead of the gap list. The search is a floor, not a
+proof that no conflict exists, and the line shows the human what it
+covered.
+
+The **instruction files** are that search's scope, defined beside the
+bar item. They are not one of the file classes that decide which agent
+edits a path: the root `README.md` of a plugin the body touches is
+searched, and changelogs, ADRs and every other README are not.
+
+A contradicted statement is one of two kinds, and the kind decides who
+settles it:
+
+- A **capability claim** says what the harness or a tool can or cannot
+  do, so a test can show it false. It is settled by test, by whoever
+  finds it: the readiness check's gap line proposes deleting the
+  statement only when a test showed it false, quoting the test and its
+  output; grooming proposes the deletion to the human with that
+  evidence; and mid-run, `issue-developer` or `issue-fixer` runs the
+  test, deletes a claim it showed false together with every restatement
+  of it, and reports the test and its output.
+- A **policy claim** is a choice the repo made where the harness
+  permits both, so no test settles it. It is settled by the human: at
+  grooming as a design gap whose options are the statement's fates, and
+  mid-run by the agent stopping and reporting the statement and its
+  file, which the orchestrator puts to the human with the issue edit
+  inside each option.
+
+A statement is a capability claim only when a test of it was run.
+Prescriptive wording — "never", "may only" — does not decide the kind,
+since a false capability claim reads exactly that way. A test is a
+read-only command chosen by whoever runs it, never one the issue body
+spells. A claim only a state-changing command could settle, or one a
+rule forbids or gates behind the human's approval, is not tested, and
+is handled as a policy claim, as is one whose test did not show it
+false. The default therefore falls toward the human: an agent deletes a
+repo statement only on evidence it can quote.
+
+The rule used to live in the root `CLAUDE.md`, which told the
+implementer to grade the statement and settle it in the PR without
+escalating. It was removed from there, and no `CLAUDE.md` section
+replaces it.
+
+| Slot | Owner |
+| --- | --- |
+| The bar item, the terms, the search and the `Searched:` line | `skills/orchestrate-readiness/SKILL.md` |
+| That grooming relays the search and puts a contradicted policy claim to the human | `skills/orchestrate-ready/SKILL.md` |
+| What an implementing agent does with each kind mid-run | `agents/issue-developer.md` and `agents/issue-fixer.md` |
+| How the orchestrator puts a reported conflict to the human | `skills/orchestrate/SKILL.md` |
 
 ## A compaction reloads the skills and rule files a loop was working from
 
@@ -556,13 +739,16 @@ What it leaves out is as deliberate:
   subagent's transcript invoked and read, and the main conversation's
   reloads its own.
 - **The files that serve only the opening of an `/sdlc:orchestrate`
-  run** — the readiness skill, and the orchestrator's pre-flight and
-  plan lib files — once an `Agent` call follows the loop's most recent
-  `/sdlc:orchestrate` invocation. The orchestrator spawns no agent
-  until pre-flight, the readiness gate and the plan are settled, so
-  from that call on those files are spent, and reloading them
-  would spend the budget on text the run never returns to. A later
-  invocation makes them live again until its own first `Agent` call.
+  run** — the orchestrator's pre-flight and plan lib files — once an
+  `Agent` call follows the loop's most recent `/sdlc:orchestrate`
+  invocation. The orchestrator spawns no agent until pre-flight, the
+  readiness gate and the plan are settled, so from that call on those
+  files are spent, and reloading them would spend the budget on text
+  the run never returns to. A later invocation makes them live again
+  until its own first `Agent` call. The readiness skill is not among
+  them, although its gate runs at the opening: the orchestrator's
+  mid-run handling of a contradicted policy claim uses the terms that
+  skill defines.
 
 A file used before an earlier compaction is still a use at the next
 one, although the tool call that used it has been summarized away. The
@@ -582,11 +768,11 @@ recently used first; the first file that does not fit, and every file
 after it, is listed by absolute path with an instruction to read it
 before acting on it. A file that cannot be read is listed with its
 error, written on one line. The key defaults to `100000` and has a
-floor of `64000`: an orchestrate run's working set past its opening —
-its skill, its lib files and the shared interface files — is about 42k
-tokens, and the floor leaves headroom above that for the files the
-run's own work reads, so no accepted budget is too small to carry the
-orchestrator through a compaction.
+floor of `64000`: an orchestrate run's own skill, lib and interface
+files past its opening are about 52k tokens as the hook counts them.
+Those files are not the run's whole working set. Any other skill the
+run invokes, and the files its own work reads, are not counted, and the
+floor's headroom above the counted files is what covers them.
 
 **On screen, the reload message is one line.** It is an ordinary user
 message, so Claude Code would draw it as if the human had typed it: a
@@ -1477,7 +1663,10 @@ through that executable's own failure status. It drives
 `sdlc-decision` against the same kind of root: each refusal `ask`
 makes, a `command:` evidence that would leave a marker if run, a
 record a ruling resolves and an `unclassified` one no ruling resolves,
-the answer to a multi-problem record, where a PR's and an issue's
+the answer to a multi-problem record, a later answer to a problem a
+reply left open, `pending` before and after a design gap is answered,
+`question` on a record with and without a stored question, where a PR's
+and an issue's
 records are stored, and the `repo.yml` `ask` writes and its move of
 old-layout state. And it drives the time report's Decisions table over
 the records of a PR, of the issue it closes and of a member its branch
@@ -1777,13 +1966,15 @@ verdict then reflects it.
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean, and which brief the generator and the assessor each receive | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar, and the tables and rules its derivation modes apply | preloaded into the reviewer, `theorem-generator`, `theorem-assessor`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer`, `docs-writer` and `pr-finalizer` |
-| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator` and `theorem-assessor` |
+| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, the terms for a repo statement an issue contradicts, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator`, `theorem-assessor`, `issue-developer` and `issue-fixer` |
 
 The rows with no leading slash are not user verbs — each declares
 `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
 `orchestrate-readiness` is preloaded into `theorem-generator` and
-`theorem-assessor` through each agent's `skills:` frontmatter, and
+`theorem-assessor`, which read the grammar, and into `issue-developer`
+and `issue-fixer`, which use its terms for a contradicted repo
+statement, through each agent's `skills:` frontmatter, and
 `theorem-agents-interface` into every theorem agent —
 `theorem-generator`, `theorem-assessor`, `theorem-disprover`, and
 `counterexample-verifier` — the same way, and `pr-read-cli-interface`
@@ -1902,13 +2093,13 @@ enabled. A PR that adds or removes an executable edits this roster.
 | ------- | --------- | --------------- |
 | `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state, and derives from it the arm a round is in, each theorem's disposition and severity, the verdicts and the posted review body; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline, and the per-class Decisions table, reading the decision records of the PR, of each issue it closes and of each issue its head branch names only through `sdlc-decision print`; writes nothing | its own header comment |
-| `bin/sdlc-decision` | `ask` checks a decision record, stores it and prints the question, or a `resolved by` line for a problem a `--ruling` resolves; `answer` stores the human's pick per problem and the reply verbatim; `print` lists the records of one PR or one issue; `ask` needs mikefarah `yq` v4 or later, and runs no `command:` evidence | its own header comment |
+| `bin/sdlc-decision` | `ask` checks a decision record, stores it and prints the question, or a `resolved by` line for a problem a `--ruling` resolves; `answer` stores the human's pick per problem and the reply verbatim, and takes a record again while a problem of it is open; `question` prints one record's question again; `print` lists the records of one PR or one issue; `pending` exits 4 while a design gap of one PR or one issue waits on the human's answer; `ask`, and `question` on a record with no stored question, need mikefarah `yq` v4 or later; `ask` runs no `command:` evidence | its own header comment |
 | `bin/sdlc-pr-round` | Prints the number of the review round under way, from the PR's pipeline reviews and its rounds' state: the round after the newest posted pipeline review, or a round above that one already begun | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest pipeline review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports each complete chain of review-detail chunks posted on a PR, with the range of rounds the chain holds and its total, and which chunks are there when no chain is complete | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a PR's review detail out of its state, chunks it under GitHub's comment cap, splitting a piece too large for one chunk across several, and posts it as one chain whose markers name the rounds it holds; a PR whose complete chains are missing later rounds gets a supplementary chain holding only those rounds, and one whose chains cover the latest round gets nothing posted | its own header comment |
-| `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, and one for a body with neither section; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
+| `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, one for a body with neither section, and a `mechanical:`-labelled one for an `## Acceptance` section and for a files-affected list under another level-2 heading; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
 | `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; keeps review state, and deletes it through `sdlc-agent-result-persist` only with `--review-state`; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
 | `bin/sdlc-pr-body` | `split` cuts a PR body file into the base above the finalizer's section and the tail below it, dropping the section; `join` writes a base, a section and a tail into one body file; reads and writes only the files it is given | its own header comment |
@@ -1928,9 +2119,19 @@ inside the repo root — is a gap with nothing run, as is a line under
 `### Mechanical` that is no bullet, a fence opening included: whatever
 such a line carries is never read as grammar, so a command hidden in
 one is a gap rather than a run. The same pass settles the shape of
-the body — a section with no bullet, or a body carrying neither
-acceptance section — so the model's grading starts from a body the
-script has already found well-formed. The deterministic
+the body — a section with no bullet, a body carrying neither
+acceptance section, a forbidden `## Acceptance` section, or a
+files-affected list under a heading other than
+`## Files affected (floor)` — so the model's grading starts from a body
+the script has already found well-formed. A mistitled list is detected
+narrowly, and only in a body with no `## Files affected (floor)`: by a
+level-2 heading naming files affected, over a section holding a list item
+that opens with a backticked path or ends in a files-affected tag,
+because the gap's repair is a retitle made without a question: a prose
+section that merely mentions affected files must not be retitled into
+the grammar. The script then reads that section's well-formed bullets
+as the list, so one mistitled heading does not also fail every
+`### Mechanical` bullet the list covers. The deterministic
 grading around the old command — which reported site a files-affected
 tag covers — moved into the script with it, so an unchanged body and an
 unchanged tree get the same verdict on every invocation.
@@ -2136,7 +2337,7 @@ PR's repository's directory, and `<round-dir>` for
 | `<round-dir>/review` | the round's argued review, from which `--mode summary` renders the posted review; the detail chain `pr-finalizer` posts at a close-out carries it whole, split across chunks when it is too large for one |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 | `<repo-dir>/pr<pr>/agents` | the PR's agents log: one record per agent spawned for the PR, naming the definition and the agent id, beside the rounds because a spawn belongs to no round and a voided round's rename must not carry it away |
-| `<repo-dir>/pr<pr>/decisions/<n>/` | one decision record put to the human about the PR, numbered in the order asked: `record.yml`, the record as the skill wrote it; `log`, when it was asked, each problem's class and recommendation, and which problems a ruling resolved or the human picked an option for; and `reply`, the human's reply verbatim, once answered |
+| `<repo-dir>/pr<pr>/decisions/<n>/` | one decision record put to the human about the PR, numbered in the order asked: `record.yml`, the record as the skill wrote it; `question`, the question as `ask` printed it; `log`, when it was asked, each problem's class and recommendation, which problems a ruling resolved, and each answer's pick per problem; and `reply`, the human's replies verbatim, oldest first, once answered |
 | `<repo-dir>/issue<N>/decisions/<n>/` | the same, for a decision asked where no PR exists: a grooming session's, keyed on the issue it grooms, and one a run asks before a batch's PR is open, keyed on the batch's first member |
 
 Neither the records file nor the review file is capped, quoted or
@@ -2367,8 +2568,9 @@ call: `pr-comment` for the detail poster, `git-default-branch`,
 `git-issue-branch` for the time report's Decisions table. The
 unassigned follow-up issue relies on `/issue-create --no-assignee`,
 which `issues` has from 0.15.0. `yq`, which `sdlc-decision ask` parses
-a record with, comes with no plugin: it is the mikefarah build, v4 or
-later, installed on the machine, and `ask` exits 1 without it. The
+a record with, and `question` too for a record with no stored question,
+comes with no plugin: it is the mikefarah build, v4 or later, installed
+on the machine, and either mode exits 1 without it. The
 edge coordinates install and enablement, not file access: plugins are
 file-sandboxed, so nothing here reads another plugin's files.
 

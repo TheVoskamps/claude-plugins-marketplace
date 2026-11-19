@@ -64,6 +64,7 @@ merge-poll-interval-seconds: 300
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
 | `loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 | `docs-loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
+| `ready-rewrite-approval` | `ask` \| `auto` | `ask` |
 | `follow-up-issue-type` | `repo-default` \| `ask` \| a type name | `repo-default` |
 | `follow-up-issue-priority` | `repo-default` \| `ask` \| an option name | `repo-default` |
 | `follow-up-issue-status` | `repo-default` \| `ask` \| an option name | `repo-default` |
@@ -99,9 +100,17 @@ merge-poll-interval-seconds: 300
   as characters ÷ 4, of skill and rule-file text the
   `reload-after-compact` hook appends to a compacted conversation.
   The files past it are listed by path, to be read before acting on
-  them. The table's floor holds an orchestrate run's whole working set
-  past its opening, about 42k tokens, with headroom for the files the
-  run's own work reads. Any line of a tier file that contains
+  them. The table's floor holds an orchestrate run's own skill, lib
+  and interface files past its opening: these files under
+  `plugins/sdlc/skills/`, about 52k tokens as the hook counts them:
+  `orchestrate/SKILL.md`, `orchestrate/lib/issue-lifecycle.md`,
+  `orchestrate/lib/pr-lifecycle.md`, `orchestrate/lib/wrap-up.md`,
+  `orchestrate-readiness/SKILL.md`,
+  `agent-result-persist-interface/SKILL.md`,
+  `theorem-agents-interface/SKILL.md`, `lib/decision-record.md` and
+  `lib/sdlc-config.md`. Any other skill the run invokes, and the files
+  its own work reads, are not counted; the floor's headroom above
+  those files covers them. Any line of a tier file that contains
   `reload-after-compact-token-budget` is a budget line, a comment or
   another key's value included. A budget line is valid only when it
   matches `^reload-after-compact-token-budget: [0-9]+$` and its number
@@ -131,6 +140,12 @@ merge-poll-interval-seconds: 300
   the merge stages and the ready flip, and has no effect on the code
   loop's. Its values, and what a clean end is, are `loop-end`'s,
   applied to the documentation loop.
+- **`ready-rewrite-approval`** — whether `/sdlc:orchestrate-ready` asks
+  the human to approve the acceptance criteria and the files-affected
+  list before it rewrites an issue's body. `ask` asks that closing
+  question. `auto` rewrites the body without it once every design gap
+  has the human's stored answer, and prints the criteria and the file
+  list it wrote.
 - **`follow-up-issue-type`**, **`follow-up-issue-priority`**,
   **`follow-up-issue-status`**, **`follow-up-issue-assignee`** — the
   fields a follow-up issue the human ordered is filed with, through

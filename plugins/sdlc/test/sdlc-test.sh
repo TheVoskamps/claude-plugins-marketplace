@@ -25,13 +25,18 @@
 # seed-review record marks and its per-class agreement report over the
 # decision records of the PR, of the issue it closes and of a member its
 # branch names that it does not close. It drives
-# sdlc-decision's ask, answer and print: a record a ruling resolves, an
-# unclassified one no ruling resolves, the answer to a multi-problem
-# record, where a PR's and an issue's records are stored, the repo.yml
-# ask writes and its move of old-layout state, and ask's refusal of an
-# empty problem, an option with no evidence or cost, a malformed
-# recommendation, a class outside the class list, and a file: evidence
-# that does not check out. It checks
+# sdlc-decision's ask, answer, question, print and pending: a record a
+# ruling resolves, an unclassified one no ruling resolves, the answer to
+# a multi-problem record, a later answer on a record a reply left a
+# problem open on, where a PR's and an issue's records are stored, the
+# question ask stores, question's printing of it, and question's rendering
+# of what an ask that stored none printed, from the record and the log,
+# the repo.yml ask writes and its move of old-layout state, a design gap
+# pending until answered, the existing pattern ask prints for a design
+# gap only, and ask's refusal of an empty problem, an option with no
+# evidence or cost, a malformed recommendation, a class outside the
+# class list, a design gap with no existing pattern, and a file:
+# evidence that does not check out. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
@@ -1274,19 +1279,22 @@ decision() {
   ERR=$(cat "$CASE/err")
 }
 
-# record <class> [<problem>] [<evidence of P1.1>] [<cost of P1.1>] [<recommendation>]:
-# writes a one-problem record to $CASE/record.yml. An argument given as
-# the empty string leaves its slot empty; `-` leaves the default.
+# record <class> [<problem>] [<evidence of P1.1>] [<cost of P1.1>] [<recommendation>]
+# [<existing pattern>]: writes a one-problem record to $CASE/record.yml.
+# An argument given as the empty string leaves its slot empty; `-` leaves
+# the default.
 record() {
-  local class=$1 problem=${2--} evidence=${3--} cost=${4--} rec=${5--}
+  local class=$1 problem=${2--} evidence=${3--} cost=${4--} rec=${5--} pattern=${6--}
   [ "$problem" != - ] || problem='The finding lies outside the criteria.'
   [ "$evidence" != - ] || evidence="[{file: \"$CASE/evidence.txt:2\", quote: quoted line}]"
   [ "$cost" != - ] || cost=none
   [ "$rec" != - ] || rec=P1.1
+  [ "$pattern" != - ] || pattern="$CASE/evidence.txt:2"
   cat >"$CASE/record.yml" <<EOF
 problems:
   - class: $class
     problem: "$problem"
+    existing-pattern: "$pattern"
     options:
       - does: Fix it in this PR.
         evidence: $evidence
@@ -1309,6 +1317,7 @@ check_contains "$OUT" "Decision 1
 
 P1 (design-gap)
 Problem: The finding lies outside the criteria.
+Existing pattern: $CASE/evidence.txt:2
 Options:
   P1.1 Fix it in this PR.
     Evidence: $CASE/evidence.txt:2: \"quoted line\"
@@ -1318,7 +1327,7 @@ Options:
       (nothing)
     Cost to you: Read the follow-up later.
 Recommendation: P1.1
-Why: The fix is small." "decision ask: prints the problem, each option with its evidence and cost, and the pick"
+Why: The fix is small." "decision ask: prints the problem, the existing pattern, each option with its evidence and cost, and the pick"
 check "$([ -e "$CASE/ran" ] && echo ran || echo not-run)" "not-run" "decision ask: a command: evidence is never run"
 check "$([ -f "$XDG_STATE_HOME/$DECISIONS_REL/1/record.yml" ] && echo stored || echo none)" "stored" \
   "decision ask: a PR's record is stored under pr<n>/decisions/"
@@ -1359,6 +1368,19 @@ refused "a recommendation naming two options" "P1 recommendation: names more tha
 refused "a recommendation with a condition" "P1 recommendation: is one option id with nothing attached" \
   design-gap - - - 'P1.1 unless the cap is near'
 refused "a class outside the class list" "P1 class: is outside the class list: scope-question" scope-question
+refused "a design gap with no existing pattern" "P1 existing-pattern: is empty" design-gap - - - - ''
+
+decision_case decision-pattern-other-class
+record merge-state - - - - ''
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$RC" "0" "decision ask: a problem of another class needs no existing pattern"
+check "$(printf '%s\n' "$OUT" | grep -c '^Existing pattern:')" "0" \
+  "decision ask: an empty existing pattern is not printed"
+decision_case decision-pattern-other-class-set
+record merge-state
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+check "$RC:$(printf '%s\n' "$OUT" | grep -c '^Existing pattern:')" "0:0" \
+  "decision ask: a problem of another class prints no existing pattern, even one it carries"
 QUOTED="$SANDBOX/decision-refuse-a quote not on the named line/evidence.txt"
 refused "a quote not on the named line" "P1.1 evidence 1 quote: is not on line 1 of $QUOTED" \
   design-gap - "[{file: \"$QUOTED:1\", quote: quoted line}]"
@@ -1388,6 +1410,7 @@ cat >"$CASE/record.yml" <<EOF
 problems:
   - class: design-gap
     problem: First.
+    existing-pattern: "grep -rn 'first' . found none"
     options:
       - {does: A, evidence: {command: "true", output: ""}, cost: none}
       - {does: B, evidence: {command: "true", output: ""}, cost: none}
@@ -1498,6 +1521,297 @@ decision print --pr 'h.example/o/r#7'
 check_contains "$OUT" "  P1 design-gap recommended P1.1 picked none
   reply:
     Neither; drop it." "decision print: a reply in free text is stored as none, beside the reply"
+
+# An answer whose log write fails names the log, as ask does, and leaves
+# the record open.
+decision_case decision-answer-log-fails
+record design-gap
+decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+mkdir -p "$CASE/fakebin"
+cat >"$CASE/fakebin/mv" <<'STUB'
+#!/bin/sh
+for a in "$@"; do last=$a; done
+case $last in */log) exit 1 ;; esac
+exec /bin/mv "$@"
+STUB
+chmod +x "$CASE/fakebin/mv"
+printf 'earlier\n' >"$XDG_STATE_HOME/$DECISIONS_REL/1/reply"
+printf 'P1.2\n' >"$CASE/reply"
+OUT=$(PATH="$CASE/fakebin:$PATH" "$DECISION" answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 \
+  --reply-file "$CASE/reply" 2>"$CASE/err" </dev/null)
+check "$?:$OUT" "1:" "decision answer: a failed log write exits 1 and prints no answered line"
+check "$(cat "$CASE/err")" "sdlc-decision: cannot store $XDG_STATE_HOME/$DECISIONS_REL/1/log" \
+  "decision answer: a failed log write names the log"
+check "$(grep -c '^answered ' "$XDG_STATE_HOME/$DECISIONS_REL/1/log")" "0" \
+  "decision answer: a failed log write leaves the record unanswered"
+check "$(cat "$XDG_STATE_HOME/$DECISIONS_REL/1/reply")" "earlier" \
+  "decision answer: a failed log write leaves the stored reply unchanged"
+check "$(find "$XDG_STATE_HOME/$DECISIONS_REL/1" -name '*.partial-*')" "" \
+  "decision answer: a failed log write leaves no staged file behind"
+
+# answer_case <name>: a case holding one asked design-gap record, AT,
+# whose stored reply is "earlier", a reply file holding "P1.2", and an
+# empty fakebin for the case to put stubs in. The log as asked is kept
+# in log.before.
+answer_case() {
+  decision_case "$1"
+  record design-gap
+  decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+  AT=$XDG_STATE_HOME/$DECISIONS_REL/1
+  printf 'earlier\n' >"$AT/reply"
+  printf 'P1.2\n' >"$CASE/reply"
+  cp "$AT/log" "$CASE/log.before"
+  mkdir -p "$CASE/fakebin"
+}
+
+# answer_stubbed: runs answer for P1.2 with the case's fakebin first on
+# PATH, leaving the exit status in RC, stdout in OUT and stderr in ERR.
+answer_stubbed() {
+  OUT=$(PATH="$CASE/fakebin:$PATH" "$DECISION" answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 \
+    --reply-file "$CASE/reply" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# stored_nothing <what> <stderr> <stored reply>: checks that an answer
+# that failed as <what> exited 1 with <stderr> as its last stderr line,
+# below any of the failed command's own, left the log as asked and the
+# stored reply as <stored reply>, `(absent)` for none, and left no staged
+# or partial file behind.
+stored_nothing() {
+  check "$RC:$OUT" "1:" "decision answer: $1 exits 1 and prints no answered line"
+  check "$(printf '%s\n' "$ERR" | tail -n 1)" "$2" "decision answer: $1 names what it could not store"
+  cmp -s "$CASE/log.before" "$AT/log"
+  check "$?" "0" "decision answer: $1 leaves the log as it was"
+  check "$([ -f "$AT/reply" ] && cat "$AT/reply" || echo '(absent)')" "$3" \
+    "decision answer: $1 leaves the stored reply as it was"
+  check "$(find "$AT" -name '*.partial-*')" "" "decision answer: $1 leaves no staged or partial file behind"
+}
+
+# A reply that cannot be moved into place leaves the log unanswered, so
+# a retry is taken rather than refused as already answered.
+answer_case decision-answer-reply-move-fails
+cat >"$CASE/fakebin/mv" <<'STUB'
+#!/bin/sh
+for a in "$@"; do last=$a; done
+case $last in */reply) exit 1 ;; esac
+exec /bin/mv "$@"
+STUB
+chmod +x "$CASE/fakebin/mv"
+answer_stubbed
+stored_nothing "a failed reply move" "sdlc-decision: cannot store $AT/reply" "earlier"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply"
+check "$RC:$(cat "$AT/reply")" "0:earlier
+P1.2" "decision answer: a retry after a failed reply move stores the reply once"
+
+# When the log cannot be put back either, the message says the log now
+# records an answer whose reply is not stored.
+answer_case decision-answer-log-restore-fails
+cat >"$CASE/fakebin/mv" <<STUB
+#!/bin/sh
+for a in "\$@"; do last=\$a; done
+case \$last in
+  */reply) : >"$CASE/reply-move-failed"; exit 1 ;;
+  */log) [ ! -e "$CASE/reply-move-failed" ] || exit 1 ;;
+esac
+exec /bin/mv "\$@"
+STUB
+chmod +x "$CASE/fakebin/mv"
+answer_stubbed
+check "$RC:$OUT" "1:" "decision answer: a failed reply move and log restore exits 1 and prints no answered line"
+check "$ERR" "sdlc-decision: cannot store $AT/reply, and cannot restore $AT/log, which now records an answer whose reply is not stored" \
+  "decision answer: a failed log restore says the log records an answer without its reply"
+check "$(cat "$AT/reply")" "earlier" "decision answer: a failed log restore leaves the stored reply as it was"
+check "$(find "$AT" -name '*.partial-*')" "" "decision answer: a failed log restore leaves no staged or partial file behind"
+
+# A stored reply that cannot be read stores nothing, rather than being
+# replaced by the new reply alone.
+answer_case decision-answer-stored-reply-unreadable
+chmod 000 "$AT/reply"
+if [ -r "$AT/reply" ]; then
+  echo "SKIP  decision answer: an unreadable stored reply stores nothing (the file stays readable to this user)"
+else
+  answer_stubbed
+  chmod 600 "$AT/reply"
+  stored_nothing "an unreadable stored reply" "sdlc-decision: cannot store $AT/reply" "earlier"
+fi
+chmod 600 "$AT/reply"
+
+# A failed read of the stored reply's last byte stores nothing, rather
+# than joining the two replies on one line.
+answer_case decision-answer-tail-fails
+printf 'earlier' >"$AT/reply"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/fakebin/tail"
+chmod +x "$CASE/fakebin/tail"
+answer_stubbed
+stored_nothing "a failed read of the stored reply's last byte" "sdlc-decision: cannot store $AT/reply" "earlier"
+
+# A new reply that cannot be read stores nothing, beside a stored reply
+# and with none.
+answer_case decision-answer-new-reply-unreadable
+chmod 000 "$CASE/reply"
+if [ -r "$CASE/reply" ]; then
+  echo "SKIP  decision answer: an unreadable reply file stores nothing (the file stays readable to this user)"
+else
+  answer_stubbed
+  stored_nothing "an unreadable reply file beside a stored reply" "sdlc-decision: cannot store $AT/reply" "earlier"
+  rm "$AT/reply"
+  answer_stubbed
+  stored_nothing "an unreadable reply file with no stored reply" "sdlc-decision: cannot store $AT/reply" "(absent)"
+fi
+chmod 600 "$CASE/reply"
+
+# A record directory the reply cannot be staged in stores nothing.
+answer_case decision-answer-record-dir-unwritable
+chmod 555 "$AT"
+if [ -w "$AT" ]; then
+  echo "SKIP  decision answer: an unwritable record directory stores nothing (it stays writable to this user)"
+else
+  answer_stubbed
+  stored_nothing "an unwritable record directory" "sdlc-decision: cannot store $AT/reply" "earlier"
+fi
+chmod 755 "$AT"
+
+decision_case decision-pending
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "0:" "decision pending: an issue with no record exits 0"
+record unclassified
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+decision pending --issue 'h.example/o/r#9'
+check "$RC" "0" "decision pending: an open record with no design gap exits 0"
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+decision pending --issue 'h.example/o/r#9'
+check "$RC" "4" "decision pending: an unanswered design gap exits 4"
+check "$ERR" "sdlc-decision: decision 2 P1: a design gap with no answer from the human" \
+  "decision pending: the refusal names the record and the problem"
+printf 'P1.1\n' >"$CASE/reply"
+decision answer --issue 'h.example/o/r#9' --decision 2 --pick P1=P1.1 --reply-file "$CASE/reply"
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "0:" "decision pending: a design gap the human answered exits 0"
+
+# A reply that left a design gap unanswered keeps it pending, and the
+# same record takes the later answer.
+decision_case decision-pending-unanswered
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+cmp -s "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/question" <(printf '%s\n' "$OUT")
+check "$?" "0" "decision ask: the printed question is stored beside the record"
+printf 'Not now.\n' >"$CASE/reply"
+decision answer --issue 'h.example/o/r#9' --decision 1 --reply-file "$CASE/reply"
+check "$RC" "0" "decision answer: a reply that picks nothing exits 0"
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "4:sdlc-decision: decision 1 P1: a design gap with no answer from the human" \
+  "decision pending: a design gap the reply left unanswered is still pending"
+printf 'P1.2\n' >"$CASE/reply2"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply2"
+check "$RC" "0" "decision answer: a record whose problem is still unanswered takes a later answer"
+decision pending --issue 'h.example/o/r#9'
+check "$RC:$ERR" "0:" "decision pending: the later answer settles the design gap"
+decision print --issue 'h.example/o/r#9'
+check_contains "$OUT" "  P1 design-gap recommended P1.1 picked P1.2
+  reply:
+    Not now.
+    P1.2" "decision print: the later pick wins, and both replies are kept in order"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.1 --reply-file "$CASE/reply2"
+check "$RC" "3" "decision answer: a record with no open problem left is refused"
+
+# A stored reply with no final newline is kept apart from the next one.
+decision_case decision-reply-newline
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+printf 'Not now.' >"$CASE/reply"
+decision answer --issue 'h.example/o/r#9' --decision 1 --reply-file "$CASE/reply"
+printf 'P1.2\n' >"$CASE/reply2"
+decision answer --issue 'h.example/o/r#9' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply2"
+check "$RC:$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/1/reply")" "0:Not now.
+P1.2" "decision answer: a stored reply with no final newline gets one before the next reply"
+
+# question prints a record's question again, exactly as ask printed it:
+# the stored file for a record ask stored one for, and for a record an
+# ask that stored none wrote, the text that ask printed, which showed no
+# existing pattern.
+decision_case decision-question
+record design-gap
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+ASKED=$OUT
+decision question --issue 'h.example/o/r#9' --decision 1
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored for a design gap"
+check_contains "$OUT" "Existing pattern: $CASE/evidence.txt:2" \
+  "decision question: the stored question of a design gap keeps its existing pattern"
+record merge-state
+decision ask --issue 'h.example/o/r#9' "$CASE/record.yml"
+ASKED=$OUT
+decision question --issue 'h.example/o/r#9' --decision 2
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored for another class"
+record merge-state
+decision ask --issue 'h.example/o/r#9' --ruling merge-state=rebase "$CASE/record.yml"
+ASKED=$OUT
+decision question --issue 'h.example/o/r#9' --decision 3
+check "$RC:$OUT" "0:$ASKED" "decision question: prints the question ask stored for a resolved problem"
+decision question --issue 'h.example/o/r#9' --decision 4
+check "$RC" "3" "decision question: a record that does not exist is refused"
+
+# legacy_record <n> <log>: stores $CASE/record.yml and <log> as record <n>
+# of issue 9 with no question file, as an ask that stored none left it.
+legacy_record() {
+  local at="$XDG_STATE_HOME/sdlc/h.example/o/r/issue9/decisions/$1"
+  mkdir -p "$at"
+  cp "$CASE/record.yml" "$at/record.yml"
+  printf '%s\n' "$2" >"$at/log"
+}
+# legacy_question <n> <problem lines>: the text an ask that stored no
+# question file printed for record <n> holding one problem asked with
+# record's default options.
+legacy_question() {
+  printf '%s\n' "Decision $1
+
+$2
+Options:
+  P1.1 Fix it in this PR.
+    Evidence: $CASE/evidence.txt:2: \"quoted line\"
+    Cost to you: none
+  P1.2 File a follow-up issue.
+    Evidence: \`touch $CASE/ran\`, which printed:
+      (nothing)
+    Cost to you: Read the follow-up later.
+Recommendation: P1.1
+Why: The fix is small.
+
+Reply with one option id per problem, such as P1.1, or answer in your own words."
+}
+decision_case decision-question-legacy
+record design-gap
+legacy_record 1 "asked 2026-01-01T00:00:00Z
+problem P1 design-gap P1.1 2"
+decision question --issue 'h.example/o/r#9' --decision 1
+check "$RC:$OUT" "0:$(legacy_question 1 "P1 (design-gap)
+Problem: The finding lies outside the criteria.")" \
+  "decision question: a design gap with no stored question prints no existing pattern, as the ask that stored it did"
+record design-gap - - - - ''
+legacy_record 2 "asked 2026-01-01T00:00:00Z
+problem P1 design-gap P1.1 2"
+decision question --issue 'h.example/o/r#9' --decision 2
+check "$RC:$OUT" "0:$(legacy_question 2 "P1 (design-gap)
+Problem: The finding lies outside the criteria.")" \
+  "decision question: a design gap with no stored question and no existing pattern prints as asked"
+record merge-state
+legacy_record 3 "asked 2026-01-01T00:00:00Z
+problem P1 merge-state P1.1 2"
+decision question --issue 'h.example/o/r#9' --decision 3
+check "$RC:$OUT" "0:$(legacy_question 3 "P1 (merge-state)
+Problem: The finding lies outside the criteria.")" \
+  "decision question: another class with no stored question prints as asked"
+legacy_record 4 "asked 2026-01-01T00:00:00Z
+problem P1 merge-state P1.1 2
+resolved P1 rebase"
+decision question --issue 'h.example/o/r#9' --decision 4
+check "$RC:$OUT" "0:Decision 4
+
+P1 resolved by merge-state: rebase" \
+  "decision question: a problem a ruling resolved, with no stored question, renders as resolved, from the log"
+decision question --issue 'h.example/o/r#9'
+check "$RC" "2" "decision question: --decision is required"
 
 decision_case decision-print-newline
 record design-gap

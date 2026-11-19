@@ -2,14 +2,18 @@
 #
 # sdlc-decision -- the one route by which an sdlc skill puts a decision
 # to the human. `ask` checks a decision record, stores it and prints the
-# question; `answer` stores the human's reply against it; `print` lists
-# the records of one PR or one issue. Runs under the bash 3.2 macOS ships.
+# question; `answer` stores the human's reply against it; `question`
+# prints one record's question again; `print` lists the records of one PR
+# or one issue; `pending` fails while a design gap of one PR or one issue
+# waits on the human's answer. Runs under the bash 3.2 macOS ships.
 #
 # Usage:
-#   sdlc-decision ask    (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]... <record-file>
-#   sdlc-decision answer (--pr <ref> | --issue <ref>) --decision <n> [--pick <P>=<option-id|none>]...
-#                        --reply-file <path>
-#   sdlc-decision print  (--pr <ref> | --issue <ref>)
+#   sdlc-decision ask      (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]... <record-file>
+#   sdlc-decision answer   (--pr <ref> | --issue <ref>) --decision <n> [--pick <P>=<option-id|none>]...
+#                          --reply-file <path>
+#   sdlc-decision question (--pr <ref> | --issue <ref>) --decision <n>
+#   sdlc-decision print    (--pr <ref> | --issue <ref>)
+#   sdlc-decision pending  (--pr <ref> | --issue <ref>)
 #
 # <ref> is <host>/<owner>/<repo>#<n>. A PR's records are stored under
 # ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<n>/decisions/,
@@ -20,15 +24,17 @@
 # problem carries `class`, `problem`, `options`, `recommendation` and
 # `why`; each option carries `does`, `evidence` and `cost`; each piece of
 # evidence is `file: <path>:<line>` with `quote:`, the text found on that
-# line, or `command: <command>` with `output:`. A problem's class is one
-# of CLASSES below, `unclassified` when none fits; it holds two to four
-# options, and its recommendation is one of its own option ids with
-# nothing attached. Every option holds at least one evidence, and its
-# cost is `none` when it costs the human nothing. A relative evidence path
-# is read against the top level of the working tree the script runs in,
-# or against the current directory outside a working tree. `ask` never
-# runs a `command:` evidence: it checks only that the command and its
-# output are present.
+# line, or `command: <command>` with `output:`. A `design-gap` problem
+# also carries `existing-pattern`: the <path>:<line> in this repository
+# that already does the thing, or the exact search that found none. A
+# problem's class is one of CLASSES below, `unclassified` when none
+# fits; it holds two to four options, and its recommendation is one of
+# its own option ids with nothing attached. Every option holds at least
+# one evidence, and its cost is `none` when it costs the human nothing.
+# A relative evidence path is read against the top level of the working
+# tree the script runs in, or against the current directory outside a
+# working tree. `ask` never runs a `command:` evidence: it checks only
+# that the command and its output are present.
 #
 # Problems are numbered P1, P2, … in record order, and each problem's
 # options P<i>.1, P<i>.2, …, so every option of a record has an id no
@@ -38,23 +44,36 @@
 # `unclassified` problem is never resolved by a ruling, and a ruling
 # whose value is `ask` resolves nothing.
 #
-# Each record's directory holds record.yml, the record as given; log,
-# whose lines are
+# Each record's directory holds record.yml, the record as given; question,
+# the text ask printed for it, absent from a record asked before ask
+# stored one; log, whose lines are
 #   asked <instant>
 #   problem P<i> <class> <recommendation> <option count>
 #   resolved P<i> <value>
 #   answered <instant>
 #   pick P<i> <option id | none | unanswered>
-# and, once answered, reply, the human's reply verbatim.
+# and, once answered, reply, the human's replies verbatim, oldest first.
+#
+# A problem is open while no ruling resolved it and its latest pick is
+# absent or `unanswered`. `answer` takes a record while any of its
+# problems is open, so a problem a reply left unanswered can be answered
+# on the same record later; each answer appends an `answered` line and a
+# pick line per problem open before it. A `design-gap` problem is
+# pending while it is open.
 #
 # Exit statuses:
-#   0  the script did what it says
-#   1  a command the script ran failed, jq is not on PATH, ask found no
-#      mikefarah v4+ yq on PATH, or ask found the repository's state at
-#      both its old-layout and its current path
+#   0  the script did what it says; for pending, no design-gap problem is
+#      pending
+#   1  a command the script ran failed, jq is not on PATH, ask or a
+#      question with no stored question file found no mikefarah v4+ yq on
+#      PATH, or ask found the repository's state at both its old-layout
+#      and its current path
 #   2  a usage error; nothing was stored
-#   3  the record, or the answer, was refused; stderr names each failing
-#      slot, one per line, and nothing was stored
+#   3  the record, or the answer, was refused, or question found no
+#      record it can print; stderr names each failing slot, one per line,
+#      and nothing was stored
+#   4  pending found a pending design-gap problem; stderr names each one,
+#      one per line
 set -uo pipefail
 # For the failure exits, the reference parser and the state root's
 # repository layout.
@@ -67,9 +86,11 @@ readonly CLASSES='outside-criteria-finding recurring-finding-class loop-cap-reac
 
 usage() {
   cat <<EOF
-usage: $SP_PROGRAM ask    (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]... <record-file>
-       $SP_PROGRAM answer (--pr <ref> | --issue <ref>) --decision <n> [--pick <P>=<option-id|none>]... --reply-file <path>
-       $SP_PROGRAM print  (--pr <ref> | --issue <ref>)
+usage: $SP_PROGRAM ask      (--pr <ref> | --issue <ref>) [--ruling <class>=<value>]... <record-file>
+       $SP_PROGRAM answer   (--pr <ref> | --issue <ref>) --decision <n> [--pick <P>=<option-id|none>]... --reply-file <path>
+       $SP_PROGRAM question (--pr <ref> | --issue <ref>) --decision <n>
+       $SP_PROGRAM print    (--pr <ref> | --issue <ref>)
+       $SP_PROGRAM pending  (--pr <ref> | --issue <ref>)
 EOF
 }
 
@@ -78,7 +99,7 @@ case "${1:-}" in
     usage
     exit 0
     ;;
-  ask | answer | print) mode=$1 ;;
+  ask | answer | question | print | pending) mode=$1 ;;
   '') sp_usage_error "No mode was supplied." ;;
   *) sp_usage_error "\`$1\` is not a mode $SP_PROGRAM takes." ;;
 esac
@@ -146,15 +167,17 @@ done
 # Each flag belongs to the modes that read it.
 [ "$mode" = ask ] || [ "$rulings" = '{}' ] || sp_usage_error "--ruling is accepted only by ask."
 [ "$mode" = ask ] || [ -z "$record_file" ] || sp_usage_error "$mode takes no record file: $record_file"
-[ "$mode" = answer ] || [ -z "$decision$picks$reply_file" ] ||
-  sp_usage_error "--decision, --pick and --reply-file are accepted only by answer."
+[ "$mode" = answer ] || [ -z "$picks$reply_file" ] ||
+  sp_usage_error "--pick and --reply-file are accepted only by answer."
+[ "$mode" = answer ] || [ "$mode" = question ] || [ -z "$decision" ] ||
+  sp_usage_error "--decision is accepted only by answer and question."
 [ "$mode" != ask ] || [ -n "$record_file" ] || sp_usage_error "ask needs a record file."
-if [ "$mode" = answer ]; then
+if [ "$mode" = answer ] || [ "$mode" = question ]; then
   case "$decision" in
-    '' | 0* | *[!0-9]*) sp_usage_error "answer needs --decision <n>, a positive number: $decision" ;;
+    '' | 0* | *[!0-9]*) sp_usage_error "$mode needs --decision <n>, a positive number: $decision" ;;
   esac
-  [ -n "$reply_file" ] || sp_usage_error "answer needs --reply-file <path>."
 fi
+[ "$mode" != answer ] || [ -n "$reply_file" ] || sp_usage_error "answer needs --reply-file <path>."
 
 # The record set is a PR's or an issue's, named by its canonical
 # reference; sp_parse_pr checks the shape of either. An issue reference
@@ -191,10 +214,10 @@ refuse() {
 }
 
 # put <path> <text> -- write <text> to <path> whole, through a partial
-# file renamed into place, so a reader never sees half of it.
+# file renamed into place, so a reader never sees half of it. Fails when
+# the write or the rename does, leaving <path> as it was.
 put() {
-  printf '%s' "$2" >"$1.partial-$$"
-  mv -- "$1.partial-$$" "$1"
+  printf '%s' "$2" >"$1.partial-$$" && mv -- "$1.partial-$$" "$1"
 }
 
 # numbers -- the record numbers stored so far, ascending.
@@ -202,6 +225,56 @@ numbers() {
   for at in "$dir"/*; do
     if [ -d "$at" ]; then printf '%s\n' "${at##*/}"; fi
   done | awk '/^[1-9][0-9]*$/' | sort -n
+}
+
+# need_yq -- the failure exit unless a mikefarah v4+ yq is on PATH.
+need_yq() {
+  command -v yq >/dev/null 2>&1 || sp_fail 1 "yq (mikefarah v4+) is required and is not on PATH"
+  yq --version 2>/dev/null | grep -qiE 'mikefarah|version v?4' ||
+    sp_fail 1 "yq is on PATH but is not the mikefarah v4+ build"
+}
+
+# render <n> <record as a JSON array of documents> <log> <pattern> -- the
+# question for record <n>: a problem the log has a `resolved` line for is
+# printed as resolved by its class, with that line's value. <pattern> is
+# `pattern` for the question ask prints, which shows a design gap's
+# existing pattern, and `no-pattern` for the one an ask that stored no
+# question file printed, which never showed it.
+render() {
+  local resolved
+  resolved=$(printf '%s\n' "$3" | awk '$1 == "resolved" {print $2 "\t" $3}' |
+    jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add // {}') || return 1
+  printf '%s' "$2" | jq -r --arg n "$1" --argjson resolved "$resolved" --arg pattern "$4" '
+  def text: if type == "string" then sub("\n+$"; "") else tostring end;
+  def items: if type == "array" then . else [.] end;
+  def hang($pad): split("\n") | .[0] + (.[1:] | map("\n" + $pad + .) | join(""));
+  def block($pad): split("\n") | map($pad + .) | join("\n");
+  [.[0].problems | to_entries[] | "P\(.key + 1)" as $p | .value as $q | ($q.class | text) as $c
+   | if $resolved[$p] != null then
+       {asks: false, text: "\($p) resolved by \($c): \($resolved[$p])"}
+     else
+       {asks: true, text: ([
+         "\($p) (\($c))",
+         "Problem: " + ($q.problem | text | hang("  ")),
+         (if $pattern == "pattern" and $c == "design-gap" and ($q["existing-pattern"] // "" | text | test("\\S")) then "Existing pattern: " + ($q["existing-pattern"] | text | hang("  ")) else empty end),
+         "Options:",
+         ($q.options | items | to_entries[] | "\($p).\(.key + 1)" as $o | .value
+          | "  \($o) " + (.does | text | hang("    ")),
+            (.evidence | items[]
+             | if .file != null then "    Evidence: \(.file | text): \"\(.quote | text)\""
+               else "    Evidence: `\(.command | text)`, which printed:",
+                 (if (.output | text) == "" then "      (nothing)" else (.output | text | block("      ")) end)
+               end),
+            "    Cost to you: " + (.cost | text | hang("      "))),
+         "Recommendation: \($q.recommendation | text)",
+         "Why: " + ($q.why | text | hang("  "))
+       ] | join("\n"))}
+     end] as $parts
+  | "Decision \($n)",
+    ($parts[] | "", .text),
+    (if any($parts[]; .asks) then
+       "", "Reply with one option id per problem, such as P1.1, or answer in your own words."
+     else empty end)'
 }
 
 # ---------------------------------------------------------------------------
@@ -254,6 +327,61 @@ if [ "$mode" = print ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# pending
+#
+# One stderr line per pending design-gap problem:
+#   decision <n> P<i>: a design gap with no answer from the human
+
+if [ "$mode" = pending ]; then
+  [ -d "$dir" ] || exit 0
+  waiting=$(numbers | while IFS= read -r n; do
+    [ -f "$dir/$n/log" ] || continue
+    awk -v n="$n" '
+      $1 == "problem" && $3 == "design-gap" {np++; id[np] = $2}
+      $1 == "resolved" {res[$2] = 1}
+      $1 == "pick" {pick[$2] = $3}
+      END {
+        for (i = 1; i <= np; i++) {
+          p = id[i]
+          if (!(p in res) && (!(p in pick) || pick[p] == "unanswered"))
+            print "decision " n " " p ": a design gap with no answer from the human"
+        }
+      }' "$dir/$n/log"
+  done)
+  [ -z "$waiting" ] && exit 0
+  printf '%s\n' "$waiting" | while IFS= read -r line; do
+    printf '%s: %s\n' "$SP_PROGRAM" "$line" >&2
+  done
+  exit 4
+fi
+
+# ---------------------------------------------------------------------------
+# question
+#
+# The question ask printed for the record: its stored question file, or,
+# for a record asked before ask stored one, the same text rendered from
+# record.yml and the log. ask writes the question file before the log, so
+# a record with a log and no question file was asked by an ask that
+# stored none, and that ask printed no existing pattern.
+
+if [ "$mode" = question ]; then
+  at="$dir/$decision"
+  [ -f "$at/log" ] || refuse "decision $decision: no such record for $SP_REF"
+  if [ -f "$at/question" ]; then
+    cat -- "$at/question"
+    exit 0
+  fi
+  [ -f "$at/record.yml" ] || refuse "decision $decision: holds neither a question nor a record.yml"
+  need_yq
+  docs=$(yq ea -o=json -I=0 '[.]' "$at/record.yml" 2>/dev/null || exit) ||
+    refuse "decision $decision: its record.yml is not YAML"
+  question=$(render "$decision" "$docs" "$(cat "$at/log")" no-pattern) ||
+    sp_fail 1 "jq failed to render decision $decision"
+  printf '%s\n' "$question"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # answer
 
 if [ "$mode" = answer ]; then
@@ -265,9 +393,15 @@ if [ "$mode" = answer ]; then
   open=$(printf '%s\n' "$log" | awk '
     $1 == "problem" {np++; id[np] = $2; count[$2] = $5}
     $1 == "resolved" {res[$2] = 1}
-    END {for (i = 1; i <= np; i++) if (!(id[i] in res)) print id[i] " " count[id[i]]}')
+    $1 == "pick" {pick[$2] = $3}
+    END {
+      for (i = 1; i <= np; i++) {
+        p = id[i]
+        if (!(p in res) && (!(p in pick) || pick[p] == "unanswered")) print p " " count[p]
+      }
+    }')
   errors=
-  if printf '%s\n' "$log" | grep -q '^answered '; then
+  if [ -z "$open" ] && printf '%s\n' "$log" | grep -q '^answered '; then
     errors="decision $decision: is already answered"
   elif [ -z "$open" ]; then
     errors="decision $decision: every problem was resolved by a ruling, so there is nothing to answer"
@@ -292,7 +426,7 @@ if [ "$mode" = answer ]; then
   errors="$errors${errors:+${bad:+$NL}}$bad"
   [ -z "$errors" ] || refuse "$errors"
   # A problem the reply did not pick an option for is recorded as
-  # unanswered, so it can be asked again in a record of its own.
+  # unanswered, so it stays open, to be answered on this record later.
   stamp=$(now)
   lines="answered $stamp$NL"
   while read -r p _; do
@@ -301,9 +435,39 @@ if [ "$mode" = answer ]; then
   done <<EOF
 $open
 EOF
-  cp -- "$reply_file" "$at/reply.partial-$$"
-  mv -- "$at/reply.partial-$$" "$at/reply"
-  put "$at/log" "$log$NL$lines"
+  staged="$at/reply.partial-$$"
+  # unstage <message> -- the failure exit of a write: removes every staged
+  # and partial file this answer made, then exits 1 with <message>.
+  unstage() {
+    rm -f -- "$staged" "$at/log.partial-$$" ||
+      sp_fail 1 "$1; $staged or $at/log.partial-$$ could not be removed"
+    sp_fail 1 "$1"
+  }
+  # The reply is staged as the stored reply, a newline when that does not
+  # end in one, so the new reply starts on a line of its own, then the new
+  # reply. Each command's failure is caught on its own line, since a
+  # handler after a group sees only the group's last command.
+  if [ -f "$at/reply" ]; then
+    cat -- "$at/reply" >"$staged" || unstage "cannot store $at/reply"
+    if [ -s "$staged" ]; then
+      last=$(tail -c 1 -- "$staged" || exit) || unstage "cannot store $at/reply"
+      [ -z "$last" ] || printf '\n' >>"$staged" || unstage "cannot store $at/reply"
+    fi
+    cat -- "$reply_file" >>"$staged" || unstage "cannot store $at/reply"
+  else
+    cp -- "$reply_file" "$staged" || unstage "cannot store $at/reply"
+  fi
+  # The log is written before the reply is moved into place, and rewritten
+  # with the lines it held when the move fails, so a retried answer finds
+  # the record unanswered and the stored reply as it was, and stores the
+  # new reply once. Only a failed rewrite leaves the record answered
+  # without its reply, and its message says so.
+  put "$at/log" "$log$NL$lines" || unstage "cannot store $at/log"
+  mv -- "$staged" "$at/reply" || {
+    put "$at/log" "$log$NL" ||
+      unstage "cannot store $at/reply, and cannot restore $at/log, which now records an answer whose reply is not stored"
+    unstage "cannot store $at/reply"
+  }
   printf 'decision %s answered %s\n' "$decision" "$stamp"
   exit 0
 fi
@@ -311,9 +475,7 @@ fi
 # ---------------------------------------------------------------------------
 # ask
 
-command -v yq >/dev/null 2>&1 || sp_fail 1 "yq (mikefarah v4+) is required and is not on PATH"
-yq --version 2>/dev/null | grep -qiE 'mikefarah|version v?4' ||
-  sp_fail 1 "yq is on PATH but is not the mikefarah v4+ build"
+need_yq
 [ -f "$record_file" ] || sp_usage_error "the record file is not a readable file: $record_file"
 
 docs=$(yq ea -o=json -I=0 '[.]' "$record_file" 2>/dev/null || exit) ||
@@ -338,6 +500,9 @@ else .[0].problems | to_entries[] | ("P\(.key + 1)") as $p | .value as $q
          else empty end),
         (if ($q.problem | blank) then "\($p) problem: is empty" else empty end),
         (if ($q.why | blank) then "\($p) why: is empty" else empty end),
+        (if ($q.class | text) == "design-gap" and ($q["existing-pattern"] | blank)
+         then "\($p) existing-pattern: is empty; name the <path>:<line> that already does the thing, or the search that found none"
+         else empty end),
         (if $n < 2 or $n > 4 then "\($p) options: holds \($n) options, not two to four" else empty end),
         ($opts | to_entries[] | "\($p).\(.key + 1)" as $o | .value as $x
          | if ($x | type) != "object" then "\($o): is not a mapping"
@@ -436,38 +601,18 @@ log=$(printf '%s' "$docs" | jq -r --arg at "$stamp" --argjson rulings "$rulings"
    | "problem \($p) \($q.class | text) \($q.recommendation | text) \($q.options | if type == "array" then length else 1 end)",
      (($q.class | text) as $c | if $c != "unclassified" and ($rulings[$c] // "ask") != "ask"
       then "resolved \($p) \($rulings[$c])" else empty end))')
-cp -- "$record_file" "$dir/$n/record.yml.partial-$$"
-mv -- "$dir/$n/record.yml.partial-$$" "$dir/$n/record.yml"
-put "$dir/$n/log" "$log
-"
+if ! cp -- "$record_file" "$dir/$n/record.yml.partial-$$" ||
+  ! mv -- "$dir/$n/record.yml.partial-$$" "$dir/$n/record.yml"; then
+  sp_fail 1 "cannot store $dir/$n/record.yml"
+fi
 
-printf '%s' "$docs" | jq -r --arg n "$n" --argjson rulings "$rulings" '
-  def text: if type == "string" then sub("\n+$"; "") else tostring end;
-  def items: if type == "array" then . else [.] end;
-  def hang($pad): split("\n") | .[0] + (.[1:] | map("\n" + $pad + .) | join(""));
-  def block($pad): split("\n") | map($pad + .) | join("\n");
-  [.[0].problems | to_entries[] | "P\(.key + 1)" as $p | .value as $q | ($q.class | text) as $c
-   | if $c != "unclassified" and ($rulings[$c] // "ask") != "ask" then
-       {asks: false, text: "\($p) resolved by \($c): \($rulings[$c])"}
-     else
-       {asks: true, text: ([
-         "\($p) (\($c))",
-         "Problem: " + ($q.problem | text | hang("  ")),
-         "Options:",
-         ($q.options | items | to_entries[] | "\($p).\(.key + 1)" as $o | .value
-          | "  \($o) " + (.does | text | hang("    ")),
-            (.evidence | items[]
-             | if .file != null then "    Evidence: \(.file | text): \"\(.quote | text)\""
-               else "    Evidence: `\(.command | text)`, which printed:",
-                 (if (.output | text) == "" then "      (nothing)" else (.output | text | block("      ")) end)
-               end),
-            "    Cost to you: " + (.cost | text | hang("      "))),
-         "Recommendation: \($q.recommendation | text)",
-         "Why: " + ($q.why | text | hang("  "))
-       ] | join("\n"))}
-     end] as $parts
-  | "Decision \($n)",
-    ($parts[] | "", .text),
-    (if any($parts[]; .asks) then
-       "", "Reply with one option id per problem, such as P1.1, or answer in your own words."
-     else empty end)'
+# The question is stored as printed, so a later turn can put an open
+# problem again by printing it. It is stored before the log, which is
+# what makes the record exist for every other mode, so no record this
+# ask stores lacks the question it printed.
+question=$(render "$n" "$docs" "$log" pattern) || sp_fail 1 "jq failed to render decision $n"
+put "$dir/$n/question" "$question
+" || sp_fail 1 "cannot store $dir/$n/question"
+put "$dir/$n/log" "$log
+" || sp_fail 1 "cannot store $dir/$n/log"
+printf '%s\n' "$question"
