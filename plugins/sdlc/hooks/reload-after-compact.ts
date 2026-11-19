@@ -235,29 +235,30 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   let spent = 0;
   let isOver = false;
   for (const item of kept) {
+    const entry = (status: string) => `- (${status}) ${oneLine(item.label)}`;
     if (item.error !== undefined) {
-      manifest.push(`- ${item.label} (${UNREADABLE}: ${oneLine(item.error)})`);
+      manifest.push(entry(`${UNREADABLE}: ${oneLine(item.error)}`));
       continue;
     }
     if (isOver) {
-      manifest.push(`- ${item.label} (${NOT_APPENDED})`);
+      manifest.push(entry(NOT_APPENDED));
       continue;
     }
     let content: string;
     try {
       content = await $.fs.read(item.label);
     } catch (err) {
-      manifest.push(`- ${item.label} (${UNREADABLE}: ${oneLine(errorText(err))})`);
+      manifest.push(entry(`${UNREADABLE}: ${oneLine(errorText(err))}`));
       continue;
     }
     const tokens = Math.ceil(content.length / 4);
     if (spent + tokens > budget) {
       isOver = true;
-      manifest.push(`- ${item.label} (${NOT_APPENDED})`);
+      manifest.push(entry(NOT_APPENDED));
       continue;
     }
     spent += tokens;
-    manifest.push(`- ${item.label} (${APPENDED})`);
+    manifest.push(entry(APPENDED));
     blocks.push(`${FILE_OPEN}${item.label}">\n${content}\n</file>`);
   }
   if (manifest.length === 0) manifest.push("(none)");
@@ -283,15 +284,13 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
  * length of the file blocks in tokens, counted as characters divided by 4 and rounded to the
  * thousand.
  *
- * `reloadText` writes every error text on one line, so, with no path holding a line break, every
+ * `reloadText` writes every manifest path, error text and state note on one line, so every
  * manifest entry and state note is one line. The manifest and the state paragraph each end at the
  * first blank line after their heading, and the file blocks run from the paragraph after them to
  * the closing tag, one per appended entry, separated by a blank line each. Their summed length is
  * that span less the separators, and no block's text is read.
- * An entry is a manifest line opening with `- `, classified by the suffix that ends it, so a path
- * holding a suffix's text is read right. An unreadable entry whose error text ends in
- * ` (appended below` or ` (not appended: …` reads as the entry that suffix names: its line is the
- * same text as such an entry whose path holds ` (could not be read: `.
+ * An entry is classified by the status that opens it, ahead of its path and of any error text, so
+ * no path or error text changes how it is counted.
  */
 function reloadSummary(text: string): string {
   const opening = `\n\n${MANIFEST_HEAD}\n`;
@@ -303,10 +302,10 @@ function reloadSummary(text: string): string {
   const hasState = text.startsWith(`${STATE_HEAD}\n`, stateAt);
   const blocksAt = hasState ? paragraphEnd(text, stateAt) + 2 : stateAt;
   const blocksEnd = text.endsWith(`\n\n${CLOSE}`) ? text.length - CLOSE.length - 2 : text.length;
-  const entries = manifest.filter((line) => line.startsWith("- "));
-  const appended = entries.filter((line) => line.endsWith(` (${APPENDED})`)).length;
-  const notAppended = entries.filter((line) => line.endsWith(` (${NOT_APPENDED})`)).length;
-  const unreadable = entries.length - appended - notAppended;
+  const count = (opening: string) => manifest.filter((line) => line.startsWith(opening)).length;
+  const appended = count(`- (${APPENDED}) `);
+  const notAppended = count(`- (${NOT_APPENDED}) `);
+  const unreadable = count(`- (${UNREADABLE}: `);
   const chars = appended === 0 ? 0 : Math.max(0, blocksEnd - blocksAt - 2 * (appended - 1));
   const parts = [
     `sdlc: reloaded ${appended} files (${Math.round(chars / 4 / 1000)}k tokens) after compaction`,

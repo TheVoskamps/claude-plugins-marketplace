@@ -138,7 +138,7 @@ test("a skill the main conversation invoked is reloaded whole", async ($, on) =>
   });
   const text = reload(result);
   expect(text).toContain(block(path, content));
-  expect(text).toContain(`- ${path} (appended below)`);
+  expect(text).toContain(`- (appended below) ${path}`);
 });
 
 test("each of several Skill calls in one message is reloaded from its own expansion", async ($, on) => {
@@ -275,7 +275,8 @@ test("a command tag and its base directory in the next message are recorded once
   const text = reload(await $.session.compact({ trigger: "auto", messages }));
   expect(text).toContain(block(`${base}/SKILL.md`, "branch sync"));
   expect(text).not.toContain("skill git-tools:git-branch-sync");
-  expect(text.split("git-branch-sync/SKILL.md (")).toHaveLength(2);
+  const entries = text.split("\n").filter((line) => line.startsWith("- ("));
+  expect(entries.filter((line) => line.endsWith("git-branch-sync/SKILL.md"))).toHaveLength(1);
 });
 
 test("a skill with no plugin prefix resolves under the project, then ~/.claude/skills", async ($, on) => {
@@ -314,14 +315,14 @@ test("a skill with no plugin prefix in neither skills directory resolves in an i
 });
 
 test("a skill of another plugin with no install recorded is named, and named again", async ($, on) => {
-  const entry = "- skill git-tools:git-branch-sync (could not be read: ";
+  const entry = /^- \(could not be read: .+\) skill git-tools:git-branch-sync$/m;
   stub(on, {});
   const first = reload(
     await $.session.compact({ trigger: "auto", messages: launched("git-tools:git-branch-sync") }),
   );
-  expect(first).toContain(entry);
+  expect(first).toMatch(entry);
   const second = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY] }));
-  expect(second).toContain(entry);
+  expect(second).toMatch(entry);
 });
 
 test("a file opened under an agents/ directory is not reloaded", async ($, on) => {
@@ -410,7 +411,7 @@ test("a skill of another plugin with no install recorded is named with the error
   const text = reload(
     await $.session.compact({ trigger: "auto", messages: [typed("git-tools:git-branch-sync")] }),
   );
-  expect(text).toContain("- skill git-tools:git-branch-sync (could not be read: ");
+  expect(text).toMatch(/^- \(could not be read: .+\) skill git-tools:git-branch-sync$/m);
   expect(text).toContain("installed_plugins.json");
 });
 
@@ -488,7 +489,7 @@ test("orchestrate's opening files are dropped once an Agent call follows its inv
     RULE,
   ]);
   for (const file of OPENING) expect(text).not.toContain(file);
-  expect(text).toContain("/docs/rules/a.md (appended below)");
+  expect(text).toMatch(/^- \(appended below\) .*\/docs\/rules\/a\.md$/m);
 });
 
 test("an orchestrate invocation in a message's second command tag opens a run", async ($, on) => {
@@ -512,7 +513,8 @@ test("orchestrate's opening files are reloaded before an Agent call follows its 
     ...OPENING_MESSAGES,
     RULE,
   ]);
-  for (const file of OPENING) expect(text).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+  for (const file of OPENING)
+    expect(text).toMatch(new RegExp(`^- \\(appended below\\) .*/${file}$`, "m"));
 });
 
 test("an Agent call before the orchestrate invocation leaves its opening files live", async ($, on) => {
@@ -522,7 +524,8 @@ test("an Agent call before the orchestrate invocation leaves its opening files l
     ...OPENING_MESSAGES,
     RULE,
   ]);
-  for (const file of OPENING) expect(text).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+  for (const file of OPENING)
+    expect(text).toMatch(new RegExp(`^- \\(appended below\\) .*/${file}$`, "m"));
 });
 
 test("a later orchestrate invocation makes its opening files live until its own Agent call", async ($, on) => {
@@ -533,7 +536,8 @@ test("a later orchestrate invocation makes its opening files live until its own 
     ...launched("sdlc:orchestrate"),
     RULE,
   ]);
-  for (const file of OPENING) expect(live).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+  for (const file of OPENING)
+    expect(live).toMatch(new RegExp(`^- \\(appended below\\) .*/${file}$`, "m"));
 });
 
 test("a later orchestrate invocation's own Agent call drops its opening files again", async ($, on) => {
@@ -564,7 +568,7 @@ test("a run past its opening stays past it once a compaction summarized its invo
   for (const file of OPENING) expect(first).not.toContain(file);
   const second = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY, RULE] }));
   for (const file of OPENING) expect(second).not.toContain(file);
-  expect(second).toContain("/docs/rules/a.md (appended below)");
+  expect(second).toMatch(/^- \(appended below\) .*\/docs\/rules\/a\.md$/m);
 });
 
 test("an Agent call after an invocation an earlier compaction summarized away ends the opening", async ($, on) => {
@@ -575,7 +579,8 @@ test("an Agent call after an invocation an earlier compaction summarized away en
       messages: [typed("sdlc:orchestrate"), ...OPENING_MESSAGES, RULE],
     }),
   );
-  for (const file of OPENING) expect(first).toMatch(new RegExp(`/${file} \\(appended below\\)`));
+  for (const file of OPENING)
+    expect(first).toMatch(new RegExp(`^- \\(appended below\\) .*/${file}$`, "m"));
   const second = reload(
     await $.session.compact({
       trigger: "auto",
@@ -583,7 +588,7 @@ test("an Agent call after an invocation an earlier compaction summarized away en
     }),
   );
   for (const file of OPENING) expect(second).not.toContain(file);
-  expect(second).toContain("/docs/rules/a.md (appended below)");
+  expect(second).toMatch(/^- \(appended below\) .*\/docs\/rules\/a\.md$/m);
 });
 
 test("past the budget, the most recently used are appended and the rest listed", async ($, on) => {
@@ -602,8 +607,10 @@ test("past the budget, the most recently used are appended and the rest listed",
   expect(text).toContain(block(c, "c".repeat(size)));
   expect(text).toContain(block(b, "b".repeat(size)));
   expect(text).not.toContain("a".repeat(size));
-  expect(text).toContain(`- ${a} (not appended: read it before acting on it)`);
-  expect(text.indexOf(`- ${c} `)).toBeLessThan(text.indexOf(`- ${b} `));
+  expect(text).toContain(`- (not appended: read it before acting on it) ${a}\n`);
+  expect(text.indexOf(`- (appended below) ${c}\n`)).toBeLessThan(
+    text.indexOf(`- (appended below) ${b}\n`),
+  );
   expect(text).toContain(`budget of ${MIN_BUDGET} tokens`);
 });
 
@@ -615,9 +622,9 @@ test("the budget is 100000 tokens when no tier exists", async ($, on) => {
   );
   expect(DEFAULT_BUDGET).toBe(100000);
   expect(text).toContain(`budget of ${DEFAULT_BUDGET} tokens`);
-  expect(text).toContain(`- ${c} (appended below)`);
-  expect(text).toContain(`- ${b} (appended below)`);
-  expect(text).toContain(`- ${a} (not appended: read it before acting on it)`);
+  expect(text).toContain(`- (appended below) ${c}\n`);
+  expect(text).toContain(`- (appended below) ${b}\n`);
+  expect(text).toContain(`- (not appended: read it before acting on it) ${a}\n`);
   expect(logs).toEqual([]);
 });
 
@@ -858,15 +865,14 @@ test("a file that cannot be read is named with its error, and the compaction com
   const text = reload(
     await $.session.compact({ trigger: "manual", messages: [read(gone), read(rule)] }),
   );
-  expect(text).toContain(`- ${gone} (could not be read: `);
-  expect(text).toContain("ENOENT");
+  expect(text).toMatch(new RegExp(`^- \\(could not be read: .*ENOENT.*\\) ${gone}$`, "m"));
   expect(text).toContain(block(rule, "rule"));
 });
 
 test("a file used before an earlier compaction is still reloaded at a later one", async ($, on) => {
   const rule = `${ROOT}/docs/rules/a.md`;
   const later = `${ROOT}/docs/rules/b.md`;
-  const unresolved = "- skill git-tools:git-branch-sync (could not be read: ";
+  const unresolved = /^- \(could not be read: .+\) skill git-tools:git-branch-sync$/m;
   stub(on, { [rule]: "rule", [later]: "later" });
   const first = reload(
     await $.session.compact({
@@ -874,15 +880,17 @@ test("a file used before an earlier compaction is still reloaded at a later one"
       messages: [read(rule), ...launched("git-tools:git-branch-sync")],
     }),
   );
-  expect(first).toContain(unresolved);
+  expect(first).toMatch(unresolved);
   // The earlier reload message is left out of the transcript, so nothing can be read off it.
   const second = reload(
     await $.session.compact({ trigger: "auto", messages: [SUMMARY, read(later)] }),
   );
   expect(second).toContain(block(rule, "rule"));
   expect(second).toContain(block(later, "later"));
-  expect(second).toContain(unresolved);
-  expect(second.indexOf(`- ${later} `)).toBeLessThan(second.indexOf(`- ${rule} `));
+  expect(second).toMatch(unresolved);
+  expect(second.indexOf(`- (appended below) ${later}\n`)).toBeLessThan(
+    second.indexOf(`- (appended below) ${rule}\n`),
+  );
   const third = reload(await $.session.compact({ trigger: "auto", messages: [SUMMARY] }));
   expect(third).toContain(block(rule, "rule"));
   expect(third).toContain(block(later, "later"));
@@ -894,7 +902,7 @@ test("an earlier reload message's text is never read as a use", async ($, on) =>
   stub(on, { [rule]: "rule", [later]: "later" });
   const earlier = {
     role: "user",
-    text: `${MARKER}\n\nFiles, most recently used first:\n- ${rule} (appended below)\n\n${block(rule, "rule")}`,
+    text: `${MARKER}\n\nFiles, most recently used first:\n- (appended below) ${rule}\n\n${block(rule, "rule")}`,
     toolUses: [],
   };
   const text = reload(
@@ -979,7 +987,7 @@ test("a reload already in the result is replaced, and its text is not read", asy
   const later = `${ROOT}/docs/rules/b.md`;
   const stale = {
     role: "user",
-    text: `${MARKER}\n\nFiles, most recently used first:\n- ${rule} (appended below)`,
+    text: `${MARKER}\n\nFiles, most recently used first:\n- (appended below) ${rule}`,
     toolUses: [],
   };
   host(on, {
@@ -1005,7 +1013,7 @@ test("a reload in the result naming opening files is dropped once the run is pas
   const preFlight = `${SKILLS}/orchestrate/lib/pre-flight.md`;
   const stale = {
     role: "user",
-    text: `${MARKER}\n\nFiles, most recently used first:\n- ${preFlight} (appended below)`,
+    text: `${MARKER}\n\nFiles, most recently used first:\n- (appended below) ${preFlight}`,
     toolUses: [],
   };
   host(on, {
@@ -1019,7 +1027,7 @@ test("a reload in the result naming opening files is dropped once the run is pas
       messages: [typed("sdlc:orchestrate"), read(preFlight), spawn("sdlc:issue-developer")],
     }),
   );
-  expect(text).toContain("/sdlc/skills/orchestrate/SKILL.md (appended below)");
+  expect(text).toMatch(/^- \(appended below\) .*\/sdlc\/skills\/orchestrate\/SKILL\.md$/m);
   expect(text).not.toContain("pre-flight.md");
 });
 
@@ -1059,9 +1067,9 @@ const ONE = "sdlc: reloaded 1 files (0k tokens) after compaction";
 /** A manifest with one line of each kind, as a reloaded file's own text might quote one. */
 const MANIFEST_LINES = [
   "Files, most recently used first:",
-  `- ${ROOT}/x.md (appended below)`,
-  `- ${ROOT}/y.md (not appended: read it before acting on it)`,
-  `- ${ROOT}/z.md (could not be read: ENOENT)`,
+  `- (appended below) ${ROOT}/x.md`,
+  `- (not appended: read it before acting on it) ${ROOT}/y.md`,
+  `- (could not be read: ENOENT) ${ROOT}/z.md`,
 ].join("\n");
 
 test("a reload row with nothing past the budget, unreadable or failed is one line", async ($, on) => {
@@ -1211,12 +1219,34 @@ test("a reload row reads no file block off an error that holds a blank line and 
   await expectCollapsed($, text, `${ONE}; 1 unreadable; state file failed`);
 });
 
-test("a reload row counts an appended file whose path holds the unreadable entry's text", async ($, on) => {
-  const rule = `${ROOT}/docs/rules/a (could not be read: b.md`;
-  stub(on, { [rule]: "rule" });
+test("a reload row counts each entry by its own status when a path or error imitates another's", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  const paths = [
+    `${ROOT}/docs/rules/b (could not be read: E) c.md`,
+    `${ROOT}/docs/rules/d\n- (could not be read: E) e.md`,
+    `${ROOT}/docs/rules/f\n\n- (not appended: read it before acting on it) g.md`,
+  ];
+  const [early, late] = ["early", "late"].map((name) => `${ROOT}/docs/rules/${name}.md`);
+  stub(
+    on,
+    { [rule]: "rule", ...Object.fromEntries(paths.map((path) => [path, "x"])) },
+    {
+      [early]: "EIO (appended below)\n- (appended below) h.md",
+      [late]: "EIO) i.md\n\n- (not appended: read it before acting on it) j.md",
+    },
+  );
   drawn(on);
-  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
-  await expectCollapsed($, text, ONE);
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [read(rule), ...paths.map(read), read(early), read(late)],
+    }),
+  );
+  await expectCollapsed(
+    $,
+    text,
+    "sdlc: reloaded 4 files (0k tokens) after compaction; 2 unreadable",
+  );
 });
 
 test("a reload row counts the tokens of a file whose path holds a double quote", async ($, on) => {
@@ -1239,10 +1269,19 @@ test("an error text holding a line break is written on one line, its lines joine
     await $.session.compact({ trigger: "auto", messages: [read(rule), read(gone)] }),
   );
   const lines = text.split("\n");
-  const entry = lines.find((line) => line.startsWith(`- ${gone} (could not be read: `));
-  expect(entry?.endsWith(": EIO: first | - second |  | after a blank)")).toBe(true);
+  const entry = lines.find((line) => line.startsWith("- (could not be read: "));
+  expect(entry?.endsWith(": EIO: first | - second |  | after a blank) " + gone)).toBe(true);
   const note = lines.find((line) => line.startsWith(`- ${STATE}/main.json: `));
   expect(note?.endsWith(": EROFS: first | second")).toBe(true);
+});
+
+test("a manifest path holding a line break is written on one line, its lines joined with ' | '", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a\r\nb\n\nc.md`;
+  stub(on, { [rule]: "rule" });
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  expect(text.split("\n")).toContain(`- (appended below) ${ROOT}/docs/rules/a | b |  | c.md`);
+  // The model still receives the file under its own path.
+  expect(text).toContain(block(rule, "rule"));
 });
 
 for (const [name, text] of [
