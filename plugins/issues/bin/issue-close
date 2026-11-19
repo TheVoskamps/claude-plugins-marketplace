@@ -150,6 +150,8 @@ if [ -n "$reason" ]; then
   elif [ "$got_dup_id" = "$dup_id" ]; then
     got_dup_ref=$dup_ref
   else
+    # Parsed only, not iss_operand: gating on that repository's repo-config
+    # could abort before the report names what the close recorded.
     iss_parse_operand "$(iss_jq .duplicateOf.url)"
     got_dup_ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
   fi
