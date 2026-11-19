@@ -1022,3 +1022,146 @@ test("a reload in the result naming opening files is dropped once the run is pas
   expect(text).toContain("/sdlc/skills/orchestrate/SKILL.md (appended below)");
   expect(text).not.toContain("pre-flight.md");
 });
+
+const SURFACES = ["terminal", "desktop", "vscode", "mobile"] as const;
+/** What the `ui.render` stub draws, standing for Claude Code's own drawing of a row. */
+const DRAWN = "drawn by Claude Code";
+
+/** What Claude Code passes to a `ui.render` hook for a user message's row, apart from the app. */
+function row(text: string) {
+  return {
+    plugin: "sdlc",
+    component: "UserMessage",
+    requestId: "row-1",
+    props: { text, isExpanded: false },
+  };
+}
+
+/** Answers `next(e)` at a row with a `Text` holding `DRAWN` and the text of the row it was given. */
+function drawn(on) {
+  on("ui.render", ($, e) => ({ type: "Text", props: {}, children: [DRAWN, e.props.text] }));
+}
+
+/** Draws `text`'s row on every surface, and expects it to be the one dim `line` alone. */
+async function expectCollapsed($, text: string, line: string) {
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...row(text), surface });
+    const found = await ui.find({ type: "Text" });
+    expect(found?.children, surface).toEqual([line]);
+    expect(found?.props.dimColor, surface).toBe(true);
+    expect(await ui.find({ type: "Text", text: DRAWN }), surface).toBeUndefined();
+    await ui.unmount();
+  }
+}
+
+const ONE = "sdlc: reloaded 1 files (0k tokens) after compaction";
+/** A manifest with one line of each kind, as a reloaded file's own text might quote one. */
+const MANIFEST_LINES = [
+  "Files, most recently used first:",
+  `- ${ROOT}/x.md (appended below)`,
+  `- ${ROOT}/y.md (not appended: read it before acting on it)`,
+  `- ${ROOT}/z.md (could not be read: ENOENT)`,
+].join("\n");
+
+test("a reload row with nothing past the budget, unreadable or failed is one line", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  // A reloaded file's own text that reads like the manifest and the state paragraph is not counted.
+  const content = `${MARKER}\n\n${MANIFEST_LINES}\n\nState: the state file failed:\n- x: y`;
+  stub(on, { [rule]: content });
+  drawn(on);
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  await expectCollapsed($, text, ONE);
+});
+
+test("a reload row counts the files past the budget and their tokens", async ($, on) => {
+  const [a, b, c] = ["a", "b", "c"].map((name) => `${ROOT}/docs/rules/${name}.md`);
+  const size = MIN_BUDGET * 2;
+  stub(on, {
+    [a]: "a".repeat(size),
+    [b]: "b".repeat(size),
+    [c]: "c".repeat(size),
+    [`${ROOT}/.sdlc/repo-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: ${MIN_BUDGET}\n`,
+  });
+  drawn(on);
+  const text = reload(
+    await $.session.compact({ trigger: "auto", messages: [read(a), read(b), read(c)] }),
+  );
+  // Two blocks of 128044 characters each are 64022 tokens.
+  await expectCollapsed(
+    $,
+    text,
+    "sdlc: reloaded 2 files (64k tokens) after compaction; 1 not appended",
+  );
+});
+
+test("a reload row counts the files that could not be read", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  stub(on, { [rule]: "rule" });
+  drawn(on);
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [read(`${ROOT}/docs/rules/gone.md`), read(rule)],
+    }),
+  );
+  await expectCollapsed($, text, `${ONE}; 1 unreadable`);
+});
+
+test("a reload row says when the state file failed", async ($, on) => {
+  const rule = `${ROOT}/docs/rules/a.md`;
+  host(on, {
+    read: (path) => (path === rule ? "rule" : undefined),
+    refuseWrite: "EROFS: read-only file system",
+  });
+  drawn(on);
+  const text = reload(await $.session.compact({ trigger: "auto", messages: [read(rule)] }));
+  await expectCollapsed($, text, `${ONE}; state file failed`);
+});
+
+test("a reload row carries every part at once, in order", async ($, on) => {
+  const [a, b, c] = ["a", "b", "c"].map((name) => `${ROOT}/docs/rules/${name}.md`);
+  const size = MIN_BUDGET * 2;
+  host(on, {
+    read: (path) =>
+      ({
+        [a]: "a".repeat(size),
+        [b]: "b".repeat(size),
+        [c]: "c".repeat(size),
+        [`${ROOT}/.sdlc/repo-config.yml`]: `schema-version: 1\n${BUDGET_KEY}: ${MIN_BUDGET}\n`,
+      })[path],
+    refuseWrite: "EROFS: read-only file system",
+  });
+  drawn(on);
+  // The missing file is the most recent, so it is read before the budget runs out.
+  const gone = `${ROOT}/docs/rules/gone.md`;
+  const text = reload(
+    await $.session.compact({
+      trigger: "auto",
+      messages: [read(a), read(b), read(c), read(gone)],
+    }),
+  );
+  // The model still receives every appended file whole.
+  expect(text).toContain(block(c, "c".repeat(size)));
+  expect(text).toContain(block(b, "b".repeat(size)));
+  await expectCollapsed(
+    $,
+    text,
+    "sdlc: reloaded 2 files (64k tokens) after compaction; 1 not appended; 1 unreadable; " +
+      "state file failed",
+  );
+});
+
+for (const [name, text] of [
+  ["any other user message", "Please review the PR."],
+  ["a message holding the marker past its start", `See ${MARKER} above.`],
+]) {
+  test(`${name}'s row is drawn as next(e) draws it`, async ($, on) => {
+    drawn(on);
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...row(text), surface });
+      const found = await ui.find({ type: "Text" });
+      expect(found?.children, surface).toEqual([DRAWN, text]);
+      await ui.unmount();
+    }
+  });
+}
