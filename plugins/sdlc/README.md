@@ -32,7 +32,7 @@ restate the fact.
 | What the merge-readiness loop does on each state the gate reports, which of those it returns as a question, how a ruling is matched to the question it answered, and the bounds on its waits | `agents/pr-merge-readiness.md` |
 | What ends the monitor loop | `agents/pr-monitor.md` |
 | Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
-| Which files a compaction reloads, how a skill's name is resolved to its file, what the reload message holds, and what is recorded from one compaction to the next | `hooks/reload-after-compact.ts` |
+| Which files a compaction reloads, how a skill's name is resolved to its file, what the reload message holds, how its row is drawn on screen, and what is recorded from one compaction to the next | `hooks/reload-after-compact.ts` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How a PR body is cut around the finalizer's section and put back together, so a re-run replaces the section | `bin/sdlc-pr-body` |
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
@@ -573,20 +573,50 @@ of an earlier reload message, which is itself part of the conversation
 the next compaction summarizes. Every earlier reload message is instead
 removed from the compacted conversation, which then holds at most the
 fresh one. A state file that cannot be read or written is named with
-its error in the reload message, and the reload proceeds on the
-transcript alone.
+its error in the reload message, the error written on one line, and
+the reload proceeds on the transcript alone.
 
 The reload is bounded by `reload-after-compact-token-budget`, with
 tokens estimated as characters ÷ 4. Files are appended whole, most
 recently used first; the first file that does not fit, and every file
 after it, is listed by absolute path with an instruction to read it
 before acting on it. A file that cannot be read is listed with its
-error. The key defaults to `100000` and has a floor of `64000`: an
-orchestrate run's working set past its opening — its skill, its lib
-files and the shared interface files — is about 42k tokens, and the
-floor leaves headroom above that for the files the run's own work
-reads, so no accepted budget is too small to carry the orchestrator
-through a compaction.
+error, written on one line. The key defaults to `100000` and has a
+floor of `64000`: an orchestrate run's working set past its opening —
+its skill, its lib files and the shared interface files — is about 42k
+tokens, and the floor leaves headroom above that for the files the
+run's own work reads, so no accepted budget is too small to carry the
+orchestrator through a compaction.
+
+**On screen, the reload message is one line.** It is an ordinary user
+message, so Claude Code would draw it as if the human had typed it: a
+row holding the full text of every reloaded file, after every
+compaction. The hook module therefore also registers a `ui.render`
+hook on the `UserMessage` component, which draws that row as one dim
+summary line on every surface:
+
+```text
+sdlc: reloaded <A> files (<T>k tokens) after compaction; <B> not appended; <C> unreadable; state file failed
+```
+
+`<A>`, `<B>` and `<C>` count the files appended, past the budget and
+unreadable, `<T>` is the appended text in tokens, rounded to the
+nearest thousand, and each part after the first appears only when it
+applies. Only the drawing changes: the model receives the message's
+full text, as the compaction wrote it. Every other user message is
+drawn as it would be without the hook, one that holds the reload
+marker past its start included.
+
+The summary is read off the message's own text, because the render
+hook shares no state with the compaction hook. The message is written
+so that it can be counted. Its list of files states each entry's
+status ahead of its path — `- (appended below) <path>`,
+`- (not appended: read it before acting on it) <path>` or
+`- (could not be read: <error>) <path>` — and every path and error
+text in that list, and every state-file error, is written on one line,
+its lines joined with ` | `. No path or error text can then pass for
+another entry's status, for the state-file paragraph or for the start
+of the reloaded files.
 
 The hook parses no YAML, so it accepts one shape of budget line and no
 other spelling YAML would allow. A tier file holding any other line
@@ -2040,6 +2070,7 @@ adds or removes one edits this roster.
 | Module | Event | Purpose |
 | ------- | --------- | --------------- |
 | `hooks/reload-after-compact.ts` | `session.compact` | Lets the compaction run, removes every earlier reload message from the compacted conversation, and appends one fresh message holding the full text of the skills and rule files the compacted loop used, within the `reload-after-compact-token-budget` budget |
+| `hooks/reload-after-compact.ts` | `ui.render` on `UserMessage` | Draws the reload message's row as one summary line, and leaves every other user message's row as it would be drawn without the hook |
 
 Its test, `test/reload-after-compact.test.ts`, runs under
 `claude plugin test`.
