@@ -70,8 +70,8 @@
 #      and its current path
 #   2  a usage error; nothing was stored
 #   3  the record, or the answer, was refused, or question found no
-#      record to print; stderr names each failing slot, one per line, and
-#      nothing was stored
+#      record it can print; stderr names each failing slot, one per line,
+#      and nothing was stored
 #   4  pending found a pending design-gap problem; stderr names each one,
 #      one per line
 set -uo pipefail

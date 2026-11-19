@@ -25,13 +25,17 @@
 # seed-review record marks and its per-class agreement report over the
 # decision records of the PR, of the issue it closes and of a member its
 # branch names that it does not close. It drives
-# sdlc-decision's ask, answer and print: a record a ruling resolves, an
-# unclassified one no ruling resolves, the answer to a multi-problem
-# record, where a PR's and an issue's records are stored, the repo.yml
-# ask writes and its move of old-layout state, and ask's refusal of an
-# empty problem, an option with no evidence or cost, a malformed
-# recommendation, a class outside the class list, and a file: evidence
-# that does not check out. It checks
+# sdlc-decision's ask, answer, question, print and pending: a record a
+# ruling resolves, an unclassified one no ruling resolves, the answer to
+# a multi-problem record, a later answer on a record a reply left a
+# problem open on, where a PR's and an issue's records are stored, the
+# question ask stores and question's rendering of one from the record,
+# the repo.yml ask writes and its move of old-layout state, a design gap
+# pending until answered, the existing pattern ask prints for a design
+# gap only, and ask's refusal of an empty problem, an option with no
+# evidence or cost, a malformed recommendation, a class outside the
+# class list, a design gap with no existing pattern, and a file:
+# evidence that does not check out. It checks
 # that a command a script does not handle exits through that script's
 # own failure exit, and drives sdlc-pr-round,
 # sdlc-pr-adjustments, sdlc-fixer-brief and sdlc-records-chain against a
