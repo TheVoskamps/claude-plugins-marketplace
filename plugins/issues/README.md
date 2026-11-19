@@ -55,7 +55,9 @@ only when to run it.
   then reads only the `issue-link-prefix`, because that decides how
   every reference parses: a checkout with no file, or one tracked in
   Jira, does not stop work on another repo's issues, and one whose
-  prefix is invalid does. The config verbs write config
+  prefix is invalid does. `/issue-create <repo>` is the exception and
+  reads nothing from the local file, because its `--parent` parses
+  under the target repository's prefix. The config verbs write config
   rather than requiring it. It is team-shared and committed, so one
   person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` and `jq` for the
@@ -219,13 +221,13 @@ every other verb's issue operand carries its repository in the
 reference itself. The repo-config that governs the run is the
 operand's repository's own: for another repo the script reads that
 repo's `.issues/repo-config.md` from its default branch through the
-read-only contents API and reads nothing from the current repo's,
-since the target's alone governs which tracker it is on and what a
-slot accepts there. A target whose config is present and supported is
-used exactly as a local one; one tracked in Jira stops the verb with
-the fixed Jira message, and one at an unsupported schema version
-aborts with the canonical schema-version wording, in each case before
-an issue is read or written. A target with none degrades by verb:
+read-only contents API, since the target's alone governs which tracker
+it is on and what a slot accepts there. A target whose config is
+present and supported is used exactly as a local one; one tracked in
+Jira stops the verb with the fixed Jira message, and one at an
+unsupported schema version aborts with the canonical schema-version
+wording, in each case before an issue is read or written. A target
+with none degrades by verb:
 `/issue-create` files a plain issue — title, body, labels, assignees —
 with a `note:` line saying project fields were skipped,
 `/issue-field-options` reports every slot there as unconfigured,
