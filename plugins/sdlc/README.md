@@ -47,7 +47,12 @@ restate the fact.
 | Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
 | How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
 | What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with, and which of a PR's reviews are pipeline reviews | `skills/pr-read-cli-interface/SKILL.md` |
-| Which sources a run's time report reads, how it attributes each second, and what it names as missing | `bin/sdlc-orchestrate-analysis` |
+| Which sources a run's time report reads, how it attributes each second, what it names as missing, and what its Decisions table counts per decision class | `bin/sdlc-orchestrate-analysis` |
+| The decision record's file format, what `ask` refuses, the closed class list, how problems and options are numbered, the printed question, and where a record is stored | `bin/sdlc-decision` |
+| How a skill puts a decision to the human through that script: one record per turn, fitting a list of candidates to the option count, ending the turn on what `ask` printed, and recording the reply | `skills/lib/decision-record.md` |
+| Which prompts a skill keeps out of the decision record, and what it keys its records on | that skill's own `SKILL.md` |
+| What a standing-ruling key is, and what each one's ruling does | `skills/lib/sdlc-config.md` |
+| The conditions under which the orchestrator passes a standing ruling to a record | `skills/orchestrate/SKILL.md` |
 | What the cleanup removes in each scope and in what order, what it keeps, the lines it prints and what it exits with | `bin/sdlc-orchestrate-cleanup` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
@@ -84,7 +89,7 @@ the body, in one of two shapes:
 | Lib file | Moment |
 | --- | --- |
 | `pre-flight.md` | before any issue is read: the primary-clone check, the per-repo config read, and the sdlc config resolution |
-| `plan.md` | grouping the issues into batches and waves, the decision item for a batch that needs a resolving install, the plan presented before anything spawns, and whether Execution waits for the human to confirm it |
+| `plan.md` | grouping the issues into batches and waves, the decision item for a batch that needs a resolving install, the plan presented before anything spawns, the one decision record its decision items go through, and whether Execution waits for the human to confirm it |
 | `issue-lifecycle.md` | every issue-status transition, and the `/issue-*` verbs the orchestrator runs |
 | `pr-lifecycle.md` | a PR from the developer's report to the ready flip: the link to its issues, the round-0 write, the body freeze, the documentation loop's briefs and round mechanics, the one spawn once the documentation loop has ended, the close-out, reopening the review loop after one, and the briefs for the two loop agents |
 | `wrap-up.md` | after the last PR's monitor loop ends, or its ready flip when the run monitors nothing: the post-merge tail and the summary |
@@ -210,7 +215,9 @@ loops:
   more than one batch, so a plan stops only where it carries a decision
   or a grouping across batches for the human to rule on. A plan that
   does not wait says so in place of its prompt, naming the value that
-  let it through.
+  let it through. A plan carrying a decision item ends on its decision
+  record's question in place of the prompt, and the reply to it also
+  confirms the plan.
 - `max-issues-per-batch` — the most issues one batch holds, a positive
   integer that defaults to `8`. A batch the grouping would make larger
   is split into more batches.
@@ -240,26 +247,46 @@ loops:
 - `docs-loop-end` — whether the documentation loop's end, before the
   merge stages and the ready flip, waits for the human. It takes the
   same values, and defaults to `auto-when-clean`.
+- `follow-up-issue-type`, `follow-up-issue-priority`,
+  `follow-up-issue-status` and `follow-up-issue-assignee` — the fields
+  a follow-up issue the human ordered is filed with, for each field
+  the order named no value for. Each defaults to `repo-default`, which
+  files the issue with the target repository's own default and asks
+  nothing, except for a priority or status slot the target configures
+  with no default, which is asked. `ask` makes the field a question. A
+  type, option or login name is passed as given, and the assignee also
+  takes `@me` and `none`, which files the issue unassigned.
+- `outside-criteria-finding` and `recurring-finding-class` — the
+  standing rulings, per "A standing ruling settles a recurring class
+  of finding from config" below. They default to `fix-in-pr` and
+  `fix-class`, and each takes `ask`.
 
 The two loops count their rounds separately, so no code-loop round
 counts against `docs-review-max-rounds`. A loop that reaches its cap
-escalates to the human with every finding still open; under `unlimited`
-it has no cap and runs until a review approves with no findings.
+ends there, and that end reaches the human as one decision listing
+every finding still open; under `unlimited` it has no cap and runs
+until a review approves with no findings.
 
 Neither loop-end key has any effect on the other loop's end. `ask`
-waits for the human's confirmation at every end of its loop, so
-`docs-loop-end: ask` restores the confirmation before the ready flip,
-and `loop-end: ask` the one before the documentation loop.
-`auto-when-clean` skips that confirmation for a clean end — a last
-review round that is APPROVED with no open finding of any severity —
-and starts the next stage. Every other end still asks, under either
-value: a loop at its round cap, and a loop the human's ruling ended.
+puts every end of its loop to the human as a decision, so
+`docs-loop-end: ask` restores the decision before the ready flip, and
+`loop-end: ask` the one before the documentation loop.
+`auto-when-clean` skips that decision for a clean end — a last review
+round that is APPROVED with no open finding of any severity — and
+starts the next stage. Every other end still asks, under either value:
+a loop at its round cap, and a loop the human's ruling ended.
 
-That a loop ends only on the human's confirmation is a policy, and
+That a loop ends only on the human's pick is a policy, and
 `auto-when-clean` is its one exception: under that value the human
 confirmed every clean end of the loop in advance. Whether an end is
 clean is read off the PR's stored round state, never off the reviewer's
 report, so the question is skipped only on a verdict the state holds.
+
+A finding still open at a round cap reaches the human only as that
+loop end's decision. It used to be a Needs Your Attention row of the
+run summary as well, which asked the human to act a second time on
+something they had already ruled on. A PR the pick leaves draft is
+listed in the summary under Left Draft, with the pick.
 
 One key belongs to no moment of the flow:
 `reload-after-compact-token-budget` bounds how much text the
@@ -269,8 +296,11 @@ With no config file at any tier, a run does not wait for the human at
 a plan with one batch and no decision item, at the seed theorem list,
 or at a loop's clean end: the defaults keep the waits where there is
 something to decide. At the seed list it applies the assessment's
-recommendations rather than accepting the list as generated. Each key
-that takes `ask` restores its own wait when set to it.
+recommendations rather than accepting the list as generated. Nor does
+it wait at a finding outside the issue that meets `fix-in-pr`'s
+conditions, at a finding class recurring for the first time, or at the
+fields of a follow-up issue. Each key that takes `ask` restores its own
+wait when set to it.
 A PR that adds a key, or changes a default, edits this list.
 
 The config is three YAML files — a global user file outside every
@@ -295,8 +325,13 @@ from the run that spawned it. The brief that carries a key and the
 receiving agent's `## Inputs` are therefore one change, the same as any
 other spawn-template field.
 
-The `reload-after-compact` hook is the one reader besides the
-orchestrator. It runs on every compaction, inside an orchestrate run or
+`/sdlc:orchestrate-ready` resolves the tiers too, before its first
+question, and prints them the same way. It spawns no agent, and reads
+them for the `follow-up-issue-*` keys a side-effect issue is filed
+with.
+
+The `reload-after-compact` hook is the one reader besides those two
+skills. It runs on every compaction, inside an orchestrate run or
 outside one, and has no brief to receive a value in, so it resolves the
 tiers itself and takes its budget key alone from them. It is not an
 agent, so the decision above stands as worded.
@@ -317,6 +352,165 @@ What the two switches leave alone is as deliberate as what they skip:
   Nothing re-runs the merge-readiness gate after that flip, so a PR
   that falls `BEHIND` or `DIRTY` while it waits is the human's to
   remedy, not the run's.
+
+## Every question to the human is a checked decision record
+
+`/sdlc:orchestrate` and `/sdlc:orchestrate-ready` used to put decisions
+to the human as free prose, and nothing checked the prose or kept the
+answer. A question could arrive with no decidable problem statement — a
+finding's id and severity, and nothing about what was wrong. A turn
+raising several problems drew a reply such as "1" that mapped to none of
+them, and a second question was spent on which was meant. And a class of
+question the human answered the same way every time was asked again on
+every run, because no record showed the pattern and nothing could act
+on it.
+
+So a decision — any question that asks the human to choose — reaches
+them only as what `bin/sdlc-decision ask` printed for a **decision
+record**. The asking skill writes the record as a YAML file holding
+every problem its turn raises, and each problem fills these slots:
+
+- **class** — which kind of decision it is, from the closed class list,
+  or `unclassified` when none fits. The list is defined in
+  `plugins/sdlc/bin/sdlc-decision` and nowhere else.
+- **problem** — what is wrong, where, and what it causes.
+- **options** — two to four, each with what it does, the **evidence**
+  it rests on, and its **cost to the human**: what the human must do or
+  notice for the option to work, or `none`. Evidence is typed, either a
+  `file:` path and line with the text quoted from that line, or a
+  `command:` with the output it printed.
+- **recommendation** — one option id, with nothing attached.
+- **why** — the reason for that pick.
+
+The question goes through a script because each failure above was a
+slot left empty or an answer left unrecorded, and prose that nothing
+checks is what had let both through. `ask` refuses the record, storing
+nothing and naming every failing slot, when:
+
+- a problem statement or a `why` is empty;
+- the class is missing or outside the class list;
+- a problem holds fewer than two options or more than four;
+- an option does not say what it does, has no cost to the human, or
+  has no evidence;
+- a piece of evidence is neither `file:` nor `command:`, or is both;
+- a `file:` evidence names a file that does not exist or a line it
+  does not have, or its quote is not on that line;
+- a `command:` evidence lacks the command or its output;
+- the recommendation names no option of its problem, names more than
+  one, or carries anything beside the option id.
+
+**`ask` never runs a `command:` evidence.** It checks only that the
+command and its output are present, so that output is the asker's
+record of what it ran. A `file:` evidence is the one kind `ask`
+verifies, by reading the named line of the file where it runs; text no
+file there holds, such as an issue's body or a line on a branch that is
+not checked out, is cited as a `command:` instead.
+
+A sound record is stored and printed in a fixed format: problems are
+numbered `P1`, `P2` and on, and each problem's options `P1.1`, `P1.2`
+and on, so every option in a turn has an id no other option shares and
+a reply of bare ids maps to exactly one option per problem. The human
+may still answer in their own words. `answer` then stores the pick as
+`none` beside the reply verbatim, and a problem the reply did not
+address is stored as `unanswered`, to be asked again. That is why the
+grooming skill's rule against a multiple-choice form for an open design
+question names the record as its exception: the numbered options make
+the reply mappable and countable without capping the answer.
+
+Some prompts stay outside the record, because each asks for a ruling
+on a whole artifact shown above it rather than a choice between
+options: the plan's confirmation prompt, and the per-theorem rulings on
+the seed list under `seed-review: ask`. A plan that carries decision
+items puts them through one record, one problem per item, and ends on
+that record's question in place of its confirmation prompt.
+
+A record is keyed on the PR, or on an issue where no PR exists yet: a
+grooming session, or a batch whose PR is not open. A PR's records are
+stored beside its round directories and an issue's in a directory of
+its own, per "Files it writes". `ask` lays the repository's state
+directory out through the same functions `sdlc-agent-result-persist`
+uses, in `bin/lib/sdlc-pr-common.sh`: it moves state written before the
+host was part of the path and writes `repo.yml`, so whichever script
+runs first for a repository leaves the layout the other expects.
+
+The stored picks are what make the pattern visible. The Decisions
+table of `/sdlc:orchestrate-analysis` counts, per class, the questions
+asked, the records a ruling resolved, the picks equal to the
+recommendation, the picks that differ, and the answers in free text. It
+reads the records keyed on the PR, on each issue the PR closes, and on
+each issue the PR's head branch names, so a record asked before the PR
+existed is counted, and so is one keyed on a member the PR no longer
+closes. A class the human always answers as recommended is a candidate
+for a standing ruling.
+
+### A standing ruling settles a recurring class of finding from config
+
+A **standing ruling** is a config key named after a decision class.
+Passed to `ask` as `--ruling <class>=<value>`, it resolves a record of
+that class: `ask` prints `resolved by <class>: <value>` and no
+question, and the skill applies the ruling. An `unclassified` problem
+is never resolved by one. The classes below recurred on most runs with
+the same answer each time, and each stopped the run until the human
+replied, so each has a key that defaults to that answer:
+
+- **`outside-criteria-finding`**, default `fix-in-pr` — a finding, or
+  an observation no review filed, whose fix lies outside the issue's
+  acceptance criteria is fixed in this PR, with the issue edit the fix
+  needs. The orchestrator passes the ruling only when all of these
+  hold:
+  - every file the fix touches is in this repository;
+  - the PR is still a draft;
+  - the fix needs no decision the issue and the repo leave open, which
+    it does when the orchestrator cannot name one fix, with no
+    condition attached, backed by evidence from the finding and the
+    tree.
+
+  A finding that fails any of them stays with the human: a fix in
+  another repository, a fix to a PR that has left draft, and a fix with
+  a choice still open in it.
+- **`recurring-finding-class`**, default `fix-class` — when findings
+  of one class are filed on two consecutive rounds, the next fixer
+  brief covers every instance of the class at head rather than the
+  reported sites. The record cites both rounds' finding ids as its
+  evidence. A class that recurs again after the round that fixed the
+  whole class stays with the human, since the ruling has by then been
+  tried.
+
+Set to `ask`, either key leaves every record of its class with the
+human, as before the keys existed.
+
+The conditions sit with the orchestrator rather than in `ask` because
+each is a judgment about the fix, and `ask` checks a record's shape. A
+ruling the orchestrator does not pass resolves nothing, so a finding
+outside the conditions is asked exactly as under `ask`.
+
+That a standing-ruling key defaults to `ask` is the general rule, and
+these keys are its named exceptions: each names its fix value as its
+default in its own row of the config contract.
+
+A decision a standing ruling resolved never reached the human as a
+question, so it is made visible afterwards: the round's report names
+it, the fixer brief carries the finding under a ruling of its own, and
+the PR's final section records it as that config key's ruling, never
+as the human's or the orchestrator's.
+
+Each piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| The record's slots, what `ask` checks, the class list, the ids, and the `resolved by` line | `bin/sdlc-decision` |
+| The procedure for putting a decision through the record, and how many options a list of candidates becomes | `skills/lib/decision-record.md` |
+| That a decision reaches the human only through the record, the prompts the orchestrator keeps outside it, and what it keys a record on | `skills/orchestrate/SKILL.md` |
+| The same for a grooming session, and the named exception to the rule against a multiple-choice form | `skills/orchestrate-ready/SKILL.md` |
+| The shape of a standing-ruling key, each such key and what its ruling does, and the `follow-up-issue-*` keys | `skills/lib/sdlc-config.md` |
+| The conditions on passing `fix-in-pr`, when `fix-class` is no longer passed, and the fixer-brief ruling a resolved finding carries | `skills/orchestrate/SKILL.md` |
+| What a fixer does with a finding a standing ruling resolved, and with an owner ruling naming a class | `agents/issue-fixer.md`, and `agents/docs-writer.md` in the documentation loop |
+| That a resolved decision is named in the round's report and reaches `pr-finalizer` as a scope note | `skills/orchestrate/lib/pr-lifecycle.md` |
+| How a resolved decision is worded in the final section | `agents/pr-finalizer.md` |
+| That a round-cap end is one decision and no Needs Your Attention row, and the Left Draft table | `skills/orchestrate/SKILL.md` and `skills/orchestrate/lib/wrap-up.md` |
+| How a follow-up issue's fields are filed, and what declining a field's question does | `skills/orchestrate/lib/issue-lifecycle.md` |
+| What the Decisions table counts and which records it reads | `bin/sdlc-orchestrate-analysis` |
+| The state root's repository layout, shared by the scripts that write under it | `bin/lib/sdlc-pr-common.sh` |
 
 ## A compaction reloads the skills and rule files a loop was working from
 
@@ -419,9 +613,11 @@ issue's files-affected section lists a lockfile or a package manifest
 tagged `update` or `new`; that section alone decides it, never the
 issue's prose. Such a batch is a decision item on the plan, stating the
 command, the directory it runs in, and whether any external version can
-move. The human's yes to that item is the direction the install needs,
-and until it is given the batch does not spawn, whatever else the plan
-confirm settles.
+move. The item is a problem of the plan's decision record, whose
+options are running the install as stated and holding the batch out of
+the run. The human's pick of the option that runs it is the direction
+the install needs, and until it is given the batch does not spawn,
+whatever else the plan confirm settles.
 
 The developer of an approved batch is briefed with the command and the
 directory. It commits and pushes the manifest changes, opens no PR, and
@@ -444,7 +640,7 @@ one party in the run that holds it.
 
 | Slot | Owner |
 | --- | --- |
-| Which batches need a resolving install, what the decision item states, and that the batch waits on the yes | `skills/orchestrate/lib/plan.md` |
+| Which batches need a resolving install, what the decision item states, its options, and that the batch waits on the pick that runs the install | `skills/orchestrate/lib/plan.md` |
 | The developer's checkpoint under an approved install, and how a developer continues on an existing branch | `agents/issue-developer.md` |
 | Running the install, what sends it to the human, the fresh developer's brief, and the exception to the rule against agent-owned work | `skills/orchestrate/SKILL.md` |
 
@@ -625,7 +821,10 @@ that section asks for is `docs-writer`'s, in the documentation loop,
 where that section and the documentation the diff made stale are the
 ceiling in turn. A review finding whose fix lies outside the ceiling is
 the orchestrator's ruling when the repo settles it, quoting the
-sentence that settles it, and the human's to admit or refuse otherwise.
+sentence that settles it. One the repo leaves open is a decision of
+class `outside-criteria-finding`: the standing ruling of that name
+resolves it when its conditions hold, as `fix-in-pr` by default, and it
+is the human's to admit or refuse otherwise.
 A developer's diff that reaches a plugin the issue does not name or
 renames or deletes a file the issue does not specify is the human's to
 admit or refuse; the orchestrator never admits one on its own. The
@@ -682,11 +881,11 @@ prose asking for judgment, and each slot has one owner:
 | --- | --- |
 | The `Scope:` block that ends the developer's report | `agents/issue-developer.md` |
 | The gate that reads that block before the first review round | `skills/orchestrate/SKILL.md` |
-| The ruling every finding line of a fixer brief ends in — a scope ruling, the orchestrator's ruling quoting the repo sentence that settles the finding, or the human's answer on a finding the orchestrator put to them — and what it is derived from | `skills/orchestrate/SKILL.md` |
-| The cases in which a finding is put to the human at all, and that an in-scope finding is never one of them | `skills/orchestrate/SKILL.md` |
+| The ruling every finding line of a fixer brief ends in — a scope ruling, the orchestrator's ruling quoting the repo sentence that settles the finding, the standing ruling that resolved a finding outside the issue, or the human's answer on a finding the orchestrator put to them — and what it is derived from | `skills/orchestrate/SKILL.md` |
+| The cases in which a finding is put to the human at all — a finding outside the issue only when no standing ruling resolves it — and that an in-scope finding is never one of them | `skills/orchestrate/SKILL.md` |
 | That a finding carries one recommendation, the fix, and no rejection alternative or intent question of its own | `agents/theorem-based-pr-reviewer.md` |
 | What a fixer does with a ruled finding line, and with one that has no ruling | `agents/issue-fixer.md` |
-| The rule that a finding class recurring on consecutive rounds is a design question | `skills/orchestrate/SKILL.md` |
+| The rule that a finding class recurring on consecutive rounds is a `recurring-finding-class` decision, what makes two findings one class, and that a class recurring after a brief that covered it goes to the human | `skills/orchestrate/SKILL.md` |
 | The grading of an issue body's structural instruction against the repo | `skills/orchestrate/SKILL.md` |
 | How a finding dropped on a scope ruling reaches the next round and retires | `agents/theorem-based-pr-reviewer.md` |
 | How a finding dropped on a scope ruling is worded in the PR's final section | `agents/pr-finalizer.md` |
@@ -1238,8 +1437,17 @@ the adjustment cut, a code-scanning or human review that must not set
 it among them; and that the adjustments read reaches the previous
 round's log through the persist script and nothing else — and checks
 that a command any executable under `bin/` does not handle exits
-through that executable's own failure status. It needs only bash,
-`jq` and the POSIX utilities, and reaches no network.
+through that executable's own failure status. It drives
+`sdlc-decision` against the same kind of root: each refusal `ask`
+makes, a `command:` evidence that would leave a marker if run, a
+record a ruling resolves and an `unclassified` one no ruling resolves,
+the answer to a multi-problem record, where a PR's and an issue's
+records are stored, and the `repo.yml` `ask` writes and its move of
+old-layout state. And it drives the time report's Decisions table over
+the records of a PR, of the issue it closes and of a member its branch
+names that it does not close. It needs bash, `jq`, mikefarah `yq` v4
+or later, the POSIX utilities and `git-tools`' `git-issue-branch` in
+the same checkout, and reaches no network.
 
 `bin/test/sdlc-agent-result-persist-test.sh` drives the derivation
 modes the same way, each case against a state root of its own: every
@@ -1526,7 +1734,7 @@ verdict then reflects it.
 | `/sdlc:git-review-pr <PR> [--generator-effort <low\|medium\|high\|xhigh>] [--full] [--mode <mode>]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `/sdlc:orchestrate-cleanup <PR> [--review-state] [--dry-run]` | Remove what one merged or closed PR left behind — the worktrees of the agents its state records, its local head branch and the `.claude/tmp/` scratch of the issues it closes — asking nothing, then bring the default branch up to date; the PR's review state is kept, and removed too only with `--review-state`; `--dry-run` lists what would go and removes nothing | main session |
 | `/sdlc:orchestrate-cleanup --all [--review-state] [--dry-run]` | Remove everything every run left in this repo — every worktree under `.claude/worktrees/`, every local branch but the default branch, all `.claude/tmp/` scratch and every other session's scratchpad — after showing the full list and asking one go-ahead; review state is kept, and every PR's is removed too only with `--review-state`; `--dry-run` shows the list and asks nothing | main session, interactive |
-| `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
+| `/sdlc:orchestrate-analysis <PR>` | Report where one orchestrate run's wall-clock time went, and how the human's picks compare with the recommendations put to them per decision class — a thin wrapper that runs `bin/sdlc-orchestrate-analysis` on a PR given in any form `/github-prs:pr-view` accepts and presents its output unchanged | main session |
 | `/sdlc:sdlc-config-global` | Create or merge-update the global user sdlc config, the lowest tier | main session, interactive |
 | `/sdlc:sdlc-config-repo` | Create or merge-update the shared, tracked repo sdlc config | main session, interactive |
 | `/sdlc:sdlc-config-user` | Create or merge-update this user's repo sdlc config, the highest tier, and keep it gitignored | main session, interactive |
@@ -1657,7 +1865,8 @@ enabled. A PR that adds or removes an executable edits this roster.
 | Executable | Purpose | Contract |
 | ------- | --------- | --------------- |
 | `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state, and derives from it the arm a round is in, each theorem's disposition and severity, the verdicts and the posted review body; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
-| `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline; writes nothing | its own header comment |
+| `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline, and the per-class Decisions table, reading the decision records of the PR, of each issue it closes and of each issue its head branch names only through `sdlc-decision print`; writes nothing | its own header comment |
+| `bin/sdlc-decision` | `ask` checks a decision record, stores it and prints the question, or a `resolved by` line for a problem a `--ruling` resolves; `answer` stores the human's pick per problem and the reply verbatim; `print` lists the records of one PR or one issue; `ask` needs mikefarah `yq` v4 or later, and runs no `command:` evidence | its own header comment |
 | `bin/sdlc-pr-round` | Prints the number of the review round under way, from the PR's pipeline reviews and its rounds' state: the round after the newest posted pipeline review, or a round above that one already begun | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-adjustments` | Prints the comments posted since the previous round, less sdlc's own marker comments, cutting at the newest pipeline review, else at the newest instant in the previous round's log — never round 0's, so round 1 cuts at the PR's creation — else at the PR's creation | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
@@ -1750,11 +1959,18 @@ stamp each as both a regex that matches it and a function that prints
 it.
 It also holds the one test of whether a review is a pipeline review,
 so the round number and the adjustments cut cannot disagree about
-which reviews count. `sdlc-agent-result-persist` sources
-the helper for the stamp alone, keeping its own failure exits, and
+which reviews count. The helper also holds the state root's repository
+layout — which directory is a repository's, the `repo.yml` that
+identifies it, and the move of state written before the host was part
+of the path — so `sdlc-agent-result-persist` and `sdlc-decision`, which
+both write under that root, cannot lay it out differently. A move that
+cannot remove a directory it emptied reports that and leaves the
+directory in place, without failing the move.
+`sdlc-agent-result-persist` sources the helper for the stamp and the
+layout alone, keeping its own failure exits, and
 finds it beside the path it was run by, so it runs from `bin/` or
 through a wrapper that execs it there, never through a symlink placed
-in another directory.
+in another directory. `sdlc-decision` finds it the same way.
 The PR-read scripts
 read and cut and decide nothing: whether an adjustment is a rejection,
 an override, a scope drop or a missed defect, and what a brief asks,
@@ -1789,8 +2005,9 @@ first number with no log used to drop every round above it.
 Every executable under `bin/` turns a failure in a command it did not
 handle into its own failure status with a line naming the command,
 never the tool's own status — the PR-read scripts, the detail poster,
-the readiness check, the PR monitor, the cleanup, the body script and
-the line extractor exit 1, the persist script and the time report route
+the readiness check, the PR monitor, the cleanup, the body script, the
+line extractor and the decision script exit 1, the persist script and
+the time report route
 it through their existing exit 2 — so
 a caller branching on an exit sees only the statuses each contract
 documents.
@@ -1798,7 +2015,9 @@ documents.
 The time report and the detail poster compose no state path of their
 own: each reaches round logs, result files and transcripts only through
 the paths `sdlc-agent-result-persist`'s read modes print, so a change
-to where that state lives is a change to one executable. The detail
+to where that state lives is a change to one executable. The time
+report reaches decision records the same way, only through
+`sdlc-decision print`. The detail
 poster posts through github-prs' `pr-comment` executable, called by
 name off `PATH`, so each chunk is re-read after it lands without the
 poster spelling a `gh` call of its own. A source the time report cannot
@@ -1827,7 +2046,10 @@ repository — a review round writes nothing to the branch it reviews. A
 PR that adds or removes one of these edits this list, the same
 convention "Executables" above sets. Which mode writes each, and the
 record grammar the log holds, are part of that contract and are owned
-by `skills/agent-result-persist-interface/SKILL.md`.
+by `skills/agent-result-persist-interface/SKILL.md`. The decision
+records sit under the same repository directory and are written by
+another script, `bin/sdlc-decision`: each record it asks, and the
+reply to it.
 
 The script never takes a payload — a child's report, a round's records
 or review, the edits and new records a carried round is built from —
@@ -1870,13 +2092,15 @@ PR's repository's directory, and `<round-dir>` for
 
 | File | What it holds |
 | ------- | --------------- |
-| `<repo-dir>/repo.yml` | the host, owner and name of the repository whose state the directory holds, written when the directory is created |
+| `<repo-dir>/repo.yml` | the host, owner and name of the repository whose state the directory holds, written when the directory is created, by whichever of `sdlc-agent-result-persist` and `sdlc-decision ask` runs first for the repository |
 | `<round-dir>/log` | the round log, whose `anchor` line names the round's type beside the head it was generated against; round 0's holds the seed generator's `spawn` record, a `seed-review` record when the config applied the seed assessment, and no anchor |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>/records` | the round's theorem records, which the next round of its type carries forward — built by the script from the round of that type below plus the reviewer's edits and new records; round 0's is the ruled seed, stored whole |
 | `<round-dir>/review` | the round's argued review, from which `--mode summary` renders the posted review; the detail chain `pr-finalizer` posts at a close-out carries it whole, split across chunks when it is too large for one |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 | `<repo-dir>/pr<pr>/agents` | the PR's agents log: one record per agent spawned for the PR, naming the definition and the agent id, beside the rounds because a spawn belongs to no round and a voided round's rename must not carry it away |
+| `<repo-dir>/pr<pr>/decisions/<n>/` | one decision record put to the human about the PR, numbered in the order asked: `record.yml`, the record as the skill wrote it; `log`, when it was asked, each problem's class and recommendation, and which problems a ruling resolved or the human picked an option for; and `reply`, the human's reply verbatim, once answered |
+| `<repo-dir>/issue<N>/decisions/<n>/` | the same, for a decision asked where no PR exists: a grooming session's, keyed on the issue it grooms, and one a run asks before a batch's PR is open, keyed on the batch's first member |
 
 Neither the records file nor the review file is capped, quoted or
 truncated: the 64 KB ceiling that once bounded what a round could
@@ -1911,7 +2135,11 @@ the file wins. State written before the host was part of the path, at
 `sdlc/<owner>/<repo>/`, is moved lazily — the first run of the script
 for that repository moves it into place, host from `--pr` or from the
 repository `--mode list` is given, and writes its `repo.yml`, so no
-host is guessed and no network call is made. `--mode list` takes its
+host is guessed and no network call is made. `sdlc-decision ask` makes
+the same move before it stores a record, host from its `--pr` or
+`--issue` reference, so a decision asked ahead of any review round
+does not leave a repository's state split across both paths.
+`--mode list` takes its
 repository as an optional operand — `<host>/<owner>/<repo>`, its URL,
 or a shorter form filled in from the current repository, which is also
 what an omitted operand means — and prints each PR as the reference
@@ -1947,7 +2175,9 @@ removes a whole `pr<N>/`, and the only call of it that deletes is
 runs: the cleanup `/sdlc:orchestrate` runs for a merged PR passes no
 such flag, and review state is kept unless it is passed. So a `pr<N>/`
 outlives every round of its PR and the PR's merge, and goes only when
-the human decides its evidence is no longer wanted.
+the human decides its evidence is no longer wanted. The PR's decision
+records sit inside that directory and go with it. An `issue<N>/`
+directory is removed by no `sdlc` surface.
 
 The `reload-after-compact` hook's state is outside the review
 pipeline's and is not written through that script. It lives under the
@@ -2095,8 +2325,13 @@ wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, `git-range`, `git-branch-sync`, the PR verbs,
 `agent-memory-inbox-capture`, and `agent-memory-inbox-cleanup` — and
 that the executables the scripts here call off `PATH` are there to
-call: `pr-comment` for the detail poster, and `git-default-branch`,
-`pr-view` and `pr-closing-issues` for the cleanup. The
+call: `pr-comment` for the detail poster, `git-default-branch`,
+`pr-view` and `pr-closing-issues` for the cleanup, and `pr-view` and
+`git-issue-branch` for the time report's Decisions table. The
+unassigned follow-up issue relies on `/issue-create --no-assignee`,
+which `issues` has from 0.15.0. `yq`, which `sdlc-decision ask` parses
+a record with, comes with no plugin: it is the mikefarah build, v4 or
+later, installed on the machine, and `ask` exits 1 without it. The
 edge coordinates install and enablement, not file access: plugins are
 file-sandboxed, so nothing here reads another plugin's files.
 
