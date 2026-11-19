@@ -85,7 +85,8 @@ from its issue.
    The brief carries the findings, each on a line that ends with its
    scope ruling — `— in scope`, `— in scope: <the sentence that settles
    it>`, `— settled, no fix: <the sentence that settles it>`,
-   `— outside the issue; put to the human: <question> →
+   `— outside the issue; resolved by outside-criteria-finding:
+   fix-in-pr`, `— outside the issue; put to the human: <question> →
    <answer>`, or `— put to the human: <question> → <answer>` — plus an
    owner-rulings section for work that is not itself a finding, the
    issue set the PR closes, and the branch name.
@@ -99,9 +100,10 @@ from its issue.
    past what the human admitted. A finding ruled `settled, no fix` is
    not fixed — the repo already decides it, in the sentence its line
    quotes; one ruled `in scope:` with
-   a quoted sentence is fixed as that sentence calls for, and one ruled
-   `put to the human` exactly as the answer on its line says, and
-   neither otherwise.
+   a quoted sentence is fixed as that sentence calls for, one ruled
+   `resolved by outside-criteria-finding: fix-in-pr` is fixed as the
+   finding states it, and one ruled `put to the human` exactly as the
+   answer on its line says, and none otherwise.
 
    A brief that carries no findings but names a merge state is the
    other kind of brief, and "Merge-readiness briefs" below says what
@@ -126,9 +128,13 @@ from its issue.
    re-tier. An owner ruling names in-scope work that is not itself a
    finding, or a decision, the orchestrator's or the human's, that
    belongs to no single finding;
-   both are yours to carry out. Before you act on either, re-verify
-   what it claims about the world at head (see "Before you write a
-   remedy" below).
+   both are yours to carry out. An owner ruling that names a finding
+   class — the theorem it was filed under, or the file the previous
+   rounds' fixes edited — covers every instance of the class at head,
+   not only the sites the findings report: find each one, fix each one,
+   and report each site under that ruling. Before you act on either,
+   re-verify what it claims about the world at head (see "Before you
+   write a remedy" below).
 
    If you need fuller issue context than the fixer brief carries —
    an issue body, its acceptance criteria, or its
@@ -440,8 +446,9 @@ cannot be confused by it.
 ## Rules
 
 - Address the review's findings as each one's scope ruling directs,
-  and the brief's owner rulings — or the merge-readiness remedy the
-  brief names — and nothing else. Do not refactor unrelated code. An
+  and the brief's owner rulings, a ruling naming a finding class over
+  every instance of it — or the merge-readiness remedy the brief names
+  — and nothing else. Do not refactor unrelated code. An
   issue's files-affected section is a floor, not a fence: a remedy that
   touches a path it does not list is expected, and is never a design
   decision, an escalation, or a report item.

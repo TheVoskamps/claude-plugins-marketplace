@@ -2,14 +2,17 @@
 #
 # sdlc-pr-common.sh -- sourced by the sdlc scripts that read a PR's
 # reviews and comments, by sdlc-pr-post-theorem-records, which posts the
-# review detail, and by sdlc-agent-result-persist, which writes the
-# review-round marker. It spells the markers sdlc writes, parses the
+# review detail, by sdlc-agent-result-persist, which writes the
+# review-round marker, and by sdlc-decision, which puts a decision to the
+# human. It spells the markers sdlc writes, parses the
 # canonical PR reference those scripts take, makes the one `gh` read
 # they share, and holds the failure exits, so a marker, a reference and
-# an exit status mean the same thing in every one of them.
-# sdlc-agent-result-persist takes only the marker: its own ERR trap
-# replaces this file's, and its exits are its own. Runs under the bash
-# 3.2 macOS ships.
+# an exit status mean the same thing in every one of them. It also
+# holds the state root's repository layout, which sdlc-agent-result-persist
+# and sdlc-decision both write under.
+# sdlc-agent-result-persist takes only the marker and the layout: its
+# own ERR trap replaces this file's, and its exits are its own. Runs
+# under the bash 3.2 macOS ships.
 #
 # Exit statuses, shared by the scripts that report through it:
 #   0  the script did what it says
@@ -19,7 +22,8 @@
 #   3  the script's own negative outcome, which its contract names
 # sdlc-pr-post-theorem-records shares 0 and 2, widens 1 to any
 # unexpected failure, including ones no command reported, and names its
-# own exits from 3 on, in its header.
+# own exits from 3 on, in its header. sdlc-decision also exits 1 when a
+# layout function below fails, on that function's message alone.
 
 SP_PROGRAM=${0##*/}
 
@@ -118,6 +122,100 @@ sp_parse_pr() {
 # refuses.
 sp_err_not_pr_ref() {
   sp_usage_error "\`$1\` is not a PR reference. Pass <host>/<owner>/<repo>#<n>, as \`pr-view <PR> --ref\` prints it."
+}
+
+# The state root's repository layout. A repository's state directory is
+# <host>/<owner>/<repo> under the state root, and carries repo.yml naming
+# the repository it holds, so a reader identifies the directory from the
+# file rather than from its path. Each layout function that can fail,
+# sp_write_repo_yml and sp_migrate_old_layout, prints its message,
+# prefixed with the script's name, and returns 1, for the caller to exit
+# with its own failure status.
+
+# sp_state_error <message> -- print a layout function's failure message.
+sp_state_error() {
+  printf '%s: %s\n' "$SP_PROGRAM" "$1" >&2
+}
+
+# sp_is_old_layout <dir> -- whether a directory two levels below the
+# state root is a repository's state from before the host was part of
+# the path. Such a directory is <owner>/<repo> by position, carries no
+# repo.yml, and holds its pr<n> directories directly. A <host>/<owner>
+# directory of the current layout sits at the same depth and holds
+# repositories, so it is never old, with or without a repo.yml beneath it.
+sp_is_old_layout() {
+  local found
+  [ -d "$1" ] || return 1
+  [ -e "$1/repo.yml" ] && return 1
+  for found in "$1"/*/repo.yml; do
+    [ -e "$found" ] && return 1
+  done
+  for found in "$1"/pr*; do
+    case "${found##*/}" in
+      pr | pr*[!0-9]*) continue ;;
+    esac
+    [ -d "$found" ] && return 0
+  done
+  return 1
+}
+
+# sp_write_repo_yml <repo-dir> <host> <owner> <repo> -- write repo.yml
+# into a repository's state directory that lacks one.
+sp_write_repo_yml() {
+  [ -e "$1/repo.yml" ] && return 0
+  if printf 'schema-version: 1\nhost: %s\nowner: %s\nrepo: %s\n' "$2" "$3" "$4" >"$1/repo.yml.partial-$$" &&
+    mv -- "$1/repo.yml.partial-$$" "$1/repo.yml"; then
+    return 0
+  fi
+  sp_state_error "could not write $1/repo.yml"
+  return 1
+}
+
+# sp_migrate_old_layout <state-root> <host> <owner> <repo> -- move state
+# written before the host was part of the path, at <owner>/<repo> under
+# the state root, to the repository's directory, and write its repo.yml.
+# Each script that writes under the state root runs it before it creates
+# the repository's directory, so no script splits a repository's state
+# across both paths.
+sp_migrate_old_layout() {
+  local old="$1/$3/$4" new="$1/$2/$3/$4"
+  sp_is_old_layout "$old" || return 0
+  if [ -e "$new" ]; then
+    sp_state_error "state for $2/$3/$4 is at both $old and $new; move one aside before running again"
+    return 1
+  fi
+  if ! mkdir -p -- "${new%/*}"; then
+    sp_state_error "could not create ${new%/*}"
+    return 1
+  fi
+  if ! mv -- "$old" "$new"; then
+    # A failed move removes <host>/<owner> and then <host> when each is
+    # empty; one that rmdir fails to remove is reported and left in place.
+    sp_remove_if_empty "${new%/*}"
+    sp_remove_if_empty "$1/$2"
+    sp_state_error "could not move state for $2/$3/$4 from $old to $new"
+    return 1
+  fi
+  sp_remove_if_empty "$1/$3"
+  sp_write_repo_yml "$new" "$2" "$3" "$4"
+}
+
+# sp_remove_if_empty <dir> -- remove <dir> when it holds nothing, leaving
+# a directory that holds anything in place. A failure to remove an empty
+# one is reported and leaves it in place too: an empty directory there is
+# never read as state, so the caller's own work stands.
+sp_remove_if_empty() {
+  local entry
+  [ -d "$1" ] || return 0
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    if [ -e "$entry" ] || [ -L "$entry" ]; then
+      return 0
+    fi
+  done
+  if ! rmdir -- "$1"; then
+    sp_state_error "could not remove the empty directory $1; it is left in place"
+  fi
+  return 0
 }
 
 # sp_pr_view <fields> -- the PR's JSON for those `gh pr view --json`

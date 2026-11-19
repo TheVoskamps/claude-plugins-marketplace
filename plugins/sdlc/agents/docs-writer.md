@@ -160,16 +160,24 @@ documentation review's, a documentation style check's, or a criterion
 you reported `not met` — each on a line ending in its scope ruling:
 `— in scope`, `— in scope: <the sentence that settles it>`,
 `— settled, no fix: <the sentence that settles it>`,
+`— outside the issue; resolved by outside-criteria-finding: fix-in-pr`,
 `— outside the issue; put to the human: <question> → <answer>`, or
-`— put to the human: <question> → <answer>`. Check out the branch it
-names, per "Setup", then:
+`— put to the human: <question> → <answer>`. It may also carry an
+owner-rulings section, for in-scope work that is not itself a finding
+and for decisions that belong to no single finding. Check out the
+branch it names, per "Setup", then:
 
 - Fix every finding ruled in scope, Low included — one whose ruling
-  quotes a sentence as that sentence calls for — and one put to the
-  human exactly as the answer on its line says. Fix none settled with
-  no fix.
+  quotes a sentence as that sentence calls for — every finding resolved
+  by `outside-criteria-finding: fix-in-pr`, as the finding states it,
+  and one put to the human exactly as the answer on its line says. Fix
+  none settled with no fix.
 - A finding line with no ruling is a malformed brief: stop and report
   it, quoting the line, and fix nothing.
+- Carry out every owner ruling. One that names a finding class — its
+  theorem or its file, and the finding ids it recurred under — covers
+  every instance of that class in the documentation at head, not only
+  the sites the findings reported: find each instance and fix it.
 - A finding whose fix lies outside documentation is not yours to make:
   report it as not fixed, naming the file it would edit, rather than
   editing that file.
@@ -269,8 +277,9 @@ inbox. That is the `agent-memory-scrubber` agent's job.
      `met`, or `not met — <reason>` when the documentation you leave on
      the branch does not satisfy it. A `not met` is a finding of the
      round, so grade the branch rather than your intent.
-   - On a fixer-brief address, a line per finding: what you fixed and
-     how, or why you did not.
+   - On a fixer-brief address, a line per finding and a line per owner
+     ruling: what you fixed and how — for a ruling naming a class, each
+     instance you found — or why you did not.
    - Anything the change made wrong that was not yours to fix — a
      PR-body claim, quoted, with what is true now.
 

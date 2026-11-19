@@ -175,6 +175,12 @@ collection is one source of its corrections, not the only one:
 `pr-finalizer` also checks the body against the branch itself. The fix
 lands once, at the end.
 
+A decision a standing ruling resolved never reached the human as a
+question. Name each in the report of the round that resolved it, and
+carry it into the scope notes you hand `pr-finalizer`, so the final
+section records it: the key, its value, and the finding or observation
+it ruled on.
+
 Closing-line corrections need no collecting. Each round's reviewer
 report carries a Closing-line corrections section, and the body does
 not change during the loop, so the PR's last review round's section is
@@ -287,10 +293,10 @@ Its commit opens the next round.
 **The loop ends** on a round whose review is APPROVED with no finding
 and whose `docs-writer` report graded no criterion `not met`, or when
 the loop has run `docs-review-max-rounds` rounds with a finding of any
-severity still open, which goes to the human in the final report;
-under `unlimited` it ends only on the first. Either way,
-what moves the PR on from that end is in `skills/orchestrate/SKILL.md`
-→ "Final Report".
+severity still open; under `unlimited` it ends only on the first.
+Either way, what moves the PR on from that end, and how a cap end
+reaches the human, is in `skills/orchestrate/SKILL.md` → "Final
+Report".
 
 ## The pre-readiness spawn, once the documentation loop has ended
 
@@ -450,7 +456,7 @@ is.
 Give it the PR reference, the branch name, and the resolved
 `merge-poll-interval-seconds` and `merge-max-unchanged-polls` from
 pre-flight, on every spawn — the first, and each re-spawn after a
-`BEHIND` or `DIRTY` remedy or a yes to keep waiting:
+`BEHIND` or `DIRTY` remedy or a pick to keep waiting:
 
 ```text
 PR <PR_REF> is ready for review. Branch: <branch-name>

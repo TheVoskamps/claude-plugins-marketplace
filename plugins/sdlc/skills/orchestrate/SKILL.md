@@ -359,7 +359,8 @@ rule means for one.
   thin, judge them, and decide whatever the repo settles, the issue
   body included — then report the decision, the reasoning behind
   it, and the disagreement it resolved. What the repo leaves open is
-  the human's, and reaches the human with your analysis beside it.
+  the human's, and reaches the human as a decision, per "Putting a
+  decision to the human", with your analysis as its evidence.
   Handing the human an ambiguity you could have settled, or one you
   have not analysed, as a status update is abdication dressed as
   transparency.
@@ -386,14 +387,34 @@ rule means for one.
   finding line when the review filed it, as an owner ruling otherwise.
   One no review filed, when no fixer round follows, goes into the
   round's report and into the scope notes you hand `pr-finalizer`. One
-  the repo leaves open is put to the human while the PR is still open,
-  with the consequence of each option stated in the question.
+  the repo leaves open is a decision of class `outside-criteria-finding`
+  while the PR is still open, with the consequence of each option stated
+  in it, under the conditions a filed finding outside the issue is
+  ruled on, per "Handling review findings — the fix loop".
   An option that would make the PR depart from an issue's text carries
-  the issue edit inside the same option. Label the options yourself,
-  outside any quoted block, and never ask the human to answer by a
-  label that exists only inside one. An observation no review filed
+  the issue edit inside the same option. An observation no review filed
   never travels to the final report, and no observation becomes a
   follow-up issue on your initiative.
+
+### Putting a decision to the human
+
+You put a decision to the human — any question that asks the human to
+choose, anywhere in the run, a plan's decision item included — only by
+printing what `sdlc-decision ask` printed for it. Read
+`skills/lib/decision-record.md` the first time a turn raises one, and
+put every decision through it. Kernel: what `ask` printed goes last in
+the reply and ends the turn, unless it printed every problem as
+resolved by a standing ruling. Two prompts are not decisions and keep
+their own shapes, because each asks for a ruling on a whole artifact
+shown above it: the plan's confirmation prompt, and the per-theorem
+rulings on the seed list under `seed-review: ask`. Asking for the issue
+numbers an invocation left out is not one either: it offers nothing to
+choose between, and no issue exists yet to key a record on.
+
+Key a record on `--pr <PR_REF>`, or, before the batch's PR exists, on
+the batch's first member as `--issue <host>/<owner>/<repo>#<N>`. The
+primary clone holds the default branch, so a line on the PR branch is
+text no file there holds, cited as the decision-record file says.
 
 ### A batch with no code to implement skips the code loop
 
@@ -620,9 +641,10 @@ authored review content, per "Your own boundary".
 Then read the developer's `Scope:` block, before the first review
 round. It has exactly two triggers: a plugin the issues' titles and
 bodies do not name, and a rename or deletion the issues do not
-specify. Either goes to the human now, with pulling it out of the PR
-stated as one of the options; the question ends your turn, and nothing
-else is spawned for the PR until it is answered.
+specify. Either is a decision now, per "Putting a decision to the
+human", with keeping it in the PR and pulling it out of the PR among
+its options; the decision ends your turn, and nothing else is spawned
+for the PR until it is answered.
 
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
@@ -680,10 +702,11 @@ Pause on any other finding only when its rule cannot settle it:
 - it comes back after a style-fix round on this PR addressed it — the
   same rule, at the same place in the same file.
 
-A paused finding goes to the human as `style-checker` reported it — its
-quoted rule and offending lines — with the condition that paused it,
-and the human rules fix or ignore. Only the paused findings go to the
-human, and the question ends your turn.
+A paused finding is a decision, per "Putting a decision to the human",
+one problem per finding: its problem is the finding as `style-checker`
+reported it — its quoted rule and offending lines — with the condition
+that paused it, and its options are fix and ignore. Only the paused
+findings go to the human, and the decision ends your turn.
 
 Post one fixer brief on the PR — at once when nothing paused, after
 the human's answer otherwise — in the shape "Handling review
@@ -772,8 +795,8 @@ independent of your judgment by construction and "the review found X"
 is an honest relay. The verdict, though, is a claim you act on, and
 the review is **posted** on the PR, so whether it says what the
 reviewer reported back is one `/github-prs:pr-view` away: verify before
-an escalation at `code-review-max-rounds` or a Final Report hand-off
-rests on it. An empty-delta round's
+a decision at `code-review-max-rounds` or a Final Report hand-off rests
+on it. An empty-delta round's
 verdicts are carried forward from the previous round rather than
 freshly checked, and the reviewer says which kind of round it ran.
 
@@ -848,10 +871,11 @@ first such return, quoting the reviewer's line verbatim. A re-spawn to
 resume is **not a new round** against `code-review-max-rounds` — count it
 in the round's report instead — and after two on one PR, raise it as a
 **Needs Your Attention** row rather than re-spawning again. A review
-the PR carries under an in-progress line is the human's to rule on —
+the PR carries under an in-progress line is the human's to rule on, as
+a decision per "Putting a decision to the human" whose options are that
 the round stands, its verdict and findings read per "Reading a round's
-detail", or the reviewer is re-spawned and the new round supersedes
-it — and nothing spawns until they do.
+detail", and that the reviewer is re-spawned and the new round
+supersedes it; nothing spawns until they pick.
 
 **A finding a review filed that the repo settles with a fix is listed
 with the sentence that settles it** as your ruling, wherever you list
@@ -872,6 +896,12 @@ a finding like any other: it goes into the fixer brief under the same
 scope ruling, a round runs for Lows alone, and no question about a Low
 as such goes to the human.
 
+**If BLOCKED because the reviewer raised a NEEDS_CHANGES whose fix lies
+outside the issue's scope**, run the same steps: the raised verdict
+asks nothing of its own, and the finding behind it is a finding outside
+the issue, ruled as step 2 rules one, so a standing ruling that
+resolves it lets the fix proceed with no question.
+
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
@@ -881,11 +911,9 @@ as such goes to the human.
    human is not asked. The line ends `— in scope: <the sentence that
    settles it>` when that sentence calls for the fix, and `— settled,
    no fix: <that sentence>` when it settles the finding with no fix.
-   An option that would make
-   the PR depart from an issue's text carries the issue edit inside the
-   same option. Label the options yourself, outside any quoted block,
-   and never ask the human to answer by a label that exists only
-   inside one.
+   One the repo leaves open is a decision of class `design-gap`. An
+   option that would make the PR depart from an issue's text carries the
+   issue edit inside the same option.
 2. **Post the fix instructions as a PR comment**, then spawn an
    `issue-fixer` with the PR reference and nothing else.
 
@@ -918,6 +946,9 @@ as such goes to the human.
    `— settled, no fix: <the sentence that settles it>`, for a Design
    Decision step 1, or an out-of-scope observation, found the repo
    settles with no fix, which the fixer leaves alone;
+   `— outside the issue; resolved by outside-criteria-finding:
+   fix-in-pr`, for a finding outside the issue that standing ruling
+   resolved, which the fixer fixes;
    `— outside the issue; put to the human: <question> → <answer>`;
    `— put to the human: <question> → <answer>`, for a finding inside
    the issue that step 1 put to the human>
@@ -945,8 +976,30 @@ as such goes to the human.
    question about that finding, or an alternative it offers such as
    rejecting it, is not a human decision. You put a finding to the
    human only in the cases this section names — a Design Decision, a
-   deviation from the design, a title/summary mismatch, and a finding
-   outside the issue.
+   deviation from the design, a title/summary mismatch, a finding
+   outside the issue that no standing ruling resolves, and a class that
+   recurs past `recurring-finding-class`.
+
+   **A finding outside the issue** is a decision of class
+   `outside-criteria-finding`. Pass `--ruling
+   outside-criteria-finding=<its value>` to its record only when all
+   three of these hold, and none otherwise, so the record is put to the
+   human:
+
+   - every file the fix touches is in this repository;
+   - the PR is still a draft, as `/github-prs:pr-view <PR_REF>` reports
+     it;
+   - the fix needs no decision the issue and the repo leave open. It
+     needs one when you cannot name one fix, with no condition attached,
+     backed by evidence from the finding and the tree.
+
+   A record the ruling resolved puts the finding on the brief ruled
+   `— outside the issue; resolved by outside-criteria-finding:
+   fix-in-pr`, and when the fix makes the PR depart from an issue's
+   text, make that issue's edit with `/issue-update` before the brief is
+   posted. An observation no review filed is ruled the same way, on the
+   same three conditions, and a resolved one goes on the brief as an
+   owner ruling.
 
    Per-finding rulings live only on the finding lines, and the brief is
    not posted until every put-to-human finding has its answer, so a
@@ -993,8 +1046,9 @@ as such goes to the human.
    until the code loop has run `code-review-max-rounds` rounds (see
    "Your own boundary" below); under `unlimited`, until the first.
 7. If findings of any severity persist when `code-review-max-rounds`
-   is reached, escalate to the human in the final report, listing each
-   finding still open on its own, a Low included.
+   is reached, the loop ends at its cap, and that end reaches the human
+   as its `loop-cap-reached` decision, per "End-of-loop lifecycle
+   transitions", and nowhere else.
 
 **When every open finding is ruled settled with no fix**, steps 2 to 4
 do not run: no `issue-fixer` spawns on a brief
@@ -1017,15 +1071,24 @@ the loop"; `pr-finalizer` corrects the closing lines at the close-out.
 Until then every round reports it again, since nothing changes the
 body.
 
-**A finding class that produces a new site each round is a design
-question, not a round.** Two findings are the same class when the
-reviewer files them under the same theorem, or when the second's fix
-would edit a file the previous round's fix edited. When the second
-consecutive round files a finding in the same class as the previous
-round's fix, stop briefing and put the class to the human, with
-reverting to the last state the class was clean in stated as one of
-the options. Name the class you are watching — the theorem or the
-file — in each round's report.
+**A finding class that produces a new site each round is a decision,
+not a round.** You judge whether findings on consecutive rounds are the
+same class: they are when the reviewer files them under the same
+theorem, or when the second's fix would edit a file the previous
+round's fix edited. When the second consecutive round files a finding
+in the same class as the previous round's fix, stop briefing the
+reported sites and write a record of class `recurring-finding-class`,
+whose evidence cites both rounds' finding ids, with reverting to the
+last state the class was clean in stated as one of the options. Pass
+`--ruling recurring-finding-class=<its value>`, unless an earlier round
+already ran a brief covering the class and the class recurred after
+it: then pass none, so the record is put to the human. A record the
+ruling resolved goes on the next fixer brief as an owner ruling naming
+the class — its theorem or its file — and both rounds' finding ids,
+which the loop's implementer — `issue-fixer`, or `docs-writer` in the
+documentation loop — applies to every instance of the class at head,
+not only to the reported sites. Name the class you are
+watching — the theorem or the file — in each round's report.
 
 ### The documentation loop
 
@@ -1135,13 +1198,12 @@ When a teammate escalates:
    your ruling, quoting
    the sentence that settles it, and the human is not asked. Otherwise
    relay the teammate's report to the human whole and unaltered, and
-   follow it with a separate section of your own: what you checked,
-   which of the teammate's options survive the check, any option the
-   teammate missed, and your recommendation. An option that would make
-   the PR depart from an issue's text carries the issue edit inside the
-   same option. Label the options yourself, in your own section, and
-   never ask the human to answer by a label that exists only inside
-   the relayed report.
+   follow it with the decision: what you checked is its evidence, the
+   teammate's options that survive the check and any it missed are its
+   options, and your pick is its recommendation. An option that would
+   make the PR depart from an issue's text carries the issue edit inside
+   the same option. The human answers by the decision's option ids,
+   never by a label that exists only inside the relayed report.
 2. Wait for direction, unless your ruling settled the question.
 3. If the human's direction is "retry," or your ruling settled the
    question, re-dispatch a fresh subagent rather than resuming the
@@ -1205,8 +1267,12 @@ The code loop leaves each PR **draft** and every issue it closes
 documentation loop run on a `documentation loop needed` return leaves
 the PR's draft state and its issues' statuses as it found them. Each
 loop's end does what the resolved value of its key calls for, as
-`skills/lib/sdlc-config.md` defines that key: ask the human and wait,
-or start the next stage with no question. Read whether an end is clean
+`skills/lib/sdlc-config.md` defines that key: put the end to the human
+and wait, or start the next stage with no question. An end put to the
+human is a decision, per "Putting a decision to the human" — of class
+`loop-cap-reached` for a loop at its round cap, its problem listing
+each finding still open on its own, a Low included — with starting
+the next stage among its options. Read whether an end is clean
 off the PR's stored round state, never off the reviewer's report:
 
 ```bash
@@ -1278,10 +1344,12 @@ are none.
    - **`BEHIND` or `DIRTY`** — spawn `pr-merge-readiness` again as in
      step 2, then `pr-monitor` again.
    - **Closed without merging**, or **no change after its poll
-     bound** — the second is a question whether to keep waiting: put
-     it to the human, and spawn `pr-monitor` again on a yes. A close,
-     or a no, ends this PR's stages with a **Needs Your Attention**
-     row naming which it was and the state the last poll found.
+     bound** — the second is a decision whether to keep waiting, per
+     "Putting a decision to the human", whose options are to keep
+     waiting and to stop: spawn `pr-monitor` again on a pick to keep
+     waiting. A close, or a pick to stop, ends this PR's stages with a
+     **Needs Your Attention** row naming which it was and the state the
+     last poll found.
    - **The script's error** — the monitor stopped on a failure, not an
      outcome, and the PR's state is unknown. Spawn no `pr-monitor`
      again; end this PR's stages with a **Needs Your Attention** row
@@ -1302,7 +1370,8 @@ would then rewrite. A monitor loop that never ends holds the queue;
 that is what its poll bound and the question it asks are for.
 
 If the human ends the loop without blessing a PR (e.g. it lands in
-"Needs Your Attention"), leave that PR draft and its issues In
+"Needs Your Attention", or under "Left Draft" on a pick at its loop's
+end), leave that PR draft and its issues In
 Progress, and run none of these stages for it: the loop has not ended,
 so the body stays frozen for whatever round comes next.
 
@@ -1406,6 +1475,9 @@ What you do yourself is orchestration mechanics:
   `pr-merge-readiness`'s and `pr-monitor`'s to run, not yours.
 - **Set issue status via `/issue-set-status`, and assign via
   `/issue-update`**, per the issue-lifecycle file.
+- **Edit an issue's text via `/issue-update`** — only the edit a
+  resolved `outside-criteria-finding` record's fix needs, per "A finding
+  outside the issue".
 - **File follow-up issues via `/issue-create`** — only when the human
   asks for the issue, never on an observation you held, per the
   issue-lifecycle file.

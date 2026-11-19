@@ -82,16 +82,17 @@ A batch needs one when any member's files-affected section, as
 manifest (`package.json`, `pnpm-workspace.yaml`) tagged `update` or
 `new`. Read the section and nothing else: no prose decides it.
 
-Such a batch is a decision item on the plan, stating:
+Such a batch is a decision item on the plan, whose problem states:
 
 - the install command that will run;
 - the directory it runs in;
 - whether any external version can move — no when every specifier the
   change touches is `catalog:` or `workspace:*`, yes otherwise.
 
-The human's yes to that item is the explicit direction the install
-needs. Until the human gives it, the batch does not spawn, whatever
-else the plan confirm settles.
+Its options are running the install as stated and holding the batch
+out of this run. The human's pick of the option that runs the install
+is the explicit direction the install needs. Until the human gives it,
+the batch does not spawn, whatever else the plan confirm settles.
 
 ## Present the plan
 
@@ -112,10 +113,10 @@ Batch B branch slug: <compound-slug>
 Batch criteria applied: <one line per batch of two or more — which of
 shared-change-surface / internal-dependency / size it turned on, and
 the conflict-cost-vs-blocking-cost call you made>
-Decision items: <one per body instruction you did not agree with on
-reading the file — the sentence quoted, and what you would do instead
-— and one per batch that needs a resolving install, with its command,
-directory and whether an external version can move — or "none">
+Decision items: <one line per item, its problem id from the decision
+record below and what it is about — one per body instruction you did
+not agree with on reading the file, and one per batch that needs a
+resolving install — or "none">
 
 ### Wave 1 (parallel): Batch A, Batch B
 ### Wave 2 (after Wave 1 PRs open): Batch C
@@ -124,9 +125,22 @@ Ready to proceed? (y to continue, or give me adjustments — e.g.
 "split 102 out of B" or "merge 101 into B")
 ```
 
+The decision items are one decision record, put to the human through
+`sdlc-decision` as the skill's "Putting a decision to the human" says,
+one problem per item, keyed on the first member of the first batch
+that carries one. A body instruction's problem quotes the sentence, and
+its options are following it as written and what you would do instead;
+a resolving install's states the three points above, with the options
+above. A plan carrying a decision item always
+waits, and ends with what `sdlc-decision ask` printed in place of the
+`Ready to proceed?` prompt: the reply both settles the items and
+confirms the plan, and an adjustment in it is a regrouping instruction
+as below.
+
 Whether you then wait is what `plan-confirm` calls for. A plan that
-waits ends with the `Ready to proceed?` prompt, and the prompt ends
-your turn. A plan that does not wait ends with
+waits ends with the `Ready to proceed?` prompt, or the decision
+record's question, and that ends your turn. A plan that does not wait
+ends with
 `Proceeding without confirmation (plan-confirm: <value>).` in place of
 the prompt, and Execution starts in the same turn.
 

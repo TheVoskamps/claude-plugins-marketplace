@@ -63,8 +63,12 @@ case-insensitively, so `"In Progress"` / `"In Review"` resolve to a
 board's `In progress` / `In review` options automatically. But if the
 board has a status slot that **lacks** a matching option — i.e.
 `/issue-set-status` aborts with its "Slot value not in options map"
-error — catch that abort and ask the human which status option to use
-instead, or whether to skip the transition for this run. Never let
+error — catch that abort and put it to the human as a decision, as the
+skill's "Putting a decision to the human" says, with the board's status
+options that could stand in for it as its options. The human can
+decline it: skipping leaves the status unchanged for this run. When none of the
+board's options could stand in for it, there is nothing to choose:
+skip the transition and warn as for an unconfigured slot. Never let
 that abort fail the whole run.
 
 ## The `/issue-*` namespace
@@ -78,10 +82,24 @@ the read-only `git` planning commands — raw `gh` and `git` stay the
 tool. A PR call goes through the `/github-prs:*` skill that has a verb
 for it, on the same terms.
 
-A follow-up issue the human asks for is filed via `/issue-create`, and
-the human is asked first when the body would be long-form and
-multi-step. Raw `gh issue create` is not a substitute: it files an
-unconfigured issue. After `/issue-create` returns, read the issue back
+A follow-up issue the human asks for is filed via `/issue-create`.
+When the body would be long-form and multi-step, draft it to a
+scratchpad file first and put it to the human as a decision, as the
+skill's "Putting a decision to the human" says, citing the draft as
+its evidence, with filing it as drafted and revising it first among its
+options. Each field the order named no value for is filed as its
+`follow-up-issue-*` key calls for, per `skills/lib/sdlc-config.md`. A
+field that file makes a question of its own is put to the human the
+same way, as a problem of the body's decision when there is one, with
+values the target accepts for the field as its options. The human can
+decline it. Skipping the type passes no `--type`, and the issue gets
+whatever type `/issue-create` resolves; skipping the assignee files the
+issue unassigned, passing `--no-assignee`. Raw
+`gh issue create` is not a substitute: it files an unconfigured issue.
+After `/issue-create` returns, read the issue back
 with `/issue-view <new-N>` and confirm the type, the configured slot
-fields and the assignee are populated as repo-config requires; report
-a gap in the same reply rather than declaring the issue filed.
+fields and the assignee are populated as repo-config requires, except
+that a declined type is checked against the `type:` line
+`/issue-create` printed after filing, and any other declined field
+against its skip outcome above; report a gap in the same reply rather
+than declaring the issue filed.

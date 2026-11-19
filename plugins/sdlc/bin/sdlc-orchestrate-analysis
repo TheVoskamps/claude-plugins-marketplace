@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # Report where one /sdlc:orchestrate run's wall-clock time went, for the
-# PR it produced, as Markdown tables on stdout.
+# PR it produced, and, per decision class, how the human's picks compare
+# with the recommendations put to them, as Markdown tables on stdout.
 #
 # Its sources, each read as it stands and never substituted for one
 # another: the PR's review rounds and its round-0 seed, read only through
 # sdlc-agent-result-persist's print modes and the result-file and
 # transcript paths those modes print; the orchestrator session's
 # transcript, found from the transcript paths on the round logs' enter
-# lines; and the PR's GitHub timeline. A source that is missing is named
-# in the report, and every row it would have backed is left out.
+# lines; the PR's GitHub timeline; and the decision records of the PR,
+# of each issue its head branch names and of each issue it closes, read
+# only through `sdlc-decision print`.
+# A source that is missing is named in the report, and every row it
+# would have backed is left out.
 #
 # Read-only: nothing here writes a file or mutates anything on GitHub,
 # which is why every intermediate result lives in a shell variable. The
@@ -828,6 +832,7 @@ for w in $(printf '%s\n' "$waits" | awk -F'\t' '{print $1}') ""; do
         *"— in scope"*) lead="Accepted into the fixer brief posted $t:" ;;
         *"— settled, no fix"*) lead="Settled by the repo with no fix, per the fixer brief posted $t:" ;;
         *"— outside the issue; dropped"*) lead="Dropped on a scope ruling in the fixer brief posted $t:" ;;
+        *"— outside the issue; resolved by "*) lead="Resolved by a standing ruling, per the fixer brief posted $t:" ;;
         *"— outside the issue; put to the human"* | *"— put to the human"*) lead="Put to the human, per the fixer brief posted $t:" ;;
         *) lead="From the fixer brief posted $t:" ;;
       esac
@@ -842,6 +847,91 @@ $mine
 EOF
 done
 [ -n "$any_ruling" ] || printf '\nNo ruling was read.\n'
+
+# The decision records of the PR and of each issue of its batch, one
+# problem per line as `sdlc-decision print` writes it: "  P<i> <class>
+# recommended <id>" and then "resolved <value>", "picked <id|none|
+# unanswered>" or "open". A problem a ruling resolved was never asked;
+# every other one was. A record asked before the PR existed, or while
+# grooming an issue, is keyed on the issue. The batch is every issue the
+# PR's head branch names, which keeps a member the PR no longer closes,
+# such as one the developer dropped, together with every issue the PR's
+# closingIssuesReferences name by URL, https://<host>/<owner>/<repo>/issues/<n>.
+printf '\n## Decisions\n\n'
+decisions=
+if ! command -v sdlc-decision >/dev/null 2>&1; then
+  note_missing "the PR's decision records: sdlc-decision is not on PATH; no agreement report"
+else
+  if ! decisions=$(sdlc-decision print --pr "$ref" 2>/dev/null || exit); then
+    decisions=
+    note_missing "the PR's decision records: \`sdlc-decision print --pr $ref\` failed; none of them is counted"
+  fi
+  # One issue reference per line, each in the PR's repository for a
+  # branch member, or in the repository its URL names for one the PR
+  # closes.
+  issue_refs=
+  if ! command -v git-issue-branch >/dev/null 2>&1; then
+    note_missing "the issues the PR's head branch names: git-issue-branch is not on PATH; only the issues the PR closes are read for decision records"
+  elif ! head_ref=$(pr-view "$ref" --json headRefName --jq .headRefName 2>/dev/null || exit); then
+    note_missing "the issues the PR's head branch names: \`pr-view --json headRefName\` failed; only the issues the PR closes are read for decision records"
+  elif ! decoded=$(git-issue-branch decode "$head_ref" 2>/dev/null || exit); then
+    note_missing "the issues the PR's head branch names: \`git-issue-branch decode $head_ref\` failed; only the issues the PR closes are read for decision records"
+  else
+    for n in $(printf '%s\n' "$decoded" | sed -n 's/^issues: //p'); do
+      issue_refs="$issue_refs$nwo#$n$NL"
+    done
+  fi
+  if urls=$(pr-view "$ref" --json closingIssuesReferences --jq '.closingIssuesReferences[].url' 2>/dev/null || exit); then
+    while IFS= read -r url; do
+      case "$url" in
+        https://?*/?*/?*/issues/[1-9]*) ;;
+        *) continue ;;
+      esac
+      at=${url#https://}
+      issue_refs="$issue_refs${at%/issues/*}#${at##*/issues/}$NL"
+    done <<EOF
+$urls
+EOF
+  else
+    note_missing "the issues PR #$pr closes: \`pr-view --json closingIssuesReferences\` failed; only the issues its head branch names are read for decision records"
+  fi
+  # An issue the PR closes that the branch also names is read once.
+  while IFS= read -r issue_ref; do
+    [ -n "$issue_ref" ] || continue
+    if got=$(sdlc-decision print --issue "$issue_ref" 2>/dev/null || exit); then
+      decisions="$decisions$NL$got"
+    else
+      note_missing "issue $issue_ref's decision records: \`sdlc-decision print --issue $issue_ref\` failed; none of them is counted"
+    fi
+  done <<EOF
+$(printf '%s' "$issue_refs" | awk '!seen[$0]++')
+EOF
+fi
+agreement=$(printf '%s\n' "$decisions" | awk '
+  /^  P[0-9]+ / {
+    c = $2
+    if (!(c in seen)) {seen[c] = 1; order[++n] = c}
+    if ($5 == "resolved") resolved[c]++
+    else {
+      asked[c]++
+      if ($5 == "picked" && $6 == "none") free[c]++
+      else if ($5 == "picked" && $6 == $4) same[c]++
+      else if ($5 == "picked" && $6 != "unanswered") differ[c]++
+    }
+  }
+  END {
+    for (i = 1; i <= n; i++) {
+      c = order[i]
+      printf "| %s | %d | %d | %d | %d | %d |\n", c, asked[c], resolved[c], same[c], differ[c], free[c]
+    }
+  }')
+if [ -n "$agreement" ]; then
+  printf '| Class | Asked | Resolved by a ruling | Pick equal to the recommendation | Pick that differs | Answered in free text |\n'
+  printf '| --- | --- | --- | --- | --- | --- |\n'
+  printf '%s\n' "$agreement"
+else
+  printf 'No decision record was read.\n'
+fi
 
 printf '\n## Missing sources\n\n'
 if [ -n "$missing" ]; then printf '%s' "$missing"; else printf 'None.\n'; fi

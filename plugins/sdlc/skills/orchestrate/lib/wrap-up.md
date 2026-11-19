@@ -39,12 +39,14 @@ post-merge tail has run, deliver a summary:
 |-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
 | E | <link-prefix>107 | <PR4> | Approved | 1 code, 1 documentation | 0 | 0 | none |
 
+### Left Draft
+| Batch | Issues | PR | Review Verdict | Review Rounds | Human's Pick |
+|-------|--------|----|-----------------|---------------|--------------|
+| C | <link-prefix>102 | <PR3> | Needs changes (medium on 102) | 10 code | stop at the code loop's round cap |
+
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
-| <link-prefix>102  | <PR3> | T14 (Critical) persists at the `code-review-max-rounds` cap: <the finding> |
-| <link-prefix>102  | <PR3> | T15 (Medium) persists at the `docs-review-max-rounds` cap: <the finding>; ruling: <the sentence that settles it> |
-| <link-prefix>102  | <PR3> | T16 (Low) persists at the `docs-review-max-rounds` cap: <the finding> |
 | <link-prefix>105  | —     | Dropped from batch C — needs a design decision its issue doesn't answer; not on <PR3>, still In Progress |
 
 ### Sequential Queue (not yet started)
@@ -63,20 +65,27 @@ Under `merge-wait: skip`, every PR the run flipped ready goes under
 unmerged, and nothing is watching it. Leave that table out when it has
 no rows.
 
-A round-cap row names the key of the loop the finding persisted in:
-`code-review-max-rounds` for the code loop, `docs-review-max-rounds`
-for the documentation loop. Every finding still open at a cap gets
-one, a Low included; the summary lists no other Low, and asks nothing
-about one.
+Decide the **Left Draft** rows by each PR's state at the end of the
+run. A PR goes there only when it is still draft then, a pick at a loop
+end the human put to a decision left it so — any pick but starting the
+next stage — and no later stage moved it on; its `Human's Pick` cell
+names the last such pick as the reply gave it. A PR that such a pick
+sent round again and that later went ready or merged is listed under
+the table that state puts it in, and not here. Leave that table out
+when it has no rows too.
 
 A **Needs Your Attention** row is something the human must act on to
 merge, unblock, or trust a PR of this run. An observation the loop
 already had a chance to act on does not qualify — the loop was where
 it was cheap to settle, and holding it to the end spends the human's
-turn on work that was yours. Round-cap findings, escalations, a
-discrepancy your re-read could not settle, a PR closed without
-merging, a monitor loop the human declined to keep waiting on, and a
-`pr-monitor` hand-back of the script's error qualify as they stand.
+turn on work that was yours. Nor does a finding still open at a loop's
+round cap: the human already ruled on it, as that loop end's decision,
+and a PR that ruling left draft is listed under **Left Draft**.
+The summary lists no Low finding, and asks nothing about one.
+Escalations, a discrepancy your re-read could not settle, a PR closed
+without merging, a monitor loop the human declined to keep waiting on,
+and a `pr-monitor` hand-back of the script's error qualify as they
+stand.
 A close or a declined wait names which it was and the state the last
 poll found, so the human reading the summary knows whether the PR is
 gone or still open, ready, and unmerged; a script error's row quotes

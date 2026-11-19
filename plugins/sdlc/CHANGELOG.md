@@ -1,5 +1,109 @@
 # sdlc changelog
 
+## 0.88.0 — 2026-11-18
+
+Every question `/sdlc:orchestrate` and `/sdlc:orchestrate-ready` put to
+the human now goes through a checked decision record with numbered
+options, and an unconfigured run no longer stops for a finding outside
+the issue it can fix in the PR, or for a finding class that recurs.
+
+Needs `issues` 0.15.0, and mikefarah `yq` v4 or later on `PATH`.
+
+Changed behaviour with no config. To get the old questions back, set
+either key to `ask` with a `sdlc-config-*` verb:
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `outside-criteria-finding` | `ask` \| `fix-in-pr` | `fix-in-pr` |
+| `recurring-finding-class` | `ask` \| `fix-class` | `fix-class` |
+
+- New executable `sdlc-decision`. `ask` takes a YAML record of the
+  problems one turn raises. Each problem carries a class, a problem
+  statement, two to four options, one recommended option and the
+  reason for it, and each option carries what it does, its evidence
+  and its cost to the human. `ask` refuses a record with a slot empty
+  or malformed, naming every failing slot, and checks that a `file:`
+  evidence's quote is on the line it names. It never runs a `command:`
+  evidence.
+- A question is printed with its problems numbered `P1`, `P2`, … and
+  each problem's options `P1.1`, `P1.2`, …, so a reply of option ids
+  maps to one option per problem. The human can still answer in their
+  own words.
+- `sdlc-decision answer` stores the option picked for each problem and
+  the reply verbatim, and `sdlc-decision print` lists the stored
+  records of a PR or an issue. Records are kept under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/`,
+  in `pr<N>/decisions/` for a PR and `issue<N>/decisions/` for a
+  grooming session or a batch whose PR is not open yet.
+- Every remaining question either skill asks goes through
+  `sdlc-decision`: a plan's decision items, a developer's out-of-scope
+  change, a paused style finding, a design decision, a relayed
+  escalation, a loop's end, and whether to keep waiting on a merge. A
+  plan that carries decision items ends on that question in place of
+  `Ready to proceed?`, and the reply also confirms the plan. The plan's
+  own confirmation prompt and the per-theorem seed rulings under
+  `seed-review: ask` keep their shapes.
+- A problem never has fewer than two options or more than four. A
+  longer list of candidates is shown as the three ranked first, beside
+  an option to name another or, for a decision the human can decline,
+  to skip it. A list of one is taken as the pick, with no
+  question and no record, unless the decision is one the human can
+  decline.
+- A decision can be declined only where the skill asking it states
+  what skipping it does, and then one of its options is that outcome.
+- `/sdlc:orchestrate-ready` resolves the sdlc config before its first
+  question and prints each value beside its tier. Its grooming
+  questions are decision records too; a free-text answer is stored
+  beside the pick `none`.
+- New standing ruling `outside-criteria-finding`. Under `fix-in-pr`,
+  the default, a finding whose fix lies outside the issue's acceptance
+  criteria, or an observation no review filed, is fixed in the PR with
+  no question, and the issue is edited where the fix departs from its
+  text. That applies only when every file the fix touches is in this
+  repository, the PR is still a draft, and the orchestrator can name
+  one fix with no condition attached, backed by evidence. Any other
+  such finding is still put to the human.
+- New standing ruling `recurring-finding-class`. Under `fix-class`,
+  the default, a finding class filed on two consecutive rounds gets
+  one fixer brief covering every instance of the class, with no
+  question. A class that recurs again after that brief is put to the
+  human.
+- A decision a standing ruling resolved is named in the report of the
+  round that resolved it, and the PR's final section records it as
+  that config key's ruling.
+- A finding still open at a loop's round cap now reaches the human
+  only as that loop end's decision, which lists each open finding. It
+  is no longer a Needs Your Attention row of the run summary, which
+  reverses the 0.83.0 change that made it one. A PR still draft at the
+  end of the run because of a pick at a loop's end is listed under a
+  new Left Draft table with that pick; one that later went ready or
+  merged is listed where that state puts it.
+- New config keys `follow-up-issue-type`, `follow-up-issue-priority`,
+  `follow-up-issue-status` and `follow-up-issue-assignee`, each
+  defaulting to `repo-default`: the fields a follow-up issue the human
+  ordered is filed with when the order named none. `repo-default` uses
+  the target repository's own default and asks nothing, except for a
+  priority or status slot configured with no default. `ask` makes the
+  field a question. The assignee key also takes `@me` and `none`,
+  which files the issue unassigned.
+- When a follow-up issue's type or assignee is asked and the human
+  declines, a declined type gets whatever type `/issue-create`
+  resolves, and a declined assignee files the issue unassigned.
+- Pre-flight prints every new key beside the tier it came from, and
+  the `sdlc-config-*` verbs offer them.
+- `/sdlc:orchestrate-analysis` reports a Decisions table: per class,
+  the questions asked, the records a standing ruling resolved, the
+  picks equal to the recommendation, the picks that differ, and the
+  answers in free text. It counts the records of the PR, of each issue
+  the PR closes, and of each issue its branch names, so a member
+  dropped from the PR is still counted.
+- `sdlc-decision ask` moves review state from the layout that predates
+  the host segment, and writes `repo.yml`, exactly as
+  `sdlc-agent-result-persist` does. When that move cannot remove a
+  directory it emptied, the failure is now reported and the move still
+  succeeds; it used to pass unreported.
+- `sdlc-decision print` handles a state path that contains a newline.
+
 ## 0.87.0 — 2026-11-17
 
 An unconfigured `/sdlc:orchestrate` run now applies the seed
