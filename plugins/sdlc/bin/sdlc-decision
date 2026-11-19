@@ -435,29 +435,39 @@ if [ "$mode" = answer ]; then
   done <<EOF
 $open
 EOF
-  # A stored reply that does not end in a newline gets one, so the next
-  # reply starts on a line of its own.
   staged="$at/reply.partial-$$"
+  # unstage <message> -- the failure exit of a write: removes every staged
+  # and partial file this answer made, then exits 1 with <message>.
+  unstage() {
+    rm -f -- "$staged" "$at/log.partial-$$" ||
+      sp_fail 1 "$1; $staged or $at/log.partial-$$ could not be removed"
+    sp_fail 1 "$1"
+  }
+  # The reply is staged as the stored reply, a newline when that does not
+  # end in one, so the new reply starts on a line of its own, then the new
+  # reply. Each command's failure is caught on its own line, since a
+  # handler after a group sees only the group's last command.
   if [ -f "$at/reply" ]; then
-    {
-      cat -- "$at/reply"
-      [ ! -s "$at/reply" ] || [ -z "$(tail -c 1 -- "$at/reply")" ] || printf '\n'
-      cat -- "$reply_file"
-    } >"$staged"
+    cat -- "$at/reply" >"$staged" || unstage "cannot store $at/reply"
+    if [ -s "$staged" ]; then
+      last=$(tail -c 1 -- "$staged" || exit) || unstage "cannot store $at/reply"
+      [ -z "$last" ] || printf '\n' >>"$staged" || unstage "cannot store $at/reply"
+    fi
+    cat -- "$reply_file" >>"$staged" || unstage "cannot store $at/reply"
   else
-    cp -- "$reply_file" "$staged"
-  fi || {
-    rm -f -- "$staged"
-    sp_fail 1 "cannot store $at/reply"
+    cp -- "$reply_file" "$staged" || unstage "cannot store $at/reply"
+  fi
+  # The log is written before the reply is moved into place, and rewritten
+  # with the lines it held when the move fails, so a retried answer finds
+  # the record unanswered and the stored reply as it was, and stores the
+  # new reply once. Only a failed rewrite leaves the record answered
+  # without its reply, and its message says so.
+  put "$at/log" "$log$NL$lines" || unstage "cannot store $at/log"
+  mv -- "$staged" "$at/reply" || {
+    put "$at/log" "$log$NL" ||
+      unstage "cannot store $at/reply, and cannot restore $at/log, which now records an answer whose reply is not stored"
+    unstage "cannot store $at/reply"
   }
-  # The log is written before the reply is moved into place: a failed log
-  # write leaves the record unanswered, and a retried answer must find the
-  # stored reply as it was, or it stores the new reply twice.
-  put "$at/log" "$log$NL$lines" || {
-    rm -f -- "$staged" "$at/log.partial-$$"
-    sp_fail 1 "cannot store $at/log"
-  }
-  mv -- "$staged" "$at/reply" || sp_fail 1 "cannot store $at/reply"
   printf 'decision %s answered %s\n' "$decision" "$stamp"
   exit 0
 fi

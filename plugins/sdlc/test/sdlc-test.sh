@@ -1549,6 +1549,129 @@ check "$(cat "$XDG_STATE_HOME/$DECISIONS_REL/1/reply")" "earlier" \
 check "$(find "$XDG_STATE_HOME/$DECISIONS_REL/1" -name '*.partial-*')" "" \
   "decision answer: a failed log write leaves no staged file behind"
 
+# answer_case <name>: a case holding one asked design-gap record, AT,
+# whose stored reply is "earlier", a reply file holding "P1.2", and an
+# empty fakebin for the case to put stubs in. The log as asked is kept
+# in log.before.
+answer_case() {
+  decision_case "$1"
+  record design-gap
+  decision ask --pr 'h.example/o/r#7' "$CASE/record.yml"
+  AT=$XDG_STATE_HOME/$DECISIONS_REL/1
+  printf 'earlier\n' >"$AT/reply"
+  printf 'P1.2\n' >"$CASE/reply"
+  cp "$AT/log" "$CASE/log.before"
+  mkdir -p "$CASE/fakebin"
+}
+
+# answer_stubbed: runs answer for P1.2 with the case's fakebin first on
+# PATH, leaving the exit status in RC, stdout in OUT and stderr in ERR.
+answer_stubbed() {
+  OUT=$(PATH="$CASE/fakebin:$PATH" "$DECISION" answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 \
+    --reply-file "$CASE/reply" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# stored_nothing <what> <stderr> <stored reply>: checks that an answer
+# that failed as <what> exited 1 with <stderr> as its last stderr line,
+# below any of the failed command's own, left the log as asked and the
+# stored reply as <stored reply>, `(absent)` for none, and left no staged
+# or partial file behind.
+stored_nothing() {
+  check "$RC:$OUT" "1:" "decision answer: $1 exits 1 and prints no answered line"
+  check "$(printf '%s\n' "$ERR" | tail -n 1)" "$2" "decision answer: $1 names what it could not store"
+  cmp -s "$CASE/log.before" "$AT/log"
+  check "$?" "0" "decision answer: $1 leaves the log as it was"
+  check "$([ -f "$AT/reply" ] && cat "$AT/reply" || echo '(absent)')" "$3" \
+    "decision answer: $1 leaves the stored reply as it was"
+  check "$(find "$AT" -name '*.partial-*')" "" "decision answer: $1 leaves no staged or partial file behind"
+}
+
+# A reply that cannot be moved into place leaves the log unanswered, so
+# a retry is taken rather than refused as already answered.
+answer_case decision-answer-reply-move-fails
+cat >"$CASE/fakebin/mv" <<'STUB'
+#!/bin/sh
+for a in "$@"; do last=$a; done
+case $last in */reply) exit 1 ;; esac
+exec /bin/mv "$@"
+STUB
+chmod +x "$CASE/fakebin/mv"
+answer_stubbed
+stored_nothing "a failed reply move" "sdlc-decision: cannot store $AT/reply" "earlier"
+decision answer --pr 'h.example/o/r#7' --decision 1 --pick P1=P1.2 --reply-file "$CASE/reply"
+check "$RC:$(cat "$AT/reply")" "0:earlier
+P1.2" "decision answer: a retry after a failed reply move stores the reply once"
+
+# When the log cannot be put back either, the message says the log now
+# records an answer whose reply is not stored.
+answer_case decision-answer-log-restore-fails
+cat >"$CASE/fakebin/mv" <<STUB
+#!/bin/sh
+for a in "\$@"; do last=\$a; done
+case \$last in
+  */reply) : >"$CASE/reply-move-failed"; exit 1 ;;
+  */log) [ ! -e "$CASE/reply-move-failed" ] || exit 1 ;;
+esac
+exec /bin/mv "\$@"
+STUB
+chmod +x "$CASE/fakebin/mv"
+answer_stubbed
+check "$RC:$OUT" "1:" "decision answer: a failed reply move and log restore exits 1 and prints no answered line"
+check "$ERR" "sdlc-decision: cannot store $AT/reply, and cannot restore $AT/log, which now records an answer whose reply is not stored" \
+  "decision answer: a failed log restore says the log records an answer without its reply"
+check "$(cat "$AT/reply")" "earlier" "decision answer: a failed log restore leaves the stored reply as it was"
+check "$(find "$AT" -name '*.partial-*')" "" "decision answer: a failed log restore leaves no staged or partial file behind"
+
+# A stored reply that cannot be read stores nothing, rather than being
+# replaced by the new reply alone.
+answer_case decision-answer-stored-reply-unreadable
+chmod 000 "$AT/reply"
+if [ -r "$AT/reply" ]; then
+  echo "SKIP  decision answer: an unreadable stored reply stores nothing (the file stays readable to this user)"
+else
+  answer_stubbed
+  chmod 600 "$AT/reply"
+  stored_nothing "an unreadable stored reply" "sdlc-decision: cannot store $AT/reply" "earlier"
+fi
+chmod 600 "$AT/reply"
+
+# A failed read of the stored reply's last byte stores nothing, rather
+# than joining the two replies on one line.
+answer_case decision-answer-tail-fails
+printf 'earlier' >"$AT/reply"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/fakebin/tail"
+chmod +x "$CASE/fakebin/tail"
+answer_stubbed
+stored_nothing "a failed read of the stored reply's last byte" "sdlc-decision: cannot store $AT/reply" "earlier"
+
+# A new reply that cannot be read stores nothing, beside a stored reply
+# and with none.
+answer_case decision-answer-new-reply-unreadable
+chmod 000 "$CASE/reply"
+if [ -r "$CASE/reply" ]; then
+  echo "SKIP  decision answer: an unreadable reply file stores nothing (the file stays readable to this user)"
+else
+  answer_stubbed
+  stored_nothing "an unreadable reply file beside a stored reply" "sdlc-decision: cannot store $AT/reply" "earlier"
+  rm "$AT/reply"
+  answer_stubbed
+  stored_nothing "an unreadable reply file with no stored reply" "sdlc-decision: cannot store $AT/reply" "(absent)"
+fi
+chmod 600 "$CASE/reply"
+
+# A record directory the reply cannot be staged in stores nothing.
+answer_case decision-answer-record-dir-unwritable
+chmod 555 "$AT"
+if [ -w "$AT" ]; then
+  echo "SKIP  decision answer: an unwritable record directory stores nothing (it stays writable to this user)"
+else
+  answer_stubbed
+  stored_nothing "an unwritable record directory" "sdlc-decision: cannot store $AT/reply" "earlier"
+fi
+chmod 755 "$AT"
+
 decision_case decision-pending
 decision pending --issue 'h.example/o/r#9'
 check "$RC:$ERR" "0:" "decision pending: an issue with no record exits 0"
