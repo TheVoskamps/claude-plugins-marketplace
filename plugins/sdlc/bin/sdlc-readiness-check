@@ -13,8 +13,9 @@
 # gap line opening `mechanical: `, as does the neither-section line when
 # the body carries `## Acceptance`. An item lists a path when its first
 # token, backticked or bare, holds a slash, ends in a file extension or
-# is a dotfile name, or when the item ends in a files-affected tag. Such a mistitled section's well-formed
-# bullets are then read as the files-affected list. Read-only.
+# is a dotfile name, or when the item ends in a files-affected tag.
+# Such a mistitled section's well-formed bullets are then read as the
+# files-affected list. Read-only.
 #
 # The grammar and the key vocabulary are owned by
 # plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The body is read
