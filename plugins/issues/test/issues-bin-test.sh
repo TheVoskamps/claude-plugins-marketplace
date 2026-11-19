@@ -354,6 +354,96 @@ new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issue-link-prefix.*$//')"
 run issue-view 2
 expect "incomplete front-matter names the field" 1 "is missing the canonical field \`issue-link-prefix\`"
 
+# with_link_prefix <config> <prefix>: the config with issue-link-prefix set to
+# <prefix>.
+with_link_prefix() {
+  printf '%s\n' "$1" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$2\"|"
+}
+BAD_PREFIX_MESSAGE="which is neither \`#\`, empty, nor at most 100 letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
+PREFIX_100=$(printf '%0100d' 0 | tr 0 a)
+PREFIX_101=${PREFIX_100}a
+
+# An issue-link-prefix other than # or empty that is not a valid repository
+# name is a config error wherever a repo-config is read: the current
+# repo's, before any gh call, even when every operand names another repository
+# ...
+for verb in $VERBS; do
+  new_case "$(with_link_prefix "$CONFIG_MAIN" 'x##')"
+  args_for "$verb"
+  run "$verb" "${ARGS[@]}"
+  expect "$verb: a local issue-link-prefix with # is refused" 1 \
+    "This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`x##\`, $BAD_PREFIX_MESSAGE"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "$verb: a local issue-link-prefix with #: no gh call"
+done
+new_case "$(with_link_prefix "$CONFIG_MAIN" 'https://h/')"
+run issue-view octo/lib#5
+expect "issue-view: a local https:// issue-link-prefix is refused for another repo's issue too" 1 \
+  "sets \`issue-link-prefix\` to \`https://h/\`, $BAD_PREFIX_MESSAGE"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local https:// issue-link-prefix: no gh call"
+new_case "$(with_link_prefix "$CONFIG_MAIN" 'a b')"
+run issue-view 'a b2'
+expect "issue-view: a local issue-link-prefix with a space is refused" 1 \
+  "sets \`issue-link-prefix\` to \`a b\`, $BAD_PREFIX_MESSAGE"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local issue-link-prefix with a space: no gh call"
+new_case "$(with_link_prefix "$FRONT_MATTER" 'x#')"
+run issue-branch-prefix
+expect "issue-branch-prefix: a local issue-link-prefix with # is refused" 1 \
+  "sets \`issue-link-prefix\` to \`x#\`, $BAD_PREFIX_MESSAGE"
+new_case "$(with_link_prefix "$CONFIG_MAIN" "$PREFIX_101")"
+run issue-view "${PREFIX_101}2"
+expect "issue-view: a local 101-character issue-link-prefix is refused" 1 \
+  "sets \`issue-link-prefix\` to \`$PREFIX_101\`, $BAD_PREFIX_MESSAGE"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a local 101-character issue-link-prefix: no gh call"
+# A non-ASCII letter is refused under a UTF-8 locale too, where a bracket range
+# can match letters outside ASCII.
+for prefix in 'é-' 'aé' 'ÀB'; do
+  new_case "$(with_link_prefix "$CONFIG_MAIN" "$prefix")"
+  LC_ALL=en_US.UTF-8 run issue-view "${prefix}2"
+  expect "issue-view: a non-ASCII issue-link-prefix $prefix is refused under a UTF-8 locale" 1 \
+    "sets \`issue-link-prefix\` to \`$prefix\`, $BAD_PREFIX_MESSAGE"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a non-ASCII issue-link-prefix $prefix: no gh call"
+done
+
+# ... and a target's, before the target's issue is read or written.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+jq --arg cfg "$(with_link_prefix "$CONFIG_MAIN" 'x##')" \
+  '.repos["acme/prefixed"] = {issues: {"1": .repos["acme/other"].issues["3"]}, config: $cfg,
+    validLabels: [], collaborators: ["octocat"]}' "$CASE_DIR/state.json" >"$CASE_DIR/state.new" &&
+  mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+TARGET_PREFIX_MESSAGE="target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`x##\`, $BAD_PREFIX_MESSAGE"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md
+expect "issue-create <repo>: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+check "$(state '.repos["acme/prefixed"].issues | length')" 1 "issue-create <repo>: nothing created under a bad target prefix"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md --parent 12
+expect "issue-create <repo> --parent N: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+run issue-view acme/prefixed#1
+expect "issue-view: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+run issue-field-options acme/prefixed --all
+expect "issue-field-options <repo>: a target issue-link-prefix with # is refused" 1 "$TARGET_PREFIX_MESSAGE"
+jq --arg cfg "$(with_link_prefix "$CONFIG_MAIN" 'a b')" '.repos["acme/prefixed"].config = $cfg' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md
+expect "issue-create <repo>: a target issue-link-prefix with a space is refused" 1 \
+  "target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`a b\`, $BAD_PREFIX_MESSAGE"
+check "$(state '.repos["acme/prefixed"].issues | length')" 1 \
+  "issue-create <repo>: nothing created under a target prefix with a space"
+jq --arg cfg "$(with_link_prefix "$CONFIG_MAIN" "$PREFIX_101")" '.repos["acme/prefixed"].config = $cfg' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-create acme/prefixed --title "Prefixed" --body-file new.md --parent "${PREFIX_101}1"
+expect "issue-create <repo> --parent: a 101-character target issue-link-prefix is refused" 1 \
+  "target repo \`acme/prefixed\`: This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$PREFIX_101\`, $BAD_PREFIX_MESSAGE"
+check "$(state '.repos["acme/prefixed"].issues | length')" 1 \
+  "issue-create <repo>: nothing created under a 101-character target prefix"
+
+# An empty prefix, and one that is a valid repository name, up to 100
+# characters, are accepted.
+for prefix in '' 'GH-' 'a.B_9-' "$PREFIX_100"; do
+  new_case "$(with_link_prefix "$CONFIG_MAIN" "$prefix")"
+  run issue-view "${prefix}2"
+  expect "issue-view: issue-link-prefix $prefix is accepted" 0 "#2 Widget issue 2    (OPEN)"
+done
+
 # ---------------------------------------------------------------------------
 # Reads.
 # ---------------------------------------------------------------------------
@@ -563,6 +653,11 @@ refuse_write "stale schema" "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/^schema-ver
   "is at schema-version \`5\`"
 refuse_write "missing front-matter field" "$(printf '%s\n' "$CONFIG_MAIN" | sed '/^issue-branch-naming-prefix:/d')" \
   "missing the canonical field \`issue-branch-naming-prefix\`"
+for prefix in 'x##' 'https://h/' 'a b' 'GH/' "$PREFIX_101"; do
+  refuse_write "issue-link-prefix $prefix" \
+    "$(printf '%s\n' "$CONFIG_MAIN" | sed "s|^issue-link-prefix:.*\$|issue-link-prefix: \"$prefix\"|")" \
+    "sets \`issue-link-prefix\` to \`$prefix\`, $BAD_PREFIX_MESSAGE"
+done
 
 new_case none
 run repo-config-write "$CASE_DIR/nosuch.md"
@@ -755,6 +850,14 @@ expect "issue-set-blocked-by: a non-numeric issue part is a usage error" 2 \
   "\`other#x\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
 run issue-set-blocked-by 4 'a/b/c/d#3'
 expect "issue-set-blocked-by: a malformed repository part is a usage error" 2 "\`a/b/c/d\` is not a repository"
+# A non-ASCII letter in an owner or a host is refused under a UTF-8 locale too,
+# where a bracket range can match letters outside ASCII.
+for repo in 'acmé/widgets' 'Àcme/widgets' 'ghé.example.com/corp/tools' 'ghe.exÀmple.com/corp/tools'; do
+  new_case "$CONFIG_MAIN"
+  LC_ALL=en_US.UTF-8 run issue-view "$repo#1"
+  expect "issue-view: a non-ASCII letter in $repo is refused under a UTF-8 locale" 2 "\`$repo\` is not a repository"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-view: a non-ASCII letter in $repo: no gh call"
+done
 
 # Every flag is a --long one, so an argument with a single leading - is an
 # operand, and the parser accepts or refuses it.
@@ -1195,6 +1298,181 @@ expect "issue-create: a dropped label exits non-zero" 1 \
 expect_absent "issue-create: a dropped label is not a partial run" "the run stopped before finishing"
 
 # ---------------------------------------------------------------------------
+# Close reasons.
+# ---------------------------------------------------------------------------
+
+# close_args <number>: the arguments after <number> of the case's
+# `gh issue close` calls that name <number>, in any repository, one JSON array
+# per line.
+close_args() {
+  jq -c --arg n "$1" 'select(.[0] == "issue" and .[1] == "close" and .[2] == $n) | .[3:]' "$CASE_DIR/gh.log"
+}
+# gh_calls <verb> <number>: how many `gh issue <verb>` calls named <number>.
+gh_calls() {
+  jq -c --arg v "$1" --arg n "$2" 'select(.[0] == "issue" and .[1] == $v and .[2] == $n)' "$CASE_DIR/gh.log" |
+    wc -l | tr -d ' '
+}
+# reason_of <number>: acme/widgets issue <number>'s state, stateReason and
+# duplicateOf node id, space-separated, with `-` for no duplicateOf.
+reason_of() {
+  state ".repos[\"acme/widgets\"].issues[\"$1\"] | [.state, .stateReason, (.duplicateOf // \"-\")] | join(\" \")"
+}
+
+new_case "$CONFIG_MAIN"
+run issue-close 3 --reason completed
+expect "issue-close --reason completed" 0 "Closed issue #3 \"Widget issue 3\"." "state:   CLOSED" "reason:  COMPLETED"
+check "$(reason_of 3)" "CLOSED COMPLETED -" "issue-close --reason completed: landed"
+check "$(close_args 3)" '["--repo","github.com/acme/widgets","--reason","completed"]' "issue-close --reason completed: passed to gh"
+run issue-close 4 --reason NOT-Planned
+expect "issue-close --reason not-planned, matched case-insensitively" 0 "reason:  NOT_PLANNED"
+check "$(reason_of 4)" "CLOSED NOT_PLANNED -" "issue-close --reason not-planned: landed"
+check "$(close_args 4)" '["--repo","github.com/acme/widgets","--reason","not planned"]' "issue-close --reason not-planned: passed to gh"
+run issue-close 5 --reason duplicate-of 6
+expect "issue-close --reason duplicate-of N" 0 "reason:  DUPLICATE of #6"
+check "$(reason_of 5)" "CLOSED DUPLICATE I_acme_widgets_6" "issue-close --reason duplicate-of N: landed"
+check "$(close_args 5)" \
+  '["--repo","github.com/acme/widgets","--reason","duplicate","--duplicate-of","https://github.com/acme/widgets/issues/6"]' \
+  "issue-close --reason duplicate-of N: gh gets the duplicate's URL"
+run issue-close 7 --reason duplicate-of octo/lib#5
+expect "issue-close --reason duplicate-of owner/repo#N" 0 "reason:  DUPLICATE of octo/lib#5"
+check "$(reason_of 7)" "CLOSED DUPLICATE I_octo_lib_5" "issue-close --reason duplicate-of owner/repo#N: landed"
+run issue-close 8 --reason Duplicate-Of https://github.com/acme/other/issues/3
+expect "issue-close --reason duplicate-of URL" 0 "reason:  DUPLICATE of other#3"
+check "$(reason_of 8)" "CLOSED DUPLICATE I_acme_other_3" "issue-close --reason duplicate-of URL: landed"
+run issue-close 9
+expect "issue-close with no --reason" 0 "Closed issue #9 \"Widget issue 9\"." "state:   CLOSED"
+expect_absent "issue-close with no --reason prints no reason line" "reason:"
+check "$(close_args 9)" '["--repo","github.com/acme/widgets"]' "issue-close with no --reason passes gh no reason"
+
+# Each refusal, a usage error or a duplicate-of target that does not resolve to
+# an issue, is raised before the comment: nothing posted, nothing closed.
+new_case "$CONFIG_MAIN"
+run issue-close 3 --comment "Summary." --reason duplicate
+expect "issue-close --reason duplicate: a usage error" 2 \
+  "\`--reason\` takes \`completed\`, \`not-planned\` or \`duplicate-of <issue>\`, not \`duplicate\`"
+run issue-close 3 --comment "Summary." --reason wontfix
+expect "issue-close --reason wontfix: a usage error" 2 "not \`wontfix\`"
+run issue-close 3 --comment "Summary." --reason duplicate-of
+expect "issue-close --reason duplicate-of with nothing after it: a usage error" 2 \
+  "\`--reason duplicate-of\` needs the issue this one duplicates"
+run issue-close 3 --reason duplicate-of --comment "Summary."
+expect "issue-close --reason duplicate-of followed by a flag: a usage error" 2 \
+  "\`--reason duplicate-of\` needs the issue this one duplicates"
+run issue-close 3 --comment "Summary." --reason duplicate-of 999
+expect "issue-close --reason duplicate-of: a reference that does not resolve" 1 "issue \`#999\` not found in \`acme/widgets\`"
+run issue-close 3 --comment "Summary." --reason duplicate-of 50
+expect "issue-close --reason duplicate-of: a pull request is refused" 1 "\`#50\` is a pull request"
+run issue-close 3 --comment "Summary." --reason duplicate-of 3
+expect "issue-close --reason duplicate-of: the issue itself" 2 "names \`#3\` itself"
+run issue-close 3 --comment "Summary." --reason duplicate-of https://github.com/acme/widgets/issues/3
+expect "issue-close --reason duplicate-of: the issue itself, by URL" 2 "names \`#3\` itself"
+check "$(gh_calls comment 3) $(gh_calls close 3) $(reason_of 3)" "0 0 OPEN  -" \
+  "issue-close --reason usage errors: no comment, no close"
+
+# A malformed duplicate-of reference is refused before either issue is read, so
+# a closing issue that does not exist cannot turn it into a lookup error.
+new_case "$CONFIG_MAIN"
+run issue-close 999 --reason duplicate-of 'not#a#ref'
+expect "issue-close --reason duplicate-of: a malformed reference is a usage error" 2 \
+  "\`not#a#ref\` is not an issue reference"
+check "$(jq -c 'select(.[0] == "issue" or index("graphql") != null)' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 0 \
+  "issue-close --reason duplicate-of, a malformed reference: no issue read or write"
+
+# Every verb that opens with iss_init refuses a malformed issue reference, in
+# any operand position, before any gh call: a failing `gh repo view` cannot
+# replace the usage error with its own.
+for verb in $VERBS; do
+  case "$verb" in issue-create | issue-field-options) continue ;; esac
+  for i in 0 1; do
+    args_for "$verb"
+    case "${ARGS[$i]-}" in 2 | 3) ;; *) continue ;; esac
+    ARGS[i]='not#a#ref'
+    new_case "$CONFIG_MAIN"
+    set_state '.repoViewError = "no git remotes found"'
+    run "$verb" "${ARGS[@]}"
+    expect "$verb: a malformed reference as operand $((i + 1)) is a usage error" 2 "\`not#a#ref\` is not an issue reference"
+    check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "$verb: a malformed reference as operand $((i + 1)): no gh call"
+  done
+done
+new_case "$CONFIG_MAIN"
+set_state '.repoViewError = "no git remotes found"'
+run issue-close 3 --reason duplicate-of 'not#a#ref'
+expect "issue-close --reason duplicate-of: a malformed reference while gh repo view fails" 2 \
+  "\`not#a#ref\` is not an issue reference"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-close --reason duplicate-of, a malformed reference: no gh call"
+run issue-close 3 --reason duplicate-of 'bad--owner/lib#5'
+expect "issue-close --reason duplicate-of: a malformed repository part while gh repo view fails" 2 \
+  "\`bad--owner/lib\` is not a repository"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-close --reason duplicate-of, a malformed repository part: no gh call"
+run issue-close 3 --reason duplicate-of https://github.com/acme/widgets/pull/50
+expect "issue-close --reason duplicate-of: a pull request URL while gh repo view fails" 1 "is a pull request"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-close --reason duplicate-of, a pull request URL: no gh call"
+run issue-close 3 --reason duplicate-of 4
+expect "issue-close --reason duplicate-of: a well-formed reference still meets the failing gh repo view" 1 \
+  "could not resolve the current GitHub repository"
+
+# issue-create does not open with iss_init, and refuses a malformed --parent
+# before its first gh call all the same, with a target and without one.
+new_case "$CONFIG_MAIN"
+printf 'New body.\n' >"$CASE_DIR/repo/new.md"
+set_state '.repoViewError = "no git remotes found"'
+for parent in 'not#a#ref' 'bad--owner/lib#5'; do
+  run issue-create --title "Child" --body-file new.md --parent "$parent"
+  expect "issue-create --parent $parent: a usage error while gh repo view fails" 2 "is not a"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create --parent $parent: no gh call"
+done
+for parent in 'not#a#ref' 'not#a#5' 'bad--owner/lib#5'; do
+  run issue-create other --title "Child" --body-file new.md --parent "$parent"
+  expect "issue-create <repo> --parent $parent: a usage error while gh repo view fails" 2 "is not a"
+  check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-create <repo> --parent $parent: no gh call"
+done
+run issue-create --title "Child" --body-file new.md --parent 1
+expect "issue-create --parent: a well-formed reference still meets the failing gh repo view" 1 \
+  "could not resolve the current GitHub repository"
+
+# An issue already closed: left alone when the reason and target match,
+# reopened and closed again when either differs; the comment is posted in both.
+new_case "$CONFIG_MAIN"
+run issue-close 3 --reason duplicate-of 4
+run issue-close 3 --comment "Still a duplicate." --reason duplicate-of 4
+expect "issue-close --reason on an issue closed the same way" 0 \
+  "Issue #3 \"Widget issue 3\" is already closed with that reason; no change." "comment: posted" "reason:  DUPLICATE of #4"
+check "$(gh_calls comment 3) $(gh_calls reopen 3) $(gh_calls close 3)" "1 0 1" \
+  "issue-close --reason on an issue closed the same way: commented, neither reopened nor closed"
+run issue-close 3 --comment "A duplicate of another." --reason duplicate-of 5
+expect "issue-close --reason on an issue closed as a duplicate of another" 0 \
+  "Closed issue #3 \"Widget issue 3\"." "comment: posted" "reason:  DUPLICATE of #5"
+check "$(gh_calls comment 3) $(gh_calls reopen 3) $(gh_calls close 3) $(reason_of 3)" \
+  "2 1 2 CLOSED DUPLICATE I_acme_widgets_5" "issue-close --reason, another target: commented, reopened, closed"
+run issue-close 3 --reason not-planned
+expect "issue-close --reason on an issue closed with another reason" 0 "Closed issue #3" "reason:  NOT_PLANNED"
+check "$(gh_calls reopen 3) $(reason_of 3)" "2 CLOSED NOT_PLANNED -" "issue-close --reason, another reason: reopened, closed"
+run issue-close 3 --reason not-planned
+expect "issue-close --reason not-planned on an issue closed as not planned" 0 \
+  "is already closed with that reason; no change." "reason:  NOT_PLANNED"
+run issue-close 3
+expect "issue-close with no --reason on a closed issue" 0 "Closed issue #3"
+expect_absent "issue-close with no --reason on a closed issue prints no reason line" "reason:"
+check "$(gh_calls reopen 3) $(reason_of 3)" "2 CLOSED NOT_PLANNED -" \
+  "issue-close with no --reason on a closed issue: not reopened"
+
+# The re-read decides: a reason or duplicate target the close did not record
+# exits non-zero after the report.
+new_case "$CONFIG_MAIN"
+set_state '.closeAs = {"stateReason": "COMPLETED"}'
+run issue-close 3 --reason not-planned
+expect "issue-close --reason: a reason that did not land" 1 "reason:  COMPLETED" \
+  "the close reason on issue \`#3\` should read \`NOT_PLANNED\`, but a re-read shows \`COMPLETED\`"
+set_state '.closeAs = {"stateReason": "DUPLICATE", "duplicateOf": null}'
+run issue-close 4 --reason duplicate-of 5
+expect "issue-close --reason duplicate-of: DUPLICATE with no target" 1 "reason:  DUPLICATE${ISS_NL}" \
+  "the duplicate target on issue \`#4\` should read \`#5\`, but a re-read shows \`(none)\`"
+set_state '.closeAs = {"stateReason": "DUPLICATE", "duplicateOf": "I_octo_lib_5"}'
+run issue-close 6 --reason duplicate-of 5
+expect "issue-close --reason duplicate-of: another target recorded" 1 "reason:  DUPLICATE of octo/lib#5" \
+  "the duplicate target on issue \`#6\` should read \`#5\`, but a re-read shows \`octo/lib#5\`"
+
+# ---------------------------------------------------------------------------
 # Paging: every connection read runs to its end (see the fixture's #3, #12).
 # ---------------------------------------------------------------------------
 
@@ -1442,7 +1720,8 @@ printf 'Hi.\n' >"$CASE_DIR/repo/body.md"
 for call in "issue-set-status 2 Done" "issue-set-priority 3 Low" "issue-set-size 3 L" "issue-set-type 3 Feature" \
   "issue-set-parent 5 4" "issue-set-child 4 5" "issue-unset-parent 2" "issue-unset-child 1 2" \
   "issue-set-blocked-by 5 4" "issue-set-blocks 4 5" "issue-unset-blocked-by 2 acme/other#3" \
-  "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-comment 3 --body-file body.md" \
+  "issue-unset-blocks acme/other#3 2" "issue-close 3" "issue-close 4 --reason not-planned" \
+  "issue-comment 3 --body-file body.md" \
   "issue-update 3 --title Renamed" "issue-create --title T --body-file body.md"; do
   run $call
   case "$call" in

@@ -1,5 +1,42 @@
 # issues changelog
 
+## 0.16.0 — 2026-11-17
+
+`/issue-close --reason` sets the reason an issue is closed with, so a
+duplicate or a won't-do is no longer recorded as completed.
+
+- `--reason completed` and `--reason not-planned` close the issue with
+  that reason. `--reason duplicate-of <issue>` closes it as a duplicate
+  and records which issue it duplicates; the two need not share a repo.
+- Without the flag nothing changes: the issue closes with GitHub's
+  default reason.
+- An issue already closed another way is reopened and closed again with
+  the requested reason, since a close changes nothing on a closed
+  issue. One already closed as requested is left alone.
+- The report gains a `reason:` line read back from GitHub, and the verb
+  exits non-zero when the reason or the duplicate target did not land.
+- An unknown reason, a missing `duplicate-of` target, and a target that
+  is not an issue or is the issue being closed are all refused before
+  the comment is posted.
+
+A malformed issue reference is now a usage error before any `gh` call,
+in every verb that takes one, `/issue-create --parent` included. A
+checkout whose repository `gh` cannot resolve used to report that
+failure instead.
+
+- One case waits for a read: `/issue-create <repo> --parent` with a
+  reference that has no `#` and ends in a digit. Only the target
+  repository's `issue-link-prefix` can make that one valid, so it is
+  judged once that prefix is read, and still exits 2.
+- An `issue-link-prefix` must now be `#`, empty, or a valid repository
+  name: ASCII letters, digits, `.`, `_` and `-`, at most 100
+  characters. Any other is a config error in every verb that reads the
+  repo-config, the local one or another repository's, and
+  `/repo-config` refuses to write it.
+- A non-ASCII letter in an `issue-link-prefix`, or in the repository
+  name, owner or host of a reference, is now refused under every
+  locale. A UTF-8 locale could let one through before.
+
 ## 0.15.0 — 2026-11-17
 
 `/issue-create --no-assignee` files an issue with no assignee, in one

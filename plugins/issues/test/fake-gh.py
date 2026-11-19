@@ -16,6 +16,16 @@ workflow added the issue first: the add fails as "Content already exists in
 this project", and the item it created stays out of the next N reads of the
 issue's project items.
 
+state["repoViewError"] makes `gh repo view` fail with that message.
+
+`issue close` on an open issue records a stateReason -- COMPLETED unless its
+--reason names another -- and, with --duplicate-of, the issue it duplicates as
+duplicateOf. A closed issue is left as it is, whatever the call names, and
+`issue reopen` leaves the issue OPEN with stateReason REOPENED and no
+duplicateOf.
+state["closeAs"] = {"stateReason": R, "duplicateOf": node-id-or-null} makes
+every close record those two values instead of the requested ones.
+
 A pull request is an entry in a repo's "issues" carrying "pullRequest": true,
 since the two share one number sequence.
 
@@ -157,9 +167,14 @@ def render(state, nwo, issue, query, after=None):
     issue_type = None
     if issue.get("issueType"):
         issue_type = {"id": issue["issueType"], "name": state["issueTypes"][issue["issueType"]]}
+    duplicate_of = None
+    if issue.get("duplicateOf"):
+        duplicate_of = brief(state, *by_id(state, issue["duplicateOf"]))
     out = brief(state, nwo, issue)
     out.update({
         "state": issue.get("state", "OPEN"),
+        "stateReason": issue.get("stateReason"),
+        "duplicateOf": duplicate_of,
         "body": issue.get("body", ""),
         "issueType": issue_type,
         "parent": parent,
@@ -452,6 +467,8 @@ def main():
         args = args[:i] + args[i + 2:]
 
     if args[:2] == ["repo", "view"]:
+        if "repoViewError" in state:
+            fail(state["repoViewError"])
         print("https://%s/%s" % (host_of(state, state["current"]), state["current"]))
     elif args[:2] == ["api", "user"]:
         print(login_on(state, host))
@@ -472,6 +489,11 @@ def main():
     elif args[0] == "issue":
         verb = args[1]
         positional, flags = opts(args[2:])
+        # gh validates the close reason as it parses flags, before any call.
+        close_reasons = {"completed": "COMPLETED", "not planned": "NOT_PLANNED", "duplicate": "DUPLICATE"}
+        if verb == "close" and "reason" in flags and flags["reason"] not in close_reasons:
+            fail('invalid argument "%s" for "-r, --reason" flag: valid values are {completed|not planned|duplicate}'
+                 % flags["reason"])
         parts = flags.get("repo", state["current"]).split("/")
         if len(parts) == 3:
             host = parts[0]
@@ -516,8 +538,36 @@ def main():
             save(state)
             print("%s#issuecomment-%s" % (issue_url(state, nwo, issue["number"]), cid))
         elif verb == "close":
+            # As gh does, a closed issue is left as it is, whatever reason the
+            # call names.
+            if issue.get("state") == "CLOSED":
+                return
+            # With no --reason, GitHub records the close as completed.
+            reason = close_reasons[flags.get("reason", "completed")]
+            duplicate_of = None
+            if "duplicate-of" in flags:
+                dup = flags["duplicate-of"]
+                dnwo, dhost, dnum = nwo, host, dup
+                m = re.match(r"https://([^/]+)/([^/]+/[^/]+)/issues/(\d+)$", dup)
+                if m:
+                    dhost, dnwo, dnum = m.group(1), m.group(2), m.group(3)
+                target = by_number(state, dnwo, dnum) if repo_on(state, dnwo, dhost) else None
+                if target is None:
+                    fail("Could not resolve to an issue or pull request with the number of %s." % dnum)
+                duplicate_of = target["id"]
+            if "closeAs" in state:
+                reason = state["closeAs"]["stateReason"]
+                duplicate_of = state["closeAs"].get("duplicateOf")
             if not dropping():
                 issue["state"] = "CLOSED"
+                issue["stateReason"] = reason
+                issue["duplicateOf"] = duplicate_of
+            save(state)
+        elif verb == "reopen":
+            if not dropping():
+                issue["state"] = "OPEN"
+                issue["stateReason"] = "REOPENED"
+                issue["duplicateOf"] = None
             save(state)
         else:
             fail("fake gh: unknown issue verb " + verb)

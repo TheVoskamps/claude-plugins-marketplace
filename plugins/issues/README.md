@@ -44,14 +44,20 @@ only when to run it.
   and option IDs, and writes them down. A verb acting on an issue here
   reads the file and aborts pointing back at `/repo-config` when it is
   missing, when its `schema-version` is older than the reader requires,
-  or when a slot's `default:` is a value the slot itself would refuse —
-  an option name not among its `options:`, or for `kind: number` a
-  bound or default that is not an integer with `min` at most `max`.
-  That last abort comes whichever slot the verb wanted, because the
-  file is invalid as a whole. A verb whose every operand names another
-  repository reads that repository's config instead and never opens
-  the local file, so a checkout with none, or one tracked in Jira, does
-  not stop work on another repo's issues. The config verbs write config
+  when its `issue-link-prefix` is anything but `#`, empty or a valid
+  repository name, or when a slot's `default:` is a value the slot
+  itself would refuse — an option name not among its `options:`, or
+  for `kind: number` a bound or default that is not an integer with
+  `min` at most `max`. Those last two aborts come whichever slot the
+  verb wanted, because the file is invalid as a whole. A verb whose
+  every operand names another repository reads that repository's
+  config instead. Of the local file, a verb taking an issue reference
+  then reads only the `issue-link-prefix`, because that decides how
+  every reference parses: a checkout with no file, or one tracked in
+  Jira, does not stop work on another repo's issues, and one whose
+  prefix is invalid does. `/issue-create <repo>` is the exception and
+  reads nothing from the local file, because its `--parent` parses
+  under the target repository's prefix. The config verbs write config
   rather than requiring it. It is team-shared and committed, so one
   person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` and `jq` for the
@@ -143,6 +149,34 @@ by calling a catalogue entry and never spells a message of its own. A
 usage error exits 2 before anything is sent; every other failure exits
 non-zero with one catalogue line on stderr.
 
+A malformed issue reference is such a usage error in every verb that
+takes one, whichever operand carries it — `/issue-close`'s
+`duplicate-of` target and `/issue-create --parent` included. Its
+syntax is checked before the current repository is resolved, because
+that resolution is itself a `gh` call: checked after it, a checkout
+where the call fails would report the call's error in place of the
+usage error. A well-formed reference is still resolved afterwards.
+
+The check needs the `issue-link-prefix` a bare number may carry, and
+the local repo-config supplies it without a call. `/issue-create
+<repo> --parent` is the exception, because there the prefix is the
+target repository's and only a `gh` read fetches it. A `--parent` that
+is malformed whatever the prefix — a repository part the grammar
+refuses, a second `#` before the number — is still refused before any
+call; one with no `#` that ends in a digit, which the target's prefix
+alone can make valid, is judged after that read, and still exits 2.
+Checking ahead of the prefix is sound only while no prefix can turn a
+refused reference into a valid one, so an `issue-link-prefix` is
+confined to `#`, empty, or a valid repository name — ASCII letters,
+digits, `.`, `_` and `-`, at most 100 characters — and any other is a
+config error wherever a repo-config is read, the local one or a
+target's.
+
+One more usage error needs a read first, for another reason:
+`/issue-close --reason duplicate-of` naming the issue being closed is
+known only once both references are resolved. It still comes before
+the comment and the close.
+
 A verb that changes an issue **re-reads what it set** and exits
 non-zero when the re-read does not show it, so a skill never has to
 tell its caller to verify. For `/issue-update` and `/issue-create` that
@@ -187,13 +221,13 @@ every other verb's issue operand carries its repository in the
 reference itself. The repo-config that governs the run is the
 operand's repository's own: for another repo the script reads that
 repo's `.issues/repo-config.md` from its default branch through the
-read-only contents API and reads nothing from the current repo's,
-since the target's alone governs which tracker it is on and what a
-slot accepts there. A target whose config is present and supported is
-used exactly as a local one; one tracked in Jira stops the verb with
-the fixed Jira message, and one at an unsupported schema version
-aborts with the canonical schema-version wording, in each case before
-an issue is read or written. A target with none degrades by verb:
+read-only contents API, since the target's alone governs which tracker
+it is on and what a slot accepts there. A target whose config is
+present and supported is used exactly as a local one; one tracked in
+Jira stops the verb with the fixed Jira message, and one at an
+unsupported schema version aborts with the canonical schema-version
+wording, in each case before an issue is read or written. A target
+with none degrades by verb:
 `/issue-create` files a plain issue — title, body, labels, assignees —
 with a `note:` line saying project fields were skipped,
 `/issue-field-options` reports every slot there as unconfigured,
@@ -243,7 +277,14 @@ auto-add workflow got there first: the add creates the item, keeps it
 out of that many following reads of the issue's project items, and
 fails with GitHub's already-on-the-board message; `addError` makes
 every add fail with a message of the test's choosing, for the case
-that must not be retried. The suite also puts a `sleep` on `PATH`
+that must not be retried. `repoViewError` makes `gh repo view` fail
+with a message of the test's choosing, which is how a test asserts that
+a malformed reference is refused before the current repository is
+resolved. A close records its reason and duplicate target and, as `gh`
+does, leaves an already-closed issue as it is; `closeAs` makes every
+close record a reason and target of the test's choosing instead, for
+the close that reports success and lands as something else. The suite
+also puts a `sleep` on `PATH`
 that returns at once and logs each wait it was asked for, so a test
 asserts how many waits a verb made and how long each was without
 spending the time. The discovery lookups have their own state: an
@@ -323,11 +364,12 @@ host, rather than by one character class over the whole path, so a
 repository name may start with `-` while an owner may not. A single
 leading `-` on an argument is therefore not an unknown flag to these
 verbs, whose flags are all `--long`; it reaches the parser as an
-operand. The verbs take issues only: a `pull` URL is a usage error
-before any call, and a number that turns out to be a pull request
-aborts once read, naming it as one, because GitHub's issue endpoints
-accept a pull request's number and a verb must not act on one by
-accident.
+operand. The verbs take issues only: a `pull` URL is refused before
+any call, and a number that turns out to be a pull request aborts once
+read, naming it as one, because GitHub's issue endpoints accept a pull
+request's number and a verb must not act on one by accident. Neither
+is a usage error: both exit 1 with the same message, so the status
+does not depend on how the pull request was spelled.
 
 ## Skills
 
@@ -343,7 +385,7 @@ each skill's own `SKILL.md`.
 | `/issue-sub-list <parent-issue>` | List a parent's direct sub-issues |
 | `/issue-update <issue>` | Change a title, body, labels or assignees |
 | `/issue-comment <issue> --body-file PATH` | Add a comment, body read from a file |
-| `/issue-close <issue>` | Close an issue, optionally commenting first |
+| `/issue-close <issue> [--reason <reason>]` | Close an issue, optionally commenting first, and optionally set the close reason: completed, not planned, or a duplicate of a named issue |
 | `/issue-set-status <issue> <status>` | Set the status field on the issue's project item |
 | `/issue-set-priority <issue> <value>` | Set the priority slot |
 | `/issue-set-size <issue> <value>` | Set the size slot |

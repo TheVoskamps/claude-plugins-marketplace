@@ -264,6 +264,16 @@ Variable parts are wrapped in backticks.
   Checked before the slot's default, and, like it, aborts the read
   whichever slot the caller wanted.
 
+- **Link prefix invalid**
+
+  > This repo's `.issues/repo-config.md` sets `issue-link-prefix` to
+  > `<value>`, which is neither `#`, empty, nor at most 100 letters,
+  > digits, `.`, `_` and `-`. Run `/repo-config` to fix it.
+
+  Triggered on every read of a repo-config, the current repo's or
+  another repo's, whose `issue-link-prefix` is such a value. Like the
+  slot checks above, it aborts the read whatever the caller wanted.
+
 - **Branch-prefix mode invalid**
 
   > `.issues/repo-config.md` sets `issue-branch-naming-prefix` to
@@ -311,9 +321,15 @@ file. Order is fixed; `schema-version` is always first.
   concatenated with an issue number in commit messages and PR
   bodies. A reader substitutes it as `<issue-link-prefix><N>`. For
   GitHub repos, `#` so references render as `#123`; for Jira, the
-  project key plus dash (e.g. `SET-` for `SET-123`). Quote the value
-  in YAML if it starts with `#` (otherwise YAML parses it as a
-  comment) — `/repo-config` does this automatically.
+  project key plus dash (e.g. `SET-` for `SET-123`). The value is
+  valid only when it is `#` itself, empty, or a valid repository
+  name — 1 to 100 ASCII letters, digits, `.`, `_` and `-`:
+  `issue-create` checks a `--parent` reference that holds a `#`
+  under `#` before it can read a target repo's prefix, reading the
+  part before the `#` as a repository name, and any other prefix
+  could make such a reference valid. Quote the value in YAML if it starts with `#`
+  (otherwise YAML parses it as a comment) — `/repo-config` does this
+  automatically.
 
 - **`default-issue-source-branch`** — string. Branch that new
   issue work branches FROM. A reader creating a feature branch pins

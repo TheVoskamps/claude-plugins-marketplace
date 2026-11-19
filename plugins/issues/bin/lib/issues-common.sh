@@ -70,6 +70,11 @@ iss_err_invalid_range() {
   iss_die "${4:-}This repo's \`.issues/repo-config.md\` sets \`$1\`'s range to \`[$2, $3]\`, which is not an integer range with \`min:\` at most \`max:\`. Run \`/repo-config\` to fix it."
 }
 
+iss_err_invalid_link_prefix() {
+  # $1 the configured prefix, $2 message prefix
+  iss_die "${2:-}This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$1\`, which is neither \`#\`, empty, nor at most 100 letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
+}
+
 iss_err_jira() {
   iss_die "\`issues: Jira\` is configured, and this script serves only the GitHub backend. Follow the Jira backend path in the skill's SKILL.md instead."
 }
@@ -101,8 +106,8 @@ iss_err_no_target_config() {
 
 iss_err_pull_request() {
   # $1 the pull request, as the operand spelled it or as iss_ref prints it.
-  # One exit status whether iss_parse_operand finds the pull request in a URL
-  # or iss_try_lookup finds it behind a number.
+  # One exit status whether iss_check_operand_syntax finds the pull request in
+  # a URL or iss_try_lookup finds it behind a number.
   iss_die "\`$1\` is a pull request; the issue verbs take issues only"
 }
 
@@ -180,14 +185,14 @@ iss_lc() {
 # A decimal integer, optionally negative.
 iss_is_int() {
   case "$1" in
-    ''|*[!0-9-]*|?*-*|-) return 1 ;;
+    '' | *[!0-9-]* | ?*-* | -) return 1 ;;
   esac
   return 0
 }
 
 iss_is_digits() {
   case "$1" in
-    ''|*[!0-9]*) return 1 ;;
+    '' | *[!0-9]*) return 1 ;;
   esac
   return 0
 }
@@ -341,9 +346,9 @@ iss_validate_config_text() {
   iss_config_jira "$1" "${2:-}"
 }
 
-# iss_config_frontmatter <text> [<message-prefix>]: the schema-version and
-# canonical-field checks; sets ISS_ISSUES, ISS_LINK_PREFIX and
-# ISS_BRANCH_PREFIX_MODE.
+# iss_config_frontmatter <text> [<message-prefix>]: the schema-version,
+# canonical-field and issue-link-prefix checks; sets ISS_ISSUES,
+# ISS_LINK_PREFIX and ISS_BRANCH_PREFIX_MODE.
 iss_config_frontmatter() {
   local text=$1 prefix=${2:-} fm version field
   if ! fm=$(iss_frontmatter "$text"); then
@@ -355,16 +360,30 @@ iss_config_frontmatter() {
     iss_err_schema_stale "$version" "$ISS_REPO_CONFIG_SCHEMA" "$prefix"
   fi
   for field in source-control issues issue-link-prefix default-issue-source-branch \
-               default-pr-target-branch issue-branch-naming-prefix; do
+    default-pr-target-branch issue-branch-naming-prefix; do
     iss_fm_get "$fm" "$field" >/dev/null || iss_err_frontmatter_incomplete "$version" "$field" "$prefix"
   done
   ISS_ISSUES=$(iss_fm_get "$fm" issues)
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix)
   ISS_BRANCH_PREFIX_MODE=$(iss_fm_get "$fm" issue-branch-naming-prefix)
   case "$ISS_ISSUES" in
-    GitHub|Jira) ;;
+    GitHub | Jira) ;;
     *) iss_die "${prefix}unsupported \`issues:\` value \`$ISS_ISSUES\` in \`.issues/repo-config.md\`" ;;
   esac
+  iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX" "$prefix"
+}
+
+# iss_valid_link_prefix <prefix>: whether <prefix> is an issue-link-prefix an
+# operand can carry: `#` itself, empty, or a name iss_valid_name accepts. Any
+# other could turn a reference issue-create refuses under the default prefix
+# into a valid one, and issue-create checks a --parent reference under that
+# default before its first gh call, since a target repo's prefix takes a gh
+# read.
+iss_valid_link_prefix() {
+  case "$1" in
+    '#' | '') return 0 ;;
+  esac
+  iss_valid_name "$1"
 }
 
 # iss_config_github_project <text> [<message-prefix>]: flatten the
@@ -402,7 +421,7 @@ iss_check_slots() {
           iss_err_invalid_default "$slot" "$value" "an integer in \`[$ISS_NUM_MIN, $ISS_NUM_MAX]\`" "$prefix"
         fi
         ;;
-      single-select|label|issue-field|status|custom-field)
+      single-select | label | issue-field | status | custom-field)
         [ -z "$value" ] || iss_resolve_name all "$value" fields "$slot" options >/dev/null ||
           iss_err_invalid_default "$slot" "$value" "one of its options: \`$(iss_slot_options "$slot")\`" "$prefix"
         ;;
@@ -426,8 +445,8 @@ iss_number_check() {
   ISS_NUM_MIN=${min:--inf}
   ISS_NUM_MAX=${max:-inf}
   if { [ -n "$min" ] && ! iss_is_int "$min"; } ||
-     { [ -n "$max" ] && ! iss_is_int "$max"; } ||
-     { [ -n "$min" ] && [ -n "$max" ] && [ "$min" -gt "$max" ]; }; then
+    { [ -n "$max" ] && ! iss_is_int "$max"; } ||
+    { [ -n "$min" ] && [ -n "$max" ] && [ "$min" -gt "$max" ]; }; then
     iss_err_invalid_range "$slot" "$ISS_NUM_MIN" "$ISS_NUM_MAX" "${3:-}"
   fi
   iss_is_int "$value" || return 1
@@ -470,7 +489,8 @@ iss_load_target_config() {
     ISS_LINK_PREFIX='#'
     return 1
   else
-    err=$(cat "$errf"); rm -f "$errf"
+    err=$(cat "$errf")
+    rm -f "$errf"
     iss_die "could not read \`$name\`'s \`.issues/repo-config.md\`: $err"
   fi
 }
@@ -488,7 +508,7 @@ iss_load_target_config() {
 iss_split_url() {
   local rest=${1%/}
   case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
-  case "$rest" in */*/*/*|*//*|/*|*/) return 1 ;; ?*/?*/?*) ;; *) return 1 ;; esac
+  case "$rest" in */*/*/* | *//* | /* | */) return 1 ;; ?*/?*/?*) ;; *) return 1 ;; esac
   URL_HOST=${rest%%/*}
   rest=${rest#*/}
   URL_OWNER=${rest%/*}
@@ -536,28 +556,39 @@ iss_try_current_repo() {
 }
 
 # iss_valid_name <name>: whether <name> is a repository name GitHub allows: 1
-# to 100 ASCII letters, digits, ".", "-" and "_", any of them first.
+# to 100 ASCII letters, digits, ".", "-" and "_", any of them first. The
+# letters are spelled out rather than given as ranges, because what a range
+# matches depends on the locale: under a UTF-8 one, the ranges admit letters
+# such as é.
 iss_valid_name() {
-  case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$1" in
+    '' | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*) return 1 ;;
+  esac
   [ "${#1}" -le 100 ]
 }
 
 # iss_valid_owner <owner>: whether <owner> is an owner GitHub allows: 1 to 39
-# ASCII letters, digits and "-", not starting with "-" and with no "--".
+# ASCII letters, digits and "-", not starting with "-" and with no "--". The
+# letters are spelled out for the same reason as in iss_valid_name.
 iss_valid_owner() {
-  case "$1" in ''|-*|*--*|*[!A-Za-z0-9-]*) return 1 ;; esac
+  case "$1" in
+    '' | -* | *--* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
+  esac
   [ "${#1}" -le 39 ]
 }
 
 # iss_valid_host <host>: whether <host> is a DNS hostname: at most 253
 # characters of "."-separated labels, each 1 to 63 ASCII letters, digits and
-# "-", neither starting nor ending with "-".
+# "-", neither starting nor ending with "-". The letters are spelled out for
+# the same reason as in iss_valid_name.
 iss_valid_host() {
   local rest=$1. label
   [ "${#1}" -le 253 ] || return 1
   while [ -n "$rest" ]; do
     label=${rest%%.*}
-    case "$label" in ''|-*|*-|*[!A-Za-z0-9-]*) return 1 ;; esac
+    case "$label" in
+      '' | -* | *- | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
+    esac
     [ "${#label}" -le 63 ] || return 1
     rest=${rest#*.}
   done
@@ -565,8 +596,9 @@ iss_valid_host() {
 
 # iss_valid_path <path>: whether each part of repo, owner/repo or
 # host/owner/repo is valid for its place, by iss_valid_host, iss_valid_owner
-# and iss_valid_name. gp_parse_pr in the github-prs plugin validates by the
-# same rules.
+# and iss_valid_name. gp_parse_pr in the github-prs plugin checks the same
+# shapes, but through letter ranges, so under a UTF-8 locale it also accepts
+# non-ASCII letters such as é that these refuse.
 iss_valid_path() {
   case "$1" in
     */*/*/*) return 1 ;;
@@ -584,16 +616,16 @@ iss_valid_path() {
 #   host/owner/repo          that repository, on that host
 #   https://host/owner/repo  the same as host/owner/repo; a trailing / is
 #                            ignored
-# Each part is checked by iss_valid_path. A malformed reference is a
+# Each part is checked by iss_check_repo_syntax, so a malformed reference is a
 # usage error before any gh call; a form without a host resolves the current
 # repository with iss_try_current_repo. With no current repository, repo is a
 # usage error and owner/repo gets the empty host.
 iss_parse_repo() {
-  local ref=$1 rest bad
-  bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
+  local ref=$1 rest
+  iss_check_repo_syntax "$ref"
   case "$ref" in
     *://*)
-      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
+      iss_split_url "$ref"
       RP_HOST=$URL_HOST
       RP_OWNER=$URL_OWNER
       RP_REPO=$URL_REPO
@@ -601,8 +633,6 @@ iss_parse_repo() {
       ;;
   esac
   rest=${ref%/}
-  case "$rest" in ''|*//*|/*|*/*/*/*) iss_usage_die "$bad" ;; esac
-  iss_valid_path "$rest" || iss_usage_die "$bad"
   case "$rest" in */*/*) ;; *) iss_try_current_repo || : ;; esac
   case "$rest" in
     */*/*)
@@ -624,6 +654,23 @@ iss_parse_repo() {
       RP_REPO=$rest
       ;;
   esac
+}
+
+# iss_check_repo_syntax <reference>: the syntax half of iss_parse_repo, which
+# makes no gh call. A reference that is none of iss_parse_repo's forms, or
+# whose parts iss_valid_path refuses, is a usage error.
+iss_check_repo_syntax() {
+  local ref=$1 rest bad
+  bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
+  case "$ref" in
+    *://*)
+      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
+      return 0
+      ;;
+  esac
+  rest=${ref%/}
+  case "$rest" in '' | *//* | /* | */*/*/*) iss_usage_die "$bad" ;; esac
+  iss_valid_path "$rest" || iss_usage_die "$bad"
 }
 
 # iss_same_host <host>: whether <host> is the current repository's host.
@@ -650,16 +697,22 @@ iss_repo_name() {
 }
 
 # iss_init <operand>...: the common opening of every verb that acts on
-# existing issues -- tools, the working tree, and the current repository. Only
-# the repo-config of an operand's own repository governs the verb on it, so the
-# current repository's is read here, before any gh call, only when an operand
-# names no repository of its own (iss_names_repo). An operand that does name
-# one is gated by iss_check_repo or iss_operand_config once it is parsed.
+# existing issues -- tools, the working tree, and the current repository. Each
+# operand's syntax is checked with iss_check_operand_syntax once the link
+# prefix is known, so a malformed one is refused before iss_load_config's
+# checks and any gh call. Only the repo-config of an operand's own repository
+# governs the verb on it, so the current repository's is read here, before any
+# gh call, only when an operand names no repository of its own
+# (iss_names_repo). An operand that does name one is gated by iss_check_repo or
+# iss_operand_config once it is parsed.
 iss_init() {
   local op
   iss_require_tools
   ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
   iss_peek_link_prefix
+  for op in "$@"; do
+    iss_check_operand_syntax "$op"
+  done
   for op in "$@"; do
     iss_names_repo "$op" && continue
     iss_load_config
@@ -671,13 +724,16 @@ iss_init() {
 # iss_peek_link_prefix: set ISS_LINK_PREFIX from the current repo-config's
 # front matter without iss_load_config's checks, so that iss_names_repo can
 # tell a prefixed N apart before any repo-config is gated on. It is '#' when
-# the file or the key is absent.
+# the file or the key is absent. A prefix iss_valid_link_prefix refuses aborts
+# here, since it would decide how every operand parses, one naming another
+# repository included.
 iss_peek_link_prefix() {
   local fm
   ISS_LINK_PREFIX='#'
   [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || return 0
   fm=$(iss_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")") || return 0
   ISS_LINK_PREFIX=$(iss_fm_get "$fm" issue-link-prefix) || ISS_LINK_PREFIX='#'
+  iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX"
 }
 
 # iss_names_repo <operand>: whether the operand names a repository of its own
@@ -687,7 +743,7 @@ iss_names_repo() {
   local num=${1#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   iss_is_digits "$num" && return 1
-  case "$1" in https://*|?*'#'*) return 0 ;; esac
+  case "$1" in https://* | ?*'#'*) return 0 ;; esac
   return 1
 }
 
@@ -767,12 +823,12 @@ EOF
 #   https://host/owner/repo/issues/N
 #                                  the same as host/owner/repo#N; a trailing /
 #                                  is ignored
-# so every reference iss_ref prints is accepted back. A pull request's URL is
-# refused with iss_err_pull_request, and any other malformed operand is a usage
-# error, both before any gh call.
+# so every reference iss_ref prints is accepted back. The operand is checked by
+# iss_check_operand_syntax first, so a pull request's URL and any malformed
+# operand are refused before any gh call.
 iss_parse_operand() {
-  local op=$1 num rest kind bad
-  bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
+  local op=$1 num rest
+  iss_check_operand_syntax "$op"
   num=${op#"$ISS_LINK_PREFIX"}
   num=${num#'#'}
   if iss_is_digits "$num"; then
@@ -785,9 +841,40 @@ iss_parse_operand() {
   case "$op" in
     *'#'*)
       num=${op##*'#'}
+      iss_parse_repo "${op%'#'*}"
+      ;;
+    *)
+      rest=${op%/}
+      num=${rest##*/}
+      iss_split_url "${rest%/*/*}"
+      RP_HOST=$URL_HOST
+      RP_OWNER=$URL_OWNER
+      RP_REPO=$URL_REPO
+      ;;
+  esac
+  OP_HOST=$RP_HOST
+  OP_OWNER=$RP_OWNER
+  OP_REPO=$RP_REPO
+  OP_NUMBER=$num
+}
+
+# iss_check_operand_syntax <operand>: the syntax half of iss_parse_operand,
+# which makes no gh call. A pull request's URL is refused with
+# iss_err_pull_request, and an operand that is none of iss_parse_operand's
+# forms, or whose repository part iss_check_repo_syntax refuses, is a usage
+# error.
+iss_check_operand_syntax() {
+  local op=$1 num rest kind bad
+  bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
+  num=${op#"$ISS_LINK_PREFIX"}
+  num=${num#'#'}
+  iss_is_digits "$num" && return 0
+  case "$op" in
+    *'#'*)
+      num=${op##*'#'}
       rest=${op%'#'*}
       { [ -n "$rest" ] && iss_is_digits "$num"; } || iss_usage_die "$bad"
-      iss_parse_repo "$rest"
+      iss_check_repo_syntax "$rest"
       ;;
     https://*)
       rest=${op%/}
@@ -802,16 +889,9 @@ iss_parse_operand() {
         pull) iss_err_pull_request "$op" ;;
         *) iss_usage_die "$bad" ;;
       esac
-      RP_HOST=$URL_HOST
-      RP_OWNER=$URL_OWNER
-      RP_REPO=$URL_REPO
       ;;
     *) iss_usage_die "$bad" ;;
   esac
-  OP_HOST=$RP_HOST
-  OP_OWNER=$RP_OWNER
-  OP_REPO=$RP_REPO
-  OP_NUMBER=$num
 }
 
 # iss_operand <operand>: iss_parse_operand, then iss_check_repo on the
@@ -1014,7 +1094,7 @@ iss_conn_nodes() {
   case "$1" in
     labels) printf 'name' ;;
     assignees) printf 'login' ;;
-    subIssues|blockedBy|blocking) printf 'id number title repository { nameWithOwner }' ;;
+    subIssues | blockedBy | blocking) printf 'id number title repository { nameWithOwner }' ;;
     projectItems) printf 'id project { id } %s' "$(iss_conn fieldValues)" ;;
     fieldValues) printf '%s' "$ISS_FIELD_VALUE_NODES" ;;
     issueFieldValues)
@@ -1167,7 +1247,7 @@ iss_slot_resolve() {
         iss_err_out_of_range "${value:-<empty>}" "$slot" "$ISS_NUM_MIN" "$ISS_NUM_MAX"
       SLOT_VALUE=$value
       ;;
-    single-select|label|issue-field)
+    single-select | label | issue-field)
       if canonical=$(iss_resolve_name all "$value" fields "$slot" options); then
         SLOT_VALUE=$canonical
       elif iss_is_int "$value"; then
@@ -1228,7 +1308,7 @@ iss_project_add() {
 # longer resolves, the symptom of an ID cached in repo-config going stale.
 iss_is_stale_id_error() {
   case "$(iss_lc "$ISS_GQL_ERR $ISS_GQL_OUT")" in
-    *"could not resolve to a node"*|*"not found"*|*"does not exist"*) return 0 ;;
+    *"could not resolve to a node"* | *"not found"* | *"does not exist"*) return 0 ;;
   esac
   return 1
 }
@@ -1287,7 +1367,7 @@ iss_slot_write() {
   local kind=$SLOT_KIND sel current item issue_id fid oid ns add remove opt ref repo_arg
   ref=$(iss_ref "$host" "$owner" "$repo" "$number")
   case "$kind" in
-    number|single-select) sel="id url $ISS_SEL_PROJECT_ITEMS" ;;
+    number | single-select) sel="id url $ISS_SEL_PROJECT_ITEMS" ;;
     issue-field) sel="id url viewerCanSetFields $ISS_SEL_ISSUE_FIELDS" ;;
     label) sel="id url $ISS_SEL_LABELS" ;;
   esac
@@ -1308,7 +1388,7 @@ iss_slot_write() {
   fi
 
   case "$kind" in
-    number|single-select)
+    number | single-select)
       fid=$(iss_cfg_get fields "$slot" id)
       item=$(iss_project_item)
       if [ -z "$item" ]; then
@@ -1432,21 +1512,33 @@ iss_type_write() {
 # requested state.
 iss_blocked_by_edge() {
   local action=$1 side=$4 bh bo br bn xh xo xr xn blocked_id blocker_id side_sel list want present doc sref
-  iss_operand "$2"; bh=$OP_HOST; bo=$OP_OWNER; br=$OP_REPO; bn=$OP_NUMBER
-  iss_operand "$3"; xh=$OP_HOST; xo=$OP_OWNER; xr=$OP_REPO; xn=$OP_NUMBER
+  iss_operand "$2"
+  bh=$OP_HOST
+  bo=$OP_OWNER
+  br=$OP_REPO
+  bn=$OP_NUMBER
+  iss_operand "$3"
+  xh=$OP_HOST
+  xo=$OP_OWNER
+  xr=$OP_REPO
+  xn=$OP_NUMBER
   EDGE_BLOCKED=$(iss_ref "$bh" "$bo" "$br" "$bn")
   EDGE_BLOCKER=$(iss_ref "$xh" "$xo" "$xr" "$xn")
   if [ "$side" = blocked ]; then
     list=blockedBy
-    iss_lookup "$xh" "$xo" "$xr" "$xn" id; blocker_id=$(iss_jq .id)
+    iss_lookup "$xh" "$xo" "$xr" "$xn" id
+    blocker_id=$(iss_jq .id)
     side_sel="id url $(iss_conn blockedBy)"
-    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"; blocked_id=$(iss_jq .id)
+    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"
+    blocked_id=$(iss_jq .id)
     want=$blocker_id
   else
     list=blocking
-    iss_lookup "$bh" "$bo" "$br" "$bn" id; blocked_id=$(iss_jq .id)
+    iss_lookup "$bh" "$bo" "$br" "$bn" id
+    blocked_id=$(iss_jq .id)
     side_sel="id url $(iss_conn blocking)"
-    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"; blocker_id=$(iss_jq .id)
+    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"
+    blocker_id=$(iss_jq .id)
     want=$blocked_id
   fi
   present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
@@ -1456,9 +1548,11 @@ iss_blocked_by_edge() {
   if [ "$action" = add ]; then doc=$ISS_DOC_ADD_BLOCKED_BY; else doc=$ISS_DOC_REMOVE_BLOCKED_BY; fi
   iss_gql "$bh" -f query="$doc" -f issueId="$blocked_id" -f blockingIssueId="$blocker_id" || iss_gql_fail
   if [ "$side" = blocked ]; then
-    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"; sref=$EDGE_BLOCKED
+    iss_lookup "$bh" "$bo" "$br" "$bn" "$side_sel"
+    sref=$EDGE_BLOCKED
   else
-    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"; sref=$EDGE_BLOCKER
+    iss_lookup "$xh" "$xo" "$xr" "$xn" "$side_sel"
+    sref=$EDGE_BLOCKER
   fi
   present=$(iss_jq --arg w "$want" --arg l "$list" "any(.[\$l].nodes[]; .id == \$w)")
   if [ "$action" = add ] && [ "$present" != true ]; then
@@ -1475,12 +1569,21 @@ readonly ISS_SEL_PARENT='id url parent { id number url repository { nameWithOwne
 # /issue-set-parent and /issue-set-child. Prints the verb's output.
 iss_add_sub_issue() {
   local ph po pr pn ch co cr cn parent_id parent_url child_id cur_id cur_num cur_nwo cref pref
-  iss_operand "$1"; ph=$OP_HOST; po=$OP_OWNER; pr=$OP_REPO; pn=$OP_NUMBER
-  iss_operand "$2"; ch=$OP_HOST; co=$OP_OWNER; cr=$OP_REPO; cn=$OP_NUMBER
+  iss_operand "$1"
+  ph=$OP_HOST
+  po=$OP_OWNER
+  pr=$OP_REPO
+  pn=$OP_NUMBER
+  iss_operand "$2"
+  ch=$OP_HOST
+  co=$OP_OWNER
+  cr=$OP_REPO
+  cn=$OP_NUMBER
   pref=$(iss_ref "$ph" "$po" "$pr" "$pn")
   cref=$(iss_ref "$ch" "$co" "$cr" "$cn")
   iss_lookup "$ph" "$po" "$pr" "$pn" "id url"
-  parent_id=$(iss_jq .id); parent_url=$(iss_jq .url)
+  parent_id=$(iss_jq .id)
+  parent_url=$(iss_jq .url)
   iss_lookup "$ch" "$co" "$cr" "$cn" "$ISS_SEL_PARENT"
   child_id=$(iss_jq .id)
   cur_id=$(iss_jq '.parent.id // empty')
@@ -1567,7 +1670,10 @@ iss_default_assignee() {
   v=$(iss_user_config_value default-assignee "${2:-}")
   rc=$?
   case "$rc" in
-    0) printf '%s' "$v"; return 0 ;;
+    0)
+      printf '%s' "$v"
+      return 0
+      ;;
     3) ;;
     *) exit 1 ;;
   esac
@@ -1597,7 +1703,7 @@ iss_branch_prefix() {
     *) exit 1 ;;
   esac
   case "$value" in
-    */*|*[[:space:]]*) iss_err_branch_prefix_invalid "$key" "$value" ;;
+    */* | *[[:space:]]*) iss_err_branch_prefix_invalid "$key" "$value" ;;
   esac
   printf 'mode: %s\nprefix: %s/\n' "$mode" "$value"
 }
