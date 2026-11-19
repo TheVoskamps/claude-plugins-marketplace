@@ -69,8 +69,9 @@ view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 # naming files affected (`N<TAB><heading>`). No other `## ` section, `##
 # Acceptance` included, is read past its heading. A bullet is a line
 # opening with `- ` followed by text, and continues onto the indented
-# lines directly below it, with no blank line between; a section's count is its bullets under `### Mechanical` and `###
-# Semantic`. A fenced block is never read as grammar, and only a run of
+# lines directly below it, with no blank line between; a section's
+# count is its bullets under `### Mechanical` and `### Semantic`. A
+# fenced block is never read as grammar, and only a run of
 # its opening character at least as long as its opening run closes it;
 # a fence opening under `### Mechanical` is itself an `X` line.
 records=$(printf '%s\n' "$view" | awk '
@@ -391,8 +392,9 @@ while IFS=$'\t' read -r kind bullet; do
   esac
 done <<<"$records"
 
-# Grade section presence: at least one acceptance section, and a
-# bullet in each one present. A gap whose repair is fixed by the grammar
+# Grade the sections: at least one acceptance section, a bullet in each
+# one present, no `## Acceptance`, and a files-affected list under no
+# heading but `## Files affected (floor)`. A gap whose repair is fixed by the grammar
 # alone — a forbidden section, or a heading missing around content the
 # body already carries — is labelled `mechanical:`.
 sections=0

@@ -26,8 +26,8 @@
 # line, or `command: <command>` with `output:`. A `design-gap` problem
 # also carries `existing-pattern`: the <path>:<line> in this repository
 # that already does the thing, or the exact search that found none. A
-# problem's class is one
-# of CLASSES below, `unclassified` when none fits; it holds two to four
+# problem's class is one of CLASSES below, `unclassified` when none
+# fits; it holds two to four
 # options, and its recommendation is one of its own option ids with
 # nothing attached. Every option holds at least one evidence, and its
 # cost is `none` when it costs the human nothing. A relative evidence path
@@ -268,6 +268,9 @@ fi
 
 # ---------------------------------------------------------------------------
 # pending
+#
+# One stderr line per pending design-gap problem:
+#   decision <n> P<i>: a design gap with no answer from the human
 
 if [ "$mode" = pending ]; then
   [ -d "$dir" ] || exit 0
