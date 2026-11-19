@@ -1,5 +1,59 @@
 # issues changelog
 
+## 0.17.0 — 2026-11-19
+
+`/issue-list` lists the project board's open issues in one repository
+at one status, in the order they should be worked. It is the one verb
+that takes no issue reference, for a caller that has none until the
+board gives it one.
+
+```text
+/issue-list [<owner>/<repo>] --status <name> [--view <name-or-number>]
+            [--assignee <login>]... [--unassigned] [--limit <n>]
+```
+
+- `--status` is required and names one option of the configured
+  `status` slot, matched case-insensitively. The slot must be a
+  single-select board field. The filter is keyed on that field's own
+  name on the board, so a status field called something other than
+  `Status` works.
+- `--view` names a view of the board by name or number, and adds the
+  view's filter to the list's.
+- `--assignee`, repeatable, keeps issues assigned to any of the named
+  logins, and `--unassigned` keeps issues assigned to no one. With
+  both, an issue matching either is listed.
+- `--limit` prints at most that many lines, counted after ordering.
+- Every filter runs on GitHub; the verb drops nothing GitHub returns.
+- Lines follow the board's position order. With a `--view` that sorts,
+  they follow the view's sort fields in order and direction: ties keep
+  position order, a single-select field sorts by its options' order,
+  and an issue with no value in a field sorts last. A view sorting by
+  a field other than a number, single-select, text, title, date or
+  iteration field is refused, naming the field.
+- Each line is tab-separated: reference, status, priority, size, count
+  of open blockers, assignees, title.
+- A leading `<owner>/<repo>` lists another repository's issues under
+  that repository's own repo-config and board. An issue of the current
+  repository still prints with the current repository's
+  `issue-link-prefix`, and any other in the shortest form that names
+  its repository.
+- The verb does not support `issues: Jira`: it stops with the fixed
+  Jira message, and there is no Jira procedure to follow instead.
+- The run stops, printing no line, when the repo-config has no
+  `github-project:` block or no single-select `status` slot, when
+  `--status` names no option of the slot, when `--view` matches no
+  view — the message lists the board's views — and when the board or
+  the status field no longer resolves.
+
+Every verb now prints a same-owner repository whose name is spelled
+exactly as the current repository's `issue-link-prefix` as
+`owner/repo#N`. Its `repo#N` read back as an issue of the current
+repository. `/issue-create <repo>` reads the local `issue-link-prefix`
+for this, and for nothing else.
+
+The abort for a repo-config with no `github-project:` block now names
+`/issues:repo-config`.
+
 ## 0.16.0 — 2026-11-17
 
 `/issue-close --reason` sets the reason an issue is closed with, so a
