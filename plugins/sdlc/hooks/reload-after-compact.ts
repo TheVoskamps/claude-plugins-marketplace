@@ -64,7 +64,7 @@ type Mods = {
     write: (path: string, text: string) => Promise<void>;
     exists: (path: string) => Promise<boolean>;
   };
-  ui: { log: (text: string) => Promise<void> };
+  ui: { log: (text: string, options?: { to: "transcript" | "debug" }) => void };
 };
 
 /** What a compaction resolves to: its messages, or in `skip` the reason it did not compact. */
@@ -214,7 +214,7 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   // repaired still reloads them.
   const { budget, errors } = await readBudget($, home);
   if (errors.length > 0) {
-    await $.ui.log(
+    $.ui.log(
       `reload-after-compact reloaded nothing, because a config tier failed: ${errors.join("; ")}`,
     );
     return "";
