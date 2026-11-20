@@ -111,7 +111,7 @@ type Progress = { round: number; stage: string; settled: string; members: string
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
  * `NO_PR`, whether its brief carries `--mode documentation`, the agent id it resolved, and the
- * number `spawnsBegun` gave it when it began.
+ * number `signalsBegun` gave it when it began.
  */
 type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string; order: number };
 /**
@@ -120,6 +120,18 @@ type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string;
  * the order they resolved.
  */
 type Epoch = { failedReads: string[]; pending: Spawned[] };
+/**
+ * One main-loop signal the run has recorded: the epoch it was recorded under, the number
+ * `signalsBegun` gave it when its hook began, the PR it is for or `NO_PR`, and the phase it sets,
+ * if any. A spawn's signal also carries its agent's definition and the agent id it resolved.
+ */
+type Signal = {
+  epoch: Epoch;
+  order: number;
+  pr: string;
+  phase?: Phase;
+  spawn?: { type: string; agentId?: string };
+};
 
 /** The key of the phase and agents of the work no brief names a PR for. */
 const NO_PR = "";
@@ -137,25 +149,23 @@ let isRun = false;
  * resolves first, and one whose agent has finished changes nothing in it.
  */
 let epoch: Epoch = { failedReads: [], pending: [] };
-/** How many spawns have begun this session, which numbers each in the order it began. */
-let spawnsBegun = 0;
 /**
- * The PR named by the brief of the main-loop spawn the run has recorded that began last, or
- * `NO_PR` when that brief named none or the run has recorded no spawn.
+ * How many signal hooks — spawn, skill prompt and `Read` — have begun this session, which numbers
+ * each in the order it began.
  */
-let currentPr = NO_PR;
-/** The number `spawnsBegun` gave the spawn that set `currentPr`, or 0 when none has. */
-let currentOrder = 0;
-/** The phase of each PR by its reference, and under `NO_PR` that of the work no PR is named for. */
-const phases = new Map<string, Phase>();
-/** The PR each agent the main loop spawned was spawned for, by the id `agent.spawn` resolved. */
-const prOfAgent = new Map<string, string>();
-/** The loop each reviewer the main loop spawned reviews in, set by its spawn. */
-const reviewerLoop = new Map<string, Loop>();
+let signalsBegun = 0;
+/**
+ * The run's signals, appended as each is recorded and never changed. The current PR, each PR's
+ * phase, each loop's round and the PR of each agent are derived from them when the line is drawn,
+ * by the order the signals began in rather than the order they were recorded in.
+ */
+const signals: Signal[] = [];
 /** The round each reviewer reviews, fixed when the line first sees it running. */
 const reviewerRound = new Map<string, number>();
-/** The round of each PR's latest reviewer, and the loop it reviewed in. */
-const prRound = new Map<string, { loop: Loop; round: number }>();
+/** How many redraws have begun this session, which numbers each in the order it began. */
+let redrawsBegun = 0;
+/** The number `redrawsBegun` gave the latest-begun redraw that drew the line, or 0. */
+let drawnOrder = 0;
 /** The redraw timer `syncTimer` started, or `undefined` while none runs. */
 let timer: Timer | undefined;
 /**
@@ -180,20 +190,22 @@ export function register(on: On): void {
   }));
 
   on("skill.prompt", async ($: Mods, e: SkillEvent, next: Next<SkillEvent>) => {
+    const order = ++signalsBegun;
     const result = await next(e);
-    await guard($, () => skillPrompt($, e));
+    await guard($, () => skillPrompt($, e, order));
     return result;
   });
 
   on("tool.call", { tool: "Read" }, async ($: Mods, e: ReadEvent, next: Next<ReadEvent>) => {
+    const order = ++signalsBegun;
     const result = await next(e);
-    await guard($, () => mainRead($, e));
+    await guard($, () => mainRead($, e, order));
     return result;
   });
 
   on("agent.spawn", async ($: Mods, e: SpawnEvent, next: Next<SpawnEvent, SpawnResult>) => {
     const started = epoch;
-    const order = ++spawnsBegun;
+    const order = ++signalsBegun;
     const result = await next(e);
     // A spawn that resolves once its epoch has been superseded was begun before a run's end or a
     // fresh orchestrate prompt, whether or not a run was under way then, and sets nothing after it.
@@ -263,25 +275,29 @@ async function registerCommand($: Mods): Promise<void> {
 
 /**
  * Follows a skill prompt: `orchestrate` starts a fresh run in readiness, and `orchestrate-cleanup`
- * during a run sets the current PR's phase to cleanup.
+ * during a run sets the current PR's phase to cleanup. `order` is the number `signalsBegun` gave
+ * the prompt's hook when it began.
  */
-async function skillPrompt($: Mods, e: SkillEvent): Promise<void> {
+async function skillPrompt($: Mods, e: SkillEvent, order: number): Promise<void> {
   if (isSdlcSkill(e, "orchestrate")) {
     supersede();
     startRun();
-    phases.set(NO_PR, "readiness");
+    signals.push({ epoch, order, pr: NO_PR, phase: "readiness" });
     await redraw($);
   } else if (isRun && isSdlcSkill(e, "orchestrate-cleanup")) {
-    phases.set(currentPr, "cleanup");
+    signals.push({ epoch, order, pr: currentPr(), phase: "cleanup" });
     await redraw($);
   }
 }
 
-/** Follows a `Read`: the main loop's read of the plan lib file during a run sets plan. */
-async function mainRead($: Mods, e: ReadEvent): Promise<void> {
+/**
+ * Follows a `Read`: the main loop's read of the plan lib file during a run sets the current PR's
+ * phase to plan. `order` is the number `signalsBegun` gave the read's hook when it began.
+ */
+async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
   const path = e.file_path;
   if (isRun && e.agentId === undefined && typeof path === "string" && path.endsWith(PLAN_FILE)) {
-    phases.set(currentPr, "plan");
+    signals.push({ epoch, order, pr: currentPr(), phase: "plan" });
     await redraw($);
   }
 }
@@ -291,7 +307,7 @@ async function mainRead($: Mods, e: ReadEvent): Promise<void> {
  * other turn's end redraws the line.
  */
 async function turnComplete($: Mods, e: TurnEvent): Promise<void> {
-  if (isRun && e.agentId === undefined && phases.get(currentPr) === "cleanup") await endRun($);
+  if (isRun && e.agentId === undefined && phaseOf(currentPr()) === "cleanup") await endRun($);
   else if (isRun) await redraw($);
 }
 
@@ -329,13 +345,8 @@ function supersede(): void {
 /** Starts a run with nothing yet known of it, and no log line left waiting from before it. */
 function startRun(): void {
   isRun = true;
-  currentPr = NO_PR;
-  currentOrder = 0;
-  phases.clear();
-  prOfAgent.clear();
-  reviewerLoop.clear();
+  signals.length = 0;
   reviewerRound.clear();
-  prRound.clear();
   unwritten.length = 0;
 }
 
@@ -355,10 +366,13 @@ async function endRun($: Mods): Promise<void> {
  * when none is under way, so a session resumed mid-run shows the line again from its next spawn,
  * and a standalone review shows none. Any other spawn that resolves while no run is under way is
  * kept pending in the epoch and draws nothing. A later spawn that starts a run in that epoch reads
- * which agents are running, then records, in the order they began, its own spawn and each pending
- * one whose agent is among them; a pending spawn that resolved no agent id, or whose agent has
- * finished, is dropped. During a run the spawn is recorded and the line redrawn. `order` is the
- * number `spawnsBegun` gave the spawn when it began.
+ * which agents are running, then records its own spawn and each pending one whose agent is among
+ * them; a pending spawn that resolved no agent id, or whose agent has finished, is dropped. The
+ * list is read again while a spawn joined the pending ones during the read and no run has started,
+ * and the last read is used with no await after its check, so every pending spawn is judged by a
+ * list read after it joined. A rejected list is written to the debug log and counts as no agent
+ * running. During a run the spawn is recorded and the line redrawn. `order` is the number
+ * `signalsBegun` gave the spawn when it began.
  */
 async function mainSpawn(
   $: Mods,
@@ -379,15 +393,21 @@ async function mainSpawn(
       return;
     }
     const started = epoch;
-    const live = await liveAgents($, started);
-    if (live === undefined) return;
+    let waiting: number;
+    let agents: AgentInfo[];
+    do {
+      waiting = started.pending.length;
+      agents = await runningAgents($);
+      if (epoch !== started) return;
+    } while (!isRun && started.pending.length !== waiting);
     // A sibling that started the run during the read has already recorded the pending spawns.
     if (!isRun) {
       startRun();
+      const live = new Set(agents.map((agent) => agent.id));
       const replayed = started.pending
         .splice(0)
         .filter((earlier) => earlier.agentId !== undefined && live.has(earlier.agentId));
-      for (const each of [...replayed, spawned].sort((a, b) => a.order - b.order)) record(each);
+      for (const each of [...replayed, spawned]) record(each);
       await redraw($);
       return;
     }
@@ -396,47 +416,71 @@ async function mainSpawn(
   await redraw($);
 }
 
-/**
- * The ids of the session's running agents, for judging `started`'s pending spawns, or `undefined`
- * once `started` has been superseded. The list is read again while a spawn joined the pending
- * ones during the read and no run has started, so every pending spawn is judged by a list read
- * after it resolved. A rejected list is written to the debug log and counts as no agent running.
- */
-async function liveAgents($: Mods, started: Epoch): Promise<Set<string> | undefined> {
-  let waiting: number;
-  let agents: AgentInfo[];
-  do {
-    waiting = started.pending.length;
-    agents = await runningAgents($);
-    if (epoch !== started) return undefined;
-  } while (!isRun && started.pending.length !== waiting);
-  return new Set(agents.map((agent) => agent.id));
+/** Appends a main-loop spawn to the run's signals, with the phase its agent sets. */
+function record(spawned: Spawned): void {
+  signals.push({
+    epoch,
+    order: spawned.order,
+    pr: spawned.pr,
+    phase: spawnPhase(spawned.type, spawned.isDocMode),
+    spawn: { type: spawned.type, agentId: spawned.agentId },
+  });
 }
 
 /**
- * Records a main-loop spawn in the run under way: makes its PR the current one when it began after
- * the spawn that set the current one, records its agent under its PR, and sets the phase its agent
- * sets for that PR. A reviewer's spawn also records the loop it reviews in.
+ * The run's signal that `pick` accepts and that began last, or `undefined` for none. A signal
+ * recorded under an epoch since superseded is never one.
  */
-function record(spawned: Spawned): void {
-  const pr = spawned.pr;
-  if (spawned.order > currentOrder) {
-    currentPr = pr;
-    currentOrder = spawned.order;
+function latest(pick: (signal: Signal) => boolean): Signal | undefined {
+  let found: Signal | undefined;
+  for (const signal of signals) {
+    if (signal.epoch !== epoch || !pick(signal)) continue;
+    if (found === undefined || signal.order > found.order) found = signal;
   }
-  const phase = spawnPhase(spawned.type, spawned.isDocMode);
-  if (spawned.agentId !== undefined) {
-    prOfAgent.set(spawned.agentId, pr);
-    if (spawned.type === `${PLUGIN}:${REVIEWER}` && isLoop(phase)) {
-      reviewerLoop.set(spawned.agentId, phase);
-    }
-  }
-  if (phase !== undefined) {
-    // A round belongs to the loop it was reviewed in, so entering the other loop drops it, and
-    // any other phase keeps it for when the PR comes back to that loop.
-    if (isLoop(phase) && prRound.get(pr)?.loop !== phase) prRound.delete(pr);
-    phases.set(pr, phase);
-  }
+  return found;
+}
+
+/**
+ * The PR named by the brief of the run's main-loop spawn that began last, or `NO_PR` when that
+ * brief named none or the run has recorded no spawn.
+ */
+function currentPr(): string {
+  return latest((signal) => signal.spawn !== undefined)?.pr ?? NO_PR;
+}
+
+/** The phase set for `pr` by the run's signal that began last of those that set one for it. */
+function phaseOf(pr: string): Phase | undefined {
+  return latest((signal) => signal.pr === pr && signal.phase !== undefined)?.phase;
+}
+
+/** The PR the main loop spawned the agent `id` for, or `undefined` for an agent it did not. */
+function prOfAgent(id: string): string | undefined {
+  return latest((signal) => signal.spawn?.agentId === id)?.pr;
+}
+
+/**
+ * The round shown for `pr` in `loop`: that fixed for the reviewer spawned for `pr` in `loop` that
+ * began last of those whose round is fixed, provided it began after every signal that put `pr` in
+ * the other loop. A round belongs to the loop it was reviewed in, so entering the other loop drops
+ * it, and any other phase keeps it for when the PR comes back to that loop.
+ */
+function roundOf(pr: string, loop: Loop): number | undefined {
+  const left = latest(
+    (signal) => signal.pr === pr && isLoop(signal.phase) && signal.phase !== loop,
+  );
+  const reviewer = latest((signal) => {
+    const id = signal.spawn?.agentId;
+    return (
+      signal.pr === pr &&
+      signal.phase === loop &&
+      signal.spawn?.type === `${PLUGIN}:${REVIEWER}` &&
+      id !== undefined &&
+      reviewerRound.has(id) &&
+      (left === undefined || signal.order > left.order)
+    );
+  });
+  const id = reviewer?.spawn?.agentId;
+  return id === undefined ? undefined : reviewerRound.get(id);
 }
 
 /** True for the code loop and the doc loop, the phases a review round belongs to. */
@@ -460,16 +504,19 @@ function spawnPhase(type: string, isDocMode: boolean): Phase | undefined {
  * rejected `$.agent.list` draws the line with no agent on it, and a failed progress read leaves
  * that PR's round and stage off it; any other failure is written to the debug log. A redraw
  * during which its epoch is superseded draws nothing, and leaves the later run's state as it
- * found it.
+ * found it, and so does one that settles after a redraw begun later than it has drawn the line.
  */
 async function redraw($: Mods): Promise<void> {
   if (!isOn || !isRun) return;
   const started = epoch;
+  const order = ++redrawsBegun;
   try {
     const agents = await runningAgents($);
     if (epoch !== started) return;
     const review = await reviewStages($, agents, started);
     if (review === undefined || !isOn || !isRun || epoch !== started) return;
+    if (order < drawnOrder) return;
+    drawnOrder = order;
     syncTimer($, agents);
     showLine($, statusLine(agents, review));
   } catch (err) {
@@ -516,9 +563,7 @@ function showLine($: Mods, text: string): void {
  * one kept there is written as one `$.ui.log` line, so a run writes one such line, naming its own
  * error.
  *
- * Each reviewer's round is also recorded as its PR's round, under the loop the reviewer's spawn
- * recorded, which is where `statusLine` reads the round it shows, so a redraw calls this before
- * drawing the line.
+ * `roundOf` reads the rounds fixed here, so a redraw calls this before drawing the line.
  *
  * `started` is the epoch the redraw began in. A read that settles once it has been superseded
  * records nothing and returns `undefined`: its result is dropped, and its error is kept in
@@ -534,7 +579,7 @@ async function reviewStages(
   const read = new Map<string, Progress | undefined>();
   for (const agent of agents) {
     if (agent.parentId !== undefined || agent.type !== `${PLUGIN}:${REVIEWER}`) continue;
-    const pr = prOfAgent.get(agent.id);
+    const pr = prOfAgent(agent.id);
     if (pr === undefined || pr === NO_PR || failed.has(pr)) continue;
     if (!read.has(pr)) {
       try {
@@ -555,8 +600,6 @@ async function reviewStages(
       round = progress === undefined ? 1 : progress.round + (progress.stage === "reviewed" ? 1 : 0);
       reviewerRound.set(agent.id, round);
     }
-    const loop = reviewerLoop.get(agent.id);
-    if (loop !== undefined) prRound.set(pr, { loop, round });
     if (
       progress === undefined ||
       progress.round !== round ||
@@ -596,7 +639,7 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
 /**
  * The line: the current PR, its phase, and its running agents, joined by ` · ` with any part that
  * has nothing to show left out. A `code loop` or `doc loop` phase carries ` r<n>` after it when
- * the PR has a round recorded under that loop and its progress read did not fail this redraw.
+ * `roundOf` gives the PR a round in that loop and its progress read did not fail this redraw.
  * Then comes ` | #<n> <phase>` for every other PR with a running agent the main loop spawned, or
  * ` | #<n>` for one with no phase. `review` holds the reviewer stages and the PRs whose progress
  * read failed this redraw, as `reviewStages` returns them.
@@ -606,28 +649,25 @@ function statusLine(
   review: { stages: Map<string, string>; failed: Set<string> },
 ): string {
   const main = agents.filter((agent) => agent.parentId === undefined);
-  const prOf = (agent: AgentInfo) => prOfAgent.get(agent.id) ?? NO_PR;
+  const prOf = (agent: AgentInfo) => prOfAgent(agent.id) ?? NO_PR;
+  const current = currentPr();
   const parts: string[] = [];
-  if (currentPr !== NO_PR) parts.push(`PR #${prNumber(currentPr)}`);
-  const phase = phases.get(currentPr);
+  if (current !== NO_PR) parts.push(`PR #${prNumber(current)}`);
+  const phase = phaseOf(current);
   if (phase !== undefined) {
-    const recorded = prRound.get(currentPr);
-    parts.push(
-      isLoop(phase) && recorded?.loop === phase && !review.failed.has(currentPr)
-        ? `${phase} r${recorded.round}`
-        : phase,
-    );
+    const round = isLoop(phase) ? roundOf(current, phase) : undefined;
+    parts.push(round !== undefined && !review.failed.has(current) ? `${phase} r${round}` : phase);
   }
   const names = agentNames(
-    main.filter((agent) => prOf(agent) === currentPr),
+    main.filter((agent) => prOf(agent) === current),
     agents,
     review.stages,
   );
   if (names !== "") parts.push(names);
-  const others = [...new Set(main.map(prOf))].filter((pr) => pr !== NO_PR && pr !== currentPr);
+  const others = [...new Set(main.map(prOf))].filter((pr) => pr !== NO_PR && pr !== current);
   const tail = others
     .map((pr) => {
-      const other = phases.get(pr);
+      const other = phaseOf(pr);
       return other === undefined ? ` | #${prNumber(pr)}` : ` | #${prNumber(pr)} ${other}`;
     })
     .join("");

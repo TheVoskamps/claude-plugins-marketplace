@@ -507,7 +507,7 @@ test("a hook whose own work throws logs the error and leaves its value unchanged
   expect(await spawn($, 5 as never, `Fix ${PR}`)).toEqual({ model: "claude-test", agentId: "a1" });
   expect(state.logs.some((line) => line.startsWith(`${COMMAND}: `))).toBe(true);
   expect(await turnEnd($)).toEqual({ text: "turn stub" });
-  expect(shown(state)).toBe("PR #812");
+  expect(shown(state)).toBe("readiness");
 });
 
 test("a failed progress read is logged once per run", async ($, on) => {
@@ -1009,6 +1009,95 @@ test("a spawn that joins the pending ones while a starter reads the agent list i
   await starter;
   expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
 });
+
+/** Lets `n` microtasks run. */
+async function microtasks(n: number) {
+  for (let i = 0; i < n; i++) await Promise.resolve();
+}
+
+// A reviewer whose spawn resolves just after the starter's agent list resolves, each number of
+// microtasks later, is judged by a list read after it joined the pending ones.
+for (const gap of [0, 1, 2, 3, 4, 5]) {
+  test(`a spawn that joins the pending ones ${gap} microtasks after a starter's list resolves is judged by a later read`, async () => {
+    const state = direct();
+    const seen = await noRun(state);
+    const review = held<object>();
+    const reviewed = state.hook(
+      "agent.spawn",
+      { subagentType: REVIEW.type, prompt: REVIEW.prompt },
+      review.promise as never,
+    );
+    const list = held<Agent[]>();
+    state.list = () => list.promise;
+    const starter = state.hook(
+      "agent.spawn",
+      { subagentType: FIXER.type, prompt: `Fix ${OTHER_PR}` },
+      { agentId: "a1" },
+    );
+    await settle();
+    state.list = async () => [running("a1", FIXER.type), running("a2", REVIEW.type)];
+    list.resolve([running("a1", FIXER.type)]);
+    await microtasks(gap);
+    review.resolve({ agentId: "a2" });
+    await Promise.all([reviewed, starter]);
+    await state.hook("turn.complete", {});
+    expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
+  });
+}
+
+// Two main-loop spawns for one PR overlapping during a run: the phase is the one the spawn begun
+// last sets, whichever resolves first.
+for (const isLastFirst of [true, false]) {
+  test(`during a run, a docs-writer begun after pr-merge-readiness sets the phase, the ${isLastFirst ? "writer" : "gate"} resolving first`, async () => {
+    const state = direct();
+    const seen = await noRun(state);
+    await state.hook("skill.prompt", { skill: "sdlc:orchestrate" });
+    const resolveGate = heldSpawn(
+      state,
+      { name: "pr-merge-readiness", type: "sdlc:pr-merge-readiness", prompt: `Gate ${PR}` },
+      "a1",
+    );
+    const resolveWriter = heldSpawn(
+      state,
+      { name: "docs-writer", type: "sdlc:docs-writer", prompt: `Write ${PR}` },
+      "a2",
+    );
+    await settle();
+    state.list = async () => [running("a2", "sdlc:docs-writer")];
+    await (isLastFirst ? resolveWriter : resolveGate)();
+    await (isLastFirst ? resolveGate : resolveWriter)();
+    await state.hook("turn.complete", {});
+    expect(seen.lines.at(-1)).toBe("PR #812 · doc loop · docs-writer");
+  });
+}
+
+// An issue-fixer begun before a documentation reviewer and a docs-writer, during a run: the doc
+// loop's round stays on the line, whether the fixer resolves before or after the writer.
+for (const isFixerLast of [true, false]) {
+  test(`during a run, an issue-fixer begun before the doc loop's reviewer keeps its round, the fixer resolving ${isFixerLast ? "last" : "first"}`, async () => {
+    const state = direct();
+    const seen = await noRun(state);
+    await state.hook("skill.prompt", { skill: "sdlc:orchestrate" });
+    const resolveFixer = heldSpawn(state, FIXER, "a1");
+    await settle();
+    if (!isFixerLast) await resolveFixer();
+    state.list = async () => [running("a2", REVIEW.type)];
+    await state.hook(
+      "agent.spawn",
+      { subagentType: REVIEW.type, prompt: `Review ${PR} --mode documentation` },
+      { agentId: "a2" },
+    );
+    state.list = async () => [running("a3", "sdlc:docs-writer")];
+    await state.hook(
+      "agent.spawn",
+      { subagentType: "sdlc:docs-writer", prompt: `Write ${PR}` },
+      { agentId: "a3" },
+    );
+    if (isFixerLast) await resolveFixer();
+    await state.hook("turn.complete", {});
+    expect(seen.lines.at(-1)).toBe("PR #812 · doc loop r1 · docs-writer");
+  });
+}
 
 // Two spawns begun with no run under way, the first resolving before a run's end or a fresh
 // orchestrate prompt and the second after it: nothing either recorded reaches the line a later
