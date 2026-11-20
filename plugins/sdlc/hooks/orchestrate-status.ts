@@ -83,7 +83,7 @@ type Mods = {
   clock: { every: (ms: number, fn: () => void) => Timer };
   ui: {
     status: (text: string | undefined) => void;
-    log: (text: string, options?: { to: "transcript" | "debug" }) => Promise<void>;
+    log: (text: string, options?: { to: "transcript" | "debug" }) => void;
   };
 };
 
@@ -184,18 +184,14 @@ async function guard($: Mods, work: () => Promise<void>): Promise<void> {
   try {
     await work();
   } catch (err) {
-    await writeLog($, `${COMMAND}: ${errorText(err)}`, { to: "debug" });
+    writeLog($, `${COMMAND}: ${errorText(err)}`, { to: "debug" });
   }
 }
 
-/** Writes `text` with `$.ui.log`, resolving even when the write fails, which is then dropped. */
-async function writeLog(
-  $: Mods,
-  text: string,
-  options?: { to: "transcript" | "debug" },
-): Promise<void> {
+/** Writes `text` with `$.ui.log`, returning even when the write throws, which is then dropped. */
+function writeLog($: Mods, text: string, options?: { to: "transcript" | "debug" }): void {
   try {
-    await $.ui.log(text, options);
+    $.ui.log(text, options);
   } catch {
     // A failed log write has no log left to be reported in.
   }
@@ -211,9 +207,7 @@ async function registerCommand($: Mods): Promise<void> {
       immediate: true,
     });
   } catch (err) {
-    await writeLog($, `${COMMAND}: the command did not register: ${errorText(err)}`, {
-      to: "debug",
-    });
+    writeLog($, `${COMMAND}: the command did not register: ${errorText(err)}`, { to: "debug" });
   }
 }
 
@@ -350,7 +344,7 @@ async function redraw($: Mods): Promise<void> {
     syncTimer($, agents);
     showLine($, statusLine(agents, review));
   } catch (err) {
-    await writeLog($, `${COMMAND}: the line was not drawn: ${errorText(err)}`, { to: "debug" });
+    writeLog($, `${COMMAND}: the line was not drawn: ${errorText(err)}`, { to: "debug" });
   }
 }
 
@@ -359,9 +353,7 @@ async function runningAgents($: Mods): Promise<AgentInfo[]> {
   try {
     return (await $.agent.list()).filter((agent) => RUNNING.has(agent.status));
   } catch (err) {
-    await writeLog($, `${COMMAND}: the agent list was not read: ${errorText(err)}`, {
-      to: "debug",
-    });
+    writeLog($, `${COMMAND}: the agent list was not read: ${errorText(err)}`, { to: "debug" });
     return [];
   }
 }
@@ -413,7 +405,7 @@ async function reviewStages(
         read.set(pr, await readProgress($, pr));
       } catch (err) {
         failed.add(pr);
-        await logOnce($, errorText(err));
+        logOnce($, errorText(err));
         continue;
       }
     }
@@ -462,10 +454,10 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
 }
 
 /** Writes `message` as one `$.ui.log` line, once per run. */
-async function logOnce($: Mods, message: string): Promise<void> {
+function logOnce($: Mods, message: string): void {
   if (hasLoggedError) return;
   hasLoggedError = true;
-  await writeLog($, `${COMMAND}: ${message}`);
+  writeLog($, `${COMMAND}: ${message}`);
 }
 
 /**
