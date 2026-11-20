@@ -13,9 +13,9 @@
 # marks a round-0 seed the config settled from the seed assessment,
 # records every agent spawned for a PR and prints the agent ids its state
 # names, lists a PR's rounds and reports how far its latest round has
-# got, lists the PRs a repo holds state for and
-# deletes one PR's state whole, which is the only way any of it is ever
-# removed, and lists the repositories the state root holds.
+# got, lists the PRs a repo holds state for and deletes one PR's state
+# whole, which is the only way any of it is ever removed, and lists the
+# repositories the state root holds.
 #
 # Every path is composed here — the round log, each result file, the
 # records file, the review file, the PR's agents log and each child's
