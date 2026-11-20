@@ -185,8 +185,8 @@ export function register(on: On): void {
   on("agent.spawn", async ($: Mods, e: SpawnEvent, next: Next<SpawnEvent, SpawnResult>) => {
     const started = epoch;
     const result = await next(e);
-    // A spawn that resolves once its epoch has been superseded belongs to an earlier run, and sets
-    // nothing in a later one.
+    // A spawn that resolves once its epoch has been superseded was begun before a run's end or a
+    // fresh orchestrate prompt, whether or not a run was under way then, and sets nothing after it.
     if (e.parentAgentId === undefined && result.deny === undefined && epoch === started) {
       await guard($, () => mainSpawn($, e, result));
     }
