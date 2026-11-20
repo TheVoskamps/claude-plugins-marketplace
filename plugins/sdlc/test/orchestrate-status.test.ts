@@ -400,6 +400,20 @@ test("the cleanup skill sets cleanup, and the main loop's turn ending in it clea
   expect(shown(state)).toBeUndefined();
 });
 
+test("a phase-setting spawn begun after the cleanup prompt keeps the run past the main loop's turn end", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await cleanup($);
+  expect(shown(state)).toBe("PR #812 · cleanup");
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  expect(shown(state)).toBe("PR #812 · monitor");
+  const drawn = state.lines.length;
+  await turnEnd($);
+  expect(state.lines.length).toBe(drawn + 1);
+  expect(shown(state)).toBe("PR #812 · monitor");
+});
+
 test("the phase follows the latest signal, backwards included", async ($, on) => {
   const state = host(on);
   await orchestrate($);
