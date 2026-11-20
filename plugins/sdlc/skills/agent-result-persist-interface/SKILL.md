@@ -112,8 +112,8 @@ These two go on **every** call, and "The paths" below says what they
 compose, except where a mode acts above the level a flag names and
 refuses it: `delete` removes the whole PR's directory, `print-root`
 names it, `agent` and `print-agents` write and read the PR's agents
-log beside its rounds, and `rounds` lists the rounds themselves, so each
-refuses `--round`, `list` reads across
+log beside its rounds, and `rounds` and `progress` select from the
+rounds themselves, so each refuses `--round`, `list` reads across
 every PR of a repository, so it refuses `--pr` and `--round` alike and takes the
 repository instead, and
 `repos` reads across every repository, so it refuses both and takes no
@@ -255,7 +255,7 @@ One word, one meaning: **every mode is named for what it writes** — the
 record, or the file — the `print` modes for the ones that read one
 round, `print-root` for the PR directory it names, `print-agents` for
 the agent ids it reads across the PR's logs, `rounds` for the rounds it
-lists, `list` and `delete`
+lists, `progress` for the one it reports on, `list` and `delete`
 for what they do across a repo's PR directories, `repos` for what
 it lists across the state root, `wait` for what it does, and `next`,
 `dispose` and `summary`, under "The derivation modes", for what they
@@ -552,6 +552,28 @@ derive.
   what this prints rather than counting up from 1. It takes **no
   `--round`** and refuses one, creates nothing, and prints nothing and
   exits zero for a PR with no log.
+- **`progress`** — writes to stdout one line on the highest-numbered
+  round `rounds` would print, `\t` standing for the one tab between two
+  fields:
+
+  ```text
+  <round>\t<round-type>\t<stage>\t<settled>\t<members>
+  ```
+
+  - `<round-type>` is the type the round's `anchor` names, or `-` when
+    the log holds no anchor.
+  - `<stage>` is `reviewed` when the round holds a review file.
+    Otherwise it is the last of `generate`, `assess`, `disprove` and
+    `verify`, in that order, for which the log holds a `spawn` or `enter`
+    record, or `-` when it holds none.
+  - `<members>` is the number of distinct theorems with a `spawn` or
+    `enter` record in that stage, and `<settled>` the number of those
+    settled there, as "What the reader derives" below defines settled.
+    Both are `-` when `<stage>` is `reviewed` or `-`.
+
+  It takes **no `--round`, `--from` or `--edits`** and refuses each,
+  printing no line. It creates nothing, and prints nothing and exits
+  zero for a PR with no round log.
 - **`list`** — writes to stdout one PR per line, as the
   `<host>/<owner>/<repo>#<n>` reference `--pr` takes, in ascending
   order of `<n>`, one per `pr<n>/` directory under the repository's
