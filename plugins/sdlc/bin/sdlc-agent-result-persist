@@ -1573,8 +1573,9 @@ case "$mode" in
     # One line on how far the PR's review has got: the highest-numbered
     # round from 1 holding a log, picked as rounds lists them, its type,
     # and its latest stage with how many of that stage's theorems are
-    # settled, as "What the reader derives" defines settled. A PR with no
-    # round log prints nothing.
+    # settled, as "What the reader derives" defines settled, or reviewed
+    # once the round holds a review file. A PR with no round log prints
+    # nothing.
     latest=
     for found in "$pr_dir"/round*/log; do
       [ -f "$found" ] || continue

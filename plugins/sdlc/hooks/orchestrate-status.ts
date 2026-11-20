@@ -4,11 +4,12 @@
 // Apart from answering that command, every hook only observes: each returns what `next(e)`
 // resolved, unchanged, and none denies or rewrites anything.
 //
-// Every function that is handed `$` is declared at the top level of this file, which is the only
+// Every function a hook passes `$` to is declared at the top level of this file, which is the only
 // place the engine lets `$` be passed to.
 
-/** The command that turns the line off and on, and its one-line usage. */
+/** The command that turns the line off and on. */
 export const COMMAND = "orchestrate-status";
+/** The command's answer to an argument other than `on` and `off`. */
 export const USAGE = "usage: /orchestrate-status [on|off]";
 
 const PLUGIN = "sdlc";
@@ -24,7 +25,7 @@ const PR_REF =
   /(?<![\w./-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#\d+(?!\w)/;
 const DOC_MODE = /--mode documentation(?![\w-])/;
 const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
-// The stages `sdlc-agent-result-persist --mode progress` reports theorem counts for.
+// The stages the line shows with their theorem counts; any other stage shows by name alone.
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
 
 type Phase =
@@ -231,7 +232,7 @@ function startRun(): void {
   hasLoggedError = false;
 }
 
-/** Ends the run, if one is under way: the line is cleared and the timer stopped. */
+/** Ends any run under way, clears the line and stops the timer, whether or not a run was on. */
 async function endRun($: Mods): Promise<void> {
   isRun = false;
   stopTimer();
@@ -429,8 +430,9 @@ function statusLine(
 
 /**
  * `group`'s agents by definition, comma-separated, each name once with `×<n>` after it when it is
- * running more than once. A reviewer is followed by its stage from `stages`, and any other agent
- * with running children by ` › ` and their names, counted the same way.
+ * running more than once. A reviewer is followed by ` › ` and its stage from `stages`, when it
+ * has one there, and any other agent with running children by ` › ` and their names, counted the
+ * same way.
  */
 function agentNames(
   group: readonly AgentInfo[],
