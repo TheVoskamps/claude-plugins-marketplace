@@ -646,6 +646,100 @@ test("a line whose write threw is written ahead of the next line in the same run
   expect(state.logs[1]).toBe(`${COMMAND}: the agent list was not read: no list`);
 });
 
+/** A promise and the calls that settle it, for a call a test holds open across a later run. */
+function held<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+  let resolve: (v: T) => void = () => undefined;
+  let reject: (e: unknown) => void = () => undefined;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Lets every callback already queued run, so that a held call has been reached. */
+function settle() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+test("a progress read that fails once a later run has started leaves that run's log line to it", async () => {
+  const state = direct();
+  await directOrchestrate(state);
+  const read = held<Run>();
+  state.run = () => read.promise;
+  state.list = async () => [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  const first = directReview(state, "a1");
+  await settle();
+  state.list = async () => [];
+  await directOrchestrate(state);
+  read.reject(new Error("first"));
+  await first;
+  state.run = failedRead("second");
+  state.list = async () => [running("a2", "sdlc:theorem-based-pr-reviewer")];
+  await directReview(state, "a2");
+  expect(state.logs).toHaveLength(2);
+  expect(state.logs[0]).toBe(`${COMMAND}: an earlier run's progress read failed: first`);
+  expect(state.logs[1]).toContain("second");
+});
+
+test("a progress read that resolves once a later run has started draws nothing", async () => {
+  const state = direct();
+  const lines: (string | undefined)[] = [];
+  state.status = (text) => void lines.push(text);
+  await directOrchestrate(state);
+  const read = held<Run>();
+  state.run = () => read.promise;
+  state.list = async () => [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  const first = directReview(state, "a1");
+  await settle();
+  state.list = async () => [];
+  await directOrchestrate(state);
+  expect(lines.at(-1)).toBe("readiness");
+  read.resolve({ exitCode: 0, stdout: `3${TAB}code${TAB}disprove${TAB}1${TAB}2\n`, stderr: "" });
+  await first;
+  expect(lines.at(-1)).toBe("readiness");
+});
+
+test("an agent list that resolves once a later run has started draws nothing", async () => {
+  const state = direct();
+  const lines: (string | undefined)[] = [];
+  state.status = (text) => void lines.push(text);
+  await directOrchestrate(state);
+  const list = held<Agent[]>();
+  state.list = () => list.promise;
+  const first = state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:pr-monitor", prompt: `Monitor ${PR}` },
+    { agentId: "a1" },
+  );
+  await settle();
+  state.list = async () => [];
+  await directOrchestrate(state);
+  list.resolve([running("a1", "sdlc:pr-monitor")]);
+  await first;
+  expect(lines.at(-1)).toBe("readiness");
+  expect(state.tick).toBeUndefined();
+});
+
+test("a spawn that resolves once a later run has started sets nothing in it", async () => {
+  const state = direct();
+  const lines: (string | undefined)[] = [];
+  state.status = (text) => void lines.push(text);
+  await directOrchestrate(state);
+  const spawned = held<object>();
+  const first = state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:pr-monitor", prompt: `Monitor ${PR}` },
+    spawned.promise as never,
+  );
+  await settle();
+  await directOrchestrate(state);
+  spawned.resolve({ agentId: "a1" });
+  await first;
+  await state.hook("turn.complete", {});
+  expect(lines.at(-1)).toBe("readiness");
+});
+
 test("a thrown value with no text is logged as such by every catch", async () => {
   const state = direct();
   state.register = async () => {

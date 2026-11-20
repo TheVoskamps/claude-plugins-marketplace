@@ -116,6 +116,11 @@ const NO_PR = "";
 let isOn = true;
 /** Whether an orchestrate run is under way. */
 let isRun = false;
+/**
+ * The number of the latest run, which `startRun` bumps. The `agent.spawn` hook and `redraw`
+ * capture it before they await, and drop what an await resolved to once a later run has started.
+ */
+let run = 0;
 /** The PR the most recent main-loop spawn's brief named, or `NO_PR` when it named none. */
 let currentPr = NO_PR;
 /** The phase of each PR by its reference, and under `NO_PR` that of the work no PR is named for. */
@@ -166,8 +171,11 @@ export function register(on: On): void {
   });
 
   on("agent.spawn", async ($: Mods, e: SpawnEvent, next: Next<SpawnEvent, SpawnResult>) => {
+    const started = run;
     const result = await next(e);
-    if (e.parentAgentId === undefined && result.deny === undefined) {
+    // A spawn that resolves once a later run has started belongs to the earlier run, and sets
+    // nothing in the later one.
+    if (e.parentAgentId === undefined && result.deny === undefined && run === started) {
       await guard($, () => mainSpawn($, e, result));
     }
     return result;
@@ -289,6 +297,7 @@ function isSdlcSkill(e: SkillEvent, name: string): boolean {
 
 /** Starts a run with nothing yet known of it, and no log line left waiting from before it. */
 function startRun(): void {
+  run += 1;
   isRun = true;
   currentPr = NO_PR;
   phases.clear();
@@ -354,14 +363,17 @@ function spawnPhase(type: string, prompt: string): Phase | undefined {
 /**
  * Draws the line from what the run has reached, while the line is on and a run is under way. A
  * rejected `$.agent.list` draws the line with no agent on it, and a failed progress read leaves
- * that PR's round and stage off it; any other failure is written to the debug log.
+ * that PR's round and stage off it; any other failure is written to the debug log. A redraw
+ * during which a later run starts draws nothing, and leaves the later run's state as it found it.
  */
 async function redraw($: Mods): Promise<void> {
   if (!isOn || !isRun) return;
+  const started = run;
   try {
     const agents = await runningAgents($);
-    const review = await reviewStages($, agents);
-    if (!isOn || !isRun) return;
+    if (run !== started) return;
+    const review = await reviewStages($, agents, started);
+    if (review === undefined || !isOn || !isRun || run !== started) return;
     syncTimer($, agents);
     showLine($, statusLine(agents, review));
   } catch (err) {
@@ -409,11 +421,16 @@ function showLine($: Mods, text: string): void {
  * Each reviewer's round is also recorded as its PR's round, under the loop the reviewer's spawn
  * recorded, which is where `statusLine` reads the round it shows, so a redraw calls this before
  * drawing the line.
+ *
+ * `started` is the run the redraw began in. A read that settles once a later run has started
+ * records nothing and returns `undefined`: its result is dropped, and its error is written to the
+ * debug log rather than as the later run's one `$.ui.log` line.
  */
 async function reviewStages(
   $: Mods,
   agents: readonly AgentInfo[],
-): Promise<{ stages: Map<string, string>; failed: Set<string> }> {
+  started: number,
+): Promise<{ stages: Map<string, string>; failed: Set<string> } | undefined> {
   const stages = new Map<string, string>();
   const failed = new Set<string>();
   const read = new Map<string, Progress | undefined>();
@@ -423,8 +440,15 @@ async function reviewStages(
     if (pr === undefined || pr === NO_PR || failed.has(pr)) continue;
     if (!read.has(pr)) {
       try {
-        read.set(pr, await readProgress($, pr));
+        const progress = await readProgress($, pr);
+        if (run !== started) return undefined;
+        read.set(pr, progress);
       } catch (err) {
+        if (run !== started) {
+          const text = `${COMMAND}: an earlier run's progress read failed: ${errorText(err)}`;
+          writeLog($, text, { to: "debug" });
+          return undefined;
+        }
         failed.add(pr);
         logOnce($, errorText(err));
         continue;
