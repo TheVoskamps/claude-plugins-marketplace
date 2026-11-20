@@ -1,6 +1,6 @@
 import { expect, mock, test } from "claude-code/testing";
 
-import { COMMAND, USAGE } from "../hooks/orchestrate-status.ts";
+import { COMMAND, NO_TEXT, register, USAGE } from "../hooks/orchestrate-status.ts";
 
 const PR = "github.com/o/r#812";
 const OTHER_PR = "github.com/o/r#813";
@@ -521,6 +521,178 @@ test("a failed progress read is logged once per run", async ($, on) => {
   const logged = state.logs.filter((line) => line.includes("boom"));
   expect(logged).toHaveLength(1);
   expect(logged[0]).toContain("exited 2");
+});
+
+// --- the error paths, through a hand-built `$` ---------------------------------------------------
+//
+// The engine drops a `$.ui.log` it cannot deliver rather than throwing, and refuses a value it
+// cannot clone, so neither a throwing write nor a thrown value with no text reaches the module
+// through `host`. These tests call the hooks `register` registers with a `$` whose every call
+// they decide.
+
+/** A thrown value that has no text: `String` of it throws. */
+const NO_TEXT_VALUE = Object.create(null);
+
+type Run = { exitCode: number; stdout: string; stderr: string };
+type Next = (e: object) => Promise<object>;
+
+/** What the hand-built `$` does on each call, and what it saw the module do. */
+type Direct = {
+  logs: string[];
+  /** Whether `$.ui.log` throws instead of recording its line. */
+  isLogBroken: boolean;
+  register: () => Promise<void>;
+  list: () => Promise<Agent[]>;
+  run: () => Promise<Run>;
+  status: (text: string | undefined) => void;
+  /** The callback of the redraw timer the module started, while one runs. */
+  tick?: () => void;
+  /** Runs the module's hook on `event` with `e`, its `next` resolving to `result`. */
+  hook: (event: string, e: object, result?: object) => Promise<unknown>;
+};
+
+function direct(): Direct {
+  const hooks = new Map<string, ($: object, e: object, next: Next) => Promise<unknown>>();
+  register((event: string, ...rest: unknown[]) => {
+    hooks.set(event, rest[rest.length - 1] as never);
+  });
+  const state: Direct = {
+    logs: [],
+    isLogBroken: false,
+    register: async () => undefined,
+    list: async () => [],
+    run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    status: () => undefined,
+    hook: (event, e, result = {}) => {
+      const hook = hooks.get(event);
+      if (hook === undefined) throw new Error(`no hook on ${event}`);
+      return hook($, e, async () => result);
+    },
+  };
+  const $ = {
+    plugin: { root: ROOT },
+    agent: { list: () => state.list() },
+    process: { run: () => state.run() },
+    command: { register: () => state.register() },
+    clock: {
+      every: (ms: number, fn: () => void) => {
+        state.tick = fn;
+        return { cancel: () => (state.tick = undefined) };
+      },
+    },
+    ui: {
+      status: (text: string | undefined) => state.status(text),
+      log: (text: string) => {
+        if (state.isLogBroken) throw new Error("no log");
+        state.logs.push(text);
+      },
+    },
+  };
+  return state;
+}
+
+/**
+ * Starts a run, first ending any earlier test's: these tests share one module instance, and the
+ * end stops the timer an earlier run left, so that this run starts its own.
+ */
+async function directOrchestrate(state: Direct) {
+  await state.hook("session.end", {});
+  await state.hook("skill.prompt", { skill: "sdlc:orchestrate" });
+}
+
+function directReview(state: Direct, id: string) {
+  return state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:theorem-based-pr-reviewer", prompt: `Review ${PR}` },
+    { agentId: id },
+  );
+}
+
+function failedRead(text: string): () => Promise<Run> {
+  return async () => ({ exitCode: 2, stdout: "", stderr: `sdlc-agent-result-persist: ${text}\n` });
+}
+
+test("a failed read's line whose write threw is not written in a later run", async () => {
+  const state = direct();
+  await directOrchestrate(state);
+  state.isLogBroken = true;
+  state.run = failedRead("first");
+  state.list = async () => [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await directReview(state, "a1");
+  state.isLogBroken = false;
+  await directOrchestrate(state);
+  state.run = failedRead("second");
+  state.list = async () => [running("a2", "sdlc:theorem-based-pr-reviewer")];
+  await directReview(state, "a2");
+  await state.hook("turn.complete", {});
+  expect(state.logs).toHaveLength(1);
+  expect(state.logs[0]).toContain("second");
+});
+
+test("a line whose write threw is written ahead of the next line in the same run", async () => {
+  const state = direct();
+  await directOrchestrate(state);
+  state.isLogBroken = true;
+  state.run = failedRead("first");
+  state.list = async () => [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await directReview(state, "a1");
+  state.isLogBroken = false;
+  state.list = async () => {
+    throw new Error("no list");
+  };
+  await state.hook("turn.complete", {});
+  expect(state.logs).toHaveLength(2);
+  expect(state.logs[0]).toContain("first");
+  expect(state.logs[1]).toBe(`${COMMAND}: the agent list was not read: no list`);
+});
+
+test("a thrown value with no text is logged as such by every catch", async () => {
+  const state = direct();
+  state.register = async () => {
+    throw NO_TEXT_VALUE;
+  };
+  await state.hook("session.start", {});
+  await directOrchestrate(state);
+  const spawned = { agentId: "a1" };
+  const unprintableType = {
+    startsWith: () => {
+      throw NO_TEXT_VALUE;
+    },
+  };
+  const result = await state.hook(
+    "agent.spawn",
+    { subagentType: unprintableType, prompt: "go" },
+    spawned,
+  );
+  expect(result).toBe(spawned);
+  state.list = async () => {
+    throw NO_TEXT_VALUE;
+  };
+  await state.hook("turn.complete", {});
+  state.list = async () => [running("a2", "sdlc:theorem-based-pr-reviewer")];
+  state.run = async () => {
+    throw NO_TEXT_VALUE;
+  };
+  await directReview(state, "a2");
+  expect(state.logs).toEqual([
+    `${COMMAND}: the command did not register: ${NO_TEXT}`,
+    `${COMMAND}: ${NO_TEXT}`,
+    `${COMMAND}: the agent list was not read: ${NO_TEXT}`,
+    `${COMMAND}: ${NO_TEXT}`,
+  ]);
+});
+
+test("a timer redraw that fails with a thrown value with no text logs it rather than rejecting", async () => {
+  const state = direct();
+  await directOrchestrate(state);
+  state.list = async () => [running("a1", "sdlc:issue-developer")];
+  await state.hook("agent.spawn", { subagentType: "sdlc:issue-developer", prompt: "go" }, {});
+  state.status = () => {
+    throw NO_TEXT_VALUE;
+  };
+  state.tick?.();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(state.logs).toEqual([`${COMMAND}: the line was not drawn: ${NO_TEXT}`]);
 });
 
 // --- the command ---------------------------------------------------------------------------------

@@ -30,6 +30,8 @@ const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
 // The most lines `writeLog` keeps waiting for a write that does not throw; older ones are dropped.
 const MAX_UNWRITTEN = 20;
+/** What `errorText` gives for a thrown value that cannot be turned into text. */
+export const NO_TEXT = "a thrown value with no text";
 
 type Loop = "code loop" | "doc loop";
 type Phase =
@@ -130,7 +132,10 @@ const prRound = new Map<string, { loop: Loop; round: number }>();
 let hasLoggedError = false;
 /** The redraw timer `syncTimer` started, or `undefined` while none runs. */
 let timer: Timer | undefined;
-/** The lines whose `$.ui.log` write threw, oldest first, which `writeLog` writes before its own. */
+/**
+ * The lines whose `$.ui.log` write threw, oldest first, which `writeLog` writes before its own.
+ * A run's start drops them, so that no line queued before it is written during it.
+ */
 const unwritten: { text: string; options?: { to: "transcript" | "debug" } }[] = [];
 
 /**
@@ -282,7 +287,7 @@ function isSdlcSkill(e: SkillEvent, name: string): boolean {
   return e.skill === `${PLUGIN}:${name}` || (e.pluginName === PLUGIN && e.skill === name);
 }
 
-/** Starts a run with nothing yet known of it. */
+/** Starts a run with nothing yet known of it, and no log line left waiting from before it. */
 function startRun(): void {
   isRun = true;
   currentPr = NO_PR;
@@ -292,6 +297,7 @@ function startRun(): void {
   reviewerRound.clear();
   prRound.clear();
   hasLoggedError = false;
+  unwritten.length = 0;
 }
 
 /** Ends any run under way, clears the line and stops the timer, whether or not a run was on. */
@@ -570,9 +576,18 @@ function prNumber(pr: string): string {
   return pr.slice(pr.lastIndexOf("#") + 1);
 }
 
-/** An `Error`'s message, or any other thrown value as a string. */
+/**
+ * An `Error`'s message, or any other thrown value as a string, or `NO_TEXT` for a value that
+ * throws when read or turned into a string, so that a `catch` calling this cannot throw itself.
+ */
 function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  try {
+    const text = err instanceof Error ? err.message : err;
+    return typeof text === "string" ? text : String(text);
+  } catch {
+    // The value has no text to give, so the line names that in its place.
+    return NO_TEXT;
+  }
 }
 
 /** `text` on one line, its lines joined with ` | `. */
