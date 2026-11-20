@@ -106,7 +106,7 @@ type On = {
   (event: string, matcher: object, hook: unknown): unknown;
 };
 
-/** One line of `sdlc-agent-result-persist --mode progress`. */
+/** One line of `sdlc-agent-result-persist --mode progress`, without its round type. */
 type Progress = { round: number; stage: string; settled: string; members: string };
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
