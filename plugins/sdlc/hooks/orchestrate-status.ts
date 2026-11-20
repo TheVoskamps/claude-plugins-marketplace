@@ -155,9 +155,10 @@ let epoch: Epoch = { failedReads: [], pending: [] };
  */
 let signalsBegun = 0;
 /**
- * The run's signals, appended as each is recorded and never changed. The current PR, each PR's
- * phase, each loop's round and the PR of each agent are derived from them when the line is drawn,
- * by the order the signals began in rather than the order they were recorded in.
+ * The run's signals, appended as each is recorded, never changed, and emptied only by a run's
+ * start. The current PR, each PR's phase, each loop's round, with the rounds `reviewerRound`
+ * fixed, and the PR of each agent are derived from them each time they are read, by the order the
+ * signals began in rather than the order they were recorded in.
  */
 const signals: Signal[] = [];
 /** The round each reviewer reviews, fixed when the line first sees it running. */

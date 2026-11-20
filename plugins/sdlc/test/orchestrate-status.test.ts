@@ -1010,14 +1010,17 @@ test("a spawn that joins the pending ones while a starter reads the agent list i
   expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
 });
 
-/** Lets `n` microtasks run. */
-async function microtasks(n: number) {
-  for (let i = 0; i < n; i++) await Promise.resolve();
+/** Calls `fn` now when `n` is 0, and otherwise once `n` more microtasks have run. */
+function afterMicrotasks(n: number, fn: () => void) {
+  if (n === 0) return fn();
+  let chain = Promise.resolve();
+  for (let i = 1; i < n; i++) chain = chain.then(() => undefined);
+  void chain.then(fn);
 }
 
-// A reviewer whose spawn resolves just after the starter's agent list resolves, each number of
-// microtasks later, is judged by a list read after it joined the pending ones.
-for (const gap of [0, 1, 2, 3, 4, 5]) {
+// A reviewer whose spawn resolves in the same synchronous block as the starter's agent list, or
+// some microtasks after it, is judged by a list read after it joined the pending ones.
+for (const gap of [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
   test(`a spawn that joins the pending ones ${gap} microtasks after a starter's list resolves is judged by a later read`, async () => {
     const state = direct();
     const seen = await noRun(state);
@@ -1037,8 +1040,7 @@ for (const gap of [0, 1, 2, 3, 4, 5]) {
     await settle();
     state.list = async () => [running("a1", FIXER.type), running("a2", REVIEW.type)];
     list.resolve([running("a1", FIXER.type)]);
-    await microtasks(gap);
-    review.resolve({ agentId: "a2" });
+    afterMicrotasks(gap, () => review.resolve({ agentId: "a2" }));
     await Promise.all([reviewed, starter]);
     await state.hook("turn.complete", {});
     expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
