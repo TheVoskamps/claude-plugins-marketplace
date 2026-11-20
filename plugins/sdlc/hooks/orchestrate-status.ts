@@ -110,9 +110,10 @@ type On = {
 type Progress = { round: number; stage: string; settled: string; members: string };
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
- * `NO_PR`, whether its brief carries `--mode documentation`, and the agent id it resolved.
+ * `NO_PR`, whether its brief carries `--mode documentation`, the agent id it resolved, and the
+ * number `spawnsBegun` gave it when it began.
  */
-type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string };
+type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string; order: number };
 /**
  * What an await is tied to, with the errors of the progress reads begun under it, oldest first,
  * and the main-loop spawns that resolved under it while no run was under way and started none, in
@@ -130,13 +131,21 @@ let isRun = false;
 /**
  * The epoch the `agent.spawn` hook and `redraw` capture before they await, dropping what an await
  * resolved to once `supersede` has replaced it. The `orchestrate` skill's prompt and `endRun`
- * replace it. A main-loop spawn that starts a run while none is under way keeps it, and records the
- * epoch's pending spawns before its own, so every spawn begun while no run was under way is
- * recorded in the run one of them starts, whichever resolves first.
+ * replace it. A main-loop spawn that starts a run while none is under way keeps it, and records,
+ * with its own, those of the epoch's pending spawns whose agents are still running, so every such
+ * spawn begun while no run was under way is recorded in the run one of them starts, whichever
+ * resolves first, and one whose agent has finished changes nothing in it.
  */
 let epoch: Epoch = { failedReads: [], pending: [] };
-/** The PR the most recent main-loop spawn's brief named, or `NO_PR` when it named none. */
+/** How many spawns have begun this session, which numbers each in the order it began. */
+let spawnsBegun = 0;
+/**
+ * The PR named by the brief of the main-loop spawn the run has recorded that began last, or
+ * `NO_PR` when that brief named none or the run has recorded no spawn.
+ */
 let currentPr = NO_PR;
+/** The number `spawnsBegun` gave the spawn that set `currentPr`, or 0 when none has. */
+let currentOrder = 0;
 /** The phase of each PR by its reference, and under `NO_PR` that of the work no PR is named for. */
 const phases = new Map<string, Phase>();
 /** The PR each agent the main loop spawned was spawned for, by the id `agent.spawn` resolved. */
@@ -184,11 +193,12 @@ export function register(on: On): void {
 
   on("agent.spawn", async ($: Mods, e: SpawnEvent, next: Next<SpawnEvent, SpawnResult>) => {
     const started = epoch;
+    const order = ++spawnsBegun;
     const result = await next(e);
     // A spawn that resolves once its epoch has been superseded was begun before a run's end or a
     // fresh orchestrate prompt, whether or not a run was under way then, and sets nothing after it.
     if (e.parentAgentId === undefined && result.deny === undefined && epoch === started) {
-      await guard($, () => mainSpawn($, e, result));
+      await guard($, () => mainSpawn($, e, result, order));
     }
     return result;
   });
@@ -320,6 +330,7 @@ function supersede(): void {
 function startRun(): void {
   isRun = true;
   currentPr = NO_PR;
+  currentOrder = 0;
   phases.clear();
   prOfAgent.clear();
   reviewerLoop.clear();
@@ -343,39 +354,79 @@ async function endRun($: Mods): Promise<void> {
  * Follows a spawn the main loop made. A spawn of any `sdlc:` agent but the reviewer starts a run
  * when none is under way, so a session resumed mid-run shows the line again from its next spawn,
  * and a standalone review shows none. Any other spawn that resolves while no run is under way is
- * kept pending in the epoch and draws nothing, and a later spawn that starts a run in that epoch
- * records the pending spawns, in the order they resolved, before its own. During a run the spawn
- * is recorded and the line redrawn.
+ * kept pending in the epoch and draws nothing. A later spawn that starts a run in that epoch reads
+ * which agents are running, then records, in the order they began, its own spawn and each pending
+ * one whose agent is among them; a pending spawn that resolved no agent id, or whose agent has
+ * finished, is dropped. During a run the spawn is recorded and the line redrawn. `order` is the
+ * number `spawnsBegun` gave the spawn when it began.
  */
-async function mainSpawn($: Mods, e: SpawnEvent, result: SpawnResult): Promise<void> {
+async function mainSpawn(
+  $: Mods,
+  e: SpawnEvent,
+  result: SpawnResult,
+  order: number,
+): Promise<void> {
   const spawned: Spawned = {
     type: e.subagentType,
     pr: PR_REF.exec(e.prompt)?.[0] ?? NO_PR,
     isDocMode: DOC_MODE.test(e.prompt),
     agentId: result.agentId,
+    order,
   };
   if (!isRun) {
     if (!e.subagentType.startsWith(`${PLUGIN}:`) || e.subagentType === `${PLUGIN}:${REVIEWER}`) {
       epoch.pending.push(spawned);
       return;
     }
-    startRun();
-    for (const earlier of epoch.pending.splice(0)) record(earlier);
+    const started = epoch;
+    const live = await liveAgents($, started);
+    if (live === undefined) return;
+    // A sibling that started the run during the read has already recorded the pending spawns.
+    if (!isRun) {
+      startRun();
+      const replayed = started.pending
+        .splice(0)
+        .filter((earlier) => earlier.agentId !== undefined && live.has(earlier.agentId));
+      for (const each of [...replayed, spawned].sort((a, b) => a.order - b.order)) record(each);
+      await redraw($);
+      return;
+    }
   }
   record(spawned);
   await redraw($);
 }
 
 /**
- * Records a main-loop spawn in the run under way: makes its PR the current one, records its agent
- * under that PR, and sets the phase its agent sets. A reviewer's spawn also records the loop it
- * reviews in.
+ * The ids of the session's running agents, for judging `started`'s pending spawns, or `undefined`
+ * once `started` has been superseded. The list is read again while a spawn joined the pending
+ * ones during the read and no run has started, so every pending spawn is judged by a list read
+ * after it resolved. A rejected list is written to the debug log and counts as no agent running.
+ */
+async function liveAgents($: Mods, started: Epoch): Promise<Set<string> | undefined> {
+  let waiting: number;
+  let agents: AgentInfo[];
+  do {
+    waiting = started.pending.length;
+    agents = await runningAgents($);
+    if (epoch !== started) return undefined;
+  } while (!isRun && started.pending.length !== waiting);
+  return new Set(agents.map((agent) => agent.id));
+}
+
+/**
+ * Records a main-loop spawn in the run under way: makes its PR the current one when it began after
+ * the spawn that set the current one, records its agent under its PR, and sets the phase its agent
+ * sets for that PR. A reviewer's spawn also records the loop it reviews in.
  */
 function record(spawned: Spawned): void {
-  currentPr = spawned.pr;
+  const pr = spawned.pr;
+  if (spawned.order > currentOrder) {
+    currentPr = pr;
+    currentOrder = spawned.order;
+  }
   const phase = spawnPhase(spawned.type, spawned.isDocMode);
   if (spawned.agentId !== undefined) {
-    prOfAgent.set(spawned.agentId, currentPr);
+    prOfAgent.set(spawned.agentId, pr);
     if (spawned.type === `${PLUGIN}:${REVIEWER}` && isLoop(phase)) {
       reviewerLoop.set(spawned.agentId, phase);
     }
@@ -383,8 +434,8 @@ function record(spawned: Spawned): void {
   if (phase !== undefined) {
     // A round belongs to the loop it was reviewed in, so entering the other loop drops it, and
     // any other phase keeps it for when the PR comes back to that loop.
-    if (isLoop(phase) && prRound.get(currentPr)?.loop !== phase) prRound.delete(currentPr);
-    phases.set(currentPr, phase);
+    if (isLoop(phase) && prRound.get(pr)?.loop !== phase) prRound.delete(pr);
+    phases.set(pr, phase);
   }
 }
 

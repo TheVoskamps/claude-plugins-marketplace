@@ -758,32 +758,43 @@ test("a spawn begun in a run that has since ended starts no run when it resolves
   expect(lines.at(-1)).toBeUndefined();
 });
 
-test("spawns begun while no run is under way are all recorded, whichever resolves first", async () => {
-  const state = direct();
-  const lines: (string | undefined)[] = [];
-  state.status = (text) => void lines.push(text);
-  await state.hook("session.end", {});
-  const fixer = held<object>();
-  const writer = held<object>();
-  const first = state.hook(
-    "agent.spawn",
-    { subagentType: "sdlc:issue-fixer", prompt: `Fix ${PR}` },
-    fixer.promise as never,
-  );
-  const second = state.hook(
-    "agent.spawn",
-    { subagentType: "sdlc:docs-writer", prompt: `Write ${OTHER_PR}` },
-    writer.promise as never,
-  );
-  await settle();
-  state.list = async () => [running("a1", "sdlc:issue-fixer"), running("a2", "sdlc:docs-writer")];
-  writer.resolve({ agentId: "a2" });
-  await second;
-  fixer.resolve({ agentId: "a1" });
-  await first;
-  await state.hook("turn.complete", {});
-  expect(lines.at(-1)).toBe("PR #812 · code loop · issue-fixer | #813 doc loop");
-});
+for (const isWriterFirst of [true, false]) {
+  test(`spawns begun while no run is under way are all recorded, the ${isWriterFirst ? "later" : "earlier"} resolving first`, async () => {
+    const state = direct();
+    const lines: (string | undefined)[] = [];
+    state.status = (text) => void lines.push(text);
+    await state.hook("session.end", {});
+    const fixer = held<object>();
+    const writer = held<object>();
+    const first = state.hook(
+      "agent.spawn",
+      { subagentType: "sdlc:issue-fixer", prompt: `Fix ${PR}` },
+      fixer.promise as never,
+    );
+    const second = state.hook(
+      "agent.spawn",
+      { subagentType: "sdlc:docs-writer", prompt: `Write ${OTHER_PR}` },
+      writer.promise as never,
+    );
+    await settle();
+    state.list = async () => [
+      running("a1", "sdlc:issue-fixer"),
+      running("a2", "sdlc:docs-writer"),
+    ];
+    const resolveFixer = async () => {
+      fixer.resolve({ agentId: "a1" });
+      await first;
+    };
+    const resolveWriter = async () => {
+      writer.resolve({ agentId: "a2" });
+      await second;
+    };
+    await (isWriterFirst ? resolveWriter : resolveFixer)();
+    await (isWriterFirst ? resolveFixer : resolveWriter)();
+    await state.hook("turn.complete", {});
+    expect(lines.at(-1)).toBe("PR #813 · doc loop · docs-writer | #812 code loop");
+  });
+}
 
 /** A main-loop spawn kind the module treats apart, with no run under way, as its type and brief. */
 type Kind = { name: string; type: string; prompt: string };
@@ -915,6 +926,91 @@ test("a reviewer that resolves before an issue-fixer for another PR is recorded 
   expect(seen.lines.at(-1)).toBe(
     "PR #812 · code loop r1 · theorem-based-pr-reviewer, style-checker | #813 code loop",
   );
+});
+
+const OTHER_FIXER: Kind = {
+  ...FIXER,
+  name: "an issue-fixer for another PR",
+  prompt: `Fix ${OTHER_PR}`,
+};
+
+// A reviewer for one PR and an issue-fixer for another, overlapping, in each order they can begin:
+// the PR of the spawn begun last is the current one, whichever of the two resolves first, with no
+// run under way when they begin and with one under way.
+const CROSS_PR: [Kind, Kind, string][] = [
+  [REVIEW, OTHER_FIXER, "PR #813 · code loop · issue-fixer | #812 code loop"],
+  [OTHER_FIXER, REVIEW, "PR #812 · code loop r1 · theorem-based-pr-reviewer | #813 code loop"],
+];
+
+for (const isRunning of [false, true]) {
+  for (const [begunFirst, begunLast, line] of CROSS_PR) {
+    for (const isLastFirst of [false, true]) {
+      const [first, second] = isLastFirst ? [begunLast, begunFirst] : [begunFirst, begunLast];
+      test(`${isRunning ? "during a run" : "with no run under way"}, ${begunFirst.name} begun before ${begunLast.name}, ${first.name} resolving first, draws ${line}`, async () => {
+        const state = direct();
+        const seen = await noRun(state);
+        if (isRunning) await state.hook("skill.prompt", { skill: "sdlc:orchestrate" });
+        const resolveFirst = heldSpawn(state, begunFirst, "a1");
+        const resolveLast = heldSpawn(state, begunLast, "a2");
+        await settle();
+        state.list = async () => [running("a1", begunFirst.type), running("a2", begunLast.type)];
+        await (first === begunFirst ? resolveFirst : resolveLast)();
+        await (second === begunFirst ? resolveFirst : resolveLast)();
+        await state.hook("turn.complete", {});
+        expect(seen.lines.at(-1)).toBe(line);
+      });
+    }
+  }
+}
+
+test("a pending reviewer whose agent has finished changes nothing in the run a later spawn starts", async () => {
+  const state = direct();
+  const seen = await noRun(state);
+  const resolveReview = heldSpawn(state, REVIEW, "a1");
+  await settle();
+  state.list = async () => [running("a1", REVIEW.type)];
+  await resolveReview();
+  const disprover = "sdlc:theorem-disprover";
+  state.list = async () => [running("a2", disprover)];
+  await state.hook(
+    "agent.spawn",
+    { subagentType: disprover, prompt: `Check ${PR}` },
+    { agentId: "a2" },
+  );
+  expect(seen.lines.at(-1)).toBe("PR #812 · theorem-disprover");
+  expect(seen.reads).toEqual([]);
+});
+
+test("a pending spawn whose agent has finished does not take the current PR from the run's starter", async () => {
+  const state = direct();
+  const seen = await noRun(state);
+  const resolveFixer = heldSpawn(state, OTHER_FIXER, "a1");
+  const resolveReview = heldSpawn(state, REVIEW, "a2");
+  await settle();
+  state.list = async () => [running("a2", REVIEW.type)];
+  await resolveReview();
+  state.list = async () => [running("a1", FIXER.type)];
+  await resolveFixer();
+  expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer");
+});
+
+test("a spawn that joins the pending ones while a starter reads the agent list is judged by a later read", async () => {
+  const state = direct();
+  const seen = await noRun(state);
+  const resolveReview = heldSpawn(state, REVIEW, "a2");
+  const list = held<Agent[]>();
+  state.list = () => list.promise;
+  const starter = state.hook(
+    "agent.spawn",
+    { subagentType: FIXER.type, prompt: `Fix ${OTHER_PR}` },
+    { agentId: "a1" },
+  );
+  await settle();
+  state.list = async () => [running("a1", FIXER.type), running("a2", REVIEW.type)];
+  await resolveReview();
+  list.resolve([running("a1", FIXER.type)]);
+  await starter;
+  expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
 });
 
 // Two spawns begun with no run under way, the first resolving before a run's end or a fresh
