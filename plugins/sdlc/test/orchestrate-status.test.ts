@@ -27,6 +27,8 @@ type Host = {
   refuseList?: string;
   /** A reason to reject `$.process.run` with, or `undefined` to answer `progress`. */
   refuseRun?: string;
+  /** A reason to reject `$.ui.status` with, or `undefined` to record the line. */
+  refuseStatus?: string;
   clock: { advance: (ms: number) => Promise<void> };
 };
 
@@ -47,6 +49,7 @@ function host(on): Host {
   let spawned = 0;
   mock.env(on, {});
   on("ui.status", ($, e) => {
+    if (state.refuseStatus !== undefined) return { deny: state.refuseStatus };
     state.lines.push(e.text);
     return { value: undefined };
   });
@@ -254,6 +257,43 @@ test("every other PR with a running agent is appended with its phase", async ($,
   expect(shown(state)).toBe("PR #812 · finalizer · pr-finalizer | #813 doc loop");
 });
 
+test("another PR whose running agent set no phase is appended by its number alone", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "general-purpose", `Look at ${OTHER_PR}`);
+  await spawn($, "sdlc:issue-developer", "Issue #5");
+  state.agents = [running("a1", "general-purpose"), running("a2", "sdlc:issue-developer")];
+  await turnEnd($);
+  expect(shown(state)).toBe("develop · issue-developer | #813");
+});
+
+test("the doc loop shows no round of the code loop before its own reviewer runs", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r3 · theorem-based-pr-reviewer");
+  state.agents = [running("a2", "sdlc:docs-writer")];
+  await spawn($, "sdlc:docs-writer", `Write ${PR}`);
+  expect(shown(state)).toBe("PR #812 · doc loop · docs-writer");
+  state.progress = progressLine(1, "documentation", "generate", 0, 1);
+  state.agents = [running("a3", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`);
+  expect(shown(state)).toBe("PR #812 · doc loop r1 · theorem-based-pr-reviewer › generate");
+});
+
+test("a fixer in the same loop keeps the round on the line", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  state.agents = [running("a2", "sdlc:issue-fixer")];
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r3 · issue-fixer");
+});
+
 // --- the signals ---------------------------------------------------------------------------------
 
 const SPAWNS: [string, string, string][] = [
@@ -414,6 +454,16 @@ test("a rejected agent list or progress read leaves each hook's value unchanged"
   });
   expect(await turnEnd($, "a1")).toEqual({ text: "turn stub" });
   expect(shown(state)).toBe("PR #812 · code loop · theorem-based-pr-reviewer");
+});
+
+test("a rejected status line leaves the cleanup's turn end and the session's end unchanged", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await cleanup($);
+  state.refuseStatus = "no status";
+  expect(await turnEnd($)).toEqual({ text: "turn stub" });
+  expect(await $.session.end({ reason: "other" })).toEqual({ sessionId: "s1" });
 });
 
 test("a failed progress read is logged once per run", async ($, on) => {

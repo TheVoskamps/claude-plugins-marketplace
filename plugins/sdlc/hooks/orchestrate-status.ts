@@ -255,7 +255,12 @@ async function mainSpawn($: Mods, e: SpawnEvent, result: SpawnResult): Promise<v
   currentPr = PR_REF.exec(e.prompt)?.[0] ?? NO_PR;
   if (result.agentId !== undefined) prOfAgent.set(result.agentId, currentPr);
   const phase = spawnPhase(e.subagentType, e.prompt);
-  if (phase !== undefined) phases.set(currentPr, phase);
+  if (phase !== undefined) {
+    // A round belongs to the loop it was reviewed in, so a new phase shows none until its
+    // own reviewer runs.
+    if (phase !== phases.get(currentPr)) prRound.delete(currentPr);
+    phases.set(currentPr, phase);
+  }
   await redraw($);
 }
 
@@ -394,8 +399,8 @@ async function logOnce($: Mods, message: string): Promise<void> {
 /**
  * The line: the current PR, its phase, and its running agents, joined by ` · ` with any part that
  * has nothing to show left out, then ` | #<n> <phase>` for every other PR with a running agent
- * the main loop spawned. `review` holds the reviewer stages and the PRs whose progress read
- * failed this redraw, as `reviewStages` returns them.
+ * the main loop spawned, or ` | #<n>` for one with no phase. `review` holds the reviewer stages
+ * and the PRs whose progress read failed this redraw, as `reviewStages` returns them.
  */
 function statusLine(
   agents: readonly AgentInfo[],
@@ -421,10 +426,13 @@ function statusLine(
     review.stages,
   );
   if (names !== "") parts.push(names);
-  const others = [...phases].filter(
-    ([pr]) => pr !== NO_PR && pr !== currentPr && main.some((agent) => prOf(agent) === pr),
-  );
-  const tail = others.map(([pr, other]) => ` | #${prNumber(pr)} ${other}`).join("");
+  const others = [...new Set(main.map(prOf))].filter((pr) => pr !== NO_PR && pr !== currentPr);
+  const tail = others
+    .map((pr) => {
+      const other = phases.get(pr);
+      return other === undefined ? ` | #${prNumber(pr)}` : ` | #${prNumber(pr)} ${other}`;
+    })
+    .join("");
   return (parts.join(SEPARATOR) + tail).trim();
 }
 
