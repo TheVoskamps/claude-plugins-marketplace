@@ -28,6 +28,8 @@ const DOC_MODE = /--mode documentation(?![\w-])/;
 const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
 // The stages the line shows with their theorem counts; any other stage shows by name alone.
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
+// The most lines `writeLog` keeps waiting for a write that does not throw; older ones are dropped.
+const MAX_UNWRITTEN = 20;
 
 type Loop = "code loop" | "doc loop";
 type Phase =
@@ -128,6 +130,8 @@ const prRound = new Map<string, { loop: Loop; round: number }>();
 let hasLoggedError = false;
 /** The redraw timer `syncTimer` started, or `undefined` while none runs. */
 let timer: Timer | undefined;
+/** The lines whose `$.ui.log` write threw, oldest first, which `writeLog` writes before its own. */
+const unwritten: { text: string; options?: { to: "transcript" | "debug" } }[] = [];
 
 /**
  * Registers the `/orchestrate-status` command at session start and the hooks that answer it and
@@ -188,12 +192,23 @@ async function guard($: Mods, work: () => Promise<void>): Promise<void> {
   }
 }
 
-/** Writes `text` with `$.ui.log`, returning even when the write throws, which is then dropped. */
+/**
+ * Writes `text` with `$.ui.log`, after any lines whose write threw, oldest first. A write that
+ * throws keeps its line and every one after it for the next call, rather than throwing, and only
+ * the newest `MAX_UNWRITTEN` lines are kept.
+ */
 function writeLog($: Mods, text: string, options?: { to: "transcript" | "debug" }): void {
-  try {
-    $.ui.log(text, options);
-  } catch {
-    // A failed log write has no log left to be reported in.
+  unwritten.push({ text, options });
+  if (unwritten.length > MAX_UNWRITTEN) unwritten.splice(0, unwritten.length - MAX_UNWRITTEN);
+  while (unwritten.length > 0) {
+    const line = unwritten[0];
+    try {
+      $.ui.log(line.text, line.options);
+    } catch {
+      // A failed write has no log to report it in, so the line waits for the next write.
+      return;
+    }
+    unwritten.shift();
   }
 }
 
