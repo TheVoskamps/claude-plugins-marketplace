@@ -777,10 +777,7 @@ for (const isWriterFirst of [true, false]) {
       writer.promise as never,
     );
     await settle();
-    state.list = async () => [
-      running("a1", "sdlc:issue-fixer"),
-      running("a2", "sdlc:docs-writer"),
-    ];
+    state.list = async () => [running("a1", "sdlc:issue-fixer"), running("a2", "sdlc:docs-writer")];
     const resolveFixer = async () => {
       fixer.resolve({ agentId: "a1" });
       await first;
