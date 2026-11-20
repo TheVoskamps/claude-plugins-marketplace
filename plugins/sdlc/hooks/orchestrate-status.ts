@@ -126,6 +126,7 @@ const reviewerRound = new Map<string, number>();
 const prRound = new Map<string, { loop: Loop; round: number }>();
 /** Whether the run has already logged a failed progress read. */
 let hasLoggedError = false;
+/** The redraw timer `syncTimer` started, or `undefined` while none runs. */
 let timer: Timer | undefined;
 
 /**
@@ -372,6 +373,7 @@ function syncTimer($: Mods, agents: readonly AgentInfo[]): void {
   else if (!isBusy) stopTimer();
 }
 
+/** Cancels any redraw timer and forgets it, so that `syncTimer` starts a fresh one when needed. */
 function stopTimer(): void {
   timer?.cancel();
   timer = undefined;
