@@ -108,6 +108,8 @@ type On = {
 
 /** One line of `sdlc-agent-result-persist --mode progress`. */
 type Progress = { round: number; stage: string; settled: string; members: string };
+/** What an await is tied to, with the errors of the progress reads begun under it, oldest first. */
+type Epoch = { failedReads: string[] };
 
 /** The key of the phase and agents of the work no brief names a PR for. */
 const NO_PR = "";
@@ -117,10 +119,12 @@ let isOn = true;
 /** Whether an orchestrate run is under way. */
 let isRun = false;
 /**
- * The number of the latest run, which `startRun` bumps. The `agent.spawn` hook and `redraw`
- * capture it before they await, and drop what an await resolved to once a later run has started.
+ * The epoch the `agent.spawn` hook and `redraw` capture before they await, dropping what an await
+ * resolved to once `supersede` has replaced it. The `orchestrate` skill's prompt and `endRun`
+ * replace it. A main-loop spawn that starts a run while none is under way keeps it, so every spawn
+ * begun while no run was under way is recorded in the run one of them starts.
  */
-let run = 0;
+let epoch: Epoch = { failedReads: [] };
 /** The PR the most recent main-loop spawn's brief named, or `NO_PR` when it named none. */
 let currentPr = NO_PR;
 /** The phase of each PR by its reference, and under `NO_PR` that of the work no PR is named for. */
@@ -133,8 +137,6 @@ const reviewerLoop = new Map<string, Loop>();
 const reviewerRound = new Map<string, number>();
 /** The round of each PR's latest reviewer, and the loop it reviewed in. */
 const prRound = new Map<string, { loop: Loop; round: number }>();
-/** Whether the run has already logged a failed progress read. */
-let hasLoggedError = false;
 /** The redraw timer `syncTimer` started, or `undefined` while none runs. */
 let timer: Timer | undefined;
 /**
@@ -171,11 +173,11 @@ export function register(on: On): void {
   });
 
   on("agent.spawn", async ($: Mods, e: SpawnEvent, next: Next<SpawnEvent, SpawnResult>) => {
-    const started = run;
+    const started = epoch;
     const result = await next(e);
-    // A spawn that resolves once a later run has started belongs to the earlier run, and sets
-    // nothing in the later one.
-    if (e.parentAgentId === undefined && result.deny === undefined && run === started) {
+    // A spawn that resolves once its epoch has been superseded belongs to an earlier run, and sets
+    // nothing in a later one.
+    if (e.parentAgentId === undefined && result.deny === undefined && epoch === started) {
       await guard($, () => mainSpawn($, e, result));
     }
     return result;
@@ -245,6 +247,7 @@ async function registerCommand($: Mods): Promise<void> {
  */
 async function skillPrompt($: Mods, e: SkillEvent): Promise<void> {
   if (isSdlcSkill(e, "orchestrate")) {
+    supersede();
     startRun();
     phases.set(NO_PR, "readiness");
     await redraw($);
@@ -295,9 +298,13 @@ function isSdlcSkill(e: SkillEvent, name: string): boolean {
   return e.skill === `${PLUGIN}:${name}` || (e.pluginName === PLUGIN && e.skill === name);
 }
 
+/** Replaces the epoch, so that every await begun before now is dropped when it settles. */
+function supersede(): void {
+  epoch = { failedReads: [] };
+}
+
 /** Starts a run with nothing yet known of it, and no log line left waiting from before it. */
 function startRun(): void {
-  run += 1;
   isRun = true;
   currentPr = NO_PR;
   phases.clear();
@@ -305,12 +312,15 @@ function startRun(): void {
   reviewerLoop.clear();
   reviewerRound.clear();
   prRound.clear();
-  hasLoggedError = false;
   unwritten.length = 0;
 }
 
-/** Ends any run under way, clears the line and stops the timer, whether or not a run was on. */
+/**
+ * Ends any run under way, superseding its epoch, clears the line and stops the timer, whether or
+ * not a run was on.
+ */
 async function endRun($: Mods): Promise<void> {
+  supersede();
   isRun = false;
   stopTimer();
   showLine($, "");
@@ -364,16 +374,17 @@ function spawnPhase(type: string, prompt: string): Phase | undefined {
  * Draws the line from what the run has reached, while the line is on and a run is under way. A
  * rejected `$.agent.list` draws the line with no agent on it, and a failed progress read leaves
  * that PR's round and stage off it; any other failure is written to the debug log. A redraw
- * during which a later run starts draws nothing, and leaves the later run's state as it found it.
+ * during which its epoch is superseded draws nothing, and leaves the later run's state as it
+ * found it.
  */
 async function redraw($: Mods): Promise<void> {
   if (!isOn || !isRun) return;
-  const started = run;
+  const started = epoch;
   try {
     const agents = await runningAgents($);
-    if (run !== started) return;
+    if (epoch !== started) return;
     const review = await reviewStages($, agents, started);
-    if (review === undefined || !isOn || !isRun || run !== started) return;
+    if (review === undefined || !isOn || !isRun || epoch !== started) return;
     syncTimer($, agents);
     showLine($, statusLine(agents, review));
   } catch (err) {
@@ -416,20 +427,22 @@ function showLine($: Mods, text: string): void {
  * A reviewer's round is fixed when it is first seen running: the round after the one the read
  * reports when that round is `reviewed`, round 1 when the read prints nothing, and the reported
  * round otherwise. Its stage shows only while the read reports that round in a stage other than
- * `reviewed` and `-`. A failed read writes one `$.ui.log` line per run naming the error.
+ * `reviewed` and `-`. A failed read's error is kept in `started`'s failed reads, and the first
+ * one kept there is written as one `$.ui.log` line, so a run writes one such line, naming its own
+ * error.
  *
  * Each reviewer's round is also recorded as its PR's round, under the loop the reviewer's spawn
  * recorded, which is where `statusLine` reads the round it shows, so a redraw calls this before
  * drawing the line.
  *
- * `started` is the run the redraw began in. A read that settles once a later run has started
- * records nothing and returns `undefined`: its result is dropped, and its error is written to the
- * debug log rather than as the later run's one `$.ui.log` line.
+ * `started` is the epoch the redraw began in. A read that settles once it has been superseded
+ * records nothing and returns `undefined`: its result is dropped, and its error is kept in
+ * `started` alone, which no later run reads.
  */
 async function reviewStages(
   $: Mods,
   agents: readonly AgentInfo[],
-  started: number,
+  started: Epoch,
 ): Promise<{ stages: Map<string, string>; failed: Set<string> } | undefined> {
   const stages = new Map<string, string>();
   const failed = new Set<string>();
@@ -441,16 +454,13 @@ async function reviewStages(
     if (!read.has(pr)) {
       try {
         const progress = await readProgress($, pr);
-        if (run !== started) return undefined;
+        if (epoch !== started) return undefined;
         read.set(pr, progress);
       } catch (err) {
-        if (run !== started) {
-          const text = `${COMMAND}: an earlier run's progress read failed: ${errorText(err)}`;
-          writeLog($, text, { to: "debug" });
-          return undefined;
-        }
+        started.failedReads.push(errorText(err));
+        if (epoch !== started) return undefined;
+        if (started.failedReads.length === 1) writeLog($, `${COMMAND}: ${started.failedReads[0]}`);
         failed.add(pr);
-        logOnce($, errorText(err));
         continue;
       }
     }
@@ -496,13 +506,6 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
     throw new Error(`${command} printed \`${oneLine(line)}\`, not a progress line`);
   }
   return { round: Number(round), stage, settled, members };
-}
-
-/** Writes `message` as one `$.ui.log` line, once per run. */
-function logOnce($: Mods, message: string): void {
-  if (hasLoggedError) return;
-  hasLoggedError = true;
-  writeLog($, `${COMMAND}: ${message}`);
 }
 
 /**

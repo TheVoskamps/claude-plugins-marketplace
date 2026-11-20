@@ -662,7 +662,7 @@ function settle() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-test("a progress read that fails once a later run has started leaves that run's log line to it", async () => {
+test("a progress read that fails once a later run has started writes no line in it", async () => {
   const state = direct();
   await directOrchestrate(state);
   const read = held<Run>();
@@ -677,9 +677,8 @@ test("a progress read that fails once a later run has started leaves that run's 
   state.run = failedRead("second");
   state.list = async () => [running("a2", "sdlc:theorem-based-pr-reviewer")];
   await directReview(state, "a2");
-  expect(state.logs).toHaveLength(2);
-  expect(state.logs[0]).toBe(`${COMMAND}: an earlier run's progress read failed: first`);
-  expect(state.logs[1]).toContain("second");
+  expect(state.logs).toHaveLength(1);
+  expect(state.logs[0]).toContain("second");
 });
 
 test("a progress read that resolves once a later run has started draws nothing", async () => {
@@ -738,6 +737,52 @@ test("a spawn that resolves once a later run has started sets nothing in it", as
   await first;
   await state.hook("turn.complete", {});
   expect(lines.at(-1)).toBe("readiness");
+});
+
+test("a spawn begun in a run that has since ended starts no run when it resolves", async () => {
+  const state = direct();
+  const lines: (string | undefined)[] = [];
+  state.status = (text) => void lines.push(text);
+  await directOrchestrate(state);
+  const spawned = held<object>();
+  const first = state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:pr-monitor", prompt: `Monitor ${PR}` },
+    spawned.promise as never,
+  );
+  await settle();
+  await state.hook("session.end", {});
+  spawned.resolve({ agentId: "a1" });
+  await first;
+  await state.hook("turn.complete", {});
+  expect(lines.at(-1)).toBeUndefined();
+});
+
+test("spawns begun while no run is under way are all recorded, whichever resolves first", async () => {
+  const state = direct();
+  const lines: (string | undefined)[] = [];
+  state.status = (text) => void lines.push(text);
+  await state.hook("session.end", {});
+  const fixer = held<object>();
+  const writer = held<object>();
+  const first = state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:issue-fixer", prompt: `Fix ${PR}` },
+    fixer.promise as never,
+  );
+  const second = state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:docs-writer", prompt: `Write ${OTHER_PR}` },
+    writer.promise as never,
+  );
+  await settle();
+  state.list = async () => [running("a1", "sdlc:issue-fixer"), running("a2", "sdlc:docs-writer")];
+  writer.resolve({ agentId: "a2" });
+  await second;
+  fixer.resolve({ agentId: "a1" });
+  await first;
+  await state.hook("turn.complete", {});
+  expect(lines.at(-1)).toBe("PR #812 · code loop · issue-fixer | #813 doc loop");
 });
 
 test("a thrown value with no text is logged as such by every catch", async () => {
