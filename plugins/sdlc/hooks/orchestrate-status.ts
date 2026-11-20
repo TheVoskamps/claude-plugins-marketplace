@@ -108,8 +108,17 @@ type On = {
 
 /** One line of `sdlc-agent-result-persist --mode progress`. */
 type Progress = { round: number; stage: string; settled: string; members: string };
-/** What an await is tied to, with the errors of the progress reads begun under it, oldest first. */
-type Epoch = { failedReads: string[] };
+/**
+ * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
+ * `NO_PR`, whether its brief carries `--mode documentation`, and the agent id it resolved.
+ */
+type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string };
+/**
+ * What an await is tied to, with the errors of the progress reads begun under it, oldest first,
+ * and the main-loop spawns that resolved under it while no run was under way and started none, in
+ * the order they resolved.
+ */
+type Epoch = { failedReads: string[]; pending: Spawned[] };
 
 /** The key of the phase and agents of the work no brief names a PR for. */
 const NO_PR = "";
@@ -121,10 +130,11 @@ let isRun = false;
 /**
  * The epoch the `agent.spawn` hook and `redraw` capture before they await, dropping what an await
  * resolved to once `supersede` has replaced it. The `orchestrate` skill's prompt and `endRun`
- * replace it. A main-loop spawn that starts a run while none is under way keeps it, so every spawn
- * begun while no run was under way is recorded in the run one of them starts.
+ * replace it. A main-loop spawn that starts a run while none is under way keeps it, and records the
+ * epoch's pending spawns before its own, so every spawn begun while no run was under way is
+ * recorded in the run one of them starts, whichever resolves first.
  */
-let epoch: Epoch = { failedReads: [] };
+let epoch: Epoch = { failedReads: [], pending: [] };
 /** The PR the most recent main-loop spawn's brief named, or `NO_PR` when it named none. */
 let currentPr = NO_PR;
 /** The phase of each PR by its reference, and under `NO_PR` that of the work no PR is named for. */
@@ -298,9 +308,12 @@ function isSdlcSkill(e: SkillEvent, name: string): boolean {
   return e.skill === `${PLUGIN}:${name}` || (e.pluginName === PLUGIN && e.skill === name);
 }
 
-/** Replaces the epoch, so that every await begun before now is dropped when it settles. */
+/**
+ * Replaces the epoch, so that every await begun before now is dropped when it settles, and no
+ * spawn pending in it is recorded.
+ */
 function supersede(): void {
-  epoch = { failedReads: [] };
+  epoch = { failedReads: [], pending: [] };
 }
 
 /** Starts a run with nothing yet known of it, and no log line left waiting from before it. */
@@ -329,23 +342,42 @@ async function endRun($: Mods): Promise<void> {
 /**
  * Follows a spawn the main loop made. A spawn of any `sdlc:` agent but the reviewer starts a run
  * when none is under way, so a session resumed mid-run shows the line again from its next spawn,
- * and a standalone review shows none. During a run the spawn makes the PR its brief names, or
- * `NO_PR`, the current one, records the agent under it, and sets the phase its agent sets. A
- * reviewer's spawn also records the loop it reviews in.
+ * and a standalone review shows none. Any other spawn that resolves while no run is under way is
+ * kept pending in the epoch and draws nothing, and a later spawn that starts a run in that epoch
+ * records the pending spawns, in the order they resolved, before its own. During a run the spawn
+ * is recorded and the line redrawn.
  */
 async function mainSpawn($: Mods, e: SpawnEvent, result: SpawnResult): Promise<void> {
+  const spawned: Spawned = {
+    type: e.subagentType,
+    pr: PR_REF.exec(e.prompt)?.[0] ?? NO_PR,
+    isDocMode: DOC_MODE.test(e.prompt),
+    agentId: result.agentId,
+  };
   if (!isRun) {
     if (!e.subagentType.startsWith(`${PLUGIN}:`) || e.subagentType === `${PLUGIN}:${REVIEWER}`) {
+      epoch.pending.push(spawned);
       return;
     }
     startRun();
+    for (const earlier of epoch.pending.splice(0)) record(earlier);
   }
-  currentPr = PR_REF.exec(e.prompt)?.[0] ?? NO_PR;
-  const phase = spawnPhase(e.subagentType, e.prompt);
-  if (result.agentId !== undefined) {
-    prOfAgent.set(result.agentId, currentPr);
-    if (e.subagentType === `${PLUGIN}:${REVIEWER}` && isLoop(phase)) {
-      reviewerLoop.set(result.agentId, phase);
+  record(spawned);
+  await redraw($);
+}
+
+/**
+ * Records a main-loop spawn in the run under way: makes its PR the current one, records its agent
+ * under that PR, and sets the phase its agent sets. A reviewer's spawn also records the loop it
+ * reviews in.
+ */
+function record(spawned: Spawned): void {
+  currentPr = spawned.pr;
+  const phase = spawnPhase(spawned.type, spawned.isDocMode);
+  if (spawned.agentId !== undefined) {
+    prOfAgent.set(spawned.agentId, currentPr);
+    if (spawned.type === `${PLUGIN}:${REVIEWER}` && isLoop(phase)) {
+      reviewerLoop.set(spawned.agentId, phase);
     }
   }
   if (phase !== undefined) {
@@ -354,7 +386,6 @@ async function mainSpawn($: Mods, e: SpawnEvent, result: SpawnResult): Promise<v
     if (isLoop(phase) && prRound.get(currentPr)?.loop !== phase) prRound.delete(currentPr);
     phases.set(currentPr, phase);
   }
-  await redraw($);
 }
 
 /** True for the code loop and the doc loop, the phases a review round belongs to. */
@@ -362,11 +393,14 @@ function isLoop(phase: Phase | undefined): phase is Loop {
   return phase === "code loop" || phase === "doc loop";
 }
 
-/** The phase a main-loop spawn of `type` with `prompt` as its brief sets, or none. */
-function spawnPhase(type: string, prompt: string): Phase | undefined {
+/**
+ * The phase a main-loop spawn of `type` sets, `isDocMode` saying whether its brief carries
+ * `--mode documentation`, or none.
+ */
+function spawnPhase(type: string, isDocMode: boolean): Phase | undefined {
   if (!type.startsWith(`${PLUGIN}:`)) return undefined;
   const name = type.slice(PLUGIN.length + 1);
-  if (MODE_PHASED.has(name)) return DOC_MODE.test(prompt) ? "doc loop" : "code loop";
+  if (MODE_PHASED.has(name)) return isDocMode ? "doc loop" : "code loop";
   return SPAWN_PHASES.get(name);
 }
 

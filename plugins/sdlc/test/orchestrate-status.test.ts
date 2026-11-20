@@ -785,6 +785,204 @@ test("spawns begun while no run is under way are all recorded, whichever resolve
   expect(lines.at(-1)).toBe("PR #812 · code loop · issue-fixer | #813 doc loop");
 });
 
+/** A main-loop spawn kind the module treats apart, with no run under way, as its type and brief. */
+type Kind = { name: string; type: string; prompt: string };
+
+const OTHER_AGENT: Kind = {
+  name: "a non-sdlc agent",
+  type: "general-purpose",
+  prompt: `Look at ${PR}`,
+};
+const REVIEW: Kind = {
+  name: "the reviewer",
+  type: "sdlc:theorem-based-pr-reviewer",
+  prompt: `Review ${PR}`,
+};
+const FIXER: Kind = { name: "an issue-fixer", type: "sdlc:issue-fixer", prompt: `Fix ${PR}` };
+const DOCUMENTER: Kind = {
+  name: "a code-documenter",
+  type: "sdlc:code-documenter",
+  prompt: `Document ${PR}`,
+};
+
+/**
+ * Begins a main-loop spawn of `kind` through the hand-built `$`, and returns the call that
+ * resolves it with the agent id `id` and waits for its hook.
+ */
+function heldSpawn(state: Direct, kind: Kind, id: string): () => Promise<void> {
+  const spawned = held<object>();
+  const done = state.hook(
+    "agent.spawn",
+    { subagentType: kind.type, prompt: kind.prompt },
+    spawned.promise as never,
+  );
+  return async () => {
+    spawned.resolve({ agentId: id });
+    await done;
+  };
+}
+
+/**
+ * Ends any earlier test's run, then records every line the module draws and every progress read
+ * it runs from here on.
+ */
+async function noRun(state: Direct): Promise<{ lines: (string | undefined)[]; reads: number[] }> {
+  await state.hook("session.end", {});
+  const seen = { lines: [] as (string | undefined)[], reads: [] as number[] };
+  state.status = (text) => void seen.lines.push(text);
+  state.run = async () => {
+    seen.reads.push(1);
+    return { exitCode: 0, stdout: "", stderr: "" };
+  };
+  return seen;
+}
+
+// Two spawns overlapping from the no-run state, for one PR, resolved in both orders: the line the
+// run draws is the same either way.
+const SIBLINGS: [Kind, Kind, string][] = [
+  [OTHER_AGENT, FIXER, "PR #812 · code loop · general-purpose, issue-fixer"],
+  [REVIEW, FIXER, "PR #812 · code loop r1 · theorem-based-pr-reviewer, issue-fixer"],
+  [FIXER, DOCUMENTER, "PR #812 · code loop · issue-fixer, code-documenter"],
+];
+
+for (const [one, two, line] of SIBLINGS) {
+  for (const [first, second] of [
+    [one, two],
+    [two, one],
+  ]) {
+    test(`with no run under way, ${first.name} resolving before ${second.name} draws ${line}`, async () => {
+      const state = direct();
+      const seen = await noRun(state);
+      const resolveOne = heldSpawn(state, one, "a1");
+      const resolveTwo = heldSpawn(state, two, "a2");
+      await settle();
+      state.list = async () => [running("a1", one.type), running("a2", two.type)];
+      await (first === one ? resolveOne : resolveTwo)();
+      await (first === one ? resolveTwo : resolveOne)();
+      await state.hook("turn.complete", {});
+      expect(seen.lines.at(-1)).toBe(line);
+    });
+  }
+}
+
+// Two spawns overlapping from the no-run state that neither starts a run: the line stays clear and
+// no progress is read, in both orders.
+const IDLE_SIBLINGS: [Kind, Kind][] = [
+  [OTHER_AGENT, REVIEW],
+  [REVIEW, REVIEW],
+  [OTHER_AGENT, OTHER_AGENT],
+];
+
+for (const [one, two] of IDLE_SIBLINGS) {
+  for (const isOneFirst of [true, false]) {
+    const [first, second] = isOneFirst ? [one, two] : [two, one];
+    test(`with no run under way, ${first.name} resolving before ${second.name} draws no line`, async () => {
+      const state = direct();
+      const seen = await noRun(state);
+      const resolveOne = heldSpawn(state, one, "a1");
+      const resolveTwo = heldSpawn(state, two, "a2");
+      await settle();
+      state.list = async () => [running("a1", one.type), running("a2", two.type)];
+      await (isOneFirst ? resolveOne : resolveTwo)();
+      await (isOneFirst ? resolveTwo : resolveOne)();
+      await state.hook("turn.complete", {});
+      expect(seen.lines).toEqual([]);
+      expect(seen.reads).toEqual([]);
+    });
+  }
+}
+
+test("a reviewer that resolves before an issue-fixer for another PR is recorded in the fixer's run", async () => {
+  const state = direct();
+  const seen = await noRun(state);
+  const resolveReview = heldSpawn(state, REVIEW, "a1");
+  const resolveFixer = heldSpawn(state, { ...FIXER, prompt: `Fix ${OTHER_PR}` }, "a2");
+  await settle();
+  state.list = async () => [running("a1", REVIEW.type), running("a2", FIXER.type)];
+  await resolveReview();
+  await resolveFixer();
+  expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
+  state.list = async () => [
+    running("a1", REVIEW.type),
+    running("a2", FIXER.type),
+    running("a3", "sdlc:style-checker"),
+  ];
+  await state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:style-checker", prompt: `Check ${PR}` },
+    { agentId: "a3" },
+  );
+  expect(seen.lines.at(-1)).toBe(
+    "PR #812 · code loop r1 · theorem-based-pr-reviewer, style-checker | #813 code loop",
+  );
+});
+
+// Two spawns begun with no run under way, the first resolving before a run's end or a fresh
+// orchestrate prompt and the second after it: nothing either recorded reaches the line a later
+// spawn draws, whichever kind resolved first.
+const BOUNDARIES: [string, (state: Direct) => Promise<unknown>][] = [
+  ["a run's end", (state) => state.hook("session.end", {})],
+  [
+    "a fresh orchestrate prompt",
+    (state) => state.hook("skill.prompt", { skill: "sdlc:orchestrate" }),
+  ],
+];
+
+for (const [boundary, cross] of BOUNDARIES) {
+  for (const [early, late] of [
+    [OTHER_AGENT, FIXER],
+    [REVIEW, FIXER],
+    [FIXER, REVIEW],
+    [FIXER, DOCUMENTER],
+  ]) {
+    test(`${early.name} resolving before ${boundary} and ${late.name} after it reach no line a later spawn draws`, async () => {
+      const state = direct();
+      const seen = await noRun(state);
+      const resolveEarly = heldSpawn(state, early, "a1");
+      const resolveLate = heldSpawn(state, late, "a2");
+      await settle();
+      state.list = async () => [running("a1", early.type), running("a2", late.type)];
+      await resolveEarly();
+      await cross(state);
+      await resolveLate();
+      state.list = async () => [
+        running("a1", early.type),
+        running("a2", late.type),
+        running("a3", "sdlc:pr-monitor"),
+      ];
+      await state.hook(
+        "agent.spawn",
+        { subagentType: "sdlc:pr-monitor", prompt: `Monitor ${OTHER_PR}` },
+        { agentId: "a3" },
+      );
+      expect(seen.lines.at(-1)).toBe("PR #813 · monitor · pr-monitor");
+    });
+  }
+}
+
+test("spawns that both resolve after a run's end or a fresh orchestrate prompt set nothing", async () => {
+  for (const [, cross] of BOUNDARIES) {
+    for (const [first, second] of [
+      [REVIEW, FIXER],
+      [FIXER, REVIEW],
+    ]) {
+      const state = direct();
+      const seen = await noRun(state);
+      const resolveFirst = heldSpawn(state, first, "a1");
+      const resolveSecond = heldSpawn(state, second, "a2");
+      await settle();
+      state.list = async () => [running("a1", first.type), running("a2", second.type)];
+      await cross(state);
+      const atBoundary = seen.lines.at(-1);
+      await resolveFirst();
+      await resolveSecond();
+      await state.hook("turn.complete", {});
+      expect(seen.lines.at(-1)).toBe(atBoundary);
+      expect(seen.reads).toEqual([]);
+    }
+  }
+});
+
 test("a thrown value with no text is logged as such by every catch", async () => {
   const state = direct();
   state.register = async () => {
