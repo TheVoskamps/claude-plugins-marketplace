@@ -1,0 +1,490 @@
+import { expect, mock, test } from "claude-code/testing";
+
+import { COMMAND, USAGE } from "../hooks/orchestrate-status.ts";
+
+const PR = "github.com/o/r#812";
+const OTHER_PR = "github.com/o/r#813";
+const ROOT = "/plugins/sdlc/0.91.0";
+/** The progress read's executable, under whichever directory the plugin root is in a test. */
+const PERSIST = "/bin/sdlc-agent-result-persist";
+const TAB = "\t";
+
+type Agent = { id: string; status: string; type: string; parentId?: string };
+
+/** What the stubs below answer with, and what they saw the module do. */
+type Host = {
+  /** The text of every `$.ui.status` call, `undefined` for a clear. */
+  lines: (string | undefined)[];
+  logs: string[];
+  /** The `argv` of every `$.process.run` call. */
+  runs: string[][];
+  registered: object[];
+  /** What `$.agent.list()` resolves to. */
+  agents: Agent[];
+  /** What `$.process.run` resolves to. */
+  progress: { exitCode: number; stdout: string; stderr: string };
+  /** A reason to reject `$.agent.list` with, or `undefined` to answer `agents`. */
+  refuseList?: string;
+  /** A reason to reject `$.process.run` with, or `undefined` to answer `progress`. */
+  refuseRun?: string;
+  clock: { advance: (ms: number) => Promise<void> };
+};
+
+/**
+ * Stubs everything the module reaches: each spawn is answered with the agent id `a<n>`, counting
+ * from 1, and every event's own result is a value a test can tell came from its stub.
+ */
+function host(on): Host {
+  const state: Host = {
+    lines: [],
+    logs: [],
+    runs: [],
+    registered: [],
+    agents: [],
+    progress: { exitCode: 0, stdout: "", stderr: "" },
+    clock: mock.clock(on),
+  };
+  let spawned = 0;
+  mock.env(on, {});
+  on("ui.status", ($, e) => {
+    state.lines.push(e.text);
+    return { value: undefined };
+  });
+  on("ui.log", ($, e) => {
+    state.logs.push(e.text);
+    return { value: undefined };
+  });
+  on("agent.list", () =>
+    state.refuseList !== undefined ? { deny: state.refuseList } : { value: state.agents },
+  );
+  on("process.run", ($, e) => {
+    state.runs.push(e.argv);
+    return state.refuseRun !== undefined ? { deny: state.refuseRun } : { value: state.progress };
+  });
+  on("command.register", ($, e) => {
+    state.registered.push(e);
+    return { value: undefined };
+  });
+  on("agent.spawn", () => ({ model: "claude-test", agentId: `a${++spawned}` }));
+  on("skill.prompt", ($, e) => ({ text: `expanded ${e.skill}` }));
+  on("tool.call", () => ({ result: "contents" }));
+  on("turn.complete", () => ({ text: "turn stub" }));
+  on("session.start", () => ({ cwd: "/work" }));
+  on("session.end", () => ({ sessionId: "s1" }));
+  return state;
+}
+
+/** The line the module last pinned, `undefined` when it last cleared it or pinned none. */
+function shown(state: Host): string | undefined {
+  return state.lines.at(-1);
+}
+
+function orchestrate($) {
+  return $.skill.prompt({
+    skill: "sdlc:orchestrate",
+    text: "the skill",
+    frontmatter: {},
+    source: "plugin",
+    pluginName: "sdlc",
+  });
+}
+
+function cleanup($) {
+  return $.skill.prompt({
+    skill: "sdlc:orchestrate-cleanup",
+    text: "the skill",
+    frontmatter: {},
+    source: "plugin",
+    pluginName: "sdlc",
+  });
+}
+
+/** A main-loop spawn of `type` with `prompt` as its brief, or one inside `parent` when given. */
+function spawn($, type: string, prompt = "go", parent?: string) {
+  return $.agent.spawn({
+    tool_use_id: "toolu_1",
+    prompt,
+    description: "a task",
+    subagentType: type,
+    parentModel: "claude-test",
+    background: false,
+    fork: false,
+    ...(parent === undefined ? {} : { parentAgentId: parent }),
+  });
+}
+
+function turnEnd($, agentId?: string) {
+  return $.turn.complete({
+    turnId: "t",
+    answer: "",
+    durationMs: 1,
+    isAborted: false,
+    reason: "answer",
+    usage: null,
+    ...(agentId === undefined ? {} : { agentId }),
+  });
+}
+
+function running(id: string, type: string, parentId?: string): Agent {
+  return { id, status: "running", type, ...(parentId === undefined ? {} : { parentId }) };
+}
+
+function progressLine(...fields: (string | number)[]) {
+  return { exitCode: 0, stdout: `${fields.join(TAB)}\n`, stderr: "" };
+}
+
+// --- the line ------------------------------------------------------------------------------------
+
+test("a run in readiness before any brief names a PR reads readiness", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  expect(shown(state)).toBe("readiness");
+});
+
+test("a run in the code loop with a reviewer in disprove names the PR, round, stage and counts", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(1, "code-and-instruction-markdown", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn(
+    $,
+    "sdlc:theorem-based-pr-reviewer",
+    `Review ${PR} --mode code-and-instruction-markdown`,
+  );
+  state.progress = progressLine(2, "code-and-instruction-markdown", "disprove", 15, 31);
+  state.agents = [
+    running("a1", "sdlc:theorem-based-pr-reviewer"),
+    running("c1", "sdlc:theorem-disprover", "a1"),
+  ];
+  await turnEnd($, "c1");
+  expect(shown(state)).toBe(
+    "PR #812 · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems",
+  );
+  const [command, ...args] = state.runs.at(-1) ?? [];
+  expect(command.endsWith(PERSIST)).toBe(true);
+  expect(args).toEqual(["--mode", "progress", "--pr", PR]);
+});
+
+test("generate and assess show the stage alone, and another round's stage is not shown", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r1 · theorem-based-pr-reviewer");
+  state.progress = progressLine(1, "code-and-instruction-markdown", "assess", 0, 1);
+  await turnEnd($, "a1");
+  expect(shown(state)).toBe("PR #812 · code loop r1 · theorem-based-pr-reviewer › assess");
+  state.progress = progressLine(3, "code-and-instruction-markdown", "generate", 0, 1);
+  await turnEnd($, "a1");
+  expect(shown(state)).toBe("PR #812 · code loop r1 · theorem-based-pr-reviewer");
+});
+
+test("a round under way fixes the reviewer at that round", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(4, "documentation", "verify", 1, 2);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`);
+  expect(shown(state)).toBe(
+    "PR #812 · doc loop r4 · theorem-based-pr-reviewer › verify 1/2 theorems",
+  );
+});
+
+test("a run in monitor shows no round, and with no agent running ends at the phase", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r3 · theorem-based-pr-reviewer");
+  state.agents = [running("a2", "sdlc:pr-monitor")];
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  expect(shown(state)).toBe("PR #812 · monitor · pr-monitor");
+  state.agents = [];
+  await turnEnd($);
+  expect(shown(state)).toBe("PR #812 · monitor");
+});
+
+test("an agent completed, failed or killed is not on the line", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:issue-developer");
+  await spawn($, "sdlc:issue-developer");
+  await spawn($, "sdlc:issue-developer");
+  await spawn($, "sdlc:issue-developer");
+  state.agents = [
+    { id: "a1", status: "completed", type: "sdlc:issue-developer" },
+    { id: "a2", status: "failed", type: "sdlc:issue-developer" },
+    { id: "a3", status: "killed", type: "sdlc:issue-developer" },
+    { id: "a4", status: "idle", type: "sdlc:issue-developer" },
+  ];
+  await turnEnd($);
+  expect(shown(state)).toBe("develop · issue-developer");
+});
+
+test("a name running more than once is counted, and children are listed under their parent", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:issue-developer");
+  await spawn($, "sdlc:issue-developer");
+  await spawn($, "sdlc:pr-merge-readiness", `Gate ${PR}`);
+  state.agents = [
+    running("a1", "sdlc:issue-developer"),
+    running("a2", "sdlc:issue-developer"),
+    running("a3", "sdlc:pr-merge-readiness"),
+    running("c1", "sdlc:issue-fixer", "a3"),
+    running("c2", "sdlc:issue-fixer", "a3"),
+    { id: "c3", status: "completed", type: "sdlc:agent-memory-scrubber", parentId: "a3" },
+  ];
+  await turnEnd($);
+  expect(shown(state)).toBe("PR #812 · merge readiness · pr-merge-readiness › issue-fixer×2");
+  await spawn($, "sdlc:issue-developer");
+  state.agents.push(running("a4", "sdlc:issue-developer"));
+  await turnEnd($);
+  expect(shown(state)).toBe("develop · issue-developer×3 | #812 merge readiness");
+});
+
+test("every other PR with a running agent is appended with its phase", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:docs-writer", `Write ${OTHER_PR}`);
+  await spawn($, "sdlc:pr-finalizer", `Finalize ${PR}`);
+  state.agents = [running("a1", "sdlc:docs-writer"), running("a2", "sdlc:pr-finalizer")];
+  await turnEnd($);
+  expect(shown(state)).toBe("PR #812 · finalizer · pr-finalizer | #813 doc loop");
+});
+
+// --- the signals ---------------------------------------------------------------------------------
+
+const SPAWNS: [string, string, string][] = [
+  ["sdlc:theorem-generator", "Seed issue #5", "seed"],
+  ["sdlc:theorem-assessor", "Seed issue #5", "seed"],
+  ["sdlc:issue-developer", "Issue #5", "develop"],
+  ["sdlc:code-documenter", `Document ${PR}`, "PR #812 · code loop"],
+  ["sdlc:issue-fixer", `Fix ${PR}`, "PR #812 · code loop"],
+  ["sdlc:style-checker", `Check ${PR} --mode code-and-instruction-markdown`, "PR #812 · code loop"],
+  ["sdlc:theorem-based-pr-reviewer", `Review ${PR}`, "PR #812 · code loop"],
+  ["sdlc:docs-writer", `Write ${PR}`, "PR #812 · doc loop"],
+  ["sdlc:style-checker", `Check ${PR} --mode documentation`, "PR #812 · doc loop"],
+  ["sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`, "PR #812 · doc loop"],
+  ["sdlc:agent-memory-scrubber", `Scrub ${PR}`, "PR #812 · memory scrub"],
+  ["sdlc:pr-merge-readiness", `Gate ${PR}`, "PR #812 · merge readiness"],
+  ["sdlc:pr-finalizer", `Finalize ${PR}`, "PR #812 · finalizer"],
+  ["sdlc:pr-monitor", `Monitor ${PR}`, "PR #812 · monitor"],
+];
+
+for (const [type, brief, line] of SPAWNS) {
+  test(`a main-loop spawn of ${type} briefed "${brief}" reads ${line}`, async ($, on) => {
+    const state = host(on);
+    await orchestrate($);
+    await spawn($, type, brief);
+    expect(shown(state)).toBe(line);
+  });
+}
+
+test("the main loop's read of the plan lib file sets plan, and another read sets nothing", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await $.tool.call({ tool: "Read", file_path: `${ROOT}/skills/orchestrate/lib/pre-flight.md` });
+  expect(shown(state)).toBe("readiness");
+  await $.tool.call({ tool: "Read", file_path: `${ROOT}/skills/orchestrate/lib/plan.md` });
+  expect(shown(state)).toBe("plan");
+});
+
+test("a subagent's read of the plan lib file sets no phase", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await $.tool.call({
+    tool: "Read",
+    file_path: `${ROOT}/skills/orchestrate/lib/plan.md`,
+    agentId: "a9",
+  });
+  expect(shown(state)).toBe("readiness");
+});
+
+test("a spawn inside another agent sets no phase and names no PR", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:issue-developer");
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`, "a1");
+  await spawn($, "sdlc:docs-writer", `Write ${PR}`, "a1");
+  expect(shown(state)).toBe("develop");
+});
+
+test("the cleanup skill sets cleanup, and the main loop's turn ending in it clears the line", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await cleanup($);
+  expect(shown(state)).toBe("PR #812 · cleanup");
+  await turnEnd($, "a1");
+  expect(shown(state)).toBe("PR #812 · cleanup");
+  await turnEnd($);
+  expect(shown(state)).toBeUndefined();
+  await turnEnd($);
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  expect(shown(state)).toBeUndefined();
+});
+
+test("the phase follows the latest signal, backwards included", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await spawn($, "sdlc:pr-merge-readiness", `Gate ${PR}`);
+  expect(shown(state)).toBe("PR #812 · merge readiness");
+});
+
+test("a reviewer spawned with no run under way pins no line", async ($, on) => {
+  const state = host(on);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  await turnEnd($, "a1");
+  await turnEnd($);
+  expect(state.lines).toEqual([]);
+  expect(state.runs).toEqual([]);
+});
+
+test("a main-loop spawn of another sdlc agent starts a run", async ($, on) => {
+  const state = host(on);
+  state.agents = [running("a1", "sdlc:issue-fixer")];
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop · issue-fixer");
+});
+
+test("the orchestrate skill starts a fresh run", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await orchestrate($);
+  expect(shown(state)).toBe("readiness");
+});
+
+test("the session's end clears the line", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await $.session.end({ reason: "other" });
+  expect(shown(state)).toBeUndefined();
+});
+
+// --- the timer -----------------------------------------------------------------------------------
+
+test("the line is redrawn every 5 seconds while an sdlc agent is running, and not while none is", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:issue-developer")];
+  await spawn($, "sdlc:issue-developer");
+  const drawn = state.lines.length;
+  await state.clock.advance(5000);
+  expect(state.lines.length).toBe(drawn + 1);
+  state.agents = [];
+  await state.clock.advance(5000);
+  expect(state.lines.length).toBe(drawn + 2);
+  await state.clock.advance(20000);
+  expect(state.lines.length).toBe(drawn + 2);
+});
+
+// --- what the hooks return -----------------------------------------------------------------------
+
+test("every hook but the command's returns what next resolved", async ($, on) => {
+  host(on);
+  await $.session
+    .start({ surface: "terminal", isInteractive: true, cwd: "/work" })
+    .then((r) => expect(r).toEqual({ cwd: "/work" }));
+  expect(await orchestrate($)).toEqual({ text: "expanded sdlc:orchestrate" });
+  expect(
+    await $.tool.call({ tool: "Read", file_path: `${ROOT}/skills/orchestrate/lib/plan.md` }),
+  ).toEqual({
+    result: "contents",
+  });
+  expect(await spawn($, "sdlc:issue-developer")).toEqual({ model: "claude-test", agentId: "a1" });
+  expect(await turnEnd($)).toEqual({ text: "turn stub" });
+  expect(await $.session.end({ reason: "other" })).toEqual({ sessionId: "s1" });
+});
+
+test("a rejected agent list or progress read leaves each hook's value unchanged", async ($, on) => {
+  const state = host(on);
+  state.refuseList = "no list";
+  expect(await orchestrate($)).toEqual({ text: "expanded sdlc:orchestrate" });
+  state.refuseList = undefined;
+  state.refuseRun = "cannot start";
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  expect(await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`)).toEqual({
+    model: "claude-test",
+    agentId: "a1",
+  });
+  expect(await turnEnd($, "a1")).toEqual({ text: "turn stub" });
+  expect(shown(state)).toBe("PR #812 · code loop · theorem-based-pr-reviewer");
+});
+
+test("a failed progress read is logged once per run", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = { exitCode: 2, stdout: "", stderr: "sdlc-agent-result-persist: boom\n" };
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  await turnEnd($, "a1");
+  expect(shown(state)).toBe("PR #812 · code loop · theorem-based-pr-reviewer");
+  const logged = state.logs.filter((line) => line.includes("boom"));
+  expect(logged).toHaveLength(1);
+  expect(logged[0]).toContain("exited 2");
+});
+
+// --- the command ---------------------------------------------------------------------------------
+
+test("the session's start registers the command", async ($, on) => {
+  const state = host(on);
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  expect(state.registered).toHaveLength(1);
+  expect(state.registered[0]).toMatchObject({
+    name: COMMAND,
+    argumentHint: "[on|off]",
+    immediate: true,
+  });
+});
+
+test("off clears the line and stops the timer, and on redraws it at the phase reached", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:issue-developer")];
+  await spawn($, "sdlc:issue-developer");
+  const off = await $.command.run({ command: COMMAND, args: "off" });
+  expect(off.text).toBe("orchestrate status line: off");
+  expect(shown(state)).toBeUndefined();
+  const drawn = state.lines.length;
+  await state.clock.advance(20000);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await turnEnd($);
+  expect(state.lines.length).toBe(drawn);
+  state.agents = [running("a2", "sdlc:pr-monitor")];
+  const back = await $.command.run({ command: COMMAND, args: "on" });
+  expect(back.text).toBe("orchestrate status line: on");
+  expect(shown(state)).toBe("PR #812 · monitor · pr-monitor");
+});
+
+test("off runs no progress read", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await $.command.run({ command: COMMAND, args: "off" });
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  await turnEnd($, "a1");
+  expect(state.runs).toEqual([]);
+});
+
+test("no argument flips the line, and any other argument answers the usage and changes nothing", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  expect((await $.command.run({ command: COMMAND, args: "" })).text).toBe(
+    "orchestrate status line: off",
+  );
+  expect(shown(state)).toBeUndefined();
+  expect((await $.command.run({ command: COMMAND, args: "maybe" })).text).toBe(USAGE);
+  await turnEnd($);
+  expect(shown(state)).toBeUndefined();
+  expect((await $.command.run({ command: COMMAND, args: "" })).text).toBe(
+    "orchestrate status line: on",
+  );
+  expect(shown(state)).toBe("readiness");
+  expect((await $.command.run({ command: COMMAND, args: "off on" })).text).toBe(USAGE);
+  expect(shown(state)).toBe("readiness");
+});
