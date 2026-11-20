@@ -325,6 +325,9 @@ async function showLine($: Mods, text: string): Promise<void> {
  * reports when that round is `reviewed`, round 1 when the read prints nothing, and the reported
  * round otherwise. Its stage shows only while the read reports that round in a stage other than
  * `reviewed` and `-`. A failed read writes one `$.ui.log` line per run naming the error.
+ *
+ * Each reviewer's round is also recorded as its PR's round, which is where `statusLine` reads
+ * the round it shows, so a redraw calls this before drawing the line.
  */
 async function reviewStages(
   $: Mods,
@@ -398,9 +401,11 @@ async function logOnce($: Mods, message: string): Promise<void> {
 
 /**
  * The line: the current PR, its phase, and its running agents, joined by ` · ` with any part that
- * has nothing to show left out, then ` | #<n> <phase>` for every other PR with a running agent
- * the main loop spawned, or ` | #<n>` for one with no phase. `review` holds the reviewer stages
- * and the PRs whose progress read failed this redraw, as `reviewStages` returns them.
+ * has nothing to show left out. A `code loop` or `doc loop` phase carries ` r<n>` after it when
+ * the PR has a recorded round and its progress read did not fail this redraw. Then comes
+ * ` | #<n> <phase>` for every other PR with a running agent the main loop spawned, or ` | #<n>`
+ * for one with no phase. `review` holds the reviewer stages and the PRs whose progress read
+ * failed this redraw, as `reviewStages` returns them.
  */
 function statusLine(
   agents: readonly AgentInfo[],
