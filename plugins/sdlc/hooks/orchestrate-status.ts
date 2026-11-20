@@ -122,11 +122,11 @@ type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string;
 type Epoch = { failedReads: string[]; pending: Spawned[] };
 /**
  * One main-loop signal the run has recorded: the epoch it was recorded under, the number
- * `signalsBegun` gave it when its hook began, the PR it is for or `NO_PR`, and the phase it sets,
- * if any. A spawn's signal also carries its agent's definition and the agent id it resolved. The
- * `orchestrate` and `orchestrate-cleanup` prompts and the plan read are signals of the whole run,
- * and carry no PR: each sets the phase of whichever PR is current when the line is drawn, `NO_PR`
- * included, and of no other PR.
+ * `signalsBegun` gave it when its hook began, the PR a spawn's brief named or `NO_PR`, and the
+ * phase it sets, if any. A spawn's signal also carries its agent's definition and the agent id it
+ * resolved. The `orchestrate` and `orchestrate-cleanup` prompts and the plan read are signals of
+ * the whole run, and carry no PR: each sets the phase of whichever PR is current when the line is
+ * drawn, `NO_PR` included, and of no other PR.
  */
 type Signal = {
   epoch: Epoch;
