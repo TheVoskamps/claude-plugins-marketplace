@@ -294,6 +294,40 @@ test("a fixer in the same loop keeps the round on the line", async ($, on) => {
   expect(shown(state)).toBe("PR #812 · code loop r3 · issue-fixer");
 });
 
+test("a loop's round survives other phases and returns with the loop, and the other loop drops it", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  state.agents = [];
+  await spawn($, "sdlc:pr-merge-readiness", `Gate ${PR}`);
+  expect(shown(state)).toBe("PR #812 · merge readiness");
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r3");
+  state.progress = progressLine(1, "documentation", "reviewed", "-", "-");
+  state.agents = [running("a4", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`);
+  expect(shown(state)).toBe("PR #812 · doc loop r2 · theorem-based-pr-reviewer");
+  state.agents = [];
+  await spawn($, "sdlc:pr-merge-readiness", `Gate ${PR}`);
+  await spawn($, "sdlc:docs-writer", `Write ${PR}`);
+  expect(shown(state)).toBe("PR #812 · doc loop r2");
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop");
+});
+
+test("a reviewer still running from the other loop puts no round on the PR's loop", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  state.agents.push(running("a2", "sdlc:docs-writer"));
+  await spawn($, "sdlc:docs-writer", `Write ${PR}`);
+  expect(shown(state)).toBe("PR #812 · doc loop · theorem-based-pr-reviewer, docs-writer");
+});
+
 // --- the signals ---------------------------------------------------------------------------------
 
 const SPAWNS: [string, string, string][] = [
@@ -464,6 +498,16 @@ test("a rejected status line leaves the cleanup's turn end and the session's end
   state.refuseStatus = "no status";
   expect(await turnEnd($)).toEqual({ text: "turn stub" });
   expect(await $.session.end({ reason: "other" })).toEqual({ sessionId: "s1" });
+});
+
+test("a hook whose own work throws logs the error and leaves its value unchanged", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  // A non-string agent type makes the spawn's own handling throw.
+  expect(await spawn($, 5 as never, `Fix ${PR}`)).toEqual({ model: "claude-test", agentId: "a1" });
+  expect(state.logs.some((line) => line.startsWith(`${COMMAND}: `))).toBe(true);
+  expect(await turnEnd($)).toEqual({ text: "turn stub" });
+  expect(shown(state)).toBe("PR #812");
 });
 
 test("a failed progress read is logged once per run", async ($, on) => {

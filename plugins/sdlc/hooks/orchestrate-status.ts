@@ -2,7 +2,8 @@
 // run is on, the phase it is in, and the agents running, with a review round's stage and theorem
 // counts beside its reviewer. `/orchestrate-status` turns the line off and on for the session.
 // Apart from answering that command, every hook only observes: each returns what `next(e)`
-// resolved, unchanged, and none denies or rewrites anything.
+// resolved, unchanged, and none denies or rewrites anything. Each runs its own work through
+// `guard`, so no failure of that work reaches the hook's caller or keeps `next(e)` from running.
 //
 // Every function a hook passes `$` to is declared at the top level of this file, which is the only
 // place the engine lets `$` be passed to.
@@ -28,13 +29,13 @@ const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
 // The stages the line shows with their theorem counts; any other stage shows by name alone.
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
 
+type Loop = "code loop" | "doc loop";
 type Phase =
+  | Loop
   | "readiness"
   | "plan"
   | "seed"
   | "develop"
-  | "code loop"
-  | "doc loop"
   | "memory scrub"
   | "merge readiness"
   | "finalizer"
@@ -81,7 +82,7 @@ type Mods = {
   };
   clock: { every: (ms: number, fn: () => void) => Timer };
   ui: {
-    status: (text: string | undefined) => Promise<void>;
+    status: (text: string | undefined) => void;
     log: (text: string, options?: { to: "transcript" | "debug" }) => Promise<void>;
   };
 };
@@ -117,10 +118,12 @@ let currentPr = NO_PR;
 const phases = new Map<string, Phase>();
 /** The PR each agent the main loop spawned was spawned for, by the id `agent.spawn` resolved. */
 const prOfAgent = new Map<string, string>();
+/** The loop each reviewer the main loop spawned reviews in, set by its spawn. */
+const reviewerLoop = new Map<string, Loop>();
 /** The round each reviewer reviews, fixed when the line first sees it running. */
 const reviewerRound = new Map<string, number>();
-/** The round of each PR's latest reviewer. */
-const prRound = new Map<string, number>();
+/** The round of each PR's latest reviewer, and the loop it reviewed in. */
+const prRound = new Map<string, { loop: Loop; round: number }>();
 /** Whether the run has already logged a failed progress read. */
 let hasLoggedError = false;
 let timer: Timer | undefined;
@@ -132,7 +135,7 @@ let timer: Timer | undefined;
  */
 export function register(on: On): void {
   on("session.start", async ($: Mods, e: unknown, next: Next<unknown>) => {
-    await registerCommand($);
+    await guard($, () => registerCommand($));
     return next(e);
   });
 
@@ -142,46 +145,59 @@ export function register(on: On): void {
 
   on("skill.prompt", async ($: Mods, e: SkillEvent, next: Next<SkillEvent>) => {
     const result = await next(e);
-    if (isSdlcSkill(e, "orchestrate")) {
-      startRun();
-      phases.set(NO_PR, "readiness");
-      await redraw($);
-    } else if (isRun && isSdlcSkill(e, "orchestrate-cleanup")) {
-      phases.set(currentPr, "cleanup");
-      await redraw($);
-    }
+    await guard($, () => skillPrompt($, e));
     return result;
   });
 
   on("tool.call", { tool: "Read" }, async ($: Mods, e: ReadEvent, next: Next<ReadEvent>) => {
     const result = await next(e);
-    const path = e.file_path;
-    if (isRun && e.agentId === undefined && typeof path === "string" && path.endsWith(PLAN_FILE)) {
-      phases.set(currentPr, "plan");
-      await redraw($);
-    }
+    await guard($, () => mainRead($, e));
     return result;
   });
 
   on("agent.spawn", async ($: Mods, e: SpawnEvent, next: Next<SpawnEvent, SpawnResult>) => {
     const result = await next(e);
     if (e.parentAgentId === undefined && result.deny === undefined) {
-      await mainSpawn($, e, result);
+      await guard($, () => mainSpawn($, e, result));
     }
     return result;
   });
 
   on("turn.complete", async ($: Mods, e: TurnEvent, next: Next<TurnEvent>) => {
     const result = await next(e);
-    if (isRun && e.agentId === undefined && phases.get(currentPr) === "cleanup") await endRun($);
-    else if (isRun) await redraw($);
+    await guard($, () => turnComplete($, e));
     return result;
   });
 
   on("session.end", async ($: Mods, e: unknown, next: Next<unknown>) => {
-    await endRun($);
+    await guard($, () => endRun($));
     return next(e);
   });
+}
+
+/**
+ * Runs a hook's own work, resolving whether it resolves, rejects or throws, so that no failure of
+ * it reaches the hook: a failure is written to the debug log instead.
+ */
+async function guard($: Mods, work: () => Promise<void>): Promise<void> {
+  try {
+    await work();
+  } catch (err) {
+    await writeLog($, `${COMMAND}: ${errorText(err)}`, { to: "debug" });
+  }
+}
+
+/** Writes `text` with `$.ui.log`, resolving even when the write fails, which is then dropped. */
+async function writeLog(
+  $: Mods,
+  text: string,
+  options?: { to: "transcript" | "debug" },
+): Promise<void> {
+  try {
+    await $.ui.log(text, options);
+  } catch {
+    // A failed log write has no log left to be reported in.
+  }
 }
 
 /** Registers `/orchestrate-status`, logging to the debug log when the registration rejects. */
@@ -194,8 +210,43 @@ async function registerCommand($: Mods): Promise<void> {
       immediate: true,
     });
   } catch (err) {
-    await $.ui.log(`${COMMAND}: the command did not register: ${errorText(err)}`, { to: "debug" });
+    await writeLog($, `${COMMAND}: the command did not register: ${errorText(err)}`, {
+      to: "debug",
+    });
   }
+}
+
+/**
+ * Follows a skill prompt: `orchestrate` starts a fresh run in readiness, and `orchestrate-cleanup`
+ * during a run sets the current PR's phase to cleanup.
+ */
+async function skillPrompt($: Mods, e: SkillEvent): Promise<void> {
+  if (isSdlcSkill(e, "orchestrate")) {
+    startRun();
+    phases.set(NO_PR, "readiness");
+    await redraw($);
+  } else if (isRun && isSdlcSkill(e, "orchestrate-cleanup")) {
+    phases.set(currentPr, "cleanup");
+    await redraw($);
+  }
+}
+
+/** Follows a `Read`: the main loop's read of the plan lib file during a run sets plan. */
+async function mainRead($: Mods, e: ReadEvent): Promise<void> {
+  const path = e.file_path;
+  if (isRun && e.agentId === undefined && typeof path === "string" && path.endsWith(PLAN_FILE)) {
+    phases.set(currentPr, "plan");
+    await redraw($);
+  }
+}
+
+/**
+ * Follows a turn's end during a run: the main loop's turn ending in cleanup ends the run, and any
+ * other turn's end redraws the line.
+ */
+async function turnComplete($: Mods, e: TurnEvent): Promise<void> {
+  if (isRun && e.agentId === undefined && phases.get(currentPr) === "cleanup") await endRun($);
+  else if (isRun) await redraw($);
 }
 
 /**
@@ -211,7 +262,7 @@ async function toggle($: Mods, args: string): Promise<string> {
     await redraw($);
   } else {
     stopTimer();
-    await showLine($, "");
+    showLine($, "");
   }
   return `orchestrate status line: ${isOn ? "on" : "off"}`;
 }
@@ -227,6 +278,7 @@ function startRun(): void {
   currentPr = NO_PR;
   phases.clear();
   prOfAgent.clear();
+  reviewerLoop.clear();
   reviewerRound.clear();
   prRound.clear();
   hasLoggedError = false;
@@ -236,14 +288,15 @@ function startRun(): void {
 async function endRun($: Mods): Promise<void> {
   isRun = false;
   stopTimer();
-  await showLine($, "");
+  showLine($, "");
 }
 
 /**
  * Follows a spawn the main loop made. A spawn of any `sdlc:` agent but the reviewer starts a run
  * when none is under way, so a session resumed mid-run shows the line again from its next spawn,
  * and a standalone review shows none. During a run the spawn makes the PR its brief names, or
- * `NO_PR`, the current one, records the agent under it, and sets the phase its agent sets.
+ * `NO_PR`, the current one, records the agent under it, and sets the phase its agent sets. A
+ * reviewer's spawn also records the loop it reviews in.
  */
 async function mainSpawn($: Mods, e: SpawnEvent, result: SpawnResult): Promise<void> {
   if (!isRun) {
@@ -253,15 +306,25 @@ async function mainSpawn($: Mods, e: SpawnEvent, result: SpawnResult): Promise<v
     startRun();
   }
   currentPr = PR_REF.exec(e.prompt)?.[0] ?? NO_PR;
-  if (result.agentId !== undefined) prOfAgent.set(result.agentId, currentPr);
   const phase = spawnPhase(e.subagentType, e.prompt);
+  if (result.agentId !== undefined) {
+    prOfAgent.set(result.agentId, currentPr);
+    if (e.subagentType === `${PLUGIN}:${REVIEWER}` && isLoop(phase)) {
+      reviewerLoop.set(result.agentId, phase);
+    }
+  }
   if (phase !== undefined) {
-    // A round belongs to the loop it was reviewed in, so a new phase shows none until its
-    // own reviewer runs.
-    if (phase !== phases.get(currentPr)) prRound.delete(currentPr);
+    // A round belongs to the loop it was reviewed in, so entering the other loop drops it, and
+    // any other phase keeps it for when the PR comes back to that loop.
+    if (isLoop(phase) && prRound.get(currentPr)?.loop !== phase) prRound.delete(currentPr);
     phases.set(currentPr, phase);
   }
   await redraw($);
+}
+
+/** True for the code loop and the doc loop, the phases a review round belongs to. */
+function isLoop(phase: Phase | undefined): phase is Loop {
+  return phase === "code loop" || phase === "doc loop";
 }
 
 /** The phase a main-loop spawn of `type` with `prompt` as its brief sets, or none. */
@@ -284,9 +347,9 @@ async function redraw($: Mods): Promise<void> {
     const review = await reviewStages($, agents);
     if (!isOn || !isRun) return;
     syncTimer($, agents);
-    await showLine($, statusLine(agents, review));
+    showLine($, statusLine(agents, review));
   } catch (err) {
-    await $.ui.log(`${COMMAND}: the line was not drawn: ${errorText(err)}`, { to: "debug" });
+    await writeLog($, `${COMMAND}: the line was not drawn: ${errorText(err)}`, { to: "debug" });
   }
 }
 
@@ -295,7 +358,9 @@ async function runningAgents($: Mods): Promise<AgentInfo[]> {
   try {
     return (await $.agent.list()).filter((agent) => RUNNING.has(agent.status));
   } catch (err) {
-    await $.ui.log(`${COMMAND}: the agent list was not read: ${errorText(err)}`, { to: "debug" });
+    await writeLog($, `${COMMAND}: the agent list was not read: ${errorText(err)}`, {
+      to: "debug",
+    });
     return [];
   }
 }
@@ -313,8 +378,8 @@ function stopTimer(): void {
 }
 
 /** Pins `text` as the plugin's status line, or clears the line when `text` is empty. */
-async function showLine($: Mods, text: string): Promise<void> {
-  await $.ui.status(text === "" ? undefined : text);
+function showLine($: Mods, text: string): void {
+  $.ui.status(text === "" ? undefined : text);
 }
 
 /**
@@ -326,8 +391,9 @@ async function showLine($: Mods, text: string): Promise<void> {
  * round otherwise. Its stage shows only while the read reports that round in a stage other than
  * `reviewed` and `-`. A failed read writes one `$.ui.log` line per run naming the error.
  *
- * Each reviewer's round is also recorded as its PR's round, which is where `statusLine` reads
- * the round it shows, so a redraw calls this before drawing the line.
+ * Each reviewer's round is also recorded as its PR's round, under the loop the reviewer's spawn
+ * recorded, which is where `statusLine` reads the round it shows, so a redraw calls this before
+ * drawing the line.
  */
 async function reviewStages(
   $: Mods,
@@ -355,7 +421,8 @@ async function reviewStages(
       round = progress === undefined ? 1 : progress.round + (progress.stage === "reviewed" ? 1 : 0);
       reviewerRound.set(agent.id, round);
     }
-    prRound.set(pr, round);
+    const loop = reviewerLoop.get(agent.id);
+    if (loop !== undefined) prRound.set(pr, { loop, round });
     if (
       progress === undefined ||
       progress.round !== round ||
@@ -396,16 +463,16 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
 async function logOnce($: Mods, message: string): Promise<void> {
   if (hasLoggedError) return;
   hasLoggedError = true;
-  await $.ui.log(`${COMMAND}: ${message}`);
+  await writeLog($, `${COMMAND}: ${message}`);
 }
 
 /**
  * The line: the current PR, its phase, and its running agents, joined by ` · ` with any part that
  * has nothing to show left out. A `code loop` or `doc loop` phase carries ` r<n>` after it when
- * the PR has a recorded round and its progress read did not fail this redraw. Then comes
- * ` | #<n> <phase>` for every other PR with a running agent the main loop spawned, or ` | #<n>`
- * for one with no phase. `review` holds the reviewer stages and the PRs whose progress read
- * failed this redraw, as `reviewStages` returns them.
+ * the PR has a round recorded under that loop and its progress read did not fail this redraw.
+ * Then comes ` | #<n> <phase>` for every other PR with a running agent the main loop spawned, or
+ * ` | #<n>` for one with no phase. `review` holds the reviewer stages and the PRs whose progress
+ * read failed this redraw, as `reviewStages` returns them.
  */
 function statusLine(
   agents: readonly AgentInfo[],
@@ -417,11 +484,10 @@ function statusLine(
   if (currentPr !== NO_PR) parts.push(`PR #${prNumber(currentPr)}`);
   const phase = phases.get(currentPr);
   if (phase !== undefined) {
-    const round = prRound.get(currentPr);
-    const isRound = phase === "code loop" || phase === "doc loop";
+    const recorded = prRound.get(currentPr);
     parts.push(
-      isRound && round !== undefined && !review.failed.has(currentPr)
-        ? `${phase} r${round}`
+      isLoop(phase) && recorded?.loop === phase && !review.failed.has(currentPr)
+        ? `${phase} r${recorded.round}`
         : phase,
     );
   }
