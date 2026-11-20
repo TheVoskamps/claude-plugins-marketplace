@@ -123,12 +123,15 @@ type Epoch = { failedReads: string[]; pending: Spawned[] };
 /**
  * One main-loop signal the run has recorded: the epoch it was recorded under, the number
  * `signalsBegun` gave it when its hook began, the PR it is for or `NO_PR`, and the phase it sets,
- * if any. A spawn's signal also carries its agent's definition and the agent id it resolved.
+ * if any. A spawn's signal also carries its agent's definition and the agent id it resolved. The
+ * `orchestrate` and `orchestrate-cleanup` prompts and the plan read are signals of the whole run,
+ * and carry no PR: each sets the phase of whichever PR is current when the line is drawn, `NO_PR`
+ * included, and of no other PR.
  */
 type Signal = {
   epoch: Epoch;
   order: number;
-  pr: string;
+  pr?: string;
   phase?: Phase;
   spawn?: { type: string; agentId?: string };
 };
@@ -276,39 +279,41 @@ async function registerCommand($: Mods): Promise<void> {
 
 /**
  * Follows a skill prompt: `orchestrate` starts a fresh run in readiness, and `orchestrate-cleanup`
- * during a run sets the current PR's phase to cleanup. `order` is the number `signalsBegun` gave
- * the prompt's hook when it began.
+ * during a run puts the whole run in cleanup. `order` is the number `signalsBegun` gave the
+ * prompt's hook when it began.
  */
 async function skillPrompt($: Mods, e: SkillEvent, order: number): Promise<void> {
   if (isSdlcSkill(e, "orchestrate")) {
     supersede();
     startRun();
-    signals.push({ epoch, order, pr: NO_PR, phase: "readiness" });
+    signals.push({ epoch, order, phase: "readiness" });
     await redraw($);
   } else if (isRun && isSdlcSkill(e, "orchestrate-cleanup")) {
-    signals.push({ epoch, order, pr: currentPr(), phase: "cleanup" });
+    signals.push({ epoch, order, phase: "cleanup" });
     await redraw($);
   }
 }
 
 /**
- * Follows a `Read`: the main loop's read of the plan lib file during a run sets the current PR's
- * phase to plan. `order` is the number `signalsBegun` gave the read's hook when it began.
+ * Follows a `Read`: the main loop's read of the plan lib file during a run puts the whole run in
+ * plan. `order` is the number `signalsBegun` gave the read's hook when it began.
  */
 async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
   const path = e.file_path;
   if (isRun && e.agentId === undefined && typeof path === "string" && path.endsWith(PLAN_FILE)) {
-    signals.push({ epoch, order, pr: currentPr(), phase: "plan" });
+    signals.push({ epoch, order, phase: "plan" });
     await redraw($);
   }
 }
 
 /**
- * Follows a turn's end during a run: the main loop's turn ending in cleanup ends the run, and any
+ * Follows a turn's end during a run: the main loop's turn ending while the latest-begun signal of
+ * the whole run is the `orchestrate-cleanup` prompt ends the run, whichever PR is current, and any
  * other turn's end redraws the line.
  */
 async function turnComplete($: Mods, e: TurnEvent): Promise<void> {
-  if (isRun && e.agentId === undefined && phaseOf(currentPr()) === "cleanup") await endRun($);
+  const isCleanup = latest((signal) => signal.pr === undefined)?.phase === "cleanup";
+  if (isRun && e.agentId === undefined && isCleanup) await endRun($);
   else if (isRun) await redraw($);
 }
 
@@ -449,9 +454,15 @@ function currentPr(): string {
   return latest((signal) => signal.spawn !== undefined)?.pr ?? NO_PR;
 }
 
-/** The phase set for `pr` by the run's signal that began last of those that set one for it. */
-function phaseOf(pr: string): Phase | undefined {
-  return latest((signal) => signal.pr === pr && signal.phase !== undefined)?.phase;
+/**
+ * The phase set for `pr` by the run's signal that began last of those that set one for it, or, with
+ * `isCurrent`, of those that set one for it or for the whole run.
+ */
+function phaseOf(pr: string, isCurrent = false): Phase | undefined {
+  return latest(
+    (signal) =>
+      (signal.pr === pr || (isCurrent && signal.pr === undefined)) && signal.phase !== undefined,
+  )?.phase;
 }
 
 /** The PR the main loop spawned the agent `id` for, or `undefined` for an agent it did not. */
@@ -654,7 +665,7 @@ function statusLine(
   const current = currentPr();
   const parts: string[] = [];
   if (current !== NO_PR) parts.push(`PR #${prNumber(current)}`);
-  const phase = phaseOf(current);
+  const phase = phaseOf(current, true);
   if (phase !== undefined) {
     const round = isLoop(phase) ? roundOf(current, phase) : undefined;
     parts.push(round !== undefined && !review.failed.has(current) ? `${phase} r${round}` : phase);

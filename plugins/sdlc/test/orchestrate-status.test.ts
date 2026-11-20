@@ -1101,6 +1101,49 @@ for (const isFixerLast of [true, false]) {
   });
 }
 
+test("a spawn for another PR begun before the cleanup prompt and resolving after it leaves the run in cleanup and ends it at the main loop's turn end", async () => {
+  const state = direct();
+  const seen = await noRun(state);
+  await state.hook("skill.prompt", { skill: "sdlc:orchestrate" });
+  await state.hook(
+    "agent.spawn",
+    { subagentType: "sdlc:pr-monitor", prompt: `Monitor ${PR}` },
+    { agentId: "a1" },
+  );
+  const resolveFixer = heldSpawn(state, OTHER_FIXER, "a2");
+  await settle();
+  await state.hook("skill.prompt", { skill: "sdlc:orchestrate-cleanup" });
+  expect(seen.lines.at(-1)).toBe("PR #812 · cleanup");
+  await resolveFixer();
+  expect(seen.lines.at(-1)).toBe("PR #813 · cleanup");
+  await state.hook("turn.complete", { agentId: "a2" });
+  expect(seen.lines.at(-1)).toBe("PR #813 · cleanup");
+  await state.hook("turn.complete", {});
+  expect(seen.lines.at(-1)).toBeUndefined();
+});
+
+test("a spawn for another PR begun before the plan read and resolving after it leaves the run in plan", async () => {
+  const state = direct();
+  const seen = await noRun(state);
+  await state.hook("skill.prompt", { skill: "sdlc:orchestrate" });
+  await state.hook(
+    "agent.spawn",
+    { subagentType: FIXER.type, prompt: FIXER.prompt },
+    { agentId: "a1" },
+  );
+  const resolveFixer = heldSpawn(state, OTHER_FIXER, "a2");
+  await settle();
+  await state.hook("tool.call", {
+    tool: "Read",
+    file_path: `${ROOT}/skills/orchestrate/lib/plan.md`,
+  });
+  expect(seen.lines.at(-1)).toBe("PR #812 · plan");
+  await resolveFixer();
+  expect(seen.lines.at(-1)).toBe("PR #813 · plan");
+  await state.hook("turn.complete", {});
+  expect(seen.lines.at(-1)).toBe("PR #813 · plan");
+});
+
 // Two spawns begun with no run under way, the first resolving before a run's end or a fresh
 // orchestrate prompt and the second after it: nothing either recorded reaches the line a later
 // spawn draws, whichever kind resolved first.
