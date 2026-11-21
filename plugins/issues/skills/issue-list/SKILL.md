@@ -114,7 +114,6 @@ repo-config never stops it. It also aborts on:
 
 ## Jira backend
 
-This verb does not support `issues: Jira`: without `--project` or a
-URL, the script's refusal under it ends the run, and there is no Jira
-procedure to follow instead. With either, a Jira-tracked local
-repo-config does not stop the run.
+This verb does not support `issues: Jira`: when the script refuses it,
+the refusal ends the run, and there is no Jira procedure to follow
+instead.
