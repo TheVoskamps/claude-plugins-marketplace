@@ -32,7 +32,8 @@ ISS_NEWLINE='
 '
 
 # ---------------------------------------------------------------------------
-# Error catalogue. Each function prints one canonical wording and exits.
+# Error catalogue. Each function prints one canonical wording and exits, but
+# an iss_warn_ one, which prints its line on stderr and returns.
 # ---------------------------------------------------------------------------
 
 iss_die() {
@@ -147,6 +148,18 @@ iss_err_stale_project() {
 iss_err_no_target_config() {
   # $1 host, $2 owner, $3 repo
   iss_die "\`$(iss_repo_name "$1" "$2" "$3")\` has no \`.issues/repo-config.md\`, and this verb reads its \`github-project:\` block"
+}
+
+iss_err_target_config_unreadable() {
+  # $1 the repository's name, $2 what went wrong
+  iss_die "could not read \`$1\`'s \`.issues/repo-config.md\`: $2"
+}
+
+iss_warn_target_config_unreadable() {
+  # $1 the repository's name, $2 what went wrong, its newlines printed as spaces
+  # so the warning stays one line
+  printf "%s: warning: could not read \`%s\`'s \`.issues/repo-config.md\`: %s; its issues' priority and size are read from the board's fields\n" \
+    "$ISS_PROGRAM" "$1" "${2//$ISS_NEWLINE/ }" >&2
 }
 
 iss_err_pull_request() {
@@ -526,26 +539,45 @@ iss_load_config() {
 # nothing from the current repo's repo-config. Returns 1 when the target has
 # no repo-config, with ISS_HAS_GP=0 so every slot reads as unconfigured.
 iss_load_target_config() {
-  local errf content text err name
+  local name rc=0
   iss_require_tools
   name=$(iss_repo_name "$1" "$2" "$3")
-  errf=$(mktemp "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX")
+  iss_fetch_target_config "$1" "$2" "$3" || rc=$?
+  case "$rc" in
+    0) iss_parse_config_text "$ISS_TARGET_CONFIG_TEXT" "target repo \`$name\`: " ;;
+    1)
+      ISS_HAS_GP=0
+      ISS_GP=
+      ISS_LINK_PREFIX='#'
+      return 1
+      ;;
+    *) iss_err_target_config_unreadable "$name" "$ISS_TARGET_CONFIG_ERR" ;;
+  esac
+}
+
+# iss_fetch_target_config <host> <owner> <repo>: read a target repo's
+# .issues/repo-config.md from its default branch into ISS_TARGET_CONFIG_TEXT,
+# unparsed. Returns 1 when the target has none -- the read answers 404 -- and
+# 2 when the read fails any other way or its content does not decode, with
+# what went wrong in ISS_TARGET_CONFIG_ERR.
+iss_fetch_target_config() {
+  local errf content
+  ISS_TARGET_CONFIG_TEXT=
+  ISS_TARGET_CONFIG_ERR=
+  errf=$(mktemp "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX" 2>&1) || iss_err_scratch "$errf"
   if content=$(iss_rest "$1" "repos/$2/$3/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
     rm -f "$errf"
-    text=$(printf '%s' "$content" | tr -d '\n' | base64 --decode) ||
-      iss_die "could not decode \`$name\`'s \`.issues/repo-config.md\`"
-    iss_parse_config_text "$text" "target repo \`$name\`: "
-  elif grep -q 'HTTP 404' "$errf"; then
-    rm -f "$errf"
-    ISS_HAS_GP=0
-    ISS_GP=
-    ISS_LINK_PREFIX='#'
-    return 1
-  else
-    err=$(cat "$errf")
-    rm -f "$errf"
-    iss_die "could not read \`$name\`'s \`.issues/repo-config.md\`: $err"
+    ISS_TARGET_CONFIG_TEXT=$(printf '%s' "$content" | tr -d '\n' | base64 --decode) && return 0
+    ISS_TARGET_CONFIG_ERR="its content does not decode as base64"
+    return 2
   fi
+  if grep -q 'HTTP 404' "$errf"; then
+    rm -f "$errf"
+    return 1
+  fi
+  ISS_TARGET_CONFIG_ERR=$(cat "$errf")
+  rm -f "$errf"
+  return 2
 }
 
 # ---------------------------------------------------------------------------

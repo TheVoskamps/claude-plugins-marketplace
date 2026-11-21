@@ -18,6 +18,9 @@ issue's project items.
 
 state["repoViewError"] makes `gh repo view` fail with that message.
 
+state["contentsError"], keyed by owner/repo, makes that repository's
+contents reads fail with the message given for it.
+
 `issue close` on an open issue records a stateReason -- COMPLETED unless its
 --reason names another -- and, with --duplicate-of, the issue it duplicates as
 duplicateOf. A closed issue is left as it is, whatever the call names, and
@@ -541,6 +544,8 @@ def main():
         graphql(state, host, args[2:])
     elif args[0] == "api" and "/contents/" in args[1]:
         nwo = "/".join(args[1].split("/")[1:3])
+        if nwo in state.get("contentsError", {}):
+            fail(state["contentsError"][nwo])
         config = state["repos"][nwo].get("config") if repo_on(state, nwo, host) else None
         if config is None:
             fail("Not Found (HTTP 404)")

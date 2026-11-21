@@ -30,7 +30,9 @@ checkout's remote names, on that remote's host:
 | `https://host/owner/repo` | the same as `host/owner/repo`; a trailing `/` is ignored |
 
 Outside a git checkout there is no current repository: `repo` is a
-usage error, and `owner/repo` goes to `gh`'s default host.
+usage error to every verb but `/issue-list`, whose
+`skills/issue-list/SKILL.md` states how it reads a single word, and
+`owner/repo` goes to `gh`'s default host.
 
 An argument that names an existing issue — every verb's issue operand,
 and `/issue-create --parent` — takes one of these forms:

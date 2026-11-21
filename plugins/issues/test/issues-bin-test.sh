@@ -772,7 +772,7 @@ run_in "$CASE_DIR/outside" issue-list acme --status Done
 expect "issue-list: a bare owner with no --project and no URL aborts" 1 "there is no current repository" "\`--project <number>\`"
 check "$(refs)" "" "issue-list: a bare owner with no --project prints no issue line"
 run_in "$CASE_DIR/outside" issue-list acme/ --status Done
-expect "issue-list: a bare owner with a trailing / and no --project aborts as one without" 1 "there is no current repository"
+expect "issue-list: a single word with a trailing / and no --project aborts as one without" 1 "there is no current repository"
 edit_state '.repoViewError = "no git remotes found"'
 run issue-list acme --status Done
 expect "issue-list: a bare owner where gh resolves no current repository aborts, as no usage error" 1 \
@@ -913,6 +913,26 @@ expect "issue-list --project: repositories whose owner_repo spellings collide ke
   "ops_lib#1${TAB}-${TAB}High${TAB}" "acme_ops/lib#1${TAB}-${TAB}4${TAB}"
 check "$(contents_reads acme/ops_lib) $(contents_reads acme_ops/lib)" "1 1" \
   "issue-list --project: each of two colliding spellings has its repo-config read"
+
+# A repo-config read that fails other than as a 404 is warned about once per
+# repository, on one line, and its rows fall back to the board's fields; a 404
+# is no warning.
+new_case "$CONFIG_MAIN"
+board_items
+run issue-list acme --project 1 --status Done
+check "$(printf '%s\n' "$OUT" | grep -c 'warning:')" 0 "issue-list --project: a repo-config that answers 404 is no warning"
+edit_state '.contentsError = {"acme/other": "HTTP 502: Bad Gateway\nupstream timed out"}'
+run issue-list acme --project 1 --status Done
+expect "issue-list --project: a non-404 repo-config read failure warns and the listing goes on" 0 \
+  "issue-list: warning: could not read \`acme/other\`'s \`.issues/repo-config.md\`: gh: HTTP 502: Bad Gateway upstream timed out; " \
+  "other#3${TAB}Done${TAB}7${TAB}-${TAB}" "other#4${TAB}-${TAB}-${TAB}-${TAB}" "#2${TAB}In progress${TAB}High${TAB}S"
+check "$(refs)" "#2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" \
+  "issue-list --project: a non-404 repo-config read failure drops no row"
+check "$(printf '%s\n' "$OUT" | grep -c 'warning:')" 1 \
+  "issue-list --project: a non-404 repo-config read failure warns once, on one line, for two rows"
+run issue-list acme/other --status Done
+expect "issue-list <owner>/<repo>: a non-404 repo-config read failure still aborts without --project" 1 \
+  "issue-list: could not read \`acme/other\`'s \`.issues/repo-config.md\`: gh: HTTP 502: Bad Gateway"
 
 # Aborts.
 new_case "$CONFIG_MAIN"

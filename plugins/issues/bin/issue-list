@@ -75,21 +75,31 @@ board_field_id() {
 
 # row_config <nameWithOwner>: make the repo-config of the item's repository the
 # one the accessors read, and set row_cfg to yes when it is present and usable,
-# or to no -- absent, tracked in Jira, at an unsupported schema version, or
-# otherwise invalid, any of which would abort a verb that read it. Each
-# repository's is read once, from its default branch -- the current
-# repository's too, since the local file spells references and nothing else
-# here -- into its own directory $cache/<owner>/<repo>, since no owner or
-# repository name holds a "/". The read runs in a subshell because it aborts
-# by exiting.
+# or to no -- absent, unreadable, tracked in Jira, at an unsupported schema
+# version, or otherwise invalid, any of which but absent would abort a verb that
+# read it. A read that fails other than as absent is warned about, and the
+# listing goes on. Each repository's is read once, from its default branch --
+# the current repository's too, since the local file spells references and
+# nothing else here -- into its own directory $cache/<owner>/<repo>, since no
+# owner or repository name holds a "/".
 row_config() {
-  local dir gp err
+  local dir gp err rc=0
   dir=$cache/$(iss_lc "$1")
   if [ ! -d "$dir" ]; then
     err=$(mkdir -p "$dir" 2>&1) || iss_err_scratch "$err"
-    if gp=$({ iss_load_target_config "$host" "${1%%/*}" "${1#*/}" && printf '%s' "$ISS_GP"; } 2>/dev/null); then
-      err=$({ printf '%s' "$gp" >"$dir/gp" && : >"$dir/ok"; } 2>&1) || iss_err_scratch "$err"
-    fi
+    iss_fetch_target_config "$host" "${1%%/*}" "${1#*/}" || rc=$?
+    case "$rc" in
+      0)
+        # The parse runs in a subshell because it rejects a repo-config by
+        # exiting. It makes no call and touches no file, so its only aborts are
+        # those rejections, which this row falls back on rather than reports.
+        if gp=$({ iss_parse_config_text "$ISS_TARGET_CONFIG_TEXT" && printf '%s' "$ISS_GP"; } 2>/dev/null); then
+          err=$({ printf '%s' "$gp" >"$dir/gp" && : >"$dir/ok"; } 2>&1) || iss_err_scratch "$err"
+        fi
+        ;;
+      1) ;;
+      *) iss_warn_target_config_unreadable "$(iss_repo_name "$host" "${1%%/*}" "${1#*/}")" "$ISS_TARGET_CONFIG_ERR" ;;
+    esac
   fi
   if [ -f "$dir/ok" ]; then
     ISS_GP=$(cat "$dir/gp" 2>&1) || iss_err_scratch "$ISS_GP"
@@ -105,7 +115,7 @@ row_config() {
 # whose item a row iss_board_items kept does not carry.
 row_other_board() {
   local slot
-  [ "$row_cfg" = yes ] && [ "$(iss_cfg_get project-id 2>/dev/null)" != "$project" ] || return 1
+  [ "$row_cfg" = yes ] && [ "$(iss_cfg_get project-id)" != "$project" ] || return 1
   for slot in priority size; do
     case "$(iss_slot_kind "$slot")" in number | single-select) return 0 ;; esac
   done
@@ -218,12 +228,11 @@ esac
 
 iss_require_tools
 if [ "$board_mode" = yes ]; then
-  # With a board named, a single-word positional is an owner, and any other is
-  # a repository the listing is scoped to. The owner and any host it spells
-  # are read off the positional by its syntax alone, so the usage errors below
-  # come before the gh call that resolving a host-less repository makes. A
-  # trailing / is ignored, as the repository grammar ignores it, so `acme/` is
-  # the owner `acme`.
+  # With a board named, a single word, with or without a trailing /, is an
+  # owner, so `acme/` is the owner `acme`, and any other positional is a
+  # repository the listing is scoped to. The owner and any host it spells are
+  # read off the positional by its syntax alone, so the usage errors below come
+  # before the gh call that resolving a host-less repository makes.
   board_owner=
   board_repo=
   target_host=
@@ -291,7 +300,8 @@ else
   # A single word with no current repository to name a repository under can
   # only be an owner, and an owner holds many boards with nothing naming one.
   # Whether there is one can take the gh call that resolves it, so this is no
-  # usage error. A trailing / is ignored, as the repository grammar ignores it.
+  # usage error. A trailing / is ignored, so `widgets/` is the single word
+  # `widgets`.
   case "${target%/}" in
     */*) ;;
     *)

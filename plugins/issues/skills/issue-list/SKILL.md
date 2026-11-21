@@ -28,7 +28,9 @@ none until the board gives it one.
   never a repository, and the board is listed across every repository
   it holds; a repository under the current owner is then written
   `<owner>/<repo>`. Without either, a bare word is a repository under
-  the current owner.
+  the current owner. A trailing `/` is ignored: with `--project` or a
+  URL, `<word>/` is the owner `<word>`; without either, it is the
+  repository `<word>`.
 - `--project`: the board, by number under the positional's owner — an
   organization or a user — or by its URL,
   `https://<host>/orgs/<owner>/projects/<n>` or the `users/` form, which
@@ -58,8 +60,9 @@ issue-list [<owner> | <owner>/<repo>] [--project <number|url>] --status <name> \
   [--view <name|number|url>] [--assignee <login>]... [--unassigned] [--limit <n>]
 ```
 
-Print its stdout as it stands. On a non-zero exit, relay its stderr
-verbatim and stop.
+Print its stdout as it stands, and relay any warning line on stderr
+verbatim after it. On a non-zero exit, relay its stderr verbatim and
+stop.
 
 ## Output
 
@@ -80,10 +83,12 @@ One line per issue, tab-separated, in this column order:
 - `<priority>` and `<size>`: without `--project` or a URL, the slot
   values, or `-` when unset or when the slot is unconfigured. With
   either, the slot values from the issue's own repository's
-  repo-config; where that repo-config is absent, tracked in Jira, at an
-  unsupported schema version or otherwise invalid, the item's value of
-  the board field named like the slot, else `-`. No row's repository
-  aborts the listing.
+  repo-config; where that repo-config is absent, unreadable, tracked in
+  Jira, at an unsupported schema version or otherwise invalid, the
+  item's value of the board field named like the slot, else `-`. No
+  row's repository aborts the listing: a read that fails other than as
+  absent prints one warning line on stderr, naming the repository and
+  the error, and the run still exits zero.
 - `<open-blockers>` counts the issue's blocked-by issues that are open.
 - `<assignees>` is the logins joined with `,`, or `-`.
 

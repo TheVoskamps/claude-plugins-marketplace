@@ -262,9 +262,12 @@ the repo-level one belongs to the current repo.
 of this: its positional is an owner or `<owner>/<repo>`, no
 repo-config governs the run, and each row's priority and size come from
 its own repository's repo-config, read at most once per repository;
-where that is absent, tracked in Jira, at an unsupported schema version
-or otherwise invalid, they come from the board field named like the
-slot, else `-`, and the listing goes on.
+where that is absent, unreadable, tracked in Jira, at an unsupported
+schema version or otherwise invalid, they come from the board field
+named like the slot, else `-`, and the listing goes on. A read that
+fails other than as a 404 is the one of these reported, as a warning
+line on stderr naming the repository and the error; the run still exits
+zero.
 
 `/issues:repo-config` writes the file through `repo-config-write`, the
 one writer of `.issues/repo-config.md`. It runs the same validity
@@ -309,10 +312,13 @@ every add fail with a message of the test's choosing, for the case
 that must not be retried. `repoViewError` makes `gh repo view` fail
 with a message of the test's choosing, which is how a test asserts that
 a malformed reference is refused before the current repository is
-resolved. A close records its reason and duplicate target and, as `gh`
-does, leaves an already-closed issue as it is; `closeAs` makes every
-close record a reason and target of the test's choosing instead, for
-the close that reports success and lands as something else. The suite
+resolved. `contentsError` makes one repository's repo-config read fail
+with a message of the test's choosing, for the failure a board listing
+must report rather than read as no repo-config. A close records its
+reason and duplicate target and, as `gh` does, leaves an already-closed
+issue as it is; `closeAs` makes every close record a reason and target
+of the test's choosing instead, for the close that reports success and
+lands as something else. The suite
 also puts a `sleep` on `PATH`
 that returns at once and logs each wait it was asked for, so a test
 asserts how many waits a verb made and how long each was without
@@ -401,8 +407,10 @@ included, accepts each form back, and the issue's `https://` URL
 besides, so a reference copied out of one verb's output, or out of a
 browser, is an operand for the next. `skills/lib/issue.md` owns the
 grammar and the resolution rules. Outside a git checkout there is no
-current repository to resolve against: a bare `repo` is a usage error,
-and `owner/repo` goes to `gh`'s default host.
+current repository to resolve against: a bare `repo` is a usage error
+to every verb but `/issue-list`, whose `skills/issue-list/SKILL.md`
+states how it reads a single word, and `owner/repo` goes to `gh`'s
+default host.
 
 The grammar is the one `github-prs` parses for a PR, with `issues` in
 the URL where a PR has `pull`, so a reference carried between the two
