@@ -55,10 +55,14 @@ is read — aborts with exit 1, naming it as a pull request.
 A verb acts on an operand in its own repository, on its own host, and
 only that repository's repo-config governs it. A run reads the current
 repository's repo-config only when it acts there: an operand in the
-current repository, or `/issue-create`, `/issue-field-options` and
-`/issue-list` with no `<repo>`. A Jira-tracked checkout, or one with
-no repo-config, stops a verb on its own issues and not on another
-repository's. For an
+current repository, or `/issue-create`, `/issue-field-options` and,
+without `--project` or a URL, `/issue-list` with no `<repo>`. A
+Jira-tracked checkout, or one with no repo-config, stops a verb on its
+own issues and not on another repository's. `/issue-list` with
+`--project` or a URL lists the board those name, so no repo-config
+governs it: the local file is read unvalidated for its
+`issue-link-prefix` alone, and a Jira-tracked or missing local
+repo-config does not stop it. For an
 operand in another repository, the repo-config that governs it is that
 repository's `.issues/repo-config.md`, read from its default branch:
 

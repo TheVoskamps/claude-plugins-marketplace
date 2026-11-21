@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# List the configured project board's open issues in one repository at one
-# status, in the board's position order or by a named view's sort fields. The
-# contract is plugins/issues/skills/issue-list/SKILL.md.
+# List a project board's open issues at one status, in the board's position
+# order or by a named view's sort fields: the board a repository's repo-config
+# names, in that repository, or -- with --project or a project URL -- an
+# owner's board, across every repository on it or in one. The contract is
+# plugins/issues/skills/issue-list/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -50,12 +52,94 @@ slot_value() {
   printf '%s' "${value:--}"
 }
 
+# item_value <field-id>: the value the issue in ISS_ISSUE holds in that field
+# of the listed board, or "-" when it holds none or the ID is empty.
+item_value() {
+  local value=
+  [ -z "$1" ] || value=$(iss_jq --arg p "$project" --arg f "$1" "
+    [.projectItems.nodes[] | select(.project.id == \$p) | .fieldValues.nodes[] | select(.field.id? == \$f)][0]
+    | if . == null then empty
+      else .name // (.number | if . == null then null elif . == floor then floor else . end)
+           // .text // .date // .startDate // empty end")
+  printf '%s' "${value:--}"
+}
+
+# row_config_read <host> <owner> <repo>: print the github-project: block of the
+# repository's repo-config, read from its default branch even for the current
+# repository, since the local file is read for its issue-link-prefix alone,
+# flattened as ISS_GP holds it. Run it in a command substitution: it exits
+# non-zero, through the catalogue's abort or its own status, when that
+# repo-config is absent, Jira-tracked, at an unsupported schema-version,
+# invalid, or unreadable.
+row_config_read() {
+  iss_load_target_config "$1" "$2" "$3" || exit 1
+  printf '%s' "$ISS_GP"
+}
+
+# row_config <host> <nameWithOwner>: make the repo-config of an item's own
+# repository the one slot_value reads, reading each repository's at most once
+# per run. Sets ROW_CONFIG to "ok" when that repo-config is usable, else to
+# "none".
+row_config() {
+  local key state gp
+  key=$(iss_lc "$1/$2")
+  state=$(printf '%s\n' "$row_seen" | awk -F'\t' -v k="$key" '$1 == k { print $2; exit }')
+  if [ -z "$state" ]; then
+    if gp=$(row_config_read "$1" "${2%%/*}" "${2#*/}" 2>/dev/null); then state=ok; else state=none; fi
+    row_seen="$row_seen$key$tab$state$ISS_NEWLINE"
+    [ "$state" = none ] || [ -z "$gp" ] ||
+      row_gp="$row_gp$(printf '%s\n' "$gp" | awk -v k="$key" '{ print k "\t" $0 }')$ISS_NEWLINE"
+  fi
+  ROW_CONFIG=$state
+  ISS_GP=$(printf '%s' "$row_gp" | awk -F'\t' -v k="$key" '$1 == k { print substr($0, length($1) + 2) }')
+}
+
+# parse_project_url <url>: split a board's URL,
+# https://host/orgs/owner/projects/N or its users/ form, or one of its views',
+# the same followed by /views/V, a trailing / ignored, into PU_HOST, PU_OWNER,
+# PU_NUMBER and PU_VIEW, which is empty without a view. Returns 1 on any other
+# shape, or when the host or owner is one iss_valid_host or iss_valid_owner
+# refuses.
+parse_project_url() {
+  local rest=${1%/} host kind owner number view=
+  case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
+  case "$rest" in
+    *//* | */*/*/*/*/*/*/*) return 1 ;;
+    */*/*/*/*/views/*)
+      view=${rest##*/}
+      rest=${rest%/views/*}
+      iss_is_digits "$view" || return 1
+      ;;
+  esac
+  case "$rest" in */*/*/*/*/*) return 1 ;; */*/*/projects/*) ;; *) return 1 ;; esac
+  host=${rest%%/*}
+  rest=${rest#*/}
+  kind=${rest%%/*}
+  rest=${rest#*/}
+  owner=${rest%%/*}
+  number=${rest##*/}
+  case "$kind" in orgs | users) ;; *) return 1 ;; esac
+  { iss_is_digits "$number" && iss_valid_host "$host" && iss_valid_owner "$owner"; } || return 1
+  PU_HOST=$host
+  PU_OWNER=$owner
+  PU_NUMBER=$number
+  PU_VIEW=$view
+}
+
+# board_fid <slot>:the ID of the listed board's field named as the slot,
+# matched case-insensitively, or nothing when the board has none.
+board_fid() {
+  printf '%s' "$ISS_BOARD_FIELDS" | jq -r --arg n "$1" 'first(.[] | select((.name | ascii_downcase) == $n) | .id) // empty'
+}
+
 tab=$(printf '\t')
-usage='usage: issue-list [<repo>] --status <name> [--view <name-or-number>] [--assignee <login>]... [--unassigned] [--limit <n>]'
+usage='usage: issue-list [<owner> | <owner>/<repo>] [--project <number|url>] --status <name> [--view <name|number|url>] [--assignee <login>]... [--unassigned] [--limit <n>]'
 status=
 status_set=no
 view=
 view_set=no
+project_arg=
+project_set=no
 assignees=
 unassigned=no
 limit=
@@ -63,7 +147,7 @@ target=
 target_set=no
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --status | --view | --assignee | --limit)
+    --status | --view | --project | --assignee | --limit)
       [ "$#" -ge 2 ] || iss_usage_die "\`$1\` needs a value; $usage"
       case "$1" in
         --status)
@@ -73,6 +157,10 @@ while [ "$#" -gt 0 ]; do
         --view)
           view=$2
           view_set=yes
+          ;;
+        --project)
+          project_arg=$2
+          project_set=yes
           ;;
         --assignee)
           iss_valid_login "$2" || iss_usage_die "\`$2\` is not a GitHub login"
@@ -98,39 +186,174 @@ while [ "$#" -gt 0 ]; do
 done
 [ "$status_set" = yes ] || iss_usage_die "\`--status\` is required; $usage"
 
-iss_require_tools
-if [ "$target_set" = no ]; then
-  # The local repo-config is read before any gh call, so a Jira-tracked or
-  # missing one stops the verb with none made.
-  iss_load_config
-  iss_current_repo
-  host=$ISS_HOST
-  owner=$ISS_OWNER
-  repo=$ISS_REPO
-  prefix=
-else
-  iss_parse_repo "$target"
-  host=$RP_HOST
-  owner=$RP_OWNER
-  repo=$RP_REPO
-  # A host/owner/repo or URL operand leaves the current repository unresolved,
-  # and each printed reference is the shortest form relative to it.
-  iss_try_current_repo || :
-  iss_operand_config "$host" "$owner" "$repo" || iss_err_no_target_config "$host" "$owner" "$repo"
-  prefix=$ISS_CFG_PREFIX
+# A board is named by --project or by a project URL; otherwise a repo-config
+# names it. Every URL is taken apart, and checked against the other arguments,
+# before any gh call.
+board_named=no
+url=
+board_number=
+if [ "$project_set" = yes ]; then
+  board_named=yes
+  case "$project_arg" in
+    https://*)
+      { parse_project_url "$project_arg" && [ -z "$PU_VIEW" ]; } ||
+        iss_usage_die "\`$project_arg\` is not a project (expected a number or https://host/orgs/<owner>/projects/<n>); $usage"
+      url=$project_arg
+      url_host=$PU_HOST
+      url_owner=$PU_OWNER
+      board_number=$PU_NUMBER
+      ;;
+    *)
+      iss_is_digits "$project_arg" ||
+        iss_usage_die "\`$project_arg\` is not a project (expected a number or https://host/orgs/<owner>/projects/<n>); $usage"
+      board_number=$project_arg
+      ;;
+  esac
 fi
-# An issue of the current repository prints with the current repo-config's
-# issue-link-prefix whichever repository is listed, the prefix iss_ref decides
-# by, so the reference parses back in this checkout.
-here_prefix=${ISS_HERE_LINK_PREFIX-$(iss_read_link_prefix)}
+case "$view_set:$view" in
+  yes:https://*)
+    board_named=yes
+    { parse_project_url "$view" && [ -n "$PU_VIEW" ]; } ||
+      iss_usage_die "\`$view\` is not a view (expected a name, a number or https://host/orgs/<owner>/projects/<n>/views/<v>); $usage"
+    if [ -n "$url" ]; then
+      [ "$(iss_lc "$PU_HOST/$PU_OWNER/$PU_NUMBER")" = "$(iss_lc "$url_host/$url_owner/$board_number")" ] ||
+        iss_err_project_mismatch "$view" "$PU_HOST/$PU_OWNER/$PU_NUMBER" "$url_host/$url_owner/$board_number"
+    elif [ -n "$board_number" ]; then
+      [ "$PU_NUMBER" = "$board_number" ] || iss_err_project_mismatch "$view" "$PU_NUMBER" "$board_number"
+    fi
+    url=$view
+    url_host=$PU_HOST
+    url_owner=$PU_OWNER
+    board_number=$PU_NUMBER
+    view=$PU_VIEW
+    ;;
+esac
 
-[ "$ISS_HAS_GP" = 1 ] || iss_err_no_block "$prefix"
-status_kind=$(iss_slot_kind status)
-[ "$status_kind" = single-select ] || iss_err_no_status_slot "$status_kind" "$prefix"
-status_name=$(iss_resolve_name all "$status" fields status options) ||
-  iss_err_not_in_options "$status" status "$(iss_slot_options status)"
-project=$(iss_cfg_get project-id)
-status_key=$(iss_board_field_key "$host" "$project" "$(iss_cfg_get fields status id)") || exit 1
+iss_require_tools
+if [ "$board_named" = yes ]; then
+  # With a board named, a bare positional is an owner and any other a
+  # repository, which scopes the listing to it. The owner it names, and the
+  # host when it spells one, must agree with a URL's.
+  t_owner=
+  t_host=
+  scope=
+  if [ "$target_set" = yes ]; then
+    t=${target%/}
+    case "$t" in
+      *://*)
+        iss_check_repo_syntax "$target"
+        iss_split_url "$target"
+        t_host=$URL_HOST
+        t_owner=$URL_OWNER
+        scope=yes
+        ;;
+      */*/*)
+        iss_check_repo_syntax "$target"
+        t_host=${t%%/*}
+        t=${t#*/}
+        t_owner=${t%/*}
+        scope=yes
+        ;;
+      */*)
+        iss_check_repo_syntax "$target"
+        t_owner=${t%/*}
+        scope=yes
+        ;;
+      *)
+        iss_valid_owner "$t" ||
+          iss_usage_die "\`$target\` is not an owner (with \`--project\` or a URL, a single-word positional is an owner); $usage"
+        t_owner=$t
+        ;;
+    esac
+  elif [ -z "$url" ]; then
+    iss_usage_die "\`--project $project_arg\` needs the board's owner: pass \`<owner>\` or \`<owner>/<repo>\`, or a project URL; $usage"
+  fi
+  if [ -n "$url" ]; then
+    if [ -n "$t_host" ]; then
+      [ "$(iss_lc "$t_host/$t_owner")" = "$(iss_lc "$url_host/$url_owner")" ] ||
+        iss_err_owner_mismatch "$url" "$url_host/$url_owner" "$t_host/$t_owner"
+    elif [ -n "$t_owner" ]; then
+      [ "$(iss_lc "$t_owner")" = "$(iss_lc "$url_owner")" ] || iss_err_owner_mismatch "$url" "$url_owner" "$t_owner"
+    fi
+  fi
+  iss_try_current_repo || :
+  [ "$scope" != yes ] || iss_parse_repo "$target"
+  if [ -n "$url" ]; then
+    host=$url_host
+    owner=$url_owner
+  elif [ "$scope" = yes ]; then
+    host=$RP_HOST
+    owner=$RP_OWNER
+  else
+    host=$ISS_HOST
+    owner=$t_owner
+  fi
+  repo_term=
+  [ "$scope" != yes ] || repo_term="repo:$RP_OWNER/$RP_REPO "
+  # No repo-config governs the run: the local one only spells the references
+  # printed, each row's own supplies its priority and size, and the board
+  # supplies the status field.
+  here_prefix=$(iss_read_link_prefix)
+  ISS_HERE_LINK_PREFIX=$here_prefix
+  iss_board_by_number "$host" "$owner" "$board_number"
+  project=$ISS_BOARD_ID
+  status_field=$(printf '%s' "$ISS_BOARD_FIELDS" | jq -c 'first(.[] | select(.name == "Status" and .dataType == "SINGLE_SELECT")) // empty')
+  [ -n "$status_field" ] || iss_err_board_no_status "$owner" "$board_number"
+  status_fid=$(printf '%s' "$status_field" | jq -r .id)
+  status_name=$(printf '%s' "$status_field" | jq -r --arg s "$status" \
+    'first(.options[]?.name | select(ascii_downcase == ($s | ascii_downcase))) // empty')
+  [ -n "$status_name" ] ||
+    iss_err_not_in_options "$status" Status "$(printf '%s' "$status_field" | jq -r '[.options[]?.name] | join(", ")')"
+  status_key=status
+  priority_fid=$(board_fid priority)
+  size_fid=$(board_fid size)
+  row_seen=
+  row_gp=
+else
+  if [ "$target_set" = no ]; then
+    # The local repo-config is read before any gh call, so a Jira-tracked or
+    # missing one stops the verb with none made.
+    iss_load_config
+    iss_current_repo
+    host=$ISS_HOST
+    owner=$ISS_OWNER
+    repo=$ISS_REPO
+    prefix=
+  else
+    # A bare word names a repository under the current repository's owner;
+    # with no current repository it can only be an owner, and nothing names
+    # which of its boards to list.
+    case "${target%/}" in
+      */*) ;;
+      *)
+        iss_check_repo_syntax "$target"
+        iss_try_current_repo || ! iss_valid_owner "${target%/}" || iss_err_owner_needs_project "$target"
+        ;;
+    esac
+    iss_parse_repo "$target"
+    host=$RP_HOST
+    owner=$RP_OWNER
+    repo=$RP_REPO
+    # A host/owner/repo or URL operand leaves the current repository unresolved,
+    # and each printed reference is the shortest form relative to it.
+    iss_try_current_repo || :
+    iss_operand_config "$host" "$owner" "$repo" || iss_err_no_target_config "$host" "$owner" "$repo"
+    prefix=$ISS_CFG_PREFIX
+  fi
+  # An issue of the current repository prints with the current repo-config's
+  # issue-link-prefix whichever repository is listed, the prefix iss_ref decides
+  # by, so the reference parses back in this checkout.
+  here_prefix=${ISS_HERE_LINK_PREFIX-$(iss_read_link_prefix)}
+
+  [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block "$prefix"
+  status_kind=$(iss_slot_kind status)
+  [ "$status_kind" = single-select ] || iss_err_no_status_slot "$status_kind" "$prefix"
+  status_name=$(iss_resolve_name all "$status" fields status options) ||
+    iss_err_not_in_options "$status" status "$(iss_slot_options status)"
+  project=$(iss_cfg_get project-id)
+  status_key=$(iss_board_field_key "$host" "$project" "$(iss_cfg_get fields status id)") || exit 1
+  repo_term="repo:$owner/$repo "
+fi
 
 view_filter=
 sort_fields='[]'
@@ -155,7 +378,7 @@ fi
 # query.
 search=
 [ -z "$view_filter" ] || search="($view_filter) "
-search="${search}repo:$owner/$repo $status_key:\"$status_name\" is:issue is:open"
+search="${search}$repo_term$status_key:\"$status_name\" is:issue is:open"
 alternatives=
 [ -z "$assignees" ] || alternatives="assignee:$assignees"
 [ "$unassigned" = no ] || alternatives="${alternatives:+$alternatives OR }no:assignee"
@@ -182,8 +405,22 @@ $(iss_jq '[.repository.nameWithOwner, .number, ([.blockedBy.nodes[]? | select(.s
 EOF
   ref=$(iss_ref_nwo "$host" "$nwo" "$number")
   case "$ref" in '#'*) ref=$here_prefix$number ;; esac
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ref" "$(slot_value status)" \
-    "$(slot_value priority)" "$(slot_value size)" "$blockers" "$assigned" "$title"
+  if [ "$board_named" = no ]; then
+    row_status=$(slot_value status)
+    row_priority=$(slot_value priority)
+    row_size=$(slot_value size)
+  else
+    row_status=$(item_value "$status_fid")
+    row_config "$host" "$nwo"
+    if [ "$ROW_CONFIG" = ok ]; then
+      row_priority=$(slot_value priority)
+      row_size=$(slot_value size)
+    else
+      row_priority=$(item_value "$priority_fid")
+      row_size=$(item_value "$size_fid")
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ref" "$row_status" "$row_priority" "$row_size" "$blockers" "$assigned" "$title"
 done <<EOF
 $(printf '%s' "$ordered" | jq -c --argjson n "${limit:-null}" 'if $n == null then .[] else .[:$n][] end')
 EOF
