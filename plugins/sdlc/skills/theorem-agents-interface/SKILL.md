@@ -190,14 +190,14 @@ A disprover's report carries exactly one of four verdicts, each in the
 shape `theorem-disprover`'s own "Output" section gives, and decided by
 its "The verdict order":
 
-- `UNSETTLED` — settling the claim needs a live run, a remote event or
-  a runtime the disprover cannot exercise, whatever the claim's
-  pointers hold at the head under review;
-- `SUBJECT REMOVED` — any other claim about code, text or a symbol in
-  the tree whose subject does not exist at the head under review, and
-  that does not require the PR to add or keep it. A claim that does
-  require it is `DISPROVED`, whether or not a commit ever removed the
-  subject;
+- `SUBJECT REMOVED` — a claim about code, text or a symbol in the tree
+  whose subject does not exist at the head under review, that does not
+  assert that absence, and that does not require the PR to add or keep
+  the subject. A claim that does require it is `DISPROVED`, whether or
+  not a commit ever removed the subject; one that asserts the absence is
+  settled like any other claim, and survives when the absence holds;
+- `UNSETTLED` — any other claim whose settling needs a live run, a
+  remote event or a runtime the disprover cannot exercise;
 - `DISPROVED` — a counterexample breaks the claim;
 - `SURVIVED` — the disprover could not break it.
 

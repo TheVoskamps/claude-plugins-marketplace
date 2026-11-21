@@ -707,11 +707,12 @@ round's live list". A retirement naming an id absent from the carried
 records, or one the generator also emitted as new, is malformed — ask
 for a re-emit. A carried theorem whose subject is gone and that the list
 misses stays live, and its disprover settles it by
-`agents/theorem-disprover.md` → "The verdict order": `UNSETTLED` when
-settling it needs what the disprover cannot run, whatever its pointers
-hold; otherwise `DISPROVED` when the claim requires the PR to add or
-keep the subject, and `SUBJECT REMOVED` when it does not, the
-`retired-subject-removed` row "Dispose the round" applies.
+`agents/theorem-disprover.md` → "The verdict order": `DISPROVED` when
+the claim requires the PR to add or keep the subject, and
+`SUBJECT REMOVED` when it does not, the `retired-subject-removed` row
+"Dispose the round" applies, whatever settling it would have needed
+while the subject was there. A claim that asserts its subject's absence
+is settled like any other, and survives when the absence holds.
 
 ### Assess the generated list
 
