@@ -107,6 +107,16 @@ iss_err_no_status_slot() {
   iss_die "${2:-}the \`status\` slot in \`github-project:\` in \`repo-config.md\` is \`kind: $1\`, and listing a board filters on a \`kind: single-select\` board field; run \`/issues:repo-config\` to reconfigure it"
 }
 
+iss_err_no_owner_board() {
+  # $1 host, empty for gh's default host, $2 owner, $3 project number
+  iss_die "no project \`$3\` under \`$2\`${1:+ on \`$1\`}"
+}
+
+iss_err_no_board_status() {
+  # $1 owner, $2 project number
+  iss_die "project \`$2\` of \`$1\` has no single-select field named \`Status\`, and listing a board filters on it"
+}
+
 iss_err_view_not_found() {
   # $1 the view as named, $2 the board's view names
   iss_die "no view \`$1\` on the project board. Views: \`$2\`"
@@ -711,6 +721,27 @@ iss_check_repo_syntax() {
   iss_valid_path "$rest" || iss_usage_die "$bad"
 }
 
+# iss_parse_project_url <url>: split a board's URL,
+#   https://host/orgs/owner/projects/N, or users/ in place of orgs/
+# with /views/V after it for one of the board's views, a trailing / ignored,
+# into PU_HOST, PU_OWNER, PU_NUMBER and PU_VIEW, empty without a view. Returns
+# 1 on any other shape, or when a part is not valid for its place.
+iss_parse_project_url() {
+  local rest=${1%/} kind projects views extra
+  case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
+  case "$rest" in *//*) return 1 ;; esac
+  IFS=/ read -r PU_HOST kind PU_OWNER projects PU_NUMBER views PU_VIEW extra <<EOF
+$rest
+EOF
+  case "$kind:$projects:$views:$extra" in
+    orgs:projects:: | users:projects::) [ -z "$PU_VIEW" ] || return 1 ;;
+    orgs:projects:views: | users:projects:views:) [ -n "$PU_VIEW" ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  iss_valid_host "$PU_HOST" && iss_valid_owner "$PU_OWNER" && iss_is_digits "$PU_NUMBER" &&
+    { [ -z "$PU_VIEW" ] || iss_is_digits "$PU_VIEW"; }
+}
+
 # iss_same_host <host>: whether <host> is the current repository's host.
 iss_same_host() {
   [ "$(iss_lc "$1")" = "$(iss_lc "$ISS_HOST")" ]
@@ -1221,7 +1252,8 @@ readonly ISS_DOC_REMOVE_BLOCKED_BY="mutation(\$issueId: ID!, \$blockingIssueId: 
 
 # The issues-discover lookups, each printing its document: an owner's boards,
 # one board, one board's fields, and a repository's native issue fields and
-# issue types. Each paged connection reads the page after $after.
+# issue types. Each paged connection reads the page after $after. The board and
+# board-fields documents also serve iss_owner_board.
 iss_doc_discover_projects() {
   printf '%s' "query(\$owner: String!, \$after: String) {
   repositoryOwner(login: \$owner) {
@@ -1674,8 +1706,9 @@ iss_remove_sub_issue() {
 }
 
 # ---------------------------------------------------------------------------
-# Board listing: /issue-list's reads of the configured board's views, fields
-# and items.
+# Board listing: /issue-list's reads of the board it lists -- the configured
+# one, or one an owner and project number name -- and of its views, fields and
+# items.
 # ---------------------------------------------------------------------------
 
 # The issue fields a board listing reads from each item's content: what
@@ -1783,6 +1816,32 @@ iss_board_nodes() {
     # Through stdin rather than --argjson: a large board outgrows the
     # argument-length limit.
     ISS_BOARD_NODES=$(printf '%s\n%s\n' "$ISS_BOARD_NODES" "$page" | jq -cs '.[0] + .[1].nodes')
+    [ "$(printf '%s' "$page" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
+    cursor=$(printf '%s' "$page" | jq -r .pageInfo.endCursor)
+  done
+}
+
+# iss_owner_board <host> <owner> <number>: read board <number> of <owner>, an
+# organization or a user, and set ISS_OWNER_BOARD_ID to its node ID and
+# ISS_OWNER_BOARD_FIELDS to every one of its fields, as one JSON array of
+# { id, name, dataType }, a single-select's with its options { id, name }.
+# Aborts when a call fails or the owner has no such board.
+iss_owner_board() {
+  local host=$1 owner=$2 number=$3 doc page cursor=
+  iss_gql "$host" -f query="$(iss_doc_discover_project)" -f owner="$owner" -F number="$number" || iss_gql_fail
+  ISS_OWNER_BOARD_ID=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repositoryOwner.projectV2.id // empty')
+  [ -n "$ISS_OWNER_BOARD_ID" ] || iss_err_no_owner_board "$host" "$owner" "$number"
+  doc=$(iss_doc_discover_fields)
+  ISS_OWNER_BOARD_FIELDS=[]
+  while :; do
+    if [ -n "$cursor" ]; then
+      iss_gql "$host" -f query="$doc" -f owner="$owner" -F number="$number" -f after="$cursor"
+    else
+      iss_gql "$host" -f query="$doc" -f owner="$owner" -F number="$number"
+    fi || iss_gql_fail
+    page=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repositoryOwner.projectV2.fields // empty')
+    [ -n "$page" ] || iss_err_no_owner_board "$host" "$owner" "$number"
+    ISS_OWNER_BOARD_FIELDS=$(printf '%s\n%s\n' "$ISS_OWNER_BOARD_FIELDS" "$page" | jq -cs '.[0] + .[1].nodes')
     [ "$(printf '%s' "$page" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
     cursor=$(printf '%s' "$page" | jq -r .pageInfo.endCursor)
   done
