@@ -776,9 +776,9 @@ expect "issue-list <repo>: a bare word without --project is a repository here" 1
 
 # board_state: board 1's Status field gains In progress and the board a Size
 # field; acme/other's #3 and #4, acme/jira's #1 and acme/stale's #1 join it.
-# Neither acme/other nor octo/lib has a repo-config, acme/jira's is Jira-tracked
-# and acme/stale's at schema-version 5, so each of their rows reads its
-# priority and size from the board's fields of those names.
+# acme/other has no repo-config, acme/jira's is Jira-tracked and acme/stale's
+# at schema-version 5, so each of their rows reads its priority and size from
+# the board's fields of those names.
 board_state() {
   edit_state '
     def blank(nwo; n; title): {id: "I_\(nwo | sub("/"; "_"))_\(n)", number: n, title: title, state: "OPEN",

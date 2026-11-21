@@ -126,7 +126,7 @@ parse_project_url() {
   PU_VIEW=$view
 }
 
-# board_fid <slot>:the ID of the listed board's field named as the slot,
+# board_fid <slot>: the ID of the listed board's field named as the slot,
 # matched case-insensitively, or nothing when the board has none.
 board_fid() {
   printf '%s' "$ISS_BOARD_FIELDS" | jq -r --arg n "$1" 'first(.[] | select((.name | ascii_downcase) == $n) | .id) // empty'
