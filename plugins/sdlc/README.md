@@ -1416,14 +1416,19 @@ place the tier is picked and one set of briefs.
 
 The seed reviewer persists nothing and posts no review — every path
 `bin/sdlc-agent-result-persist` composes is keyed on a PR reference,
-and none exists yet. It reports the list, the assessment and the tier
-that ran back to the orchestrator, which holds them until the
+and none exists yet. It reports the list, the assessment, the tier
+that ran, and the agent ids of the generator and the assessor it
+spawned back to the orchestrator, which holds them until the
 developer's PR is open and
 linked, when the ruled list is written as round 0's records file and
 the tier the seed generator was spawned at as the generate-stage
 `spawn` record in round 0's log. The seed reviewer ran no round, so
 the time report counts its span as agent work rather than as a review
-round. Round 0 holds that file, that log
+round. The report takes a reviewer for the seed's only when it was
+spawned before the run's first `issue-developer`, so in a transcript
+with no `issue-developer` spawn the seed reviewer's span counts as a
+review round and no seed-ruling wait is measured. Round 0 holds that
+file, that log
 line and, under `accept-recommended`, a `seed-review` log line, and no
 anchor, result file or review, and `--mode rounds` leaves
 it out, so a walk over a PR's rounds never sees it, and a PR with no

@@ -26,7 +26,11 @@ same rubric as every other round's.
   `/sdlc:git-review-pr` still shows no line.
 - `/sdlc:orchestrate-analysis` counts the seed reviewer's time as other
   agent work, not as a review round, and measures the wait for your
-  seed ruling from that reviewer's report.
+  seed ruling from that reviewer's report. It takes a reviewer for the
+  seed's only when it was spawned before the run's first
+  `issue-developer`: in a transcript with no `issue-developer` spawn,
+  the seed reviewer counts as a review round and no seed-ruling wait
+  is measured.
 
 A carried theorem whose subject is gone no longer blocks the review.
 
