@@ -1012,7 +1012,8 @@ derive_lib() {
     rok = 0
     if (stage == "disprove") {
       if (rv == "SURVIVED") rok = ("CHECKED" in content)
-      else if (rv == "UNSETTLED") rok = ("REASON" in content) && ("CHECKED" in content)
+      else if (rv == "UNSETTLED" || rv == "SUBJECT REMOVED")
+        rok = ("REASON" in content) && ("CHECKED" in content)
       else if (rv == "DISPROVED")
         rok = ("COUNTEREXAMPLE" in content) && quoted && ("CONSEQUENCE" in content) && ("CONSEQUENCE-CLASS" in has)
     } else {
@@ -1224,7 +1225,8 @@ readonly wait_poll_seconds=2
 # record tags; no row at all on a round whose log holds no spawn and no
 # enter. Without loop_exited, a live theorem with no result file for its
 # stage makes it print nothing, name each such theorem and stage on
-# stderr, and exit 3. An override that is no severity exits 2.
+# stderr, and exit 3. An override that is no severity exits 2. minted is
+# the space-separated ids of the records --from holds.
 readonly dispose_prog='
   function sev_rank(s) { return s == "Critical" ? 4 : s == "High" ? 3 : s == "Medium" ? 2 : s == "Low" ? 1 : 0 }
   function class_sev(c) {
@@ -1273,6 +1275,8 @@ readonly dispose_prog='
   END {
     if (failed) exit 2
     derive_live()
+    split(minted, minted_list, " ")
+    for (i in minted_list) minted_id[minted_list[i]] = 1
     # The round that spawned nothing, the empty-delta one, gives no
     # theorem a row: none got a disprover this round.
     for (i = 1; fanned && i <= nlive; i++) {
@@ -1286,6 +1290,11 @@ readonly dispose_prog='
         if (!rok) disp = "unsettled-disprover-malformed"
         else if (rv == "SURVIVED") disp = "verified-survived"
         else if (rv == "UNSETTLED") disp = "unsettled-disprover-unsettled"
+        # A carried theorem whose subject the delta removed retires; one
+        # minted this round about a subject already gone is a pipeline
+        # defect.
+        else if (rv == "SUBJECT REMOVED")
+          disp = (t in minted_id) ? "unsettled-subject-removed-minted" : "retired-subject-removed"
         else {
           dclass = rc
           if (!has_result("verify", t)) {
@@ -1323,6 +1332,7 @@ readonly dispose_prog='
       t = rows[i]; disp = rdisp[t]
       if (disp == "verified-survived") { st = "retired"; detail = "survived" }
       else if (disp == "verified-refuted") { st = "retired"; detail = "disproved-but-refuted" }
+      else if (disp == "retired-subject-removed") { st = "retired"; detail = "subject removed" }
       else if (disp == "disproved-unverified") { st = "disproved"; detail = "unverified" }
       else if (disp ~ /^unsettled/) { st = "unsettled"; detail = "-" }
       else {
@@ -1786,9 +1796,15 @@ case "$mode" in
   dispose)
     make_work
     load_round_records
+    # The ids of the records --from holds, the theorems minted this round,
+    # which load_round_records has already checked open each record.
+    minted=
+    if [ -n "$from" ]; then
+      minted=$(awk '$0 == "" { open = 0; next } !open { open = 1; printf "%s ", $0 }' "$from")
+    fi
     status=0
-    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" -v members="$issue_list" ||
-      status=$?
+    derive "$dispose_prog" -v loop_exited="$loop_exited" -v round="$round" -v members="$issue_list" \
+      -v minted="$minted" || status=$?
     # 3 is a theorem with no result file for its stage, named on stderr;
     # any other failure is a refusal.
     case "$status" in

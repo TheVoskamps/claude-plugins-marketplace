@@ -704,7 +704,9 @@ carried theorems whose subject the delta removed. Retire each, with
 `state-detail` `subject removed`, as edits lines, per "Assemble the
 round's live list". A retirement naming an id absent from the carried
 records, or one the generator also emitted as new, is malformed — ask
-for a re-emit.
+for a re-emit. A carried theorem whose subject is gone and that the list
+misses stays live, and its disprover's `SUBJECT REMOVED` report is the
+`retired-subject-removed` row "Dispose the round" applies.
 
 ### Assess the generated list
 
@@ -826,8 +828,10 @@ Try to disprove this one claim per your agent definition. Record your
 report to your result file first, then hand back the result-file path
 that call printed and, under it, DISPROVED with a verbatim-quoted
 counterexample, a consequence statement, and a proposed consequence
-class, SURVIVED with what you checked, or UNSETTLED with what settling
-the claim needs that you cannot run and what you checked. Nothing else.
+class, SURVIVED with what you checked, UNSETTLED with what settling
+the claim needs that you cannot run and what you checked, or SUBJECT
+REMOVED with the claim's subject and the search that came back empty.
+Nothing else.
 ```
 
 Pass `--pr` and `--round` unchanged from the anchor call, or the
@@ -1043,9 +1047,12 @@ as its bold name below:
    - the **assessment**: each recommendation other than accept that
      you applied, by theorem id and action, and the ids its adds took;
    - what was **skipped**: one line listing each acceptance-criterion
-     theorem carried as retired, with its `state-detail`;
+     theorem carried as retired, and each theorem retired as `subject
+     removed` — by a `RETIREMENTS` line or a `retired-subject-removed`
+     row — each with its `state-detail`;
    - every **unsettled** theorem as a **pipeline defect**: its id and
-     the `dispose` disposition that left it unsettled.
+     the `dispose` disposition that left it unsettled, an
+     `unsettled-subject-removed-minted` one included.
 3. **Change counts** — files changed, additions, deletions.
 4. **Disproved theorems** — one entry per theorem `dispose` left
    `disproved`, in id order: the claim, the counterexample narrative
@@ -1076,8 +1083,9 @@ as its bold name below:
    section 1 or section 8.
 
 Sections 4, 6 and 7 are the **full theorem list**: every theorem the
-round fanned out over appears in exactly one, and each section-5
-finding is the actionable face of a section-4 entry.
+round fanned out over appears in exactly one, but a
+`retired-subject-removed` one, which the skipped line lists instead,
+and each section-5 finding is the actionable face of a section-4 entry.
 
 ### The theorem records file
 

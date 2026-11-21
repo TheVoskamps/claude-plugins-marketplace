@@ -184,6 +184,17 @@ line is absent when the PR changes no documentation file, under
 `--mode documentation`, and on the issues-only brief, and it narrows
 what you read, never what you may check out.
 
+## The disprover's outcomes
+
+A disprover's report carries exactly one of four verdicts, each in the
+shape `theorem-disprover`'s own "Output" section gives:
+
+- `DISPROVED` — a counterexample breaks the claim;
+- `SURVIVED` — the disprover could not break it;
+- `UNSETTLED` — settling the claim needs what the disprover cannot run;
+- `SUBJECT REMOVED` — the code, text or symbol the claim is about does
+  not exist at the head under review.
+
 ## The consequence classes
 
 A `DISPROVED` report and a `STANDS` report each carry one of exactly
