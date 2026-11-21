@@ -378,15 +378,15 @@ async function endRun($: Mods): Promise<void> {
  * reviewer on its seed brief, starts a run when none is under way, so a session resumed mid-run
  * shows the line again from its next spawn, and a standalone review, whose brief always carries
  * `--pr`, shows none. The seed brief is the reviewer's one brief that names no PR, by reference or
- * by `--pr`. Any other spawn that resolves while no run is under way is
- * kept pending in the epoch and draws nothing. A later spawn that starts a run in that epoch reads
- * which agents are running, then records its own spawn and each pending one whose agent is among
- * them; a pending spawn that resolved no agent id, or whose agent has finished, is dropped. The
- * list is read again while a spawn joined the pending ones during the read and no run has started,
- * and the last read is used with no await after its check, so every pending spawn is judged by a
- * list read after it joined. A rejected list is written to the debug log and counts as no agent
- * running. During a run the spawn is recorded and the line redrawn. `order` is the number
- * `signalsBegun` gave the spawn when it began.
+ * by `--pr`. Any other spawn that resolves while no run is under way is kept pending in the epoch
+ * and draws nothing. A later spawn that starts a run in that epoch reads which agents are running,
+ * then records its own spawn and each pending one whose agent is among them; a pending spawn that
+ * resolved no agent id, or whose agent has finished, is dropped. The list is read again while a
+ * spawn joined the pending ones during the read and no run has started, and the last read is used
+ * with no await after its check, so every pending spawn is judged by a list read after it joined. A
+ * rejected list is written to the debug log and counts as no agent running. During a run the spawn
+ * is recorded and the line redrawn. `order` is the number `signalsBegun` gave the spawn when it
+ * began.
  */
 async function mainSpawn(
   $: Mods,

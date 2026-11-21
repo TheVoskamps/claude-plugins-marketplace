@@ -1796,8 +1796,9 @@ case "$mode" in
   dispose)
     make_work
     load_round_records
-    # The ids of the records --from holds, the theorems minted this round,
-    # which load_round_records has already checked open each record.
+    # The ids of the records --from holds, the theorems minted this round:
+    # the line that opens each blank-line-separated record, a shape
+    # load_round_records has already checked.
     minted=
     if [ -n "$from" ]; then
       minted=$(awk '$0 == "" { open = 0; next } !open { open = 1; printf "%s ", $0 }' "$from")
