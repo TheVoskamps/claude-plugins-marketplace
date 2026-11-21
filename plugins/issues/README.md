@@ -38,7 +38,9 @@ only when to run it.
 ## What it needs first
 
 - **A git working tree.** Every verb resolves the repo root itself and
-  reads the config from there.
+  reads the config from there. `/issue-list` with `--project` or a
+  board or view URL needs none: no repo-config governs it, so it runs
+  from any directory.
 - **`.issues/repo-config.md`, written by `/issues:repo-config`.** This
   is the one prerequisite with a setup step: the interview asks which
   VCS and tracker the repo uses, discovers the project board's field
@@ -165,7 +167,9 @@ the GraphQL documents, the write path for each slot kind, the
 relationship edges, and the error catalogue. A script reports a failure
 by calling a catalogue entry and never spells a message of its own. A
 usage error exits 2 before anything is sent; every other failure exits
-non-zero with one catalogue line on stderr.
+non-zero with one catalogue line on stderr. A warning is a catalogue
+entry too, an `iss_warn_` one: it prints its one line on stderr and
+the run goes on.
 
 A malformed issue reference is such a usage error in every verb that
 takes one, whichever operand carries it — `/issue-close`'s

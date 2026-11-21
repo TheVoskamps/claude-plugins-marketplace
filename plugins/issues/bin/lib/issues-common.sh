@@ -590,17 +590,23 @@ iss_load_target_config() {
 # iss_fetch_target_config <host> <owner> <repo>: read a target repo's
 # .issues/repo-config.md from its default branch into ISS_TARGET_CONFIG_TEXT,
 # unparsed. Returns 1 when the target has none -- the read answers 404 -- and
-# 2 when the read fails any other way or its content does not decode, with
-# what went wrong in ISS_TARGET_CONFIG_ERR. Aborts when it cannot make the
+# 2 when the read fails any other way or its content is not valid base64, with
+# what went wrong in ISS_TARGET_CONFIG_ERR. The content is checked against the
+# base64 alphabet and padding before it is decoded, because macOS's base64
+# decodes some invalid input with exit 0. Aborts when it cannot make the
 # scratch file gh's stderr is caught in.
 iss_fetch_target_config() {
   local errf content
+  local b64_re='^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
   ISS_TARGET_CONFIG_TEXT=
   ISS_TARGET_CONFIG_ERR=
   errf=$(mktemp "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX" 2>&1) || iss_err_scratch "$errf"
   if content=$(iss_rest "$1" "repos/$2/$3/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
     rm -f "$errf"
-    ISS_TARGET_CONFIG_TEXT=$(printf '%s' "$content" | tr -d '\n' | base64 --decode 2>/dev/null) && return 0
+    content=${content//$ISS_NEWLINE/}
+    if [[ $content =~ $b64_re ]]; then
+      ISS_TARGET_CONFIG_TEXT=$(printf '%s' "$content" | base64 --decode 2>/dev/null) && return 0
+    fi
     ISS_TARGET_CONFIG_ERR="its content does not decode as base64"
     return 2
   fi
