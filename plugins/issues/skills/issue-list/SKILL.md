@@ -52,8 +52,8 @@ none until the board gives it one.
 ## Execution
 
 Run the `issue-list` script, which this plugin puts on `PATH`, with the
-Bash tool from inside the repo's working tree, passing the arguments
-unchanged:
+Bash tool, passing the arguments unchanged — from inside the repo's
+working tree, or from any directory with `--project` or a URL:
 
 ```bash
 issue-list [<owner> | <owner>/<repo>] [--project <number|url>] --status <name> \
