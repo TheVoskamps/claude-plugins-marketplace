@@ -64,9 +64,12 @@ only when to run it.
   another repository. They read its `issue-link-prefix` all the same,
   unvalidated, only to spell the references they print so that each
   parses back in this checkout; with no file the prefix is `#`.
-  `/issue-list <repo>` with `<repo>` naming the current repository
-  reads the local file as a verb acting on an issue here does, and
-  aborts as one does. The config verbs write config
+  Without `--project` or a URL, `/issue-list <repo>` with `<repo>`
+  naming the current repository reads the local file as a verb acting
+  on an issue here does, and aborts as one does. With either, the local
+  file is read unvalidated for its `issue-link-prefix` alone, because
+  the board, not the local repo-config, picks what is listed. The
+  config verbs write config
   rather than requiring it. It is team-shared and committed, so one
   person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` and `jq` for the
@@ -81,9 +84,12 @@ and skip the flag, so the issue is still filed, while the dedicated
 `/issue-set-type`, `/issue-set-priority`, `/issue-set-size` and
 `/issue-set-status` abort instead, pointing at `/issues:repo-config`,
 because setting the field is the whole run there and skipping it would
-leave nothing to do. `/issue-list` aborts the same way, and also when
-the `status` slot is not a `kind: single-select` board field, since
-the board is what it lists and that field is what it filters on. A
+leave nothing to do. Without `--project` or a URL, `/issue-list`
+aborts the same way, and also when the `status` slot is not a
+`kind: single-select` board field, since the board is what it lists
+and that field is what it filters on. With either, it reads the
+board's own single-select `Status` field instead, and aborts only when
+the board has none. A
 slot the config declares `kind: skip`, or leaves out
 of `fields:`, is one the repo does not track: a verb that would set it
 exits zero with a warning, and `/issue-field-options` reports it as
@@ -221,7 +227,8 @@ A script that reaches GitHub serves the GitHub backend only. Under
 and error wording the scripts otherwise own. The surface is the same
 either way; only the calls underneath differ. `/issue-list` is the
 exception: it has no Jira path, so under `issues: Jira` the script's
-refusal ends the run. The refusal is keyed on
+refusal ends the run — without `--project` or a URL, since with either
+no repo-config governs it. The refusal is keyed on
 the tracker, not on whether a `gh` call is made: `issue-field-options`
 reads only the config and still refuses Jira, because a slot's shape
 there is the `jira:` block's. The branch prefix is the one value with
@@ -230,9 +237,14 @@ repo exactly as a GitHub one; refusing would have left such a repo
 with no way to resolve it.
 
 Every verb acts in the repository its operand names: `/issue-create`,
-`/issue-field-options` and `/issue-list` take a leading positional
-`<repo>`, and every other verb's issue operand carries its repository
-in the reference itself. The repo-config that governs the run is the
+`/issue-field-options` and, without `--project` or a URL,
+`/issue-list` take a leading positional `<repo>`, and every other
+verb's issue operand carries its repository in the reference itself.
+With `--project` or a URL, `/issue-list`'s positional is an owner or
+`<owner>/<repo>`, no repo-config governs the run, and each row's
+priority and size come from its own repository's repo-config, else
+from the board field of the same name when that repo-config is absent
+or unusable. Otherwise the repo-config that governs the run is the
 operand's repository's own: for another repo the script reads that
 repo's `.issues/repo-config.md` from its default branch through the
 read-only contents API, since the target's alone governs which tracker
@@ -245,8 +257,9 @@ with none degrades by verb:
 `/issue-create` files a plain issue — title, body, labels, assignees —
 with a `note:` line saying project fields were skipped,
 `/issue-field-options` reports every slot there as unconfigured,
-`/issue-view` prints the issue with no slot rows, a setter and
-`/issue-list` abort naming the repository, and everything that touches
+`/issue-view` prints the issue with no slot rows, a setter aborts
+naming the repository, as `/issue-list` does only without `--project`,
+and everything that touches
 only the issue itself proceeds. A cross-repo default assignee comes from the
 user-global user-config only, because the repo-level one belongs to
 the current repo.
@@ -318,8 +331,10 @@ board, so a test asserts the search from the call log and sees from
 the output that the script printed each item it was given instead of
 filtering any itself. The board field a listing reads by ID to name
 its status filter is answered from the `fields` of an owner's board
-under `owners`, and `boardError` makes every board read fail with a
-message of the test's choosing and no error type, for the failure that
+under `owners`, as is a board named by `--project`: its ID and fields
+come from there, and its items from `projects` under that ID.
+`boardError` makes every board read fail with a message of the test's
+choosing and no error type, for the failure that
 must not be reported as a stale project ID. A pull request is an entry
 in a repository's issues
 carrying `pullRequest: true`, since the two share one number sequence
@@ -417,18 +432,25 @@ status, `is:issue is:open`, and the assignees. The script filters
 nothing it gets back, so a view's filter, written in the board's own
 filter grammar, is evaluated by GitHub and never reimplemented here.
 
+- The search carries the repository without `--project` or a URL, and
+  with `<owner>/<repo> --project <n>`; under `<owner> --project <n>`,
+  or a URL with no repository positional, it has no repository term,
+  so the board and the view alone decide which repositories appear.
 - A group that can hold `OR` — the view's filter, and `--assignee`
   with `--unassigned` — is parenthesized, because `OR` binds loosest in
   that grammar: unparenthesized, `status:Ready assignee:a OR
   no:assignee` matches every unassigned item on the board whatever its
   status.
-- The status group's key is the name of the board field backing the
-  `status` slot, read from the board on each run, lowercased, each
-  space a `-`. The slot's field need not be called `Status`, and the
-  search matches no item on a field name spelled with its spaces,
-  quoted or not.
-- The status group's value is the option as the repo-config spells it,
-  so `--status` is checked against the config before any board read.
+- Without `--project` or a URL, the status group's key is the name of
+  the board field backing the `status` slot, read from the board on
+  each run, lowercased, each space a `-`. The slot's field need not be
+  called `Status`, and the search matches no item on a field name
+  spelled with its spaces, quoted or not. Its value is the option as
+  the repo-config spells it, so `--status` is checked against the
+  config before any board read.
+- With `--project` or a URL, the key is `status` and the value an
+  option of the board's single-select `Status` field as the board
+  spells it, so `--status` is checked against the board.
 
 **In what order** is the order the connection returns items across
 pages, which is the board's position order. The connection belongs to
@@ -463,7 +485,7 @@ lives in each skill's own `SKILL.md`.
 | `/issue-view <issue>` | Print one issue's body, project fields and every relationship in one shot |
 | `/issue-view-tree <issue>` | Walk an issue tree downward through sub-issues, depth-capped at 5 |
 | `/issue-sub-list <parent-issue>` | List a parent's direct sub-issues |
-| `/issue-list [<owner>/<repo>] --status <name> [--view <name-or-number>] [--assignee <login>]... [--unassigned] [--limit <n>]` | List the project board's open issues in one repository at one status, in the board's position order or a view's sort |
+| `/issue-list [<owner> \| <owner>/<repo>] [--project <number\|url>] --status <name> [--view <name\|number\|url>] [--assignee <login>]... [--unassigned] [--limit <n>]` | List a project board's open issues at one status, in the board's position order or a view's sort: the configured board in one repository, or with `--project` or a URL an owner's board across its repositories or in one |
 | `/issue-update <issue>` | Change a title, body, labels or assignees |
 | `/issue-comment <issue> --body-file PATH` | Add a comment, body read from a file |
 | `/issue-close <issue> [--reason <reason>]` | Close an issue, optionally commenting first, and optionally set the close reason: completed, not planned, or a duplicate of a named issue |
@@ -513,8 +535,9 @@ before the issue is read, whatever tracker the checkout itself is on.
   you already have a reference to; a caller holding several loops.
   `/issues:issue-list` is the one exception, and the only verb that
   takes no issue reference: a caller working a board has none until
-  the board gives it one. It lists one board, one repository and one
-  status at a time, and searches nothing else.
+  the board gives it one. It lists one board and one status at a time,
+  and one repository unless `--project` lists the board across its
+  repositories, and searches nothing else.
 - **No branch, commit or PR handling.** Naming an issue's branch,
   opening its PR, and writing the closing keywords belong to
   `git-tools` and `github-prs`; the multi-issue orchestrator that

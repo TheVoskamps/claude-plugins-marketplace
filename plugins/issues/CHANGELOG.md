@@ -1,5 +1,60 @@
 # issues changelog
 
+## 0.18.0 — 2026-11-21
+
+`/issue-list` can list a project board across repositories. Until now
+it listed one repository's slice of the board that repository's
+repo-config names, so a view holding issues from several repositories
+could not be listed whole, and a board could be listed only from a
+repository configured for it. `--project` and a project or view URL
+name the board directly instead.
+
+```text
+/issue-list [<owner> | <owner>/<repo>] [--project <number|url>]
+            --status <name> [--view <name|number|url>]
+            [--assignee <login>]... [--unassigned] [--limit <n>]
+```
+
+- `<owner> --project <number>` lists that board of an organization or
+  a user across every repository on it. The board and the view alone
+  decide which repositories appear.
+- `<owner>/<repo> --project <number>` lists that board in one
+  repository, which needs no repo-config.
+- `--project` also takes a board's URL,
+  `https://<host>/orgs/<owner>/projects/<n>` or the `users/` form,
+  which supplies the owner and makes the positional optional.
+- `--view` also takes a view's URL, `.../projects/<n>/views/<v>`, which
+  supplies owner, board and view, so a listing runs from any directory,
+  inside a checkout or not.
+- With `--project`, a single-word positional is an owner, never a
+  repository. A repository under the current owner is then written
+  `<owner>/<repo>`.
+
+When `--project` or a URL names the board:
+
+- `--status` names one option of the board's own single-select field
+  called `Status`, and the status column prints the issue's value in
+  that field. A board with no such field cannot be listed this way.
+- No repo-config decides whether the run proceeds. A checkout with no
+  repo-config, a Jira-tracked one or an invalid one lists the board all
+  the same; its `issue-link-prefix` still spells the references to the
+  current repository's issues.
+- Each line's priority and size come from the slots of the issue's own
+  repository's repo-config, read from that repository's default branch.
+  When that repository has no usable repo-config, they come from the
+  board field named `Priority` or `Size`, and print `-` when the board
+  has none.
+
+The run stops, printing no line, when `--project <number>` has no
+owner to look under, when a URL's owner or board disagrees with the
+positional or with `--project`, when `--view <url>` and `--project`
+name different boards, when the owner has no board of that number, and
+when the board has no single-select `Status` field. Outside a checkout,
+a single-word positional with nothing naming a board stops too: there
+it can only be an owner, and an owner can hold many boards.
+
+Without `--project` or a URL, a listing is what it was.
+
 ## 0.17.0 — 2026-11-19
 
 `/issue-list` lists the project board's open issues in one repository

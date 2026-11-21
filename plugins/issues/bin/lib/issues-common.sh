@@ -107,6 +107,33 @@ iss_err_no_status_slot() {
   iss_die "${2:-}the \`status\` slot in \`github-project:\` in \`repo-config.md\` is \`kind: $1\`, and listing a board filters on a \`kind: single-select\` board field; run \`/issues:repo-config\` to reconfigure it"
 }
 
+iss_err_no_board() {
+  # $1 host, empty for gh's default host, $2 owner, $3 project number
+  local where="gh's default host"
+  [ -z "$1" ] || where="\`$1\`"
+  iss_die "no project \`$3\` under \`$2\` on $where"
+}
+
+iss_err_board_no_status() {
+  # $1 owner, $2 project number
+  iss_die "project \`$2\` of \`$1\` has no single-select field named \`Status\`, and listing a board named by \`--project\` or a URL filters on that field"
+}
+
+iss_err_owner_needs_project() {
+  # $1 the positional, a bare owner
+  iss_die "\`$1\` names no repository here, since there is no current repository, and an owner can hold many boards: name one with \`--project <number|url>\` or \`--view <url>\`" 2
+}
+
+iss_err_owner_mismatch() {
+  # $1 the URL, $2 the owner it names, $3 the owner the positional names
+  iss_die "\`$1\` names the owner \`$2\`, which disagrees with the owner \`$3\` the positional names" 2
+}
+
+iss_err_project_mismatch() {
+  # $1 the view URL, $2 the project it names, $3 the project --project names
+  iss_die "\`$1\` names project \`$2\`, which disagrees with \`--project\` naming project \`$3\`" 2
+}
+
 iss_err_view_not_found() {
   # $1 the view as named, $2 the board's view names
   iss_die "no view \`$1\` on the project board. Views: \`$2\`"
@@ -1674,8 +1701,8 @@ iss_remove_sub_issue() {
 }
 
 # ---------------------------------------------------------------------------
-# Board listing: /issue-list's reads of the configured board's views, fields
-# and items.
+# Board listing: /issue-list's reads of a board -- the configured one, or one
+# named by owner and number -- and its views, fields and items.
 # ---------------------------------------------------------------------------
 
 # The issue fields a board listing reads from each item's content: what
@@ -1783,6 +1810,35 @@ iss_board_nodes() {
     # Through stdin rather than --argjson: a large board outgrows the
     # argument-length limit.
     ISS_BOARD_NODES=$(printf '%s\n%s\n' "$ISS_BOARD_NODES" "$page" | jq -cs '.[0] + .[1].nodes')
+    [ "$(printf '%s' "$page" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
+    cursor=$(printf '%s' "$page" | jq -r .pageInfo.endCursor)
+  done
+}
+
+# iss_board_by_number <host> <owner> <number>: resolve board <number> of
+# <owner>, an organization or a user, setting ISS_BOARD_ID to its node ID and
+# ISS_BOARD_FIELDS to every field it has, as a JSON array of { id, name,
+# dataType }, a single-select field's carrying its options too. Aborts when no
+# such board exists or a call fails.
+iss_board_by_number() {
+  local host=$1 owner=$2 number=$3 page cursor=
+  if ! iss_gql "$host" -f query="$(iss_doc_discover_project)" -f owner="$owner" -F number="$number"; then
+    [ "$(printf '%s' "$ISS_GQL_OUT" | jq -r 'any(.errors[]?; .type == "NOT_FOUND")' 2>/dev/null)" != true ] ||
+      iss_err_no_board "$host" "$owner" "$number"
+    iss_gql_fail
+  fi
+  ISS_BOARD_ID=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repositoryOwner.projectV2.id // empty')
+  [ -n "$ISS_BOARD_ID" ] || iss_err_no_board "$host" "$owner" "$number"
+  ISS_BOARD_FIELDS=[]
+  while :; do
+    if [ -n "$cursor" ]; then
+      iss_gql "$host" -f query="$(iss_doc_discover_fields)" -f owner="$owner" -F number="$number" -f after="$cursor"
+    else
+      iss_gql "$host" -f query="$(iss_doc_discover_fields)" -f owner="$owner" -F number="$number"
+    fi || iss_gql_fail
+    page=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repositoryOwner.projectV2.fields // empty')
+    [ -n "$page" ] || iss_die "the fields of project \`$number\` of \`$owner\` came back empty"
+    ISS_BOARD_FIELDS=$(printf '%s\n%s\n' "$ISS_BOARD_FIELDS" "$page" | jq -cs '.[0] + .[1].nodes')
     [ "$(printf '%s' "$page" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
     cursor=$(printf '%s' "$page" | jq -r .pageInfo.endCursor)
   done
