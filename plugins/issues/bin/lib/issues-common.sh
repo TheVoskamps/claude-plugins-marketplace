@@ -591,7 +591,8 @@ iss_load_target_config() {
 # .issues/repo-config.md from its default branch into ISS_TARGET_CONFIG_TEXT,
 # unparsed. Returns 1 when the target has none -- the read answers 404 -- and
 # 2 when the read fails any other way or its content does not decode, with
-# what went wrong in ISS_TARGET_CONFIG_ERR.
+# what went wrong in ISS_TARGET_CONFIG_ERR. Aborts when it cannot make the
+# scratch file gh's stderr is caught in.
 iss_fetch_target_config() {
   local errf content
   ISS_TARGET_CONFIG_TEXT=
@@ -1152,7 +1153,8 @@ iss_rest() {
 }
 
 # iss_gql <host> <gh api graphql args...>: a GraphQL call; sets ISS_GQL_OUT
-# and ISS_GQL_ERR. Returns gh's exit status.
+# and ISS_GQL_ERR. Returns gh's exit status. Aborts when it cannot make the
+# scratch file gh's stderr is caught in.
 iss_gql() {
   local host=$1 errf rc
   shift
