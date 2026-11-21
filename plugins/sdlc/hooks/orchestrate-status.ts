@@ -307,12 +307,12 @@ async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
 }
 
 /**
- * Follows a turn's end during a run: the main loop's turn ending while the latest-begun of the
- * run's phase-setting signals, spawns for every PR among them, is the `orchestrate-cleanup` prompt
- * ends the run, whichever PR is current, and any other turn's end redraws the line.
+ * Follows a turn's end during a run: the main loop's turn ending while the phase the line shows,
+ * the current PR's as `statusLine` reads it, is `cleanup` ends the run, and any other turn's end
+ * redraws the line.
  */
 async function turnComplete($: Mods, e: TurnEvent): Promise<void> {
-  const isCleanup = latest((signal) => signal.phase !== undefined)?.phase === "cleanup";
+  const isCleanup = phaseOf(currentPr(), true) === "cleanup";
   if (isRun && e.agentId === undefined && isCleanup) await endRun($);
   else if (isRun) await redraw($);
 }

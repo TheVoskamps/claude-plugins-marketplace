@@ -414,6 +414,36 @@ test("a phase-setting spawn begun after the cleanup prompt keeps the run past th
   expect(shown(state)).toBe("PR #812 · monitor");
 });
 
+test("after the cleanup prompt, a phase-setting spawn and then a no-phase spawn for another PR end the run at the main loop's turn end", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await cleanup($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  expect(shown(state)).toBe("PR #812 · monitor");
+  await spawn($, "general-purpose", `Look at ${OTHER_PR}`);
+  expect(shown(state)).toBe("PR #813 · cleanup");
+  await turnEnd($, "a3");
+  expect(shown(state)).toBe("PR #813 · cleanup");
+  await turnEnd($);
+  expect(shown(state)).toBeUndefined();
+});
+
+test("after the cleanup prompt, a phase-setting spawn and then a no-phase spawn naming no PR end the run at the main loop's turn end", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  await cleanup($);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  expect(shown(state)).toBe("PR #812 · monitor");
+  await spawn($, "general-purpose", "go");
+  expect(shown(state)).toBe("cleanup");
+  await turnEnd($, "a3");
+  expect(shown(state)).toBe("cleanup");
+  await turnEnd($);
+  expect(shown(state)).toBeUndefined();
+});
+
 test("the phase follows the latest signal, backwards included", async ($, on) => {
   const state = host(on);
   await orchestrate($);
