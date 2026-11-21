@@ -1,5 +1,48 @@
 # sdlc changelog
 
+## 0.91.0 — 2026-11-20
+
+An `/sdlc:orchestrate` run now pins one status line under the prompt,
+showing where the run is:
+
+```text
+PR #812 · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems
+```
+
+- The line names the PR the run is on, the phase it is in —
+  `readiness`, `plan`, `seed`, `develop`, `code loop`, `doc loop`,
+  `memory scrub`, `merge readiness`, `finalizer`, `monitor` or
+  `cleanup` — and the agents running, a name running more than once
+  written as `<name>×<n>`. A part with nothing to show is left out.
+- During a review round, `code loop` and `doc loop` carry the round as
+  `r<round>`, and the reviewer is followed by the round's stage, with
+  the theorems settled out of those in the stage during `disprove` and
+  `verify`. The round stays with its loop: the documentation loop shows
+  no round until its own first reviewer runs, and a PR that returns to
+  a loop shows that loop's round again.
+- Any other agent with running children is followed by their names.
+- Every other PR that still has a running agent follows as
+  `| #<n> <phase>`, or as `| #<n>` when nothing has set a phase for
+  it.
+- The line appears when `/sdlc:orchestrate` is invoked, and in a
+  session resumed mid-run from the next agent the run spawns. It is
+  redrawn as the run moves and every 5 seconds while an agent is
+  running, and cleared when the run's cleanup ends or the session does.
+  A standalone `/sdlc:git-review-pr` shows no line.
+- `/orchestrate-status off` turns the line off, `on` turns it on, and
+  no argument flips it. The command runs while a turn is in flight and
+  costs no model turn. The line is on when a session starts, and the
+  choice lasts the session.
+
+`sdlc-agent-result-persist` gains `--mode progress --pr <ref>`, the
+read the line takes a round's progress from: one tab-separated line
+giving a PR's latest round, its type, its stage and how many of the
+stage's theorems are settled, and nothing for a PR with no round log.
+
+`hooks/hooks.json` now names one module, `hooks/register.ts`, which
+registers the plugin's hook files, since the hook engine takes one
+module per plugin.
+
 ## 0.90.0 — 2026-11-19
 
 The readiness bar gains two items, and `/sdlc:orchestrate-ready` now
