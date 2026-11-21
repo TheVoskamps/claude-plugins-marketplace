@@ -264,10 +264,7 @@ repo-config governs the run, and each row's priority and size come from
 its own repository's repo-config, read at most once per repository;
 where that is absent, unreadable, tracked in Jira, at an unsupported
 schema version or otherwise invalid, they come from the board field
-named like the slot, else `-`, and the listing goes on. A read that
-fails other than as a 404 is the one of these reported, as a warning
-line on stderr naming the repository and the error; the run still exits
-zero.
+named like the slot, else `-`, and the listing goes on.
 
 `/issues:repo-config` writes the file through `repo-config-write`, the
 one writer of `.issues/repo-config.md`. It runs the same validity
@@ -406,11 +403,7 @@ here, so it prints as `owner/repo#N`. Every verb's issue operand,
 included, accepts each form back, and the issue's `https://` URL
 besides, so a reference copied out of one verb's output, or out of a
 browser, is an operand for the next. `skills/lib/issue.md` owns the
-grammar and the resolution rules. Outside a git checkout there is no
-current repository to resolve against: a bare `repo` is a usage error
-to every verb but `/issue-list`, whose `skills/issue-list/SKILL.md`
-states how it reads a single word, and `owner/repo` goes to `gh`'s
-default host.
+grammar and the resolution rules, outside a git checkout included.
 
 The grammar is the one `github-prs` parses for a PR, with `issues` in
 the URL where a PR has `pull`, so a reference carried between the two
