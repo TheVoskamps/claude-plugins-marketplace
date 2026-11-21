@@ -859,13 +859,55 @@ for local in jira absent invalid-prefix; do
     "${want%% *}${TAB}In progress${TAB}High${TAB}S"
 done
 
+# A repository whose repo-config names another board reads its slots off its
+# item on that board, the same for a row the listing kept as for one it read
+# again whole: acme/other's names board 2, where its priority is a number
+# field. #3 is kept; #4's item on board 1 runs past one page of field values.
+new_case "$CONFIG_MAIN"
+board_items
+jq --arg cfg "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/project-id: PVT_1/project-id: PVT_2/; s/id: PVTF_prio/id: PVTF_ops_prio/')" '
+  def other(n; f): .repos["acme/other"].issues[n | tostring].projectItems |= f;
+  .repos["acme/other"].config = $cfg
+  | other(3; . + [{id: "PVTI_ops_3", project: "PVT_2", fields: {PVTF_ops_prio: {number: 8}}}])
+  | other(4; map(.fields = ([range(110) | {key: "PVTF_other\(.)", value: {number: .}}] | from_entries)
+                    + {PVTSSF_status: {name: "Done", optionId: "OPT_done"}})
+             + [{id: "PVTI_ops_4", project: "PVT_2", fields: {PVTF_ops_prio: {number: 6}}}])' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list acme/other --project 1 --status Done
+expect "issue-list --project: a repo-config naming another board reads that board's item, kept row or re-read" 0 \
+  "other#3${TAB}Done${TAB}8${TAB}-${TAB}" "other#4${TAB}Done${TAB}6${TAB}-${TAB}"
+
+# Each repository's repo-config is cached under its own owner and name, so
+# acme/ops_lib's, which carries a native priority field, is not taken for
+# acme_ops/lib's, which is absent and falls back to the board's Priority.
+new_case "$CONFIG_MAIN"
+jq --arg cfg "$CONFIG_MAIN" '
+  def make(nwo; prio; num): .repos[nwo] = {issues: {"1": (.repos["acme/other"].issues["3"]
+      | .id = "I_\(nwo | gsub("/"; "_"))_1" | .number = 1 | .title = "\(nwo) issue 1"
+      | .issueFields = {IFSS_priority: {name: prio, optionId: "IFSSO_x"}}
+      | .projectItems = [{id: "PVTI_\(nwo)_1", project: "PVT_1", position: 1, fields: {PVTF_prio: {number: num}}}])},
+    config: null, validLabels: [], collaborators: ["octocat"]};
+  make("acme/ops_lib"; "High"; 3) | make("acme_ops/lib"; "Low"; 4)
+  | .repos["acme/ops_lib"].config = $cfg' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list acme --project 1 --status Done
+expect "issue-list --project: repositories whose owner_repo spellings collide keep their own repo-configs" 0 \
+  "ops_lib#1${TAB}-${TAB}High${TAB}" "acme_ops/lib#1${TAB}-${TAB}4${TAB}"
+check "$(contents_reads acme/ops_lib) $(contents_reads acme_ops/lib)" "1 1" \
+  "issue-list --project: each of two colliding spellings has its repo-config read"
+
 # Aborts.
 new_case "$CONFIG_MAIN"
 run issue-list octo --project https://github.com/orgs/acme/projects/1 --status Done
 expect "issue-list: a URL owner disagreeing with the positional owner aborts" 2 "name different owners"
 check "$(refs)" "" "issue-list: a URL owner disagreeing with the positional prints no issue line"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-list: a URL owner disagreeing with the positional makes no gh call"
 run issue-list octo/lib --view https://github.com/orgs/acme/projects/1/views/2 --status Done
 expect "issue-list: a view URL owner disagreeing with <owner>/<repo> aborts" 2 "name different owners"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-list: a URL owner disagreeing with <owner>/<repo> makes no gh call"
+run issue-list --project 1 --status Done
+expect "issue-list: --project <number> with no owner aborts" 2 "needs the board's owner"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-list: --project <number> with no owner makes no gh call"
 run issue-list ghe.example.com/acme/widgets --project https://github.com/orgs/acme/projects/1 --status Done
 expect "issue-list: a URL host disagreeing with the positional's host aborts" 2 "name different owners"
 run issue-list acme --project 2 --view https://github.com/orgs/acme/projects/1/views/2 --status Done

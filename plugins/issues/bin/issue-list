@@ -79,25 +79,37 @@ board_field_id() {
 # otherwise invalid, any of which would abort a verb that read it. Each
 # repository's is read once, from its default branch -- the current
 # repository's too, since the local file spells references and nothing else
-# here -- into $cache. The read runs in a subshell because it aborts by
-# exiting.
+# here -- into its own directory $cache/<owner>/<repo>, since no owner or
+# repository name holds a "/". The read runs in a subshell because it aborts
+# by exiting.
 row_config() {
-  local file
-  file=$cache/$(iss_lc "${1%%/*}_${1#*/}")
-  if [ ! -f "$file.ok" ] && [ ! -f "$file.none" ]; then
-    if (iss_load_target_config "$host" "${1%%/*}" "${1#*/}" && printf '%s' "$ISS_GP") >"$file.gp" 2>/dev/null; then
-      : >"$file.ok"
-    else
-      : >"$file.none"
+  local dir
+  dir=$cache/$(iss_lc "$1")
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir"
+    if (iss_load_target_config "$host" "${1%%/*}" "${1#*/}" && printf '%s' "$ISS_GP") >"$dir/gp" 2>/dev/null; then
+      : >"$dir/ok"
     fi
   fi
-  if [ -f "$file.ok" ]; then
-    ISS_GP=$(cat "$file.gp")
+  if [ -f "$dir/ok" ]; then
+    ISS_GP=$(cat "$dir/gp")
     row_cfg=yes
   else
     ISS_GP=
     row_cfg=no
   fi
+}
+
+# row_other_board: whether the repo-config row_config made current reads
+# priority or size from a board field on another board than the listed one,
+# whose item a row iss_board_items kept does not carry.
+row_other_board() {
+  local slot
+  [ "$row_cfg" = yes ] && [ "$(iss_cfg_get project-id 2>/dev/null)" != "$project" ] || return 1
+  for slot in priority size; do
+    case "$(iss_slot_kind "$slot")" in number | single-select) return 0 ;; esac
+  done
+  return 1
 }
 
 # row_slot <slot>: the slot's value on the item in ISS_ISSUE, from its
@@ -112,7 +124,7 @@ row_slot() {
 }
 
 tab=$(printf '\t')
-usage='usage: issue-list [<owner> | <repo>] [--project <number-or-url>] --status <name> [--view <name-number-or-url>] [--assignee <login>]... [--unassigned] [--limit <n>]'
+usage='usage: issue-list [<owner> | <owner>/<repo>] [--project <number|url>] --status <name> [--view <name|number|url>] [--assignee <login>]... [--unassigned] [--limit <n>]'
 status=
 status_set=no
 view=
@@ -207,34 +219,58 @@ esac
 iss_require_tools
 if [ "$board_mode" = yes ]; then
   # With a board named, a single-word positional is an owner, and any other is
-  # a repository the listing is scoped to.
+  # a repository the listing is scoped to. The owner and any host it spells
+  # are read off the positional by its syntax alone, so the usage errors below
+  # come before the gh call that resolving a host-less repository makes.
   board_owner=
   board_repo=
-  explicit_host=no
+  target_host=
   case "$target" in
     '') ;;
     */*)
-      iss_parse_repo "$target"
-      board_owner=$RP_OWNER
-      board_repo=$RP_REPO
-      host=$RP_HOST
-      case "$target" in */*/*) explicit_host=yes ;; esac
+      iss_check_repo_syntax "$target"
+      case "$target" in
+        *://*)
+          iss_split_url "$target"
+          target_host=$URL_HOST
+          board_owner=$URL_OWNER
+          ;;
+        *)
+          board_owner=${target%/}
+          case "$board_owner" in
+            */*/*)
+              target_host=${board_owner%%/*}
+              board_owner=${board_owner#*/}
+              ;;
+          esac
+          board_owner=${board_owner%%/*}
+          ;;
+      esac
       ;;
     *)
       iss_valid_owner "$target" || iss_usage_die "\`$target\` is not an owner; $usage"
       board_owner=$target
       ;;
   esac
-  iss_try_current_repo || :
   if [ -n "$url_owner" ]; then
     if [ -n "$board_owner" ] && { [ "$(iss_lc "$board_owner")" != "$(iss_lc "$url_owner")" ] ||
-      { [ "$explicit_host" = yes ] && [ "$(iss_lc "$host")" != "$(iss_lc "$url_host")" ]; }; }; then
+      { [ -n "$target_host" ] && [ "$(iss_lc "$target_host")" != "$(iss_lc "$url_host")" ]; }; }; then
       iss_usage_die "\`$target\` and the URL's \`$url_host/$url_owner\` name different owners"
     fi
-    board_owner=$url_owner
-    host=$url_host
   elif [ -z "$board_owner" ]; then
     iss_usage_die "\`--project $project_arg\` needs the board's owner: name \`<owner>\` or \`<owner>/<repo>\`, or pass a project URL"
+  fi
+  case "$target" in
+    */*)
+      iss_parse_repo "$target"
+      board_repo=$RP_REPO
+      host=$RP_HOST
+      ;;
+  esac
+  iss_try_current_repo || :
+  if [ -n "$url_owner" ]; then
+    board_owner=$url_owner
+    host=$url_host
   elif [ -z "$board_repo" ]; then
     host=$ISS_HOST
   fi
@@ -353,6 +389,7 @@ EOF
   case "$ref" in '#'*) ref=$here_prefix$number ;; esac
   if [ "$board_mode" = yes ]; then
     row_config "$nwo"
+    ! row_other_board || iss_board_row_project_items "$host"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ref" "$(board_value "$status_fid")" \
       "$(row_slot priority)" "$(row_slot size)" "$blockers" "$assigned" "$title"
   else

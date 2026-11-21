@@ -183,6 +183,11 @@ iss_err_write_not_landed() {
   iss_die "the write did not land: $1 on issue \`$2\` should read \`$3\`, but a re-read shows \`$4\`"
 }
 
+iss_err_gql_failed() {
+  # $1 the call's error, $2 what the caller adds after it, empty for nothing
+  iss_die "GitHub GraphQL call failed: $1${2:+; $2}"
+}
+
 iss_err_missing_scope() {
   # $1 host, $2 scope, $3 gh's error
   iss_die "the gh token for \`$1\` lacks the \`$2\` scope this lookup needs: $3"
@@ -1092,7 +1097,7 @@ iss_gql() {
 # iss_gql_fail [<detail>]: abort with the last call's error, and <detail>
 # after it when given.
 iss_gql_fail() {
-  iss_die "GitHub GraphQL call failed: ${ISS_GQL_ERR:-$ISS_GQL_OUT}${1:+; $1}"
+  iss_err_gql_failed "${ISS_GQL_ERR:-$ISS_GQL_OUT}" "${1:-}"
 }
 
 # iss_lookup <host> <owner> <repo> <number> <selection>: fetch one issue with
@@ -1874,6 +1879,22 @@ iss_board_items() {
     iss_lookup "$host" "${nwo%%/*}" "${nwo#*/}" "$number" "$ISS_SEL_LIST_ISSUE $ISS_SEL_PROJECT_ITEMS"
     ISS_BOARD_ITEMS=$(printf '%s\n%s\n' "$ISS_BOARD_ITEMS" "$ISS_ISSUE" | jq -cs --argjson i "$i" '.[1] as $issue | .[0] | .[$i] = $issue')
   done
+}
+
+# iss_board_row_project_items <host>: give the iss_board_items row in ISS_ISSUE
+# every project item of its issue, each with all its field values, so a slot
+# read on another board than the listed one finds that board's item. A row
+# iss_board_items read again whole already carries them, as the projectItems
+# connection with its pageInfo, and is left as it is; a row it kept carries
+# only the listed board's item, with no pageInfo.
+iss_board_row_project_items() {
+  local row nwo number
+  [ "$(iss_jq '.projectItems | has("pageInfo")')" = false ] || return 0
+  row=$ISS_ISSUE
+  nwo=$(iss_jq .repository.nameWithOwner)
+  number=$(iss_jq .number)
+  iss_lookup "$1" "${nwo%%/*}" "${nwo#*/}" "$number" "$ISS_SEL_PROJECT_ITEMS"
+  ISS_ISSUE=$(printf '%s\n%s\n' "$row" "$ISS_ISSUE" | jq -cs '.[0] + {projectItems: .[1].projectItems}')
 }
 
 # ---------------------------------------------------------------------------
