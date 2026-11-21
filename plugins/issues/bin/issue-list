@@ -80,8 +80,8 @@ board_field_id() {
 # read it. A read that fails other than as absent is warned about, and the
 # listing goes on. Each repository's is read once, from its default branch --
 # the current repository's too, since the local file spells references and
-# nothing else here -- into its own directory $cache/<owner>/<repo>, since no
-# owner or repository name holds a "/".
+# nothing else here -- into its own directory $cache/<owner>/<repo>,
+# lowercased, since no owner or repository name holds a "/".
 row_config() {
   local dir gp err rc=0
   dir=$cache/$(iss_lc "$1")
