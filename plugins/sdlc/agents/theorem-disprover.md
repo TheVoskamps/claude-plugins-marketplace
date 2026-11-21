@@ -250,13 +250,24 @@ did check, with the same weight. An `UNSETTLED` theorem blocks the
 review and is reported as a pipeline defect, so the gap reaches a human
 rather than passing as checked.
 
-A claim whose **subject does not exist at the head under review** — the
-code, text or symbol it is about is gone from the tree, so there is
-nothing at its pointers to attack — is `SUBJECT REMOVED`, never
-`UNSETTLED` and never `SURVIVED`. Establish the absence the way "A
-zero-hit grep is not a proof" above demands, at `HEAD`, before you
-report it. A claim whose subject exists but that you cannot settle
-stays `UNSETTLED`.
+A claim whose **subject a commit removed** — the code, text or symbol
+it is about existed before a commit reachable from `HEAD` deleted it,
+so there is nothing at its pointers to attack — is `SUBJECT REMOVED`,
+never `UNSETTLED` and never `SURVIVED`. Establish both halves before
+you report it: the absence at `HEAD`, the way "A zero-hit grep is not
+a proof" above demands, and the removal, a commit whose `git show`
+deletes the subject — `git log -S` over `HEAD` with a short token of
+the subject names the commits that changed its count.
+
+A claim that requires the PR to add something absent at `HEAD`, which
+no commit ever removed, is `DISPROVED`: the PR never added its subject,
+and that absence is the counterexample, its `EVIDENCE` naming where
+the subject should appear and quoting the surrounding text at `HEAD`.
+Never report it `SUBJECT REMOVED`: that verdict can retire the theorem
+with no finding.
+
+A claim whose subject exists but that you cannot settle stays
+`UNSETTLED`.
 
 Guessing a counterexample is worse still: the pipeline copies your
 quote into the round's argued review verbatim, and `pr-finalizer` posts
@@ -365,15 +376,15 @@ you read, the region you covered>
 coverage record of what you did run, as on a `SURVIVED` report. Both are
 required: an `UNSETTLED` report missing either is malformed.
 
-**Subject removed** — what the claim is about does not exist at the
-head under review:
+**Subject removed** — a commit removed what the claim is about, and it
+does not exist at the head under review:
 
 ```text
 VERDICT: SUBJECT REMOVED
 THEOREM: T<k>
 REASON: <the claim's subject, quoted from the claim>
-CHECKED: <the pointer path or symbol you looked for, and the search that
-came back empty>
+CHECKED: <the pointer path or symbol you looked for, the search that
+came back empty, and the commit that deleted it>
 ```
 
 Both `REASON` and `CHECKED` are required: a `SUBJECT REMOVED` report

@@ -297,9 +297,13 @@ agents=$(printf '%s' "$events" | awk -F'\t' '
     }
   }')
 
+# A reviewer spawned before the first issue-developer ran on its seed
+# brief rather than in a review round, so its span is an agent's.
 if [ -n "$agents" ]; then
-  rows="$rows$(printf '%s\n' "$agents" | awk -F'\t' '{
-    cat = ($3 == "theorem-based-pr-reviewer") ? "review" : "agent"
+  first_dev=$(printf '%s\n' "$agents" | awk -F'\t' '$3 == "issue-developer" {print $1; exit}')
+  rows="$rows$(printf '%s\n' "$agents" | awk -F'\t' -v dev="$first_dev" '{
+    seed = (dev != "" && $1 < dev)
+    cat = ($3 == "theorem-based-pr-reviewer" && !seed) ? "review" : "agent"
     what = $3 ($4 != "" ? " — " $4 : "")
     if ($2 == "") what = what " (no report back in the transcript)"
     print $1 "\t" $2 "\t" cat "\t" what "\torchestrator transcript (agent " $5 ")"

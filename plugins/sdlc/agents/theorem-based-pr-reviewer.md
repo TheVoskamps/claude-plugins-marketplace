@@ -377,7 +377,8 @@ review.
 5. **Apply none of the assessment.** Settling the seed is your caller's,
    by its `seed-review` value.
 6. **Report back** the generator's list and the assessment, each
-   verbatim, the tier that ran and what picked it, and the agent ids
+   verbatim, the tier that ran — the `effort` you passed on the
+   generator's `Agent` call — and what picked it, and the agent ids
    the generator's and the assessor's `Agent` calls returned, each
    named with its definition. End with the closing line `Return: seed
    generated — settle the seed`; when a child returned nothing you
@@ -619,9 +620,9 @@ whatever its size, and under `--mode documentation` the signals read
 the delta's documentation files alone, so a documentation round is low.
 
 Both signals read the round's delta — on a fallback round, the whole
-PR diff, and on the seed brief, the issue bodies. Say in the Review
-method section which tier ran and what picked it. Read the tier that
-ran from the `effort` column of the last
+PR diff, and on the seed brief, the issue bodies. On a PR round, say
+in the Review method section which tier ran and what picked it, and
+read the tier that ran from the `effort` column of the last
 generate-stage `spawn` record for the theorem `list`, per the preloaded
 `sdlc:agent-result-persist-interface` skill → "The line grammar", never
 from your own memory of the spawn: an earlier instance may have made
@@ -830,8 +831,8 @@ that call printed and, under it, DISPROVED with a verbatim-quoted
 counterexample, a consequence statement, and a proposed consequence
 class, SURVIVED with what you checked, UNSETTLED with what settling
 the claim needs that you cannot run and what you checked, or SUBJECT
-REMOVED with the claim's subject and the search that came back empty.
-Nothing else.
+REMOVED with the claim's subject, the search that came back empty and
+the commit that deleted it. Nothing else.
 ```
 
 Pass `--pr` and `--round` unchanged from the anchor call, or the

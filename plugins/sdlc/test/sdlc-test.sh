@@ -1223,6 +1223,31 @@ check "$?" "0" "analysis: a seed with no seed-review record exits 0"
 check "$(printf '%s\n' "$OUT" | grep -c 'by recommendation')" "0" \
   "analysis: a seed with no seed-review record is not worded as applied by recommendation"
 
+# A reviewer spawned before the developer ran on its seed brief: its span
+# is other agent work, and review rounds hold only the reviewer spawned
+# after the developer.
+new_case analysis-seed-reviewer-span
+mkdir -p "$CASE/bin" "$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1"
+printf 'anchor 2026-01-01T00:22:00Z abc code-and-instruction-markdown\nenter T1 disprove 2026-01-01T00:23:00Z D %s\n' \
+  "$CASE/sess/subagents/agent-D.jsonl" >"$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/log"
+printf '%s\n' \
+  '{"type":"user","timestamp":"2026-01-01T00:00:00.000Z","origin":{"kind":"human"},"message":{"content":"<command-name>/sdlc:orchestrate</command-name>"}}' \
+  '{"type":"assistant","timestamp":"2026-01-01T00:01:00.000Z","message":{"content":[{"type":"tool_use","name":"Agent","id":"tu1","input":{"subagent_type":"sdlc:theorem-based-pr-reviewer","description":"seed"}}]}}' \
+  '{"type":"user","timestamp":"2026-01-01T00:11:00.000Z","toolUseResult":{"agentId":"r1","status":"completed"},"message":{"content":[{"tool_use_id":"tu1"}]}}' \
+  '{"type":"assistant","timestamp":"2026-01-01T00:12:00.000Z","message":{"content":[{"type":"tool_use","name":"Agent","id":"tu2","input":{"subagent_type":"sdlc:issue-developer","description":"develop"}}]}}' \
+  '{"type":"user","timestamp":"2026-01-01T00:20:00.000Z","toolUseResult":{"agentId":"d1","status":"completed"},"message":{"content":[{"tool_use_id":"tu2"}]}}' \
+  '{"type":"assistant","timestamp":"2026-01-01T00:21:00.000Z","message":{"content":[{"type":"tool_use","name":"Agent","id":"tu3","input":{"subagent_type":"sdlc:theorem-based-pr-reviewer","description":"review"}}]}}' \
+  '{"type":"user","timestamp":"2026-01-01T00:26:00.000Z","toolUseResult":{"agentId":"r2","status":"completed"},"message":{"content":[{"tool_use_id":"tu3"}]}}' \
+  >"$CASE/sess.jsonl"
+printf '#!/bin/sh\necho "h.example/o/r#7"\n' >"$CASE/bin/pr-view"
+printf '#!/bin/sh\nexit 1\n' >"$CASE/bin/gh"
+link_persist "$CASE/bin"
+chmod +x "$CASE/bin/pr-view" "$CASE/bin/gh"
+OUT=$(PATH="$CASE/bin:$PATH" "$TEST_DIR/../bin/sdlc-orchestrate-analysis" 7 2>"$CASE/err" </dev/null)
+check "$?" "0" "analysis: a transcript with a seed reviewer exits 0"
+check_contains "$OUT" "| review rounds | 5m00s |" "analysis: review rounds hold only the reviewer spawned after the developer"
+check_contains "$OUT" "| other agent work | 18m00s |" "analysis: the seed reviewer's span is other agent work"
+
 # --- the seed-review record -------------------------------------------------
 
 new_case seed-review-record

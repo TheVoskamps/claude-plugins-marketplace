@@ -450,7 +450,7 @@ developer that goes beyond the
 issues, or decides something they do not, shows up later against a
 list the human already owns. The gate
 runs once per batch, after the plan is settled and the batch's
-members are In Progress, and it is three moves.
+members are In Progress, in the moves below.
 
 **Spawn the reviewer on its seed brief.** Spawn
 `sdlc:theorem-based-pr-reviewer` with no `effort` and no `model` on

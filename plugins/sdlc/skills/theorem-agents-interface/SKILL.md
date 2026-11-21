@@ -192,8 +192,9 @@ shape `theorem-disprover`'s own "Output" section gives:
 - `DISPROVED` — a counterexample breaks the claim;
 - `SURVIVED` — the disprover could not break it;
 - `UNSETTLED` — settling the claim needs what the disprover cannot run;
-- `SUBJECT REMOVED` — the code, text or symbol the claim is about does
-  not exist at the head under review.
+- `SUBJECT REMOVED` — a commit removed the code, text or symbol the
+  claim is about, and it does not exist at the head under review. A
+  subject the PR was to add and never did is a `DISPROVED` claim.
 
 ## The consequence classes
 
