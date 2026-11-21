@@ -934,6 +934,16 @@ run issue-list acme/other --status Done
 expect "issue-list <owner>/<repo>: a non-404 repo-config read failure still aborts without --project" 1 \
   "issue-list: could not read \`acme/other\`'s \`.issues/repo-config.md\`: gh: HTTP 502: Bad Gateway"
 
+# A repo-config whose content does not decode is the same warning, and the one
+# line the run prints that is not a row: base64's own error is not passed on.
+edit_state '.contentsError = {} | .contentsRaw = {"acme/other": "!!!!"}'
+run issue-list acme --project 1 --status Done
+expect "issue-list --project: repo-config content that does not decode warns and the listing goes on" 0 \
+  "issue-list: warning: could not read \`acme/other\`'s \`.issues/repo-config.md\`: its content does not decode as base64; " \
+  "other#3${TAB}Done${TAB}7${TAB}-${TAB}" "#2${TAB}In progress${TAB}High${TAB}S"
+check "$(printf '%s\n' "$OUT" | awk -F'\t' 'NF < 7' | wc -l | tr -d ' ')" 1 \
+  "issue-list --project: repo-config content that does not decode prints one line besides the rows"
+
 # Aborts.
 new_case "$CONFIG_MAIN"
 run issue-list octo --project https://github.com/orgs/acme/projects/1 --status Done

@@ -13,7 +13,7 @@ usage="usage: repo-config-write <draft-path>"
 case "$1" in -*) iss_usage_die "$usage" ;; esac
 draft=$1
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
+root=$(git rev-parse --show-toplevel 2>/dev/null) || iss_err_no_worktree
 [ -f "$draft" ] || iss_die "draft \`$draft\` does not exist"
 [ -r "$draft" ] || iss_die "draft \`$draft\` is not readable"
 

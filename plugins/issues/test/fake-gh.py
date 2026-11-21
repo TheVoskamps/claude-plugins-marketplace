@@ -19,7 +19,9 @@ issue's project items.
 state["repoViewError"] makes `gh repo view` fail with that message.
 
 state["contentsError"], keyed by owner/repo, makes that repository's
-contents reads fail with the message given for it.
+contents reads fail with the message given for it. state["contentsRaw"],
+keyed the same way, makes that repository's contents read succeed with the
+string given for it as the content, unencoded.
 
 `issue close` on an open issue records a stateReason -- COMPLETED unless its
 --reason names another -- and, with --duplicate-of, the issue it duplicates as
@@ -546,6 +548,9 @@ def main():
         nwo = "/".join(args[1].split("/")[1:3])
         if nwo in state.get("contentsError", {}):
             fail(state["contentsError"][nwo])
+        if nwo in state.get("contentsRaw", {}):
+            print(state["contentsRaw"][nwo])
+            return
         config = state["repos"][nwo].get("config") if repo_on(state, nwo, host) else None
         if config is None:
             fail("Not Found (HTTP 404)")

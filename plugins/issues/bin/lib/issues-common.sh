@@ -45,6 +45,19 @@ iss_usage_die() {
   iss_die "$1" 2
 }
 
+iss_err_no_worktree() {
+  iss_die "not inside a git working tree"
+}
+
+iss_err_tool_missing() {
+  # $1 the command
+  iss_die "\`$1\` is not on PATH"
+}
+
+iss_err_no_current_repo() {
+  iss_die "could not resolve the current GitHub repository with \`gh repo view\`"
+}
+
 iss_err_file_missing() {
   iss_die "This repo has no \`.issues/repo-config.md\`. Run \`/repo-config\` to create one."
 }
@@ -74,6 +87,11 @@ iss_err_invalid_range() {
 iss_err_invalid_link_prefix() {
   # $1 the configured prefix, $2 message prefix
   iss_die "${2:-}This repo's \`.issues/repo-config.md\` sets \`issue-link-prefix\` to \`$1\`, which is neither \`#\`, empty, nor at most 100 letters, digits, \`.\`, \`_\` and \`-\`. Run \`/repo-config\` to fix it."
+}
+
+iss_err_unsupported_tracker() {
+  # $1 the configured issues: value, $2 message prefix
+  iss_die "${2:-}unsupported \`issues:\` value \`$1\` in \`.issues/repo-config.md\`"
 }
 
 iss_err_jira() {
@@ -211,6 +229,20 @@ iss_err_gql_failed() {
   iss_die "GitHub GraphQL call failed: $1${2:+; $2}"
 }
 
+iss_err_page_empty() {
+  # $1 issue reference, $2 the connection, empty for a project item's field
+  # values
+  if [ -n "${2:-}" ]; then
+    iss_die "the next page of \`$2\` on issue \`$1\` came back empty"
+  fi
+  iss_die "the next page of a project item's field values on issue \`$1\` came back empty"
+}
+
+iss_err_no_conn_selection() {
+  # $1 the connection
+  iss_die "no node selection is defined for the connection \`$1\`"
+}
+
 iss_err_missing_scope() {
   # $1 host, $2 scope, $3 gh's error
   iss_die "the gh token for \`$1\` lacks the \`$2\` scope this lookup needs: $3"
@@ -266,8 +298,8 @@ iss_join_lines() {
 }
 
 iss_require_tools() {
-  command -v gh >/dev/null 2>&1 || iss_die "\`gh\` is not on PATH"
-  command -v jq >/dev/null 2>&1 || iss_die "\`jq\` is not on PATH"
+  command -v gh >/dev/null 2>&1 || iss_err_tool_missing gh
+  command -v jq >/dev/null 2>&1 || iss_err_tool_missing jq
 }
 
 # ---------------------------------------------------------------------------
@@ -431,7 +463,7 @@ iss_config_frontmatter() {
   ISS_BRANCH_PREFIX_MODE=$(iss_fm_get "$fm" issue-branch-naming-prefix)
   case "$ISS_ISSUES" in
     GitHub | Jira) ;;
-    *) iss_die "${prefix}unsupported \`issues:\` value \`$ISS_ISSUES\` in \`.issues/repo-config.md\`" ;;
+    *) iss_err_unsupported_tracker "$ISS_ISSUES" "$prefix" ;;
   esac
   iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX" "$prefix"
 }
@@ -523,7 +555,7 @@ iss_number_check() {
 # issue-link-prefix is also kept in ISS_HERE_LINK_PREFIX, which a later
 # iss_load_target_config leaves alone.
 iss_load_config() {
-  ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
+  ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_err_no_worktree
   [ -f "$ISS_REPO_ROOT/.issues/repo-config.md" ] || iss_err_file_missing
   if [ "${1:-}" = frontmatter-only ]; then
     iss_config_frontmatter "$(cat "$ISS_REPO_ROOT/.issues/repo-config.md")"
@@ -567,7 +599,7 @@ iss_fetch_target_config() {
   errf=$(mktemp "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX" 2>&1) || iss_err_scratch "$errf"
   if content=$(iss_rest "$1" "repos/$2/$3/contents/.issues/repo-config.md" --jq .content 2>"$errf"); then
     rm -f "$errf"
-    ISS_TARGET_CONFIG_TEXT=$(printf '%s' "$content" | tr -d '\n' | base64 --decode) && return 0
+    ISS_TARGET_CONFIG_TEXT=$(printf '%s' "$content" | tr -d '\n' | base64 --decode 2>/dev/null) && return 0
     ISS_TARGET_CONFIG_ERR="its content does not decode as base64"
     return 2
   fi
@@ -612,7 +644,7 @@ iss_view_current_repo() {
 # and ISS_REPO, and aborts when it cannot.
 iss_current_repo() {
   iss_view_current_repo ||
-    iss_die "could not resolve the current GitHub repository with \`gh repo view\`"
+    iss_err_no_current_repo
   ISS_CURRENT_TRIED=yes
   ISS_HOST=$URL_HOST
   ISS_OWNER=$URL_OWNER
@@ -824,7 +856,7 @@ iss_repo_name() {
 iss_init() {
   local op
   iss_require_tools
-  ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_die "not inside a git working tree"
+  ISS_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || iss_err_no_worktree
   iss_peek_link_prefix
   for op in "$@"; do
     iss_check_operand_syntax "$op"
@@ -1124,7 +1156,7 @@ iss_rest() {
 iss_gql() {
   local host=$1 errf rc
   shift
-  errf=$(mktemp "${TMPDIR:-/tmp}/issues-gql.XXXXXX")
+  errf=$(mktemp "${TMPDIR:-/tmp}/issues-gql.XXXXXX" 2>&1) || iss_err_scratch "$errf"
   if [ -n "$host" ]; then
     ISS_GQL_OUT=$(gh api --hostname "$host" graphql "$@" 2>"$errf")
   else
@@ -1190,7 +1222,7 @@ iss_page_rest() {
       cursor=$(iss_jq --arg c "$conn" ".[\$c].pageInfo.endCursor")
       iss_gql "$1" -f query="$doc" -f owner="$2" -f repo="$3" -F number="$4" -f after="$cursor" || iss_gql_fail
       page=$(printf '%s' "$ISS_GQL_OUT" | jq -c --arg c "$conn" '.data.repository.issue[$c] // empty')
-      [ -n "$page" ] || iss_die "the next page of \`$conn\` on issue \`$ref\` came back empty"
+      [ -n "$page" ] || iss_err_page_empty "$ref" "$conn"
       ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" |
         jq -c --arg c "$conn" --argjson p "$page" '.[$c].nodes += $p.nodes | .[$c].pageInfo = $p.pageInfo')
     done
@@ -1204,7 +1236,7 @@ iss_page_rest() {
       cursor=$(iss_jq --argjson i "$i" ".projectItems.nodes[\$i].fieldValues.pageInfo.endCursor")
       iss_gql "$1" -f query="$doc" -f item="$item" -f after="$cursor" || iss_gql_fail
       page=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.node.fieldValues // empty')
-      [ -n "$page" ] || iss_die "the next page of a project item's field values on issue \`$ref\` came back empty"
+      [ -n "$page" ] || iss_err_page_empty "$ref"
       ISS_ISSUE=$(printf '%s' "$ISS_ISSUE" | jq -c --argjson i "$i" --argjson p "$page" \
         '.projectItems.nodes[$i].fieldValues.nodes += $p.nodes | .projectItems.nodes[$i].fieldValues.pageInfo = $p.pageInfo')
     done
@@ -1238,7 +1270,7 @@ iss_conn_nodes() {
       printf '%s' '__typename
     ... on IssueFieldSingleSelectValue { name optionId field { ... on IssueFieldSingleSelect { id } } }'
       ;;
-    *) iss_die "no node selection is defined for the connection \`$1\`" ;;
+    *) iss_err_no_conn_selection "$1" ;;
   esac
 }
 
