@@ -144,7 +144,8 @@ calls in a subagent context.
 
 4. **Try to break the claim**, starting from `--pointers`. Establish
    facts by running commands, not by reasoning about what the code
-   probably does. See "Establishing a fact" below.
+   probably does. See "Establishing a fact" below, and decide the
+   verdict by "The verdict order" after it.
 
 5. **Write your report to your result file**, as your final act before
    reporting. First write the whole report with the Write tool to your
@@ -241,36 +242,43 @@ These are the ways a check goes wrong often enough to be worth naming:
   different system. Confirm the environment (`uname -m`, the package
   set) before treating its output as a counterexample.
 
-A claim whose subject exists at `HEAD` and that you cannot settle from
-the tree and the commands you can run —
-because settling it needs a live run, a remote event, or a runtime you
-cannot exercise — is `UNSETTLED`, never `SURVIVED`. A survival resting
-on general knowledge rather than on a quoted file or a command's output
-is not a survival: the pipeline would publish it beside the claims you
-did check, with the same weight. An `UNSETTLED` theorem blocks the
-review and is reported as a pipeline defect, so the gap reaches a human
-rather than passing as checked.
+## The verdict order
 
-A claim whose **subject is absent** at `HEAD` — the code, text or
-symbol it is about is not there, so there is nothing at its pointers to
-attack — is never `UNSETTLED` and never `SURVIVED`. Establish the
-absence the way "A zero-hit grep is not a proof" above demands, then
-ask one question of the claim: does it require the PR to add or keep
-the subject?
+Decide a claim's verdict by these steps, in order; the first that
+applies decides it, and no later step is asked.
 
-- **It does** — the claim is `DISPROVED`, and the absence is the
-  counterexample, its `EVIDENCE` naming where the subject should appear
-  and quoting the surrounding text at `HEAD`. That holds whether the PR
-  never added the subject or a later commit of the PR deleted it, as
-  when an acceptance criterion requires text the branch no longer
-  carries. Never report it `SUBJECT REMOVED`: that verdict can retire
-  the theorem with no finding.
-- **It does not** — the claim only describes the subject, such as how
-  a function the branch has since dropped handles an input, so with the
-  subject gone there is nothing left for it to hold of — the claim is
-  `SUBJECT REMOVED`. Whether a commit reachable from `HEAD` deleted the
-  subject does not decide it: a force-rebase can drop the deleting
-  commit from history and leave the subject just as absent.
+1. **Settling it needs what you cannot run.** A claim you cannot settle
+   from the tree and the commands you can run, because settling it
+   needs a live run, a remote event, or a runtime you cannot exercise —
+   "verified by running the suite in CI", say — is `UNSETTLED`, whatever
+   its pointers hold at `HEAD`, present or absent. An `UNSETTLED`
+   theorem blocks the review and is reported as a pipeline defect, so
+   the gap reaches a human rather than passing as checked.
+2. **Its subject is absent.** A claim about code, text or a symbol in
+   the tree, whose subject is not there at `HEAD`, so there is nothing
+   at its pointers to attack. Establish the absence the way "A zero-hit
+   grep is not a proof" above demands, then ask one question of the
+   claim: does it require the PR to add or keep the subject?
+   - **It does** — the claim is `DISPROVED`, and the absence is the
+     counterexample, its `EVIDENCE` naming where the subject should
+     appear and quoting the surrounding text at `HEAD`. That holds
+     whether the PR never added the subject or a later commit of the PR
+     deleted it, as when an acceptance criterion requires text the
+     branch no longer carries. Never report it `SUBJECT REMOVED`: that
+     verdict can retire the theorem with no finding.
+   - **It does not** — the claim only describes the subject, such as
+     how a function the branch has since dropped handles an input, so
+     with the subject gone there is nothing left for it to hold of —
+     the claim is `SUBJECT REMOVED`. Whether a commit reachable from
+     `HEAD` deleted the subject does not decide it: a force-rebase can
+     drop the deleting commit from history and leave the subject just
+     as absent.
+3. **Every other claim** is `DISPROVED` when you find a counterexample
+   and `SURVIVED` when you do not. A survival resting on general
+   knowledge rather than on a quoted file or a command's output is not
+   a survival: the pipeline would publish it beside the claims you did
+   check, with the same weight. A claim only general knowledge would
+   settle is one step 1 decides.
 
 Guessing a counterexample is worse still: the pipeline copies your
 quote into the round's argued review verbatim, and `pr-finalizer` posts
@@ -364,7 +372,8 @@ list, and `pr-finalizer` posts that review to the PR once the fix loop
 concludes — so it is the coverage record. Say what you actually did,
 including where you stopped.
 
-**Unsettled** — settling the claim needs what you cannot run:
+**Unsettled** — step 1 of "The verdict order": settling the claim
+needs what you cannot run, whatever its pointers hold:
 
 ```text
 VERDICT: UNSETTLED
@@ -379,9 +388,9 @@ you read, the region you covered>
 coverage record of what you did run, as on a `SURVIVED` report. Both are
 required: an `UNSETTLED` report missing either is malformed.
 
-**Subject removed** — what the claim is about does not exist at the
-head under review, and the claim does not require the PR to add or
-keep it:
+**Subject removed** — step 2 of "The verdict order": the code, text or
+symbol the claim is about does not exist at the head under review, and
+the claim does not require the PR to add or keep it:
 
 ```text
 VERDICT: SUBJECT REMOVED
