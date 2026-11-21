@@ -107,6 +107,26 @@ iss_err_no_status_slot() {
   iss_die "${2:-}the \`status\` slot in \`github-project:\` in \`repo-config.md\` is \`kind: $1\`, and listing a board filters on a \`kind: single-select\` board field; run \`/issues:repo-config\` to reconfigure it"
 }
 
+iss_err_no_owner_board() {
+  # $1 host, empty for gh's default host, $2 owner, $3 project number
+  iss_die "no project \`$3\` under \`$2\`${1:+ on \`$1\`}"
+}
+
+iss_err_no_board_status() {
+  # $1 owner, $2 project number
+  iss_die "project \`$2\` of \`$1\` has no single-select field named \`Status\`, and listing a board filters on it"
+}
+
+iss_err_list_no_current_repo() {
+  # $1 the positional as written
+  iss_die "\`$1\` names a repository under the current repository's owner, and there is no current repository; to list an owner's board, name it with \`--project <number>\` or a project URL, since an owner can hold many"
+}
+
+iss_err_scratch() {
+  # $1 the failed command's error
+  iss_die "could not use a scratch directory under \`${TMPDIR:-/tmp}\`: $1"
+}
+
 iss_err_view_not_found() {
   # $1 the view as named, $2 the board's view names
   iss_die "no view \`$1\` on the project board. Views: \`$2\`"
@@ -171,6 +191,11 @@ iss_err_cannot_set_issue_field() {
 iss_err_write_not_landed() {
   # $1 what was written, $2 issue reference, $3 expected, $4 what the re-read shows
   iss_die "the write did not land: $1 on issue \`$2\` should read \`$3\`, but a re-read shows \`$4\`"
+}
+
+iss_err_gql_failed() {
+  # $1 the call's error, $2 what the caller adds after it, empty for nothing
+  iss_die "GitHub GraphQL call failed: $1${2:+; $2}"
 }
 
 iss_err_missing_scope() {
@@ -711,6 +736,27 @@ iss_check_repo_syntax() {
   iss_valid_path "$rest" || iss_usage_die "$bad"
 }
 
+# iss_parse_project_url <url>: split a board's URL,
+#   https://host/orgs/owner/projects/N, or users/ in place of orgs/
+# with /views/V after it for one of the board's views, a trailing / ignored,
+# into PU_HOST, PU_OWNER, PU_NUMBER and PU_VIEW, empty without a view. Returns
+# 1 on any other shape, or when a part is not valid for its place.
+iss_parse_project_url() {
+  local rest=${1%/} kind projects views extra
+  case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
+  case "$rest" in *//*) return 1 ;; esac
+  IFS=/ read -r PU_HOST kind PU_OWNER projects PU_NUMBER views PU_VIEW extra <<EOF
+$rest
+EOF
+  case "$kind:$projects:$views:$extra" in
+    orgs:projects:: | users:projects::) [ -z "$PU_VIEW" ] || return 1 ;;
+    orgs:projects:views: | users:projects:views:) [ -n "$PU_VIEW" ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  iss_valid_host "$PU_HOST" && iss_valid_owner "$PU_OWNER" && iss_is_digits "$PU_NUMBER" &&
+    { [ -z "$PU_VIEW" ] || iss_is_digits "$PU_VIEW"; }
+}
+
 # iss_same_host <host>: whether <host> is the current repository's host.
 iss_same_host() {
   [ "$(iss_lc "$1")" = "$(iss_lc "$ISS_HOST")" ]
@@ -1061,7 +1107,7 @@ iss_gql() {
 # iss_gql_fail [<detail>]: abort with the last call's error, and <detail>
 # after it when given.
 iss_gql_fail() {
-  iss_die "GitHub GraphQL call failed: ${ISS_GQL_ERR:-$ISS_GQL_OUT}${1:+; $1}"
+  iss_err_gql_failed "${ISS_GQL_ERR:-$ISS_GQL_OUT}" "${1:-}"
 }
 
 # iss_lookup <host> <owner> <repo> <number> <selection>: fetch one issue with
@@ -1221,7 +1267,8 @@ readonly ISS_DOC_REMOVE_BLOCKED_BY="mutation(\$issueId: ID!, \$blockingIssueId: 
 
 # The issues-discover lookups, each printing its document: an owner's boards,
 # one board, one board's fields, and a repository's native issue fields and
-# issue types. Each paged connection reads the page after $after.
+# issue types. Each paged connection reads the page after $after. The board and
+# board-fields documents also serve iss_owner_board.
 iss_doc_discover_projects() {
   printf '%s' "query(\$owner: String!, \$after: String) {
   repositoryOwner(login: \$owner) {
@@ -1674,8 +1721,9 @@ iss_remove_sub_issue() {
 }
 
 # ---------------------------------------------------------------------------
-# Board listing: /issue-list's reads of the configured board's views, fields
-# and items.
+# Board listing: /issue-list's reads of the board it lists -- the configured
+# one, or one an owner and project number name -- and of its views, fields and
+# items.
 # ---------------------------------------------------------------------------
 
 # The issue fields a board listing reads from each item's content: what
@@ -1788,6 +1836,32 @@ iss_board_nodes() {
   done
 }
 
+# iss_owner_board <host> <owner> <number>: read board <number> of <owner>, an
+# organization or a user, and set ISS_OWNER_BOARD_ID to its node ID and
+# ISS_OWNER_BOARD_FIELDS to every one of its fields, as one JSON array of
+# { id, name, dataType }, a single-select's with its options { id, name }.
+# Aborts when a call fails or the owner has no such board.
+iss_owner_board() {
+  local host=$1 owner=$2 number=$3 doc page cursor=
+  iss_gql "$host" -f query="$(iss_doc_discover_project)" -f owner="$owner" -F number="$number" || iss_gql_fail
+  ISS_OWNER_BOARD_ID=$(printf '%s' "$ISS_GQL_OUT" | jq -r '.data.repositoryOwner.projectV2.id // empty')
+  [ -n "$ISS_OWNER_BOARD_ID" ] || iss_err_no_owner_board "$host" "$owner" "$number"
+  doc=$(iss_doc_discover_fields)
+  ISS_OWNER_BOARD_FIELDS=[]
+  while :; do
+    if [ -n "$cursor" ]; then
+      iss_gql "$host" -f query="$doc" -f owner="$owner" -F number="$number" -f after="$cursor"
+    else
+      iss_gql "$host" -f query="$doc" -f owner="$owner" -F number="$number"
+    fi || iss_gql_fail
+    page=$(printf '%s' "$ISS_GQL_OUT" | jq -c '.data.repositoryOwner.projectV2.fields // empty')
+    [ -n "$page" ] || iss_err_no_owner_board "$host" "$owner" "$number"
+    ISS_OWNER_BOARD_FIELDS=$(printf '%s\n%s\n' "$ISS_OWNER_BOARD_FIELDS" "$page" | jq -cs '.[0] + .[1].nodes')
+    [ "$(printf '%s' "$page" | jq -r .pageInfo.hasNextPage)" = true ] || return 0
+    cursor=$(printf '%s' "$page" | jq -r .pageInfo.endCursor)
+  done
+}
+
 # iss_board_views <host> <project-id>: set ISS_BOARD_NODES to every view of
 # the board, as a JSON array of { number, name, filter, sortByFields }.
 iss_board_views() {
@@ -1815,6 +1889,22 @@ iss_board_items() {
     iss_lookup "$host" "${nwo%%/*}" "${nwo#*/}" "$number" "$ISS_SEL_LIST_ISSUE $ISS_SEL_PROJECT_ITEMS"
     ISS_BOARD_ITEMS=$(printf '%s\n%s\n' "$ISS_BOARD_ITEMS" "$ISS_ISSUE" | jq -cs --argjson i "$i" '.[1] as $issue | .[0] | .[$i] = $issue')
   done
+}
+
+# iss_board_row_project_items <host>: give the iss_board_items row in ISS_ISSUE
+# every project item of its issue, each with all its field values, so a slot
+# read on another board than the listed one finds that board's item. A row
+# iss_board_items read again whole already carries them, as the projectItems
+# connection with its pageInfo, and is left as it is; a row it kept carries
+# only the listed board's item, with no pageInfo.
+iss_board_row_project_items() {
+  local row nwo number
+  [ "$(iss_jq '.projectItems | has("pageInfo")')" = false ] || return 0
+  row=$ISS_ISSUE
+  nwo=$(iss_jq .repository.nameWithOwner)
+  number=$(iss_jq .number)
+  iss_lookup "$1" "${nwo%%/*}" "${nwo#*/}" "$number" "$ISS_SEL_PROJECT_ITEMS"
+  ISS_ISSUE=$(printf '%s\n%s\n' "$row" "$ISS_ISSUE" | jq -cs '.[0] + {projectItems: .[1].projectItems}')
 }
 
 # ---------------------------------------------------------------------------

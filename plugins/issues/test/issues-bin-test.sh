@@ -763,6 +763,195 @@ new_case "$(printf '%s\n' "$CONFIG_MAIN" | sed 's/project-id: PVT_1/project-id: 
 run issue-list --status Done
 expect "issue-list: a board that does not resolve" 1 "project \`PVT_9\` did not resolve to a board on \`github.com\`" "\`/issues:repo-config\`"
 
+new_case "$CONFIG_MAIN"
+run issue-list widgets --status Done
+check "$(last_search)" 'repo:acme/widgets status:"Done" is:issue is:open' \
+  "issue-list: without --project, a single word is a repository under the current owner"
+mkdir -p "$CASE_DIR/outside"
+run_in "$CASE_DIR/outside" issue-list acme --status Done
+expect "issue-list: a bare owner with no --project and no URL aborts" 1 "there is no current repository" "\`--project <number>\`"
+check "$(refs)" "" "issue-list: a bare owner with no --project prints no issue line"
+run_in "$CASE_DIR/outside" issue-list acme/ --status Done
+expect "issue-list: a bare owner with a trailing / and no --project aborts as one without" 1 "there is no current repository"
+edit_state '.repoViewError = "no git remotes found"'
+run issue-list acme --status Done
+expect "issue-list: a bare owner where gh resolves no current repository aborts, as no usage error" 1 \
+  "there is no current repository" "\`--project <number>\`"
+check "$(refs)" "" "issue-list: a bare owner where gh resolves no current repository prints no issue line"
+
+# ---------------------------------------------------------------------------
+# Board listing by --project or a board URL: acme's board 1, across the
+# repositories its items belong to. Its Status field's options are Backlog and
+# Done, its Priority field a number, and it has no Size field.
+# ---------------------------------------------------------------------------
+
+# board_items: put more issues on board 1, after #2 and #12 -- two of
+# acme/other, with no repo-config; one each of octo/lib, with none; acme/jira,
+# tracked in Jira; and acme/stale, at an unsupported schema version.
+board_items() {
+  edit_state '
+    def put(nwo; n; pos; fields): .repos[nwo].issues[n | tostring].projectItems +=
+      [{id: "PVTI_\(nwo)_\(n)", project: "PVT_1", position: pos, fields: fields}];
+    def make(nwo; n): .repos[nwo].issues[n | tostring] = (.repos["acme/other"].issues["3"]
+      | .id = "I_\(nwo | sub("/"; "_"))_\(n)" | .number = n | .title = "\(nwo) issue \(n)");
+    make("acme/other"; 4) | make("acme/jira"; 1) | make("acme/stale"; 1)
+    | put("acme/other"; 3; 1; {PVTSSF_status: {name: "Done", optionId: "OPT_done"}, PVTF_prio: {number: 7}})
+    | put("acme/other"; 4; 2; {})
+    | put("octo/lib"; 5; 3; {PVTF_prio: {number: 2}})
+    | put("acme/jira"; 1; 4; {PVTF_prio: {number: 4}})
+    | put("acme/stale"; 1; 5; {PVTF_prio: {number: 5}})'
+}
+
+# contents_reads <owner/repo>: how many times the case read <owner/repo>'s
+# repo-config through the contents API.
+contents_reads() {
+  grep -c "\"repos/$1/contents/.issues/repo-config.md\"" "$CASE_DIR/gh.log"
+}
+
+new_case "$CONFIG_MAIN"
+board_items
+run issue-list acme --project 1 --status DONE
+expect "issue-list <owner> --project: lists every repository's items" 0 \
+  "#2${TAB}In progress${TAB}High${TAB}S${TAB}1${TAB}octocat${TAB}Widget issue 2" \
+  "other#3${TAB}Done${TAB}7${TAB}-${TAB}0${TAB}-${TAB}Other repo issue" \
+  "other#4${TAB}-${TAB}-${TAB}-${TAB}0${TAB}-${TAB}acme/other issue 4" \
+  "octo/lib#5${TAB}-${TAB}2${TAB}-${TAB}0${TAB}-${TAB}Library issue" \
+  "jira#1${TAB}-${TAB}4${TAB}-${TAB}0${TAB}-${TAB}acme/jira issue 1" \
+  "stale#1${TAB}-${TAB}5${TAB}-${TAB}0${TAB}-${TAB}acme/stale issue 1"
+check "$(refs)" "#2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" "issue-list <owner> --project: every item, in position order"
+check "$(last_search)" 'status:"Done" is:issue is:open' \
+  "issue-list <owner> --project: no repo: term, and the status group keyed status with the board's option"
+check "$(contents_reads acme/other)" 1 "issue-list <owner> --project: each repository's repo-config is read once"
+check "$(contents_reads acme/widgets)" 1 \
+  "issue-list <owner> --project: the current repository's is read from its default branch, as any other's"
+run issue-list acme --project 1 --status 'In progress'
+expect "issue-list --project: --status resolves against the board's Status field" 1 \
+  "value \`In progress\` is not in \`status\`'s options. Known options: \`Backlog, Done\`."
+check "$(refs)" "" "issue-list --project: a status the board lacks prints no issue line"
+run issue-list acme/other --project 1 --status Done
+check "$(last_search)" 'repo:acme/other status:"Done" is:issue is:open' \
+  "issue-list <owner>/<repo> --project: scoped to a repository with no repo-config"
+expect "issue-list <owner>/<repo> --project: runs with no repo-config there" 0 "other#3${TAB}Done"
+run issue-list --project https://github.com/orgs/acme/projects/1/ --status Done
+check "$(last_search)" 'status:"Done" is:issue is:open' "issue-list --project <url>: the URL supplies owner and number"
+run issue-list --project https://github.com/users/acme/projects/1 --status Done
+check "$(refs)" "#2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" "issue-list --project <url>: the users/ form"
+run issue-list acme/ --project 1 --status Done
+check "$RC $(refs)" "0 #2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" \
+  "issue-list <owner>/ --project: a trailing / is ignored, and the board is listed across its repositories"
+check "$(last_search)" 'status:"Done" is:issue is:open' "issue-list <owner>/ --project: no repo: term"
+run issue-list acme/ --project https://github.com/orgs/acme/projects/1 --status Done
+check "$RC $(refs)" "0 #2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" \
+  "issue-list <owner>/ --project <url>: the owner agrees with the URL's"
+run issue-list widgets/ --project 1 --status Done
+expect "issue-list <word>/ --project: the word is the board's owner, not a repository under the current one" 1 \
+  "no project \`1\` under \`widgets\`"
+check "$(grep -c 'widgets/widgets' "$CASE_DIR/gh.log")" 0 "issue-list <word>/ --project: no read is scoped to <word>/<word>"
+run issue-list acme --project 1 --view 2 --status Done
+view_refs=$(refs)
+view_search=$(last_search)
+run issue-list --view https://github.com/orgs/acme/projects/1/views/2 --status Done
+check "$(refs)" "$view_refs" "issue-list --view <url>: lists the set <owner> --project <n> --view <v> lists"
+check "$(last_search)" "$view_search" "issue-list --view <url>: sends the search <owner> --project <n> --view <v> sends"
+check "$view_search" '(label:bug OR label:docs) status:"Done" is:issue is:open' "issue-list --view <url>: the view's filter leads"
+mkdir -p "$CASE_DIR/outside"
+run_in "$CASE_DIR/outside" issue-list --view https://github.com/orgs/acme/projects/1/views/2 --status Done --assignee octocat
+expect "issue-list --view <url>: runs from outside a checkout" 0 \
+  "github.com/acme/widgets#2${TAB}In progress${TAB}High${TAB}S" "github.com/acme/other#3${TAB}Done${TAB}7"
+check "$(last_search)" '(label:bug OR label:docs) status:"Done" is:issue is:open assignee:octocat' \
+  "issue-list --view <url>: from outside a checkout, the same search"
+
+# The local repo-config never gates a --project run: its issue-link-prefix
+# spells references unvalidated, # with no file.
+for local in jira absent invalid-prefix; do
+  case "$local" in
+    jira) new_case "$(printf '%s\n' "$FRONT_MATTER" | sed 's/^issues: GitHub$/issues: Jira/')" ;;
+    absent) new_case none ;;
+    invalid-prefix) new_case "$(with_link_prefix "$CONFIG_MAIN" 'x##')" ;;
+  esac
+  want="#2 #12"
+  [ "$local" != invalid-prefix ] || want="x##2 x##12"
+  run issue-list acme --project 1 --status Done
+  check "$RC $(refs)" "0 $want" "issue-list --project: a local repo-config that is $local does not stop it"
+  expect "issue-list --project: with a local repo-config that is $local, a row here takes its default branch's slots" 0 \
+    "${want%% *}${TAB}In progress${TAB}High${TAB}S"
+done
+
+# A repository whose repo-config names another board reads its slots off its
+# item on that board, the same for a row the listing kept as for one it read
+# again whole: acme/other's names board 2, where its priority is a number
+# field. #3 is kept; #4's item on board 1 runs past one page of field values.
+new_case "$CONFIG_MAIN"
+board_items
+jq --arg cfg "$(printf '%s\n' "$CONFIG_NUMBER" | sed 's/project-id: PVT_1/project-id: PVT_2/; s/id: PVTF_prio/id: PVTF_ops_prio/')" '
+  def other(n; f): .repos["acme/other"].issues[n | tostring].projectItems |= f;
+  .repos["acme/other"].config = $cfg
+  | other(3; . + [{id: "PVTI_ops_3", project: "PVT_2", fields: {PVTF_ops_prio: {number: 8}}}])
+  | other(4; map(.fields = ([range(110) | {key: "PVTF_other\(.)", value: {number: .}}] | from_entries)
+                    + {PVTSSF_status: {name: "Done", optionId: "OPT_done"}})
+             + [{id: "PVTI_ops_4", project: "PVT_2", fields: {PVTF_ops_prio: {number: 6}}}])' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list acme/other --project 1 --status Done
+expect "issue-list --project: a repo-config naming another board reads that board's item, kept row or re-read" 0 \
+  "other#3${TAB}Done${TAB}8${TAB}-${TAB}" "other#4${TAB}Done${TAB}6${TAB}-${TAB}"
+
+# Each repository's repo-config is cached under its own owner and name, so
+# acme/ops_lib's, which carries a native priority field, is not taken for
+# acme_ops/lib's, which is absent and falls back to the board's Priority.
+new_case "$CONFIG_MAIN"
+jq --arg cfg "$CONFIG_MAIN" '
+  def make(nwo; prio; num): .repos[nwo] = {issues: {"1": (.repos["acme/other"].issues["3"]
+      | .id = "I_\(nwo | gsub("/"; "_"))_1" | .number = 1 | .title = "\(nwo) issue 1"
+      | .issueFields = {IFSS_priority: {name: prio, optionId: "IFSSO_x"}}
+      | .projectItems = [{id: "PVTI_\(nwo)_1", project: "PVT_1", position: 1, fields: {PVTF_prio: {number: num}}}])},
+    config: null, validLabels: [], collaborators: ["octocat"]};
+  make("acme/ops_lib"; "High"; 3) | make("acme_ops/lib"; "Low"; 4)
+  | .repos["acme/ops_lib"].config = $cfg' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.new" && mv "$CASE_DIR/state.new" "$CASE_DIR/state.json"
+run issue-list acme --project 1 --status Done
+expect "issue-list --project: repositories whose owner_repo spellings collide keep their own repo-configs" 0 \
+  "ops_lib#1${TAB}-${TAB}High${TAB}" "acme_ops/lib#1${TAB}-${TAB}4${TAB}"
+check "$(contents_reads acme/ops_lib) $(contents_reads acme_ops/lib)" "1 1" \
+  "issue-list --project: each of two colliding spellings has its repo-config read"
+
+# Aborts.
+new_case "$CONFIG_MAIN"
+run issue-list octo --project https://github.com/orgs/acme/projects/1 --status Done
+expect "issue-list: a URL owner disagreeing with the positional owner aborts" 2 "name different owners"
+check "$(refs)" "" "issue-list: a URL owner disagreeing with the positional prints no issue line"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-list: a URL owner disagreeing with the positional makes no gh call"
+run issue-list octo/lib --view https://github.com/orgs/acme/projects/1/views/2 --status Done
+expect "issue-list: a view URL owner disagreeing with <owner>/<repo> aborts" 2 "name different owners"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-list: a URL owner disagreeing with <owner>/<repo> makes no gh call"
+run issue-list --project 1 --status Done
+expect "issue-list: --project <number> with no owner aborts" 2 "needs the board's owner"
+check "$(wc -l <"$CASE_DIR/gh.log" | tr -d ' ')" 0 "issue-list: --project <number> with no owner makes no gh call"
+run issue-list ghe.example.com/acme/widgets --project https://github.com/orgs/acme/projects/1 --status Done
+expect "issue-list: a URL host disagreeing with the positional's host aborts" 2 "name different owners"
+run issue-list acme --project 2 --view https://github.com/orgs/acme/projects/1/views/2 --status Done
+expect "issue-list: --view <url> and --project naming different numbers abort" 2 "name different projects"
+run issue-list --project https://github.com/orgs/octo/projects/1 --view https://github.com/orgs/acme/projects/1/views/2 --status Done
+expect "issue-list: --view <url> and --project <url> naming different owners abort" 2 "name different projects"
+check "$(refs)" "" "issue-list: --view and --project naming different projects print no issue line"
+run issue-list acme --project 2 --status Done
+expect "issue-list --project: a board with no single-select Status field aborts" 1 \
+  "project \`2\` of \`acme\` has no single-select field named \`Status\`"
+check "$(refs)" "" "issue-list --project: a board with no Status field prints no issue line"
+run issue-list acme --project 9 --status Done
+expect "issue-list --project: an owner with no such board aborts" 1 "no project \`9\` under \`acme\` on \`github.com\`"
+TMPDIR="$CASE_DIR/no-such-dir" run issue-list acme --project 1 --status Done
+expect "issue-list --project: an unusable TMPDIR aborts with one catalogue line" 1 \
+  "issue-list: could not use a scratch directory under \`$CASE_DIR/no-such-dir\`: "
+check "$(printf '%s\n' "$OUT" | grep -c .)" 1 "issue-list --project: an unusable TMPDIR prints that line alone"
+for call in "issue-list --project 1 --status Done" "issue-list acme --project x --status Done" \
+  "issue-list --project https://github.com/acme/widgets --status Done" \
+  "issue-list --project https://github.com/orgs/acme/projects/1/views/2 --status Done" \
+  "issue-list acme --project 1 --view https://github.com/orgs/acme/projects/1 --status Done" \
+  "issue-list a_b --project 1 --status Done"; do
+  run $call
+  expect "$call: a usage error" 2 "issue-list"
+done
+
 # ---------------------------------------------------------------------------
 # A slot default: the slot would refuse is an invalid repo-config.
 # ---------------------------------------------------------------------------
