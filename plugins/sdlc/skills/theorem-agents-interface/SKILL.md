@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, which brief the generator and the assessor each receive, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, sdlc:theorem-assessor, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, which brief the generator and the assessor each receive, which verdicts a disprover's report can carry, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, sdlc:theorem-assessor, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
