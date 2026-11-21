@@ -41,7 +41,7 @@ restate the fact.
 | In what order the review detail is assembled, which rounds a chain holds when the PR already carries chains, how it is chunked under GitHub's comment cap, and how a piece too large for one chunk is split across chunks | `bin/sdlc-pr-post-theorem-records` |
 | How the generator turns a PR — or, before one exists, the issues a batch will close — into theorems, and what may be emitted at all | `agents/theorem-generator.md` |
 | What a generated theorem list is judged on before any disprover runs, what the assessment recommends, and the format it is written in | `agents/theorem-assessor.md` |
-| The tier the generator runs at on one spawn, and where it is recorded | the `effort` of the `Agent` call that spawns it, written to the generate-stage `spawn` record by its spawner — `agents/theorem-based-pr-reviewer.md` for a review round, `skills/orchestrate/lib/pr-lifecycle.md` for the seed |
+| The tier the generator runs at on one spawn, and where it is recorded | the `effort` of the `Agent` call that spawns it, which `agents/theorem-based-pr-reviewer.md` makes on a review round and on the seed alike; written to the generate-stage `spawn` record by `agents/theorem-based-pr-reviewer.md` for a review round, and by `skills/orchestrate/lib/pr-lifecycle.md` for the seed, from the tier the seed reviewer reported |
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — how a body is graded against the rest of the bar, and what a mechanical gap is | `skills/orchestrate-readiness/SKILL.md` |
 | The terms for a repo statement an issue contradicts — instruction file, capability claim, policy claim and test — and the search that looks for one | `skills/orchestrate-readiness/SKILL.md` |
 | How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, which heading and which list items make a section a mistitled files-affected list, which gap lines open `mechanical:`, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
@@ -854,10 +854,16 @@ write with no debug destination. The decisions behind what it reads:
   latest signal, so it moves backwards when the run does, as from
   `monitor` to `merge readiness`.
 - **A run starts at the `orchestrate` prompt, or at a main-loop spawn of
-  any `sdlc:` agent but the reviewer.** The spawn is what brings the
-  line back in a session resumed mid-run. The reviewer is left out
-  because `/sdlc:git-review-pr` spawns it too, and a standalone review
-  is not a run.
+  any `sdlc:` agent but the reviewer on a PR.** The spawn is what
+  brings the line back in a session resumed mid-run. A reviewer whose
+  brief names a PR is left out because `/sdlc:git-review-pr` spawns it
+  too, and a standalone review is not a run.
+- **A reviewer whose brief names no PR is the seed.** Only the seed
+  brief names none, by reference or by `--pr`, and only the
+  orchestrator sends it, so that spawn sets `seed` and starts a run
+  like any other agent's. A standalone review always carries `--pr`,
+  in whatever form the PR was given, which is why the flag alone rules
+  the seed out.
 - **The PR is the first `<host>/<owner>/<repo>#<n>` in a main-loop
   spawn's brief**, and the current PR is the one the most recent such
   brief named. A brief that names none makes the PR-less work current,
@@ -1394,14 +1400,30 @@ developer is spawned,
 so a developer that goes beyond the issues, or decides something they
 do not, surfaces in the first review round as new theorems against a
 list the human already owns. That seed is **round 0**: rounds count
-implementer passes from 1, and 0 is the pre-loop stage. The generator
-runs on an issues-only brief and its return is held, not persisted —
-every path `bin/sdlc-agent-result-persist` composes is keyed on a PR
-reference, and none exists yet, so the assessment of that list is held
-the same way — until the developer's PR is open and
+implementer passes from 1, and 0 is the pre-loop stage.
+
+Round 0 runs through `theorem-based-pr-reviewer`, as every other round
+does. The orchestrator spawns the reviewer on its seed brief, which
+names the batch's issues and the source branch and no PR, and the
+reviewer picks the generator's tier by its own rubric, read against
+the issue bodies where a review round reads a delta, then spawns the
+generator on an issues-only brief and the assessor on the list it
+emits. The seed used to be a path of its own outside the reviewer,
+with the rubric applied by hand and nothing holding the result to the
+rubric's cap, so a seed could run at a tier the rubric never picks
+with no override given (issue #725). With one spawner there is one
+place the tier is picked and one set of briefs.
+
+The seed reviewer persists nothing and posts no review — every path
+`bin/sdlc-agent-result-persist` composes is keyed on a PR reference,
+and none exists yet. It reports the list, the assessment and the tier
+that ran back to the orchestrator, which holds them until the
+developer's PR is open and
 linked, when the ruled list is written as round 0's records file and
 the tier the seed generator was spawned at as the generate-stage
-`spawn` record in round 0's log. Round 0 holds that file, that log
+`spawn` record in round 0's log. The seed reviewer ran no round, so
+the time report counts its span as agent work rather than as a review
+round. Round 0 holds that file, that log
 line and, under `accept-recommended`, a `seed-review` log line, and no
 anchor, result file or review, and `--mode rounds` leaves
 it out, so a walk over a PR's rounds never sees it, and a PR with no
@@ -1414,9 +1436,11 @@ from the whole PR the same way, with the review saying so, and a batch
 with no code to implement has no seed at all.
 
 The candidates do not reach the human raw. `theorem-assessor` makes
-the assessment: the orchestrator spawns it on the seed generator's
-list before it asks, and the agent judges each theorem against the
-issues and the tree of the source branch. The orchestrator once made
+the assessment: the seed reviewer spawns it on the seed generator's
+list, so the assessment is in hand before the orchestrator asks, and
+the agent judges each theorem against the
+issues and the tree of the source branch. The seed reviewer applies
+none of it; settling the seed stays the orchestrator's. The orchestrator once made
 that assessment itself, in its own session with no spawn; it is an
 agent's now so that the seed and every review round judge a list on
 the same criteria, stated in one file. Across the set the assessor
@@ -1461,13 +1485,14 @@ Each piece has one owner:
 | Slot | Owner |
 | --- | --- |
 | The issues-only brief, and what the generator emits on it | `skills/theorem-agents-interface/SKILL.md` and `agents/theorem-generator.md` |
-| The seed generator's spawn and its tier pick against the issue bodies, the seed assessor's spawn, the order the candidates are shown in, the ruling set the human chooses from, and the per-theorem ruling or what settles the list in its place under a `seed-review` value that does not wait | `skills/orchestrate/SKILL.md` |
+| The seed brief, the tier pick against the issue bodies, the seed generator's and the seed assessor's spawns, and what the seed reviewer reports back | `agents/theorem-based-pr-reviewer.md` |
+| The seed reviewer's spawn, when a generator tier override rides it, the order the candidates are shown in, the ruling set the human chooses from, and the per-theorem ruling or what settles the list in its place under a `seed-review` value that does not wait | `skills/orchestrate/SKILL.md` |
 | The assessment's criteria, the coverage gaps, the recommendations and the format they are written in | `agents/theorem-assessor.md` |
 | The assessor's seed brief | `skills/theorem-agents-interface/SKILL.md` |
 | The round-0 write — the record outcome of every ruling, what each one transcribes onto round 0's records, the record each recommendation becomes under `accept-recommended` and which of those carry `minted-by`, when the `seed-review` record is written, and the seed generator's `spawn` record carrying its tier | `skills/orchestrate/lib/pr-lifecycle.md` |
 | Round 0 as a valid round number holding a records file and a log with the seed's `spawn` record and no anchor, read as a code round, and the `seed-review` mode and its record's grammar | `skills/agent-result-persist-interface/SKILL.md` |
 | A record without `state`, the seed ruling as a `human-refuted` source and the applied seed assessment as an `assessor-rejected` one, and round 1's delta over the whole branch | `agents/theorem-based-pr-reviewer.md` |
-| How the time report words a seed's rulings under the `seed-review` record | `bin/sdlc-orchestrate-analysis` |
+| How the time report words a seed's rulings under the `seed-review` record, the report the seed-ruling wait is measured from, and which reviewer spans count as review rounds | `bin/sdlc-orchestrate-analysis` |
 | Whose the seed's rulings are in the final section | `agents/pr-finalizer.md` |
 | That the seed generator reads the files-affected section in place of a diff | `agents/theorem-generator.md` |
 
@@ -1537,7 +1562,7 @@ Each piece has one owner:
 | Which rounds are assessed, which theorems the assessor is handed, the record each recommendation becomes, the order ids are assigned in, and which records carry `minted-by` | `agents/theorem-based-pr-reviewer.md` |
 | The `assess` stage and its arm in `next`, the `minted-by` field, and which retired records a `--full` round's live list holds | `skills/agent-result-persist-interface/SKILL.md` |
 | That a `minted-by: assessor` claim is the assessor's in the final section | `agents/pr-finalizer.md` |
-| The assessor's phase in the time report, and the report the seed-ruling wait is measured from | `bin/sdlc-orchestrate-analysis` |
+| The assessor's phase in the time report | `bin/sdlc-orchestrate-analysis` |
 | That a round's assessment follows the list it assesses in the review detail | `bin/sdlc-pr-post-theorem-records` |
 
 ## Carried records move through state, not a brief or an agent-built file
@@ -1729,8 +1754,9 @@ rounds above those the PR's complete chains cover, with an old-form
 or partial chain covering none and a re-run with no new round posting
 nothing; and a piece over the chunk limit split across chunks, with a
 code fence open at the break and a line cut at a character boundary.
-It drives the time report's type column, and its row for the assess
-stage, against the same root, and the detail poster placing a round's
+It drives the time report's type column, its row for the assess
+stage, and a seed reviewer's span counted outside the review rounds,
+against the same root, and the detail poster placing a round's
 assessment after the list it assesses. The
 same suite
 drives the PR-read scripts against a stub `gh` that serves a PR's
@@ -1776,7 +1802,10 @@ once with no child to wait on, and its refusal without
 `--deadline-minutes`; every row of
 `dispose`'s disposition table with the state it stamps, a
 `class-underivable` finding, a human override, an `UNSETTLED` report
-missing its `REASON` or its `CHECKED` taking the malformed row, an
+missing its `REASON` or its `CHECKED` taking the malformed row and a
+`SUBJECT REMOVED` report missing either doing the same, a round
+approving when its only theorem that did not survive is retired as
+`subject removed`, an
 unsettled theorem forcing `BLOCKED`, a member of `--issues` no record
 tags, the refusal
 without `--loop-exited`, the round that spawned nothing, and an
@@ -1963,6 +1992,60 @@ list for the next round, so the gap reaches a human instead of retiring
 as checked. The report carries both why the claim is out of reach and
 what was checked, so the human reading the block can tell a claim
 nobody can settle from one the disprover gave up on.
+
+## A claim whose subject is gone retires, unless the claim requires the subject
+
+A carried theorem is about the tree as an earlier round saw it, and a
+later commit can remove what it is about. The generator retires such a
+theorem when it notices, by listing it under `RETIREMENTS`, and one it
+missed used to stay live: its disprover found nothing at its pointers
+to attack and reported `UNSETTLED`, so the round was `BLOCKED` on a PR
+with no finding, and clearing it took a human rejection in an
+adjustment comment and another full round (issue #728).
+
+So the disprover has a verdict for that case, `SUBJECT REMOVED`, and a
+carried theorem that gets it retires as `subject removed`, with no
+severity and no part in any verdict. The retirement no longer depends
+on the generator noticing; its `RETIREMENTS` path is unchanged, and
+either route puts the theorem on the review's skipped line.
+
+A verdict that retires a theorem with no finding is the dangerous one
+to hand out, and the decisions around it are what keep it narrow:
+
+- **What the claim requires decides, not how the subject went
+  missing.** A claim that requires the PR to add or keep its subject —
+  an acceptance criterion calling for text the branch does not carry —
+  is `DISPROVED`, with the absence as its counterexample, whether the
+  PR never added the subject or a later commit deleted it. Only a
+  claim that merely describes the subject, such as how a function the
+  branch has since dropped handles an input, is `SUBJECT REMOVED`.
+  Keying the verdict on a commit that deleted the subject was tried
+  and dropped: a force-rebase can drop that commit from history and
+  leave the subject just as absent.
+- **A claim that asserts the absence is not about a missing subject.**
+  The absence is what it claims, so it is checked like any other claim
+  and survives when the absence holds.
+- **An absent subject is asked about first**, ahead of whether settling
+  the claim needs something the disprover cannot run. Otherwise a
+  claim that needed a live run while its subject existed would stay
+  `UNSETTLED`, and block, after the subject was gone.
+- **Only a carried theorem retires on it.** A theorem minted in the
+  round that returns the verdict was written against the very head its
+  disprover read, so no later change removed its subject. It is
+  stamped `unsettled` and reported as a pipeline defect.
+- **The report is graded like an `UNSETTLED` one.** It carries the
+  claim's subject with why the claim does not require it, and the
+  search that came back empty, and a report missing either is
+  malformed and leaves the theorem unsettled.
+
+Each piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| The order a disprover decides its verdict in, and the shape of a `SUBJECT REMOVED` report | `agents/theorem-disprover.md` |
+| Which verdicts a disprover's report can carry | `skills/theorem-agents-interface/SKILL.md` |
+| When the report is well formed, the row it takes on a carried theorem and on a minted one, and the state each row stamps | `skills/agent-result-persist-interface/SKILL.md` |
+| That a subject-removed retirement is listed on the skipped line and outside the full theorem list | `agents/theorem-based-pr-reviewer.md` |
 
 ## One disprover per theorem is a starting point
 
@@ -2364,7 +2447,7 @@ path. A PR that adds or removes a hook edits this roster.
 | `hooks/orchestrate-status.ts` | `command.run` on `orchestrate-status` | Answers the command itself, with no model turn: turns the status line off or on and names the state it left, or prints the usage line |
 | `hooks/orchestrate-status.ts` | `skill.prompt` | Starts a run in `readiness` at the `orchestrate` skill's prompt, and puts a run in `cleanup` at the `orchestrate-cleanup` skill's |
 | `hooks/orchestrate-status.ts` | `tool.call` on `Read` | Puts a run in `plan` when the main loop reads the orchestrator's plan lib file |
-| `hooks/orchestrate-status.ts` | `agent.spawn` | Sets the phase a main-loop spawn's agent stands for and the PR its brief names, and starts a run at a spawn of any `sdlc:` agent but the reviewer |
+| `hooks/orchestrate-status.ts` | `agent.spawn` | Sets the phase a main-loop spawn's agent stands for and the PR its brief names, and starts a run at a spawn of any `sdlc:` agent but the reviewer on a PR |
 | `hooks/orchestrate-status.ts` | `turn.complete` | Redraws the line during a run, and ends the run and clears the line when the main loop's turn ends in `cleanup` |
 | `hooks/orchestrate-status.ts` | `session.end` | Clears the line and stops its timer |
 | `hooks/reload-after-compact.ts` | `session.compact` | Lets the compaction run, removes every earlier reload message from the compacted conversation, and appends one fresh message holding the full text of the skills and rule files the compacted loop used, within the `reload-after-compact-token-budget` budget |
@@ -2409,8 +2492,10 @@ transcribed through the same script — and the generate-stage `spawn`
 record carrying the seed generator's tier into round 0's `log`, with
 the `seed-review` record beside it under `seed-review:
 accept-recommended`, and, like `pr-merge-readiness`, appends to the
-PR's agents log for each agent it spawns; neither writes anything else
-here. The `sdlc-config-*` verbs write the config files their contract
+PR's agents log for each agent it spawns — and for the generator and
+the assessor the seed reviewer spawned, which that reviewer, having no
+PR to key a write on, could not record itself; neither writes anything
+else here. The `sdlc-config-*` verbs write the config files their contract
 names, on the user's yes, and those are the user's files rather than
 run state. The implementing agents are outside the claim entirely and
 write nothing this list owns: those declaring `memory: project`
@@ -2542,10 +2627,11 @@ state names. That is why every spawn made for a PR is recorded there:
 the orchestrator, `pr-merge-readiness` and the reviewer record each
 agent they spawn through `sdlc-agent-result-persist --mode agent`, and
 a review child also records itself when it enters a round, so one
-written off before it enters is still named. The orchestrator's seed
-generator, its seed assessor and the batch's developer are spawned
-before the PR has a reference, so their ids are held and recorded once
-the PR is linked.
+written off before it enters is still named. The seed reviewer, the
+generator and the assessor it spawns, and the batch's developer are
+spawned before the PR has a reference, so the orchestrator holds their
+ids — the two children's as the seed reviewer reported them — and
+records each once the PR is linked.
 
 | Agent | Purpose |
 | ------- | --------- |
@@ -2558,7 +2644,7 @@ the PR is linked.
 | `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held and re-spawns that agent once, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, lists there each claim in the body above it that the branch or the round records contradict, and corrects the closing lines its brief names |
 | `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
-| `theorem-based-pr-reviewer` | Reviews one PR, spawning the generator, the assessor, the disprovers, and the verifiers from inside itself |
+| `theorem-based-pr-reviewer` | Reviews one PR, spawning the generator, the assessor, the disprovers, and the verifiers from inside itself, and before a batch's PR exists seeds its theorem set from the issues, spawning the generator and the assessor and posting nothing |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove, at the reasoning tier its spawner names |
 | `theorem-assessor` | Assesses one generated theorem list against the issues it was drawn from — the seed's, or a review round's — recommending an action per theorem and a theorem for each criterion none tests |
 | `theorem-disprover` | Tries to break exactly one theorem |
@@ -2609,24 +2695,28 @@ harmless and take effect the moment a harness restores them.
 
 `agents/theorem-generator.md` is one definition carrying the whole
 generation procedure, and its reasoning tier is the `effort` of the
-`Agent` call that spawns it: the reviewer's on a review round, picked
-by its rubric or by the `--generator-effort` override, and the
-orchestrator's on the seed, picked by the same rubric against the issue
-bodies. Every generator spawn names its tier, `low` included, because
+`Agent` call that spawns it. That call is always the reviewer's, the
+seed's included, and the tier is picked by the reviewer's rubric —
+read against the round's delta, or on the seed brief against the issue
+bodies — or by the `--generator-effort` override. The orchestrator
+picks no tier. Every generator spawn names its tier, `low` included, because
 the `Agent` call's `effort` overrides the frontmatter `effort: low`,
 which decides only a spawn that names none. No other agent's spawn
 passes an `effort`.
 
 The override is the human's to volunteer: the orchestrator never asks
 for a tier, and one the human names unprompted, at the plan or later,
-holds for the whole batch — the seed generator's `effort` when the seed has
-not yet spawned, and `--generator-effort` on every reviewer spawn for
-the batch's PR.
+holds for the whole batch — passed as `--generator-effort` on the
+reviewer's seed spawn when the seed has not yet spawned, and on every
+reviewer spawn for the batch's PR.
 
 The generator cannot be relied on to know the tier it runs at, so it
-records none: the spawner writes it as the `effort` of the
+records none: the tier is written as the `effort` of the
 generate-stage `spawn` record — `--agent theorem-generator --model
-default --effort <tier>` — in the round's log, round 0's for the seed.
+default --effort <tier>` — in the round's log. The reviewer writes it
+on a review round. On the seed it has no PR to key a log on, so it
+reports the tier and the orchestrator writes it to round 0's log once
+the PR is linked.
 That record is where the tier lives afterwards: the reviewer's Review
 method section reads the tier that ran from it, the time report's
 "Generator tiers" section lists every round's from it, and the generate
