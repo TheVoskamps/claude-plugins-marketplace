@@ -33,6 +33,8 @@ restate the fact.
 | What ends the monitor loop | `agents/pr-monitor.md` |
 | Where the sdlc config tiers live, which keys they hold with what values and defaults, how the tiers resolve, what a read aborts on, and how a writer merge-updates one | `skills/lib/sdlc-config.md` |
 | Which files a compaction reloads, how a skill's name is resolved to its file, what the reload message holds, how its row is drawn on screen, and what is recorded from one compaction to the next | `hooks/reload-after-compact.ts` |
+| What an orchestrate run's status line shows, which signal sets each phase, which agents count as running, when the line is redrawn and cleared, how a reviewer's round is fixed, and what `/orchestrate-status` answers | `hooks/orchestrate-status.ts` |
+| Which hook modules the plugin registers, and in what order | `hooks/register.ts` |
 | What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | How a PR body is cut around the finalizer's section and put back together, so a re-run replaces the section | `bin/sdlc-pr-body` |
 | How the finalizer reaches a round's review state, and what each report of the detail post means for its section | `agents/pr-finalizer.md` |
@@ -819,6 +821,88 @@ never puts a config error in text sent to the model. The loop's uses
 are still recorded, so the first compaction after the tier is repaired
 reloads them. A throw inside the hook after the compaction has resolved
 leaves the compaction standing, with any reload message removed.
+
+## A run's progress is one status line, drawn from what the session already shows
+
+An orchestrate run is long, and most of it happens inside agents whose
+work the main conversation does not print. The `orchestrate-status`
+hook pins one line under the prompt while a run is under way: the PR
+the run is on, the phase it is in, and the agents running, with a
+review round's stage and theorem counts beside its reviewer.
+
+```text
+PR #812 · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems
+```
+
+A part with nothing to show is left out with its separator. Every other
+PR that still has a running agent follows as `| #<n> <phase>`, or as
+`| #<n>` alone when no spawn has set a phase for it.
+
+**The hook observes, and the orchestrator reports nothing to it.** The
+phase is read off events the session raises anyway — the `orchestrate`
+and `orchestrate-cleanup` skill prompts, the main loop's `Read` of the
+plan lib file, and each agent the main loop spawns — so no skill or
+agent file carries a line that exists to feed the display, and the line
+cannot drift from what the run did. Every hook but the command's
+returns what the event resolved to, unchanged, and a failure of the
+hook's own work never reaches the event: it goes to the debug log,
+except a failed progress read, whose one line is a plain `$.ui.log`
+write with no debug destination. The decisions behind what it reads:
+
+- **Only a main-loop spawn sets a phase.** A spawn inside another agent
+  is that agent's fan-out, not a move of the run. The phase follows the
+  latest signal, so it moves backwards when the run does, as from
+  `monitor` to `merge readiness`.
+- **A run starts at the `orchestrate` prompt, or at a main-loop spawn of
+  any `sdlc:` agent but the reviewer.** The spawn is what brings the
+  line back in a session resumed mid-run. The reviewer is left out
+  because `/sdlc:git-review-pr` spawns it too, and a standalone review
+  is not a run.
+- **The PR is the first `<host>/<owner>/<repo>#<n>` in a main-loop
+  spawn's brief**, and the current PR is the one the most recent such
+  brief named. A brief that names none makes the PR-less work current,
+  and each PR with a running agent trails the line.
+- **Which agents are running comes from `$.agent.list()`, not from
+  `turn.complete`.** A reviewer's turn ends at every fan-out wait, so a
+  turn's end is no evidence that an agent has finished.
+- **A round belongs to the loop it was reviewed in.** The `r<round>`
+  after `code loop` or `doc loop` is the round of that PR's latest
+  reviewer in that loop, fixed when the line first sees the reviewer
+  running. Entering the other loop drops it, so the documentation loop
+  never shows a code round as its own, and any other phase keeps it for
+  when the PR returns to the loop. Before a loop's first reviewer runs,
+  the phase carries no round.
+- **Round progress is read only through
+  `sdlc-agent-result-persist --mode progress`**, run from the plugin's
+  own `bin/` on each redraw while a reviewer the main loop spawned is
+  running for the PR. The hook reads no state file by a path of its
+  own, parses no round log and makes no network call, so where review
+  state lives stays that one executable's concern. A read that fails
+  leaves the round and stage off the line and writes one `$.ui.log`
+  line naming the error, once per run.
+- **Nothing is stored.** The run's signals live in the module's own
+  variables, so the line costs no state file and leaves nothing to
+  clean up.
+
+The line is redrawn on each of those signals, on every turn's end
+during a run, and every 5 seconds while an `sdlc:` agent is running,
+which is what moves the theorem counts between signals; no timer runs
+while none is. It is cleared when the main loop's turn ends in the
+`cleanup` phase and when the session ends. A run that ends any other
+way leaves its last line until the session does.
+
+**`/orchestrate-status [on|off]` turns the line off and on.** `off`
+turns it off, `on` turns it on, and no argument flips it; each answers
+`orchestrate status line: on` or `orchestrate status line: off`, naming
+the state it left. Any other argument changes nothing and answers
+`usage: /orchestrate-status [on|off]`. The command is registered as
+immediate, so it runs while a run's turn is in flight, and the hook
+answers it itself, so it costs no model turn. The line is on when a
+session starts, and the choice lasts the session: it is stored nowhere
+and no config key sets it. While the line is off the hook clears it,
+runs no timer and no progress read, and still follows the run, so
+turning it on mid-run redraws the line at once at the phase the run has
+reached.
 
 ## A resolving install is approved at the plan and run by the orchestrator
 
@@ -1701,7 +1785,10 @@ a default one; the
 body `summary` renders, the stamp it opens with, its carried-forward
 paths and its refusals; and `rounds` over a PR with no state and over
 rounds with and without a log, round 0 and a voided round among them,
-and its refusal of `--round`. It reaches no network.
+and its refusal of `--round`; and `progress` over a PR with no log, a
+round mid-`disprove` beside a higher voided round, a round holding a
+review file, a log with no child record and one with no anchor, and its
+refusal of `--round`, `--from` and `--edits`. It reaches no network.
 
 ## The round is derived from the log, never from memory
 
@@ -2091,7 +2178,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 
 | Executable | Purpose | Contract |
 | ------- | --------- | --------------- |
-| `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state, and derives from it the arm a round is in, each theorem's disposition and severity, the verdicts and the posted review body; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
+| `bin/sdlc-agent-result-persist` | Writes and reads the review pipeline's state under XDG state, and derives from it the arm a round is in, each theorem's disposition and severity, the verdicts and the posted review body, and reports how far a PR's latest round has got; the one place that composes those paths | `skills/agent-result-persist-interface/SKILL.md` |
 | `bin/sdlc-orchestrate-analysis` | Prints the Markdown time report behind `/sdlc:orchestrate-analysis`, reading review state only through `sdlc-agent-result-persist`, the orchestrator session's transcript, and the PR's GitHub timeline, and the per-class Decisions table, reading the decision records of the PR, of each issue it closes and of each issue its head branch names only through `sdlc-decision print`; writes nothing | its own header comment |
 | `bin/sdlc-decision` | `ask` checks a decision record, stores it and prints the question, or a `resolved by` line for a problem a `--ruling` resolves; `answer` stores the human's pick per problem and the reply verbatim, and takes a record again while a problem of it is open; `question` prints one record's question again; `print` lists the records of one PR or one issue; `pending` exits 4 while a design gap of one PR or one issue waits on the human's answer; `ask`, and `question` on a record with no stored question, need mikefarah `yq` v4 or later; `ask` runs no `command:` evidence | its own header comment |
 | `bin/sdlc-pr-round` | Prints the number of the review round under way, from the PR's pipeline reviews and its rounds' state: the round after the newest posted pipeline review, or a round above that one already begun | `skills/pr-read-cli-interface/SKILL.md` |
@@ -2265,16 +2352,26 @@ it held.
 
 ## Hooks
 
-`hooks/hooks.json` names the hook modules the plugin ships. A PR that
-adds or removes one edits this roster.
+`hooks/hooks.json` names the one module `hooks/register.ts`, which
+registers each file in the table. The engine refuses a `hooks.json`
+whose `modules` holds more than one path, so a hook file is added by
+exporting a `register` that `register.ts` calls, never by a second
+path. A PR that adds or removes a hook edits this roster.
 
 | Module | Event | Purpose |
 | ------- | --------- | --------------- |
+| `hooks/orchestrate-status.ts` | `session.start` | Registers the `/orchestrate-status` command, as immediate so that it runs while a turn is in flight |
+| `hooks/orchestrate-status.ts` | `command.run` on `orchestrate-status` | Answers the command itself, with no model turn: turns the status line off or on and names the state it left, or prints the usage line |
+| `hooks/orchestrate-status.ts` | `skill.prompt` | Starts a run in `readiness` at the `orchestrate` skill's prompt, and puts a run in `cleanup` at the `orchestrate-cleanup` skill's |
+| `hooks/orchestrate-status.ts` | `tool.call` on `Read` | Puts a run in `plan` when the main loop reads the orchestrator's plan lib file |
+| `hooks/orchestrate-status.ts` | `agent.spawn` | Sets the phase a main-loop spawn's agent stands for and the PR its brief names, and starts a run at a spawn of any `sdlc:` agent but the reviewer |
+| `hooks/orchestrate-status.ts` | `turn.complete` | Redraws the line during a run, and ends the run and clears the line when the main loop's turn ends in `cleanup` |
+| `hooks/orchestrate-status.ts` | `session.end` | Clears the line and stops its timer |
 | `hooks/reload-after-compact.ts` | `session.compact` | Lets the compaction run, removes every earlier reload message from the compacted conversation, and appends one fresh message holding the full text of the skills and rule files the compacted loop used, within the `reload-after-compact-token-budget` budget |
 | `hooks/reload-after-compact.ts` | `ui.render` on `UserMessage` | Draws the reload message's row as one summary line, and leaves every other user message's row as it would be drawn without the hook |
 
-Its test, `test/reload-after-compact.test.ts`, runs under
-`claude plugin test`.
+Each module's test, `test/orchestrate-status.test.ts` and
+`test/reload-after-compact.test.ts`, runs under `claude plugin test`.
 
 ## Files it writes
 

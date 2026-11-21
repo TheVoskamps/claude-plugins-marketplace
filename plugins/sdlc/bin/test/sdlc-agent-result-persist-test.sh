@@ -33,6 +33,10 @@
 #     review-round stamp it opens with.
 #   - --mode rounds over rounds with and without a log, round 0 and a
 #     voided round among them.
+#   - --mode progress over a PR with no log, a round mid-disprove beside a
+#     higher voided round, a round holding a review file, a log with no
+#     child record and one with no anchor, and its refusal of --round,
+#     --from and --edits.
 #
 # Every fixture is built under mktemp -d with its own state root. The
 # first failing case ends the run.
@@ -804,5 +808,69 @@ assert_eq "rounds: every round from 1 with a log, ascending, round 0 and voided 
 10" "$RC:$OUT"
 run --mode rounds --round 2
 assert_eq "rounds: --round is refused" "2" "$RC"
+
+# --- progress --------------------------------------------------------------
+
+new_case progress-none
+run --mode progress
+assert_eq "progress: a PR with no round log prints nothing and exits 0" "0:" "$RC:$OUT"
+assert_eq "progress: creates nothing" "absent" "$([ -e "$PR_DIR" ] && echo made || echo absent)"
+
+# Round 1 is mid-disprove: T1's child left, T2's wrote its result file and
+# no leave, and T3's was spawned and has not entered. A higher round that
+# was voided is not the round under way.
+new_case progress-disprove
+add_seed T1 "a claim" "#1"
+add_seed T2 "a claim" "#1"
+add_seed T3 "a claim" "#1"
+seed
+a_generated_list
+for t in T1 T2 T3; do
+  must --mode spawn --round 1 --theorem "$t" --stage disprove --agent theorem-disprover --model default --effort default
+done
+survived T1
+leave D1 T1 disprove theorem-disprover
+as_child D2 --mode enter --round 1 --theorem T2 --stage disprove
+survived T2
+cp "$CASE/r" "$PR_DIR/round1/T2-theorem-disprover"
+mkdir -p "$PR_DIR/round3.voided-20260101T000000Z"
+printf 'anchor 2026-01-01T00:00:00Z abc documentation\n' >"$PR_DIR/round3.voided-20260101T000000Z/log"
+before=$(cat "$PR_DIR/round1/log")
+run --mode progress
+assert_eq "progress: a round mid-disprove counts the stage's settled theorems" \
+  "0:1${TAB}code-and-instruction-markdown${TAB}disprove${TAB}2${TAB}3" "$RC:$OUT"
+assert_eq "progress: writes nothing to the log" "$before" "$(cat "$PR_DIR/round1/log")"
+
+new_case progress-reviewed
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+must --mode anchor --round 2 --head-sha bbb --round-type documentation
+as_child G --mode enter --round 2 --theorem list --stage generate
+printf '## Verdicts\n\nnone\n' >"$CASE/review"
+must --mode review --round 2 --from "$CASE/review"
+run --mode progress
+assert_eq "progress: a round holding a review file is reviewed" \
+  "0:2${TAB}documentation${TAB}reviewed${TAB}-${TAB}-" "$RC:$OUT"
+
+new_case progress-no-child
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+run --mode progress
+assert_eq "progress: a log with no child record has no stage" \
+  "0:1${TAB}code-and-instruction-markdown${TAB}-${TAB}-${TAB}-" "$RC:$OUT"
+
+new_case progress-no-anchor
+as_child G --mode enter --round 1 --theorem list --stage generate
+run --mode progress
+assert_eq "progress: a log with no anchor has no round type" \
+  "0:1${TAB}-${TAB}generate${TAB}0${TAB}1" "$RC:$OUT"
+
+: >"$CASE/empty"
+run --mode progress --round 1
+assert_eq "progress: --round is refused with no line printed" "2:" "$RC:$OUT"
+run --mode progress --from "$CASE/empty"
+assert_eq "progress: --from is refused with no line printed" "2:" "$RC:$OUT"
+run --mode progress --edits "$CASE/empty"
+assert_eq "progress: --edits is refused with no line printed" "2:" "$RC:$OUT"
+run --mode progress --carry --edits "$CASE/empty"
+assert_eq "progress: --edits with --carry is refused with no line printed" "2:" "$RC:$OUT"
 
 echo "$PASSED passed"

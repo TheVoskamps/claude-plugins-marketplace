@@ -12,9 +12,10 @@
 # a caller running it in the background is woken when it exits. It also
 # marks a round-0 seed the config settled from the seed assessment,
 # records every agent spawned for a PR and prints the agent ids its state
-# names, lists a PR's rounds, lists the PRs a repo holds state for and
-# deletes one PR's state whole, which is the only way any of it is ever
-# removed, and lists the repositories the state root holds.
+# names, lists a PR's rounds and reports how far its latest round has
+# got, lists the PRs a repo holds state for and deletes one PR's state
+# whole, which is the only way any of it is ever removed, and lists the
+# repositories the state root holds.
 #
 # Every path is composed here — the round log, each result file, the
 # records file, the review file, the PR's agents log and each child's
@@ -54,8 +55,8 @@ usage() {
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                        |print-in-flight|wait|records|review|print-records
                        |print-round-records|print-review|print-root|agent
-                       |print-agents|rounds|delete|next|dispose|summary
-                       |seed-review
+                       |print-agents|rounds|progress|delete|next|dispose
+                       |summary|seed-review
                 --pr <host>/<owner>/<repo>#<n> [--round <n>]
                 [--head-sha <sha>] [--round-type <type>] [--theorem <id>]
                 [--stage generate|assess|disprove|verify] [--agent <name>]
@@ -164,7 +165,7 @@ done
 case "$mode" in
   anchor | spawn | enter | leave | return | stopped | print | print-in-flight | wait) ;;
   records | review | print-records | print-round-records | print-review | print-root) ;;
-  agent | print-agents | rounds | list | delete | repos | next | dispose | summary | seed-review) ;;
+  agent | print-agents | rounds | progress | list | delete | repos | next | dispose | summary | seed-review) ;;
   '') die "--mode is required" ;;
   *) die "unknown --mode: $mode" ;;
 esac
@@ -301,12 +302,13 @@ fi
 # A mode refuses an identifying flag it does not act at: delete removes
 # a whole PR's directory, print-root names it, agent and print-agents
 # write and read the PR's agents log beside its rounds, rounds lists the
-# rounds themselves, and list and repos read above every PR's, so a
-# caller passing one would be naming a round the mode is not going to
-# touch. print-records selects the round itself, so a --round given to
-# it bounds that selection from above rather than naming the round.
+# rounds themselves and progress picks the latest of them, and list and
+# repos read above every PR's, so a caller passing one would be naming a
+# round the mode is not going to touch. print-records selects the round
+# itself, so a --round given to it bounds that selection from above
+# rather than naming the round.
 case "$mode" in
-  delete | list | print-root | agent | print-agents | rounds | repos)
+  delete | list | print-root | agent | print-agents | rounds | progress | repos)
     [ -z "$round" ] || die "--round is not accepted in --mode $mode: $round"
     ;;
   print-records)
@@ -1461,7 +1463,7 @@ make_dir() {
   write_repo_yml
 }
 case "$mode" in
-  print | print-in-flight | wait | print-records | print-round-records | print-review | print-root | print-agents | rounds | list | delete) ;;
+  print | print-in-flight | wait | print-records | print-round-records | print-review | print-root | print-agents | rounds | progress | list | delete) ;;
   next | dispose | summary) ;;
   records) [ -n "$carry" ] || make_dir ;;
   agent)
@@ -1566,6 +1568,62 @@ case "$mode" in
       esac
       printf '%s\n' "$n"
     done | sort -n
+    ;;
+  progress)
+    # One line on how far the PR's review has got: the highest-numbered
+    # round from 1 holding a log, picked as rounds lists them, its type,
+    # and its latest stage with how many of that stage's theorems are
+    # settled, as "What the reader derives" defines settled, or reviewed
+    # once the round holds a review file. A PR with no round log prints
+    # nothing.
+    latest=
+    for found in "$pr_dir"/round*/log; do
+      [ -f "$found" ] || continue
+      n=${found%/log}
+      n=${n##*/round}
+      case "$n" in
+        '' | *[!0-9]* | 0) continue ;;
+      esac
+      if [ -z "$latest" ] || [ "$n" -gt "$latest" ]; then
+        latest=$n
+      fi
+    done
+    [ -n "$latest" ] || exit 0
+    at="$pr_dir/round$latest"
+    reviewed=
+    [ ! -e "$at/review" ] || reviewed=1
+    make_work
+    list_results "$at" >"$work/results"
+    awk -v round="$latest" -v reviewed="$reviewed" -v default_type="$default_round_type" \
+      -v results_file="$work/results" '
+      BEGIN {
+        split("generate assess disprove verify", stages, " ")
+        split("theorem-generator theorem-assessor theorem-disprover counterexample-verifier", agents, " ")
+        for (i = 1; i <= 4; i++) rank[stages[i]] = i
+      }
+      FILENAME == results_file { result[$1, $2] = 1; next }
+      $1 == "anchor" && type == "" { type = $4 == "" ? default_type : $4; next }
+      ($1 == "spawn" || $1 == "enter") && ($3 in rank) {
+        if (rank[$3] > top) top = rank[$3]
+        if (!(($3, $2) in member)) { member[$3, $2] = 1; theorems[$3, ++count[$3]] = $2 }
+        next
+      }
+      $1 == "leave" { left[$3, $2] = 1 }
+      END {
+        if (type == "") type = "-"
+        if (reviewed != "") { stage = "reviewed"; settled = "-"; members = "-" }
+        else if (top == 0) { stage = "-"; settled = "-"; members = "-" }
+        else {
+          stage = stages[top]
+          members = count[stage]
+          settled = 0
+          for (i = 1; i <= members; i++) {
+            t = theorems[stage, i]
+            if (((stage, t) in left) || ((t, agents[top]) in result)) settled++
+          }
+        }
+        printf "%s\t%s\t%s\t%s\t%s\n", round, type, stage, settled, members
+      }' "$work/results" "$at/log" || die "could not read the round log at $at/log"
     ;;
   print-in-flight)
     # In flight as flight_lib derives it, with --agent's result files.
