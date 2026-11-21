@@ -278,6 +278,9 @@ if [ "$board_mode" = yes ]; then
       host=$RP_HOST
       ;;
   esac
+  # The current repository, where there is one, decides each printed
+  # reference's shortest form, and its host, or gh's default host without one,
+  # is the host a board named by a bare owner is read on.
   iss_try_current_repo || :
   if [ -n "$url_owner" ]; then
     board_owner=$url_owner
