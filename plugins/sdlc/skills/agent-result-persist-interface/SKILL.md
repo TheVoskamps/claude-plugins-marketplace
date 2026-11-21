@@ -286,9 +286,9 @@ derive.
 - **`spawn`** — appends one `spawn` record for `--theorem` in
   `--stage`, carrying `--agent`, `--model` and `--effort`. The
   caller's, once per child it spawns, and the orchestrator's once, at
-  `--round 0`, for the seed generator it spawned before the PR existed.
-  Model and effort are on this
-  record because the caller chose them and a child can read neither;
+  `--round 0`, for the seed generator the reviewer spawned before the PR
+  existed, at the tier the reviewer reported. Model and effort are on
+  this record because the spawner chose them and a child can read neither;
   pass the token `default` where the spawn named none and the
   definition's own frontmatter decided.
 - **`seed-review`** — appends one `seed-review` record carrying
@@ -655,6 +655,7 @@ classified on the template its sender's file gives under "Output" —
 | --- | --- |
 | `SURVIVED` | a non-empty `CHECKED:` |
 | `UNSETTLED` | a non-empty `REASON:` and a non-empty `CHECKED:` |
+| `SUBJECT REMOVED` | a non-empty `REASON:` and a non-empty `CHECKED:` |
 | `DISPROVED` | a non-empty `COUNTEREXAMPLE:`, an `EVIDENCE:` line followed by a `>` quote, a non-empty `CONSEQUENCE:`, and a `CONSEQUENCE-CLASS:` line |
 | `REFUTED` | a non-empty `REASON:` |
 | `STANDS` | a non-empty `CONSEQUENCE:`, and a `CONSEQUENCE-CLASS:` holding one of the four tokens |
@@ -739,6 +740,8 @@ does not check that a quote is verbatim; the verifier does.
   | `DISPROVED` | malformed | `finding-verifier-malformed`, class from the disprover's proposal |
   | `DISPROVED` | no result file, with `--loop-exited` | `disproved-unverified` — no finding, no severity |
   | `UNSETTLED` | not spawned | `unsettled-disprover-unsettled`, no severity |
+  | `SUBJECT REMOVED`, on a theorem not in `--from` | not spawned | `retired-subject-removed`, no severity |
+  | `SUBJECT REMOVED`, on a theorem in `--from` | not spawned | `unsettled-subject-removed-minted`, no severity |
   | malformed | not spawned | `unsettled-disprover-malformed`, no severity |
   | no result file, with `--loop-exited` | not spawned | `unsettled-no-verdict`, no severity |
 
@@ -749,6 +752,7 @@ does not check that a quote is verbatim; the verifier does.
   | Rows | `<state>` | `<state-detail>` |
   | --- | --- | --- |
   | the two `verified-` rows | `retired`, its `settled-at` this round's head SHA | `survived` or `disproved-but-refuted` |
+  | `retired-subject-removed` | `retired`, its `settled-at` this round's head SHA | `subject removed` |
   | the two `finding` rows | `disproved` | `finding <n>, <severity>`, with `, class-underivable` after it on such a finding |
   | `disproved-unverified` | `disproved` | `unverified` |
   | the `unsettled-` rows | `unsettled` | `-`, the field emptied |

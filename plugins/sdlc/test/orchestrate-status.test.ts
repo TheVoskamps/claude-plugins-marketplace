@@ -331,8 +331,7 @@ test("a reviewer still running from the other loop puts no round on the PR's loo
 // --- the signals ---------------------------------------------------------------------------------
 
 const SPAWNS: [string, string, string][] = [
-  ["sdlc:theorem-generator", "Seed issue #5", "seed"],
-  ["sdlc:theorem-assessor", "Seed issue #5", "seed"],
+  ["sdlc:theorem-based-pr-reviewer", "--issues 5 --branch main", "seed"],
   ["sdlc:issue-developer", "Issue #5", "develop"],
   ["sdlc:code-documenter", `Document ${PR}`, "PR #812 · code loop"],
   ["sdlc:issue-fixer", `Fix ${PR}`, "PR #812 · code loop"],
@@ -460,6 +459,21 @@ test("a reviewer spawned with no run under way pins no line", async ($, on) => {
   await turnEnd($);
   expect(state.lines).toEqual([]);
   expect(state.runs).toEqual([]);
+});
+
+test("a reviewer briefed with a bare --pr, as a standalone review is, pins no line", async ($, on) => {
+  const state = host(on);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", "--pr 812");
+  expect(state.lines).toEqual([]);
+  expect(state.runs).toEqual([]);
+});
+
+test("a reviewer spawned on its seed brief with no run under way starts a run in seed", async ($, on) => {
+  const state = host(on);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 5 --branch main");
+  expect(shown(state)).toBe("seed · theorem-based-pr-reviewer");
 });
 
 test("a main-loop spawn of another sdlc agent starts a run", async ($, on) => {

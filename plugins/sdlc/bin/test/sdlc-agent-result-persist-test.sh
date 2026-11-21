@@ -184,6 +184,15 @@ unsettled() {
   report "$CASE/r" "VERDICT: UNSETTLED" "THEOREM: $theorem" "$@"
 }
 
+# subject_removed <theorem> <line>...: writes to $CASE/r a SUBJECT REMOVED
+# report answering <theorem>, each further argument a line of it, as
+# unsettled does.
+subject_removed() {
+  local theorem=$1
+  shift
+  report "$CASE/r" "VERDICT: SUBJECT REMOVED" "THEOREM: $theorem" "$@"
+}
+
 # leave <agent-id> <theorem> <stage> <agent>: a child's enter, then its
 # leave carrying the report last written.
 leave() {
@@ -662,6 +671,46 @@ stands T2 optional-polish
 leave V2 T2 verify counterexample-verifier
 run --mode dispose --round 1 --issues 1
 assert_eq "dispose: only Low findings approve" \
+  "verdict${TAB}1${TAB}APPROVED
+verdict${TAB}overall${TAB}APPROVED" "$(printf '%s\n' "$OUT" | grep '^verdict')"
+
+new_case dispose-subject-removed
+add_seed T1 "old_fn returns zero" "#1"
+add_seed T2 "the removal is reasonless" "#2"
+add_seed T3 "the removal is unchecked" "#2"
+seed
+a_generated_list
+record T4 "new_fn returns one" "#3" >"$CASE/new"
+subject_removed T1 "REASON: the claim is about \`old_fn\`" "CHECKED: grep -rn old_fn at HEAD found nothing"
+leave D1 T1 disprove theorem-disprover
+subject_removed T2 "CHECKED: grep -rn old_fn at HEAD found nothing"
+leave D2 T2 disprove theorem-disprover
+subject_removed T3 "REASON: the claim is about \`old_fn\`" "CHECKED:"
+leave D3 T3 disprove theorem-disprover
+subject_removed T4 "REASON: the claim is about \`new_fn\`" "CHECKED: grep -rn new_fn at HEAD found nothing"
+leave D4 T4 disprove theorem-disprover
+run --mode dispose --round 1 --from "$CASE/new" --issues "1 2 3"
+assert_eq "dispose: a carried SUBJECT REMOVED retires with no severity and blocks nothing, one missing REASON or CHECKED is malformed, and a minted one is unsettled" \
+  "T1${TAB}retired-subject-removed${TAB}-${TAB}-${TAB}retired${TAB}subject removed
+T2${TAB}unsettled-disprover-malformed${TAB}-${TAB}-${TAB}unsettled${TAB}-
+T3${TAB}unsettled-disprover-malformed${TAB}-${TAB}-${TAB}unsettled${TAB}-
+T4${TAB}unsettled-subject-removed-minted${TAB}-${TAB}-${TAB}unsettled${TAB}-
+verdict${TAB}1${TAB}APPROVED
+verdict${TAB}2${TAB}BLOCKED
+verdict${TAB}3${TAB}BLOCKED
+verdict${TAB}overall${TAB}BLOCKED" "$OUT"
+
+new_case dispose-subject-removed-approves
+add_seed T1 "old_fn returns zero" "#1"
+add_seed T2 "survives" "#1"
+seed
+a_generated_list
+subject_removed T1 "REASON: the claim is about \`old_fn\`" "CHECKED: grep -rn old_fn at HEAD found nothing"
+leave D1 T1 disprove theorem-disprover
+survived T2
+leave D2 T2 disprove theorem-disprover
+run --mode dispose --round 1 --issues 1
+assert_eq "dispose: a round whose only theorem not surviving had its subject removed approves" \
   "verdict${TAB}1${TAB}APPROVED
 verdict${TAB}overall${TAB}APPROVED" "$(printf '%s\n' "$OUT" | grep '^verdict')"
 

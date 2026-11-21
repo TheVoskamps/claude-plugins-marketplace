@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, which brief the generator and the assessor each receive, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, sdlc:theorem-assessor, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, which brief the generator and the assessor each receive, which verdicts a disprover's report can carry, and what each consequence class means. Preloaded into every theorem agent (sdlc:theorem-generator, sdlc:theorem-assessor, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for what its briefs' parameters mean; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -183,6 +183,23 @@ and name none of them in a claim, a pointer, or a counterexample. The
 line is absent when the PR changes no documentation file, under
 `--mode documentation`, and on the issues-only brief, and it narrows
 what you read, never what you may check out.
+
+## The disprover's outcomes
+
+A disprover's report carries exactly one of four verdicts, each in the
+shape `theorem-disprover`'s own "Output" section gives, and decided by
+its "The verdict order":
+
+- `SUBJECT REMOVED` — a claim about code, text or a symbol in the tree
+  whose subject does not exist at the head under review, that does not
+  assert that absence, and that does not require the PR to add or keep
+  the subject. A claim that does require it is `DISPROVED`, whether or
+  not a commit ever removed the subject; one that asserts the absence is
+  settled like any other claim, and survives when the absence holds;
+- `UNSETTLED` — any other claim whose settling needs a live run, a
+  remote event or a runtime the disprover cannot exercise;
+- `DISPROVED` — a counterexample breaks the claim;
+- `SURVIVED` — the disprover could not break it.
 
 ## The consequence classes
 

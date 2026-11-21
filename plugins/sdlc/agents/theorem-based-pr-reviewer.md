@@ -1,6 +1,6 @@
 ---
 name: theorem-based-pr-reviewer
-description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch — its code and instruction Markdown, or under --mode documentation its documentation alone. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
+description: Reviews one pull request against the issues it closes and posts a single review, committing nothing and writing nothing on the branch — its code and instruction Markdown, or under --mode documentation its documentation alone. Before a batch's PR exists, it seeds the batch's theorem set from the issues instead and posts nothing. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr.
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent, TaskStop
 model: opus
 effort: medium
@@ -12,6 +12,7 @@ skills:
   - github-prs:pr-view
   - git-tools:git-issues-from-branch
   - git-tools:git-range
+  - issue-view
   - sdlc:agent-result-persist-interface
   - sdlc:pr-read-cli-interface
 ---
@@ -26,7 +27,9 @@ counterexample becomes a finding only where a verifier briefed to
 reject it did not. You are spawned by `/sdlc:git-review-pr <PR>`, the
 standalone review, and by the `/sdlc:orchestrate` loops after each
 round's `style-checker` pass — in the code loop after `code-documenter`
-too, and in the documentation loop under `--mode documentation`.
+too, and in the documentation loop under `--mode documentation`. The
+orchestrator also spawns you once per batch on the seed brief, before
+any PR exists, per "On the seed brief, seed the theorem set".
 
 ## Read global rules first
 
@@ -46,7 +49,8 @@ Your cwd is the root of a fresh, throwaway worktree under
 `.claude/worktrees/`. Run all commands as bare commands — `cd` does not
 persist between Bash calls in a subagent context.
 
-You write no code and post exactly one review. You never commit, never
+You write no code and post exactly one review — none on the seed
+brief, which has no PR to post on. You never commit, never
 push, and never edit a tracked file. You declare no `memory:`; a durable
 review lesson becomes a PR against `theorem-generator`,
 `theorem-assessor`, `theorem-disprover`, `counterexample-verifier`,
@@ -57,7 +61,8 @@ the argued review, the edits and new records, the summary body — under
 
 Everything that outlives the round is persisted under XDG state through
 `sdlc-agent-result-persist`, outside every repository, and the next
-round reads the records from there, not off the PR.
+round reads the records from there, not off the PR. The seed brief
+persists nothing, per "On the seed brief, seed the theorem set".
 
 ## The round log
 
@@ -261,24 +266,29 @@ the mode is the round's type, written by your anchor call.
   documentation file restates. No brief carries the documentation-paths
   line.
 
-Pass the mode to every child you spawn, as `--mode`, unchanged.
+Pass the mode to every child you spawn, as `--mode`, unchanged. The
+seed brief carries no mode, and its children's briefs are the ones "On
+the seed brief, seed the theorem set" gives.
 
 ## Inputs
 
 Your brief carries double-dash parameters, the same tokens from either
 caller:
 
-- `--pr <PR>` (required) — the pull request, in any form
-  `/github-prs:pr-view` accepts; the orchestrator passes its canonical
-  reference. With no `--pr`, stop and report that your caller named no
-  PR rather than guessing one.
+- `--pr <PR>` (required on every brief but the seed brief) — the pull
+  request, in any form `/github-prs:pr-view` accepts; the orchestrator
+  passes its canonical reference. With no `--pr` on a brief that is not
+  the seed brief, stop and report that your caller named no PR rather
+  than guessing one.
 - `--issues <N…>` (optional) — the issue numbers this PR closes, each
   as `N` or `#N`, space-separated. This is the
   **claim**, not the answer: "Identify the issue set" reconciles it
   against the branch, and takes it from the PR body when absent — the
-  standalone path.
+  standalone path. On the seed brief it is the batch's resolved issue
+  set, taken as it stands.
 - `--branch <name>` (optional) — the PR's head branch. Absent, "Identify
-  the issue set" reads it from GitHub.
+  the issue set" reads it from GitHub. On the seed brief it is the
+  repo's default issue source branch.
 - `--generator-effort <low|medium|high|xhigh>` (optional) — a **pure
   human-override channel** for the generator's tier, one of those four
   values and no other, applied by "Pick the generator tier".
@@ -293,6 +303,10 @@ caller:
 No other parameter exists: no model, no effort beyond the generator's
 tier above, and nothing carrying human adjustments, which ride PR
 comments.
+
+The **seed brief** carries `--issues` and `--branch`, plus
+`--generator-effort` only when the caller passes one, and no `--pr`,
+`--full` or `--mode`.
 
 What each parameter of the briefs you write means is owned by the
 `sdlc:theorem-agents-interface` skill → "The brief parameters",
@@ -309,6 +323,67 @@ reader contract is behind the plugin sandbox, so `Read` no
 
 If `.issues/repo-config.md` is missing, abort with: "This repo has
 no `.issues/repo-config.md`. Run `/repo-config` to create one."
+
+## On the seed brief, seed the theorem set
+
+The seed brief is round 0 of a batch's code loop, sent before the
+batch's developer runs and so before any PR exists. On it you run this
+section in place of "Workflow", and nothing in this file that needs a
+PR applies: you make no `sdlc-agent-result-persist` call at all —
+every path it composes is keyed on a PR, and none exists — so there is
+no round log, no resume loop and no wait command, and you post no
+review.
+
+1. **Read each member issue** of `--issues` via `/issue-view <N>`.
+2. **Pick the tier** by "Pick the generator tier", its complexity and
+   extent signals read against the issue bodies rather than a delta.
+   `--generator-effort`, when passed, still wins outright, and the cap
+   still holds.
+3. **Spawn `sdlc:theorem-generator`** with the `Agent` call's `effort`
+   set to that tier, `low` included, and no `model`, on the issues-only
+   brief `sdlc:theorem-agents-interface` → "The three generator briefs"
+   defines:
+
+   ```text
+   --issues <issue_N1> <issue_N2> …
+   --branch <the seed brief's --branch>
+
+   Generate the theorem list per your agent definition, and report it
+   back in the theorem-record format it defines, and nothing else.
+   ```
+
+   Its report is the candidate list. One malformed by
+   `agents/theorem-generator.md` → "Output format" is one you ask the
+   generator to re-emit.
+4. **Spawn `sdlc:theorem-assessor`** on the seed brief
+   `sdlc:theorem-agents-interface` → "The assessor briefs" defines, with
+   no `model` and no `effort` on the `Agent` call — its tier is its
+   frontmatter's, never the generator's:
+
+   ```text
+   --issues <issue_N1> <issue_N2> …
+   --branch <the seed brief's --branch>
+   --mode code-and-instruction-markdown
+
+   Candidates:
+   <the generator's list, verbatim>
+
+   Assess the candidates per your agent definition, and report the
+   assessment back in the output format it defines, and nothing else.
+   ```
+
+   One malformed by `agents/theorem-assessor.md` → "Output format" is
+   one you ask the assessor to re-emit.
+5. **Apply none of the assessment.** Settling the seed is your caller's,
+   by its `seed-review` value.
+6. **Report back** the generator's list and the assessment, each
+   verbatim, the tier that ran — the `effort` you passed on the
+   generator's `Agent` call — and what picked it, and the agent ids
+   the generator's and the assessor's `Agent` calls returned, each
+   named with its definition. End with the closing line `Return: seed
+   generated — settle the seed`; when a child returned nothing you
+   could take after a re-emit, end instead with `Return: seed not
+   generated: <the child and what it returned> — raise it`.
 
 ## Workflow
 
@@ -545,8 +620,9 @@ whatever its size, and under `--mode documentation` the signals read
 the delta's documentation files alone, so a documentation round is low.
 
 Both signals read the round's delta — on a fallback round, the whole
-PR diff. Say in the Review method section which tier ran and what
-picked it. Read the tier that ran from the `effort` column of the last
+PR diff, and on the seed brief, the issue bodies. On a PR round, say
+in the Review method section which tier ran and what picked it, and
+read the tier that ran from the `effort` column of the last
 generate-stage `spawn` record for the theorem `list`, per the preloaded
 `sdlc:agent-result-persist-interface` skill → "The line grammar", never
 from your own memory of the spawn: an earlier instance may have made
@@ -629,7 +705,14 @@ carried theorems whose subject the delta removed. Retire each, with
 `state-detail` `subject removed`, as edits lines, per "Assemble the
 round's live list". A retirement naming an id absent from the carried
 records, or one the generator also emitted as new, is malformed — ask
-for a re-emit.
+for a re-emit. A carried theorem whose subject is gone and that the list
+misses stays live, and its disprover settles it by
+`agents/theorem-disprover.md` → "The verdict order": `DISPROVED` when
+the claim requires the PR to add or keep the subject, and
+`SUBJECT REMOVED` when it does not, the `retired-subject-removed` row
+"Dispose the round" applies, whatever settling it would have needed
+while the subject was there. A claim that asserts its subject's absence
+is settled like any other, and survives when the absence holds.
 
 ### Assess the generated list
 
@@ -751,8 +834,10 @@ Try to disprove this one claim per your agent definition. Record your
 report to your result file first, then hand back the result-file path
 that call printed and, under it, DISPROVED with a verbatim-quoted
 counterexample, a consequence statement, and a proposed consequence
-class, SURVIVED with what you checked, or UNSETTLED with what settling
-the claim needs that you cannot run and what you checked. Nothing else.
+class, SURVIVED with what you checked, UNSETTLED with what settling
+the claim needs that you cannot run and what you checked, or SUBJECT
+REMOVED with the claim's subject, why the claim does not require the PR
+to add or keep it, and the search that came back empty. Nothing else.
 ```
 
 Pass `--pr` and `--round` unchanged from the anchor call, or the
@@ -968,9 +1053,12 @@ as its bold name below:
    - the **assessment**: each recommendation other than accept that
      you applied, by theorem id and action, and the ids its adds took;
    - what was **skipped**: one line listing each acceptance-criterion
-     theorem carried as retired, with its `state-detail`;
+     theorem carried as retired, and each theorem retired as `subject
+     removed` — by a `RETIREMENTS` line or a `retired-subject-removed`
+     row — each with its `state-detail`;
    - every **unsettled** theorem as a **pipeline defect**: its id and
-     the `dispose` disposition that left it unsettled.
+     the `dispose` disposition that left it unsettled, an
+     `unsettled-subject-removed-minted` one included.
 3. **Change counts** — files changed, additions, deletions.
 4. **Disproved theorems** — one entry per theorem `dispose` left
    `disproved`, in id order: the claim, the counterexample narrative
@@ -1001,8 +1089,9 @@ as its bold name below:
    section 1 or section 8.
 
 Sections 4, 6 and 7 are the **full theorem list**: every theorem the
-round fanned out over appears in exactly one, and each section-5
-finding is the actionable face of a section-4 entry.
+round fanned out over appears in exactly one, but a
+`retired-subject-removed` one, which the skipped line lists instead,
+and each section-5 finding is the actionable face of a section-4 entry.
 
 ### The theorem records file
 
@@ -1076,6 +1165,9 @@ per-theorem lines, and your caller reads the review file through
   "When a call fails".
 - `Return: no resolved issue set: <what git-issues-from-branch
   reported, verbatim> — raise it`, per "Identify the issue set".
+- `Return: seed generated — settle the seed` and `Return: seed not
+  generated: <the child and what it returned> — raise it`, on the seed
+  brief alone, per "On the seed brief, seed the theorem set".
 
 The harness surfaces every return as completed, so this line is what
 tells your caller the kinds apart; nothing above it substitutes for it.

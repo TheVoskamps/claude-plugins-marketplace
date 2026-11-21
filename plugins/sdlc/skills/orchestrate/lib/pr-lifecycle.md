@@ -127,8 +127,9 @@ sdlc-agent-result-persist --mode seed-review \
 Under `ask` and `accept-as-emitted` make no `seed-review` call: round
 0's log then holds only the `spawn` record below.
 
-Then record the seed generator's tier in round 0's log — the tier you
-passed as its `effort` and held in your scratchpad. This is the round
+Then record the seed generator's tier in round 0's log — the tier the
+seed reviewer reported as the one that ran, held in your scratchpad.
+This is the round
 log's record of the spawn, apart from the agents-log `agent` record of
 its agent id the link step wrote:
 

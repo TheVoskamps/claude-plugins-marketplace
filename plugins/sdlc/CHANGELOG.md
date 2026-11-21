@@ -1,5 +1,60 @@
 # sdlc changelog
 
+## 0.92.0 — 2026-11-20
+
+Round 0, the seed of a batch's theorem set, now runs through
+`theorem-based-pr-reviewer`, so the seed's generator tier follows the
+same rubric as every other round's.
+
+- `/sdlc:orchestrate` spawns the reviewer once per batch on a **seed
+  brief** — the batch's issues and the default issue source branch,
+  and no PR — in place of spawning `theorem-generator` and
+  `theorem-assessor` itself. The reviewer picks the generator's tier by
+  its own rubric, read against the issue bodies, spawns both agents,
+  posts no review, and reports back the candidate list, the assessment
+  and the tier that ran.
+- The seed could previously run at `high` or `xhigh`, tiers the rubric
+  never picks, with no override given. It now runs at `low` or
+  `medium` unless you name a tier: one you volunteer at the plan still
+  overrides the rubric for the seed and for every review round on the
+  batch's PR.
+- How the seed is settled is unchanged: `seed-review` decides, as
+  before, whether you rule on the list, it is accepted as emitted, or
+  the assessment's recommendations are applied.
+- The status line shows `seed` while that reviewer runs, and a session
+  resumed mid-run shows the line again from it. A standalone
+  `/sdlc:git-review-pr` still shows no line.
+- `/sdlc:orchestrate-analysis` counts the seed reviewer's time as other
+  agent work, not as a review round, and measures the wait for your
+  seed ruling from that reviewer's report. It takes a reviewer for the
+  seed's only when it was spawned before the run's first
+  `issue-developer`: in a transcript with no `issue-developer` spawn,
+  the seed reviewer counts as a review round and no seed-ruling wait
+  is measured.
+
+A carried theorem whose subject is gone no longer blocks the review.
+
+- A disprover has a fourth verdict, `SUBJECT REMOVED`, for a claim
+  about code, text or a symbol that does not exist at the head under
+  review. Its report quotes the claim's subject and names the search
+  that came back empty.
+- A theorem carried from an earlier round that gets this verdict is
+  retired as `subject removed`, with no finding and no effect on any
+  verdict, and the review lists it on its skipped line. Before, such a
+  theorem retired only when the generator noticed the removal; one it
+  missed came back `UNSETTLED` and the round was `BLOCKED` on a PR with
+  no finding, until a human rejected the theorem and another round ran.
+- The verdict is decided by what the claim requires, not by how the
+  subject went missing. A claim that requires the PR to add or keep
+  its subject — an acceptance criterion calling for text the branch
+  does not carry, say — is `DISPROVED`, and the absence is its
+  counterexample. A claim that only describes the subject is
+  `SUBJECT REMOVED`. A claim that asserts the subject's absence is
+  checked like any other, and survives when the absence holds.
+- A theorem generated in the same round as the verdict is not retired:
+  it is reported as unsettled, a pipeline defect, since no later change
+  removed what it was written about.
+
 ## 0.91.0 — 2026-11-20
 
 An `/sdlc:orchestrate` run now pins one status line under the prompt,

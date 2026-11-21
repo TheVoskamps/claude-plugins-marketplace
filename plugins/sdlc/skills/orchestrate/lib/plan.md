@@ -152,9 +152,8 @@ the re-emitted plan as `plan-confirm` calls for.
 
 A generator tier the human names unprompted at the plan — `low`,
 `medium`, `high` or `xhigh` — is a `--generator-effort` override for
-that batch, whether or not the plan waited: it is the seed spawn's
-`effort`, and travels as `--generator-effort` on every reviewer round
-on the batch's PR.
+that batch, whether or not the plan waited, passed on the reviewer's
+seed spawn and on every reviewer round on the batch's PR.
 
 ## Wave sequencing
 
