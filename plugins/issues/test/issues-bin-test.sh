@@ -769,8 +769,15 @@ check "$(last_search)" 'repo:acme/widgets status:"Done" is:issue is:open' \
   "issue-list: without --project, a single word is a repository under the current owner"
 mkdir -p "$CASE_DIR/outside"
 run_in "$CASE_DIR/outside" issue-list acme --status Done
-expect "issue-list: a bare owner with no --project and no URL aborts" 2 "there is no current repository" "\`--project <number>\`"
+expect "issue-list: a bare owner with no --project and no URL aborts" 1 "there is no current repository" "\`--project <number>\`"
 check "$(refs)" "" "issue-list: a bare owner with no --project prints no issue line"
+run_in "$CASE_DIR/outside" issue-list acme/ --status Done
+expect "issue-list: a bare owner with a trailing / and no --project aborts as one without" 1 "there is no current repository"
+edit_state '.repoViewError = "no git remotes found"'
+run issue-list acme --status Done
+expect "issue-list: a bare owner where gh resolves no current repository aborts, as no usage error" 1 \
+  "there is no current repository" "\`--project <number>\`"
+check "$(refs)" "" "issue-list: a bare owner where gh resolves no current repository prints no issue line"
 
 # ---------------------------------------------------------------------------
 # Board listing by --project or a board URL: acme's board 1, across the
@@ -829,6 +836,17 @@ run issue-list --project https://github.com/orgs/acme/projects/1/ --status Done
 check "$(last_search)" 'status:"Done" is:issue is:open' "issue-list --project <url>: the URL supplies owner and number"
 run issue-list --project https://github.com/users/acme/projects/1 --status Done
 check "$(refs)" "#2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" "issue-list --project <url>: the users/ form"
+run issue-list acme/ --project 1 --status Done
+check "$RC $(refs)" "0 #2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" \
+  "issue-list <owner>/ --project: a trailing / is ignored, and the board is listed across its repositories"
+check "$(last_search)" 'status:"Done" is:issue is:open' "issue-list <owner>/ --project: no repo: term"
+run issue-list acme/ --project https://github.com/orgs/acme/projects/1 --status Done
+check "$RC $(refs)" "0 #2 #12 other#3 other#4 octo/lib#5 jira#1 stale#1" \
+  "issue-list <owner>/ --project <url>: the owner agrees with the URL's"
+run issue-list widgets/ --project 1 --status Done
+expect "issue-list <word>/ --project: the word is the board's owner, not a repository under the current one" 1 \
+  "no project \`1\` under \`widgets\`"
+check "$(grep -c 'widgets/widgets' "$CASE_DIR/gh.log")" 0 "issue-list <word>/ --project: no read is scoped to <word>/<word>"
 run issue-list acme --project 1 --view 2 --status Done
 view_refs=$(refs)
 view_search=$(last_search)
@@ -921,6 +939,10 @@ expect "issue-list --project: a board with no single-select Status field aborts"
 check "$(refs)" "" "issue-list --project: a board with no Status field prints no issue line"
 run issue-list acme --project 9 --status Done
 expect "issue-list --project: an owner with no such board aborts" 1 "no project \`9\` under \`acme\` on \`github.com\`"
+TMPDIR="$CASE_DIR/no-such-dir" run issue-list acme --project 1 --status Done
+expect "issue-list --project: an unusable TMPDIR aborts with one catalogue line" 1 \
+  "issue-list: could not use a scratch directory under \`$CASE_DIR/no-such-dir\`: "
+check "$(printf '%s\n' "$OUT" | grep -c .)" 1 "issue-list --project: an unusable TMPDIR prints that line alone"
 for call in "issue-list --project 1 --status Done" "issue-list acme --project x --status Done" \
   "issue-list --project https://github.com/acme/widgets --status Done" \
   "issue-list --project https://github.com/orgs/acme/projects/1/views/2 --status Done" \

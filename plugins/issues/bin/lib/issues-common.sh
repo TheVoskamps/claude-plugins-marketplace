@@ -117,6 +117,16 @@ iss_err_no_board_status() {
   iss_die "project \`$2\` of \`$1\` has no single-select field named \`Status\`, and listing a board filters on it"
 }
 
+iss_err_list_no_current_repo() {
+  # $1 the positional as written
+  iss_die "\`$1\` names a repository under the current repository's owner, and there is no current repository; to list an owner's board, name it with \`--project <number>\` or a project URL, since an owner can hold many"
+}
+
+iss_err_scratch() {
+  # $1 the failed command's error
+  iss_die "could not use a scratch directory under \`${TMPDIR:-/tmp}\`: $1"
+}
+
 iss_err_view_not_found() {
   # $1 the view as named, $2 the board's view names
   iss_die "no view \`$1\` on the project board. Views: \`$2\`"

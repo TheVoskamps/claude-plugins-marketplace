@@ -83,16 +83,16 @@ board_field_id() {
 # repository name holds a "/". The read runs in a subshell because it aborts
 # by exiting.
 row_config() {
-  local dir
+  local dir gp err
   dir=$cache/$(iss_lc "$1")
   if [ ! -d "$dir" ]; then
-    mkdir -p "$dir"
-    if (iss_load_target_config "$host" "${1%%/*}" "${1#*/}" && printf '%s' "$ISS_GP") >"$dir/gp" 2>/dev/null; then
-      : >"$dir/ok"
+    err=$(mkdir -p "$dir" 2>&1) || iss_err_scratch "$err"
+    if gp=$({ iss_load_target_config "$host" "${1%%/*}" "${1#*/}" && printf '%s' "$ISS_GP"; } 2>/dev/null); then
+      err=$({ printf '%s' "$gp" >"$dir/gp" && : >"$dir/ok"; } 2>&1) || iss_err_scratch "$err"
     fi
   fi
   if [ -f "$dir/ok" ]; then
-    ISS_GP=$(cat "$dir/gp")
+    ISS_GP=$(cat "$dir/gp" 2>&1) || iss_err_scratch "$ISS_GP"
     row_cfg=yes
   else
     ISS_GP=
@@ -221,12 +221,14 @@ if [ "$board_mode" = yes ]; then
   # With a board named, a single-word positional is an owner, and any other is
   # a repository the listing is scoped to. The owner and any host it spells
   # are read off the positional by its syntax alone, so the usage errors below
-  # come before the gh call that resolving a host-less repository makes.
+  # come before the gh call that resolving a host-less repository makes. A
+  # trailing / is ignored, as the repository grammar ignores it, so `acme/` is
+  # the owner `acme`.
   board_owner=
   board_repo=
   target_host=
-  case "$target" in
-    '') ;;
+  case "${target%/}" in
+    '') [ "$target_set" = no ] || iss_check_repo_syntax "$target" ;;
     */*)
       iss_check_repo_syntax "$target"
       case "$target" in
@@ -248,8 +250,8 @@ if [ "$board_mode" = yes ]; then
       esac
       ;;
     *)
-      iss_valid_owner "$target" || iss_usage_die "\`$target\` is not an owner; $usage"
-      board_owner=$target
+      iss_valid_owner "${target%/}" || iss_usage_die "\`$target\` is not an owner; $usage"
+      board_owner=${target%/}
       ;;
   esac
   if [ -n "$url_owner" ]; then
@@ -260,7 +262,7 @@ if [ "$board_mode" = yes ]; then
   elif [ -z "$board_owner" ]; then
     iss_usage_die "\`--project $project_arg\` needs the board's owner: name \`<owner>\` or \`<owner>/<repo>\`, or pass a project URL"
   fi
-  case "$target" in
+  case "${target%/}" in
     */*)
       iss_parse_repo "$target"
       board_repo=$RP_REPO
@@ -288,12 +290,13 @@ elif [ "$target_set" = no ]; then
 else
   # A single word with no current repository to name a repository under can
   # only be an owner, and an owner holds many boards with nothing naming one.
-  case "$target" in
+  # Whether there is one can take the gh call that resolves it, so this is no
+  # usage error. A trailing / is ignored, as the repository grammar ignores it.
+  case "${target%/}" in
     */*) ;;
     *)
       iss_check_repo_syntax "$target"
-      iss_try_current_repo ||
-        iss_usage_die "\`$target\` names a repository under the current repository's owner, and there is no current repository; to list an owner's board, name it with \`--project <number>\` or a project URL, since an owner can hold many"
+      iss_try_current_repo || iss_err_list_no_current_repo "$target"
       ;;
   esac
   iss_parse_repo "$target"
@@ -312,6 +315,11 @@ fi
 here_prefix=${ISS_HERE_LINK_PREFIX-$(iss_read_link_prefix)}
 
 if [ "$board_mode" = yes ]; then
+  # The scratch directory row_config caches into is made before the first
+  # GraphQL call, which needs a scratch file of its own under the same
+  # directory, so an unusable one is reported here rather than by that call.
+  cache=$(mktemp -d "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX" 2>&1) || iss_err_scratch "$cache"
+  trap 'rm -rf "$cache"' EXIT
   # The board's own single-select Status field is what --status names.
   iss_owner_board "$host" "$owner" "$board_number"
   project=$ISS_OWNER_BOARD_ID
@@ -324,8 +332,6 @@ if [ "$board_mode" = yes ]; then
   [ -n "$status_name" ] ||
     iss_err_not_in_options "$status" status "$(printf '%s' "$status_field" | jq -r '[.options[]?.name] | join(", ")')"
   status_key=status
-  cache=$(mktemp -d "${TMPDIR:-/tmp}/$ISS_PROGRAM.XXXXXX")
-  trap 'rm -rf "$cache"' EXIT
 else
   [ "$ISS_HAS_GP" = 1 ] || iss_err_no_block "$prefix"
   status_kind=$(iss_slot_kind status)
