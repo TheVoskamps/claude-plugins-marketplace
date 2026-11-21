@@ -1290,9 +1290,9 @@ readonly dispose_prog='
         if (!rok) disp = "unsettled-disprover-malformed"
         else if (rv == "SURVIVED") disp = "verified-survived"
         else if (rv == "UNSETTLED") disp = "unsettled-disprover-unsettled"
-        # A carried theorem whose subject the delta removed retires; one
-        # minted this round about a subject already gone is a pipeline
-        # defect.
+        # A carried theorem whose absent subject it does not require
+        # retires; one minted this round about a subject already gone is
+        # a pipeline defect.
         else if (rv == "SUBJECT REMOVED")
           disp = (t in minted_id) ? "unsettled-subject-removed-minted" : "retired-subject-removed"
         else {

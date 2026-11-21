@@ -706,8 +706,10 @@ carried theorems whose subject the delta removed. Retire each, with
 round's live list". A retirement naming an id absent from the carried
 records, or one the generator also emitted as new, is malformed — ask
 for a re-emit. A carried theorem whose subject is gone and that the list
-misses stays live, and its disprover's `SUBJECT REMOVED` report is the
-`retired-subject-removed` row "Dispose the round" applies.
+misses stays live, and its disprover settles it: `DISPROVED` when the
+claim requires the PR to add or keep the subject, and otherwise
+`SUBJECT REMOVED`, the `retired-subject-removed` row "Dispose the round"
+applies.
 
 ### Assess the generated list
 
@@ -831,8 +833,8 @@ that call printed and, under it, DISPROVED with a verbatim-quoted
 counterexample, a consequence statement, and a proposed consequence
 class, SURVIVED with what you checked, UNSETTLED with what settling
 the claim needs that you cannot run and what you checked, or SUBJECT
-REMOVED with the claim's subject, the search that came back empty and
-the commit that deleted it. Nothing else.
+REMOVED with the claim's subject, why the claim does not require the PR
+to add or keep it, and the search that came back empty. Nothing else.
 ```
 
 Pass `--pr` and `--round` unchanged from the anchor call, or the

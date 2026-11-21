@@ -241,7 +241,8 @@ These are the ways a check goes wrong often enough to be worth naming:
   different system. Confirm the environment (`uname -m`, the package
   set) before treating its output as a counterexample.
 
-A claim you cannot settle from the tree and the commands you can run —
+A claim whose subject exists at `HEAD` and that you cannot settle from
+the tree and the commands you can run —
 because settling it needs a live run, a remote event, or a runtime you
 cannot exercise — is `UNSETTLED`, never `SURVIVED`. A survival resting
 on general knowledge rather than on a quoted file or a command's output
@@ -250,24 +251,26 @@ did check, with the same weight. An `UNSETTLED` theorem blocks the
 review and is reported as a pipeline defect, so the gap reaches a human
 rather than passing as checked.
 
-A claim whose **subject a commit removed** — the code, text or symbol
-it is about existed before a commit reachable from `HEAD` deleted it,
-so there is nothing at its pointers to attack — is `SUBJECT REMOVED`,
-never `UNSETTLED` and never `SURVIVED`. Establish both halves before
-you report it: the absence at `HEAD`, the way "A zero-hit grep is not
-a proof" above demands, and the removal, a commit whose `git show`
-deletes the subject — `git log -S` over `HEAD` with a short token of
-the subject names the commits that changed its count.
+A claim whose **subject is absent** at `HEAD` — the code, text or
+symbol it is about is not there, so there is nothing at its pointers to
+attack — is never `UNSETTLED` and never `SURVIVED`. Establish the
+absence the way "A zero-hit grep is not a proof" above demands, then
+ask one question of the claim: does it require the PR to add or keep
+the subject?
 
-A claim that requires the PR to add something absent at `HEAD`, which
-no commit ever removed, is `DISPROVED`: the PR never added its subject,
-and that absence is the counterexample, its `EVIDENCE` naming where
-the subject should appear and quoting the surrounding text at `HEAD`.
-Never report it `SUBJECT REMOVED`: that verdict can retire the theorem
-with no finding.
-
-A claim whose subject exists but that you cannot settle stays
-`UNSETTLED`.
+- **It does** — the claim is `DISPROVED`, and the absence is the
+  counterexample, its `EVIDENCE` naming where the subject should appear
+  and quoting the surrounding text at `HEAD`. That holds whether the PR
+  never added the subject or a later commit of the PR deleted it, as
+  when an acceptance criterion requires text the branch no longer
+  carries. Never report it `SUBJECT REMOVED`: that verdict can retire
+  the theorem with no finding.
+- **It does not** — the claim only describes the subject, such as how
+  a function the branch has since dropped handles an input, so with the
+  subject gone there is nothing left for it to hold of — the claim is
+  `SUBJECT REMOVED`. Whether a commit reachable from `HEAD` deleted the
+  subject does not decide it: a force-rebase can drop the deleting
+  commit from history and leave the subject just as absent.
 
 Guessing a counterexample is worse still: the pipeline copies your
 quote into the round's argued review verbatim, and `pr-finalizer` posts
@@ -376,15 +379,17 @@ you read, the region you covered>
 coverage record of what you did run, as on a `SURVIVED` report. Both are
 required: an `UNSETTLED` report missing either is malformed.
 
-**Subject removed** — a commit removed what the claim is about, and it
-does not exist at the head under review:
+**Subject removed** — what the claim is about does not exist at the
+head under review, and the claim does not require the PR to add or
+keep it:
 
 ```text
 VERDICT: SUBJECT REMOVED
 THEOREM: T<k>
-REASON: <the claim's subject, quoted from the claim>
-CHECKED: <the pointer path or symbol you looked for, the search that
-came back empty, and the commit that deleted it>
+REASON: <the claim's subject, quoted from the claim, and why the claim
+does not require the PR to add or keep it>
+CHECKED: <the pointer path or symbol you looked for, and the search
+that came back empty>
 ```
 
 Both `REASON` and `CHECKED` are required: a `SUBJECT REMOVED` report
