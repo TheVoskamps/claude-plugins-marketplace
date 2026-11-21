@@ -17,18 +17,20 @@ PR #812 · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems
 - During a review round, `code loop` and `doc loop` carry the round as
   `r<round>`, and the reviewer is followed by the round's stage, with
   the theorems settled out of those in the stage during `disprove` and
-  `verify`. The round stays with its loop: the documentation loop shows
-  no round until its own first reviewer runs, and a PR that returns to
-  a loop shows that loop's round again.
+  `verify`. The round stays with its loop: a PR that moves from one
+  loop to the other shows no round until a reviewer runs in the loop it
+  entered, and a PR that comes back to a loop from any other phase
+  shows that loop's round again.
 - Any other agent with running children is followed by their names.
 - Every other PR that still has a running agent follows as
   `| #<n> <phase>`, or as `| #<n>` when nothing has set a phase for
   it.
-- The line appears when `/sdlc:orchestrate` is invoked, and in a
-  session resumed mid-run from the next agent the run spawns. It is
-  redrawn as the run moves and every 5 seconds while an agent is
-  running, and cleared when the run's cleanup ends or the session does.
-  A standalone `/sdlc:git-review-pr` shows no line.
+- The line appears when `/sdlc:orchestrate` is invoked. A session
+  resumed mid-run shows it again from the next `sdlc:` agent the main
+  conversation spawns other than `theorem-based-pr-reviewer`, so a
+  standalone `/sdlc:git-review-pr` shows no line. It is redrawn as the
+  run moves and every 5 seconds while an `sdlc:` agent is running, and
+  cleared when the run's cleanup ends or the session does.
 - `/orchestrate-status off` turns the line off, `on` turns it on, and
   no argument flips it. The command runs while a turn is in flight and
   costs no model turn. The line is on when a session starts, and the

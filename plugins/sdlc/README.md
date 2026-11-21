@@ -845,8 +845,9 @@ plan lib file, and each agent the main loop spawns — so no skill or
 agent file carries a line that exists to feed the display, and the line
 cannot drift from what the run did. Every hook but the command's
 returns what the event resolved to, unchanged, and a failure of the
-hook's own work goes to the debug log, never to the event. The
-decisions behind what it reads:
+hook's own work never reaches the event: it goes to the debug log,
+except a failed progress read, whose one line is a plain `$.ui.log`
+write with no debug destination. The decisions behind what it reads:
 
 - **Only a main-loop spawn sets a phase.** A spawn inside another agent
   is that agent's fan-out, not a move of the run. The phase follows the
