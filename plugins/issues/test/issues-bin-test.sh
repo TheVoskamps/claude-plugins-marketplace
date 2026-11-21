@@ -778,9 +778,9 @@ check "$(refs)" "" "issue-list: a bare owner with no --project prints no issue l
 # Done, its Priority field a number, and it has no Size field.
 # ---------------------------------------------------------------------------
 
-# board_items: put issues of five more repositories on board 1, after #2 and
-# #12 -- acme/other with no repo-config, twice; octo/lib with none; acme/jira
-# tracked in Jira; and acme/stale at an unsupported schema version.
+# board_items: put more issues on board 1, after #2 and #12 -- two of
+# acme/other, with no repo-config; one each of octo/lib, with none; acme/jira,
+# tracked in Jira; and acme/stale, at an unsupported schema version.
 board_items() {
   edit_state '
     def put(nwo; n; pos; fields): .repos[nwo].issues[n | tostring].projectItems +=
@@ -794,6 +794,9 @@ board_items() {
     | put("acme/jira"; 1; 4; {PVTF_prio: {number: 4}})
     | put("acme/stale"; 1; 5; {PVTF_prio: {number: 5}})'
 }
+
+# contents_reads <owner/repo>: how many times the case read <owner/repo>'s
+# repo-config through the contents API.
 contents_reads() {
   grep -c "\"repos/$1/contents/.issues/repo-config.md\"" "$CASE_DIR/gh.log"
 }
