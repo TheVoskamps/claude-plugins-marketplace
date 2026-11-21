@@ -25,6 +25,7 @@ const NESTED = " › ";
 const PR_REF =
   /(?<![\w./-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#\d+(?!\w)/;
 const DOC_MODE = /--mode documentation(?![\w-])/;
+const PR_FLAG = /(?<![\w-])--pr(?![\w-])/;
 const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
 // The stages the line shows with their theorem counts; any other stage shows by name alone.
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
@@ -48,8 +49,6 @@ type Phase =
 
 /** The phase a main-loop spawn of each `sdlc:` agent sets, where the brief does not decide it. */
 const SPAWN_PHASES = new Map<string, Phase>([
-  ["theorem-generator", "seed"],
-  ["theorem-assessor", "seed"],
   ["issue-developer", "develop"],
   ["code-documenter", "code loop"],
   ["issue-fixer", "code loop"],
@@ -61,7 +60,7 @@ const SPAWN_PHASES = new Map<string, Phase>([
 ]);
 /**
  * The agents whose spawn sets `doc loop` when its brief carries `--mode documentation`, and
- * `code loop` when it does not.
+ * `code loop` when it does not, but for the reviewer's seed spawn, which sets `seed`.
  */
 const MODE_PHASED = new Set(["style-checker", REVIEWER]);
 
@@ -110,10 +109,17 @@ type On = {
 type Progress = { round: number; stage: string; settled: string; members: string };
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
- * `NO_PR`, whether its brief carries `--mode documentation`, the agent id it resolved, and the
- * number `signalsBegun` gave it when it began.
+ * `NO_PR`, whether its brief carries `--mode documentation`, whether it is the reviewer's seed
+ * spawn, the agent id it resolved, and the number `signalsBegun` gave it when it began.
  */
-type Spawned = { type: string; pr: string; isDocMode: boolean; agentId?: string; order: number };
+type Spawned = {
+  type: string;
+  pr: string;
+  isDocMode: boolean;
+  isSeed: boolean;
+  agentId?: string;
+  order: number;
+};
 /**
  * What an await is tied to, with the errors of the progress reads begun under it, oldest first,
  * and the main-loop spawns that resolved under it while no run was under way and started none, in
@@ -368,9 +374,11 @@ async function endRun($: Mods): Promise<void> {
 }
 
 /**
- * Follows a spawn the main loop made. A spawn of any `sdlc:` agent but the reviewer starts a run
- * when none is under way, so a session resumed mid-run shows the line again from its next spawn,
- * and a standalone review shows none. Any other spawn that resolves while no run is under way is
+ * Follows a spawn the main loop made. A spawn of any `sdlc:` agent but the reviewer, or of the
+ * reviewer on its seed brief, starts a run when none is under way, so a session resumed mid-run
+ * shows the line again from its next spawn, and a standalone review, whose brief always carries
+ * `--pr`, shows none. The seed brief is the reviewer's one brief that names no PR, by reference or
+ * by `--pr`. Any other spawn that resolves while no run is under way is
  * kept pending in the epoch and draws nothing. A later spawn that starts a run in that epoch reads
  * which agents are running, then records its own spawn and each pending one whose agent is among
  * them; a pending spawn that resolved no agent id, or whose agent has finished, is dropped. The
@@ -386,15 +394,18 @@ async function mainSpawn(
   result: SpawnResult,
   order: number,
 ): Promise<void> {
+  const pr = PR_REF.exec(e.prompt)?.[0] ?? NO_PR;
+  const isReviewer = e.subagentType === `${PLUGIN}:${REVIEWER}`;
   const spawned: Spawned = {
     type: e.subagentType,
-    pr: PR_REF.exec(e.prompt)?.[0] ?? NO_PR,
+    pr,
     isDocMode: DOC_MODE.test(e.prompt),
+    isSeed: isReviewer && pr === NO_PR && !PR_FLAG.test(e.prompt),
     agentId: result.agentId,
     order,
   };
   if (!isRun) {
-    if (!e.subagentType.startsWith(`${PLUGIN}:`) || e.subagentType === `${PLUGIN}:${REVIEWER}`) {
+    if (!e.subagentType.startsWith(`${PLUGIN}:`) || (isReviewer && !spawned.isSeed)) {
       epoch.pending.push(spawned);
       return;
     }
@@ -428,7 +439,7 @@ function record(spawned: Spawned): void {
     epoch,
     order: spawned.order,
     pr: spawned.pr,
-    phase: spawnPhase(spawned.type, spawned.isDocMode),
+    phase: spawned.isSeed ? "seed" : spawnPhase(spawned.type, spawned.isDocMode),
     spawn: { type: spawned.type, agentId: spawned.agentId },
   });
 }

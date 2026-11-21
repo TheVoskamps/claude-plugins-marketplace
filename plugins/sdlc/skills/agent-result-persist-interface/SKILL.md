@@ -286,9 +286,9 @@ derive.
 - **`spawn`** — appends one `spawn` record for `--theorem` in
   `--stage`, carrying `--agent`, `--model` and `--effort`. The
   caller's, once per child it spawns, and the orchestrator's once, at
-  `--round 0`, for the seed generator it spawned before the PR existed.
-  Model and effort are on this
-  record because the caller chose them and a child can read neither;
+  `--round 0`, for the seed generator the reviewer spawned before the PR
+  existed, at the tier the reviewer reported. Model and effort are on
+  this record because the spawner chose them and a child can read neither;
   pass the token `default` where the spawn named none and the
   definition's own frontmatter decided.
 - **`seed-review`** — appends one `seed-review` record carrying

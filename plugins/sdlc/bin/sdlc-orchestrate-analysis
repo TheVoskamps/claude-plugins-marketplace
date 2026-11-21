@@ -644,16 +644,20 @@ if [ -n "$seed_review" ]; then
 fi
 
 # The seed ruling, on a seed no seed-review record marks: the wait
-# answered after the seed assessor reported and before the developer was
-# spawned, ruling on every round-0 record. With no assessor spawned before
-# the developer, the wait runs from the seed generator's report instead.
+# answered after the seed reported and before the developer was spawned,
+# ruling on every round-0 record. The seed's report is that of the
+# reviewer spawned before the developer, on its seed brief. In a
+# transcript from before the seed ran through the reviewer, the wait runs
+# from the report of the seed assessor the orchestrator spawned itself,
+# or with none spawned before the developer, of the seed generator.
 seed_wait=
 if [ -z "$seed_review" ] && [ -n "$agents" ] && seed_recs=$(records_of 0); then
   dev_start=$(printf '%s\n' "$agents" | awk -F'\t' '$3 == "issue-developer" {print $1; exit}')
   seed_end=$(printf '%s\n' "$agents" | awk -F'\t' -v dev="$dev_start" '
+    $3 == "theorem-based-pr-reviewer" && rev == "" && (dev == "" || $1 < dev) {rev = $2}
     $3 ~ /^theorem-generator/ && gen == "" {gen = $2}
     $3 == "theorem-assessor" && ass == "" && (dev == "" || $1 < dev) {ass = $2}
-    END {print (ass != "" ? ass : gen)}')
+    END {print (rev != "" ? rev : ass != "" ? ass : gen)}')
   if [ -n "$seed_end" ] && [ -n "$dev_start" ]; then
     seed_wait=$(wait_for "$dev_start" "$seed_end")
   fi

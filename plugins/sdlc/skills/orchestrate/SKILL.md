@@ -68,17 +68,19 @@ under `agents/` owns:
   and both fan-outs from inside itself, under the `--mode` of the loop
   that spawned it. When it returns, one review is posted on the PR and
   its report carries the verdicts and findings you brief a fixer from.
-  It leaves nothing on the branch
-- `theorem-generator`, `theorem-assessor`, `theorem-disprover`, and
-  `counterexample-verifier` — the reviewer's own children, spawned by
-  the review pipeline; each leaves nothing on the branch. You spawn a
-  generator yourself exactly once per batch, on the issues-only brief,
-  before its developer runs — when it returns, its report is the seed
+  It leaves nothing on the branch. You also spawn it exactly once per
+  batch on its seed brief, before the batch's developer runs; it posts
+  nothing then, and when it returns its report carries the seed
   candidate list the human rules on — or that `seed-review:
   accept-as-emitted` accepts whole, or `accept-recommended` settles by
-  the assessment — and an assessor on that list, whose
-  report is the recommendation shown beside each candidate, per "Seed
-  the theorem set from the issues, and put it to the human"
+  the assessment — the assessment whose recommendation is shown beside
+  each candidate, the generator tier that ran, and both children's agent
+  ids, per "Seed the theorem set from the issues, and put it to the
+  human"
+- `theorem-generator`, `theorem-assessor`, `theorem-disprover`, and
+  `counterexample-verifier` — the reviewer's own children, spawned by
+  the reviewer alone, the seed's included; each leaves nothing on the
+  branch, and you spawn none of them
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch. When it returns, every change that pass decided on is a
   pushed commit on the branch and the inbox is empty. You spawn it
@@ -131,9 +133,10 @@ sdlc-agent-result-persist --mode agent --pr <PR_REF> \
 
 That log is how the post-merge tail's `/sdlc:orchestrate-cleanup <PR>`
 finds the PR's worktrees: what is not recorded is left behind. A batch's
-seed generator, its seed assessor and its `issue-developer` are spawned
-before the PR has a reference, so hold each one's agent id in your
-scratchpad and record each at the link step.
+seed reviewer, the seed generator and seed assessor it spawned, and its
+`issue-developer` are spawned before the PR has a reference, so hold
+each one's agent id in your scratchpad — the two children's as the
+seed reviewer reported them — and record each at the link step.
 
 A teammate that declares `memory: project` captures its entries with
 `/cc-tools:agent-memory-inbox-capture` at end-of-run, and
@@ -447,58 +450,33 @@ developer that goes beyond the
 issues, or decides something they do not, shows up later against a
 list the human already owns. The gate
 runs once per batch, after the plan is settled and the batch's
-members are In Progress, and it is four moves.
+members are In Progress, and it is three moves.
 
-**Spawn the generator on the issues-only brief.** The brief carries
-the batch's resolved issue set and repo-config's
-`default-issue-source-branch`, and nothing else — no PR, owner, repo
-or round, no delta commits, and no documentation-paths
-line, because none of those exists yet. What that brief means to the
-generator is the `sdlc:theorem-agents-interface` skill's to own; the
-generator reads the issue bodies and the source branch's tree and
-returns a candidate list:
-
-```text
---issues <issue_N1> <issue_N2> …
---branch <default-issue-source-branch>
-
-Generate the theorem list per your agent definition, and report it
-back in the theorem-record format it defines, and nothing else.
-```
-
-Spawn `sdlc:theorem-generator` with the `Agent` call's `effort` set to
-the tier, whatever it is, `low` included. Pick the tier by the
-reviewer's rubric (`sdlc:theorem-based-pr-reviewer` → "Pick the
-generator tier"), its complexity and extent signals read against the
-batch's issue bodies rather than a delta, unless "Overriding the
-generator tier" sets it.
-
-The seed spawns' returns are not persisted through
-`sdlc-agent-result-persist`: every path it composes is keyed on a PR,
-and none exists. Hold the generator's return, its agent id and the
-tier you passed in your scratchpad; its spawn is recorded, tier
-included, once the PR is linked.
-
-**Spawn the assessor on the candidate list.** Spawn
-`sdlc:theorem-assessor` on the seed brief the
-`sdlc:theorem-agents-interface` skill defines, with no `model` and no
-`effort` on the `Agent` call — its tier is its frontmatter's, never
-the generator's:
+**Spawn the reviewer on its seed brief.** Spawn
+`sdlc:theorem-based-pr-reviewer` with no `effort` and no `model` on
+the `Agent` call. The brief carries the batch's resolved issue set and
+repo-config's `default-issue-source-branch`, plus a
+`--generator-effort <tier>` line after `--branch` only when the human
+named a tier, per "Overriding the generator tier", and nothing else —
+no PR, because none exists yet:
 
 ```text
 --issues <issue_N1> <issue_N2> …
 --branch <default-issue-source-branch>
---mode code-and-instruction-markdown
 
-Candidates:
-<the seed generator's list, verbatim>
-
-Assess the candidates per your agent definition, and report the
-assessment back in the output format it defines, and nothing else.
+Seed the theorem set per your agent definition. Report back the
+generator's list, the assessment, the tier that ran, and both
+children's agent ids.
 ```
 
-Hold its return and its agent id in your scratchpad, as the
-generator's are. A malformed assessment is one you ask it to re-emit.
+The reviewer picks the tier, spawns the generator and the assessor,
+and persists nothing and posts no review. Its report ends with a
+`Return:` line: `seed generated` carries the candidate list and the
+assessment into the next move, and `seed not generated` is raised to
+the human per "When a teammate escalates". Hold the list, the
+assessment, the tier and the agent ids — the reviewer's and both
+children's — in your scratchpad; the generator's spawn is recorded,
+tier included, once the PR is linked.
 
 **Put every candidate to the human, with the assessment.** Show each
 theorem — id, claim, issues, settle mode, pointers — with the
@@ -828,17 +806,15 @@ comes out of the review file; the detail reaches the PR once, when
 
 ### Overriding the generator tier
 
-You do not pick a review round's tier. The rubric lives in the
-reviewer, next to the delta it reads (see the
-`sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier");
-the seed generator's spawn alone applies it yourself.
+You pick no generator tier, the seed's included: the reviewer picks
+every one, by a rubric of its own.
 
 `--generator-effort <tier>` is a human-override channel, and you pass
 it only when the human names a tier unprompted; you never ask for one.
 A tier the human names, at the plan confirm or later, is that override
-for the whole batch: it is the `effort` of the seed generator's spawn in
-"Seed the theorem set from the issues, and put it to the human" when the seed
-has not yet spawned, and travels as `--generator-effort` on every
+for the whole batch: it travels as `--generator-effort` on the
+reviewer's seed spawn in "Seed the theorem set from the issues, and put
+it to the human" when the seed has not yet spawned, and on every
 reviewer spawn for the batch's PR.
 
 Say in the round's report which tier ran and whether the rubric or an
@@ -1496,9 +1472,7 @@ What you do yourself is orchestration mechanics:
 ## Token Efficiency
 
 - Every teammate's `model` and `effort` are its own frontmatter's, and
-  a routine spawn overrides neither; the seed generator's spawn in
-  "Seed the theorem set from the issues, and put it to the human" is
-  not a routine one. For a genuinely hard issue,
+  a routine spawn overrides neither. For a genuinely hard issue,
   escalate that single spawn to a stronger model via the `Agent`
   tool's per-call `model` override; the frontmatter `model:` is a
   default, not a floor or a ceiling.
