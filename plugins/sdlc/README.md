@@ -1931,11 +1931,11 @@ report is on disk in full and no spawn can recover anything a record
 left out.
 
 The notification is not the thing to build a round on either. A child
-that ran, finished and reported can still skip its own last call, and
-the harness can drop a notification outright. Every loss a round has to
-survive is of that shape — never a child that failed to run — so each
-child records its own entry and exit, and nothing the reviewer derives
-depends on having heard back.
+that ran and did its work can still end without making its `leave`
+call, and the harness can drop a notification outright. Every loss a
+round has to survive is of that shape — never a child that failed to
+run — so each child records its own entry and exit, and nothing the
+reviewer derives depends on having heard back.
 
 ## The derivations are the script's, and the judgment calls the reviewer's
 
@@ -2023,13 +2023,14 @@ their theorems as re-runnable assumes the former.
 ## A verifier's deadline reuses the disprover's figure
 
 The disprover deadline is sized off a measured worst case, stated
-beside the deadline in the reviewer. No verifier measurement exists,
-and a verifier's work is a strict subset of a disprover's: it reads one
-counterexample against one head tree and runs no search. A shorter
-deadline derived from that subset relation would be a guess, and what
-the guess costs when it is wrong is `TaskStop`ing a verifier that was
-about to report, which drops a real check. So the verifier reuses the
-disprover's figure until one is measured for it.
+beside the deadline in
+`skills/lib/theorem-based-pr-reviewer/resume.md`. No verifier
+measurement exists, and a verifier's work is a strict subset of a
+disprover's: it reads one counterexample against one head tree and runs
+no search. A shorter deadline derived from that subset relation would
+be a guess, and what the guess costs when it is wrong is `TaskStop`ing
+a verifier that was about to report, which drops a real check. So the
+verifier reuses the disprover's figure until one is measured for it.
 
 ## A moved head voids the round, and the restart never mixes trees
 
