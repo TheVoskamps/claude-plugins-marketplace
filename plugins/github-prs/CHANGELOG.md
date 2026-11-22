@@ -1,5 +1,15 @@
 # github-prs changelog
 
+## 0.11.2 — 2026-11-21
+
+`/pr-merge-conflicts` no longer prunes other worktrees' registrations.
+It ran a repo-wide `git worktree prune` before adding its throwaway
+worktree, which dropped the registration of a worktree another agent
+was creating at that moment, and that agent's git commands then died
+with `fatal: failed to read …/commondir`. It now clears only its own
+stale registration: the one at its own worktree path whose directory is
+gone.
+
 ## 0.11.1 — 2026-10-28
 
 Documentation only: text follows a change to `sdlc`'s review agents.

@@ -780,7 +780,10 @@ check "$(calls)" "" "pr-create: a missing repo-config opens no PR"
 
 new_case create-blank-lead
 mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
-{ printf '\n  \n'; cat "$SANDBOX/repo-config.md"; } >"$REPO/.issues/repo-config.md"
+{
+  printf '\n  \n'
+  cat "$SANDBOX/repo-config.md"
+} >"$REPO/.issues/repo-config.md"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
 mv "$SANDBOX/repo-config.md" "$REPO/.issues/repo-config.md"
 check "$RC" "0" "pr-create: blank lines before the opening --- still open the front matter"
@@ -789,7 +792,10 @@ check "$(call_line 1)" "pr create --draft --base integ --head b --title T --body
 
 new_case create-no-front-matter
 mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
-{ printf 'Preamble\n'; cat "$SANDBOX/repo-config.md"; } >"$REPO/.issues/repo-config.md"
+{
+  printf 'Preamble\n'
+  cat "$SANDBOX/repo-config.md"
+} >"$REPO/.issues/repo-config.md"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
 mv "$SANDBOX/repo-config.md" "$REPO/.issues/repo-config.md"
 check "$RC" "4" "pr-create: a first non-blank line other than --- leaves no front matter"
@@ -1078,7 +1084,22 @@ echo feature >"$CASE/head"
 git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/pr-merge-conflicts-7" origin/feature
 rm -rf "$CLONE/.claude/worktrees/pr-merge-conflicts-7"
 run_conflicts 7
-check "$RC" "0" "pr-merge-conflicts: a registration whose directory is gone is pruned"
+check "$RC" "0" "pr-merge-conflicts: a registration of its own path whose directory is gone is cleared"
+check_contains "$OUT" "  file.txt" "pr-merge-conflicts: the conflicts are reported past a stale registration"
+check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" \
+  "pr-merge-conflicts: the stale registration of its own path is gone"
+
+# Another worktree's registration whose directory is gone may be one
+# another agent is creating at this moment, so it stays registered.
+new_case conflicts-other-stale-registration
+echo feature >"$CASE/head"
+git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/agent-elsewhere" origin/feature
+rm -rf "$CLONE/.claude/worktrees/agent-elsewhere"
+run_conflicts 7
+check "$RC" "0" "pr-merge-conflicts: another worktree's stale registration does not stop the run"
+check "$(git -C "$CLONE" worktree list | grep -c '/\.claude/worktrees/agent-elsewhere ')" "1" \
+  "pr-merge-conflicts: another worktree's registration whose directory is gone stays registered"
+git -C "$CLONE" worktree prune
 
 # A PR of another repository is fetched from that repository's URL, which
 # the clone's insteadOf points at a bare repository standing in for it.
