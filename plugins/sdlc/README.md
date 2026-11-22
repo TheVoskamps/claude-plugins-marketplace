@@ -613,6 +613,15 @@ or reworks are settled together in one closing approval, which
 `ready-rewrite-approval: auto` skips. Every other gap is a design gap,
 put to the human as a decision record.
 
+**Design gaps are raised one per turn.** A turn's record holds exactly
+one design-gap problem, and the next gap is raised only in a later
+turn, after the human answered that one. The skill's opening report
+still lists every gap with its proposed default answer, so the human
+sees the size of the conversation before the first question. How many
+problems a turn raises is the asking skill's choice, not the record's:
+a plan's decision items share one record on purpose, and grooming
+chooses one.
+
 **An issue is set Ready only when the readiness check returns no gap
 and no design gap waits on the human.** The second half is
 `sdlc-decision pending`, run directly before the status flip, whatever
@@ -621,7 +630,10 @@ reports the issue as not ready. The check alone cannot be the gate,
 because it grades the body, and a body holding the skill's own proposal
 passes it. The skill also runs `pending` before it writes its first
 record, so a design gap an earlier session left open is put again on
-its own record rather than raised a second time.
+its own record rather than raised a second time. Those records are put
+again one per turn, and a record that session wrote with several
+problems is put again whole, because its problems cannot move to a new
+record.
 
 | Slot | Owner |
 | --- | --- |
@@ -629,7 +641,7 @@ its own record rather than raised a second time.
 | The search that fills the slot, and that a found pattern is option 1 and the recommendation | `skills/lib/decision-record.md` |
 | What a mechanical gap is, and the "Outcome, not method" bar item | `skills/orchestrate-readiness/SKILL.md` |
 | Which gap lines the script labels `mechanical:` | `bin/sdlc-readiness-check` |
-| Which gaps the rewrite repairs, which system is out of scope, the closing approval, and the `pending` runs | `skills/orchestrate-ready/SKILL.md` |
+| Which gaps the rewrite repairs, which system is out of scope, the closing approval, the `pending` runs, and that a turn raises one design gap | `skills/orchestrate-ready/SKILL.md` |
 | The `ready-rewrite-approval` key | `skills/lib/sdlc-config.md` |
 
 ## An issue that contradicts a repo statement is caught before the PR

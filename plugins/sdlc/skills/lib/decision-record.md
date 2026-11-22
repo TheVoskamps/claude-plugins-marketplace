@@ -11,10 +11,12 @@ skill's own.
 ## Write one record for the turn
 
 The record is a YAML file in the session scratchpad, holding every
-problem the turn puts to the human, in the shape `bin/sdlc-decision`'s
-header defines. Each problem names its class from the script's
-`CLASSES` constant, `unclassified` when none fits, and its evidence is
-what you ran or read.
+problem the turn raises, in the shape `bin/sdlc-decision`'s header
+defines. How many problems a turn raises is the asking skill's: one
+that raises one topic per turn puts that one problem on the record and
+keeps the rest for later turns. Each problem names its class from the
+script's `CLASSES` constant, `unclassified` when none fits, and its
+evidence is what you ran or read.
 
 A `file:` evidence names a file on disk where `ask` runs, which it
 reads to check the quote. Text no such file holds — an issue's body, a

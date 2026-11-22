@@ -1,5 +1,22 @@
 # sdlc changelog
 
+## 0.93.0 — 2026-11-21
+
+`/sdlc:orchestrate-ready` raises one design gap per turn. It used to
+put every open design gap of an issue to you in a single question.
+
+- Each turn's question holds one design gap, and the next is raised
+  only after you answered that one.
+- The opening report still lists every gap with its proposed default
+  answer, so you can see how long the conversation is, and now says
+  that the design gaps come one per turn.
+- Design gaps an earlier session left open are put to you again one
+  question per turn. A question that session wrote with several gaps
+  in it comes back whole.
+- Decisions that are grouped on purpose are still asked together: a
+  plan's decision items, and the style findings of
+  `/sdlc:orchestrate`.
+
 ## 0.92.0 — 2026-11-20
 
 Round 0, the seed of a batch's theorem set, now runs through

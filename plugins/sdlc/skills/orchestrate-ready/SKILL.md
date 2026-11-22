@@ -86,7 +86,8 @@ a side-effect issue — is an approval, not a decision.
    list the gaps as a numbered list, each gap the rewrite repairs, per
    step 3, with the repair step 4 makes and each other gap with a
    **proposed default answer** — your best reading of what the issue
-   intends, stated as a proposal.
+   intends, stated as a proposal. Say that the design gaps among them
+   are put to the user one per turn, as step 3 raises them.
 
    An issue that is already `ready` still gets step 6: the status flip
    is the deliverable even when the body needs no edit.
@@ -102,10 +103,12 @@ a side-effect issue — is an approval, not a decision.
 
    Exit 0 means no design gap from an earlier session waits on the
    user. Exit 4 names each one on stderr, by record and problem: put
-   each such record to the user again on that record, as
-   `skills/lib/decision-record.md` says for a problem still open, and
-   raise no new record for a gap it covers. On any other exit, relay
-   its stderr verbatim and stop.
+   each such record to the user again on that record, one record per
+   turn, as `skills/lib/decision-record.md` says for a problem still
+   open, and raise no new record for a gap it covers. A record an
+   earlier session wrote with several problems is put again whole,
+   since its problems cannot move to a new record. On any other exit,
+   relay its stderr verbatim and stop.
 
    **A gap the rewrite repairs is not raised.** Each such gap is
    repaired in step 4's rewrite, as that step says, and listed in step
@@ -134,10 +137,13 @@ a side-effect issue — is an approval, not a decision.
 
    **Every gap this step names no other handling for is a design gap,
    put to the user as a decision**
-   per "Putting a decision to the user", one topic per record: its
-   problem, two to four options, one recommendation, and why. Where a
-   decision is too open to enumerate, such as a name, the options are
-   candidate proposals. The user may always answer in free text, which
+   per "Putting a decision to the user", one per turn: the turn's
+   record holds exactly one design-gap problem, and the next design gap
+   is raised only in a later turn, after the user answered this one.
+   Each carries its problem, two to four options, one recommendation,
+   and why. Where a decision is too open to enumerate, such as a name,
+   the options are candidate proposals. The user may always answer in
+   free text, which
    `sdlc-decision answer` stores as the pick `none` beside the reply
    verbatim, and a reply that reframes the topic is its answer. Reflect
    back what you hear in the user's own words, and move to the next
