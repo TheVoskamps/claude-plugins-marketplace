@@ -272,7 +272,11 @@ Each writer owns one tier's file and runs these steps against it.
    fixed values and takes a typed name beside them. A list-valued key
    offers the board's status options, as `/issue-field-options status`
    reports them, and takes typed names beside them; its answer is one
-   or more names, and an answer of none is re-asked.
+   or more names, and an answer of none is re-asked. When that skill
+   exits non-zero, as it does outside a git working tree, or reports
+   the slot unconfigured, the key offers no options, says why beside
+   the question, and takes typed names alone: its stop ends that
+   skill's call, never the writer's run.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and
