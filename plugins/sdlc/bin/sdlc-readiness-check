@@ -159,6 +159,8 @@ esac
 branches=$(git for-each-ref --format='%(refname)' refs/heads/) || fail 1 "git for-each-ref refs/heads/ failed"
 while IFS= read -r ref; do
   branch=${ref#refs/heads/}
+  # Every name `git-issue-branch encode` writes holds `issue-`, so a
+  # branch without it names no issue and is not decoded.
   case "$branch" in
     *issue-*) ;;
     *) continue ;;
