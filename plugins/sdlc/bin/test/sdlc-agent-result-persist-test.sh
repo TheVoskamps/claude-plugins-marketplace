@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # sdlc-agent-result-persist-test.sh -- drive the read modes
-# plugins/sdlc/bin/sdlc-agent-result-persist derives a review round from:
+# plugins/sdlc/bin/sdlc-agent-result-persist derives a review round from,
+# and the generator's leave whose list they read:
 #
 #   - --mode next over a fixture log per arm it names -- no log, a moved
 #     head, generate, assess, disprove, verify, dispose -- and over the
