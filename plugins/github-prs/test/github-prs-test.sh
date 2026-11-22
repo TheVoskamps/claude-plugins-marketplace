@@ -780,7 +780,10 @@ check "$(calls)" "" "pr-create: a missing repo-config opens no PR"
 
 new_case create-blank-lead
 mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
-{ printf '\n  \n'; cat "$SANDBOX/repo-config.md"; } >"$REPO/.issues/repo-config.md"
+{
+  printf '\n  \n'
+  cat "$SANDBOX/repo-config.md"
+} >"$REPO/.issues/repo-config.md"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
 mv "$SANDBOX/repo-config.md" "$REPO/.issues/repo-config.md"
 check "$RC" "0" "pr-create: blank lines before the opening --- still open the front matter"
@@ -789,7 +792,10 @@ check "$(call_line 1)" "pr create --draft --base integ --head b --title T --body
 
 new_case create-no-front-matter
 mv "$REPO/.issues/repo-config.md" "$SANDBOX/repo-config.md"
-{ printf 'Preamble\n'; cat "$SANDBOX/repo-config.md"; } >"$REPO/.issues/repo-config.md"
+{
+  printf 'Preamble\n'
+  cat "$SANDBOX/repo-config.md"
+} >"$REPO/.issues/repo-config.md"
 run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
 mv "$SANDBOX/repo-config.md" "$REPO/.issues/repo-config.md"
 check "$RC" "4" "pr-create: a first non-blank line other than --- leaves no front matter"
