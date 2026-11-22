@@ -86,6 +86,9 @@ if [ -e "$tree" ]; then
     gp_err_git "git worktree remove of the leftover $tree"
 else
   registered=$(git worktree list --porcelain) || gp_err_git "git worktree list"
+  # Both the list and the pattern are wrapped in newlines so only a whole
+  # `worktree` line matches, never one whose path merely starts with this
+  # one, as PR 70's does with PR 7's.
   case "
 $registered
 " in
