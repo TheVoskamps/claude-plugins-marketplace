@@ -7,7 +7,8 @@
 # `--jq` expression with the real `jq`, so the scripts' own filters run.
 # As the real gh does, every stub gh read returns a \u00XX control
 # escape in caret notation; a stub `curl` beside it serves the REST reads
-# of the same state as stored, which is what the body re-reads go through.
+# of the same state as stored, which every body a verb compares or
+# rewrites is read through.
 # A case that touches `noop` makes every mutation report success without
 # landing as asked -- a create opens a PR that is not a draft, a comment
 # carries other text, and every other mutation changes nothing -- which
@@ -245,9 +246,10 @@ chmod +x "$SANDBOX/bin/gh"
 
 # The stub curl serves the REST reads of the state the stub gh keeps, as
 # stored: no caret rewrite. It records `curl <URL>` in the same call log,
-# answers only on the API of the case's `api-host`, and only with the
-# token the stub gh prints for that host on stdin, as `-H @-` sends it; a
-# case's `curl-fail` makes every call fail as --fail does on an HTTP error.
+# answers only on the API of the case's `api-host`, or of its `host` when
+# it has none, and only with the token the stub gh prints for that host
+# on stdin, as `-H @-` sends it; a case's `curl-fail` makes every call
+# fail as --fail does on an HTTP error.
 cat >"$SANDBOX/bin/curl" <<'STUB'
 #!/usr/bin/env bash
 S=$STUB_DIR

@@ -2,8 +2,8 @@
 #
 # github-prs-common.sh -- sourced by every script in plugins/github-prs/bin/.
 # It holds the error catalogue every verb reports through, the `gh`
-# call wrapper every verb calls through, the body read a verb's re-read
-# of a body it wrote goes through, and the parser of the PR
+# call wrapper every verb calls through, the body read every body a
+# verb compares or rewrites goes through, and the parser of the PR
 # reference every PR verb takes, so one message and one exit status
 # mean the same thing whichever verb printed it, and one reference
 # names the same PR whichever verb received it. A verb reports
@@ -372,7 +372,10 @@ gp_repo_path() {
 # control escape into caret notation, a literal `\u0001` in the text
 # included, so the read goes through curl to GP_HOST's REST API with the
 # token `gh auth token` prints for that host. The token reaches curl on
-# stdin, never as an argument. Call it as `x=$(gp_read_body ...) || exit $?`.
+# stdin, never as an argument. Call it as `x=$(gp_read_body ...) || exit $?`,
+# after gp_resolve_host in the verb's own shell: the gp_resolve_host inside
+# runs in the substitution's shell and keeps nothing, so without the earlier
+# call every read looks the current repository up again.
 gp_read_body() {
   local api url token json
   gp_resolve_host
