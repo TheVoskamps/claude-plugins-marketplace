@@ -1657,7 +1657,16 @@ one moment the generator can still renumber and try again, and the
 refusal names the expected next id so that renumbering is mechanical.
 The id rule is one implementation inside the script, loaded by the
 `leave` check and the carry form alike, so the two cannot drift apart.
-Each piece has one owner:
+
+The same `leave` checks that the list is whole. A generator's list ends
+with a count line, `COUNT: mechanical <m>, semantic <s>`, and a list
+whose last line is not that line, or whose counts do not match the
+settle modes of its records, is refused with nothing stored. The list
+used to close with a count in no fixed format, which nothing read, so a
+list with no count or a wrong one was stored like any other and the
+round fanned out over it. A count-line refusal lands where an id refusal
+does, while the generator can still correct the list, and draws on the
+same bound of `leave` calls. Each piece has one owner:
 
 | Slot | Owner |
 | --- | --- |
@@ -1669,6 +1678,8 @@ Each piece has one owner:
 | That `--delta-commits` alone marks a delta brief, and the `print-records` line it carries | `skills/theorem-agents-interface/SKILL.md` |
 | The generator's own read, and the stop when it fails or prints no records | `agents/theorem-generator.md` |
 | The generator's renumbering on an id refusal, and the bound on its retries | `agents/theorem-generator.md` |
+| The count check a generator's `leave` makes, which lines it counts, and what its refusal names | `skills/agent-result-persist-interface/SKILL.md` |
+| That the list ends with the count line, where the line sits beside retirements, and the generator's correction on a count-line refusal | `agents/theorem-generator.md` |
 
 ## A child's hand-back is evidence of its `leave`, never a substitute
 
@@ -1685,30 +1696,34 @@ hand-back, the call prints the result file's path only once both the
 file and the record have landed, and that path is the hand-back's
 first line; a child whose call failed hands back a failure report
 carrying no verdict, so nothing in it can be mistaken for the file
-that was never written. Because the record lands before the child
-returns, a final `<task-notification>` — one saying the child finished
-— arriving for a child the log still shows in flight is final rather
-than a race. A notification saying the child may still be running is
-not: a child that ends its turn over background work of its own wakes
-when that work exits and carries on, so its `leave` can still land.
-Such a notification is interim, and the reviewer judges it by its
-meaning rather than by matching any fixed wording. That an interim
-notification writes nothing off follows from the reviewer recording
-only a final one, as a `return` record: a write-off ahead of the
-deadline needs a `return`, so a child with none stays in flight until
-its `leave` lands or its deadline passes. The first version of this
-rule read every notification as final, and a generator mid-run was
-written off on its interim one, its list landing minutes after the
-round had ended with nothing posted. The reviewer records a final
-notification as a `return` record, and the record changes nothing
-`--mode next` prints: a child that handed back can still be running,
-so a child with a `return` and no `leave` stays in flight until its
-`leave` lands or its enter deadline passes, and only then is it printed
-`overdue` and written off. The write-off `TaskStop`s the child first
-when the reviewer spawned it: a child past its deadline can still be
-running, and its late `leave` and result file would overwrite its
-replacement's, stopping the round on a list conflict. The deadline is a
-figure the reviewer passes, not one the script holds.
+that was never written.
+
+The path line says what a child wrote, and no hand-back says the child
+has finished. The harness delivers one — a `<task-notification>`, or an
+`Agent` tool result — whenever the child ends a turn, and a child can
+end a turn and keep working: one that ends its turn over background
+work of its own wakes when that work exits and carries on, so its
+`leave` can still land after any hand-back. A child is therefore
+finished only when it writes its own `leave`, and one with none stays
+in flight until its `leave` lands or its enter deadline passes,
+whatever it handed back; only then is it printed `overdue` and written
+off. A child that ended with no file is thus still waited out to its
+deadline, a cost accepted because every shortcut around it wrote off a
+child that was still running. Two earlier versions of this rule ended a
+child's flight sooner. The first read every
+notification as final, and a generator mid-run was written off on its
+interim one, its list landing minutes after the round had ended with
+nothing posted. The second told a final notification from an interim
+one by its meaning and wrote a child off at once when a final one
+arrived with no `leave`, on the reasoning that a child that finished
+without saving never would; the child went on to write its result
+while its replacement ran. The reviewer still records a final
+notification, as a `return` record, but the record is telemetry and
+changes nothing `--mode next` prints. The write-off `TaskStop`s the
+child first when the reviewer spawned it: a child past its deadline can
+still be running, and its late `leave` and result file would overwrite
+its replacement's, stopping the round on a list conflict. The deadline
+is a figure the reviewer passes, not one the script holds.
 
 A reviewer that only ends its turn and waits for a notification cannot
 survive a child in the waiting state: a nested parent that ends its
@@ -1757,12 +1772,12 @@ names it. Each piece has one owner:
 | Slot | Owner |
 | --- | --- |
 | What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off, or `-` for one that never entered | `skills/agent-result-persist-interface/SKILL.md` |
-| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, which notification is final and which interim, and that an interim child's `leave` can still land | `skills/agent-result-persist-interface/SKILL.md` |
+| The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, that a hand-back is delivered whenever a child ends a turn, and that a missing `leave` is never final on one | `skills/agent-result-persist-interface/SKILL.md` |
 | That each child calls `leave` before composing its hand-back, and never ends a turn over background work of its own | that child's own file under `agents/` |
 | The `overdue`, `in-flight` and `spawned` lines `next` prints, what makes a child each, and that a `return` changes none of them | `skills/agent-result-persist-interface/SKILL.md` |
 | What `wait` waits on, each line it exits with, and how often it reads the log | `skills/agent-result-persist-interface/SKILL.md` |
 | The rule that a theorem awaits its child's `enter` by the order of its records, and which `stopped` ends that wait | `skills/agent-result-persist-interface/SKILL.md` |
-| That only a final notification is recorded, with a `return` | `skills/lib/theorem-based-pr-reviewer/resume.md` |
+| That only a final notification is recorded, with a `return`, and that the record is telemetry | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That a child that handed back without a `leave` stays in flight until its `leave` or its enter deadline, that the deadline write-off `TaskStop`s a child the reviewer spawned before re-spawning, and that the re-spawn counts as a resume pass | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That a `wait` the reviewer started is running whenever it ends a turn waiting on a stage, and that such a turn is not a hand-back | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That the reviewer records each child it spawns with `--mode agent`, and spawns nothing on a `spawned` line | `agents/theorem-based-pr-reviewer.md` |
@@ -1820,7 +1835,9 @@ the same checkout, and reaches no network.
 modes the same way, each case against a state root of its own: every
 arm `next` names and every child state it prints — a `stopped` after
 its `enter`, a child `spawned` and yet to enter and one overdue from
-its last `spawn`, a `-` write-off before the `enter` and a replacement
+its last `spawn`, a child with a `return` and no `leave` in flight
+before its deadline and overdue past it, a `-` write-off before the
+`enter` and a replacement
 spawned after it, a duplicate `leave`, a moved head, a malformed
 `DISPROVED` report that earns no verifier, a generator re-spawned at
 another effort leaving a settled list settled, the `assess` arm with
@@ -1856,6 +1873,50 @@ and its refusal of `--round`; and `progress` over a PR with no log, a
 round mid-`disprove` beside a higher voided round, a round holding a
 review file, a log with no child record and one with no anchor, and its
 refusal of `--round`, `--from` and `--edits`. It reaches no network.
+
+## A reviewer's in-progress hand-back is waited on before any re-spawn
+
+The reviewer is a child too, and what holds for its children holds for
+it: the harness hands its turn-end to its caller whether or not it has
+finished. An in-progress `Return:` line is therefore not yet a stalled
+round. The orchestrator used to re-spawn the reviewer on that line
+while the first reviewer went on to post its review, and the second
+spawn ran a needless round that counted against the PR's cap.
+
+So a caller holding an in-progress line waits on the round log first.
+It runs the stage-level `--mode wait` the reviewer itself runs, pass
+after pass, until the round has posted its review or no child is in
+flight in any stage, and re-spawns the reviewer only when the wait ends
+with neither. A review the round posted is the round's result whenever
+it posted, before the hand-back arrived or during the wait, and the
+caller acts on its verdict. Such a review used to be put to the human,
+to choose between letting the round stand and re-spawning over it.
+
+The wait rests on these properties:
+
+- `--mode next` prints the children in flight, and those spawned and
+  yet to enter, in a stage past its arm and for a theorem no records
+  file names yet, because the waiting caller asks whether any child is
+  running anywhere in the round. A later stage's outstanding and
+  overdue theorems stay unprinted: they would tempt a spawn or a
+  write-off across the barrier between stages.
+- Each pass reads `--mode next` before it re-derives the round, so a
+  review posted while the last children leave is seen, rather than
+  missed behind a read that already showed no child in flight.
+- `/sdlc:git-review-pr` reads the round's number before it spawns the
+  reviewer, since a read after the review has posted names the round
+  above.
+- The wait is the reviewer's own command, so the script has no mode
+  that exists for a caller alone.
+
+Each piece has one owner:
+
+| Slot | Owner |
+| --- | --- |
+| The orchestrator's wait on an in-progress `Return:` line, the order of its reads, that a posted review is the round's result, and when the reviewer is re-spawned | `skills/orchestrate/SKILL.md` |
+| The standalone review's wait, and that it reads the round before each spawn | `skills/git-review-pr/SKILL.md` |
+| Which lines of a stage past the arm `next` prints | `skills/agent-result-persist-interface/SKILL.md` |
+| When the reviewer hands back an in-progress status | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 
 ## The round is derived from the log, never from memory
 

@@ -1,5 +1,68 @@
 # sdlc changelog
 
+## 0.94.0 — 2026-11-21
+
+An agent in the review pipeline is finished only when it has stored
+its own result. An agent's report reaches its parent whenever the
+agent ends a turn, and it can end a turn and keep working, so a parent
+that judged the round on the report could act while the agent was
+still running.
+
+- The reviewer no longer writes off a theorem agent that reported back
+  without storing a result. That agent stays in flight until it stores
+  its result or its 15-minute deadline passes, and only past the
+  deadline is it stopped and replaced. Before, it was stopped and
+  replaced at once, while the original could go on to write its result.
+  `sdlc-agent-result-persist --mode next` no longer prints
+  `returned-unsaved`.
+- `/sdlc:orchestrate` no longer re-spawns the reviewer as soon as it
+  reports a round in progress. It first waits on the round's log until
+  the round posts its review or no theorem agent is in flight, and
+  re-spawns only when the wait ends with neither. Each pass of the wait
+  reads `--mode next` before it re-derives the round, so a review
+  posted as the last agents finish is not missed. Before, the first
+  reviewer could go on to post its review while the second ran a round
+  that counted against the PR's round cap.
+- A review the round posted is the round's result, whether it posted
+  during that wait or before the orchestrator waited at all, and the
+  orchestrator acts on its verdict. It used to ask you whether the
+  round stood or the reviewer should be re-spawned.
+- `/sdlc:git-review-pr` waits on the round's log the same way before
+  it tells you a round did not finish, and relays a review that posted
+  under an in-progress report. It reads the round's number before it
+  spawns the reviewer, so it still knows which round to relay once the
+  review is posted.
+- `sdlc-agent-result-persist --mode next` now also prints the agents
+  in flight, and those spawned and yet to start, in a stage past the
+  one the round is in, and an agent spawned for a theorem no records
+  file names yet. The waits above rely on both.
+
+A generated theorem list has to end with a count of its theorems.
+
+- The generator closes its list with exactly
+  `COUNT: mechanical <m>, semantic <s>`, after any retirements. The
+  closing count had no fixed format before, and nothing read it.
+- `sdlc-agent-result-persist --mode leave --stage generate` refuses a
+  list whose last line is not that line, or whose counts do not match
+  the settle modes of its records, and stores nothing. The generator
+  corrects the line and tries again, within the three `leave` calls it
+  already had for a refused list.
+
+The reviewer's instructions are split by the moment they apply at.
+What a review does is unchanged.
+
+- `agents/theorem-based-pr-reviewer.md` keeps what every turn of a
+  round needs, and names each of the files below once, where it
+  applies.
+- `skills/lib/theorem-based-pr-reviewer/resume.md` holds how a round
+  is resumed and how an overdue agent is written off. The reviewer
+  reads it when it finds a round already under way, or an agent past
+  its deadline.
+- `skills/lib/theorem-based-pr-reviewer/review-body.md` holds the
+  sections of the argued review, the finding format, the field rules
+  of the records file, and the calls that store the round and post its
+  review. The reviewer reads it once the round's verdicts are derived.
+
 ## 0.93.0 — 2026-11-21
 
 `/sdlc:orchestrate-ready` raises one design gap per turn. It used to
