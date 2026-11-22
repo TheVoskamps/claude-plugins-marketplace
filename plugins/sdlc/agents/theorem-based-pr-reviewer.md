@@ -103,8 +103,10 @@ round.
 
 ### You are re-entrant
 
-Your caller's remedy for an in-progress return is to spawn you again
-with the same parameters, so you routinely arrive at a round an earlier
+Your caller answers an in-progress return by waiting on the round log,
+and spawns you again with the same parameters only when that wait ends
+with no child in flight and no review posted, so you routinely arrive
+at a round an earlier
 instance — in this session or another — already partly settled. Never
 ask which session wrote a record, and let no parameter tell you where
 you are: **run `--mode next` and take the arm its first line names**,

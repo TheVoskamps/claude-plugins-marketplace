@@ -119,6 +119,34 @@ human overrides, and neither is something this skill computes.
    - `Return: posted review <VERDICT> — act on the verdict`: the round
      finished and its review is on the PR; relay it per step 4, with
      `<VERDICT>` as the overall verdict.
+
+   **Wait on the round log before acting on an in-progress line**, of
+   either ending below. The reviewer hands back whenever it ends a
+   turn, and it can end a turn and keep working, so an in-progress line
+   is not yet a stalled round. Take round `R` from `sdlc-pr-round
+   <PR_REF>` and run the stage-level wait the reviewer runs, the wait
+   with the Bash tool's `run_in_background`, since it can outlast a
+   foreground call:
+
+   ```bash
+   sdlc-agent-result-persist --mode next \
+     --pr <PR_REF> --round <R> --deadline-minutes 15
+   sdlc-agent-result-persist --mode wait \
+     --pr <PR_REF> --round <R> --stage <stage> --deadline-minutes 15
+   ```
+
+   Wait on the stage the line names, or on a stage `--mode next` shows a
+   child in flight in — an `in-flight` or `spawned` line; an `overdue`
+   line is past its deadline and holds no wait. After each exit, run
+   `sdlc-pr-round` and `--mode next` again, and repeat until the round
+   has posted a review or `--mode next` shows no child in flight in any
+   stage. A round that posted a review during the wait — `sdlc-pr-round`
+   now names a round above `R` — finished: relay its review per step 4,
+   reading the overall verdict off the PR's newest review with
+   `/github-prs:pr-view <PR> --json reviews`. Only once the wait ends with
+   no child in flight and no review posted do the two bullets below
+   apply.
+
    - `Return: in progress: … — re-spawn to resume`: tell the user the
      round did not finish, say no review was posted, and offer to
      re-spawn the reviewer on the same PR — that re-spawn resumes the

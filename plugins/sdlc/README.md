@@ -23,7 +23,9 @@ restate the fact.
 | --- | --- |
 | Which skills, agents, executables and hooks the plugin ships, and its `dependencies` edges | this file |
 | What one agent does | that agent's own file under `agents/` |
-| What a review checks, and the sections of the argued review it stores | `agents/theorem-based-pr-reviewer.md` |
+| What a review checks | `agents/theorem-based-pr-reviewer.md` |
+| The sections of the argued review a round stores, the finding format, and the records file's field rules | `skills/lib/theorem-based-pr-reviewer/review-body.md` |
+| The reviewer's resume loop, its resume-pass loop and its deadline arm | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | The round derivations — the arm a resumed round is in and the work left in each stage, each theorem's disposition, class, severity and stamped state, the per-issue and overall verdicts, and the posted review body — and the tables and rules they apply | `bin/sdlc-agent-result-persist`, under the contract `skills/agent-result-persist-interface/SKILL.md` states |
 | The judgment calls that remain in the review — the tier rubric, reading an adjustment comment into an edit, the argued review's prose, each child's brief, and raising a `NEEDS_CHANGES` to `BLOCKED` for a fix outside the issue's scope | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
@@ -101,6 +103,20 @@ A step the orchestrator runs is run by exactly one of the body, a lib
 file, `pr-merge-readiness` or `pr-monitor`; a PR that moves a step
 edits the surface it leaves and the one it lands in, and this table
 when a lib file's moment changes.
+
+`agents/theorem-based-pr-reviewer.md` splits the same way: what every
+turn of a round needs stays in the agent file, and a linear procedure
+for one moment is a lib file under `skills/lib/theorem-based-pr-reviewer/`,
+which the agent file names once, at its moment.
+
+| Lib file | Moment |
+| --- | --- |
+| `resume.md` | when `--mode next` names an arm other than `no-log`, or a line is `overdue`: the resume-pass loop, the resume loop every wait runs, and the deadline arm |
+| `review-body.md` | once `--mode dispose` has exited 0: the argued review's sections, the finding format, the records file's field rules, and the calls that store the round and post its review |
+
+A step the reviewer runs is run by exactly one of the agent file or a
+lib file; a PR that moves a step edits both surfaces it touches, and
+this table when a lib file's moment changes.
 
 ## Sweep a contract change by grepping the string, not the file list
 
@@ -1683,17 +1699,15 @@ its `leave` lands or its deadline passes. The first version of this
 rule read every notification as final, and a generator mid-run was
 written off on its interim one, its list landing minutes after the
 round had ended with nothing posted. The reviewer records a final
-notification as a `return` record, and `--mode next` prints a child
-with a `return` and no `leave` as `returned-unsaved` — work at once,
-whatever its deadline, since a child that finished without saving will
-never save — so the reviewer writes that child off and re-spawns its
-theorem on the resume that reads the line. The write-off `TaskStop`s
-the child first when the reviewer spawned it, as a deadline write-off
-does: a child that handed back can still be running, and its late
-`leave` and result file would overwrite its replacement's, stopping the
-round on a list conflict. A child past its deadline with no `return` is
-printed `overdue`, and the deadline is a figure the reviewer passes,
-not one the script holds.
+notification as a `return` record, and the record changes nothing
+`--mode next` prints: a child that handed back can still be running,
+so a child with a `return` and no `leave` stays in flight until its
+`leave` lands or its enter deadline passes, and only then is it printed
+`overdue` and written off. The write-off `TaskStop`s the child first
+when the reviewer spawned it: a child past its deadline can still be
+running, and its late `leave` and result file would overwrite its
+replacement's, stopping the round on a list conflict. The deadline is a
+figure the reviewer passes, not one the script holds.
 
 A reviewer that only ends its turn and waits for a notification cannot
 survive a child in the waiting state: a nested parent that ends its
@@ -1744,12 +1758,12 @@ names it. Each piece has one owner:
 | What a `leave` prints, what `print-in-flight` reports and how it matches a `stopped` to a child, and that `stopped` names the child it writes off, or `-` for one that never entered | `skills/agent-result-persist-interface/SKILL.md` |
 | The shape of a child's hand-back after a `leave` that succeeded, and after one that failed, which notification is final and which interim, and that an interim child's `leave` can still land | `skills/agent-result-persist-interface/SKILL.md` |
 | That each child calls `leave` before composing its hand-back, and never ends a turn over background work of its own | that child's own file under `agents/` |
-| The `returned-unsaved`, `overdue`, `in-flight` and `spawned` lines `next` prints, and what makes a child each | `skills/agent-result-persist-interface/SKILL.md` |
+| The `overdue`, `in-flight` and `spawned` lines `next` prints, what makes a child each, and that a `return` changes none of them | `skills/agent-result-persist-interface/SKILL.md` |
 | What `wait` waits on, each line it exits with, and how often it reads the log | `skills/agent-result-persist-interface/SKILL.md` |
 | The rule that a theorem awaits its child's `enter` by the order of its records, and which `stopped` ends that wait | `skills/agent-result-persist-interface/SKILL.md` |
 | That only a final notification is recorded, with a `return` | `agents/theorem-based-pr-reviewer.md` |
-| The immediate write-off of a child that handed back without a `leave`, that it `TaskStop`s a child the reviewer spawned before re-spawning, and that it counts as a resume pass | `agents/theorem-based-pr-reviewer.md` |
-| That a `wait` the reviewer started is running whenever it ends a turn waiting on a stage, and that such a turn is not a hand-back | `agents/theorem-based-pr-reviewer.md` |
+| That a child that handed back without a `leave` stays in flight until its `leave` or its enter deadline, that the deadline write-off `TaskStop`s a child the reviewer spawned before re-spawning, and that the re-spawn counts as a resume pass | `skills/lib/theorem-based-pr-reviewer/resume.md` |
+| That a `wait` the reviewer started is running whenever it ends a turn waiting on a stage, and that such a turn is not a hand-back | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That the reviewer records each child it spawns with `--mode agent`, and spawns nothing on a `spawned` line | `agents/theorem-based-pr-reviewer.md` |
 
 `test/sdlc-test.sh` drives the script's records and round-log modes
@@ -1809,8 +1823,12 @@ its last `spawn`, a `-` write-off before the `enter` and a replacement
 spawned after it, a duplicate `leave`, a moved head, a malformed
 `DISPROVED` report that earns no verifier, a generator re-spawned at
 another effort leaving a settled list settled, the `assess` arm with
-no disprover line printed before the assessor's file settles it, an
-empty assessment refused at `leave`, and the live list under
+no disprover line printed before the assessor's file settles it, a
+stage past the arm printing its children in flight and spawned and none
+of its outstanding or overdue theorems, an empty assessment refused at
+`leave`, a generator's list refused at `leave` for its count line or on
+a failed read of its ids or count line, leaving no staging file, and the
+live list under
 `--edits`, `--from` and `--full`, with a theorem the assessor rejected
 that round off a default round's list and on a `--full` round's;
 `wait` over the `assess` stage, and ending on a `leave`, on the
@@ -2062,7 +2080,7 @@ Each piece has one owner:
 | The order a disprover decides its verdict in, and the shape of a `SUBJECT REMOVED` report | `agents/theorem-disprover.md` |
 | Which verdicts a disprover's report can carry | `skills/theorem-agents-interface/SKILL.md` |
 | When the report is well formed, the row it takes on a carried theorem and on a minted one, and the state each row stamps | `skills/agent-result-persist-interface/SKILL.md` |
-| That a subject-removed retirement is listed on the skipped line and outside the full theorem list | `agents/theorem-based-pr-reviewer.md` |
+| That a subject-removed retirement is listed on the skipped line and outside the full theorem list | `skills/lib/theorem-based-pr-reviewer/review-body.md` |
 
 ## One disprover per theorem is a starting point
 
