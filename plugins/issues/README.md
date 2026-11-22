@@ -20,11 +20,12 @@ time and has to get each mutation's input shape right first try.
 
 These verbs move that lookup to setup time and record the answers in
 the repo's config. Afterwards `/issue-create` files a fully configured
-issue in one invocation, `/issue-view` prints one issue's body, fields
-and relationships without a follow-up command, and the relationship
-verbs set and clear edges by issue reference from whichever end you
-are thinking from. The flags do not change when the tracker does: the same
-verbs serve a Jira backend, and only the calls underneath differ.
+issue in one invocation, `/issue-view` prints one issue's body, project
+fields, the pull requests that close it and every relationship without
+a follow-up command, and the relationship verbs set and clear edges by
+issue reference from whichever end you are thinking from. The flags do
+not change when the tracker does: the same verbs serve a Jira backend,
+and only the calls underneath differ.
 
 Recording the IDs was not enough on its own. A verb whose procedure is
 prose is carried out by a model, and a model handed a `gh api graphql`
