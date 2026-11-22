@@ -160,8 +160,9 @@ def render(state, nwo, issue, query, after=None):
     children = [brief(state, n, i) for n, i in all_issues(state) if i.get("parent") == issue["id"]]
     blocked_by = [brief(state, *by_id(state, b)) for b in issue.get("blockedBy", [])]
     blocking = [brief(state, n, i) for n, i in all_issues(state) if issue["id"] in i.get("blockedBy", [])]
-    # Each `closedBy` entry is a pull request that closes the issue. As on
-    # GitHub, a closed or merged one is read only under includeClosedPrs: true.
+    # Each `closedBy` entry is a pull request that closes the issue, in the
+    # repo its "repo" names, the issue's own when absent. As on GitHub, a
+    # closed or merged one is read only under includeClosedPrs: true.
     include_closed = re.search(r"\bclosedByPullRequestsReferences\([^)]*\bincludeClosedPrs: true\b", query)
     closed_by = [{"number": pr["number"], "state": pr["state"],
                   "repository": {"nameWithOwner": pr.get("repo", nwo)}}

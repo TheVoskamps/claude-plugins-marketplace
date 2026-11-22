@@ -124,6 +124,8 @@ refuse() {
 # rows and the `closed-by:` row; nothing in the body is read as a row.
 header=$(printf '%s\n' "$view" | awk '{ sub(/\r$/, "") } $0 == "Body:" { exit } { print }')
 
+# The state is the last parenthesized group on the title line, so a
+# title carrying parentheses of its own is never read as the state.
 state_re='\(([^()]*)\)[[:space:]]*$'
 first=${header%%$'\n'*}
 state=''
