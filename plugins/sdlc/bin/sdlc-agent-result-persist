@@ -694,7 +694,10 @@ check_report_ids() {
     line ~ /^T[0-9]+$/ {
       msg = new_id_refusal(line)
       if (msg != "") { print msg; exit }
-    }' "$carried_file" "$1" || exit) || die "could not read the ids of the report for --round $round"
+    }' "$carried_file" "$1" || exit) || {
+    rm -f -- "$1"
+    die "could not read the ids of the report for --round $round"
+  }
   if [ -n "$refusal" ]; then
     rm -f -- "$1"
     die "--mode leave --stage generate --round $round refused: $refusal"
@@ -726,7 +729,10 @@ check_report_count() {
       split(last, f, /[ ,]+/)
       if (f[3] + 0 != m + 0 || f[5] + 0 != s + 0)
         printf "the list ends with \"%s\", and its records hold mechanical %d, semantic %d\n", last, m, s
-    }' "$1") || die "could not read the count line of the report for --round $round"
+    }' "$1" || exit) || {
+    rm -f -- "$1"
+    die "could not read the count line of the report for --round $round"
+  }
   if [ -n "$refusal" ]; then
     rm -f -- "$1"
     die "--mode leave --stage generate --round $round refused: $refusal"
@@ -1128,8 +1134,9 @@ readonly epoch_fn='
 
 # next: the arm the round is in, then one line per theorem of each stage
 # up to the arm's that is outstanding, in flight, spawned and yet to
-# enter, or overdue; or moved-head alone, when --head-sha names a head
-# other than the anchor's.
+# enter, or overdue, and per theorem of a later stage with a child in
+# flight or spawned and yet to enter; or moved-head alone, when
+# --head-sha names a head other than the anchor's.
 readonly next_prog="$epoch_fn"'
   # overdue(since): whether --deadline-minutes have passed since since.
   function overdue(since) { return deadline != "" && now + 0 >= epoch(since) + deadline * 60 }
@@ -1197,15 +1204,18 @@ readonly next_prog="$epoch_fn"'
     for (i = 1; i <= nlive; i++)
       if (disproved_ok(live[i]) && consider("verify", live[i], 1)) ver_open = 1
     if (sweep("verify")) ver_open = 1
-    # A stage past the arm is not under way, so its lines would only
-    # tempt a spawn across the barrier between stages.
+    # A stage past the arm is not under way, so its outstanding and
+    # overdue lines would only tempt a spawn or a write-off across the
+    # barrier between stages. Its in-flight and spawned lines are still
+    # printed: a child there is still running, and a caller waiting on the
+    # round asks whether any child is in flight in any stage.
     arm = gen_open ? "generate" : ass_open ? "assess" : dis_open ? "disprove" : ver_open ? "verify" : "dispose"
     print arm
     upto = arm == "generate" ? "generate" : arm == "assess" ? "generate assess" \
       : arm == "disprove" ? "generate assess disprove" : "generate assess disprove verify"
     for (i = 1; i <= nout; i++) {
       split(out[i], f, "\t")
-      if (index(" " upto " ", " " f[1] " ")) print out[i]
+      if (index(" " upto " ", " " f[1] " ") || f[3] == "in-flight" || f[3] == "spawned") print out[i]
     }
   }'
 

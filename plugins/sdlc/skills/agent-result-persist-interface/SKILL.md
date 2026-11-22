@@ -676,7 +676,10 @@ does not check that a quote is verbatim; the verifier does.
 
 - **`next`** — prints the arm the round is in, alone on the first line,
   then one line per theorem with work left in each stage up to that
-  arm's:
+  arm's, and one per theorem of a later stage whose line is `in-flight`
+  or `spawned`, so a child still running past the arm is never left
+  unprinted; a later stage's `outstanding` and `overdue` lines are not
+  printed:
 
   ```text
   <stage>\t<theorem-id>\t<outstanding|in-flight|spawned|overdue>\t<agent-id>\t<enter-time>
