@@ -20,7 +20,8 @@
 # Read-only: no exit writes an issue's status, fields, body or edges.
 #
 # The refusals come before any grading, and each one that holds prints
-# one line naming it, in this order:
+# one line naming it, the local-branch refusal one per branch naming the
+# issue, in this order:
 #   Closed           the issue's state is not OPEN.
 #   Open closing PR  the `closed-by:` row names a PR whose state is OPEN;
 #                    `none` and the Jira backend's `unsupported` name none.

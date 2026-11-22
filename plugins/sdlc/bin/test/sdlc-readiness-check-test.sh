@@ -7,8 +7,9 @@
 # batch or under a prefix segment beside branches that do not, a
 # status outside the allowed names, matched case-insensitively, no
 # status, and a repo with no status slot -- refusals together, the body
-# left ungraded on a refusal, each check key passing and failing, an unkeyed bullet, an
-# unknown key, malformed arguments, paths that leave the repo root,
+# left ungraded on a refusal, each check key passing and failing, an
+# unkeyed bullet, an unknown key, malformed arguments, paths that leave
+# the repo root,
 # start with '-', or name a glob, a directory, a FIFO or the root
 # itself, symlinks that stay inside the root and symlinks that lead out
 # of it, a [no-match] path absent from the tree, a hostile ERE,
