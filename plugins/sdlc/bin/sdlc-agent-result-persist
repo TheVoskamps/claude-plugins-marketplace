@@ -694,7 +694,45 @@ check_report_ids() {
     line ~ /^T[0-9]+$/ {
       msg = new_id_refusal(line)
       if (msg != "") { print msg; exit }
-    }' "$carried_file" "$1" || exit) || die "could not read the ids of the report for --round $round"
+    }' "$carried_file" "$1" || exit) || {
+    rm -f -- "$1"
+    die "could not read the ids of the report for --round $round"
+  }
+  if [ -n "$refusal" ]; then
+    rm -f -- "$1"
+    die "--mode leave --stage generate --round $round refused: $refusal"
+  fi
+}
+
+# A generator's report ends with its count line, COUNT: mechanical <m>,
+# semantic <s>, as its last non-blank line, and its two numbers count the
+# report's settle-mode: mechanical and settle-mode: semantic lines above
+# any RETIREMENTS line. A list whose count line is missing, misshapen or
+# wrong is refused before it is installed, so a refused list leaves no
+# result file and no leave record behind.
+check_report_count() {
+  [ "$stage" = generate ] || return 0
+  refusal=$(awk '
+    { line = $0; sub(/[ \t\r]+$/, "", line) }
+    line != "" { last = line }
+    line == "RETIREMENTS" { retired = 1 }
+    !retired && line ~ /^settle-mode:/ {
+      mode = line; sub(/^settle-mode:[ \t]*/, "", mode)
+      if (mode == "mechanical") m++
+      else if (mode == "semantic") s++
+    }
+    END {
+      if (last !~ /^COUNT: mechanical [0-9]+, semantic [0-9]+$/) {
+        print "the list does not end with a line COUNT: mechanical <m>, semantic <s>"
+        exit
+      }
+      split(last, f, /[ ,]+/)
+      if (f[3] + 0 != m + 0 || f[5] + 0 != s + 0)
+        printf "the list ends with \"%s\", and its records hold mechanical %d, semantic %d\n", last, m, s
+    }' "$1" || exit) || {
+    rm -f -- "$1"
+    die "could not read the count line of the report for --round $round"
+  }
   if [ -n "$refusal" ]; then
     rm -f -- "$1"
     die "--mode leave --stage generate --round $round refused: $refusal"
@@ -929,12 +967,16 @@ load_round_records() {
 # off the earlier child alone and leaves the replacement awaited. It
 # follows the order of the records, never a count of them.
 # entered[st, 1..nentered[st]] lists the theorems entered in the stage,
-# in first-enter order.
+# in first-enter order, and spawned[st, 1..nspawned[st]] the theorems
+# spawned in it, in first-spawn order.
 flight_lib() {
   cat <<'AWK'
   function flight_line(    t, st) {
     t = $2; st = $3
-    if ($1 == "spawn") { awaited[st, t] = 1; spawned_at[st, t] = $4 }
+    if ($1 == "spawn") {
+      if (!((st SUBSEP t) in spawned_at)) spawned[st, ++nspawned[st]] = t
+      awaited[st, t] = 1; spawned_at[st, t] = $4
+    }
     if ($1 == "enter") {
       if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
       awaited[st, t] = 0; child[st, t] = $5; at[st, t] = $4; named[st, t, $5] = 1
@@ -1048,7 +1090,6 @@ derive_lib() {
     flight_line()
     t = $2; st = $3
     if ($1 == "leave") left[st, t] = 1
-    if ($1 == "return") returned[st, t, $5] = 1
     next
   }
   FILENAME == results_file { result[$1, $2] = $3; next }
@@ -1097,17 +1138,19 @@ readonly epoch_fn='
 
 # next: the arm the round is in, then one line per theorem of each stage
 # up to the arm's that is outstanding, in flight, spawned and yet to
-# enter, overdue or returned without saving; or moved-head alone, when
+# enter, or overdue, and per theorem of a later stage with a child in
+# flight or spawned and yet to enter; or moved-head alone, when
 # --head-sha names a head other than the anchor's.
 readonly next_prog="$epoch_fn"'
   # overdue(since): whether --deadline-minutes have passed since since.
   function overdue(since) { return deadline != "" && now + 0 >= epoch(since) + deadline * 60 }
   # flight(st, t): the state of the child the theorem has in flight in
-  # the stage, or empty when it has none, as in_flight derives one.
+  # the stage, or empty when it has none, as in_flight derives one. A
+  # return record changes nothing here: a child that handed back can
+  # still be running, so only its leave or its deadline ends its flight.
   function flight(st, t,    id) {
     id = in_flight(st, t, stage_agent(st))
     if (id == "") return ""
-    if ((st SUBSEP t SUBSEP id) in returned) return "returned-unsaved"
     if (overdue(at[st, t])) return "overdue"
     return "in-flight"
   }
@@ -1140,13 +1183,15 @@ readonly next_prog="$epoch_fn"'
     }
     return 0
   }
-  # sweep(st): considers every theorem a child entered the stage for,
-  # member or not, so a child in flight is printed even off the live
-  # list, and says whether any of them not already considered still has
-  # work.
+  # sweep(st): considers every theorem a child entered the stage for and
+  # every theorem a child was spawned in it for, member or not, so a
+  # child in flight or yet to enter is printed even off the live list, as
+  # for a theorem first recorded this round, and says whether any of them
+  # not already considered still has work.
   function sweep(st,    i, open) {
     open = 0
     for (i = 1; i <= nentered[st]; i++) if (consider(st, entered[st, i], 0)) open = 1
+    for (i = 1; i <= nspawned[st]; i++) if (consider(st, spawned[st, i], 0)) open = 1
     return open
   }
   END {
@@ -1165,15 +1210,18 @@ readonly next_prog="$epoch_fn"'
     for (i = 1; i <= nlive; i++)
       if (disproved_ok(live[i]) && consider("verify", live[i], 1)) ver_open = 1
     if (sweep("verify")) ver_open = 1
-    # A stage past the arm is not under way, so its lines would only
-    # tempt a spawn across the barrier between stages.
+    # A stage past the arm is not under way, so its outstanding and
+    # overdue lines would only tempt a spawn or a write-off across the
+    # barrier between stages. Its in-flight and spawned lines are still
+    # printed: a child there is still running, and a caller waiting on the
+    # round asks whether any child is in flight in any stage.
     arm = gen_open ? "generate" : ass_open ? "assess" : dis_open ? "disprove" : ver_open ? "verify" : "dispose"
     print arm
     upto = arm == "generate" ? "generate" : arm == "assess" ? "generate assess" \
       : arm == "disprove" ? "generate assess disprove" : "generate assess disprove verify"
     for (i = 1; i <= nout; i++) {
       split(out[i], f, "\t")
-      if (index(" " upto " ", " " f[1] " ")) print out[i]
+      if (index(" " upto " ", " " f[1] " ") || f[3] == "in-flight" || f[3] == "spawned") print out[i]
     }
   }'
 
@@ -1534,6 +1582,7 @@ case "$mode" in
     refuse_empty_payload "$work/payload" report
     check_report_theorem "$work/payload"
     check_report_ids "$work/payload"
+    check_report_count "$work/payload"
     install_whole "$work/payload" "$result_file"
     printf 'leave %s %s %s %s %s\n' \
       "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >>"$file"

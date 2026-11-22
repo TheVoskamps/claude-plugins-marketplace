@@ -323,7 +323,8 @@ derive.
   all, and the `-<pid>` suffix is what keeps two writers from staging
   over each other. A refused report — empty, a `--from` file that
   could not be read, a result-file path carrying whitespace, a
-  `THEOREM:` mismatch or an id refusal below — leaves nothing behind:
+  `THEOREM:` mismatch, or an id or count-line refusal below — leaves
+  nothing behind:
   the staging file is removed before the call exits non-zero, and no
   `leave` record is appended.
 
@@ -348,6 +349,14 @@ derive.
   in sequence, is refused, non-zero, with a message naming that id and
   the expected next one. The call is refused as `print-records` would
   be, too, when a round above `--round` holds records.
+
+  The list's last non-blank line is its count line, `COUNT: mechanical
+  <m>, semantic <s>`, where `<m>` and `<s>` are the numbers of
+  `settle-mode: mechanical` and `settle-mode: semantic` lines above any
+  `RETIREMENTS` line. A list whose last non-blank line is not of that
+  shape, or whose counts do not match, is refused, non-zero, storing
+  nothing, with a message naming the line and the counts its records
+  hold.
 
   With `--stage assess` the report is the assessment of that list,
   filed under `--theorem list`, and nothing in it is checked but that
@@ -606,8 +615,9 @@ derive.
   thing any other mode removes is its own staging file, when `leave` or
   `review` refuses its payload as empty, when `leave`, `records` or
   `review` refuses a `--from` file that could not be read, or `leave`
-  refuses a report whose `THEOREM:` line does not name `--theorem` or
-  a theorem list whose ids do not continue the carried records;
+  refuses a report whose `THEOREM:` line does not name `--theorem`, a
+  theorem list whose ids do not continue the carried records, or one
+  whose count line is missing or wrong;
   `anchor` renames a voided round rather than removing it.
 
 The script stamps every record's time itself: the writer owns when the
@@ -666,10 +676,13 @@ does not check that a quote is verbatim; the verifier does.
 
 - **`next`** — prints the arm the round is in, alone on the first line,
   then one line per theorem with work left in each stage up to that
-  arm's:
+  arm's, and one per theorem of a later stage whose line is `in-flight`
+  or `spawned`, so a child still running past the arm is never left
+  unprinted; a later stage's `outstanding` and `overdue` lines are not
+  printed:
 
   ```text
-  <stage>\t<theorem-id>\t<outstanding|in-flight|spawned|overdue|returned-unsaved>\t<agent-id>\t<enter-time>
+  <stage>\t<theorem-id>\t<outstanding|in-flight|spawned|overdue>\t<agent-id>\t<enter-time>
   ```
 
   The last two fields are empty for `outstanding`; for a child yet to
@@ -696,17 +709,20 @@ does not check that a quote is verbatim; the verifier does.
   theorem with a child in flight is printed with its child's state and
   never as `outstanding`, member or not:
 
-  - **`returned-unsaved`** — a `return` record in the stage names the
-    child, which finished without saving and never will, so this is work
-    at once, whatever the deadline;
-  - **`overdue`** — the child, with no `return`, has an `enter` at least
+  - **`overdue`** — the child has an `enter` at least
     `--deadline-minutes` before the clock at the time of the call.
     Without `--deadline-minutes` nothing is overdue;
   - **`in-flight`** — any other child in flight.
 
+  A `return` record changes neither: a child that handed back can still
+  be running, so one with a `return` and no `leave` is in flight until
+  its `leave` or its deadline, whichever comes first.
+
   A theorem with no child in flight that the stage has not settled, and
   a child yet to enter there, as "What the reader derives" below defines
-  one, is printed with that child's state, never as `outstanding`:
+  one, is printed with that child's state, never as `outstanding`,
+  member or not, so a child spawned for a theorem no records file names
+  yet is printed too:
 
   - **`overdue`** — its last `spawn` is at least `--deadline-minutes`
     before the clock at the time of the call;
@@ -973,15 +989,16 @@ line is revised, so concurrent appends cannot collide.
 
 ## A child's hand-back
 
-A child's `leave` record and result file land before the child
-returns, so by the time its final `<task-notification>` — the one
-saying it finished — reaches the caller a missing `leave` is final
-rather than a race. A notification saying the child may still be
-running is interim: a child that ends its turn with background work of
+**A child is finished only when it writes its own `leave`.** The
+harness delivers a hand-back — a `<task-notification>`, or an `Agent`
+tool result — whenever the child ends a turn, and a child can end a
+turn and keep working: one that ends its turn with background work of
 its own running wakes when that work exits and carries on, so its
-`leave` can still land. A child therefore makes
-its `leave` call before it composes its hand-back, and composes one only
-from what that call did:
+`leave` can still land after any hand-back, final-looking or not. A
+missing `leave` is therefore never final on a hand-back: the child stays
+in flight until its `leave` or its deadline, and is written off only
+past that deadline. A child makes its `leave` call before it
+composes its hand-back, and composes one only from what that call did:
 
 - **The call succeeded** — the hand-back's first line is the
   result-file path the call printed, and the report the file holds

@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
 #
 # sdlc-agent-result-persist-test.sh -- drive the read modes
-# plugins/sdlc/bin/sdlc-agent-result-persist derives a review round from:
+# plugins/sdlc/bin/sdlc-agent-result-persist derives a review round from,
+# and the generator's leave whose list they read:
 #
 #   - --mode next over a fixture log per arm it names -- no log, a moved
 #     head, generate, assess, disprove, verify, dispose -- and over the
 #     states it prints: outstanding, in flight, overdue past
-#     --deadline-minutes, returned without saving, and spawned and yet to
-#     enter, overdue past the deadline from its last spawn; a stopped
+#     --deadline-minutes, a child that returned with no leave staying in
+#     flight until its deadline, and spawned and yet to enter, overdue
+#     past the deadline from its last spawn; a stopped
 #     after its enter, one before its enter that leaves the theorem
 #     outstanding, and a replacement spawned after such a write-off that
 #     entered and was stopped, which leaves it outstanding too; a
 #     duplicate leave, a malformed DISPROVED report that earns no
 #     verifier, a generator re-spawned at another effort, and a --full
 #     round's live list, with a theorem the assessor rejected that round
-#     on it.
+#     on it; a stage past the arm, the assess stage's included, whose
+#     in-flight and spawned children are printed and whose overdue and
+#     outstanding theorems are not; and a disprover or verifier spawned
+#     or entered for a theorem no records file names, in the arm's stage
+#     and past it.
+#   - --mode leave --stage generate refusing a list whose COUNT: line is
+#     missing or whose counts do not match its records' settle modes, and
+#     storing one whose counts match; and, when the awk reading its ids or
+#     its count line fails, removing its staging file.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included,
 #     and a replacement spawned after its predecessor was written off --
@@ -204,7 +214,7 @@ leave() {
 # assessed, and no new theorem in it.
 a_generated_list() {
   must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
-  report "$CASE/r" "no new theorems"
+  report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
   leave G list generate theorem-generator
   report "$CASE/r" "no theorem to assess"
   leave S list assess theorem-assessor
@@ -251,7 +261,7 @@ add_seed T1 "a claim" "#1"
 seed
 must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
 must --mode spawn --round 1 --theorem list --stage generate --agent theorem-generator --model default --effort low
-report "$CASE/r" "no new theorems"
+report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
 leave G list generate theorem-generator
 run --mode next --round 1
 assert_eq "next: the generator's file settles the list" "assess" "$(first_line)"
@@ -262,13 +272,77 @@ must --mode spawn --round 1 --theorem list --stage generate --agent theorem-gene
 run --mode next --round 1
 assert_eq "next: a spawn at another effort leaves a settled list settled" "assess" "$(first_line)"
 
+# --- leave: a generator's count line ----------------------------------------
+
+# generate_leave <line>...: the generator G's leave for round 1, its report
+# the arguments, one a line, run as run does so a refusal is observed.
+generate_leave() {
+  report "$CASE/r" "$@"
+  mkdir -p "$CASE/agent-G"
+  OUT=$(cd "$CASE/agent-G" && "$PERSIST" --pr "$PR" --mode leave --round 1 --theorem list --stage generate \
+    --agent theorem-generator --from "$CASE/r" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# no_result: whether round 1 holds no generator result file and no leave.
+no_result() {
+  [ ! -e "$PR_DIR/round1/list-theorem-generator" ] && ! grep -q '^leave' "$PR_DIR/round1/log" && echo none || echo written
+}
+
+new_case leave-generate-count
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+as_child G --mode enter --round 1 --theorem list --stage generate
+generate_leave T1 "claim: a" "issues: #1" "settle-mode: mechanical" "pointers: a.md"
+assert_eq "leave: a generator's list with no COUNT: line is refused" "2" "$RC"
+assert_contains "leave: the refusal names the missing count line" \
+  "does not end with a line COUNT: mechanical <m>, semantic <s>" "$ERR"
+assert_eq "leave: a list refused for its count stores nothing" "none" "$(no_result)"
+generate_leave T1 "claim: a" "issues: #1" "settle-mode: mechanical" "pointers: a.md" "" \
+  T2 "claim: b" "issues: #1" "settle-mode: semantic" "pointers: a.md" "" "COUNT: mechanical 2, semantic 0"
+assert_eq "leave: a COUNT: line that does not match the settle modes is refused" "2" "$RC"
+assert_contains "leave: the refusal names the line and the records' counts" \
+  '"COUNT: mechanical 2, semantic 0", and its records hold mechanical 1, semantic 1' "$ERR"
+assert_eq "leave: a list refused for a wrong count stores nothing" "none" "$(no_result)"
+generate_leave T1 "claim: a" "issues: #1" "settle-mode: mechanical" "pointers: a.md" "" \
+  "COUNT: mechanical 1, semantic 0" "" RETIREMENTS "T9 — removed by the delta."
+assert_eq "leave: a COUNT: line followed by RETIREMENTS is refused" "2" "$RC"
+generate_leave T1 "claim: a" "issues: #1" "settle-mode: mechanical" "pointers: a.md" "" \
+  T2 "claim: b" "issues: #1" "settle-mode: semantic" "pointers: a.md" "" \
+  RETIREMENTS "T9 — removed by the delta." "" "COUNT: mechanical 1, semantic 1"
+assert_eq "leave: a list whose COUNT: line, after its retirements, matches its settle modes is stored" "0:$PR_DIR/round1/list-theorem-generator" "$RC:$OUT"
+assert_eq "leave: the stored list is the report" "$(cat "$CASE/r")" "$(cat "$PR_DIR/round1/list-theorem-generator")"
+
+# A failed awk read of a generator's list removes its staging file. The
+# shim fails the one awk call whose program holds the marker it is given
+# and runs the real awk for every other.
+REAL_AWK=$(command -v awk)
+new_case leave-generate-awk-failure
+mkdir -p "$CASE/shim" "$CASE/tmp"
+report "$CASE/shim/awk" "#!/usr/bin/env bash" "for arg in \"\$@\"; do" \
+  "  case \"\$arg\" in *\"\$FAIL_AWK_ON\"*) exit 1 ;; esac" "done" "exec \"$REAL_AWK\" \"\$@\""
+chmod +x "$CASE/shim/awk"
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+as_child G --mode enter --round 1 --theorem list --stage generate
+for marker in carried_file settle-mode:; do
+  report "$CASE/r" T1 "claim: a" "issues: #1" "settle-mode: semantic" "pointers: a.md" "" "COUNT: mechanical 0, semantic 1"
+  OUT=$(cd "$CASE/agent-G" && FAIL_AWK_ON=$marker TMPDIR="$CASE/tmp" PATH="$CASE/shim:$PATH" "$PERSIST" --pr "$PR" \
+    --mode leave --round 1 --theorem list --stage generate --agent theorem-generator --from "$CASE/r" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+  assert_eq "leave: a failed awk read of the list ($marker) is refused" "2" "$RC"
+  assert_contains "leave: the refusal says the report could not be read ($marker)" "could not read the" "$ERR"
+  assert_eq "leave: a failed awk read of the list ($marker) leaves no staging file" "" "$(ls -A "$CASE/tmp")"
+  assert_eq "leave: a failed awk read of the list ($marker) stores nothing" "none" "$(no_result)"
+done
+
 # --- next: assess, between generate and disprove ---------------------------
 
 new_case next-assess
 add_seed T1 "a claim" "#1"
 seed
 must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
-report "$CASE/r" "no new theorems"
+report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
 leave G list generate theorem-generator
 run --mode next --round 1
 assert_eq "next: a settled, unassessed list is the assess arm" "assess" "$(first_line)"
@@ -299,6 +373,27 @@ assert_eq "wait: an assessor past its deadline is waited on in the assess stage"
 run --mode wait --round 1 --stage disprove --deadline-minutes 15
 assert_eq "wait: an assessor in flight is not waited on in another stage" "none" "$OUT"
 
+new_case next-past-the-arm
+add_seed T1 "first" "#1"
+add_seed T2 "second" "#1"
+add_seed T3 "third" "#1"
+add_seed T4 "fourth" "#1"
+seed
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
+leave G list generate theorem-generator
+as_child A --mode enter --round 1 --theorem T1 --stage disprove
+must --mode spawn --round 1 --theorem T2 --stage disprove --agent theorem-disprover --model default --effort low
+printf 'enter T3 disprove 2000-01-01T00:00:00Z D -\n' >>"$PR_DIR/round1/log"
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child in flight past the arm leaves the arm where it is" "assess" "$(first_line)"
+assert_contains "next: a child in flight in a stage past the arm is printed in flight" \
+  "disprove${TAB}T1${TAB}in-flight${TAB}A${TAB}" "$(rest)"
+assert_contains "next: a child spawned in a stage past the arm is printed spawned" \
+  "disprove${TAB}T2${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_lacks "next: an overdue child in a stage past the arm is not printed" "disprove${TAB}T3" "$(rest)"
+assert_lacks "next: an outstanding theorem in a stage past the arm is not printed" "disprove${TAB}T4" "$(rest)"
+
 # --- next: disprove, its child states, and the barrier --------------------
 
 new_case next-disprove
@@ -324,14 +419,25 @@ assert_eq "next: a child in flight keeps the disprove arm" "disprove" "$(first_l
 assert_contains "next: a child in flight is printed in flight" "disprove${TAB}T1${TAB}in-flight${TAB}A${TAB}" "$(rest)"
 assert_lacks "next: a theorem with a child in flight is never outstanding" "disprove${TAB}T1${TAB}outstanding" "$(rest)"
 assert_contains "next: a stopped after its enter leaves the theorem outstanding" "disprove${TAB}T2${TAB}outstanding${TAB}${TAB}" "$(rest)"
-assert_contains "next: a child that returned without a leave is returned-unsaved before its deadline" \
-  "disprove${TAB}T3${TAB}returned-unsaved${TAB}C${TAB}" "$(rest)"
+assert_contains "next: a child that returned without a leave stays in flight before its deadline" \
+  "disprove${TAB}T3${TAB}in-flight${TAB}C${TAB}" "$(rest)"
+assert_lacks "next: a child that returned without a leave is not outstanding" \
+  "disprove${TAB}T3${TAB}outstanding" "$(rest)"
 
-# A child that entered long ago is past any deadline.
+# A child that entered long ago is past any deadline, and one that also
+# returned is overdue on the same terms.
 printf 'enter T1 disprove 2000-01-01T00:00:00Z D -\n' >>"$PR_DIR/round1/log"
+printf 'enter T3 disprove 2000-01-01T00:00:00Z E -\n' >>"$PR_DIR/round1/log"
+"$PERSIST" --pr "$PR" --mode return --round 1 --theorem T3 --stage disprove --agent-id E >/dev/null
 run --mode next --round 1 --deadline-minutes 15
 assert_contains "next: a child past --deadline-minutes is overdue" \
   "disprove${TAB}T1${TAB}overdue${TAB}D${TAB}2000-01-01T00:00:00Z" "$(rest)"
+assert_contains "next: a child that returned without a leave is overdue past its deadline" \
+  "disprove${TAB}T3${TAB}overdue${TAB}E${TAB}2000-01-01T00:00:00Z" "$(rest)"
+survived T3
+as_child E --mode leave --round 1 --theorem T3 --stage disprove --agent theorem-disprover --from "$CASE/r"
+run --mode next --round 1 --deadline-minutes 15
+assert_lacks "next: a returned child's own leave ends its flight" "disprove${TAB}T3${TAB}" "$(rest)"
 run --mode next --round 1
 assert_contains "next: without --deadline-minutes nothing is overdue" "disprove${TAB}T1${TAB}in-flight${TAB}D${TAB}" "$(rest)"
 
@@ -384,6 +490,63 @@ must --mode stopped --round 1 --theorem T1 --stage disprove --agent-id B
 run --mode next --round 1 --deadline-minutes 15
 assert_eq "next: a replacement that entered and was stopped leaves the theorem outstanding" \
   "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}" "$(rest)"
+
+# T5 to T9 are named by no records file, as a theorem first recorded this
+# round is to a call without --from.
+new_case next-off-the-records
+add_seed T1 "first" "#1"
+seed
+a_generated_list
+survived T1
+leave A T1 disprove theorem-disprover
+must --mode spawn --round 1 --theorem T9 --stage disprove --agent theorem-disprover --model default --effort default
+as_child B --mode enter --round 1 --theorem T8 --stage disprove
+printf 'spawn T7 disprove 2000-01-01T00:00:00Z theorem-disprover default default\n' >>"$PR_DIR/round1/log"
+must --mode spawn --round 1 --theorem T6 --stage verify --agent counterexample-verifier --model default --effort default
+as_child C --mode enter --round 1 --theorem T5 --stage verify
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child off the records keeps its stage's arm" "disprove" "$(first_line)"
+assert_contains "next: a disprover spawned for a theorem off the records is spawned" \
+  "disprove${TAB}T9${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_contains "next: a disprover entered for a theorem off the records is in flight" \
+  "disprove${TAB}T8${TAB}in-flight${TAB}B${TAB}" "$(rest)"
+assert_contains "next: a disprover spawned off the records past its deadline is overdue" \
+  "disprove${TAB}T7${TAB}overdue${TAB}-${TAB}2000-01-01T00:00:00Z" "$(rest)"
+assert_contains "next: a verifier spawned off the records past the arm is spawned" \
+  "verify${TAB}T6${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_contains "next: a verifier entered off the records past the arm is in flight" \
+  "verify${TAB}T5${TAB}in-flight${TAB}C${TAB}" "$(rest)"
+run --mode next --round 1
+assert_contains "next: without --deadline-minutes a spawn off the records is spawned" \
+  "disprove${TAB}T7${TAB}spawned${TAB}-${TAB}" "$(rest)"
+must --mode stopped --round 1 --theorem T7 --stage disprove --agent-id -
+run --mode next --round 1 --deadline-minutes 15
+assert_lacks "next: a spawn off the records written off before its enter is not printed" "disprove${TAB}T7" "$(rest)"
+
+new_case next-off-the-records-past-the-arm
+add_seed T1 "first" "#1"
+seed
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
+leave G list generate theorem-generator
+must --mode spawn --round 1 --theorem T9 --stage disprove --agent theorem-disprover --model default --effort default
+as_child B --mode enter --round 1 --theorem T8 --stage disprove
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: a child off the records past the arm leaves the arm where it is" "assess" "$(first_line)"
+assert_contains "next: a disprover spawned off the records past the arm is spawned" \
+  "disprove${TAB}T9${TAB}spawned${TAB}-${TAB}" "$(rest)"
+assert_contains "next: a disprover entered off the records past the arm is in flight" \
+  "disprove${TAB}T8${TAB}in-flight${TAB}B${TAB}" "$(rest)"
+
+new_case next-assess-past-the-arm
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+must --mode spawn --round 1 --theorem list --stage assess --agent theorem-assessor --model default --effort default
+run --mode next --round 1 --deadline-minutes 15
+assert_eq "next: an assessor spawned before the list settles leaves the generate arm" "generate" "$(first_line)"
+assert_contains "next: an assessor spawned past the arm is spawned" "assess${TAB}list${TAB}spawned${TAB}-${TAB}" "$(rest)"
+as_child S --mode enter --round 1 --theorem list --stage assess
+run --mode next --round 1 --deadline-minutes 15
+assert_contains "next: an assessor entered past the arm is in flight" "assess${TAB}list${TAB}in-flight${TAB}S${TAB}" "$(rest)"
 
 # --- wait: a leave, a deadline, and no child to wait on ------------------
 
