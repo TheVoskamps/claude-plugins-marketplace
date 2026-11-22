@@ -125,6 +125,8 @@ widgets["2"]["projectItems"] = [{"id": "PVTI_2", "project": "PVT_1",
 widgets["2"]["issueFields"] = {"IFSS_priority": {"name": "High", "optionId": "IFSSO_high"}}
 widgets["2"]["parent"] = "I_acme_widgets_1"
 widgets["2"]["blockedBy"] = ["I_acme_other_3"]
+widgets["2"]["closedBy"] = [{"number": 60, "state": "MERGED"}, {"number": 61, "state": "OPEN"},
+                            {"number": 7, "state": "CLOSED", "repo": "octo/lib"}]
 widgets["4"]["labels"] = ["size:S", "size:L"]
 widgets["5"]["viewerCanSetFields"] = False
 # A parent-to-child chain 1 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11: walked from 1,
@@ -470,10 +472,13 @@ expect "issue-view: full block" 0 \
   "Status:     In progress" "Priority:   High" "Size:       S" \
   "Parent:     #1 Widget issue 1" "Blocked by:${ISS_NL}  - other#3 Other repo issue" \
   "Sub-issues:${ISS_NL}  (none)" "Body:${ISS_NL}Body of 2."
+expect "issue-view: closed-by lists every closing PR, closed and merged ones included" 0 \
+  "Parent:     #1 Widget issue 1${ISS_NL}closed-by: #60 (MERGED), #61 (OPEN), octo/lib#7 (CLOSED)${ISS_NL}"
 
 run issue-view 4
 expect "issue-view: two size labels read (multiple), off-board status" 0 \
   "Size:       (multiple)" "Status:     (not on project board)" "Priority:   (none)" "Parent:     (none)"
+expect "issue-view: closed-by reads none when no PR closes the issue" 0 "${ISS_NL}closed-by: none${ISS_NL}"
 
 new_case "$CONFIG_NO_BLOCK"
 run issue-view 2

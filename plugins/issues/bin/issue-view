@@ -14,6 +14,7 @@ parent { number title repository { nameWithOwner } }
 $(iss_conn subIssues)
 $(iss_conn blockedBy)
 $(iss_conn blocking)
+$(iss_conn closedByPullRequestsReferences)
 $ISS_SEL_PROJECT_ITEMS
 $ISS_SEL_ISSUE_FIELDS"
 readonly SEL
@@ -40,6 +41,20 @@ list_section() {
   printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r nwo number title; do
     printf '  - %s %s\n' "$(iss_ref_nwo "$OP_HOST" "$nwo" "$number")" "$title"
   done
+}
+
+# closed_by_row: the `closed-by:` row, each pull request that closes the issue
+# as `<reference> (<state>)`, or `none`.
+closed_by_row() {
+  local rows nwo number state refs=''
+  rows=$(iss_jq '.closedByPullRequestsReferences.nodes[] | [.repository.nameWithOwner, (.number | tostring), .state] | join("\t")')
+  while IFS="$(printf '\t')" read -r nwo number state; do
+    [ -n "$nwo" ] || continue
+    refs="${refs:+$refs, }$(iss_ref_nwo "$OP_HOST" "$nwo" "$number") ($state)"
+  done <<EOF
+$rows
+EOF
+  printf 'closed-by: %s\n' "${refs:-none}"
 }
 
 # slot_row <slot>: the slot's row, or nothing for kind: skip.
@@ -106,6 +121,7 @@ if [ "$(iss_jq '.parent != null')" = true ]; then
 else
   row Parent ""
 fi
+closed_by_row
 printf '\n'
 list_section Sub-issues subIssues
 printf '\n'
