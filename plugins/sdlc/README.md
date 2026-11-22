@@ -707,10 +707,16 @@ The decisions behind them:
   reopening an issue, closing a PR, deleting a branch and moving a
   status are each the human's call. So a refusal has an exit status and
   a verdict of its own, the body goes ungraded, and both skills print
-  the refusal lines and stop without offering a remedy.
+  the refusal lines as they stand and stop. A remedy a line names
+  itself is printed with it; a skill adds none of its own, and neither
+  runs one nor offers to.
   `/sdlc:orchestrate` stops the whole run, and `/sdlc:orchestrate-ready`
   ends the session there, rewriting no body and setting no status
   after it.
+- **A check that fails is not a pass.** A check that exits on an error
+  of its own returns no verdict, and both skills stop on that as they
+  do on a refusal, relaying its stderr, since an issue nothing could
+  check has not been shown to be available.
 - **The branch check compares issue numbers, never branch names.** A
   batch branch names several issues, so each local branch is decoded
   through `git-issue-branch decode` and the issue is looked for in the
@@ -755,9 +761,9 @@ names no PR, so the refusal never fires there.
 | --- | --- |
 | Each refusal's condition, the order they are checked in, the line each prints and the exit status | `bin/sdlc-readiness-check` |
 | The `refused` verdict and what the check reads | `skills/orchestrate-readiness/SKILL.md` |
-| That the gate stops the whole run on a refusal and offers no remedy | `skills/orchestrate/SKILL.md` |
+| That the gate stops the whole run on a refusal or on a return with no verdict, and adds no remedy of its own | `skills/orchestrate/SKILL.md` |
 | The re-check before a batch's In Progress flips, and what a refusal there leaves undone | `skills/orchestrate/lib/issue-lifecycle.md` |
-| That a refusal ends a grooming session | `skills/orchestrate-ready/SKILL.md` |
+| That a refusal, or a return with no verdict, ends a grooming session | `skills/orchestrate-ready/SKILL.md` |
 | The two status-list keys, their defaults, and how a list value is read, asked for and written | `skills/lib/sdlc-config.md` |
 
 ## An issue that contradicts a repo statement is caught before the PR
@@ -2964,8 +2970,10 @@ call: `pr-comment` for the detail poster, `git-default-branch`,
 `issue-view` and `git-issue-branch` for the readiness check, which
 exits 1 naming whichever is missing. The readiness check's
 open-closing-PR refusal reads the `closed-by:` row `issue-view` prints
-from `issues` 0.19.0; against an older `issue-view` the row is absent
-and that refusal never fires, with no error to say so. The
+from `issues` 0.19.0. An older `issue-view` prints no such row, and the
+check then exits 1 with a message naming the `issue-view` it needs,
+whatever else is true of the issue: reading the missing row as no
+closing PR would let an issue with an open one pass. The
 unassigned follow-up issue relies on `/issue-create --no-assignee`,
 which `issues` has from 0.15.0. `yq`, which `sdlc-decision ask` parses
 a record with, and `question` too for a record with no stored question,

@@ -70,7 +70,10 @@ Two new sdlc config keys hold the allowed statuses:
 - It still writes nothing to the issue on any exit.
 
 The open-PR refusal relies on the `closed-by:` row `/issue-view` prints
-from `issues` 0.19.0.
+from `issues` 0.19.0. With an older `issues` installed the row is
+missing, and the check fails rather than passes: it exits 1 with a
+message naming the `issue-view` it needs, and both skills stop on it.
+Update `issues` to 0.19.0 or later alongside this version.
 
 ## 0.94.0 — 2026-11-21
 
