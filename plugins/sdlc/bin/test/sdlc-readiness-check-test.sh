@@ -104,6 +104,8 @@ mkfifo "$REPO/fifo"
 # The stub issue-view prints the title line with the case's state, the
 # case's rows, then the case's body, and leaves a `viewed` marker; the
 # stub git-issue-branch runs the real one; the stub gh marks a call.
+# viewonly holds the stub issue-view alone, for a PATH that lacks
+# git-issue-branch.
 mkdir -p "$SANDBOX/bin" "$SANDBOX/viewonly"
 cat >"$SANDBOX/bin/issue-view" <<EOF
 #!/bin/sh
@@ -120,8 +122,10 @@ chmod +x "$SANDBOX/bin/git-issue-branch"
 printf '#!/bin/sh\n: >"%s/pwned-gh"\n' "$SANDBOX" >"$SANDBOX/bin/gh"
 chmod +x "$SANDBOX/bin/gh"
 
-# serve <state> [<row>...]: the state and rows the stub serves until the
-# next call; by default an open issue with no status row and no closing
+# serve <state> [<row>...]: the state, and the rows after a `Labels:`
+# row, the stub serves until the next call. With no row there is no
+# `closed-by:` row, which the check fails on. The default, serve OPEN
+# with DEFAULT_ROWS, is an open issue with no status row and no closing
 # PR.
 serve() {
   printf '%s\n' "$1" >"$SANDBOX/state"
