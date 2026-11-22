@@ -15,12 +15,13 @@ grades a body against the bar.
 ## Invocation
 
 ```text
-/sdlc:orchestrate-readiness <issue-number>
+/sdlc:orchestrate-readiness <issue-number> --allow-status <name> [--allow-status <name>]...
 ```
 
-One issue number, with or without a leading `#`. The check reads the
-issue's body, its edges, and the tree at check time; it never reads or
-writes a project status, and it edits nothing.
+One issue number, with or without a leading `#`, and every status name
+the caller allows, each as its own `--allow-status`. The check reads
+the issue's body, state, status, closing PRs and edges, the local
+branches, and the tree at check time. It edits nothing.
 
 ## The readiness bar
 
@@ -235,8 +236,13 @@ at check time.
 Given an issue number:
 
 1. Fetch the body and the edges with `/issue-view <N>`.
-2. Run `sdlc-readiness-check <N>`, which this plugin puts on `PATH`,
-   from inside the repo's working tree, on every invocation. Exit 0
+2. Run `sdlc-readiness-check <N> --allow-status <name>...`, which this
+   plugin puts on `PATH`, from inside the repo's working tree, on every
+   invocation, passing every name you were given. Exit 4 is a refusal —
+   the issue is closed, an open PR closes it, a local branch names it,
+   or its status is not allowed — and prints one line per refusal:
+   return the refused verdict under "Output" with each line as it
+   stands, and run nothing below. Exit 0
    means it found no gap; exit 3 prints one gap line per gap, each
    already naming its bar item, and each goes into the gap list as it
    stands. On any other exit, relay its stderr verbatim and stop. Then
@@ -291,3 +297,13 @@ Gaps:
 ```
 
 Under `ready`, the `Gaps:` section reads `(none)`.
+
+A refusal is its own verdict, with no `Searched:` line, no gap list and
+no grading of the body:
+
+```text
+Verdict: refused
+
+Refusals:
+  - <the script's refusal line, verbatim>
+```
