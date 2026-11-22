@@ -1181,6 +1181,7 @@ iss_conn_nodes() {
     labels) printf 'name' ;;
     assignees) printf 'login' ;;
     subIssues | blockedBy | blocking) printf 'id number title state repository { nameWithOwner }' ;;
+    closedByPullRequestsReferences) printf 'number state repository { nameWithOwner }' ;;
     projectItems) printf 'id project { id } %s' "$(iss_conn fieldValues)" ;;
     fieldValues) printf '%s' "$ISS_FIELD_VALUE_NODES" ;;
     issueFieldValues)
@@ -1193,9 +1194,12 @@ iss_conn_nodes() {
 
 # iss_conn <connection> [after]: the connection's selection, carrying the
 # pageInfo iss_page_rest follows. With "after", it reads the page after $after.
+# closedByPullRequestsReferences leaves closed and merged pull requests out
+# unless asked for them, so it is asked.
 iss_conn() {
   local args="first: $ISS_PAGE_SIZE"
   [ "${2:-}" = after ] && args="$args, after: \$after"
+  [ "$1" = closedByPullRequestsReferences ] && args="$args, includeClosedPrs: true"
   printf '%s(%s) {\n  pageInfo { hasNextPage endCursor }\n  nodes {\n    %s\n  }\n}' "$1" "$args" "$(iss_conn_nodes "$1")"
 }
 

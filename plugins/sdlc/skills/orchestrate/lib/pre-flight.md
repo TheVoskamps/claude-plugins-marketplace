@@ -63,6 +63,8 @@ sdlc config:
   loop-end: ask (global user)
   docs-loop-end: auto-when-clean (default)
   ready-rewrite-approval: ask (default)
+  orchestrate-statuses: [Todo, Ready] (default)
+  orchestrate-ready-statuses: [Backlog, Todo, Ready] (default)
   follow-up-issue-type: repo-default (default)
   follow-up-issue-priority: ask (shared repo)
   follow-up-issue-status: repo-default (default)

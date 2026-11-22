@@ -21,7 +21,24 @@ Immediately after the plan is settled — the human confirmed it, or
 `plan-confirm` let it through without waiting — and **before spawning
 the developer for a given batch**, transition every member of that
 batch to In Progress and assign it — they start together because one
-developer starts them together:
+developer starts them together.
+
+First, immediately before any of the batch's flips, re-run the
+refusals on every member, so an issue another session started since
+the gate is caught:
+
+```bash
+sdlc-readiness-check <N> --allow-status <name>...
+```
+
+once per member, with the gate's `--allow-status` names. Each issue
+is in one batch, so no member is one this run has already flipped.
+When any member exits `4`, flip none of the batch's members, assign
+none, spawn no developer for the batch, and print each refusal line as
+it stands; the batch is not yours to resolve. Exit `0` or `3` carries
+no refusal — the body was graded at the gate — and the batch goes on.
+On any other exit, relay its stderr verbatim and treat the batch as
+refused. Then:
 
 ```text
 /issue-set-status <N> "In Progress"

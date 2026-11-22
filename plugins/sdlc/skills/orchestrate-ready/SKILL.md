@@ -79,7 +79,21 @@ a side-effect issue — is an approval, not a decision.
    than inferring them.
 
 2. **Run the check, then report the verdict first and the gaps
-   after.** Invoke `/sdlc:orchestrate-readiness <N>`; its verdict, its
+   after.** Invoke `/sdlc:orchestrate-readiness <N>` with the
+   `--allow-status` names `orchestrate-ready-statuses` sets.
+
+   **A `refused` verdict ends the session.** Print each refusal line as
+   it stands, a remedy a line names included, and stop: no gap is
+   reported or raised, the body is not rewritten, no status is set, and
+   no side-effect issue is filed. A refusal is not yours to resolve, so
+   add no remedy of your own, and neither run, offer to run nor ask
+   about one: the issue's state, its PRs and its branches stay as the
+   check found them.
+
+   **A return with no verdict ends the session the same way** — the
+   check's stderr, relayed as it stands, is all you report.
+
+   Otherwise its verdict, its
    `Searched:` line and its gap list are what you report. Open with the
    verdict, so the user knows the size of the conversation before
    reading the detail. Relay the `Searched:` line as it stands, then
@@ -259,10 +273,11 @@ a side-effect issue — is an approval, not a decision.
    files-affected section goes in as its tagged list, both in the
    shape `sdlc:orchestrate-readiness`'s grammar spells.
 
-   Then run the check again. The rewrite loop ends when
-   `/sdlc:orchestrate-readiness <N>` returns an empty gap list; a gap
-   it still reports goes back to step 3, which handles it as it
-   handles any gap.
+   Then run the check again, with the same `--allow-status` names. The
+   rewrite loop ends when `/sdlc:orchestrate-readiness <N>` returns an
+   empty gap list; a gap it still reports goes back to step 3, which
+   handles it as it handles any gap, and a `refused` verdict or a return
+   with no verdict ends the session as step 2 says.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,

@@ -160,18 +160,29 @@ If no issue numbers are given, ask for them before proceeding.
 Read `skills/orchestrate/lib/pre-flight.md` and run it first: the
 primary-clone check, the per-repo config read that resolves
 `<link-prefix>` for the rest of the run, and the sdlc config
-resolution that fixes `seed-review`, `merge-wait`,
-`merge-poll-interval-seconds` and `merge-max-unchanged-polls` for the
-rest of the run.
+resolution that fixes `orchestrate-statuses`, `seed-review`,
+`merge-wait`, `merge-poll-interval-seconds` and
+`merge-max-unchanged-polls` for the rest of the run.
 
 ### Gate: refuse an issue that is not orchestrate-ready
 
 Before any analysis, invoke `/sdlc:orchestrate-readiness <N>` on
-every issue given. If any returns a non-empty gap list, stop the run
-here — no branch, no generator spawn, no PR exists yet, and none is
-created — print each failing issue's gap list, and say to run
-`/sdlc:orchestrate-ready <N>` on it. Do not run that skill yourself:
-grooming is a conversation with the human, and this flow is not it.
+every issue given, with the `--allow-status` names
+`orchestrate-statuses` sets. If any returns the verdict `refused`, a
+non-empty gap list, or no verdict at all, stop the whole run here — no
+branch, no generator spawn, no PR exists yet, and none is created — and
+print what each such issue returned:
+
+- **A refusal** — print its refusal lines as they stand, a remedy a
+  line names included. It is not yours to resolve: add no remedy of
+  your own, and neither run, offer to run nor ask about one: the
+  issue, its PRs and its branches stay as the check found them.
+- **No verdict** — the check's stderr, relayed as it stands. Treat it
+  as a refusal.
+- **A gap list** — print it, and say to run
+  `/sdlc:orchestrate-ready <N>` on the issue. Do not run that skill
+  yourself: grooming is a conversation with the human, and this flow
+  is not it.
 
 ### Read each issue, in parallel
 

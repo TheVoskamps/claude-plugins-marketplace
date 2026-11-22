@@ -1,12 +1,12 @@
 ---
 name: issue-view
-description: Dump a single issue with body, every configured field slot, and parent/sub-issues/blockedBy/blocking relationships in one shot.
+description: Dump a single issue with body, every configured field slot, the pull requests that close it, and parent/sub-issues/blockedBy/blocking relationships in one shot.
 ---
 
 Print everything about a single issue in one pass — title, body,
 labels, assignees, issue type, every configured field slot, parent,
-sub-issues, blockedBy, and blocking — without requiring follow-up
-commands.
+the pull requests that close it, sub-issues, blockedBy, and blocking —
+without requiring follow-up commands.
 
 ## Invocation
 
@@ -46,6 +46,7 @@ Priority:   <value>
 Size:       <value>
 
 Parent:     #<N> <title>
+closed-by: #<N> (<state>), #<N> (<state>)
 
 Sub-issues:
   - #<N> <title>
@@ -73,6 +74,11 @@ Body:
   board, and `(multiple)` for a `kind: label` slot carrying more than
   one of its own labels. `/issue-set-<slot>` converges that last state;
   this verb is read-only.
+- **`closed-by:`** lists each pull request whose closing reference
+  names the issue, closed and merged ones included, as its reference
+  and its state — `OPEN`, `CLOSED` or `MERGED` — comma-separated. It
+  reads `closed-by: none` when no pull request closes the issue, and
+  `closed-by: unsupported` under the Jira backend.
 - Every other empty section reads `(none)`.
 - The issue and every related issue print as `skills/lib/issue.md` →
   "Repositories and issue references" states.

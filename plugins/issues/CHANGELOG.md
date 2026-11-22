@@ -1,5 +1,29 @@
 # issues changelog
 
+## 0.19.0 — 2026-11-22
+
+`/issue-view` prints the pull requests that close the issue, in a
+`closed-by:` row directly under `Parent:`. Until now nothing in the
+block said whether a PR for the issue was already open or had already
+merged.
+
+```text
+Parent:     #12 Parent title
+closed-by: #60 (MERGED), #61 (OPEN)
+```
+
+- Each pull request whose closing reference names the issue is listed
+  as its reference and its state, `OPEN`, `CLOSED` or `MERGED`,
+  comma-separated. Closed and merged ones are listed too, and one in
+  another repository prints with that repository in its reference.
+- The row reads `closed-by: none` when no pull request closes the
+  issue.
+- Under the Jira backend it reads `closed-by: unsupported`, since Jira
+  carries no pull request that closes a work item.
+
+A script that reads the block by position should expect the new row
+between `Parent:` and the blank line above `Sub-issues:`.
+
 ## 0.18.0 — 2026-11-21
 
 `/issue-list` can list a project board across repositories. Until now

@@ -65,6 +65,8 @@ merge-poll-interval-seconds: 300
 | `loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 | `docs-loop-end` | `ask` \| `auto-when-clean` | `auto-when-clean` |
 | `ready-rewrite-approval` | `ask` \| `auto` | `ask` |
+| `orchestrate-statuses` | a list of one or more status names | `[Todo, Ready]` |
+| `orchestrate-ready-statuses` | a list of one or more status names | `[Backlog, Todo, Ready]` |
 | `follow-up-issue-type` | `repo-default` \| `ask` \| a type name | `repo-default` |
 | `follow-up-issue-priority` | `repo-default` \| `ask` \| an option name | `repo-default` |
 | `follow-up-issue-status` | `repo-default` \| `ask` \| an option name | `repo-default` |
@@ -146,6 +148,14 @@ merge-poll-interval-seconds: 300
   question. `auto` rewrites the body without it once every design gap
   has the human's stored answer, and prints the criteria and the file
   list it wrote.
+- **`orchestrate-statuses`**, **`orchestrate-ready-statuses`** — the
+  statuses an issue may be at for `/sdlc:orchestrate` and for
+  `/sdlc:orchestrate-ready` respectively to run on it. Each skill passes
+  every name its key resolves to, its default included, as an
+  `--allow-status` of every readiness check it runs. A name is matched
+  against the issue's status case-insensitively and literally, so a
+  name the board lacks matches nothing and is no error. A higher tier's
+  list replaces a lower one's, never merges with it.
 - **`follow-up-issue-type`**, **`follow-up-issue-priority`**,
   **`follow-up-issue-status`**, **`follow-up-issue-assignee`** — the
   fields a follow-up issue the human ordered is filed with, through
@@ -221,7 +231,10 @@ of these that applies:
   values** — abort, naming the path and the key. A positive integer is
   a YAML integer of 1 or more; `0`, a negative, a float and a quoted
   string are all outside it, and so is an integer above the key's
-  stated maximum. A key whose description states a narrower shape
+  stated maximum. A list-valued key holds a YAML sequence of one or
+  more non-empty strings; a scalar, an empty sequence, and a sequence
+  holding anything but a non-empty string are all outside it. A key
+  whose description states a narrower shape
   takes only that shape. A deprecated alias a key's description names
   is read as the value it stands for before this check, so it is never
   outside the allowed values.
@@ -254,14 +267,25 @@ Each writer owns one tier's file and runs these steps against it.
    takes a typed value, re-asked until it is within the key's allowed
    values; `code-review-max-rounds` and `docs-review-max-rounds` offer
    `unlimited` beside it. A key that takes a name or a login offers its
-   fixed values and takes a typed name beside them.
+   fixed values and takes a typed name beside them. A list-valued key
+   offers the board's status options, as `/issue-field-options status`
+   reports them, and takes typed names beside them; its answer is one
+   or more names, and an answer of none is re-asked. When that skill
+   exits non-zero, as it does outside a git working tree, or reports
+   the slot unconfigured, the key offers no options, says why beside
+   the question, and takes typed names alone: its stop ends that
+   skill's call, never the writer's run.
 4. **Merge.** Replace only the keys answered with a value this run.
    A key left unchanged keeps its current value, or stays absent if it
    was absent — the writer never writes a key the user left unset, and
    never deletes one. A key the file sets to a deprecated alias is
    written as the value the alias stands for, answered or left
    unchanged, so no writer writes an alias. A value YAML cannot hold as
-   a plain scalar, such as `@me`, is written single-quoted. Set
+   a plain scalar, such as `@me`, is written single-quoted, and so is
+   each name of a list-valued key that a flow sequence cannot hold
+   plain, such as one carrying a comma. A list-valued key is written as
+   a flow sequence, `orchestrate-statuses: [Todo, Ready]`,
+   in the order the names were given. Set
    `schema-version: 1` as the first key; keep every other key in its
    existing order and append new keys after them.
 5. **Show the merged file and wait for a yes** that names the write.

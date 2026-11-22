@@ -110,7 +110,8 @@ def brief(state, nwo, issue):
     }
 
 
-CONNECTIONS = ("labels", "assignees", "subIssues", "blockedBy", "blocking", "projectItems", "issueFieldValues")
+CONNECTIONS = ("labels", "assignees", "subIssues", "blockedBy", "blocking", "closedByPullRequestsReferences",
+               "projectItems", "issueFieldValues")
 
 
 def paginate(query, name, nodes, after):
@@ -118,7 +119,7 @@ def paginate(query, name, nodes, after):
     selects, as a connection with pageInfo; None when the query does not
     select `name`. Arguments after `after` are ignored. A cursor is the offset
     of the first node after the page it ends."""
-    m = re.search(r"\b%s\(first: (\d+)(, after: \$after)?(?:, \w+: \$\w+)*\)" % name, query)
+    m = re.search(r"\b%s\(first: (\d+)(, after: \$after)?(?:, \w+: [$\w]+)*\)" % name, query)
     if m is None:
         return None
     first = int(m.group(1))
@@ -159,6 +160,13 @@ def render(state, nwo, issue, query, after=None):
     children = [brief(state, n, i) for n, i in all_issues(state) if i.get("parent") == issue["id"]]
     blocked_by = [brief(state, *by_id(state, b)) for b in issue.get("blockedBy", [])]
     blocking = [brief(state, n, i) for n, i in all_issues(state) if issue["id"] in i.get("blockedBy", [])]
+    # Each `closedBy` entry is a pull request that closes the issue, in the
+    # repo its "repo" names, the issue's own when absent. As on GitHub, a
+    # closed or merged one is read only under includeClosedPrs: true.
+    include_closed = re.search(r"\bclosedByPullRequestsReferences\([^)]*\bincludeClosedPrs: true\b", query)
+    closed_by = [{"number": pr["number"], "state": pr["state"],
+                  "repository": {"nameWithOwner": pr.get("repo", nwo)}}
+                 for pr in issue.get("closedBy", []) if include_closed or pr["state"] == "OPEN"]
     items = []
     for item in issue.get("projectItems", []):
         # An item a board's auto-add workflow created stays out of this many
@@ -194,6 +202,7 @@ def render(state, nwo, issue, query, after=None):
         "subIssues": children,
         "blockedBy": blocked_by,
         "blocking": blocking,
+        "closedByPullRequestsReferences": closed_by,
         "projectItems": items,
         "issueFieldValues": issue_fields,
     }

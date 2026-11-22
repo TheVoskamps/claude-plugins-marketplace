@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# sdlc-readiness-check -- grade the `### Mechanical` bullets of an
+# sdlc-readiness-check -- refuse an issue that is closed, that an open
+# pull request closes, that a local branch names, or whose status is not
+# allowed; otherwise grade the `### Mechanical` bullets of an
 # issue's two acceptance sections, `## Code and instruction Markdown
 # acceptance` and `## Documentation acceptance`, against the tree, and
 # print one gap line per failing bullet, per line under `### Mechanical`
@@ -15,10 +17,28 @@
 # in backticks and holds a slash or ends in a file extension, or when
 # the item ends in a files-affected tag. Such a mistitled section's
 # well-formed bullets are then read as the files-affected list.
-# Read-only.
+# Read-only: no exit writes an issue's status, fields, body or edges.
+#
+# The refusals come before any grading, and each one that holds prints
+# one line naming it, the local-branch refusal one per branch naming the
+# issue, in this order:
+#   Closed           the issue's state is not OPEN.
+#   Open closing PR  the `closed-by:` row names a PR whose state is OPEN;
+#                    `none` and the Jira backend's `unsupported` name none,
+#                    and no `closed-by:` row at all fails with exit 1.
+#   Local branch     a local branch decodes, through `git-issue-branch
+#                    decode`, to an issue set holding the issue; the
+#                    numbers are compared, never the names.
+#   Status           issue-view prints a `Status:` row, so the repo has a
+#                    status slot, and its value matches no
+#                    --allow-status name, case-insensitively; a row of
+#                    `(none)` or `(not on project board)` is no status.
+#                    With no `Status:` row this refusal is skipped.
+# The allowed names come from the caller alone: no sdlc config file is
+# read.
 #
 # The grammar and the key vocabulary are owned by
-# plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The body is read
+# plugins/sdlc/skills/orchestrate-readiness/SKILL.md. The issue is read
 # by running `issue-view <N>` from PATH, in the repository the working
 # directory belongs to, and every path a bullet names is resolved
 # against that repository's root.
@@ -29,19 +49,26 @@
 # which passes when each path it names is listed in the files-affected
 # section. Runs under the bash 3.2 macOS ships.
 #
-# Usage: sdlc-readiness-check <N>
+# Usage: sdlc-readiness-check <N> --allow-status <name> [--allow-status <name>]...
 #
 # <N> is an issue number in this repository, with or without a leading
-# `#`.
+# `#`. --allow-status is required and repeatable; a name the board lacks
+# never matches and is no error.
 #
 # Exit statuses:
-#   0  no gap; nothing is printed
-#   1  a command the script ran failed, or issue-view is not on PATH
+#   0  no refusal and no gap; nothing is printed
+#   1  a command the script ran failed, issue-view or git-issue-branch
+#      is not on PATH, or issue-view printed no `closed-by:` row, as one
+#      older than issues 0.19.0 does
 #   2  a usage error; nothing was read
-#   3  at least one gap; one gap line per gap is printed on stdout
+#   3  no refusal, and at least one gap; one gap line per gap is printed
+#      on stdout
+#   4  at least one refusal; one line per refusal is printed on stdout,
+#      and the body is not graded
 set -uo pipefail
 
 PROGRAM=${0##*/}
+USAGE="usage: $PROGRAM <N> --allow-status <name> [--allow-status <name>]..."
 
 # fail <status> <message> -- print the message on stderr, prefixed with
 # the program name, and exit with the status.
@@ -50,19 +77,129 @@ fail() {
   exit "$1"
 }
 
-[ "$#" -eq 1 ] || fail 2 "usage: $PROGRAM <N>"
-issue=${1#\#}
+arg=''
+allow=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --allow-status)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || fail 2 "--allow-status needs a status name; $USAGE"
+      allow+=("$2")
+      shift 2
+      ;;
+    --*) fail 2 "unknown option: $1; $USAGE" ;;
+    *)
+      [ -z "$arg" ] || fail 2 "$USAGE"
+      arg=$1
+      shift
+      ;;
+  esac
+done
+[ -n "$arg" ] || fail 2 "$USAGE"
+[ "${#allow[@]}" -gt 0 ] || fail 2 "no --allow-status name was given; $USAGE"
+issue=${arg#\#}
 case "$issue" in
-  '' | *[!0-9]*) fail 2 "not an issue number: $1" ;;
+  '' | *[!0-9]*) fail 2 "not an issue number: $arg" ;;
 esac
 
 command -v issue-view >/dev/null 2>&1 ||
   fail 1 "issue-view is not on PATH; it ships with the issues plugin"
+command -v git-issue-branch >/dev/null 2>&1 ||
+  fail 1 "git-issue-branch is not on PATH; it ships with the git-tools plugin"
 
 root=$(git rev-parse --show-toplevel) || fail 1 "not inside a git working tree"
 root_phys=$(cd -P -- "$root" && pwd -P) || fail 1 "cannot resolve $root"
 
 view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
+
+# --- the refusals, before any grading -------------------------------
+
+REFUSALS=0
+
+# refuse <line> -- print one refusal line on stdout and count it in
+# REFUSALS, which decides the exit-4 verdict.
+refuse() {
+  printf '%s\n' "$1"
+  REFUSALS=$((REFUSALS + 1))
+}
+
+# The rows above `Body:`, where issue-view prints the state, the slot
+# rows and the `closed-by:` row; nothing in the body is read as a row.
+header=$(printf '%s\n' "$view" | awk '{ sub(/\r$/, "") } $0 == "Body:" { exit } { print }')
+
+# An issue-view older than issues 0.19.0 prints no `closed-by:` row, and
+# reading its absence as `none` would let an open closing PR pass.
+printf '%s\n' "$header" | grep -q '^closed-by:' ||
+  fail 1 "issue-view $issue printed no closed-by: row; the open-closing-PR refusal needs issue-view from issues 0.19.0 or later"
+
+# The state is the last parenthesized group on the title line, so a
+# title carrying parentheses of its own is never read as the state.
+state_re='\(([^()]*)\)[[:space:]]*$'
+first=${header%%$'\n'*}
+state=''
+[[ $first =~ $state_re ]] && state=${BASH_REMATCH[1]}
+[ "$state" = OPEN ] || refuse "Closed: issue $issue is ${state:-in no state issue-view printed}, not OPEN"
+
+closed_by=$(printf '%s\n' "$header" | awk 'sub(/^closed-by: /, "") { print; exit }')
+case "$closed_by" in
+  '' | none | unsupported) ;;
+  *)
+    open_prs=''
+    rest=$closed_by
+    while [ -n "$rest" ]; do
+      entry=${rest%%, *}
+      if [ "$entry" = "$rest" ]; then rest=''; else rest=${rest#*, }; fi
+      case "$entry" in
+        *' (OPEN)') open_prs=${open_prs:+$open_prs, }${entry% (OPEN)} ;;
+      esac
+    done
+    [ -z "$open_prs" ] || refuse "Open closing PR: issue $issue is closed by the open PR $open_prs"
+    ;;
+esac
+
+branches=$(git for-each-ref --format='%(refname)' refs/heads/) || fail 1 "git for-each-ref refs/heads/ failed"
+while IFS= read -r ref; do
+  branch=${ref#refs/heads/}
+  # Every name `git-issue-branch encode` writes holds `issue-`, so a
+  # branch without it names no issue and is not decoded.
+  case "$branch" in
+    *issue-*) ;;
+    *) continue ;;
+  esac
+  decoded=$(git-issue-branch decode "$branch") || fail 1 "git-issue-branch decode $branch failed"
+  numbers=$(printf '%s\n' "$decoded" | awk 'sub(/^issues: */, "") { print; exit }')
+  for n in $numbers; do
+    if [ "$((10#$n))" -eq "$((10#$issue))" ]; then
+      refuse "Local branch: the local branch $branch names issue $issue; run /sdlc:orchestrate-cleanup on it"
+      break
+    fi
+  done
+done <<<"$branches"
+
+status_row=$(printf '%s\n' "$header" | awk '/^Status:/ { print; exit }')
+if [ -n "$status_row" ]; then
+  status=${status_row#Status:}
+  status=${status#"${status%%[![:space:]]*}"}
+  status=${status%"${status##*[![:space:]]}"}
+  allowed=$(printf '%s, ' "${allow[@]}")
+  allowed=${allowed%, }
+  case "$status" in
+    '' | '(none)' | '(not on project board)')
+      refuse "Status: issue $issue has no status; the allowed statuses are $allowed"
+      ;;
+    *)
+      want=$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')
+      matched=''
+      for name in "${allow[@]}"; do
+        [ "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" = "$want" ] && matched=1
+      done
+      [ -n "$matched" ] || refuse "Status: issue $issue is at $status, not one of the allowed statuses $allowed"
+      ;;
+  esac
+fi
+
+[ "$REFUSALS" -eq 0 ] || exit 4
+
+# --- the grading ----------------------------------------------------
 
 # Split the body into the Mechanical bullets of both acceptance sections
 # (`M<TAB><bullet>`), every other non-blank line under their `###
