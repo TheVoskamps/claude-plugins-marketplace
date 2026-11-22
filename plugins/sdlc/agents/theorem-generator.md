@@ -191,11 +191,11 @@ given, and step 7.
    `sdlc:agent-result-persist-interface` skill → "A child's hand-back".
    When it succeeded, the hand-back's first line is the result-file path
    the call printed, followed by the theorem list in the record format
-   below, the same text step 6 wrote. When it failed — on an id refusal,
-   once the retries "On a re-review, generate from the delta" allows are
-   spent — hand back the failure report that section shows, carrying no
-   theorems — never the
-   list the file was meant to hold. On the issues-only brief there is no
+   below, the same text step 6 wrote. When it failed — on an id or
+   count-line refusal, once the retries "On a re-review, generate from
+   the delta" allows are spent — hand back the failure report that
+   section shows, carrying no theorems — never the list the file was
+   meant to hold. On the issues-only brief there is no
    `leave` call and no path line: the hand-back is the theorem list
    alone, and the only copy there is. Nothing else goes in your report.
 
@@ -555,8 +555,9 @@ You emit exactly two things, and nothing else:
   `RETIREMENTS` lines left as they are. Write the staging file again
   and call `leave` again in the same turn. Make
   at most three `leave` calls in total: after a third refusal, hand back
-  the failure report step 7 describes, carrying no theorems. Any other
-  refusal gets no retry.
+  the failure report step 7 describes, carrying no theorems. A
+  count-line refusal, per "Output format", shares those three calls; any
+  other refusal gets no retry.
 - **Retirements of carried theorems whose subject the delta removed.**
   When the delta deletes the file, section, or symbol a carried
   theorem is about, say so as a retirement line naming the id and the
@@ -627,9 +628,6 @@ Field rules:
 
 A record missing any of these fields is malformed.
 
-Close the list with a one-line count of theorems by settle mode, so the
-pipeline can sanity-check the fan-out it is about to run.
-
 On a re-review, a **retirement** is the one other thing your report
 may carry. Emit those after the theorem records, under a
 `RETIREMENTS` line, one per row:
@@ -643,6 +641,20 @@ Emit the `RETIREMENTS` line only when you have at least one. A round
 with new theorems and no retirements, or retirements and no new
 theorems, is ordinary; a round with neither emits an empty list and
 says so.
+
+The list ends with exactly this line, after any retirements, where
+`<m>` and `<s>` count the theorem records whose `settle-mode` is
+`mechanical` and `semantic`:
+
+```text
+COUNT: mechanical <m>, semantic <s>
+```
+
+An empty list ends with `COUNT: mechanical 0, semantic 0`. The `leave`
+call in step 6 refuses a list whose last line is not that line, or
+whose counts do not match the records; on that refusal, correct the
+line to the records and call `leave` again, within the three calls "On
+a re-review, generate from the delta" allows.
 
 ## End-of-run cleanup
 

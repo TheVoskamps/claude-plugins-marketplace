@@ -509,7 +509,7 @@ check "$RC:$OUT" "0:$XDG_STATE_HOME/sdlc/h.example/o/r/pr7/round1/T1-theorem-dis
 new_case leave-spaced-state-root
 export XDG_STATE_HOME="$CASE/state root"
 as_child G --mode enter --round 1 --theorem list --stage generate
-printf 'no new theorems\n' >"$CASE/report"
+printf 'no new theorems\nCOUNT: mechanical 0, semantic 0\n' >"$CASE/report"
 as_child G --mode leave --round 1 --theorem list --stage generate --agent theorem-generator --from "$CASE/report"
 check "$RC:$OUT" "2:" "leave: a result path carrying whitespace is refused"
 check_contains "$ERR" "carries whitespace" "leave: the refusal names the whitespace"
@@ -582,7 +582,7 @@ theorem_list() {
   for n in $(seq "$1" "$2"); do
     printf 'T%s\nclaim: claim %s\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\n' "$n" "$n"
   done
-  printf 'Total: %s semantic\n\nRETIREMENTS\nT1 — removed by the delta.\n' "$(($2 - $1 + 1))"
+  printf 'RETIREMENTS\nT1 — removed by the delta.\n\nCOUNT: mechanical 0, semantic %s\n' "$(($2 - $1 + 1))"
 }
 
 # Round 1's records hold T1 to T17.
@@ -611,7 +611,7 @@ check "$(round_log 2 | grep -c '^leave list generate')" "1" "generate ids: the s
 
 new_case generate-skips
 seed_round 1 "$SEVENTEEN"
-printf 'T18\nclaim: a\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\nT20\nclaim: b\nissues: #1\nsettle-mode: semantic\npointers: a.md\n' \
+printf 'T18\nclaim: a\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\nT20\nclaim: b\nissues: #1\nsettle-mode: semantic\npointers: a.md\n\nCOUNT: mechanical 0, semantic 2\n' \
   >"$CASE/list"
 as_child G --mode leave --round 2 --theorem list --stage generate --agent theorem-generator --from "$CASE/list"
 check "$RC" "2" "generate ids: a list skipping an id is refused"

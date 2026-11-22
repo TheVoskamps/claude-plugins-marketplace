@@ -841,17 +841,42 @@ that for this line the PR carries no review, and any review the PR
 shows is a previous round's; none above it means the PR carries this
 round's review.
 
+**Wait on the round log before acting on an in-progress line.** The
+reviewer hands back whenever it ends a turn, and it can end a turn and
+keep working, so an in-progress line is not yet a stalled round. On
+one, of either ending, whose re-derivation above found round `R` under
+way, run the stage-level wait the reviewer runs over it, the wait with
+the Bash tool's `run_in_background`, since it can outlast a foreground
+call:
+
+```bash
+sdlc-agent-result-persist --mode next \
+  --pr <PR_REF> --round <R> --deadline-minutes 15
+sdlc-agent-result-persist --mode wait \
+  --pr <PR_REF> --round <R> --stage <stage> --deadline-minutes 15
+```
+
+Wait on the stage the line names, or on a stage `--mode next` shows a
+child in flight in — an `in-flight` or `spawned` line; an `overdue`
+line is past its deadline and holds no wait. After each exit,
+re-derive the round with `sdlc-pr-round` and `--mode print`, as "Run
+the review pipeline" does, and repeat until the round has posted a
+review or `--mode next` shows no child in flight in any stage.
+
+- **The round posted a review during the wait**: that review is the
+  round's result. Act on its verdict as on a `posted review` line,
+  reading its findings per "Reading a round's detail", and raise
+  nothing about it.
+- **The wait ended with no child in flight and no review posted**: act
+  on the line as its ending says, below. Only here is the reviewer
+  re-spawned.
+
 A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
 first such return, quoting the reviewer's line verbatim. A re-spawn to
 resume is **not a new round** against `code-review-max-rounds` — count it
 in the round's report instead — and after two on one PR, raise it as a
-**Needs Your Attention** row rather than re-spawning again. A review
-the PR carries under an in-progress line is the human's to rule on, as
-a decision per "Putting a decision to the human" whose options are that
-the round stands, its verdict and findings read per "Reading a round's
-detail", and that the reviewer is re-spawned and the new round
-supersedes it; nothing spawns until they pick.
+**Needs Your Attention** row rather than re-spawning again.
 
 **A finding a review filed that the repo settles with a fix is listed
 with the sentence that settles it** as your ruling, wherever you list

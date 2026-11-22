@@ -152,8 +152,8 @@ the next: a spawn past the ceiling queues rather than runs.
 **Loop while progress continues; hard-stop at 7 resume passes.** A
 **resume pass** is one round of re-spawning what `next` shows
 unsettled, waiting, and reading again; only a pass spawns anything.
-**One count spans every stage**, every re-spawn — at a deadline
-or on an immediate write-off — a pass on it. Take another only while
+**One count spans every stage**, every re-spawn after a deadline write-off
+a pass on it. Take another only while
 the last settled a theorem the log did not already have, and stop at 7
 whatever happened. The count is your instance's; your caller bounds the
 instances.
@@ -182,7 +182,9 @@ surviving notification carries the round past every lost one.
 1. **Record a final notification** that woke you with a `--mode return`
    record, with its agent id and whatever token, tool-call and duration
    figures it gave. A notification naming no agent id, and the wait
-   command's exit, get no record.
+   command's exit, get no record. The record is telemetry: a child is
+   finished only when it writes its own `leave`, and one that handed
+   back can still be running.
 2. **Run `--mode next`**, per "You are re-entrant". Its deadline is the
    **15 minutes after a child's `enter`** you pass — five times the
    worst case measured on a 32-theorem round, where every disprover
@@ -190,11 +192,10 @@ surviving notification carries the round past every lost one.
    and the verifiers reuse; from `enter`, so a child queued behind the
    ceiling does not read as slow.
 3. **End the turn, or act on the lines**, in the stage its arm names:
-   an `overdue` line takes the deadline arm, and a **`returned-unsaved`**
-   line takes it too, on the resume that reads it, whatever its
-   deadline: a child that handed back can still be running, and its
-   late `leave` would overwrite its replacement's. An arm that moved on
-   ends this stage's wait.
+   an `overdue` line takes the deadline arm, and a child with any other
+   line stays in flight, whatever its hand-back said, so it is never
+   written off or its theorem re-spawned before its deadline. An arm
+   that moved on ends this stage's wait.
 
 **Start the wait command before you end a turn that waits on a stage**,
 with the Bash tool's `run_in_background`, so that a wait you started
@@ -210,12 +211,11 @@ While it runs, your run outlives a child that ended its turn over
 background work of its own. Its exit is a resume like any other, even
 when no notification arrives: run this loop.
 
-**The deadline arm.** For an `overdue` or `returned-unsaved` line,
-`TaskStop` its child if **you** spawned it, before its theorem is
-re-spawned, and append its stop either way, naming it by the agent id
-the line printed. For an `overdue` line whose agent id is `-`,
-`TaskStop` its child by the id its `Agent` call returned, and append the
-stop with `-`:
+**The deadline arm.** For an `overdue` line, `TaskStop` its child if
+**you** spawned it, before its theorem is re-spawned, and append its
+stop either way, naming it by the agent id the line printed. For an
+`overdue` line whose agent id is `-`, `TaskStop` its child by the id
+its `Agent` call returned, and append the stop with `-`:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
