@@ -168,14 +168,17 @@ resolution that fixes `orchestrate-statuses`, `seed-review`,
 
 Before any analysis, invoke `/sdlc:orchestrate-readiness <N>` on
 every issue given, with the `--allow-status` names
-`orchestrate-statuses` sets. If any returns the verdict `refused` or a
-non-empty gap list, stop the whole run here — no branch, no generator
-spawn, no PR exists yet, and none is created — and print what each
-such issue returned:
+`orchestrate-statuses` sets. If any returns the verdict `refused`, a
+non-empty gap list, or no verdict at all, stop the whole run here — no
+branch, no generator spawn, no PR exists yet, and none is created — and
+print what each such issue returned:
 
-- **A refusal** — print its refusal lines as they stand. It is not
-  yours to resolve and has no remedy you offer: close no PR, delete no
-  branch, set no status, and run no skill on it.
+- **A refusal** — print its refusal lines as they stand, a remedy a
+  line names included. It is not yours to resolve: add no remedy of
+  your own, and neither run, offer to run nor ask about one — close no
+  PR, delete no branch, set no status, and run no skill on it.
+- **No verdict** — the check's stderr, relayed as it stands. Treat it
+  as a refusal.
 - **A gap list** — print it, and say to run
   `/sdlc:orchestrate-ready <N>` on the issue. Do not run that skill
   yourself: grooming is a conversation with the human, and this flow

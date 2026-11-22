@@ -83,10 +83,15 @@ a side-effect issue — is an approval, not a decision.
    `--allow-status` names `orchestrate-ready-statuses` sets.
 
    **A `refused` verdict ends the session.** Print each refusal line as
-   it stands, and stop: no gap is reported or raised, the body is not
-   rewritten, no status is set, and no side-effect issue is filed. A
-   refusal is not yours to resolve, so offer no remedy for it — no
-   reopening, no closing a PR, no deleting a branch, no status change.
+   it stands, a remedy a line names included, and stop: no gap is
+   reported or raised, the body is not rewritten, no status is set, and
+   no side-effect issue is filed. A refusal is not yours to resolve, so
+   add no remedy of your own, and neither run, offer to run nor ask
+   about one — no reopening, no closing a PR, no deleting a branch, no
+   status change.
+
+   **A return with no verdict ends the session the same way** — the
+   check's stderr, relayed as it stands, is all you report.
 
    Otherwise its verdict, its
    `Searched:` line and its gap list are what you report. Open with the
@@ -271,8 +276,8 @@ a side-effect issue — is an approval, not a decision.
    Then run the check again, with the same `--allow-status` names. The
    rewrite loop ends when `/sdlc:orchestrate-readiness <N>` returns an
    empty gap list; a gap it still reports goes back to step 3, which
-   handles it as it handles any gap, and a `refused` verdict ends the
-   session as step 2 says.
+   handles it as it handles any gap, and a `refused` verdict or a return
+   with no verdict ends the session as step 2 says.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,
