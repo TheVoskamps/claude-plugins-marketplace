@@ -1054,7 +1054,8 @@ iss_ref_nwo() {
 # ---------------------------------------------------------------------------
 # The gh api wrappers, the only place this plugin calls `gh api`. Each takes
 # the host of the repository the call acts on first and passes it as
-# --hostname; an empty host leaves the call on gh's default host.
+# --hostname; an empty host leaves the call on gh's default host. Among them,
+# iss_issue_body reads an issue body through curl instead of `gh api`.
 # ---------------------------------------------------------------------------
 
 # iss_rest <host> <gh api args...>: a REST call, stdout and stderr passed
@@ -1075,7 +1076,8 @@ iss_rest() {
 # `\u0001` in the text included, so the read goes through curl to the REST API
 # of <host> -- github.com when empty -- with the token `gh auth token` prints
 # for that host, passed to curl on stdin rather than as an argument. Aborts on
-# a failed token or REST read.
+# a failed token or REST read. Callers run it in a command substitution and
+# exit on a non-zero status, which is an abort already reported on stderr.
 iss_issue_body() {
   local host=${1:-github.com} api url token json
   case "$(iss_lc "$host")" in

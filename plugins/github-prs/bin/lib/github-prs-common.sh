@@ -372,7 +372,9 @@ gp_repo_path() {
 # control escape into caret notation, a literal `\u0001` in the text
 # included, so the read goes through curl to GP_HOST's REST API with the
 # token `gh auth token` prints for that host. The token reaches curl on
-# stdin, never as an argument. Call it as `x=$(gp_read_body ...) || exit $?`,
+# stdin, never as an argument. A failed token read exits 1 with gp_gh's
+# catalogue line, and a failed curl exits 1 with gp_err_curl's, after
+# curl's own error. Call it as `x=$(gp_read_body ...) || exit $?`,
 # after gp_resolve_host in the verb's own shell: the gp_resolve_host inside
 # runs in the substitution's shell and keeps nothing, so without the earlier
 # call every read looks the current repository up again.
