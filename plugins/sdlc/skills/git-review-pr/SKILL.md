@@ -43,7 +43,15 @@ human overrides, and neither is something this skill computes.
    positional token, ask the user which PR to review before
    proceeding.
 
-2. **Spawn the reviewer agent** with the `Agent` tool, using the
+2. **Take round `R` before you spawn.** Resolve `<PR_REF>`, the
+   canonical reference `/github-prs:pr-view <PR> --ref` prints, and
+   take `R` from `sdlc-pr-round <PR_REF>`, per the
+   `sdlc:pr-read-cli-interface` skill, immediately before each reviewer
+   spawn, the re-spawn step 3 offers included. `R` is the round that
+   spawn runs; a read after the reviewer hands back already names the
+   round above once its review is posted, so it cannot stand in.
+
+   **Spawn the reviewer agent** with the `Agent` tool, using the
    `subagent_type` `sdlc:theorem-based-pr-reviewer`, and give it the
    PR, as you were given it, as the reviewer's own `--pr` parameter;
    the reviewer resolves it:
@@ -83,8 +91,7 @@ human overrides, and neither is something this skill computes.
    nothing.
 
    **Record the spawn in the PR's state** as soon as the `Agent` tool
-   result names the reviewer's agent id, with `<PR_REF>` the canonical
-   reference `/github-prs:pr-view <PR> --ref` prints. The contract is
+   result names the reviewer's agent id. The contract is
    the `sdlc:agent-result-persist-interface` skill's `--mode agent`:
 
    ```bash
@@ -123,29 +130,41 @@ human overrides, and neither is something this skill computes.
    **Wait on the round log before acting on an in-progress line**, of
    either ending below. The reviewer hands back whenever it ends a
    turn, and it can end a turn and keep working, so an in-progress line
-   is not yet a stalled round. Take round `R` from `sdlc-pr-round
-   <PR_REF>` and run the stage-level wait the reviewer runs, the wait
-   with the Bash tool's `run_in_background`, since it can outlast a
-   foreground call:
+   is not yet a stalled round. With `R` the round step 2 read before
+   this spawn, run, in this order:
 
    ```bash
    sdlc-agent-result-persist --mode next \
      --pr <PR_REF> --round <R> --deadline-minutes 15
-   sdlc-agent-result-persist --mode wait \
-     --pr <PR_REF> --round <R> --stage <stage> --deadline-minutes 15
+   sdlc-pr-round <PR_REF>
    ```
 
-   Wait on the stage the line names, or on a stage `--mode next` shows a
-   child in flight in — an `in-flight` or `spawned` line; an `overdue`
-   line is past its deadline and holds no wait. After each exit, run
-   `sdlc-pr-round` and `--mode next` again, and repeat until the round
-   has posted a review or `--mode next` shows no child in flight in any
-   stage. A round that posted a review during the wait — `sdlc-pr-round`
-   now names a round above `R` — finished: relay its review per step 4,
-   reading the overall verdict off the PR's newest review with
-   `/github-prs:pr-view <PR> --json reviews`. Only once the wait ends with
-   no child in flight and no review posted do the two bullets below
-   apply.
+   - **`sdlc-pr-round` names a round above `R`**: round `R` posted its
+     review, before the hand-back reached you or during a wait. Relay it
+     per step 4, reading the overall verdict off the PR's newest review
+     with `/github-prs:pr-view <PR> --json reviews`, and the findings,
+     the closing-line corrections and the kind of round, which the
+     hand-back does not carry, off the round's review file with
+     `sdlc-agent-result-persist --mode print-review --pr <PR_REF>
+     --round <R>`.
+   - **`--mode next` shows no child in flight in any stage** — no
+     `in-flight` or `spawned` line — and `sdlc-pr-round` still names
+     `R`: the wait is over with no review posted, and the line's own
+     bullet after this list applies.
+   - **Otherwise** run the stage-level wait the reviewer runs, with the
+     Bash tool's `run_in_background`, since it can outlast a foreground
+     call, on the stage the line names or on a stage `--mode next` shows
+     a child in flight in; an `overdue` line is past its deadline and
+     holds no wait. When it exits, run the two reads above again, in the
+     same order:
+
+     ```bash
+     sdlc-agent-result-persist --mode wait \
+       --pr <PR_REF> --round <R> --stage <stage> --deadline-minutes 15
+     ```
+
+   `sdlc-pr-round` is read after `--mode next` so that a review posted
+   once `--mode next` found no child in flight is still seen.
 
    - `Return: in progress: … — re-spawn to resume`: tell the user the
      round did not finish, say no review was posted, and offer to

@@ -967,12 +967,16 @@ load_round_records() {
 # off the earlier child alone and leaves the replacement awaited. It
 # follows the order of the records, never a count of them.
 # entered[st, 1..nentered[st]] lists the theorems entered in the stage,
-# in first-enter order.
+# in first-enter order, and spawned[st, 1..nspawned[st]] the theorems
+# spawned in it, in first-spawn order.
 flight_lib() {
   cat <<'AWK'
   function flight_line(    t, st) {
     t = $2; st = $3
-    if ($1 == "spawn") { awaited[st, t] = 1; spawned_at[st, t] = $4 }
+    if ($1 == "spawn") {
+      if (!((st SUBSEP t) in spawned_at)) spawned[st, ++nspawned[st]] = t
+      awaited[st, t] = 1; spawned_at[st, t] = $4
+    }
     if ($1 == "enter") {
       if (!((st SUBSEP t) in child)) entered[st, ++nentered[st]] = t
       awaited[st, t] = 0; child[st, t] = $5; at[st, t] = $4; named[st, t, $5] = 1
@@ -1179,13 +1183,15 @@ readonly next_prog="$epoch_fn"'
     }
     return 0
   }
-  # sweep(st): considers every theorem a child entered the stage for,
-  # member or not, so a child in flight is printed even off the live
-  # list, and says whether any of them not already considered still has
-  # work.
+  # sweep(st): considers every theorem a child entered the stage for and
+  # every theorem a child was spawned in it for, member or not, so a
+  # child in flight or yet to enter is printed even off the live list, as
+  # for a theorem first recorded this round, and says whether any of them
+  # not already considered still has work.
   function sweep(st,    i, open) {
     open = 0
     for (i = 1; i <= nentered[st]; i++) if (consider(st, entered[st, i], 0)) open = 1
+    for (i = 1; i <= nspawned[st]; i++) if (consider(st, spawned[st, i], 0)) open = 1
     return open
   }
   END {

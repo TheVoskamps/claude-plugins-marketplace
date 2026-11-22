@@ -720,7 +720,9 @@ does not check that a quote is verbatim; the verifier does.
 
   A theorem with no child in flight that the stage has not settled, and
   a child yet to enter there, as "What the reader derives" below defines
-  one, is printed with that child's state, never as `outstanding`:
+  one, is printed with that child's state, never as `outstanding`,
+  member or not, so a child spawned for a theorem no records file names
+  yet is printed too:
 
   - **`overdue`** — its last `spawn` is at least `--deadline-minutes`
     before the clock at the time of the call;

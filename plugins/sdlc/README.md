@@ -1664,7 +1664,8 @@ Each piece has one owner:
 | The carry form — its inputs, the edits grammar, the records-file shape, and each refusal | `skills/agent-result-persist-interface/SKILL.md` |
 | The bounded read, its selection by the round's type, and the refusal that bounds it | `skills/agent-result-persist-interface/SKILL.md` |
 | The id check a generator's `leave` makes, that the expected id is above the highest of either type, and what its refusal names | `skills/agent-result-persist-interface/SKILL.md` |
-| What the reviewer stages as edits and as new records, and which form a fallback round stores through | `agents/theorem-based-pr-reviewer.md` |
+| What the reviewer stages as edits and as new records for the live list | `agents/theorem-based-pr-reviewer.md` |
+| The stamps the reviewer transcribes into those files before it stores the round, and which form a fallback round stores through | `skills/lib/theorem-based-pr-reviewer/review-body.md` |
 | That `--delta-commits` alone marks a delta brief, and the `print-records` line it carries | `skills/theorem-agents-interface/SKILL.md` |
 | The generator's own read, and the stop when it fails or prints no records | `agents/theorem-generator.md` |
 | The generator's renumbering on an id refusal, and the bound on its retries | `agents/theorem-generator.md` |
@@ -1761,7 +1762,7 @@ names it. Each piece has one owner:
 | The `overdue`, `in-flight` and `spawned` lines `next` prints, what makes a child each, and that a `return` changes none of them | `skills/agent-result-persist-interface/SKILL.md` |
 | What `wait` waits on, each line it exits with, and how often it reads the log | `skills/agent-result-persist-interface/SKILL.md` |
 | The rule that a theorem awaits its child's `enter` by the order of its records, and which `stopped` ends that wait | `skills/agent-result-persist-interface/SKILL.md` |
-| That only a final notification is recorded, with a `return` | `agents/theorem-based-pr-reviewer.md` |
+| That only a final notification is recorded, with a `return` | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That a child that handed back without a `leave` stays in flight until its `leave` or its enter deadline, that the deadline write-off `TaskStop`s a child the reviewer spawned before re-spawning, and that the re-spawn counts as a resume pass | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That a `wait` the reviewer started is running whenever it ends a turn waiting on a stage, and that such a turn is not a hand-back | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | That the reviewer records each child it spawns with `--mode agent`, and spawns nothing on a `spawned` line | `agents/theorem-based-pr-reviewer.md` |
@@ -1825,7 +1826,9 @@ spawned after it, a duplicate `leave`, a moved head, a malformed
 another effort leaving a settled list settled, the `assess` arm with
 no disprover line printed before the assessor's file settles it, a
 stage past the arm printing its children in flight and spawned and none
-of its outstanding or overdue theorems, an empty assessment refused at
+of its outstanding or overdue theorems, a child spawned or entered for a
+theorem no records file names printed in its stage and past the arm,
+an empty assessment refused at
 `leave`, a generator's list refused at `leave` for its count line or on
 a failed read of its ids or count line, leaving no staging file, and the
 live list under
