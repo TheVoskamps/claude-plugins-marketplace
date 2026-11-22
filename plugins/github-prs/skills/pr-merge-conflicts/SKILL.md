@@ -1,6 +1,6 @@
 ---
 name: pr-merge-conflicts
-description: Enumerate a GitHub pull request's actual merge conflicts against its base — the conflicting files and hunks — by trial-merging in a throwaway worktree that is aborted and removed afterwards. Resolves, commits and pushes nothing; in the primary clone it fetches the head and base into the origin/* refs — or, for another repository's PR, into refs of its own that it deletes — and runs git worktree prune, and leaves its tracked files and index as it found them.
+description: Enumerate a GitHub pull request's actual merge conflicts against its base — the conflicting files and hunks — by trial-merging in a throwaway worktree that is aborted and removed afterwards. Resolves, commits and pushes nothing; in the primary clone it fetches the head and base into the origin/* refs — or, for another repository's PR, into refs of its own that it deletes — clears only its own worktree's stale registration, touching no other worktree's, and leaves its tracked files and index as it found them.
 ---
 
 # PR Merge Conflicts
@@ -12,7 +12,7 @@ merge in a throwaway worktree, collects what conflicts, then aborts
 the merge and removes the worktree. It resolves nothing, commits
 nothing, pushes nothing, and leaves the primary clone's tracked files
 and index as it found them; what it does change there is the fetched
-`origin/*` refs and the `git worktree prune` described below.
+`origin/*` refs and its own worktree's registration, described below.
 
 A PR of another repository than the checkout's is fetched from that
 repository's `https://<host>/<owner>/<repo>.git` into
@@ -50,9 +50,10 @@ the base there without committing, collects the conflicting files and
 each one's hunks, then aborts the merge and removes the worktree on
 every exit, so a failed run leaves nothing for the next one to trip
 on. A worktree an interrupted earlier run left at that path is cleared
-before the add, and `git worktree prune` runs there too, dropping every
-registration in the clone whose directory is gone — not only this
-skill's own.
+before the add, and so is a registration of that path whose directory
+is gone. The script clears only its own worktree's registration and
+touches no other worktree's, so a worktree another agent is creating
+while it runs survives.
 
 ## Output and exit status
 

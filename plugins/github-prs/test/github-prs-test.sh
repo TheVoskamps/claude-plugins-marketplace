@@ -1078,7 +1078,22 @@ echo feature >"$CASE/head"
 git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/pr-merge-conflicts-7" origin/feature
 rm -rf "$CLONE/.claude/worktrees/pr-merge-conflicts-7"
 run_conflicts 7
-check "$RC" "0" "pr-merge-conflicts: a registration whose directory is gone is pruned"
+check "$RC" "0" "pr-merge-conflicts: a registration of its own path whose directory is gone is cleared"
+check_contains "$OUT" "  file.txt" "pr-merge-conflicts: the conflicts are reported past a stale registration"
+check "$(git -C "$CLONE" worktree list | wc -l | tr -d ' ')" "1" \
+  "pr-merge-conflicts: the stale registration of its own path is gone"
+
+# Another worktree's registration whose directory is gone may be one
+# another agent is creating at this moment, so it stays registered.
+new_case conflicts-other-stale-registration
+echo feature >"$CASE/head"
+git -C "$CLONE" worktree add -q --detach "$CLONE/.claude/worktrees/agent-elsewhere" origin/feature
+rm -rf "$CLONE/.claude/worktrees/agent-elsewhere"
+run_conflicts 7
+check "$RC" "0" "pr-merge-conflicts: another worktree's stale registration does not stop the run"
+check "$(git -C "$CLONE" worktree list | grep -c '/\.claude/worktrees/agent-elsewhere ')" "1" \
+  "pr-merge-conflicts: another worktree's registration whose directory is gone stays registered"
+git -C "$CLONE" worktree prune
 
 # A PR of another repository is fetched from that repository's URL, which
 # the clone's insteadOf points at a bare repository standing in for it.

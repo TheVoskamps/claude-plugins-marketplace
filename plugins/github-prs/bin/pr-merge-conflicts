@@ -75,14 +75,28 @@ fi
 
 # A path left behind holds an interrupted run's merge in progress, which
 # nothing else clears, and `worktree add` refuses an existing path. A
-# registration whose directory is gone makes the add refuse too, and
-# only `prune` drops it.
+# registration of this path whose directory is gone makes the add refuse
+# too, and `remove` clears that one registration. No other worktree's
+# registration is touched: another agent may be creating its worktree at
+# this moment, and a repo-wide `prune` would drop its half-made
+# registration.
 if [ -e "$tree" ]; then
   git -C "$tree" merge --abort >/dev/null 2>&1 || true
   git worktree remove --force "$tree" ||
     gp_err_git "git worktree remove of the leftover $tree"
+else
+  registered=$(git worktree list --porcelain) || gp_err_git "git worktree list"
+  case "
+$registered
+" in
+    *"
+worktree $tree
+"*)
+      git worktree remove --force "$tree" ||
+        gp_err_git "git worktree remove of the stale registration at $tree"
+      ;;
+  esac
 fi
-git worktree prune || gp_err_git "git worktree prune"
 
 git worktree add -q --detach "$tree" "$head_start" ||
   gp_err_git "git worktree add at $head_start"
