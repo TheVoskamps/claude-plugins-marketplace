@@ -2,7 +2,12 @@
 #
 # sdlc-readiness-check-test.sh -- drive plugins/sdlc/bin/sdlc-readiness-check
 # against a scratch repository and a stub issue-view serving a case's
-# body: each check key passing and failing, an unkeyed bullet, an
+# header and body: each refusal -- a closed issue, an open closing PR
+# beside closed and merged ones, local branches naming the issue in a
+# batch or under a prefix segment beside branches that do not, a
+# status outside the allowed names, matched case-insensitively, no
+# status, and a repo with no status slot -- refusals together, the body
+# left ungraded on a refusal, each check key passing and failing, an unkeyed bullet, an
 # unknown key, malformed arguments, paths that leave the repo root,
 # start with '-', or name a glob, a directory, a FIFO or the root
 # itself, symlinks that stay inside the root and symlinks that lead out
@@ -17,18 +22,24 @@
 # backticked tokens that are not paths, a files heading below level 2
 # inside the files-affected section and inside an acceptance section, a
 # body with neither acceptance section and
-# sections with no bullet, and issue-view missing from PATH.
+# sections with no bullet, issue-view or git-issue-branch missing from
+# PATH, and a call with no --allow-status.
 # A bullet that would write into the sandbox if anything ran it leaves a
-# marker file, and each case carrying one checks that none appeared.
+# marker file, and each case carrying one checks that none appeared; a
+# stub `gh` leaves one too, so a case also shows nothing was written to
+# the tracker.
 #
-# Needs bash, git and the POSIX utilities. Reaches no network.
+# Needs bash, git, the POSIX utilities and
+# plugins/git-tools/bin/git-issue-branch in the same checkout. Reaches no
+# network.
 #
 # Usage: sdlc-readiness-check-test.sh    (exit 0 when every case passes)
 
 set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK="$TEST_DIR/../bin/sdlc-readiness-check"
+CHECK="$TEST_DIR/../sdlc-readiness-check"
+ISSUE_BRANCH="$(cd "$TEST_DIR/../../../git-tools/bin" && pwd)/git-issue-branch"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-readiness-check-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 FAILURES=0
@@ -88,21 +99,50 @@ ln -s src/b.sh "$REPO/inlink"
 ln -s src "$REPO/indir"
 mkfifo "$REPO/fifo"
 
-# The stub issue-view prints the header issue-view prints, then the
-# case's body.
-mkdir -p "$SANDBOX/bin"
+# The stub issue-view prints the title line with the case's state, the
+# case's rows, then the case's body, and leaves a `viewed` marker; the
+# stub git-issue-branch runs the real one; the stub gh marks a call.
+mkdir -p "$SANDBOX/bin" "$SANDBOX/viewonly"
 cat >"$SANDBOX/bin/issue-view" <<EOF
 #!/bin/sh
-printf '#%s Stub    (OPEN)\nhttps://h.example/o/r/issues/%s\n\nLabels:     (none)\n\nBody:\n' "\$1" "\$1"
+: >"$SANDBOX/viewed"
+printf '#%s Stub (with parentheses)    (%s)\nhttps://h.example/o/r/issues/%s\n\n' "\$1" "\$(cat "$SANDBOX/state")" "\$1"
+cat "$SANDBOX/rows"
+printf '\nBody:\n'
 cat "$SANDBOX/body.md"
 EOF
 chmod +x "$SANDBOX/bin/issue-view"
+cp "$SANDBOX/bin/issue-view" "$SANDBOX/viewonly/issue-view"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$ISSUE_BRANCH" >"$SANDBOX/bin/git-issue-branch"
+chmod +x "$SANDBOX/bin/git-issue-branch"
+printf '#!/bin/sh\n: >"%s/pwned-gh"\n' "$SANDBOX" >"$SANDBOX/bin/gh"
+chmod +x "$SANDBOX/bin/gh"
 
-# run <body>: runs the check on issue 7 from the repository with the
-# stub on PATH, leaving stdout in OUT and the status in RC.
+# serve <state> [<row>...]: the state and rows the stub serves until the
+# next call; by default an open issue with no status row and no closing
+# PR.
+serve() {
+  printf '%s\n' "$1" >"$SANDBOX/state"
+  shift
+  printf 'Labels:     (none)\n' >"$SANDBOX/rows"
+  [ "$#" -eq 0 ] || printf '%s\n' "$@" >>"$SANDBOX/rows"
+}
+DEFAULT_ROWS=('Parent:     (none)' 'closed-by: none')
+serve OPEN "${DEFAULT_ROWS[@]}"
+
+ALLOW=(--allow-status Todo --allow-status Ready)
+
+# run <body> [<issue> [<check-arg>...]]: runs the check on the issue, 7
+# by default, from the repository with the stubs on PATH, with the
+# check arguments, ALLOW by default, leaving stdout in OUT and the
+# status in RC.
 run() {
+  local n=${2:-7}
   printf '%s\n' "$1" >"$SANDBOX/body.md"
-  OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 7 2>"$SANDBOX/err")
+  shift
+  [ "$#" -eq 0 ] || shift
+  [ "$#" -gt 0 ] || set -- "${ALLOW[@]}"
+  OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" "$n" "$@" 2>"$SANDBOX/err")
   RC=$?
 }
 
@@ -124,6 +164,91 @@ FILES_ALL="## Files affected (floor)
 - \`src/a.sh\` (update)
 - \`src/new.sh\` (new)
 - \`tests/t.sh\` (update)"
+
+# A body with no gap, and one whose grading would print a gap.
+PASSING="## Documentation acceptance
+
+### Semantic
+
+- anything"
+GAPPED="## Design
+
+- prose only"
+
+# --- refusals ---------------------------------------------------------
+
+run "$PASSING"
+check "$RC:$OUT" "0:" "refusals: an open issue with no closing PR, no branch and no status slot passes"
+
+serve CLOSED "${DEFAULT_ROWS[@]}"
+run "$PASSING"
+check "$RC:$OUT" "4:Closed: issue 7 is CLOSED, not OPEN" "closed: refused whatever its body"
+run "$GAPPED"
+check "$RC:$OUT" "4:Closed: issue 7 is CLOSED, not OPEN" "closed: a body with gaps is not graded"
+no_marker "closed"
+
+serve OPEN 'Parent:     (none)' 'closed-by: #60 (MERGED), #61 (OPEN), other/repo#62 (CLOSED), #63 (OPEN)'
+run "$PASSING"
+check "$RC:$OUT" "4:Open closing PR: issue 7 is closed by the open PR #61, #63" \
+  "open closing PR: refused, naming only the open PRs"
+serve OPEN 'Parent:     (none)' 'closed-by: #60 (MERGED), other/repo#62 (CLOSED)'
+run "$PASSING"
+check "$RC:$OUT" "0:" "open closing PR: only closed and merged closing PRs pass"
+serve OPEN 'Parent:     (none)' 'closed-by: unsupported'
+run "$PASSING"
+check "$RC:$OUT" "0:" "open closing PR: the Jira backend's unsupported names no PR"
+serve OPEN "${DEFAULT_ROWS[@]}"
+
+git -C "$REPO" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m seed
+git -C "$REPO" branch issue-12-34-some-slug
+git -C "$REPO" branch ab/issue-7-prefixed
+git -C "$REPO" branch issue-56
+git -C "$REPO" branch issue-123-not-twelve
+run "$PASSING" 12
+check "$RC:$OUT" "4:Local branch: the local branch issue-12-34-some-slug names issue 12; run /sdlc:orchestrate-cleanup on it" \
+  "local branch: the batch's first issue is refused, naming the branch and the cleanup"
+run "$PASSING" 34
+check "$RC:$OUT" "4:Local branch: the local branch issue-12-34-some-slug names issue 34; run /sdlc:orchestrate-cleanup on it" \
+  "local branch: the batch's second issue is refused too"
+run "$PASSING" 7
+check "$RC:$OUT" "4:Local branch: the local branch ab/issue-7-prefixed names issue 7; run /sdlc:orchestrate-cleanup on it" \
+  "local branch: a branch under a prefix segment names its issue"
+run "$PASSING" 3
+check "$RC:$OUT" "0:" "local branch: an issue no branch decodes to passes, though its digits appear in one"
+run "$PASSING" 56
+check "$RC:$OUT" "0:" "local branch: a name that is no convention branch names no issue"
+git -C "$REPO" branch -q -D issue-12-34-some-slug ab/issue-7-prefixed issue-56 issue-123-not-twelve
+
+serve OPEN 'Status:     Backlog' "${DEFAULT_ROWS[@]}"
+run "$PASSING"
+check "$RC:$OUT" "4:Status: issue 7 is at Backlog, not one of the allowed statuses Todo, Ready" \
+  "status: Backlog is refused under Todo and Ready"
+run "$PASSING" 7 --allow-status backlog --allow-status Todo --allow-status Ready
+check "$RC:$OUT" "0:" "status: Backlog passes once added, matched case-insensitively"
+run "$PASSING" 7 --allow-status 'Not On Board' --allow-status Backlog
+check "$RC:$OUT" "0:" "status: a name the board lacks is no error"
+serve OPEN 'Status:     Done' "${DEFAULT_ROWS[@]}"
+run "$PASSING"
+check "$RC" 4 "status: Done is refused under Todo and Ready"
+run "$PASSING" 7 --allow-status Backlog --allow-status Todo --allow-status Ready
+check "$RC:$OUT" "4:Status: issue 7 is at Done, not one of the allowed statuses Backlog, Todo, Ready" \
+  "status: Done is refused under Backlog, Todo and Ready"
+for none in '(none)' '(not on project board)'; do
+  serve OPEN "Status:     $none" "${DEFAULT_ROWS[@]}"
+  run "$PASSING"
+  check "$RC:$OUT" "4:Status: issue 7 has no status; the allowed statuses are Todo, Ready" \
+    "status: $none is no status, and the line lists the allowed names"
+done
+
+serve CLOSED 'Status:     Done' 'closed-by: #61 (OPEN)'
+run "$GAPPED"
+check "$RC" 4 "refusals together: exit 4"
+check "$OUT" "Closed: issue 7 is CLOSED, not OPEN
+Open closing PR: issue 7 is closed by the open PR #61
+Status: issue 7 is at Done, not one of the allowed statuses Todo, Ready" \
+  "refusals together: one line per refusal, in order, and no gap line"
+no_marker "refusals"
+serve OPEN "${DEFAULT_ROWS[@]}"
 
 # --- every key passes when its paths are listed -----------------------
 
@@ -686,20 +811,41 @@ check_contains "$OUT" 'Acceptance criteria: "## Documentation acceptance" carrie
 # --- invocation -------------------------------------------------------
 
 printf '' >"$SANDBOX/body.md"
-OUT=$(cd "$REPO" && PATH="/usr/bin:/bin" "$CHECK" 7 2>"$SANDBOX/err")
+OUT=$(cd "$REPO" && PATH="/usr/bin:/bin" "$CHECK" 7 "${ALLOW[@]}" 2>"$SANDBOX/err")
 RC=$?
 check "$RC" 1 "no issue-view: exit 1"
 check_contains "$(cat "$SANDBOX/err")" "issue-view is not on PATH" "no issue-view: the message names issue-view"
 
-OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 2>"$SANDBOX/err")
-check "$?" 2 "no argument: exit 2"
-OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" 'x;y' 2>"$SANDBOX/err")
-check "$?" 2 "a non-numeric argument: exit 2"
+OUT=$(cd "$REPO" && PATH="$SANDBOX/viewonly:/usr/bin:/bin" "$CHECK" 7 "${ALLOW[@]}" 2>"$SANDBOX/err")
+RC=$?
+check "$RC" 1 "no git-issue-branch: exit 1"
+check_contains "$(cat "$SANDBOX/err")" "git-issue-branch is not on PATH" "no git-issue-branch: the message names git-issue-branch"
+
+# usage <label> <arg>...: the call exits 2 without reading the issue.
+usage() {
+  local label=$1
+  shift
+  rm -f "$SANDBOX/viewed"
+  OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" "$@" 2>"$SANDBOX/err")
+  check "$?" 2 "$label: exit 2"
+  check "$([ -e "$SANDBOX/viewed" ] && echo read)" "" "$label: the issue is not read"
+}
+usage "no argument"
+usage "a non-numeric argument" 'x;y' "${ALLOW[@]}"
+usage "no --allow-status" 7
+check_contains "$(cat "$SANDBOX/err")" "no --allow-status name was given" "no --allow-status: the message says so"
+usage "an --allow-status with no name" 7 --allow-status
+usage "an empty --allow-status name" 7 --allow-status ''
+usage "an unknown option" 7 "${ALLOW[@]}" --allow
+usage "two issues" 7 8 "${ALLOW[@]}"
 # An empty body is itself a gap, so this case serves a body that passes,
 # leaving the '#' as the one thing exit 0 can rest on.
-printf '## Documentation acceptance\n\n### Semantic\n\n- anything\n' >"$SANDBOX/body.md"
-OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" '#7' 2>"$SANDBOX/err")
+printf '%s\n' "$PASSING" >"$SANDBOX/body.md"
+OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" '#7' "${ALLOW[@]}" 2>"$SANDBOX/err")
 check "$?" 0 "a leading '#' is accepted"
+OUT=$(cd "$REPO" && PATH="$SANDBOX/bin:$PATH" "$CHECK" --allow-status Todo '#7' 2>"$SANDBOX/err")
+check "$?" 0 "--allow-status may come before the issue"
+no_marker "invocation"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
