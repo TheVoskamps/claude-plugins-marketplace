@@ -86,6 +86,15 @@ new review exists with the state and body it posted. The re-read lives
 in the script, so a skill never has to tell its caller to verify. The
 read-only verbs re-read nothing.
 
+A body is re-read — and `pr-link-issue` reads the body it appends to —
+through `gp_read_body`, which fetches the stored body from the PR's
+host's REST API with `curl`, authenticated with the token
+`gh auth token` prints for that host. Every `gh` read path rewrites a
+`\u00XX` escape into caret notation, a literal `\u0001` in the text
+reading back as `\^A`, so a body compared through `gh` would report a
+landed write as failed, and a body rewritten through it would lose the
+escape. Writes stay on `gh`.
+
 A body reaches `gh` by file path or on stdin (`--body-file -`), never
 as a command-line argument: a review summary or a PR body full of
 backticks and `$` would otherwise be read by the shell first. That is
@@ -143,7 +152,12 @@ Every script runs under the bash 3.2 that macOS ships. The suite at
 keeps a PR's state in files and applies `--jq` filters with the real
 `jq`, checking the call shape each script issues, the re-read after
 each mutation — including a mode in which the mutation does not land,
-so every exit-3 path is exercised — and the error wording. The stub
+so every exit-3 path is exercised — and the error wording. As the real
+`gh` does, the stub returns each `\u00XX` control escape in caret
+notation, and a stub `curl` beside it serves the REST body reads of the
+same state as stored, answering only on the case's host and only with
+that host's token, so a body read that went through `gh` or reached
+another host fails its case. The stub
 resolves an `api` call only on the host the case gives the checkout or
 the reference names, so a call that drops `--hostname` fails the verb;
 it pages a GraphQL query only under `--paginate` and only when the

@@ -29,7 +29,8 @@ for arg in "$@"; do
   esac
 done
 
-existing=$(gp_pr view --json body --jq .body) || exit $?
+gp_resolve_host
+existing=$(gp_read_body "pulls/$GP_PR") || exit $?
 closed=$(gp_closing_issues "$existing") || exit $?
 closed=" ${closed//$'\n'/ } "
 
@@ -63,7 +64,7 @@ fi
 
 gp_pr edit --body-file - >/dev/null <<<"$wanted"
 
-landed=$(gp_pr view --json body --jq .body) || exit $?
+landed=$(gp_read_body "pulls/$GP_PR") || exit $?
 [ "$landed" = "$wanted" ] ||
   gp_err_body_not_landed "the closing lines"
 

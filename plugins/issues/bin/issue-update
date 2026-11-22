@@ -90,7 +90,7 @@ EOF
 add_assignees=$(resolve_assignees "$add_assignees") || exit 1
 remove_assignees=$(resolve_assignees "$remove_assignees") || exit 1
 
-SEL="url title body $ISS_SEL_LABELS $(iss_conn assignees)"
+SEL="url title $ISS_SEL_LABELS $(iss_conn assignees)"
 readonly SEL
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
 url=$(iss_jq .url)
@@ -105,7 +105,7 @@ if [ -n "$body_file" ]; then
   new_body_file=$body_file
 elif [ -n "$appends$prepends" ]; then
   new_body_file="$scratch/body.md"
-  current=$(printf '%s' "$ISS_ISSUE" | jq -j '.body // ""'; printf x)
+  current=$(iss_issue_body "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" && printf x) || exit 1
   current=${current%?}
   current=${current%"$ISS_NEWLINE"}
   {
@@ -151,7 +151,7 @@ if [ -n "$new_body_file" ]; then
   # Command substitution drops trailing newlines, and GitHub may store a
   # body with CRLF line ends, so both sides are compared without either.
   want=$(tr -d '\r' <"$new_body_file")
-  have=$(iss_jq '.body // ""' | tr -d '\r')
+  have=$(iss_issue_body "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" | tr -d '\r') || exit 1
   if [ "$want" = "$have" ]; then
     if [ -n "$body_file" ]; then
       printf '  body:            replaced (%s lines)\n' "$(awk 'END { print NR }' "$new_body_file")"

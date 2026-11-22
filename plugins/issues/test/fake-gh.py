@@ -29,6 +29,12 @@ every close record those two values instead of the requested ones.
 A pull request is an entry in a repo's "issues" carrying "pullRequest": true,
 since the two share one number sequence.
 
+As gh does on every read path, an issue body read through the fake comes
+back with each \\u00XX control escape in caret notation. Run with a first
+argument of `--curl`, it is instead the suite's stub `curl`, which reads an
+issue's body from the same state as stored; that call is logged with the
+`--curl` in front.
+
 Each repo lives on a host, its "host" key, github.com when absent. As gh
 does, a call reaches the host its `--hostname` (for `gh api`) or a
 host/owner/repo `--repo` (for `gh issue`) names, and github.com when it names
@@ -93,6 +99,12 @@ def by_number(state, nwo, number):
     if repo is None:
         return None
     return repo["issues"].get(str(number))
+
+
+def caret(text):
+    """`text` as every gh read path returns it: each \\u00XX control escape
+    rewritten into caret notation, a literal `\\u0001` reading as `\\^A`."""
+    return re.sub(r"\\u00([01][0-9a-fA-F])", lambda m: "\\^" + chr(int(m.group(1), 16) + 64), text)
 
 
 def issue_url(state, nwo, number):
@@ -191,7 +203,7 @@ def render(state, nwo, issue, query, after=None):
         "state": issue.get("state", "OPEN"),
         "stateReason": issue.get("stateReason"),
         "duplicateOf": duplicate_of,
-        "body": issue.get("body", ""),
+        "body": caret(issue.get("body", "")),
         "issueType": issue_type,
         "parent": parent,
         "viewerCanSetFields": issue.get("viewerCanSetFields", True),
@@ -528,11 +540,44 @@ def repo_on(state, nwo, host):
     return nwo in state["repos"] and host_of(state, nwo) == host
 
 
+def token_for(host):
+    """The token `gh auth token --hostname <host>` prints."""
+    return "token-for-" + host
+
+
+def curl(state, args):
+    """The stub `curl`: a GET of one issue from a host's REST API, the body
+    as stored, with no caret rewrite. It answers only a request carrying the
+    URL host's token in the headers it reads from stdin, as `-H @-` sends
+    them, and fails as --fail does on an HTTP error otherwise."""
+    url = [a for a in args if a.startswith("https://")][-1]
+    headers = sys.stdin.read().splitlines()
+    m = re.match(r"https://api\.github\.com/repos/([^/]+/[^/]+)/issues/(\d+)$", url)
+    host = DEFAULT_HOST
+    if m is None:
+        m = re.match(r"https://([^/]+)/api/v3/repos/([^/]+/[^/]+)/issues/(\d+)$", url)
+        if m is not None:
+            host = m.group(1)
+    nwo, number = m.groups()[-2:] if m else (None, None)
+    issue = by_number(state, nwo, number) if nwo and repo_on(state, nwo, host) else None
+    if "Authorization: Bearer " + token_for(host) not in headers or issue is None:
+        print("curl: (22) The requested URL returned error: 404", file=sys.stderr)
+        sys.exit(22)
+    print(json.dumps({"number": issue["number"], "body": issue.get("body", "")}))
+
+
 def main():
     args = sys.argv[1:]
     with open(os.environ["FAKE_GH_LOG"], "a") as log:
         log.write(json.dumps(args) + "\n")
     state = load()
+
+    if args[:1] == ["--curl"]:
+        curl(state, args[1:])
+        return
+    if args[:2] == ["auth", "token"]:
+        print(token_for(args[args.index("--hostname") + 1]))
+        return
 
     host = DEFAULT_HOST
     if args[:1] == ["api"] and "--hostname" in args:

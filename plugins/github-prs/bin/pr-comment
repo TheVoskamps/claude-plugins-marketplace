@@ -35,8 +35,7 @@ case "$comment_id" in
 esac
 
 wanted=$(cat "$body_file")
-comment_path=$(gp_repo_path "issues/comments/$comment_id") || exit $?
-landed=$(gp_gh api "$comment_path" --jq .body) || exit $?
+landed=$(gp_read_body "issues/comments/$comment_id") || exit $?
 [ "$landed" = "$wanted" ] ||
   gp_err_comment_not_landed "$comment_id" "$body_file"
 
