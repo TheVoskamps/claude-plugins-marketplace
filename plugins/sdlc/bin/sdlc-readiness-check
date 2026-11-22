@@ -24,7 +24,8 @@
 # issue, in this order:
 #   Closed           the issue's state is not OPEN.
 #   Open closing PR  the `closed-by:` row names a PR whose state is OPEN;
-#                    `none` and the Jira backend's `unsupported` name none.
+#                    `none` and the Jira backend's `unsupported` name none,
+#                    and no `closed-by:` row at all fails with exit 1.
 #   Local branch     a local branch decodes, through `git-issue-branch
 #                    decode`, to an issue set holding the issue; the
 #                    numbers are compared, never the names.
@@ -56,8 +57,9 @@
 #
 # Exit statuses:
 #   0  no refusal and no gap; nothing is printed
-#   1  a command the script ran failed, or issue-view or git-issue-branch
-#      is not on PATH
+#   1  a command the script ran failed, issue-view or git-issue-branch
+#      is not on PATH, or issue-view printed no `closed-by:` row, as one
+#      older than issues 0.19.0 does
 #   2  a usage error; nothing was read
 #   3  no refusal, and at least one gap; one gap line per gap is printed
 #      on stdout
@@ -123,6 +125,11 @@ refuse() {
 # The rows above `Body:`, where issue-view prints the state, the slot
 # rows and the `closed-by:` row; nothing in the body is read as a row.
 header=$(printf '%s\n' "$view" | awk '{ sub(/\r$/, "") } $0 == "Body:" { exit } { print }')
+
+# An issue-view older than issues 0.19.0 prints no `closed-by:` row, and
+# reading its absence as `none` would let an open closing PR pass.
+printf '%s\n' "$header" | grep -q '^closed-by:' ||
+  fail 1 "issue-view $issue printed no closed-by: row; the open-closing-PR refusal needs issue-view from issues 0.19.0 or later"
 
 # The state is the last parenthesized group on the title line, so a
 # title carrying parentheses of its own is never read as the state.

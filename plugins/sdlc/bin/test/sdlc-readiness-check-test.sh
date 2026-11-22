@@ -24,7 +24,8 @@
 # inside the files-affected section and inside an acceptance section, a
 # body with neither acceptance section and
 # sections with no bullet, issue-view or git-issue-branch missing from
-# PATH, and a call with no --allow-status.
+# PATH, an issue-view printing no `closed-by:` row, and a call with no
+# --allow-status.
 # A bullet that would write into the sandbox if anything ran it leaves a
 # marker file, and each case carrying one checks that none appeared; a
 # stub `gh` leaves one too, so a case also shows nothing was written to
@@ -199,6 +200,13 @@ check "$RC:$OUT" "0:" "open closing PR: only closed and merged closing PRs pass"
 serve OPEN 'Parent:     (none)' 'closed-by: unsupported'
 run "$PASSING"
 check "$RC:$OUT" "0:" "open closing PR: the Jira backend's unsupported names no PR"
+for state in OPEN CLOSED; do
+  serve "$state" 'Parent:     (none)'
+  run "$PASSING"
+  check "$RC:$OUT" "1:" "no closed-by row, $state: exit 1 and no refusal line"
+  check_contains "$(cat "$SANDBOX/err")" "needs issue-view from issues 0.19.0 or later" \
+    "no closed-by row, $state: the message names the issue-view it needs"
+done
 serve OPEN "${DEFAULT_ROWS[@]}"
 
 git -C "$REPO" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m seed
