@@ -22,12 +22,12 @@ restate the fact.
 | Fact | Owner |
 | --- | --- |
 | Which skills, agents, executables and hooks the plugin ships, and its `dependencies` edges | this file |
-| What one agent does | that agent's own file under `agents/` |
+| What one agent does | that agent's own file under `agents/`, and for `theorem-based-pr-reviewer` also the lib files under `skills/lib/theorem-based-pr-reviewer/` that file names |
 | What a review checks | `agents/theorem-based-pr-reviewer.md` |
-| The sections of the argued review a round stores, the finding format, and the records file's field rules | `skills/lib/theorem-based-pr-reviewer/review-body.md` |
+| How the argued review a round stores is written — its sections and the finding format — the records file's field rules, and the calls that store the round and post its review | `skills/lib/theorem-based-pr-reviewer/review-body.md` |
 | The reviewer's resume loop, its resume-pass loop and its deadline arm | `skills/lib/theorem-based-pr-reviewer/resume.md` |
 | The round derivations — the arm a resumed round is in and the work left in each stage, each theorem's disposition, class, severity and stamped state, the per-issue and overall verdicts, and the posted review body — and the tables and rules they apply | `bin/sdlc-agent-result-persist`, under the contract `skills/agent-result-persist-interface/SKILL.md` states |
-| The judgment calls that remain in the review — the tier rubric, reading an adjustment comment into an edit, the argued review's prose, each child's brief, and raising a `NEEDS_CHANGES` to `BLOCKED` for a fix outside the issue's scope | `agents/theorem-based-pr-reviewer.md` |
+| The judgment calls that remain in the review — the tier rubric, reading an adjustment comment into an edit, each child's brief, and raising a `NEEDS_CHANGES` to `BLOCKED` for a fix outside the issue's scope | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
 | How the orchestrator sequences the flow, what it branches on when a teammate returns, and how it briefs the teammates it spawns during the code loop | `skills/orchestrate/SKILL.md` |
 | The procedure the orchestrator runs at one moment of the flow, and the briefs it spawns at that moment | the file for that moment under `skills/orchestrate/lib/` |
@@ -50,7 +50,7 @@ restate the fact.
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | Which file class a path falls in — code, instruction Markdown, or documentation | the global Claude configuration, outside this repository; no file in this plugin restates it |
 | Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
-| How a payload reaches `sdlc-agent-result-persist`, and where a writer stages it | `skills/agent-result-persist-interface/SKILL.md` |
+| How a payload reaches `sdlc-agent-result-persist`, and where a child stages its `leave` payload | `skills/agent-result-persist-interface/SKILL.md` |
 | What the PR-read CLIs — the round under way, the adjustment comments and their cut, the fixer brief, the records chain — take, print and exit with, and which of a PR's reviews are pipeline reviews | `skills/pr-read-cli-interface/SKILL.md` |
 | Which sources a run's time report reads, how it attributes each second, what it names as missing, and what its Decisions table counts per decision class | `bin/sdlc-orchestrate-analysis` |
 | The decision record's file format, what `ask` refuses, the closed class list, how problems and options are numbered, the printed question, when a problem is open and when a design gap is pending, and where a record is stored | `bin/sdlc-decision` |
