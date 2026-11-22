@@ -841,35 +841,47 @@ that for this line the PR carries no review, and any review the PR
 shows is a previous round's; none above it means the PR carries this
 round's review.
 
+**A review the round posted is the round's result, whenever it
+posted.** Act on its verdict as on a `posted review` line, reading its
+findings per "Reading a round's detail", and raise nothing about it.
+An in-progress line whose re-derivation above already finds this
+round's review on the PR is that case, before any wait.
+
 **Wait on the round log before acting on an in-progress line.** The
 reviewer hands back whenever it ends a turn, and it can end a turn and
 keep working, so an in-progress line is not yet a stalled round. On
 one, of either ending, whose re-derivation above found round `R` under
-way, run the stage-level wait the reviewer runs over it, the wait with
-the Bash tool's `run_in_background`, since it can outlast a foreground
-call:
+way, run passes of these steps, in this order:
 
-```bash
-sdlc-agent-result-persist --mode next \
-  --pr <PR_REF> --round <R> --deadline-minutes 15
-sdlc-agent-result-persist --mode wait \
-  --pr <PR_REF> --round <R> --stage <stage> --deadline-minutes 15
-```
+1. Read which children are in flight:
 
-Wait on the stage the line names, or on a stage `--mode next` shows a
-child in flight in — an `in-flight` or `spawned` line; an `overdue`
-line is past its deadline and holds no wait. After each exit,
-re-derive the round with `sdlc-pr-round` and `--mode print`, as "Run
-the review pipeline" does, and repeat until the round has posted a
-review or `--mode next` shows no child in flight in any stage.
+   ```bash
+   sdlc-agent-result-persist --mode next \
+     --pr <PR_REF> --round <R> --deadline-minutes 15
+   ```
 
-- **The round posted a review during the wait**: that review is the
-  round's result. Act on its verdict as on a `posted review` line,
-  reading its findings per "Reading a round's detail", and raise
-  nothing about it.
-- **The wait ended with no child in flight and no review posted**: act
-  on the line as its ending says, below. Only here is the reviewer
-  re-spawned.
+2. Then re-derive the round with `sdlc-pr-round` and `--mode print`, as
+   "Run the review pipeline" does. When it finds the round's review on
+   the PR, stop: that review is the round's result.
+3. When step 1 showed a child in flight — an `in-flight` or `spawned`
+   line; an `overdue` line is past its deadline and holds no wait —
+   run the stage-level wait the reviewer runs, on the stage the line
+   names or on a stage step 1 showed a child in flight in, with the
+   Bash tool's `run_in_background`, since it can outlast a foreground
+   call; on its exit, start the next pass at step 1:
+
+   ```bash
+   sdlc-agent-result-persist --mode wait \
+     --pr <PR_REF> --round <R> --stage <stage> --deadline-minutes 15
+   ```
+
+4. Otherwise no child was in flight and no review was posted: act on
+   the line as its ending says, below. Only here is the reviewer
+   re-spawned.
+
+Step 2 follows step 1 so a review posted while the last children leave
+is read at step 2, rather than missed behind a step 1 that already
+shows none in flight.
 
 A line ending `— raise it`, whatever its kind, spawns nothing
 more for this PR: raise it as a **Needs Your Attention** row on the
