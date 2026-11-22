@@ -64,7 +64,7 @@ slot_row() {
   label="$(printf '%s' "${slot%"${slot#?}"}" | tr '[:lower:]' '[:upper:]')${slot#?}"
   case "$kind" in
     skip) return ;;
-    number|single-select)
+    number | single-select)
       if [ -z "$(iss_project_item)" ]; then
         value="(not on project board)"
       else

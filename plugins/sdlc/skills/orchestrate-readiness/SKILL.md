@@ -1,6 +1,6 @@
 ---
 name: orchestrate-readiness
-description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that returns what an issue is missing as a gap list. Not invoked from the user's slash menu.
+description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that, given the statuses the caller allows, refuses an issue that is closed, closed by an open PR, named by a local branch or in a status not allowed, and otherwise returns what the issue is missing as a gap list. Not invoked from the user's slash menu.
 user-invocable: false
 ---
 
