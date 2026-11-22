@@ -705,7 +705,7 @@ check_report_ids() {
 }
 
 # A generator's report ends with its count line, COUNT: mechanical <m>,
-# semantic <s>, as its last non-blank line, and the two numbers are the
+# semantic <s>, as its last non-blank line, and its two numbers count the
 # report's settle-mode: mechanical and settle-mode: semantic lines above
 # any RETIREMENTS line. A list whose count line is missing, misshapen or
 # wrong is refused before it is installed, so a refused list leaves no
