@@ -23,15 +23,24 @@ add_assignees=
 remove_assignees=
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --title|--body-file|--append|--prepend|--add-labels|--remove-labels|--add-assignees|--remove-assignees)
+    --title | --body-file | --append | --prepend | --add-labels | --remove-labels | --add-assignees | --remove-assignees)
       [ "$#" -ge 2 ] || iss_usage_die "$usage"
       ;;
   esac
   case "$1" in
-    --title) title=$2; has_title=yes ;;
+    --title)
+      title=$2
+      has_title=yes
+      ;;
     --body-file) body_file=$2 ;;
-    --append) appends="$appends$2$ISS_NEWLINE"; append_count=$((append_count + 1)) ;;
-    --prepend) prepends="$prepends$2$ISS_NEWLINE"; prepend_count=$((prepend_count + 1)) ;;
+    --append)
+      appends="$appends$2$ISS_NEWLINE"
+      append_count=$((append_count + 1))
+      ;;
+    --prepend)
+      prepends="$prepends$2$ISS_NEWLINE"
+      prepend_count=$((prepend_count + 1))
+      ;;
     --add-labels) add_labels=$2 ;;
     --remove-labels) remove_labels=$2 ;;
     --add-assignees) add_assignees=$2 ;;
