@@ -31,14 +31,14 @@ the gate is caught:
 sdlc-readiness-check <N> --allow-status <name>...
 ```
 
-once per member, with one `--allow-status` for every name
-`orchestrate-statuses` resolves to. Each issue is in one batch, so no
-member is one this run has already flipped. When any member exits `4`,
-flip none of the batch's members, assign none, spawn no developer for
-the batch, and print each refusal line as it stands; the batch is not
-yours to resolve. Exit `0` or `3` carries no refusal — the body was
-graded at the gate — and the batch goes on. On any other exit, relay
-its stderr verbatim and treat the batch as refused. Then:
+once per member, with the gate's `--allow-status` names. Each issue
+is in one batch, so no member is one this run has already flipped.
+When any member exits `4`, flip none of the batch's members, assign
+none, spawn no developer for the batch, and print each refusal line as
+it stands; the batch is not yours to resolve. Exit `0` or `3` carries
+no refusal — the body was graded at the gate — and the batch goes on.
+On any other exit, relay its stderr verbatim and treat the batch as
+refused. Then:
 
 ```text
 /issue-set-status <N> "In Progress"

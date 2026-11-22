@@ -79,10 +79,8 @@ a side-effect issue — is an approval, not a decision.
    than inferring them.
 
 2. **Run the check, then report the verdict first and the gaps
-   after.** Invoke `/sdlc:orchestrate-readiness <N>` with one
-   `--allow-status <name>` for every name `orchestrate-ready-statuses`
-   resolves to, its default `[Backlog, Todo, Ready]` included, here and
-   on every later run of the check.
+   after.** Invoke `/sdlc:orchestrate-readiness <N>` with the
+   `--allow-status` names `orchestrate-ready-statuses` sets.
 
    **A `refused` verdict ends the session.** Print each refusal line as
    it stands, and stop: no gap is reported or raised, the body is not

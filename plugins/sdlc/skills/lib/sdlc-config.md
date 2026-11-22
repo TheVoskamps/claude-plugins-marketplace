@@ -152,7 +152,7 @@ merge-poll-interval-seconds: 300
   statuses an issue may be at for `/sdlc:orchestrate` and for
   `/sdlc:orchestrate-ready` respectively to run on it. Each skill passes
   every name its key resolves to, its default included, as an
-  `--allow-status` of `/sdlc:orchestrate-readiness`. A name is matched
+  `--allow-status` of every readiness check it runs. A name is matched
   against the issue's status case-insensitively and literally, so a
   name the board lacks matches nothing and is no error. A key is a YAML
   sequence of one or more non-empty strings, and a tier sets the whole

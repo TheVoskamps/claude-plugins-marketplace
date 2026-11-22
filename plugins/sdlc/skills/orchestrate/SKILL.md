@@ -167,12 +167,11 @@ resolution that fixes `orchestrate-statuses`, `seed-review`,
 ### Gate: refuse an issue that is not orchestrate-ready
 
 Before any analysis, invoke `/sdlc:orchestrate-readiness <N>` on
-every issue given, with one `--allow-status <name>` for every name
-`orchestrate-statuses` resolves to, its default `[Todo, Ready]`
-included. If any returns the verdict `refused` or a non-empty gap
-list, stop the whole run here — no branch, no generator spawn, no PR
-exists yet, and none is created — and print what each such issue
-returned:
+every issue given, with the `--allow-status` names
+`orchestrate-statuses` sets. If any returns the verdict `refused` or a
+non-empty gap list, stop the whole run here — no branch, no generator
+spawn, no PR exists yet, and none is created — and print what each
+such issue returned:
 
 - **A refusal** — print its refusal lines as they stand. It is not
   yours to resolve and has no remedy you offer: close no PR, delete no
