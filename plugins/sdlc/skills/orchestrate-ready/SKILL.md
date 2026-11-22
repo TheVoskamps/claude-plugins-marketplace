@@ -87,8 +87,8 @@ a side-effect issue — is an approval, not a decision.
    reported or raised, the body is not rewritten, no status is set, and
    no side-effect issue is filed. A refusal is not yours to resolve, so
    add no remedy of your own, and neither run, offer to run nor ask
-   about one — no reopening, no closing a PR, no deleting a branch, no
-   status change.
+   about one: the issue's state, its PRs and its branches stay as the
+   check found them.
 
    **A return with no verdict ends the session the same way** — the
    check's stderr, relayed as it stands, is all you report.

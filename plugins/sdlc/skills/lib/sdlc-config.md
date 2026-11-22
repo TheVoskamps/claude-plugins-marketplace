@@ -154,10 +154,8 @@ merge-poll-interval-seconds: 300
   every name its key resolves to, its default included, as an
   `--allow-status` of every readiness check it runs. A name is matched
   against the issue's status case-insensitively and literally, so a
-  name the board lacks matches nothing and is no error. A key is a YAML
-  sequence of one or more non-empty strings, and a tier sets the whole
-  list: a higher tier's list replaces a lower one's, never merges with
-  it.
+  name the board lacks matches nothing and is no error. A higher tier's
+  list replaces a lower one's, never merges with it.
 - **`follow-up-issue-type`**, **`follow-up-issue-priority`**,
   **`follow-up-issue-status`**, **`follow-up-issue-assignee`** — the
   fields a follow-up issue the human ordered is filed with, through

@@ -452,9 +452,6 @@ status, labels, issue type, and the custom-field values
   returns every child without a 50-item cap. `/issue-view` and
   `/issue-view-tree` read the inline parent/children from the
   `workitem view` payload and skip the search.
-- **Closing pull requests** — Jira carries no pull request that closes
-  a work item, so `/issue-view` prints `closed-by: unsupported` in the
-  row's place.
 
 ### Create (`/issue-create`)
 

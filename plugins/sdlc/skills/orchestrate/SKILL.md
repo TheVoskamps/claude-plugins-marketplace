@@ -175,8 +175,8 @@ print what each such issue returned:
 
 - **A refusal** — print its refusal lines as they stand, a remedy a
   line names included. It is not yours to resolve: add no remedy of
-  your own, and neither run, offer to run nor ask about one — close no
-  PR, delete no branch, set no status, and run no skill on it.
+  your own, and neither run, offer to run nor ask about one: the
+  issue, its PRs and its branches stay as the check found them.
 - **No verdict** — the check's stderr, relayed as it stands. Treat it
   as a refusal.
 - **A gap list** — print it, and say to run
