@@ -338,7 +338,12 @@ choosing and no error type, for the failure that
 must not be reported as a stale project ID. A pull request is an entry
 in a repository's issues
 carrying `pullRequest: true`, since the two share one number sequence
-on GitHub, which is how a test asserts that a verb refuses one. No
+on GitHub, which is how a test asserts that a verb refuses one. An
+issue's `closedBy` key lists the pull requests that close it, each
+with a number, a state and, when it lives in another repository, that
+`repo`. As GitHub does, the fake returns a closed or merged one only to
+a read that asks for `includeClosedPrs: true`, so a script that drops
+the argument prints the open ones alone and fails the case. No
 test reaches GitHub.
 
 `test/issues-reference-test.sh` is the parser's own suite: it runs
@@ -482,7 +487,7 @@ lives in each skill's own `SKILL.md`.
 | Skill | What it does |
 | ------- | -------------- |
 | `/issue-create [<repo>] [--parent <issue>]` | File a new issue with title, body, type, fields, parent, assignees and labels in one invocation, here or in another repo |
-| `/issue-view <issue>` | Print one issue's body, project fields and every relationship in one shot |
+| `/issue-view <issue>` | Print one issue's body, project fields, the pull requests that close it and every relationship in one shot |
 | `/issue-view-tree <issue>` | Walk an issue tree downward through sub-issues, depth-capped at 5 |
 | `/issue-sub-list <parent-issue>` | List a parent's direct sub-issues |
 | `/issue-list [<owner> \| <owner>/<repo>] [--project <number\|url>] --status <name> [--view <name\|number\|url>] [--assignee <login>]... [--unassigned] [--limit <n>]` | List a project board's open issues at one status, in the board's position order or a view's sort: the configured board in one repository, or with `--project` or a URL an owner's board across its repositories or in one |

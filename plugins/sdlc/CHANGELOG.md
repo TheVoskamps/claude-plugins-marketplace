@@ -1,5 +1,77 @@
 # sdlc changelog
 
+## 0.95.0 — 2026-11-22
+
+`/sdlc:orchestrate` and `/sdlc:orchestrate-ready` refuse an issue that
+is already done or already being worked. Until now the readiness check
+graded the issue's body and nothing else, so a closed issue, an issue
+with an open PR, and an issue another session had started all passed
+when their bodies were well specified.
+
+An issue is refused, before its body is graded, when any of these
+holds:
+
+- It is closed.
+- An open PR closes it. A PR that was merged or closed unmerged does
+  not count.
+- A local branch in this clone names it, alone or in a batch. The
+  refusal names the branch and says to run `/sdlc:orchestrate-cleanup`
+  on it. Nothing resumes on a leftover branch.
+- Its status is not one the skill allows, in a repository with a status
+  slot. An issue with no status, off the board or on it with the field
+  empty, is refused too. A repository with no status slot skips this
+  check.
+
+What each skill does on a refusal:
+
+- `/sdlc:orchestrate` prints each refusal and stops the whole run,
+  before any branch or PR exists.
+- `/sdlc:orchestrate` checks every member of a batch again directly
+  before it sets that batch In Progress, so an issue another session
+  started after the first check is caught. On a refusal it sets none of
+  the batch's issues In Progress, assigns none, and starts no developer
+  for the batch.
+- `/sdlc:orchestrate-ready` prints each refusal and ends the session.
+  It rewrites no body and sets no status after one.
+- Neither skill offers to resolve a refusal: reopening an issue,
+  closing a PR, deleting a branch and changing a status stay yours.
+
+Two new sdlc config keys hold the allowed statuses:
+
+| Key | Skill | Default |
+| --- | --- | --- |
+| `orchestrate-statuses` | `/sdlc:orchestrate` | `[Todo, Ready]` |
+| `orchestrate-ready-statuses` | `/sdlc:orchestrate-ready` | `[Backlog, Todo, Ready]` |
+
+- Each is a list of one or more status names, the first sdlc config
+  keys to hold a list. A higher tier's list replaces a lower one's
+  whole, never merges with it.
+- A name is matched against the issue's status ignoring case. A listed
+  name the board lacks matches nothing and is no error.
+- With no sdlc config file the defaults apply, so an issue at `Backlog`
+  can be groomed but not orchestrated, and an issue at `In Progress` or
+  `Done` is refused by both skills. If your board names its statuses
+  differently, set both keys before your next run.
+- `/sdlc:sdlc-config-global`, `/sdlc:sdlc-config-repo` and
+  `/sdlc:sdlc-config-user` ask for each list, offering the board's
+  status options and taking typed names beside them. When the board's
+  options cannot be read — outside a git working tree, or in a
+  repository with no status slot configured — the question is still
+  asked and takes typed names alone.
+
+`sdlc-readiness-check` changes with this:
+
+- It takes `--allow-status <name>`, repeatable and required. A call
+  with none is a usage error, exit 2, and checks nothing.
+- A refusal exits 4 and prints one line per refusal, apart from exit 3
+  for gaps in the body.
+- It needs `git-issue-branch`, from `git-tools`, on `PATH` beside
+  `issue-view`, and exits 1 without either.
+- It still writes nothing to the issue on any exit.
+
+The open-PR refusal relies on the `closed-by:` row `/issue-view` prints
+from `issues` 0.19.0.
+
 ## 0.94.0 — 2026-11-21
 
 An agent in the review pipeline is finished only when it has stored

@@ -47,6 +47,7 @@ restate the fact.
 | The bar an issue meets before the orchestrator runs on it, the issue-body grammar that bar keys on — which keys a `### Mechanical` bullet may open with, what each asserts, and which of them is executed — how a body is graded against the rest of the bar, and what a mechanical gap is | `skills/orchestrate-readiness/SKILL.md` |
 | The terms for a repo statement an issue contradicts — instruction file, capability claim, policy claim and test — and the search that looks for one | `skills/orchestrate-readiness/SKILL.md` |
 | How the `### Mechanical` lines of both acceptance sections are graded: how a body is split into its sections and their bullets, which lines under `### Mechanical` are refused as no bullet, which paths are refused with nothing run, how a section's presence and its bullet count are settled, which heading and which list items make a section a mistitled files-affected list, which gap lines open `mechanical:`, what each gap line says, and what the check exits with | `bin/sdlc-readiness-check` |
+| Which issues the check refuses before it grades a body — each refusal's condition, the order they are checked in, the line each prints, and the exit status that sets a refusal apart from a gap | `bin/sdlc-readiness-check` |
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | Which file class a path falls in — code, instruction Markdown, or documentation | the global Claude configuration, outside this repository; no file in this plugin restates it |
 | Which classes one agent edits, checks or reviews | that agent's own file under `agents/` |
@@ -271,6 +272,14 @@ loops:
   before it rewrites an issue's body. `ask`, the default, asks. `auto`
   rewrites the body without that question once every design gap has
   the human's stored answer, and prints what it wrote.
+- `orchestrate-statuses` and `orchestrate-ready-statuses` — the
+  statuses an issue may be at for `/sdlc:orchestrate` and for
+  `/sdlc:orchestrate-ready` to run on it, per "An issue already done or
+  already in work is refused before its body is graded" below. They
+  default to `[Todo, Ready]` and `[Backlog, Todo, Ready]`. Each is a
+  list of one or more status names, where every other key holds one
+  value, and a tier that sets one sets the whole list: a higher tier's
+  list replaces a lower one's and never merges with it.
 - `follow-up-issue-type`, `follow-up-issue-priority`,
   `follow-up-issue-status` and `follow-up-issue-assignee` — the fields
   a follow-up issue the human ordered is filed with, for each field
@@ -325,7 +334,10 @@ it wait at a finding outside the issue that meets `fix-in-pr`'s
 conditions, at a finding class recurring for the first time, or at the
 fields of a follow-up issue, other than a priority or status slot the
 target repository configures with no default. Each key that takes `ask`
-restores its own wait when set to it.
+restores its own wait when set to it. The two status lists still gate
+with no config file: a key set at no tier resolves to its default like
+any other, so there is no setting under which either skill runs on an
+issue at any status.
 A PR that adds a key, or changes a default, edits this list.
 
 The config is three YAML files — a global user file outside every
@@ -352,8 +364,16 @@ other spawn-template field.
 
 `/sdlc:orchestrate-ready` resolves the tiers too, before its first
 question, and prints them the same way. It spawns no agent, and reads
-them for `ready-rewrite-approval` and for the `follow-up-issue-*` keys
-a side-effect issue is filed with.
+them for `orchestrate-ready-statuses`, for `ready-rewrite-approval`
+and for the `follow-up-issue-*` keys a side-effect issue is filed with.
+
+A `sdlc-config-*` verb asks for a status list by offering the board's
+status options, which it reads through `/issue-field-options status`,
+and takes typed names beside them. Where those options cannot be read —
+outside a git working tree, or in a repository with no status slot
+configured — the question is still asked and takes typed names alone,
+so the global tier's writer, whose file lives outside every
+repository, can set either key from any directory.
 
 The `reload-after-compact` hook is the one reader besides those two
 skills. It runs on every compaction, inside an orchestrate run or
@@ -659,6 +679,86 @@ record.
 | Which gap lines the script labels `mechanical:` | `bin/sdlc-readiness-check` |
 | Which gaps the rewrite repairs, which system is out of scope, the closing approval, the `pending` runs, and that a turn raises one design gap | `skills/orchestrate-ready/SKILL.md` |
 | The `ready-rewrite-approval` key | `skills/lib/sdlc-config.md` |
+
+## An issue already done or already in work is refused before its body is graded
+
+The readiness gate used to grade an issue's body and nothing else, so
+`/sdlc:orchestrate` ran on a closed issue, on one an open PR already
+closes, and on one another session was orchestrating, whenever the
+body was well specified. `sdlc-readiness-check` now checks the issue
+itself first and **refuses** it, before it grades the body, when any
+of these holds:
+
+- **Closed** — the issue's state is not `OPEN`.
+- **Open closing PR** — an open PR closes the issue. A PR that closed
+  it and was merged or closed unmerged does not count.
+- **Local branch** — a local branch in this clone decodes to an issue
+  set holding the issue, so another run on this machine has it, or left
+  it behind.
+- **Status** — the repository has a status slot and the issue's status
+  is not one the caller allows. An issue with no status, off the board
+  or on it with the field empty, is refused too.
+
+The decisions behind them:
+
+- **A refusal is not a gap.** A gap is something grooming repairs in
+  the body. A refusal says the issue is not available, which no edit to
+  the body changes and neither skill is in a position to settle:
+  reopening an issue, closing a PR, deleting a branch and moving a
+  status are each the human's call. So a refusal has an exit status and
+  a verdict of its own, the body goes ungraded, and both skills print
+  the refusal lines and stop without offering a remedy.
+  `/sdlc:orchestrate` stops the whole run, and `/sdlc:orchestrate-ready`
+  ends the session there, rewriting no body and setting no status
+  after it.
+- **The branch check compares issue numbers, never branch names.** A
+  batch branch names several issues, so each local branch is decoded
+  through `git-issue-branch decode` and the issue is looked for in the
+  set that returns. The refusal names the branch and
+  `/sdlc:orchestrate-cleanup`, because nothing resumes on a leftover
+  branch, so what a dead run left is cleaned up before the issue is
+  run again.
+- **The allowed statuses come from the caller, and the script reads no
+  sdlc config.** Each skill resolves its own key with the rest of the
+  tiers and passes every name as an `--allow-status`. A call that
+  passes none is a usage error rather than an open gate, so a caller
+  that forgets the list checks nothing instead of letting every status
+  through.
+- **Each skill has its own list.** Grooming's default adds `Backlog`
+  to the orchestrator's, so an issue can be groomed from `Backlog` and
+  orchestrated only once it has left it. Neither default holds the
+  status the orchestrator's own In Progress flip sets, which is what
+  refuses an issue a session on another machine has started, where the
+  branch check cannot see it.
+- **A name is matched literally, ignoring case.** A listed name the
+  board lacks matches nothing and is no error, so one list can serve
+  repositories whose boards name their columns differently. A
+  repository with no status slot skips the status check and keeps the
+  others.
+- **The orchestrator checks again directly before it starts a batch.**
+  The gate runs before the plan, and the plan can wait on the human, so
+  another session can start an issue in between. The In Progress
+  transition re-runs the script on every member of a batch before any
+  of that batch's flips, and a refusal of one member leaves the whole
+  batch unflipped, unassigned and without a developer, since one
+  developer starts a batch's members together. An issue is in one
+  batch, so the re-check never meets an issue this run flipped itself.
+- **The script writes nothing.** Every status transition stays with
+  the skill that made it before, so a check that refuses has changed
+  nothing about the issue it refused.
+
+The open closing PR is read off the `closed-by:` row `issue-view`
+prints. Under the Jira backend that row reads `unsupported`, which
+names no PR, so the refusal never fires there.
+
+| Slot | Owner |
+| --- | --- |
+| Each refusal's condition, the order they are checked in, the line each prints and the exit status | `bin/sdlc-readiness-check` |
+| The `refused` verdict and what the check reads | `skills/orchestrate-readiness/SKILL.md` |
+| That the gate stops the whole run on a refusal and offers no remedy | `skills/orchestrate/SKILL.md` |
+| The re-check before a batch's In Progress flips, and what a refusal there leaves undone | `skills/orchestrate/lib/issue-lifecycle.md` |
+| That a refusal ends a grooming session | `skills/orchestrate-ready/SKILL.md` |
+| The two status-list keys, their defaults, and how a list value is read, asked for and written | `skills/lib/sdlc-config.md` |
 
 ## An issue that contradicts a repo statement is caught before the PR
 
@@ -2236,7 +2336,7 @@ verdict then reflects it.
 | `sdlc:theorem-agents-interface` | What a theorem agent's brief parameters and the consequence classes mean, and which brief the generator and the assessor each receive | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar, and the tables and rules its derivation modes apply | preloaded into the reviewer, `theorem-generator`, `theorem-assessor`, the disprover, the verifier, `pr-finalizer` and `pr-merge-readiness` |
 | `sdlc:pr-read-cli-interface` | What the PR-read CLIs — `sdlc-pr-round`, `sdlc-pr-adjustments`, `sdlc-fixer-brief`, `sdlc-records-chain` — take, exit with and print | preloaded into the reviewer, `issue-fixer`, `docs-writer` and `pr-finalizer` |
-| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, the terms for a repo statement an issue contradicts, and the check that returns what a body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator`, `theorem-assessor`, `issue-developer` and `issue-fixer` |
+| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the issue-body grammar, the terms for a repo statement an issue contradicts, and the check that, given the statuses its caller allows, refuses an issue that is closed, closed by an open PR, named by a local branch or at a status not allowed, and otherwise returns what the body is missing as a gap list | invoked by the grooming skill and the orchestrator; preloaded into `theorem-generator`, `theorem-assessor`, `issue-developer` and `issue-fixer` |
 
 The rows with no leading slash are not user verbs — each declares
 `user-invocable: false`, which
@@ -2262,12 +2362,17 @@ agree, and an agent body is already loaded at spawn.
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
 and `/sdlc:orchestrate` does not invoke it — the user runs it first,
 per issue, and runs the orchestrator once the issues are ready. Both
-invoke the same check, `orchestrate-readiness`: the grooming skill
+invoke the same check, `orchestrate-readiness`, each with its own list
+of allowed statuses: the grooming skill
 rewrites the body until the check returns no gap, and the orchestrator
 runs the check on every issue it is given before any analysis and
-stops, before a branch or a PR exists, on the first non-empty gap
+stops, before a branch or a PR exists, when any returns a non-empty gap
 list, naming the grooming skill rather than running it — grooming is a
-conversation with the human, and the orchestrator is not one. The bar
+conversation with the human, and the orchestrator is not one. A
+refusal stops either skill where a gap list does not: the orchestrator
+ends the whole run on one, and the grooming skill ends its session
+rather than rewriting toward it, per "An issue already done or already
+in work is refused before its body is graded" above. The bar
 and the grammar are owned by `skills/orchestrate-readiness/SKILL.md`;
 why grooming is interactive rather than an agent is owned by
 `skills/orchestrate-ready/SKILL.md`.
@@ -2369,7 +2474,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-fixer-brief` | Prints the most recent comment when it is a fixer brief and exits 3 naming its first line when it is not; with `--all`, every brief the PR carries | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-records-chain` | Reports each complete chain of review-detail chunks posted on a PR, with the range of rounds the chain holds and its total, and which chunks are there when no chain is complete | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a PR's review detail out of its state, chunks it under GitHub's comment cap, splitting a piece too large for one chunk across several, and posts it as one chain whose markers name the rounds it holds; a PR whose complete chains are missing later rounds gets a supplementary chain holding only those rounds, and one whose chains cover the latest round gets nothing posted | its own header comment |
-| `bin/sdlc-readiness-check` | Grades the `### Mechanical` bullets of an issue's acceptance sections against the tree, reading the body through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, one for a body with neither section, and a `mechanical:`-labelled one for an `## Acceptance` section and for a files-affected list under another level-2 heading; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
+| `bin/sdlc-readiness-check` | Takes an issue and one or more `--allow-status` names, and refuses the issue, exiting 4 with one line per refusal and the body ungraded, when it is closed, an open PR closes it, a local branch names it, or its status is none of those names; otherwise grades the `### Mechanical` bullets of the issue's acceptance sections against the tree, reading the issue through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, one for a body with neither section, and a `mechanical:`-labelled one for an `## Acceptance` section and for a files-affected list under another level-2 heading; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
 | `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
 | `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; keeps review state, and deletes it through `sdlc-agent-result-persist` only with `--review-state`; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
 | `bin/sdlc-pr-body` | `split` cuts a PR body file into the base above the finalizer's section and the tail below it, dropping the section; `join` writes a base, a section and a tail into one body file; reads and writes only the files it is given | its own header comment |
@@ -2405,10 +2510,13 @@ as the list, so one mistitled heading does not also fail every
 grading around the old command — which reported site a files-affected
 tag covers — moved into the script with it, so an unchanged body and an
 unchanged tree get the same verdict on every invocation.
-`test/sdlc-readiness-check-test.sh` drives it against a scratch
-repository and a stub `issue-view`; a bullet it feeds that would write
-if run leaves a marker file, and each case carrying one checks that
-none appeared.
+`bin/test/sdlc-readiness-check-test.sh` drives it against a scratch
+repository and a stub `issue-view`, with `git-tools`' real
+`git-issue-branch` decoding the scratch repository's branches; a bullet
+it feeds that would write if run leaves a marker file, and each case
+carrying one checks that none appeared. A stub `gh` leaves a marker
+too, which is how a case shows that a refusal wrote nothing to the
+tracker.
 
 `sdlc-pr-monitor` is a script because the wait between polls has to
 happen inside the agent's turn. `pr-monitor` used to wait on a Monitor
@@ -2852,7 +2960,12 @@ wherever it runs — the issue verbs, `git-branch-create`,
 that the executables the scripts here call off `PATH` are there to
 call: `pr-comment` for the detail poster, `git-default-branch`,
 `pr-view` and `pr-closing-issues` for the cleanup, and `pr-view` and
-`git-issue-branch` for the time report's Decisions table. The
+`git-issue-branch` for the time report's Decisions table, and
+`issue-view` and `git-issue-branch` for the readiness check, which
+exits 1 naming whichever is missing. The readiness check's
+open-closing-PR refusal reads the `closed-by:` row `issue-view` prints
+from `issues` 0.19.0; against an older `issue-view` the row is absent
+and that refusal never fires, with no error to say so. The
 unassigned follow-up issue relies on `/issue-create --no-assignee`,
 which `issues` has from 0.15.0. `yq`, which `sdlc-decision ask` parses
 a record with, and `question` too for a record with no stored question,
