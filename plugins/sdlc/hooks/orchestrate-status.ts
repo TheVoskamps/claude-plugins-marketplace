@@ -910,10 +910,10 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
  * space-separated. A `code loop` or `doc loop` phase carries ` r<n>` after it, unless the PR's
  * progress read failed this redraw: the round `roundOf` gives the PR in that loop, the one under
  * review, or `nextRound`'s when it gives none. An `issue-fixer` or `code-documenter` row carries
- * ` › r<n> findings` for the round `roundOf` gives. Then comes ` | #<n> <phase>` for every other PR
- * with a row, or ` | #<n>` for one with no phase. `rows` are the line's rows, as `rowsOf` builds
- * them from `running`, and `review` holds the reviewer stages and the PRs whose progress read
- * failed this redraw, as `reviewStages` returns them.
+ * ` › r<n> findings` when the phase carries the round `roundOf` gives, for that round. Then comes
+ * ` | #<n> <phase>` for every other PR with a row, or ` | #<n>` for one with no phase. `rows` are
+ * the line's rows, as `rowsOf` builds them from `running`, and `review` holds the reviewer stages
+ * and the PRs whose progress read failed this redraw, as `reviewStages` returns them.
  */
 function statusLine(
   rows: readonly Row[],
