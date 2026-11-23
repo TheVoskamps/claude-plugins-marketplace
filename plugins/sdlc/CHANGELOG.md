@@ -35,7 +35,8 @@ PR #812 (#745 #746) · code loop r2 · theorem-based-pr-reviewer › disprove 15
   `code loop r1 · issue-fixer › r1 findings`. A session resumed at
   such a spawn shows the same, as long as the PR's latest round was
   reviewed in that loop.
-- The seed row names its running children, as any other row does:
+- The seed row names its running children, as any row with no stage
+  and no findings round does:
   `#745 · seed · theorem-based-pr-reviewer › theorem-generator`, then
   `› theorem-assessor`.
 - A trailing PR, `| #<n> <phase>`, carries no issues.
