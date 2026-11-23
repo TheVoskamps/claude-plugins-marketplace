@@ -526,11 +526,7 @@ const SPAWNS: [string, string, string][] = [
   ["sdlc:theorem-based-pr-reviewer", `Review ${PR}`, "PR #812 · code loop r1"],
   ["sdlc:docs-writer", `Write ${PR}`, "PR #812 · doc loop r1"],
   ["sdlc:style-checker", `Check ${PR} --mode documentation`, "PR #812 · doc loop r1"],
-  [
-    "sdlc:theorem-based-pr-reviewer",
-    `Review ${PR} --mode documentation`,
-    "PR #812 · doc loop r1",
-  ],
+  ["sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`, "PR #812 · doc loop r1"],
   ["sdlc:agent-memory-scrubber", `Scrub ${PR}`, "PR #812 · memory scrub"],
   ["sdlc:pr-merge-readiness", `Gate ${PR}`, "PR #812 · merge readiness"],
   ["sdlc:pr-finalizer", `Finalize ${PR}`, "PR #812 · finalizer"],
@@ -1107,11 +1103,7 @@ async function noRun(state: Direct): Promise<{ lines: (string | undefined)[]; re
 // run draws is the same either way.
 const SIBLINGS: [Kind, Kind, string][] = [
   [OTHER_AGENT, FIXER, "PR #812 · code loop r1 · general-purpose, issue-fixer"],
-  [
-    REVIEW,
-    FIXER,
-    "PR #812 · code loop r1 · theorem-based-pr-reviewer, issue-fixer › r1 findings",
-  ],
+  [REVIEW, FIXER, "PR #812 · code loop r1 · theorem-based-pr-reviewer, issue-fixer › r1 findings"],
   [FIXER, DOCUMENTER, "PR #812 · code loop r1 · issue-fixer, code-documenter"],
 ];
 
