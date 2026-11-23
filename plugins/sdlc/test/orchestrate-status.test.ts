@@ -421,6 +421,12 @@ function developerBrief(...issues: string[]) {
     : `You are fixing issues ${refs(issues, ", ")} in this\nrepo, as one batch: one branch.`;
 }
 
+/** The `docs-writer` new-branch brief for `issues`, as the orchestrator words it. */
+function newBranchBrief(...issues: string[]) {
+  const named = issues.length === 1 ? `issue #${issues[0]}` : `issues ${refs(issues, ",\n")}`;
+  return `You are writing the documentation for ${named} in this repo, as one batch.`;
+}
+
 /** The code-documenter brief for `pr` on `branch`, as the orchestrator words it. */
 function documenterBrief(pr: string, branch: string) {
   return `PR ${pr} has new commits on it.\nBranch: ${branch}\n\nDocument the code.`;
@@ -463,20 +469,52 @@ test("with one batch, a new PR leads with the batch's issues from its first code
   expect(shown(state)).toBe("PR #812 (#745 #746) · code loop r1 · code-documenter");
 });
 
-test("with one batch, a PR whose branch encodes none of its issues leads alone", async ($, on) => {
+test("a doc-only batch counts as a batch lacking a PR, and gives its PR no other batch's issues", async ($, on) => {
   const state = host(on);
   await orchestrate($);
   await spawn($, "sdlc:issue-developer", developerBrief("745"));
-  state.agents = [running("a2", "sdlc:style-checker")];
+  await spawn($, "sdlc:docs-writer", newBranchBrief("760"));
+  state.agents = [running("a3", "sdlc:style-checker")];
   await spawn(
     $,
     "sdlc:style-checker",
-    `${documenterBrief(OTHER_PR, "feature/issue-760-docs")}\n--mode documentation`,
+    `${documenterBrief(OTHER_PR, "issue-760-docs")}\n--mode documentation`,
   );
   expect(shown(state)).toBe("PR #813 · doc loop r1 · style-checker");
-  state.agents = [running("a3", "sdlc:code-documenter")];
-  await spawn($, "sdlc:code-documenter", documenterBrief(PR, "feature/issue-745-x"));
+  state.agents = [running("a4", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", documenterBrief(PR, "issue-745-x"));
+  expect(shown(state)).toBe("PR #812 · code loop r1 · code-documenter");
+  state.agents = [running("a5", "sdlc:theorem-based-pr-reviewer")];
+  await spawn(
+    $,
+    "sdlc:theorem-based-pr-reviewer",
+    `--pr ${OTHER_PR} --issues 760 --branch issue-760-docs\n--mode documentation`,
+  );
+  expect(shown(state)).toBe("PR #813 (#760) · doc loop r1 · theorem-based-pr-reviewer");
+  state.agents = [running("a6", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", documenterBrief(PR, "issue-745-x"));
   expect(shown(state)).toBe("PR #812 (#745) · code loop r1 · code-documenter");
+});
+
+test("with the one open batch a doc-only batch, a new PR leads alone", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:docs-writer", newBranchBrief("760", "761"));
+  state.agents = [running("a2", "sdlc:style-checker")];
+  await spawn($, "sdlc:style-checker", `Check ${OTHER_PR}\n--mode documentation`);
+  expect(shown(state)).toBe("PR #813 · doc loop r1 · style-checker");
+});
+
+test("a PR named before the one open batch's developer brief shows none of its issues", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", documenterBrief(PR, "issue-740-x"));
+  expect(shown(state)).toBe("PR #812 · code loop r1 · code-documenter");
+  await spawn($, "sdlc:issue-developer", developerBrief("750"));
+  state.agents = [running("a3", "sdlc:issue-fixer")];
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r1 · issue-fixer");
 });
 
 test("a PR-less agent whose brief names no issue leads with no earlier batch's issues", async ($, on) => {
@@ -485,7 +523,7 @@ test("a PR-less agent whose brief names no issue leads with no earlier batch's i
   await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 745\n--branch main");
   await spawn($, "sdlc:issue-developer", developerBrief("745"));
   state.agents = [running("a3", "sdlc:docs-writer")];
-  await spawn($, "sdlc:docs-writer", "Write the documentation for issue #760.");
+  await spawn($, "sdlc:docs-writer", newBranchBrief("760"));
   expect(shown(state)).toBe("doc loop r1 · docs-writer");
 });
 
