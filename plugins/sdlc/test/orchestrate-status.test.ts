@@ -267,31 +267,50 @@ test("another PR whose running agent set no phase is appended by its number alon
   expect(shown(state)).toBe("develop · issue-developer | #813");
 });
 
-test("the doc loop shows no round of the code loop before its own reviewer runs", async ($, on) => {
+test("before the doc loop's first reviewer, the doc loop shows the round after the code loop's latest", async ($, on) => {
   const state = host(on);
   await orchestrate($);
   state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
   state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
   await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
   expect(shown(state)).toBe("PR #812 · code loop r3 · theorem-based-pr-reviewer");
+  state.progress = progressLine(3, "code-and-instruction-markdown", "reviewed", "-", "-");
   state.agents = [running("a2", "sdlc:docs-writer")];
   await spawn($, "sdlc:docs-writer", `Write ${PR}`);
-  expect(shown(state)).toBe("PR #812 · doc loop · docs-writer");
-  state.progress = progressLine(1, "documentation", "generate", 0, 1);
+  expect(shown(state)).toBe("PR #812 · doc loop r4 · docs-writer");
+  state.progress = progressLine(4, "documentation", "generate", 0, 1);
   state.agents = [running("a3", "sdlc:theorem-based-pr-reviewer")];
   await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`);
-  expect(shown(state)).toBe("PR #812 · doc loop r1 · theorem-based-pr-reviewer › generate");
+  expect(shown(state)).toBe("PR #812 · doc loop r4 · theorem-based-pr-reviewer › generate");
 });
 
-test("a fixer in the same loop keeps the round on the line", async ($, on) => {
+test("before a fresh code loop's first reviewer, a pre-review agent shows r1", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", `Document ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r1 · code-documenter");
+  state.agents = [running("a2", "sdlc:style-checker")];
+  await spawn($, "sdlc:style-checker", `Check ${PR} --mode code-and-instruction-markdown`);
+  expect(shown(state)).toBe("PR #812 · code loop r1 · style-checker");
+  const [command, ...args] = state.runs.at(-1) ?? [];
+  expect(command.endsWith(PERSIST)).toBe(true);
+  expect(args).toEqual(["--mode", "progress", "--pr", PR]);
+});
+
+test("a fixer keeps the round under review on the phase, and names it as the round it answers", async ($, on) => {
   const state = host(on);
   await orchestrate($);
   state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
   state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
   await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  state.progress = progressLine(3, "code-and-instruction-markdown", "reviewed", "-", "-");
   state.agents = [running("a2", "sdlc:issue-fixer")];
   await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
-  expect(shown(state)).toBe("PR #812 · code loop r3 · issue-fixer");
+  expect(shown(state)).toBe("PR #812 · code loop r3 · issue-fixer › r3 findings");
+  state.agents = [running("a3", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", `Document ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r3 · code-documenter › r3 findings");
 });
 
 test("a loop's round survives other phases and returns with the loop, and the other loop drops it", async ($, on) => {
@@ -305,19 +324,19 @@ test("a loop's round survives other phases and returns with the loop, and the ot
   expect(shown(state)).toBe("PR #812 · merge readiness");
   await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
   expect(shown(state)).toBe("PR #812 · code loop r3");
-  state.progress = progressLine(1, "documentation", "reviewed", "-", "-");
+  state.progress = progressLine(3, "code-and-instruction-markdown", "reviewed", "-", "-");
   state.agents = [running("a4", "sdlc:theorem-based-pr-reviewer")];
   await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`);
-  expect(shown(state)).toBe("PR #812 · doc loop r2 · theorem-based-pr-reviewer");
+  expect(shown(state)).toBe("PR #812 · doc loop r4 · theorem-based-pr-reviewer");
   state.agents = [];
   await spawn($, "sdlc:pr-merge-readiness", `Gate ${PR}`);
   await spawn($, "sdlc:docs-writer", `Write ${PR}`);
-  expect(shown(state)).toBe("PR #812 · doc loop r2");
+  expect(shown(state)).toBe("PR #812 · doc loop r4");
   await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
-  expect(shown(state)).toBe("PR #812 · code loop");
+  expect(shown(state)).toBe("PR #812 · code loop r5");
 });
 
-test("a reviewer still running from the other loop puts no round on the PR's loop", async ($, on) => {
+test("a reviewer still running from the other loop leaves the PR's loop at the next round", async ($, on) => {
   const state = host(on);
   await orchestrate($);
   state.progress = progressLine(2, "code-and-instruction-markdown", "reviewed", "-", "-");
@@ -325,21 +344,193 @@ test("a reviewer still running from the other loop puts no round on the PR's loo
   await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
   state.agents.push(running("a2", "sdlc:docs-writer"));
   await spawn($, "sdlc:docs-writer", `Write ${PR}`);
-  expect(shown(state)).toBe("PR #812 · doc loop · theorem-based-pr-reviewer, docs-writer");
+  expect(shown(state)).toBe("PR #812 · doc loop r4 · theorem-based-pr-reviewer, docs-writer");
+});
+
+// --- the fan-out, the issue set and the seed -----------------------------------------------------
+
+const REVIEW_BRIEF = [
+  `--pr ${PR} --issues 745 746 --branch issue-745-x`,
+  "--mode code-and-instruction-markdown",
+].join("\n");
+
+for (const [stage, settled, members] of [
+  ["disprove", 15, 31],
+  ["verify", 4, 9],
+] as const) {
+  test(`with the reviewer not running and its children running, the line shows ${stage} counts for its PR`, async ($, on) => {
+    const state = host(on);
+    await orchestrate($);
+    state.progress = progressLine(1, "code-and-instruction-markdown", "reviewed", "-", "-");
+    state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+    await spawn($, "sdlc:theorem-based-pr-reviewer", REVIEW_BRIEF);
+    state.progress = progressLine(2, "code-and-instruction-markdown", stage, settled, members);
+    const child = stage === "disprove" ? "sdlc:theorem-disprover" : "sdlc:counterexample-verifier";
+    state.agents = [
+      { id: "a1", status: "completed", type: "sdlc:theorem-based-pr-reviewer" },
+      running("c1", child, "a1"),
+      running("c2", child, "a1"),
+    ];
+    await turnEnd($, "c1");
+    expect(shown(state)).toBe(
+      `PR #812 (#745 #746) · code loop r2 · theorem-based-pr-reviewer › ${stage} ${settled}/${members} theorems`,
+    );
+    expect(state.runs.at(-1)?.slice(1)).toEqual(["--mode", "progress", "--pr", PR]);
+    state.agents = [running("c1", child, "a1")];
+    await turnEnd($, "c1");
+    expect(shown(state)).toBe(
+      `PR #812 (#745 #746) · code loop r2 · theorem-based-pr-reviewer › ${stage} ${settled}/${members} theorems`,
+    );
+  });
+}
+
+test("a grandchild is attributed to its main-loop ancestor's PR through the list's parentIds", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:pr-merge-readiness", `Gate ${PR}`);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${OTHER_PR}`);
+  state.agents = [
+    running("a2", "sdlc:pr-monitor"),
+    { id: "c1", status: "completed", type: "sdlc:issue-fixer", parentId: "a1" },
+    running("g1", "general-purpose", "c1"),
+  ];
+  await spawn($, "general-purpose", `Look at ${OTHER_PR}`, "c1");
+  await turnEnd($);
+  expect(shown(state)).toBe("PR #813 · monitor · pr-monitor | #812 merge readiness");
+});
+
+/** The main loop's `Skill` call of the readiness check on `issue`. */
+function readiness($, issue: string, agentId?: string) {
+  return $.tool.call({
+    tool: "Skill",
+    skill: "sdlc:orchestrate-readiness",
+    args: issue,
+    ...(agentId === undefined ? {} : { agentId }),
+  });
+}
+
+/** `issues`, each as `#<n>`, joined by `separator`. */
+function refs(issues: readonly string[], separator = " ") {
+  return issues.map((n) => `#${n}`).join(separator);
+}
+
+/** The developer brief for `issues`, as the orchestrator words it for a batch of one or more. */
+function developerBrief(...issues: string[]) {
+  return issues.length === 1
+    ? `You are fixing issue #${issues[0]} in this repo.\n\nImplement the batch end-to-end.`
+    : `You are fixing issues ${refs(issues, ", ")} in this\nrepo, as one batch: one branch.`;
+}
+
+for (const issues of [["745"], ["745", "746"]]) {
+  const set = refs(issues);
+  test(`before any PR, the issue set ${set} leads readiness, plan, seed and develop`, async ($, on) => {
+    const state = host(on);
+    await orchestrate($);
+    for (const [i, issue] of issues.entries()) {
+      await readiness($, issue);
+      expect(shown(state)).toBe(`${refs(issues.slice(0, i + 1))} · readiness`);
+    }
+    await $.tool.call({ tool: "Read", file_path: `${ROOT}/skills/orchestrate/lib/plan.md` });
+    expect(shown(state)).toBe(`${set} · plan`);
+    state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+    await spawn($, "sdlc:theorem-based-pr-reviewer", `--issues ${issues.join(" ")}\n--branch main`);
+    expect(shown(state)).toBe(`${set} · seed · theorem-based-pr-reviewer`);
+    state.agents = [running("a2", "sdlc:issue-developer")];
+    await spawn($, "sdlc:issue-developer", developerBrief(...issues));
+    expect(shown(state)).toBe(`${set} · develop · issue-developer`);
+  });
+}
+
+test("a subagent's readiness call, or another skill's, names no issue", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await readiness($, "745", "a9");
+  await $.tool.call({ tool: "Skill", skill: "sdlc:orchestrate-cleanup", args: "746" });
+  expect(shown(state)).toBe("readiness");
+});
+
+test("with one batch, a new PR leads with the batch's issues from its first code-documenter", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:issue-developer", developerBrief("745", "746"));
+  state.agents = [running("a2", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", `Document ${PR}`);
+  expect(shown(state)).toBe("PR #812 (#745 #746) · code loop r1 · code-documenter");
+});
+
+test("with two batches lacking a PR, a new PR leads alone until its first reviewer brief", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:issue-developer", developerBrief("745"));
+  await spawn($, "sdlc:issue-developer", developerBrief("750", "751"));
+  state.agents = [running("a3", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", `Document ${OTHER_PR}`);
+  expect(shown(state)).toBe("PR #813 · code loop r1 · code-documenter");
+  state.agents = [running("a4", "sdlc:theorem-based-pr-reviewer")];
+  await spawn(
+    $,
+    "sdlc:theorem-based-pr-reviewer",
+    `--pr ${OTHER_PR} --issues 750 751 --branch issue-750-x`,
+  );
+  expect(shown(state)).toBe("PR #813 (#750 #751) · code loop r1 · theorem-based-pr-reviewer");
+  state.agents = [running("a5", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", `Document ${PR}`);
+  expect(shown(state)).toBe("PR #812 (#745) · code loop r1 · code-documenter");
+});
+
+test("a trailing PR carries no issue set", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `--pr ${OTHER_PR} --issues 750 --branch b`);
+  await spawn($, "sdlc:pr-monitor", `Monitor ${PR}`);
+  state.agents = [
+    running("a1", "sdlc:theorem-based-pr-reviewer"),
+    running("a2", "sdlc:pr-monitor"),
+  ];
+  await turnEnd($);
+  expect(shown(state)).toBe("PR #812 · monitor · pr-monitor | #813 code loop");
+});
+
+test("the seed row nests its running generator and then its assessor by name, with no progress read", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 745\n--branch main");
+  state.agents = [
+    running("a1", "sdlc:theorem-based-pr-reviewer"),
+    running("c1", "sdlc:theorem-generator", "a1"),
+  ];
+  await turnEnd($, "c1");
+  expect(shown(state)).toBe("#745 · seed · theorem-based-pr-reviewer › theorem-generator");
+  state.agents = [
+    { id: "a1", status: "completed", type: "sdlc:theorem-based-pr-reviewer" },
+    running("c2", "sdlc:theorem-assessor", "a1"),
+  ];
+  await turnEnd($, "c2");
+  expect(shown(state)).toBe("#745 · seed · theorem-based-pr-reviewer › theorem-assessor");
+  expect(state.runs).toEqual([]);
 });
 
 // --- the signals ---------------------------------------------------------------------------------
 
 const SPAWNS: [string, string, string][] = [
-  ["sdlc:theorem-based-pr-reviewer", "--issues 5 --branch main", "seed"],
+  ["sdlc:theorem-based-pr-reviewer", "--issues 5 --branch main", "#5 · seed"],
   ["sdlc:issue-developer", "Issue #5", "develop"],
-  ["sdlc:code-documenter", `Document ${PR}`, "PR #812 · code loop"],
-  ["sdlc:issue-fixer", `Fix ${PR}`, "PR #812 · code loop"],
-  ["sdlc:style-checker", `Check ${PR} --mode code-and-instruction-markdown`, "PR #812 · code loop"],
-  ["sdlc:theorem-based-pr-reviewer", `Review ${PR}`, "PR #812 · code loop"],
-  ["sdlc:docs-writer", `Write ${PR}`, "PR #812 · doc loop"],
-  ["sdlc:style-checker", `Check ${PR} --mode documentation`, "PR #812 · doc loop"],
-  ["sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`, "PR #812 · doc loop"],
+  ["sdlc:code-documenter", `Document ${PR}`, "PR #812 · code loop r1"],
+  ["sdlc:issue-fixer", `Fix ${PR}`, "PR #812 · code loop r1"],
+  [
+    "sdlc:style-checker",
+    `Check ${PR} --mode code-and-instruction-markdown`,
+    "PR #812 · code loop r1",
+  ],
+  ["sdlc:theorem-based-pr-reviewer", `Review ${PR}`, "PR #812 · code loop r1"],
+  ["sdlc:docs-writer", `Write ${PR}`, "PR #812 · doc loop r1"],
+  ["sdlc:style-checker", `Check ${PR} --mode documentation`, "PR #812 · doc loop r1"],
+  [
+    "sdlc:theorem-based-pr-reviewer",
+    `Review ${PR} --mode documentation`,
+    "PR #812 · doc loop r1",
+  ],
   ["sdlc:agent-memory-scrubber", `Scrub ${PR}`, "PR #812 · memory scrub"],
   ["sdlc:pr-merge-readiness", `Gate ${PR}`, "PR #812 · merge readiness"],
   ["sdlc:pr-finalizer", `Finalize ${PR}`, "PR #812 · finalizer"],
@@ -473,14 +664,14 @@ test("a reviewer spawned on its seed brief with no run under way starts a run in
   const state = host(on);
   state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
   await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 5 --branch main");
-  expect(shown(state)).toBe("seed · theorem-based-pr-reviewer");
+  expect(shown(state)).toBe("#5 · seed · theorem-based-pr-reviewer");
 });
 
 test("a main-loop spawn of another sdlc agent starts a run", async ($, on) => {
   const state = host(on);
   state.agents = [running("a1", "sdlc:issue-fixer")];
   await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
-  expect(shown(state)).toBe("PR #812 · code loop · issue-fixer");
+  expect(shown(state)).toBe("PR #812 · code loop r1 · issue-fixer");
 });
 
 test("the orchestrate skill starts a fresh run", async ($, on) => {
@@ -610,9 +801,11 @@ type Direct = {
 };
 
 function direct(): Direct {
-  const hooks = new Map<string, ($: object, e: object, next: Next) => Promise<unknown>>();
+  type Hook = ($: object, e: object, next: Next) => Promise<unknown>;
+  const hooks: { event: string; matcher: object; hook: Hook }[] = [];
   register((event: string, ...rest: unknown[]) => {
-    hooks.set(event, rest[rest.length - 1] as never);
+    const matcher = rest.length > 1 ? (rest[0] as object) : {};
+    hooks.push({ event, matcher, hook: rest[rest.length - 1] as never });
   });
   const state: Direct = {
     logs: [],
@@ -622,9 +815,13 @@ function direct(): Direct {
     run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
     status: () => undefined,
     hook: (event, e, result = {}) => {
-      const hook = hooks.get(event);
-      if (hook === undefined) throw new Error(`no hook on ${event}`);
-      return hook($, e, async () => result);
+      const found = hooks.find(
+        (each) =>
+          each.event === event &&
+          Object.entries(each.matcher).every(([key, value]) => e[key] === value),
+      );
+      if (found === undefined) throw new Error(`no hook on ${event}`);
+      return found.hook($, e, async () => result);
     },
   };
   const $ = {
@@ -847,7 +1044,7 @@ for (const isWriterFirst of [true, false]) {
     await (isWriterFirst ? resolveWriter : resolveFixer)();
     await (isWriterFirst ? resolveFixer : resolveWriter)();
     await state.hook("turn.complete", {});
-    expect(lines.at(-1)).toBe("PR #813 · doc loop · docs-writer | #812 code loop");
+    expect(lines.at(-1)).toBe("PR #813 · doc loop r1 · docs-writer | #812 code loop");
   });
 }
 
@@ -906,9 +1103,13 @@ async function noRun(state: Direct): Promise<{ lines: (string | undefined)[]; re
 // Two spawns overlapping from the no-run state, for one PR, resolved in both orders: the line the
 // run draws is the same either way.
 const SIBLINGS: [Kind, Kind, string][] = [
-  [OTHER_AGENT, FIXER, "PR #812 · code loop · general-purpose, issue-fixer"],
-  [REVIEW, FIXER, "PR #812 · code loop r1 · theorem-based-pr-reviewer, issue-fixer"],
-  [FIXER, DOCUMENTER, "PR #812 · code loop · issue-fixer, code-documenter"],
+  [OTHER_AGENT, FIXER, "PR #812 · code loop r1 · general-purpose, issue-fixer"],
+  [
+    REVIEW,
+    FIXER,
+    "PR #812 · code loop r1 · theorem-based-pr-reviewer, issue-fixer › r1 findings",
+  ],
+  [FIXER, DOCUMENTER, "PR #812 · code loop r1 · issue-fixer, code-documenter"],
 ];
 
 for (const [one, two, line] of SIBLINGS) {
@@ -967,7 +1168,7 @@ test("a reviewer that resolves before an issue-fixer for another PR is recorded 
   state.list = async () => [running("a1", REVIEW.type), running("a2", FIXER.type)];
   await resolveReview();
   await resolveFixer();
-  expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
+  expect(seen.lines.at(-1)).toBe("PR #813 · code loop r1 · issue-fixer | #812 code loop");
   state.list = async () => [
     running("a1", REVIEW.type),
     running("a2", FIXER.type),
@@ -993,7 +1194,7 @@ const OTHER_FIXER: Kind = {
 // the PR of the spawn begun last is the current one, whichever of the two resolves first, with no
 // run under way when they begin and with one under way.
 const CROSS_PR: [Kind, Kind, string][] = [
-  [REVIEW, OTHER_FIXER, "PR #813 · code loop · issue-fixer | #812 code loop"],
+  [REVIEW, OTHER_FIXER, "PR #813 · code loop r1 · issue-fixer | #812 code loop"],
   [OTHER_FIXER, REVIEW, "PR #812 · code loop r1 · theorem-based-pr-reviewer | #813 code loop"],
 ];
 
@@ -1046,7 +1247,7 @@ test("a pending spawn whose agent has finished does not take the current PR from
   await resolveReview();
   state.list = async () => [running("a1", FIXER.type)];
   await resolveFixer();
-  expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer");
+  expect(seen.lines.at(-1)).toBe("PR #813 · code loop r1 · issue-fixer");
 });
 
 test("a spawn that joins the pending ones while a starter reads the agent list is judged by a later read", async () => {
@@ -1065,7 +1266,7 @@ test("a spawn that joins the pending ones while a starter reads the agent list i
   await resolveReview();
   list.resolve([running("a1", FIXER.type)]);
   await starter;
-  expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
+  expect(seen.lines.at(-1)).toBe("PR #813 · code loop r1 · issue-fixer | #812 code loop");
 });
 
 /** Calls `fn` now when `n` is 0, and otherwise once `n` more microtasks have run. */
@@ -1101,7 +1302,7 @@ for (const gap of [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
     afterMicrotasks(gap, () => review.resolve({ agentId: "a2" }));
     await Promise.all([reviewed, starter]);
     await state.hook("turn.complete", {});
-    expect(seen.lines.at(-1)).toBe("PR #813 · code loop · issue-fixer | #812 code loop");
+    expect(seen.lines.at(-1)).toBe("PR #813 · code loop r1 · issue-fixer | #812 code loop");
   });
 }
 
@@ -1127,7 +1328,7 @@ for (const isLastFirst of [true, false]) {
     await (isLastFirst ? resolveWriter : resolveGate)();
     await (isLastFirst ? resolveGate : resolveWriter)();
     await state.hook("turn.complete", {});
-    expect(seen.lines.at(-1)).toBe("PR #812 · doc loop · docs-writer");
+    expect(seen.lines.at(-1)).toBe("PR #812 · doc loop r1 · docs-writer");
   });
 }
 
