@@ -2,16 +2,14 @@
 #
 # sdlc-pr-monitor-test.sh -- drive plugins/sdlc/bin/sdlc-pr-monitor
 # against stub pr-view and pr-ready-to-merge executables serving a
-# scripted sequence of polls, and stub sleep and date executables that
-# advance and read a fake clock, so no case waits: each terminal line,
-# the gate's report compacted onto the poll line, a gate exit 3 for a
-# merge state still UNKNOWN and for a PR that merged or closed after the
-# state read, the unchanged-poll bound with and without a count carried
-# in, a state change resetting the count, the `continue` exit at the
-# wall-time budget with and without the gate's own waits, the sleep
-# chunking, the refusal of an interval above 540, the usage errors, a
-# failing pr-view or pr-ready-to-merge, and a failing command the script
-# does not wrap.
+# scripted sequence of polls, and a stub sleep executable that advances
+# a fake clock, so no case waits: each terminal line, the gate's report
+# compacted onto the poll line, a gate exit 3 for a merge state still
+# UNKNOWN and for a PR that merged or closed after the state read, the
+# unchanged-poll bound, a state change resetting the count, one run
+# polling on to a terminal line however long it takes, the sleep
+# chunking of a long interval, the usage errors, a failing pr-view or
+# pr-ready-to-merge, and a failing command the script does not wrap.
 #
 # Needs bash and the POSIX utilities. Reaches no network.
 #
@@ -60,8 +58,7 @@ check_contains() {
 # and exit 1 instead. When <kind>.sleep exists they first sleep the
 # seconds it holds, and when <kind>.rc.<n> exists the n-th call exits
 # with the status it holds after serving its file. sleep adds its
-# argument to the fake clock and logs it; date prints the clock for
-# `+%s`.
+# argument to the fake clock and logs it.
 mkdir -p "$SANDBOX/bin"
 for kind in view gate; do
   case "$kind" in
@@ -93,11 +90,6 @@ cat >"$SANDBOX/bin/sleep" <<EOF
 echo "\$1" >>"$SANDBOX/serve/sleeps"
 c=\$(cat "$SANDBOX/serve/clock")
 echo \$((c + \$1)) >"$SANDBOX/serve/clock"
-EOF
-cat >"$SANDBOX/bin/date" <<EOF
-#!/bin/sh
-[ "\$1" = +%s ] && exec cat "$SANDBOX/serve/clock"
-exec /bin/date "\$@"
 EOF
 chmod +x "$SANDBOX/bin/"*
 
@@ -284,72 +276,41 @@ run "$PR" 60 1
 check "$LAST" "No change after 1 polls" "wait announcement: no state change of its own"
 check "$(polls)" 2 "wait announcement: the second poll is the unchanged one"
 
-# --- the continue exit at the wall-time budget, and a count carried in --
+# --- one run to a terminal line ----------------------------------------
 
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked"
 run "$PR" 150 10
-check "$RC" 0 "continue: exit 0"
-check "$(polls)" 4 "continue: polls until the next wait would pass 540 s"
-check "$SLEEPS" "60 60 30 60 60 30 60 60 30 " "continue: each wait in chunks of at most 60 s"
-check "$SLEPT" 450 "continue: no more than 540 s slept"
-case "$LAST" in
-  "continue 3 "[0-9]*) check ok ok "continue: carries the count and a state token" ;;
-  *) check "$LAST" "continue 3 <token>" "continue: carries the count and a state token" ;;
-esac
-token=${LAST##* }
+check "$RC" 0 "single run: exit 0"
+check "$(polls)" 11 "single run: polls on past any wall-time limit until the bound"
+check "$LAST" "No change after 10 polls" "single run: ends on the terminal line"
+check "$SLEPT" 1500 "single run: an interval of sleep between every two polls"
+check "$(printf '%s\n' "$OUT" | grep -vc '^Polled ')" 1 "single run: no line but the poll lines and the terminal line"
 
 reset
 serve view "$SANDBOX/OPEN"
-serve gate "$SANDBOX/blocked"
-run "$PR" 150 4 3 "$token"
-check "$LAST" "No change after 4 polls" "carried: the count carried in reaches the bound"
-check "$(polls)" 1 "carried: one poll"
-check "$SLEEPS" "60 60 30 " "carried: the call starts with the skipped wait"
+serve gate "$SANDBOX/blocked" "$SANDBOX/blocked" "$SANDBOX/blocked" "$SANDBOX/blocked-ci"
+run "$PR" 300 3
+check "$(polls)" 7 "single run: a change after the count reached two restarts it"
+check "$LAST" "No change after 3 polls" "single run: the restarted count reaches the bound"
 
 reset
-serve view "$SANDBOX/OPEN"
-serve gate "$SANDBOX/blocked-ci"
-run "$PR" 150 4 3 "$token"
-check "$(polls)" 3 "carried: a different state resets a carried count"
-check "$LAST" "continue 2 ${LAST##* }" "carried: the reset count runs to the budget"
-check "$SLEPT" 450 "carried: the resumed wait counts against the budget"
+serve view "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/blocked"
+run "$PR" 600 10
+check "$RC" 0 "interval 600: exit 0"
+check "$(polls)" 3 "interval 600: polled"
+check "$SLEEPS" "60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 " "interval 600: each wait in chunks of at most 60 s"
+check "$LAST" "Merged" "interval 600: ends on the terminal line"
 
 reset
-serve view "$SANDBOX/OPEN"
+serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/blocked"
-run "$PR" 540 10
-check "$(polls)" 1 "interval 540: a call that starts with a poll polls once"
-check "$SLEEPS" "" "interval 540: and leaves the wait to the next call"
-check "$LAST" "continue 0 ${LAST##* }" "interval 540: then continue"
-reset
-serve view "$SANDBOX/OPEN"
-serve gate "$SANDBOX/blocked"
-run "$PR" 540 10 0 "${LAST##* }"
-check "$(polls)" 1 "interval 540: a resumed call polls once"
-check "$SLEEPS" "60 60 60 60 60 60 60 60 60 " "interval 540: after one wait of nine chunks"
-check "$SLEPT" 540 "interval 540: and no more"
-check "$LAST" "continue 1 ${LAST##* }" "interval 540: the carried count advances"
-
-reset
-serve view "$SANDBOX/OPEN"
-serve gate "$SANDBOX/blocked"
-echo 40 >"$SANDBOX/serve/gate.sleep"
-run "$PR" 220 10
-check "$(polls)" 2 "gate wait: polls until the next wait and gate wait would pass 540 s"
-check "$SLEPT" 300 "gate wait: the gate's own sleeps count against the budget"
-check "$LAST" "continue 1 ${LAST##* }" "gate wait: then continue"
+run "$PR" 150 10
+check "$SLEEPS" "60 60 30 " "chunking: a remainder under 60 s is one last sleep"
 
 # --- refusals and failures --------------------------------------------
-
-reset
-serve view "$SANDBOX/OPEN"
-serve gate "$SANDBOX/blocked"
-run "$PR" 541 3
-check "$RC" 2 "interval 541: exit 2"
-check_contains "$ERR" "lower merge-poll-interval-seconds" "interval 541: the error names the config key"
-check "$OUT" "" "interval 541: nothing polled"
 
 # usage_case <arg>...: runs the monitor with the arguments and expects
 # exit 2.
@@ -363,7 +324,9 @@ usage_case "$PR" x 3
 usage_case "$PR" 60 -1
 usage_case "$PR" 0 3
 usage_case "$PR" 60 0
+usage_case "$PR" 60 3 0 1234
 usage_case "$PR" 60 3 y z
+check "$OUT" "" "usage: nothing polled"
 
 reset
 echo "gh: no such PR" >"$SANDBOX/serve/view.fail"

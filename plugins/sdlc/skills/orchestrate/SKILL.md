@@ -1391,6 +1391,12 @@ are none.
      quoting the error verbatim and the state the last poll found, if
      any poll ran.
 
+   A hand-back that carries neither an outcome above nor the script's
+   error is not a report: `pr-monitor` ends a turn while its polling
+   task still runs, and that task resumes it. Read it as a monitor
+   still in progress, spawn no other `pr-monitor` on that PR, and wait
+   for that agent's next hand-back.
+
 **One PR goes through these stages at a time.** When more than one
 PR's documentation loop has ended, take them in the order the loops
 ended, and start the next

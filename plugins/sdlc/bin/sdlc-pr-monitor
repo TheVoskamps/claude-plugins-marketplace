@@ -4,15 +4,9 @@
 # falls BEHIND or DIRTY, or sits unchanged for <bound> consecutive polls,
 # waiting <interval> seconds between polls. Read-only.
 #
-# Every wait happens inside this one foreground call, so the agent that
-# runs it never ends its turn between polls. A call stays under the Bash
-# tool's 600-second limit: before a sleep that, with the next poll's
-# own worst-case wait, would carry its wall time past 540 seconds it
-# exits with a `continue` line instead, and the caller runs it again
-# with the two values that line carries. A call given those values
-# starts with the wait the previous call skipped, so no two polls, in
-# one call or across a `continue`, run without <interval> seconds of
-# sleep between them.
+# One run polls until a terminal line, however long that takes, so the
+# caller starts it once, in the background, and waits for it to exit.
+# The unchanged-poll count lives in this one process.
 #
 # Each poll reads the PR's state through github-prs' `pr-view` and, while
 # the PR is open, its merge readiness through `pr-ready-to-merge`, both
@@ -22,39 +16,32 @@
 # open sends the poll back to `pr-view`, which reads the merge or close
 # that happened in between. Runs under the bash 3.2 macOS ships.
 #
-# Usage: sdlc-pr-monitor <PR> <interval> <bound> [<unchanged-so-far> <last-state>]
+# Usage: sdlc-pr-monitor <PR> <interval> <bound>
 #
-#   <PR>               the pull request, in any form pr-view accepts
-#   <interval>         seconds between polls, 1 to 540
-#   <bound>            consecutive unchanged polls that end the loop
-#   <unchanged-so-far> the count a `continue` line carried
-#   <last-state>       the state token a `continue` line carried
+#   <PR>        the pull request, in any form pr-view accepts
+#   <interval>  seconds between polls, a positive integer
+#   <bound>     consecutive unchanged polls that end the loop
 #
 # Stdout is one line per poll, `Polled <PR>: <state>`. On exit 0 those
-# are followed by exactly one last line, which is either a terminal line
-# -- `Merged`, `Closed without merging`, `BEHIND`, `DIRTY` or `No change
-# after <bound> polls` -- or `continue <unchanged-count> <last-state>`.
-# On a non-zero exit there is no such line: stdout holds only the poll
-# lines printed before the failure, and none on exit 2.
+# are followed by exactly one terminal line: `Merged`, `Closed without
+# merging`, `BEHIND`, `DIRTY` or `No change after <bound> polls`. On a
+# non-zero exit there is no such line: stdout holds only the poll lines
+# printed before the failure, and none on exit 2.
 #
 # Exit statuses:
-#   0  the last line is a terminal line or a `continue` line
+#   0  the last line is a terminal line
 #   1  a command the script ran failed, pr-ready-to-merge refused the PR
 #      as not open while pr-view still read it OPEN, or pr-view reported
 #      a state other than OPEN, MERGED or CLOSED; a failed command's own
 #      error, and any report pr-ready-to-merge printed, is on stderr above
 #      the script's line
-#   2  a usage error, an <interval> above 540 included; nothing was polled
+#   2  a usage error; nothing was polled
 set -uo pipefail
 
 PROGRAM=${0##*/}
-BUDGET=540
 # No single `sleep` call may last longer than 60 seconds, so
 # wait_interval splits every wait into calls of at most CHUNK.
 CHUNK=60
-# The longest pr-ready-to-merge sleeps inside one poll: its 10 s and
-# 30 s retry waits. It must match the `waits` list in that script.
-GATE_WAIT=40
 
 # fail <status> <message> -- print the message on stderr, prefixed with
 # the program name, and exit with the status.
@@ -71,26 +58,23 @@ fail() {
 set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
-usage="usage: $PROGRAM <PR> <interval> <bound> [<unchanged-so-far> <last-state>]"
-case "$#" in
-  3 | 5) ;;
-  *) fail 2 "$usage" ;;
-esac
+usage="usage: $PROGRAM <PR> <interval> <bound>"
+[ "$#" -eq 3 ] || fail 2 "$usage"
 pr=$1
 interval=$2
 bound=$3
-for n in "$interval" "$bound" ${4+"$4"}; do
+for n in "$interval" "$bound"; do
   case "$n" in
     '' | *[!0-9]*) fail 2 "not a non-negative integer: $n; $usage" ;;
   esac
 done
 [ "$interval" -ge 1 ] || fail 2 "<interval> must be at least 1 second"
 [ "$bound" -ge 1 ] || fail 2 "<bound> must be at least 1 poll"
-[ "$interval" -le "$BUDGET" ] ||
-  fail 2 "an <interval> of $interval seconds is above the $BUDGET a single call can wait; lower merge-poll-interval-seconds to $BUDGET or less"
 
-unchanged=${4:-0}
-last=${5:-}
+# `last`, the previous poll's state, stays unset until the first poll,
+# so the first poll never counts as unchanged.
+unchanged=0
+unset last
 
 # wait_interval -- sleep <interval> seconds, in calls of at most CHUNK.
 wait_interval() {
@@ -142,12 +126,6 @@ read_view() {
   esac
 }
 
-start=$(date +%s || exit) || fail 1 "date failed"
-
-# A call resuming after `continue` owes the wait the previous call
-# skipped.
-[ "$#" -eq 3 ] || wait_interval
-
 while :; do
   read_view
 
@@ -180,27 +158,16 @@ while :; do
       ;;
   esac
 
-  # The state crosses calls as a checksum of the poll's line, so the
-  # `continue` line carries it as one token.
-  token=$(printf '%s' "$STATE" | cksum || exit) || fail 1 "cksum failed"
-  token=${token%% *}
-  if [ "$token" = "$last" ]; then
+  if [ -n "${last+set}" ] && [ "$STATE" = "$last" ]; then
     unchanged=$((unchanged + 1))
   else
     unchanged=0
   fi
-  last=$token
+  last=$STATE
   if [ "$unchanged" -ge "$bound" ]; then
     echo "No change after $bound polls"
     exit 0
   fi
 
-  # The next poll's gate can sleep GATE_WAIT more after the wait, so the
-  # wait goes ahead only when both fit in the budget.
-  now=$(date +%s || exit) || fail 1 "date failed"
-  if [ $((now - start + interval + GATE_WAIT)) -gt "$BUDGET" ]; then
-    echo "continue $unchanged $last"
-    exit 0
-  fi
   wait_interval
 done

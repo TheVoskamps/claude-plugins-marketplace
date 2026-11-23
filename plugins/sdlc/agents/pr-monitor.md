@@ -1,6 +1,6 @@
 ---
 name: pr-monitor
-description: Watches one ready PR until it merges. Given a PR reference, its branch, a poll interval and an unchanged-poll bound, runs the sdlc-pr-monitor script, which polls the PR once per interval and runs the github-prs:pr-ready-to-merge gate while the PR is open, relaying each poll and the state it found. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after the bound's number of consecutive polls with no change in state, as a question whether to keep waiting; on a script failure, returns its error verbatim. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
+description: Watches one ready PR until it merges. Given a PR reference, its branch, a poll interval and an unchanged-poll bound, runs the sdlc-pr-monitor script once in the background, which polls the PR once per interval and runs the github-prs:pr-ready-to-merge gate while the PR is open, and waits on it with Monitor watches until it exits. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after the bound's number of consecutive polls with no change in state, as a question whether to keep waiting; on a script failure, returns its error verbatim. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
 tools: Read, Bash, Monitor, TaskStop
 model: sonnet
 effort: low
@@ -38,45 +38,53 @@ Ask if any is missing.
 ## The loop
 
 The polling and every wait between polls run inside `sdlc-pr-monitor`,
-which this plugin puts on `PATH`. Call it in the foreground with the
-Bash tool, passing `timeout: 600000` — one call can run for close to
-ten minutes — and never in the background:
+which this plugin puts on `PATH`. One run polls until the loop ends,
+however long that takes. Start it **once**, with the Bash tool's
+`run_in_background`, and record the task ID and the output file the
+tool returns:
 
 ```bash
 sdlc-pr-monitor <PR> <interval> <bound>
 ```
 
+Never start a second run, on any outcome, in any turn: the one task is
+the loop.
+
 Each poll reads the PR's state through github-prs' `pr-view` and, while
 the PR is still open, runs its `pr-ready-to-merge` gate, printing one
-`Polled <PR>: <state>` line. Relay a call's lines in the message that
-carries your next call, or in your report. The call's last line
-decides what you do next:
+`Polled <PR>: <state>` line. On exit 0 the run's last line is a
+terminal line — `Merged`, `Closed without merging`, `BEHIND`, `DIRTY`
+or `No change after <bound> polls`. On a non-zero exit its last line is
+its error, opening `sdlc-pr-monitor:`.
 
-- **`continue <unchanged-count> <last-state>`** — the call stopped short
-  of the Bash tool's time limit with the loop still running. Call it
-  again at once, in the same turn, passing both values on:
+### Waiting on the task
+
+Wait for the task to exit with `Monitor`, one watch at a time:
+
+- **Every watch watches the task.** Its command follows the task's
+  output file and ends on the first terminal line or error line there:
 
   ```bash
-  sdlc-pr-monitor <PR> <interval> <bound> <unchanged-count> <last-state>
+  until grep -qE '^(Merged|Closed without merging|BEHIND|DIRTY|No change after [0-9]+ polls|sdlc-pr-monitor: .*)$' <output-file>; do sleep 5; done; tail -n 1 <output-file>
   ```
 
-- **A terminal line** — `Merged`, `Closed without merging`, `BEHIND`,
-  `DIRTY`, or `No change after <bound> polls` — the loop has ended;
-  report back per "Report back".
-- **A non-zero exit** — report back the script's stderr verbatim as
-  your outcome. An `<interval>` above 540 seconds is refused this way.
+  A watch that only paces time, such as `sleep <n>; echo tick`, is
+  forbidden.
+- **At most one watch exists at a time.** Start a new watch only after
+  the previous one has ended. Record the ID of every watch you start.
+- **When a watch ends with the task still running** — it timed out, or
+  was stopped — start another watch.
 
-The harness can move a call that runs past the Bash tool's time limit
-to the background instead of returning it. When it does, wait for that
-call with `Monitor` and read its output from there: its last line, or
-its non-zero exit, decides what you do next exactly as a foreground
-call's does.
+You may end a turn while the task runs. Such a turn carries no report
+and no outcome — say only that the monitor is still waiting on the
+task. The task's exit, or a watch's event, resumes you; carry on
+waiting as above, on the same task.
 
-Never end your turn between calls: your turn runs from your spawn to
-your report, and every wait happens inside a `sdlc-pr-monitor` call.
-A turn that ends without a report is handed back as one, and the
-orchestrator reads it as final and spawns another monitor on the same
-PR.
+### Reading the outcome
+
+Once the task has exited, read its output file. Its last line, or the
+non-zero exit with its stderr, is the outcome; the `Polled` lines give
+the state the last poll found and the number of polls.
 
 The script ends the loop on the first of these:
 
@@ -99,14 +107,14 @@ human's, by hand or by the repo's auto-merge.
 
 ## Report back
 
-Report back only once the loop has ended, on a terminal line or a
-non-zero exit, never on a `continue` line.
+Report back only once the task has exited. A report is only ever a
+terminal outcome or the script's error, verbatim.
 
-Before you report, on every outcome, stop with `TaskStop` every
-background task and every `Monitor` watch you started, and confirm
-each has ended. A task that outlives your report keeps watching a PR
-the orchestrator has already moved past, and nothing tells it the task
-is still running.
+Before you report, on every outcome, stop with `TaskStop` every task
+and watch ID you recorded, and confirm each has ended. A task or watch
+that would expire on its own is stopped all the same. One that
+outlives your report keeps watching a PR the orchestrator has already
+moved past, and nothing tells it the task is still running.
 
 Your report carries:
 
@@ -117,6 +125,5 @@ Your report carries:
   the PR's open/merged/closed state and the gate's report, so the
   orchestrator can tell whether the PR is gone or still open, ready,
   and unmerged.
-- **How many polls** you ran: the `Polled` lines across every call.
-- **Whether any call was moved to the background**, and that every task
-  and `Monitor` watch you started has ended.
+- **How many polls** the run made: its `Polled` lines.
+- **That every task and watch you recorded has ended.**

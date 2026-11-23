@@ -57,7 +57,7 @@ merge-poll-interval-seconds: 300
 | `max-issues-per-batch` | positive integer | `8` |
 | `seed-review` | `ask` \| `accept-as-emitted` \| `accept-recommended` | `accept-recommended` |
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
-| `merge-poll-interval-seconds` | positive integer, at most `540` | `60` |
+| `merge-poll-interval-seconds` | positive integer | `60` |
 | `merge-max-unchanged-polls` | positive integer | `720` |
 | `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
 | `code-review-max-rounds` | positive integer \| `unlimited` | `10` |
@@ -93,8 +93,7 @@ merge-poll-interval-seconds: 300
 - **`merge-wait`** — `monitor` spawns `pr-monitor` after a PR's ready
   flip. `skip` spawns none; the PR is left ready and unmonitored.
 - **`merge-poll-interval-seconds`** — the wait between two
-  `pr-monitor` polls. `sdlc-pr-monitor` refuses a wait above `540`,
-  so a higher value aborts at pre-flight instead.
+  `pr-monitor` polls, with no upper cap.
 - **`merge-max-unchanged-polls`** — how many consecutive polls with no
   change in state `pr-monitor` runs before it asks whether to keep
   waiting.
