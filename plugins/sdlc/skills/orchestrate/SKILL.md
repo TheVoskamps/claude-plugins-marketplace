@@ -111,8 +111,7 @@ under `agents/` owns:
   `DIRTY` — `pr-merge-readiness` runs again, then `pr-monitor` again —
   or its polls found no change for long enough that it asks whether to
   keep waiting, or its polling script failed and it hands back the
-  error. Not every hand-back of it is a report. It spawns nothing and
-  leaves nothing on the branch
+  error. It spawns nothing and leaves nothing on the branch
 
 Every teammate but `pr-merge-readiness` and `pr-monitor` declares
 `isolation: worktree` in its frontmatter, so the harness creates each

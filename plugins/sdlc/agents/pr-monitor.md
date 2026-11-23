@@ -54,8 +54,9 @@ Each poll reads the PR's state through github-prs' `pr-view` and, while
 the PR is still open, runs its `pr-ready-to-merge` gate, printing one
 `Polled <PR>: <state>` line. On exit 0 the run's last line is a
 terminal line — `Merged`, `Closed without merging`, `BEHIND`, `DIRTY`
-or `No change after <bound> polls`. On a non-zero exit the script
-takes itself its last line is its error, opening `sdlc-pr-monitor:`.
+or `No change after <bound> polls`. When the script itself exits
+non-zero, rather than being killed by a signal, its last line is its
+error, which opens `sdlc-pr-monitor:`.
 
 ### Waiting on the task
 
