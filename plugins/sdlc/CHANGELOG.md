@@ -1,5 +1,30 @@
 # sdlc changelog
 
+## 0.97.0 — 2026-11-23
+
+The merge monitor no longer hands back without an outcome. `pr-monitor`
+could end its turn partway through its polling and report nothing
+about the PR; the run then stopped watching an open PR, so a merge went
+unreported and the post-merge cleanup never started.
+
+- `sdlc-pr-monitor` is a single run. The agent starts it once, in the
+  background, and it polls until the PR merges, closes unmerged, falls
+  `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of
+  polls. It no longer stops short of a time limit to be called again,
+  and takes exactly a PR, an interval and a bound.
+- `merge-poll-interval-seconds` has no upper cap. A value above `540`,
+  which used to abort the run at pre-flight, is now accepted.
+- `pr-monitor` waits on the run with `Monitor` watches that follow the
+  run's output, one at a time, and never with a timer. A turn it ends
+  while the run is going is not a report: `/sdlc:orchestrate` waits
+  for the agent's next hand-back and spawns no second monitor on the
+  PR.
+- A run that ends with no outcome and no error, as one killed by a
+  signal does, is reported as an error giving its exit code and last
+  line.
+- Before it reports, `pr-monitor` stops every background task and
+  watch it started, including any that would expire on its own.
+
 ## 0.96.0 — 2026-11-22
 
 The `/sdlc:orchestrate` status line now shows a review round's stage

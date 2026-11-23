@@ -252,7 +252,7 @@ loops:
 - `merge-wait` — whether the monitor loop runs after a PR's ready
   flip. It defaults to `monitor`; `skip` runs none.
 - `merge-poll-interval-seconds` — the wait between two of that loop's
-  polls, a positive integer of at most `540` that defaults to `60`.
+  polls, a positive integer with no upper cap that defaults to `60`.
 - `merge-max-unchanged-polls` — how many consecutive polls with no
   change in state the loop runs before it asks whether to keep
   waiting, a positive integer that defaults to `720`.
@@ -2392,7 +2392,7 @@ enabled. A PR that adds or removes an executable edits this roster.
 | `bin/sdlc-records-chain` | Reports each complete chain of review-detail chunks posted on a PR, with the range of rounds the chain holds and its total, and which chunks are there when no chain is complete | `skills/pr-read-cli-interface/SKILL.md` |
 | `bin/sdlc-pr-post-theorem-records` | Assembles a PR's review detail out of its state, chunks it under GitHub's comment cap, splitting a piece too large for one chunk across several, and posts it as one chain whose markers name the rounds it holds; a PR whose complete chains are missing later rounds gets a supplementary chain holding only those rounds, and one whose chains cover the latest round gets nothing posted | its own header comment |
 | `bin/sdlc-readiness-check` | Takes an issue and one or more `--allow-status` names, and refuses the issue, exiting 4 with one line per refusal and the body ungraded, when it is closed, an open PR closes it, a local branch names it, or its status is none of those names; otherwise grades the `### Mechanical` bullets of the issue's acceptance sections against the tree, reading the issue through `issue-view`, and prints one gap line per failing bullet, per line under `### Mechanical` that is no bullet, per acceptance section with no bullet, one for a body with neither section, and a `mechanical:`-labelled one for an `## Acceptance` section and for a files-affected list under another level-2 heading; exits 3 on any gap and 0 on none | `skills/orchestrate-readiness/SKILL.md` for the keys, its own header comment for the rest |
-| `bin/sdlc-pr-monitor` | Polls one ready PR, waiting the interval between polls inside the call, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, or on a `continue` line before a call could reach the Bash tool's time limit; reads, and writes nothing | its own header comment |
+| `bin/sdlc-pr-monitor` | Polls one ready PR in one background run, waiting the interval between polls, until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged for the bound's number of polls; prints one line per poll and ends on a terminal line, however long that takes; reads, and writes nothing | its own header comment |
 | `bin/sdlc-orchestrate-cleanup` | Removes what runs left in the primary clone — worktrees, local branches, `.claude/tmp/` scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR with `--pr`, or for the whole repo with `--all`, then brings the default branch up to date; keeps review state, and deletes it through `sdlc-agent-result-persist` only with `--review-state`; `--dry-run` prints the same items and acts on nothing; asks nothing, and never touches a branch on `origin` or the default branch | its own header comment |
 | `bin/sdlc-pr-body` | `split` cuts a PR body file into the base above the finalizer's section and the tail below it, dropping the section; `join` writes a base, a section and a tail into one body file; reads and writes only the files it is given | its own header comment |
 | `bin/sdlc-extract-lines` | Copies a line range of one file, verbatim, into another, refusing a range the source does not reach with nothing written; reads and writes only the files it is given | its own header comment |
@@ -2435,30 +2435,22 @@ carrying one checks that none appeared. A stub `gh` leaves a marker
 too, which is how a case shows that a refusal wrote nothing to the
 tracker.
 
-`sdlc-pr-monitor` is a script because the wait between polls has to
-happen inside the agent's turn. `pr-monitor` used to wait on a Monitor
-watch, which ended its turn after every poll; the harness forced a
-hand-back on each such turn, the orchestrator read that hand-back as the
-monitor's final report and spawned another monitor on the same PR, and
-the watch kept waking the first one. With the loop in a foreground Bash
-call, the agent's turn runs from its spawn to its report and nothing it
-hands back is interim. The call's length is bounded by the Bash tool's
-600-second limit, so the script budgets 540 seconds of wall time per
-call, counting the gate's own retry waits, and exits with
-`continue <unchanged-count> <last-state>` before a wait that would pass
-it; the agent calls it again with those values, in the same turn, and
-the resumed call starts with the wait the previous one skipped, so no
-two polls run closer than the interval. The state crosses that boundary
-as a checksum of the poll's compacted gate report, which is what lets a
-multi-line report travel as one argument; the readable state stays on
-the `Polled` lines. An interval the budget cannot hold is refused before
-anything is polled, which is where `merge-poll-interval-seconds`'s
-maximum comes from. `test/sdlc-pr-monitor-test.sh` drives it against
-stub `pr-view` and `pr-ready-to-merge` executables serving a scripted
-poll sequence, and stub `sleep` and `date` executables that advance and
-read a fake clock, so the budget cases run without waiting; reading wall
-time through `date +%s` is what makes that stub possible without a hook
-in the script.
+`sdlc-pr-monitor` is a script because the loop has to outlive any one
+of the agent's turns without the agent carrying it. The agent starts
+it once, in the background, and one run polls to a terminal line,
+however long that takes. An earlier version ran in the foreground and
+stopped short of the Bash tool's time limit, leaving the agent to call
+it again with the unchanged-poll count and the last state; the agent
+did not reliably make that call, and handed back with no outcome while
+the PR went unwatched. With the count and the previous poll's state in
+one process there is nothing to pass on, no per-call wall-time budget,
+and so no ceiling on the interval: `merge-poll-interval-seconds` is any
+positive integer, and every wait still sleeps in calls of at most 60
+seconds. The state is compared as the text the `Polled` line prints.
+`test/sdlc-pr-monitor-test.sh` drives it against stub `pr-view` and
+`pr-ready-to-merge` executables serving a scripted poll sequence, and
+a stub `sleep` that advances a fake clock, so a run of many intervals
+finishes without waiting.
 
 `sdlc-pr-body` and `sdlc-extract-lines` are scripts because the
 permission gate's file-work redirect, on by default in every linked
@@ -2769,7 +2761,7 @@ records each once the PR is linked.
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-merge-readiness` | Drives one blessed PR through the merge-readiness gate, spawning `issue-fixer` then `agent-memory-scrubber` for each remedy, recording each spawn in the PR's state, reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held and re-spawns that agent once, and returns a state that needs a ruling as a question and a remedy that left documentation to write or a documentation conflict resolved as `documentation loop needed` |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and writes the run's final section into its body, one sub-section per round type, replacing the one an earlier run left, lists there each claim in the body above it that the branch or the round records contradict, and corrects the closing lines its brief names |
-| `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, which the orchestrator reports as needing the human's attention |
+| `pr-monitor` | Runs `sdlc-pr-monitor` on one ready PR until it merges, closes unmerged, falls `BEHIND` or `DIRTY`, or sits unchanged long enough to ask whether to keep waiting; hands back the script's error verbatim when it fails instead, or the exit code and last line of a run that ended with no terminal or error line, which the orchestrator reports as needing the human's attention |
 | `theorem-based-pr-reviewer` | Reviews one PR, spawning the generator, the assessor, the disprovers, and the verifiers from inside itself, and before a batch's PR exists seeds its theorem set from the issues, spawning the generator and the assessor and posting nothing |
 | `theorem-generator` | Searches one PR — or, before one exists, the issues a batch will close — for claims worth trying to disprove, at the reasoning tier its spawner names |
 | `theorem-assessor` | Assesses one generated theorem list against the issues it was drawn from — the seed's, or a review round's — recommending an action per theorem and a theorem for each criterion none tests |
@@ -2790,19 +2782,21 @@ tracked file holds that contract in its body, not by leaving a tool out.
 payload of its assessment, and changes none, so its line names `Read`
 and `Write` and no `Edit`.
 `pr-monitor` is the one agent that writes nothing; its line is
-`Read, Bash, Monitor, TaskStop`. It asks for every wait between polls
-as a foreground `sdlc-pr-monitor` call, because a wait on a Monitor
-watch ends the agent's turn, and a turn that ends without a report is
-handed back as one and read as final. `Monitor` and `TaskStop` serve
-the one case the agent does not choose: the harness moves a call that
-runs past the Bash tool's time limit to the background instead of
-returning it. The agent waits on such a call with `Monitor` and acts on
-its last line as on a foreground call's. Before it reports, on every
-outcome, it stops with `TaskStop` every background task and watch it
-started and confirms each has ended, because a task that outlives the
-report keeps watching a PR the run has moved past while the agent
-itself reads as completed, so nothing tells the orchestrator the task
-is still running.
+`Read, Bash, Monitor, TaskStop`. It runs `sdlc-pr-monitor` once, in
+the background, and waits for that task to exit with `Monitor`, one
+watch at a time. Each watch follows the task's output and ends on its
+terminal or error line, or when the script's process is gone; a watch
+that only paces time is forbidden, because such timers piled up
+unstopped. A turn the agent ends while the script runs is not a
+report: it carries no outcome, and the task's exit or a watch's event
+resumes the agent on the same task. The orchestrator waits on such a
+turn for the agent's next hand-back rather than re-spawning, so one
+PR never has two monitors. Before it reports, on every outcome, it
+stops with `TaskStop` every task and watch it recorded, one that would
+expire on its own included, and confirms each has ended, because a
+task that outlives the report keeps watching a PR the run has moved
+past while the agent itself reads as completed, so nothing tells the
+orchestrator the task is still running.
 
 Two entries a reader might expect are absent or inert, each on purpose.
 `Skill` is never listed, and an explicit `tools:` line that omits it
