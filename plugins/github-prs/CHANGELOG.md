@@ -16,8 +16,9 @@ appended, which stored the caret notation in place of the escape.
 
 These verbs now read a body from GitHub's REST API with `curl`, using
 the token `gh auth token` prints for the PR's host, so they need `curl`
-on `PATH`. A body read that fails, or that answers with anything other
-than a JSON object, exits 1 and names the URL.
+on `PATH`. A body read exits 1 when it fails, and names the URL when
+the `curl` request fails or answers with anything other than a JSON
+object.
 
 ## 0.11.2 — 2026-11-21
 
