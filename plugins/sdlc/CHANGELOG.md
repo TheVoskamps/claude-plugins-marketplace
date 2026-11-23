@@ -1,5 +1,45 @@
 # sdlc changelog
 
+## 0.96.0 — 2026-11-22
+
+The `/sdlc:orchestrate` status line now shows a review round's stage
+and theorem counts, which it never did, and names the issues the run is
+on and the round in every part of a loop:
+
+```text
+PR #812 (#745 #746) · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems
+```
+
+- The reviewer's row stays on the line, with the round's stage, while
+  its disprovers and verifiers run. The reviewer ends its turn while it
+  waits on them, and the line used to drop it then, so `disprove` and
+  `verify` read `PR #812 · code loop r1` with no agent and no count.
+- The run's issues lead the line in every phase. Before a PR exists
+  the line starts with them alone, `#745 #746`, from `readiness`
+  onward; on a PR they follow it in parentheses. They are the issues
+  the run's readiness checks were run on, in that order, so a session
+  resumed mid-run, which saw no readiness check, shows a PR without
+  them.
+- A PR shows its own issues once it has a review round. In a run of
+  several batches a PR's line carries all the run's issues until that
+  PR's first review round starts, and from then on the issues that
+  review was briefed with.
+- A loop shows a round before its first review: the next one. Rounds
+  number on across both loops, so a fresh code loop shows `r1`, a doc
+  loop after code rounds r1 and r2 shows `r3`, and a code loop
+  re-entered after doc round r3 shows `r4`. Until now `code loop` and
+  `doc loop` carried no round while the `code-documenter`,
+  `style-checker` and `docs-writer` ran ahead of that review.
+- An `issue-fixer` or `code-documenter` row names the round whose
+  findings it answers, while the phase keeps that round:
+  `code loop r1 · issue-fixer › r1 findings`. A session resumed at
+  such a spawn shows the same, as long as the PR's latest round was
+  reviewed in that loop.
+- The seed row names its running children, as any other row does:
+  `#745 · seed · theorem-based-pr-reviewer › theorem-generator`, then
+  `› theorem-assessor`.
+- A trailing PR, `| #<n> <phase>`, carries no issues.
+
 ## 0.95.0 — 2026-11-22
 
 `/sdlc:orchestrate` and `/sdlc:orchestrate-ready` refuse an issue that

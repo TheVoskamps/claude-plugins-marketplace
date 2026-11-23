@@ -2572,8 +2572,8 @@ path. A PR that adds or removes a hook edits this roster.
 | `hooks/orchestrate-status.ts` | `command.run` on `orchestrate-status` | Answers the command itself, with no model turn: turns the status line off or on and names the state it left, or prints the usage line |
 | `hooks/orchestrate-status.ts` | `skill.prompt` | Starts a run in `readiness` at the `orchestrate` skill's prompt, and puts a run in `cleanup` at the `orchestrate-cleanup` skill's |
 | `hooks/orchestrate-status.ts` | `tool.call` on `Read` | Puts a run in `plan` when the main loop reads the orchestrator's plan lib file |
-| `hooks/orchestrate-status.ts` | `tool.call` on `Skill` | Records the issue a main-loop `sdlc:orchestrate-readiness` call names, for the line to lead with before any brief names issues |
-| `hooks/orchestrate-status.ts` | `agent.spawn` | Sets the phase a main-loop spawn's agent stands for, the PR its brief names and the issues a reviewer or developer brief names, and starts a run at a spawn of any `sdlc:` agent but the reviewer on a PR |
+| `hooks/orchestrate-status.ts` | `tool.call` on `Skill` | Records the issue a main-loop `sdlc:orchestrate-readiness` call names, as one of the run's issues the line leads with |
+| `hooks/orchestrate-status.ts` | `agent.spawn` | Sets the phase a main-loop spawn's agent stands for, the PR its brief names and the issues a reviewer brief's `--issues` names, and starts a run at a spawn of any `sdlc:` agent but the reviewer on a PR |
 | `hooks/orchestrate-status.ts` | `turn.complete` | Redraws the line during a run, and ends the run and clears the line when the main loop's turn ends in `cleanup` |
 | `hooks/orchestrate-status.ts` | `session.end` | Clears the line and stops its timer |
 | `hooks/reload-after-compact.ts` | `session.compact` | Lets the compaction run, removes every earlier reload message from the compacted conversation, and appends one fresh message holding the full text of the skills and rule files the compacted loop used, within the `reload-after-compact-token-budget` budget |
