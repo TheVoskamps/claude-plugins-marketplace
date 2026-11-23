@@ -96,9 +96,18 @@ compact() {
   while IFS= read -r line; do
     case "$line" in
       *'merge state still computing'*) ;;
-      [[:space:]]*) STATE=$STATE$sep${line#"${line%%[![:space:]]*}"}; sep=', ' ;;
-      *:) STATE=$STATE${STATE:+; }$line; sep=' ' ;;
-      *) STATE=$STATE${STATE:+; }$line; sep='' ;;
+      [[:space:]]*)
+        STATE=$STATE$sep${line#"${line%%[![:space:]]*}"}
+        sep=', '
+        ;;
+      *:)
+        STATE=$STATE${STATE:+; }$line
+        sep=' '
+        ;;
+      *)
+        STATE=$STATE${STATE:+; }$line
+        sep=''
+        ;;
     esac
   done <<<"$1"
 }
