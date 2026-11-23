@@ -5,6 +5,10 @@
 # records each call's argv, keeps the PR's state in files so a mutating
 # verb's re-read sees what the mutation left, and applies a call's
 # `--jq` expression with the real `jq`, so the scripts' own filters run.
+# As the real gh does, every stub gh read returns a \u00XX control
+# escape in caret notation; a stub `curl` beside it serves the REST reads
+# of the same state as stored, which every body a verb compares or
+# rewrites is read through.
 # A case that touches `noop` makes every mutation report success without
 # landing as asked -- a create opens a PR that is not a draft, a comment
 # carries other text, and every other mutation changes nothing -- which
@@ -79,7 +83,13 @@ if [ -f "$S/fail" ] && [ "$1 $2" = "$(cat "$S/fail")" ]; then
   exit 1
 fi
 
-out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
+# As gh does on every read path, a \u00XX control escape in the text
+# comes back in caret notation: a literal `\u0001` reads as `\^A`.
+caret() {
+  jq -Rr 'gsub("\\\\u00(?<h>[01][0-9a-fA-F])";
+    "\\^" + ([(.h | ascii_downcase | explode | map(if . >= 97 then . - 87 else . - 48 end) | .[0] * 16 + .[1]) + 64] | implode))'
+}
+out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi | caret; }
 landed() { [ ! -f "$S/noop" ]; }
 val() { if [ -f "$S/$1" ]; then cat "$S/$1"; else printf '%s' "$2"; fi; }
 
@@ -133,6 +143,7 @@ pr_json() {
 }
 
 case "$1 $2" in
+  "auth token") printf 'token-for-%s\n' "$4" ;;
   "repo view") jq -n --arg url "https://$(val host github.com)/$(val cur-repo o/r)" '{url: $url}' | out ;;
   "pr view") pr_json | out ;;
   "pr diff") echo "diff --git a/x b/x" ;;
@@ -232,6 +243,50 @@ case "$1 $2" in
 esac
 STUB
 chmod +x "$SANDBOX/bin/gh"
+
+# The stub curl serves the REST reads of the state the stub gh keeps, as
+# stored: no caret rewrite. It records `curl <URL>` in the same call log,
+# answers only on the API of the case's `api-host`, or of its `host` when
+# it has none, and only with the token the stub gh prints for that host
+# on stdin, as `-H @-` sends it; a case's `curl-fail` makes every call
+# fail as --fail does on an HTTP error, and its `curl-empty` makes every
+# call on that host with that token succeed with an empty response.
+cat >"$SANDBOX/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+S=$STUB_DIR
+url=
+for a in "$@"; do
+  case "$a" in https://*) url=$a ;; esac
+done
+printf 'curl %s\n' "$url" >>"$S/calls"
+headers=$(cat)
+val() { if [ -f "$S/$1" ]; then cat "$S/$1"; else printf '%s' "$2"; fi; }
+
+host=$(val api-host "$(val host github.com)")
+case "$host" in
+  github.com) api=https://api.github.com ;;
+  *) api="https://$host/api/v3" ;;
+esac
+if [ -f "$S/curl-fail" ] || [ "${url#"$api"/}" = "$url" ] ||
+  [ "$headers" != "Authorization: Bearer token-for-$host" ]; then
+  echo "curl: (22) The requested URL returned error: 404" >&2
+  exit 22
+fi
+[ ! -f "$S/curl-empty" ] || exit 0
+case "${url#"$api"/}" in
+  repos/*/pulls/7) jq -n --arg body "$(val body '')" '{number: 7, body: $body}' ;;
+  repos/*/issues/comments/555) jq -n --arg body "$(cat "$S/comment-555")" '{id: 555, body: $body}' ;;
+  repos/*/pulls/7/reviews/*)
+    id=${url##*/}
+    val reviews.json '[]' | jq ".[] | select(.id == $id)"
+    ;;
+  *)
+    echo "curl: (22) The requested URL returned error: 404" >&2
+    exit 22
+    ;;
+esac
+STUB
+chmod +x "$SANDBOX/bin/curl"
 
 # `sleep` is stubbed so the merge-readiness retry schedule costs nothing;
 # the waits it was asked for are recorded instead.
@@ -603,8 +658,11 @@ new_case update
 echo "old" >"$CASE/body"
 run pr-update 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-update: exit 0 when the body lands"
-check "$(call_line 1)" "pr edit 7 --body-file $SANDBOX/new-body.md" "pr-update: edits the body by path"
-check "$(call_line 2)" "pr view 7 --json body --jq .body" "pr-update: re-reads the body"
+check "$(call_line 2)" "pr edit 7 --body-file $SANDBOX/new-body.md" "pr-update: edits the body by path"
+check "$(call_line 3)" "auth token --hostname github.com" "pr-update: takes the token for the repository's host"
+check "$(call_line 4)" "curl https://api.github.com/repos/o/r/pulls/7" \
+  "pr-update: re-reads the body through curl, from the repository's REST API"
+check "$(calls | grep -c '^pr view')" "0" "pr-update: no body read goes through gh"
 
 new_case update-noop
 echo "old" >"$CASE/body"
@@ -613,6 +671,42 @@ run pr-update 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "3" "pr-update: exit 3 when the body did not change"
 check "$ERR" "pr-update: PR #7: the body edit did not land: the re-read body differs from $SANDBOX/new-body.md" \
   "pr-update: the not-landed message"
+
+# A body holding literal \u00XX escapes, which every gh read rewrites:
+# each verb below must compare against the stored text, read through curl.
+printf '%s\n' 'got "a\u0001b" for \u001f and \u007f' >"$SANDBOX/escape-body.md"
+new_case gh-caret-rewrite
+cp "$SANDBOX/escape-body.md" "$CASE/body"
+run pr-view 7 --json body --jq .body
+check "$OUT" 'got "a\^Ab" for \^_ and \u007f' \
+  "stub gh: a read through gh comes back with its \\u00XX escapes in caret notation"
+
+new_case update-escapes
+echo "old" >"$CASE/body"
+run pr-update 7 --body-file "$SANDBOX/escape-body.md"
+check "$RC" "0" "pr-update: exit 0 when a body holding \\u00XX escapes lands"
+check "$(cat "$CASE/body")" "$(cat "$SANDBOX/escape-body.md")" "pr-update: the escapes are stored as written"
+
+new_case update-curl-fails
+touch "$CASE/curl-fail"
+run pr-update 7 --body-file "$SANDBOX/new-body.md"
+check "$RC" "1" "pr-update: a failed curl read exits 1"
+check "$ERR" "$(printf '%s\n%s' "curl: (22) The requested URL returned error: 404" \
+  "pr-update: curl https://api.github.com/repos/o/r/pulls/7 failed (exit 22)")" \
+  "pr-update: curl's own error, then the catalogue line naming the URL"
+
+new_case update-curl-empty
+touch "$CASE/curl-empty"
+run pr-update 7 --body-file "$SANDBOX/new-body.md"
+check "$RC" "1" "pr-update: an empty curl response exits 1"
+check "$ERR" "pr-update: curl https://api.github.com/repos/o/r/pulls/7 returned no JSON object" \
+  "pr-update: an empty curl response is a failed read, not a body that did not land"
+
+new_case comment-curl-empty
+touch "$CASE/curl-empty"
+printf '' >"$SANDBOX/empty-body.md"
+run pr-comment 7 --body-file "$SANDBOX/empty-body.md"
+check "$RC" "1" "pr-comment: an empty curl response fails the read even for an empty body"
 
 new_case update-missing-file
 run pr-update 7 --body-file "$SANDBOX/absent.md"
@@ -625,16 +719,19 @@ run pr-comment 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-comment: exit 0 when the comment lands"
 check "$(call_line 1)" "repo view --json url --jq .url" "pr-comment: resolves the repository's host first"
 check "$(call_line 2)" "pr comment 7 --body-file $SANDBOX/new-body.md" "pr-comment: posts by path"
-check "$(call_line 3)" "api --hostname github.com repos/{owner}/{repo}/issues/comments/555 --jq .body" \
-  "pr-comment: re-reads the comment by the id gh reported, on the repository's host"
+check "$(call_line 3)" "auth token --hostname github.com" "pr-comment: takes the token for the repository's host"
+check "$(call_line 4)" "curl https://api.github.com/repos/o/r/issues/comments/555" \
+  "pr-comment: re-reads the comment by the id gh reported, through curl, on the repository's host"
+check "$(calls | grep -c '^api')" "0" "pr-comment: no body read goes through gh"
 check "$OUT" "https://github.com/o/r/pull/7#issuecomment-555" "pr-comment: prints the comment URL"
 
 new_case comment-ghe
 echo ghe.example.com >"$CASE/host"
 run pr-comment 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-comment: exit 0 in a GitHub Enterprise checkout"
-check "$(call_line 3)" "api --hostname ghe.example.com repos/{owner}/{repo}/issues/comments/555 --jq .body" \
-  "pr-comment: the re-read carries the checkout's host as --hostname"
+check "$(call_line 3)" "auth token --hostname ghe.example.com" "pr-comment: takes the token for the checkout's host"
+check "$(call_line 4)" "curl https://ghe.example.com/api/v3/repos/o/r/issues/comments/555" \
+  "pr-comment: the re-read goes to the checkout's host's REST API"
 
 new_case comment-other-host
 echo ghe.example.com >"$CASE/api-host"
@@ -642,7 +739,8 @@ run pr-comment 'ghe.example.com/o2/r2#7' --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-comment: exit 0 for a PR on another host"
 check "$(call_line 1)" "pr comment 7 --body-file $SANDBOX/new-body.md --repo ghe.example.com/o2/r2" \
   "pr-comment: posts to the repository the reference names"
-check "$(call_line 2)" "api --hostname ghe.example.com repos/o2/r2/issues/comments/555 --jq .body" \
+check "$(call_line 2)" "auth token --hostname ghe.example.com" "pr-comment: takes the token for the reference's host"
+check "$(call_line 3)" "curl https://ghe.example.com/api/v3/repos/o2/r2/issues/comments/555" \
   "pr-comment: the re-read goes to the reference's host and repository, not the checkout's"
 check "$(calls | grep -c '^repo view')" "0" "pr-comment: a reference with a host needs no repository lookup"
 
@@ -652,6 +750,15 @@ run pr-comment 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "3" "pr-comment: exit 3 when the posted body differs"
 check "$ERR" "pr-comment: PR #7: the comment did not land: comment 555's body differs from $SANDBOX/new-body.md" \
   "pr-comment: the not-landed message"
+
+new_case comment-escapes
+run pr-comment 7 --body-file "$SANDBOX/escape-body.md"
+check "$RC" "0" "pr-comment: exit 0 when a comment holding \\u00XX escapes lands"
+
+new_case comment-escapes-noop
+touch "$CASE/noop"
+run pr-comment 7 --body-file "$SANDBOX/escape-body.md"
+check "$RC" "3" "pr-comment: exit 3 when a comment holding \\u00XX escapes lands as other text"
 
 new_case comment-no-id
 echo "https://github.com/o/r/pull/7" >"$CASE/comment-url"
@@ -666,11 +773,13 @@ new_case link
 printf 'Summary\n\nCloses #3\n' >"$CASE/body"
 run pr-link-issue 7 '#4' 5
 check "$RC" "0" "pr-link-issue: exit 0 when the lines land"
-check "$(call_line 1)" "pr view 7 --json body --jq .body" "pr-link-issue: reads the existing body"
-check "$(call_line 2)" "pr edit 7 --body-file -" "pr-link-issue: writes the body through stdin"
+check "$(call_line 3)" "curl https://api.github.com/repos/o/r/pulls/7" \
+  "pr-link-issue: reads the existing body through curl"
+check "$(call_line 4)" "pr edit 7 --body-file -" "pr-link-issue: writes the body through stdin"
 check "$(cat "$CASE/stdin")" "$(printf 'Summary\n\nCloses #3\n\nCloses #4\nCloses #5')" \
   "pr-link-issue: keeps the body and appends one line per issue after a blank line"
-check "$(call_line 3)" "pr view 7 --json body --jq .body" "pr-link-issue: re-reads the body"
+check "$(call_line 6)" "curl https://api.github.com/repos/o/r/pulls/7" "pr-link-issue: re-reads the body through curl"
+check "$(calls | grep -c '^pr view')" "0" "pr-link-issue: no body read goes through gh"
 check "$OUT" "PR #7: appended Closes #4, Closes #5" "pr-link-issue: reports what it appended"
 
 new_case link-empty
@@ -702,6 +811,13 @@ check "$(cat "$CASE/body")" "$(printf 'Summary\n\nCloses #3\nCloses #4')" \
   "pr-link-issue: two runs leave one closing line per issue"
 check "$OUT" "PR #7 already closes 3, 4" "pr-link-issue: the second run reports the issues already closed"
 
+new_case link-escapes
+cp "$SANDBOX/escape-body.md" "$CASE/body"
+run pr-link-issue 7 4
+check "$RC" "0" "pr-link-issue: exit 0 when the lines land on a body holding \\u00XX escapes"
+check "$(cat "$CASE/body")" "$(printf '%s\n\nCloses #4' "$(cat "$SANDBOX/escape-body.md")")" \
+  "pr-link-issue: the existing body's escapes survive the rewrite as stored"
+
 new_case link-noop
 echo "Summary" >"$CASE/body"
 touch "$CASE/noop"
@@ -721,7 +837,8 @@ check "$(cat "$CASE/stdin")" "$(printf 'Summary of the change\n\nCloses #3\nClos
   "pr-create: the body ends with one closing line per issue, using the configured prefix"
 check "$(call_line 2)" "pr view 7 --json isDraft,baseRefName,headRefName --jq \"\\(.isDraft) \\(.baseRefName) \\(.headRefName)\"" \
   "pr-create: re-reads draft, base and head"
-check "$(call_line 3)" "pr view 7 --json body --jq .body" "pr-create: re-reads the body"
+check "$(call_line 5)" "curl https://api.github.com/repos/o/r/pulls/7" "pr-create: re-reads the body through curl"
+check "$(calls | grep -c '^pr view 7 --json body')" "0" "pr-create: no body read goes through gh"
 check "$OUT" "https://github.com/o/r/pull/7" "pr-create: prints the PR URL"
 
 new_case create-mismatch
@@ -744,6 +861,15 @@ run pr-create --head b --title T --body-file "$SANDBOX/summary.md" 3
 check "$RC" "3" "pr-create: exit 3 when the PR carries another body"
 check "$ERR" "pr-create: PR #7: the PR body did not land: the re-read body is not the body written" \
   "pr-create: the wrong-body message"
+
+new_case create-escapes
+run pr-create --head b --title T --body-file "$SANDBOX/escape-body.md" 3
+check "$RC" "0" "pr-create: exit 0 when a body holding \\u00XX escapes lands"
+
+new_case create-escapes-wrong-body
+printf '%s\n' 'got "a\u0001c"' >"$CASE/body-override"
+run pr-create --head b --title T --body-file "$SANDBOX/escape-body.md" 3
+check "$RC" "3" "pr-create: exit 3 when a body holding \\u00XX escapes lands as other text"
 
 new_case create-no-pr-in-url
 echo "https://github.com/o/r/pulls" >"$CASE/create-url"
@@ -889,6 +1015,17 @@ run pr-review-submit 7 --verdict comment "Note"
 check "$RC" "3" "pr-review-submit: exit 3 when the new review carries another body"
 check "$ERR" "pr-review-submit: PR #7: the review did not land: review 100's body is not the body written" \
   "pr-review-submit: the wrong-body message"
+
+new_case review-escapes
+run pr-review-submit 7 --verdict comment --body-file "$SANDBOX/escape-body.md"
+check "$RC" "0" "pr-review-submit: exit 0 when a review body holding \\u00XX escapes lands"
+check "$(grep -c '^curl https://api.github.com/repos/o/r/pulls/7/reviews/100$' "$CASE/calls")" "1" \
+  "pr-review-submit: the review body is re-read through curl"
+
+new_case review-escapes-wrong-body
+printf '%s\n' 'got "a\u0001c"' >"$CASE/review-body"
+run pr-review-submit 7 --verdict comment --body-file "$SANDBOX/escape-body.md"
+check "$RC" "3" "pr-review-submit: exit 3 when a review body holding \\u00XX escapes lands as other text"
 
 new_case review-no-verdict
 run pr-review-submit 7 "body"

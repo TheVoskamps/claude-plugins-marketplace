@@ -6,7 +6,7 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-SEL="number title url state body
+SEL="number title url state
 $ISS_SEL_LABELS
 $(iss_conn assignees)
 issueType { name }
@@ -91,6 +91,10 @@ iss_parse_operand "$1"
 # github-project: block does.
 iss_operand_config "$OP_HOST" "$OP_OWNER" "$OP_REPO" || :
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "$SEL"
+# Read before anything prints, so a failed read leaves no partial block. The
+# trailing x keeps the body's own trailing newlines.
+body=$(iss_issue_body "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" && printf x) || exit 1
+body=${body%x}
 
 printf '%s %s    (%s)\n' "$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")" "$(iss_jq .title)" "$(iss_jq .state)"
 iss_jq .url
@@ -128,5 +132,4 @@ printf '\n'
 list_section "Blocked by" blockedBy
 printf '\n'
 list_section Blocking blocking
-printf '\nBody:\n'
-iss_jq '.body // ""'
+printf '\nBody:\n%s\n' "$body"

@@ -28,6 +28,12 @@ cat >"$SANDBOX/bin/gh" <<EOF
 exec python3 "$TEST_DIR/fake-gh.py" "\$@"
 EOF
 chmod +x "$SANDBOX/bin/gh"
+# The stub `curl`, which reads an issue body from fake-gh.py's state as stored.
+cat >"$SANDBOX/bin/curl" <<EOF
+#!/bin/sh
+exec python3 "$TEST_DIR/fake-gh.py" --curl "\$@"
+EOF
+chmod +x "$SANDBOX/bin/curl"
 # A `sleep` that returns at once, logging each wait to $FAKE_SLEEP_LOG.
 cat >"$SANDBOX/bin/sleep" <<'EOF'
 #!/bin/sh
@@ -1449,6 +1455,29 @@ printf -- '---\ndefault-assignee: hubot\n---\n' >"$CASE_DIR/repo/.issues/user-co
 run issue-update 4 --add-assignees @default-assignee
 expect "issue-update: unversioned user-config aborts" 1 "predates user-config schema versioning"
 
+# A body holding literal \u00XX escapes, which every gh read returns in caret
+# notation: each body read below sees the text as stored.
+ESCAPES='got "a\u0001b" for \u001f and \u007f'
+new_case "$CONFIG_MAIN"
+printf '%s\n' "$ESCAPES" >"$CASE_DIR/repo/escapes.md"
+run issue-update 3 --body-file escapes.md
+expect "issue-update --body-file: a body holding \\u00XX escapes lands" 0 "body:            replaced (1 lines)"
+check "$(state '.repos["acme/widgets"].issues["3"].body')" "$ESCAPES" \
+  "issue-update --body-file: the escapes are stored as written"
+check "$(jq -r 'select(.[0] == "--curl") | .[-1]' "$CASE_DIR/gh.log" | sort -u)" \
+  "https://api.github.com/repos/acme/widgets/issues/3" "issue-update --body-file: the re-read goes through curl"
+run issue-view 3
+expect "issue-view: a body holding \\u00XX escapes prints as stored" 0 "Body:${ISS_NL}$ESCAPES"
+expect_absent "issue-view: the printed body carries no caret notation" '\^A'
+run issue-update 3 --prepend "first" --append "last"
+expect "issue-update --append/--prepend on a body holding \\u00XX escapes" 0 \
+  "body:            appended 1 line(s), prepended 1 line(s)"
+check "$(state '.repos["acme/widgets"].issues["3"].body')" "first${ISS_NL}$ESCAPES${ISS_NL}last" \
+  "issue-update --append/--prepend: the existing escapes survive as stored"
+FAKE_GH_DROP_WRITES=1 run issue-update 4 --body-file escapes.md
+expect "issue-update --body-file: a body holding \\u00XX escapes that did not land exits non-zero" 1 \
+  "body requested but not set: the re-read body differs from the one sent"
+
 # ---------------------------------------------------------------------------
 # Create.
 # ---------------------------------------------------------------------------
@@ -1519,6 +1548,21 @@ run issue-create --title "Refused" --body-file new.md
 expect "issue-create: any other add failure aborts" 1 "GitHub GraphQL call failed: gh: Something else went wrong" \
   "the run stopped before finishing"
 check "$(wc -l <"$CASE_DIR/sleep.log" | tr -d ' ')" 0 "issue-create: any other add failure is not retried"
+
+# A body read whose response is not a JSON object fails the read rather than
+# reading as an empty body.
+for response in '' '[]' 'not json'; do
+  new_case "$CONFIG_MAIN"
+  set_state ".curlResponse = \"$response\""
+  run issue-view 3
+  expect "issue-view: a body read answering '$response' aborts" 1 \
+    "could not read the body of issue \`#3\`: \`https://api.github.com/repos/acme/widgets/issues/3\` returned no JSON object"
+  expect_absent "issue-view: a body read answering '$response' prints no issue" "Body:"
+  run issue-update 3 --append "more"
+  expect "issue-update --append: a body read answering '$response' aborts" 1 "returned no JSON object"
+  check "$(state '.repos["acme/widgets"].issues["3"].body')" "Body of 3." \
+    "issue-update --append: a body read answering '$response' writes nothing"
+done
 
 new_case "$CONFIG_NUMBER"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
@@ -1654,6 +1698,11 @@ check "$(jq -r 'select(.[0] == "api") | .[2]' "$CASE_DIR/gh.log" | sort -u)" ghe
   "GHE: that host is the checkout's"
 check "$(jq -r 'select(.[0] == "issue") | .[index("--repo") + 1] | split("/")[0]' "$CASE_DIR/gh.log" | sort -u)" \
   ghe.example.com "GHE: every gh issue call carries the host in --repo"
+check "$(jq -r 'select(.[0] == "--curl") | .[-1]' "$CASE_DIR/gh.log" | sort -u)" \
+  "https://ghe.example.com/api/v3/repos/acme/other/issues/3${ISS_NL}https://ghe.example.com/api/v3/repos/acme/widgets/issues/2" \
+  "GHE: every body read goes to the checkout's host's REST API"
+check "$(jq -r 'select(.[0] == "auth") | .[3]' "$CASE_DIR/gh.log" | sort -u)" ghe.example.com \
+  "GHE: the body read's token is the checkout's host's"
 check "$(jq -c 'select(.[0] == "issue")' "$CASE_DIR/gh.log" | wc -l | tr -d ' ')" 8 \
   "GHE: the gh issue calls the run made (three edits, two comments, a close, two creates)"
 

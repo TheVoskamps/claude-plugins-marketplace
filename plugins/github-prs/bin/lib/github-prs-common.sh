@@ -2,7 +2,8 @@
 #
 # github-prs-common.sh -- sourced by every script in plugins/github-prs/bin/.
 # It holds the error catalogue every verb reports through, the `gh`
-# call wrapper every verb calls through, and the parser of the PR
+# call wrapper every verb calls through, the body read every body a
+# verb compares or rewrites goes through, and the parser of the PR
 # reference every PR verb takes, so one message and one exit status
 # mean the same thing whichever verb printed it, and one reference
 # names the same PR whichever verb received it. A verb reports
@@ -365,6 +366,44 @@ gp_repo_path() {
   fi
 }
 
+# gp_read_body <suffix> -- print the stored `body` of the REST object at
+# repos/<owner>/<repo>/<suffix> in the PR's repository, empty for a null
+# body, followed by a newline. Every gh read path rewrites a JSON \u00XX
+# control escape into caret notation, a literal `\u0001` in the text
+# included, so the read goes through curl to GP_HOST's REST API with the
+# token `gh auth token` prints for that host. The token reaches curl on
+# stdin, never as an argument. A failed token read exits 1 with gp_gh's
+# catalogue line, a failed curl exits 1 with gp_err_curl's, after
+# curl's own error, and a response that is not a JSON object exits 1
+# with gp_err_not_object's. Call it as `x=$(gp_read_body ...) || exit $?`,
+# after gp_resolve_host in the verb's own shell: the gp_resolve_host inside
+# runs in the substitution's shell and keeps nothing, so without the earlier
+# call every read looks the current repository up again.
+gp_read_body() {
+  local api url token json
+  gp_resolve_host
+  if [ -n "$GP_REPO_ARG" ]; then
+    url="repos/$GP_OWNER/$GP_REPO/$1"
+  else
+    url="repos/$GP_CUR_OWNER/$GP_CUR_REPO/$1"
+  fi
+  api=$(gp_lc "$GP_HOST") || exit $?
+  case "$api" in
+    github.com) api=https://api.github.com ;;
+    *.ghe.com) api="https://api.$api" ;;
+    *) api="https://$GP_HOST/api/v3" ;;
+  esac
+  url="$api/$url"
+  token=$(gp_gh auth token --hostname "$GP_HOST") || exit $?
+  json=$(curl --silent --show-error --fail -H @- \
+    -H 'Accept: application/vnd.github+json' "$url" \
+    <<<"Authorization: Bearer $token" || exit) || gp_err_curl "$url" "$?"
+  if ! printf '%s\n' "$json" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    gp_err_not_object "$url"
+  fi
+  printf '%s\n' "$json" | jq -r '.body // ""'
+}
+
 # --- The catalogue --------------------------------------------------------
 # One entry per message, grouped by exit status. Each prints its line
 # and exits.
@@ -467,6 +506,11 @@ gp_err_review_body() {
 gp_err_command() { gp_fail 1 "\`$1\` failed (exit $2)"; }
 # gp_err_gh <gh subcommand> <gh's exit status>
 gp_err_gh() { gp_fail 1 "gh $1 failed (exit $2)"; }
+# gp_err_curl <URL> <curl's exit status>
+gp_err_curl() { gp_fail 1 "curl $1 failed (exit $2)"; }
+# gp_err_not_object <URL> -- curl succeeded with a response that is not
+# a JSON object, such as an empty one.
+gp_err_not_object() { gp_fail 1 "curl $1 returned no JSON object"; }
 # gp_err_git <the git call, as the message names it>
 gp_err_git() { gp_fail 1 "$1 failed"; }
 gp_err_not_a_repo() { gp_fail 1 "not inside a git repository"; }

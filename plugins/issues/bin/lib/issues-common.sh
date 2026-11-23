@@ -6,7 +6,7 @@
 # and the canonical error catalogue. Every script sources this file and
 # nothing else, so each of these is written exactly once.
 #
-# Runs under bash 3.2 and depends on nothing beyond gh, jq and the base
+# Runs under bash 3.2 and depends on nothing beyond gh, jq, curl and the base
 # userland (awk, grep, sed, tr, mktemp): no associative arrays, no ${var,,},
 # no mapfile.
 
@@ -257,6 +257,7 @@ iss_join_lines() {
 iss_require_tools() {
   command -v gh >/dev/null 2>&1 || iss_die "\`gh\` is not on PATH"
   command -v jq >/dev/null 2>&1 || iss_die "\`jq\` is not on PATH"
+  command -v curl >/dev/null 2>&1 || iss_die "\`curl\` is not on PATH"
 }
 
 # ---------------------------------------------------------------------------
@@ -1053,7 +1054,8 @@ iss_ref_nwo() {
 # ---------------------------------------------------------------------------
 # The gh api wrappers, the only place this plugin calls `gh api`. Each takes
 # the host of the repository the call acts on first and passes it as
-# --hostname; an empty host leaves the call on gh's default host.
+# --hostname; an empty host leaves the call on gh's default host. Among them,
+# iss_issue_body reads an issue body through curl instead of `gh api`.
 # ---------------------------------------------------------------------------
 
 # iss_rest <host> <gh api args...>: a REST call, stdout and stderr passed
@@ -1066,6 +1068,33 @@ iss_rest() {
   else
     gh api "$@"
   fi
+}
+
+# iss_issue_body <host> <owner> <repo> <number>: print the issue's stored body
+# exactly, with no newline added, empty for a null body. Every gh read path
+# rewrites a JSON \u00XX control escape into caret notation, a literal
+# `\u0001` in the text included, so the read goes through curl to the REST API
+# of <host> -- github.com when empty -- with the token `gh auth token` prints
+# for that host, passed to curl on stdin rather than as an argument. Aborts on
+# a failed token or REST read, and on a response that is not a JSON object.
+# Callers run it in a command substitution and exit on a non-zero status,
+# which is an abort already reported on stderr.
+iss_issue_body() {
+  local host=${1:-github.com} api url token json
+  case "$(iss_lc "$host")" in
+    github.com) api=https://api.github.com ;;
+    *.ghe.com) api="https://api.$(iss_lc "$host")" ;;
+    *) api="https://$host/api/v3" ;;
+  esac
+  url="$api/repos/$2/$3/issues/$4"
+  token=$(gh auth token --hostname "$host") ||
+    iss_die "\`gh auth token --hostname $host\` failed, so the body of issue \`$(iss_ref "$1" "$2" "$3" "$4")\` could not be read"
+  json=$(printf 'Authorization: Bearer %s\n' "$token" |
+    curl --silent --show-error --fail -H @- -H 'Accept: application/vnd.github+json' "$url") ||
+    iss_die "could not read the body of issue \`$(iss_ref "$1" "$2" "$3" "$4")\` from \`$url\`"
+  printf '%s' "$json" | jq -e 'type == "object"' >/dev/null 2>&1 ||
+    iss_die "could not read the body of issue \`$(iss_ref "$1" "$2" "$3" "$4")\`: \`$url\` returned no JSON object"
+  printf '%s' "$json" | jq -j '.body // ""'
 }
 
 # iss_gql <host> <gh api graphql args...>: a GraphQL call; sets ISS_GQL_OUT

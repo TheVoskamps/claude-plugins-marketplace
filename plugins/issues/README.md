@@ -73,10 +73,12 @@ only when to run it.
   config verbs write config
   rather than requiring it. It is team-shared and committed, so one
   person runs the interview per repo.
-- **An authenticated CLI for the backend.** `gh` and `jq` for the
-  GitHub backend — the scripts run under the bash 3.2 that macOS ships
-  and call nothing else; `acli` for Jira, plus the `issues-jira`
-  plugin, which is where the Jira command templates live.
+- **An authenticated CLI for the backend.** `gh`, `jq` and `curl` for
+  the GitHub backend — the scripts run under the bash 3.2 that macOS
+  ships and call nothing else; `curl` reads an issue body back, because
+  every `gh` read path rewrites a `\u00XX` escape into caret notation.
+  `acli` for Jira, plus the `issues-jira` plugin, which is where the
+  Jira command templates live.
 
 A project board is **optional**, and the two ways of reaching project
 metadata degrade differently without a `github-project:` block:
@@ -295,7 +297,14 @@ query serves an organization and a user.
 `test/issues-bin-test.sh` runs every script under `/bin/bash` against
 `test/fake-gh.py`, an in-memory GitHub on `PATH` as `gh` that logs
 every call — which is how a test asserts that the Jira refusal made
-none. Its write-dropping mode is the negative control: every write
+none. As the real `gh` does, the fake returns an issue body with each
+`\u00XX` control escape rewritten into caret notation, and the suite's
+stub `curl` — the same fake, run with `--curl` — reads the body as
+stored, so a body read that went through `gh` fails its case.
+`curlResponse` makes every such read succeed with a response of the
+test's choosing, for the read that must abort on anything other than a
+JSON object rather than pass as an empty body. The
+fake's write-dropping mode is the negative control: every write
 reports success and changes nothing, and every write path must exit
 non-zero on it. The fake gives each repository a host and resolves a
 repository, node or comment only on its own host, so a call that drops

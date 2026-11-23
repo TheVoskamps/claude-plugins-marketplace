@@ -120,12 +120,8 @@ after=$(newest_review) || exit $?
 if [ -z "$after" ] || [ "$after" = "$before" ]; then
   gp_err_review_missing
 fi
-landed=$(gp_gh api "$reviews_path/$after" --jq '"\(.state)\n\(.body)"') || exit $?
-landed_state=${landed%%$'\n'*}
-case "$landed" in
-  *$'\n'*) landed_body=${landed#*$'\n'} ;;
-  *) landed_body= ;;
-esac
+landed_state=$(gp_gh api "$reviews_path/$after" --jq .state) || exit $?
+landed_body=$(gp_read_body "pulls/$GP_PR/reviews/$after") || exit $?
 [ "$landed_state" = "$state" ] ||
   gp_err_review_state "$after" "$landed_state" "$state"
 [ "$landed_body" = "$wanted" ] ||
