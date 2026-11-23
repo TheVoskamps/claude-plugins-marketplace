@@ -250,7 +250,7 @@ chmod +x "$SANDBOX/bin/gh"
 # it has none, and only with the token the stub gh prints for that host
 # on stdin, as `-H @-` sends it; a case's `curl-fail` makes every call
 # fail as --fail does on an HTTP error, and its `curl-empty` makes every
-# call succeed with an empty response.
+# call on that host with that token succeed with an empty response.
 cat >"$SANDBOX/bin/curl" <<'STUB'
 #!/usr/bin/env bash
 S=$STUB_DIR
