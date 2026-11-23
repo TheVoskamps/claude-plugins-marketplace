@@ -300,7 +300,10 @@ every call — which is how a test asserts that the Jira refusal made
 none. As the real `gh` does, the fake returns an issue body with each
 `\u00XX` control escape rewritten into caret notation, and the suite's
 stub `curl` — the same fake, run with `--curl` — reads the body as
-stored, so a body read that went through `gh` fails its case. The
+stored, so a body read that went through `gh` fails its case.
+`curlResponse` makes every such read succeed with a response of the
+test's choosing, for the read that must abort on anything other than a
+JSON object rather than pass as an empty body. The
 fake's write-dropping mode is the negative control: every write
 reports success and changes nothing, and every write path must exit
 non-zero on it. The fake gives each repository a host and resolves a

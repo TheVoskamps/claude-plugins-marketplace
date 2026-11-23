@@ -1,5 +1,23 @@
 # issues changelog
 
+## 0.19.1 — 2026-11-22
+
+An issue body that contains a literal `\u00XX` escape, such as the six
+characters `\u0001`, is now read as stored. `gh` rewrites such an escape
+into caret notation on every read, `\u0001` reading back as `\^A`, and
+the verbs read bodies through it:
+
+- `/issue-update --body-file` no longer reports a landed body holding
+  such an escape as `body requested but not set`.
+- `/issue-update --append` and `--prepend` no longer rewrite such
+  escapes in the existing body when they write it back.
+- `/issue-view` prints such escapes as the issue stores them.
+
+The GitHub backend now needs `curl` on `PATH`, beside `gh` and `jq`: it
+reads an issue body from GitHub's REST API with `curl`, using the token
+`gh auth token` prints for the issue's host. A body read that answers
+with anything other than a JSON object aborts the verb.
+
 ## 0.19.0 — 2026-11-22
 
 `/issue-view` prints the pull requests that close the issue, in a

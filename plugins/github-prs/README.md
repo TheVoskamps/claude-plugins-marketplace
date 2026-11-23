@@ -93,7 +93,10 @@ host's REST API with `curl`, authenticated with the token
 `\u00XX` escape into caret notation, a literal `\u0001` in the text
 reading back as `\^A`, so a body compared through `gh` would report a
 landed write as failed, and a body rewritten through it would lose the
-escape. Writes stay on `gh`.
+escape. Writes stay on `gh`. A read that fails, or that answers with
+anything other than a JSON object, exits 1 rather than 3: an empty
+response would otherwise compare equal to an empty body and pass as a
+write that landed.
 
 A body reaches `gh` by file path or on stdin (`--body-file -`), never
 as a command-line argument: a review summary or a PR body full of

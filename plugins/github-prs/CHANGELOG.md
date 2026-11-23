@@ -1,5 +1,24 @@
 # github-prs changelog
 
+## 0.11.3 — 2026-11-22
+
+Posting or updating a body that contains a literal `\u00XX` escape, such
+as the six characters `\u0001`, no longer reports a false exit 3.
+`/pr-comment`, `/pr-update`, `/pr-create` and `/pr-review-submit` wrote
+such a body correctly and then reported that it did not land, so a
+caller that retried `/pr-comment` left duplicate comments. `gh` rewrites
+such an escape into caret notation on every read, `\u0001` reading back
+as `\^A`, so the body the verb re-read never equalled the one it sent.
+
+`/pr-link-issue` no longer rewrites such escapes in a PR body. It read
+the existing body through `gh` and wrote it back with the closing lines
+appended, which stored the caret notation in place of the escape.
+
+These verbs now read a body from GitHub's REST API with `curl`, using
+the token `gh auth token` prints for the PR's host, so they need `curl`
+on `PATH`. A body read that fails, or that answers with anything other
+than a JSON object, exits 1 and names the URL.
+
 ## 0.11.2 — 2026-11-21
 
 `/pr-merge-conflicts` no longer prunes other worktrees' registrations.
