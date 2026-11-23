@@ -21,7 +21,8 @@
 //   `issue-fixer` or `code-documenter` row names the round it answers, `issue-fixer › r1
 //   findings`, when the phase carries one of the first two rounds above; a row with neither to
 //   show, the seed reviewer's included, names its running children.
-// - Every other PR with a running agent trails as ` | #<n> <phase>`, with no issue set.
+// - Every other PR with a running agent trails as ` | #<n> <phase>`, or ` | #<n>` while it has no
+//   phase, with no issue set.
 //
 // Apart from answering that command, every hook only observes: each returns what `next(e)`
 // resolved, unchanged, and none denies or rewrites anything. Each runs its own work through
