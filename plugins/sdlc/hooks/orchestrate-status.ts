@@ -383,8 +383,7 @@ async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
 /**
  * Follows a `Skill` call: the main loop's call of `sdlc:orchestrate-readiness` during a run records
  * the one issue its `args` name, which `issuesOf` leads the line with during `readiness` and
- * `plan`.
- * `order` is the number `signalsBegun` gave the call's hook when it began.
+ * `plan`. `order` is the number `signalsBegun` gave the call's hook when it began.
  */
 async function mainSkill($: Mods, e: SkillCallEvent, order: number): Promise<void> {
   if (!isRun || e.agentId !== undefined || e.skill !== READINESS_SKILL) return;
@@ -555,8 +554,8 @@ function briefIssues(type: string, prompt: string): string[] | undefined {
 /**
  * The issues of the batch a main-loop brief starts, or `undefined` for a brief that starts none. A
  * developer brief starts a batch of the issues `briefIssues` gave it, and a `docs-writer` brief
- * naming no PR — the new-branch brief of a batch with no code to implement — one of the issues its
- * opening sentence names. A batch either brief starts whose issues do not parse holds none.
+ * naming no PR — the new-branch brief of a batch with no code to implement — a batch of every issue
+ * its opening sentence names. A batch either brief starts whose issues do not parse holds none.
  * `issues` are the issues `briefIssues` gave the brief. `issuesOf` reads a `docs-writer` batch's
  * issues only to tell whether the batch has a PR, never as an issue set to show.
  */
