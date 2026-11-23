@@ -336,6 +336,30 @@ test("a loop's round survives other phases and returns with the loop, and the ot
   expect(shown(state)).toBe("PR #812 · code loop r5");
 });
 
+test("a fixer re-entering the code loop after a reviewed doc round shows the next round", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.progress = progressLine(3, "documentation", "generate", 0, 1);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`);
+  expect(shown(state)).toBe("PR #812 · doc loop r3 · theorem-based-pr-reviewer › generate");
+  state.progress = progressLine(3, "documentation", "reviewed", "-", "-");
+  state.agents = [running("a2", "sdlc:issue-fixer")];
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r4 · issue-fixer");
+});
+
+test("with no reviewer round fixed, a fixer answers a reviewed round only of its own loop's type", async ($, on) => {
+  const state = host(on);
+  state.progress = progressLine(3, "documentation", "reviewed", "-", "-");
+  state.agents = [running("a1", "sdlc:issue-fixer")];
+  await spawn($, "sdlc:issue-fixer", `Fix ${PR}`);
+  expect(shown(state)).toBe("PR #812 · code loop r4 · issue-fixer");
+  state.progress = progressLine(3, "-", "reviewed", "-", "-");
+  await turnEnd($, "a1");
+  expect(shown(state)).toBe("PR #812 · code loop r3 · issue-fixer › r3 findings");
+});
+
 test("a reviewer still running from the other loop leaves the PR's loop at the next round", async ($, on) => {
   const state = host(on);
   await orchestrate($);
@@ -525,6 +549,60 @@ test("a PR-less agent whose brief names no issue leads with no earlier batch's i
   state.agents = [running("a3", "sdlc:docs-writer")];
   await spawn($, "sdlc:docs-writer", newBranchBrief("760"));
   expect(shown(state)).toBe("doc loop r1 · docs-writer");
+});
+
+test("before any PR, a developer running beside a doc-only batch's docs-writer leads with no issue set", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  state.agents = [running("a1", "sdlc:issue-developer")];
+  await spawn($, "sdlc:issue-developer", developerBrief("745"));
+  expect(shown(state)).toBe("#745 · develop · issue-developer");
+  state.agents.push(running("a2", "sdlc:docs-writer"));
+  await spawn($, "sdlc:docs-writer", newBranchBrief("760"));
+  expect(shown(state)).toBe("doc loop r1 · issue-developer, docs-writer");
+  state.agents = [running("a1", "sdlc:issue-developer")];
+  await turnEnd($);
+  expect(shown(state)).toBe("#745 · doc loop r1 · issue-developer");
+});
+
+test("before any PR, rows of two batches lead with no issue set, and rows of one batch with its set", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 745 746\n--branch main");
+  await spawn($, "sdlc:issue-developer", developerBrief("746", "745"));
+  state.agents = [
+    running("a1", "sdlc:theorem-based-pr-reviewer"),
+    running("a2", "sdlc:issue-developer"),
+  ];
+  await turnEnd($);
+  expect(shown(state)).toBe("#745 #746 · develop · theorem-based-pr-reviewer, issue-developer");
+  await spawn($, "sdlc:issue-developer", developerBrief("750"));
+  state.agents.push(running("a3", "sdlc:issue-developer"));
+  await turnEnd($);
+  expect(shown(state)).toBe("develop · theorem-based-pr-reviewer, issue-developer×2");
+  await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 760\n--branch main");
+  state.agents = [
+    running("a2", "sdlc:issue-developer"),
+    running("a4", "sdlc:theorem-based-pr-reviewer"),
+  ];
+  await turnEnd($);
+  expect(shown(state)).toBe("seed · issue-developer, theorem-based-pr-reviewer");
+});
+
+test("before any PR, a running agent whose brief names no issue leads with no issue set", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await readiness($, "745");
+  await $.tool.call({ tool: "Read", file_path: `${ROOT}/skills/orchestrate/lib/plan.md` });
+  expect(shown(state)).toBe("#745 · plan");
+  state.agents = [running("a1", "sdlc:docs-writer")];
+  await spawn($, "sdlc:docs-writer", newBranchBrief("745"));
+  expect(shown(state)).toBe("doc loop r1 · docs-writer");
+  await spawn($, "sdlc:issue-developer", developerBrief("750"));
+  await spawn($, "general-purpose", "Look around");
+  state.agents = [running("a2", "sdlc:issue-developer"), running("a3", "general-purpose")];
+  await turnEnd($);
+  expect(shown(state)).toBe("develop · issue-developer, general-purpose");
 });
 
 test("with two batches lacking a PR, a new PR leads alone until its first reviewer brief", async ($, on) => {

@@ -9,12 +9,15 @@
 //   names the set's sources: during `readiness` and `plan` the main loop's `Skill` calls of
 //   `sdlc:orchestrate-readiness`, from `seed` onward the reviewer's `--issues` and the
 //   developer's issues in main-loop briefs, and for a new PR before its first reviewer brief the
-//   developer brief of the one batch that has no PR yet, when exactly one batch has none.
+//   developer brief of the one batch that has no PR yet, when exactly one batch has none. From
+//   `seed` onward, before a PR exists, the set shows only while every row naming no PR is a seed
+//   or developer row of one batch, its issues named by that row's own brief.
 // - The phase follows, and in a loop carries the round: that of the loop's latest reviewer; with
 //   none fixed, while an `issue-fixer` or `code-documenter` row is on the line, the PR's latest
-//   round when the progress read reports it `reviewed`; otherwise, before the loop's first
-//   reviewer runs, the next round after the PR's latest in either loop, as `nextRound` reads it,
-//   so a fresh code loop shows `r1` and a doc loop after code rounds r1 and r2 shows `r3`.
+//   round when the progress read reports it `reviewed` and of that loop's type; otherwise, before
+//   the loop's first reviewer runs, the next round after the PR's latest in either loop, as
+//   `nextRound` reads it, so a fresh code loop shows `r1`, a doc loop after code rounds r1 and r2
+//   shows `r3`, and a code loop re-entered after doc round r3 shows `r4`.
 // - Then the running agents, grouped by the main-loop agent each descends from. A reviewer row
 //   shows its round's stage, with `<settled>/<members> theorems` in `disprove` and `verify`,
 //   whether or not the reviewer itself is listed as running while it waits on its fan-out; an
@@ -143,8 +146,8 @@ type On = {
   (event: string, matcher: object, hook: unknown): unknown;
 };
 
-/** One line of `sdlc-agent-result-persist --mode progress`, without its round type. */
-type Progress = { round: number; stage: string; settled: string; members: string };
+/** One line of `sdlc-agent-result-persist --mode progress`. */
+type Progress = { round: number; type: string; stage: string; settled: string; members: string };
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
  * `NO_PR`, the issues its brief named as `briefIssues` reads them, the batch its brief starts as
@@ -379,7 +382,8 @@ async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
 
 /**
  * Follows a `Skill` call: the main loop's call of `sdlc:orchestrate-readiness` during a run records
- * the one issue its `args` name, which `issuesOf` leads the line with until a brief names issues.
+ * the one issue its `args` name, which `issuesOf` leads the line with during `readiness` and
+ * `plan`.
  * `order` is the number `signalsBegun` gave the call's hook when it began.
  */
 async function mainSkill($: Mods, e: SkillCallEvent, order: number): Promise<void> {
@@ -643,17 +647,19 @@ function prOfAgent(id: string): string | undefined {
  * batch this run never recorded, shows none of that batch's. With more than one batch lacking a
  * PR the PR has no set until its first reviewer brief.
  *
- * Before any PR — `NO_PR` — it is the issues of the PR-less main-loop briefs, the seed's and the
- * developer's, whose agent has a row, and none when no such agent has one, so a PR-less agent
- * whose brief names no issues, such as a doc-only batch's `docs-writer`, is not given an earlier
- * batch's. Before the first such brief, during `readiness` and `plan`, it is the issues of the
- * main loop's readiness checks, in the order the checks were called.
+ * Before any PR — `NO_PR` — during `readiness` and `plan`, it is the issues of the main loop's
+ * readiness checks, in the order the checks were called. From `seed` onward it is the issues of
+ * one batch, and only while every row naming no PR is that batch's: each such row's main-loop
+ * brief, the seed's `--issues` or the developer's, names the same issues, and those are the set.
+ * With no such row, or one whose brief names no issues — a doc-only batch's `docs-writer`, a
+ * developer whose brief names none, any other agent — or rows of two batches, it is none, so no
+ * row is shown under another batch's issues.
  */
 function issuesOf(pr: string, rows: readonly Row[]): string[] {
   const run = runSignals();
   const briefed = run.filter((signal) => signal.spawn?.issues !== undefined);
   const isReview = (signal: Signal) => signal.spawn?.type === `${PLUGIN}:${REVIEWER}`;
-  const issues = (signal: Signal) => signal.spawn?.issues ?? [];
+  const issues = (signal: Signal | undefined) => signal?.spawn?.issues ?? [];
   if (pr !== NO_PR) {
     const own = briefed.filter((signal) => signal.pr === pr && isReview(signal)).at(-1);
     if (own !== undefined) return issues(own);
@@ -673,12 +679,16 @@ function issuesOf(pr: string, rows: readonly Row[]): string[] {
     const isEarlier = named !== undefined && source.order < named.order;
     return isDeveloper && isEarlier ? (source.spawn?.batch ?? []) : [];
   }
-  const early = briefed.filter((signal) => signal.pr === NO_PR);
-  if (early.length === 0) {
+  const phase = phaseOf(NO_PR, true);
+  if (phase === "readiness" || phase === "plan") {
     return unique(run.flatMap((signal) => (signal.readied === undefined ? [] : [signal.readied])));
   }
-  const shown = new Set(rows.map((row) => row.id));
-  return unique(early.filter((signal) => shown.has(signal.spawn?.agentId ?? "")).flatMap(issues));
+  const sources = rows
+    .filter((row) => (prOfAgent(row.id) ?? NO_PR) === NO_PR)
+    .map((row) => spawnOf(row.id));
+  const batches = new Set(sources.map((source) => [...issues(source)].sort().join(" ")));
+  if (sources.length === 0 || batches.size !== 1 || batches.has("")) return [];
+  return issues(sources[0]);
 }
 
 /** `items`, each once, in the order each first appears. */
@@ -704,13 +714,23 @@ function nextRound(pr: string): number {
 }
 
 /**
- * The round an `issue-fixer` or `code-documenter` of `pr` answers when no reviewer round is fixed
- * for it, as in a session resumed at such a spawn: the PR's latest round when its last progress
- * read reported that round `reviewed`, or none.
+ * The round an `issue-fixer` or `code-documenter` of `pr` in `loop` answers when no reviewer round
+ * is fixed for it, as in a session resumed at such a spawn: the PR's latest round when its last
+ * progress read reported that round `reviewed` and of `loop`'s type, or none. A round of the other
+ * type was reviewed in the other loop, so a loop re-entered after it shows `nextRound`'s round.
  */
-function reviewedRound(pr: string): number | undefined {
+function reviewedRound(pr: string, loop: Loop): number | undefined {
   const progress = latestProgress.get(pr);
-  return progress?.stage === "reviewed" ? progress.round : undefined;
+  if (progress?.stage !== "reviewed" || loopOfType(progress.type) !== loop) return undefined;
+  return progress.round;
+}
+
+/**
+ * The loop a round of `type`, as `--mode progress` prints it, is reviewed in: `documentation` in
+ * the doc loop, and any other type — `-` for a round with no anchor included — in the code loop.
+ */
+function loopOfType(type: string): Loop {
+  return type === "documentation" ? "doc loop" : "code loop";
 }
 
 /**
@@ -867,8 +887,8 @@ function showLine($: Mods, text: string): void {
  * The read is run for a PR whose main-loop reviewer has a row — the reviewer or any of its
  * descendants is running, whatever `$.agent.list()` reports for the reviewer itself — and for a PR
  * in a loop with no round of its own yet, as `roundOf` reads it, that has any row, so `nextRound`
- * has the PR's latest round and `reviewedRound` its stage. Each successful read's line is kept in
- * `latestProgress`. The seed reviewer names no PR, so its row gets no read.
+ * has the PR's latest round and `reviewedRound` its type and stage. Each successful read's line is
+ * kept in `latestProgress`. The seed reviewer names no PR, so its row gets no read.
  *
  * A reviewer's round is fixed when its row is first seen: the round after the one the read
  * reports when that round is `reviewed`, round 1 when the read prints nothing, and the reported
@@ -949,11 +969,11 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
   if (exitCode !== 0) throw new Error(`${command} exited ${exitCode}: ${oneLine(stderr.trim())}`);
   const line = stdout.replace(/\n$/, "");
   if (line === "") return undefined;
-  const [round, , stage, settled, members, ...rest] = line.split("\t");
+  const [round, type, stage, settled, members, ...rest] = line.split("\t");
   if (!/^\d+$/.test(round) || members === undefined || rest.length > 0) {
     throw new Error(`${command} printed \`${oneLine(line)}\`, not a progress line`);
   }
-  return { round: Number(round), stage, settled, members };
+  return { round: Number(round), type, stage, settled, members };
 }
 
 /**
@@ -989,7 +1009,7 @@ function statusLine(
   const group = rows.filter((row) => prOf(row) === current);
   const isAnswering = group.some((row) => ANSWERING.has(row.type));
   const reviewed = hasRound
-    ? (roundOf(current, phase) ?? (isAnswering ? reviewedRound(current) : undefined))
+    ? (roundOf(current, phase) ?? (isAnswering ? reviewedRound(current, phase) : undefined))
     : undefined;
   if (phase !== undefined) {
     parts.push(hasRound ? `${phase} r${reviewed ?? nextRound(current)}` : phase);
