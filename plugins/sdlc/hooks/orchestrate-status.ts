@@ -5,14 +5,11 @@
 //   PR #812 (#745 #746) · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems
 //
 // - The lead is the current PR with its issue set, `PR #812 (#745 #746)`, or `PR #812` while
-//   the set is unknown; before a PR exists it is the issue set alone, `#745 #746`. `issuesOf`
-//   names the set's sources: during `readiness` and `plan` the main loop's `Skill` calls of
-//   `sdlc:orchestrate-readiness`, from `seed` onward the reviewer's `--issues` and the
-//   developer's issues in main-loop briefs, and for a new PR before its first reviewer brief the
-//   developer brief of the one batch that has no PR yet, when exactly one batch has none. From
-//   `seed` onward, before a PR exists, the set shows only while every sdlc main-loop row naming no
-//   PR is a seed or developer row of one batch, its issues named by that row's own brief; a row
-//   outside the plugin, or one whose spawn the run never recorded, does not count.
+//   the set is empty; before a PR exists it is the issue set alone, `#745 #746`, in every phase.
+//   `issuesOf` names the set's two sources: the run's issues, one per main-loop `Skill` call of
+//   `sdlc:orchestrate-readiness`, in call order, and a PR's own issues, the `--issues` of the
+//   latest main-loop reviewer brief naming that PR, which replace the run's issues on that PR's
+//   line from then on. No running agent, of whatever kind, changes the set.
 // - The phase follows, and in a loop carries the round: that of the loop's latest reviewer; with
 //   none fixed, while an `issue-fixer` or `code-documenter` row is on the line, the PR's latest
 //   round when the progress read reports it `reviewed` and of that loop's type; otherwise, before
@@ -44,8 +41,6 @@ export const USAGE = "usage: /orchestrate-status [on|off]";
 
 const PLUGIN = "sdlc";
 const REVIEWER = "theorem-based-pr-reviewer";
-const DEVELOPER = "issue-developer";
-const DOCS_WRITER = "docs-writer";
 const READINESS_SKILL = `${PLUGIN}:orchestrate-readiness`;
 /** The agents whose row names the round whose findings they answer. */
 const ANSWERING = new Set([`${PLUGIN}:issue-fixer`, `${PLUGIN}:code-documenter`]);
@@ -62,11 +57,6 @@ const DOC_MODE = /--mode documentation(?![\w-])/;
 const PR_FLAG = /(?<![\w-])--pr(?![\w-])/;
 // A reviewer brief's `--issues` and the operands after it, up to the next flag or the line's end.
 const ISSUES_FLAG = /(?<![\w-])--issues((?:[ \t]+(?!--)\S+)+)/;
-// The issues a developer brief's opening sentence names.
-const DEVELOPER_ISSUES = /You are fixing issues?\s([\s\S]*?)\s+in\s+this\s+repo/;
-// The issues a `docs-writer` new-branch brief's opening sentence names.
-const NEW_BRANCH_ISSUES =
-  /You are writing the documentation for issues?\s([\s\S]*?)\s+in\s+this\s+repo/;
 const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
 // The stages the line shows with their theorem counts; any other stage shows by name alone.
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
@@ -151,15 +141,14 @@ type On = {
 type Progress = { round: number; type: string; stage: string; settled: string; members: string };
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
- * `NO_PR`, the issues its brief named as `briefIssues` reads them, the batch its brief starts as
- * `batchOf` reads it, whether its brief carries `--mode documentation`, whether it is the reviewer's
- * seed spawn, the agent id it resolved, and the number `signalsBegun` gave it when it began.
+ * `NO_PR`, the issues its brief named as `briefIssues` reads them, whether its brief carries
+ * `--mode documentation`, whether it is the reviewer's seed spawn, the agent id it resolved, and
+ * the number `signalsBegun` gave it when it began.
  */
 type Spawned = {
   type: string;
   pr: string;
   issues?: string[];
-  batch?: string[];
   isDocMode: boolean;
   isSeed: boolean;
   agentId?: string;
@@ -180,7 +169,7 @@ type Epoch = { failedReads: string[]; pending: Spawned[] };
  * One main-loop signal the run has recorded: the epoch it was recorded under, the number
  * `signalsBegun` gave it when its hook began, the PR a spawn's brief named or `NO_PR`, and the
  * phase it sets, if any. A spawn's signal also carries its agent's definition, the agent id it
- * resolved, the issues its brief named and the batch its brief starts. The `orchestrate` and
+ * resolved and the issues its brief named. The `orchestrate` and
  * `orchestrate-cleanup` prompts and the plan read are signals of the whole run, and carry no PR:
  * each sets the phase of whichever PR is current when the line is drawn, `NO_PR` included, and of
  * no other PR. A readiness check's signal carries the one issue it was run on, and nothing else.
@@ -190,7 +179,7 @@ type Signal = {
   order: number;
   pr?: string;
   phase?: Phase;
-  spawn?: { type: string; agentId?: string; issues?: string[]; batch?: string[] };
+  spawn?: { type: string; agentId?: string; issues?: string[] };
   readied?: string;
 };
 
@@ -383,8 +372,8 @@ async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
 
 /**
  * Follows a `Skill` call: the main loop's call of `sdlc:orchestrate-readiness` during a run records
- * the one issue its `args` name, which `issuesOf` leads the line with during `readiness` and
- * `plan`. `order` is the number `signalsBegun` gave the call's hook when it began.
+ * the one issue its `args` name, one of the run's issues `issuesOf` leads the line with. `order` is
+ * the number `signalsBegun` gave the call's hook when it began.
  */
 async function mainSkill($: Mods, e: SkillCallEvent, order: number): Promise<void> {
   if (!isRun || e.agentId !== undefined || e.skill !== READINESS_SKILL) return;
@@ -479,12 +468,10 @@ async function mainSpawn(
 ): Promise<void> {
   const pr = PR_REF.exec(e.prompt)?.[0] ?? NO_PR;
   const isReviewer = e.subagentType === `${PLUGIN}:${REVIEWER}`;
-  const issues = briefIssues(e.subagentType, e.prompt);
   const spawned: Spawned = {
     type: e.subagentType,
     pr,
-    issues,
-    batch: batchOf(e.subagentType, pr, e.prompt, issues),
+    issues: briefIssues(e.subagentType, e.prompt),
     isDocMode: DOC_MODE.test(e.prompt),
     isSeed: isReviewer && pr === NO_PR && !PR_FLAG.test(e.prompt),
     agentId: result.agentId,
@@ -530,46 +517,18 @@ function record(spawned: Spawned): void {
       type: spawned.type,
       agentId: spawned.agentId,
       issues: spawned.issues,
-      batch: spawned.batch,
     },
   });
 }
 
 /**
  * The issues a main-loop brief names, or `undefined` for none: the operands of a reviewer brief's
- * `--issues`, and the issues a developer brief's opening sentence names. No other brief is read
- * for issues.
+ * `--issues`. No other brief is read for issues.
  */
 function briefIssues(type: string, prompt: string): string[] | undefined {
-  const pattern =
-    type === `${PLUGIN}:${REVIEWER}`
-      ? ISSUES_FLAG
-      : type === `${PLUGIN}:${DEVELOPER}`
-        ? DEVELOPER_ISSUES
-        : undefined;
-  const named = pattern?.exec(prompt)?.[1];
+  const named = type === `${PLUGIN}:${REVIEWER}` ? ISSUES_FLAG.exec(prompt)?.[1] : undefined;
   const issues = named === undefined ? [] : issueNumbers(named);
   return issues.length === 0 ? undefined : issues;
-}
-
-/**
- * The issues of the batch a main-loop brief starts, or `undefined` for a brief that starts none. A
- * developer brief starts a batch of the issues `briefIssues` gave it, and a `docs-writer` brief
- * naming no PR — the new-branch brief of a batch with no code to implement — a batch of every issue
- * its opening sentence names. A batch either brief starts whose issues do not parse holds none.
- * `issues` are the issues `briefIssues` gave the brief. `issuesOf` reads a `docs-writer` batch's
- * issues only to tell whether the batch has a PR, never as an issue set to show.
- */
-function batchOf(
-  type: string,
-  pr: string,
-  prompt: string,
-  issues: string[] | undefined,
-): string[] | undefined {
-  if (type === `${PLUGIN}:${DEVELOPER}`) return issues ?? [];
-  if (type !== `${PLUGIN}:${DOCS_WRITER}` || pr !== NO_PR) return undefined;
-  const named = NEW_BRANCH_ISSUES.exec(prompt)?.[1];
-  return named === undefined ? [] : issueNumbers(named);
 }
 
 /**
@@ -634,63 +593,20 @@ function prOfAgent(id: string): string | undefined {
 }
 
 /**
- * The issue set the line leads with for `pr`, or none. `rows` are the line's rows, as `rowsOf`
- * builds them.
- *
- * For a PR it is the `--issues` of the latest main-loop reviewer brief for that PR. Before that
- * brief, it is the issues of the one batch that has no PR yet, when exactly one has none. A batch
- * is one `batchOf` reads off a developer brief or a `docs-writer` new-branch brief, the same issues
- * counting once, and it has a PR once a reviewer brief for any PR names one of its issues; a batch
- * holding no issue never has one. The batch's issues are shown only when it is a developer brief's
- * and its brief began before the first brief naming the PR. So a doc-only batch, counted while it
- * has no PR, gives no PR its issues, and a PR named before the one open batch's brief, whose own
- * batch this run never recorded, shows none of that batch's. With more than one batch lacking a
- * PR the PR has no set until its first reviewer brief.
- *
- * Before any PR — `NO_PR` — during `readiness` and `plan`, it is the issues of the main loop's
- * readiness checks, in the order the checks were called. From `seed` onward it is the issues of
- * one batch, and only while every row the run recorded an sdlc main-loop spawn for naming no PR is
- * that batch's: each such row's brief, the seed's `--issues` or the developer's, names the same
- * issues, the same issues in any order counting once, and those are the set. A row with no such
- * spawn — an agent outside the plugin, or one whose spawn the run never recorded — is not read.
- * With no such row, or one whose brief names no issues — a doc-only batch's `docs-writer`, a
- * developer whose brief names none — or rows of two batches, it is none, so no row is shown under
- * another batch's issues.
+ * The issue set the line leads with for `pr`, or none: the `--issues` of the latest main-loop
+ * reviewer brief naming `pr`, and with no such brief — `NO_PR` always — the run's issues, one per
+ * main-loop readiness check, in the order the checks were called, each once. The set reads the
+ * run's signals alone, so no running agent changes it.
  */
-function issuesOf(pr: string, rows: readonly Row[]): string[] {
+function issuesOf(pr: string): string[] {
   const run = runSignals();
-  const briefed = run.filter((signal) => signal.spawn?.issues !== undefined);
-  const isReview = (signal: Signal) => signal.spawn?.type === `${PLUGIN}:${REVIEWER}`;
-  const issues = (signal: Signal | undefined) => signal?.spawn?.issues ?? [];
   if (pr !== NO_PR) {
-    const own = briefed.filter((signal) => signal.pr === pr && isReview(signal)).at(-1);
-    if (own !== undefined) return issues(own);
-    const claimed = new Set(
-      briefed.filter((signal) => signal.pr !== NO_PR && isReview(signal)).flatMap(issues),
-    );
-    const open = new Map<string, Signal>();
-    for (const signal of run) {
-      const batch = signal.spawn?.batch;
-      if (batch === undefined || batch.some((issue) => claimed.has(issue))) continue;
-      open.set(batch.length === 0 ? `@${signal.order}` : [...batch].sort().join(" "), signal);
-    }
-    if (open.size !== 1) return [];
-    const [source] = open.values();
-    const named = run.find((signal) => signal.pr === pr);
-    const isDeveloper = source.spawn?.type === `${PLUGIN}:${DEVELOPER}`;
-    const isEarlier = named !== undefined && source.order < named.order;
-    return isDeveloper && isEarlier ? (source.spawn?.batch ?? []) : [];
+    const own = run
+      .filter((signal) => signal.pr === pr && signal.spawn?.type === `${PLUGIN}:${REVIEWER}`)
+      .findLast((signal) => signal.spawn?.issues !== undefined)?.spawn?.issues;
+    if (own !== undefined) return own;
   }
-  const phase = phaseOf(NO_PR, true);
-  if (phase === "readiness" || phase === "plan") {
-    return unique(run.flatMap((signal) => (signal.readied === undefined ? [] : [signal.readied])));
-  }
-  const sources = rows
-    .map((row) => spawnOf(row.id))
-    .filter((source) => source?.spawn?.type.startsWith(`${PLUGIN}:`) && source.pr === NO_PR);
-  const batches = new Set(sources.map((source) => [...issues(source)].sort().join(" ")));
-  if (sources.length === 0 || batches.size !== 1 || batches.has("")) return [];
-  return issues(sources[0]);
+  return unique(run.flatMap((signal) => (signal.readied === undefined ? [] : [signal.readied])));
 }
 
 /** `items`, each once, in the order each first appears. */
@@ -1000,7 +916,7 @@ function statusLine(
   const prOf = (row: Row) => prOfAgent(row.id) ?? NO_PR;
   const current = currentPr();
   const parts: string[] = [];
-  const issues = issuesOf(current, rows)
+  const issues = issuesOf(current)
     .map((issue) => `#${issue}`)
     .join(" ");
   const pr = `PR #${prNumber(current)}`;
