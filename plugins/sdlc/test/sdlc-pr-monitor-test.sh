@@ -55,8 +55,7 @@ check_contains() {
 # The stubs. pr-view and pr-ready-to-merge each serve the file for their
 # n-th call, <kind>.<n>, and repeat <kind>.last past the end, logging
 # their arguments to <kind>.args; when <kind>.fail exists they print it
-# and exit 1 instead. When <kind>.sleep exists they first sleep the
-# seconds it holds, and when <kind>.rc.<n> exists the n-th call exits
+# and exit 1 instead. When <kind>.rc.<n> exists the n-th call exits
 # with the status it holds after serving its file. sleep adds its
 # argument to the fake clock and logs it.
 mkdir -p "$SANDBOX/bin"
@@ -77,7 +76,6 @@ if [ -f "\$d/$kind.fail" ]; then
   echo "$name: stub failure" >&2
   exit 1
 fi
-[ ! -f "\$d/$kind.sleep" ] || sleep "\$(cat "\$d/$kind.sleep")"
 if [ -f "\$d/$kind.\$n" ]; then cat "\$d/$kind.\$n"; else cat "\$d/$kind.last"; fi
 if [ -f "\$d/$kind.rc.\$n" ]; then
   echo "$name: stub exit \$(cat "\$d/$kind.rc.\$n")" >&2

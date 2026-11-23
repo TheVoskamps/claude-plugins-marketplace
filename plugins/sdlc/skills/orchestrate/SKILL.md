@@ -106,12 +106,13 @@ under `agents/` owns:
   PR carries that comment chain, exactly one such section and those
   corrections, and nothing else about the PR has moved. It is the
   **only** agent that edits a PR body
-- `pr-monitor` — polls one ready PR until it merges. When it returns,
+- `pr-monitor` — polls one ready PR until it merges. Its report says
   the PR is merged, or closed without merging, or has gone `BEHIND` or
   `DIRTY` — `pr-merge-readiness` runs again, then `pr-monitor` again —
   or its polls found no change for long enough that it asks whether to
   keep waiting, or its polling script failed and it hands back the
-  error verbatim. It spawns nothing and leaves nothing on the branch
+  error. Not every hand-back of it is a report. It spawns nothing and
+  leaves nothing on the branch
 
 Every teammate but `pr-merge-readiness` and `pr-monitor` declares
 `isolation: worktree` in its frontmatter, so the harness creates each
