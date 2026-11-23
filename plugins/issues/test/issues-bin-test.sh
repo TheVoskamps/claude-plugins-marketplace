@@ -1549,6 +1549,21 @@ expect "issue-create: any other add failure aborts" 1 "GitHub GraphQL call faile
   "the run stopped before finishing"
 check "$(wc -l <"$CASE_DIR/sleep.log" | tr -d ' ')" 0 "issue-create: any other add failure is not retried"
 
+# A body read whose response is not a JSON object fails the read rather than
+# reading as an empty body.
+for response in '' '[]' 'not json'; do
+  new_case "$CONFIG_MAIN"
+  set_state ".curlResponse = \"$response\""
+  run issue-view 3
+  expect "issue-view: a body read answering '$response' aborts" 1 \
+    "could not read the body of issue \`#3\`: \`https://api.github.com/repos/acme/widgets/issues/3\` returned no JSON object"
+  expect_absent "issue-view: a body read answering '$response' prints no issue" "Body:"
+  run issue-update 3 --append "more"
+  expect "issue-update --append: a body read answering '$response' aborts" 1 "returned no JSON object"
+  check "$(state '.repos["acme/widgets"].issues["3"].body')" "Body of 3." \
+    "issue-update --append: a body read answering '$response' writes nothing"
+done
+
 new_case "$CONFIG_NUMBER"
 printf 'New body.\n' >"$CASE_DIR/repo/new.md"
 run issue-create --title "Plain" --body-file new.md

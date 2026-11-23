@@ -33,7 +33,8 @@ As gh does on every read path, an issue body read through the fake comes
 back with each \\u00XX control escape in caret notation. Run with a first
 argument of `--curl`, it is instead the suite's stub `curl`, which reads an
 issue's body from the same state as stored; that call is logged with the
-`--curl` in front.
+`--curl` in front. state["curlResponse"] makes every curl read that would
+answer succeed with that text as its whole response instead.
 
 Each repo lives on a host, its "host" key, github.com when absent. As gh
 does, a call reaches the host its `--hostname` (for `gh api`) or a
@@ -563,6 +564,9 @@ def curl(state, args):
     if "Authorization: Bearer " + token_for(host) not in headers or issue is None:
         print("curl: (22) The requested URL returned error: 404", file=sys.stderr)
         sys.exit(22)
+    if "curlResponse" in state:
+        sys.stdout.write(state["curlResponse"])
+        return
     print(json.dumps({"number": issue["number"], "body": issue.get("body", "")}))
 
 

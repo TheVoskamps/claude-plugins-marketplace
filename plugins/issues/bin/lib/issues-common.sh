@@ -1076,8 +1076,9 @@ iss_rest() {
 # `\u0001` in the text included, so the read goes through curl to the REST API
 # of <host> -- github.com when empty -- with the token `gh auth token` prints
 # for that host, passed to curl on stdin rather than as an argument. Aborts on
-# a failed token or REST read. Callers run it in a command substitution and
-# exit on a non-zero status, which is an abort already reported on stderr.
+# a failed token or REST read, and on a response that is not a JSON object.
+# Callers run it in a command substitution and exit on a non-zero status,
+# which is an abort already reported on stderr.
 iss_issue_body() {
   local host=${1:-github.com} api url token json
   case "$(iss_lc "$host")" in
@@ -1091,6 +1092,8 @@ iss_issue_body() {
   json=$(printf 'Authorization: Bearer %s\n' "$token" |
     curl --silent --show-error --fail -H @- -H 'Accept: application/vnd.github+json' "$url") ||
     iss_die "could not read the body of issue \`$(iss_ref "$1" "$2" "$3" "$4")\` from \`$url\`"
+  printf '%s' "$json" | jq -e 'type == "object"' >/dev/null 2>&1 ||
+    iss_die "could not read the body of issue \`$(iss_ref "$1" "$2" "$3" "$4")\`: \`$url\` returned no JSON object"
   printf '%s' "$json" | jq -j '.body // ""'
 }
 
