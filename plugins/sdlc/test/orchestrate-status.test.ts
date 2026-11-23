@@ -525,7 +525,10 @@ test("no running agent, an agent outside the plugin or one the run never recorde
   state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
   await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 760\n--branch main");
   expect(shown(state)).toBe("#745 #746 · seed · theorem-based-pr-reviewer");
-  state.agents = [running("z9", "sdlc:issue-fixer"), running("a1", "sdlc:theorem-based-pr-reviewer")];
+  state.agents = [
+    running("z9", "sdlc:issue-fixer"),
+    running("a1", "sdlc:theorem-based-pr-reviewer"),
+  ];
   await turnEnd($);
   expect(shown(state)).toBe("#745 #746 · seed · issue-fixer, theorem-based-pr-reviewer");
   await spawn($, "sdlc:issue-developer", developerBrief("750"));
@@ -534,7 +537,11 @@ test("no running agent, an agent outside the plugin or one the run never recorde
   await turnEnd($);
   expect(shown(state)).toBe("#745 #746 · develop · issue-developer, general-purpose");
   state.agents = [running("a4", "sdlc:docs-writer"), running("a3", "general-purpose")];
-  await spawn($, "sdlc:docs-writer", "You are writing the documentation for issue #760 in this repo.");
+  await spawn(
+    $,
+    "sdlc:docs-writer",
+    "You are writing the documentation for issue #760 in this repo.",
+  );
   expect(shown(state)).toBe("#745 #746 · doc loop r1 · docs-writer, general-purpose");
   state.agents = [running("a5", "sdlc:code-documenter"), running("z8", "general-purpose")];
   await spawn($, "sdlc:code-documenter", documenterBrief(PR, "issue-745-x"));
