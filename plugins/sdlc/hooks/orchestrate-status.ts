@@ -8,8 +8,9 @@
 //   the set is empty; before a PR exists it is the issue set alone, `#745 #746`, in every phase.
 //   `issuesOf` names the set's two sources: the run's issues, one per main-loop `Skill` call of
 //   `sdlc:orchestrate-readiness`, in call order, and a PR's own issues, the `--issues` of the
-//   latest main-loop reviewer brief naming that PR, which replace the run's issues on that PR's
-//   line from then on. No running agent, of whatever kind, changes the set.
+//   latest main-loop reviewer brief that names that PR and carries the flag, which replace the
+//   run's issues on that PR's line from then on. No running agent, of whatever kind, changes the
+//   set.
 // - The phase follows, and in a loop carries the round: that of the loop's latest reviewer; with
 //   none fixed, while an `issue-fixer` or `code-documenter` row is on the line, the PR's latest
 //   round when the progress read reports it `reviewed` and of that loop's type; otherwise, before
@@ -169,10 +170,10 @@ type Epoch = { failedReads: string[]; pending: Spawned[] };
  * One main-loop signal the run has recorded: the epoch it was recorded under, the number
  * `signalsBegun` gave it when its hook began, the PR a spawn's brief named or `NO_PR`, and the
  * phase it sets, if any. A spawn's signal also carries its agent's definition, the agent id it
- * resolved and the issues its brief named. The `orchestrate` and
- * `orchestrate-cleanup` prompts and the plan read are signals of the whole run, and carry no PR:
- * each sets the phase of whichever PR is current when the line is drawn, `NO_PR` included, and of
- * no other PR. A readiness check's signal carries the one issue it was run on, and nothing else.
+ * resolved and the issues its brief named. The `orchestrate` and `orchestrate-cleanup` prompts and
+ * the plan read are signals of the whole run, and carry no PR: each sets the phase of whichever PR
+ * is current when the line is drawn, `NO_PR` included, and of no other PR. A readiness check's
+ * signal carries the one issue it was run on, and nothing else.
  */
 type Signal = {
   epoch: Epoch;
@@ -372,8 +373,9 @@ async function mainRead($: Mods, e: ReadEvent, order: number): Promise<void> {
 
 /**
  * Follows a `Skill` call: the main loop's call of `sdlc:orchestrate-readiness` during a run records
- * the one issue its `args` name, one of the run's issues `issuesOf` leads the line with. `order` is
- * the number `signalsBegun` gave the call's hook when it began.
+ * the first issue its `args` name, one of the run's issues `issuesOf` leads the line with, and a
+ * call whose `args` name none records nothing. `order` is the number `signalsBegun` gave the call's
+ * hook when it began.
  */
 async function mainSkill($: Mods, e: SkillCallEvent, order: number): Promise<void> {
   if (!isRun || e.agentId !== undefined || e.skill !== READINESS_SKILL) return;
@@ -594,9 +596,10 @@ function prOfAgent(id: string): string | undefined {
 
 /**
  * The issue set the line leads with for `pr`, or none: the `--issues` of the latest main-loop
- * reviewer brief naming `pr`, and with no such brief — `NO_PR` always — the run's issues, one per
- * main-loop readiness check, in the order the checks were called, each once. The set reads the
- * run's signals alone, so no running agent changes it.
+ * reviewer brief that names `pr` and carries the flag with at least one issue, and with no such
+ * brief — `NO_PR` always — the run's issues, one per main-loop readiness check, in the order the
+ * checks were called, each once. The set reads the run's signals alone, so no running agent
+ * changes it.
  */
 function issuesOf(pr: string): string[] {
   const run = runSignals();
@@ -903,10 +906,10 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
  * review; when it gives none and the PR has an `issue-fixer` or `code-documenter` row, the round
  * `reviewedRound` gives; and `nextRound`'s when neither gives one. An `issue-fixer` or
  * `code-documenter` row carries ` › r<n> findings` when the phase carries one of the first two,
- * for that round. Then comes
- * ` | #<n> <phase>` for every other PR with a row, or ` | #<n>` for one with no phase. `rows` are
- * the line's rows, as `rowsOf` builds them from `running`, and `review` holds the reviewer stages
- * and the PRs whose progress read failed this redraw, as `reviewStages` returns them.
+ * for that round. Then comes ` | #<n> <phase>` for every other PR with a row, or ` | #<n>` for one
+ * with no phase. `rows` are the line's rows, as `rowsOf` builds them from `running`, and `review`
+ * holds the reviewer stages and the PRs whose progress read failed this redraw, as `reviewStages`
+ * returns them.
  */
 function statusLine(
   rows: readonly Row[],
