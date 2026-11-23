@@ -589,7 +589,7 @@ test("before any PR, rows of two batches lead with no issue set, and rows of one
   expect(shown(state)).toBe("seed · issue-developer, theorem-based-pr-reviewer");
 });
 
-test("before any PR, a running agent whose brief names no issue leads with no issue set", async ($, on) => {
+test("before any PR, an agent outside the plugin leaves the batch's issue set leading", async ($, on) => {
   const state = host(on);
   await orchestrate($);
   await readiness($, "745");
@@ -602,7 +602,29 @@ test("before any PR, a running agent whose brief names no issue leads with no is
   await spawn($, "general-purpose", "Look around");
   state.agents = [running("a2", "sdlc:issue-developer"), running("a3", "general-purpose")];
   await turnEnd($);
-  expect(shown(state)).toBe("develop · issue-developer, general-purpose");
+  expect(shown(state)).toBe("#750 · develop · issue-developer, general-purpose");
+});
+
+test("before any PR, an agent whose spawn the run never recorded leaves the batch's issue set leading", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:theorem-based-pr-reviewer", "--issues 745\n--branch main");
+  state.agents = [
+    running("z9", "sdlc:issue-fixer"),
+    running("a1", "sdlc:theorem-based-pr-reviewer"),
+  ];
+  await turnEnd($);
+  expect(shown(state)).toBe("#745 · seed · issue-fixer, theorem-based-pr-reviewer");
+});
+
+test("with one batch briefed in two issue orders, a new PR leads with the batch's issues", async ($, on) => {
+  const state = host(on);
+  await orchestrate($);
+  await spawn($, "sdlc:issue-developer", developerBrief("745", "746"));
+  await spawn($, "sdlc:issue-developer", developerBrief("746", "745"));
+  state.agents = [running("a3", "sdlc:code-documenter")];
+  await spawn($, "sdlc:code-documenter", documenterBrief(PR, "issue-745-746-x"));
+  expect(shown(state)).toBe("PR #812 (#746 #745) · code loop r1 · code-documenter");
 });
 
 test("with two batches lacking a PR, a new PR leads alone until its first reviewer brief", async ($, on) => {

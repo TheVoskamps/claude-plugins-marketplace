@@ -10,8 +10,9 @@
 //   `sdlc:orchestrate-readiness`, from `seed` onward the reviewer's `--issues` and the
 //   developer's issues in main-loop briefs, and for a new PR before its first reviewer brief the
 //   developer brief of the one batch that has no PR yet, when exactly one batch has none. From
-//   `seed` onward, before a PR exists, the set shows only while every row naming no PR is a seed
-//   or developer row of one batch, its issues named by that row's own brief.
+//   `seed` onward, before a PR exists, the set shows only while every sdlc main-loop row naming no
+//   PR is a seed or developer row of one batch, its issues named by that row's own brief; a row
+//   outside the plugin, or one whose spawn the run never recorded, does not count.
 // - The phase follows, and in a loop carries the round: that of the loop's latest reviewer; with
 //   none fixed, while an `issue-fixer` or `code-documenter` row is on the line, the PR's latest
 //   round when the progress read reports it `reviewed` and of that loop's type; otherwise, before
@@ -648,11 +649,13 @@ function prOfAgent(id: string): string | undefined {
  *
  * Before any PR — `NO_PR` — during `readiness` and `plan`, it is the issues of the main loop's
  * readiness checks, in the order the checks were called. From `seed` onward it is the issues of
- * one batch, and only while every row naming no PR is that batch's: each such row's main-loop
- * brief, the seed's `--issues` or the developer's, names the same issues, and those are the set.
+ * one batch, and only while every row the run recorded an sdlc main-loop spawn for naming no PR is
+ * that batch's: each such row's brief, the seed's `--issues` or the developer's, names the same
+ * issues, the same issues in any order counting once, and those are the set. A row with no such
+ * spawn — an agent outside the plugin, or one whose spawn the run never recorded — is not read.
  * With no such row, or one whose brief names no issues — a doc-only batch's `docs-writer`, a
- * developer whose brief names none, any other agent — or rows of two batches, it is none, so no
- * row is shown under another batch's issues.
+ * developer whose brief names none — or rows of two batches, it is none, so no row is shown under
+ * another batch's issues.
  */
 function issuesOf(pr: string, rows: readonly Row[]): string[] {
   const run = runSignals();
@@ -669,7 +672,7 @@ function issuesOf(pr: string, rows: readonly Row[]): string[] {
     for (const signal of run) {
       const batch = signal.spawn?.batch;
       if (batch === undefined || batch.some((issue) => claimed.has(issue))) continue;
-      open.set(batch.length === 0 ? `@${signal.order}` : batch.join(" "), signal);
+      open.set(batch.length === 0 ? `@${signal.order}` : [...batch].sort().join(" "), signal);
     }
     if (open.size !== 1) return [];
     const [source] = open.values();
@@ -683,8 +686,8 @@ function issuesOf(pr: string, rows: readonly Row[]): string[] {
     return unique(run.flatMap((signal) => (signal.readied === undefined ? [] : [signal.readied])));
   }
   const sources = rows
-    .filter((row) => (prOfAgent(row.id) ?? NO_PR) === NO_PR)
-    .map((row) => spawnOf(row.id));
+    .map((row) => spawnOf(row.id))
+    .filter((source) => source?.spawn?.type.startsWith(`${PLUGIN}:`) && source.pr === NO_PR);
   const batches = new Set(sources.map((source) => [...issues(source)].sort().join(" ")));
   if (sources.length === 0 || batches.size !== 1 || batches.has("")) return [];
   return issues(sources[0]);
