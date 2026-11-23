@@ -9,17 +9,19 @@
 //   names the set's sources: during `readiness` and `plan` the main loop's `Skill` calls of
 //   `sdlc:orchestrate-readiness`, from `seed` onward the reviewer's `--issues` and the
 //   developer's issues in main-loop briefs, and for a new PR before its first reviewer brief the
-//   developer brief of the one batch that has no PR yet.
-// - The phase follows, and in a loop carries the round: that of the loop's latest reviewer, or,
-//   before the loop's first reviewer runs, the next round after the PR's latest in either loop,
-//   as `nextRound` reads it, so a fresh code loop shows `r1` and a doc loop after code rounds r1
-//   and r2 shows `r3`.
+//   developer brief of the one batch that has no PR yet, when a brief for the PR names a branch
+//   that encodes one of that batch's issues.
+// - The phase follows, and in a loop carries the round: that of the loop's latest reviewer; with
+//   none fixed, while an `issue-fixer` or `code-documenter` row is on the line, the PR's latest
+//   round when the progress read reports it `reviewed`; otherwise, before the loop's first
+//   reviewer runs, the next round after the PR's latest in either loop, as `nextRound` reads it,
+//   so a fresh code loop shows `r1` and a doc loop after code rounds r1 and r2 shows `r3`.
 // - Then the running agents, grouped by the main-loop agent each descends from. A reviewer row
 //   shows its round's stage, with `<settled>/<members> theorems` in `disprove` and `verify`,
 //   whether or not the reviewer itself is listed as running while it waits on its fan-out; an
 //   `issue-fixer` or `code-documenter` row names the round it answers, `issue-fixer › r1
-//   findings`; a row with neither to show, the seed reviewer's included, names its running
-//   children.
+//   findings`, when the phase carries one of the first two rounds above; a row with neither to
+//   show, the seed reviewer's included, names its running children.
 // - Every other PR with a running agent trails as ` | #<n> <phase>`, with no issue set.
 //
 // Apart from answering that command, every hook only observes: each returns what `next(e)`
@@ -57,6 +59,12 @@ const PR_FLAG = /(?<![\w-])--pr(?![\w-])/;
 const ISSUES_FLAG = /(?<![\w-])--issues((?:[ \t]+(?!--)\S+)+)/;
 // The issues a developer brief's opening sentence names.
 const DEVELOPER_ISSUES = /You are fixing issues?\s([\s\S]*?)\s+in\s+this\s+repo/;
+// The branch a brief names, on a `Branch:` line or as the operand of `--branch`.
+const BRANCH = /(?:^Branch:[ \t]*|(?<![\w-])--branch[ \t]+)(\S+)/m;
+// The issue numbers an issue branch encodes, as `git-issue-branch decode` reads the name: after at
+// most one leading `<segment>/`, `issue-`, then hyphen-separated runs of digits, then a slug whose
+// first hyphen-separated word is not all digits.
+const ISSUE_BRANCH = /^(?:[^/]+\/)?issue-(\d+(?:-\d+)*)-(?=[^-]*[^\d-])[^/]*$/;
 const RUNNING = new Set(["pending", "running", "waiting", "idle"]);
 // The stages the line shows with their theorem counts; any other stage shows by name alone.
 const COUNTED_STAGES = new Set(["disprove", "verify"]);
@@ -141,14 +149,16 @@ type On = {
 type Progress = { round: number; stage: string; settled: string; members: string };
 /**
  * A main-loop spawn as `record` takes it: its agent's definition, the PR its brief named or
- * `NO_PR`, the issues its brief named as `briefIssues` reads them, whether its brief carries
- * `--mode documentation`, whether it is the reviewer's seed spawn, the agent id it resolved, and
- * the number `signalsBegun` gave it when it began.
+ * `NO_PR`, the issues its brief named as `briefIssues` reads them, the issues the branch its brief
+ * named encodes as `branchIssues` reads them, whether its brief carries `--mode documentation`,
+ * whether it is the reviewer's seed spawn, the agent id it resolved, and the number `signalsBegun`
+ * gave it when it began.
  */
 type Spawned = {
   type: string;
   pr: string;
   issues?: string[];
+  branched: string[];
   isDocMode: boolean;
   isSeed: boolean;
   agentId?: string;
@@ -169,7 +179,8 @@ type Epoch = { failedReads: string[]; pending: Spawned[] };
  * One main-loop signal the run has recorded: the epoch it was recorded under, the number
  * `signalsBegun` gave it when its hook began, the PR a spawn's brief named or `NO_PR`, and the
  * phase it sets, if any. A spawn's signal also carries its agent's definition, the agent id it
- * resolved and the issues its brief named. The `orchestrate` and `orchestrate-cleanup` prompts and
+ * resolved, the issues its brief named and the issues its brief's branch encodes. The
+ * `orchestrate` and `orchestrate-cleanup` prompts and
  * the plan read are signals of the whole run, and carry no PR: each sets the phase of whichever PR
  * is current when the line is drawn, `NO_PR` included, and of no other PR. A readiness check's
  * signal carries the one issue it was run on, and nothing else.
@@ -179,7 +190,7 @@ type Signal = {
   order: number;
   pr?: string;
   phase?: Phase;
-  spawn?: { type: string; agentId?: string; issues?: string[] };
+  spawn?: { type: string; agentId?: string; issues?: string[]; branched: string[] };
   readied?: string;
 };
 
@@ -214,10 +225,10 @@ const signals: Signal[] = [];
 /** The round each reviewer reviews, fixed when the line first sees its review tree running. */
 const reviewerRound = new Map<string, number>();
 /**
- * The round each PR's last successful progress read reported, by PR, or 0 for a read that printed
- * no line; each read replaces the one before it. Emptied by a run's start.
+ * The line each PR's last successful progress read printed, by PR, or `undefined` for a read that
+ * printed none; each read replaces the one before it. Emptied by a run's start.
  */
-const latestRound = new Map<string, number>();
+const latestProgress = new Map<string, Progress | undefined>();
 /** How many redraws have begun this session, which numbers each in the order it began. */
 let redrawsBegun = 0;
 /** The number `redrawsBegun` gave the latest-begun redraw that drew the line, or 0. */
@@ -430,7 +441,7 @@ function startRun(): void {
   isRun = true;
   signals.length = 0;
   reviewerRound.clear();
-  latestRound.clear();
+  latestProgress.clear();
   unwritten.length = 0;
 }
 
@@ -472,6 +483,7 @@ async function mainSpawn(
     type: e.subagentType,
     pr,
     issues: briefIssues(e.subagentType, e.prompt),
+    branched: branchIssues(e.prompt),
     isDocMode: DOC_MODE.test(e.prompt),
     isSeed: isReviewer && pr === NO_PR && !PR_FLAG.test(e.prompt),
     agentId: result.agentId,
@@ -513,7 +525,12 @@ function record(spawned: Spawned): void {
     order: spawned.order,
     pr: spawned.pr,
     phase: spawned.isSeed ? "seed" : spawnPhase(spawned.type, spawned.isDocMode),
-    spawn: { type: spawned.type, agentId: spawned.agentId, issues: spawned.issues },
+    spawn: {
+      type: spawned.type,
+      agentId: spawned.agentId,
+      issues: spawned.issues,
+      branched: spawned.branched,
+    },
   });
 }
 
@@ -532,6 +549,17 @@ function briefIssues(type: string, prompt: string): string[] | undefined {
   const named = pattern?.exec(prompt)?.[1];
   const issues = named === undefined ? [] : issueNumbers(named);
   return issues.length === 0 ? undefined : issues;
+}
+
+/**
+ * The issue numbers the branch a brief names encodes, in the order the name holds them, or none
+ * when the brief names no branch or one that is not an issue branch. `issuesOf` uses them only to
+ * tie a PR to a batch, never as an issue set of their own.
+ */
+function branchIssues(prompt: string): string[] {
+  const branch = BRANCH.exec(prompt)?.[1];
+  const encoded = branch === undefined ? undefined : ISSUE_BRANCH.exec(branch)?.[1];
+  return encoded === undefined ? [] : unique(encoded.split("-"));
 }
 
 /**
@@ -600,15 +628,19 @@ function prOfAgent(id: string): string | undefined {
  * builds them.
  *
  * For a PR it is the `--issues` of the latest main-loop reviewer brief for that PR. Before that
- * brief, it is the issues of the one batch that has no PR yet, when exactly one has none: a batch
- * is a developer brief's issue set, and it has a PR once a reviewer brief for any PR names one of
- * its issues. With more than one batch lacking a PR, the PR has no set until its first reviewer
- * brief.
+ * brief, it is the issues of the one batch that has no PR yet, when exactly one has none and a
+ * main-loop brief for the PR names a branch encoding one of the batch's issues: a batch is a
+ * developer brief's issue set, and it has a PR once a reviewer brief for any PR names one of its
+ * issues. The branch only ties the PR to the batch, so a doc-only PR, which has no developer
+ * brief, or one whose developer brief this run never saw, is not given another batch's issues.
+ * With more than one batch lacking a PR, or none tied to the PR, the PR has no set until its
+ * first reviewer brief.
  *
  * Before any PR — `NO_PR` — it is the issues of the PR-less main-loop briefs, the seed's and the
- * developer's: those of every such brief whose agent has a row, or the latest one's when none has.
- * Before the first such brief, during `readiness` and `plan`, it is the issues of the main loop's
- * readiness checks, in the order the checks were called.
+ * developer's, whose agent has a row, and none when no such agent has one, so a PR-less agent
+ * whose brief names no issues, such as a doc-only batch's `docs-writer`, is not given an earlier
+ * batch's. Before the first such brief, during `readiness` and `plan`, it is the issues of the
+ * main loop's readiness checks, in the order the checks were called.
  */
 function issuesOf(pr: string, rows: readonly Row[]): string[] {
   const run = runSignals();
@@ -627,15 +659,22 @@ function issuesOf(pr: string, rows: readonly Row[]): string[] {
       const batch = issues(signal);
       if (!batch.some((issue) => claimed.has(issue))) open.set(batch.join(" "), batch);
     }
-    return open.size === 1 ? [...open.values()][0] : [];
+    if (open.size !== 1) return [];
+    const [batch] = open.values();
+    const isTied = run.some(
+      (signal) =>
+        signal.pr === pr && signal.spawn?.branched.some((issue) => batch.includes(issue)) === true,
+    );
+    return isTied ? batch : [];
   }
   const early = briefed.filter((signal) => signal.pr === NO_PR);
   if (early.length === 0) {
     return unique(run.flatMap((signal) => (signal.readied === undefined ? [] : [signal.readied])));
   }
   const shown = new Set(rows.map((row) => row.id));
-  const live = early.filter((signal) => shown.has(signal.spawn?.agentId ?? ""));
-  return unique((live.length > 0 ? live : early.slice(-1)).flatMap(issues));
+  return unique(
+    early.filter((signal) => shown.has(signal.spawn?.agentId ?? "")).flatMap(issues),
+  );
 }
 
 /** `items`, each once, in the order each first appears. */
@@ -649,7 +688,7 @@ function unique(items: readonly string[]): string[] {
  * reviewer for it has been fixed at, or 0 when neither is known.
  */
 function nextRound(pr: string): number {
-  let latestSeen = latestRound.get(pr) ?? 0;
+  let latestSeen = latestProgress.get(pr)?.round ?? 0;
   for (const signal of runSignals()) {
     const id = signal.spawn?.agentId;
     if (signal.pr !== pr || signal.spawn?.type !== `${PLUGIN}:${REVIEWER}` || id === undefined) {
@@ -658,6 +697,16 @@ function nextRound(pr: string): number {
     latestSeen = Math.max(latestSeen, reviewerRound.get(id) ?? 0);
   }
   return latestSeen + 1;
+}
+
+/**
+ * The round an `issue-fixer` or `code-documenter` of `pr` answers when no reviewer round is fixed
+ * for it, as in a session resumed at such a spawn: the PR's latest round when its last progress
+ * read reported that round `reviewed`, or none.
+ */
+function reviewedRound(pr: string): number | undefined {
+  const progress = latestProgress.get(pr);
+  return progress?.stage === "reviewed" ? progress.round : undefined;
 }
 
 /**
@@ -814,8 +863,8 @@ function showLine($: Mods, text: string): void {
  * The read is run for a PR whose main-loop reviewer has a row — the reviewer or any of its
  * descendants is running, whatever `$.agent.list()` reports for the reviewer itself — and for a PR
  * in a loop with no round of its own yet, as `roundOf` reads it, that has any row, so `nextRound`
- * has the PR's latest round. Each successful read's round is kept in `latestRound`. The seed
- * reviewer names no PR, so its row gets no read.
+ * has the PR's latest round and `reviewedRound` its stage. Each successful read's line is kept in
+ * `latestProgress`. The seed reviewer names no PR, so its row gets no read.
  *
  * A reviewer's round is fixed when its row is first seen: the round after the one the read
  * reports when that round is `reviewed`, round 1 when the read prints nothing, and the reported
@@ -824,8 +873,8 @@ function showLine($: Mods, text: string): void {
  * failed read's error is kept in `started`'s failed reads, and the first one kept there is written
  * as one `$.ui.log` line, so a run writes one such line, naming its own error.
  *
- * `roundOf` and `nextRound` read the rounds kept here, so a redraw calls this before drawing the
- * line.
+ * `roundOf`, `nextRound` and `reviewedRound` read the rounds kept here, so a redraw calls this
+ * before drawing the line.
  *
  * `started` is the epoch the redraw began in. A read that settles once it has been superseded
  * records nothing and returns `undefined`: its result is dropped, and its error is kept in
@@ -851,7 +900,7 @@ async function reviewStages(
         const progress = await readProgress($, pr);
         if (epoch !== started) return undefined;
         read.set(pr, progress);
-        latestRound.set(pr, progress?.round ?? 0);
+        latestProgress.set(pr, progress);
       } catch (err) {
         started.failedReads.push(errorText(err));
         if (epoch !== started) return undefined;
@@ -909,8 +958,10 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
  * gives the PR no set, and with no current PR the issue set alone, each issue as `#<n>` and
  * space-separated. A `code loop` or `doc loop` phase carries ` r<n>` after it, unless the PR's
  * progress read failed this redraw: the round `roundOf` gives the PR in that loop, the one under
- * review, or `nextRound`'s when it gives none. An `issue-fixer` or `code-documenter` row carries
- * ` › r<n> findings` when the phase carries the round `roundOf` gives, for that round. Then comes
+ * review; when it gives none and the PR has an `issue-fixer` or `code-documenter` row, the round
+ * `reviewedRound` gives; and `nextRound`'s when neither gives one. An `issue-fixer` or
+ * `code-documenter` row carries ` › r<n> findings` when the phase carries one of the first two,
+ * for that round. Then comes
  * ` | #<n> <phase>` for every other PR with a row, or ` | #<n>` for one with no phase. `rows` are
  * the line's rows, as `rowsOf` builds them from `running`, and `review` holds the reviewer stages
  * and the PRs whose progress read failed this redraw, as `reviewStages` returns them.
@@ -931,18 +982,15 @@ function statusLine(
   else parts.push(issues === "" ? pr : `${pr} (${issues})`);
   const phase = phaseOf(current, true);
   const hasRound = isLoop(phase) && !review.failed.has(current);
-  const reviewed = hasRound ? roundOf(current, phase) : undefined;
+  const group = rows.filter((row) => prOf(row) === current);
+  const isAnswering = group.some((row) => ANSWERING.has(row.type));
+  const reviewed = hasRound
+    ? (roundOf(current, phase) ?? (isAnswering ? reviewedRound(current) : undefined))
+    : undefined;
   if (phase !== undefined) {
     parts.push(hasRound ? `${phase} r${reviewed ?? nextRound(current)}` : phase);
   }
-  parts.push(
-    agentNames(
-      rows.filter((row) => prOf(row) === current),
-      running,
-      review.stages,
-      reviewed,
-    ),
-  );
+  parts.push(agentNames(group, running, review.stages, reviewed));
   const others = [...new Set(rows.map(prOf))].filter((pr) => pr !== NO_PR && pr !== current);
   const tail = others
     .map((pr) => {
