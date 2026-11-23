@@ -796,7 +796,10 @@ type Direct = {
   status: (text: string | undefined) => void;
   /** The callback of the redraw timer the module started, while one runs. */
   tick?: () => void;
-  /** Runs the module's hook on `event` with `e`, its `next` resolving to `result`. */
+  /**
+   * Runs the first hook the module registered on `event` whose matcher `e` satisfies, key for key,
+   * with `e`, its `next` resolving to `result`. A hook registered with no matcher takes every `e`.
+   */
   hook: (event: string, e: object, result?: object) => Promise<unknown>;
 };
 

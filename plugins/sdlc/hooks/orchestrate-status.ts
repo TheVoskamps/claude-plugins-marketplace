@@ -214,8 +214,8 @@ const signals: Signal[] = [];
 /** The round each reviewer reviews, fixed when the line first sees its review tree running. */
 const reviewerRound = new Map<string, number>();
 /**
- * The highest round each PR's last successful progress read reported, by PR, or 0 for a read that
- * printed no line. Emptied by a run's start.
+ * The round each PR's last successful progress read reported, by PR, or 0 for a read that printed
+ * no line; each read replaces the one before it. Emptied by a run's start.
  */
 const latestRound = new Map<string, number>();
 /** How many redraws have begun this session, which numbers each in the order it began. */
