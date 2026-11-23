@@ -249,7 +249,8 @@ chmod +x "$SANDBOX/bin/gh"
 # answers only on the API of the case's `api-host`, or of its `host` when
 # it has none, and only with the token the stub gh prints for that host
 # on stdin, as `-H @-` sends it; a case's `curl-fail` makes every call
-# fail as --fail does on an HTTP error.
+# fail as --fail does on an HTTP error, and its `curl-empty` makes every
+# call succeed with an empty response.
 cat >"$SANDBOX/bin/curl" <<'STUB'
 #!/usr/bin/env bash
 S=$STUB_DIR
@@ -271,6 +272,7 @@ if [ -f "$S/curl-fail" ] || [ "${url#"$api"/}" = "$url" ] ||
   echo "curl: (22) The requested URL returned error: 404" >&2
   exit 22
 fi
+[ ! -f "$S/curl-empty" ] || exit 0
 case "${url#"$api"/}" in
   repos/*/pulls/7) jq -n --arg body "$(val body '')" '{number: 7, body: $body}' ;;
   repos/*/issues/comments/555) jq -n --arg body "$(cat "$S/comment-555")" '{id: 555, body: $body}' ;;
@@ -692,6 +694,19 @@ check "$RC" "1" "pr-update: a failed curl read exits 1"
 check "$ERR" "$(printf '%s\n%s' "curl: (22) The requested URL returned error: 404" \
   "pr-update: curl https://api.github.com/repos/o/r/pulls/7 failed (exit 22)")" \
   "pr-update: curl's own error, then the catalogue line naming the URL"
+
+new_case update-curl-empty
+touch "$CASE/curl-empty"
+run pr-update 7 --body-file "$SANDBOX/new-body.md"
+check "$RC" "1" "pr-update: an empty curl response exits 1"
+check "$ERR" "pr-update: curl https://api.github.com/repos/o/r/pulls/7 returned no JSON object" \
+  "pr-update: an empty curl response is a failed read, not a body that did not land"
+
+new_case comment-curl-empty
+touch "$CASE/curl-empty"
+printf '' >"$SANDBOX/empty-body.md"
+run pr-comment 7 --body-file "$SANDBOX/empty-body.md"
+check "$RC" "1" "pr-comment: an empty curl response fails the read even for an empty body"
 
 new_case update-missing-file
 run pr-update 7 --body-file "$SANDBOX/absent.md"

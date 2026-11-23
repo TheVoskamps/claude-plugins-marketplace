@@ -373,8 +373,9 @@ gp_repo_path() {
 # included, so the read goes through curl to GP_HOST's REST API with the
 # token `gh auth token` prints for that host. The token reaches curl on
 # stdin, never as an argument. A failed token read exits 1 with gp_gh's
-# catalogue line, and a failed curl exits 1 with gp_err_curl's, after
-# curl's own error. Call it as `x=$(gp_read_body ...) || exit $?`,
+# catalogue line, a failed curl exits 1 with gp_err_curl's, after
+# curl's own error, and a response that is not a JSON object exits 1
+# with gp_err_not_object's. Call it as `x=$(gp_read_body ...) || exit $?`,
 # after gp_resolve_host in the verb's own shell: the gp_resolve_host inside
 # runs in the substitution's shell and keeps nothing, so without the earlier
 # call every read looks the current repository up again.
@@ -397,6 +398,9 @@ gp_read_body() {
   json=$(curl --silent --show-error --fail -H @- \
     -H 'Accept: application/vnd.github+json' "$url" \
     <<<"Authorization: Bearer $token" || exit) || gp_err_curl "$url" "$?"
+  if ! printf '%s\n' "$json" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    gp_err_not_object "$url"
+  fi
   printf '%s\n' "$json" | jq -r '.body // ""'
 }
 
@@ -504,6 +508,9 @@ gp_err_command() { gp_fail 1 "\`$1\` failed (exit $2)"; }
 gp_err_gh() { gp_fail 1 "gh $1 failed (exit $2)"; }
 # gp_err_curl <URL> <curl's exit status>
 gp_err_curl() { gp_fail 1 "curl $1 failed (exit $2)"; }
+# gp_err_not_object <URL> -- curl succeeded with a response that is not
+# a JSON object, such as an empty one.
+gp_err_not_object() { gp_fail 1 "curl $1 returned no JSON object"; }
 # gp_err_git <the git call, as the message names it>
 gp_err_git() { gp_fail 1 "$1 failed"; }
 gp_err_not_a_repo() { gp_fail 1 "not inside a git repository"; }
