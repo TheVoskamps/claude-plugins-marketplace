@@ -577,7 +577,11 @@ fact:
 - **A plugin's README** is Documentation for humans, never a
   destination for such a fact. Where a plugin ships a README that
   rosters its skills, agents, executables, hooks, config keys or state
-  files, the PR that changes one updates the roster.
+  files, the PR that changes one updates the roster. A new
+  `dependencies` edge is a fact about the depending plugin, so the PR
+  that adds it names it in that plugin's README. The root `README.md`
+  roster registers the *plugin*, not each skill by name, so a skill
+  added to an already-rostered plugin needs no edit there.
 
 Do **not** answer surviving duplication here with a sweep rule. A
 sweep rule over duplicated behavior is itself the defect — deliberate
