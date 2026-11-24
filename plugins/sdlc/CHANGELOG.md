@@ -1,5 +1,20 @@
 # sdlc changelog
 
+## 0.99.0 — 2026-11-23
+
+The README is now a user manual: what the plugin does, why you would
+want it, what it needs, how to start and what a run looks like, and
+what it leaves to you, followed by the config keys and the rosters of
+skills, agents, executables, hooks and files written. No behaviour of
+a run changes.
+
+- The rules for changing the plugin itself, which the README used to
+  hold, load from the plugin's own `CLAUDE.md`, and the table of which
+  file owns which statement from `docs/rules/owners.md`.
+- `issue-developer` and `issue-fixer` describe `/issue-view` as
+  preloaded through their `skills:` frontmatter, and no longer as
+  invoked through the `Skill` tool.
+
 ## 0.98.0 — 2026-11-23
 
 Agents no longer read READMEs as instructions, this plugin's included.
