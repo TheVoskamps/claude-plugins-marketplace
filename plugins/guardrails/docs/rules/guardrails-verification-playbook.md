@@ -1146,10 +1146,6 @@ produces holes. And assert the framing in a test that both requires the
 harm words and forbids the blind-spot vocabulary, so a later reword
 cannot quietly reintroduce it.
 
-Ask rather than deny where a human has legitimate reasons to proceed:
-this gate governs interactive human sessions as well as agent ones, and
-one click preserves those where a deny does not.
-
 ## An upstream guard decides which rows can reach yours
 
 When a finding says to narrow a guard, every row written for the new
