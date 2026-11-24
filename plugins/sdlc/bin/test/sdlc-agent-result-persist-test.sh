@@ -50,6 +50,8 @@
 #     higher voided round, a round holding a review file, a log with no
 #     child record and one with no anchor, and its refusal of --round,
 #     --from and --edits.
+#   - --mode enter naming the child's transcript under CLAUDE_CONFIG_DIR
+#     when it is set, and under $HOME/.claude when it is unset or empty.
 #
 # Every fixture is built under mktemp -d with its own state root. The
 # first failing case ends the run.
@@ -1164,5 +1166,29 @@ run --mode progress --edits "$CASE/empty"
 assert_eq "progress: --edits is refused with no line printed" "2:" "$RC:$OUT"
 run --mode progress --carry --edits "$CASE/empty"
 assert_eq "progress: --edits with --carry is refused with no line printed" "2:" "$RC:$OUT"
+
+# --- enter: the transcript path under the config directory -------------------
+
+# enter_transcript <agent-id>: a child's enter from a worktree of the
+# case's repository, leaving in OUT the transcript path its record names.
+enter_transcript() {
+  as_child "$1" --mode enter --round 1 --theorem list --stage generate
+  OUT=$(sed -n '$p' "$PR_DIR/round1/log" | cut -d' ' -f6-)
+}
+
+new_case enter-transcript
+git init -q "$CASE"
+export CLAUDE_CODE_SESSION_ID=sess
+export CLAUDE_CONFIG_DIR="$CASE/config"
+enter_transcript C1
+assert_contains "enter: a set CLAUDE_CONFIG_DIR holds the transcript" "$CASE/config/projects/" "$OUT"
+assert_contains "enter: the transcript is the child's under the session" "/sess/subagents/agent-C1.jsonl" "$OUT"
+CLAUDE_CONFIG_DIR=
+enter_transcript C2
+assert_contains "enter: an empty CLAUDE_CONFIG_DIR falls back to HOME" "$HOME/.claude/projects/" "$OUT"
+unset CLAUDE_CONFIG_DIR
+enter_transcript C3
+assert_contains "enter: an unset CLAUDE_CONFIG_DIR falls back to HOME" "$HOME/.claude/projects/" "$OUT"
+unset CLAUDE_CODE_SESSION_ID
 
 echo "$PASSED passed"

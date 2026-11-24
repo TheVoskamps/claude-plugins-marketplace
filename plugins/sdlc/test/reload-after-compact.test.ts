@@ -437,6 +437,44 @@ test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other fil
   expect(text).not.toContain("script.sh");
 });
 
+// The config directory is `CLAUDE_CONFIG_DIR` when it is set and non-empty, and `$HOME/.claude`
+// otherwise; `other` is the directory the case does not use.
+for (const { name, env, config, other } of [
+  { name: "set", env: { CLAUDE_CONFIG_DIR: "/cfg" }, config: "/cfg", other: `${HOME}/.claude` },
+  { name: "unset", env: {}, config: `${HOME}/.claude`, other: "/cfg" },
+  { name: "empty", env: { CLAUDE_CONFIG_DIR: "" }, config: `${HOME}/.claude`, other: "/cfg" },
+]) {
+  test(`with CLAUDE_CONFIG_DIR ${name}, rules, skills and plugins resolve under ${config}`, async ($, on) => {
+    const user = `${config}/skills/theirs/SKILL.md`;
+    const plugin = `${config}/plugins/cache/market/issues/0.14.1/skills/issue-view/SKILL.md`;
+    const reinjected = `${config}/rules/core-principles.md`;
+    const elsewhere = `${other}/rules/elsewhere.md`;
+    const files = {
+      [user]: "user skill",
+      [`${config}/plugins/installed_plugins.json`]: JSON.stringify({
+        version: 2,
+        plugins: { "issues@market": [{ scope: "user", version: "0.14.1" }] },
+      }),
+      [plugin]: "issue view",
+      [reinjected]: "core principles",
+      [elsewhere]: "elsewhere",
+    };
+    stub(on, files, {}, env);
+    const messages = [
+      ...launched("theirs"),
+      typed("issue-view"),
+      read(reinjected),
+      read(elsewhere),
+    ];
+    const text = reload(await $.session.compact({ trigger: "auto", messages }));
+    expect(text).toContain(block(user, "user skill"));
+    expect(text).toContain(block(plugin, "issue view"));
+    expect(text).toContain(block(elsewhere, "elsewhere"));
+    expect(text).not.toContain("core-principles");
+    expect(text).not.toContain("could not be read");
+  });
+}
+
 test("a subagent's compaction reloads what its own transcript loaded", async ($, on) => {
   const own = `${SKILLS}/git-review-pr/SKILL.md`;
   const rule = `${ROOT}/docs/rules/hook-event-notes.md`;
