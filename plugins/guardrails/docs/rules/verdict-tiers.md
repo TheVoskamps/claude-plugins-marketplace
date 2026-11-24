@@ -39,8 +39,11 @@ whole tier:
 
 - **Publish verbs:** `gh release create`, every `gh gist create`, every
   `gh gist edit`, `gh repo edit --visibility`.
-- **History-destroying pushes:** `git push --force`/`-f` and a
-  `+`-prefixed refspec. `--force-with-lease` allows; `--mirror` denies.
+- **History-destroying pushes:** `git push` with `--force` or `-f` as
+  an argument of its own, or with a `+<src>:<dst>` refspec, unless
+  `--force-with-lease` or `--force-if-includes` is also given. A
+  colon-less `+<ref>` and a `-f` combined with other short flags, as in
+  `-fu`, allow; `--mirror` and `--prune` deny.
 - **Credential reads and mints:** the `aws` credential reads and mints,
   `gh auth token`, `gh auth status -t`/`--show-token` and its
   unknown-flag screen, `gh auth login --hostname`.

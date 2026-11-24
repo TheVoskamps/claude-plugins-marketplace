@@ -403,11 +403,13 @@ type simpleCommand struct {
 	// as `cat ../sibling-repo/.env`. A `/dev/null` source is not recorded (it
 	// discloses nothing, and containment would read it as an out-of-repo path).
 	//
-	// The two read tracks and the write track consume it, and nothing else does:
-	// the git/gh/aws/acli classifiers gate on hasRedirectToFile alone, so
-	// `git status < /etc/passwd` allows. That gap is left in place deliberately,
-	// since reaching into those classifiers carries a materially larger blast
-	// radius.
+	// The read tracks and the write track grade it, and among the
+	// git/gh/aws/acli classifiers only ghPublishedFileRefs reads it, in place of
+	// a gh file verb's `-` operand, so `gh pr comment 227 -F - < /etc/passwd`
+	// denies as `-F /etc/passwd` does. Every other path through those
+	// classifiers gates on hasRedirectToFile alone, so `git status < /etc/passwd`
+	// allows. That gap is left in place deliberately, since reaching into those
+	// classifiers carries a materially larger blast radius.
 	inputRedirectTargets []string
 	// redirectGlued holds the expanded literals of the words — argv operands
 	// and redirect targets alike — that the line spells with no blank between

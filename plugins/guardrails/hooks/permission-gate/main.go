@@ -150,13 +150,10 @@ func isFileTool(name string) bool {
 
 // emitDecision writes the verdict on the JSON-stdout / exit-0 channel.
 //
-// A defer emits the envelope with NO permissionDecision field, which is the
-// documented per-call abstention: the hook takes no position and the normal
-// permission pipeline resolves the call. It must NOT emit the literal
-// "defer" — Claude Code gave that wire value different semantics (it PAUSES
-// the tool call for later resumption, added for headless-resume workflows).
-// Inside a subagent a paused tool call never resolves, the tool use ends with
-// no result, and the harness tears the agent session down.
+// A defer emits the envelope with NO permissionDecision field: the gate takes
+// no position on the call. The field is never set to BucketDefer's value,
+// "defer", which on this channel is a decision of its own rather than an
+// abstention.
 //
 // The empty envelope is still non-empty JSON, which the hooks.json wrapper
 // requires: it reads "exit 0 with empty stdout" as an unrunnable gate binary

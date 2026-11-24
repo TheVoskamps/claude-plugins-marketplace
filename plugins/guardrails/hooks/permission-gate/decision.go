@@ -38,10 +38,10 @@ const (
 	// Positive grounds are decidable from the call and the path alone, which
 	// is all the gate has.
 	//
-	// Allow rather than defer for a designated-safe region is deliberate: a
-	// defer leaves whatever settings.json says about that region governing
-	// the call, such as an ask on every /tmp path, and only an allow outranks
-	// that list.
+	// Allow rather than defer for a designated-safe region is deliberate: the
+	// region meets the bar above, and a defer would hand a call the gate has
+	// positive grounds to clear back to the downstream pipeline to grade
+	// again.
 	BucketAllow Bucket = "allow"
 	// BucketDeny hard-blocks a known-destructive / boundary-violating call.
 	// Membership requires a PRESCRIPTIVE REDIRECT: a deny reason is fed back to

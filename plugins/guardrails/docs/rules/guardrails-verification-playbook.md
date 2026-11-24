@@ -23,16 +23,8 @@ JSON `permissionDecision` (`deny` / `ask` / `allow`):
 printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"<repo>","tool_input":{"command":"cat \\"$HOME/.ssh/id_rsa\\""}}' | <bin>
 ```
 
-**A defer has no `permissionDecision` at all.** The gate spells its
-abstention as the envelope with the field omitted —
-
-```json
-{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}
-```
-
-— because the literal `"defer"` makes Claude Code pause the tool call
-for later resumption, which never resolves inside a subagent. So a
-probe reads a defer as *the field's absence*, and any jq expression
+**A defer has no `permissionDecision` at all**, so a probe reads a
+defer as *the field's absence*, and any jq expression
 that pulls `.hookSpecificOutput.permissionDecision` yields `null` for
 a deferred row rather than the string `defer`. A probe table that
 buckets rows by that string therefore shows `null`, not a failure;
@@ -300,8 +292,8 @@ These commands are decisive rather than suggestive:
    every committed arch.
 
 Together those separate "the source is comments" from "the shipped
-bytes carry the same policy". The tip-rebuild `cmp` answers the
-different question of staleness, so run it too.
+bytes carry the same policy". Rebuilding and comparing, as above,
+answers the different question of staleness, so do that too.
 
 When `nm` differs on exactly one arch, the claim is still decidable.
 Diff the two `nm` dumps and require all of: only change hunks, no
@@ -516,11 +508,8 @@ it denies; a verb with no such enumeration defers instead. Grade
 **every** arm the input declares, and follow a composite arm into its
 own input type.
 
-The teaching question is asked of the DOCUMENT, not only of the verb,
-and a probe that sends the verb alone cannot see the difference. A
-document bundling a redirectable verb with one the gate can only
-refuse defers, because the deny would teach about one field and leave
-the other with nowhere to go. So a redirect-deny probe needs both
+A probe that sends the verb alone cannot see how the gate grades the
+document around it, so a redirect-deny probe needs both
 controls: the verb alone (and bundled with allow-listed companions)
 must deny, and the verb bundled with an unredirectable mutation —
 `mutation { updateIssue(…) deleteIssue(…) }` — must defer. Run the
@@ -1064,14 +1053,12 @@ table is meaningless. That happens when the working directory does not
 exist, and when relative levels counted by feel resolve back inside the
 primary clone (a worktree-escape deny, not the cross-repo one).
 
-## A teaching verdict is graded per document, not per element
+## Probe a teaching verdict per shape, not per element
 
-When a tier's membership rule is "this verdict is legitimate only
-because its message tells the caller what to do instead", the rule is a
-property of the whole input. A check that fires on the first matching
-element returns a message enumerating that element's alternatives while
-saying nothing about an uncovered sibling — a dead end, which is what
-the tier forbids.
+A check that fires on the first matching element returns a message
+enumerating that element's alternatives while saying nothing about an
+uncovered sibling, and a probe that sends one element at a time cannot
+see it.
 
 The tell is a codebase that already spells all-elements-must-pass for
 one set and not the other; mirror it. Probe per shape, not per verb:

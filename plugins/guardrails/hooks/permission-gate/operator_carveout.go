@@ -53,9 +53,12 @@ import (
 //
 // A listed path ALLOWS rather than defers: a defer only removes the gate's
 // veto and hands the call to the ordinary permission rules, which nothing here
-// establishes would permit it. The ALLOW still needs EVERY target of the call
-// to ride a carve-out, so a call mixing a listed path with an ordinary in-repo
-// one keeps the ordinary verdict.
+// establishes would permit it. On the file tools and the Bash read track
+// (containPathOperands) the ALLOW still needs EVERY target of the call to ride
+// a carve-out, so there a call mixing a listed path with an ordinary in-repo
+// one keeps the ordinary verdict. The Bash write track (containWriteOperands)
+// allows an in-worktree operand as well, so on it such a call allows:
+// `touch <listed>/x.md a.md` does.
 //
 // The listing is consulted in exactly one place, testContainmentFrom
 // (engine_b_containment.go), which reports a match as the operatorListed
@@ -187,8 +190,10 @@ type operatorCarveOutLists struct {
 // not declare, so a config carrying keys a later schema adds still parses
 // here.
 type operatorCarveOutDocument struct {
-	// SchemaVersion is the file's `schema-version` stamp. A stamp below
-	// operatorCarveOutSchemaVersion, or none, reads the whole file as absent,
+	// SchemaVersion is the file's `schema-version` stamp. It is checked only
+	// after the whole file has decoded, so a file that fails the parse denies
+	// whatever its stamp. A decoded file stamped below
+	// operatorCarveOutSchemaVersion, or not at all, is read as absent,
 	// silently; a file still spelling the schema-1
 	// `allow-read` / `allow-write` keys is stamped 1 and lands there. A
 	// higher stamp is read for the keys declared here. A non-integer value
@@ -197,8 +202,9 @@ type operatorCarveOutDocument struct {
 	// ResolveXDGEnvVars, `resolve-xdg-environment-variables`, makes the
 	// config-home and state-home roots follow $XDG_CONFIG_HOME and
 	// $XDG_STATE_HOME whenever the variable is set and non-empty
-	// (carveOutRootPath). It defaults to no; YAML's yes/no and true/false both
-	// decode, and any other value fails the parse.
+	// (carveOutRootPath). It defaults to no, as does an empty or null value.
+	// true/false and the YAML 1.1 spellings yes/no, y/n and on/off decode,
+	// each in lower, title or upper case; any other value fails the parse.
 	ResolveXDGEnvVars bool `yaml:"resolve-xdg-environment-variables"`
 	// ConfigHomeDefault, `config-home-default`, spells the config-home root
 	// when the XDG variable is not in effect: an absolute path, or one opening
@@ -260,10 +266,11 @@ func loadOperatorConfig() (operatorConfig, error) {
 // populated cases against a fixture tree rather than the developer's own
 // ~/.config. It is the one reader of the file, and decodes it once.
 //
-// An absent file, an unusable home, and a file stamped below the pin, or not
-// stamped at all, return noOperatorConfig and no error.
+// An absent file, an unusable home, and a file that decodes but is stamped
+// below the pin, or not stamped at all, return noOperatorConfig and no error.
 // A file that exists but cannot be read, or is not a YAML document of the
-// shape operatorCarveOutDocument declares, returns an error, which classify
+// shape operatorCarveOutDocument declares, returns an error whatever its
+// stamp, since the decode runs before the stamp is read, and classify
 // turns into a deny of every gated tool call. The error names no path: the
 // deny names the file as operatorCarveOutConfigDisplayPath.
 func loadOperatorConfigFrom(configPath string) (operatorConfig, error) {
