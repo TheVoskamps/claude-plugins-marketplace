@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+#
+# cr-account-links -- manage the symlinks an account directory,
+# $HOME/.claude.<name>, holds into $HOME/.claude. Runs under the bash 3.2
+# macOS ships. Needs mikefarah yq v4 or higher on PATH.
+#
+# Usage: cr-account-links list
+#        cr-account-links add <name>
+#        cr-account-links remove <name>
+#
+#   list    for each account, report each whitelisted entry as linked,
+#           missing, wrong target, dangling, real file or real directory,
+#           and each symlink into $HOME/.claude that the whitelist does
+#           not name as not whitelisted
+#   add     create the account directory if absent and each missing link,
+#           and keep each real file or directory. Changes nothing when a
+#           whitelisted symlink is dangling or has a wrong target, or when
+#           a link to create has no source.
+#   remove  remove each symlink whose target is the same name under
+#           $HOME/.claude, whitelisted or not, and leave the directory and
+#           everything else in it
+#
+# <name> holds only ASCII letters, digits, `_` and `-`, and is not
+# `backup`. An account is a directory, or a symlink to one.
+#
+# The whitelist is $HOME/.claude/.cc-tools/account-symlinks.yml, whatever
+# CLAUDE_CONFIG_DIR holds: `schema-version`, 1 or higher, and `symlinks`, a
+# list of names directly under $HOME/.claude. Nothing here writes it.
+#
+# Exit status: 0; 1 when a mode refuses, the whitelist is absent or
+# malformed, yq is missing, or a step fails, with stderr saying which. A
+# refusal changes nothing.
+set -uo pipefail
+
+# A set CDPATH would let cd resolve a relative link target elsewhere.
+unset CDPATH
+
+# die <message> -- print <message> on stderr and exit 1.
+die() {
+  printf 'cr-account-links: %s\n' "$1" >&2
+  exit 1
+}
+
+# valid_name <name> -- whether <name> can name an account. The letters are
+# spelled out because a bracket range can follow the locale's collation.
+valid_name() {
+  case "$1" in
+    '' | backup | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;
+  esac
+  return 0
+}
+
+mode=${1-}
+case "$mode:$#" in
+  list:1 | add:2 | remove:2) ;;
+  *) die "usage: cr-account-links list | add <name> | remove <name>" ;;
+esac
+name=${2-}
+if [ "$mode" != list ] && ! valid_name "$name"; then
+  die "'$name' is not a valid account name"
+fi
+
+[ -n "${HOME-}" ] || die "HOME is not set"
+claude="$HOME/.claude"
+whitelist="$claude/.cc-tools/account-symlinks.yml"
+
+command -v yq >/dev/null 2>&1 || die "yq is not on PATH; mikefarah yq v4 or higher is needed"
+yq_version=$(yq --version 2>&1)
+[[ $yq_version =~ mikefarah/yq.*version\ v?([4-9]|[1-9][0-9]+)\. ]] ||
+  die "the yq on PATH is not mikefarah yq v4 or higher: $yq_version"
+
+[ -f "$whitelist" ] || die "no whitelist at $whitelist"
+[ -r "$whitelist" ] || die "cannot read $whitelist"
+
+# query <expression> -- the yq expression's value over the whitelist, or
+# exit 1 when yq cannot evaluate it.
+query() {
+  yq eval "$1" "$whitelist" 2>/dev/null || die "$whitelist is malformed"
+}
+
+# A second YAML document adds lines to this value, so it fails the test too.
+kinds=$(query '[tag, (.["schema-version"] | tag), (.symlinks | tag), ([.symlinks[] | tag] | unique | join(","))] | join(" ")') || exit 1
+case "$kinds" in
+  '!!map !!int !!seq !!str' | '!!map !!int !!seq ') ;;
+  '!!map !!null '*) die "$whitelist has no schema-version" ;;
+  *) die "$whitelist is malformed" ;;
+esac
+stamp=$(query '.["schema-version"]') || exit 1
+case "$stamp" in
+  *[!0-9]* | 0* | '') die "$whitelist has schema-version $stamp, and 1 or higher is needed" ;;
+esac
+bad=$(query '[.symlinks[] | select(. == "" or . == "." or . == ".." or test("[/\n]"))] | length') || exit 1
+[ "$bad" = 0 ] || die "$whitelist has an entry that is empty, '.', '..', or holds a '/' or a line break"
+
+entries=()
+list=$(query '.symlinks | unique | .[]') || exit 1
+if [ -n "$list" ]; then
+  while IFS= read -r entry; do
+    entries+=("$entry")
+  done <<<"$list"
+fi
+
+claude_real=$(cd -P -- "$claude" && pwd -P) || die "cannot enter $claude"
+
+# target_parent <link> -- the physical path of the directory holding the
+# link's target, empty when there is no such directory.
+target_parent() {
+  local target dir
+  target=$(readlink "$1")
+  while [ "$target" != / ] && [ "${target%/}" != "$target" ]; do target=${target%/}; done
+  case "$target" in
+    /*) dir=${target%/*}/ ;;
+    */*) dir=${target%/*} ;;
+    *) dir=. ;;
+  esac
+  (cd -P -- "${1%/*}" && cd -P -- "$dir" && pwd -P) 2>/dev/null
+}
+
+# same_name <link> -- whether the link's target is the link's own name
+# directly under $HOME/.claude, whether or not that exists.
+same_name() {
+  local target
+  target=$(readlink "$1")
+  while [ "${target%/}" != "$target" ]; do target=${target%/}; done
+  [ "${target##*/}" = "${1##*/}" ] && [ "$(target_parent "$1")" = "$claude_real" ]
+}
+
+# into_claude <link> -- whether the link's target lies under $HOME/.claude.
+# The target's spelling counts as well as its physical place, since a
+# directory under $HOME/.claude can itself be a symlink, or be gone.
+into_claude() {
+  local parent target
+  parent=$(target_parent "$1")
+  case "$parent/" in "$claude_real"/*) return 0 ;; esac
+  target=$(readlink "$1")
+  case "$target/" in */../*) return 1 ;; esac
+  case "$target" in "$claude"/?*) return 0 ;; esac
+  return 1
+}
+
+# entry_state <path> -- what stands at an account's whitelisted entry.
+entry_state() {
+  if [ ! -L "$1" ]; then
+    if [ -d "$1" ]; then
+      echo "real directory"
+    elif [ -e "$1" ]; then
+      echo "real file"
+    else
+      echo missing
+    fi
+  elif [ ! -e "$1" ]; then
+    echo dangling
+  elif same_name "$1"; then
+    echo linked
+  else
+    echo "wrong target"
+  fi
+}
+
+# whitelisted <name> -- whether the whitelist names <name>.
+whitelisted() {
+  local entry
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    [ "$entry" != "$1" ] || return 0
+  done
+  return 1
+}
+
+# say <state> <entry> -- print one report line.
+say() {
+  printf '  %-15s  %s\n' "$1" "$2"
+}
+
+shopt -s nullglob dotglob
+
+if [ "$mode" = list ]; then
+  found=0
+  for account in "$HOME"/.claude.*; do
+    if [ ! -d "$account" ] || ! valid_name "${account##*/.claude.}"; then continue; fi
+    found=1
+    printf '%s  %s\n' "${account##*/.claude.}" "$account"
+    for entry in ${entries[@]+"${entries[@]}"}; do
+      state=$(entry_state "$account/$entry")
+      case "$state" in
+        "wrong target" | dangling) say "$state" "$entry -> $(readlink "$account/$entry")" ;;
+        *) say "$state" "$entry" ;;
+      esac
+    done
+    for path in "$account"/*; do
+      if [ -L "$path" ] && ! whitelisted "${path##*/}" && into_claude "$path"; then
+        say "not whitelisted" "${path##*/} -> $(readlink "$path")"
+      fi
+    done
+  done
+  [ "$found" -eq 1 ] || echo "no accounts"
+  exit 0
+fi
+
+account="$HOME/.claude.$name"
+
+if [ "$mode" = add ]; then
+  if [ ! -d "$account" ] && { [ -e "$account" ] || [ -L "$account" ]; }; then
+    die "$account exists and is not a directory"
+  fi
+  # Every problem is found before anything is created.
+  problems=0
+  states=()
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    state=$(entry_state "$account/$entry")
+    states+=("$state")
+    problem=
+    case "$state" in
+      missing) [ -e "$claude/$entry" ] || problem="$claude/$entry does not exist" ;;
+      dangling | "wrong target") problem="$account/$entry is a symlink to $(readlink "$account/$entry") ($state)" ;;
+    esac
+    if [ -n "$problem" ]; then
+      printf 'cr-account-links: %s\n' "$problem" >&2
+      problems=1
+    fi
+  done
+  [ "$problems" -eq 0 ] || die "nothing was changed"
+
+  if [ ! -d "$account" ]; then
+    mkdir -- "$account" || die "cannot create $account"
+  fi
+  printf '%s  %s\n' "$name" "$account"
+  i=0
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    case "${states[$i]}" in
+      missing)
+        ln -s -- "$claude/$entry" "$account/$entry" || die "cannot create $account/$entry"
+        say created "$entry"
+        ;;
+      linked) say linked "$entry" ;;
+      *) say kept "$entry (${states[$i]})" ;;
+    esac
+    i=$((i + 1))
+  done
+  exit 0
+fi
+
+[ -d "$account" ] || die "no account directory $account"
+printf '%s  %s\n' "$name" "$account"
+for path in "$account"/*; do
+  if [ -L "$path" ] && same_name "$path"; then
+    rm -f -- "$path" || die "cannot remove $path"
+    say removed "${path##*/}"
+  fi
+done
+exit 0

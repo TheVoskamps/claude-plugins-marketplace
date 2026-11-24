@@ -148,12 +148,12 @@ it.
 ## A transfer is an instruction edit, and holds the whole file to standard
 
 The destination is markdown whose reader is a model, so
-`~/.claude/docs/rules/claude-code-markdown-instructions-style.md`
-governs the edit — it is on-demand, nothing expands it for you, and
-this is the trigger to go and read it. Apply what it says to the
-sections already in the destination as well as to the prose you are
-adding, and delete what fails. Everything the guide argues for is left
-there rather than repeated here.
+`docs/rules/claude-code-markdown-instructions-style.md` in the directory
+`claude-home` prints governs the edit — it is on-demand, nothing expands
+it for you, and this is the trigger to go and read it. Apply what it
+says to the sections already in the destination as well as to the prose
+you are adding, and delete what fails. Everything the guide argues for
+is left there rather than repeated here.
 
 ## How a transfer is phrased
 

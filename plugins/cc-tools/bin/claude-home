@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# claude-home -- print the absolute path of Claude Code's config
+# directory: ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, an empty variable
+# counting as unset. A relative value is taken from the current directory.
+# Runs under the bash 3.2 macOS ships.
+#
+# Usage: claude-home
+#
+# Exit status: 0 with the path on stdout; 1 when CLAUDE_CONFIG_DIR and
+# HOME are both unset or empty, or when given an argument, with stderr
+# saying which.
+set -uo pipefail
+
+if [ "$#" -gt 0 ]; then
+  echo "claude-home: takes no arguments" >&2
+  exit 1
+fi
+
+if [ -z "${CLAUDE_CONFIG_DIR:-${HOME-}}" ]; then
+  echo "claude-home: neither CLAUDE_CONFIG_DIR nor HOME is set" >&2
+  exit 1
+fi
+
+dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+case "$dir" in
+  /*) ;;
+  *) dir="$PWD/$dir" ;;
+esac
+printf '%s\n' "$dir"
