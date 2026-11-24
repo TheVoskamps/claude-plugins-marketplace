@@ -54,9 +54,7 @@ survive that rather than assume the file is readable. Named exception:
 `sdlc`'s config-tier reads abort on a refused read, naming the path. A
 refused read cannot be told from a present file that holds settings,
 so falling back to the defaults would silently drop settings the
-operator wrote. See
-[`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md)
-for the carve-out's schema.
+operator wrote.
 
 ## State goes under `$XDG_STATE_HOME/<plugin>/`
 

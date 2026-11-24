@@ -399,9 +399,8 @@ env:
   rule covers the `mounts` entries only — a *repo* path (or `$HOME`, or
   `$TMPDIR`) carrying a comma breaks the built-in shares, the EFI store,
   the disk, the console log or the gvproxy socket the same way and is not
-  checked; the launch fails loudly on the argument rather than booting, and
-  `payload/README.md` → *The tag is not just a tag* records why it is left
-  there. The one such path this feature adds — the single-file wrap
+  checked; the launch fails loudly on the argument rather than booting.
+  The one such path this feature adds — the single-file wrap
   directory (`$RUN/mount-wrap`) — is checked: the launcher aborts on a
   comma there when it wraps a file, naming the run dir. That is an
   earlier, cause-naming abort rather than a rescue; the other arguments
@@ -440,9 +439,7 @@ env:
   fstab mounts it `ro`. A failed `gpg --verify` or a checksum mismatch
   **aborts the launch**. On a warm boot (already cached), the launcher
   drops `claude.ai` /
-  `downloads.claude.ai` from the guest egress allowlist. See the payload
-  README's "Verified claude cache" section for the operator's one-time
-  key-import step.
+  `downloads.claude.ai` from the guest egress allowlist.
 - `claude.renderer` selects the in-guest claude's terminal renderer on
   the interactive console (the vfkit `stdio` byte pipe). Both renderers
   work over the console — this is a preference, not a workaround:
@@ -475,8 +472,7 @@ key set per the documented schema is always read.) The bake document's
 `packages:` and `apt_sources:` are **consumed** by the guest-image build
 (issue #105 — see "Guest image" below). The boot document's `packages:`,
 `update_at_boot`, and `add_apt_uris_to_allowlist` are **consumed** by the
-guest boot launcher's boot-time apt phase (issue #106 — see "Boot-time
-package install/update" in `payload/README.md`). The bake document's
+guest boot launcher's boot-time apt phase (issue #106). The bake document's
 `claude.marketplaces` + `claude.plugins.bake` are **consumed** by the
 image build's plugin bake step, and the boot document's
 `claude.plugins.install_at_boot` / `.update_at_boot` /
@@ -883,9 +879,8 @@ Claude Code updates daily, so the guest image does **not** bake in
   session on the `hvc1` console (issue #88). `claude` is never
   baked in and never fetched-and-run inside the guest (no
   `curl install.sh | bash` anywhere — there is no such fallback); the
-  host fetches, verifies, and caches it (see "Verified claude cache" in
-  the payload README). The base only changes when the base OS pin or the
-  launcher logic changes — not when claude does.
+  host fetches, verifies, and caches it. The base only changes when the
+  base OS pin or the launcher logic changes — not when claude does.
 - The base is **version-pinned** in `payload/build-guest-image.sh`
   (`BASE_OS_REV` + `LAUNCHER_LOGIC_REV`; never the claude version).
 - **Baked packages (issue #105, re-keyed by #179).** A **bake** file's
@@ -982,13 +977,7 @@ Claude Code updates daily, so the guest image does **not** bake in
   apt/dpkg tooling into the guest rootfs, since it installs baked packages
   from OUTSIDE the image with its own build-container apt) — this is covered
   by `LAUNCHER_LOGIC_REV`, the base-version pin, not by the image-identity
-  hash. See "Boot-time package
-  install/update" and "Mid-session apt proxying, metadata diet, and root
-  headroom" in `payload/README.md` for the full mechanics (the reused
-  `render_apt_source` shape, the proxy `-o Acquire::*::Proxy=` flags and
-  persistent `apt.conf.d` drop-in, the apt metadata diet, `apt-get clean`,
-  the failure policy, and the `add_apt_uris_to_allowlist` derived-egress
-  gate).
+  hash.
 - On startup, the launcher **ensures the image exists and matches the
   pinned version**. If the resolved image is missing or version-mismatched,
   it builds the image (`payload/build-guest-image.sh --output …`, passing the
@@ -1141,15 +1130,14 @@ the host `~/.claude.json` is missing or lacks a usable
 non-zero, or the blob has no usable `claudeAiOauth` key. `egress.allow`
 must include
 the Anthropic API host (`api.anthropic.com`) so the in-guest `claude`
-can reach it. See the payload README's "Authentication" section for the
-full mechanic.
+can reach it.
 
 ## Requirements
 
 `yq` (mikefarah v4+), `git`, `python3` (stock on macOS; used to select
 the `claudeAiOauth` key from the Keychain blob — see "Authentication"
 above), `gpg` (`brew install gnupg`, for the host-side verified claude
-cache — see "Verified claude cache" in the payload README), a sha256
+cache), a sha256
 tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
 actual VM boot — `vfkit` and `tinyproxy` (for the bundled default
 `proxy.cmd`). A launch that has to **build** the guest image is the only
@@ -1272,5 +1260,4 @@ rather than removed, so the next build reuses it.
 
 There is no config surface for any of this: it is launcher plumbing, not
 policy. Every init/start/stop is logged to stderr as it happens, and
-those log lines are its only trace. See the payload README's "The
-launcher manages the podman machine" section for the mechanic.
+those log lines are its only trace.

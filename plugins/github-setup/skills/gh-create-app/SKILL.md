@@ -134,8 +134,7 @@ in place of the starter set.
 ## Step 0: Payload
 
 The template payloads this skill renders ship with the plugin at
-`${CLAUDE_PLUGIN_ROOT}/payload/gh-create-app/`. The placeholder/render
-convention is documented in `${CLAUDE_PLUGIN_ROOT}/payload/README.md`.
+`${CLAUDE_PLUGIN_ROOT}/payload/gh-create-app/`.
 
 ## Step 1: Pre-flight — repo root, auth, identifiers, inputs
 
@@ -351,8 +350,7 @@ mint a short-lived installation token with
 privileged work as the App.
 
 Never show the snippet with unresolved `__...__` placeholders; if any
-remain, abort per the `${CLAUDE_PLUGIN_ROOT}/payload/README.md`
-unresolved-placeholder rule.
+remain, abort.
 
 ## Step 6: Verify a minted token acts as the App
 
@@ -512,8 +510,7 @@ converge**, never duplicate:
   A "looks fine, proceeding" without explicit user confirmation is not
   approval.
 - **Never write a file (metadata doc) or show a snippet with
-  unresolved `__...__` placeholders.** Abort per the
-  `${CLAUDE_PLUGIN_ROOT}/payload/README.md` unresolved-placeholder rule.
+  unresolved `__...__` placeholders.** Abort instead.
 - **Never edit anything outside the current repo.** The only on-disk
   write is the metadata doc under `<repo-root>/<metadata-path>`.
   Templates are **read** from

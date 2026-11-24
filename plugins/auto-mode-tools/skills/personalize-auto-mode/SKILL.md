@@ -33,8 +33,7 @@ showing the schema below. Do not invent facts and do not read them out
 of the block you are rewriting.
 
 The schema, with placeholder values — no machine's real facts ship in
-this plugin. The plugin's `README.md` carries this same block
-verbatim, so a schema change edits both copies:
+this plugin:
 
 ```yaml
 schema-version: 1

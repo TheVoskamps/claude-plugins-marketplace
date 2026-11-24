@@ -7,10 +7,9 @@ Read it before forming a hypothesis about the tool.
 How the tools an agent reaches for in this repo actually behave, where
 that differs from the obvious expectation. These are not verification
 techniques — `docs/rules/verification-playbook.md` and its two siblings own
-those — and not permission-gate policy, which
-`plugins/guardrails/hooks/permission-gate/README.md` owns. This file is
-for the cases where a command runs, returns success, and means
-something other than what it appears to.
+those — and not permission-gate policy. This file is for the cases
+where a command runs, returns success, and means something other than
+what it appears to.
 
 ## The Bash tool's shell is zsh, so drive bash scripts under bash
 

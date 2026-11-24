@@ -39,8 +39,7 @@ exactly the human-facing auto-merge + auto-rebase + `/rebase` surface it
 always has, and the Dependabot job/step are dropped cleanly.
 
 The workflows are rendered from templates in
-`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/` using the placeholder
-mechanism in `${CLAUDE_PLUGIN_ROOT}/payload/README.md`. They run as a **GitHub
+`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`. They run as a **GitHub
 App**, not the default `GITHUB_TOKEN` — the default token gets
 `FORBIDDEN: Resource not accessible by integration` on
 `enablePullRequestAutoMerge`, and pushes made with `GITHUB_TOKEN` do not
@@ -131,9 +130,7 @@ merges (no review required); one on a code-owned path is left for a human
 ## Step 0: Payload
 
 The workflow template payloads this skill renders ship with the plugin
-at `${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`. The
-placeholder/render convention is documented in
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md`.
+at `${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`.
 
 ## Step 1: Pre-flight — repo root and tooling
 
@@ -168,8 +165,7 @@ a missing org scope.
 
 ## Step 2: Resolve environment-inferred placeholders
 
-Per the resolution order in `${CLAUDE_PLUGIN_ROOT}/payload/README.md`, infer the
-environment placeholders from the target repo:
+Infer the environment placeholders from the target repo:
 
 ```bash
 gh_org="$(gh repo view --json owner -q .owner.login)"
@@ -230,8 +226,7 @@ each before rendering:
 | `__INSTALL_GATE_WORKFLOW__` | `dependency-install-gate` | Name of the dependency-install-gate workflow whose npm check failing signals a lockfile desync. Drives the lockfile-regen pass in `auto-rebase-prs.yml`. If the repo has no such workflow, the lockfile-regen step (and the two shipped scripts) are dropped. |
 | `__INSTALL_GATE_NPM_CHECK__` | `npm` | Name of the npm `CheckRun` within `__INSTALL_GATE_WORKFLOW__` that fails on a lockfile desync. |
 
-Discover the exact placeholder set each template needs with the scan
-from `${CLAUDE_PLUGIN_ROOT}/payload/README.md`:
+Discover the exact placeholder set each template needs:
 
 ```bash
 grep -ohE '__[A-Z][A-Z0-9_]*__' \
@@ -305,7 +300,7 @@ the render recipe in Step 6), so the templates carry no bare
    a one-element list, which is valid.
 
 A template must never render with an unresolved placeholder. If any
-remain after this step, abort per `${CLAUDE_PLUGIN_ROOT}/payload/README.md`:
+remain after this step, abort:
 
 > Unresolved placeholder `__NAME__` in template
 > `gh-repo-setup-pr-automation/<file>`. Pass a value or add inference
@@ -361,9 +356,9 @@ asks to change a value, update it and re-display this halt.
 ## Step 6: Render and write the workflow files
 
 For each template in
-`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`, perform
-the string substitution from `${CLAUDE_PLUGIN_ROOT}/payload/README.md`
-("Rendering a template") and write the result into the repo. The two
+`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`, substitute
+every placeholder with its resolved value and write the result into the
+repo. The two
 `.yml` workflow templates render under `.github/workflows/`; the two
 `.sh` scripts render under `.github/scripts/` **verbatim** (they carry no
 placeholders, exactly like `gh-repo-setup-protection`'s

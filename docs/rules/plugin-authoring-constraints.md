@@ -66,8 +66,7 @@ revision moves them.
    `gh_wrapper` and `git_wrapper` this way. Keep such binaries
    secret-free — they travel with the plugin (and any public mirror),
    so anything secret-bearing must stay in an un-mirrored per-machine
-   location instead (see that plugin's `payload/README.md` for the
-   ships-vs-per-machine split). The `claude-vm` plugin's `bin/claude-vm`
+   location instead. The `claude-vm` plugin's `bin/claude-vm`
    preflight launcher (issue #51) is a second instance of the same
    pattern: it runs as the bare `claude-vm` command and forwards to
    `payload/claude-vm.sh`. A bare-name call needs an allow rule keyed
@@ -123,17 +122,10 @@ rather than per-caller; what each consumer keeps is its own **action**
 per reported outcome, which is exactly the deliberate per-caller
 difference the extraction must not flatten.
 
-A new skill's registration surfaces are the owning plugin's
-`plugin.json` `description` and — where the plugin's own `README.md`
-rosters what it contains — that roster as well. The root `README.md`
-roster registers the *plugin*, not each skill by name: its bullet
-exists and describes the plugin, so a skill added to an
-already-rostered plugin needs no edit there.
-`.claude-plugin/marketplace.json` is per-plugin, not per-skill, so a
-new skill in an already-published plugin needs no entry there either.
-A new `dependencies` edge's surface is the depending plugin's own
-`README.md`: the edge is a fact about that plugin, so its README names
-it.
+A new skill's registration surface is the owning plugin's
+`plugin.json` `description`. `.claude-plugin/marketplace.json` is
+per-plugin, not per-skill, so a new skill in an already-published
+plugin needs no entry there.
 
 To read which issues a PR body closes from outside `github-prs`,
 invoke `/github-prs:pr-closing-issues`, and never describe the
@@ -147,9 +139,8 @@ bundling the `issues` plugin's reader contract — the coupling that
 issue #143 removed from `sdlc` — so the path travels with every one of
 those parses, and with the abort message each emits when the file is
 missing. The copies are the design rather than drift, and what keeps
-them in step is a grep over the literal, owned by
-`plugins/issues/README.md` → "The config paths are literals every
-consumer spells itself" and not restated here. Naming that owner is not the
+them in step is owned by `plugins/issues/CLAUDE.md` and not restated
+here. Naming that owner is not the
 sweep rule "Where a newly demonstrated fact belongs" forbids below:
 there the arms differ per consumer by design, here every copy is one
 string and any difference is a defect.
@@ -579,25 +570,14 @@ fact:
   with a citation to the hooks documentation. It does not belong here:
   such facts hold for any `settings.json` hook with no plugin
   involved, so they are off this file's charter.
-- **A new plugin's roster bullet** belongs in the root `README.md`.
-  That is the one doc that reliably goes stale when a plugin is added,
-  since nothing else cross-references the plugin list by name.
-- **A new plugin's own README** is `plugins/<name>/README.md`. Every
-  plugin carries one, so adding a plugin means a root README **and** a
-  roster bullet; a README deeper in the plugin's tree is a component
-  document and does not stand in for it.
 - **A fact about working inside one plugin's tree** — which file owns
-  which statement, what a change there sweeps — belongs in that
-  plugin's own README, not here and not in a second file under
-  `docs/rules/`.
-
-Two surfaces a skill-extraction round leaves behind: the consumer
-plugin's README does not mention the `dependencies` edge its
-`plugin.json` gained, even when that README has a section on how the
-plugin resolves things internally; and a consumer README's "what
-differs between these consumers" sentence enumerates the arms on which
-they diverge, so giving the extracted skill a new reported outcome
-makes its scoping false. Only opening both consumers settles it.
+  which statement, what a change there sweeps — belongs in
+  `plugins/<name>/CLAUDE.md` and the on-demand files it routes, not
+  here and not in a second file under `docs/rules/`.
+- **A plugin's README** is Documentation for humans, never a
+  destination for such a fact. Where a plugin ships a README that
+  rosters its skills, agents, executables, hooks, config keys or state
+  files, the PR that changes one updates the roster.
 
 Do **not** answer surviving duplication here with a sweep rule. A
 sweep rule over duplicated behavior is itself the defect — deliberate

@@ -184,9 +184,7 @@ If the user passed nothing, use the defaults above.
 ## Step 0: Payload
 
 The template payloads this skill renders ship with the plugin at
-`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-protection/`. The
-placeholder/render convention is documented in
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md`.
+`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-protection/`.
 
 ## Step 1: Pre-flight — repo root, auth, and identifiers
 
@@ -215,8 +213,7 @@ helpful for the GHAS toggles).
 Step 5a; it is already a hard dependency of the global config's hooks).
 Step 5a hard-stops if it is missing.
 
-Resolve the repo identifiers (these feed the placeholders — see
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` step 1 inference table):
+Resolve the repo identifiers (these feed the placeholders):
 
 ```bash
 gh repo view --json nameWithOwner -q .nameWithOwner   # __GH_ORG__/__GH_REPO__
@@ -557,8 +554,7 @@ block here.
     subsumes, overwrite and report.
 
 Never write the file with unresolved `__...__` placeholders. If any
-remain after substitution, abort per the README's unresolved-
-placeholder rule.
+remain after substitution, abort.
 
 ## Step 4: GHAS / repo security settings (convergent toggles)
 
@@ -1224,8 +1220,7 @@ never dead weight or noise). Both files are always written together
 (the workflow calls the script).
 
 Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`. If it
-remains after rendering, abort per the README's unresolved-placeholder
-rule.
+remains after rendering, abort.
 
 ### Converge the gate files (idempotency)
 
@@ -1376,8 +1371,7 @@ more (an absent ecosystem produces no leg and a green aggregator). Both
 files are always written together (the workflow calls the script).
 
 Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`. If it
-remains after rendering, abort per the README's unresolved-placeholder
-rule.
+remains after rendering, abort.
 
 ### Converge the gate files (idempotency, pinned-gate)
 
@@ -1449,8 +1443,7 @@ Target paths:
    `dependency-install-gate.sh` convention.
 
 Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`. If it
-remains after substitution, abort per the README's unresolved-
-placeholder rule.
+remains after substitution, abort.
 
 ### Converge the guard files (idempotency)
 
@@ -2145,7 +2138,7 @@ mutates no server-side state, and leaves `git status` clean.
   pin. "Match the payload" thus excludes downgrading a deliberately-
   newer SHA-pinned repo pin.
 - **Never write a file with unresolved `__...__` placeholders.** Abort
-  per the README's unresolved-placeholder rule.
+  instead.
 - **Always write `dependabot.yml`, armed with the full supported
   ecosystem set.** Render one `updates:` block per supported ecosystem
   (`github-actions`, `npm`, `pip`, `docker`, `gomod`, `bundler`,

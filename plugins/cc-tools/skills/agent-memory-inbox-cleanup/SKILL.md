@@ -37,7 +37,7 @@ Two, and no more:
 
 | Verdict | What happens |
 | --- | --- |
-| **transfer** | the constraint is written into a governing README, a `docs/rules/*.md`, or `CLAUDE.md`, and the inbox entry is deleted |
+| **transfer** | the constraint is written into the nearest governing `CLAUDE.md`, else an on-demand `docs/rules/*.md` routed from it, else the root `CLAUDE.md`, and the inbox entry is deleted |
 | **delete** | the inbox entry is deleted and nothing is written |
 
 There is no third verdict that keeps an entry where it is — nothing
@@ -113,11 +113,11 @@ cannot take back.
 
 ### Land the transfers
 
-Stage by explicit path — `CLAUDE.md`, each `docs/rules/*.md`, and each
-README you changed, whether you wrote a constraint into it, cut one
-out of it, or created the file to receive a transfer — a README you
-created is untracked, so staging it by path is what puts it in the
-commit at all — plus any companion edit the repo's own rules obliged
+Stage by explicit path each `CLAUDE.md` and each `docs/rules/*.md` you
+changed, whether you wrote a constraint into it, cut one out of it, or
+created the file to receive a transfer — a file you created is
+untracked, so staging it by path is what puts it in the commit at all
+— plus any companion edit the repo's own rules obliged
 that change to carry. Never `git add -A`, and never a directory-wide
 add. Nothing under `.claude/agent-memory/` is ever staged: the memory
 tree is not part of this flow.

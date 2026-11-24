@@ -122,8 +122,10 @@ rubric's unsubstantiated-delete fallback resolves to, is `persist`.
 
 What counts as durable, which file the constraint lands in, and how it
 is phrased are `skills/lib/agent-memory-grading.md` → "What counts as
-durable", "Where a transfer lands", and "How a transfer is phrased".
-Then delete the memory entry.
+durable", "Where a transfer lands", and "How a transfer is phrased":
+the nearest governing `CLAUDE.md`, else an on-demand `docs/rules/*.md`
+routed from it, else the root `CLAUDE.md`. Then delete the memory
+entry.
 
 #### Persist — keep the entry
 
@@ -225,11 +227,11 @@ defect to chase.
 ### Land the result
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
-every memory path you deleted or edited, plus `CLAUDE.md`, each
-`docs/rules/*.md`, and each README you changed, whether you wrote a
-constraint into it, cut one out of it, or created the file to receive
-a transfer — a README you created is untracked, so staging it by path
-is what puts it in the commit at all — plus any companion edit the
+every memory path you deleted or edited, plus each `CLAUDE.md` and
+each `docs/rules/*.md` you changed, whether you wrote a constraint into
+it, cut one out of it, or created the file to receive a transfer — a
+file you created is untracked, so staging it by path is what puts it
+in the commit at all — plus any companion edit the
 repo's own rules obliged that change to carry. Never `git add -A`, and
 never a directory-wide add.
 
@@ -297,7 +299,7 @@ curation.
 nothing. Leave in place whatever "Apply the verdicts" step 3 already
 staged for formerly-untracked entries — that staging **is** their
 undo; do not `git reset` it to make the tree match "nothing staged"
-literally. Show `git diff --stat`, and name alongside it any README you
+literally. Show `git diff --stat`, and name alongside it any file you
 created to receive a transfer — that file is untracked, so the stat
 never mentions it — then stop. The working tree (staged plus unstaged)
 is the deliverable, and the human decides what to commit.

@@ -36,9 +36,7 @@ The community-file starters this skill installs — `LICENSE`,
 `PATENTS`, `PRIOR_ART.md` — are **reused from the
 `repo-public-mirror-setup` payload** rather than reinvented, per the
 issue. They live as templates under
-`${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`, following the
-bundled-payload convention (see `${CLAUDE_PLUGIN_ROOT}/payload/README.md`
-for the placeholder/render/existence-check contract). Treat that
+`${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`. Treat that
 directory as `$PAYLOAD` for the rest of this skill.
 
 `README.md` and `CONTRIBUTORS` are **not** reused from that payload:
@@ -57,13 +55,10 @@ Placeholders used by the reused templates:
   `PRIOR_ART.md` prior-art notice. Use today's date by default; confirm
   with the user.
 
-Render with simple string substitution (the
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` reference recipe): read a
-template with `Read`, replace each `__PLACEHOLDER__` with its resolved
-value, and write the result with `Write`. Never write a rendered file
-that still contains a `__...__` placeholder — abort per the
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` "Resolving placeholder values"
-rule if any remains.
+Render with simple string substitution: read a template with `Read`,
+replace each `__PLACEHOLDER__` with its resolved value, and write the
+result with `Write`. Never write a rendered file that still contains a
+`__...__` placeholder — abort if any remains.
 
 ---
 
@@ -71,10 +66,8 @@ rule if any remains.
 
 The community-file template payloads this skill reuses ship with the
 plugin at `${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`
-(`$PAYLOAD`). The placeholder/render convention is documented in
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md`. If `$PAYLOAD` is missing,
-abort with the standard `${CLAUDE_PLUGIN_ROOT}/payload/README.md`
-existence-check message.
+(`$PAYLOAD`). If `$PAYLOAD` is missing, abort, naming the missing
+directory.
 
 ## Step 1: Pre-flight — repo root, auth, visibility
 
