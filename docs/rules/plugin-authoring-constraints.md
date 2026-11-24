@@ -138,12 +138,7 @@ inline-parses only the front-matter fields it needs rather than
 bundling the `issues` plugin's reader contract — the coupling that
 issue #143 removed from `sdlc` — so the path travels with every one of
 those parses, and with the abort message each emits when the file is
-missing. The copies are the design rather than drift, and what keeps
-them in step is owned by `plugins/issues/CLAUDE.md` and not restated
-here. Naming that owner is not the
-sweep rule "Where a newly demonstrated fact belongs" forbids below:
-there the arms differ per consumer by design, here every copy is one
-string and any difference is a defect.
+missing. The copies are the design rather than drift.
 
 ### Sharing an interface across an agent set: one preloaded skill
 
