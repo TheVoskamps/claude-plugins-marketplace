@@ -279,7 +279,7 @@ test("a command tag and its base directory in the next message are recorded once
   expect(entries.filter((line) => line.endsWith("git-branch-sync/SKILL.md"))).toHaveLength(1);
 });
 
-test("a skill with no plugin prefix resolves under the project, then ~/.claude/skills", async ($, on) => {
+test("a skill with no plugin prefix resolves under the project, then the config directory's skills", async ($, on) => {
   const project = `${ROOT}/.claude/skills/mine/SKILL.md`;
   const user = `${HOME}/.claude/skills/theirs/SKILL.md`;
   stub(on, { [project]: "project skill", [user]: "user skill" });
