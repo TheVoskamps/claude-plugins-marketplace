@@ -44,7 +44,18 @@ import (
 // file itself is ever allowed (isSelfWrite, below). In practice the hook
 // inherits the launcher's environment, so the only same-session route to a
 // relocated root is a nested `claude` launch from the Bash tool with an XDG
-// assignment in front of it.
+// assignment in front of it. The gate deliberately neither denies nor detects
+// that launch: it would be adjudicating an assignment whose effect on a root it
+// cannot see, in a session it does not adjudicate, and the operator who opted
+// in accepted that exposure, which the two denies bound. A change that wants
+// such a rule is adding one. harnessScratchDir is a different case and stays a
+// literal: no operator file names it, and its region is safe by construction.
+//
+// A listed path ALLOWS rather than defers: a defer only removes the gate's
+// veto and hands the call to the ordinary permission rules, which nothing here
+// establishes would permit it. The ALLOW still needs EVERY target of the call
+// to ride a carve-out, so a call mixing a listed path with an ordinary in-repo
+// one keeps the ordinary verdict.
 //
 // The listing is consulted in exactly one place, testContainmentFrom
 // (engine_b_containment.go), which reports a match as the operatorListed
@@ -77,8 +88,8 @@ const (
 )
 
 // The XDG environment variables the two non-home roots follow when the
-// operator opts in. Named here rather than at the use site so the pair the
-// README documents and the pair the code reads are one list.
+// operator opts in, named once here so every reader of either variable uses
+// the same pair.
 const (
 	xdgConfigHomeEnv = "XDG_CONFIG_HOME"
 	xdgStateHomeEnv  = "XDG_STATE_HOME"
@@ -122,30 +133,103 @@ type operatorCarveOut struct {
 	selfWritePaths []string
 }
 
-// operatorCarveOutLists is one root's pair of lists in the on-disk shape.
+// operatorCarveOutLists is one root's pair of lists in the on-disk shape. Each
+// entry is a glob relative to its root (matchCarveOutGlob): `**` matches zero
+// or more whole path segments, and every other segment is a path.Match
+// pattern whose `*` and `?` do not cross a separator. A glob carrying a `..`
+// segment can never match. Nothing under a `.git/` segment is handed out
+// whatever a glob says.
 type operatorCarveOutLists struct {
-	Read  []string `yaml:"read"`
+	// Read lists the paths a read-class call may reach under this root. It
+	// defaults to empty when absent; a value that is not a sequence of
+	// scalars fails the parse.
+	Read []string `yaml:"read"`
+	// Write lists the paths a write may reach under this root, and implies
+	// Read for the same paths (allows). It defaults to empty when absent; a
+	// value that is not a sequence of scalars fails the parse. No write to
+	// this config file itself is allowed, whatever the list says
+	// (isSelfWrite).
 	Write []string `yaml:"write"`
 }
 
-// operatorCarveOutDocument is the on-disk shape. Unknown keys are tolerated:
-// the unmarshal ignores every key this struct does not declare, so a config
-// carrying keys a later schema adds still parses here — and a config still
-// spelling the schema-1 `allow-read` / `allow-write` keys parses as no entries
-// at all.
+// operatorCarveOutDocument is the on-disk shape of the operator's config file,
+// `~/.config/guardrails/config.yml`, which nothing installs and the operator
+// writes by hand. It is read at that literal path whatever config-home
+// resolves to (operatorCarveOutConfigDirName). An example:
 //
-// RedirectBashFileWork is decoded as a node rather than a string so that a
-// value of another YAML type is an unknown value, warned about and read as
-// worktree, rather than a document that fails to parse.
+//	schema-version: 2
+//	resolve-xdg-environment-variables: yes
+//	config-home-default: ~/.config
+//	state-home-default: ~/.local/state
+//	redirect-bash-file-work: worktree
+//	config-home:
+//	  read:
+//	    - gh/config.yml
+//	  write:
+//	    - issues/**
+//	state-home:
+//	  write:
+//	    - sdlc/**
+//	home:
+//	  read:
+//	    - .ssh/config
+//
+// An absent file is the ordinary case: no carve-out entry anywhere, and the
+// file-work redirect in its worktree default, with nothing reported. A file
+// that exists but cannot be read, or that does not decode into this struct —
+// a value of the wrong YAML type for its field, say — denies every gated tool
+// call, a write to the file included, as config:unusable until it is fixed or
+// removed (classify): both the carve-out and the redirect come from this file,
+// and a gate that guessed at a broken one would apply policy the operator did
+// not write.
+//
+// Unknown keys are tolerated: the unmarshal ignores every key this struct does
+// not declare, so a config carrying keys a later schema adds still parses
+// here.
 type operatorCarveOutDocument struct {
-	SchemaVersion        int                   `yaml:"schema-version"`
-	ResolveXDGEnvVars    bool                  `yaml:"resolve-xdg-environment-variables"`
-	ConfigHomeDefault    string                `yaml:"config-home-default"`
-	StateHomeDefault     string                `yaml:"state-home-default"`
-	ConfigHome           operatorCarveOutLists `yaml:"config-home"`
-	StateHome            operatorCarveOutLists `yaml:"state-home"`
-	Home                 operatorCarveOutLists `yaml:"home"`
-	RedirectBashFileWork yaml.Node             `yaml:"redirect-bash-file-work"`
+	// SchemaVersion is the file's `schema-version` stamp. A stamp below operatorCarveOutSchemaVersion, or none, reads the
+	// whole file as absent, silently; a file still spelling the schema-1
+	// `allow-read` / `allow-write` keys is stamped 1 and lands there. A
+	// higher stamp is read for the keys declared here. A non-integer value
+	// fails the parse.
+	SchemaVersion int `yaml:"schema-version"`
+	// ResolveXDGEnvVars, `resolve-xdg-environment-variables`, makes the
+	// config-home and state-home roots follow $XDG_CONFIG_HOME and
+	// $XDG_STATE_HOME whenever the variable is set and non-empty
+	// (carveOutRootPath). It defaults to no; YAML's yes/no and true/false both
+	// decode, and any other value fails the parse.
+	ResolveXDGEnvVars bool `yaml:"resolve-xdg-environment-variables"`
+	// ConfigHomeDefault, `config-home-default`, spells the config-home root
+	// when the XDG variable is not in effect: an absolute path, or one opening
+	// with `~` or `~/`, expanded against the process home. There is no
+	// built-in default: absent, empty, relative, or opening with any other
+	// tilde shape such as `~someone/`, the root does not exist and every glob
+	// under config-home is dead, silently (absoluteRootPath). A non-scalar
+	// value fails the parse.
+	ConfigHomeDefault string `yaml:"config-home-default"`
+	// StateHomeDefault, `state-home-default`, spells the state-home root, under
+	// the same rules as ConfigHomeDefault.
+	StateHomeDefault string `yaml:"state-home-default"`
+	// ConfigHome, `config-home`, lists globs relative to the config-home root.
+	// Absent, it lists nothing; a value that is not a mapping fails the parse.
+	ConfigHome operatorCarveOutLists `yaml:"config-home"`
+	// StateHome, `state-home`, lists globs relative to the state-home root,
+	// under the same rules as ConfigHome.
+	StateHome operatorCarveOutLists `yaml:"state-home"`
+	// Home, `home`, lists globs relative to the process home, which has no
+	// setting, under the same rules as ConfigHome. An unusable home leaves the
+	// whole carve-out empty. A `**` here opens every file under the home
+	// directory, credential files included, for reading.
+	Home operatorCarveOutLists `yaml:"home"`
+	// RedirectBashFileWork, `redirect-bash-file-work`, is the file-work
+	// redirect's mode (classify_file_work.go): `off`, `worktree` or `always`.
+	// It defaults to `worktree`: absent, empty or null, silently; any other
+	// value — another case, a non-scalar — with a warning logged naming the
+	// file, the key, the value and the value used (redirectBashFileWorkMode).
+	// Only an explicit `off` turns the redirect off. It is decoded as a node
+	// rather than a string so that a value of another YAML type is an unknown
+	// value rather than a document that fails to parse.
+	RedirectBashFileWork yaml.Node `yaml:"redirect-bash-file-work"`
 }
 
 // operatorConfig is everything the operator's config file sets.
@@ -603,8 +687,8 @@ func selfWriteResolveLink(real string) string {
 // canonicalized on both sides so the comparison cannot be symlink-escaped; here
 // the symlink IS the case being served, so the check runs on the path as
 // written. A listed path is allowed wherever it lands, including inside another
-// git repo. The accepted consequence is stated in the README: a symlink under a
-// listed path that points into a sibling repo is allowed.
+// git repo. The accepted consequence: a symlink under a listed path that points
+// into a sibling repo is allowed.
 //
 // The root itself yields ok=false: the carve-out lists files and subtrees, and
 // a bare root is neither.
@@ -738,8 +822,8 @@ func matchAnyCarveOutGlob(globs []string, rem string, shellPattern bool) bool {
 
 // matchCarveOutGlob matches a slash-separated remainder against one glob.
 //
-// The grammar is the one the README's carve-out section documents to the
-// operator: `**` matches zero or more whole path segments (`cc-tools/**` covers
+// The grammar is the one operatorCarveOutLists states to the operator: `**`
+// matches zero or more whole path segments (`cc-tools/**` covers
 // `cc-tools/` and everything beneath it), and every other segment is matched by
 // path.Match, whose `*` and `?` stop at a separator. Go's standard library has
 // no `**`, and filepath.Match on the whole path would let `*` cross separators,

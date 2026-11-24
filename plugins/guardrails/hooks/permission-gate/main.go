@@ -32,15 +32,15 @@
 //   - Hard ASK — a short, enumerated human-click tier: publish verbs,
 //     history-destroying pushes, credential/secret reads and mints. Policy, not
 //     classification; an LLM must not be able to waive these. (That the ask
-//     survives a downstream allow is design intent, not a measured fact — see
-//     README.md, "The hard-ask tier's precedence is unpinned".)
+//     survives a downstream allow is design intent, not a measured fact; see
+//     BucketAsk.)
 //
 // Everything else — the whole judgment middle, including every "the gate
 // cannot statically classify this" arm — DEFERS, carrying the gate's analysis
-// into the evolution log for the evaluator's tuning. The old ask-default is
-// gone: a gate ask is a guaranteed hard prompt that BYPASSES the smartest layer
-// in the stack, so spending one on uncertainty bought prompt fatigue rather
-// than safety.
+// into the evolution log for the evaluator's tuning. Uncertainty never asks: a
+// gate ask is a guaranteed hard prompt that BYPASSES the smartest layer in the
+// stack, so spending one on uncertainty buys prompt fatigue rather than
+// safety.
 package main
 
 import (
@@ -133,6 +133,12 @@ func classify(ev *Event) Decision {
 
 // isFileTool reports whether the tool reads or mutates files by path and is
 // therefore subject to Engine B containment.
+//
+// Grep and Glob are absent because the hooks.json matcher raises no event for
+// them, so a path either is handed — a `~`-spelled one, a primary-clone one —
+// is graded nowhere. Widening the matcher would make every Grep and Glob in
+// every session pay for a gate subprocess, a change with a blast radius of its
+// own.
 func isFileTool(name string) bool {
 	switch name {
 	case "Read", "Write", "Edit", "MultiEdit", "NotebookEdit":
@@ -142,8 +148,7 @@ func isFileTool(name string) bool {
 	}
 }
 
-// emitDecision writes the verdict on the JSON-stdout / exit-0 channel
-// (Resolved decision 1).
+// emitDecision writes the verdict on the JSON-stdout / exit-0 channel.
 //
 // A defer emits the envelope with NO permissionDecision field, which is the
 // documented per-call abstention: the hook takes no position and the normal
@@ -156,7 +161,12 @@ func isFileTool(name string) bool {
 // The empty envelope is still non-empty JSON, which the hooks.json wrapper
 // requires: it reads "exit 0 with empty stdout" as an unrunnable gate binary
 // and fails closed, so the no-output spelling of abstention is
-// unavailable to this gate. decision_stdout_test.go pins both halves.
+// unavailable to this gate. That discriminator is sound only because every
+// bucket goes through here, which writes JSON before os.Exit(0), and every
+// other exit goes through failClosed: so "a defer means no opinion, so write
+// no bytes" is precisely the refactor it exists to catch.
+// decision_stdout_test.go pins both halves — non-empty JSON for every bucket,
+// the field absent for a defer and present for the other three.
 //
 // A defer's reason is DROPPED here — with the decision field gone there is no
 // field to carry it, and there never was one to fill. deferJudgment sites

@@ -279,7 +279,7 @@ func TestCdTrackingPreservedGuarantees(t *testing.T) {
 // (measured in bash: `bash: line 0: cd: ~: No such file or directory`; zsh
 // spells the same failure `zsh:cd:1: no such file or directory: ~`). Treating
 // it as $HOME is the gate's over-approximation, recorded in applyCd's own
-// comment and in the README's cd-tracking section; the sibling below pins the
+// comment; the sibling below pins the
 // no-argument `cd`, whose $HOME target bash really does take.
 func TestCdTrackingBareTildeTracksCleanedHome(t *testing.T) {
 	_, wt := setupWorktree(t)

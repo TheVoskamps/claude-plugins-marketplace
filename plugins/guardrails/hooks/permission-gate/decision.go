@@ -2,7 +2,7 @@ package main
 
 // Bucket is the three-way (plus defer) verdict the gate emits.
 //
-// The native PreToolUse permission channel (Resolved decision 1) accepts
+// The native PreToolUse permission channel accepts
 // three permissionDecision values on stdout with exit 0, and the gate's
 // fourth bucket is spelled by the ABSENCE of that field:
 //
@@ -32,12 +32,16 @@ const (
 	// in-repo-write classifier; the harness's per-session scratchpad, and
 	// — for a read only — its bundled-skills tree).
 	//
-	// The earlier wording — "provably read-only / non-mutating operations" —
-	// is restated rather than dropped because the bucket still needs a bar,
-	// but that particular bar is not decidable at classification time: proving
-	// non-mutation would require the target's current bytes, since a rewrite
-	// with identical content mutates nothing. Positive grounds are decidable
-	// from the call and the path alone, which is all the gate has.
+	// The bar is not "provably non-mutating", which is not decidable at
+	// classification time: proving non-mutation would require the target's
+	// current bytes, since a rewrite with identical content mutates nothing.
+	// Positive grounds are decidable from the call and the path alone, which
+	// is all the gate has.
+	//
+	// Allow rather than defer for a designated-safe region is deliberate: a
+	// defer leaves whatever settings.json says about that region governing
+	// the call, such as an ask on every /tmp path, and only an allow outranks
+	// that list.
 	BucketAllow Bucket = "allow"
 	// BucketDeny hard-blocks a known-destructive / boundary-violating call.
 	// Membership requires a PRESCRIPTIVE REDIRECT: a deny reason is fed back to
@@ -57,8 +61,8 @@ const (
 	// the human"), because an unstated prescription teaches nothing.
 	BucketDeny Bucket = "deny"
 	// BucketAsk escalates to a human decision. It is NOT an uncertainty
-	// default: it is a short, enumerated policy tier — the calls fleet policy
-	// says a human must click regardless of how good the downstream judge is
+	// default: it is a short, enumerated policy tier — the calls policy says
+	// a human must click regardless of how good the downstream judge is
 	// (publish verbs, history-destroying pushes, credential/secret reads and
 	// mints). An LLM must not be able to waive these, which is exactly what a
 	// defer would permit.
@@ -69,7 +73,12 @@ const (
 	// permission channel, but it is unpinned here — no test in this package
 	// exercises real hook/settings resolution, so treat "a hard ask cannot be
 	// waived downstream" as the tier's design intent, not as a measured
-	// property. See README.md, "The hard-ask tier's precedence is unpinned".
+	// property. Pinning it needs a real harness invocation, which is outside
+	// what this package can exercise. The tier's membership rule does not rest
+	// on it: an enumerated policy call belongs here whether or not the
+	// precedence holds, because a defer is unambiguously waivable. If a live
+	// pin ever shows a downstream allow outranking a hook ask, the tier needs a
+	// different mechanism.
 	BucketAsk Bucket = "ask"
 	// BucketDefer hands the call back to the normal permission pipeline
 	// (settings.json allow/deny/ask lists, the tuned automode evaluator, an

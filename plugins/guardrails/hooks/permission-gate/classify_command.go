@@ -129,10 +129,12 @@ const deferResidualOp = "bash:no-specific-rule"
 // classifyRedirectOnly grades a synthetic redirect-only command: a statement
 // whose redirects the shell performs even though there is no program attached to
 // them (a bare `> f`, `[[ -f x ]] < /etc/passwd`, `(( i++ )) > <out-of-repo>`,
-// `export A=1 > f`, `case q in esac > f`, a bare `A=1 > f`). Before this branch
-// existed those redirects were graded nowhere: the construct emitted no command,
-// so `[[ -f x ]] > <out-of-repo> && echo hi` reduced to the lone allow-eligible
-// `echo hi` and ALLOWed while the shell created the out-of-repo file.
+// `export A=1 > f`, `case q in esac > f`, a bare `A=1 > f`). Such a construct
+// emits no command of its own, so without this its redirects would be graded
+// nowhere: `[[ -f x ]] > <out-of-repo> && echo hi` would reduce to the lone
+// allow-eligible `echo hi` and ALLOW while the shell created the out-of-repo
+// file. A redirect naming no file (`> /dev/null`, `>&2`, a heredoc) emits no
+// synthetic command, so it costs the line nothing.
 //
 // The grading deliberately mirrors classifyReadOnlyUtility for a utility with no
 // path operands of its own, in the same order — read containment (or the

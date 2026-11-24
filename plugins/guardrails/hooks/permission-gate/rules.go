@@ -27,7 +27,7 @@ import (
 //     (see classifyGhAPI); a redirect whose destination provably escapes the
 //     worktree or lands under `.git/` (credentialedRedirectVerdict).
 //   - HARD ASK (the enumerated human-click tier, INTENDED to be unwaivable
-//     downstream — see README.md, "The hard-ask tier's precedence is unpinned"):
+//     downstream, a precedence no test measures — see BucketAsk):
 //     gh repo edit --visibility; gh auth login --hostname; the publish
 //     verbs (gh release create; EVERY gh gist create, secret and public
 //     alike — a secret gist is unlisted, not private; and EVERY gh gist edit,
@@ -691,7 +691,7 @@ const ghAPIHostnameDenyReason = "Blocked: 'gh api --hostname' redirects the SIGN
 //     DENY unconditionally — this is the one shape the egress proxy's
 //     host-allowlist can see and control, so it keeps its own justification
 //     (not the write/read asymmetry the other tiers below hinge on).
-//   - Write DEFER tiers (they denied outright before, then asked): an
+//   - Write DEFER tiers: an
 //     x-http-method-override header, an explicit non-GET method, and a
 //     request-body flag
 //     (-f/-F/--field/--raw-field/--input) with no explicit GET method
@@ -702,7 +702,12 @@ const ghAPIHostnameDenyReason = "Blocked: 'gh api --hostname' redirects the SIGN
 //     the write the session is meant to be making, is read from the arguments
 //     and the context rather than from the method token this arm matches on, so
 //     it goes to the judgment middle rather than to a human click. The
-//     `-XGET -f …` carve-out (a GET with params) is preserved.
+//     `-XGET -f …` carve-out (a GET with params) stays a read, and that is
+//     the one place a local file reaches GitHub ungraded: `-F`/`--field`
+//     expands an `@file` value, so `gh api -X GET -F q=@/etc/passwd
+//     repos/o/r` ALLOWS without the file being graded against the repository
+//     boundary. The publish-file grading (classify_gh_files.go) does not
+//     reach `gh api`.
 //   - graphql endpoint (Design A): classify the query DOCUMENT instead of
 //     blanket-denying. The document is extractable only from a literal
 //     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no

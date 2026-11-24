@@ -665,8 +665,8 @@ func scratchAllowEligible(res containmentResult, readClass bool) bool {
 // diverge — `echo x > <scratchpad>/w/.git/f` allows where
 // `tee <scratchpad>/w/.git/f` denies on the .git/ write rule, while both
 // spellings to a plain file beside it allow. That stands deliberately: the
-// write lands in a throwaway scratch .git/ nothing reads, and README.md records
-// it under the carve-out's "Gaps left in place deliberately". It is also a
+// write lands in a throwaway scratch .git/ nothing reads, and closing it is a
+// bash-engine change with a blast radius of its own. It is also a
 // standing constraint on this helper — a rule the operand tracks apply OUTSIDE
 // containment does not reach a redirect unless it is restated here, so a region
 // added to scratchAllowEligible carries such rules on the argv spelling only.

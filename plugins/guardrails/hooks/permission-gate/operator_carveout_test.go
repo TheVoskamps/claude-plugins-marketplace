@@ -939,8 +939,7 @@ func TestLoadOperatorConfigFrom(t *testing.T) {
 
 	// `~someone/config` is a username reference this gate does not resolve, so
 	// it is still relative when the absolute test runs and the root drops on
-	// exactly the same terms as `.config` above. Only `~` and `~/` expand, and
-	// the README says so where it says a default spelling may start with `~`.
+	// exactly the same terms as `.config` above. Only `~` and `~/` expand.
 	if err := os.WriteFile(path, []byte(
 		"schema-version: 2\nconfig-home-default: ~someone/config\nstate-home-default: ~/.local/state\n"+
 			"config-home:\n  write:\n    - cc-tools/**\nstate-home:\n  write:\n    - sdlc/**\n"),

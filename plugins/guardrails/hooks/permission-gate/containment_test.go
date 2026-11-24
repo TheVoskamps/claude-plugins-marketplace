@@ -2381,14 +2381,12 @@ func failingHomeDir() (string, error) {
 }
 
 // TestCanonicalizeFromResolverNoHomeUnresolvedTilde pins canonicalizeFrom
-// Resolver's no-home branch directly: a round-3 PR review found that the
-// previous fix (TestCanonicalizeFromExpandsTilde /
-// TestContainmentTildeEscapeDenied above) only covered the home-resolvable
-// path — both of those tests t.Skip when there is no home, so the no-home
-// branch shipped completely unpinned, and it fell through to the ordinary
-// relative-join and resolved as `<base>/~/.ssh/id_rsa`, an in-repo-looking
-// path (fail-OPEN), despite a code comment and the README both claiming it
-// matched applyCd's fail-closed ("invalidate rather than guess") posture.
+// Resolver's no-home branch directly. TestCanonicalizeFromExpandsTilde and
+// TestContainmentTildeEscapeDenied above cover only the home-resolvable path —
+// both t.Skip when there is no home — and a no-home branch that fell through to
+// the ordinary relative-join would resolve `~/.ssh/id_rsa` as
+// `<base>/~/.ssh/id_rsa`, an in-repo-looking path (fail-OPEN), where it must
+// match applyCd's fail-closed ("invalidate rather than guess") posture.
 //
 // This test injects a homeDir resolver that always fails, so it runs
 // deterministically in every environment (real $HOME set or not) — it does
@@ -2421,13 +2419,13 @@ func TestCanonicalizeFromResolverNoHomeUnresolvedTilde(t *testing.T) {
 	}
 }
 
-// TestContainmentNoHomeTildeFailsClosed pins the fix one layer up, through
-// testContainmentFrom, using t.Setenv("HOME", "") to deterministically force
-// os.UserHomeDir to fail on Unix (UserHomeDir reads $HOME directly) rather
-// than relying on — or skipping under — whatever the ambient test
-// environment's real home-directory resolvability happens to be. This is
-// the exact "HOME unset" scenario from that round-3 PR review (cron
-// jobs, minimal containers, stripped environments): a leading-tilde operand
+// TestContainmentNoHomeTildeFailsClosed pins the same branch one layer up,
+// through testContainmentFrom, using t.Setenv("HOME", "") to deterministically
+// force os.UserHomeDir to fail on Unix (UserHomeDir reads $HOME directly)
+// rather than relying on — or skipping under — whatever the ambient test
+// environment's real home-directory resolvability happens to be. In the
+// "HOME unset" scenario (cron jobs, minimal containers, stripped
+// environments) a leading-tilde operand
 // must earn a non-contained (escapeRepo) verdict, never `contained`, so
 // every caller (classifyFileTool, containPathOperands, containWriteOperands)
 // denies rather than allows.
