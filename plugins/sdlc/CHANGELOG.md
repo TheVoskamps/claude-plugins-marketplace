@@ -5,8 +5,7 @@
 The README is now a user manual: what the plugin does, why you would
 want it, what it needs, how to start and what a run looks like, and
 what it leaves to you, followed by the config keys and the rosters of
-skills, agents, executables, hooks and files written. No behaviour of
-a run changes.
+skills, agents, executables, hooks and files written.
 
 - The rules for changing the plugin itself, which the README used to
   hold, load from the plugin's own `CLAUDE.md`, and the table of which
