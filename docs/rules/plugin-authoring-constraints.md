@@ -1,8 +1,9 @@
 # Plugin authoring constraints (verified)
 
-**Who reads this and when:** any agent adding a plugin, or adding a
-file one plugin expects another to reach. Read it before designing the
-change, not after the sandbox refuses the read.
+**Who reads this and when:** any agent adding a plugin, adding a file
+one plugin expects another to reach, or changing what a plugin's README
+rosters. Read it before designing the change, not after the sandbox
+refuses the read.
 
 Durable, doc-verified facts about how the Claude Code plugin system
 behaves, plus the patterns this marketplace uses to work within them.

@@ -140,9 +140,9 @@ from its issue.
    If you need fuller issue context than the fixer brief carries —
    an issue body, its acceptance criteria, or its
    parent/sub-issue/blockedBy/blocking relationships — read it via the
-   canonical `/issue-view` skill (preloaded via the `skills:`
-   frontmatter above and invoked through the `Skill` tool) rather than
-   hand-rolling `gh issue view`, once per member you need context on:
+   canonical `/issue-view` skill (preloaded through the
+   `skills:` frontmatter above) rather than hand-rolling
+   `gh issue view`, once per member you need context on:
 
    ```text
    /issue-view <Issue_number>

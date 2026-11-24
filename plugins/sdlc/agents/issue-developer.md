@@ -77,10 +77,10 @@ owns — but never a finding, a location, or an implementation shape.
 ## Workflow
 
 1. Fetch every issue in the list, in the order given. Use the
-   canonical `/issue-view` skill (preloaded via the `skills:`
-   frontmatter above and invoked through the `Skill` tool) rather than
-   hand-rolling `gh issue view`. `/issue-view` surfaces the body,
-   labels, assignees, issue type, priority, size, status, and
+   canonical `/issue-view` skill (preloaded through the
+   `skills:` frontmatter above) rather than hand-rolling
+   `gh issue view`. `/issue-view` surfaces the body, labels,
+   assignees, issue type, priority, size, status, and
    parent/sub-issue/blockedBy/blocking relationships in one shot —
    strictly more than the old `title,body,labels` read.
 
