@@ -16,9 +16,8 @@ having no memory at all.
 
 This skill is the curation pass over that directory. It runs after the
 writers have captured, grades each entry, and **acts**: it deletes, it
-moves durable lore into the nearest governing `CLAUDE.md`, else an
-on-demand `docs/rules/*.md` routed from it, else the root `CLAUDE.md`,
-and it repairs the indexes. It is not read-only, and it does not hand a
+moves durable lore out to where "Transfer" below lands it, and it
+repairs the indexes. It is not read-only, and it does not hand a
 recommendation to someone else to apply.
 
 Read `skills/lib/agent-memory-grading.md` for the grading rubric — what

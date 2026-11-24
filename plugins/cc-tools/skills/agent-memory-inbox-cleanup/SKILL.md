@@ -6,9 +6,8 @@ user-invocable: false
 ---
 
 You are running the `/cc-tools:agent-memory-inbox-cleanup` skill. Turn
-this run's captured memory entries into durable constraints in the
-nearest governing `CLAUDE.md`, else an on-demand `docs/rules/*.md`
-routed from it, else the root `CLAUDE.md`, and throw away the rest.
+this run's captured memory entries into durable constraints, and throw
+away the rest.
 
 The entries were written by agents in throwaway worktrees and copied
 into the inbox by `/cc-tools:agent-memory-inbox-capture`. Nothing reads
