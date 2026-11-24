@@ -138,7 +138,11 @@ inline-parses only the front-matter fields it needs rather than
 bundling the `issues` plugin's reader contract — the coupling that
 issue #143 removed from `sdlc` — so the path travels with every one of
 those parses, and with the abort message each emits when the file is
-missing. The copies are the design rather than drift.
+missing. The copies are the design rather than drift, and what keeps
+them in step is a grep over the literal. That grep is not the sweep
+rule "Where a newly demonstrated fact belongs" forbids below: there
+the arms differ per consumer by design, here every copy is one string
+and any difference is a defect.
 
 ### Sharing an interface across an agent set: one preloaded skill
 
@@ -572,9 +576,7 @@ fact:
 - **A plugin's README** is Documentation for humans, never a
   destination for such a fact. Where a plugin ships a README that
   rosters its skills, agents, executables, hooks, config keys or state
-  files, the PR that changes one updates the roster. A new
-  `dependencies` edge is a fact about the depending plugin, so the PR
-  that adds it names it in that plugin's README. The root `README.md`
+  files, the PR that changes one updates the roster. The root `README.md`
   roster registers the *plugin*, not each skill by name, so a skill
   added to an already-rostered plugin needs no edit there.
 

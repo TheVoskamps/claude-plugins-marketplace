@@ -144,7 +144,7 @@ falling through to `git commit` with an empty index.
 Otherwise commit and push:
 
 ```bash
-git commit -m "Transfer agent memory into repo docs"
+git commit -m "Transfer agent memory into instruction files"
 git push
 ```
 
