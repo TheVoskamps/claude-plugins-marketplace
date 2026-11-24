@@ -5,6 +5,10 @@ changing a statement in an sdlc agent, skill, lib file, script or hook.
 Kernel: edit a fact in the one file that owns it, and restate it in no
 other.
 
+`docs/rules/plugin-authoring-constraints.md` — read when adding,
+removing or changing an sdlc skill, agent, executable, hook, config key
+or state file. Kernel: the README roster changes in the same PR.
+
 - An agent's contract is two-sided: changing what an agent does edits
   the skill that briefs it, and a widened spawn template edits the
   receiving agent's `## Inputs`.

@@ -9,7 +9,7 @@ no row names is owned by the file its name points at.
 | Fact | Owner |
 | --- | --- |
 | How the flow is sequenced, what is branched on at each return, and the briefs spawned during the code loop | `skills/orchestrate/SKILL.md` |
-| A linear procedure run at one moment of a run, and the briefs spawned at that moment | the file for that moment under `skills/orchestrate/lib/`, which the skill body names exactly once, where it applies |
+| A linear procedure run at one moment of a run, and the briefs spawned at that moment | the file for that moment under `skills/orchestrate/lib/`, which the skill body names where it applies |
 | A loop over a gate, its remedies and its bounds | the loop's agent under `agents/` |
 | The spawn-prompt and report-consumption principles | `skills/orchestrate/SKILL.md` |
 | Which batches need a resolving install, and the plan decision item for one | `skills/orchestrate/lib/plan.md` |
