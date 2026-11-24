@@ -52,8 +52,7 @@ more notes.
   `path_glob_match`, `include`, or `compact`. A hook must not assume
   `session_start` is the only reason it will see.
 
-First met while building the `show-loaded-rules` plugin (see
-[`plugins/show-loaded-rules/README.md`](../../plugins/show-loaded-rules/README.md)).
+First met while building the `show-loaded-rules` plugin.
 
 ## `UserPromptExpansion`
 
@@ -74,8 +73,7 @@ First met while building the `show-loaded-rules` plugin (see
   this event is injected into Claude's context (useful for
   `additionalContext`-style hooks), not shown to the user.
 
-First demonstrated by the `show-loaded-skills` plugin (see
-[`plugins/show-loaded-skills/README.md`](../../plugins/show-loaded-skills/README.md)).
+First demonstrated by the `show-loaded-skills` plugin.
 
 ## `PreToolUse` (matcher `Skill`)
 
@@ -104,8 +102,7 @@ First demonstrated by the `show-loaded-skills` plugin (see
   even with an `allow` decision, inserts the hook into permission
   resolution.
 
-First demonstrated by the `show-loaded-skills` plugin (see
-[`plugins/show-loaded-skills/README.md`](../../plugins/show-loaded-skills/README.md)).
+First demonstrated by the `show-loaded-skills` plugin.
 
 ## `PreToolUse` (matcher `Agent|Task`)
 
@@ -140,8 +137,7 @@ First demonstrated by the `show-loaded-skills` plugin (see
   decision control, so a display-only hook on this matcher must not
   interfere with it.
 
-First demonstrated by the `show-agent-calls` plugin (see
-[`plugins/show-agent-calls/README.md`](../../plugins/show-agent-calls/README.md)).
+First demonstrated by the `show-agent-calls` plugin.
 
 ## `PreToolUse` (the decision channel, any matcher)
 
@@ -181,9 +177,7 @@ First demonstrated by the `show-agent-calls` plugin (see
   closed. A hook fronted by such a wrapper must abstain with the
   field-absent envelope rather than by writing nothing.
 
-Discovered by the `guardrails` permission-gate (issue #271); the
-reasoning and the tests that pin it are in
-[`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md).
+Discovered by the `guardrails` permission-gate (issue #271).
 
 ## `SessionStart`
 

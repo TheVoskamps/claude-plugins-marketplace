@@ -330,9 +330,8 @@ verification:
 
 ## Placeholder values derived from an App
 
-When a resolved App identity is used in template rendering (see
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` for the placeholder
-convention), the following placeholders map to the resolved values:
+When a resolved App identity is used in template rendering, the
+following placeholders map to the resolved values:
 
 | Placeholder | Source |
 | --- | --- |

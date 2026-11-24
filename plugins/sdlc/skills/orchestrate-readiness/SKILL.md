@@ -113,9 +113,10 @@ can trigger that stop. The items:
 An **instruction file** is a file a session auto-loads as instructions,
 or one another instruction file directs the model to read: every
 `CLAUDE.md`, every file under `docs/rules/`, every `SKILL.md`, every
-agent file, and the `README.md` at the root of each plugin the body
-touches. Documentation — changelogs, ADRs, and any other README — is
-not an instruction file and is not searched.
+agent file, and the nested `CLAUDE.md`, and the on-demand files it
+routes, of every directory the body touches. Documentation —
+changelogs, ADRs, and every README — is not an instruction file and is
+not searched.
 
 A statement in an instruction file that an issue contradicts is one of:
 
@@ -264,12 +265,13 @@ Given an issue number:
    invocation. At minimum, grep them for every path in the body's
    files-affected section and every identifier the design names —
    skill, agent, script and section names — and read the root
-   `CLAUDE.md` and the `README.md` of each plugin the body touches in
-   full. The search is a floor, not a proof that no conflict exists.
-   Each statement the body contradicts and does not settle is a gap.
-   For one that reads as a capability claim, run a test of it; its gap
-   line proposes deleting the statement only when the test showed it
-   false, and then quotes the test and its output.
+   `CLAUDE.md`, and the nested `CLAUDE.md`, and the on-demand files it
+   routes, of every directory the body touches, in full. The search is
+   a floor, not a proof that no conflict exists. Each statement the
+   body contradicts and does not settle is a gap. For one that reads
+   as a capability claim, run a test of it; its gap line proposes
+   deleting the statement only when the test showed it false, and then
+   quotes the test and its output.
 4. Return the search and a gap list: a `Searched:` line naming the
    terms step 3 grepped and the files it read, then every line step 2's
    script printed, and one line per other failure of a bar item, naming

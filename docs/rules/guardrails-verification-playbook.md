@@ -192,7 +192,7 @@ verdict is real evidence.
 
 ### The cheap first move: rebuild and `cmp`
 
-Rebuild with the README's exact invocation and compare bytes:
+Rebuild and compare bytes:
 
 ```bash
 GOOS=<goos> GOARCH=<goarch> CGO_ENABLED=0 \
@@ -947,7 +947,8 @@ the next reviewer's rebuild-and-compare shows a delta to adjudicate.
 
 So after editing any `.go` file under `hooks/permission-gate/`, run
 `golangci-lint fmt --diff` from the module, rebuild every committed
-arch with the README's exact commands, and stage the binaries in the
+arch with the build invocation under "Prove which source a committed
+binary came from", and stage the binaries in the
 same commit. They cross-compile from macOS with no extra setup. Run
 `golangci-lint fmt --diff` even when you touched no Go file: an
 unformatted map alignment left by an earlier round is cheapest to catch

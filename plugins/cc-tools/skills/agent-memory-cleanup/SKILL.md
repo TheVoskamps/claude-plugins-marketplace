@@ -1,6 +1,6 @@
 ---
 name: agent-memory-cleanup
-description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or the repo's documentation already says, moves durable lore into that documentation as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
+description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or the repo's instruction files already say, moves durable lore into the nearest governing CLAUDE.md or a docs/rules/*.md as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
 argument-hint: [PR-number]
 ---
 
@@ -16,8 +16,8 @@ having no memory at all.
 
 This skill is the curation pass over that directory. It runs after the
 writers have captured, grades each entry, and **acts**: it deletes, it
-moves durable lore into the repo's own documentation, and it repairs
-the indexes. It is not read-only, and it does not hand a
+moves durable lore out to where "Transfer" below lands it, and it
+repairs the indexes. It is not read-only, and it does not hand a
 recommendation to someone else to apply.
 
 Read `skills/lib/agent-memory-grading.md` for the grading rubric — what
@@ -122,8 +122,10 @@ rubric's unsubstantiated-delete fallback resolves to, is `persist`.
 
 What counts as durable, which file the constraint lands in, and how it
 is phrased are `skills/lib/agent-memory-grading.md` → "What counts as
-durable", "Where a transfer lands", and "How a transfer is phrased".
-Then delete the memory entry.
+durable", "Where a transfer lands", and "How a transfer is phrased":
+the nearest governing `CLAUDE.md`, else an on-demand `docs/rules/*.md`
+routed from it, else the root `CLAUDE.md`. Then delete the memory
+entry.
 
 #### Persist — keep the entry
 
@@ -225,11 +227,11 @@ defect to chase.
 ### Land the result
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
-every memory path you deleted or edited, plus `CLAUDE.md`, each
-`docs/rules/*.md`, and each README you changed, whether you wrote a
-constraint into it, cut one out of it, or created the file to receive
-a transfer — a README you created is untracked, so staging it by path
-is what puts it in the commit at all — plus any companion edit the
+every memory path you deleted or edited, plus each `CLAUDE.md` and
+each `docs/rules/*.md` you changed, whether you wrote a constraint into
+it, cut one out of it, or created the file to receive a transfer — a
+file you created is untracked, so staging it by path is what puts it
+in the commit at all — plus any companion edit the
 repo's own rules obliged that change to carry. Never `git add -A`, and
 never a directory-wide add.
 
@@ -297,7 +299,7 @@ curation.
 nothing. Leave in place whatever "Apply the verdicts" step 3 already
 staged for formerly-untracked entries — that staging **is** their
 undo; do not `git reset` it to make the tree match "nothing staged"
-literally. Show `git diff --stat`, and name alongside it any README you
+literally. Show `git diff --stat`, and name alongside it any file you
 created to receive a transfer — that file is untracked, so the stat
 never mentions it — then stop. The working tree (staged plus unstaged)
 is the deliverable, and the human decides what to commit.

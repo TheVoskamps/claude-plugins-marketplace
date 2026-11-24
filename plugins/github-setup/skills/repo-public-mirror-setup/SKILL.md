@@ -26,13 +26,10 @@ The starter files this skill installs (the workflow, filter config,
 mirror `.gitignore`, `CONTRIBUTORS`, and the public-facing `LICENSE`,
 `PATENTS`, `PRIOR_ART.md`, and `README.md`)
 live as templates under
-`${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`, following
-the bundled-payload convention (see
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` for the placeholder/render/
-existence-check contract). The skill reads each template, substitutes
-the placeholders below, and writes the rendered result into the source
-repo. The skill does **not** carry the file bodies inline — it renders
-them from the payload.
+`${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`. The skill
+reads each template, substitutes the placeholders below, and writes the
+rendered result into the source repo. The skill does **not** carry the
+file bodies inline — it renders them from the payload.
 
 Placeholders used by this skill's templates:
 
@@ -46,13 +43,11 @@ Placeholders used by this skill's templates:
 - `__RELEASE_DATE__` — public-release date in the `PATENTS` /
   `PRIOR_ART.md` prior-art notice. Prompted from the user.
 
-Render with simple string substitution (the
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` reference recipe), e.g. read a
-template via the `Read` tool, replace each `__PLACEHOLDER__` with its
-resolved value, and write the result with `Write`. Never write a
-rendered file that still contains a `__...__` placeholder — if any
-remains after inference and prompting, abort per the
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` "Resolving placeholder values" rule.
+Render with simple string substitution, e.g. read a template via the
+`Read` tool, replace each `__PLACEHOLDER__` with its resolved value, and
+write the result with `Write`. Never write a rendered file that still
+contains a `__...__` placeholder — if any remains after inference and
+prompting, abort.
 
 ## Workflow-auth identity
 
@@ -87,8 +82,7 @@ The template payloads this skill renders ship with the plugin at
 `${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`. Treat that
 directory as `$PAYLOAD` for the rest of the skill. Every starter file
 the skill writes is rendered from a template under `$PAYLOAD` — the
-skill does not carry those file bodies inline. The placeholder/render
-convention is documented in `${CLAUDE_PLUGIN_ROOT}/payload/README.md`.
+skill does not carry those file bodies inline.
 
 ## Step 1: Pre-flight — repo root and visibility
 
@@ -607,10 +601,8 @@ The `PATENTS` and `PRIOR_ART.md` payload starters carry the
 `__GH_OWNER_NAME__` and `__RELEASE_DATE__` placeholders. These are
 **only** needed when the source repo lacks its own copy of those files.
 If a starter is needed, prompt the user for the owner name and the
-public-release date before rendering, per the
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` "Resolving placeholder values"
-rule (these two cannot be inferred). If the source already has the
-file, copy it verbatim and skip the prompt.
+public-release date before rendering (these two cannot be inferred). If
+the source already has the file, copy it verbatim and skip the prompt.
 
 Push sequence (run from the source repo root):
 
@@ -887,9 +879,8 @@ the plumbing steps that are safe once the tree has been approved.
 
 - **Never run before all pre-flight checks (Steps 0–3) pass.**
   Each abort message must name the exact thing that failed and
-  what the user should do about it. Step 0 aborts with the standard
-  `${CLAUDE_PLUGIN_ROOT}/payload/README.md` existence-check message if the
-  payload directory is missing.
+  what the user should do about it. Step 0 aborts, naming the missing
+  directory, if the payload directory is missing.
 - **Never write or commit the source-repo files for the user.**
   Step 6 and Step 7 create the files on disk uncommitted; the user
   reviews the diff and commits manually. (Global rule §0: never

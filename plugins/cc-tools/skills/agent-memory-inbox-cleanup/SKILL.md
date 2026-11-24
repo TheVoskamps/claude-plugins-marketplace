@@ -1,13 +1,13 @@
 ---
 name: agent-memory-inbox-cleanup
-description: "Curate the session's per-branch agent-memory inbox in one acting pass. Grades every captured entry transfer-or-delete, writes the durable ones into the repo's own documentation as present-tense constraints, commits and pushes them on the given branch, and empties the inbox. Takes the branch name."
+description: "Curate the session's per-branch agent-memory inbox in one acting pass. Grades every captured entry transfer-or-delete, writes the durable ones into the nearest governing CLAUDE.md or a docs/rules/*.md as present-tense constraints, commits and pushes them on the given branch, and empties the inbox. Takes the branch name."
 argument-hint: <branch>
 user-invocable: false
 ---
 
 You are running the `/cc-tools:agent-memory-inbox-cleanup` skill. Turn
-this run's captured memory entries into durable repo documentation, and
-throw away the rest.
+this run's captured memory entries into durable constraints, and throw
+away the rest.
 
 The entries were written by agents in throwaway worktrees and copied
 into the inbox by `/cc-tools:agent-memory-inbox-capture`. Nothing reads
@@ -37,7 +37,7 @@ Two, and no more:
 
 | Verdict | What happens |
 | --- | --- |
-| **transfer** | the constraint is written into a governing README, a `docs/rules/*.md`, or `CLAUDE.md`, and the inbox entry is deleted |
+| **transfer** | the constraint is written into the nearest governing `CLAUDE.md`, else an on-demand `docs/rules/*.md` routed from it, else the root `CLAUDE.md`, and the inbox entry is deleted |
 | **delete** | the inbox entry is deleted and nothing is written |
 
 There is no third verdict that keeps an entry where it is — nothing
@@ -113,11 +113,11 @@ cannot take back.
 
 ### Land the transfers
 
-Stage by explicit path — `CLAUDE.md`, each `docs/rules/*.md`, and each
-README you changed, whether you wrote a constraint into it, cut one
-out of it, or created the file to receive a transfer — a README you
-created is untracked, so staging it by path is what puts it in the
-commit at all — plus any companion edit the repo's own rules obliged
+Stage by explicit path each `CLAUDE.md` and each `docs/rules/*.md` you
+changed, whether you wrote a constraint into it, cut one out of it, or
+created the file to receive a transfer — a file you created is
+untracked, so staging it by path is what puts it in the commit at all
+— plus any companion edit the repo's own rules obliged
 that change to carry. Never `git add -A`, and never a directory-wide
 add. Nothing under `.claude/agent-memory/` is ever staged: the memory
 tree is not part of this flow.
@@ -143,7 +143,7 @@ falling through to `git commit` with an empty index.
 Otherwise commit and push:
 
 ```bash
-git commit -m "Transfer agent memory into repo docs"
+git commit -m "Transfer agent memory into instruction files"
 git push
 ```
 

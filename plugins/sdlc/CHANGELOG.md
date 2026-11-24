@@ -1,5 +1,23 @@
 # sdlc changelog
 
+## 0.98.0 — 2026-11-23
+
+Agents no longer read READMEs as instructions, this plugin's included.
+A README is documentation for people, so a rule that only a README
+states no longer reaches an agent.
+
+- The readiness check's search for a repo statement an issue
+  contradicts counts no README as an instruction file. In place of the
+  root `README.md` of each plugin the issue touches, it reads the nested
+  `CLAUDE.md`, and the on-demand files it routes, of every directory
+  the issue touches.
+- `theorem-generator` takes the sweep sections it writes consistency
+  theorems from out of those same files, and no longer out of each
+  touched plugin's README.
+- The rule for editing this plugin, that changing what an agent does
+  also edits the orchestrator skill that briefs it, loads from the
+  plugin's own `CLAUDE.md`.
+
 ## 0.97.0 — 2026-11-23
 
 The merge monitor no longer hands back without an outcome. `pr-monitor`

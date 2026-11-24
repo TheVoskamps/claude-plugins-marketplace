@@ -246,39 +246,9 @@ The shape is a hybrid, and the split is deliberate:
   longer work on that project", "this laptop is one-employer-only",
   "everything under `~/scratch` is disposable".
 
-The full schema, with placeholder values — no machine's real facts
-ship in the plugin, so this documentation uses placeholders throughout:
-
-```yaml
-schema-version: 1
-
-identity:
-  display-name: "Ada Lovelace"
-  github-login: alovelace
-  email: ada@example.org
-
-bots:
-  - display-name: "Claude for Ada"
-    github-login: claude-for-alovelace
-    email: ada+claude@example.org
-
-organizations: [ExampleOrg, OtherOrg]
-
-sso-profiles: [example-dev, example-prod]
-
-public-repositories:
-  - ExampleOrg/public-thing
-
-scratch-globs: ["~/scratch/**"]
-worktree-globs: ["**/.claude/worktrees/**"]
-
-notes: |
-  Free prose for what the keys above cannot enumerate.
-```
-
-`skills/personalize-auto-mode/SKILL.md` inlines that same block
-verbatim — it is what the skill shows the human when no facts file
-exists — so a schema change edits both copies.
+`/personalize-auto-mode` prints the full schema, with placeholder
+values, when no facts file exists: no machine's real facts ship in the
+plugin.
 
 These properties of that schema are load-bearing:
 

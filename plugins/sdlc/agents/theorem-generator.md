@@ -65,18 +65,20 @@ calls in a subagent context.
 Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file. Then read the repo's own
 `CLAUDE.md` from the worktree root, plus every on-demand file it
-indexes whose trigger this PR's diff hits and the README of every
-plugin the diff touches. On the issues-only brief the diff's stand-in
-is the union of the issues' files-affected sections, as
-`sdlc:orchestrate-readiness` defines them: read the on-demand rules
-whose trigger those paths hit and the README of every plugin owning
-one. A body without that section is reported as not ready, and you
-derive a read set from nothing else. Each sweep section in those
-files names a fact that several surfaces mirror, so together they
-tell you where a *changed* fact leaves a stale restatement behind.
-Which of those sections warrants a theorem is decided in "Codebase
-consistency" below, and the test is narrow — the diff must change the
-mirrored fact, not merely touch a file the section mentions.
+indexes whose trigger this PR's diff hits, and the nested `CLAUDE.md`,
+and the on-demand files it routes, of every directory the diff
+touches. On the issues-only brief the diff's stand-in is the union of
+the issues' files-affected sections, as `sdlc:orchestrate-readiness`
+defines them: read the on-demand rules whose trigger those paths hit,
+and the nested `CLAUDE.md`, and the on-demand files it routes, of
+every directory one of them sits in. A body without that section is
+reported as not ready, and you derive a read set from nothing else.
+Each sweep section in those files names a fact that several surfaces
+mirror, so together they tell you where a *changed* fact leaves a
+stale restatement behind. Which of those sections warrants a theorem
+is decided in "Codebase consistency" below, and the test is narrow —
+the diff must change the mirrored fact, not merely touch a file the
+section mentions.
 
 ## Inputs
 
@@ -266,9 +268,10 @@ not reach. They are also usually `mechanical` — a grep settles them —
 which makes them cheap to check in bulk.
 
 The sweep sections in the repo's `CLAUDE.md`, in the on-demand files it
-indexes, and in the README of each plugin the diff touches are
-pre-written generators of this class: each one names a fact and the
-surfaces that restate it, any of which can go stale silently.
+indexes, and in the nested `CLAUDE.md`, and the on-demand files it
+routes, of every directory the diff touches are pre-written generators
+of this class: each one names a fact and the surfaces that restate it,
+any of which can go stale silently.
 
 A sweep section warrants a theorem only when the diff **changes the
 fact that section says is mirrored**. Touching a file the section
@@ -376,8 +379,9 @@ Work these two sources, in this order:
    the old fact", naming the documentation files that restate it as
    pointers. These quantify over the repo's documentation, as source 3
    of "Theorem sources" does over its code, and the sweep sections of
-   the repo's `CLAUDE.md`, its on-demand files and each touched
-   plugin's README name the documentation surfaces a fact is mirrored
+   the repo's `CLAUDE.md`, its on-demand files, and the nested
+   `CLAUDE.md`, and the on-demand files it routes, of every directory
+   the diff touches name the documentation surfaces a fact is mirrored
    on. The same narrow trigger holds: a theorem only where the diff
    changes the fact, never because it touched a file a sweep section
    names.

@@ -2,7 +2,7 @@
 Template for /gh-create-app. Rendered into the target repo at
 docs/github-app.md (or a path the user picks).
 
-Placeholders (see the github-setup plugin payload README for the convention):
+Placeholders:
   __APP_NAME__            GitHub App slug (e.g. thevoskamps-pr-bot)
   __APP_ID__              numeric App ID
   __APP_OWNER__           org or enterprise that owns the App

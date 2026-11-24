@@ -1,5 +1,15 @@
 # github-setup changelog
 
+## 0.11.7 — 2026-11-23
+
+Internal only: agents no longer read this plugin's READMEs. The skills
+no longer cite `payload/README.md` for how a template is rendered: each
+states its own substitution, and aborts on an unresolved `__...__`
+placeholder or a missing payload directory without deferring to that
+file. The rule for editing the plugin loads from its own `CLAUDE.md`:
+the App's starter permission set is restated as a literal list in
+several files. What the skills provision is unchanged.
+
 ## 0.11.6 — 2026-09-11
 
 Internal only: the App-permission rationale in two skills no longer

@@ -101,33 +101,6 @@ rather than resetting — a worktree must never reset away commits it has
 not pushed. The sweep skips conflicted states, so a conflicted PR never
 self-heals and is yours to rebase.
 
-## Read a plugin's README before you edit the plugin
-
-Before your first edit to a plugin, read the `README.md` at its root —
-which file owns which statement, what a change there sweeps, and the
-measurement behind each rule. Every plugin carries one; a README deeper
-in the tree, such as guardrails' `hooks/permission-gate/README.md`, is
-a component document. These kernels are what a README cannot supply,
-since each must be in front of you before you know you need it:
-
-- **`sdlc`** — an agent's contract is two-sided: changing what an
-  agent does edits the orchestrator skill that briefs it too, not just
-  the agent file.
-- **`claude-vm`** — every script must run under bash 3.2, and a gate
-  asking whether the operator wrote a key reads the raw config file,
-  never the merged one.
-- **`guardrails`** — the gate ships as committed binaries, so
-  changing how it is packaged sweeps the `claude-vm` surfaces that
-  mirror that shape and bumps both plugins.
-- **`issues`** — every consumer spells a config path as a literal, so
-  moving one edits every plugin that spells it.
-- **`github-setup`** — the App's starter permission set is restated
-  as a literal list in several files and rendered in one.
-- **`git-tools`** — `git-branch-create` encodes the issue set in the
-  branch name and `git-issues-from-branch` is its inverse, both through
-  the one `git-issue-branch` script, and `github-prs` and `sdlc` depend
-  on that encoding.
-
 ## Read on demand
 
 These files carry what does not apply on every turn. Read the matching

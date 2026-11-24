@@ -101,9 +101,6 @@ missing, abort with:
 > incomplete). Reinstall the `github-claude-identity` plugin from the
 > marketplace and try again.
 
-The placeholder/render convention for these templates is documented in
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md`.
-
 ## Step 1: Pre-flight — repo root, auth, inputs
 
 Confirm you are inside a git working tree and capture the root:
@@ -259,8 +256,7 @@ signal the hook keys on. Placeholder map:
 
 Strip the template's leading comment block, write the result to
 `<config-dir>/config`, and `chmod 600` it. Never write the config with
-unresolved `__...__` placeholders (abort per the
-`${CLAUDE_PLUGIN_ROOT}/payload/README.md` unresolved-placeholder rule).
+unresolved `__...__` placeholders: abort instead.
 The rendered config holds your App identifiers and **stays in the
 un-mirrored `<config-dir>`** — it is never written into a repo.
 
@@ -416,7 +412,7 @@ Re-running this skill must **detect and converge**, never duplicate:
 - **Never skip a halt.** Steps 3a–3c (UI work + identifier/key
   collection) and Step 8 (the `CLAUDE.md` include) have explicit halts.
 - **Never render the config with unresolved `__...__` placeholders.**
-  Abort per the `${CLAUDE_PLUGIN_ROOT}/payload/README.md` rule.
+  Abort instead.
 - **Never edit `CLAUDE.md` without explicit approval** (Step 8). The
   rule file ships regardless; the include is opt-in.
 - **Never touch `~/.gitconfig`.** The bot identity is per-repo and
