@@ -1,6 +1,6 @@
 ---
 name: agent-memory-cleanup
-description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or the repo's documentation already says, moves durable lore into that documentation as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
+description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or the repo's instruction files already say, moves durable lore into the nearest governing CLAUDE.md or a docs/rules/*.md as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
 argument-hint: [PR-number]
 ---
 
