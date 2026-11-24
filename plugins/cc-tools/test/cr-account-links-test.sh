@@ -182,6 +182,17 @@ ln -s "$CLAUDE/skills" "$WORK/skills"
 refused_add "add, link whose source is gone" "$WORK/skills is a symlink to $CLAUDE/skills (dangling)"
 
 fresh
+rm "$CLAUDE/CLAUDE.md"
+mkdir "$WORK"
+echo mine >"$WORK/CLAUDE.md"
+refused_add "add, real file whose source is gone" "$CLAUDE/CLAUDE.md does not exist" "nothing was changed"
+
+fresh
+rm -r "$CLAUDE/rules"
+mkdir -p "$WORK/rules"
+refused_add "add, real directory whose source is gone" "$CLAUDE/rules does not exist" "nothing was changed"
+
+fresh
 echo text >"$HOME/.claude.work"
 refused_add "add, a plain file in the account's place" "$WORK exists and is not a directory"
 fresh
@@ -271,6 +282,40 @@ check "$(tree)" "$(printf '%s\n' "$before" | grep -v -e '^./.claude.work/CLAUDE.
 run remove work
 check "$RC:$OUT" "0:work  $WORK" "remove again: nothing to remove"
 
+# --- list, where a target leads ---------------------------------------------
+# listed_unlisted <label> <target> <yes|no> -- whether list reports an
+# unlisted link to the target in the account.
+listed_unlisted() {
+  local got=no
+  ln -s "$2" "$WORK/probe"
+  run list
+  case "$OUT" in *"$(row "not whitelisted" "probe -> $2")"*) got=yes ;; esac
+  check "$RC:$ERR:$got" "0::$3" "list, $1 ($2)"
+  rm "$WORK/probe"
+}
+
+fresh
+mkdir -p "$WORK" "$HOME/elsewhere/sub"
+ln -s "$HOME/elsewhere/sub" "$CLAUDE/away"
+listed_unlisted "a relative target in a directory that is gone" ../.claude/nodir/z yes
+listed_unlisted "a relative target by way of a directory that is gone" ../.claude/nodir/../z yes
+listed_unlisted "an absolute target with '..' in a directory that is gone" "$CLAUDE/../.claude/nodir/z" yes
+listed_unlisted "a relative target through a symlink under ~/.claude" ../.claude/away/z yes
+listed_unlisted "a relative target that exists" ../.claude/extra yes
+listed_unlisted "a target ending in '..'" ../.claude/extra/.. no
+listed_unlisted "a target leaving through a symlink under ~/.claude" ../.claude/away/../z no
+listed_unlisted "a target leaving ~/.claude" "$CLAUDE/nodir/../../z" no
+listed_unlisted "a relative target elsewhere" ../.claude-other/nodir/z no
+listed_unlisted "a relative target in the account" nodir/z no
+listed_unlisted "the root" / no
+
+# A relative target starts from where the account directory really is.
+mv "$WORK" "$HOME/elsewhere/acct"
+ln -s "$HOME/elsewhere/acct" "$WORK"
+listed_unlisted "a relative target, the account a symlink" ../../.claude/nodir/z yes
+listed_unlisted "a relative target elsewhere, the account a symlink" ../.claude/nodir/z no
+
+# --- remove, a source that is gone, and no such account ---------------------
 fresh
 run add work
 rm -r "$CLAUDE/skills"

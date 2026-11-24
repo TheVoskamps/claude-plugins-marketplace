@@ -15,7 +15,7 @@
 #   add     create the account directory if absent and each missing link,
 #           and keep each real file or directory. Changes nothing when a
 #           whitelisted symlink is dangling or has a wrong target, or when
-#           a link to create has no source.
+#           a whitelisted entry has no source under $HOME/.claude.
 #   remove  remove each symlink whose target is the same name under
 #           $HOME/.claude, whitelisted or not, and leave the directory and
 #           everything else in it
@@ -126,16 +126,37 @@ same_name() {
 }
 
 # into_claude <link> -- whether the link's target lies under $HOME/.claude.
-# The target's spelling counts as well as its physical place, since a
-# directory under $HOME/.claude can itself be a symlink, or be gone.
+# Walks the target one component at a time. A step through $HOME/.claude
+# counts wherever it leads, since a directory there can itself be a symlink,
+# or be gone. A `..` drops what was counted before it.
 into_claude() {
-  local parent target
-  parent=$(target_parent "$1")
-  case "$parent/" in "$claude_real"/*) return 0 ;; esac
-  target=$(readlink "$1")
-  case "$target/" in */../*) return 1 ;; esac
-  case "$target" in "$claude"/?*) return 0 ;; esac
-  return 1
+  local dir rest part next inside=1
+  rest=$(readlink "$1")/
+  case "$rest" in
+    /*) dir=/ ;;
+    *) dir=$(cd -P -- "${1%/*}" && pwd -P) || die "cannot enter ${1%/*}" ;;
+  esac
+  while [ -n "$rest" ]; do
+    part=${rest%%/*}
+    rest=${rest#*/}
+    case "$part" in '' | .) continue ;; esac
+    if [ "$part" != .. ]; then
+      case "$dir/" in "$claude_real"/*) inside=0 ;; esac
+    fi
+    # A component that cannot be entered is followed by its spelling.
+    if next=$(cd -P -- "${dir%/}/$part" 2>/dev/null && pwd -P); then
+      dir=$next
+    elif [ "$part" = .. ]; then
+      dir=${dir%/*}
+    else
+      dir=${dir%/}/$part
+    fi
+    if [ "$part" = .. ]; then
+      inside=1
+      case "$dir" in "$claude_real"/*) inside=0 ;; esac
+    fi
+  done
+  return "$inside"
 }
 
 # entry_state <path> -- what stands at an account's whitelisted entry.
@@ -210,7 +231,7 @@ if [ "$mode" = add ]; then
     states+=("$state")
     problem=
     case "$state" in
-      missing) [ -e "$claude/$entry" ] || problem="$claude/$entry does not exist" ;;
+      missing | "real file" | "real directory") [ -e "$claude/$entry" ] || problem="$claude/$entry does not exist" ;;
       dangling | "wrong target") problem="$account/$entry is a symlink to $(readlink "$account/$entry") ($state)" ;;
     esac
     if [ -n "$problem" ]; then
