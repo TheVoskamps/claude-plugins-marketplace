@@ -67,7 +67,8 @@
 set -uo pipefail
 
 # hooks/cr-resolver parses --as by these same rules and messages before it
-# execs this script, so a change here belongs there too.
+# execs this script, so a change here belongs there too. The letters are
+# spelled out because a bracket range can follow the locale's collation.
 strict=0
 account=
 while [ "$#" -gt 0 ]; do
