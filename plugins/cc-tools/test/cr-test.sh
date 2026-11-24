@@ -306,7 +306,7 @@ MACHINE_L="$CFG/github.com/owner/my-repo.json"
 COMMITTED_L="$REPO/.cc-tools/cr-settings.json"
 mkdir -p "$CFG/github.com/owner" "$REPO/.cc-tools"
 
-# write_layers -- one file per layer. Each appends its name to `order`
+# write_layers -- one file per layer but the account's. Each appends its name to `order`
 # and sets `model`; the `permissions.allow` entries repeat across layers,
 # and `env` gets a key from each of two layers.
 write_layers() {
@@ -533,8 +533,8 @@ bad_as() {
     "1:cr: $message:" "$label: exit 1 with a message, nothing runs"
 }
 
-# bad_as_cases <label> <run> <arg> -- every refusal of --as, by the function
-# <run> given <arg> first.
+# bad_as_cases <label> <run> <arg> -- every refusal of --as but the one for
+# an unset HOME, by the function <run> given <arg> first.
 bad_as_cases() {
   local label=$1 run=$2 arg=$3 bad
   bad_as "$label, no name" "--as needs an account name" "$run" "$arg" --as
@@ -587,8 +587,9 @@ check "$?" "7" "claude's exit status is cr's"
 run_cr "$LOCAL" x
 check "$(sed -n 2p "$SANDBOX/claude.args")" "x (local)" "no origin: the repo is named (local)"
 
-# local_layers <dir> -- all four layer files, the committed one in <dir>.
-# Under the local identity only host and committed may reach claude.
+# local_layers <dir> -- one file per layer but the account's, the committed
+# one in <dir>. Of these, only host and committed may reach claude under
+# the local identity.
 local_layers() {
   mkdir -p "$CFG/github.com/owner" "$1/.cc-tools"
   echo '{"order": ["host"]}' >"$HOST_L"
