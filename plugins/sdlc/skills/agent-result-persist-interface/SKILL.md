@@ -630,6 +630,8 @@ only that the call did nothing. The message says which.
 
 `next`, `dispose` and `summary` each read one round, named by `--pr`
 and `--round`, store no record and no file, and create no directory.
+One exception: `summary` with `--out` writes the path its caller names,
+because the body must reach a file without a model copying it.
 In the line shapes below `\t` is the one tab that separates two fields,
 and in a field `-` stands for no value.
 
@@ -805,9 +807,20 @@ does not check that a quote is verbatim; the verifier does.
   state-detail as a finding at that severity, or at its override.
 - **`summary`** — renders the review body to post from the round's
   `records` and `review` files, and prints it as Markdown and nothing
-  else. It takes no flag but the two identifying ones, and exits
+  else. It takes the two identifying flags and an optional
+  `--out <path>`, under which it writes the body to that path and prints
+  nothing. It exits
   non-zero, printing nothing, when the round lacks either file or the
-  review lacks a section it copies. The body is an index into the round's state
+  review lacks a section it copies.
+
+  The bytes `--out` writes are the bytes the mode prints without it. The
+  body is rendered whole, then replaces whatever file is at the path, so
+  a refused or failed render leaves the path untouched. An empty path, a
+  path that is a directory, and one whose parent directory is missing
+  are each refused, non-zero; no directory is created. Every other mode
+  refuses `--out`, non-zero.
+
+  The body is an index into the round's state
   directory, never a copy of the argued review. In order:
 
   1. the stamp `<!-- sdlc:review-round <n> -->`, `<n>` being

@@ -183,15 +183,16 @@ round, undetectably.
 
 ## Post one review
 
-Render the body to post from the stored round, once both are stored:
+Render the body to post from the stored round into a file, once both
+are stored:
 
 ```bash
 sdlc-agent-result-persist --mode summary \
-  --pr <PR_REF> --round <this round's number>
+  --pr <PR_REF> --round <this round's number> \
+  --out .claude/tmp/<task-slug>/summary.md
 ```
 
-**Post its output unedited**: `Write` its stdout byte for byte to
-`.claude/tmp/<task-slug>/summary.md`, then post it by path:
+**Post that file unedited**, by the same path:
 
 ```text
 /github-prs:pr-review-submit <PR> --verdict <approve|request_changes> --body-file .claude/tmp/<task-slug>/summary.md
