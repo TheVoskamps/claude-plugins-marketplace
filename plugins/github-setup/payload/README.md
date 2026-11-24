@@ -100,9 +100,7 @@ this **standard existence-check message**:
 Substitute the concrete `<skill-name>` (and the expanded
 `${CLAUDE_PLUGIN_ROOT}` if known) when emitting the message, the same
 way the "Unresolved placeholder" abort below names the concrete
-template. This is the canonical wording skills reference as "the
-standard `${CLAUDE_PLUGIN_ROOT}/payload/README.md` existence-check
-message".
+template.
 
 ## Discovering placeholders in a template
 
