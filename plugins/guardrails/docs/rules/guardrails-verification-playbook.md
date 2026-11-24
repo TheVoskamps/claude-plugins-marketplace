@@ -190,21 +190,27 @@ verdict is real evidence.
 
 ## Prove which source a committed binary came from
 
-### The cheap first move: rebuild and `cmp`
+Go stamps `vcs.revision` and `vcs.modified` into every binary's build
+metadata, so a `-trimpath` rebuild of the same source at a different
+HEAD is not byte-identical to the committed binary even though the
+compiled code is. The differing bytes cluster in the buildinfo and
+build-ID regions, typically a few hundred bytes, and never in code. A
+raw `cmp` or `shasum` difference is therefore no mismatch signal on its
+own.
 
-Rebuild and compare bytes:
+### The cheap first move: rebuild and compare
 
-```bash
-GOOS=<goos> GOARCH=<goarch> CGO_ENABLED=0 \
-  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o <out> .
-cmp <out> plugins/guardrails/hooks/bin/<goos>-<goarch>/permission-gate
-```
+On a clean tree, run
+`plugins/guardrails/hooks/permission-gate/rebuild-binaries.sh`, then
+`git status --short plugins/guardrails/hooks/bin/`. A binary with no
+entry is byte-identical to the committed one, which is conclusive and
+settles staleness in one command. **A modified entry proves nothing** —
+vcs stamps and build IDs move — so fall back to the protocol below,
+with the rebuilt file in the working tree and the committed one taken
+from the immutable git object, `git show HEAD:<bin-path> > <tmp>`, never
+from a working-tree copy a concurrent session can rewrite mid-check.
 
-Byte-identical is conclusive and settles staleness in one command.
-**Differing proves nothing** — vcs stamps and build IDs move — so fall
-back to the protocol below.
-
-### The decisive protocol when `cmp` differs
+### The decisive protocol when the bytes differ
 
 Require all of:
 
@@ -222,7 +228,20 @@ Require all of:
 
 `go version -m <binary>` prints go version, module, deps, `-trimpath`
 and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
-committed arch was rebuilt consistently when only one can execute.
+committed arch was rebuilt consistently when only one can execute. The
+Go version, the module path, each dependency's version and `h1:` hash,
+`-trimpath=true` and `CGO_ENABLED=0` must all match; only
+`vcs.revision` and `vcs.modified` may differ.
+
+The `nm` comparison of item 1, spelled out:
+
+```sh
+diff <(go tool nm <committed> | grep -v ' runtime\.modinfo\.str$') \
+     <(go tool nm <rebuilt>   | grep -v ' runtime\.modinfo\.str$')
+```
+
+Empty output is the pass; a line naming any other symbol is a real
+mismatch.
 
 ### A claim about the build tool holds only on the arches you ran it on
 
@@ -935,24 +954,6 @@ author's call-site edit as evidence the sweep is complete.
 A rebucketing round has a second wave: renaming the tests leaves their
 *doc comments* still describing the old verb, so the comment sweep
 needs a pass after the rename, not before it.
-
-## Editing a comment here invalidates the committed binaries
-
-The binaries under `hooks/bin/<goos>-<goarch>/` are build artifacts of
-the sources beside them, and Go embeds file:line, so adding or
-removing even a comment line shifts them. A doc pass that fixes a
-stale Go doc comment — squarely in scope — otherwise leaves the
-shipped binaries built from a source tree that no longer exists, and
-the next reviewer's rebuild-and-compare shows a delta to adjudicate.
-
-So after editing any `.go` file under `hooks/permission-gate/`, run
-`golangci-lint fmt --diff` from the module, rebuild every committed
-arch with the build invocation under "Prove which source a committed
-binary came from", and stage the binaries in the
-same commit. They cross-compile from macOS with no extra setup. Run
-`golangci-lint fmt --diff` even when you touched no Go file: an
-unformatted map alignment left by an earlier round is cheapest to catch
-here.
 
 ## An unrunnable-binary case needs a wrong GOOS, not a wrong GOARCH
 

@@ -113,11 +113,6 @@ above disagree, the rule wins and the playbook is the thing to fix.
   read before claiming a change was verified, in any domain. Kernel: a
   measurement without a baseline and a negative control establishes
   nothing.
-- [`docs/rules/guardrails-verification-playbook.md`](docs/rules/guardrails-verification-playbook.md)
-  — read before asserting what the permission gate does. Kernel: the
-  gate ships policy inside a committed binary, so settle a verdict by
-  replaying a synthetic event against that binary, never by reading the
-  Go source.
 - [`docs/rules/claude-vm-verification-playbook.md`](docs/rules/claude-vm-verification-playbook.md)
   — read before asserting what a claude-vm launch, image build or guest
   does. Kernel: probe the real hypervisor, kernel and launcher; a green
