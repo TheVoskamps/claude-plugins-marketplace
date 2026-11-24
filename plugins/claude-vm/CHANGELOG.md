@@ -1,5 +1,14 @@
 # claude-vm changelog
 
+## 0.22.1 — 2026-11-23
+
+Internal only: agents no longer read this plugin's READMEs. The
+`/claude-vm` skill no longer sends its reader to `payload/README.md` for
+mechanics, and the rule for editing the plugin loads from its own
+`CLAUDE.md`: every script runs under bash 3.2, and a gate asking whether
+the operator wrote a key reads the raw config file. The launcher and
+the guest are unchanged.
+
 ## 0.22.0 — 2026-09-24
 
 Runs now live in one host-wide place, and a launcher killed outright

@@ -1,5 +1,13 @@
 # guardrails changelog
 
+## 0.19.1 — 2026-11-23
+
+Internal only: agents no longer read this plugin's READMEs. The rule
+for editing the plugin loads from its own `CLAUDE.md`: the gate ships
+as committed binaries, so a packaging change also changes the
+`claude-vm` surfaces that mirror that shape. The gate and its verdicts
+are unchanged.
+
 ## 0.19.0 — 2026-11-01
 
 The Bash file-work redirect is now on by default in linked worktrees and

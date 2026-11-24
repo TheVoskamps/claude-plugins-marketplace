@@ -28,7 +28,9 @@ The marketplace currently ships these plugins (one entry each in
   watchlist status, what's-new-since-last-run — both filtered to the
   topics in your own config, which a suggester widens from this
   machine's Claude configuration on your yes — and agent-memory
-  curation into the repo's own documentation; plus the `cr` session
+  curation into the nearest governing `CLAUDE.md`, else an on-demand
+  `docs/rules/*.md` routed from it, else the root `CLAUDE.md`; plus the
+  `cr` session
   launcher, kept current at `~/.local/bin/cr` by a `SessionStart`
   hook, which merges per-user host, owner and repo settings layers
   under `~/.config/cc-tools/cr-settings/` with a repo's

@@ -1,5 +1,12 @@
 # auto-mode-tools changelog
 
+## 0.1.1 — 2026-11-23
+
+Internal only: agents no longer read this plugin's README. The
+`facts.yml` schema is now stated once, in `/personalize-auto-mode`,
+which prints it when no facts file exists. The README's copy is gone,
+and with it the rule that a schema change edits both.
+
 ## 0.1.0 — 2026-08-21
 
 Adds two independent skills for working on the `autoMode` block of a

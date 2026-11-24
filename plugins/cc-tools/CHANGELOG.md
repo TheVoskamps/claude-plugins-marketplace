@@ -1,5 +1,30 @@
 # cc-tools changelog
 
+## 0.11.0 — 2026-11-23
+
+Agent-memory curation no longer writes a durable note into a README,
+and agents no longer read this plugin's READMEs. A README is
+documentation for people; a note has to land where a session loads it.
+
+- A transfer lands in the nearest governing `CLAUDE.md`: the nearest
+  one above the code the note is about. When the note governs one part
+  of the repo and that tree has none, curation creates one there, as an
+  H1 title, then `@` imports of always-loaded rule files, then one
+  routing entry per on-demand file, then always-loaded imperatives.
+- A note that applies only when a trigger comes up, or that spans
+  trees, goes to an on-demand `docs/rules/*.md` instead, and that
+  `CLAUDE.md` gains a routing entry for the file when it has none.
+  Failing both, it goes to the root `CLAUDE.md`.
+- `/cc-tools:agent-memory-cleanup`, the inbox cleanup, the grading
+  rubric and the plugin description each name those destinations in
+  place of "the repo's own documentation".
+- Grading no longer reads READMEs, so an entry is no longer deleted
+  because a README already says it.
+- The inbox cleanup's commit message is now `Transfer agent memory into
+  instruction files`.
+
+A note an earlier version wrote into a README stays there.
+
 ## 0.10.0 — 2026-10-20
 
 `cr` now merges up to four optional settings layers, so a setting shared

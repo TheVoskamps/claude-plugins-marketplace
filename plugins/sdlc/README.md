@@ -785,16 +785,16 @@ file.
 The readiness check grades the item by searching on every invocation,
 so grooming and the orchestrator's pre-run check both run it: it greps
 the instruction files for each files-affected path and each identifier
-the design names, reads the root `CLAUDE.md` and the `README.md` of
-each plugin the body touches in full, and reports what it searched on a
-`Searched:` line ahead of the gap list. The search is a floor, not a
-proof that no conflict exists, and the line shows the human what it
-covered.
+the design names, reads in full the root `CLAUDE.md` and, for every
+directory the body touches, the nested `CLAUDE.md` and the on-demand
+files it routes, and reports what it searched on a `Searched:` line
+ahead of the gap list. The search is a floor, not a proof that no
+conflict exists, and the line shows the human what it covered.
 
 The **instruction files** are that search's scope, defined beside the
-bar item. They are not one of the file classes that decide which agent
-edits a path: the root `README.md` of a plugin the body touches is
-searched, and changelogs, ADRs and every other README are not.
+bar item. No README is among them: every README is Documentation, as
+changelogs and ADRs are, and is not searched. A rule that only a README
+states is therefore one the search never finds.
 
 A contradicted statement is one of two kinds, and the kind decides who
 settles it:

@@ -1,5 +1,13 @@
 # git-tools changelog
 
+## 0.12.1 — 2026-11-23
+
+Internal only: agents no longer read this plugin's READMEs. The rule
+for editing the plugin loads from its own `CLAUDE.md`:
+`git-branch-create` encodes the issue set in the branch name,
+`git-issues-from-branch` is its inverse, and other plugins depend on
+that encoding. No script or skill changes.
+
 ## 0.12.0 — 2026-11-16
 
 A branch left held by a worktree whose agent ended without `release`

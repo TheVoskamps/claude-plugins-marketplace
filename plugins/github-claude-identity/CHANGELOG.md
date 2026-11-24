@@ -1,5 +1,13 @@
 # github-claude-identity changelog
 
+## 0.1.1 — 2026-11-23
+
+Internal only: agents no longer read this plugin's READMEs.
+`/gh-create-identity-app` no longer cites `payload/README.md` for its
+templates: it aborts on a config with an unresolved `__...__`
+placeholder without deferring to that file. What the skill provisions
+is unchanged.
+
 ## 0.1.0 — 2026-06-22
 
 Runs `git` and `gh` against GitHub as Claude's own bot identity, a

@@ -1,5 +1,12 @@
 # issues changelog
 
+## 0.19.2 — 2026-11-23
+
+Internal only: agents no longer read this plugin's READMEs. The rule
+for editing the plugin loads from its own `CLAUDE.md`: every consumer
+spells a config path as a literal, so moving one edits every plugin
+that spells it. No verb changes.
+
 ## 0.19.1 — 2026-11-22
 
 An issue body that contains a literal `\u00XX` escape, such as the six

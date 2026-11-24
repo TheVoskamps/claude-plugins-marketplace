@@ -265,10 +265,11 @@ in a repo or in a session.
 `/cc-tools:agent-memory-cleanup` is the one you invoke yourself. It
 grades every entry in `.claude/agent-memory/`, then **acts** — it
 deletes every entry the rubric grades as no longer earning its place,
-moves durable lore out into the repo's own documentation, keeps what
-has no home in the repo, and repairs the `MEMORY.md` indexes and the
-wikilinks between entries. It is not a read-only report handed to
-someone else to apply.
+moves durable lore out into the nearest governing `CLAUDE.md`, else an
+on-demand `docs/rules/*.md` routed from it, else the root `CLAUDE.md`,
+and never into a README, keeps what has no home in the repo, and
+repairs the `MEMORY.md` indexes and the wikilinks between entries. It
+is not a read-only report handed to someone else to apply.
 
 The argument picks which tree it curates: with none, the one you are
 sitting in; with a PR number, that PR's branch. What each mode does
@@ -336,8 +337,8 @@ which of its notes were about the branch and which about the repo.
   repository at all: an entry the curator neither transfers nor
   deletes is simply lost at the end of the session.
 - **Nothing here migrates prose that is already in place.** Curation
-  governs the entries in front of it. Documentation transferred by an
-  earlier run stays where that run put it.
+  governs the entries in front of it. A constraint an earlier run
+  transferred stays where that run put it, a README included.
 
 ## Where the rules actually live
 
