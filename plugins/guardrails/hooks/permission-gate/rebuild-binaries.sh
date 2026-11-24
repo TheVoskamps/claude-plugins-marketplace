@@ -18,8 +18,8 @@
 # Exit status: 0 when the binaries are installed; 1 on any failure — a test,
 # vet, lint, format or build step, a binary stamping anything but
 # vcs.modified=false, or a git or filesystem step — with nothing copied into
-# ../bin/ unless the copy itself fails, which leaves installed the arches
-# copied before it; 2 on a usage error.
+# ../bin/ unless a copy or chmod into it fails, which leaves in place every
+# arch copied before the failure; 2 on a usage error.
 
 set -euo pipefail
 
