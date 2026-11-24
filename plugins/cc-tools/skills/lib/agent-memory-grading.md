@@ -145,7 +145,7 @@ than opening a new one, and correct a statement already there when the
 entry contradicts it — a transfer may repair prose as well as extend
 it.
 
-## A transfer is a doc edit, and holds the whole file to standard
+## A transfer is an instruction edit, and holds the whole file to standard
 
 The destination is markdown whose reader is a model, so
 `~/.claude/docs/rules/claude-code-markdown-instructions-style.md`
