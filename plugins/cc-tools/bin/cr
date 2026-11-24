@@ -58,14 +58,16 @@
 # another. The merged file is written under
 # ${XDG_STATE_HOME:-~/.local/state}/cc-tools/<host>/<owner>/<repo>/, or
 # .../cc-tools/local/, and removed on exit, interrupt or termination.
-# With no layer present, claude gets no `--settings` and nothing is
-# written.
+# With no layer present, claude gets no `--settings` and no merged file
+# is written.
 #
 # Exit status: claude's own; 1 when cr refuses or a step before claude
 # fails, with stderr saying which; or bash's 127 when claude is not on
 # PATH.
 set -uo pipefail
 
+# hooks/cr-resolver parses --as by these same rules and messages before it
+# execs this script, so a change here belongs there too.
 strict=0
 account=
 while [ "$#" -gt 0 ]; do
