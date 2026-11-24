@@ -561,8 +561,9 @@ this_agent_id() {
 
 # The harness writes a child's transcript to
 # <config>/projects/<project>/<session>/subagents/agent-<id>.jsonl,
-# where <config> is the config directory, ${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-# with an empty variable counting as unset, and <project> is the primary clone's path with each character
+# where <config> is the config directory,
+# ${CLAUDE_CONFIG_DIR:-$HOME/.claude} with an empty variable counting as
+# unset, and <project> is the primary clone's path with each character
 # outside [A-Za-z0-9-] replaced by a dash — measured on both a / and a
 # dot. The child's own cwd is a worktree, so the primary root comes from
 # the common git dir rather than from $PWD. Any part of that being
