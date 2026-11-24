@@ -691,9 +691,8 @@ const ghAPIHostnameDenyReason = "Blocked: 'gh api --hostname' redirects the SIGN
 //     DENY unconditionally — this is the one shape the egress proxy's
 //     host-allowlist can see and control, so it keeps its own justification
 //     (not the write/read asymmetry the other tiers below hinge on).
-//   - Write DEFER tiers: an
-//     x-http-method-override header, an explicit non-GET method, and a
-//     request-body flag
+//   - Write DEFER tiers: an x-http-method-override header, an explicit
+//     non-GET method, and a request-body flag
 //     (-f/-F/--field/--raw-field/--input) with no explicit GET method
 //     (implicit-POST flip). A `gh api` REST write is a credential-carrying
 //     mutation of remote repo state the microVM cannot roll back — the same

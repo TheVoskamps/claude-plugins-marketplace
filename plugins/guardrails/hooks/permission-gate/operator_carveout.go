@@ -187,8 +187,9 @@ type operatorCarveOutLists struct {
 // not declare, so a config carrying keys a later schema adds still parses
 // here.
 type operatorCarveOutDocument struct {
-	// SchemaVersion is the file's `schema-version` stamp. A stamp below operatorCarveOutSchemaVersion, or none, reads the
-	// whole file as absent, silently; a file still spelling the schema-1
+	// SchemaVersion is the file's `schema-version` stamp. A stamp below
+	// operatorCarveOutSchemaVersion, or none, reads the whole file as absent,
+	// silently; a file still spelling the schema-1
 	// `allow-read` / `allow-write` keys is stamped 1 and lands there. A
 	// higher stamp is read for the keys declared here. A non-integer value
 	// fails the parse.

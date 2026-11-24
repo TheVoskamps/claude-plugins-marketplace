@@ -2425,10 +2425,9 @@ func TestCanonicalizeFromResolverNoHomeUnresolvedTilde(t *testing.T) {
 // rather than relying on — or skipping under — whatever the ambient test
 // environment's real home-directory resolvability happens to be. In the
 // "HOME unset" scenario (cron jobs, minimal containers, stripped
-// environments) a leading-tilde operand
-// must earn a non-contained (escapeRepo) verdict, never `contained`, so
-// every caller (classifyFileTool, containPathOperands, containWriteOperands)
-// denies rather than allows.
+// environments) a leading-tilde operand must earn a non-contained
+// (escapeRepo) verdict, never `contained`, so every caller (classifyFileTool,
+// containPathOperands, containWriteOperands) denies rather than allows.
 func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
