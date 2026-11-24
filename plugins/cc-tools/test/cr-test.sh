@@ -738,6 +738,9 @@ check "$(cat "$SANDBOX/list.ccd")" "$HOME/inherited" "resolver, no --as, inherit
 
 bad_as_cases "resolver --as" run_resolver "$SANDBOX/withjq"
 
+ERR=$(env -u HOME PATH="$SANDBOX/withjq" /bin/bash "$RESOLVER" --as work_1-a x 2>&1)
+check "$?:$ERR" "1:cr: --as: HOME is not set" "resolver --as, HOME unset: exit 1 with a message"
+
 run_resolver "$SANDBOX/nojq" a
 check "$RC" "1" "resolver, no jq: exit 1"
 check_contains "$ERR" "cr: jq is not on PATH" "resolver, no jq: stderr says so"
