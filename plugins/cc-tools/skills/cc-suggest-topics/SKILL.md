@@ -1,7 +1,7 @@
 ---
 name: cc-suggest-topics
 description: Propose cc-tools topics derived from this machine's global Claude configuration — settings, installed plugins, always-loaded rules — shown against what the topics config already tracks, and append only the candidates the user accepts. Use when the tracked topics look narrower than what this machine actually exercises.
-allowed-tools: Read, Write, Skill
+allowed-tools: Bash(claude-home), Read, Write, Skill
 ---
 
 # Suggest topics from this machine's Claude configuration
@@ -32,21 +32,22 @@ This skill's pin is `schema-version: 1`.
 
 ## What it reads
 
-The machine's **global** Claude configuration, and only that:
+The machine's **global** Claude configuration, and only that. Run
+`claude-home` and read these from the directory it prints; on a
+non-zero exit, relay its stderr verbatim and stop:
 
-- `~/.claude/settings.json` and `~/.claude/settings.local.json`
-- `~/.claude/plugins/installed_plugins.json`, for each installed
-  plugin and its version, and
-  `~/.claude/plugins/known_marketplaces.json`, for the marketplaces
+- `settings.json` and `settings.local.json`
+- `plugins/installed_plugins.json`, for each installed plugin and its
+  version, and `plugins/known_marketplaces.json`, for the marketplaces
   they came from
-- `~/.claude/CLAUDE.md`, for always-loaded rules that name a harness
-  feature
+- `CLAUDE.md`, for always-loaded rules that name a harness feature
 
-`~/.claude.json` is not one of them: it is a sibling of `~/.claude/`
-rather than a path under it, so the `guardrails` permission gate denies
-a `Read` of it as an outside-the-repository escape on any machine whose
-operator has not listed it under that gate's `home` carve-out root —
-and the gate ships no default entries, so assume the deny.
+`.claude.json` is not read, wherever it lives. `~/.claude.json` is a
+sibling of `~/.claude/` rather than a path under it, so the `guardrails`
+permission gate denies a `Read` of it as an outside-the-repository
+escape on any machine whose operator has not listed it under that
+gate's `home` carve-out root — and the gate ships no default entries,
+so assume the deny.
 
 The repo-local `.claude/settings.json` and `settings.local.json` are
 **not** read. `config.yml` is machine-wide, so a candidate derived from

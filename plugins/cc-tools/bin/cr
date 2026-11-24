@@ -2,22 +2,34 @@
 #
 # cr -- launch an interactive Claude Code session named after the repo it
 # runs in, from that repo's root, with remote control on, a debug log
-# under ~/.claude/logs/, Grep and Glob allowed without a prompt, and the
-# settings layers below merged into one file passed as `--settings`.
-# When GIT_CONFIG_GLOBAL is unset or empty and ~/.gitconfig-claude is
-# readable, cr exports GIT_CONFIG_GLOBAL pointing at that file for itself
-# and the session. Runs under the bash 3.2 macOS ships. Needs git, gh and
-# jq on PATH, and uses ssh when it is there.
+# under the config directory's logs/, created when absent, Grep and Glob
+# allowed without a prompt, and the settings layers below merged into one
+# file passed as `--settings`. The config directory is
+# ${CLAUDE_CONFIG_DIR:-$HOME/.claude}. When GIT_CONFIG_GLOBAL is unset or
+# empty and ~/.gitconfig-claude is readable, cr exports GIT_CONFIG_GLOBAL
+# pointing at that file for itself and the session. Runs under the bash
+# 3.2 macOS ships. Needs git, gh and jq on PATH, and uses ssh when it is
+# there.
 #
-# Usage: cr [--cr-strict] [<name-word>…] [<claude-argument>…]
+# Usage: cr [--cr-strict] [--as <name>] [<name-word>…] [<claude-argument>…]
 #
-#   --cr-strict  only as the first argument: refuse to run outside a git
-#                repo, or in one with no `origin` remote
-#   <name-word>  the arguments before the first `-`-prefixed one, joined
+#   --cr-strict  refuse to run outside a git repo, or in one with no
+#                `origin` remote
+#   --as <name>  run under the account <name>: export CLAUDE_CONFIG_DIR as
+#                $HOME/.claude.<name>, which must be a directory or a
+#                symlink to one, and add the account's settings layer.
+#                <name> holds only ASCII letters, digits, `_` and `-`, and
+#                is not `backup`. Without it, an inherited
+#                CLAUDE_CONFIG_DIR is left as it is.
+#   <name-word>  the arguments up to the next `-`-prefixed one, joined
 #                with spaces into the session name's prefix; with none,
 #                the prefix is a `%b%d-%H:%M` date stamp
-#   the first `-`-prefixed argument and everything after it pass to
+#   the next `-`-prefixed argument and everything after it pass to
 #   claude unchanged, after cr's own `--settings`
+#
+# --cr-strict and --as come before the name words, in either order; after
+# the first name word or other argument each passes to claude. Before it,
+# cr refuses a second --as, and `--as=<name>`.
 #
 # Outside a git repo, cr runs `git init` in the current directory so the
 # session has a repo, and removes that .git again on exit, interrupt or
@@ -27,6 +39,7 @@
 # is ${XDG_CONFIG_HOME:-~/.config}/cc-tools/cr-settings:
 #
 #   <config>/host.json
+#   <config>/accounts/<name>.json            with --as <name> only
 #   <config>/<host>/<owner>.json
 #   <config>/<host>/<owner>/<repo>.json
 #   <repo-root>/.cc-tools/cr-settings.json
@@ -35,7 +48,7 @@
 # url`, the URL in its https:// form, an ssh URL's host first resolved
 # through `ssh -G` so an ssh config alias names its real host. With no
 # `origin`, after a `git init`, or when gh cannot resolve the `origin`,
-# the identity is `local` and only the first and last layers apply. cr
+# the identity is `local` and the <host> layers do not apply. cr
 # refuses an identity whose <host>, <owner> or <repo> holds anything but
 # letters, digits, `.`, `_` and `-`, or is `.` or `..`.
 # Merging concatenates lists, dropping an entry equal to an earlier one,
@@ -45,19 +58,57 @@
 # another. The merged file is written under
 # ${XDG_STATE_HOME:-~/.local/state}/cc-tools/<host>/<owner>/<repo>/, or
 # .../cc-tools/local/, and removed on exit, interrupt or termination.
-# With no layer present, claude gets no `--settings` and nothing is
-# written.
+# With no layer present, claude gets no `--settings` and no merged file
+# is written.
 #
 # Exit status: claude's own; 1 when cr refuses or a step before claude
 # fails, with stderr saying which; or bash's 127 when claude is not on
 # PATH.
 set -uo pipefail
 
+# hooks/cr-resolver parses --as by these same rules and messages before it
+# execs this script, so a change here belongs there too. The letters are
+# spelled out because a bracket range can follow the locale's collation.
 strict=0
-if [ "${1-}" = "--cr-strict" ]; then
-  strict=1
+account=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --cr-strict) strict=1 ;;
+    --as=*)
+      echo "cr: spell the account as '--as <name>', not '$1'" >&2
+      exit 1
+      ;;
+    --as)
+      if [ -n "$account" ]; then
+        echo "cr: --as is given twice" >&2
+        exit 1
+      fi
+      if [ "$#" -lt 2 ]; then
+        echo "cr: --as needs an account name" >&2
+        exit 1
+      fi
+      case "$2" in
+        '' | backup | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*)
+          echo "cr: --as: '$2' is not a valid account name" >&2
+          exit 1
+          ;;
+      esac
+      if [ -z "${HOME-}" ]; then
+        echo "cr: --as: HOME is not set" >&2
+        exit 1
+      fi
+      account=$2
+      if [ ! -d "$HOME/.claude.$account" ]; then
+        echo "cr: --as: no account directory $HOME/.claude.$account" >&2
+        exit 1
+      fi
+      export CLAUDE_CONFIG_DIR="$HOME/.claude.$account"
+      shift
+      ;;
+    *) break ;;
+  esac
   shift
-fi
+done
 
 for tool in git gh jq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -184,7 +235,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if gh_url=$(gh repo view "$(https_url "$url")" --json url --jq .url 2>/dev/null) && [ -n "$gh_url" ]; then
       identity=$gh_url
     else
-      echo "cr: gh repo view could not resolve 'origin'; applying only the host and committed settings layers" >&2
+      echo "cr: gh repo view could not resolve 'origin'; leaving out the owner and per-machine repo settings layers" >&2
     fi
   else
     repo="(local)"
@@ -215,6 +266,9 @@ valid_segment() {
 config="${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/cr-settings"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/cc-tools"
 candidates=("$config/host.json")
+if [ -n "$account" ]; then
+  candidates+=("$config/accounts/$account.json")
+fi
 if [ "$identity" = local ]; then
   state="$state/local"
 else
@@ -303,10 +357,16 @@ if [ -z "$suffix" ]; then
 fi
 name="${suffix} ${repo}"
 
+logs="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/logs"
+mkdir -p -- "$logs" || {
+  echo "cr: cannot create $logs" >&2
+  exit 1
+}
+
 # claude runs as a child rather than through exec, so the EXIT trap above
 # is still in place when it returns. bash runs an INT or TERM trap only
 # once claude has returned, and from here on that trap cleans up without
 # exiting, so a signal claude survives leaves claude's status as cr's.
 trap cleanup INT TERM
-claude --name "$name" --remote-control --debug-file "$HOME/.claude/logs/$name" \
+claude --name "$name" --remote-control --debug-file "$logs/$name" \
   ${settings[@]+"${settings[@]}"} --allowedTools Grep Glob ${claude_args[@]+"${claude_args[@]}"}

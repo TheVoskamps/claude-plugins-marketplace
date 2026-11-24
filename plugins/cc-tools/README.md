@@ -1,9 +1,10 @@
 # cc-tools
 
 Tools for running Claude Code itself: launch a session named after the
-repo it runs in, with settings layers for this machine, the repo's
-owner and the repo itself merged on top of your global ones; load the
-global rules a session should be working under;
+repo it runs in, under a named account when you keep more than one,
+with settings layers for this machine, that account, the repo's owner
+and the repo itself merged on top of your global ones; load the global
+rules a session should be working under;
 find out what changed in the harness and in the issues you track; and
 curate the memory your agents write so it stays worth reading.
 
@@ -23,13 +24,22 @@ Each of these gets worse the longer you leave it:
   repo's own `.claude/settings.json` does not reach `autoMode`. A rule
   every repo of one org needs lives as a copy in each, and the copies
   drift. The `cr` launcher layers settings files for this machine, the
-  repo's owner and the repo itself over the global one at launch, so
-  each setting has one home.
-- **Your global rules are on disk but not in the session.**
-  `~/.claude/CLAUDE.md` pulls in files with `@~/` lines that are not
-  expanded for a model reading it with a file tool, so "the rules are
-  loaded" is an assumption, not a fact. There is a skill that makes it
-  a fact.
+  account, the repo's owner and the repo itself over the global one at
+  launch, so each setting has one home.
+- **A second Claude account means a second config directory.** Claude
+  Code keeps its state in one directory, `~/.claude` unless
+  `CLAUDE_CONFIG_DIR` names another — the **config directory**
+  throughout this README. Pointing it elsewhere separates the accounts
+  and also leaves your rules, settings and plugins behind. An account
+  directory, `~/.claude.<name>`, holds symlinks back to the shared
+  configuration beside the state Claude Code writes for that account;
+  `cr --as <name>` launches under one, and the link skills keep its
+  symlinks in step with a whitelist.
+- **Your global rules are on disk but not in the session.** The
+  `CLAUDE.md` in your config directory pulls in files with `@~/` lines
+  that are not expanded for a model reading it with a file tool, so
+  "the rules are loaded" is an assumption, not a fact. There is a skill
+  that makes it a fact.
 - **Claude Code moves faster than you can read its changelog.** Most
   of what ships does not touch any subject you are actually following,
   and the bug you filed six months ago may have quietly closed.
@@ -55,6 +65,13 @@ Each of these gets worse the longer you leave it:
   cc-tools is installed, and the launcher merges the settings layers
   with it; each refuses with a message on stderr without it, rather
   than guessing a path or launching with the layers dropped.
+- **mikefarah `yq`, v4 or higher**, if you want the account link
+  skills. Their script parses the whitelist with it and exits 1 naming
+  `yq` when it is missing, or when the `yq` on `PATH` is another tool
+  or an older version. `cr` does not need it, `--as` included.
+- **A whitelist at `~/.claude/.cc-tools/account-symlinks.yml`**, if you
+  want the account link skills. The plugin ships none and never writes
+  it; its shape is under "Managing an account's links" below.
 - **`~/.local/bin` on your `PATH`**, if you want `cr`. The deploy hook
   writes the resolver there and says so when the directory is not on
   `PATH`; it never edits `PATH` for you.
@@ -62,8 +79,8 @@ Each of these gets worse the longer you leave it:
   shadows a command on `PATH`, so a shell that still defines one keeps
   running it until the function is removed from the profile and the
   profile is reloaded; only then does `~/.local/bin/cr` take over.
-- **A `~/.claude/CLAUDE.md`**, if you want rule-loading to have
-  anything to load.
+- **A `CLAUDE.md` in your config directory**, if you want rule-loading
+  to have anything to load.
 - **Agents that declare `memory: project`**, if you want anything to
   curate. With nothing captured — no `.claude/agent-memory/` for the
   repo route, an empty inbox for the session route — curation reports
@@ -82,9 +99,12 @@ creates on its first run; its path and shape are
 the session inbox described below, which lives under the session
 scratchpad rather than in any repo and dies with the session. Outside
 its own tree the plugin writes `~/.local/bin/cr`, a byte-for-byte copy
-of `hooks/cr-resolver`, and the merged settings file `cr` builds for
-each launch under `${XDG_STATE_HOME:-~/.local/state}/cc-tools/`, which
-lives only as long as that launch.
+of `hooks/cr-resolver`; the merged settings file `cr` builds for each
+launch under `${XDG_STATE_HOME:-~/.local/state}/cc-tools/`, which
+lives only as long as that launch; the config directory's `logs/`,
+which `cr` creates when absent; and the account directories
+`~/.claude.<name>` and the symlinks in them, which only
+`cr-account-add` creates and only `cr-account-remove` removes.
 
 ## The entry points
 
@@ -94,36 +114,60 @@ lives only as long as that launch.
 repo you are in, named after that repo. Its shape:
 
 ```text
-cr [--cr-strict] [<name-word>…] [<claude-argument>…]
+cr [--cr-strict] [--as <name>] [<name-word>…] [<claude-argument>…]
 ```
 
-The arguments before the first `-`-prefixed one become the session
+`--cr-strict` and `--as <name>` are `cr`'s own flags, and come first,
+in either order. After them, the arguments before the first
+`-`-prefixed one become the session
 name's prefix, joined with spaces — `cr fix the bug` in a clone of
 `my-repo` names the session `fix the bug my-repo`; with no name words
-the prefix is a `%b%d-%H:%M` date stamp. The first `-`-prefixed
+the prefix is a `%b%d-%H:%M` date stamp. That first `-`-prefixed
 argument and everything after it go to `claude` unchanged, after the
-`--settings` `cr` adds itself. The repo name is the last path component
+`--settings` `cr` adds itself, so a `--cr-strict` or `--as` after the
+first name word is `claude`'s and not `cr`'s. The repo name is the last
+path component
 of the `origin` URL without `.git`, or `(local)` when there is no
 `origin`. Outside any repo, `cr` runs `git init` in the current
 directory so the session has a repo, and removes that `.git` again
 when the session ends, on an interrupt or a termination included;
-`--cr-strict` as the first argument refuses instead, and also refuses
-a repo with no `origin`. A signal that arrives while `claude` runs is
-`claude`'s to handle: when `claude` survives it, `cr` cleans up once
-`claude` returns and exits with `claude`'s status. The session gets
-`--remote-control`, a debug log under `~/.claude/logs/` named after
-the session, and `Grep` and `Glob` allowed without a prompt. When
+`--cr-strict` before the first name word refuses instead, and also
+refuses a repo with no `origin`. A signal that arrives while `claude`
+runs is `claude`'s to handle: when `claude` survives it, `cr` cleans up
+once `claude` returns and exits with `claude`'s status. The session
+gets `--remote-control`, a debug log under the config directory's
+`logs/` named after the session, and `Grep` and `Glob` allowed without
+a prompt; `cr` creates that `logs/` when it is absent, and refuses to
+launch when it cannot. When
 `GIT_CONFIG_GLOBAL` is unset and `~/.gitconfig-claude` is readable,
 `cr` exports it pointing there, so git inside the session reads that
 file as its global config. `cr` needs `git`, `gh` and `jq` on `PATH`,
 and refuses before launching, naming the tool, when one is missing.
 The usage block at the top of `bin/cr` is the exact contract.
 
+**Running under an account.** `cr --as <name>` exports
+`CLAUDE_CONFIG_DIR=~/.claude.<name>` for the launch, so `claude` reads
+and writes that account's directory, the debug log lands in its
+`logs/`, and the account's settings layer applies. A name holds only
+ASCII letters, digits, `_` and `-`, and is not `backup`, so a
+`~/.claude.backup.<stamp>` directory is never an account; neither is a
+plain file such as `~/.claude.json`, since the account
+directory must already exist, as a directory or a symlink to one;
+`cr` creates none, and `/cc-tools:cr-account-add` does. Before the
+first name word `cr` refuses each of these with a message and exit 1,
+launching nothing: `--as` with no name, an invalid name, a name with
+no account directory, a second `--as`, `--as=<name>` in place of
+`--as <name>`, and `--as` with `HOME` unset. Without `--as`, `cr`
+leaves an inherited `CLAUDE_CONFIG_DIR` as it is, and the session runs
+in whatever config directory it names.
+
 **The settings layers.** `cr` applies these settings files, each
 optional, in this order, where `<config>` is
 `${XDG_CONFIG_HOME:-~/.config}/cc-tools/cr-settings`:
 
 - `<config>/host.json` — this machine, every repo.
+- `<config>/accounts/<name>.json` — one account, every repo; with
+  `--as <name>` only.
 - `<config>/<host>/<owner>.json` — every repo of one owner or org.
 - `<config>/<host>/<owner>/<repo>.json` — one repo, this machine only.
 - `<repo-root>/.cc-tools/cr-settings.json` — one repo, committed.
@@ -135,7 +179,11 @@ an org — an AWS estate, a package registry, the `autoMode` rules that
 name them — has one home in the owner layer rather than a copy in each
 repo, and a setting that belongs to one machine, or to a repo that
 must not carry a committed file (a fork whose branches become upstream
-pull requests), has the per-machine layers. This is the one route by
+pull requests), has the per-machine layers. The account layer is
+selected by `--as` and by nothing else: a `CLAUDE_CONFIG_DIR` that
+`cr` inherits names a config directory but no account, so no account
+layer applies. A scalar in it overrides `host.json`'s and is overridden
+by the owner layer's and both repo layers'. This is the one route by
 which a per-repo setting reaches `autoMode` — a repo's
 `.claude/settings.json` does not — and an `autoMode.environment` line
 passed this way lands in every model request of the session, subagent
@@ -156,8 +204,8 @@ another remote, such as a fork's `upstream`, through its own
 remote-priority rules. Each segment may hold only letters, digits,
 `.`, `_` and `-`, and may not be `.` or `..`; `cr` refuses an identity
 that fails that check, naming the segment. The identity is `local`,
-and only the host and committed layers apply, in a repo with no
-`origin`, in the directory `cr` ran `git init` in, and when
+and the owner and per-machine repo layers do not apply, in a repo with
+no `origin`, in the directory `cr` ran `git init` in, and when
 `gh repo view` cannot resolve the `origin`, an `origin` not hosted on
 GitHub included; the first two make no `gh` call, and the last says so
 on stderr.
@@ -190,11 +238,18 @@ keys override them.
 `bin/cr`, which puts it on `PATH` inside sessions — but the plugin
 cache path changes with every cc-tools version, so nothing in a shell
 profile can name it. What the shell runs is a resolver, deployed to
-`~/.local/bin/cr`, that carries no launcher logic: it asks
+`~/.local/bin/cr`, that carries no launcher logic, with one exception:
+it sets `CLAUDE_CONFIG_DIR` from `--as`, because the plugin lookup
+reads it. It asks
 `claude plugin list --json` where the enabled `cc-tools@thevoskamps` is
-installed and execs that install's `bin/cr` with its arguments, so a
+installed and execs that install's `bin/cr` with its arguments, `--as`
+included, so a
 cc-tools update reaches the very next `cr` with nothing redeployed.
-When no enabled cc-tools is installed, or `jq` is missing, or the plugin
+The lookup therefore answers for the account being launched, and the
+resolver accepts and refuses `--as` exactly as `bin/cr` does, so a bad
+`--as` fails the same way whichever of the two meets it first.
+When `--as` is refused, no enabled cc-tools is installed, `jq` is
+missing, or the plugin
 list cannot be read, the resolver says which on stderr and exits 1; it
 never falls back to plain `claude`, because a session launched without
 the settings layers would look like one launched with them. The
@@ -218,11 +273,76 @@ JSON by hand so that `jq` is a dependency of `cr` alone. A change to
 the resolver's text therefore reaches a machine at its next session
 start, and a change to the launcher reaches it at the next `cr`.
 
+### Managing an account's links
+
+An account directory shares your configuration through symlinks: each
+points at the same name under `~/.claude`, so every account sees the
+one copy of each shared entry and keeps only its own state apart. Which
+names are linked is a whitelist,
+`~/.claude/.cc-tools/account-symlinks.yml` — always under `~/.claude`,
+whatever `CLAUDE_CONFIG_DIR` holds, so the skills act the same inside a
+session launched with `--as`:
+
+```yaml
+schema-version: 1
+symlinks:
+  - CLAUDE.md
+  - settings.json
+```
+
+The plugin carries no copy of that list and never writes the file, so
+adding a name to it changes what the skills cover with no change to the
+plugin. Each skill wraps one script, `bin/cr-account-links`, which
+exits 1, naming the file and changing nothing, when the whitelist is
+absent or malformed, its `schema-version` is absent or below 1, or an
+entry is empty, `.`, `..`, or holds a `/` or a line break.
+
+- `/cc-tools:cr-account-list` reports, for each account on the machine,
+  each whitelisted entry as linked, missing, wrong target, dangling, or
+  a real file or directory, and each symlink into `~/.claude` that the
+  whitelist does not name. An account is a `~/.claude.<name>` directory
+  whose name passes the rule `--as` applies, so no backup directory is
+  listed.
+- `/cc-tools:cr-account-add <name>` creates the account directory if
+  absent and each missing link, and reports each real file or directory
+  standing where a link would go as kept — that is how an account
+  overrides one shared entry with its own. It never replaces or deletes
+  anything, and running it again changes nothing. It changes nothing
+  and exits 1, naming each problem, when a whitelisted entry is a
+  symlink with a wrong or dangling target, or has no source under
+  `~/.claude` — an entry the account keeps as a real file included. It
+  finds every problem before it creates anything, the account directory
+  included.
+- `/cc-tools:cr-account-remove <name>` removes each symlink whose
+  target is the same name under `~/.claude`, whitelisted or not, and
+  leaves the directory, every real file and every other symlink in it.
+
+A link counts as pointing at the same name under `~/.claude` by where
+its target physically is, so a relative link you made by hand counts as
+linked, and is removed, like an absolute one.
+
+`cr-account-add` and `cr-account-remove` run only when you type them —
+a model cannot invoke either — and act without asking first.
+`cr-account-list` changes nothing, and a model may run it.
+
+### Finding the config directory
+
+`claude-home` takes no arguments and prints the absolute path of the
+config directory: `CLAUDE_CONFIG_DIR` when it is set and not empty,
+and `~/.claude` otherwise. A relative `CLAUDE_CONFIG_DIR` is taken from
+the current directory. It exits 1 with a message when `CLAUDE_CONFIG_DIR` and
+`HOME` are both unset or empty. It is on `PATH` inside every session
+that has this plugin enabled, so a skill or an agent of any plugin
+finds per-account files by running it rather than by spelling
+`~/.claude`, which is the wrong directory under `--as`.
+
 ### Loading the global rules
 
-`/cc-tools:cc-all` reads `~/.claude/CLAUDE.md` and every file it
-includes. Run it at the top of a session where you want the global
-principles genuinely in context rather than nominally in effect.
+`/cc-tools:cc-all` runs `claude-home` and reads the `CLAUDE.md` in the
+directory it prints and every file it includes, directly or through
+another included file. Run it at the top of a session where you want
+the global principles genuinely in context rather than nominally in
+effect.
 
 ### Finding out what changed
 
@@ -248,14 +368,14 @@ about your own filed issues:
 `/cc-tools:cc-suggest-topics` is the one skill that mines the machine
 for topics to track. It reads your **global** Claude configuration —
 settings, installed plugins and marketplaces, the always-loaded
-rules — derives candidate topics from the harness surfaces it finds
-there, and shows each one with the file and key it came from, so you
-can tell a claim about your own setup from a topic the skill
-invented. It appends only what you accept. A candidate that restates
-a topic you already track under different wording becomes a proposal
-to rename that topic to the broader term instead, carrying its issue
-numbers over — and that rename takes its own yes. Decline everything
-and no topic changes.
+rules — from the config directory `claude-home` prints, derives
+candidate topics from the harness surfaces it finds there, and shows
+each one with the file and key it came from, so you can tell a claim
+about your own setup from a topic the skill invented. It appends only
+what you accept. A candidate that restates a topic you already track
+under different wording becomes a proposal to rename that topic to the
+broader term instead, carrying its issue numbers over — and that rename
+takes its own yes. Decline everything and no topic changes.
 
 ### Curating agent memory
 
@@ -301,8 +421,14 @@ which of its notes were about the branch and which about the repo.
 - **The deploy hook does not touch your profile.** It writes
   `~/.local/bin/cr` and nothing else; putting that directory on `PATH`
   and removing an older `cr()` function are yours.
+- **`cr --as` does not create an account.** It refuses a name with no
+  account directory; `cr-account-add` makes one.
+- **The link skills do not decide what an account shares.** The
+  whitelist does, and nothing here writes it. `cr-account-remove`
+  deletes symlinks only, never a real file, a real directory or the
+  account directory itself.
 - **It does not decide what your rules should say.** `cc-all` loads
-  `~/.claude/CLAUDE.md`; authoring it is yours.
+  the config directory's `CLAUDE.md`; authoring it is yours.
 - **The topics list is hand-maintained.** Past the starter set that
   seeds it, nothing reaches it on your behalf: the watchlist discovers
   nothing, and every other write asks first. An issue nobody added is

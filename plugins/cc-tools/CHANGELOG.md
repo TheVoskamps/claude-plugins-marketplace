@@ -1,5 +1,40 @@
 # cc-tools changelog
 
+## 0.12.0 — 2026-11-24
+
+`cr --as <name>` launches Claude Code under a named account, and three
+skills manage the symlinks an account directory holds into `~/.claude`.
+An account directory is `~/.claude.<name>`; a name holds only ASCII
+letters, digits, `_` and `-`, and is not `backup`.
+
+- `cr [--cr-strict] [--as <name>] …` exports
+  `CLAUDE_CONFIG_DIR=~/.claude.<name>` for both the plugin lookup and
+  the session. The two flags come before the name words, in either
+  order, so `--cr-strict` no longer has to be the first argument. `cr`
+  refuses a missing or invalid name, a name with no account directory,
+  a second `--as` and `--as=<name>`. Without `--as`, an inherited
+  `CLAUDE_CONFIG_DIR` is left as it is.
+- With `--as`, `accounts/<name>.json` under
+  `${XDG_CONFIG_HOME:-~/.config}/cc-tools/cr-settings` is a settings
+  layer applied after `host.json` and before the owner layer. It
+  applies in a repo with no resolvable `origin` too.
+- The debug log goes under the `logs/` of the config directory,
+  `${CLAUDE_CONFIG_DIR:-~/.claude}`, which `cr` creates when absent.
+- `claude-home` prints the absolute path of that config directory.
+  `/cc-tools:cc-all`, `/cc-tools:cc-suggest-topics` and agent-memory
+  curation read from the directory it prints rather than from
+  `~/.claude`.
+- `/cc-tools:cr-account-list` reports the state of each account's
+  links, `/cc-tools:cr-account-add <name>` creates the account
+  directory and its missing links, and
+  `/cc-tools:cr-account-remove <name>` removes the links and leaves
+  everything else. The link set is the whitelist in
+  `~/.claude/.cc-tools/account-symlinks.yml`, which the plugin neither
+  ships nor writes, and these skills need mikefarah `yq` v4 or higher.
+
+The resolver at `~/.local/bin/cr` changes, so the deploy hook rewrites
+it at the next session start and asks for a shell restart.
+
 ## 0.11.0 — 2026-11-23
 
 Agent-memory curation no longer writes a durable note into a README,
