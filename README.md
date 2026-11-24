@@ -32,9 +32,12 @@ The marketplace currently ships these plugins (one entry each in
   `docs/rules/*.md` routed from it, else the root `CLAUDE.md`; plus the
   `cr` session
   launcher, kept current at `~/.local/bin/cr` by a `SessionStart`
-  hook, which merges per-user host, owner and repo settings layers
+  hook, which runs Claude Code under a named account with `--as` and
+  merges per-user host, account, owner and repo settings layers
   under `~/.config/cc-tools/cr-settings/` with a repo's
-  `.cc-tools/cr-settings.json` into one `--settings` file.
+  `.cc-tools/cr-settings.json` into one `--settings` file; and skills
+  that list, add and remove an account directory's symlinks into
+  `~/.claude`.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity.
