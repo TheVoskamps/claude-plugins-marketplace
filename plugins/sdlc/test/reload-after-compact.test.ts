@@ -415,7 +415,7 @@ test("a skill of another plugin with no install recorded is named with the error
   expect(text).toContain("installed_plugins.json");
 });
 
-test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other files are not", async ($, on) => {
+test("a rule file read is reloaded, and CLAUDE.md, the config directory's rules and other files are not", async ($, on) => {
   const rule = `${ROOT}/docs/rules/verification-playbook.md`;
   const global = `${HOME}/.claude/docs/rules/code-style.md`;
   stub(on, { [rule]: "playbook", [global]: "code style" });

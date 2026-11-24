@@ -229,7 +229,7 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   }
   const isOpened = orchestrate === "opened";
   const kept = mergeByLabel(items).filter(
-    (item) => !isReinjected(item.label, config) &&!(isOpened && isOpeningFile(item.label)),
+    (item) => !isReinjected(item.label, config) && !(isOpened && isOpeningFile(item.label)),
   );
   if (kept.length === 0 && stateNotes.length === 0) return "";
   kept.sort((a, b) => b.seq - a.seq);
