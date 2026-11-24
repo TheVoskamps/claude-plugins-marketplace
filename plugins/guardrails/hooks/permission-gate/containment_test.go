@@ -495,9 +495,7 @@ func fileToolBucket(t *testing.T, tool, repoRoot, target string) Decision {
 // Session row (ALLOW): a file-tool or bash read/write whose canonical target
 // lands in a session-shaped harness scratchpad directory —
 // <system-tmp>/claude-<uid>/<project-slug>/<uuid>/{scratchpad,tasks}/… — is
-// allowed OUTRIGHT, not deferred. A defer would leave the feature dead until
-// every /tmp entry is removed from settings.json, since a hook allow outranks
-// that list and a defer does not.
+// allowed OUTRIGHT, not deferred: the region meets BucketAllow's bar.
 //
 // Both /tmp and /private/tmp spellings are exercised: on macOS /tmp is a
 // symlink, so the canonical root is the /private/tmp form while the literal
@@ -995,9 +993,8 @@ func compoundSpellings(inner, redirect string) map[string]string {
 //	{ echo x; } > <out-of-repo>           ALLOW  (bare `echo` — a WRITE bypass)
 //
 // The write row is the serious one: with the redirect dropped the line reduces to
-// a pure-output, non-path-bearing command that is allow-eligible on its own, and
-// an allow outranks settings.json — so the gate positively blessed an arbitrary
-// out-of-repo write it never saw.
+// a pure-output, non-path-bearing command that is allow-eligible on its own, so
+// the gate positively blessed an arbitrary out-of-repo write it never saw.
 //
 // The equivalence assertions are the load-bearing ones: each compound spelling is
 // compared against the bare command carrying the same redirect, never against a
@@ -1715,8 +1712,7 @@ func TestHarnessSessionShape(t *testing.T) {
 // a Linux CI box), so it costs nothing where there is no ground truth to check.
 //
 // A failure here means the harness's real layout has drifted away from a shape
-// the gate blesses — which silently downgrades those paths from ALLOW to DEFER,
-// i.e. reintroduces the original symptom wherever settings.json still denies /tmp.
+// the gate blesses — which silently downgrades those paths from ALLOW to DEFER.
 func TestHarnessShapesMatchLiveLayout(t *testing.T) {
 	st := resolveHarnessScratchRoot()
 	if st.root == "" || st.defect != "" {
@@ -1866,8 +1862,8 @@ func TestHarnessBundledSkillsShape(t *testing.T) {
 }
 
 // Bundled-skills rows: the tree is READ/WRITE-GRADED.
-// A read matching the shape is ALLOWed outright (the model legitimately reads
-// bundled skills, and a DEFER would still lose to a /tmp deny in settings.json);
+// A read matching the shape is ALLOWed outright (reading a bundled skill is
+// what the tree is for, which meets BucketAllow's bar for a read);
 // a WRITE matching it DEFERS — the content is harness-installed, so the gate has
 // no positive grounds to bless a rewrite, but neither is it an escape to deny.
 //

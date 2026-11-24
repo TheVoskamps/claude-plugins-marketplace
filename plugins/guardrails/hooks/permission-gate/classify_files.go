@@ -28,12 +28,13 @@ import (
 // directory for any tool; the bundled-skills tree for a READ — see
 // scratchAllowEligible), and the operator-configured listing rooted at the XDG
 // config home, the XDG state home and the home directory (see
-// operator_carveout.go). They allow rather than defer because a defer would
-// still lose to a `/tmp` or `~/.config` deny entry in settings.json, and a
-// PreToolUse deny is what the operator listing is repairing in the first place.
-// A call that mixes such a target with any other kind falls back to the
-// ordinary defer, so the allow never rides along with a path the gate has not
-// blessed on its own terms. Neither carve-out opens the `.git/` tree: a write
+// operator_carveout.go). They allow rather than defer because each region
+// meets BucketAllow's bar, so the gate clears the call rather than handing it
+// back to be graded again. A call that mixes such a target with an in-worktree
+// one defers, as the in-worktree target alone does, and one that mixes it
+// with an escaping target denies on the escape, so the allow never rides
+// along with a path the gate has not blessed on its own terms. Neither
+// carve-out opens the `.git/` tree: a write
 // there denies at the top of the walk, and a read of one denies as soon as the
 // listing or the scratchpad would otherwise carry it — the listed one on
 // testContainmentFrom's listed result, the scratchpad one inside the
@@ -191,7 +192,7 @@ func classifyFileTool(ev *Event) Decision {
 		case harnessScratchSession:
 			// The harness's own per-session scratchpad directory: a
 			// region designated safe by construction. Eligible for the ALLOW
-			// terminal below, which outranks a settings.json /tmp deny.
+			// terminal below.
 		case harnessScratchBundled:
 			// The harness's bundled-skills tree. A READ is eligible for
 			// the ALLOW terminal (scratchAllowEligible said so above); a WRITE
@@ -287,9 +288,9 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 // is also how the carve-out ALLOW is delivered: when every operand lands in a
 // read-eligible region (a session-shaped scratchpad directory, the
 // bundled-skills tree, or a path the operator listed), the read is allowed
-// outright rather than left to the caller's terminal, because the DEFER
-// terminal would still lose to a `/tmp` or `~/.config` deny entry in
-// settings.json. That ALLOW is the one verdict a caller may hold: the
+// outright rather than left to the caller's terminal, because each region
+// meets BucketAllow's bar whichever terminal the caller holds. That ALLOW is
+// the one verdict a caller may hold: the
 // allow tracks (classifyReadOnlyUtility, classifyRedirectOnly) deliver it
 // only once the checks that follow containment and can only defer — a flag
 // grammar, the redirect veto — have passed, and the write track

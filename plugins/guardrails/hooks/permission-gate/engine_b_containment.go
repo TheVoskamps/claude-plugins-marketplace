@@ -486,11 +486,9 @@ const (
 	// harnessScratchSession: target is under <system-tmp>/claude-<uid> AND the
 	// remainder matches the per-session shape → ALLOW on every track,
 	// reads and writes alike — bar a target under a `.git/` segment, which the
-	// file-tool track denies. That the scratchpad verdict outranks
-	// settings.json is deliberate, as it is for every carve-out ALLOW below:
-	// the harness directs the model to this exact tree, and a defer would
-	// leave the feature dead until every /tmp entry is removed from
-	// settings.json.
+	// file-tool track denies. That the scratchpad earns an ALLOW rather than a
+	// defer is deliberate, as it is for every carve-out ALLOW below: the region
+	// meets BucketAllow's bar.
 	harnessScratchSession
 	// harnessScratchBundled: target is under <system-tmp>/claude-<uid> AND the
 	// remainder matches the bundled-skills shape. Unlike every other
@@ -644,9 +642,7 @@ func harnessScratchDisplay() string {
 // both of which are real session directories with the standard scratchpad/
 // tasks layout. A pattern admitting only single dashes — `(-[A-Za-z0-9]+)+`,
 // which this code once implemented — silently excludes every such
-// session and reintroduces the exact
-// symptom the carve-out exists to fix (in a settings.json-has-a-/tmp-deny environment,
-// the DEFER lands on that deny). Hence the `-+`. The widening stops there: the
+// session from the carve-out's ALLOW. Hence the `-+`. The widening stops there: the
 // character class stays [A-Za-z0-9] so the slug alphabet is exactly the one the
 // harness produces.
 //
@@ -906,14 +902,12 @@ func testContainmentFrom(target string, base string, rc *repoContext, readClass 
 	if ac := accountConfigRoot(); ac != "" && pathUnder(real, ac) {
 		return claudeConfig, real, listed
 	}
-	// Carve-out, a cousin of the ~/.claude one above: the harness
-	// provisions a per-session scratchpad under <system-tmp>/claude-<uid>/ and
-	// actively instructs the model to put temporary files there. Treating that
-	// tree as an ordinary /tmp escape made the gate fight the harness — a hook
-	// deny beats a settings.json allow, so the scratchpad was unusable from
-	// every repo session, and there was no sanctioned home for a cross-repo /
-	// cross-session handoff file. Unlike ~/.claude this is not a blanket
-	// defer; the verdict is graded on where inside the prefix the target lands.
+	// Carve-out, a cousin of the ~/.claude one above: the per-session
+	// scratchpad under <system-tmp>/claude-<uid>/ is a region designated safe by
+	// construction, and the one sanctioned home for a cross-repo /
+	// cross-session handoff file, so it is not graded as an ordinary /tmp
+	// escape. Unlike ~/.claude this is not a blanket defer; the verdict is
+	// graded on where inside the prefix the target lands.
 	// This function's job is only the REGION — the verdict is a function of
 	// region × track, and each caller applies its own terminal to the region
 	// this returns:
@@ -933,10 +927,9 @@ func testContainmentFrom(target string, base string, rc *repoContext, readClass 
 	//	  this-uid-owned directory              → harnessScratchBadRoot (DEFER)
 	//	anything else under /tmp                → escapeRepo            (DENY)
 	//
-	// ALLOW rather than DEFER for the session shape is deliberate: writing to
-	// the scratchpad is precisely what we want to permit, and a defer would
-	// leave the feature dead until every /tmp entry is removed from
-	// settings.json (a hook allow outranks that list; a defer does not).
+	// ALLOW rather than DEFER for the session shape is deliberate: the region
+	// meets BucketAllow's bar, so the gate clears the call rather than handing
+	// it back to be graded again.
 	//
 	// BOTH the /tmp and /private/tmp spellings are handled by canonicalization
 	// of both sides, with no literal enumeration of either: on macOS the root

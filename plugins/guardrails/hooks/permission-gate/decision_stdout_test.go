@@ -22,14 +22,9 @@ import (
 // nothing" shortcut — fails here instead of silently reopening the fail-open
 // hole in the wrapper.
 //
-// The second invariant these tests pin is the DEFER WIRE SPELLING. A
-// defer is the envelope with NO permissionDecision field — the documented
-// per-call abstention — and specifically not the literal "defer", which Claude
-// Code reads as "pause this tool call for later resumption"; inside a subagent
-// that pause never resolves and the harness tears the session down. allow /
-// deny / ask must still carry the field. The two invariants pull against each
-// other — abstention wants silence, the wrapper requires bytes — so both are
-// asserted on the same output.
+// The second invariant these tests pin is the DEFER WIRE SPELLING, which
+// differs from the other three buckets'. Both invariants are asserted on the
+// same output.
 //
 // Exit 2 (failClosed) is deliberately NOT in scope: it is the blocking
 // backstop, always accompanied by a stderr line, and the wrapper propagates it
@@ -46,9 +41,8 @@ const emitBucketEnv = "PERMISSION_GATE_TEST_EMIT_BUCKET"
 
 // permissionDecisionOf decodes one emitted envelope and reports the
 // permissionDecision value together with whether the KEY was present at all.
-// The presence bit is the point: a defer is spelled by the key's absence, and
-// unmarshalling into a plain string would render that indistinguishable from
-// an explicit empty value.
+// The presence bit is the point: unmarshalling into a plain string would render
+// an absent key indistinguishable from an explicit empty value.
 func permissionDecisionOf(out string) (value string, present bool, err error) {
 	var env struct {
 		HookSpecificOutput map[string]json.RawMessage `json:"hookSpecificOutput"`
@@ -68,7 +62,7 @@ func permissionDecisionOf(out string) (value string, present bool, err error) {
 
 // stdoutBucket reports which bucket an emitted envelope spells: the
 // permissionDecision value when the field is present, and BucketDefer when it
-// is absent, which is how a defer abstains. Tests that only need "did
+// is absent. Tests that only need "did
 // this event land in bucket X" use it; the two tests in this file deliberately
 // do NOT, asserting the presence bit directly instead, since they are what
 // pins the spelling this helper encodes.

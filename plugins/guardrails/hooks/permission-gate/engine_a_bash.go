@@ -973,13 +973,13 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// of that node at once. That matters because a non-anchor `$(…)` leaves its
 	// word INEXACT, and inexactness stops the allow track only where the inexact
 	// word rides a command the walk emits: a `for`/`select` item list, a `case`
-	// subject or pattern, and a `VAR=… cmd` prefix emit no command of their own,
-	// so before this took a node, `for f in $(cat ../sib/.env); do echo x; done`
-	// and `FOO=$(cat ../sib/.env) echo hi` ALLOWed on their remaining parts while
-	// bash ran the substituted command. Hand-listing the positions was tried on
-	// the sibling process-substitution class and did not converge — successive
-	// review rounds each found one more — so the reach is a property of the
-	// traversal instead.
+	// subject or pattern, and a `VAR=… cmd` prefix emit no command of their own.
+	// Grading only the words of emitted commands would let
+	// `for f in $(cat ../sib/.env); do echo x; done` and
+	// `FOO=$(cat ../sib/.env) echo hi` ALLOW on their remaining parts while bash
+	// runs the substituted command, so the reach is a property of the traversal
+	// rather than a list of word positions: every substitution under the node is
+	// found, whatever word position holds it.
 	//
 	// The walk STOPS at any nested *syntax.Stmt: the main walk reaches those on
 	// its own (a `for` body, a `case` arm, a substitution's own statements), and a

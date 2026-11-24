@@ -34,19 +34,27 @@ the evaluator entirely.
 ## Hard ask
 
 A short, enumerated tier of calls where policy demands a human decision
-however good the judge is, which an LLM must not be able to waive. The
-whole tier:
+however good the judge is, which an LLM must not be able to waive. A
+member asks only when no check that runs ahead of the tier settles the
+call first: an argv that is not all static literals, or an inline
+environment assignment, denies any of them, as does each case an entry
+below names. The whole tier:
 
-- **Publish verbs:** `gh release create`, every `gh gist create`, every
-  `gh gist edit`, `gh repo edit --visibility`.
+- **Publish verbs:** `gh release create`, `gh gist create` and
+  `gh gist edit` in every spelling, and `gh repo edit --visibility`. A
+  local file one of the first three would publish denies when it
+  resolves outside containment, and a flag on them the gate does not
+  model defers.
 - **History-destroying pushes:** `git push` with `--force` or `-f` as
   an argument of its own, or with a `+<src>:<dst>` refspec, unless
   `--force-with-lease` or `--force-if-includes` is also given. A
   colon-less `+<ref>` and a `-f` combined with other short flags, as in
   `-fu`, allow; `--mirror` and `--prune` deny.
-- **Credential reads and mints:** the `aws` credential reads and mints,
+- **Credential reads and mints:** the `aws` operations
+  `awsCredentialRead` and `awsCredentialMint` in `rules.go` match,
   `gh auth token`, `gh auth status -t`/`--show-token` and its
-  unknown-flag screen, `gh auth login --hostname`.
+  unknown-flag screen, and `gh auth login` with `--hostname` or `-h` as
+  an argument of its own; `--hostname=<host>` defers.
 
 Ask rather than deny where a human has legitimate reasons to proceed:
 the gate governs interactive sessions as well as agent ones, and one

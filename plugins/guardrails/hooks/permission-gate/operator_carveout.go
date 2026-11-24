@@ -24,8 +24,8 @@ import (
 // config inside ANOTHER git repo, so the cross-repo deny fired on the whole
 // convention this marketplace documents — `/cc-tools:cc-whats-new` could not
 // read its own watermark, and `/issues:global-user-config` could not write its
-// own file. A `permissions.allow` entry cannot repair that: a PreToolUse deny
-// outranks settings.json, so the fix has to be here.
+// own file. The deny is this gate's own verdict, so the carve-out that
+// withholds it lives here too.
 //
 // The carve-out is driven entirely by a file the OPERATOR writes
 // (~/.config/guardrails/config.yml). The gate ships no default entries and
@@ -53,12 +53,19 @@ import (
 //
 // A listed path ALLOWS rather than defers: a defer only removes the gate's
 // veto and hands the call to the ordinary permission rules, which nothing here
-// establishes would permit it. On the file tools and the Bash read track
-// (containPathOperands) the ALLOW still needs EVERY target of the call to ride
-// a carve-out, so there a call mixing a listed path with an ordinary in-repo
-// one keeps the ordinary verdict. The Bash write track (containWriteOperands)
-// allows an in-worktree operand as well, so on it such a call allows:
-// `touch <listed>/x.md a.md` does.
+// establishes would permit it.
+//
+// With no listing, a call mixing a path that resolves into another repo — the
+// dotfiles case above — with an in-worktree one denies as cross-repo on every
+// track. With the path listed, the mixed call is graded per track. On the file
+// tools (classifyFileTool) the ALLOW needs EVERY
+// target of the call to ride a carve-out, so the mixed call defers, as the
+// in-worktree target alone does. On the Bash read track (containPathOperands)
+// the listed operand counts as contained, so the call takes the command's
+// own contained terminal: `cat <listed> a.md` allows and `less <listed> a.md`
+// defers. The Bash write track (containWriteOperands) allows an in-worktree
+// operand as well, so `touch <listed>/x.md a.md` allows. On every track an
+// operand that escapes denies, whatever the listed one beside it is.
 //
 // The listing is consulted in exactly one place, testContainmentFrom
 // (engine_b_containment.go), which reports a match as the operatorListed
@@ -69,7 +76,8 @@ import (
 // operatorCarveOutSchemaVersion is the minimum `schema-version` this reader
 // understands, pinned here as a literal rather than derived. A higher stamp is
 // read for the keys documented here and nothing else; a lower or absent one
-// yields no entries rather than an abort, because a security hook has no
+// yields noOperatorConfig — no entries, and the file-work redirect in its
+// worktree mode — rather than an abort, because a security hook has no
 // channel to abort into. A file still spelling the schema-1 `allow-read` /
 // `allow-write` keys is stamped 1 and so lands on that path — one hand edit per
 // machine migrates it.
@@ -189,12 +197,18 @@ type operatorCarveOutLists struct {
 // Unknown keys are tolerated: the unmarshal ignores every key this struct does
 // not declare, so a config carrying keys a later schema adds still parses
 // here.
+//
+// A file that decodes takes effect only when it is stamped at or above
+// operatorCarveOutSchemaVersion and the process home is usable. Otherwise
+// loadOperatorConfigFrom returns noOperatorConfig before any field below is
+// consulted: no carve-out entry under any root, and the redirect in its
+// worktree mode, whatever the file's keys say.
 type operatorCarveOutDocument struct {
 	// SchemaVersion is the file's `schema-version` stamp. It is checked only
 	// after the whole file has decoded, so a file that fails the parse denies
 	// whatever its stamp. A decoded file stamped below
 	// operatorCarveOutSchemaVersion, or not at all, is read as absent,
-	// silently; a file still spelling the schema-1
+	// silently, every key below included; a file still spelling the schema-1
 	// `allow-read` / `allow-write` keys is stamped 1 and lands there. A
 	// higher stamp is read for the keys declared here. A non-integer value
 	// fails the parse.
@@ -224,16 +238,21 @@ type operatorCarveOutDocument struct {
 	// under the same rules as ConfigHome.
 	StateHome operatorCarveOutLists `yaml:"state-home"`
 	// Home, `home`, lists globs relative to the process home, which has no
-	// setting, under the same rules as ConfigHome. An unusable home leaves the
-	// whole carve-out empty. A `**` here opens every file under the home
-	// directory, credential files included, for reading.
+	// setting, under the same rules as ConfigHome. An unusable home makes the
+	// whole file read as absent: no carve-out entry under any root, and the
+	// redirect in its worktree mode whatever RedirectBashFileWork says. A `**`
+	// here opens every file under the home directory, credential files
+	// included, for reading.
 	Home operatorCarveOutLists `yaml:"home"`
 	// RedirectBashFileWork, `redirect-bash-file-work`, is the file-work
 	// redirect's mode (classify_file_work.go): `off`, `worktree` or `always`.
 	// It defaults to `worktree`: absent, empty or null, silently; any other
 	// value — another case, a non-scalar — with a warning logged naming the
 	// file, the key, the value and the value used (redirectBashFileWorkMode).
-	// Only an explicit `off` turns the redirect off. It is decoded as a node
+	// Only an explicit `off` turns the redirect off. The key is read only in a
+	// file stamped at or above operatorCarveOutSchemaVersion while the process
+	// home is usable; otherwise the mode is `worktree`, and an explicit `off`
+	// or `always` is ignored without a warning. It is decoded as a node
 	// rather than a string so that a value of another YAML type is an unknown
 	// value rather than a document that fails to parse.
 	RedirectBashFileWork yaml.Node `yaml:"redirect-bash-file-work"`

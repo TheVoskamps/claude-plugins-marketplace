@@ -1,9 +1,9 @@
 # guardrails
 
 - `plugins/guardrails/docs/rules/verdict-tiers.md` — read before adding a
-  gate verdict or moving a call between verdicts. Kernel: a deny needs a
-  total redirect, a hard ask is enumerated policy no judge may waive,
-  and what the gate cannot settle defers.
+  gate verdict or moving a call between verdicts. Kernel: tier
+  membership is stated there and nowhere else, so read it rather than
+  inferring a call's tier from a neighbouring arm.
 - `plugins/guardrails/docs/rules/gate-source-conventions.md` — read
   before writing a Go comment or a `Reason` string in the permission
   gate. Kernel: state the rule in place, and never point at an issue, a

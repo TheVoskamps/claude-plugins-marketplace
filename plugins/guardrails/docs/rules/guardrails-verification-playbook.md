@@ -23,12 +23,11 @@ JSON `permissionDecision` (`deny` / `ask` / `allow`):
 printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"<repo>","tool_input":{"command":"cat \\"$HOME/.ssh/id_rsa\\""}}' | <bin>
 ```
 
-**A defer has no `permissionDecision` at all**, so a probe reads a
-defer as *the field's absence*, and any jq expression
-that pulls `.hookSpecificOutput.permissionDecision` yields `null` for
-a deferred row rather than the string `defer`. A probe table that
-buckets rows by that string therefore shows `null`, not a failure;
-what WOULD be a failure is a row emitting the literal.
+**A defer is not a `permissionDecision` value**; its spelling is
+`docs/rules/hook-event-notes.md`'s. A jq expression that pulls
+`.hookSpecificOutput.permissionDecision` yields `null` for a deferred
+row rather than the string `defer`, so a probe table that buckets rows
+by that string shows `null`, not a failure.
 
 Pick commands that map to the PR's acceptance criteria and confirm the
 committed binary returns the new verdicts. Only the host-arch binary is
@@ -154,8 +153,8 @@ either: the gate reads either variable only when the driving machine's
 own `~/.config/guardrails/config.yml` says
 `resolve-xdg-environment-variables: yes` — a file outside the repo,
 which the gate denies every **file-tool** write to. A Bash redirect at
-it is not the gate's to refuse and **defers** — measured, a
-`printf x > <that literal path>` event abstains — so what stops that
+it is not the gate's to refuse and **defers** — measured on a
+`printf x > <that literal path>` event — so what stops that
 route is the outside-the-repo approval policy rather than a gate
 verdict. Either way the relocated root a replay could point at still
 carries whatever globs that machine's operator wrote, and a machine
@@ -496,23 +495,20 @@ carries an `agentAssignment` arm (`targetRepositoryId`, `baseRef`,
 coding agent at an arbitrary repository — a surface the gate cannot
 distinguish from a title edit, since it never inspects arguments, so no
 argument inspection would make the verb allowable and it is refused
-whichever arm the document sets, aliased or not. That refusal is a
-`deny` rather than an `ask`, on the second half of the same grading: the
-introspection settles whether a verb can ever be ALLOWED, and a separate
-question — is there a TOTAL set of allowed spellings covering every
-legitimate use? — settles whether refusing it is a teaching deny or a
-dead end. For `updateIssue` there is one
-(`updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
-`updateIssueIssueType`, `closeIssue`/`reopenIssue`, `gh issue edit`), so
-it denies; a verb with no such enumeration defers instead. Grade
-**every** arm the input declares, and follow a composite arm into its
-own input type.
+whichever arm the document sets, aliased or not. The introspection
+settles only whether a verb can ever be ALLOWED; which tier a refusal
+takes is `plugins/guardrails/docs/rules/verdict-tiers.md`'s question.
+The enumeration of allowed spellings that answers it for `updateIssue`
+is `updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
+`updateIssueIssueType`, `closeIssue`/`reopenIssue` and
+`gh issue edit`. Grade **every** arm the input declares, and follow a
+composite arm into its own input type.
 
 A probe that sends the verb alone cannot see how the gate grades the
 document around it, so a redirect-deny probe needs both
-controls: the verb alone (and bundled with allow-listed companions)
-must deny, and the verb bundled with an unredirectable mutation —
-`mutation { updateIssue(…) deleteIssue(…) }` — must defer. Run the
+controls: the verb alone (and bundled with allow-listed companions),
+and the verb bundled with an unredirectable mutation —
+`mutation { updateIssue(…) deleteIssue(…) }`. Run the
 bundled row in both field orders. The check walks the document's
 fields, so a probe that always puts the redirectable verb first cannot
 tell a whole-document rule from a first-match one.
@@ -688,8 +684,8 @@ the home predicate (`home.go`) and writes nothing at all for a relative
 one, so a probe pointed at `gate.jsonl` measures an empty log rather
 than a silent arm.
 That is how a probe distinguishes *which* arm produced a `defer` — every
-defer is byte-identical on stdout, because `emitDecision` omits both the
-decision and the reason for one. Assert the `operation` label, not just
+defer is byte-identical on stdout, because `emitDecision` drops a
+defer's reason. Assert the `operation` label, not just
 the bucket, whenever more than one arm can produce the verdict under
 test.
 

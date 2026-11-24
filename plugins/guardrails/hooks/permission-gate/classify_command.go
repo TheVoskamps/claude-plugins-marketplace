@@ -464,8 +464,7 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 		// Main session: still destructive, but whether it is destructive HERE
 		// depends on what the working tree holds and what the session was doing
 		// — context the gate cannot read and the tuned evaluator can. DEFER with
-		// the analysis rather than auto-allowing. (settings.json also lists this
-		// in its ask set, which still applies downstream.) The subagent case
+		// the analysis rather than auto-allowing. The subagent case
 		// above stays a DENY: there the redirect is prescriptive, which is what
 		// earns that tier.
 		return deferJudgment("git reset --hard",

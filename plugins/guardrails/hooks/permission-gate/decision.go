@@ -1,21 +1,12 @@
 package main
 
-// Bucket is the three-way (plus defer) verdict the gate emits.
+// Bucket is the gate's verdict on one call, which emitDecision writes to
+// stdout with exit 0:
 //
-// The native PreToolUse permission channel accepts
-// three permissionDecision values on stdout with exit 0, and the gate's
-// fourth bucket is spelled by the ABSENCE of that field:
-//
-//	allow  - bypass remaining permission checks; the tool runs.
-//	deny   - block the tool call.
-//	ask    - escalate to a human permission prompt (the real ask channel).
-//	defer  - defer to the normal permission flow: let the rest of the
-//	         pipeline proceed. Emitted
-//	         as the envelope with NO permissionDecision field, which is the
-//	         documented per-call abstention. The literal "defer" is NOT
-//	         that: Claude Code reads it as "pause this tool call for later
-//	         resumption", which never resolves inside a subagent and kills
-//	         the session. See emitDecision.
+//	allow  - the gate clears the call.
+//	deny   - the gate blocks the call.
+//	ask    - the gate escalates the call to a human permission prompt.
+//	defer  - the gate takes no position on the call.
 //
 // Exit 2 + stderr remains the FAIL-CLOSED backstop for crash / parse-error /
 // panic / malformed-event paths; it is NOT one of these buckets. See
@@ -23,14 +14,14 @@ package main
 type Bucket string
 
 const (
-	// BucketAllow bypasses all remaining permission checks. It is the one
-	// bucket that outranks settings.json, so it needs a stated bar, and that
-	// bar is POSITIVE GROUNDS to declare the call safe: either the operation
-	// itself cannot write (the Engine A read track — a read-only git/gh/aws
-	// subcommand, a read-only utility invocation), or the target region is
-	// designated safe by construction (the current worktree for the
-	// in-repo-write classifier; the harness's per-session scratchpad, and
-	// — for a read only — its bundled-skills tree).
+	// BucketAllow clears the call. Its bar is POSITIVE GROUNDS to declare
+	// the call safe: either the operation itself cannot write (the Engine A
+	// read track — a read-only git/gh/aws subcommand, a read-only utility
+	// invocation), or the target region is designated safe by construction
+	// (the current worktree for the in-repo-write classifier; the harness's
+	// per-session scratchpad, and — for a read only — its bundled-skills
+	// tree) or by the operator (a path listed for the call's class in the
+	// operator's config file).
 	//
 	// The bar is not "provably non-mutating", which is not decidable at
 	// classification time: proving non-mutation would require the target's
@@ -64,21 +55,8 @@ const (
 	// default: it is a short, enumerated policy tier — the calls policy says
 	// a human must click regardless of how good the downstream judge is
 	// (publish verbs, history-destroying pushes, credential/secret reads and
-	// mints). An LLM must not be able to waive these, which is exactly what a
-	// defer would permit.
-	//
-	// That intent RESTS on a precedence the gate does not itself enforce: that
-	// a hook `ask` outranks a settings.json / automode allow rather than being
-	// waived by it. That is the documented contract of the PreToolUse
-	// permission channel, but it is unpinned here — no test in this package
-	// exercises real hook/settings resolution, so treat "a hard ask cannot be
-	// waived downstream" as the tier's design intent, not as a measured
-	// property. Pinning it needs a real harness invocation, which is outside
-	// what this package can exercise. The tier's membership rule does not rest
-	// on it: an enumerated policy call belongs here whether or not the
-	// precedence holds, because a defer is unambiguously waivable. If a live
-	// pin ever shows a downstream allow outranking a hook ask, the tier needs a
-	// different mechanism.
+	// mints). A defer would hand such a call to that judge, so the gate asks
+	// instead.
 	BucketAsk Bucket = "ask"
 	// BucketDefer hands the call back to the normal permission pipeline
 	// (settings.json allow/deny/ask lists, the tuned automode evaluator, an
@@ -90,10 +68,8 @@ const (
 	// rather than asking.
 	//
 	// The constant's value is an INTERNAL label only — it names the bucket in
-	// the evolution log and in this package's own switches. It is never written
-	// to the wire; emitDecision spells a defer as the envelope with no
-	// permissionDecision field. See emitDecision for why the literal must not
-	// reach stdout.
+	// the evolution log and in this package's own switches. emitDecision never
+	// writes it to stdout.
 	BucketDefer Bucket = "defer"
 )
 
@@ -107,9 +83,9 @@ type Decision struct {
 	//
 	// A Defer may also carry one — the gate's ANALYSIS of what it could and
 	// could not establish — but it is never emitted on the stdout verdict
-	// (emitDecision omits the reason key along with the decision key for a
-	// defer, so a deferred call reaches the downstream judge exactly as it did
-	// before). It exists for the evolution log, which is the feed for
+	// (emitDecision drops it, so a deferred call reaches the downstream judge
+	// exactly as a bare defer does). It exists for the evolution log, which is
+	// the feed for
 	// automode re-tuning.
 	Reason string
 	// Operation is a short classified-operation label used for evolution
@@ -129,8 +105,8 @@ func deferToPipeline() Decision { return Decision{Bucket: BucketDefer} }
 // deferJudgment is deferToPipeline for a site that HAS an account of why it
 // could not decide — an unpinnable path, an unmodelled flag, a remote mutation
 // whose target the gate cannot see. The verdict is identical to a bare defer
-// (emitDecision omits the reason key along with the decision key, so it never
-// reaches stdout); what it adds is the evolution-log record, which carries the
+// (emitDecision drops the reason, so it never reaches stdout); what it adds is
+// the evolution-log record, which carries the
 // operation label AND the analysis text so the automode re-tune has the
 // gate's own account of each deferred call.
 func deferJudgment(op, reason string) Decision {

@@ -15,9 +15,11 @@
 # first binary and stamp every later arch vcs.modified=true from committed
 # source.
 #
-# Exit status: 0 when the binaries are installed; 1 when a test, vet, lint,
-# format or build step fails, or a binary stamps anything but
-# vcs.modified=false, with nothing copied into ../bin/; 2 on a usage error.
+# Exit status: 0 when the binaries are installed; 1 on any failure — a test,
+# vet, lint, format or build step, a binary stamping anything but
+# vcs.modified=false, or a git or filesystem step — with nothing copied into
+# ../bin/ unless the copy itself fails, which leaves installed the arches
+# copied before it; 2 on a usage error.
 
 set -euo pipefail
 
@@ -26,22 +28,23 @@ set -euo pipefail
 # missing here has no binary, and hooks.json denies every gated tool call on it.
 TARGETS=(darwin-arm64 linux-amd64 linux-arm64)
 
-if [ "$#" -ne 0 ]; then
-  echo "rebuild-binaries.sh: takes no arguments." >&2
-  exit 2
-fi
-
-module_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-bin_dir=$(cd "$module_dir/../bin" && pwd)
-repo_root=$(git -C "$module_dir" rev-parse --show-toplevel)
-scratch="$repo_root/.claude/tmp/rebuild-binaries"
-
 fail() {
   echo "rebuild-binaries.sh: $1" >&2
   exit 1
 }
 
-cd "$module_dir"
+if [ "$#" -ne 0 ]; then
+  echo "rebuild-binaries.sh: takes no arguments." >&2
+  exit 2
+fi
+
+module_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || fail "cannot resolve the script's own directory"
+bin_dir=$(cd "$module_dir/../bin" && pwd) || fail "cannot resolve $module_dir/../bin"
+repo_root=$(git -C "$module_dir" rev-parse --show-toplevel) ||
+  fail "git rev-parse --show-toplevel failed in $module_dir"
+scratch="$repo_root/.claude/tmp/rebuild-binaries"
+
+cd "$module_dir" || fail "cannot cd to $module_dir"
 
 go test ./... || fail "go test failed"
 go vet ./... || fail "go vet failed"
@@ -53,7 +56,7 @@ if [ -n "$fmt_diff" ]; then
   fail "golangci-lint fmt --diff reported unformatted source"
 fi
 
-rm -rf "$scratch"
+rm -rf "$scratch" || fail "cannot remove $scratch"
 for target in "${TARGETS[@]}"; do
   goos=${target%-*}
   goarch=${target#*-}
@@ -68,9 +71,12 @@ for target in "${TARGETS[@]}"; do
 done
 
 for target in "${TARGETS[@]}"; do
-  cp "$scratch/$target/permission-gate" "$bin_dir/$target/permission-gate"
-  chmod 755 "$bin_dir/$target/permission-gate"
+  cp "$scratch/$target/permission-gate" "$bin_dir/$target/permission-gate" ||
+    fail "copying the $target binary into $bin_dir failed"
+  chmod 755 "$bin_dir/$target/permission-gate" || fail "chmod of the $target binary failed"
 done
-rm -rf "$scratch"
+# The binaries are installed, so a scratch directory left behind is reported
+# rather than turned into a failure.
+rm -rf "$scratch" || echo "rebuild-binaries.sh: could not remove $scratch" >&2
 
 echo "rebuild-binaries.sh: installed ${TARGETS[*]} under $bin_dir"
