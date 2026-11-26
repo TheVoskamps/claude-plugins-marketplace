@@ -81,16 +81,9 @@ under `agents/` owns:
   `counterexample-verifier` — the reviewer's own children, spawned by
   the reviewer alone, the seed's included; each leaves nothing on the
   branch, and you spawn none of them
-- `agent-memory-scrubber` — curates the run's agent-memory inbox for
-  the branch. When it returns, every change that pass decided on is a
-  pushed commit on the branch and the inbox is empty. You spawn it
-  after each documentation loop ends; `pr-merge-readiness` spawns it
-  after every `issue-fixer` round of its own that needs no
-  documentation loop
 - `pr-merge-readiness` — drives one blessed PR through the
-  merge-readiness gate, spawning `issue-fixer` and
-  `agent-memory-scrubber` for the remedies. When it returns, either the
-  PR is in a state the close-out proceeds from; or its report carries a
+  merge-readiness gate, spawning `issue-fixer` for the remedies. When
+  it returns, either the PR is in a state the close-out proceeds from; or its report carries a
   question with the gate's output verbatim and, beneath it, any
   escalating fixer's report, or a spawn's report and `reclaim` output
   when a `reclaim` did not free the branch, which you handle per "When
@@ -137,12 +130,6 @@ seed reviewer, the seed generator and seed assessor it spawned, and its
 `issue-developer` are spawned before the PR has a reference, so hold
 each one's agent id in your scratchpad — the two children's as the
 seed reviewer reported them — and record each at the link step.
-
-A teammate that declares `memory: project` captures its entries with
-`/cc-tools:agent-memory-inbox-capture` at end-of-run, and
-`agent-memory-scrubber` curates that inbox once the documentation loop
-has ended (see "Final Report"). You never carry memory between
-spawns yourself.
 
 ## Invocation
 
@@ -608,7 +595,7 @@ Read `skills/orchestrate/lib/pr-lifecycle.md` when the first developer
 returns, and keep it through every PR's close-out: it owns the link
 step below, the body freeze that holds from that step to the end of
 the documentation loop, the documentation loop's briefs and round
-mechanics, the pre-readiness spawn, the close-out, and the briefs for
+mechanics, the close-out, and the briefs for
 `pr-merge-readiness` and `pr-monitor`.
 
 Before spawning the follow-up agents, make that file's link step for
@@ -1329,11 +1316,7 @@ are none.
   the merge stays the human's, by hand or by the repo's auto-merge, and
   the monitor loop only watches for it.
 
-1. **The pre-readiness spawn** — `agent-memory-scrubber`, with the
-   brief the PR-lifecycle file carries. It puts a commit on the branch,
-   which is why it runs before the gate that grades that commit.
-
-2. **Spawn `pr-merge-readiness`**, with the brief the PR-lifecycle
+1. **Spawn `pr-merge-readiness`**, with the brief the PR-lifecycle
    file carries: the PR reference, the branch, and no ruling on the first
    spawn. It runs the merge-readiness gate, and the remedies, until
    the PR reaches a state the close-out proceeds from, and it never
@@ -1350,9 +1333,8 @@ are none.
    - **`documentation loop needed`** — a fixer round deferred a
      documentation edit or resolved a conflict in a documentation file,
      and spawned no `docs-writer`. Run the documentation loop, its
-     writing brief carrying the entries the report relays, then step 1
-     again once it ends, then spawn `pr-merge-readiness` again with no
-     ruling.
+     writing brief carrying the entries the report relays, then spawn
+     `pr-merge-readiness` again with no ruling once it ends.
 
    A ruling its report names as discarded — one the gate's report
    did not consume, or one the fixer's rebase did not need, whatever
@@ -1360,16 +1342,14 @@ are none.
    question or the state it returned with, so the human knows the
    earlier ruling, yours or theirs, lapsed rather than took effect.
    Count each `issue-fixer` round its report names, with the state
-   that drove it, toward the summary's `Readiness Remedies` cell, and
-   pass the scrubber lines it relays through to the human as it wrote
-   them.
+   that drove it, toward the summary's `Readiness Remedies` cell.
 
-3. **The close-out**, per the PR-lifecycle file: `pr-finalizer`, the
+2. **The close-out**, per the PR-lifecycle file: `pr-finalizer`, the
    In Review flips for every issue the PR then closes, then the ready
    flip.
    It is linear, and every step is safe to repeat.
 
-4. **Spawn `pr-monitor`**, with the brief the PR-lifecycle file
+3. **Spawn `pr-monitor`**, with the brief the PR-lifecycle file
    carries — unless `merge-wait` is `skip`. Then spawn nothing: the
    PR's stages end at the ready flip, and the summary lists it as
    ready and unmonitored. Otherwise it polls until one of its outcomes:
@@ -1377,7 +1357,7 @@ are none.
    - **Merged** — the PR's stages are done; start the next
      PR's, or the post-merge tail when this was the last.
    - **`BEHIND` or `DIRTY`** — spawn `pr-merge-readiness` again as in
-     step 2, then `pr-monitor` again.
+     step 1, then `pr-monitor` again.
    - **Closed without merging**, or **no change after its poll
      bound** — the second is a decision whether to keep waiting, per
      "Putting a decision to the human", whose options are to keep
@@ -1400,7 +1380,7 @@ are none.
 **One PR goes through these stages at a time.** When more than one
 PR's documentation loop has ended, take them in the order the loops
 ended, and start the next
-PR's stages — the pre-readiness spawn onward — only when the previous
+PR's stages — the `pr-merge-readiness` spawn onward — only when the previous
 PR's monitor loop has ended, whether by a merge, a close, an error, or
 the human declining to keep waiting; under `merge-wait: skip`, when the previous
 PR's ready flip has landed. The first PR's merge moves the base the
@@ -1441,8 +1421,7 @@ definition, `CLAUDE.md` or global rules file already states.
   in the session scratchpad; never author a review finding, a severity
   or a review body, or post a review by any route; never run
   `git rebase` or `git merge` or hand-edit conflict markers in the
-  primary clone; and never delete, transfer or rewrite a captured
-  memory entry. Doing any of it to save a spawn is not a saving — see
+  primary clone. Doing any of it to save a spawn is not a saving — see
   "Token Efficiency". The one exception is the approved resolving
   install, per "When a developer stops for the approved resolving
   install" — running it, and committing and pushing the lockfile change

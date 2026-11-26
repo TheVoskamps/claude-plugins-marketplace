@@ -43,12 +43,8 @@ stating.
 You never commit, never push, and never edit a file in the repo. Scratch
 work goes under `.claude/tmp/<task-slug>/`.
 
-This definition deliberately declares no `memory:` key: the review
-pipeline is strictly non-mutating, so there is nothing of yours to
-capture into the session's agent-memory inbox and nothing for
-`agent-memory-scrubber` to curate from a review round. A durable review
-lesson becomes a PR against this file or the repo's `CLAUDE.md`, not a
-memory entry.
+A durable review lesson becomes a PR against this file or the repo's
+`CLAUDE.md`, not a memory entry.
 
 The two `sdlc-agent-result-persist` calls the workflow below opens and
 closes with are not an exception: both go **outside every repository**,

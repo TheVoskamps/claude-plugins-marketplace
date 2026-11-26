@@ -51,7 +51,7 @@ blocker before the blocked issue in the batch's implementation order.
 - **Overhead is the only argument.** Saving agent spawns is not a
   shared change surface. Per-issue overhead is real — developer,
   code-documenter, style-checker, review pipeline, docs-writer,
-  scrubber, worktree churn — but it never justifies a batch on its own.
+  worktree churn — but it never justifies a batch on its own.
 
 The judgment call is: batch when the **conflict cost of separating**
 exceeds the **blocking cost of joining**. A trivial README change

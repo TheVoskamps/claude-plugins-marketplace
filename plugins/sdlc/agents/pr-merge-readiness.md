@@ -1,6 +1,6 @@
 ---
 name: pr-merge-readiness
-description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, then agent-memory-scrubber, and runs the gate again, returning a conflict the fixer could not resolve as the question, and returning documentation loop needed, spawning no docs-writer, when the fixer deferred a documentation edit or resolved a conflict in a documentation file; waits out a running check; reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held, and re-spawns that agent once; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after the documentation loop and agent-memory-scrubber, again with a ruling after it returns with a question, again after the documentation loop it returned for, and again when pr-monitor reports the PR BEHIND or DIRTY.
+description: Drives one blessed PR to a merge-ready state. Given a PR reference, its branch and an optional ruling, runs the github-prs:pr-ready-to-merge gate until it reports CLEAN, UNSTABLE, or the review-only BLOCKED; on BEHIND or DIRTY, ruling or not, posts the fixer brief, spawns issue-fixer, and runs the gate again, returning a conflict the fixer could not resolve as the question, and returning documentation loop needed, spawning no docs-writer, when the fixer deferred a documentation edit or resolved a conflict in a documentation file; waits out a running check; reclaims the branch from a dead agent's worktree when a spawn's checkout finds it held, and re-spawns that agent once; and on every other state returns with the gate's report verbatim as the question rather than asking, or consumes the ruling a re-spawn carries. Spawned by /sdlc:orchestrate after the documentation loop, again with a ruling after it returns with a question, again after the documentation loop it returned for, and again when pr-monitor reports the PR BEHIND or DIRTY.
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 model: opus
 effort: medium
@@ -46,12 +46,11 @@ file.
 
 ## You spawn agents
 
-You hold the `Agent` tool, and the remedy spawns below are spawns you
+You hold the `Agent` tool, and the remedy spawn below is a spawn you
 make from inside this agent. A spawned agent's context carries
-**no agent-type roster**, so each is named by its exact
-plugin-prefixed `subagent_type` string — `sdlc:issue-fixer` and
-`sdlc:agent-memory-scrubber`. Pass those strings as written rather than
-a bare name you reconstruct.
+**no agent-type roster**, so it is named by its exact
+plugin-prefixed `subagent_type` string, `sdlc:issue-fixer`. Pass that
+string as written rather than a bare name you reconstruct.
 
 **Record every spawn in the PR's state** as soon as its `Agent` tool
 result names its agent id, through the preloaded
@@ -105,8 +104,8 @@ unnamed state. Act on the row of the table the state lands in:
 | ------- | --------- | ------------- |
 | `CLEAN` | mergeable | leave the loop; return with this state |
 | `UNSTABLE` | non-required checks failing | as from `CLEAN` — if those checks were meant to gate, the human would have made them required |
-| `BEHIND` | branch is behind the base | do not ask: announce that it is rebasing, post the fixer brief, run the remedy spawns, run the gate again |
-| `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>` on every landing here, ruling or not: its output is what the fixer brief carries, and the question when the fixer escalates. Then do not ask, as on `BEHIND`: post the fixer brief, run the remedy spawns, run the gate again. The fixer resolves every conflict a ruling or its resolvability conditions settle, and escalates the rest |
+| `BEHIND` | branch is behind the base | do not ask: announce that it is rebasing, post the fixer brief, run the remedy spawn, run the gate again |
+| `DIRTY` | merge conflicts | run `/github-prs:pr-merge-conflicts <PR>` on every landing here, ruling or not: its output is what the fixer brief carries, and the question when the fixer escalates. Then do not ask, as on `BEHIND`: post the fixer brief, run the remedy spawn, run the gate again. The fixer resolves every conflict a ruling or its resolvability conditions settle, and escalates the rest |
 | `BLOCKED` | required checks or reviews not satisfied | when `reviewDecision` is `REVIEW_REQUIRED` and the gate lists no check that is not green and none still running, the missing required review is the only cause, and the ready flip that follows the close-out is what requests that review — as from `CLEAN`. Any other cause — a check not green, `CHANGES_REQUESTED`, or a `BLOCKED` the report does not account for — is a stop cause: return with the report as the question. A running check is neither: when the gate lists one and none of this row's stop causes, wait for it per "A running check is waited on" below; a report that lists one alongside a stop cause is returned on, not waited on |
 
 The loop runs on a draft PR, before any review has been requested, so
@@ -116,7 +115,7 @@ a terminal state. A state the table does not name is returned as a
 question, as a `BLOCKED` with any other cause is.
 
 **A running check is waited on**, not returned on. The gate runs
-moments after the scrubber's push, and a required check that push
+moments after the fixer's push, and a required check that push
 triggered is still `QUEUED` or `IN_PROGRESS` then — not green, and not
 a failure either. A `BLOCKED` whose report lists a running check and
 none of the stop causes the table's `BLOCKED` row names gets a wait
@@ -189,14 +188,14 @@ report. Every question this loop can return has its arm:
     that lists none;
   - **the remedy to run** — work on the branch, a rebase or a change
     that turns a check green: post the fixer brief with the report
-    and the ruling, run the remedy spawns, and run the gate again, as
+    and the ruling, run the remedy spawn, and run the gate again, as
     a `BEHIND` is handled.
 
 A ruling that names none of these cannot be consumed: return with the
 report as the question again, the ruling quoted beside it, so whoever
 gave it sees what it did not settle rather than the identical question.
 
-## The fixer brief, and the remedy spawns
+## The fixer brief, and the remedy spawn
 
 **The fixer brief** — posted on a `BEHIND`, on a `DIRTY`, and on any
 state whose ruling names a remedy — is a PR comment
@@ -219,54 +218,36 @@ Post it, and post nothing else on the PR until the fixer has run:
 `issue-fixer` reads the PR's **most recent** comment and stops if that
 comment is not a fixer brief.
 
-Then run the remedy spawns, sequentially, waiting for each to return:
+Then spawn **`sdlc:issue-fixer`** and wait for it to return, with the
+PR reference and nothing else about the work — the brief on the PR is
+its instructions:
 
-1. **`sdlc:issue-fixer`**, with the PR reference and nothing else about
-   the work — the brief on the PR is its instructions:
+```text
+PR <PR> has a fixer brief waiting on it.
 
-   ```text
-   PR <PR> has a fixer brief waiting on it.
+Edit code and instruction Markdown, and no documentation but a
+rebase conflict in a documentation file; report every other
+documentation edit your work calls for on your Deferred to
+docs-writer: line, and the documentation loop makes it after you.
 
-   Edit code and instruction Markdown, and no documentation but a
-   rebase conflict in a documentation file; report every other
-   documentation edit your work calls for on your Deferred to
-   docs-writer: line, and the documentation loop makes it after you.
+Address it per your agent definition. Report back what you fixed
+and what you didn't.
+```
 
-   Address it per your agent definition. Report back what you fixed
-   and what you didn't.
-   ```
+A fixer that returns without having pushed — a conflict neither a
+ruling nor its resolvability conditions settle, an aborted rebase —
+has escalated, unless it reports the exit 13 below: return with the
+question shaped as "Report back" states it — the gate's report
+verbatim and, for `DIRTY`, the `pr-merge-conflicts` output, with
+the fixer's report verbatim beneath them — and do not run the gate.
 
-   A fixer that returns without having pushed — a conflict neither a
-   ruling nor its resolvability conditions settle, an aborted rebase —
-   has escalated, unless it reports the exit 13 below: return with the
-   question shaped as "Report back" states it — the gate's report
-   verbatim and, for `DIRTY`, the `pr-merge-conflicts` output, with
-   the fixer's report verbatim beneath them — and run none of the
-   spawns below, nor the gate.
-
-   A fixer whose `Deferred to docs-writer:` line or
-   `Documentation conflicts:` line is not `none` has left the PR's
-   documentation for a documentation loop to write and review, which is
-   the orchestrator's to run: return with `documentation loop needed`,
-   per "Report back", and run neither the scrubber nor the gate. Those
-   entries are a handoff, not a question, and you spawn no
-   `docs-writer`: its commit would reach the gate with no round
-   reviewing it.
-
-2. **`sdlc:agent-memory-scrubber`**, with the PR reference and the branch
-   name. `issue-fixer` declares memory, so its entries wait in the
-   session's inbox until this pass, and the scrubber's commit has to be
-   on the branch before the gate grades it — never run the gate between
-   the two:
-
-   ```text
-   PR <PR> has settled a merge-readiness remedy. Branch: <branch-name>
-
-   Curate the PR's agent memory per your agent definition. Report back
-   what was transferred, what was deleted, and what was cut from or
-   created as a destination file, where transfers landed, and the commit
-   SHA you pushed — or, if nothing was staged, why.
-   ```
+A fixer whose `Deferred to docs-writer:` line or
+`Documentation conflicts:` line is not `none` has left the PR's
+documentation for a documentation loop to write and review, which is
+the orchestrator's to run: return with `documentation loop needed`,
+per "Report back", and do not run the gate. Those entries are a
+handoff, not a question, and you spawn no `docs-writer`: its commit
+would reach the gate with no round reviewing it.
 
 **A spawn that reports exit 13 from `git-branch-sync checkout`** found
 the branch claimed by a worktree whose agent never released it; that
@@ -283,8 +264,8 @@ and that id is an agent you spawned whose `Agent` call has returned.
 On exit 0, re-spawn the reporting agent with the brief it had, once,
 and carry on from its return as from the first. A second exit 13 from
 that agent, or a `reclaim` that exits non-zero, is returned as your
-question, shaped as "Report back" states it, and neither the rest of
-the spawns nor the gate runs.
+question, shaped as "Report back" states it, and the gate does not
+run.
 
 Then run the gate again. No code review round follows a remedy: the
 fixer's commits are a rebase of what the loop already approved, and
@@ -322,9 +303,6 @@ Your report carries:
   base the fixer rebased onto, each conflict and what settled it — the
   ruling, or the repo rule or the combination of both sides the fixer
   named — and the new head SHA, as the fixer reported them.
-- **The scrubber's per-entry and per-cut lines**, as it wrote them, for
-  every scrubber pass you ran — they are the record of a destructive
-  operation, and the human reviews them.
 - **Every wait** you took on a running check, and the checks it named.
 - **Every spawn record that failed**, the agent and its agent id, with
   the CLI's message quoted.

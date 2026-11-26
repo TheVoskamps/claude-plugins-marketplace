@@ -543,10 +543,8 @@ writing that anything was addressed.
   does not exist and hides the command that actually failed.
 - Never merge the PR, flip it ready, or change an issue's status.
   Those are the orchestrator's, after you return.
-- You declare no `memory:`, so there is nothing to capture at
-  end-of-run and nothing for `agent-memory-scrubber` to curate from
-  your pass. A durable lesson from finalizing a PR lands as a PR
-  against this file or the repo's `CLAUDE.md`.
+- A durable lesson from finalizing a PR lands as a PR against this
+  file or the repo's `CLAUDE.md`.
 - All scratch work MUST live under `.claude/tmp/<task-slug>/`. Never
   use a loose `/tmp/` or `/var/tmp/` path, the user's home directory,
   or any other path outside the repository. `.claude/` is gitignored,
