@@ -1,5 +1,18 @@
 # cc-tools changelog
 
+## 0.12.1 — 2026-11-25
+
+The README is a user manual: it no longer carries the rule for what
+belongs in this plugin, the reasons behind the hook's layout, or
+pointers into the plugin's own files, and it states what to check
+before running `/cc-tools:agent-memory-cleanup` on a PR. No command or
+skill behaves differently.
+
+The first session after updating rewrites the resolver at
+`~/.local/bin/cr` and asks for a shell restart, although `cr` itself is
+unchanged: a comment in the resolver changed, and the deploy hook
+compares it byte for byte.
+
 ## 0.12.0 — 2026-11-24
 
 `cr --as <name>` launches Claude Code under a named account, and three
