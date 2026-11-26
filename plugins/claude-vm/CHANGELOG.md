@@ -20,8 +20,8 @@ unchanged.
   `backup`.
 - An invalid name, a missing account directory, a `.claude.json` that is
   missing or has no usable identity, and a missing or unusable Keychain
-  item are each refused before any image build or boot. A refusal names
-  the account, and nothing falls back to another account.
+  item are each refused before any image build or boot. Each of those
+  refusals names the account, and nothing falls back to another account.
 - Under `--as`, the launcher's Keychain and identity refusals name
   `CLAUDE_CONFIG_DIR='<account dir>' claude` as the login to run.
 

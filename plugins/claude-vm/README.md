@@ -187,7 +187,7 @@ of the session name the launcher computes.
 Before any image build or boot, the launcher refuses an invalid name, a
 missing account directory, a `.claude.json` that is missing or carries
 no usable identity, and a Keychain item that is missing or unusable.
-Each refusal names the account and the missing piece. Nothing is copied
+Each of those refusals names the account and the missing piece. Nothing is copied
 in place of a missing file and no launch falls back to another account,
 so a guest never runs one account's identity with another's login. Log
 the account in with `CLAUDE_CONFIG_DIR=$HOME/.claude.<name> claude` and

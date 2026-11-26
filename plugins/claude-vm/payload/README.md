@@ -48,6 +48,11 @@ payload/
                         # conf from $CLAUDE_VM_EGRESS_ALLOWLIST, execs it
   test/
     config-test.sh      # unit tests for the config layering
+    credential-test.sh  # unit tests for lib/credential.sh: the claudeAiOauth
+                        # selection and token validation, the identity seed,
+                        # and the --as name check, directory lookup and
+                        # Keychain service derivation; no Keychain read;
+                        # host-gated on python3
     endpoint-test.sh    # unit tests for per-run endpoint acquisition (issue
                         # #179): free-port acquisition, TCP/unix-socket
                         # liveness vs stale corpse, corpse clearing; uses real
@@ -60,6 +65,12 @@ payload/
                         # neutralized by Restart=no; LAUNCHER_LOGIC_REV bumped.
                         # Runs the emitted launcher's real decision fragment
                         # against stubs; needs only bash + awk
+    claude-home-seed-test.sh
+                        # regression test for the curated host ~/.claude seed
+                        # (issue #108): the staging loop from claude-vm.sh
+                        # and the install step from the emitted boot
+                        # launcher, run back to back over a fake host home
+                        # and a fake guest home; bash + awk only
     launch-shape-test.sh
                         # regression test for the vfkit launch shape (issue
                         # #179): vfkit runs FOREGROUND, exec'd from a
@@ -541,8 +552,10 @@ selection and token validation the later read uses. The blob travels only
 through that pipe, so nothing of it is written to disk or printed, and the
 later read stays the one that installs the credential.
 
-A refusal names the account and the missing piece, and prints no value read
-from the Keychain or the identity file. Nothing is copied or substituted for
+The refusal of an invalid name, a missing account directory, a missing or
+unusable `D/.claude.json`, or a missing or unusable Keychain item names the
+account and the missing piece. No refusal prints a value read from the
+Keychain or the identity file. Nothing is copied or substituted for
 a missing piece, and no launch falls back to the default account's files or
 credential, so a guest never pairs one account's identity with another's
 credential. The login a refusal tells the operator to run is
@@ -2258,14 +2271,17 @@ replacement.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/credential-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/endpoint-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/boot-launcher-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-home-seed-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/launch-shape-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/account-launch-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-machine-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/machine-name-resolution-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/cleanup-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
 ```
