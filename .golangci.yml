@@ -25,12 +25,6 @@ linters:
         linters:
           - gosec
         text: G204
-      # The account config directory is Lstat'ed only once its spelling is
-      # bounded to $HOME/.claude.<name>.
-      - path: (^|/)engine_b_containment\.go$
-        linters:
-          - gosec
-        text: G703
       # The operator config path is the operator's own file, read by design.
       - path: (^|/)operator_carveout\.go$
         linters:

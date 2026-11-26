@@ -582,7 +582,15 @@ func accountConfigRootFor(value string, home string) string {
 	if cleaned != root {
 		return ""
 	}
-	fi, err := os.Lstat(root)
+	// Looked up through an os.Root opened on root's parent, which refuses any
+	// name that resolves outside that directory, so the Lstat cannot be steered
+	// out of it.
+	parent, err := os.OpenRoot(filepath.Dir(root))
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = parent.Close() }()
+	fi, err := parent.Lstat(filepath.Base(root))
 	if err != nil || !fi.IsDir() {
 		return ""
 	}
