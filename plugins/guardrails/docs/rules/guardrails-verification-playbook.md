@@ -518,10 +518,9 @@ coding agent at an arbitrary repository — a surface the gate cannot
 distinguish from a title edit, since it never inspects arguments, so no
 argument inspection would make the verb allowable and it is refused
 whichever arm the document sets, aliased or not. The introspection
-settles only whether a verb can ever be ALLOWED; which tier a refusal
-takes is `plugins/guardrails/docs/rules/verdict-tiers.md`'s question.
-The enumeration of allowed spellings that answers it for `updateIssue`
-is `updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
+settles only whether a verb can ever be ALLOWED. The allowed spellings
+`updateIssue`'s refusal names in its place are
+`updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
 `updateIssueIssueType`, `closeIssue`/`reopenIssue` and
 `gh issue edit`. Grade **every** arm the input declares, and follow a
 composite arm into its own input type.
@@ -1071,18 +1070,16 @@ table is meaningless. That happens when the working directory does not
 exist, and when relative levels counted by feel resolve back inside the
 primary clone (a worktree-escape deny, not the cross-repo one).
 
-## Probe a teaching verdict per shape, not per element
+## Probe a loop over elements with the uncovered element first
 
-A check that fires on the first matching element returns a message
-enumerating that element's alternatives while saying nothing about an
-uncovered sibling, and a probe that sends one element at a time cannot
-see it.
-
-The tell is a codebase that already spells all-elements-must-pass for
-one set and not the other; mirror it. Probe per shape, not per verb:
-the element alone, with a covered companion, with an uncovered
-companion, and with the uncovered companion **first**, since a
-first-match loop is order-sensitive and a same-order probe hides it.
+A check that walks an input's elements can return on the first match,
+and a probe that sends one element at a time cannot tell that from a
+check over all of them. The tell is a codebase that already spells
+all-elements-must-pass for one set and not the other; mirror it. Probe
+per shape, not per verb: the element alone, with a covered companion,
+with an uncovered companion, and with the uncovered companion
+**first**, since a first-match loop is order-sensitive and a same-order
+probe hides it.
 
 A map whose value is a single string forces the rationale into the
 caller's message, which then gets written for the founding member;
