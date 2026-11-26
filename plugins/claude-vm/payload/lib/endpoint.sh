@@ -32,7 +32,7 @@
 # Guard against double-sourcing (the launcher and the test suite may both
 # source this alongside config.sh).
 if [ -n "${CLAUDE_VM_ENDPOINT_SH_SOURCED:-}" ]; then
-  return 0 2>/dev/null || true
+  return 0
 fi
 CLAUDE_VM_ENDPOINT_SH_SOURCED=1
 
@@ -58,7 +58,7 @@ claude_vm_tcp_port_in_use() {
   # An empty/non-numeric/out-of-range port is never "in use" -- let the
   # caller's own validation handle the malformed case.
   case "$port" in
-    ''|*[!0-9]*) return 1 ;;
+    '' | *[!0-9]*) return 1 ;;
   esac
   [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || return 1
   /usr/bin/perl -MSocket -MErrno=ECONNREFUSED -e '
@@ -98,7 +98,7 @@ claude_vm_acquire_free_tcp_port() {
     ' 2>/dev/null
   )" || return 1
   case "$port" in
-    ''|*[!0-9]*) return 1 ;;
+    '' | *[!0-9]*) return 1 ;;
   esac
   echo "$port"
   return 0
