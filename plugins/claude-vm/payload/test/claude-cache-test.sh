@@ -209,6 +209,21 @@ JSON
 assert_eq "fallback parse picks OUR platform, not a preceding one" \
   "$BIN_SHA" "$(parse_nojq "$FIXTURE/manifest.multiplat.json")"
 
+# Adversarial layout C: our platform's object carries no checksum, and a later
+# sibling object does. The parse must leave our object when it closes and
+# report no digest, rather than read the sibling's.
+cat >"$FIXTURE/manifest.sibling.json" <<JSON
+{ "platforms": {
+    "linux-arm64":  { "url": "https://x/claude", "size": 12345 },
+    "linux-x64":    { "checksum": "$BIN_SHA" }
+  } }
+JSON
+SIBLING_OUT="$(parse_nojq "$FIXTURE/manifest.sibling.json")"
+SIBLING_RC=$?
+assert_eq "fallback parse never reads a later sibling object's checksum" \
+  "" "$SIBLING_OUT"
+assert_rc "fallback parse with no checksum in our object -> rc 1" "1" "$SIBLING_RC"
+
 # ---------------------------------------------------------------------
 # 3c. Fingerprint normalization: spaced + lowercased vs compact + upper
 #     must compare equal (operators paste the gpg --fingerprint form).

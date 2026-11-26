@@ -190,19 +190,24 @@ claude_cache_manifest_sha256() {
     # "checksum"/"sha256" KEY inside it, not merely the first 64-hex run
     # near the key.
     #
-    # The manifest is first normalized to one structural token per line
-    # (braces, commas, and `"key": value` pairs separated) so the awk pass
-    # can track brace depth and key/value adjacency regardless of the
-    # source whitespace/formatting.
-    digest="$(tr '{},' '\n' <"$manifest_file" 2>/dev/null |
+    # The manifest is first normalized to one structural token per line --
+    # each brace on a line of its own, commas turned into line breaks -- so
+    # the awk pass can track brace depth and key/value adjacency regardless
+    # of the source whitespace/formatting.
+    digest="$(awk '{ gsub(/[{}]/, "\n&\n"); gsub(/,/, "\n"); print }' "$manifest_file" 2>/dev/null |
       awk -v p="\"$platform\"" '
           # State: not yet inside the platform object until we see its key.
-          # depth counts braces from that point; we leave when it returns
-          # below zero (the platform object closed). armed is set by a
-          # checksum/sha256 key so we only accept the hex that follows it.
+          # depth counts braces from that point; once the platform object
+          # has opened, we leave when depth returns to zero (it closed), and
+          # in any case when it drops below zero (the enclosing object
+          # closed), so a checksum in a later sibling object is never read.
+          # armed is set by a checksum/sha256 key so we only accept the hex
+          # that follows it.
           !inside && index($0, p) { inside = 1; next }
           inside {
-            depth += gsub(/{/, "{") - gsub(/}/, "}")
+            depth += gsub(/[{]/, "{") - gsub(/[}]/, "}")
+            if (depth > 0) opened = 1
+            if (depth < 0 || (opened && depth == 0)) exit
             # A checksum/sha256 key arms capture; the hex may be on the same
             # line ("checksum": "<hex>") or, if the source split them, the
             # next line. Only a hex token while armed counts -- a stray hex
@@ -211,7 +216,6 @@ claude_cache_manifest_sha256() {
             if (armed && match($0, /[0-9a-fA-F]{64}/)) {
               print substr($0, RSTART, RLENGTH); exit
             }
-            if (depth < 0) exit
           }
         ' |
       head -n1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
