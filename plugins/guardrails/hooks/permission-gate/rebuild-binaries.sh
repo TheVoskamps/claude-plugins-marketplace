@@ -5,8 +5,13 @@
 # Usage: rebuild-binaries.sh
 #
 # Run it from any directory, on a working tree `git status --porcelain`
-# reports clean; it refuses any other before it tests or builds, so the
-# binaries are built from committed source. Every target is pure Go with CGo
+# reports clean and with no gitignored file in this module directory, where
+# the build would read it as it reads a tracked one. It refuses any other tree
+# before it tests or builds, and it also refuses a GOFLAGS value from the
+# environment or the go env file, whose -modfile or -overlay would point the
+# build at a file outside git. Every go command runs with GOWORK=off, so no
+# go.work file, inside the repo or above it, adds to the build. Together these
+# build the binaries from committed source. Every target is pure Go with CGo
 # disabled, so all of them cross-compile from one host and none is built at
 # plugin load time.
 #
@@ -20,7 +25,7 @@
 # it was.
 #
 # Exit status: 0 when the binaries are installed; 1 on any failure — a dirty
-# working tree, a test, vet, lint, format or build step, or a git or
+# working tree, an ignored file in this directory, a GOFLAGS value, a test, vet, lint, format or build step, or a git or
 # filesystem step — with nothing copied into ../bin/ unless a copy or chmod
 # into it fails, which leaves in place every arch copied before the failure;
 # 2 on a usage error.
@@ -54,6 +59,22 @@ tree_status=$(git -C "$repo_root" status --porcelain) || fail "git status --porc
 if [ -n "$tree_status" ]; then
   printf '%s\n' "$tree_status" >&2
   fail "the working tree is not clean: commit every change, then run again"
+fi
+
+# `git status --porcelain` omits ignored files, and the go commands below
+# compile an ignored .go file here, or embed an ignored file a //go:embed
+# pattern names, as they would a tracked one.
+ignored=$(git -C "$module_dir" status --porcelain --ignored=matching -- .) ||
+  fail "git status --porcelain --ignored failed in $module_dir"
+if [ -n "$ignored" ]; then
+  printf '%s\n' "$ignored" >&2
+  fail "gitignored files are present in $module_dir: remove them, then run again"
+fi
+
+export GOWORK=off
+goflags=$(go env GOFLAGS) || fail "go env GOFLAGS failed"
+if [ -n "$goflags" ]; then
+  fail "GOFLAGS is set to '$goflags': unset it, in the environment and with go env -u GOFLAGS, then run again"
 fi
 
 go test ./... || fail "go test failed"
