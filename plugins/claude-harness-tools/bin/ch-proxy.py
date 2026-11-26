@@ -3,13 +3,21 @@
 
 The client speaks plain HTTP to a loopback port this proxy binds; the
 proxy opens its own connection to the upstream base URL, forwards the
-request, and streams the response back. Every request, whatever its
-path, is written to disk raw beneath the capture directory: the request
-headers as received, the response headers as upstream sent them, before
-any hop-by-hop header is dropped, and both bodies as the bytes on the
-wire, chunked transfer framing included. No body is decompressed,
-re-serialized or redacted on the way through, so two captures differ
-only where the traffic did.
+request, and streams the response back. It is a reverse proxy addressed
+by base URL rather than an HTTP `CONNECT` proxy, so no certificate is
+trusted anywhere and `ANTHROPIC_BASE_URL` is the whole hook into the
+client.
+
+Every request, whatever its path, is written to disk raw beneath the
+capture directory; filtering by path is the reader's job. The capture
+holds the request headers as received, the response headers as upstream
+sent them, before any hop-by-hop header is dropped, and both bodies as
+the bytes on the wire, chunked transfer framing included. No body is
+decompressed, re-serialized or redacted on the way through: a parser in
+the path would manufacture differences between two captures that the
+traffic never had, and a capture cannot be re-taken once its session has
+ended. Credential headers are therefore stored as they arrived, and
+redaction is a step applied to a copy, never a change at write time.
 
 Recording fails open. A disk or serialization error is reported on
 stderr and never alters the response the client receives, and an
@@ -135,6 +143,11 @@ class Recorder:
 
     Each method is a fail-open boundary: whatever goes wrong while
     writing is reported on stderr and the proxy carries on forwarding.
+
+    request.json is written twice, by `start` at arrival and by `finish`,
+    each time atomically, so a proxy stopped mid-request leaves the
+    arrival version rather than a half-written file. A request.json with
+    no `ended_at` is a request that was still in flight.
     """
 
     def __init__(self, directory):
@@ -214,6 +227,11 @@ class Recorder:
 class CaptureServer(http.server.ThreadingHTTPServer):
     """A threaded server holding the upstream, the counter and session.json.
 
+    Threaded because a session fanning out subagents has several requests
+    in flight at once, and serializing them changes agent scheduling and
+    can time requests out. The request counter is taken under a lock, so
+    request directories number in arrival order even across a fan-out.
+
     Raises `ValueError` when `upstream` is not an http or https URL with
     a host, or when its port is not an integer in range.
     """
@@ -259,6 +277,7 @@ class CaptureServer(http.server.ThreadingHTTPServer):
     def note_session_header(self, headers):
         """Add the first `*session*` request header seen to session.json.
 
+        That header is what joins the capture to the session's transcript.
         Safe to call from concurrent handler threads. A write error is
         reported on stderr rather than raised.
         """
@@ -396,6 +415,9 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
 
     def _send_upstream(self, connection, headers, body, chunked):
         server = self.server
+        # `skip_accept_encoding` keeps `http.client` from adding its own
+        # `Accept-Encoding`, so the client's goes upstream unchanged and a
+        # compressed response stays compressed in the capture.
         connection.putrequest(
             self.command,
             server.upstream_prefix + self.path,
@@ -494,6 +516,9 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         return line
 
     def _pass_on(self, data, recorder):
+        # A flush per chunk keeps a server-sent-events response live:
+        # buffering it would stall the client until upstream closes, which
+        # changes the session being measured.
         recorder.response_chunk(data)
         self.wfile.write(data)
         self.wfile.flush()
@@ -554,7 +579,9 @@ def main(argv=None):
     """Bind a loopback port, write session.json, and serve until interrupted.
 
     The bound port is printed as the first line on stdout, after
-    session.json is written; a launcher reads that line to find the proxy.
+    session.json is written; a launcher reads that line to find the proxy
+    and takes it as the signal that the proxy is serving, so session.json
+    is complete before any request can arrive.
     Everything after `--` in `argv` is recorded in session.json as the
     claude argv and is not run.
     """

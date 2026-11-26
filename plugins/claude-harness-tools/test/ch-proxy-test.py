@@ -4,7 +4,21 @@
 Most cases run `ch-proxy.py` as a subprocess pointed at an in-process
 plain-HTTP upstream, send traffic through the port it prints, and then
 grade both what the client received and what landed on disk. A case no
-subprocess argument can reach loads the proxy as a module instead.
+subprocess argument can reach loads the proxy as a module instead. No
+case reaches a real API.
+
+The cases cover: the session.json fields, and the first `*session*`
+header only; bodies matching the wire byte for byte, a gzip body staying
+compressed; credential headers, `Accept-Encoding` and base-path joining
+reaching upstream unchanged; the request files for a POST and for a
+HEAD; chunked requests forwarded length-framed, and malformed body
+framing answered 400 without reaching upstream; an upstream error status
+passing through; a 502 for an unreachable upstream and for a failure
+building the upstream connection; an upstream that is not an http or
+https URL rejected; a server-sent event reaching the client before
+upstream has finished; two requests in flight together, the upstream
+held on a two-party barrier; directory numbering in arrival order; and
+an unwritable capture directory leaving the response unchanged.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.

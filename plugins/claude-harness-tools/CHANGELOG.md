@@ -1,5 +1,15 @@
 # claude-harness-tools changelog
 
+## 0.1.2 — 2026-11-25
+
+The README is a user manual. It covers what the plugin is for, what it
+needs, how to launch a captured session, where captures land, what a
+capture contains and the plugin's limits. The design reasons it used to
+carry now sit beside the code they explain.
+
+Capturing behaves as before. The launcher's teardown is restructured
+with the same steps and the same exit status.
+
 ## 0.1.1 — 2026-11-25
 
 The transcript lookup follows `CLAUDE_CONFIG_DIR`. The

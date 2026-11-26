@@ -5,7 +5,16 @@
 # environment and sends one request through the proxy it was pointed at.
 #
 # Every case gets its own XDG_STATE_HOME, so the capture root holds
-# exactly the one session directory that case created.
+# exactly the one session directory that case created. The one case whose
+# stub sends a request points the upstream at a dead port.
+#
+# The cases cover: the computed name and both spellings of `--name`; the
+# arguments after `--` reaching claude unchanged; the repo-root cwd, and
+# `(local)` with a date-stamp suffix outside a repo; the default and
+# inherited upstreams; the child's ANTHROPIC_BASE_URL pointing at the
+# proxy; the session directory's stamp and slug; exit-status propagation;
+# and the proxy stopped after a normal exit, an error exit, SIGINT to the
+# process group and SIGTERM.
 #
 # Usage: ch-capture-test.sh    (exit 0 when every case passes)
 
