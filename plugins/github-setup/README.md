@@ -7,16 +7,16 @@ security and branch-protection baseline, a filtered public mirror of a
 private repo, a history rewrite that purges a leaked string, and the
 promotion of a private repo to public.
 
-Each skill works on the repository you run it from, shows you what it
-resolved before it changes anything, and waits for your approval before
-every consequential step.
+Each skill runs from inside a repository's checkout and acts on that
+repository; `/gh-create-app` can be pointed at another with
+`--target-repo`. Not every change waits for your approval: each section
+below says what the skill changes and what it asks you first.
 
 ## What you need first
 
-- `gh`, authenticated as an admin of the target repository. Registering
-  an App and setting organization secrets need an organization admin,
-  with the `admin:org` scope on the `gh` token; an enterprise-owned App
-  needs an enterprise owner.
+- `gh`, authenticated as an admin of the target repository. Setting
+  organization secrets needs the `admin:org` scope on the `gh` token; an
+  enterprise-owned App needs an enterprise owner.
 - `git`.
 - A target repository, checked out locally. Run each skill from inside
   it.
@@ -44,7 +44,9 @@ What it changes:
 
 - Sets the App ID and the private key as secrets, `WORKFLOW_APP_ID` and
   `WORKFLOW_APP_PRIVATE_KEY` unless you name others, on the target
-  repository or on its organization.
+  repository or, under `--secret-scope=organization`, as secrets of the
+  App's owner that the target repository can read. It asks no separate
+  approval for this, and overwrites a secret that already has the name.
 - Writes a metadata doc, `docs/github-app.md` by default, recording the
   App's name, ID, owner, permissions and secret names. It leaves the
   file uncommitted for you to review.
@@ -77,7 +79,8 @@ base branch are rebased, a scheduled sweep catches the ones an event
 missed, and a collaborator with write access can comment `/rebase` on a
 PR to rebase that one on demand. When the repository has a
 required-check workflow, green Dependabot PRs are also merged
-unattended.
+unattended. Dependabot's own PRs are left out of the routine rebase
+unless someone else has pushed to the branch.
 
 The workflows run as a GitHub App, because GitHub's default workflow
 token cannot enable auto-merge and its pushes do not re-trigger
@@ -104,10 +107,11 @@ What it changes:
   left out of step, with that script's self-test.
 - Commits those files to a `gh-repo-setup-pr-automation` branch, pushes
   it, and opens a PR against the default branch.
-- Sets the App's ID and private key as secrets, `AUTOMERGE_APP_ID` and
-  `AUTOMERGE_APP_PRIVATE_KEY` unless you pass another prefix, on the
-  repository or on its organization. It skips this when both secrets
-  already exist at either level.
+- Sets the App's ID as the secret `AUTOMERGE_APP_ID`, on the repository
+  or on its organization, and the private key as
+  `AUTOMERGE_APP_PRIVATE_KEY` when you have it set the key rather than
+  setting it yourself. `--secret-prefix` replaces `AUTOMERGE`. It skips
+  both when both secrets already exist at either level.
 
 What it asks you for:
 
@@ -139,9 +143,13 @@ What it changes on GitHub, directly:
 
 - Security settings: Dependabot alerts and security updates, and, where
   the repository is entitled to them, Code Security, secret scanning
-  and push protection. Dependabot malware alerts it only reports:
-  GitHub offers no API to switch them on, so that is yours to do in the
-  repository's Code security settings.
+  and push protection. It also tries to turn on delegated bypass for
+  push protection, and reports what is left for you to set. Dependabot
+  malware alerts it only reports: there is no public API to switch them
+  on, so that is yours to do in the repository's Code security
+  settings.
+- CodeQL default setup, which it switches off, once you confirm, when
+  it is about to add the CodeQL workflow. The two cannot coexist.
 - Merge settings: merge commits only, with auto-merge, branch-update
   suggestions and automatic deletion of merged branches switched on.
 - A `protect-main` ruleset on the default branch: no deletion, no
@@ -173,7 +181,15 @@ What it asks you for:
 
 - Which languages and ecosystems to leave out. Everything is on by
   default, and the only edit is to drop one.
+- Whether to switch off CodeQL default setup, when it finds it on.
+  Decline, and the CodeQL workflow is not added.
+- Whether to overwrite an existing workflow or script that differs from
+  the one it would write, or a `dependabot.yml` holding entries the new
+  one would drop. It shows you the diff first.
 - One approval covering the commit, the push and the PR.
+
+Apart from CodeQL default setup, what it changes on GitHub directly is
+applied without an approval, and reported.
 
 `--dry-run` reports what would change and changes nothing.
 `--codeql=auto`, the default, never turns CodeQL on for a private
@@ -195,8 +211,10 @@ What it changes:
 - Creates a public repository named `<repo>-public` under the same
   owner, with Issues on, and Wiki, Discussions and Projects off.
 - Pushes a first commit to the mirror's `main`, with a read-only
-  banner `README.md` and, where the source has none of its own, a
-  `LICENSE`, `PATENTS` and `PRIOR_ART.md`.
+  banner `README.md`, the mirror's `.gitignore`, `CONTRIBUTORS`, and
+  the source's `LICENSE`, `PATENTS`, `PRIOR_ART.md` and, when it has
+  one, `CODEOWNERS`. Where the source has no `LICENSE`, `PATENTS` or
+  `PRIOR_ART.md`, a starter takes its place.
 - Adds a `mirror-main-readonly` ruleset to the mirror, which blocks
   pushes and PR merges to its default branch from everyone but
   repository admins and the workflow.
@@ -216,12 +234,15 @@ What it asks you for:
 - The owner name and release date for the prior-art notice, when the
   source has no `PATENTS` or `PRIOR_ART.md` of its own.
 - To fill in `paths.allowlist` with the paths the mirror may publish.
-  Anything not listed stays private.
+  A file not listed stays out of the mirror. Commit messages are
+  published whatever a commit touched: one that changed only unlisted
+  files appears in the mirror as an empty commit.
 - To review a local dry run of the filtered tree, before it creates the
-  mirror.
+  mirror. Once you approve it, the mirror is created and configured
+  with no further approval.
 
-It refuses to run on a repository that is not private, or when
-`<repo>-public` already exists.
+It refuses to run on a repository that is not private, and stops rather
+than overwrite when `<repo>-public` already exists.
 
 ### `/gh-repo-scrub-history`
 
@@ -254,8 +275,8 @@ What it asks you for:
 - A second, separate approval before the force-push, after it has shown
   you whether the string was found and is now gone.
 
-On a repository that is already public it warns you, loudly, and
-proceeds if you say so.
+On a repository that is not private it warns you, loudly, and proceeds
+if you say so.
 
 ### `/gh-repo-setup-public`
 
@@ -272,7 +293,8 @@ What it changes:
   on the repository.
 - Writes a `CODEOWNERS` file assigning the whole repository to
   `@evoskamp`, and checks that code-owner review and conversation
-  resolution are required before merge.
+  resolution are required before merge, putting the second back in the
+  ruleset when it is missing.
 - Enables Issues, and leaves issues and PRs open to outside
   contributors.
 - Adds a "Contributing" section to `README.md` and a `CONTRIBUTORS`
@@ -303,18 +325,18 @@ What it asks you for:
 - **It does not register a GitHub App for you.** GitHub allows
   registration only through its web UI, so `/gh-create-app` walks you
   through the form and waits.
-- **It does not read or print a private key.** Skills take the path to
-  a key file and pipe the file into `gh secret set`; the contents never
-  enter the conversation.
+- **It does not print a private key.** A skill that sets a key as a
+  secret takes the path to the key file and pipes the file into
+  `gh secret set`; the contents never enter the conversation.
 - **It does not rotate a credential.** `/gh-create-app` leaves App key
   rotation to you, and a history rewrite does not un-leak a secret that
   was ever public. Rotate it.
 - **It does not generate an SSH key or install `git-filter-repo`.** You
   do both yourself, beforehand.
-- **It does not commit files without your approval.**
-  `/gh-repo-setup-protection` and `/gh-repo-setup-pr-automation` commit
-  and open a PR on one approval; every other skill leaves its files
-  uncommitted.
+- **It does not commit to the repository you ran it from without your
+  approval.** `/gh-repo-setup-protection` and
+  `/gh-repo-setup-pr-automation` commit and open a PR on one approval;
+  every other file a skill writes there is left uncommitted.
 - **It does not write outside the repository you ran it from.** Beyond
   that repository's files, the only changes are the GitHub settings,
   secrets and repositories each skill names above.
