@@ -1,7 +1,8 @@
 # Template for /gh-repo-setup-pr-automation. Rendered into the target
 # repo at .github/workflows/auto-enable-automerge.yml.
 #
-# Placeholders (see the github-setup plugin payload README for the convention):
+# Placeholders (see the github-setup plugin's skills/lib/payload-render.md
+# for the convention):
 #   __DEFAULT_BRANCH__   default branch PRs target (e.g. main)
 #   __APP_NAME__         GitHub App slug used for automation
 #   __APP_ID_SECRET__    repo secret holding the App ID

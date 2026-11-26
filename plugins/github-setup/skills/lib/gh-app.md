@@ -404,7 +404,7 @@ When writing a skill that consumes this library:
   find/verify sequence."
 - Do not duplicate the find/verify logic inline -- reference the
   steps by number ("run Steps 1-5 from `skills/lib/gh-app.md`
-  with `required_permissions = { ... }`").
+  with `required_permissions = the starter permission set`").
 - Do not invent alternative discovery mechanisms. If the `gh api`
   endpoints documented here are insufficient for a new use case,
   update this library rather than working around it in the caller.

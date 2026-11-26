@@ -43,8 +43,8 @@ The workflows are rendered from templates in
 App**, not the default `GITHUB_TOKEN` — the default token gets
 `FORBIDDEN: Resource not accessible by integration` on
 `enablePullRequestAutoMerge`, and pushes made with `GITHUB_TOKEN` do not
-re-trigger downstream required checks. The App is resolved via
-`skills/lib/gh-app.md`.
+re-trigger downstream required checks. The App must hold the starter
+permission set, and is resolved via `skills/lib/gh-app.md`.
 
 Follow the steps in order. There are explicit **halts** where you wait
 for the user (the resolved-values confirmation, the commit/push/PR
@@ -53,13 +53,7 @@ gates" below). Do not skip them.
 
 ---
 
-## Required GitHub App permissions
-
-This skill resolves an App holding the starter permission set
-(Step 3). Step 3's find/verify pass is the converge-time check: an App
-provisioned before a scope joined the set fails the library's
-permission filter, and the skill aborts with its "missing permissions"
-report rather than installing workflows the App cannot run.
+## Dependabot merge bypass actor
 
 The **unattended Dependabot REST-merge** path additionally requires the
 App to be a `pull_request` **bypass actor** in the repo's
