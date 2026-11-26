@@ -76,7 +76,14 @@ payload/
                         # regression test for bin/claude-vm's four-file
                         # config-presence check (issue #179 defect #3): no
                         # false "no global config" when the bake/boot pair is
-                        # present; a leftover config.yml routes to migration
+                        # present; a leftover config.yml routes to migration;
+                        # plus the entry point's --as handling
+    account-launch-test.sh
+                        # the launcher's --as sources and refusals: the real
+                        # claude-vm.sh against a fake $HOME with `security`,
+                        # `gpg` and `podman` stubbed and no vfkit on PATH, so
+                        # every case ends before the image build; host-gated
+                        # on git, yq and python3
     claude-cache-test.sh
                         # unit tests for the verified claude cache
                         # (resolve/verify/checksum/abort/warm-boot; stubbed
@@ -114,9 +121,10 @@ payload/
 # macOS Keychain) AND seeds the guest's identity (userID + oauthAccount from
 # your ~/.claude.json, plus synthesized onboarding/auto-update-off keys) so the
 # in-guest claude comes up already onboarded and logged in. See below.
+# With a leading --as <name>, both come from that account instead.
 
 # From inside the repo you want to launch a VM for:
-claude-vm [claude args...]
+claude-vm [--as <name>] [claude args...]
 ```
 
 `bin/claude-vm` (issue #51) is the preflight launcher and the intended
@@ -131,6 +139,16 @@ checks that the global config exists (offering to create it via
 `/claude-vm-config-global` if not), fails fast if the macOS Keychain has
 no claude.ai OAuth credential, and forwards the repo root plus any
 trailing args to `payload/claude-vm.sh` below.
+
+A leading `--as <name>` is the one argument it takes for itself; see
+"Named account (`--as`)" under "Authentication". It is taken off before
+the run is named, so the name never carries it, and passed on as the
+launcher's own leading argument, ahead of the repo root. The entry point
+checks the name and the account directory itself, although the launcher
+repeats both, so that a bad name or a missing directory is reported as
+what it is rather than as the missing Keychain item its fail-fast check
+would find next. That check asks for the account's derived service, the
+one the launcher reads.
 
 ## Run liveness and the cleaner (`bin/claude-vm-cleanup`)
 
@@ -223,7 +241,7 @@ could not be removed; 2 on any argument.
 
 ```bash
 # Invoked by bin/claude-vm above; callable directly too.
-"${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
+"${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" [--as <name>] /path/to/repo [claude args...]
 ```
 
 Reads `cpus`, `mem`, `guest_image`, proxy config, `egress.allow`,
@@ -343,8 +361,9 @@ shape claude itself writes — see "Marketplaces and plugins" below). The
 `enabled` map
 is validated once: every value must be boolean and every key must name an
 installed plugin ref, so a typo aborts the launch. claude-vm has **no** own
-CLI flags — plugin enable/disable state comes from the config files, not the
-command line. `bypassPermissions` is *YOLO-by-default* — the VM is the
+CLI flags but a leading `--as <name>` — plugin enable/disable state comes
+from the config files, not the command line. `bypassPermissions` is
+*YOLO-by-default* — the VM is the
 isolation boundary, with the deny list as backstop. Because the guest runs
 `claude` as **root**, and `claude` refuses `bypassPermissions` as root unless
 `IS_SANDBOX=1` (or `CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes
@@ -478,6 +497,59 @@ fails fast with an actionable message rather than booting an
 unauthenticated guest.
 `egress.allow` must include the Anthropic API host (`api.anthropic.com`,
 present in the example config) so the in-guest `claude` can reach it.
+
+**Named account (`--as`).** `claude-vm.sh --as <name> <repo-path>
+[claude args...]` launches the guest as the host Claude Code account whose
+config directory is `D` = `$HOME/.claude.<name>`. Wherever this file names
+the `Claude Code-credentials` item, `~/.claude.json` or the host `~/.claude`
+as a host source, it describes a launch without `--as`. With it, every
+source follows from `D`, and there is no config key for accounts:
+
+- the credential comes from the Keychain item whose service is
+  `Claude Code-credentials-<h>`, where `<h>` is the first 8 lowercase hex
+  characters of the SHA-256 of `D`'s path string with no trailing newline —
+  the service Claude Code itself uses for a session run with
+  `CLAUDE_CONFIG_DIR=D`;
+- the identity seed comes from `D/.claude.json`;
+- the working rules are staged from `D`, by the same include list.
+
+Which keys are selected from each source, the file modes and the removal on
+exit are the same as without `--as`. The account comes from `--as` alone: an
+inherited `CLAUDE_CONFIG_DIR` is never read.
+
+`--as` is recognised only as the first argument, ahead of the repo path,
+because the account must be known before any host state is read; anywhere
+later it is one of the args forwarded to the guest `claude`. A name holds
+only ASCII letters, digits, `_` and `-`, and is not `backup`. The name check
+(`claude_vm_account_name_valid`), the directory lookup
+(`claude_vm_account_dir`) and the service derivation
+(`claude_vm_keychain_service`) live in `lib/credential.sh`, which
+`bin/claude-vm` sources as well, so the entry point and the launcher cannot
+disagree on which names are accepted, where an account's directory is, or
+which Keychain service holds its credential. The service derivation needs
+`shasum` or `sha256sum`. `test/credential-test.sh` unit-tests the helpers,
+checking the derived service against `python3`'s `hashlib`.
+
+Every `--as` refusal happens before any build or boot: a missing or invalid
+name, a missing account directory, a missing `D/.claude.json` or one with no
+usable identity, and a missing or unusable Keychain item. The last of these
+needs a read the launch without `--as` does not make that early — there the
+launcher reads the Keychain once, after the image build. Under `--as` an
+**account Keychain preflight** also reads the item right after the
+identity-seed preflight and pipes it through the same `claudeAiOauth`
+selection and token validation the later read uses. The blob travels only
+through that pipe, so nothing of it is written to disk or printed, and the
+later read stays the one that installs the credential.
+
+A refusal names the account and the missing piece, and prints no value read
+from the Keychain or the identity file. Nothing is copied or substituted for
+a missing piece, and no launch falls back to the default account's files or
+credential, so a guest never pairs one account's identity with another's
+credential. The login a refusal tells the operator to run is
+`CLAUDE_CONFIG_DIR='<account dir>' claude`, in the post-build Keychain and
+identity-seed refusals too, because a bare `claude` would repair the default
+account's Keychain item and `~/.claude.json` and leave the account's as they
+were.
 
 ## Config loader (`lib/config.sh`)
 
@@ -2190,6 +2262,7 @@ replacement.
 "${CLAUDE_PLUGIN_ROOT}/payload/test/boot-launcher-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-home-seed-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/account-launch-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-machine-test.sh"
@@ -2333,7 +2406,11 @@ than as dangling links; that the install is additive and does **not** nest
 (the image's baked `plugins/` survives, a pre-existing file inside a seeded
 directory survives, and nothing lands at `.claude/rules/rules`); and that a
 sparse host, a missing `keybindings.json`, and a host with no `~/.claude` at
-all each produce a clean run with no error output on either side.
+all each produce a clean run with no error output on either side. A `--as`
+case runs the staging loop with the account directory set and asserts that
+the entries come from it alone: one the account lacks stays absent rather
+than being filled in from `~/.claude`, and the account's `settings.json` is
+staged no more than the host's is.
 
 The guest half's *failure* arms are pinned by injection, because the emitted
 launcher runs under `set -euo pipefail` and the cost of an unguarded command
@@ -2406,6 +2483,38 @@ into a migration pointer instead. Drives the real `bin/claude-vm` up to — but
 not through — the launcher exec (a stubbed `security` makes the Keychain check
 exit first), asserting on the step-4 stderr for each config state. Host-gated
 on `git`.
+
+The same suite covers the entry point's `--as` handling, with a
+`CLAUDE_CONFIG_DIR` naming some other directory inherited by every case so
+each also shows the variable deciding nothing. The `security` stub records
+the service it was asked for: the account's derived service under `--as`,
+computed independently with `python3`'s `hashlib`, and the default one
+without. An invalid name, `backup`, a missing account directory and a bare
+`--as` are each refused before any Keychain read. What reaches the launcher
+is read off a copy of `bin/claude-vm` in a fake plugin tree whose launcher
+only records its argv: `--as <name>` first, then the repo root, a later
+`--as` among the `claude` args untouched, and a run name without the leading
+one.
+
+`account-launch-test.sh` covers the launcher's half of `--as` by running the
+real `claude-vm.sh` against a fake `$HOME`, with `security`, `gpg` and
+`podman` stubbed on a PATH that carries no `vfkit`. A launch whose account
+checks all pass therefore stops at the dependency preflight, the last gate
+before the guest-image build, so reaching that message is the suite's marker
+for "past every account check" and its absence shows a refusal came before
+the build. The default account has no `~/.claude.json` in the passing case,
+so getting past the identity preflight proves the account's file was the one
+read, and the `security` stub's log shows the derived service was the only
+one asked for. Each refusal over something the launcher read — a missing
+account `.claude.json` with the default account's present, one with no
+usable identity, a missing, empty, token-less, `claudeAiOauth`-less or locked
+Keychain item — is asserted to name the account, to come before the build,
+and to print none of the marker values planted in the identity and Keychain
+fixtures. An invalid name and a missing account directory are asserted to be
+refused with no Keychain read. The cases without `--as` inherit a
+`CLAUDE_CONFIG_DIR` naming the account directory and still read
+`~/.claude.json`, with no Keychain read before the build.
+Host-gated on `git`, `yq` and `python3`.
 
 `claude-cache-test.sh` exercises the verified claude cache
 (`lib/claude-cache.sh`): channel/pin validation, version-keyed cache-path
