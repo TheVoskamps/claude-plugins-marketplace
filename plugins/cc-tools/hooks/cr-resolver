@@ -15,7 +15,9 @@
 # --cr-strict that may precede it.
 #
 # The deploy hook copies this file byte for byte, so it must not depend
-# on where it lives.
+# on where it lives. It sits under hooks/ rather than bin/ because bin/ is
+# what sessions get on PATH, and this file is only ever run from the
+# shell.
 #
 # Exit status: bin/cr's own; 1 when --as is refused, jq is missing, the
 # plugin list cannot be read, or no enabled cc-tools is installed, with

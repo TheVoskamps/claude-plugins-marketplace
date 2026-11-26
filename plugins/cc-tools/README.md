@@ -8,12 +8,6 @@ rules a session should be working under;
 find out what changed in the harness and in the issues you track; and
 curate the memory your agents write so it stays worth reading.
 
-Everything here is *about* the harness rather than about any one
-repo's code. That is the line: a skill or a command belongs in this
-plugin when what it operates on is your Claude Code configuration, the
-launch of a session, the upstream Claude Code project, or the memory
-tree agents leave behind.
-
 ## Why you would want it
 
 Each of these gets worse the longer you leave it:
@@ -55,20 +49,17 @@ Each of these gets worse the longer you leave it:
 - **`gh`, authenticated.** `cr` resolves the repo's host, owner and
   name through it, and refuses to launch without it. The skills that
   report on upstream Claude Code read `anthropics/claude-code` through
-  it, and memory curation aimed at a PR resolves that PR's branch
-  through the `github-prs` plugin's PR-view verb — which is why
-  `plugin.json` declares a `dependencies` edge on `github-prs`. The
-  edge guarantees that verb is installed and enabled wherever this
-  plugin runs; it grants no access to `github-prs`' files.
+  it, and memory curation aimed at a PR finds that PR's branch through
+  the `github-prs` plugin, which cc-tools declares as a dependency.
 - **`jq`**, if you want `cr`. The resolver at `~/.local/bin/cr` reads
   `claude plugin list --json` through it to find where the enabled
   cc-tools is installed, and the launcher merges the settings layers
   with it; each refuses with a message on stderr without it, rather
   than guessing a path or launching with the layers dropped.
 - **mikefarah `yq`, v4 or higher**, if you want the account link
-  skills. Their script parses the whitelist with it and exits 1 naming
-  `yq` when it is missing, or when the `yq` on `PATH` is another tool
-  or an older version. `cr` does not need it, `--as` included.
+  skills. They parse the whitelist with it and exit 1 naming `yq` when
+  it is missing, or when the `yq` on `PATH` is another tool or an older
+  version. `cr` does not need it, `--as` included.
 - **A whitelist at `~/.claude/.cc-tools/account-symlinks.yml`**, if you
   want the account link skills. The plugin ships none and never writes
   it; its shape is under "Managing an account's links" below.
@@ -90,16 +81,17 @@ Each of these gets worse the longer you leave it:
   upstream Claude Code take their topics from that list and infer none
   from anywhere else; both seed it from a starter set on their first
   run, and you edit it from there — by hand, or by accepting what
-  `cc-suggest-topics` proposes. What it holds and where it lives are
-  `skills/lib/cc-topics-config.md`.
+  `cc-suggest-topics` proposes. It is
+  `${XDG_CONFIG_HOME:-~/.config}/cc-tools/config.yml`, a YAML list of
+  topics, each a name and, optionally, the upstream issue numbers to
+  follow under it.
 
-`cc-whats-new` keeps a watermark file beside that list, which it
-creates on its first run; its path and shape are
-`skills/cc-whats-new/SKILL.md` → "State file". The only other state is
+`cc-whats-new` keeps a watermark file, `whats-new.yml`, beside that
+list, which it creates on its first run. The only other state is
 the session inbox described below, which lives under the session
 scratchpad rather than in any repo and dies with the session. Outside
-its own tree the plugin writes `~/.local/bin/cr`, a byte-for-byte copy
-of `hooks/cr-resolver`; the merged settings file `cr` builds for each
+its own tree the plugin writes the resolver at `~/.local/bin/cr`; the
+merged settings file `cr` builds for each
 launch under `${XDG_STATE_HOME:-~/.local/state}/cc-tools/`, which
 lives only as long as that launch; the config directory's `logs/`,
 which `cr` creates when absent; and the account directories
@@ -143,7 +135,6 @@ launch when it cannot. When
 `cr` exports it pointing there, so git inside the session reads that
 file as its global config. `cr` needs `git`, `gh` and `jq` on `PATH`,
 and refuses before launching, naming the tool, when one is missing.
-The usage block at the top of `bin/cr` is the exact contract.
 
 **Running under an account.** `cr --as <name>` exports
 `CLAUDE_CONFIG_DIR=~/.claude.<name>` for the launch, so `claude` reads
@@ -252,15 +243,11 @@ When `--as` is refused, no enabled cc-tools is installed, `jq` is
 missing, or the plugin
 list cannot be read, the resolver says which on stderr and exits 1; it
 never falls back to plain `claude`, because a session launched without
-the settings layers would look like one launched with them. The
-resolver's text
-is `hooks/cr-resolver`. It sits under `hooks/` rather than `bin/`
-because `bin/` is what sessions get on `PATH`, and the resolver is only
-ever run from the shell.
+the settings layers would look like one launched with them.
 
-**Keeping the resolver current.** `hooks/hooks.json` registers
-`hooks/cr-deploy.sh` on `SessionStart`. While `~/.local/bin/cr` matches
-`hooks/cr-resolver` byte for byte, the hook does nothing and prints
+**Keeping the resolver current.** The plugin runs a deploy hook at
+every session start. While `~/.local/bin/cr` matches the resolver the
+plugin ships byte for byte, the hook does nothing and prints
 nothing. When the target is missing or differs, it creates
 `~/.local/bin` if absent, writes an executable copy to a temporary file
 beside the target and renames it into place, and reports through a
@@ -268,10 +255,10 @@ beside the target and renames it into place, and reports through a
 restarted, adding that `~/.local/bin` is not on `PATH` when it is not.
 A write that fails, and a `HOME` that is unset or empty, each get a
 `systemMessage` saying the launcher could not be updated. The hook
-exits 0 on every path, so it never blocks a session, and it builds its
-JSON by hand so that `jq` is a dependency of `cr` alone. A change to
-the resolver's text therefore reaches a machine at its next session
-start, and a change to the launcher reaches it at the next `cr`.
+exits 0 on every path, so it never blocks a session, and it works
+without `jq`. A change to the resolver therefore reaches a machine at
+its next session start, and a change to the launcher reaches it at the
+next `cr`.
 
 ### Managing an account's links
 
@@ -292,10 +279,10 @@ symlinks:
 
 The plugin carries no copy of that list and never writes the file, so
 adding a name to it changes what the skills cover with no change to the
-plugin. Each skill wraps one script, `bin/cr-account-links`, which
-exits 1, naming the file and changing nothing, when the whitelist is
-absent or malformed, its `schema-version` is absent or below 1, or an
-entry is empty, `.`, `..`, or holds a `/` or a line break.
+plugin. Each skill exits 1, naming the file and changing nothing, when
+the whitelist is absent or malformed, its `schema-version` is absent or
+below 1, or an entry is empty, `.`, `..`, or holds a `/` or a line
+break.
 
 - `/cc-tools:cr-account-list` reports, for each account on the machine,
   each whitelisted entry as linked, missing, wrong target, dangling, or
@@ -332,9 +319,9 @@ config directory: `CLAUDE_CONFIG_DIR` when it is set and not empty,
 and `~/.claude` otherwise. A relative `CLAUDE_CONFIG_DIR` is taken from
 the current directory. It exits 1 with a message when `CLAUDE_CONFIG_DIR` and
 `HOME` are both unset or empty. It is on `PATH` inside every session
-that has this plugin enabled, so a skill or an agent of any plugin
-finds per-account files by running it rather than by spelling
-`~/.claude`, which is the wrong directory under `--as`.
+that has this plugin enabled, so a skill or an agent of any plugin can
+find per-account files by running it; `~/.claude` spelled out is the
+wrong directory under `--as`.
 
 ### Loading the global rules
 
@@ -379,34 +366,42 @@ takes its own yes. Decline everything and no topic changes.
 
 ### Curating agent memory
 
-Which route into the rubric you want depends on whether the memory is
-in a repo or in a session.
+Which route you want depends on whether the memory is in a repo or in
+a session.
 
 `/cc-tools:agent-memory-cleanup` is the one you invoke yourself. It
 grades every entry in `.claude/agent-memory/`, then **acts** — it
-deletes every entry the rubric grades as no longer earning its place,
+deletes every entry that no longer earns its place,
 moves durable lore out into the nearest governing `CLAUDE.md`, else an
 on-demand `docs/rules/*.md` routed from it, else the root `CLAUDE.md`,
 and never into a README, keeps what has no home in the repo, and
 repairs the `MEMORY.md` indexes and the wikilinks between entries. It
 is not a read-only report handed to someone else to apply.
 
-The argument picks which tree it curates: with none, the one you are
-sitting in; with a PR number, that PR's branch. What each mode does
-about confirming and committing — and the caller-side precondition the
-PR mode carries, since deletions are confirmed with nobody — is
-`skills/agent-memory-cleanup/SKILL.md` → "Invocation". Read it before
-you run the PR mode.
+The argument picks which tree it curates, and how much it asks:
+
+- **With none**, it curates the tree you are sitting in. It confirms
+  each move with you, showing the destination file and the text it
+  would add, and leaves its edits uncommitted for you to review. An
+  entry git does not track yet is staged before it is deleted, so
+  `git restore` brings back any entry the pass removed.
+- **With a PR number**, it checks out that PR's branch, applies every
+  move without asking, and commits and pushes the result onto the PR,
+  or leaves the branch untouched when the pass changed nothing.
+
+Deletions are confirmed in neither mode. In the PR mode the commit is
+the only undo, and it restores only what the branch already held: an
+entry that was never committed is gone once it is deleted, and nothing
+checks for one. So before you run the PR mode, make sure every memory
+entry is committed on that branch.
 
 The other route is the **session inbox**, for agents that run under
 `isolation: worktree`. Their `.claude/agent-memory/` resolves inside a
 throwaway worktree and dies with it, so the work has to leave before
 cleanup: a capture step copies the entries that outlive the run into a
 per-branch inbox under the session scratchpad, and a curation step
-grades them and writes the survivors into the repo. Both are
-`user-invocable: false` — an orchestration flow drives them at the
-right two moments, since only the agent that did the work can say
-which of its notes were about the branch and which about the repo.
+grades them and writes the survivors into the repo. You invoke
+neither: an orchestration flow drives them at the right two moments.
 
 ## What it deliberately does not do
 
@@ -446,10 +441,11 @@ which of its notes were about the branch and which about the repo.
   set up once and never exercise is proposed exactly like one you hit
   daily.
 - **Nothing removes a topic.** Every write that touches an entry
-  already in the file takes its own yes and drops nothing; which writer
-  touches what is in `skills/lib/cc-topics-config.md` → "Writing it". A
-  tracked topic that has stopped mattering stays until you delete it by
-  hand — save on the one path that file discloses.
+  already in the file takes its own yes and drops nothing, so a tracked
+  topic that has stopped mattering stays until you delete it by hand.
+  The one exception is a list that exists but cannot be read: the skill
+  that met the denial offers to seed a fresh one, and says that
+  accepting may overwrite a list it could not see.
 - **The topics list is machine-wide.** It lives under your user config
   directory, and no repo-local layer sits over it, so every repo you
   run these skills in reports on the same topics — including the ones
@@ -457,7 +453,6 @@ which of its notes were about the branch and which about the repo.
   suggester reads only the global rung of your Claude configuration and
   never a repo-local `.claude/settings.json`: a candidate derived from
   one repo's settings would have nowhere repo-local to be written.
-  Adding such a layer is issue #375.
 - **Curation is destructive and has no undo of its own.** It relies on
   git, or on your review of an uncommitted tree. The inbox is not a
   repository at all: an entry the curator neither transfers nor
@@ -465,18 +460,3 @@ which of its notes were about the branch and which about the repo.
 - **Nothing here migrates prose that is already in place.** Curation
   governs the entries in front of it. A constraint an earlier run
   transferred stays where that run put it, a README included.
-
-## Where the rules actually live
-
-Curation reads a shared rubric,
-`skills/lib/agent-memory-grading.md` — what makes an entry durable,
-the evidence a delete has to produce, how a transfer is phrased, which
-file it lands in, and the standard that file is held to afterwards.
-The inbox path and layout live in `skills/lib/agent-memory-inbox.md`.
-The topics config — its path, its schema, and what a skill that reads
-it does when it is missing or unreadable — lives in
-`skills/lib/cc-topics-config.md`, and the starter set that seeds it
-lives in the one skill that creates it,
-`skills/cc-seed-config/SKILL.md`. No skill restates any of those
-contracts, and neither does this README: when you need the exact
-behavior, those files are the source.
