@@ -154,6 +154,7 @@ or a single-file target that exists at all.
   without a rebuild. A failed boot install warns and continues.
 - `update_at_boot` runs `apt-get update` and `apt-get upgrade` at boot,
   through the proxy, before claude starts; a failure warns and continues.
+  A value outside its type aborts the launch.
 - `add_apt_uris_to_allowlist` decides whether `deb.debian.org`,
   `security.debian.org` and every `apt_sources` host join the guest's
   egress allowlist. `auto` adds them only when boot-time apt work is
@@ -229,7 +230,8 @@ alone; the host's `~/.claude/settings.json` is never read.
   blocking, before claude starts.
 - `claude.plugins.update_at_boot` refreshes the marketplaces and updates
   the installed plugins at boot. It is the freshness path for baked
-  plugins, which are frozen at build time.
+  plugins, which are frozen at build time. A value outside its type aborts
+  the launch.
 - `claude.plugins.add_marketplace_uris_to_allowlist` is the marketplace
   counterpart of `add_apt_uris_to_allowlist`. Under `auto` the marketplace
   hosts join the allowlist only when boot-side plugin work can run: a

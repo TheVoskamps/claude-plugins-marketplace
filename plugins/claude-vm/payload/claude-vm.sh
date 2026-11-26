@@ -319,6 +319,11 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot
 # (claude_vm_boot_marketplace_egress_needed) act on the same value.
 PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
 
+# Both flags are written unquoted into run.env, which the guest sources under
+# `set -a`, so a value other than true/false aborts here, before run.env exists.
+claude_vm_check_bool update_at_boot "$PACKAGES_UPDATE_AT_BOOT" || exit 1
+claude_vm_check_bool claude.plugins.update_at_boot "$PLUGINS_UPDATE_AT_BOOT" || exit 1
+
 # guest_image: when SET, it is used as-is -- an explicit
 # operator override that opts OUT of variant derivation (issue #105, extended
 # by the #106 root-headroom knob): the operator owns that path and its
@@ -1598,15 +1603,14 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'IS_SANDBOX=1\n'
     # Boot-time apt update flag (issue #106): whether the guest boot launcher
     # runs `apt-get update && apt-get -y upgrade` before claude starts.
-    # A boolean update_at_boot resolves through claude_vm_bool_scalar to a
-    # fixed 'true'/'false' literal, safe under the run.env `set -a` sourcing
-    # (value-quoting audit above). That accessor does not reject a
-    # non-boolean value; it is written here as given.
+    # claude_vm_check_bool aborted the launch above unless the value is the
+    # literal 'true' or 'false', which is safe under the run.env `set -a`
+    # sourcing (value-quoting audit above).
     printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
     # Boot-time plugin update flag (issue #107): whether the guest boot
     # launcher refreshes the marketplaces and updates the installed plugins
     # before claude starts. Same shape and safety argument as the apt flag
-    # above, including that a non-boolean value is written as given.
+    # above.
     printf 'CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=%s\n' "$PLUGINS_UPDATE_AT_BOOT"
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries

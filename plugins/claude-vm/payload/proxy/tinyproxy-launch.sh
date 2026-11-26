@@ -67,12 +67,12 @@ FILTER="$CONF_DIR/tinyproxy.filter"
   printf 'FilterDefaultDeny Yes\n'
   printf 'FilterExtended On\n'
   printf 'Filter "%s"\n' "$FILTER"
-} > "$CONF"
+} >"$CONF"
 
 # Build the filter file: one anchored regex per allowlisted host so a host
 # matches itself exactly (and its subdomains), not as a substring of an
 # unrelated host. Blank lines and comments in the allowlist are skipped.
-: > "$FILTER"
+: >"$FILTER"
 while IFS= read -r host; do
   # Trim surrounding whitespace.
   host="${host#"${host%%[![:space:]]*}"}"
@@ -82,8 +82,8 @@ while IFS= read -r host; do
   # Escape regex-significant dots; anchor so "github.com" matches
   # "github.com" and "*.github.com" but not "evilgithub.com".
   esc="$(printf '%s\n' "$host" | sed 's/\./\\./g')"
-  printf '(^|\\.)%s$\n' "$esc" >> "$FILTER"
-done < "$ALLOWLIST"
+  printf '(^|\\.)%s$\n' "$esc" >>"$FILTER"
+done <"$ALLOWLIST"
 
 echo "tinyproxy-launch: starting tinyproxy on $LISTEN_ADDR:$PORT, egress confined to $ALLOWLIST" >&2
 

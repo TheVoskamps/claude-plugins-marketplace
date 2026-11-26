@@ -1018,14 +1018,38 @@ claude_vm_scalar() {
 # that presence check rather than yq's `//` operator, because `//`
 # treats the boolean `false` itself as falsy and would substitute
 # $fallback for it too -- exactly the bug this accessor exists to avoid.
+# A value written as `""` reads as unset too, as it does for claude_vm_scalar:
+# a valueless key reaches a global-only merge as `''` rather than null, so
+# without this the same spelling would resolve differently by layer.
+#
+# The value is returned as written, boolean or not; claude_vm_check_bool is
+# the gate that rejects anything but true/false.
 claude_vm_bool_scalar() {
-  local file="$1" path="$2" fallback="$3" is_null
+  local file="$1" path="$2" fallback="$3" is_null val
   is_null="$(yq eval "(${path} == null)" "$file" 2>/dev/null)"
   if [ "$is_null" != "false" ]; then
     printf '%s\n' "$fallback"
-  else
-    yq eval "${path}" "$file" 2>/dev/null
+    return 0
   fi
+  val="$(yq eval "${path}" "$file" 2>/dev/null)"
+  if [ -z "$val" ]; then
+    printf '%s\n' "$fallback"
+  else
+    printf '%s\n' "$val"
+  fi
+}
+
+# claude_vm_check_bool <key> <value> -- succeed when <value> is `true` or
+# `false`; otherwise print a diagnostic naming <key> and fail. The launcher
+# runs it on a `bool` row's resolved value before that value is written
+# anywhere, since run.env carries it unquoted and the guest sources run.env
+# under `set -a`.
+claude_vm_check_bool() {
+  case "$2" in
+    true | false) return 0 ;;
+  esac
+  echo "claude-vm: $1 must be true or false, got '$2'" >&2
+  return 1
 }
 
 # Emit the egress allowlist, one host per line, from a merged-config file.

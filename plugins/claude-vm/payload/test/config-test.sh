@@ -4934,6 +4934,120 @@ SH
 fi
 
 # ---------------------------------------------------------------------
+# Test 37: update_at_boot and claude.plugins.update_at_boot abort the launch
+# unless boolean.
+#
+# Both values are written unquoted into run.env, which the guest sources under
+# `set -a`, so the launcher must reject anything but true/false before run.env
+# exists. Driven through the REAL claude-vm.sh, in this suite's own shell, with
+# every config path and the state root pointed into $WORK. Each config also
+# sets claude.permission_mode to a value its later guard rejects: that guard
+# runs after the update_at_boot gate and before anything is built or written,
+# so a run that passes the gate stops there, and its diagnostic is what shows
+# a value was accepted.
+# ---------------------------------------------------------------------
+UAB="$WORK/uab"
+mkdir -p "$UAB/repo" "$UAB/gconfig" "$UAB/state"
+UAB_BACKSTOP="claude.permission_mode must be 'bypassPermissions' or 'default', got 'uab-backstop'"
+
+# run_uab <global-boot> <repo-boot> -- run the launcher over the two boot
+# files and print "<rc>|<stderr, one line>".
+run_uab() {
+  local out rc
+  out="$(cd "$UAB/repo" && TMPDIR="$WORK" \
+    CLAUDE_VM_GLOBAL_CONFIG_DIR="$UAB/gconfig" \
+    CLAUDE_VM_GLOBAL_BAKE_CONFIG="$UAB/absent-bake.yml" \
+    CLAUDE_VM_GLOBAL_BOOT_CONFIG="$1" \
+    CLAUDE_VM_GLOBAL_LEGACY_CONFIG="$UAB/absent-legacy.yml" \
+    CLAUDE_VM_REPO_BAKE_CONFIG="$UAB/absent-bake.yml" \
+    CLAUDE_VM_REPO_BOOT_CONFIG="$2" \
+    CLAUDE_VM_REPO_LEGACY_CONFIG="$UAB/absent-legacy.yml" \
+    CLAUDE_VM_STATE_DIR="$UAB/state" \
+    CLAUDE_VM_RUNS_DIR="$UAB/state/runs" \
+    "$BASH" "$TEST_DIR/../claude-vm.sh" "$UAB/repo" 2>&1 >/dev/null)"
+  rc=$?
+  printf '%s|%s\n' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+
+# uab_verdict <run_uab output> <diagnostic> -- "aborted" when the run failed
+# with <diagnostic> and never reached the backstop, "passed" when it reached
+# the backstop, and the raw output otherwise.
+uab_verdict() {
+  case "$1" in
+    0\|*) printf '%s\n' "$1" ;;
+    *"$UAB_BACKSTOP"*) echo passed ;;
+    *"$2"*) echo aborted ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# uab_case <label> <expected> <diagnostic> <global-boot-yaml> <repo-boot-yaml>
+# -- write the two boot files (an empty yaml argument leaves that file
+# absent), run the launcher, and assert the verdict and that no run.env was
+# written anywhere under the state root.
+uab_case() {
+  local label="$1" expected="$2" diag="$3" g="$UAB/absent-g.yml" r="$UAB/absent-r.yml" got
+  rm -f "$UAB/g.yml" "$UAB/r.yml"
+  if [ -n "$4" ]; then
+    printf '%s' "$4" >"$UAB/g.yml"
+    g="$UAB/g.yml"
+  fi
+  if [ -n "$5" ]; then
+    printf '%s' "$5" >"$UAB/r.yml"
+    r="$UAB/r.yml"
+  fi
+  got="$(run_uab "$g" "$r")"
+  assert_eq "update_at_boot gate: $label" "$expected" "$(uab_verdict "$got" "$diag")"
+  assert_eq "update_at_boot gate: $label -- no run.env written" \
+    "" "$(find "$UAB/state" -name run.env 2>/dev/null)"
+}
+
+UAB_TAIL='claude:
+  permission_mode: uab-backstop
+'
+uab_case "a non-boolean update_at_boot aborts" aborted \
+  "update_at_boot must be true or false, got 'maybe'" \
+  "" "update_at_boot: maybe
+$UAB_TAIL"
+uab_case "a list-valued update_at_boot aborts" aborted \
+  "update_at_boot must be true or false, got '[]'" \
+  "" "update_at_boot: []
+$UAB_TAIL"
+uab_case "a non-boolean update_at_boot in a global-only config aborts" aborted \
+  "update_at_boot must be true or false, got 'yes'" \
+  "update_at_boot: \"yes\"
+$UAB_TAIL" ""
+uab_case "a non-boolean claude.plugins.update_at_boot aborts" aborted \
+  "claude.plugins.update_at_boot must be true or false, got '1'" \
+  "" "claude:
+  permission_mode: uab-backstop
+  plugins:
+    update_at_boot: 1
+"
+# The passing side: both booleans, `""`, and a valueless key reach the
+# backstop. A valueless key reaches a global-only merge as `''` and a repo
+# merge as null; both resolve to the default rather than aborting.
+uab_case "boolean values pass" passed "" \
+  "" "update_at_boot: false
+claude:
+  permission_mode: uab-backstop
+  plugins:
+    update_at_boot: true
+"
+uab_case "an empty-string update_at_boot reads as unset and passes" passed "" \
+  "" "update_at_boot: \"\"
+$UAB_TAIL"
+uab_case "a valueless update_at_boot in a global-only config passes" passed "" \
+  "update_at_boot:
+$UAB_TAIL" ""
+uab_case "a valueless claude.plugins.update_at_boot in a repo config passes" passed "" \
+  "" "claude:
+  permission_mode: uab-backstop
+  plugins:
+    update_at_boot:
+"
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo
