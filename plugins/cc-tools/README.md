@@ -401,9 +401,7 @@ throwaway worktree and dies with it, so the work has to leave before
 cleanup: a capture step copies the entries that outlive the run into a
 per-branch inbox under the session scratchpad, and a curation step
 grades them and writes the survivors into the repo. You invoke
-neither: an orchestration flow drives them at the right two moments,
-since only the agent that did the work can say which of its notes were
-about the branch and which about the repo.
+neither: an orchestration flow drives them at the right two moments.
 
 ## What it deliberately does not do
 
