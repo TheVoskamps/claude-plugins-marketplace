@@ -34,9 +34,12 @@
 # (see config-bake.example.yml). Leave it unset unless you own a prebuilt image.
 # guest_image: /path/to/guest.raw
 
+# repo.mount: live mounts the live repo read-write instead of a clone;
+# repo.copy_back: none leaves post-exit extraction to /claude-vm-diff and
+# friends.
 # repo:
-#   mount: live         # mount the live repo read-write instead of a clone
-#   copy_back: none     # leave post-exit extraction to /claude-vm-diff and friends
+#   mount: live
+#   copy_back: none
 
 # apt packages installed AT BOOT, blocking, before claude starts, through the
 # proxy (flat list of names). Use this for packages that change often (the AWS
@@ -52,9 +55,10 @@ packages:
 # Turning it off is the hard-secure, fully-frozen posture.
 # update_at_boot: false
 
-# Third-party apt repos a BOOT-time install pulls from. Union+dedup-by-name with the bake file's apt_sources; a name already
-# baked into the image is NOT re-rendered at boot. Same shape as the bake file's
-# apt_sources: {name, repo, key_url}.
+# Third-party apt repos a BOOT-time install pulls from. Union+dedup-by-name
+# with the bake file's apt_sources; a name already baked into the image is NOT
+# re-rendered at boot. Same shape as the bake file's apt_sources: {name, repo,
+# key_url}.
 # apt_sources:
 #   - name: fast-registry
 #     repo: "deb https://registry.example.com/apt stable main"
@@ -122,9 +126,10 @@ claude:
   # a plugin or hook you would not enable on the host.
   #
   # marketplaces dedupe by `name` across both file types; the same name with a
-  # DIFFERING url anywhere aborts the launch. Declare a marketplace HERE when only an install_at_boot ref needs
-  # it -- boot files never affect image identity, so it costs no rebuild. A
-  # marketplace a BAKED plugin needs belongs in config-bake.yml instead.
+  # DIFFERING url anywhere aborts the launch. Declare a marketplace HERE when
+  # only an install_at_boot ref needs it -- boot files never affect image
+  # identity, so it costs no rebuild. A marketplace a BAKED plugin needs
+  # belongs in config-bake.yml instead.
   # `name` must match the marketplace's own manifest name; prefer an explicit
   # https:// url over the `owner/repo` GitHub shorthand so the launcher can
   # derive its egress host (see add_marketplace_uris_to_allowlist below).
@@ -303,8 +308,8 @@ egress:
 # than mounted over.
 #
 # The diagnostic names the offending entry by its position in the MERGED boot
-# config -- that number counts through the global entries before the per-repo ones and need not be the entry's position in this
-# file -- and by its path.
+# config -- that number counts through the global entries before the per-repo
+# ones and need not be the entry's position in this file -- and by its path.
 #
 # Every entry below is COMMENTED OUT on purpose. A `source:` that is not on the
 # host aborts the launch, so shipping live entries here would make a
@@ -343,10 +348,11 @@ mounts:
 #          and you keep supplying values however you already do -- shell
 #          profile, direnv, `op run`.
 #   files  a list of host .env files whose NAME=value lines are read at launch
-#          and forwarded the same way. A later file wins over an earlier one. Blank lines and `#` comments are skipped, a leading
-#          `export ` is dropped, and a value wrapped in matching quotes is
-#          unwrapped. No variable expansion and no escape processing -- a `$`
-#          or a backslash means itself.
+#          and forwarded the same way. A later file wins over an earlier one.
+#          Blank lines and `#` comments are skipped, a leading `export ` is
+#          dropped, and a value wrapped in matching quotes is unwrapped. No
+#          variable expansion and no escape processing -- a `$` or a
+#          backslash means itself.
 #
 # `copy` and `files` in a config-bake.yml are a hard abort, even when
 # present-but-empty: they resolve against the host environment at

@@ -471,9 +471,9 @@ else
   printf "LAYERED=from-boot\nONLY_BOOT=boot-value\nSPACED='a b'\n" \
     >"$ENV_WORK/claudecreds/env"
 
-  # run_env_fragment <bake-file-or-empty> -- runs the real block with the two
-  # paths redirected at the fixtures and prints the resulting values. The
-  # launcher hardcodes /etc/claude-vm/bake-env (an image path), so the slice is
+  # write_env_fragment <bake-file-or-empty> -- writes $ENV_WORK/fragment.sh:
+  # the real block with both paths redirected at the fixtures. The launcher
+  # hardcodes /etc/claude-vm/bake-env (an image path), so the slice is
   # rewritten to the fixture; CLAUDECREDS_MNT is already a variable. A no-op
   # log() stub and the CLAUDECREDS_MNT assignment lead the rewritten slice, so
   # both are set in the shell that runs the block.
@@ -482,6 +482,8 @@ else
     sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$1#" \
       "$ENV_FRAGMENT" >>"$ENV_WORK/fragment.sh"
   }
+  # run_env_fragment <bake-file-or-empty> -- runs the block write_env_fragment
+  # writes and prints the resulting values.
   run_env_fragment() {
     write_env_fragment "$1"
     (

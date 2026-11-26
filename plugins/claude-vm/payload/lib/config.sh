@@ -12,9 +12,9 @@
 # <repo>/.claude-vm/. A bake file's top-level `packages:` is a flat list
 # baked into the image; a boot file's top-level `packages:` is a flat list
 # installed at boot; each file's `apt_sources:` unions in. Each file type has
-# ONE schema (the key table's file column), read as written -- merging happens WITHIN a
-# tier (global+repo bake -> MERGED_BAKE; global+repo boot -> MERGED_BOOT),
-# never across tiers. See the "Four-file config" section below.
+# ONE schema (the key table's file column), read as written -- merging happens
+# WITHIN a tier (global+repo bake -> MERGED_BAKE; global+repo boot ->
+# MERGED_BOOT), never across tiers. See the "Four-file config" section below.
 #
 # Layering semantics (from issue #6, extended by issue #103), applied within
 # each tier's merge, per the shape column of the key table
@@ -883,7 +883,8 @@ claude_vm_prune_empty_skeleton() {
 # type each key belongs in.
 #
 # Each file type has exactly ONE schema -- the rows the key table's file column
-# gives it -- and readers read exactly that schema. Merging happens WITHIN a tier, never across tiers:
+# gives it -- and readers read exactly that schema. Merging happens WITHIN a
+# tier, never across tiers:
 #
 #   MERGED_BAKE = merge(global bake, repo bake)   -- bake-schema document
 #   MERGED_BOOT = merge(global boot, repo boot)   -- boot-schema document

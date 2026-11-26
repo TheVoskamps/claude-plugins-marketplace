@@ -94,9 +94,9 @@ apt_sources:
 # pointing here, rather than parsing and silently baking nothing.
 #
 # marketplaces dedupe by `name` across both file types; the same name with a
-# DIFFERING url anywhere aborts the launch. Put
-# a marketplace here when a `bake:` ref needs it; put it in the boot file when
-# only an install_at_boot ref does, so it does not force an image rebuild.
+# DIFFERING url anywhere aborts the launch. Put a marketplace here when a
+# `bake:` ref needs it; put it in the boot file when only an install_at_boot
+# ref does, so it does not force an image rebuild.
 #
 # `name` MUST match the marketplace's OWN name (the `name` in its
 # .claude-plugin/marketplace.json) -- claude derives the registered name from
@@ -117,9 +117,9 @@ claude:
       url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
   plugins:
     # A claude.plugins sub-key the key table places in the BOOT file, written
-    # here, ABORTS the launch with a message naming this file. That is a PRESENCE test asked of this raw file, so an empty
-    # placeholder -- a valueless `enabled:`, or `enabled: []` / `""` / `{}` --
-    # aborts too.
+    # here, ABORTS the launch with a message naming this file. That is a
+    # PRESENCE test asked of this raw file, so an empty placeholder -- a
+    # valueless `enabled:`, or `enabled: []` / `""` / `{}` -- aborts too.
     bake:
       - block-background-agents@thevoskamps
       # COMPILED HOOKS NEED NO TOOLCHAIN: the guardrails permission-gate ships

@@ -379,8 +379,8 @@ export CLAUDE_VM_BAKE_PLUGINS
 # partition is sized above its base content, so a live session has room to grow
 # without hitting ENOSPC (lib/config.sh justifies the default beside its key
 # table). A normal scalar (repo overrides global), resolved once here as the
-# MERGED, default-filled value and exported so build-guest-image.sh forwards it to the
-# provisioner as the actual partition size. Validated as a positive integer up
+# MERGED, default-filled value and exported so build-guest-image.sh forwards it
+# to the provisioner as the actual partition size. Validated as a positive integer up
 # front (a typo here should abort the launch, not silently fall through to
 # whatever the provisioner does with garbage). This is the BUILD input; the
 # cache key is the identity segment below, which covers headroom per LAYER.
@@ -744,9 +744,9 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # ONE trusted path and no install.sh fallback: an unpinned/unimported
 # signing key or a verification failure aborts the run, it does NOT
 # downgrade to a lower-trust install (see lib/claude-cache.sh). This block
-# runs BEFORE the on-demand image build: the build's plugin bake
-# step drives this same guest-platform binary (CLAUDE_VM_GUEST_CLAUDE_BIN), so
-# it must exist when the build starts, a verification failure aborts before a
+# runs BEFORE the on-demand image build: the build's plugin bake step drives
+# this same guest-platform binary (CLAUDE_VM_GUEST_CLAUDE_BIN), so it must
+# exist when the build starts, a verification failure aborts before a
 # multi-minute build, and bake-time and boot-time plugin work can never run
 # under two different claude versions.
 #
