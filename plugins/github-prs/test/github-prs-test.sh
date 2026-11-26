@@ -5,18 +5,30 @@
 # records each call's argv, keeps the PR's state in files so a mutating
 # verb's re-read sees what the mutation left, and applies a call's
 # `--jq` expression with the real `jq`, so the scripts' own filters run.
+# It resolves an `api` call only on the host the case gives the checkout
+# or the reference names, so a call that drops `--hostname` fails its
+# verb, and pages a GraphQL query only under `--paginate` over a query
+# that takes `$endCursor`, so pr-files is shown to walk every page of a
+# PR with more files than one page holds.
 # As the real gh does, every stub gh read returns a \u00XX control
 # escape in caret notation; a stub `curl` beside it serves the REST reads
 # of the same state as stored, which every body a verb compares or
-# rewrites is read through.
+# rewrites is read through. The stub curl answers only on the case's
+# host and only with the token the stub gh prints for that host, so a
+# body read that went through gh or reached another host fails its case.
 # A case that touches `noop` makes every mutation report success without
 # landing as asked -- a create opens a PR that is not a draft, a comment
 # carries other text, and every other mutation changes nothing -- which
-# is how a change that did not land is staged. A fixture sourcing the
-# common helper, and a git that fails under pr-merge-conflicts, check that
-# a command no verb handles exits 1 wherever it fails; a sort that fails
-# under pr-closing-issues, that its pipeline exits 1 whatever sort's
-# status.
+# is how a change that did not land is staged.
+# The ERR-trap fixture sources the common helper and fails a command at
+# top level, inside a function, inside a command substitution, and inside
+# a function called from one; each must exit 1 with the catalogue line
+# and run nothing after the failure. A git that fails under
+# pr-merge-conflicts checks the same for an unhandled git step, and a sort
+# that fails under pr-closing-issues, that its pipeline exits 1 whatever
+# sort's status. A case for another repository's PR under
+# pr-merge-conflicts reaches a bare repository standing in for it through
+# git's `insteadOf`.
 #
 # Needs jq and git on PATH. Reaches no network.
 #
