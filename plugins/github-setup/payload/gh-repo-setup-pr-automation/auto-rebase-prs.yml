@@ -295,6 +295,7 @@ jobs:
             echo "Slash command /rebase on PR #$COMMENT_PR_NUMBER"
             # Query just the commenting PR. Same field set as the sweep
             # query so the jq filter and loop are reused unchanged.
+            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
             PRS_JSON=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -349,6 +350,7 @@ jobs:
             # dropped here: CLEAN/UNSTABLE are already up-to-date, DIRTY is
             # a GitHub-visible merge conflict (rebase would just abort),
             # HAS_HOOKS / UNKNOWN are out of scope.
+            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
             PRS_JSON=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $base: String!) {
                 repository(owner: $owner, name: $name) {
@@ -521,6 +523,7 @@ jobs:
               echo "No standalone /rebase command; skipping lockfile-regen pass."
               exit 0
             fi
+            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
             REGEN_JSON=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
@@ -546,6 +549,7 @@ jobs:
               | select(.baseRefName == $base)
               | [.]')
           else
+            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
             REGEN_JSON=$(gh api graphql -f query='
               query($owner: String!, $name: String!, $base: String!) {
                 repository(owner: $owner, name: $name) {

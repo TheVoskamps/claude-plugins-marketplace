@@ -237,6 +237,7 @@ jobs:
           # mutation on a PR that already has auto-merge enabled returns
           # an error, producing a noisy red workflow run. Pre-check
           # autoMergeRequest.enabledAt instead.
+          # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
           ENABLED_AT=$(gh api graphql \
             -f query='query($owner:String!,$repo:String!,$num:Int!) {
               repository(owner:$owner, name:$repo) {
@@ -256,6 +257,7 @@ jobs:
           HEADLINE="Merge PR: ${PR_TITLE} (#${PR_NUMBER})"
           # GraphQL enablePullRequestAutoMerge: commitHeadline /
           # commitBody set the merge commit message.
+          # shellcheck disable=SC2016  # $prId etc. are GraphQL variables
           gh api graphql \
             -f query='mutation($prId: ID!, $headline: String!, $body: String!) {
               enablePullRequestAutoMerge(input: {
@@ -396,6 +398,7 @@ jobs:
           #    `author.login == "dependabot"` AND the HEAD commit author
           #    login is `dependabot[bot]` (the same signal auto-rebase-prs
           #    uses). A spoofable field (title/body) is never consulted.
+          # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
           PRS_JSON=$(gh api graphql -f query='
             query($owner: String!, $name: String!, $base: String!) {
               repository(owner: $owner, name: $name) {
