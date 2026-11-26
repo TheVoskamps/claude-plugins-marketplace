@@ -4,29 +4,36 @@
 # under the bash 3.2 macOS ships, against a primary clone of a local
 # bare origin holding worktrees, branches, .claude/tmp/ scratch and a
 # directory of session scratchpads, with stub git-default-branch, gh,
-# pr-view, pr-closing-issues and sdlc-agent-result-persist executables
-# first on PATH and a logging git wrapper in front of the real git: each
-# scope's dry run printing what its real run acts on and removing
-# nothing; --pr removing only the worktrees its state names an agent
-# for -- whatever their HEAD, nested ones included -- those agents'
-# worktree-agent-<id> branches, its local head branch and its issues'
-# scratch, and any other worktree under .claude/worktrees/ holding a
-# branch it deletes; review state neither listed nor deleted in either
-# scope without --review-state, and with it the PR's or every PR's
-# deleted, --pr reading the agents before it deletes the review state;
-# a branch checked out outside .claude/worktrees/ kept rather
-# than failed; the primary clone detached off the head branch when
-# another worktree holds the default branch; --all
-# removing every worktree, every branch but the default branch, all
+# pr-view, pr-closing-issues, issue-view and sdlc-agent-result-persist
+# executables and git-tools' own git-issue-branch first on PATH and a
+# logging git wrapper in front of the real git: each scope's dry run
+# printing what its real run acts on and removing nothing; --pr removing
+# only the worktrees its state names an agent for -- whatever their HEAD,
+# nested ones included -- and any other worktree under .claude/worktrees/
+# holding its head branch, those agents' worktree-agent-<id> branches,
+# its local head branch once its issues are closed and its issues'
+# scratch; review state neither listed nor deleted in either scope
+# without --review-state, and with it the PR's or every PR's deleted,
+# --pr reading the agents before it deletes the review state; a branch
+# checked out outside .claude/worktrees/ kept rather than failed; the
+# primary clone detached off the head branch when another worktree holds
+# the default branch; --all removing every worktree, every
+# worktree-agent-<id> branch and closed issue branch and no other, all
 # scratch and every scratchpad but its own; removal of a dirty, unpushed
-# and locked worktree; the primary clone switched to the default branch
-# before any branch is deleted, in both scopes, and the fast-forward of
-# the default branch there or in the worktree holding it; an action that
-# fails while the rest carry on; an open PR, a PR in another repository
-# and an unresolved default branch refused with nothing removed; that no
-# run pushes to origin; and the usage errors.
+# worktree; locked worktrees -- a live lock, a dead pid, a reused pid, a
+# lock of another reason -- kept, with and without --stale-locks, and the
+# worktree around a kept one; the branches of kept worktrees and of open
+# or unreadable issues kept; scratch and scratchpads held back while a
+# locked worktree remains, under --pr only for the PR's own; the primary
+# clone switched to the default branch before any branch is deleted, in
+# both scopes, and the fast-forward of the default branch there or in
+# the worktree holding it; an action that fails while the rest carry on;
+# an open PR, a PR in another repository and an unresolved default
+# branch refused with nothing removed; that no run pushes to origin; and
+# the usage errors.
 #
-# Needs git on PATH. Reaches no network.
+# Needs git and ps on PATH, and plugins/git-tools/bin/git-issue-branch in
+# the same checkout. Reaches no network.
 #
 # Usage: sdlc-orchestrate-cleanup-test.sh    (exit 0 when every case passes)
 
@@ -34,6 +41,7 @@ set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$TEST_DIR/../bin/sdlc-orchestrate-cleanup"
+ISSUE_BRANCH="$(cd "$TEST_DIR/../../git-tools/bin" && pwd)/git-issue-branch"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-orchestrate-cleanup-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 # The real path, so the paths git reports and the ones expected here
@@ -100,8 +108,11 @@ git -C "$SEED" checkout -q main
 # serve/closing; and sdlc-agent-result-persist prints serve/list for
 # --mode list and serve/agents for --mode print-agents, and logs
 # --mode delete's --pr to serve/deleted, failing for the PR named in
-# serve/delete.fail. Each logs its arguments to serve/<name>.args. The
-# git wrapper logs every call to serve/git.log.
+# serve/delete.fail. issue-view prints issue <N>'s title line with the
+# state in serve/issue-<N>, a title carrying parentheses of its own, and
+# fails when that file is absent. Each logs its arguments to
+# serve/<name>.args. git-issue-branch runs git-tools' own. The git
+# wrapper logs every call to serve/git.log.
 mkdir -p "$SANDBOX/bin"
 cat >"$SANDBOX/bin/git-default-branch" <<EOF
 #!/bin/sh
@@ -143,6 +154,13 @@ case "\$2" in
     ;;
 esac
 EOF
+cat >"$SANDBOX/bin/issue-view" <<EOF
+#!/bin/sh
+echo "\$*" >>"$SERVE/issue-view.args"
+[ -f "$SERVE/issue-\$1" ] || { echo "issue-view: stub: no issue \$1" >&2; exit 1; }
+printf '#%s A title (CLOSED soon)    (%s)\n' "\$1" "\$(cat "$SERVE/issue-\$1")"
+EOF
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$ISSUE_BRANCH" >"$SANDBOX/bin/git-issue-branch"
 cat >"$SANDBOX/bin/git" <<EOF
 #!/bin/sh
 echo "\$*" >>"$SERVE/git.log"
@@ -153,7 +171,7 @@ chmod +x "$SANDBOX/bin/"*
 # build <case> -- a fresh primary clone, PRIMARY, with origin's main one
 # commit ahead of it, holding:
 #   .claude/worktrees/agent-a    on issue-7-feat, dirty, one commit
-#                                unpushed, and locked
+#                                unpushed
 #   .claude/worktrees/agent-b    detached at main, on none of the PR's
 #                                commits
 #   .claude/worktrees/agent-b/.claude/worktrees/agent-n
@@ -164,8 +182,9 @@ chmod +x "$SANDBOX/bin/"*
 #   worktree-agent-c
 #   .claude/tmp/issue-7, .claude/tmp/task-17, .claude/tmp/other-9
 # and SESSIONS holding s1/scratchpad -- this session's, PAD -- and
-# s2/scratchpad, s3/scratchpad and s2/tasks. The stubs serve a merged PR
-# of this checkout's repository closing issue 7, whose state names the
+# s2/scratchpad, s3/scratchpad and s2/tasks. No worktree is locked. The
+# stubs serve a merged PR of this checkout's repository closing issue 7,
+# closed, whose state names the
 # agents a, b, n and x -- x with no worktree -- review state for PRs 7
 # and 8, and main as the default branch.
 build() {
@@ -182,7 +201,6 @@ build() {
   echo dirty >"$WT/agent-a/dirty.txt"
   git -C "$WT/agent-a" commit -q --allow-empty -m unpushed
   echo more >"$WT/agent-a/more.txt"
-  git -C "$PRIMARY" worktree lock --reason "claude agent agent-a (pid 1)" "$WT/agent-a"
   git -C "$PRIMARY" worktree add -q --detach "$WT/agent-b" main
   git -C "$PRIMARY" worktree add -q --detach "$WT/agent-b/.claude/worktrees/agent-n" "$C1"
   git -C "$PRIMARY" worktree add -q -b worktree-agent-c "$WT/agent-c" main
@@ -201,6 +219,7 @@ build() {
   echo https://h.example/o/r >"$SERVE/repo-url"
   printf 'MERGED\nissue-7-feat\n' >"$SERVE/facts"
   echo "PR $PR closes issues 7" >"$SERVE/closing"
+  echo CLOSED >"$SERVE/issue-7"
   printf 'a\nb\nn\nx\n' >"$SERVE/agents"
   printf '%s\n%s\n' "$PR" 'h.example/o/r#8' >"$SERVE/list"
   ORIGIN_REFS=$(git -C "$ORIGIN" for-each-ref)
@@ -267,7 +286,7 @@ check "$(cat "$SERVE/gh.args")" "repo view --json url --jq .url" "--pr: this che
 check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode print-agents --pr $PR" \
   "--pr: the agents are read for the PR's reference, and review state is neither listed nor deleted"
 check "$([ -e "$WT/agent-a" ] || [ -e "$WT/agent-b" ] && echo left)" "" \
-  "--pr: the agents' worktrees are gone, dirty, unpushed, locked and off the PR's commits included"
+  "--pr: the agents' worktrees are gone, dirty, unpushed and off the PR's commits included"
 check "$([ -d "$WT/agent-c" ] && [ -d "$WT/agent-d" ] && echo kept)" "kept" \
   "--pr: worktrees of agents the PR's state does not name are kept, one at the same HEAD as a removed one"
 check "$(git -C "$PRIMARY" worktree list --porcelain | grep -c '^worktree ')" "3" "--pr: three worktrees remain registered"
@@ -312,7 +331,7 @@ git -C "$WT/agent-a" checkout -q --detach
 git -C "$PRIMARY" checkout -q issue-7-feat
 run --pr 7
 check "$RC" "0" "--pr, head branch in the primary clone: exit 0"
-check "$([ -e "$WT/agent-a" ] && echo left)" "" "--pr: a locked worktree at a detached HEAD is unlocked and removed"
+check "$([ -e "$WT/agent-a" ] && echo left)" "" "--pr: an agent's worktree at a detached HEAD is removed"
 check_contains "$OUT" "delete branch issue-7-feat
 delete branch worktree-agent-b" "--pr, head branch in the primary clone: its deletion does not fail"
 check "$(branches)" "main other-branch worktree-agent-c " "--pr, head branch in the primary clone: the head branch is deleted"
@@ -371,7 +390,8 @@ check "$([ -d "$CASE/head-wt" ] && echo kept)" "kept" "kept branch: the worktree
 run --all --scratchpad "$PAD"
 check "$RC" "0" "kept branch, --all: exit 0"
 check_contains "$OUT" "keep branch issue-7-feat: checked out at $CASE/head-wt" "kept branch, --all: reported as kept"
-check "$(branches)" "issue-7-feat main " "kept branch, --all: every other branch but main is deleted"
+check "$(branches)" "issue-7-feat main other-branch " \
+  "kept branch, --all: every other worktree-agent-<id> and issue branch is deleted"
 
 # --- --pr refusals --------------------------------------------------------
 build open
@@ -438,7 +458,6 @@ remove worktree $WT/agent-b/.claude/worktrees/agent-n
 remove worktree $WT/agent-b
 remove worktree $WT/agent-a
 delete branch issue-7-feat
-delete branch other-branch
 delete branch worktree-agent-b
 delete branch worktree-agent-c
 remove scratch $PRIMARY/.claude/tmp/issue-7
@@ -459,7 +478,7 @@ check "$OUT" "$EXPECTED" "--all: the dry run's items, acted on"
 check "$([ -f "$SERVE/sdlc-agent-result-persist.args" ] && echo ran)" "" "--all: review state is neither listed nor deleted"
 check "$(git -C "$PRIMARY" worktree list --porcelain | grep -c '^worktree ')" "1" "--all: only the primary clone remains"
 check "$([ -e "$WT" ] && ls -A "$WT")" "" "--all: no worktree directory is left"
-check "$(branches)" "main " "--all: only the default branch is left"
+check "$(branches)" "main other-branch " "--all: only the default branch and a branch of neither kind are left"
 check "$(ls -A "$PRIMARY/.claude/tmp")" "" "--all: all scratch is removed"
 check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/tasks " "--all: only this session's scratchpad, and no other session file, is left"
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "--all: the default branch is fast-forwarded"
@@ -480,11 +499,11 @@ run --review-state --all --scratchpad "$PAD"
 check "$RC" "0" "--all --review-state: exit 0"
 check "$(printf '%s\n' "$OUT" | sed -n 1,2p)" "$RS_EXPECTED" "--all --review-state: the review state is deleted first"
 check "$(cat "$SERVE/deleted" | tr '\n' ' ')" "$PR h.example/o/r#8 " "--all --review-state: every PR's review state is deleted"
-check "$(branches)" "main " "--all --review-state: only the default branch is left"
+check "$(branches)" "main other-branch " "--all --review-state: only the default branch and a branch of neither kind are left"
 
 # --- an action that fails, and the switch to the default branch -------------
 build failing
-git -C "$PRIMARY" checkout -q other-branch
+git -C "$PRIMARY" checkout -q worktree-agent-b
 echo 'h.example/o/r#8' >"$SERVE/delete.fail"
 run --all --scratchpad "$PAD" --review-state
 check "$RC" "1" "a failed action: exit 1"
@@ -493,18 +512,163 @@ failed delete review-state h.example/o/r#8: persist: stub refused h.example/o/r#
 remove worktree" "a failed action: its failure line quotes the error, and the run goes on"
 check_contains "$OUT" "remove scratchpad $SESSIONS/s3/scratchpad" "a failed action: the last item is still acted on"
 check "$(printf '%s\n' "$OUT" | grep -c '^failed')" "1" "a failed action: no other action fails"
-check_contains "$OUT" "delete branch other-branch
-delete branch worktree-agent-b" "switch: the branch the primary clone had checked out is deleted without failing"
-check "$(branches)" "main " "switch: every branch but the default branch is deleted"
+check_contains "$OUT" "delete branch worktree-agent-b
+delete branch worktree-agent-c" "switch: the branch the primary clone had checked out is deleted without failing"
+check "$(branches)" "main other-branch " "switch: every worktree-agent-<id> and issue branch is deleted"
 check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "main" "switch: the primary clone is switched to the default branch"
 check "$(git -C "$PRIMARY" rev-parse main)" "$ORIGIN_MAIN" "switch: and pulled"
 untouched_origin "a failed action"
+
+# --- locked worktrees -----------------------------------------------------
+# The harness's lock shape, for this test's own shell -- a running pid --
+# with its real start time, and two stale ones: a pid that has exited,
+# and this shell's pid under another start time, as a reused pid reads.
+LIVE_START=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$$")
+DEAD_PID=$(sh -c 'echo $$')
+# lock_all -- lock agent-a live, agent-c with a dead pid, agent-d with a
+# reused pid, and the nested agent-n with a reason of another shape.
+lock_all() {
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-a (pid $$ start $LIVE_START)" "$WT/agent-a"
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-c (pid $DEAD_PID start Mon Jan  1 00:00:00 2001)" "$WT/agent-c"
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-d (pid $$ start Mon Jan  1 00:00:00 2001)" "$WT/agent-d"
+  git -C "$PRIMARY" worktree lock --reason "held by hand" "$WT/agent-b/.claude/worktrees/agent-n"
+}
+
+# locks -- the locked worktrees, one line.
+locks() {
+  git -C "$PRIMARY" worktree list --porcelain | awk '/^worktree /{p=$2} /^locked/{print p}' | tr '\n' ' '
+}
+
+build locks
+lock_all
+LOCKED_BEFORE=$(locks)
+EXPECTED="keep worktree $WT/agent-d: locked
+keep worktree $WT/agent-c: locked
+keep worktree $WT/agent-b/.claude/worktrees/agent-n: locked
+keep worktree $WT/agent-b: holds worktree $WT/agent-b/.claude/worktrees/agent-n
+keep worktree $WT/agent-a: locked by running pid $$
+keep branch issue-7-feat: worktree $WT/agent-a is kept
+keep branch worktree-agent-b: worktree $WT/agent-b is kept
+keep branch worktree-agent-c: worktree $WT/agent-c is kept
+keep .claude/tmp: 4 locked worktree(s)
+keep scratchpads: 4 locked worktree(s)"
+BEFORE=$(snapshot)
+run --all --scratchpad "$PAD" --dry-run
+check "$RC" "0" "locks, --all dry run: exit 0"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" "locks, --all dry run: every keep as would-keep"
+run --all --scratchpad "$PAD"
+check "$RC" "0" "locks, --all: exit 0, a keep being no failure"
+check "$OUT" "$EXPECTED" "locks, --all: every locked worktree kept whatever its lock, the one around a kept one too"
+check "$(snapshot)" "$BEFORE" "locks, --all: no worktree, branch, scratch or scratchpad is removed"
+check "$(locks)" "$LOCKED_BEFORE" "locks, --all: every lock is still in place"
+check "$(grep -cE 'worktree (unlock|remove)' "$SERVE/git.log")" "0" "locks, --all: no worktree is unlocked or removed"
+untouched_origin "locks, --all"
+
+build stale-locks
+lock_all
+EXPECTED="would-remove worktree $WT/agent-d
+would-remove worktree $WT/agent-c
+would-keep worktree $WT/agent-b/.claude/worktrees/agent-n: locked
+would-keep worktree $WT/agent-b: holds worktree $WT/agent-b/.claude/worktrees/agent-n
+would-keep worktree $WT/agent-a: locked by running pid $$
+would-keep branch issue-7-feat: worktree $WT/agent-a is kept
+would-keep branch worktree-agent-b: worktree $WT/agent-b is kept
+would-delete branch worktree-agent-c
+would-keep .claude/tmp: 2 locked worktree(s)
+would-keep scratchpads: 2 locked worktree(s)"
+run --all --scratchpad "$PAD" --stale-locks --dry-run
+check "$RC" "0" "--stale-locks, --all dry run: exit 0"
+check "$OUT" "$EXPECTED" "--stale-locks, --all dry run: the stale locks' worktrees listed for removal, the rest kept"
+run --stale-locks --all --scratchpad "$PAD"
+check "$RC" "0" "--stale-locks, --all: exit 0"
+check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^would-//')" "--stale-locks, --all: the dry run's items, acted on"
+check "$([ -e "$WT/agent-c" ] || [ -e "$WT/agent-d" ] && echo left)" "" \
+  "--stale-locks, --all: the dead pid's and the reused pid's worktrees are removed"
+check "$(locks)" "$WT/agent-a $WT/agent-b/.claude/worktrees/agent-n " \
+  "--stale-locks, --all: the live lock and the lock of another reason are kept"
+check "$(branches)" "issue-7-feat main other-branch worktree-agent-b " \
+  "--stale-locks, --all: only the removed worktree's branch is deleted"
+check "$(printf '%s ' "$PRIMARY/.claude/tmp/"*)" \
+  "$PRIMARY/.claude/tmp/issue-7 $PRIMARY/.claude/tmp/other-9 $PRIMARY/.claude/tmp/task-17 " \
+  "--stale-locks, --all: .claude/tmp/ is kept while a locked worktree remains"
+check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/scratchpad $SESSIONS/s2/tasks $SESSIONS/s3/scratchpad " \
+  "--stale-locks, --all: the scratchpads are kept while a locked worktree remains"
+
+build stale-only
+git -C "$PRIMARY" worktree lock --reason "claude agent agent-c (pid $DEAD_PID start Mon Jan  1 00:00:00 2001)" "$WT/agent-c"
+run --all --scratchpad "$PAD" --stale-locks
+check "$RC" "0" "--stale-locks, only a stale lock: exit 0"
+check "$(git -C "$PRIMARY" worktree list --porcelain | grep -c '^worktree ')" "1" \
+  "--stale-locks, only a stale lock: only the primary clone remains"
+check "$(ls -A "$PRIMARY/.claude/tmp")" "" "--stale-locks, only a stale lock: all scratch is removed, no locked worktree remaining"
+check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/tasks " \
+  "--stale-locks, only a stale lock: and every other scratchpad"
+
+# --- issue branches under --all ---------------------------------------------
+build issue-branches
+git -C "$PRIMARY" branch -q issue-9-open
+git -C "$PRIMARY" branch -q issue-11-unread
+git -C "$PRIMARY" branch -q issue-7-12-pair
+echo OPEN >"$SERVE/issue-9"
+echo CLOSED >"$SERVE/issue-12"
+run --all --scratchpad "$PAD"
+check "$RC" "0" "issue branches, --all: exit 0"
+check "$(printf '%s\n' "$OUT" | grep ' branch ')" "keep branch issue-11-unread: issue #11 is open
+delete branch issue-7-12-pair
+delete branch issue-7-feat
+keep branch issue-9-open: issue #9 is open
+delete branch worktree-agent-b
+delete branch worktree-agent-c" \
+  "issue branches, --all: all-closed issue branches deleted, open and unreadable ones kept"
+check "$(branches)" "issue-11-unread issue-9-open main other-branch " "issue branches, --all: the kept branches remain"
+check "$(sort "$SERVE/issue-view.args" | tr '\n' ' ')" "11 12 7 9 " "issue branches, --all: each issue is read once"
+
+# --- --pr and the head branch's issues ---------------------------------------
+build pr-open-issue
+echo OPEN >"$SERVE/issue-7"
+git -C "$PRIMARY" branch -q issue-12-other
+echo CLOSED >"$SERVE/issue-12"
+run --pr 7
+check "$RC" "0" "--pr, head branch's issue open: exit 0"
+check_contains "$OUT" "remove worktree $WT/agent-a
+keep branch issue-7-feat: issue #7 is open
+delete branch worktree-agent-b" "--pr, head branch's issue open: the PR's worktree goes, the head branch is kept"
+check "$(branches)" "issue-12-other issue-7-feat main other-branch worktree-agent-c " \
+  "--pr, head branch's issue open: no other issue branch is deleted, closed or not"
+check "$(cat "$SERVE/issue-view.args")" "7" "--pr: only the head branch's issues are read"
+
+# --- --pr and locked worktrees ---------------------------------------------
+build pr-locked-own
+git -C "$PRIMARY" worktree lock --reason "held by hand" "$WT/agent-a"
+run --pr 7 --stale-locks
+check "$RC" "0" "--pr, the PR's worktree locked: exit 0"
+check "$OUT" "remove worktree $WT/agent-b/.claude/worktrees/agent-n
+remove worktree $WT/agent-b
+keep worktree $WT/agent-a: locked
+keep branch issue-7-feat: worktree $WT/agent-a is kept
+delete branch worktree-agent-b
+keep .claude/tmp: 1 locked worktree(s)" \
+  "--pr, the PR's worktree locked: it, its branch and the PR's scratch are kept"
+check "$([ -d "$PRIMARY/.claude/tmp/issue-7" ] && echo kept)" "kept" "--pr, the PR's worktree locked: the PR's scratch is still there"
+
+build pr-locked-other
+git -C "$PRIMARY" worktree lock --reason "claude agent agent-d (pid $DEAD_PID start Mon Jan  1 00:00:00 2001)" "$WT/agent-d"
+run --pr 7 --stale-locks
+check "$RC" "0" "--pr, another worktree locked: exit 0"
+check "$OUT" "remove worktree $WT/agent-b/.claude/worktrees/agent-n
+remove worktree $WT/agent-b
+remove worktree $WT/agent-a
+delete branch issue-7-feat
+delete branch worktree-agent-b
+remove scratch $PRIMARY/.claude/tmp/issue-7" \
+  "--pr, another worktree locked: a locked worktree outside the PR's holds nothing back"
+check "$(locks)" "$WT/agent-d " "--pr, another worktree locked: it is left, lock and all, stale or not"
 
 # --- usage ----------------------------------------------------------------
 build usage
 BEFORE=$(snapshot)
 rm -f "$SERVE/git-default-branch.args"
-for args in "" "--dry-run" "--review-state" "--review-state --dry-run" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr 7 --scratchpad $PAD" \
+for args in "" "--dry-run" "--review-state" "--review-state --dry-run" "--stale-locks" "--pr" "--pr 7 --all --scratchpad $PAD" "--all" "--pr 7 --scratchpad $PAD" \
   "--all --scratchpad $CASE" "--all --scratchpad $SESSIONS/s9/scratchpad" "--pr 7 --bogus"; do
   read -r -a argv <<<"$args"
   run ${argv[@]+"${argv[@]}"}
