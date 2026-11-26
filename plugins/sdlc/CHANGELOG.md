@@ -12,8 +12,9 @@ unreviewed.
   and `docs-writer` declare no memory and copy nothing into the
   session's inbox at the end of a run.
 - `/sdlc:orchestrate` spawns no `agent-memory-scrubber`. Once a PR's
-  documentation loop ends it goes to `pr-merge-readiness`, which runs
-  the gate as soon as an `issue-fixer` rebase returns.
+  documentation loop ends it goes to `pr-merge-readiness`, which spawns
+  none either: where an `issue-fixer` rebase is followed by the gate,
+  nothing runs between the two.
 - The run's reports carry no memory-curation lines.
 - The `agent-memory-scrubber` agent still ships and does what it did
   when you spawn it yourself. No run does.
