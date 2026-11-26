@@ -31,9 +31,9 @@ launcher's own table, so it is the only source for which keys exist,
 which file each goes in, how each merges, and what each defaults to when
 neither tier sets it. Never write a key it does not print.
 
-Read `skills/claude-vm/config-keys.md` for what each key means, which
-values the launcher rejects, how a key whose file is `both` differs
-between the two files, and how the tiers layer.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/claude-vm/config-keys.md` for what
+each key means, which values the launcher rejects, how a key whose file
+is `both` differs between the two files, and how the tiers layer.
 
 ## Write only the overridden keys
 

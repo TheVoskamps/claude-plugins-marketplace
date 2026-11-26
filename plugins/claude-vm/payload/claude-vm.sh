@@ -16,8 +16,8 @@
 # applied at run time lives in a boot file. Scalars: repo overrides global.
 # Lists (egress.allow, mounts): union. A legacy single-file config.yml (either
 # tier) is not read -- see claude_vm_detect_legacy_config below. See
-# payload/lib/config.sh for the layering implementation and
-# skills/claude-vm/SKILL.md for the full config schema.
+# payload/lib/config.sh for the layering implementation and for the config
+# schema, its key table CLAUDE_VM_CONFIG_KEYS.
 #
 # AUTH: the guest authenticates with the HOST's live claude.ai OAuth
 # credential, not a scoped API token. At launch the launcher reads the
@@ -298,8 +298,13 @@ GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$(cla
 # tinyproxy launcher (the chosen forward proxy). It reads the egress
 # allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds $CLAUDE_VM_PROXY_PORT,
 # both exported below. An explicit proxy.cmd in config still overrides it.
-DEFAULT_PROXY_CMD="$SCRIPT_DIR/proxy/tinyproxy-launch.sh"
+# The key table's default is relative to this payload directory, so a config
+# that writes the default verbatim resolves to the same bundled launcher.
+DEFAULT_PROXY_CMD="$SCRIPT_DIR/$(claude_vm_config_key_default proxy.cmd)"
 PROXY_CMD="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
+if [ "$PROXY_CMD" = "$(claude_vm_config_key_default proxy.cmd)" ]; then
+  PROXY_CMD="$DEFAULT_PROXY_CMD"
+fi
 
 # Boot-time apt update flag (issue #106): resolved once here so both the
 # run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
@@ -429,8 +434,9 @@ CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$(claude_vm
 #   fullscreen -> CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
 #   unset/""   -> pass nothing; claude uses its own default
 # Mapped to the matching env var(s) in run.env below. An unrecognized value
-# is rejected up front rather than silently ignored.
-CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED_BOOT" '.claude.renderer' "")"
+# is rejected up front rather than silently ignored. The empty arm below is the
+# key table's empty default, which claude_vm_scalar also returns for `""`.
+CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED_BOOT" '.claude.renderer' "$(claude_vm_config_key_default claude.renderer)")"
 case "$CLAUDE_RENDERER" in
   "" | classic | fullscreen) : ;;
   *)

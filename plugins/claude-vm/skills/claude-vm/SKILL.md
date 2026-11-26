@@ -47,9 +47,10 @@ surface and drives the launcher.
 #    file holds image-bytes keys; a boot file holds run-time keys.
 #    Run /claude-vm-config-global to write the global pair from the
 #    resolved defaults, and /claude-vm-config-repo (from inside a repo)
-#    to write per-repo overrides (both idempotent), or see
-#    payload/config-bake.example.yml + config-boot.example.yml for a
-#    starting point. bin/claude-vm below also offers to create the global
+#    to write per-repo overrides (both idempotent). claude-vm-config-keys
+#    prints each key's file and default; payload/config-bake.example.yml
+#    + config-boot.example.yml show what a populated entry looks like.
+#    bin/claude-vm below also offers to create the global
 #    config for you if it is missing. (A legacy single-file config.yml is
 #    no longer read -- the launcher aborts with a migration message.)
 
@@ -138,8 +139,8 @@ claude-vm-config-keys
 
 It prints one key per line as the tab-separated fields key, file (`bake`,
 `boot` or `both`), type, `list` or `scalar`, and default. Read
-`skills/claude-vm/config-keys.md` for what each key means, how the tiers
-layer, and which values abort the launch.
+`${CLAUDE_PLUGIN_ROOT}/skills/claude-vm/config-keys.md` for what each
+key means, how the tiers layer, and which values abort the launch.
 
 ### Host paths vfkit embeds
 
@@ -517,7 +518,12 @@ Claude Code updates daily, so the guest image does **not** bake in
   apt honours only the lowercase ones. The image's apt sources are
   binary-only (main, updates, security) with no translations or package
   caches, and the phase ends with `apt-get clean`, keeping the per-boot
-  working set near 50 MB. A failed update or install warns on the boot
+  working set near 50 MB. That working set, and anything the session
+  writes, lands in a root filesystem the provisioner sizes to a fixed
+  floor (`ROOT_BASE_FLOOR_MB` in `payload/provisioners/podman-mkosi.sh`)
+  plus `image.root_headroom_mb` of free space. The headroom sizes the
+  image, so raising it after a boot-time install hits ENOSPC rebuilds the
+  image. A failed update or install warns on the boot
   console and the session continues. `add_apt_uris_to_allowlist`'s
   derivation runs after the warm-boot drop of `claude.ai` and
   `downloads.claude.ai`, so it never re-adds a host that step removed.

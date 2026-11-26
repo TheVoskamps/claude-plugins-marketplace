@@ -19,31 +19,16 @@ never does. A repo that ships a `.claude-vm/config-bake.yml` gets its own
 image, named `guest+global<hash>+<reponame>-<repohash>.raw`; a repo
 without one shares `guest+global<hash>.raw`.
 
-A key whose file is `both` means something different in each:
+A key whose file is `both` may sit in either file type and means
+something different in each; its entry below says what each file type
+does with it.
 
-- `packages` in a bake file is baked into the image, present with no
-  boot-time network. In a boot file it is installed at boot, through the
-  proxy, before claude starts, so a package that changes often stays fresh
-  without a rebuild. A failed boot install warns and continues.
-- `apt_sources` in a bake file is rendered into the image at build time;
-  in a boot file it is rendered into the guest's live `/etc/apt` at boot,
-  for a boot-time install, skipping any name already baked.
-- `claude.marketplaces` in a bake file must register during the image
-  build or the build aborts, so its url has to be reachable from the build
-  container. In a boot file it only has to be reachable from the guest: a
-  guest-local path such as `/mnt/repo`, or a private source needing
-  host-only credentials, belongs there, where a build that cannot add it
-  warns and the guest adds it at boot.
-- `env.set` in a bake file is written into the image and persists across
-  every run of it; in a boot file it applies to one launch and is
-  shredded on exit, overriding the bake value for the same name.
-
-The placement of the `claude.plugins` sub-keys, and of `env.copy` and
-`env.files`, is enforced: one written into the file type that never reads
-it aborts the launch, naming the file. That is a presence test, so a
-misplaced sub-key written empty — valueless, `[]`, `""` or `{}` — aborts
-exactly like a populated one. Never write a placeholder sub-key into the
-file it does not belong in.
+Placement is enforced for a `claude.plugins` sub-key whose file is `bake`
+or `boot`, and for an `env` sub-key whose file is `boot`: one written into
+the file type that never reads it aborts the launch, naming the file.
+That is a presence test, so a misplaced sub-key written empty —
+valueless, `[]`, `""` or `{}` — aborts exactly like a populated one.
+Never write a placeholder sub-key into the file it does not belong in.
 
 No config file holds a secret. The host's claude.ai OAuth credential is
 extracted from the macOS Keychain at launch, and a third-party API key
@@ -162,6 +147,10 @@ or a single-file target that exists at all.
 
 ## Packages
 
+- `packages` in a bake file is baked into the image, present with no
+  boot-time network. In a boot file it is installed at boot, through the
+  proxy, before claude starts, so a package that changes often stays fresh
+  without a rebuild. A failed boot install warns and continues.
 - `update_at_boot` runs `apt-get update` and `apt-get upgrade` at boot,
   through the proxy, before claude starts; a failure warns and continues.
 - `add_apt_uris_to_allowlist` decides whether `deb.debian.org`,
@@ -174,8 +163,12 @@ or a single-file target that exists at all.
 - An `apt_sources` entry is `{name, repo, key_url}`: `key_url` is fetched
   into a keyring and `repo`, a raw apt one-line source that may carry its
   own `[options]` block, is added signed by that key. A block that already
-  pins `signed-by=` is kept verbatim. A null or empty `packages` entry is
-  dropped rather than installed as a package named `None`.
+  pins `signed-by=` is kept verbatim. In a bake file the source is
+  rendered into the image at build time; in a boot file it is rendered
+  into the guest's live `/etc/apt` at boot, for a boot-time install,
+  skipping any name already baked.
+- A null or empty `packages` entry is dropped rather than installed as a
+  package named `None`.
 
 ## The claude binary
 
@@ -223,7 +216,12 @@ alone; the host's `~/.claude/settings.json` is never read.
   no name aborts the launch. Prefer an explicit `https://` url: the
   launcher derives the guest's marketplace egress host from it, and an
   `owner/repo` shorthand yields none, so `github.com` must then stay in
-  `egress.allow` by hand.
+  `egress.allow` by hand. In a bake file the marketplace must register
+  during the image build or the build aborts, so its url has to be
+  reachable from the build container. In a boot file it only has to be
+  reachable from the guest: a guest-local path such as `/mnt/repo`, or a
+  private source needing host-only credentials, belongs there, where a
+  build that cannot add it warns and the guest adds it at boot.
 - `claude.plugins.bake` lists `plugin@marketplace` refs installed into the
   image at build time; a failed install fails the build.
 - `claude.plugins.install_at_boot` lists refs the guest installs at boot,
@@ -261,6 +259,9 @@ its value is obtained.
 
 - `env.set` maps a name to an explicit literal. Its values are committed
   config, and in a bake file image bytes too, so it never holds a secret.
+  In a bake file it is written into the image and persists across every
+  run of it; in a boot file it applies to one launch and is shredded on
+  exit, overriding the bake value for the same name.
 - `env.copy` lists names read from the environment claude-vm is launched
   from. The value is never written anywhere: never ask for it, and never
   read one out to echo it back.

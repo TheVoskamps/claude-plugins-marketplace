@@ -29,9 +29,9 @@ launcher's own table, so it is the only source for which keys exist,
 which file each goes in, and what each defaults to. Never write a key it
 does not print.
 
-Read `skills/claude-vm/config-keys.md` for what each key means, which
-values the launcher rejects, and how a key whose file is `both` differs
-between the two files.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/claude-vm/config-keys.md` for what
+each key means, which values the launcher rejects, and how a key whose
+file is `both` differs between the two files.
 
 ## Idempotent — detect and offer, never clobber
 

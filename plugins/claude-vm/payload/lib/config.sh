@@ -12,7 +12,7 @@
 # <repo>/.claude-vm/. A bake file's top-level `packages:` is a flat list
 # baked into the image; a boot file's top-level `packages:` is a flat list
 # installed at boot; each file's `apt_sources:` unions in. Each file type has
-# ONE schema (its example file), read as written -- merging happens WITHIN a
+# ONE schema (the key table's file column), read as written -- merging happens WITHIN a
 # tier (global+repo bake -> MERGED_BAKE; global+repo boot -> MERGED_BOOT),
 # never across tiers. See the "Four-file config" section below.
 #
@@ -121,16 +121,13 @@ claude_vm_detect_legacy_config() {
   [ -n "$legacy" ] && [ -f "$legacy" ] || return 0
   echo "claude-vm: found a legacy single-file $tier config at '$legacy'." >&2
   echo "claude-vm: claude-vm now splits config into TWO files per tier (issue #179):" >&2
-  echo "claude-vm:   $dir/config-bake.yml  -- keys that change the guest IMAGE (packages baked in," >&2
-  echo "claude-vm:                            apt_sources, image.root_headroom_mb)" >&2
-  echo "claude-vm:   $dir/config-boot.yml  -- keys applied at run time (egress, mounts, proxy, cpus," >&2
-  echo "claude-vm:                            mem, packages installed at boot, update_at_boot, claude.*," >&2
-  echo "claude-vm:                            github.*, add_apt_uris_to_allowlist)" >&2
+  echo "claude-vm:   $dir/config-bake.yml  -- keys that change the guest IMAGE" >&2
+  echo "claude-vm:   $dir/config-boot.yml  -- keys applied at run time" >&2
   echo "claude-vm: The single '$legacy' is NOT read anymore -- reading it silently would drop knobs" >&2
   echo "claude-vm: whose bake/boot placement it cannot express. Split it into the pair above, then" >&2
   echo "claude-vm: remove or rename '$legacy'. The /claude-vm-config-global and /claude-vm-config-repo" >&2
-  echo "claude-vm: wizards write the pair for you. See payload/config-bake.example.yml /" >&2
-  echo "claude-vm: config-boot.example.yml for the split." >&2
+  echo "claude-vm: wizards write the pair for you. bin/claude-vm-config-keys prints the file each" >&2
+  echo "claude-vm: key belongs in." >&2
   return 1
 }
 
@@ -148,7 +145,12 @@ claude_vm_detect_legacy_config() {
 #   shape    `list` (merged by union) or `scalar` (repo wins; a map merges
 #            repo-over-global per key)
 #   default  the value the launcher uses when neither tier sets the key, or
-#            empty when there is none
+#            empty when there is none. A scalar written as `""` reads as unset
+#            (claude_vm_scalar), so an enumeration whose default is empty
+#            also accepts the empty value, as unset, beside the values its
+#            type lists -- `claude.renderer` is one. `proxy.cmd`'s default
+#            is a path relative to the payload directory, which claude-vm.sh
+#            resolves
 #
 # Everything that needs the schema derives it from here: the list keys the
 # merge unions and prunes (CLAUDE_VM_LIST_KEYS), the sub-keys the placement
@@ -166,7 +168,7 @@ CLAUDE_VM_CONFIG_KEYS=(
   'guest_image' 'boot' 'path' 'scalar' ''
   'repo.mount' 'boot' 'clone|live' 'scalar' 'clone'
   'repo.copy_back' 'boot' 'local|none' 'scalar' 'local'
-  'proxy.cmd' 'boot' 'string' 'scalar' ''
+  'proxy.cmd' 'boot' 'string' 'scalar' 'proxy/tinyproxy-launch.sh'
   'proxy.port' 'boot' 'int' 'scalar' '3128'
   'proxy.host_alias' 'boot' 'string' 'scalar' '192.168.127.254'
   'egress.allow' 'boot' 'string' 'list' ''
@@ -880,9 +882,8 @@ claude_vm_prune_empty_skeleton() {
 # The key table's file column (CLAUDE_VM_CONFIG_KEYS above) records which file
 # type each key belongs in.
 #
-# Each file type has exactly ONE schema -- the one its example file documents
-# (config-bake.example.yml / config-boot.example.yml) -- and readers read
-# exactly that schema. Merging happens WITHIN a tier, never across tiers:
+# Each file type has exactly ONE schema -- the rows the key table's file column
+# gives it -- and readers read exactly that schema. Merging happens WITHIN a tier, never across tiers:
 #
 #   MERGED_BAKE = merge(global bake, repo bake)   -- bake-schema document
 #   MERGED_BOOT = merge(global boot, repo boot)   -- boot-schema document
