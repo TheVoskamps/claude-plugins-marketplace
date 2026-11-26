@@ -9,7 +9,8 @@
 # The contract is plugins/git-tools/skills/git-range/SKILL.md.
 #
 # The range is one `rev-list` over <prev-head>...<head>, with the merge
-# base standing in for an absent --prev-head, and each of its terms guards a different wrong answer; dropping any one still yields a
+# base standing in for an absent --prev-head, and each of its terms
+# guards a different wrong answer; dropping any one still yields a
 # plausible range:
 #   --right-only     keeps only the head's side of the symmetric
 #                    difference, so a commit only the previous head
