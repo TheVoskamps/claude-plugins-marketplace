@@ -1,5 +1,12 @@
 # cc-tools changelog
 
+## 0.12.2 — 2026-11-26
+
+The README no longer says an orchestration flow drives the session
+inbox's capture and curation steps. No `sdlc` run invokes either any
+more, so the inbox route does something only where your own agents run
+both. No command or skill behaves differently.
+
 ## 0.12.1 — 2026-11-25
 
 The README is a user manual: it no longer carries the rule for what
