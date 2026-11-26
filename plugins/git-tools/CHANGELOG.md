@@ -1,5 +1,15 @@
 # git-tools changelog
 
+## 0.12.2 — 2026-11-25
+
+`git-branch-sync abort` and `continue` now exit 1, naming the failed
+command, when git cannot report where its rebase state lives. They
+exited 6, "no rebase is in progress", which a caller would read as
+nothing left to abort or continue.
+
+The README is now a user manual: it no longer carries the rules for
+changing the plugin, the scripts' internals or the test catalogues.
+
 ## 0.12.1 — 2026-11-23
 
 Internal only: agents no longer read this plugin's READMEs. The rule
