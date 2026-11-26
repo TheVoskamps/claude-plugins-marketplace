@@ -1,5 +1,11 @@
 # github-prs changelog
 
+## 0.11.4 — 2026-11-25
+
+Documentation only: the README is now a user manual covering what each
+skill does, how to invoke it, and what its output and exit statuses
+mean. No skill or script behaves differently.
+
 ## 0.11.3 — 2026-11-22
 
 Posting or updating a body that contains a literal `\u00XX` escape, such
