@@ -17,23 +17,15 @@
 # never across tiers. See the "Four-file config" section below.
 #
 # Layering semantics (from issue #6, extended by issue #103), applied within
-# each tier's merge:
-#   - Scalars (cpus, mem, guest_image, repo.mount, repo.copy_back,
-#     proxy.cmd, proxy.port, proxy.host_alias, update_at_boot,
-#     add_apt_uris_to_allowlist, claude.permission_mode,
-#     claude.plugins.update_at_boot,
-#     claude.plugins.add_marketplace_uris_to_allowlist,
-#     github.auth): repo overrides global; global fills gaps.
-#   - Scalar MAPS (claude.plugins.enabled, env.set): repo-over-global PER KEY
-#     -- each entry follows the scalar repo-wins rule independently, so a repo
-#     can flip one plugin's enabled state, or one environment variable's value,
-#     without restating the global map. See claude_vm_merge_config below.
-#   - Lists (egress.allow, mounts, packages, apt_sources,
-#     claude.permissions.allow/ask/deny, claude.marketplaces,
-#     claude.plugins.bake, claude.plugins.install_at_boot, env.copy, env.files
-#     -- see CLAUDE_VM_LIST_KEYS below): MERGED -- union of global + repo
-#     entries (de-duplicated, order: global entries first, then repo entries
-#     not already present).
+# each tier's merge, per the shape column of the key table
+# (CLAUDE_VM_CONFIG_KEYS below):
+#   - Scalars: repo overrides global; global fills gaps.
+#   - Scalar MAPS (a `map(...)` type): repo-over-global PER KEY -- each entry
+#     follows the scalar repo-wins rule independently, so a repo can flip one
+#     plugin's enabled state, or one environment variable's value, without
+#     restating the global map. See claude_vm_merge_config below.
+#   - Lists: MERGED -- union of global + repo entries (de-duplicated, order:
+#     global entries first, then repo entries not already present).
 #
 # All four files are OPTIONAL. A missing file is treated as `{}` (empty
 # document), so any combination resolves cleanly.
@@ -142,29 +134,129 @@ claude_vm_detect_legacy_config() {
   return 1
 }
 
-# Hardcoded fallbacks for scalars the user did not set in EITHER layer.
-# These mirror the reference launcher's env-var defaults.
-CLAUDE_VM_DEFAULT_CPUS=4
-CLAUDE_VM_DEFAULT_MEM=8192
-CLAUDE_VM_DEFAULT_REPO_MOUNT=clone
-CLAUDE_VM_DEFAULT_REPO_COPY_BACK=local
-CLAUDE_VM_DEFAULT_PROXY_PORT=3128
-CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS=192.168.127.254
-# claude.version: which claude binary the host-side verified cache fetches
-# (stable|latest|<pinned>). `stable` is the conservative default. Consumed
-# by lib/claude-cache.sh; defined here so all scalar defaults live together.
-CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
+# ---------------------------------------------------------------------
+# THE KEY TABLE: the config schema's one authority.
+#
+# One row per key, five consecutive elements:
+#
+#   key      the dotted path from the document root (`claude.plugins.bake`)
+#   file     `bake`, `boot` or `both` -- which config file type may carry it
+#   type     the value's type: `int`, `bool`, `string`, `path`, the allowed
+#            values joined by `|` for an enumeration, `map(<type>)` for a map
+#            of name -> value, or for a list the type of one entry (`mount`,
+#            `apt_source` and `marketplace` are the mapping-entry shapes)
+#   shape    `list` (merged by union) or `scalar` (repo wins; a map merges
+#            repo-over-global per key)
+#   default  the value the launcher uses when neither tier sets the key, or
+#            empty when there is none
+#
+# Everything that needs the schema derives it from here: the list keys the
+# merge unions and prunes (CLAUDE_VM_LIST_KEYS), the sub-keys the placement
+# gates hunt in the wrong file type (CLAUDE_VM_PLUGIN_*_ONLY_KEYS,
+# CLAUDE_VM_ENV_BOOT_ONLY_KEYS), the CLAUDE_VM_DEFAULT_* fallbacks, and
+# bin/claude-vm-config-keys, which prints the table for the config wizards.
+# A new key joins all of them by gaining a row here.
+#
+# Fixed-arity elements rather than one delimited string per row, so reading a
+# row needs no split at all -- see "TSV RECORDS" below for what splitting a
+# tab-joined record with `read` costs.
+CLAUDE_VM_CONFIG_KEYS=(
+  'cpus'                     'boot' 'int'                        'scalar' '4'
+  'mem'                      'boot' 'int'                        'scalar' '8192'
+  'guest_image'              'boot' 'path'                       'scalar' ''
+  'repo.mount'               'boot' 'clone|live'                 'scalar' 'clone'
+  'repo.copy_back'           'boot' 'local|none'                 'scalar' 'local'
+  'proxy.cmd'                'boot' 'string'                     'scalar' ''
+  'proxy.port'               'boot' 'int'                        'scalar' '3128'
+  'proxy.host_alias'         'boot' 'string'                     'scalar' '192.168.127.254'
+  'egress.allow'             'boot' 'string'                     'list'   ''
+  'mounts'                   'boot' 'mount'                      'list'   ''
+  'packages'                 'both' 'string'                     'list'   ''
+  'apt_sources'              'both' 'apt_source'                 'list'   ''
+  'update_at_boot'           'boot' 'bool'                       'scalar' 'true'
+  'add_apt_uris_to_allowlist' 'boot' 'auto|always'               'scalar' 'auto'
+  'image.root_headroom_mb'   'bake' 'int'                        'scalar' '1024'
+  'claude.version'           'boot' 'string'                     'scalar' 'stable'
+  'claude.signing_key_fingerprint' 'boot' 'string'               'scalar' ''
+  'claude.renderer'          'boot' 'classic|fullscreen'         'scalar' ''
+  'claude.remote_control'    'boot' 'bool'                       'scalar' 'false'
+  'claude.permission_mode'   'boot' 'bypassPermissions|default'  'scalar' 'bypassPermissions'
+  'claude.permissions.allow' 'boot' 'string'                     'list'   ''
+  'claude.permissions.ask'   'boot' 'string'                     'list'   ''
+  'claude.permissions.deny'  'boot' 'string'                     'list'   ''
+  'claude.marketplaces'      'both' 'marketplace'                'list'   ''
+  'claude.plugins.bake'      'bake' 'string'                     'list'   ''
+  'claude.plugins.install_at_boot' 'boot' 'string'               'list'   ''
+  'claude.plugins.update_at_boot'  'boot' 'bool'                 'scalar' 'true'
+  'claude.plugins.add_marketplace_uris_to_allowlist' 'boot' 'auto|always' 'scalar' 'auto'
+  'claude.plugins.enabled'   'boot' 'map(bool)'                  'scalar' ''
+  'github.auth'              'boot' 'none|host-token'            'scalar' 'none'
+  'env.set'                  'both' 'map(string)'                'scalar' ''
+  'env.copy'                 'boot' 'string'                     'list'   ''
+  'env.files'                'boot' 'path'                       'list'   ''
+)
 
-# Guest-capability schema defaults (issue #103): packages, Claude
-# permissions/marketplaces/plugins, and GitHub auth. See
-# payload/config-bake.example.yml, payload/config-boot.example.yml, and
-# skills/claude-vm/SKILL.md for the full annotated schema and semantics.
-CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT=true
-CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST=auto
-CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE=bypassPermissions
-CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
-CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
-CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
+# claude_vm_config_keys -- print the key table, one key per line, as the
+# tab-separated fields key, file, type, shape, default.
+claude_vm_config_keys() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}"
+  while [ "$i" -lt "$n" ]; do
+    printf '%s\t%s\t%s\t%s\t%s\n' "${CLAUDE_VM_CONFIG_KEYS[$i]}" \
+      "${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}" "${CLAUDE_VM_CONFIG_KEYS[$((i + 2))]}" \
+      "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}" "${CLAUDE_VM_CONFIG_KEYS[$((i + 4))]}"
+    i=$((i + 5))
+  done
+}
+
+# claude_vm_config_key_default <key> -- print <key>'s default from the key
+# table, or nothing when the key has none or is not in the table.
+claude_vm_config_key_default() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}"
+  while [ "$i" -lt "$n" ]; do
+    if [ "${CLAUDE_VM_CONFIG_KEYS[$i]}" = "$1" ]; then
+      printf '%s\n' "${CLAUDE_VM_CONFIG_KEYS[$((i + 4))]}"
+      return 0
+    fi
+    i=$((i + 5))
+  done
+}
+
+# claude_vm_config_subkeys <parent> <file> -- print the last path component of
+# every key directly under <parent> whose file column is exactly <file>, one
+# per line, in table order. `claude_vm_config_subkeys claude.plugins boot`
+# prints the claude.plugins sub-keys only a boot file may carry.
+claude_vm_config_subkeys() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key sub
+  while [ "$i" -lt "$n" ]; do
+    key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
+    case "$key" in
+      "$1".*)
+        sub="${key#"$1".}"
+        case "$sub" in
+          *.*) : ;;
+          *) if [ "${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}" = "$2" ]; then printf '%s\n' "$sub"; fi ;;
+        esac
+        ;;
+    esac
+    i=$((i + 5))
+  done
+}
+
+# The fallbacks for scalars the operator set in NEITHER tier, read off the key
+# table. claude.version is consumed by lib/claude-cache.sh.
+CLAUDE_VM_DEFAULT_CPUS="$(claude_vm_config_key_default cpus)"
+CLAUDE_VM_DEFAULT_MEM="$(claude_vm_config_key_default mem)"
+CLAUDE_VM_DEFAULT_REPO_MOUNT="$(claude_vm_config_key_default repo.mount)"
+CLAUDE_VM_DEFAULT_REPO_COPY_BACK="$(claude_vm_config_key_default repo.copy_back)"
+CLAUDE_VM_DEFAULT_PROXY_PORT="$(claude_vm_config_key_default proxy.port)"
+CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS="$(claude_vm_config_key_default proxy.host_alias)"
+CLAUDE_VM_DEFAULT_CLAUDE_VERSION="$(claude_vm_config_key_default claude.version)"
+CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT="$(claude_vm_config_key_default update_at_boot)"
+CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST="$(claude_vm_config_key_default add_apt_uris_to_allowlist)"
+CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE="$(claude_vm_config_key_default claude.permission_mode)"
+CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT="$(claude_vm_config_key_default claude.plugins.update_at_boot)"
+CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST="$(claude_vm_config_key_default claude.plugins.add_marketplace_uris_to_allowlist)"
+CLAUDE_VM_DEFAULT_GITHUB_AUTH="$(claude_vm_config_key_default github.auth)"
 
 # Extra-mount defaults + reserved names (issue #157).
 #
@@ -269,7 +361,8 @@ CLAUDE_VM_GUEST_SYSTEM_PATHS="/bin /boot /dev /etc /home /lib /lib32 /lib64 /lib
 # same rule.
 CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 
-# image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
+# image.root_headroom_mb's default, from the key table (issue #106 real-run
+# fix). The headroom is the extra MiB the guest root
 # partition is sized ABOVE the measured/estimated base image content, so a
 # live session has room to grow without hitting ENOSPC. A real guest boot hit
 # ENOSPC twice in one short session on the previously auto-sized (~991 MB)
@@ -283,7 +376,7 @@ CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 # session (update_at_boot: true, the default) should not hit ENOSPC. Chosen
 # to be generous rather than tight: the human's directive is that claude-vm
 # must WORK out of the box, and disk is cheap relative to a bricked session.
-CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB=1024
+CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB="$(claude_vm_config_key_default image.root_headroom_mb)"
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
 # Homebrew formula at <prefix>/libexec/podman/gvproxy and is NOT placed
@@ -622,25 +715,20 @@ claude_vm_stop_podman_machine() {
 }
 
 # The full set of list keys that UNION (global ++ repo, de-duplicated)
-# rather than following scalar repo-wins semantics. Each entry is a yq
-# path expression rooted at the document. Nested paths (e.g.
-# `.claude.permissions.allow`) are supported -- the splice step (below)
-# assigns back through the same path expression, so arbitrary nesting
-# depth works, not just top-level keys.
-CLAUDE_VM_LIST_KEYS=(
-  '.egress.allow'
-  '.mounts'
-  '.packages'
-  '.apt_sources'
-  '.claude.permissions.allow'
-  '.claude.permissions.ask'
-  '.claude.permissions.deny'
-  '.claude.marketplaces'
-  '.claude.plugins.bake'
-  '.claude.plugins.install_at_boot'
-  '.env.copy'
-  '.env.files'
-)
+# rather than following scalar repo-wins semantics: every key-table row whose
+# shape is `list`, in table order. Each entry is a yq path expression rooted at
+# the document. Nested paths (e.g. `.claude.permissions.allow`) are supported
+# -- the splice step (below) assigns back through the same path expression, so
+# arbitrary nesting depth works, not just top-level keys.
+CLAUDE_VM_LIST_KEYS=()
+_claude_vm_i=0
+while [ "$_claude_vm_i" -lt "${#CLAUDE_VM_CONFIG_KEYS[@]}" ]; do
+  if [ "${CLAUDE_VM_CONFIG_KEYS[$((_claude_vm_i + 3))]}" = list ]; then
+    CLAUDE_VM_LIST_KEYS+=(".${CLAUDE_VM_CONFIG_KEYS[$_claude_vm_i]}")
+  fi
+  _claude_vm_i=$((_claude_vm_i + 5))
+done
+unset _claude_vm_i
 
 # Merge two YAML files into one document on stdout.
 #   $1 -- global config path (may be absent)
@@ -782,9 +870,8 @@ claude_vm_prune_empty_skeleton() {
 # The CONTAINING FILE carries the bake/boot semantics: a bake file's top-level
 # `packages:` is the flat list of package names BAKED into the image; a boot
 # file's top-level `packages:` is the flat list installed AT BOOT.
-# `apt_sources:` is allowed in BOTH file types. image.root_headroom_mb is a
-# BAKE key; egress / update_at_boot / add_apt_uris_to_allowlist / mounts /
-# proxy / cpus / mem / claude.* / github.* are BOOT keys.
+# The key table's file column (CLAUDE_VM_CONFIG_KEYS above) records which file
+# type each key belongs in.
 #
 # Each file type has exactly ONE schema -- the one its example file documents
 # (config-bake.example.yml / config-boot.example.yml) -- and readers read
@@ -1962,27 +2049,16 @@ claude_vm_marketplaces() {
 # so it still speaks of "extending the #105 bake-hash with marketplace/plugin
 # refs". Under #179 that extension is not a new hash input at all -- PLACEMENT
 # is the classification, and the image identity is already a whole-file
-# raw-byte hash of the BAKE files. So the keys land like this, mirroring the
-# `packages:` / `apt_sources:` precedent exactly:
-#
-#   claude.plugins.bake              -> BAKE file ONLY. It changes image bytes
-#                                       (plugins are installed into the image's
-#                                       /root/.claude/plugins), so the
-#                                       whole-file bake hash covers it for
-#                                       free: edit it and the image rebuilds.
-#   claude.plugins.install_at_boot   -> BOOT file ONLY (run-time install).
-#   claude.plugins.update_at_boot    -> BOOT file ONLY (run-time freshness).
-#   claude.plugins.add_marketplace_uris_to_allowlist
-#                                    -> BOOT file ONLY (run-time egress).
-#   claude.plugins.enabled           -> BOOT file ONLY (settings.json toggle;
-#                                       no reinstall, so no image change).
-#   claude.marketplaces              -> BOTH files, unioned + deduped by name,
-#                                       exactly like apt_sources. A marketplace
-#                                       is needed at BAKE time (to install the
-#                                       bake set) AND at BOOT time (to install
-#                                       install_at_boot and to update), and a
-#                                       boot-only marketplace must not force an
-#                                       image rebuild.
+# raw-byte hash of the BAKE files. The key table's file column places each
+# key, mirroring the `packages:` / `apt_sources:` precedent, for these reasons:
+# `claude.plugins.bake` changes image bytes (plugins are installed into the
+# image's /root/.claude/plugins), so the whole-file bake hash covers it for
+# free; the other `claude.plugins` sub-keys act at run time (install,
+# freshness, egress, and the settings.json toggle, which needs no reinstall);
+# and `claude.marketplaces` is needed at BAKE time (to install the bake set)
+# AND at BOOT time (to install install_at_boot and to update), and a boot-only
+# marketplace must not force an image rebuild, so it is allowed in both and
+# unioned + deduped by name, exactly like apt_sources.
 #
 # A key in the WRONG file would otherwise parse fine and never be read -- the
 # exact silent no-op #179 set out to make impossible. `claude.plugins` is the
@@ -1992,18 +2068,18 @@ claude_vm_marketplaces() {
 # LOUD abort rather than a silent drop.
 
 # The claude.plugins sub-keys that belong in the BAKE file, and those that
-# belong in the BOOT file. Used by claude_vm_check_plugin_key_placement to
-# reject a misplaced key. Kept as data so a future key joins the guard by
-# being listed once.
-CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS=(
-  'bake'
-)
-CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=(
-  'install_at_boot'
-  'update_at_boot'
-  'add_marketplace_uris_to_allowlist'
-  'enabled'
-)
+# belong in the BOOT file, read off the key table's file column. Used by
+# claude_vm_check_plugin_key_placement to reject a misplaced key, so a future
+# sub-key joins the guard by gaining its table row.
+CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS=()
+while IFS= read -r _claude_vm_k; do
+  if [ -n "$_claude_vm_k" ]; then CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS+=("$_claude_vm_k"); fi
+done < <(claude_vm_config_subkeys claude.plugins bake)
+CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=()
+while IFS= read -r _claude_vm_k; do
+  if [ -n "$_claude_vm_k" ]; then CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS+=("$_claude_vm_k"); fi
+done < <(claude_vm_config_subkeys claude.plugins boot)
+unset _claude_vm_k
 
 # Does a RAW config file carry the claude.plugins sub-key $2? Returns 0 when it
 # does. A PRESENCE test (`has`), not a value test, and asked of the file the
@@ -2118,12 +2194,14 @@ claude_vm_check_plugin_key_placement() {
 # *A guard must survive the oldest bash that can reach it*; these run as
 # config-load guards.
 
-# The sub-keys of `env:` that a BAKE file may not carry. Data, so a future
-# host-sourced sub-key joins the gate by being listed once.
-CLAUDE_VM_ENV_BOOT_ONLY_KEYS=(
-  'copy'
-  'files'
-)
+# The sub-keys of `env:` that a BAKE file may not carry, read off the key
+# table's file column, so a future host-sourced sub-key joins the gate by
+# gaining its table row.
+CLAUDE_VM_ENV_BOOT_ONLY_KEYS=()
+while IFS= read -r _claude_vm_k; do
+  if [ -n "$_claude_vm_k" ]; then CLAUDE_VM_ENV_BOOT_ONLY_KEYS+=("$_claude_vm_k"); fi
+done < <(claude_vm_config_subkeys env boot)
+unset _claude_vm_k
 
 # The environment variables the LAUNCHER itself composes -- every name written
 # into run.env (claude-vm.sh) plus the one the boot launcher exports on its
