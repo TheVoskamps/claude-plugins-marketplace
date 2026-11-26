@@ -50,9 +50,9 @@
 # Both halves run on one filesystem, where a copied LINK still resolves, so
 # every content assertion stays green when `cp -RL` loses its `-L`. What moves
 # is the SHAPE of the staged entry, so the suite asserts claude-home/rules and
-# claude-home/skills are real directories. The `cp -RL` and `cp -R <src>/.`
-# spellings, and the failure arms, were negative-controlled by mutating each to
-# its unsafe form and seeing a behavioral assertion go red.
+# claude-home/skills are real directories. Mutating the `cp -RL` or
+# `cp -R <src>/.` spelling, or a failure arm, to its unsafe form turns a
+# behavioral assertion red.
 #
 # What this cannot reach is the step running in the real emitted launcher off
 # a real virtio-fs share; host-acceptance.sh criterion (b4) covers that.

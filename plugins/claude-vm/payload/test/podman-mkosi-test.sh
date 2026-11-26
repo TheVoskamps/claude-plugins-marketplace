@@ -42,7 +42,7 @@
 # network) -- that requires a real podman machine and is host-acceptance.sh's
 # territory.
 #
-# Since issue #107 they also cover the plugin bake step: the generated
+# They also cover the plugin bake step (issue #107): the generated
 # in-container script stages bake-plugins.json and the verified guest-claude
 # binary, drives `claude plugin marketplace add` / `claude plugin install`
 # under HOME=/root, copies only /root/.claude/plugins into the image, and a
