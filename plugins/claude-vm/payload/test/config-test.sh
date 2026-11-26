@@ -359,11 +359,10 @@ assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
   "1" "$PLUGIN_INSTALL_COUNT"
 
 # ---------------------------------------------------------------------
-# Test 3d: claude_vm_scalar -- explicit `false` survives (issue #103
-# review finding). An explicit YAML `false` must round-trip as "false",
-# not be replaced by the caller's fallback. Cover all four presence
-# states: explicit false, explicit true, genuinely absent, and explicit
-# null.
+# Test 3d: claude_vm_scalar -- explicit `false` survives. An explicit YAML
+# `false` must round-trip as "false", not be replaced by the caller's
+# fallback. Cover all four presence states: explicit false, explicit true,
+# genuinely absent, and explicit null.
 # ---------------------------------------------------------------------
 BOOL_YML="$WORK/bool-scalar.yml"
 cat >"$BOOL_YML" <<'YML'
@@ -5042,6 +5041,9 @@ uab_case "a valueless claude.plugins.update_at_boot in a repo config passes" pas
 # permission_mode guard, so a renderer case that passes its guard reaches the
 # uab-backstop diagnostic.
 # ---------------------------------------------------------------------
+
+# enum_case <label> <expected> <diagnostic> <repo-boot-yaml> -- write the repo
+# boot file, run the launcher with no global boot file, and assert the verdict.
 enum_case() {
   local label="$1" expected="$2" diag="$3" got
   rm -f "$UAB/r.yml"
