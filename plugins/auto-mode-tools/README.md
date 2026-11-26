@@ -117,27 +117,48 @@ The test does not run `claude auto-mode critique`. What it pins is the
 sink's own contract; that the real CLI drives it end to end was
 established by running the real command against the real sink.
 
+## The live settings file
+
+The file both skills read and write is `settings.json` in Claude Code's
+config directory, `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`: the directory
+`CLAUDE_CONFIG_DIR` names, or `~/.claude` when the variable is unset or
+empty. A session started under another config directory is enforcing
+that directory's `settings.json`, so that is the file to tune; a fixed
+`~/.claude/settings.json` would rewrite a file the session never read.
+
+Each skill resolves the path once, before any command of its own sets
+`CLAUDE_CONFIG_DIR` to a scratch directory. The order matters because
+the scratch directory below is selected through the same variable: a
+lookup made after that point would find the scratch copy and call it
+live.
+
+The path is resolved through symlinks, so when `settings.json` is a
+link — into a dotfiles repository, say — the read, the backup and the
+final write all act on the link's target, and the link stays a link.
+A write that replaced the link with a regular file would detach the
+config directory from the file it pointed at, with nothing to report
+it.
+
 ## Isolation: every round runs in a scratch config dir
 
-`CLAUDE_CONFIG_DIR` makes `claude` read `settings.json` from a
-directory other than `~/.claude`. This is verified: with a
-`settings.json` in `$D` carrying a sentinel `autoMode.environment`
-entry, `CLAUDE_CONFIG_DIR=$D claude auto-mode config` prints the
-sentinel and exits 0.
+`CLAUDE_CONFIG_DIR` makes `claude` read `settings.json` from the
+directory it names. This is verified: with a `settings.json` in `$D`
+carrying a sentinel `autoMode.environment` entry,
+`CLAUDE_CONFIG_DIR=$D claude auto-mode config` prints the sentinel and
+exits 0.
 
-`/tune-auto-mode` therefore copies `~/.claude/settings.json` into a
+`/tune-auto-mode` therefore copies the live `settings.json` into a
 scratch config directory and runs every capture and every round against
 that copy. Accepted edits are applied to the copy, not to the live
-file. The live `~/.claude/settings.json` is the permission
-configuration the running session is enforcing; editing it between
-rounds would have the loop rewrite its own enforcement while running,
-and a bad intermediate round would degrade the very session doing the
-work.
+file. The live file is the permission configuration the running session
+is enforcing; editing it between rounds would have the loop rewrite its
+own enforcement while running, and a bad intermediate round would
+degrade the very session doing the work.
 
 The live file is written only at the end, after the human approves, and
-only after a timestamped backup of the existing
-`~/.claude/settings.json` is taken and the candidate file passes
-`claude auto-mode config` against the scratch directory without error.
+only after a timestamped backup of it is taken and the candidate file
+passes `claude auto-mode config` against the scratch directory without
+error.
 
 `/personalize-auto-mode` writes the same file, so it carries the same
 protections in the same order.
@@ -198,7 +219,7 @@ ledger's is.
 
 `/tune-auto-mode` writes it as the last step of writing the live file,
 reading the previous `revision` back to increment it. A run that leaves
-`~/.claude/settings.json` untouched writes no provenance, because a
+the live `settings.json` untouched writes no provenance, because a
 revision that names no write names a block nobody has.
 
 A record therefore names the block **this tuner last wrote**, not
