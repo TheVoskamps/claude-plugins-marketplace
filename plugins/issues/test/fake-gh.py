@@ -6,7 +6,8 @@ operations the issue-verb scripts use.
 Every invocation is appended to $FAKE_GH_LOG as one JSON argv array, so a
 test can assert which calls were made, or that none was. With
 $FAKE_GH_DROP_WRITES=1 every write reports success and changes nothing, which
-is how a test drives a script's re-read check. `issue create` is the one
+is how a test drives a script's re-read check: it is the negative control, and
+every write path must exit non-zero under it. `issue create` is the one
 exception: the issue itself is still created, without its labels or
 assignees, so a script can reach the writes that follow it.
 
@@ -39,8 +40,12 @@ answer succeed with that text as its whole response instead.
 Each repo lives on a host, its "host" key, github.com when absent. As gh
 does, a call reaches the host its `--hostname` (for `gh api`) or a
 host/owner/repo `--repo` (for `gh issue`) names, and github.com when it names
-none; a repo or node looked up on another host than its own does not
-resolve.
+none; a repo, node or comment looked up on another host than its own does not
+resolve, so a script that drops the host fails the verb itself rather than
+only a call-log check.
+
+The issues-discover lookups, board reads and the closing pull requests each
+keep further state, described where that state is read.
 """
 import base64
 import json

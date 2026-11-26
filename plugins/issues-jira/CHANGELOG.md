@@ -1,5 +1,11 @@
 # issues-jira changelog
 
+## 0.3.2 — 2026-11-25
+
+The README stands on its own: it says what happens when the `acli`
+session is missing or expired, and which verbs Jira does not cover,
+instead of sending you to other files. Behavior is unchanged.
+
 ## 0.3.1 — 2026-09-27
 
 The plugin no longer declares a dependency on `issues`, because it

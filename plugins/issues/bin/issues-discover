@@ -4,6 +4,17 @@
 # the repository's native issue fields and issue types, and the authenticated
 # user. Each subcommand prints JSON on stdout. Reads no repo-config, since
 # /repo-config runs it before one exists.
+#
+# These lookups are a script rather than commands an interview has the model
+# run, because a gh command the model spells names no host and lands on gh's
+# default host, not the one the checkout's origin is on; this script resolves
+# the host from the checkout as every verb does.
+#
+# Each list is filtered to what a slot can be backed by -- number and
+# single-select board fields, single-select native fields, enabled types -- so
+# the skill reads the result as it stands, and every paged connection is read
+# to its end. Board lookups go through repositoryOwner, so one query serves an
+# organization and a user.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
@@ -11,10 +22,10 @@ set -uo pipefail
 usage="usage: issues-discover projects | project <number> | fields <number> | issue-fields | issue-types | viewer"
 
 case "${1:-}" in
-  projects|issue-fields|issue-types|viewer)
+  projects | issue-fields | issue-types | viewer)
     [ "$#" -eq 1 ] || iss_usage_die "$usage"
     ;;
-  project|fields)
+  project | fields)
     { [ "$#" -eq 2 ] && iss_is_digits "$2"; } || iss_usage_die "$usage"
     ;;
   *)
@@ -24,7 +35,7 @@ esac
 
 # The scope a subcommand's query needs, named when the token lacks one and
 # gh's error does not say which.
-case "$1" in projects|project|fields) scope=read:project ;; *) scope=repo ;; esac
+case "$1" in projects | project | fields) scope=read:project ;; *) scope=repo ;; esac
 
 iss_require_tools
 iss_current_repo
@@ -43,7 +54,7 @@ disc_fail() {
   local listed="following scopes: \[[\"']([^\"']*)[\"']" missing='missing required scopes? \[([^], ]*)'
   err="$ISS_GQL_ERR $ISS_GQL_OUT"
   case "$err" in
-    *INSUFFICIENT_SCOPES*|*"required scopes"*|*"missing required scope"*)
+    *INSUFFICIENT_SCOPES* | *"required scopes"* | *"missing required scope"*)
       if [[ $err =~ $listed ]] || [[ $err =~ $missing ]]; then
         needed=${BASH_REMATCH[1]:-$scope}
       fi
@@ -70,7 +81,10 @@ disc_nodes() {
     fi
     conn=$(printf '%s' "$ISS_GQL_OUT" | jq -c "$path")
     if [ "$conn" = null ]; then
-      [ -n "$cursor" ] || { DISC_NODES=null; return 0; }
+      [ -n "$cursor" ] || {
+        DISC_NODES=null
+        return 0
+      }
       iss_die "the next page of \`$path\` came back empty"
     fi
     DISC_NODES=$(jq -cn --argjson a "$DISC_NODES" --argjson c "$conn" '$a + $c.nodes')
@@ -104,7 +118,7 @@ case "$1" in
     if ! disc_nodes "$(iss_doc_discover_issue_fields)" .data.repository.issueFields \
       -f owner="$ISS_OWNER" -f repo="$ISS_REPO"; then
       case "$ISS_GQL_ERR $ISS_GQL_OUT" in
-        *issueFields*"doesn't exist"*|*undefinedField*|*IssueField*"No such type"*|*"No such type"*IssueField*|*undefinedType*)
+        *issueFields*"doesn't exist"* | *undefinedField* | *IssueField*"No such type"* | *"No such type"*IssueField* | *undefinedType*)
           printf "%s: \`issueFields\` is not in the schema on \`%s\`, so there are no native issue fields\n" \
             "$ISS_PROGRAM" "$ISS_HOST" >&2
           printf '[]\n'

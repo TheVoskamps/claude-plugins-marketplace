@@ -431,7 +431,9 @@ iss_config_frontmatter() {
 # other could turn a reference issue-create refuses under the default prefix
 # into a valid one, and issue-create checks a --parent reference under that
 # default before its first gh call, since a target repo's prefix takes a gh
-# read.
+# read. That early check is sound only while no prefix can make a refused
+# reference valid, so the charset holds for every repo-config read, the local
+# one and a target's alike. Widening it means moving that check after the read.
 iss_valid_link_prefix() {
   case "$1" in
     '#' | '') return 0 ;;
@@ -1054,8 +1056,11 @@ iss_ref_nwo() {
 # ---------------------------------------------------------------------------
 # The gh api wrappers, the only place this plugin calls `gh api`. Each takes
 # the host of the repository the call acts on first and passes it as
-# --hostname; an empty host leaves the call on gh's default host. Among them,
-# iss_issue_body reads an issue body through curl instead of `gh api`.
+# --hostname; an empty host leaves the call on gh's default host. The host
+# travels per call rather than as an exported GH_HOST, because one session
+# works across several hosts and an environment variable would pick one for
+# all of them. Among them, iss_issue_body reads an issue body through curl
+# instead of `gh api`.
 # ---------------------------------------------------------------------------
 
 # iss_rest <host> <gh api args...>: a REST call, stdout and stderr passed

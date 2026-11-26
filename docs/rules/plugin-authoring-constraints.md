@@ -1,9 +1,9 @@
 # Plugin authoring constraints (verified)
 
 **Who reads this and when:** any agent adding a plugin, adding a file
-one plugin expects another to reach, or changing what a plugin's README
-rosters. Read it before designing the change, not after the sandbox
-refuses the read.
+one plugin expects another to reach, moving a path other plugins spell,
+or changing what a plugin's README rosters. Read it before designing the
+change, not after the sandbox refuses the read.
 
 Durable, doc-verified facts about how the Claude Code plugin system
 behaves, plus the patterns this marketplace uses to work within them.
@@ -144,6 +144,25 @@ them in step is a grep over the literal. That grep is not the sweep
 rule "Where a newly demonstrated fact belongs" forbids below: there
 the arms differ per consumer by design, here every copy is one string
 and any difference is a defect.
+
+So a PR that moves or renames a config path the `issues` plugin owns
+edits every plugin that spells it, in one PR, and bumps each of their
+versions. Find them by grepping the literal, not by opening the plugins
+the diff already touched. Key the grep on the path's last component,
+never on its directory prefix, which each consumer spells its own way —
+`.issues/`, `$XDG_CONFIG_HOME/issues/`,
+`${XDG_CONFIG_HOME:-$HOME/.config}/issues/`, a test's
+`$CASE_DIR/xdg/issues`. Every spelling ends in a config file's
+name or in the directory `issues` or `.issues` ending the path:
+
+```bash
+grep -rnE '(repo|user)-config\.md' plugins/
+grep -rnE "[./]issues/?([\"'\`[:space:]]|\$)" plugins/
+```
+
+The second grep also prints a few `issues` that are no config path, such
+as a `gh api repos/o/r/issues` call; read past them rather than
+narrowing the pattern back onto a prefix.
 
 ### Sharing an interface across an agent set: one preloaded skill
 

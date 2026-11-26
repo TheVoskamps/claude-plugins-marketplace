@@ -8,7 +8,11 @@
 #
 # The accepted forms are those the github-prs PR-reference parser accepts --
 # N, #N, repo#N, owner/repo#N, host/owner/repo#N and a URL -- except that the
-# URL carries an issues segment; a pull segment is refused.
+# URL carries an issues segment; a pull segment is refused. So a reference
+# copied between the two plugins' verbs parses to the same host, owner,
+# repository and number. Each form a verb prints is round-tripped under each
+# kind of issue-link-prefix -- `#`, empty, and a name -- because the prefix
+# decides which printed form parses back to the issue it was printed for.
 #
 # Usage: issues-reference-test.sh    (exit 0 when every case passes)
 
