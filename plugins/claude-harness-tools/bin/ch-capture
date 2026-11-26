@@ -129,8 +129,8 @@ fi
 UPSTREAM="${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
 CAPTURE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/claude-harness-tools/captures"
 STAMP="$(python3 -c 'import datetime; n = datetime.datetime.now(datetime.timezone.utc); print(n.strftime("%Y%m%dT%H%M%S.") + "%03dZ" % (n.microsecond // 1000))')"
-SLUG="$(printf '%s' "$SESSION_NAME" | tr '[:upper:]' '[:lower:]' \
-  | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//')"
+SLUG="$(printf '%s' "$SESSION_NAME" | tr '[:upper:]' '[:lower:]' |
+  sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//')"
 SESSION_DIR="$CAPTURE_ROOT/$STAMP-$SLUG"
 mkdir -p "$CAPTURE_ROOT"
 mkdir "$SESSION_DIR"
@@ -143,18 +143,20 @@ PORT_FILE="$(mktemp "${TMPDIR:-/tmp}/ch-capture.XXXXXX")"
 
 # The one and only trap: a second `trap` on any of these signals would
 # replace this handler rather than add to it, so every teardown step lives
-# in this one string. It runs once, disarming itself first, and exits with
-# the status in force when it fired, so claude's own exit status is the
-# launcher's.
-TEARDOWN='CH_CAPTURE_RC=$?
-trap - EXIT INT TERM
-if [ -n "$PROXY_PID" ]; then
-  kill "$PROXY_PID" 2>/dev/null || true
-  wait "$PROXY_PID" 2>/dev/null || true
-fi
-rm -f "$PORT_FILE"
-exit "$CH_CAPTURE_RC"'
-trap "$TEARDOWN" EXIT INT TERM
+# in this one function. It runs once, disarming itself first, and exits
+# with the status in force when it fired, so claude's own exit status is
+# the launcher's.
+teardown() {
+  local rc=$?
+  trap - EXIT INT TERM
+  if [ -n "$PROXY_PID" ]; then
+    kill "$PROXY_PID" 2>/dev/null || true
+    wait "$PROXY_PID" 2>/dev/null || true
+  fi
+  rm -f "$PORT_FILE"
+  exit "$rc"
+}
+trap teardown EXIT INT TERM
 
 "$PROXY" --upstream "$UPSTREAM" --capture-dir "$SESSION_DIR" \
   --name "$SESSION_NAME" --cwd "$PWD" --repo "$REPO_NAME" \
@@ -183,9 +185,6 @@ echo "ch-capture: capturing to $SESSION_DIR" >&2
 
 # The prefix assignment sets ANTHROPIC_BASE_URL in the claude child's
 # environment only; this script's own environment, and the caller's, keep
-# whatever value they had.
-set +e
+# whatever value they had. As the last command its status, under `set -e`
+# or not, is the one the trap exits with.
 ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" claude ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}
-CLAUDE_RC=$?
-set -e
-exit "$CLAUDE_RC"
