@@ -461,10 +461,10 @@ func TestProcSubstGradedInEveryWordPosition(t *testing.T) {
 	// high-confidence allow of their own) instead of to the descent.
 	for _, tc := range []struct{ name, escaping, benign, noSubst string }{
 		{
-			// The header word is an exact procSubstFD literal, so
-			// staticForItems fans out and binds the loop
-			// variable, and recordAssign puts the same literal into knownVars —
-			// both moving a body that uses the variable from defer to allow.
+			// The header word is an exact procSubstFD literal, so staticForItems
+			// fans out and binds the loop variable, and recordAssign puts the
+			// same literal into knownVars — both moving a body that uses the
+			// variable from defer to allow.
 			"for-item, loop variable used in the body",
 			`for f in <(cat ` + esc + `); do cat "$f"; done`,
 			`for f in <(echo hi); do cat "$f"; done`,
@@ -1239,9 +1239,9 @@ func TestPathValueFlagsAreDeclaredValueFlags(t *testing.T) {
 
 // TestParseErrorDenies pins that an unparseable command denies rather than
 // asks. The command really is unparseable; real bash rejects the identical
-// string. Approving runs a command bash will refuse, and a
-// PreToolUse hook fires on commands the MODEL authored — a human cannot repair
-// syntax by clicking Yes.
+// string. Approving runs a command bash will refuse, and a PreToolUse hook
+// fires on commands the MODEL authored — a human cannot repair syntax by
+// clicking Yes.
 func TestParseErrorDenies(t *testing.T) {
 	const backtick = "grep -n \"convention\\|doesn't match\\|does not match\\|B` empty\\|empty\" plugins/sdlc/agents/pr-reviewer.md"
 	d := classifyCmd(t, backtick, false)

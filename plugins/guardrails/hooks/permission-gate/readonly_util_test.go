@@ -285,8 +285,8 @@ func TestAlwaysReadOnlyWriteFormsNotAllowed(t *testing.T) {
 
 // TestAlwaysReadOnlyUnknownFlagDefers pins that an unrecognized flag on an
 // ALWAYS-read-only utility fails safe (defer) rather than allowing: a flag the
-// model does not know may write, so `sort --frobnicate file` must not ride the
-// ALLOW track.
+// gate does not recognize may write, so `sort --frobnicate file` must not ride
+// the ALLOW track.
 func TestAlwaysReadOnlyUnknownFlagDefers(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{

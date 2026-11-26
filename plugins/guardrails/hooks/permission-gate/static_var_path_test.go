@@ -62,9 +62,9 @@ func TestStaticVarPathResolvesToContainment(t *testing.T) {
 	d3 := classifyBash(cmd3, ev())
 	wantBucket(t, d3, BucketAllow, "braced ${P} in-repo cat")
 
-	// Containment runs on the resolved path: a static var pointing
-	// at a SIBLING repo's node_modules is denied, proving resolution
-	// feeds Engine B rather than blanket-deferring.
+	// Containment runs on the resolved path: a static var pointing at a
+	// SIBLING repo's node_modules is denied, so resolution feeds Engine B
+	// rather than blanket-deferring.
 	sibling := filepath.Join(base, "sibling")
 	gitInit(t, sibling)
 	nm := filepath.Join(sibling, "node_modules", "pkg")
@@ -760,9 +760,9 @@ func TestForLoopBraceInListTildeEscapingMemberDenied(t *testing.T) {
 // TestForLoopBraceInListAbsoluteEscapingMemberDenied pins the absolute-
 // path escaping-member shape. Upstream expand.BracesSeq preserves an absolute
 // member unchanged (`{a,/etc/passwd}` => `[a /etc/passwd]`, no silent drop), so
-// it reaches
-// literalWord/containment on the normal (non-fallback) path and denies via
-// ordinary worst-wins — same machinery as any other absolute operand.
+// it reaches literalWord/containment on the normal (non-fallback) path and
+// denies via ordinary worst-wins — same machinery as any other absolute
+// operand.
 func TestForLoopBraceInListAbsoluteEscapingMemberDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

@@ -22,9 +22,10 @@ import (
 // nothing" shortcut — fails here instead of silently reopening the fail-open
 // hole in the wrapper.
 //
-// The second invariant these tests pin is the DEFER WIRE SPELLING, which
-// differs from the other three buckets'. Both invariants are asserted on the
-// same output.
+// The second invariant these tests pin is the DEFER WIRE SPELLING: a defer is
+// the envelope with NO permissionDecision key, while allow, deny and ask each
+// carry the key with their own value. Both invariants are asserted on the same
+// output.
 //
 // Exit 2 (failClosed) is deliberately NOT in scope: it is the blocking
 // backstop, always accompanied by a stderr line, and the wrapper propagates it
@@ -62,10 +63,9 @@ func permissionDecisionOf(out string) (value string, present bool, err error) {
 
 // stdoutBucket reports which bucket an emitted envelope spells: the
 // permissionDecision value when the field is present, and BucketDefer when it
-// is absent. Tests that only need "did
-// this event land in bucket X" use it; the two tests in this file deliberately
-// do NOT, asserting the presence bit directly instead, since they are what
-// pins the spelling this helper encodes.
+// is absent. Tests that only need "did this event land in bucket X" use it;
+// the two tests in this file deliberately do NOT, asserting the presence bit
+// directly instead, since they are what pins the spelling this helper encodes.
 func stdoutBucket(t *testing.T, out string) Bucket {
 	t.Helper()
 	value, present, err := permissionDecisionOf(out)
