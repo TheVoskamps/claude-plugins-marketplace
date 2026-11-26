@@ -5,15 +5,15 @@
 # checkout that plays everyone else pushing to it, and a clone the
 # script runs in, all under `mktemp -d`. A logging git wrapper on PATH
 # records each push's arguments, so the test asserts which push form was
-# picked and that no --force or --mirror ever was.
+# picked and that no push the run made was forced or mirrored.
 #
 # It covers each subcommand on its own path and the exits that separate
 # them: a diverged checkout refused, a stopped rebase finished through
 # continue and one aborted, a resolution that empties the stopped commit,
 # a conflicted path git would quote, a stop reached from a subdirectory,
 # and abort and continue exiting 1 rather than 6 when the rebase check's
-# git-path read fails. It covers the push's refusals: a second writer who pushed
-# after the checkout, with and without a rebase in between, a
+# git-path read fails. It covers the push's refusals: a second writer who
+# pushed after the checkout, with and without a rebase in between, a
 # post-receive hook that moves the branch so the verification fails, and
 # a pre-receive hook that refuses, which stays an unclassified failure.
 #

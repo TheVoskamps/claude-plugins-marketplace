@@ -14,9 +14,9 @@
 # issue set, in implementation order; everything from the first
 # non-numeric token onward is the slug, and a slug is always present. The
 # order is a record for humans: no comparison against the set reads it.
-# A slug may not begin with a digit, which is what keeps the
-# set recoverable: `2-space-indent` against issue 206 would read back as
-# the set {206, 2} with the slug `space-indent`.
+# A slug may not begin with a digit, which is what keeps the set
+# recoverable: `2-space-indent` against issue 206 would read back as the
+# set {206, 2} with the slug `space-indent`.
 #
 # An issue argument, to encode and as decode's claimed issue, names an
 # issue in the repository of the current working tree as N or #N, where N
