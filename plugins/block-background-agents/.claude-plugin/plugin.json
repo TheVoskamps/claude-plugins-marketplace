@@ -1,6 +1,6 @@
 {
   "name": "block-background-agents",
   "description": "PreToolUse policy hook that denies any agent spawn not explicitly requesting the foreground (run_in_background: false) so permission prompts can bubble up to the user.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }
