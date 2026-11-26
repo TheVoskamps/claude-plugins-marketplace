@@ -156,11 +156,10 @@ type operatorCarveOut struct {
 // whatever a glob says.
 type operatorCarveOutLists struct {
 	// Read lists the paths a read-class call may reach under this root. It
-	// defaults to empty when absent, bare or null; any other value that is not
-	// a sequence of scalars fails the parse, a quoted empty string and a single
-	// unbracketed path included. A null entry (`~`, `null`, or a bare `-`) is
-	// dropped, and every other scalar entry is read as its text, so `1` is the
-	// glob `1` and a quoted `'~'` the glob `~`.
+	// defaults to empty when absent or null. A sequence of scalars is read
+	// entry by entry: a null entry is dropped, and every other entry is the
+	// glob spelled by the string it decodes to. Any other value fails the
+	// parse and denies every gated tool call.
 	Read []string `yaml:"read"`
 	// Write lists the paths a write may reach under this root, and implies
 	// Read for the same paths (allows). It decodes under the same rules as
@@ -215,44 +214,37 @@ type operatorCarveOutLists struct {
 type operatorCarveOutDocument struct {
 	// SchemaVersion is the file's `schema-version` stamp. It is checked only
 	// after the whole file has decoded, so a file that fails the parse denies
-	// whatever its stamp. A decoded file stamped below
-	// operatorCarveOutSchemaVersion, or not at all, is read as absent,
-	// silently, every key below included; a file still spelling the schema-1
-	// `allow-read` / `allow-write` keys is stamped 1 and lands there. A
-	// higher stamp is read for the keys declared here. A bare or null value
-	// (`schema-version:`, `~`, `null`) is no stamp. An unquoted number decodes
-	// to its integer part, so `2.0` and `2.5` are both stamped 2 and `1.9` is
-	// stamped 1. A number below the int64 range, `-.inf` and `-1e19` included,
-	// is stamped the lowest int64 and so is read as absent, silently; one above
-	// it, `.inf` and `1e19` included, fails the parse, as do `.nan`, a quoted
-	// number, a boolean and any other value.
+	// whatever its stamp. A stamp at or above operatorCarveOutSchemaVersion is
+	// read, for the keys declared here. A value that decodes to an integer
+	// below it reads the whole file as absent, silently, every key below
+	// included, and so does an absent or null one, which decodes to 0; a file
+	// still spelling the schema-1 `allow-read` / `allow-write` keys is stamped
+	// 1 and lands there. Any value that does not decode to an integer fails
+	// the parse and denies every gated tool call.
 	SchemaVersion int `yaml:"schema-version"`
 	// ResolveXDGEnvVars, `resolve-xdg-environment-variables`, makes the
 	// config-home and state-home roots follow $XDG_CONFIG_HOME and
 	// $XDG_STATE_HOME whenever the variable is set and non-empty
-	// (carveOutRootPath). It defaults to no, as does a bare or null value
-	// (`resolve-xdg-environment-variables:`, `~`, `null`). An unquoted
-	// true/false decodes, and so do the YAML 1.1 spellings yes/no, y/n and
-	// on/off, quoted or not; each in lower, title or upper case. Any other
-	// value fails the parse: a quoted empty string, a quoted true or false, a
-	// number, or another case such as `yEs`.
+	// (carveOutRootPath). It defaults to no when absent or null. A value that
+	// decodes to a boolean sets it; any other value fails the parse and
+	// denies every gated tool call.
 	ResolveXDGEnvVars bool `yaml:"resolve-xdg-environment-variables"`
 	// ConfigHomeDefault, `config-home-default`, spells the config-home root
 	// when the XDG variable is not in effect: an absolute path, or one opening
 	// with `~` or `~/`, expanded against the process home. There is no
-	// built-in default: absent, empty, relative, or opening with any other
-	// tilde shape such as `~someone/`, the root does not exist and every glob
-	// under config-home is dead, silently (absoluteRootPath). A bare or null
-	// value is empty, and any other scalar is read as its text, so `5` is the
-	// relative spelling `5`. A sequence or mapping fails the parse.
+	// built-in default: absent, null, empty, relative, or opening with any
+	// other tilde shape such as `~someone/`, the root does not exist and every
+	// glob under config-home is dead, silently (absoluteRootPath). A scalar is
+	// read as the path spelled by the string it decodes to; any other value
+	// fails the parse and denies every gated tool call.
 	ConfigHomeDefault string `yaml:"config-home-default"`
 	// StateHomeDefault, `state-home-default`, spells the state-home root, under
 	// the same rules as ConfigHomeDefault.
 	StateHomeDefault string `yaml:"state-home-default"`
 	// ConfigHome, `config-home`, lists globs relative to the config-home root.
-	// Absent, bare or null, it lists nothing; any other value that is not a
-	// mapping fails the parse, a quoted empty string included. A key inside
-	// the mapping other than `read` and `write` is ignored.
+	// Absent or null, it lists nothing. A mapping is read for its `read` and
+	// `write` keys, and any other key inside it is ignored; any other value
+	// fails the parse and denies every gated tool call.
 	ConfigHome operatorCarveOutLists `yaml:"config-home"`
 	// StateHome, `state-home`, lists globs relative to the state-home root,
 	// under the same rules as ConfigHome.
@@ -266,11 +258,10 @@ type operatorCarveOutDocument struct {
 	Home operatorCarveOutLists `yaml:"home"`
 	// RedirectBashFileWork, `redirect-bash-file-work`, is the file-work
 	// redirect's mode (classify_file_work.go): `off`, `worktree` or `always`.
-	// It defaults to `worktree`: absent, bare, null or a quoted empty string,
-	// silently; any other value — another case such as `Off`, a scalar of
-	// another type such as `false` or `5`, a sequence or a mapping — with a
-	// warning logged naming the
-	// file, the key, the value and the value used (redirectBashFileWorkMode).
+	// A mode is matched exactly, letter case included. It defaults to
+	// `worktree`: absent, null or empty, silently; any other value, of any
+	// YAML type, with a warning logged naming the file, the key, the value and
+	// the value used (redirectBashFileWorkMode), and never a parse failure.
 	// Only an explicit `off` turns the redirect off. The key is read only in a
 	// file stamped at or above operatorCarveOutSchemaVersion while the process
 	// home is usable; otherwise the mode is `worktree`, and an explicit `off`
