@@ -3097,10 +3097,9 @@ claude_vm_render_guest_settings() {
   local file="$1" bake_doc="${2:-}"
   local permission_mode
 
-  # Resolve permission_mode with the same default as the schema
-  # (bypassPermissions). claude_vm_scalar treats absent/null/empty as the
-  # fallback. The launcher enum-guards the value up front, so an unexpected
-  # mode never reaches this render.
+  # Resolve permission_mode with the key table's default. The launcher
+  # enum-guards the value up front, so an unexpected mode never reaches this
+  # render.
   permission_mode="$(claude_vm_scalar "$file" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
 
   # Collect the installed plugin refs (bake ++ install_at_boot), preserving
