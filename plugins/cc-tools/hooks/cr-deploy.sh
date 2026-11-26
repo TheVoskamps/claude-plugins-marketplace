@@ -12,7 +12,8 @@
 set -u
 
 # say <message> -- print <message> as the hook's systemMessage, escaped by
-# hand so the hook does not need jq.
+# hand so that jq stays a dependency of cr alone and a machine without it
+# still gets this hook's messages.
 say() {
   local text=$1
   text=${text//\\/\\\\}
