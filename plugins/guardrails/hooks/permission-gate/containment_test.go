@@ -2559,19 +2559,24 @@ func TestAccountConfigCarveOutMatchesClaudeConfig(t *testing.T) {
 
 // accountConfigRoot accepts $HOME/.claude.<name> in every spelling that Cleans
 // to it, and nothing else: no arbitrary directory, no symlink, no backup, no
-// name outside the alphabet, and no .claude.<name> under another parent.
+// name outside the alphabet, and no .claude.<name> under another parent. An
+// accepted value puts its directory in the claudeConfig region, and a home the
+// process may search but not list still lets the directory be accepted.
 func TestAccountConfigRootAcceptance(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
 	}
 	f := newAccountConfigFixture(t)
 	wantRoot := canonicalize(f.account)
+	t.Cleanup(func() { _ = os.Chmod(f.home, 0o755) })
 	for _, tc := range []struct {
-		value     string
-		accept    bool
-		ownRegion bool
+		value          string
+		accept         bool
+		ownRegion      bool
+		unreadableHome bool
 	}{
 		{value: f.account, accept: true},
+		{value: f.account, accept: true, unreadableHome: true},
 		{value: f.account + "/", accept: true},
 		{value: f.home + "//.claude.work", accept: true},
 		{value: f.home + "/./.claude.work", accept: true},
@@ -2593,18 +2598,35 @@ func TestAccountConfigRootAcceptance(t *testing.T) {
 		{value: ".claude.work"},
 	} {
 		t.Setenv(accountConfigEnvVar, tc.value)
+		homeMode := os.FileMode(0o755)
+		if tc.unreadableHome {
+			homeMode = 0o311
+		}
+		if err := os.Chmod(f.home, homeMode); err != nil {
+			t.Fatal(err)
+		}
 		got := accountConfigRoot()
 		if tc.accept && got != wantRoot {
-			t.Errorf("CLAUDE_CONFIG_DIR=%q: accountConfigRoot() = %q, want %q", tc.value, got, wantRoot)
+			t.Errorf("CLAUDE_CONFIG_DIR=%q (home mode %o): accountConfigRoot() = %q, want %q",
+				tc.value, homeMode, got, wantRoot)
 		}
 		if !tc.accept && got != "" {
 			t.Errorf("CLAUDE_CONFIG_DIR=%q: accountConfigRoot() = %q, want no carve-out", tc.value, got)
 		}
-		if tc.accept || tc.ownRegion {
+		if tc.ownRegion {
+			continue
+		}
+		target := filepath.Join(filepath.Clean(tc.value), "rules", "foo.md")
+		if tc.accept {
+			// An accepted value puts its directory in the claudeConfig region,
+			// whose Read verdict is the defer rather than the escape's deny.
+			if d := fileToolVerdict(t, "Read", f.repo, target); d.Bucket != BucketDefer {
+				t.Errorf("CLAUDE_CONFIG_DIR=%q (home mode %o): Read of %s got %q (%s), want the claudeConfig defer",
+					tc.value, homeMode, target, d.Bucket, d.Reason)
+			}
 			continue
 		}
 		// A rejected value leaves its directory an ordinary escape.
-		target := filepath.Join(filepath.Clean(tc.value), "rules", "foo.md")
 		if filepath.IsAbs(target) {
 			if d := fileToolVerdict(t, "Read", f.repo, target); d.Bucket != BucketDeny {
 				t.Errorf("CLAUDE_CONFIG_DIR=%q: Read of %s got %q (%s), want deny", tc.value, target, d.Bucket, d.Reason)
@@ -2614,9 +2636,9 @@ func TestAccountConfigRootAcceptance(t *testing.T) {
 }
 
 // An unusable home resolves no account root, even for a value that Joins onto
-// that home and names a real directory. The accountConfigRootFor row is the
-// control: handed the same home as if it were usable, it accepts the value, so
-// the empty result comes from the home grading.
+// that home and names a real directory. The control installs that home's
+// absolute spelling and names the same directory through it, and
+// accountConfigRoot accepts it, so the empty result comes from the home grading.
 func TestAccountConfigRootUnusableHome(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
@@ -2637,8 +2659,14 @@ func TestAccountConfigRootUnusableHome(t *testing.T) {
 			if got := accountConfigRoot(); got != "" {
 				t.Errorf("accountConfigRoot() = %q with a %s home, want \"\"", got, shape.name)
 			}
-			if got := accountConfigRootFor(value, home); got == "" {
-				t.Errorf("control: accountConfigRootFor(%q, %q) = \"\", want the directory accepted", value, home)
+			absHome, err := filepath.Abs(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HOME", absHome)
+			t.Setenv(accountConfigEnvVar, filepath.Join(absHome, ".claude.work"))
+			if got := accountConfigRoot(); got == "" {
+				t.Errorf("control: accountConfigRoot() = \"\" with HOME=%q, want the directory accepted", absHome)
 			}
 		})
 	}

@@ -218,10 +218,10 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // construction or by the operator, so it rides the caller's ALLOW rather than
 // withholding it. The grading is delegated to that shared predicate, not
 // restated here, so this track cannot drift from the two read tracks. A
-// carve-out operand it grades ineligible (~/.claude; the rest of the scratchpad
-// prefix, including the read-only-by-policy bundled-skills tree) is neither
-// contained-for-allow nor an escape: it withholds the ALLOW and
-// returns a DEFER. A defective scratchpad root (a symlinked,
+// carve-out operand it grades ineligible (~/.claude and the accepted account
+// config directory; the rest of the scratchpad prefix, including the
+// read-only-by-policy bundled-skills tree) is neither contained-for-allow nor
+// an escape: it withholds the ALLOW and returns a DEFER. A defective scratchpad root (a symlinked,
 // non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns a DEFER
 // whose analysis names the defect. When an operand escapes, ok is false and the returned
 // Decision is the appropriate write-side deny: cross-repo or
@@ -322,9 +322,9 @@ func containWriteOperands(prog string, operands []string, sc simpleCommand, ev *
 			// carve-out exists to permit.
 			//
 			// Ineligible is neither a clean write the gate should bless nor an
-			// escape it should deny — a target under the real ~/.claude, the
-			// part of the harness prefix matching neither harness
-			// shape, and the bundled-skills tree (read-eligible on the read
+			// escape it should deny — a target under the real ~/.claude or the
+			// accepted account config directory, the part of the harness
+			// prefix matching neither harness shape, and the bundled-skills tree (read-eligible on the read
 			// track, but not here: rewriting harness-installed skill content is
 			// not something the gate has positive grounds to bless). Let the
 			// settings.json allow-list / normal pipeline govern those: signal a

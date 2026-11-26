@@ -564,12 +564,7 @@ func accountConfigRoot() string {
 	if !ok {
 		return ""
 	}
-	return accountConfigRootFor(os.Getenv(accountConfigEnvVar), home)
-}
-
-// accountConfigRootFor is accountConfigRoot with the variable's value and the
-// usable home passed in.
-func accountConfigRootFor(value string, home string) string {
+	value := os.Getenv(accountConfigEnvVar)
 	if value == "" {
 		return ""
 	}
@@ -582,15 +577,7 @@ func accountConfigRootFor(value string, home string) string {
 	if cleaned != root {
 		return ""
 	}
-	// Looked up through an os.Root opened on root's parent, which refuses any
-	// name that resolves outside that directory, so the Lstat cannot be steered
-	// out of it.
-	parent, err := os.OpenRoot(filepath.Dir(root))
-	if err != nil {
-		return ""
-	}
-	defer func() { _ = parent.Close() }()
-	fi, err := parent.Lstat(filepath.Base(root))
+	fi, err := os.Lstat(root)
 	if err != nil || !fi.IsDir() {
 		return ""
 	}
@@ -608,13 +595,17 @@ func accountConfigRootFor(value string, home string) string {
 //     variable would let whatever set that variable relocate the carve-out to
 //     an arbitrary directory. A fixed path cannot be widened that way.
 //
-// The operator carve-out (operator_carveout.go) does read $XDG_CONFIG_HOME and
-// $XDG_STATE_HOME, and is not a counter-example to that second bullet: it reads
-// them only on an explicit opt-in in a file the operator hand-wrote, and what
-// the relocation can hand out is bounded by denies that hold whatever the
-// file says. Neither condition is available here — no operator file names this
-// root, and the region it designates is safe by construction rather than by
-// enumeration — so this one stays a literal.
+// Two carve-outs do read the environment, and neither is a counter-example to
+// that second bullet. The operator carve-out (operator_carveout.go) reads
+// $XDG_CONFIG_HOME and $XDG_STATE_HOME only on an explicit opt-in in a file the
+// operator hand-wrote, and what the relocation can hand out is bounded by
+// denies that hold whatever the file says. The account config carve-out
+// (accountConfigRoot) reads CLAUDE_CONFIG_DIR only to pick one of the
+// $HOME/.claude.<name> directories, so the variable can name a sibling of
+// ~/.claude but cannot move the region anywhere else. None of that is
+// available here — no operator file names this root, the region it designates
+// is safe by construction rather than by enumeration, and no fixed shape
+// bounds where $TMPDIR points — so this one stays a literal.
 const harnessScratchDir = "/tmp"
 
 // harnessScratchDisplay returns the un-canonicalized, human-facing spelling of
@@ -677,10 +668,11 @@ var harnessSessionShape = regexp.MustCompile(
 // pinned to the running Claude Code version: the hook event carries no version
 // field, so the only source would be CLAUDE_CODE_EXECPATH in the environment,
 // which fails on the same terms $TMPDIR fails for harnessScratchDir above:
-// neither condition stated there — an operator's explicit opt-in, and denies
-// that bound what a relocated root can hand out — is available for this
-// region. Shape-checking also survives an upgrade, where the previous
-// version's directory lingers alongside the new one.
+// none of the bounds stated there — an operator's explicit opt-in with denies
+// that bound what a relocated root can hand out, or a fixed shape the value
+// must match — is available for this region. Shape-checking also survives an
+// upgrade, where the previous version's directory lingers alongside the new
+// one.
 //
 // The evidence base here is narrower than for the session shape: one version
 // directory, one hash directory, one machine. A channel-tagged version such as
