@@ -30,6 +30,19 @@ throughout:
   hold, written by step 7.
 - `<state>/last-run/` — the artifacts of the most recent run.
 
+The live settings file is `settings.json` in Claude Code's config
+directory, `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, an empty variable
+counting as unset. Resolve it once, before any command sets
+`CLAUDE_CONFIG_DIR` to the scratch directory, and call the result
+`<live>`:
+
+```bash
+realpath "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+```
+
+`realpath` follows a symlinked `settings.json` to its target, so every
+write to `<live>` lands in the target and leaves the link a link.
+
 Concurrent invocations of this skill are **not supported** and it does
 not guard against them: there is no lock file and no per-session
 directory. Two parallel runs share these paths and corrupt each
@@ -55,13 +68,12 @@ first run. That is not an error.
 ### 2. Stand up the scratch config directory
 
 `CLAUDE_CONFIG_DIR` makes `claude` read `settings.json` from a
-directory other than `~/.claude`. Create a scratch directory for this
-run and copy the live `~/.claude/settings.json` into it as
-`settings.json`.
+directory of its choosing. Create a scratch directory for this run and
+copy `<live>` into it as `settings.json`.
 
 Every capture and every round runs against **that copy**. Accepted
-edits are applied to the copy, never to the live file. The live
-`~/.claude/settings.json` is the permission configuration this very
+edits are applied to the copy, never to the live file. `<live>` is the
+permission configuration this very
 session is enforcing; editing it between rounds would have the loop
 rewrite its own enforcement while running, and a bad intermediate round
 would degrade the session doing the work.
@@ -189,15 +201,14 @@ findings, and therefore terminates the loop.
 
 ### 7. Write the live file
 
-Show the human the full diff between the live `~/.claude/settings.json`
-and the scratch copy, and get an explicit approval. Then, in this
-order:
+Show the human the full diff between `<live>` and the scratch copy, and
+get an explicit approval. Then, in this order:
 
-1. Take a **timestamped backup** of the existing
-   `~/.claude/settings.json`, and tell the human its path.
+1. Take a **timestamped backup** of `<live>`, and tell the human its
+   path.
 2. Verify the candidate passes
    `CLAUDE_CONFIG_DIR=<scratch> claude auto-mode config` without error.
-3. Only then write the scratch copy over the live file.
+3. Only then write the scratch copy over `<live>`.
 
 If either the approval or the validation does not come, leave the live
 file untouched and say where the scratch copy is.
@@ -242,11 +253,11 @@ print(hashlib.sha256(prompt.encode("utf-8")).hexdigest())' \
 ```
 
 A run that leaves the live file untouched writes no provenance at all:
-bumping the revision without writing `~/.claude/settings.json` would
-name a revision nobody has.
+bumping the revision without writing `<live>` would name a revision
+nobody has.
 
 What a record names is the block **this skill last wrote**, not
-whatever `~/.claude/settings.json` holds when it is read.
+whatever `<live>` holds when it is read.
 `/auto-mode-tools:personalize-auto-mode` writes the same file and
 writes nothing to the state directory, so after it runs the recorded
 `revision` and `prompt-sha256` describe a block that has since been
