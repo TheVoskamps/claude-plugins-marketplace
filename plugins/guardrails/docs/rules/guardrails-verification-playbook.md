@@ -211,10 +211,16 @@ copy a concurrent session can rewrite mid-check.
 
 ### The decisive protocol for a binary carrying vcs stamps
 
-A binary built with VCS stamping differs from a stamp-free rebuild of
-the same source in the buildinfo and build-ID regions, typically a few
-hundred bytes, and never in code, so its raw `cmp` or `shasum`
-difference is no mismatch signal on its own.
+Compare it against a rebuild that carries stamps too: on a clean
+checkout of the source, run the script's `go build` line without
+`-buildvcs=false`, into a scratch directory. A stamp-free rebuild is no
+comparison for it — dropping the stamp shortens the buildinfo string,
+which moves data and bss symbols on all three arches, so the `nm` and
+`cmp -l` checks below fail on a correct binary.
+
+Two stamped builds of the same source differ in the buildinfo and
+build-ID regions, typically a few hundred bytes, and never in code, so
+their raw `cmp` or `shasum` difference is no mismatch signal on its own.
 
 Require all of:
 
@@ -234,8 +240,8 @@ Require all of:
 and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
 committed arch was rebuilt consistently when only one can execute. The
 Go version, the module path, each dependency's version and `h1:` hash,
-`-trimpath=true` and `CGO_ENABLED=0` must all match; only the `vcs`,
-`vcs.revision`, `vcs.time` and `vcs.modified` lines may differ.
+`-trimpath=true` and `CGO_ENABLED=0` must all match; only
+`vcs.revision`, `vcs.time` and `vcs.modified` may differ.
 
 The `nm` comparison of item 1, spelled out:
 
@@ -301,7 +307,10 @@ These commands are decisive rather than suggestive:
 2. `go tool nm` of the **pre-round** committed binary
    (`git show <parent-commit>:<bin-path> > <tmp>`) versus the tip one
    must be identical under the same `runtime.modinfo.str` filter, on
-   every committed arch.
+   every committed arch. When one of the two lists `vcs.` lines and the
+   other does not, `nm` differs on a correct pair; compare the stamped
+   one against a stamped rebuild of the tip's source instead, by the
+   stamp protocol above.
 
 Together those separate "the source is comments" from "the shipped
 bytes carry the same policy". Rebuilding and comparing, as above,
@@ -1178,7 +1187,8 @@ Against binaries `rebuild-binaries.sh` built, the byte comparison is the
 grade: with the Go release matching, every arch rebuilt from the tip is
 byte-identical to the committed one. Against a committed binary that
 lists `vcs.` lines, it is not — the stamp names the HEAD of the checkout
-that built it, so a tip rebuild differs inside the build-information
-region on every arch with nothing wrong. Grade that one by the stamp
-protocol under "Prove which source a committed binary came from", and do
-not report the difference as a provenance failure.
+that built it, so a tip rebuild differs from it on every arch with
+nothing wrong. Grade that one against a
+stamped rebuild by the stamp protocol under "Prove which source a
+committed binary came from", and do not report the difference as a
+provenance failure.
