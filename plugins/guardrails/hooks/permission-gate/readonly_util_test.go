@@ -259,7 +259,7 @@ func TestPagersStillDefer(t *testing.T) {
 	}
 }
 
-// TestAlwaysReadOnlyWriteFormsNotAllowed covers a review HIGH finding:
+// TestAlwaysReadOnlyWriteFormsNotAllowed pins that the forms of
 // always-read-only path-bearing utilities that have a write-capable flag or a
 // write-destination operand must NOT ride the ALLOW track. Each form here writes
 // a file in the repo (the common case containment does NOT catch), so it must
@@ -283,10 +283,10 @@ func TestAlwaysReadOnlyWriteFormsNotAllowed(t *testing.T) {
 	}
 }
 
-// TestAlwaysReadOnlyUnknownFlagDefers covers a review HIGH finding's
-// criterion-4 generalization: an unrecognized flag on an ALWAYS-read-only
-// utility must fail safe (defer), not allow — previously these utilities carried
-// no flag inspection at all, so `sort --frobnicate file` rode the ALLOW track.
+// TestAlwaysReadOnlyUnknownFlagDefers pins that an unrecognized flag on an
+// ALWAYS-read-only utility fails safe (defer) rather than allowing: a flag the
+// model does not know may write, so `sort --frobnicate file` must not ride the
+// ALLOW track.
 func TestAlwaysReadOnlyUnknownFlagDefers(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
@@ -317,7 +317,8 @@ func TestAlwaysReadOnlyUnknownFlagDefers(t *testing.T) {
 
 // TestAlwaysReadOnlyReadFormsStillAllow guards against over-correction: the
 // genuinely read-only forms of every always-read-only utility — including the
-// common flag forms — must STILL ALLOW after the write-form/fail-safe tightening.
+// common flag forms — must STILL ALLOW alongside the write-form and
+// unknown-flag defers above.
 func TestAlwaysReadOnlyReadFormsStillAllow(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "a", "b", "README.md")
 	for _, cmd := range []string{
@@ -387,11 +388,10 @@ func TestLsAmbiguousShortFlagsDefer(t *testing.T) {
 	}
 }
 
-// TestLsCrossRepoDenied pins the consequence of putting `ls` on the
-// path-bearing read track: an out-of-repo listing now earns the ordinary
-// read deny, exactly as `cat`/`grep`/`find`/`less` already did for the same
-// operand. Before that `ls` was on no track at all and deferred for
-// every path — including the carve-out ones, which is the defect this fixes.
+// TestLsCrossRepoDenied pins that `ls` is on the path-bearing read track: an
+// out-of-repo listing earns the ordinary read deny, exactly as
+// `cat`/`grep`/`find`/`less` do for the same operand, rather than a defer for
+// every path, carve-out ones included.
 func TestLsCrossRepoDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -405,14 +405,11 @@ func TestLsCrossRepoDenied(t *testing.T) {
 		"ls of a sibling repo is the cross-repo read deny")
 }
 
-// TestClusteredReadOnlyShortFlagsAllow covers the round-2 review MEDIUM
-// regression: the round-1 binary (09bd8e7) ALLOWed clustered read-only short
-// flags on every always-read-only utility, but the round-1 fix (e24a135) added
-// per-utility flagScan predicates that only set clusterable on cat/wc/tr/comm —
-// so very high-frequency forms the issue targets (grep -rn, sort -rn, uniq -cd,
-// cut -sf1) began to DEFER. Enabling clusterable on the read-only-only-flag
-// specs restores them. Each form below is an all-bool cluster (or a bool cluster
-// with a trailing value flag) with NO write flag, so it must ALLOW.
+// TestClusteredReadOnlyShortFlagsAllow pins that clustered read-only short
+// flags ALLOW on every always-read-only utility whose spec sets clusterable,
+// high-frequency forms such as grep -rn, sort -rn, uniq -cd and cut -sf1
+// included. Each form below is an all-bool cluster (or a bool cluster with a
+// trailing value flag) with NO write flag, so it must ALLOW.
 func TestClusteredReadOnlyShortFlagsAllow(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "a", "b")
 	for _, cmd := range []string{
@@ -442,12 +439,10 @@ func TestClusteredReadOnlyShortFlagsAllow(t *testing.T) {
 	}
 }
 
-// TestClusteredWriteFlagStillDefers is the load-bearing safety guard for the
-// round-2 fix: enabling clusterable on sort (whose -o writes a file) must NOT
-// let a write-capable flag ride through a cluster. `sort -ro file` (where -o
-// would consume `file` as a write target) and every other cluster containing a
-// write flag MUST still defer. This guards against the regression's fix opening
-// a write hole.
+// TestClusteredWriteFlagStillDefers is the safety guard for clusterable on sort,
+// whose -o writes a file: a write-capable flag must NOT ride through a cluster.
+// `sort -ro file` (where -o would consume `file` as a write target) and every
+// other cluster containing a write flag MUST defer.
 func TestClusteredWriteFlagStillDefers(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
@@ -489,10 +484,10 @@ func TestClusterIsReadOnlyHelper(t *testing.T) {
 	}
 }
 
-// TestAwkProfileOutputDumpNotAllowed covers a review MEDIUM finding:
-// gawk's profile/pretty-print/dump-variables flags write a file (awkprof.out /
-// awkvars.out) and must NOT ALLOW. They were previously listed as read-only
-// boolFlags. Bare, attached, and long-with-value forms all defer.
+// TestAwkProfileOutputDumpNotAllowed pins that gawk's
+// profile/pretty-print/dump-variables flags, which write a file (awkprof.out /
+// awkvars.out), must NOT ALLOW. Bare, attached, and long-with-value forms all
+// defer.
 func TestAwkProfileOutputDumpNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "prof")
 	for _, cmd := range []string{

@@ -13,13 +13,12 @@ import (
 // be resolved to its concrete literal and run through normal containment,
 // rather than failing closed on hasUnknownExpansion. Genuinely dynamic paths
 // (a variable assigned from a command substitution, or an undefined/env
-// variable) must STILL escalate (fail-closed) — the resolution must not regress
-// that behavior.
+// variable) must STILL escalate (fail-closed).
 
-// TestStaticVarPathResolvesToContainment covers case (a): the two traces
-// from the issue. A static in-repo `P=...` followed by `cat "$P/file"` resolves
-// and runs containment; an in-repo target defers (not ask), and a cross-repo
-// target denies (containment now actually runs because the path is resolved).
+// TestStaticVarPathResolvesToContainment covers case (a). A static in-repo
+// `P=...` followed by `cat "$P/file"` resolves and runs containment; an in-repo
+// target allows, and a cross-repo target denies (containment runs because the
+// path is resolved).
 func TestStaticVarPathResolvesToContainment(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -38,12 +37,11 @@ func TestStaticVarPathResolvesToContainment(t *testing.T) {
 		return &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
 	}
 
-	// Trace 1 shape: assign the payload subdir, then cat two files under it via
-	// a quoted "$P/..." expansion. The path is statically resolvable and lands
-	// inside the repo → containment returns contained. Since cat joined the
-	// read-only-utility ALLOW, the resolved-and-contained form now ALLOWs (it
-	// formerly DEFERRED); the invariant under test is that resolution feeds
-	// Engine B (in-repo → not ASK, cross-repo → DENY below), not the terminal.
+	// Assign the payload subdir, then cat two files under it via a quoted
+	// "$P/..." expansion. The path is statically resolvable and lands inside the
+	// repo → containment returns contained, and cat's read-only-utility track
+	// ALLOWs it. The invariant under test is that resolution feeds Engine B
+	// (in-repo → not ASK, cross-repo → DENY below), not the terminal.
 	cmd1 := `P=` + payload + `; echo "header"; cat "$P/ecosystem-block.yml"; cat "$P/dependabot.yml"`
 	d1 := classifyBash(cmd1, ev())
 	if d1.Bucket == BucketAsk {
@@ -51,7 +49,7 @@ func TestStaticVarPathResolvesToContainment(t *testing.T) {
 	}
 	wantBucket(t, d1, BucketAllow, "trace 1: static-var in-repo cat")
 
-	// Trace 2 shape: assign the payload dir, then cat a file under it.
+	// Assign the payload dir, then cat a file under it.
 	cmd2 := `P=` + payload + `; echo "header"; cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev())
 	if d2.Bucket == BucketAsk {
@@ -64,7 +62,7 @@ func TestStaticVarPathResolvesToContainment(t *testing.T) {
 	d3 := classifyBash(cmd3, ev())
 	wantBucket(t, d3, BucketAllow, "braced ${P} in-repo cat")
 
-	// Containment now actually runs on the resolved path: a static var pointing
+	// Containment runs on the resolved path: a static var pointing
 	// at a SIBLING repo's node_modules is denied, proving resolution
 	// feeds Engine B rather than blanket-deferring.
 	sibling := filepath.Join(base, "sibling")
@@ -86,11 +84,10 @@ func TestStaticVarPathResolvesToContainment(t *testing.T) {
 // must keep marking hasUnknownExpansion and escalate (fail-closed). It must NOT
 // be resolved to an empty / bogus path.
 //
-// NOTE: `$(pwd)` itself was the example command substitution here before the
-// gate began resolving it as a known-anchor substitution (see
-// TestPwdAnchorResolvesToTrackedCwd in anchor_cmdsubst_test.go for its new
-// behavior). This test now uses `$(git log)` — a real, but NOT allowlisted,
-// command substitution — to keep pinning the general "arbitrary command
+// `$(pwd)` cannot stand in for the command substitution here: the gate
+// resolves it as a known-anchor substitution (TestPwdAnchorResolvesToTrackedCwd
+// in anchor_cmdsubst_test.go). This test uses `$(git log)` — a real, but NOT
+// allowlisted, command substitution — to pin the general "arbitrary command
 // substitution stays unresolvable" invariant.
 func TestStaticVarPathFromCmdSubstStillEscalates(t *testing.T) {
 	base := t.TempDir()
@@ -116,10 +113,10 @@ func TestStaticVarPathFromCmdSubstStillEscalates(t *testing.T) {
 // TestUndefinedVarPathStillEscalates covers case (c): a variable that was
 // never assigned in the program (an environment variable, or simply undefined)
 // is not statically known and must STILL escalate (fail-closed). $HOME is
-// EXCLUDED from this case — it is now resolved via os.UserHomeDir()
-// (see TestHomeVarResolvesLikeTilde in var_resolution_test.go) — so this
-// test uses $FOO, a name outside that closed allowlist, to keep pinning
-// the general "arbitrary env var stays unresolvable" invariant.
+// EXCLUDED from this case — it is resolved via os.UserHomeDir()
+// (TestHomeVarResolvesLikeTilde in var_resolution_test.go) — so this
+// test uses $FOO, a name outside that closed allowlist, to pin the general
+// "arbitrary env var stays unresolvable" invariant.
 func TestUndefinedVarPathStillEscalates(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -158,13 +155,13 @@ func TestEnvPrefixVarDoesNotPersist(t *testing.T) {
 	wantBucket(t, d, BucketDefer, "env-prefix var must not persist")
 }
 
-// Follow-up: an assignment made inside a SCOPED construct — a `( … )`
-// subshell, a function body, or a backgrounded group — runs in a child shell
-// and does NOT persist to the program-global scope in real bash. Such a scoped
-// assignment must NOT populate knownVars, so a later top-level `$VAR` use stays
-// unknown and escalates (fail-closed). The cases below pin that the scope gate
-// is honored, that the top-level resolution fix is not regressed, and that the
-// process-substitution crash-safety still holds.
+// An assignment made inside a SCOPED construct — a `( … )` subshell, a
+// function body, or a backgrounded group — runs in a child shell and does NOT
+// persist to the program-global scope in real bash. Such a scoped assignment
+// must NOT populate knownVars, so a later top-level `$VAR` use stays unknown and
+// escalates (fail-closed). The cases below pin that the scope gate is honored,
+// that a top-level assignment still resolves inside a scope, and that a process
+// substitution inside a scope classifies without panicking.
 
 // TestSubshellAssignmentDoesNotLeak covers scope case (a): a static
 // assignment inside a `( … )` subshell does not resolve a later TOP-LEVEL use.
@@ -279,16 +276,13 @@ func TestTopLevelVarResolvesInsideScope(t *testing.T) {
 	}
 }
 
-// TestProcSubstInScopeStillSafe guards that the process-substitution
-// crash-safety is not regressed by the scope-tracking change: a `<(…)` inside a
-// subshell must classify rather than panic.
+// TestProcSubstInScopeStillSafe guards that a `<(…)` inside a subshell
+// classifies rather than panicking under the scope tracking.
 //
-// The expected VERDICT changed with the process-substitution grading: an input
-// `<(…)` is a /dev/fd pipe, never a path, so it no longer marks the enclosing
-// command unprovable, and the substituted commands are classified on their own
-// terms. With `echo` on both sides everything is allow-classified, so the line
-// allows. The crash-safety guarantee this test was written for — "classifies
-// instead of panicking" — is unchanged and still what the call exercises.
+// An input `<(…)` is a /dev/fd pipe, never a path, so it does not mark the
+// enclosing command unprovable, and the substituted commands are classified on
+// their own terms. With `echo` on both sides everything is allow-classified, so
+// the line allows.
 func TestProcSubstInScopeStillSafe(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -304,12 +298,11 @@ func TestProcSubstInScopeStillSafe(t *testing.T) {
 // A `for x in <words>; do …; done` whose header is a fully static item
 // list makes the loop variable's complete value set visible at parse time.
 // The loop-var binding must resolve body path operands (or correctly report
-// an escaping item), while dynamic lists / globs / in-less loops must keep
-// failing closed exactly as before.
+// an escaping item), while dynamic lists and in-less loops must fail closed.
 
-// TestForLoopStaticInListResolves is the shape-A repro: a for loop
-// over four static in-worktree paths. Each iteration's "$f" resolves and
-// contains, so the whole line must not ASK (regression test for the fan-out).
+// TestForLoopStaticInListResolves pins the fan-out over a static list: a for
+// loop over four static in-worktree paths. Each iteration's "$f" resolves and
+// contains, so the whole line must not ASK.
 func TestForLoopStaticInListResolves(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -363,11 +356,11 @@ func TestForLoopDynamicInListStillEscalates(t *testing.T) {
 	wantBucket(t, d, BucketDefer, "dynamic for-in list must still escalate")
 }
 
-// TestForLoopGlobInListResolvesUnderValidCwd (follow-up) covers a glob
-// item (`*.md`) under a valid, tracked running cwd: the loop variable is bound
-// to the pattern itself and containment is pure path arithmetic on it, so
-// every possible match of `*.md` is a child of the tracked cwd and the loop
-// now resolves (contained) instead of failing closed.
+// TestForLoopGlobInListResolvesUnderValidCwd covers a glob item (`*.md`)
+// under a valid, tracked running cwd: the loop variable is bound to the pattern
+// itself and containment is pure path arithmetic on it, so every possible match
+// of `*.md` is a child of the tracked cwd and the loop resolves (contained)
+// rather than failing closed.
 func TestForLoopGlobInListResolvesUnderValidCwd(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -417,8 +410,8 @@ func TestForLoopGlobInListCwdInvalidStillEscalates(t *testing.T) {
 	wantBucket(t, d, BucketDefer, "follow-up: glob for-in list with invalid running cwd must still escalate")
 }
 
-// Loop follow-up (from PR review): braces, known-variable expansion, and
-// glob items bound as their own pattern broaden the for-loop in-list fan-out.
+// Braces, known-variable expansion, and glob items bound as their own pattern
+// broaden the for-loop in-list fan-out.
 // staticForItems must expand every statically-knowable form and feed EVERY
 // expanded item through the existing containment pipeline; irreducibly
 // dynamic parts must still fail closed.
@@ -445,19 +438,15 @@ func TestForLoopBraceInListBothContained(t *testing.T) {
 	wantBucket(t, d, BucketAllow, "follow-up: brace for-in list resolves and contains")
 }
 
-// TestForLoopBraceInListDotDotEscapingMemberDenied pins the CORRECT
-// behavior for `{a,../../../etc/passwd}`, replacing an earlier version of
-// this test that pinned the wrong one. Real bash splits this into "a" and
-// "../../../etc/passwd" (verified live: `bash -c 'for f in
-// {a,../../../etc/passwd}; do echo "$f"; done'` prints both members
-// unchanged). staticExpandItem does not trust upstream's split of a
-// ".."-bearing brace list (see engine_a_bash.go staticExpandItem's doc
-// comment). Falling back to the unresolved-expansion residual for such a list
-// would hand an entirely mechanical case to someone else for every
-// escaping-path brace list — a human click when this was written, the
-// downstream evaluator, that residual being a DEFER. Either
-// way the gate's job is to decide what it CAN decide, and this it can.
-// staticExpandBraceFallback does the comma-list split itself for it, so
+// TestForLoopBraceInListDotDotEscapingMemberDenied pins the verdict for
+// `{a,../../../etc/passwd}`. Real bash splits this into "a" and
+// "../../../etc/passwd": `bash -c 'for f in {a,../../../etc/passwd}; do echo
+// "$f"; done'` prints both members unchanged. staticExpandItem does not trust
+// upstream's split of a ".."-bearing brace list (see engine_a_bash.go
+// staticExpandItem's doc comment). Falling back to the unresolved-expansion
+// residual, a DEFER, for such a list would hand an entirely mechanical case to
+// the downstream evaluator for every escaping-path brace list, when the gate
+// can decide it. staticExpandBraceFallback does the comma-list split itself, so
 // every member — including the escaping one — flows through the existing
 // containment pipeline and gets its real verdict via worst-wins: the
 // escaping member denies.
@@ -649,7 +638,7 @@ func TestForLoopKnownVarListContained(t *testing.T) {
 
 // TestForLoopUnknownVarListStillEscalates covers `for f in $LIST` when
 // LIST is NOT statically known (an env var, or simply undefined): the loop
-// must still fail closed exactly as before (regression pin).
+// must fail closed.
 func TestForLoopUnknownVarListStillEscalates(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -682,7 +671,7 @@ func TestForLoopEmptyInListClassifiesBodyZeroTimes(t *testing.T) {
 	}
 }
 
-// TestForLoopCommandSubstInListStillEscalates is a regression pin: a
+// TestForLoopCommandSubstInListStillEscalates pins that a
 // command-substitution list (`for f in $(ls)`) is irreducibly dynamic and
 // must still escalate.
 func TestForLoopCommandSubstInListStillEscalates(t *testing.T) {
@@ -698,8 +687,8 @@ func TestForLoopCommandSubstInListStillEscalates(t *testing.T) {
 }
 
 // TestForLoopNoInListStillEscalates covers a `for x; do …` with no `in`
-// clause (iterates "$@"): there is no static item set, so it must still fail
-// closed exactly as before.
+// clause (iterates "$@"): there is no static item set, so it must fail
+// closed.
 func TestForLoopNoInListStillEscalates(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -743,16 +732,14 @@ func TestForLoopNestedSaveRestoresOuterBinding(t *testing.T) {
 	wantBucket(t, d, BucketAllow, "nested for loop save/restore of loop variable")
 }
 
-// TestForLoopBraceInListTildeEscapingMemberDenied pins a real fail-open
-// found in PR review: a for-loop brace member expressed as a
-// tilde-prefixed path (`~/.ssh/id_rsa`) carries no "..", so it rides
-// upstream expand.BracesSeq's split rather than the fallback splitter, and
-// is NOT absolute per filepath.IsAbs, so before the containment fix in this
-// commit it fell through canonicalizeFrom's relative-join branch and
-// resolved to a literal in-repo-looking child path (`<repo>/~/.ssh/id_rsa`)
-// — an ALLOW, not a DENY. canonicalizeFrom now expands a leading `~`/`~/`
-// against the real home directory before the relative-join step (mirroring
-// applyCd's existing `cd ~` handling), so the member resolves to the user's
+// TestForLoopBraceInListTildeEscapingMemberDenied pins that a for-loop brace
+// member expressed as a tilde-prefixed path (`~/.ssh/id_rsa`) denies. It
+// carries no "..", so it rides upstream expand.BracesSeq's split rather than
+// the fallback splitter, and it is NOT absolute per filepath.IsAbs, so a
+// relative join would resolve it to an in-repo-looking child path
+// (`<repo>/~/.ssh/id_rsa`) and allow it. canonicalizeFrom expands a leading
+// `~`/`~/` against the real home directory before the relative-join step
+// (mirroring applyCd's `cd ~` handling), so the member resolves to the user's
 // real home directory and earns the escapeRepo verdict its true location
 // deserves, joining worst-wins with the rest of the brace list.
 func TestForLoopBraceInListTildeEscapingMemberDenied(t *testing.T) {
@@ -771,9 +758,9 @@ func TestForLoopBraceInListTildeEscapingMemberDenied(t *testing.T) {
 }
 
 // TestForLoopBraceInListAbsoluteEscapingMemberDenied pins the absolute-
-// path escaping-member shape named in the PR review High finding. Upstream
-// expand.BracesSeq preserves an absolute member unchanged (verified: `{a,
-// /etc/passwd}` => `[a /etc/passwd]`, no silent drop), so it reaches
+// path escaping-member shape. Upstream expand.BracesSeq preserves an absolute
+// member unchanged (`{a,/etc/passwd}` => `[a /etc/passwd]`, no silent drop), so
+// it reaches
 // literalWord/containment on the normal (non-fallback) path and denies via
 // ordinary worst-wins — same machinery as any other absolute operand.
 func TestForLoopBraceInListAbsoluteEscapingMemberDenied(t *testing.T) {
@@ -792,12 +779,11 @@ func TestForLoopBraceInListAbsoluteEscapingMemberDenied(t *testing.T) {
 }
 
 // TestForLoopBraceInListHomeVarEscapingMemberDenied pins the $HOME-based
-// escaping-member shape named in the PR review High finding. $HOME
-// is resolved from its authoritative source (os.UserHomeDir(), the same
-// source the sibling `~` tests below already use) rather than failing closed,
-// so `$HOME/.ssh/id_rsa` now agrees with `~/.ssh/id_rsa` — both DENY. See
-// TestForLoopBraceInListTildeEscapingMemberFirstPosition for the
-// equivalent tilde shape this now matches.
+// escaping-member shape. $HOME is resolved from its authoritative source
+// (os.UserHomeDir(), the same source the sibling `~` tests below use) rather
+// than failing closed, so `$HOME/.ssh/id_rsa` agrees with `~/.ssh/id_rsa` —
+// both DENY. See TestForLoopBraceInListTildeEscapingMemberFirstPosition for
+// the equivalent tilde shape.
 func TestForLoopBraceInListHomeVarEscapingMemberDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -852,7 +838,7 @@ func TestForLoopBraceInListTildeEscapingMemberMiddlePosition(t *testing.T) {
 
 // TestForLoopBraceInListMixedDotDotAndAbsoluteEscapeDenied covers a
 // three-member list combining a safe literal, a ".."-bearing escaping
-// member (the silent-drop shape from the round-2 review), and an absolute
+// member (the shape upstream's split may decline or drop), and an absolute
 // escaping member (the preserved-by-upstream shape) in the SAME brace list.
 // Worst-wins must deny on this combination regardless of which detection
 // path (hasDotDotBraceMember fallback vs. normal literalWord path) catches

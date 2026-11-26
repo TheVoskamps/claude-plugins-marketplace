@@ -9,12 +9,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// The gate held enough information to decide each command below, and escalated
-// anyway. Every command in this file is one that a real orchestration run
-// prompted a human for — on `issue-fixer`, `pr-reviewer`, `doc-updater` and
-// `agent-memory-scrubber` — so the cost was a click on every round of every
-// loop, which is what trains a human to approve gate prompts without reading
-// them.
+// The gate holds enough information to decide each command below, so none of
+// them may reach a human as an ask. Each is a spelling an orchestrating agent
+// issues routinely, so an ask on any of them would cost a click on every loop,
+// which is what trains a human to approve gate prompts without reading them.
 //
 // The classes are independent; each has its own test.
 
@@ -22,8 +20,8 @@ import (
 
 // TestCredentialedRedirectGraded pins that a git/gh/aws redirect whose every
 // destination is contained in this worktree earns the same verdict as the same
-// write spelled through argv (`tee <path>`), instead of the ungraded ask the
-// bare hasRedirectToFile bool used to produce.
+// write spelled through argv (`tee <path>`), rather than an ungraded ask for
+// every redirect a credentialed tool carries.
 func TestCredentialedRedirectGraded(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -38,8 +36,8 @@ func TestCredentialedRedirectGraded(t *testing.T) {
 
 	ev := bashEvIn(t, root, "issue-developer")
 
-	// The control: the same write through argv already allowed. Both spellings
-	// of one write must now carry one verdict.
+	// The control: the same write through argv allows. Both spellings of one
+	// write must carry one verdict.
 	wantBucket(t, classifyBash("tee .claude/tmp/x.md", ev), BucketAllow, "control: tee into .claude/tmp")
 
 	for _, cmd := range []string{
@@ -56,9 +54,8 @@ func TestCredentialedRedirectGraded(t *testing.T) {
 
 	// A PROVEN escape DENIES, and the reason names clobber and escape
 	// rather than exfiltration. It also carries the same prescriptive scratch
-	// destinations the Write tool's deny for the identical path carries — which
-	// is the whole point of the ask→deny move: one escape, one verdict,
-	// whichever spelling reaches it.
+	// destinations the Write tool's deny for the identical path carries: one
+	// escape, one verdict, whichever spelling reaches it.
 	esc := classifyBash("gh pr diff 224 > "+filepath.Join(sib, "x.diff"), ev)
 	wantBucket(t, esc, BucketDeny, "redirect escaping to a sibling repo")
 	if !containsSubstr(esc.Reason, "clobber") {
@@ -71,9 +68,8 @@ func TestCredentialedRedirectGraded(t *testing.T) {
 		t.Errorf("the escape deny must prescribe both scratch destinations; got %q", esc.Reason)
 	}
 	// The spelling control: the Write tool's deny for the SAME destination
-	// prescribes the same thing. The two must not diverge — Write denies
-	// with this prose while the redirect asked — which is the defect the move
-	// closes.
+	// prescribes the same thing. The two must not diverge, with Write denying
+	// with this prose while the redirect asks.
 	wd := fileToolBucket(t, "Write", root, filepath.Join(sib, "x.diff"))
 	wantBucket(t, wd, BucketDeny, "control: Write to the same escaping destination")
 	if !containsSubstr(wd.Reason, ".claude/tmp/") {
@@ -98,9 +94,8 @@ func TestCredentialedRedirectGraded(t *testing.T) {
 	wantBucket(t, classifyBash("gh pr diff 224 > .claude/tmp/x.md 2> "+filepath.Join(sib, "e"), ev),
 		BucketDeny, "mixed redirect destinations")
 
-	// The wild-caught spelling, tool by tool: `git show` into
-	// `/tmp/` prompted an sdlc:theorem-disprover when the message it was shown
-	// would have redirected it perfectly. All three credentialed tools reach the
+	// A redirect into `/tmp/` denies, tool by tool, with a reason that names the
+	// scratch destination to use instead. All three credentialed tools reach the
 	// same grading, so all three are pinned — a per-tool call site means a
 	// per-tool regression is possible.
 	for _, cmd := range []string{
@@ -118,7 +113,8 @@ func TestCredentialedRedirectGraded(t *testing.T) {
 
 // TestCredentialedRedirectToScratchpadAllows covers the second blessed
 // destination: the harness scratchpad the carve-out designates safe by
-// construction, which the ungraded veto rejected just as hard as a sibling repo.
+// construction, which a credentialed redirect may reach as freely as
+// `.claude/tmp/`.
 //
 // All three credentialed tools are enumerated for the same reason the sibling
 // `.claude/tmp/` and `/tmp` controls above enumerate them: the grading is
@@ -166,12 +162,11 @@ func TestAnchorResolvesQuotedInlineAndAsCdTarget(t *testing.T) {
 		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "anchor placement: "+cmd)
 	}
 
-	// The `cd` forms converge on DEFER, which is what the already-working
-	// spelling (`R=$(…); cd "$R" && …`) has always earned: `cd` itself matches no
-	// rule, so the line has no high-confidence allow to aggregate and goes back
-	// to the normal pipeline. The defect was that the anchor-as-cd-target
-	// spellings ASKed instead — a prompt, where the reference spelling produced
-	// none. What this pins is that all three now agree.
+	// The `cd` forms converge on DEFER, the verdict the reference spelling
+	// (`R=$(…); cd "$R" && …`) earns: `cd` itself matches no rule, so the line
+	// has no high-confidence allow to aggregate and goes back to the normal
+	// pipeline. What this pins is that the anchor-as-cd-target spellings agree
+	// with it rather than ASK.
 	for _, cmd := range []string{
 		`cd "$(git rev-parse --show-toplevel)" && ls docs`,
 		`cd $(git rev-parse --show-toplevel) && ls docs`,
@@ -211,11 +206,10 @@ func TestAnchorStillRunsThroughContainment(t *testing.T) {
 // `gh auth token` must keep escalating.
 func TestGhAuthStatusAllows(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth status", false), BucketAllow, "gh auth status")
-	// The recorded spelling pipes into `head -5`, whose obsolete bare-count flag
-	// headTailDefers deliberately treats as unrecognized — an unrelated,
-	// documented conservatism. So the LINE aggregates to DEFER (back to the
-	// normal pipeline, no gate prompt) rather than ALLOW. What matters for this
-	// class is that the gh part no longer ASKs.
+	// Piped into `head -5`, whose obsolete bare-count flag headTailDefers
+	// deliberately treats as unrecognized, the LINE aggregates to DEFER (back to
+	// the normal pipeline, no gate prompt) rather than ALLOW. What this class
+	// pins is that the gh part does not ASK.
 	piped := classifyCmd(t, "gh auth status 2>&1 | head -5", false)
 	if piped.Bucket == BucketAsk {
 		t.Errorf("gh auth status piped into head must not ASK; got ASK (%s)", piped.Reason)
@@ -293,9 +287,8 @@ func TestGhAuthStatusFlagScreen(t *testing.T) {
 
 // TestGitPushHeadRefspecAllows pins the refspec verdicts. A plain
 // `src:dst` is not an overwrite — receive-pack refuses a non-fast-forward
-// update unless it is forced — so the ask rested on a false premise. The `+`
-// prefix IS the force and is now escalated on its own merits rather than
-// incidentally, because it happens to contain a colon.
+// update unless it is forced — so a colon alone earns no ask. The `+` prefix
+// IS the force and is escalated on its own merits.
 func TestGitPushHeadRefspecAllows(t *testing.T) {
 	for _, cmd := range []string{
 		"git push origin HEAD:issue-216-fail-closed-on-missing-gate-binary",
@@ -468,8 +461,8 @@ func TestProcSubstGradedInEveryWordPosition(t *testing.T) {
 	// high-confidence allow of their own) instead of to the descent.
 	for _, tc := range []struct{ name, escaping, benign, noSubst string }{
 		{
-			// The two rows this PR regressed: the header word is now an exact
-			// procSubstFD literal, so staticForItems fans out and binds the loop
+			// The header word is an exact procSubstFD literal, so
+			// staticForItems fans out and binds the loop
 			// variable, and recordAssign puts the same literal into knownVars —
 			// both moving a body that uses the variable from defer to allow.
 			"for-item, loop variable used in the body",
@@ -582,9 +575,8 @@ func TestProcSubstGradedInEveryWordPosition(t *testing.T) {
 }
 
 // TestProcSubstDescentIsExhaustive is the structural guard the row-by-row
-// test above cannot give: hand-enumerating word positions did not converge
-// (each of three review rounds found a position the round before had missed),
-// so this asserts the invariant directly — for every shape, the number of
+// test above cannot give: a hand enumeration of word positions can always miss
+// one, so this asserts the invariant directly — for every shape, the number of
 // substituted commands the walk GRADES equals the number of ProcSubst nodes the
 // PARSER reports. A future position added to bash, or a walk arm that stops
 // forwarding, fails here rather than silently allowing.
@@ -1245,9 +1237,9 @@ func TestPathValueFlagsAreDeclaredValueFlags(t *testing.T) {
 
 // --- 8. a parse error is a syntax error, not a decision --------------------------
 
-// TestParseErrorDenies pins the one class where the gate's VERDICT was right
-// and its RESPONSE was the defect. The command really is unparseable; real bash
-// rejects the identical string. Approving runs a command bash will refuse, and a
+// TestParseErrorDenies pins that an unparseable command denies rather than
+// asks. The command really is unparseable; real bash rejects the identical
+// string. Approving runs a command bash will refuse, and a
 // PreToolUse hook fires on commands the MODEL authored — a human cannot repair
 // syntax by clicking Yes.
 func TestParseErrorDenies(t *testing.T) {

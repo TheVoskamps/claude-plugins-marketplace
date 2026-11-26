@@ -158,8 +158,9 @@ type operatorCarveOutLists struct {
 	// Read lists the paths a read-class call may reach under this root. It
 	// defaults to empty when absent, bare or null; any other value that is not
 	// a sequence of scalars fails the parse, a quoted empty string and a single
-	// unbracketed path included. Each scalar entry is read as its text, so `1`
-	// is the glob `1`.
+	// unbracketed path included. A null entry (`~`, `null`, or a bare `-`) is
+	// dropped, and every other scalar entry is read as its text, so `1` is the
+	// glob `1` and a quoted `'~'` the glob `~`.
 	Read []string `yaml:"read"`
 	// Write lists the paths a write may reach under this root, and implies
 	// Read for the same paths (allows). It decodes under the same rules as
@@ -192,10 +193,11 @@ type operatorCarveOutLists struct {
 //
 // An absent file is the ordinary case: no carve-out entry anywhere, and the
 // file-work redirect in its worktree default, with nothing reported. An empty
-// file decodes, carries no stamp, and so reads as absent too. A file that
-// exists but cannot be read, or that does not decode into this struct — a top
-// level that is not a mapping, a key given twice, or a value of the wrong YAML
-// type for its field — denies every gated tool
+// file, or one whose whole document is null (`~`, `null`), decodes, carries no
+// stamp, and so reads as absent too. A file that exists but cannot be read, or
+// that does not decode into this struct — a top level that is a sequence or a
+// scalar other than null, a key given twice, or a value its field below says
+// fails the parse — denies every gated tool
 // call, a write to the file included, as config:unusable until it is fixed or
 // removed (classify): both the carve-out and the redirect come from this file,
 // and a gate that guessed at a broken one would apply policy the operator did
@@ -220,8 +222,10 @@ type operatorCarveOutDocument struct {
 	// higher stamp is read for the keys declared here. A bare or null value
 	// (`schema-version:`, `~`, `null`) is no stamp. An unquoted number decodes
 	// to its integer part, so `2.0` and `2.5` are both stamped 2 and `1.9` is
-	// stamped 1; a quoted number, a boolean, an infinite or out-of-range
-	// number, or any other value fails the parse.
+	// stamped 1. A number below the int64 range, `-.inf` and `-1e19` included,
+	// is stamped the lowest int64 and so is read as absent, silently; one above
+	// it, `.inf` and `1e19` included, fails the parse, as do `.nan`, a quoted
+	// number, a boolean and any other value.
 	SchemaVersion int `yaml:"schema-version"`
 	// ResolveXDGEnvVars, `resolve-xdg-environment-variables`, makes the
 	// config-home and state-home roots follow $XDG_CONFIG_HOME and
