@@ -66,8 +66,9 @@ result with `Write`. Never write a rendered file that still contains a
 
 The community-file template payloads this skill reuses ship with the
 plugin at `${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`
-(`$PAYLOAD`). If `$PAYLOAD` is missing, abort, naming the missing
-directory.
+(`$PAYLOAD`), so the payload subdirectory is
+`repo-public-mirror-setup`. Read `skills/lib/payload-render.md`, and
+verify the payload exists as it states before Step 1.
 
 ## Step 1: Pre-flight — repo root, auth, visibility
 

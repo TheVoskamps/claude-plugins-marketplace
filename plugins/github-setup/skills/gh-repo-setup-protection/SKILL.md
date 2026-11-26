@@ -184,7 +184,9 @@ If the user passed nothing, use the defaults above.
 ## Step 0: Payload
 
 The template payloads this skill renders ship with the plugin at
-`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-protection/`.
+`${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-protection/`. Read
+`skills/lib/payload-render.md`, and verify the payload exists as it
+states before Step 1.
 
 ## Step 1: Pre-flight — repo root, auth, and identifiers
 

@@ -56,28 +56,54 @@ callers:
 The caller passes:
 
 - **`required_permissions`** -- a map of permission scope to access
-  level (e.g. `{ contents: write, pull_requests: write, issues: write,
-  checks: read, statuses: read }`). The verifier checks these against
-  the App's declared permissions.
-
-  Include every scope the automation's **side effects** need, not just
-  the ones its direct API calls need. The scope most often left out is
-  `issues: write`: merging a PR whose body carries a closing keyword
-  closes the linked issues under the merging token's authority, so an
-  App without it merges fine and silently leaves the issues open.
-
-  Include the scopes its **decision inputs** need too. An automation
-  that acts on a CI outcome reads check runs (`checks: read`) and
-  commit statuses (`statuses: read`) — the two the `statusCheckRollup`
-  GraphQL field draws on. Without them the REST reads
-  (`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`,
-  `GET /repos/{owner}/{repo}/commits/{ref}/status`) 403, and the
-  GraphQL rollup comes back as a body-level `FORBIDDEN` error —
-  `Resource not accessible by integration` — at HTTP 200, which
-  `gh api graphql` surfaces as a non-zero exit.
+  level, such as the map under "Starter permission set" below. The
+  verifier checks these against the App's declared permissions.
+  Include every scope the automation's side effects and decision inputs
+  need, not just the ones its direct API calls need.
 - **`target_repo`** (optional) -- the `owner/repo` to verify
   installation on. Defaults to the current repo
   (`gh repo view --json nameWithOwner -q .nameWithOwner`).
+
+## Starter permission set
+
+The permission set of the PR-automation App — the one `/gh-create-app`
+registers by default and `/gh-repo-setup-pr-automation` requires:
+
+| Permission | Access | Why |
+| --- | --- | --- |
+| Pull requests | Read and write | open / approve / merge / label PRs, enable auto-merge, read PR and merge state |
+| Contents | Read and write | push branches, create commits, force-push rebased PR branches |
+| Issues | Read and write | close the issues a merged PR's `Closes #N` lines link |
+| Checks | Read-only | read a commit's check-run results before merging |
+| Commit statuses | Read-only | read a commit's combined status before merging |
+| Metadata | Read-only | mandatory; GitHub auto-selects it |
+
+`Issues: write` covers a side effect of merging. Merging a PR whose
+body carries a closing keyword closes the linked issues under the
+*merging* token's authority, so an App holding only `Contents: write`
+and `Pull requests: write` merges every PR and silently leaves its
+linked issues open.
+
+`Checks: read` and `Commit statuses: read` let the App see whether CI
+passed: the `statusCheckRollup` GraphQL field the PR-automation
+workflows gate on draws on both. Without them GraphQL answers HTTP 200
+with a body-level `FORBIDDEN` error — `Resource not accessible by
+integration` — which `gh api graphql` surfaces as a non-zero exit, the
+first time a pass has an open PR to evaluate. The REST reads
+(`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`,
+`GET /repos/{owner}/{repo}/commits/{ref}/status`) answer 403 instead.
+Both are read-only, so they widen nothing on an App that already
+writes Pull requests, Contents, and Issues.
+
+The set carries no `workflows` scope: workflow files are installed by
+an ordinary commit, never written through the App.
+
+As `required_permissions`:
+
+```text
+{ pull_requests: write, contents: write, issues: write, checks: read,
+  statuses: read, metadata: read }
+```
 
 ## Find/verify sequence
 
@@ -330,8 +356,9 @@ verification:
 
 ## Placeholder values derived from an App
 
-When a resolved App identity is used in template rendering, the
-following placeholders map to the resolved values:
+Read `skills/lib/payload-render.md` for the render contract. When a
+resolved App identity is used in template rendering, the following
+placeholders map to the resolved values:
 
 | Placeholder | Source |
 | --- | --- |
@@ -370,8 +397,9 @@ this library; route users to `/gh-create-app`.
 
 When writing a skill that consumes this library:
 
-- Open with a statement of which permissions the skill requires
-  (the `required_permissions` map).
+- Open with a statement of which permissions the skill requires. A
+  skill that requires the starter permission set names it rather than
+  restating its scopes.
 - Reference this file: "See `skills/lib/gh-app.md` for the
   find/verify sequence."
 - Do not duplicate the find/verify logic inline -- reference the
