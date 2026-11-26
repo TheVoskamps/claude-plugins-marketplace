@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# account-launch-test.sh -- the launcher's `--as <name>` sources and refusals
-# (issue #771).
+# account-launch-test.sh -- the launcher's `--as <name>` sources and refusals.
 #
 # Runs the REAL payload/claude-vm.sh against a fake $HOME, with `security`,
 # `gpg` and `podman` stubbed on a PATH that carries no `vfkit`. A launch whose
@@ -217,7 +216,7 @@ assert_contains "--as absent: names the account" "$OUT" "account 'absent'"
 assert_eq "--as absent: no Keychain read" "" "$(cat "$SEC_LOG")"
 assert_not_contains "--as absent: refuses before the image build" "$OUT" "$PAST_ACCOUNT_CHECKS"
 
-# --- 6. Without --as, as before -------------------------------------------
+# --- 6. Without --as, the default account's sources -----------------------
 # The inherited CLAUDE_CONFIG_DIR names the account directory, whose
 # .claude.json is removed: passing the identity preflight shows ~/.claude.json
 # was read, and no Keychain read happens before the image build.

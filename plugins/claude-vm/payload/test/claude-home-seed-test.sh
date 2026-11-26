@@ -462,7 +462,7 @@ assert_absent "--as: keybindings.json the account lacks is not taken from ~/.cla
 assert_absent "--as: the account's settings.json is not staged" \
   "$H/creds/claude-home/settings.json"
 
-# The same host without --as seeds from ~/.claude, as before.
+# The same host without --as seeds from ~/.claude.
 H2="$WORK/case-h2"
 mkdir -p "$H2"
 cp -R "$H/home" "$H2/home"

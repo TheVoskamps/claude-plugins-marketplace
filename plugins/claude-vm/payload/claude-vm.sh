@@ -89,8 +89,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------
 # The account (see ACCOUNT above). Checked here, before anything reads host
 # state, so a bad name or a missing account directory refuses before any build
-# or boot. ACCOUNT_NOTE is appended to the Keychain refusals further down so
-# each one names the account; it is empty without --as.
+# or boot. ACCOUNT_NOTE is appended to the Keychain and identity-seed refusals
+# further down so each one names the account; it is empty without --as.
 ACCOUNT_NAME=""
 ACCOUNT_DIR=""
 ACCOUNT_NOTE=""
@@ -111,11 +111,10 @@ shift
 CLAUDE_ARGS=("$@")
 
 # claude-vm has NO own-flags but a leading --as: every post-repo arg is
-# forwarded to the guest claude verbatim (the #51 launcher contract). --as is
-# the one exception because the account must be known before any host state is
-# read, and it is recognised only ahead of the repo path. The guest's plugin
-# enable/disable state comes from the config files (claude.plugins.enabled),
-# not from CLI flags.
+# forwarded to the guest claude verbatim. --as is the one exception because the
+# account must be known before any host state is read, and it is recognised only
+# ahead of the repo path. The guest's plugin enable/disable state comes from the
+# config files (claude.plugins.enabled), not from CLI flags.
 
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
@@ -590,12 +589,12 @@ fi
 
 # ---------------------------------------------------------------------
 # Account Keychain PREFLIGHT (--as only). Without --as the Keychain item is
-# read once, further down, after the image build; that path is unchanged. With
-# --as, a missing or unusable item for the account is refused HERE, before any
-# build or boot, by reading the item and running it through the same selection
-# and token validation the later read uses. The blob travels only through the
-# pipe -- nothing of it is written to disk or printed -- and the later read
-# remains the one that installs the credential.
+# read once, further down, after the image build. With --as, a missing or
+# unusable item for the account is refused HERE, before any build or boot, by
+# reading the item and running it through the same selection and token
+# validation the later read uses. The blob travels only through the pipe --
+# nothing of it is written to disk or printed -- and the later read is the one
+# that installs the credential.
 # ---------------------------------------------------------------------
 claude_vm_preflight_account_keychain() {
   local err_file sec_rc sel_rc val_rc

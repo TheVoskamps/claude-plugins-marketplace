@@ -147,7 +147,7 @@ assert_contains "repo legacy present: prints migration pointer" "$OUT" "legacy s
 rm -f "$REPO/.claude-vm/config.yml"
 
 # ---------------------------------------------------------------------
-# --as <name> (issue #771). The fake $HOME holds one account, `work`; a
+# --as <name>. The fake $HOME holds one account, `work`; a
 # CLAUDE_CONFIG_DIR naming a different directory is inherited by every case,
 # so each one also shows that the variable decides nothing.
 # ---------------------------------------------------------------------
