@@ -167,8 +167,8 @@ BASE_OS_REV="debian-12-20250601"
 # Packages= list (provisioners/podman-mkosi.sh) never named it. `apt` is now
 # baked UNCONDITIONALLY, not gated on whether boot-time apt work is
 # configured, because update_at_boot's default in the key table runs boot-time
-# apt work (so nearly every config needs it), the security boundary for a hard-secure all-baked
-# config is the egress allowlist (mirrors left unreachable), not the absence
+# apt work (so nearly every config needs it), the security boundary for a
+# hard-secure all-baked config is the egress allowlist (mirrors left unreachable), not the absence
 # of the apt binary, and the add_apt_uris_to_allowlist: always mid-session-
 # install path is only honest if apt exists. This is a base-image CONTENT
 # change (not boot-logic code), but it still must invalidate every cached

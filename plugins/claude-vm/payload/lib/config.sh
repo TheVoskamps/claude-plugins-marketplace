@@ -1382,21 +1382,23 @@ claude_vm_guest_system_path_containing() {
 # (<CLAUDE_VM_GUEST_WRAP_MOUNT>/<tag>); and a field in mounts.tsv. The charset
 # check covers only the first two, so it is necessary and not sufficient:
 #
-#   - `.` and `..` are not path components. `tag: ".."` walks one level up out of
-#     each tree the entry reaches -- the default mountpoint for any entry, both
-#     wrap paths for a single-file one -- and the `..` rejection on `path:`
-#     never sees it: that guard runs only when `path:` is set, and with one set
-#     the wrap paths are still walked up. The launcher would then share the wrap
-#     directory's PARENT, $RUN, which holds creds/.credentials.json, read-write
-#     in the guest. `...` and `a..b` are ordinary names and pass.
+#   - `.` and `..` are not path components. `tag: ".."` walks one level up out
+#     of each tree the entry reaches -- the default mountpoint for any entry,
+#     both wrap paths for a single-file one -- and the `..` rejection on
+#     `path:` never sees it: that guard runs only when `path:` is set, and with
+#     one set the wrap paths are still walked up. The launcher would then share
+#     the wrap directory's PARENT, $RUN, which holds creds/.credentials.json,
+#     read-write in the guest. `...` and `a..b` are ordinary names and pass.
 #   - a leading `-` is not an argv word: the guest's `mount` reads it as an
-#     option. Measured on util-linux 2.38.1, `mount -t virtiofs -o rw -a <path>`
-#     exits 0 having mounted nothing, so boot_mount_phase would log a mount that
-#     never happened; `--bind`, `-o` and `-r` fail loudly. `a-b` passes.
+#     option. Measured on util-linux 2.38.1,
+#     `mount -t virtiofs -o rw -a <path>` exits 0 having mounted nothing, so
+#     boot_mount_phase would log a mount that never happened; `--bind`, `-o`
+#     and `-r` fail loudly. `a-b` passes.
 #
 # That enumeration is what the arms are derived from, so it grades any new
 # position the tag is given -- a filename, another argv slot, an interpolated
-# string -- which adds an arm when it rejects something the existing ones accept.
+# string -- which adds an arm when it rejects something the existing ones
+# accept.
 #
 # A `mode:` key on ANY entry is also an abort, checked before the loop over its
 # own emitter (claude_vm_mount_mode_entries). It is not a malformed value but a

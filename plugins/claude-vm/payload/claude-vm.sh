@@ -377,9 +377,9 @@ export CLAUDE_VM_BAKE_PLUGINS
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized above its base content, so a live session has room to grow
 # without hitting ENOSPC (lib/config.sh justifies the default beside its key
-# table). Resolved once here as the MERGED, default-filled value and exported so build-guest-image.sh forwards it
-# to the provisioner as the actual partition size. Validated as a positive integer up
-# front (a typo here should abort the launch, not silently fall through to
+# table). Resolved once here as the MERGED, default-filled value and exported
+# so build-guest-image.sh forwards it to the provisioner as the actual
+# partition size. Validated as a positive integer up front (a typo here should abort the launch, not silently fall through to
 # whatever the provisioner does with garbage). This is the BUILD input; the
 # cache key is the identity segment below, which covers headroom per LAYER.
 CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$(claude_vm_config_key_default image.root_headroom_mb)")"
@@ -444,9 +444,9 @@ case "$CLAUDE_RENDERER" in
 esac
 
 # claude.remote_control (issue #88) enables Claude Code's Remote Control on
-# this launch. When true, the launcher injects `--remote-control` into the guest's CLAUDE_ARGS
-# (unless the CLI args already carry it) and, if Remote Control is in effect but
-# no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
+# this launch. When true, the launcher injects `--remote-control` into the
+# guest's CLAUDE_ARGS (unless the CLI args already carry it) and, if Remote
+# Control is in effect but no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
 # date-stamp default). Validate like the renderer knob: accept true/false/unset;
 # anything else aborts up front rather than being silently ignored.
 CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED_BOOT" '.claude.remote_control' "")"
@@ -483,7 +483,8 @@ unset _rc_name_stamp _augmented_args _line
 # permissions.defaultMode in the guest's settings.json -- and there is no
 # reasoning model for how the guest claude behaves under an unknown defaultMode,
 # so accept ONLY the modes the case below names and abort on anything else,
-# mirroring the validation used for claude.renderer / claude.remote_control above.
+# mirroring the validation used for claude.renderer / claude.remote_control
+# above.
 # The render (claude_vm_render_guest_settings) re-reads this key with the same
 # default, but the authoritative guard is HERE so a typo aborts the launch
 # rather than writing an unexpected defaultMode into the guest.
