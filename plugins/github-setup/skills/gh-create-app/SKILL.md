@@ -473,6 +473,6 @@ converge**, never duplicate:
   per-user Claude commit identity is a separate sub-issue / design
   doc, not this skill.
 - **Branch-protection bypass wiring.** Listing the App as a
-  bypass actor in a ruleset is `/gh-repo-setup-protection`'s / a
-  protection skill's concern; this skill only provisions the App
-  identity and secrets.
+  bypass actor in a ruleset is done out of band — no skill in this
+  plugin adds it; this skill only provisions the App identity and
+  secrets.

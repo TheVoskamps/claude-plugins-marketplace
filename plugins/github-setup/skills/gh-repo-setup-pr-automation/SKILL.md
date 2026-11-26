@@ -58,9 +58,9 @@ gates" below). Do not skip them.
 The **unattended Dependabot REST-merge** path additionally requires the
 App to be a `pull_request` **bypass actor** in the repo's
 branch-protection ruleset — that is what lets its direct REST merge waive
-the review/code-owner rule for a code-owned Dependabot PR. Adding the
-bypass actor is a **branch-protection concern owned by
-`/gh-repo-setup-protection`**, not this skill (see "Out of scope").
+the review/code-owner rule for a code-owned Dependabot PR. The bypass
+actor is **added out of band**: neither this skill nor
+`/gh-repo-setup-protection` adds it (see "Out of scope").
 Without the bypass, a green Dependabot PR on an un-code-owned path still
 merges (no review required); one on a code-owned path is left for a human
 — the job degrades safely.
@@ -744,15 +744,16 @@ Rendered-files PR (branch gh-repo-setup-pr-automation, Step 6b):
 
 Unattended Dependabot rebase-and-merge: <ON | OFF: no required-check workflow>
   - When ON, also add the App "<app_slug>" as a `pull_request` bypass
-    actor in the branch-protection ruleset (owned by
-    /gh-repo-setup-protection) so a code-owned Dependabot PR can merge
-    unattended. Without the bypass it still merges un-code-owned PRs.
+    actor in the branch-protection ruleset, out of band (no skill adds
+    it), so a code-owned Dependabot PR can merge unattended. Without the
+    bypass it still merges un-code-owned PRs.
 
 Next steps:
   1. Review and merge the rendered-files PR above (if one was opened);
      the workflows take effect once on the default branch.
-  2. If unattended Dependabot merge is ON, run /gh-repo-setup-protection
-     to add the App as a bypass actor (if not already done).
+  2. If unattended Dependabot merge is ON, add the App as a
+     `pull_request` bypass actor in the branch-protection ruleset (if
+     not already done).
   3. Verify end-to-end (operational, see "Live verification" below).
 ```
 
@@ -788,9 +789,9 @@ the default branch, the human:
    `dependabot-rest-merge` job resolves the required-check set, finds the
    PR green, rebases it in-workflow if behind, and merges it. A
    code-owned Dependabot PR merges unattended **only** if the App is a
-   `pull_request` bypass actor in the branch-protection ruleset (see
-   `/gh-repo-setup-protection`); otherwise it is left for a human, which
-   is the safe default.
+   `pull_request` bypass actor in the branch-protection ruleset, added
+   out of band; otherwise it is left for a human, which is the safe
+   default.
 
 5. **Lockfile-regen** (only when the install-gate scripts were rendered):
    the shipped self-test runs offline with a fake `npm` and needs no live
@@ -943,9 +944,9 @@ All optional except where the skill prompts:
   secrets for `<gh_org>` and touches no other repo's files.
 - **Never add the bypass actor.** The unattended Dependabot REST-merge
   needs the App to be a `pull_request` bypass actor in the
-  branch-protection ruleset, but adding it is owned by
-  `/gh-repo-setup-protection`. This skill only renders the job and tells
-  the operator (Step 8) to run that skill; it never edits a ruleset.
+  branch-protection ruleset, and it is added out of band: no skill in
+  this plugin adds it. This skill only renders the job and tells the
+  operator (Step 8) to add it; it never edits a ruleset.
 
 ---
 
@@ -964,10 +965,10 @@ All optional except where the skill prompts:
   scope. The Dependabot REST-merge job **reads** the live required-check
   set from the rulesets at runtime, but it never writes a ruleset. Adding
   the App as a `pull_request` **bypass actor** (what lets the REST merge
-  waive review on a code-owned Dependabot PR) is owned by
-  `/gh-repo-setup-protection`; this skill renders the job and hands the
-  operator off (Step 8). Without the bypass the job still merges
-  un-code-owned green Dependabot PRs.
+  waive review on a code-owned Dependabot PR) is done out of band, by
+  neither this skill nor `/gh-repo-setup-protection`; this skill renders
+  the job and hands the operator off (Step 8). Without the bypass the
+  job still merges un-code-owned green Dependabot PRs.
 - **The live end-to-end verification.** The skill installs everything so
   the human can verify; performing the live PR test requires real
   secrets and a real PR and is the human's operational step (see "Live
