@@ -1,5 +1,12 @@
 # issues changelog
 
+## 0.19.3 — 2026-11-25
+
+The README is now a user manual: what the plugin does, why you would
+want it, what it needs, how to start, and its limits. The conventions
+for changing the plugin moved out of it, into the plugin's `CLAUDE.md`
+and the comments of its scripts and tests. No verb changes.
+
 ## 0.19.2 — 2026-11-23
 
 Internal only: agents no longer read this plugin's READMEs. The rule

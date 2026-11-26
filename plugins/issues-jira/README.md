@@ -18,14 +18,14 @@ and the `issues` verbs work against Jira with nothing else to learn.
 ## Prerequisites
 
 - **The `issues` plugin.** This plugin is a backend for it and does
-  nothing on its own, yet declares no dependency on it: a plugin
-  dependency records that one plugin invokes another, and this one
-  invokes nothing — the invocation runs the other way. Install both.
+  nothing on its own. Installing one does not install the other, so
+  install both.
 - **`acli`**, the Atlassian CLI, installed on the host and on `PATH`.
   The verbs detect its absence and stop; none installs it.
-- **`acli jira auth login --web` completed.** What the verbs do when
-  the session is missing or expired is set out in
-  `plugins/issues-jira/skills/jira-lib/SKILL.md`.
+- **`acli jira auth login --web` completed.** When the session is
+  missing or expired, Claude runs that login once and waits for you to
+  finish it in the browser. If the session is still not there
+  afterwards, the verb stops and says so.
 
 ## How to use
 
@@ -62,9 +62,11 @@ on GitHub:
   templates, the auth expectation, and the rules for resolving a
   human-readable name to a Jira identifier — not a tool in its own
   right.
-- It documents no per-verb behavior. What each verb does on Jira —
-  its flags, defaults and echo format — is documented in
-  `plugins/issues/README.md` and the verbs' own skill files.
+- It adds no verb and changes no verb's flags. A verb takes on Jira
+  what it takes on GitHub.
+- It does not cover every verb. `/issue-list` has no Jira support, and
+  `/issue-view` prints `closed-by: unsupported` in place of the pull
+  requests that close an issue.
 - It offers no path around `acli`. A host without it, or a session
   the web login cannot establish, is reported rather than worked
   around: there is no fallback to the Jira REST API or to a
