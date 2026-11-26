@@ -73,13 +73,8 @@ falling back to `tool_input.name`), and emits the analogous message:
 Skill loaded: review-pr (model-invoked)
 ```
 
-Both hooks are **display-only**, emitting `systemMessage` and nothing
-else:
-
-- The typed-command hook never emits `decision` — it must never block a
-  skill invocation.
-- The model-invocation hook never emits `hookSpecificOutput` — it must
-  leave the normal permission flow completely untouched.
+Both hooks are **display-only**: each emits `systemMessage` and nothing
+else.
 
 ### Malformed / empty stdin
 

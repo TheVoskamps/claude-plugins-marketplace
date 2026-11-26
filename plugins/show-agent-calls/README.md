@@ -38,13 +38,11 @@ Sibling observability plugins cover adjacent surfaces but not this one:
 
 Neither fires for a subagent spawn, so this plugin fills that gap.
 
-### Why `PreToolUse` with matcher `Agent|Task`
+### Why a `PreToolUse` hook
 
 The plugin answers "with what parameters and what prompt", and it reads
 both from the spawn tool call's own `tool_input`, so it hooks the tool
-call itself. The matcher names both `Agent` and `Task` so the hook
-fires whichever name the spawn tool carries on a given Claude Code
-build.
+call itself.
 
 ## How it works
 
@@ -82,15 +80,7 @@ never breaks the hook:
 
 It then emits a single `systemMessage` JSON field containing a header
 line, the optional detail lines, and the full prompt under a `Prompt:`
-heading.
-
-### Display-only guarantee
-
-This hook is **display-only**: it emits `systemMessage` and never
-`hookSpecificOutput`, so it takes no part in the permission decision
-on a spawn. This matters because `block-background-agents` registers a
-hook on the exact same event and matcher; the two compose without
-interference regardless of registration order.
+heading. The hook is **display-only**: that field is its whole output.
 
 ### Malformed / empty stdin
 

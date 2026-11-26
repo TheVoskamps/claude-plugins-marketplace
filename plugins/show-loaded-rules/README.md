@@ -10,7 +10,7 @@ Normally the loading of instruction files (`CLAUDE.md`,
 `.claude/rules/*.md`) is invisible unless you run with `--verbose`.
 This plugin makes each load visible in a normal session by printing a
 short `Rules loaded: <path> (<reason>)` message for every file as it
-loads, whatever the reason for the load.
+loads.
 
 ## Why
 
