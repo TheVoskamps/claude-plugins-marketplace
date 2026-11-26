@@ -26,14 +26,15 @@ between Bash calls in a subagent context.
 
 ## Read global rules first
 
-Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
-instructions at the top of that file.
+Before doing anything else, run `claude-home`, read `CLAUDE.md` in the
+directory it prints, and follow the instructions at the top of that
+file.
 
 The style guides reach you through the triggers that file states —
 the code-style guide, the guide for Markdown a model loads as
 instructions, and the documentation style guide. Each guide names its
 own per-repo extension mechanism;
-follow it. A guide `~/.claude/CLAUDE.md` indexes
+follow it. A guide that `CLAUDE.md` indexes
 that cannot be read at the path it names is a fault: check nothing
 against that guide, reconstruct no rule from memory — an invented rule
 is a finding nobody can check — and report the miss in your report-back

@@ -30,8 +30,9 @@ between Bash calls in a subagent context.
 
 ## Read global rules first
 
-Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
-instructions at the top of that file.
+Before doing anything else, run `claude-home`, read `CLAUDE.md` in the
+directory it prints, and follow the instructions at the top of that
+file.
 
 Every comment you write or correct answers to the style guide of its
 file's class alone:
@@ -46,7 +47,7 @@ file's class alone:
 
 Each guide reaches you through the trigger that file states, and names
 its own per-repo extension mechanism; follow it. A guide that cannot be
-read at the path `~/.claude/CLAUDE.md` names is a fault: change no
+read at the path that `CLAUDE.md` names is a fault: change no
 comment in a file of that guide's class, reconstruct no rule from
 memory, and report the miss in your report-back as one line naming the
 path you tried. A per-repo extension file that is absent contributes

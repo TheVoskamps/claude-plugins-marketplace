@@ -34,7 +34,8 @@ has.
 
 - Claude Code with this plugin enabled. Its dependencies, the `issues`,
   `git-tools`, `github-prs` and `cc-tools` plugins, are installed and
-  enabled with it; `issues` has to be 0.19.0 or later.
+  enabled with it; `issues` has to be 0.19.0 or later and `cc-tools`
+  0.12.0 or later.
 - A repository whose pull requests are on GitHub. Every PR is opened,
   read, reviewed and commented on through `github-prs`, which works
   through `gh`.
@@ -478,6 +479,32 @@ Also outside every repository:
 - Staging files in the session's scratchpad, which go with the
   session.
 
+## Where it finds Claude Code's own files
+
+Claude Code keeps the global `CLAUDE.md`, your rules and skills, the
+installed plugins and the session transcripts in its config directory.
+The plugin takes that directory to be `CLAUDE_CONFIG_DIR` when the
+variable is set and not empty, and `$HOME/.claude` otherwise. A session
+started under another account's config directory therefore gets that
+account's rules, skills and plugins, and a session with the variable
+unset finds everything where it always was.
+
+| What looks | What it finds there |
+| --- | --- |
+| Every agent | The global `CLAUDE.md`, which it reads before anything else. |
+| `reload-after-compact` | A skill invoked without a plugin prefix, under `skills/`, after the project's own `.claude/skills/`; the installed plugins, through `plugins/installed_plugins.json` and `plugins/cache/`. It reloads no file under `rules/`, since Claude Code restores those itself. |
+| `sdlc-agent-result-persist` | The transcript of each review agent, under `projects/`, whose path it records in the round's log. |
+
+An agent does not work the directory out itself: it runs `claude-home`,
+which `cc-tools` puts on `PATH`, and reads `CLAUDE.md` in the directory
+that prints, so no agent spells the rule for choosing the directory.
+`reload-after-compact` and `sdlc-agent-result-persist` do not run
+`claude-home`: each applies the same rule in its own code, and their
+tests and the prose describing them spell it again. A change to the rule is
+therefore made in `claude-home` and in every file of this plugin that
+spells it. Each of those names `CLAUDE_CONFIG_DIR`, so a search of the
+plugin for that name finds them all.
+
 ## Dependencies
 
 | Plugin | What sdlc uses from it |
@@ -485,7 +512,7 @@ Also outside every repository:
 | `issues` | The issue verbs, and `issue-view` for the readiness check. Version 0.19.0 or later: with an older one the readiness check exits with an error naming the `issue-view` it needs. |
 | `git-tools` | Branch creation, branch sync, the branch-name grammar and the default-branch lookup. |
 | `github-prs` | Every PR read and write. |
-| `cc-tools` | Capturing and curating agent memory. |
+| `cc-tools` | Capturing and curating agent memory, and `claude-home`, which prints Claude Code's config directory. Version 0.12.0 or later, the first with `claude-home`. |
 
 `yq`, the mikefarah build at v4 or later, comes with no plugin and is
 installed on the machine. Without it `sdlc-decision` exits with an

@@ -279,7 +279,7 @@ test("a command tag and its base directory in the next message are recorded once
   expect(entries.filter((line) => line.endsWith("git-branch-sync/SKILL.md"))).toHaveLength(1);
 });
 
-test("a skill with no plugin prefix resolves under the project, then ~/.claude/skills", async ($, on) => {
+test("a skill with no plugin prefix resolves under the project, then the config directory's skills", async ($, on) => {
   const project = `${ROOT}/.claude/skills/mine/SKILL.md`;
   const user = `${HOME}/.claude/skills/theirs/SKILL.md`;
   stub(on, { [project]: "project skill", [user]: "user skill" });
@@ -415,7 +415,7 @@ test("a skill of another plugin with no install recorded is named with the error
   expect(text).toContain("installed_plugins.json");
 });
 
-test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other files are not", async ($, on) => {
+test("a rule file read is reloaded, and CLAUDE.md, the config directory's rules and other files are not", async ($, on) => {
   const rule = `${ROOT}/docs/rules/verification-playbook.md`;
   const global = `${HOME}/.claude/docs/rules/code-style.md`;
   stub(on, { [rule]: "playbook", [global]: "code style" });
@@ -436,6 +436,44 @@ test("a rule file read is reloaded, and CLAUDE.md, ~/.claude/rules and other fil
   expect(text).not.toContain("README.md");
   expect(text).not.toContain("script.sh");
 });
+
+// The config directory is `CLAUDE_CONFIG_DIR` when it is set and non-empty, and `$HOME/.claude`
+// otherwise; `other` is the directory the case does not use.
+for (const { name, env, config, other } of [
+  { name: "set", env: { CLAUDE_CONFIG_DIR: "/cfg" }, config: "/cfg", other: `${HOME}/.claude` },
+  { name: "unset", env: {}, config: `${HOME}/.claude`, other: "/cfg" },
+  { name: "empty", env: { CLAUDE_CONFIG_DIR: "" }, config: `${HOME}/.claude`, other: "/cfg" },
+]) {
+  test(`with CLAUDE_CONFIG_DIR ${name}, rules, skills and plugins resolve under ${config}`, async ($, on) => {
+    const user = `${config}/skills/theirs/SKILL.md`;
+    const plugin = `${config}/plugins/cache/market/issues/0.14.1/skills/issue-view/SKILL.md`;
+    const reinjected = `${config}/rules/core-principles.md`;
+    const elsewhere = `${other}/rules/elsewhere.md`;
+    const files = {
+      [user]: "user skill",
+      [`${config}/plugins/installed_plugins.json`]: JSON.stringify({
+        version: 2,
+        plugins: { "issues@market": [{ scope: "user", version: "0.14.1" }] },
+      }),
+      [plugin]: "issue view",
+      [reinjected]: "core principles",
+      [elsewhere]: "elsewhere",
+    };
+    stub(on, files, {}, env);
+    const messages = [
+      ...launched("theirs"),
+      typed("issue-view"),
+      read(reinjected),
+      read(elsewhere),
+    ];
+    const text = reload(await $.session.compact({ trigger: "auto", messages }));
+    expect(text).toContain(block(user, "user skill"));
+    expect(text).toContain(block(plugin, "issue view"));
+    expect(text).toContain(block(elsewhere, "elsewhere"));
+    expect(text).not.toContain("core-principles");
+    expect(text).not.toContain("could not be read");
+  });
+}
 
 test("a subagent's compaction reloads what its own transcript loaded", async ($, on) => {
   const own = `${SKILLS}/git-review-pr/SKILL.md`;

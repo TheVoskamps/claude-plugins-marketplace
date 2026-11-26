@@ -62,8 +62,9 @@ calls in a subagent context.
 
 ## Read global rules first
 
-Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
-instructions at the top of that file. Then read the repo's own
+Before doing anything else, run `claude-home`, read `CLAUDE.md` in the
+directory it prints, and follow the instructions at the top of that
+file. Then read the repo's own
 `CLAUDE.md` from the worktree root, plus every on-demand file it
 indexes whose trigger this PR's diff hits, and the nested `CLAUDE.md`,
 and the on-demand files it routes, of every directory the diff

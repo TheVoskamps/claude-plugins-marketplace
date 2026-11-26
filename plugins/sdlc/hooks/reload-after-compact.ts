@@ -188,6 +188,7 @@ function withoutReload(messages: readonly Message[]): Message[] {
  */
 async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   const home = (await $.env.get("HOME")) ?? "";
+  const config = await configDir($, home);
   const stateNotes: string[] = [];
   let statePath: string | undefined;
   let recorded = NO_STATE;
@@ -223,12 +224,12 @@ async function reloadText($: Mods, e: CompactEvent): Promise<string> {
   const items: Item[] = [];
   for (const [path, seq] of uses.paths) items.push({ label: path, seq });
   for (const [name, seq] of uses.skills) {
-    const item = await skillItem($, name, seq, home);
+    const item = await skillItem($, name, seq, config);
     if (item !== undefined) items.push(item);
   }
   const isOpened = orchestrate === "opened";
   const kept = mergeByLabel(items).filter(
-    (item) => !isReinjected(item.label, home) && !(isOpened && isOpeningFile(item.label)),
+    (item) => !isReinjected(item.label, config) && !(isOpened && isOpeningFile(item.label)),
   );
   if (kept.length === 0 && stateNotes.length === 0) return "";
   kept.sort((a, b) => b.seq - a.seq);
@@ -340,6 +341,16 @@ async function stateFile($: Mods, home: string, agentId: string | undefined): Pr
   const session = encodeURIComponent(await $.session.id());
   const loop = agentId === undefined ? "main" : `agent-${encodeURIComponent(agentId)}`;
   return `${stateHome}/sdlc/reload-after-compact/${session}/${loop}.json`;
+}
+
+/**
+ * Claude Code's config directory, `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` with an empty variable
+ * counting as unset, or `''` when neither `CLAUDE_CONFIG_DIR` nor `HOME` is set.
+ */
+async function configDir($: Mods, home: string): Promise<string> {
+  const dir = await $.env.get("CLAUDE_CONFIG_DIR");
+  if (dir !== undefined && dir !== "") return dir;
+  return home === "" ? "" : `${home}/.claude`;
 }
 
 /**
@@ -459,11 +470,12 @@ function isUnderAgents(path: string): boolean {
   return path.includes(AGENTS_DIR);
 }
 
-/** True for a file the harness itself re-injects after a compaction. */
-function isReinjected(path: string, home: string): boolean {
-  return (
-    baseName(path) === "CLAUDE.md" || (home !== "" && path.startsWith(`${home}/.claude/rules/`))
-  );
+/**
+ * True for a file the harness itself re-injects after a compaction: a `CLAUDE.md`, or a file under
+ * the `rules/` of `config`, the config directory.
+ */
+function isReinjected(path: string, config: string): boolean {
+  return baseName(path) === "CLAUDE.md" || (config !== "" && path.startsWith(`${config}/rules/`));
 }
 
 /**
@@ -539,29 +551,29 @@ function commandNames(text: string): string[] {
 /**
  * Resolves a skill known only by name to its `SKILL.md`. A plugin skill `<plugin>:<name>`
  * resolves to `skills/<name>/SKILL.md` in the plugin's directory, as `pluginDir` finds it. A
- * name with no plugin prefix resolves under the project's `.claude/skills/`, then under
- * `~/.claude/skills/`, then in an installed plugin, as `pluginSkill` finds it, and with a file in
- * none of them is a built-in command and resolves to nothing. A plugin whose directory cannot be
- * found, or an installed-plugin registry that cannot be read, resolves to an item carrying the
- * error.
+ * name with no plugin prefix resolves under the project's `.claude/skills/`, then under the
+ * `skills/` of `config`, the config directory, then in an installed plugin, as `pluginSkill` finds
+ * it, and with a file in none of them is a built-in command and resolves to nothing. A plugin
+ * whose directory cannot be found, or an installed-plugin registry that cannot be read, resolves
+ * to an item carrying the error.
  */
 async function skillItem(
   $: Mods,
   name: string,
   seq: number,
-  home: string,
+  config: string,
 ): Promise<Item | undefined> {
   const colon = name.indexOf(":");
   try {
     if (colon >= 0) {
-      const dir = await pluginDir($, name.slice(0, colon), home);
+      const dir = await pluginDir($, name.slice(0, colon), config);
       return { label: `${dir}/skills/${name.slice(colon + 1)}/SKILL.md`, seq };
     }
     const project = `${await $.session.root()}/.claude/skills/${name}/SKILL.md`;
     if (await $.fs.exists(project)) return { label: project, seq };
-    const user = `${home}/.claude/skills/${name}/SKILL.md`;
-    if (home !== "" && (await $.fs.exists(user))) return { label: user, seq };
-    const plugin = await pluginSkill($, name, home);
+    const user = `${config}/skills/${name}/SKILL.md`;
+    if (config !== "" && (await $.fs.exists(user))) return { label: user, seq };
+    const plugin = await pluginSkill($, name, config);
     return plugin === undefined ? undefined : { label: plugin, seq };
   } catch (err) {
     return { label: `skill ${name}`, seq, error: errorText(err) };
@@ -570,17 +582,17 @@ async function skillItem(
 
 /**
  * The first installed plugin's `skills/<name>/SKILL.md` that exists: the hook's own plugin's,
- * then that of each `<plugin>@<marketplace>` `~/.claude/plugins/installed_plugins.json` records
- * an install of, in the file's order, each in `~/.claude/plugins/cache/<marketplace>/<plugin>/`
- * at the version `installedVersion` picks.
+ * then that of each `<plugin>@<marketplace>` `<config>/plugins/installed_plugins.json` records
+ * an install of, in the file's order, each in `<config>/plugins/cache/<marketplace>/<plugin>/`
+ * at the version `installedVersion` picks, where `<config>` is the config directory.
  * Resolves to nothing when no plugin has the skill or the registry does not exist, and rejects
  * when the registry cannot be read or parsed.
  */
-async function pluginSkill($: Mods, name: string, home: string): Promise<string | undefined> {
+async function pluginSkill($: Mods, name: string, config: string): Promise<string | undefined> {
   const own = `${$.plugin.root}/skills/${name}/SKILL.md`;
   if (await $.fs.exists(own)) return own;
-  if (home === "") return undefined;
-  const registry = `${home}/.claude/plugins/installed_plugins.json`;
+  if (config === "") return undefined;
+  const registry = `${config}/plugins/installed_plugins.json`;
   if (!(await $.fs.exists(registry))) return undefined;
   const plugins = await readRegistry($, registry);
   const root = await $.session.root();
@@ -588,7 +600,7 @@ async function pluginSkill($: Mods, name: string, home: string): Promise<string 
     const at = id.lastIndexOf("@");
     const version = installedVersion(installs, root);
     if (at <= 0 || version === undefined) continue;
-    const dir = `${home}/.claude/plugins/cache/${id.slice(at + 1)}/${id.slice(0, at)}/${version}`;
+    const dir = `${config}/plugins/cache/${id.slice(at + 1)}/${id.slice(0, at)}/${version}`;
     const file = `${dir}/skills/${name}/SKILL.md`;
     if (await $.fs.exists(file)) return file;
   }
@@ -599,25 +611,25 @@ async function pluginSkill($: Mods, name: string, home: string): Promise<string 
  * A plugin's directory: the hook's own plugin root for its own plugin, else the plugin's install
  * in the cache. Rejects as `cachedPluginDir` does.
  */
-async function pluginDir($: Mods, plugin: string, home: string): Promise<string> {
-  return plugin === $.plugin.name ? $.plugin.root : await cachedPluginDir($, plugin, home);
+async function pluginDir($: Mods, plugin: string, config: string): Promise<string> {
+  return plugin === $.plugin.name ? $.plugin.root : await cachedPluginDir($, plugin, config);
 }
 
 /**
  * A plugin's directory in the cache of the marketplace this hook module was installed from:
- * `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`, at the version
- * `~/.claude/plugins/installed_plugins.json` records for the install of `<plugin>@<marketplace>`
- * that `installedVersion` picks. Rejects when that file cannot be read or parsed, or records no
- * such install.
+ * `<config>/plugins/cache/<marketplace>/<plugin>/<version>`, at the version
+ * `<config>/plugins/installed_plugins.json` records for the install of `<plugin>@<marketplace>`
+ * that `installedVersion` picks, where `<config>` is the config directory. Rejects when that file
+ * cannot be read or parsed, or records no such install.
  */
-async function cachedPluginDir($: Mods, plugin: string, home: string): Promise<string> {
+async function cachedPluginDir($: Mods, plugin: string, config: string): Promise<string> {
   const marketplace = baseName(dirName(dirName($.plugin.root)));
   const id = `${plugin}@${marketplace}`;
-  const registry = `${home}/.claude/plugins/installed_plugins.json`;
+  const registry = `${config}/plugins/installed_plugins.json`;
   const plugins = await readRegistry($, registry);
   const version = installedVersion(plugins[id], await $.session.root());
   if (version === undefined) throw new Error(`${registry} records no installed version of ${id}`);
-  return `${home}/.claude/plugins/cache/${marketplace}/${plugin}/${version}`;
+  return `${config}/plugins/cache/${marketplace}/${plugin}/${version}`;
 }
 
 /**

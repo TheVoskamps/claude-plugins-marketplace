@@ -44,8 +44,9 @@ edits, and nothing else.
 
 ## Read global rules first
 
-Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
-instructions at the top of that file.
+Before doing anything else, run `claude-home`, read `CLAUDE.md` in the
+directory it prints, and follow the instructions at the top of that
+file.
 
 You read no repo-config. The skill resolves everything else from the
 inbox and the checked-out tree.

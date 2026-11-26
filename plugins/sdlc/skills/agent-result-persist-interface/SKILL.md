@@ -196,16 +196,16 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/round<ro
 <the same directory>/records
 <the same directory>/review
 ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>/pr<pr>/agents
-~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl
+${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl
 ```
 
 `log` is the round log, `<theorem>-<agent>` a child's result file,
 `records` the round's theorem records, and `review` the round's argued
 review; `agents` is the PR's agents log, beside its rounds rather than
 in one, since an agent spawned for the PR belongs to no round and a
-voided round's rename must not carry it away. The `.jsonl` under
-`~/.claude/projects/` is the harness's own transcript of a child, which
-`--mode enter` records. The records and
+voided round's rename must not carry it away. The `.jsonl` is the
+harness's own transcript of a child, under Claude Code's config
+directory, which `--mode enter` records. The records and
 the review are written at the end of the round, and a voided round's
 rename carries both with it exactly as it carries the log and the
 result files.

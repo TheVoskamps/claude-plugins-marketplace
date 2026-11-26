@@ -21,8 +21,9 @@ clone. Nothing below writes to it.
 
 ## Read global rules first
 
-Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
-instructions at the top of that file.
+Before doing anything else, run `claude-home`, read `CLAUDE.md` in the
+directory it prints, and follow the instructions at the top of that
+file.
 
 ## Inputs
 
