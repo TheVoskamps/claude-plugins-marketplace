@@ -201,6 +201,16 @@ with the rebuilt file in the working tree and the committed one taken
 from the immutable git object, `git show HEAD:<bin-path> > <tmp>`, never
 from a working-tree copy a concurrent session can rewrite mid-check.
 
+On a commit made the way `plugins/guardrails/CLAUDE.md` prescribes, the
+rebuild at head shows every binary modified, always. The binaries were
+built from the source commit before the amend that added them, so they
+stamp that commit's `vcs.revision` and `vcs.time`, and the amend gives
+head a new hash and commit time that a rebuild stamps instead. That
+entry is no mismatch signal. Go straight to the protocol below, which
+still settles it: `go tool nm` identical under the
+`runtime.modinfo.str` filter, the `go tool buildid` third segment
+matching, and `go version -m` differing only in the vcs stamp lines.
+
 ### The decisive protocol when the bytes differ
 
 Require all of:
@@ -222,7 +232,7 @@ and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
 committed arch was rebuilt consistently when only one can execute. The
 Go version, the module path, each dependency's version and `h1:` hash,
 `-trimpath=true` and `CGO_ENABLED=0` must all match; only
-`vcs.revision` and `vcs.modified` may differ.
+`vcs.revision`, `vcs.time` and `vcs.modified` may differ.
 
 The `nm` comparison of item 1, spelled out:
 
