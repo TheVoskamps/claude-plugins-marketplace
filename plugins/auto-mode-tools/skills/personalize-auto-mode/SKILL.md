@@ -74,6 +74,13 @@ read one shape twice rather than two shapes. A `bots` entry is one
 record because a rule matching a bot generally needs its login and its
 email to agree.
 
+`organizations` and `sso-profiles` are flat lists of bare names: a
+profile may map to several accounts or to a shared role, so attach
+neither to it. `public-repositories` holds `owner/repo` strings and
+does not depend on `organizations` listing the owner. `scratch-globs`
+and `worktree-globs` stay separate because the tuned rules treat
+disposable scratch space and worktrees differently.
+
 ## Procedure
 
 Write the same file `/auto-mode-tools:tune-auto-mode` writes, so carry
