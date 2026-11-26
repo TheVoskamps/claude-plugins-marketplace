@@ -77,11 +77,23 @@ email to agree.
 ## Procedure
 
 Write the same file `/auto-mode-tools:tune-auto-mode` writes, so carry
-the same protections, in this order:
+the same protections, in this order.
 
-1. **Read** the live `~/.claude/settings.json`. If it has no `autoMode`
-   block, stop and say so — this skill rewrites a block, it does not
-   author one.
+The live file is `settings.json` in Claude Code's config directory,
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, an empty variable counting as
+unset. Resolve it before any command sets `CLAUDE_CONFIG_DIR` to the
+scratch directory; the path this prints is the live file every step
+below reads, backs up and writes:
+
+```bash
+realpath "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+```
+
+`realpath` follows a symlinked `settings.json` to its target, so the
+write lands in the target and leaves the link a link.
+
+1. **Read** the live file. If it has no `autoMode` block, stop and say
+   so — this skill rewrites a block, it does not author one.
 2. **Produce the rewritten block** in a scratch `CLAUDE_CONFIG_DIR`
    copy of that file, never in the live file.
 3. **Show the human the diff** and get an explicit approval.

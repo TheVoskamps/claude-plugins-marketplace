@@ -1,5 +1,16 @@
 # auto-mode-tools changelog
 
+## 0.2.0 — 2026-11-25
+
+`/tune-auto-mode` and `/personalize-auto-mode` now read and write
+`settings.json` in Claude Code's config directory: the one
+`CLAUDE_CONFIG_DIR` names, or `~/.claude` when that variable is unset
+or empty. Both used to edit `~/.claude/settings.json` whatever
+directory the session ran under.
+
+When that `settings.json` is a symlink, both skills now back up and
+write the link's target and leave the link in place.
+
 ## 0.1.1 — 2026-11-23
 
 Internal only: agents no longer read this plugin's README. The
