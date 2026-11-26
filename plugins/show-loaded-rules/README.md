@@ -6,13 +6,11 @@ file loaded into context**.
 
 ## What it does
 
-Claude Code loads instruction files (`CLAUDE.md`, `.claude/rules/*.md`)
-both at session start and lazily during a session (nested-directory
-traversal, glob-path matches, explicit `include`, or context
-compaction). Normally that loading is invisible unless you run with
-`--verbose`. This plugin makes each load visible in a normal session by
-printing a short `Rules loaded: <path> (<reason>)` message for every
-file as it loads.
+Normally the loading of instruction files (`CLAUDE.md`,
+`.claude/rules/*.md`) is invisible unless you run with `--verbose`.
+This plugin makes each load visible in a normal session by printing a
+short `Rules loaded: <path> (<reason>)` message for every file as it
+loads, whatever the reason for the load.
 
 ## Why
 
@@ -25,8 +23,7 @@ tiny dedicated hook is the simplest way to expose it.
 ## How it works
 
 `hooks/hooks.json` registers an `InstructionsLoaded` hook with no
-matcher (the event has no tool name to match on; it fires for every
-loaded file regardless of `load_reason`):
+matcher:
 
 ```json
 {

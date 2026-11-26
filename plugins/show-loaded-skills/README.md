@@ -9,10 +9,11 @@ command and a model-initiated invocation.
 
 Claude Code loads a skill in two distinct ways:
 
-- **Typed command**: you type `/my-skill` and it expands into a prompt
-  before Claude sees it. `UserPromptExpansion` fires for this path.
+- **Typed command**: you type `/my-skill`. The plugin's
+  `UserPromptExpansion` hook reports this path.
 - **Model invocation**: Claude decides to call a skill through the `Skill`
-  tool. `PreToolUse` with matcher `Skill` fires for this path.
+  tool. The plugin's `PreToolUse` hook, with matcher `Skill`, reports
+  this path.
 
 Normally both loads are invisible unless you run with `--verbose`. This
 plugin makes each visible in a normal session by printing a short
@@ -23,10 +24,8 @@ plugin makes each visible in a normal session by printing a short
 Knowing which skill just loaded — and whether you typed it or Claude
 chose it — is useful for debugging "why is Claude doing X" questions and
 for building trust that the right skill actually ran. Sibling plugin
-`show-loaded-rules` covers the analogous
-question for CLAUDE.md / rules files via `InstructionsLoaded`; this
-plugin covers skills specifically, since `InstructionsLoaded` does not
-fire for skill loads.
+`show-loaded-rules` covers the analogous question for CLAUDE.md / rules
+files; this plugin covers skills.
 
 ## How it works
 
@@ -74,15 +73,13 @@ falling back to `tool_input.name`), and emits the analogous message:
 Skill loaded: review-pr (model-invoked)
 ```
 
-Both hooks are **display-only**:
+Both hooks are **display-only**, emitting `systemMessage` and nothing
+else:
 
-- `UserPromptExpansion` supports a top-level `decision: "block"` to stop
-  the expansion. This plugin never emits `decision` — it must never block
-  a skill invocation.
-- `PreToolUse` supports `hookSpecificOutput.permissionDecision`
-  (allow/deny/ask) and `updatedInput`. This plugin never emits
-  `hookSpecificOutput` — it must leave the normal permission flow
-  completely untouched and only surface a message.
+- The typed-command hook never emits `decision` — it must never block a
+  skill invocation.
+- The model-invocation hook never emits `hookSpecificOutput` — it must
+  leave the normal permission flow completely untouched.
 
 ### Malformed / empty stdin
 

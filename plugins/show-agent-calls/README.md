@@ -38,20 +38,13 @@ Sibling observability plugins cover adjacent surfaces but not this one:
 
 Neither fires for a subagent spawn, so this plugin fills that gap.
 
-### Why not `SubagentStart`?
-
-The purpose-built `SubagentStart` event was considered and rejected.
-Per the official hooks docs (<https://code.claude.com/docs/en/hooks>)
-it carries only `agent_id` and `agent_type` — not the prompt,
-description, model, or spawn parameters. It cannot satisfy "with what
-parameters and what prompt", which is the whole point of this plugin.
-
 ### Why `PreToolUse` with matcher `Agent|Task`
 
-The spawn parameters live only in the tool call's `tool_input`, which
-is visible on `PreToolUse`. The matcher names both `Agent` and `Task`
-so the hook fires whichever name the spawn tool carries on a given
-Claude Code build.
+The plugin answers "with what parameters and what prompt", and it reads
+both from the spawn tool call's own `tool_input`, so it hooks the tool
+call itself. The matcher names both `Agent` and `Task` so the hook
+fires whichever name the spawn tool carries on a given Claude Code
+build.
 
 ## How it works
 
@@ -93,13 +86,11 @@ heading.
 
 ### Display-only guarantee
 
-This hook is **display-only**: `PreToolUse` supports
-`hookSpecificOutput.permissionDecision` (allow/deny/ask) and
-`updatedInput`, but this plugin never emits `hookSpecificOutput` — only
-`systemMessage`. This matters because `block-background-agents`
-registers a hook on the exact same event and matcher; since this
-plugin never touches the permission-decision channel, the two compose
-without interference regardless of registration order.
+This hook is **display-only**: it emits `systemMessage` and never
+`hookSpecificOutput`, so it takes no part in the permission decision
+on a spawn. This matters because `block-background-agents` registers a
+hook on the exact same event and matcher; the two compose without
+interference regardless of registration order.
 
 ### Malformed / empty stdin
 
