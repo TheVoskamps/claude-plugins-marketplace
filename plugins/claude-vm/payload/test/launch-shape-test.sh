@@ -41,8 +41,15 @@ fi
 PASS=0
 FAIL=0
 
-ok()   { PASS=$((PASS + 1)); echo "ok   - $1"; }
-bad()  { FAIL=$((FAIL + 1)); echo "FAIL - $1"; [ -n "${2:-}" ] && echo "        $2"; }
+ok() {
+  PASS=$((PASS + 1))
+  echo "ok   - $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "FAIL - $1"
+  [ -n "${2:-}" ] && echo "        $2"
+}
 
 # Slice the vfkit invocation: from the `exec vfkit \` command line through
 # the first following non-continuation line. awk collects the invocation's
@@ -76,10 +83,12 @@ else
   ok "vfkit invocation found in launcher"
   LAST_LINE="$(printf '%s\n' "$VFKIT_BLOCK" | tail -1)"
   case "$LAST_LINE" in
-    *"&"|*"& ")
-      bad "vfkit runs foreground (no trailing &)" "last line: [$LAST_LINE]" ;;
+    *"&" | *"& ")
+      bad "vfkit runs foreground (no trailing &)" "last line: [$LAST_LINE]"
+      ;;
     *)
-      ok "vfkit runs foreground (no trailing &)" ;;
+      ok "vfkit runs foreground (no trailing &)"
+      ;;
   esac
 fi
 # The subshell vfkit is exec'd from closes on a bare `)`: no `&` after it.
@@ -87,7 +96,7 @@ if [ "$CLOSE_LINE" = ')' ]; then
   ok "the subshell vfkit is exec'd from runs foreground (bare close)"
 else
   bad "the subshell vfkit is exec'd from runs foreground (bare close)" \
-      "line after invocation: [$CLOSE_LINE]"
+    "line after invocation: [$CLOSE_LINE]"
 fi
 
 # ---------------------------------------------------------------------
@@ -98,7 +107,7 @@ if [ "$AFTER_LINE" = 'VM_EXIT_STATUS=$?' ]; then
   ok 'VM_EXIT_STATUS=$? immediately follows the vfkit subshell'
 else
   bad 'VM_EXIT_STATUS=$? immediately follows the vfkit subshell' \
-      "line after the subshell: [$AFTER_LINE]"
+    "line after the subshell: [$AFTER_LINE]"
 fi
 
 # ---------------------------------------------------------------------
@@ -106,10 +115,11 @@ fi
 #    no reap functions, no REAP_ constants, no `wait "$VFKIT...`. The
 #    subshell's own VFKIT_PID, handed to the watcher, is never waited on.
 # ---------------------------------------------------------------------
+# shellcheck disable=SC2016 # the patterns are literal launcher text
 for FORBIDDEN in 'wait "$VFKIT' 'reap_vfkit' 'REAP_'; do
   if grep -q "$FORBIDDEN" "$LAUNCHER"; then
     bad "launcher contains no '$FORBIDDEN'" \
-        "$(grep -n "$FORBIDDEN" "$LAUNCHER" | head -3)"
+      "$(grep -n "$FORBIDDEN" "$LAUNCHER" | head -3)"
   else
     ok "launcher contains no '$FORBIDDEN'"
   fi

@@ -17,12 +17,14 @@
 # image rebuild.
 #
 # NO SECRETS HERE. The host claude.ai OAuth credential is mounted into the guest
-# at runtime by the launcher; it is never read from or written to any config file.
-# (egress.allow must include the Anthropic API host below so the in-guest claude
-# can reach it.) A third-party API key reaches the guest by REFERENCE, not by
-# value: `env.copy` names a host environment variable and `env.files` names a
-# host .env file, both read at launch -- see the `env:` block near the bottom.
+# at runtime by the launcher; it is never read from or written to any config
+# file. (egress.allow must include the Anthropic API host below so the in-guest
+# claude can reach it.) A third-party API key reaches the guest by REFERENCE,
+# not by value: `env.copy` names a host environment variable and `env.files`
+# names a host .env file, both read at launch -- see the `env:` block near the
+# bottom.
 
+---
 # VM size, mem in MiB. Memory is the real ceiling: it is committed, while vCPUs
 # time-slice.
 # cpus: 6
@@ -93,17 +95,19 @@ packages:
 #   gpg --fingerprint claude-code   # confirm against the published value
 claude:
   # version: 2.1.172
-  signing_key_fingerprint: ""   # e.g. "AAAA BBBB ... 2222 3333" -- unset = verified cache disabled (hard abort)
+  # signing_key_fingerprint, e.g. "AAAA BBBB ... 2222 3333" -- unset = verified
+  # cache disabled (hard abort).
+  signing_key_fingerprint: ""
   # renderer: which terminal renderer the in-guest claude uses on the
   # interactive console (the vfkit stdio byte-pipe). Both work -- a preference:
   #   classic     -- CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (no alt-screen)
   #   fullscreen  -- CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
   #   (unset)     -- pass nothing; claude uses its own default
   # renderer: classic
-  # remote_control: OPT-IN boolean. When true, the launcher adds --remote-control
-  # (unless already on the command line) and, when RC is in effect but no --name
-  # was given, appends a date-stamped --name. Accepts true/false; any other
-  # value aborts the launch.
+  # remote_control: OPT-IN boolean. When true, the launcher adds
+  # --remote-control (unless already on the command line) and, when RC is in
+  # effect but no --name was given, appends a date-stamped --name. Accepts
+  # true/false; any other value aborts the launch.
   # remote_control: true
 
   # Guest Claude permission mode + rules, rendered into the guest
@@ -154,12 +158,12 @@ claude:
     # than parsing and silently baking nothing. That is a PRESENCE test asked
     # of this raw file, so an empty placeholder -- a valueless `bake:`, or
     # `bake: []` / `""` / `{}` -- aborts too.
-    install_at_boot: []   # plugin@marketplace refs installed at boot.
-                          # Installed BLOCKING, before claude starts, by the
-                          # guest's own `claude plugin install`. A failed
-                          # install warns loudly on the captured console log
-                          # and CONTINUES to claude -- it never blocks an
-                          # interactive session.
+
+    # install_at_boot: plugin@marketplace refs installed at boot. Installed
+    # BLOCKING, before claude starts, by the guest's own `claude plugin
+    # install`. A failed install warns loudly on the captured console log and
+    # CONTINUES to claude -- it never blocks an interactive session.
+    install_at_boot: []
 
     # update_at_boot refreshes the marketplaces and updates the installed
     # plugins at boot. This is the FRESHNESS mechanism for BAKED plugins: they
@@ -196,7 +200,9 @@ claude:
 # launcher, an override must read the egress allowlist from
 # $CLAUDE_VM_EGRESS_ALLOWLIST and bind $CLAUDE_VM_PROXY_PORT.
 # proxy:
-#   cmd: "my-forward-proxy --allowlist-file $CLAUDE_VM_EGRESS_ALLOWLIST --port $CLAUDE_VM_PROXY_PORT"
+#   cmd: >-
+#     my-forward-proxy --allowlist-file $CLAUDE_VM_EGRESS_ALLOWLIST
+#     --port $CLAUDE_VM_PROXY_PORT
 
 # Guest-image provisioner selection is ENV-VAR-ONLY: build-guest-image.sh runs
 # the bundled podman-mkosi provisioner unless CLAUDE_VM_IMAGE_PROVISIONER
@@ -315,22 +321,22 @@ egress:
 # host aborts the launch, so shipping live entries here would make a
 # copied-verbatim config refuse to boot until you happened to have a
 # ~/datasets/foo. Uncomment the ones you want and point them at real paths.
-mounts:
-  # A reference directory, mounted at /mnt/policy. Read-write, like all of
-  # them -- the guest can change what it finds there.
-  # - source: ~/.claude/policy
-  #   tag: policy
-  # - source: ~/datasets/foo
-  #   tag: data
-  # A single file, placed where the guest expects it rather than under /mnt:
-  # - source: ~/.gitconfig
-  #   tag: gitconfig
-  #   path: /root/.gitconfig
-  # A scratch directory. Read the warning above first: these writes hit the
-  # host immediately, and this is the shape to prefer -- a directory you would
-  # not mind losing.
-  # - source: ~/claude-vm-scratch
-  #   tag: scratch
+# mounts:
+#   # A reference directory, mounted at /mnt/policy. Read-write, like all of
+#   # them -- the guest can change what it finds there.
+#   - source: ~/.claude/policy
+#     tag: policy
+#   - source: ~/datasets/foo
+#     tag: data
+#   # A single file, placed where the guest expects it rather than under /mnt:
+#   - source: ~/.gitconfig
+#     tag: gitconfig
+#     path: /root/.gitconfig
+#   # A scratch directory. Read the warning above first: these writes hit the
+#   # host immediately, and this is the shape to prefer -- a directory you
+#   # would not mind losing.
+#   - source: ~/claude-vm-scratch
+#     tag: scratch
 
 # Guest GitHub auth: seed the guest with a GitHub token derived from the host.
 # github:
@@ -369,11 +375,11 @@ mounts:
 # Precedence, lowest to highest:
 #   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
 #
-# EGRESS: forwarding a key is not enough to USE it. The guest is egress-confined,
-# so the service's host must also be in `egress.allow` above (`openrouter.ai`,
-# `api.tavily.com`, ...) or the proxy blocks the call and the failure is
-# baffling. A variable NAME does not imply a hostname the way an apt source
-# implies one, so nothing is derived automatically -- there is no
+# EGRESS: forwarding a key is not enough to USE it. The guest is
+# egress-confined, so the service's host must also be in `egress.allow` above
+# (`openrouter.ai`, `api.tavily.com`, ...) or the proxy blocks the call and the
+# failure is baffling. A variable NAME does not imply a hostname the way an apt
+# source implies one, so nothing is derived automatically -- there is no
 # `add_..._uris_to_allowlist` analogue here. Add the pair together.
 #
 # EVERY mistake below aborts the launch rather than booting a guest that
@@ -404,12 +410,12 @@ mounts:
 # launch, so shipping live entries here would make a copied-verbatim config
 # refuse to boot until you happened to export an OPENROUTER_API_KEY.
 env:
-  set:
-    # config-bake.example.yml sets this too; the boot value wins, which is the
-    # top of the precedence chain above.
-    FOO_ENDPOINT: https://foo.staging/v2
   # copy:
   #   - OPENROUTER_API_KEY
   #   - TAVILY_API_KEY
   # files:
   #   - ~/.config/foo/prod.env
+  set:
+    # config-bake.example.yml sets this too; the boot value wins, which is the
+    # top of the precedence chain above.
+    FOO_ENDPOINT: https://foo.staging/v2

@@ -28,7 +28,8 @@
 #
 # Every repo without a config-bake.yml shares one image per global-bake hash; a
 # repo with a config-bake.yml gets its own image (its name disambiguates it,
-# even if the file is byte-identical to another repo's -- legibility over dedup).
+# even if the file is byte-identical to another repo's -- legibility over
+# dedup).
 #
 # NO SECRETS HERE, with FULL FORCE. A bake-file value is both committed config
 # AND image bytes: it persists in the .raw for every session that image serves,
@@ -39,6 +40,7 @@
 # by value -- see `env.copy` / `env.files` in config-boot.example.yml, which are
 # a hard abort in THIS file precisely because of the persistence above.
 
+---
 # apt packages baked into the guest image at build time (flat list of names).
 # Present with no network at boot. Use `bake` for packages stable enough not to
 # need a fresh copy every launch; put fast-changing packages in the BOOT file's
