@@ -119,591 +119,76 @@ instead of silently poisoning the image cache.
 4. **Per-repo boot**: `<repo>/.claude-vm/config-boot.yml` — this repo's
    run-time overrides.
 
-Run `/claude-vm-config-global` to create the global pair from the
-resolved defaults, and `/claude-vm-config-repo` (from inside a repo) to
-write per-repo overrides; both are idempotent and never clobber an
-existing file. A legacy single-file `config.yml` (either tier) is no
-longer read — the launcher aborts with a migration message rather than
-silently dropping the knobs it set.
-
-**What goes where:**
-
-- **bake file** — `packages:` (a flat list of apt packages baked into
-  the image), `apt_sources:` (third-party apt repos rendered into the
-  image), `image.root_headroom_mb`, `env.set` (guest environment
-  variables written INTO the image — literals only).
-- **boot file** — `cpus`, `mem`, `guest_image`, `repo.*`, `proxy.*`,
-  `egress.allow`, `mounts`, `provisioner`, `packages:` (here a flat
-  list installed AT BOOT), `update_at_boot`, `add_apt_uris_to_allowlist`,
-  `apt_sources:` (for a boot-time install; union+dedup with the bake
-  file's), `claude.*`, `github.*`, `env.*` (all three sub-keys;
-  `env.copy` and `env.files` are boot-ONLY and abort in a bake file).
-
-### Layering semantics
-
-The effective config is the union of all four files (compose each tier's
-bake+boot, then merge global under repo):
-
-- **Scalars** (`cpus`, `mem`, `guest_image`, `image.root_headroom_mb`
-  [bake], `repo.mount`, `repo.copy_back`, `proxy.*`, `claude.version`,
-  `claude.renderer`, `update_at_boot`, `add_apt_uris_to_allowlist`,
-  `claude.permission_mode`, `claude.plugins.update_at_boot`,
-  `claude.plugins.add_marketplace_uris_to_allowlist`, `github.auth`):
-  repo overrides global; global fills gaps; a hardcoded default applies
-  only when neither layer sets the key.
-- **Scalar maps** (`claude.plugins.enabled`, `env.set`): repo overrides
-  global **per key** — each entry follows the scalar repo-wins rule
-  independently, so a repo can flip one plugin's enabled state, or one
-  environment variable's value, without restating the global map.
-- **Lists** (bake file: `packages`, `apt_sources`, `claude.marketplaces`,
-  `claude.plugins.bake`; boot file: `egress.allow`, `mounts`, `packages`,
-  `apt_sources`, `claude.marketplaces`, `claude.permissions.allow`,
-  `claude.permissions.ask`, `claude.permissions.deny`,
-  `claude.plugins.install_at_boot`, `env.copy`, `env.files`): **merged** —
-  the union of global + repo entries, de-duplicated. `apt_sources` and
-  `claude.marketplaces` are allowed in **both** file types; each is unioned
-  and deduped by `name`, and the same name with DIFFERING content
-  (`{repo, key_url}` / `url`) aborts the launch (no silent shadowing).
-- **Placement guard**: `claude.plugins` is the one map that legitimately
-  appears in both file types, so a sub-key in the wrong file aborts the
-  launch with a message naming the file that carries it — `bake` belongs in
-  the bake file (it changes image bytes), and `install_at_boot` /
-  `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` belong in
-  the boot file. A *presence* test, so a misplaced sub-key written empty (a
-  valueless `bake:`, or `bake: []` / `""` / `{}`) aborts exactly like a
-  populated one.
-  `env` has the same shape and its own guard: `env.set` is allowed in both
-  file types, while `env.copy` and `env.files` are **boot-only** and abort in
-  a bake file — a *presence* test, so an empty or valueless `env.copy:`
-  aborts too. See *Guest environment variables* below for why.
+Run `/claude-vm-config-global` to create the global pair, and
+`/claude-vm-config-repo` (from inside a repo) to write per-repo
+overrides; both are idempotent and never clobber an existing file. A
+legacy single-file `config.yml` (either tier) is no longer read — the
+launcher aborts with a migration message rather than silently dropping
+the knobs it set.
 
 ### Keys
 
-```yaml
-# The keys below are grouped by which FILE they live in (bake vs boot). A key
-# in the wrong file loudly does nothing rather than silently poisoning the cache.
+The key set, the file type each key sits in, its type, whether it merges
+as a list or a scalar, and its default come from the launcher's own key
+table:
 
-# --- BOOT file keys (config-boot.yml -- run-time; never rebuild the image) ---
-cpus: 4
-mem: 8192
-guest_image: /path/to/guest.raw   # repo may override; SET = used verbatim
-                                  # (opts out of image-identity derivation);
-                                  # UNSET = derived guest+global<hash>.raw
-                                  # (no repo-bake file) or
-                                  # guest+global<hash>+<reponame>-<repohash>.raw
-                                  # (repo ships a config-bake.yml)
-
-repo:
-  mount: clone                    # clone (default) | live
-  copy_back: local                # local (default) | none
-
-# Boot-time apt: a flat `packages:` LIST installed AT BOOT (through the proxy,
-# blocking, before claude starts -- issue #106); update_at_boot runs
-# `apt-get update && upgrade`; add_apt_uris_to_allowlist derives apt egress;
-# apt_sources here feed a boot-time install (union+dedup by name with the bake
-# file's; a baked name is not re-rendered). Use install-at-boot packages for
-# things that change often (e.g. the AWS SDK/CLI) so they stay fresh without a
-# rebuild. This requires `apt` in the guest, which mkosi does not provide for
-# free -- so `apt` is baked into every guest image's base Packages= list
-# unconditionally. The guest's baked apt sources are binary-only (main + updates
-# + security, no deb-src/debug/Translations -- issue #106 real-run fix) to keep
-# the per-boot apt working set small; boot_apt_phase ends with `apt-get clean`.
-# The proxy that covers boot-time apt ALSO covers a mid-session interactive
-# apt-get: run.env exports lowercase http_proxy/https_proxy/no_proxy alongside
-# the uppercase forms (apt honors only lowercase; curl ignores uppercase
-# HTTP_PROXY for plain http://), and the boot launcher writes a persistent
-# /etc/apt/apt.conf.d/99claude-vm-proxy so proxying does not depend on a shell
-# re-sourcing run.env.
-packages:                         # (in config-boot.yml) apt packages installed
-  - awscli                        # AT BOOT, through the proxy (a flat list)
-update_at_boot: true              # apt-get update && upgrade at boot (default true)
-apt_sources: []                   # (boot) third-party repos a boot-time install
-                                  # pulls from: {name, repo, key_url}
-add_apt_uris_to_allowlist: auto   # auto (default) | always -- adds
-                                  # deb.debian.org/security.debian.org +
-                                  # apt_sources hosts to guest egress iff
-                                  # boot-time apt work is configured (auto),
-                                  # or unconditionally (always)
-
-# --- BAKE file keys (config-bake.yml -- image bytes; editing rebuilds) ---
-# In config-bake.yml, `packages:` is a flat LIST BAKED into the image (present
-# with no boot-time network), `apt_sources:` are rendered into the image at
-# build time, and image.root_headroom_mb sizes the root partition. The image
-# cache key + filename is a WHOLE-FILE, RAW-BYTE hash of the bake files -- no
-# key-picking, no canonicalization -- so editing a bake file (including only its
-# trailing newline, the documented force-rebuild lever) rebuilds the image;
-# editing a boot file never does. A repo that ships a config-bake.yml gets its
-# OWN image (its name in the filename); a repo without one shares
-# guest+global<hash>.raw.
-#
-# packages:                       # (in config-bake.yml) apt packages BAKED in
-#   - jq
-#   - ripgrep
-# apt_sources: []                 # (bake) third-party repos rendered at build time
-#
-# image.root_headroom_mb: extra MiB of FREE SPACE the guest root filesystem is
-# sized ABOVE its base content (default 1024, repo overrides global). Real-
-# hardware testing hit ENOSPC twice in one short session on a tight-fit-sized
-# root -- boot-time apt working set + ordinary session growth both eat into a
-# root with zero margin. 1024 MB is roughly 20x the observed short-session
-# growth. It is a BAKE key: changing it changes the bake-file hash and triggers
-# a rebuild.
-image:
-  root_headroom_mb: 1024
-
-# Marketplaces + BAKED plugins (BAKE file). The image build runs the
-# host-verified guest `claude` binary inside the build container with HOME
-# pointed at the image root and drives its own CLI (`claude plugin marketplace
-# add` / `claude plugin install`), so the image ships a real
-# /root/.claude/plugins that loads with NO marketplace egress at boot. A failed
-# add/install FAILS THE BUILD rather than shipping an image without them --
-# for the marketplaces declared HERE and every `bake:` ref. A marketplace
-# declared only in the boot file is pre-registered as an optimization, and a
-# failure there only warns (the guest adds it at boot).
-# Placement here (not in the boot file) is what puts these under the whole-file
-# image-identity hash; writing `claude.plugins.bake` into a boot file aborts the
-# launch. Prefer an explicit https:// url over the `owner/repo` shorthand so the
-# launcher can derive the marketplace's egress host. Shown commented out, like
-# the bake `packages:`/`apt_sources:` above, because the boot file's own
-# `claude:` map follows below and one document cannot carry both.
-#
-# claude:
-#   marketplaces:
-#     - name: thevoskamps
-#       url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
-#   plugins:
-#     bake:
-#       - block-background-agents@thevoskamps
-#       # COMPILED HOOKS NEED NO TOOLCHAIN: the guardrails permission-gate
-#       # ships prebuilt, committed binaries (one per <goos>-<goarch>,
-#       # including the guest's linux-arm64), so baking it requires nothing
-#       # in this file's `packages:` -- no `golang`, nothing.
-#       # - guardrails@thevoskamps
-
-# --- BOOT file keys, continued ---
-claude:
-  version: stable                 # stable (default) | latest | <pinned>
-                                  # host-side GPG-verified cache key
-  renderer: classic               # classic | fullscreen | (unset)
-                                  # terminal renderer on the interactive
-                                  # console; unset uses claude's own default
-  remote_control: false           # true | false (default) | (unset)
-                                  # opt-in Remote Control: true adds
-                                  # --remote-control + a date-stamped --name
-  permission_mode: bypassPermissions   # bypassPermissions (default) | default
-  permissions:
-    allow: []
-    ask: []
-    deny: []
-  marketplaces: []                # {name, url} entries. Allowed in BOTH file
-                                  # types (like apt_sources); `name` must match
-                                  # the marketplace's OWN manifest name. One
-                                  # declared HERE only has to be reachable from
-                                  # the GUEST -- a url the image build cannot
-                                  # reach warns and is added at boot instead.
-  plugins:
-    # bake: lives in the BAKE file -- see the bake-file block above.
-    install_at_boot: []           # plugin@marketplace refs installed at boot
-    update_at_boot: true          # refresh marketplaces + update the installed
-                                  # plugins at boot (default true). This is the
-                                  # freshness path for BAKED plugins: they are
-                                  # frozen at build time and the image-identity
-                                  # hash excludes marketplace HEAD, so a
-                                  # marketplace bump lands at the next boot with
-                                  # no rebuild.
-    add_marketplace_uris_to_allowlist: auto   # auto (default) | always
-    enabled:                      # OPTIONAL map, plugin ref -> boolean,
-                                  # mirroring settings.json's enabledPlugins.
-                                  # Every bake/install_at_boot ref defaults
-                                  # enabled; list an entry only to override
-                                  # (false = installed-but-disabled). Keys must
-                                  # name an installed ref; values must be
-                                  # boolean; a typo aborts the launch.
-      show-loaded-rules@thevoskamps: false
-
-proxy:
-  cmd: "<forward-proxy launch command>"   # must read
-                                          # $CLAUDE_VM_EGRESS_ALLOWLIST
-  port: 3128
-  host_alias: 192.168.127.254
-
-egress:
-  allow:                          # outbound hosts permitted via the proxy
-    - api.anthropic.com
-    - github.com
-    - claude.ai
-
-mounts:                           # extra mounts beyond the repo auto-mount
-  - source: ~/.claude/policy      # ALWAYS read-write -- see below
-    tag: policy
-  - source: ~/datasets/foo
-    tag: data
-  - source: ~/.gitconfig          # a single FILE works too
-    tag: gitconfig
-    path: /root/.gitconfig        # optional guest mountpoint override
-
-github:
-  auth: none                      # none (default) | host-token
-
-# Guest environment variables (issue #135). `set` is allowed in BOTH file
-# types; `copy` and `files` are BOOT-ONLY and abort in a bake file (they read
-# the HOST environment at launch, which does not exist at build time, and
-# their values must never become image bytes). See "Guest environment
-# variables" below for the precedence chain and the egress pairing.
-env:
-  set:                            # explicit literals; NON-SECRET only (these
-    FOO_ENDPOINT: https://foo.internal/v2   # values ARE committed config)
-  copy:                           # NAMES read from the environment claude-vm
-    - OPENROUTER_API_KEY          # is launched from; an unset/empty one aborts
-    - TAVILY_API_KEY
-  files:                          # host .env files parsed at launch; a later
-    - ~/.config/foo/prod.env      # file wins over an earlier one
+```bash
+claude-vm-config-keys
 ```
 
-- `egress.allow` is written to a newline-delimited file whose path is
-  exported as `CLAUDE_VM_EGRESS_ALLOWLIST`. When `proxy.cmd` is unset,
-  the launcher defaults to the bundled tinyproxy launcher
-  (`payload/proxy/tinyproxy-launch.sh`), which reads that file and binds
-  `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
-  file instead of a hand-maintained allowlist baked into the command.
-- `mounts` generates the extra `virtio-fs` device flags, and the guest
-  mounts each one at `path:` (default `/mnt/<tag>`) before claude starts.
-  A leading `~` in `source` expands to `$HOME`. Both `source` and `tag`
-  are mandatory per entry — the guest mounts each share *by* its tag, so
-  an entry with an empty or omitted `tag:` is a share nobody can mount
-  and two of them would collide on one tag.
+It prints one key per line as the tab-separated fields key, file (`bake`,
+`boot` or `both`), type, `list` or `scalar`, and default. Read
+`skills/claude-vm/config-keys.md` for what each key means, how the tiers
+layer, and which values abort the launch.
 
-  **Every extra mount is read-write, and pierces the VM isolation
-  boundary for that one path.** Guest writes land on the host path
-  **live** — no copy-back step, no review, no undo (`repo.copy_back`
-  governs the *repo* mount only). Everything else about the VM still
-  holds; that one path is simply outside it, on purpose.
+### Host paths vfkit embeds
 
-  **There is no read-only option, and no `mode:` key.** Read-only cannot
-  be enforced on this stack: vfkit's virtio-fs device has no read-only
-  export (it rejects `readOnly`/`readonly`/`ro` as unknown option keys —
-  verified against vfkit v0.6.4), and the guest session runs as root, so
-  a guest-side `ro` is undoable from inside the guest. A config that
-  still sets `mode:` **aborts the launch** rather than having the key
-  ignored, so nobody believes a share is read-only when it is not.
-  Enforced read-only at the hypervisor boundary is tracked as issue #233.
-  Never point a mount at anything you would mind an autonomous agent
-  rewriting; to give the guest read access to something you care about,
-  mount a disposable copy.
+vfkit embeds every host path it is given in a comma-delimited option
+string, and a comma in one reads as the start of another option. The
+launcher checks a directory `mounts` source for a comma, and the
+single-file wrap directory (`$RUN/mount-wrap`) when it wraps a file,
+naming the run dir. A repo path under `repo.mount: live`, `$HOME`,
+`XDG_STATE_HOME`, `CLAUDE_VM_RUNS_DIR` or `$TMPDIR` carrying a comma
+breaks the built-in shares, the EFI store, the disk clone, the console
+log or the gvproxy socket the same way and is not checked: none of those
+is a value the operator fixes by editing YAML, and vfkit refuses the
+unknown option, so the launch stops loudly rather than booting with a
+share pointing elsewhere.
 
-  A single **file** `source` works as well as a directory: virtio-fs
-  shares directories only, so the launcher wraps the file in a per-entry
-  directory (hard-linking it, so writes still reach the host file) and
-  the guest bind-mounts just that one file onto `path:`.
-  Nothing else from the file's real parent directory reaches the guest.
-  A hard link cannot cross volumes: the wrap directory sits in the run
-  dir, and a file on another volume aborts the launch — mount its
-  directory instead.
-  A caveat a directory mount does not have: the kernel refuses a
-  `rename(2)` onto a file bind mount with `EBUSY`, so a single-file
-  mount takes in-place edits but **not** the write-a-temp-then-rename
-  pattern `git config`, `sed -i` and most editors use. Mount the
-  containing directory when the guest needs to replace the file.
+### Plugin bake and boot phases
 
-  Every mistake aborts the launch at config load rather than booting a VM
-  without the mount you asked for: a missing `source`/`tag`, a `source`
-  that is not on the host, a **directory** `source` whose path carries a
-  `,`, a `tag` that is reserved
-  (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
-  `[A-Za-z0-9._-]`, repeated, or unusable in the tag's other roles (see
-  below), a `mode` key, and a `path` that is relative, carries `..`,
-  overlaps one of claude-vm's own guest mountpoints — landing on one,
-  above one (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) — shadows a
-  guest OS path, or duplicates another entry's. The diagnostic names the
-  entry by its position in the merged boot config — `mounts` is a union
-  list, so that number counts through the global entries before the
-  per-repo ones and need not be the entry's position in either file on
-  its own — and by its path when it has one.
+The image build runs the host-verified guest `claude` binary inside the
+build container with `HOME=/root` and drives its own CLI —
+`claude plugin marketplace add`, then `claude plugin install` — so the
+registry format is claude's and is never hand-written. A failed add or
+install of what the image must carry fails the build; a marketplace
+declared only for boot that has no url, fails to add, or registers under
+another name warns and is left to the boot phase.
 
-  **A `tag` is not only a tag,** which is why the charset is necessary
-  but not sufficient. The same string is vfkit's `mountTag=`, a bare argv
-  word in the guest's `mount -t virtiofs -o rw <tag> <path>`, a path
-  *component* in `/mnt/<tag>` and in both the host and guest directories
-  a single-file mount is staged through, and a `mounts.tsv` field. So a
-  `tag` of `.` or `..` is rejected — it would walk one level up out of
-  each of those trees the entry reaches, and `path:`'s own `..` check
-  never sees a tag-derived mountpoint — and so is a `tag` beginning with
-  `-`, which the guest's `mount` reads as an option rather than as the
-  device.
-  `...`, `a..b` and `a-b` are ordinary names and pass. The `source` side
-  of the same device string is why a **directory** source may not carry a
-  comma: vfkit reads it as the start of another device option. That last
-  rule covers the `mounts` entries only — a *repo* path (or `$HOME`, or
-  `$TMPDIR`) carrying a comma breaks the built-in shares, the EFI store,
-  the disk, the console log or the gvproxy socket the same way and is not
-  checked; the launch fails loudly on the argument rather than booting.
-  The one such path this feature adds — the single-file wrap
-  directory (`$RUN/mount-wrap`) — is checked: the launcher aborts on a
-  comma there when it wraps a file, naming the run dir. That is an
-  earlier, cause-naming abort rather than a rescue; the other arguments
-  break the same launch anyway.
-
-  Those checks run on a **normalized** `path:`, so a mount cannot dodge
-  them by respelling its mountpoint: repeated slashes, a trailing slash
-  and `.` segments in any position (`/./etc`, `/mnt/./repo`, `/etc/.`,
-  and `/.` for the guest root) are collapsed first, which is why the
-  diagnostic names the collapsed path rather than what you wrote. A `..`
-  segment is the exception, rejected rather than resolved — where it
-  lands depends on the guest's filesystem, which the host cannot read.
-
-  **The guest OS's own paths are protected, by shape.** They are
-  `/bin /boot /dev /etc /home /lib` (and its `/lib32`, `/lib64`,
-  `/libx32` spellings), `/proc /root /run /sbin /sys /tmp /usr /var` —
-  `CLAUDE_VM_GUEST_SYSTEM_PATHS` in `payload/lib/config.sh` is the one
-  authoritative list. Linux stacks a
-  mount, so landing on one hides the image's own files for the whole
-  session, and the mount phase runs first, so the breakage surfaces later
-  as something unrelated. A **directory** source may not land on, above
-  or inside one of those paths — use `/mnt/<tag>` (the default), `/srv`
-  or `/opt`. A single **file** may not land on or above one, and may sit
-  inside only `/root`, `/home` or `/tmp`, which is what makes
-  `path: /root/.gitconfig` legal while `path: /etc/ld.so.preload` is not.
-  The guest checks as well, since only it can see the image: a mountpoint
-  that already exists and is non-empty, or a single-file target that
-  exists at all, is warned about on the boot console and **skipped**
-  rather than mounted over.
-- `claude.version` selects which `claude` binary the host-side verified
-  cache fetches: `stable` (default), `latest`, or a pinned version
-  (`2.1.172`). The host resolves a channel to a concrete version,
-  downloads that version's GPG-signed manifest, verifies the signature
-  against the operator's pinned key, checksum-verifies the binary, caches
-  it keyed on the version, and shares it into the guest, where the image's
-  fstab mounts it `ro`. A failed `gpg --verify` or a checksum mismatch
-  **aborts the launch**. On a warm boot (already cached), the launcher
-  drops `claude.ai` /
-  `downloads.claude.ai` from the guest egress allowlist.
-- `claude.renderer` selects the in-guest claude's terminal renderer on
-  the interactive console (the vfkit `stdio` byte pipe). Both renderers
-  work over the console — this is a preference, not a workaround:
-  `classic` disables the alternate-screen buffer
-  (`CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`), `fullscreen` forces the
-  flicker-free fullscreen renderer (`CLAUDE_CODE_NO_FLICKER=1`), and
-  leaving it unset passes nothing so claude uses its own default. The
-  launcher writes the matching `CLAUDE_CODE_*` var into `run.env`. An
-  unrecognized value aborts the launch.
-- `claude.remote_control` is an opt-in boolean (default `false`/unset).
-  When `true`, the launcher injects `--remote-control` into the in-guest
-  claude invocation (unless the CLI args already carry it) and, when
-  Remote Control is in effect but no `--name` was given, appends a
-  date-stamped `--name` (format like `Jul10-14:30`). When `false`/unset,
-  claude runs without Remote Control and the CLI args pass through
-  unchanged. Accepts `true`/`false` (or unset); any other value aborts
-  the launch. This is the config-driven equivalent of passing
-  `--remote-control` on the command line — see the interactive-session
-  section below.
-
-`claude.permission_mode`, `claude.permissions.*`,
-`claude.plugins.bake` / `.install_at_boot` (as `enabledPlugins`), and
-`claude.plugins.enabled` are **consumed** by the guest `settings.json` render
-(issue #104) — the launcher renders `/root/.claude/settings.json`
-host-side and shares it into the guest (see "Guest Claude settings.json"
-below). (There is no schema translation: the launcher merges the two bake
-files into one bake document and the two boot files into one boot document,
-and every reader consumes its tier's document at the file-schema path — a
-key set per the documented schema is always read.) The bake document's
-`packages:` and `apt_sources:` are **consumed** by the guest-image build
-(issue #105 — see "Guest image" below). The boot document's `packages:`,
-`update_at_boot`, and `add_apt_uris_to_allowlist` are **consumed** by the
-guest boot launcher's boot-time apt phase (issue #106). The bake document's
-`claude.marketplaces` + `claude.plugins.bake` are **consumed** by the
-image build's plugin bake step, and the boot document's
-`claude.plugins.install_at_boot` / `.update_at_boot` /
-`.add_marketplace_uris_to_allowlist` by the guest boot launcher's plugin
-phase (issue #107 — see "Marketplaces and plugins" below). The remaining key
-(GitHub token seeding) is schema + merge only as of issue #103 — that consumer
-lands in a sibling slice under #39. It resolves correctly through
-`payload/lib/config.sh` today; nothing downstream reads it yet.
-
-- The bake file's `packages:` (baked into the image) vs. the boot file's
-  `packages:` (installed at boot, blocking, before claude starts, through
-  the proxy) — the containing file's tier is what makes each a build-time
-  bake or a boot-time install (this replaces the old single-file
-  `packages.bake` / `packages.install_at_boot` key split; each tier's
-  merged document keeps its own flat `packages:` list, read as written).
-  Both union global + repo entries. The
-  baked packages are present in the guest with no boot-time network, and
-  the image is cached per whole-file bake hash (see "Guest image" below).
-  The boot-install list runs `apt-get -y install <list>` at boot (issue
-  #106): use it for packages that change often (e.g. the AWS SDK/CLI) so
-  they stay fresh without an image rebuild; a failed install warns loudly
-  and continues to claude rather than blocking the session.
-- The boot file's `update_at_boot` (default `true`) runs `apt-get update
-  && upgrade` at boot, through the proxy, before claude starts (issue
-  #106); a failed update warns loudly and continues. `apt_sources`
-  (allowed in BOTH files; union, deduped by `name`; conflicting content
-  under one name aborts) adds third-party apt repos as
-  `{name, repo, key_url}` entries. A **bake** file's apt_sources are
-  rendered at **image-build** time (issue #105 — baked into the mkosi
-  sandbox tree so baked packages from that repo install at build time). A
-  **boot** file's apt_sources (minus any name already baked) are rendered
-  at **boot** time into the guest's live `/etc/apt` whenever the boot
-  `packages:` install list is nonempty (issue #106 — reusing the exact
-  same keyring-fetch + sources.list.d-write shape, ported to plain bash
-  since the guest has no python3/jq).
-- The boot file's `add_apt_uris_to_allowlist` (`auto` default | `always`)
-  controls whether `deb.debian.org` + `security.debian.org` + every
-  `apt_sources` host are added to the guest's egress allowlist.
-  `auto` adds them only when boot-time package work needs them (the boot
-  `packages:` install list nonempty, or `update_at_boot` true); with
-  neither configured, `auto` derives nothing, leaving package repos
-  unreachable — by design, for a hard-secure all-baked config. `always`
-  adds them
-  unconditionally so in-session `apt-get install` also works. The knob
-  never removes URIs that scheduled boot-time work requires, and every
-  derived addition is logged.
-- **Marketplaces and plugins** (issue #107). `claude.marketplaces` (union of
-  `{name, url}`, allowed in both file types, deduped by `name`, conflicting
-  urls under one name abort, and — since issue #226 — an entry with a url but
-  no `name` aborts too, since the name is what every consumer matches on)
-  declares the marketplaces the guest knows.
-  `claude.plugins.bake` (BAKE file) is installed **into the image** at build
-  time; `claude.plugins.install_at_boot` (BOOT file) is installed **at boot**,
-  blocking, before claude starts.
-  - The bake path runs the host-verified guest `claude` binary inside the
-    build container with `HOME` pointed at the image root and drives its own
-    CLI (`claude plugin marketplace add` / `claude plugin install`) — the
-    registry format is claude's and is never hand-written. A failed
-    add/install **fails the build**, so a cached image never silently lacks a
-    configured plugin. That strictness covers what the image must **carry**:
-    every `bake:` ref and every marketplace declared in a bake file. A
-    marketplace declared only in a **boot** file is pre-registered here as an
-    optimization, and its url only has to be reachable from the *guest* — a
-    guest-local path (`/mnt/repo`), a private source, or an https host outside
-    the build container's egress. A boot-declared entry warns and leaves the
-    registration to the boot path on each of the paths that fail a
-    bake-declared one: no `url` at all, a failed add, or an add that registers
-    under a name other than the configured one (issue #226).
-  - The boot path ensures any marketplace the image does not already carry,
-    then (when `update_at_boot` is `true`, the default) refreshes the
-    marketplaces and updates the installed plugins, then installs the
-    `install_at_boot` refs. This is the freshness mechanism for **baked**
-    plugins: they are frozen at build time and the image-identity hash
-    deliberately excludes marketplace HEAD, so a marketplace bump lands at
-    the next boot with no rebuild. A failure warns loudly on the captured
-    console log and continues to claude. The guest image bakes `git`
-    unconditionally for this phase: the claude CLI shells out to **system
-    git** for every git-url marketplace operation, so without it the
-    add/update fails (fail-soft) and `update_at_boot` would be inert.
-  - `.add_marketplace_uris_to_allowlist` (`auto` default | `always`) mirrors
-    `add_apt_uris_to_allowlist`: under `auto`, marketplace hosts are added to
-    the guest egress allowlist only when boot-side work can actually run (a
-    nonempty `install_at_boot`, a marketplace declared in the boot file that is
-    not also bake-declared, or `update_at_boot` true with at least one
-    marketplace configured). The middle test reads the *declaration*, not the
-    image: the build's pre-registration of a boot-declared marketplace is
-    best-effort since #226 and the host cannot know whether it succeeded, so
-    the gate derives the host either way.
-    Everything bake-declared + `update_at_boot: false` + `auto` derives
-    **nothing** —
-    and the guest still has working plugins, because the baked ones need no
-    marketplace. Every derived addition is logged. A `owner/repo` shorthand
-    url yields no derivable host (keep `github.com` in `egress.allow`
-    yourself); the launcher says so rather than guessing.
-  - **Compiled hooks need no toolchain**: the guardrails permission-gate
-    ships prebuilt, committed binaries (one per `<goos>-<goarch>`, the
-    guest's being `linux-arm64`), so baking `guardrails@…` requires
-    **nothing** in the bake file's `packages:` — in particular no
-    `golang`. A platform with no committed binary makes the hook fail
-    closed (exit 2, tool call denied), never silently unadjudicated.
-- `github.auth` (`none` default | `host-token`) selects whether the
-  guest is seeded with a GitHub auth token derived from the host.
+At boot, before claude starts, the guest adds any configured marketplace
+the image does not carry, refreshes the marketplaces when
+`claude.plugins.update_at_boot` is on, installs the `install_at_boot`
+refs, and, again under `update_at_boot`, updates every installed plugin.
+The image-identity hash excludes marketplace HEAD, so a marketplace bump
+reaches a baked plugin at the next boot with no rebuild. A failure warns
+on the boot console and the session continues. The image bakes `git` for
+this phase: the claude CLI shells out to system git for every git-url
+marketplace operation.
 
 ### Guest environment variables (issue #135)
 
-`env:` is how a variable reaches the in-guest `claude` session — a plain
-non-secret setting (`FOO_ENDPOINT`) or a **third-party API key**
-(`OPENROUTER_API_KEY`, `TAVILY_API_KEY`) for a tool, MCP server or model
-provider other than Anthropic or GitHub. `github.auth` covers the host's
-GitHub token specifically and nothing else.
-
-**The tier a sub-key may be declared in follows from how its value is
-obtained**, not from operator preference:
-
-| Sub-key | Bake tier | Boot tier | Value source |
-| --------- | ----------- | ----------- | -------------- |
-| `env.set` | yes | yes | explicit literal in the config |
-| `env.copy` | no — hard abort | yes | host environment at launch |
-| `env.files` | no — hard abort | yes | host `.env` file at launch |
-
-A bake file's result is image **bytes** that persist across every run of that
-image; a boot file's result is shredded on exit. `env.copy`/`env.files`
-resolve against a host environment that does not exist at image-build time,
-and a value read from it is exactly the kind of secret that must never become
-image bytes — so only explicitly written literals are bakeable. The bake-tier
-abort is a **presence** test: an empty or valueless `env.copy:` aborts too,
-since ignoring it silently would leave you believing a host variable is
-forwarded into a persistent image.
-
-- `env.set` — a map of name → literal value, for **non-secret** settings only
-  (these values are committed config, and in a bake file they are also image
-  bytes). Merge: repo-over-global per key.
-- `env.copy` — a list of **names**. The launcher reads each from its own
-  environment at launch and forwards the value, so no secret is ever written
-  to config and the config stays committable. Keep supplying values however
-  you already do: shell profile, `direnv`, `op run`. Union merge.
-- `env.files` — a list of host `.env` files whose `NAME=value` lines are
-  parsed at launch and forwarded the same way. Union merge. Blank lines and
-  `#` comments are skipped, a leading `export` is dropped, and a value
-  wrapped in matching quotes is unwrapped; there is no variable expansion and
-  no escape processing.
-
-**Precedence**, lowest to highest:
-
-```text
-bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
-```
-
-Within each tier, repo-over-global (per key for `set`, union for
-`copy`/`files`); within `env.files`, a later file wins over an earlier one.
-Boot beats bake throughout: bake is the image's baseline, boot is the
-per-launch override.
-
-**Carrier.** Two, one per tier — `run.env` is neither and stays
-launcher-owned, deliberately a non-secret channel. Bake `env.set` is written
-into the image at build time and persists. The **whole boot tier**, including
-the non-secret `env.set` literals, rides the same transient `claudecreds`
-mount as the OAuth credential and identity seed (0600, mounted `ro`
-guest-side, shredded on exit); the guest **sources** it off that mount and
-never copies it, so no forwarded value reaches the guest filesystem. One
-carrier for the whole boot tier means the secret and non-secret boot paths
-cannot diverge.
-
-**Egress is the other half.** Forwarding a key does not make the service
-reachable: the guest is egress-confined, so the provider's host must also be
-in `egress.allow` (`openrouter.ai`, `api.tavily.com`, …) or the proxy blocks
-the call and the failure is baffling. A variable *name* implies no hostname
-the way an apt source's URI does, so nothing is derived automatically — there
-is no `add_apt_uris_to_allowlist` analogue. Add the pair together.
-
-**Every mistake aborts the launch**, rather than booting a guest that looks
-fine while lacking a key it was configured to have (which surfaces much later,
-deep inside a tool call, as an opaque auth error naming nothing): `env.copy`
-or `env.files` in a bake file; an `env.copy` name unset **or empty** on the
-host; an `env.files` path that is not on the host or does not parse; a name
-outside `[A-Za-z_][A-Za-z0-9_]*` from any source; a non-scalar `env.set`
-value, or a key left valueless (write `NAME: ""` for the empty string); and a
-name the launcher itself composes — every name in `run.env` (the proxy vars,
-`CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`, `DISABLE_AUTOUPDATER`,
-the renderer `CLAUDE_CODE_*` vars, the terminal geometry, the
-`CLAUDE_VM_*_UPDATE_AT_BOOT` flags) plus `CLAUDE_VM_LAST_CLAUDE_STATUS` —
-because the guest sources `run.env` *before* both env files, so such an entry
-would overwrite the launcher's own value (a different proxy, a renamed mount
-tag, a replaced `claude` argv) and break the boot rather than configure
-anything. `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other
-direction — the launcher exports it long *after* both files, so a config entry
-for it would be silently overwritten instead — and refusing at load covers
-both. The abort message lists the whole reserved set. No diagnostic ever
-prints a value.
-
-**Rebuilds.** No new trigger is needed: the image identity is already a
-whole-file, raw-byte hash of the bake files, so changing a baked `env.set`
-value invalidates the cached image and the next launch rebuilds. Editing a
-boot file never rebuilds.
+`env` values reach the guest on two carriers, one per tier — `run.env` is
+neither and stays launcher-owned, deliberately a non-secret channel. Bake
+`env.set` is written into the image at build time and persists. The
+**whole boot tier**, including the non-secret `env.set` literals, rides
+the same transient `claudecreds` mount as the OAuth credential and
+identity seed (0600, mounted `ro` guest-side, shredded on exit); the guest
+**sources** it off that mount and never copies it, so no forwarded value
+reaches the guest filesystem. One carrier for the whole boot tier means
+the secret and non-secret boot paths cannot diverge. The guest sources
+`run.env` before both env files, so a config entry naming a
+launcher-owned variable would overwrite the launcher's own value; the
+launcher refuses those names at load.
 
 ### Guest Claude settings.json (issue #104)
 
@@ -1018,6 +503,24 @@ Claude Code updates daily, so the guest image does **not** bake in
   from OUTSIDE the image with its own build-container apt) — this is covered
   by `LAUNCHER_LOGIC_REV`, the base-version pin, not by the image-identity
   hash.
+
+  The phase runs `apt-get update` and `apt-get -y upgrade` under
+  `update_at_boot`, then, for a nonempty boot `packages` list, renders the
+  boot-tier `apt_sources` into the guest's live `/etc/apt` with the same
+  keyring-fetch and `sources.list.d` shape the image build uses, ported to
+  plain bash since the guest carries no python3 or jq, and runs
+  `apt-get -y install`. Both calls pass `-o Acquire::http::Proxy=` and
+  `-o Acquire::https::Proxy=` at the run's proxy, and the boot launcher
+  also writes `/etc/apt/apt.conf.d/99claude-vm-proxy`, so a mid-session
+  `apt-get` is proxied too; `run.env` carries lowercase
+  `http_proxy`/`https_proxy`/`no_proxy` beside the uppercase forms, since
+  apt honours only the lowercase ones. The image's apt sources are
+  binary-only (main, updates, security) with no translations or package
+  caches, and the phase ends with `apt-get clean`, keeping the per-boot
+  working set near 50 MB. A failed update or install warns on the boot
+  console and the session continues. `add_apt_uris_to_allowlist`'s
+  derivation runs after the warm-boot drop of `claude.ai` and
+  `downloads.claude.ai`, so it never re-adds a host that step removed.
 - On startup, the launcher **ensures the image exists and matches the
   pinned version**. If the resolved image is missing or version-mismatched,
   it builds the image (`payload/build-guest-image.sh --output …`, passing the
@@ -1053,6 +556,42 @@ discarded, while staying off the interactive `hvc1` terminal. The path
 is reported on exit and retained in the run's log dir, beside the
 gvproxy and proxy logs and the egress capture, where reaping the run
 does not reach it.
+
+## Verified claude cache
+
+The host fetches, verifies and caches the `claude` binary the guest runs,
+and the guest never runs `install.sh`. For `claude.version`:
+
+1. resolve the channel or pin to a concrete version, the cache key;
+2. download that version's `manifest.json` and `manifest.json.sig`;
+3. `gpg --verify` the signature and require, from gpg's `--status-fd`
+   stream, a `VALIDSIG` whose fingerprint is the pinned
+   `claude.signing_key_fingerprint` — a bare `gpg --verify` accepts a
+   valid signature by any key in the keyring;
+4. read the `linux-arm64` SHA256 from the verified manifest;
+5. download the binary and verify its SHA256;
+6. cache it under `$CLAUDE_VM_STATE_DIR/cache/<version>/linux-arm64/claude`
+   and share it into the guest (`mountTag=claudebin`), where the image's
+   fstab mounts it `ro`.
+
+A failed verify, a checksum mismatch, or an unset pin aborts the launch
+before anything unverified is cached or run. There is no lower-trust
+fallback: the signed manifest is the only trust path. This runs before
+the image build, since the build's plugin bake step drives the same
+binary, so a verification failure aborts before a multi-minute build.
+
+The operator's one-time setup imports the signing key, reads its
+fingerprint, verifies that fingerprint out of band, and pins it in a boot
+file:
+
+```bash
+curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
+gpg --fingerprint claude-code
+```
+
+On a warm boot — the resolved version already cached — nothing is
+re-downloaded, gpg does not run, and the launcher drops `claude.ai` and
+`downloads.claude.ai` from the guest's egress allowlist.
 
 ## Authentication (secrets)
 
@@ -1296,7 +835,11 @@ machine init` then a `podman machine start`; a listed-but-stopped machine
 gets a `start`; a running machine is left exactly as found. At end of run
 the launcher stops the machine **iff it was the one that started it** — a
 machine found running is left running, and an init'd machine is stopped
-rather than removed, so the next build reuses it.
+rather than removed, so the next build reuses it. The launcher records
+that it started the machine before each `podman machine start`, and arms
+the stop before the bring-up, so a start that brings the machine up and
+then exits non-zero, or a bring-up whose `podman info` confirmation
+fails, still ends with the machine stopped.
 
 There is no config surface for any of this: it is launcher plumbing, not
 policy. Every init/start/stop is logged to stderr as it happens, and
