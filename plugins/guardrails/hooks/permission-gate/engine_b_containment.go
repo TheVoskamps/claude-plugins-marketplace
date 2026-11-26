@@ -595,17 +595,22 @@ func accountConfigRoot() string {
 //     variable would let whatever set that variable relocate the carve-out to
 //     an arbitrary directory. A fixed path cannot be widened that way.
 //
-// Two carve-outs do read the environment, and neither is a counter-example to
-// that second bullet. The operator carve-out (operator_carveout.go) reads
-// $XDG_CONFIG_HOME and $XDG_STATE_HOME only on an explicit opt-in in a file the
-// operator hand-wrote, and what the relocation can hand out is bounded by
-// denies that hold whatever the file says. The account config carve-out
-// (accountConfigRoot) reads CLAUDE_CONFIG_DIR only to pick one of the
+// Three carve-outs do read the environment, and none is a counter-example to
+// that second bullet. Each reads $HOME through processHome, the os.UserHomeDir
+// source every `~` and `$HOME` the gate grades already resolves against, so
+// $HOME moves a carve-out only by moving the home the whole gate places paths
+// in; the ~/.claude carve-out (claudeConfigRoot) reads nothing else. The
+// operator carve-out (operator_carveout.go) also reads $XDG_CONFIG_HOME and
+// $XDG_STATE_HOME, only on an explicit opt-in in a file the operator
+// hand-wrote, and what the relocation can hand out is bounded by denies that
+// hold whatever the file says. The account config carve-out
+// (accountConfigRoot) also reads CLAUDE_CONFIG_DIR, only to pick one of the
 // $HOME/.claude.<name> directories, so the variable can name a sibling of
 // ~/.claude but cannot move the region anywhere else. None of that is
-// available here — no operator file names this root, the region it designates
-// is safe by construction rather than by enumeration, and no fixed shape
-// bounds where $TMPDIR points — so this one stays a literal.
+// available here — $TMPDIR is not the home, no operator file names this root,
+// the region it designates is safe by construction rather than by
+// enumeration, and no fixed shape bounds where $TMPDIR points — so this one
+// stays a literal.
 const harnessScratchDir = "/tmp"
 
 // harnessScratchDisplay returns the un-canonicalized, human-facing spelling of
@@ -668,9 +673,10 @@ var harnessSessionShape = regexp.MustCompile(
 // pinned to the running Claude Code version: the hook event carries no version
 // field, so the only source would be CLAUDE_CODE_EXECPATH in the environment,
 // which fails on the same terms $TMPDIR fails for harnessScratchDir above:
-// none of the bounds stated there — an operator's explicit opt-in with denies
-// that bound what a relocated root can hand out, or a fixed shape the value
-// must match — is available for this region. Shape-checking also survives an
+// none of the bounds stated there — a variable that is the home itself, an
+// operator's explicit opt-in with denies that bound what a relocated root can
+// hand out, or a fixed shape the value must match — is available for this
+// region. Shape-checking also survives an
 // upgrade, where the previous version's directory lingers alongside the new
 // one.
 //
