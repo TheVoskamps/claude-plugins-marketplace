@@ -184,9 +184,9 @@ chmod +x "$SANDBOX/bin/"*
 # and SESSIONS holding s1/scratchpad -- this session's, PAD -- and
 # s2/scratchpad, s3/scratchpad and s2/tasks. No worktree is locked. The
 # stubs serve a merged PR of this checkout's repository closing issue 7,
-# closed, whose state names the
-# agents a, b, n and x -- x with no worktree -- review state for PRs 7
-# and 8, and main as the default branch.
+# closed, whose state names the agents a, b, n and x -- x with no
+# worktree -- review state for PRs 7 and 8, and main as the default
+# branch.
 build() {
   CASE="$SANDBOX/$1"
   PRIMARY="$CASE/primary"
