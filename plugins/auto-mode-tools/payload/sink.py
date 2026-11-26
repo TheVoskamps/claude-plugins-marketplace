@@ -13,6 +13,11 @@ and gives up with "Connection error" if that is not answered, so the
 sink answers every bodyless request and keeps serving. Only a request
 with a body is the capture, and the sink stops after it.
 
+Whether the CLI asks for a streaming answer changes with Claude Code
+releases, so the sink answers a body whose `stream` key is set with a
+complete Server-Sent Events stream and a JSON body without it with a
+JSON message, rather than pinning the shape the CLI asks for today.
+
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed.
 """

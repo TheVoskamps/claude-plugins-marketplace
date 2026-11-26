@@ -3,6 +3,7 @@ name: personalize-auto-mode
 description: "Rewrite an existing Claude Code autoMode block against this machine's facts: re-point the names, organizations, SSO profiles, repositories and paths in the environment paragraphs from ~/.config/auto-mode-tools/facts.yml, then write the live settings.json after a diff, an approval, a backup and a validation pass."
 ---
 
+<!-- markdownlint-disable-next-line MD041 -->
 You are running the `/auto-mode-tools:personalize-auto-mode` skill.
 Take the `autoMode` block already in the user's Claude Code
 `settings.json` and re-point it at this machine's reality: the names,
@@ -73,6 +74,13 @@ enumerate.
 read one shape twice rather than two shapes. A `bots` entry is one
 record because a rule matching a bot generally needs its login and its
 email to agree.
+
+`organizations` and `sso-profiles` are flat lists of bare names: a
+profile may map to several accounts or to a shared role, so attach
+neither to it. `public-repositories` holds `owner/repo` strings and
+does not depend on `organizations` listing the owner. `scratch-globs`
+and `worktree-globs` stay separate because the tuned rules treat
+disposable scratch space and worktrees differently.
 
 ## Procedure
 

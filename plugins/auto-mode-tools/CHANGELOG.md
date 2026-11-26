@@ -1,5 +1,13 @@
 # auto-mode-tools changelog
 
+## 0.2.1 — 2026-11-25
+
+No change to what either skill does. The README is now a user manual:
+why you would want the plugin, what you need first, how to get started
+and what it deliberately does not do. The notes for people changing the
+plugin moved out of it, and `/personalize-auto-mode` now explains every
+part of the `facts.yml` schema it prints.
+
 ## 0.2.0 — 2026-11-25
 
 `/tune-auto-mode` and `/personalize-auto-mode` now read and write
