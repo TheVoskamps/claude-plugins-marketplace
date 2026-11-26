@@ -471,7 +471,8 @@ const (
 	contained      containmentResult = iota // target is under this worktree → ok
 	escapeWorktree                          // target is in the primary clone / common dir
 	escapeRepo                              // target is outside the current repo entirely
-	// claudeConfig: target is under ~/.claude. NOT an escape — the caller falls
+	// claudeConfig: target is under ~/.claude, or under the account config
+	// directory accountConfigRoot accepts. NOT an escape — the caller falls
 	// through to its own terminal for a contained target, which is a DEFER (to
 	// the settings.json allow-list) on the file-tool and path-reader tracks and
 	// the curated read-utility track's ordinary ALLOW.
@@ -537,6 +538,55 @@ func claudeConfigRoot() string {
 		return ""
 	}
 	return canonicalize(filepath.Join(home, ".claude"))
+}
+
+// accountConfigEnvVar names the environment variable Claude Code reads to run
+// under an account config directory other than $HOME/.claude.
+const accountConfigEnvVar = "CLAUDE_CONFIG_DIR"
+
+// accountConfigNameShape is the alphabet of <name> in an accepted
+// $HOME/.claude.<name> account directory.
+var accountConfigNameShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// accountConfigRoot returns the canonicalized account config directory
+// CLAUDE_CONFIG_DIR names, or "" when it names no accepted one. That root
+// earns the claudeConfig region exactly as claudeConfigRoot's does.
+//
+// The variable is honoured only for a directory the shape bounds: after
+// filepath.Clean the value must equal filepath.Join(home, ".claude."+name),
+// with home as processHome returns it, <name> drawn from accountConfigNameShape
+// and not "backup", and the path must Lstat as a real directory rather than a
+// symlink. Anything else adds no carve-out, so the variable cannot relocate
+// the region to an arbitrary directory. An unusable home resolves none, as it
+// does for claudeConfigRoot.
+func accountConfigRoot() string {
+	home, ok := processHome()
+	if !ok {
+		return ""
+	}
+	return accountConfigRootFor(os.Getenv(accountConfigEnvVar), home)
+}
+
+// accountConfigRootFor is accountConfigRoot with the variable's value and the
+// usable home passed in.
+func accountConfigRootFor(value string, home string) string {
+	if value == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(value)
+	name, ok := strings.CutPrefix(filepath.Base(cleaned), ".claude.")
+	if !ok || name == "backup" || !accountConfigNameShape.MatchString(name) {
+		return ""
+	}
+	root := filepath.Join(home, ".claude."+name)
+	if cleaned != root {
+		return ""
+	}
+	fi, err := os.Lstat(root)
+	if err != nil || !fi.IsDir() {
+		return ""
+	}
+	return canonicalize(root)
 }
 
 // harnessScratchDir is the system temp directory the Claude Code harness
@@ -840,9 +890,15 @@ func testContainmentFrom(target string, base string, rc *repoContext, readClass 
 	// reported as claudeConfig rather than as an escape → the caller DEFERS,
 	// letting the normal settings.json allow-list govern it. The protection for
 	// genuine sibling repos is unaffected (this is checked BEFORE the escapeRepo
-	// classification, and only matches the ~/.claude subtree). Both sides are
-	// canonicalized so the carve-out cannot be symlink-escaped.
+	// classification, and only matches the ~/.claude subtree and the accepted
+	// account config directory). Both sides are canonicalized so the carve-out
+	// cannot be symlink-escaped. The account config directory CLAUDE_CONFIG_DIR
+	// names, when accountConfigRoot accepts it, earns the same region; ~/.claude
+	// keeps it whatever the variable holds.
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
+		return claudeConfig, real, listed
+	}
+	if ac := accountConfigRoot(); ac != "" && pathUnder(real, ac) {
 		return claudeConfig, real, listed
 	}
 	// Carve-out, a cousin of the ~/.claude one above: the harness
