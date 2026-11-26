@@ -12,7 +12,7 @@ sweep did what it says.
 The domain-specific companions are
 [`plugins/guardrails/docs/rules/guardrails-verification-playbook.md`](../../plugins/guardrails/docs/rules/guardrails-verification-playbook.md)
 and
-[`claude-vm-verification-playbook.md`](./claude-vm-verification-playbook.md).
+[`plugins/claude-vm/docs/rules/claude-vm-verification-playbook.md`](../../plugins/claude-vm/docs/rules/claude-vm-verification-playbook.md).
 
 ## Baseline a suite total before believing a delta
 

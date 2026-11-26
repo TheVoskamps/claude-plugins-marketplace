@@ -113,10 +113,6 @@ above disagree, the rule wins and the playbook is the thing to fix.
   read before claiming a change was verified, in any domain. Kernel: a
   measurement without a baseline and a negative control establishes
   nothing.
-- [`docs/rules/claude-vm-verification-playbook.md`](docs/rules/claude-vm-verification-playbook.md)
-  — read before asserting what a claude-vm launch, image build or guest
-  does. Kernel: probe the real hypervisor, kernel and launcher; a green
-  fixture-driven suite has measured the fixture.
 - [`docs/rules/agent-tooling-notes.md`](docs/rules/agent-tooling-notes.md) — read
   when a command here succeeds but the result surprises you. Kernel: the
   Bash tool's shell is zsh, `gh`'s GraphQL verbs can fail while REST is
