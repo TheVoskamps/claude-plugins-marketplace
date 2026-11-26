@@ -4,22 +4,26 @@
 #
 # Usage: rebuild-binaries.sh
 #
-# Run it on a clean working tree, from any directory. Every target is pure
-# Go with CGo disabled, so all of them cross-compile from one host and none
-# is built at plugin load time.
+# Run it from any directory, on a working tree `git status --porcelain`
+# reports clean; it refuses any other before it tests or builds, so the
+# binaries are built from committed source. Every target is pure Go with CGo
+# disabled, so all of them cross-compile from one host and none is built at
+# plugin load time.
+#
+# Every binary is built with -buildvcs=false, so it embeds no vcs.revision,
+# vcs.time or vcs.modified stamp, and a rebuild of the same source with the
+# same Go toolchain matches the committed binary byte for byte at any later
+# commit, the amend that adds the binaries included.
 #
 # Each binary is built into a gitignored scratch directory and copied into
-# ../bin/ only once every arch is built and each one stamps
-# vcs.modified=false. Go reads vcs.modified from `git status --porcelain`,
-# so building straight into ../bin/ would dirty a tracked file with the
-# first binary and stamp every later arch vcs.modified=true from committed
-# source.
+# ../bin/ only once every arch is built, so a failed build leaves ../bin/ as
+# it was.
 #
-# Exit status: 0 when the binaries are installed; 1 on any failure — a test,
-# vet, lint, format or build step, a binary stamping anything but
-# vcs.modified=false, or a git or filesystem step — with nothing copied into
-# ../bin/ unless a copy or chmod into it fails, which leaves in place every
-# arch copied before the failure; 2 on a usage error.
+# Exit status: 0 when the binaries are installed; 1 on any failure — a dirty
+# working tree, a test, vet, lint, format or build step, or a git or
+# filesystem step — with nothing copied into ../bin/ unless a copy or chmod
+# into it fails, which leaves in place every arch copied before the failure;
+# 2 on a usage error.
 
 set -euo pipefail
 
@@ -46,6 +50,12 @@ scratch="$repo_root/.claude/tmp/rebuild-binaries"
 
 cd "$module_dir" || fail "cannot cd to $module_dir"
 
+tree_status=$(git -C "$repo_root" status --porcelain) || fail "git status --porcelain failed in $repo_root"
+if [ -n "$tree_status" ]; then
+  printf '%s\n' "$tree_status" >&2
+  fail "the working tree is not clean: commit every change, then run again"
+fi
+
 go test ./... || fail "go test failed"
 go vet ./... || fail "go vet failed"
 # golangci-lint discovers the repo-root .golangci.yml upward from here.
@@ -61,13 +71,8 @@ for target in "${TARGETS[@]}"; do
   goos=${target%-*}
   goarch=${target#*-}
   out="$scratch/$target/permission-gate"
-  GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -o "$out" . ||
+  GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$out" . ||
     fail "go build failed for $target"
-  buildinfo=$(go version -m "$out") || fail "go version -m failed for $target"
-  case "$buildinfo" in
-    *$'\tbuild\tvcs.modified=false'*) ;;
-    *) fail "$target stamps something other than vcs.modified=false: commit every change, then run again" ;;
-  esac
 done
 
 for target in "${TARGETS[@]}"; do

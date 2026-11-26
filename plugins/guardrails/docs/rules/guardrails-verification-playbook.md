@@ -181,13 +181,12 @@ verdict is real evidence.
 
 ## Prove which source a committed binary came from
 
-Go stamps `vcs.revision` and `vcs.modified` into every binary's build
-metadata, so a `-trimpath` rebuild of the same source at a different
-HEAD is not byte-identical to the committed binary even though the
-compiled code is. The differing bytes cluster in the buildinfo and
-build-ID regions, typically a few hundred bytes, and never in code. A
-raw `cmp` or `shasum` difference is therefore no mismatch signal on its
-own.
+`rebuild-binaries.sh` builds with `-trimpath -buildvcs=false`, so a
+binary it built embeds no `vcs.revision`, `vcs.time` or `vcs.modified`
+stamp, and nothing in it depends on the commit, the checkout path or
+the time it was built at. A rebuild of the same source with the same Go
+release is byte-identical to the committed binary, at head and at every
+later commit — the amend that adds the binaries included.
 
 ### The cheap first move: rebuild and compare
 
@@ -195,23 +194,27 @@ On a clean tree, run
 `plugins/guardrails/hooks/permission-gate/rebuild-binaries.sh`, then
 `git status --short plugins/guardrails/hooks/bin/`. A binary with no
 entry is byte-identical to the committed one, which is conclusive and
-settles staleness in one command. **A modified entry proves nothing** —
-vcs stamps and build IDs move — so fall back to the protocol below,
-with the rebuilt file in the working tree and the committed one taken
-from the immutable git object, `git show HEAD:<bin-path> > <tmp>`, never
-from a working-tree copy a concurrent session can rewrite mid-check.
+settles staleness in one command.
 
-On a commit made the way `plugins/guardrails/CLAUDE.md` prescribes, the
-rebuild at head shows every binary modified, always. The binaries were
-built from the source commit before the amend that added them, so they
-stamp that commit's `vcs.revision` and `vcs.time`, and the amend gives
-head a new hash and commit time that a rebuild stamps instead. That
-entry is no mismatch signal. Go straight to the protocol below, which
-still settles it: `go tool nm` identical under the
-`runtime.modinfo.str` filter, the `go tool buildid` third segment
-matching, and `go version -m` differing only in the vcs stamp lines.
+A modified entry is a mismatch unless one of two things explains it,
+and `go version -m` on both binaries tells which:
 
-### The decisive protocol when the bytes differ
+- the Go release differs from the one the committed binary names, and
+  then the rebuild measured your toolchain — install the release the
+  committed binary names and rebuild;
+- the committed binary lists `vcs.` lines, because it was built with
+  VCS stamping, and then the protocol below settles it.
+
+Take the committed binary for every comparison from the immutable git
+object, `git show HEAD:<bin-path> > <tmp>`, never from a working-tree
+copy a concurrent session can rewrite mid-check.
+
+### The decisive protocol for a binary carrying vcs stamps
+
+A binary built with VCS stamping differs from a stamp-free rebuild of
+the same source in the buildinfo and build-ID regions, typically a few
+hundred bytes, and never in code, so its raw `cmp` or `shasum`
+difference is no mismatch signal on its own.
 
 Require all of:
 
@@ -231,8 +234,8 @@ Require all of:
 and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
 committed arch was rebuilt consistently when only one can execute. The
 Go version, the module path, each dependency's version and `h1:` hash,
-`-trimpath=true` and `CGO_ENABLED=0` must all match; only
-`vcs.revision`, `vcs.time` and `vcs.modified` may differ.
+`-trimpath=true` and `CGO_ENABLED=0` must all match; only the `vcs`,
+`vcs.revision`, `vcs.time` and `vcs.modified` lines may differ.
 
 The `nm` comparison of item 1, spelled out:
 
@@ -257,13 +260,13 @@ runs showed and keep the recipe.
 
 ### Never read provenance off the embedded vcs stamp
 
-A build stamps `vcs.revision` with the HEAD of the checkout it runs
-in — inside a `.claude/worktrees/` linked worktree, that worktree's own
-HEAD, never the primary clone's — and the commit that lands the rebuilt
-binaries is by construction later than the one they stamp. A revision
-stamp that names neither the tip nor the commit you expected is
-expected, not evidence of staleness; staleness falls to the `nm`
-compare and the behavior probes.
+A binary that carries a stamp stamps `vcs.revision` with the HEAD of
+the checkout it was built in — inside a `.claude/worktrees/` linked
+worktree, that worktree's own HEAD, never the primary clone's — and the
+commit that lands the rebuilt binaries is by construction later than
+the one they stamp. A revision stamp that names neither the tip nor the
+commit you expected is expected, not evidence of staleness; staleness
+falls to the rebuild comparison and the behavior probes.
 
 ### Naming the exact source commit
 
@@ -1171,10 +1174,11 @@ matches what the committed binary was built with, then rebuild every
 arch from the unmodified tip and compare against the committed
 binaries.
 
-The byte comparison is not the grade. The embedded revision stamp is
-the HEAD of the checkout that built the binaries, and the commit that
-landed them is later than that, so a tip rebuild differs from the
-committed binary inside the build-information region on every arch
-with nothing wrong — do not report that as a provenance failure, and
-never write "a rebuild is byte-identical to the committed binary" into
-a PR body, since it is false for every later reader.
+Against binaries `rebuild-binaries.sh` built, the byte comparison is the
+grade: with the Go release matching, every arch rebuilt from the tip is
+byte-identical to the committed one. Against a committed binary that
+lists `vcs.` lines, it is not — the stamp names the HEAD of the checkout
+that built it, so a tip rebuild differs inside the build-information
+region on every arch with nothing wrong. Grade that one by the stamp
+protocol under "Prove which source a committed binary came from", and do
+not report the difference as a provenance failure.
