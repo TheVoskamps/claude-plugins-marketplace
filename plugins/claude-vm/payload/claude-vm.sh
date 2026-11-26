@@ -1288,6 +1288,9 @@ fi
 # belt-and-braces. Selection is fail-closed and was already validated at the
 # preflight; a failure here is unexpected -- abort rather than seed a partial or
 # empty file that would drop the guest back to the onboarding/login wall.
+#
+# Under --as the seed is built from the account's $ACCOUNT_DIR/.claude.json
+# instead of ~/.claude.json.
 # ---------------------------------------------------------------------
 HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
 # Authoritative seed write: pass the CONCRETE resolved version (captured after
