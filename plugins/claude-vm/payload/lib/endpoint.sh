@@ -56,18 +56,25 @@ CLAUDE_VM_ENDPOINT_SH_SOURCED=1
 claude_vm_tcp_port_in_use() {
   local port="$1"
   # An empty/non-numeric/out-of-range port is never "in use" -- let the
-  # caller's own validation handle the malformed case.
+  # caller's own validation handle the malformed case. A value of six or more
+  # digits is rejected before the numeric test, which a value past the shell's
+  # integer range would make complain on stderr.
   case "$port" in
-    '' | *[!0-9]*) return 1 ;;
+    '' | *[!0-9]* | ??????*) return 1 ;;
   esac
   [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || return 1
+  # ECONNREFUSED exits 200, a status no errno a dying perl exits with and no
+  # signal death reaches, so a perl that fails to start, to load its modules or
+  # to finish reads as in use like every other outcome.
+  local rc=0
   /usr/bin/perl -MSocket -MErrno=ECONNREFUSED -e '
     $SIG{ALRM} = sub { exit 0 };
     alarm 1;
     socket(S, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or exit 0;
     connect(S, sockaddr_in($ARGV[0], inet_aton("127.0.0.1"))) and exit 0;
-    exit($!{ECONNREFUSED} ? 1 : 0);
-  ' "$port" >/dev/null 2>&1
+    exit($!{ECONNREFUSED} ? 200 : 0);
+  ' "$port" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 200 ]
 }
 
 # ---------------------------------------------------------------------
