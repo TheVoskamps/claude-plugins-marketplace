@@ -79,17 +79,21 @@ assert_eq() {
 # ---------------------------------------------------------------------
 
 # Start a TCP listener on 127.0.0.1:<port>, backgrounded. Prints the pid on
-# stdout. The listener's own stdout/stderr are redirected to /dev/null so a
-# `$(...)` capture of the pid does not block waiting for the backgrounded
-# process to close the inherited stdout fd.
+# stdout. Once it is listening it creates <ready-file>, so a caller can wait
+# for the listener without probing it through the function under test. The
+# listener's own stdout/stderr are redirected to /dev/null so a `$(...)`
+# capture of the pid does not block waiting for the backgrounded process to
+# close the inherited stdout fd.
 start_tcp_listener() {
-  local port="$1"
+  local port="$1" ready="$2"
   /usr/bin/perl -MIO::Socket::INET -e '
     my $s = IO::Socket::INET->new(
       LocalAddr => "127.0.0.1", LocalPort => $ARGV[0],
       Proto => "tcp", Listen => 1, ReuseAddr => 1) or exit 1;
+    open(my $f, ">", $ARGV[1]) or exit 1;
+    close($f);
     sleep 30;
-  ' "$port" >/dev/null 2>&1 &
+  ' "$port" "$ready" >/dev/null 2>&1 &
   echo $!
 }
 
@@ -137,12 +141,25 @@ assert_false "tcp_port_in_use: a free port reads not-in-use" \
 
 # Stand up a real listener, then it MUST read in-use.
 LPORT="$(claude_vm_acquire_free_tcp_port)"
-LPID="$(start_tcp_listener "$LPORT")"
+LREADY="$WORK/tcp-listener.ready"
+LPID="$(start_tcp_listener "$LPORT" "$LREADY")"
 LISTENER_PIDS+=("$LPID")
-# Give perl a moment to bind.
-for _ in $(seq 1 30); do claude_vm_tcp_port_in_use "$LPORT" && break; sleep 0.1; done
-assert_true "tcp_port_in_use: a live listener reads in-use" \
-  claude_vm_tcp_port_in_use "$LPORT"
+# Wait for the listener's own ready signal, or for it to exit having failed
+# to bind.
+for _ in $(seq 1 100); do
+  [ -e "$LREADY" ] && break
+  kill -0 "$LPID" 2>/dev/null || break
+  sleep 0.1
+done
+if [ ! -e "$LREADY" ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL - tcp_port_in_use: a live listener reads in-use (the listener on port $LPORT never came up)"
+elif claude_vm_tcp_port_in_use "$LPORT"; then
+  PASS=$((PASS + 1)); echo "ok   - tcp_port_in_use: a live listener reads in-use"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - tcp_port_in_use: a live listener reads in-use (the live listener on port $LPORT read as free)"
+fi
 
 # After the listener dies, the port reads free again.
 kill "$LPID" 2>/dev/null || true
