@@ -1,323 +1,153 @@
 # auto-mode-tools
 
-Tools for working on the `autoMode` block of a Claude Code
-`settings.json` — the rules the auto mode classifier evaluates every
-tool call against.
+Tunes and personalizes the `autoMode` block of your Claude Code
+`settings.json`: the rules the auto mode classifier judges every tool
+call against.
 
-The plugin exists because `claude auto-mode critique` sends its
-critique request with `max_tokens` of 4096, read off the body the sink
-below captured. A large `autoMode` block can therefore never receive a
-complete critique from that command: the answer is truncated at the
-ceiling. `/tune-auto-mode` captures the critique request instead of
-letting it reach the API, and replays it through the current Claude
-Code session, which has no such ceiling.
+## Why you would want it
 
-## Skills
+Claude Code can critique your auto mode rules itself, with
+`claude auto-mode critique`, but that command caps its answer at 4096
+tokens. A large `autoMode` block therefore never gets a complete
+critique: the answer stops at the ceiling, part-way through.
 
-- **`tune-auto-mode`** — the critique loop: capture the critique
-  prompt, run rounds against a scratch config copy, and write the live
-  `settings.json` only at the end, after the human approves.
-- **`personalize-auto-mode`** — rewrite an existing `autoMode` block
-  against this machine's facts: names, organizations, SSO profiles,
-  repositories and paths.
+`/tune-auto-mode` captures the request that command sends, before it
+reaches the API, and answers it in your current Claude Code session,
+which has no such ceiling. You get the whole critique, one round at a
+time, and decide on every finding yourself.
 
-Neither skill depends on the other. `/tune-auto-mode` works when no
-facts file exists, because it is usable by anyone who received a tuned
-`settings.json` and never wrote facts of their own.
-`/personalize-auto-mode` works on an `autoMode` block that has never
-been tuned. There is no ordering contract between them and neither
-reads the other's state; in particular `/personalize-auto-mode` does
-not read the ledger.
+`/personalize-auto-mode` covers the other common need. A tuned block
+names people, organizations, repositories and paths, so one written on
+another machine, or handed to you by someone else, describes a setup
+that is not yours. The skill rewrites the block against your own facts.
 
-## The sink
+The two skills are independent. Either works without the other ever
+having run, in either order.
 
-`payload/sink.py` is a loopback-only HTTP sink bound to an ephemeral
-port. It never makes an upstream call and never forwards anything: it
-writes the received request body to the run directory, returns a
-minimal well-formed response so the invoking CLI exits cleanly, and
-terminates.
+## What you need first
 
-`/tune-auto-mode` starts it **in the background**, then runs `claude
-auto-mode critique` in the same shell with `ANTHROPIC_BASE_URL` pointed
-at it and `ANTHROPIC_API_KEY` set to a dummy value, so no real
-credential is sent to the local socket. The backgrounding is not
-optional: the sink serves until it captures a body or its timeout
-expires, so a foreground launch never reaches the critique command and
-the capture cannot happen at all.
+- A Claude Code that has the `claude auto-mode` command.
+- A `settings.json` in your Claude Code config directory. For
+  `/personalize-auto-mode` it must already hold an `autoMode` block: the
+  skill rewrites one and does not author one.
+- For `/tune-auto-mode`, `/usr/bin/python3`. The one macOS ships is
+  enough, with nothing installed on top.
+- For `/tune-auto-mode`, a session on a high-end model at high effort.
+  The critique is only as good as the session that answers it.
+- For `/personalize-auto-mode`, a facts file describing your machine.
+  "Getting started" below says how to write one.
 
-```bash
-/usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/payload/sink.py" --run-dir <dir> &
+## Getting started
+
+### Which file the skills change
+
+Both skills read and write `settings.json` in
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`: the directory `CLAUDE_CONFIG_DIR`
+names, or `~/.claude` when that variable is unset or empty. That is the
+file your session is enforcing, so it is the one worth changing.
+
+Both treat that file with the same care:
+
+- Work happens on a scratch copy. The live file is the permission
+  configuration your running session enforces, so it stays untouched
+  until the end.
+- You see the full diff, and nothing is written without your approval.
+- Before the live write, the skill takes a timestamped backup, tells
+  you its path, and runs a validation pass over the candidate. If the
+  candidate fails, the live file stays as it was and you are told where
+  the scratch copy is.
+- When `settings.json` is a symlink, into a dotfiles repository for
+  example, the backup and the write go through to the link's target and
+  the link stays a link.
+
+### Tuning the rules
+
+```text
+/tune-auto-mode
 ```
 
-It prints the base URL on stdout and also writes it to `<dir>/sink-url`,
-then serves until it captures a body into `<dir>/critique-request.json`
-— `--body-file` renames that file, and the test reads the same default
-off the module's `DEFAULT_BODY_FILE`. If no request reaches it for
-`--timeout` seconds (default 180) it gives up, reports that on stderr
-and exits non-zero, so a critique that never started cannot leave the
-caller waiting on a sink that never returns.
+A typical run:
 
-Standard library only, and no syntax newer than Python 3.9, so a stock
-macOS `/usr/bin/python3` runs it with nothing installed. That matches
-the constraint the repo's existing **host-side** Python already works
-under: the inline `python3 -c` scripts in
-`plugins/claude-vm/payload/lib/credential.sh`, and in its test under
-`plugins/claude-vm/payload/test/`, run on the macOS host and target
-that same stock interpreter — each calls bare `python3` and each says
-in its own header that it requires no more than the one macOS ships.
-The `python3 -c` blocks in
-`plugins/claude-vm/payload/provisioners/podman-mkosi.sh` are not that
-precedent: they run inside the Debian build container, on the
-interpreter that image installs, so they say nothing about what macOS
-ships.
+1. It copies your live `settings.json` into a scratch config directory.
+   Every round runs against that copy.
+2. It starts a small local server and points
+   `claude auto-mode critique` at it. The server records the critique
+   request and never forwards it, and the command runs with a dummy API
+   key, so your real credential is never sent to it.
+3. It answers the captured request in your session and presents the
+   findings: the rule each one touches, the proposed edit and the
+   reasoning.
+4. You accept or reject each finding. Accepted edits go into the
+   scratch copy.
+5. It runs another round, until you say stop or a round ends with
+   nothing accepted.
+6. It shows the diff against your live file and, with your approval,
+   backs up, validates and writes.
 
-What is new here is the first `.py` *file*, not the first Python. It
-adds no lint configuration, the repo declaring none for Python, but it
-does change what CI runs: `.github/scripts/codeql-language-present.sh`
-arms the `python` analysis leg whenever a tracked, non-vendored `*.py`
-file is present, so `codeql.yml` analyzes Python on every PR from here
-on.
+Run one `/tune-auto-mode` at a time. Runs must not overlap: they share
+the files below, nothing locks them, and two at once corrupt each
+other's results.
 
-### Why the sink is not a one-request server
+The tuner keeps its state under `$XDG_STATE_HOME/auto-mode-tools/`,
+which is `~/.local/state/auto-mode-tools/` unless you set that
+variable:
 
-The obvious design — answer exactly one request and exit — does not
-work, and the failure is silent-looking rather than loud: the CLI opens
-with a bodyless `HEAD /api/hello` reachability preflight, and a sink
-that spends its single request on that preflight leaves the CLI
-reporting `Failed to analyze rules: Connection error.` with nothing
-captured. So the sink answers every **bodyless** request with `200 {}`
-and keeps serving; only a request that carries a body is the capture,
-and the sink stops after it.
+- `ledger.yml` is the record of every finding you accepted or rejected,
+  with your reason. It accumulates across runs, and a later round reads
+  your earlier rejections so the same proposal does not keep coming
+  back. It stays on your machine and does not travel with
+  `settings.json`, so someone you hand a tuned config to makes their
+  own decisions.
+- `provenance.yml` identifies the block the tuner last wrote to your
+  live file. `/personalize-auto-mode` does not update it, so after a
+  personalization it describes a block that has since been rewritten.
+  Tune again when you want it to match the live file.
+- `last-run/` holds the artifacts of the most recent run, replaced on
+  the next one: the captured critique request, the built-in rules the
+  findings were judged against, each round's transcript and proposed
+  edits, and a ready-to-use pull request body listing what you accepted
+  and rejected and why.
 
-### Why the sink answers two response shapes
+### Personalizing the rules
 
-The critique request measured today carries no `stream` key, so the
-answer it wants is an ordinary JSON `message`. The sink reads the
-captured body and answers a streaming request with a complete
-Server-Sent Events stream (`message_start` through `message_stop`) and
-a non-streaming one with the JSON message. Which shape the CLI asks for
-is not a contract this plugin controls — it changes with Claude Code
-releases — so the sink covers both rather than pinning the current one.
-
-### Tests
-
-`payload/test/sink-test.py` is stdlib-only and directly executable. It
-drives the real sink over loopback: starts it, POSTs a body, and
-asserts that the body landed in the run directory verbatim and that the
-answer it got back is a well-formed Messages-API response of the shape
-the request asked for. It covers the preflight, the streaming shape
-(graded event by event, `message_start` first and `message_stop` last)
-and the non-streaming shape.
-
-```bash
-/usr/bin/python3 plugins/auto-mode-tools/payload/test/sink-test.py
+```text
+/personalize-auto-mode
 ```
 
-The test does not run `claude auto-mode critique`. What it pins is the
-sink's own contract; that the real CLI drives it end to end was
-established by running the real command against the real sink.
+The skill reads your facts from
+`$XDG_CONFIG_HOME/auto-mode-tools/facts.yml`, which is
+`~/.config/auto-mode-tools/facts.yml` unless you set that variable.
+The facts file is where you state what is specific to you and your
+machine, partly as exact lists and partly as free prose.
 
-## The live settings file
+No facts file ships in the plugin, so the first run finds none. In that
+case `/personalize-auto-mode` prints the facts schema, with placeholder
+values, and tells you where to save the file. Fill it in and run the
+skill again.
 
-The file both skills read and write is `settings.json` in Claude Code's
-config directory, `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`: the directory
-`CLAUDE_CONFIG_DIR` names, or `~/.claude` when the variable is unset or
-empty. A session started under another config directory is enforcing
-that directory's `settings.json`, so that is the file to tune; a fixed
-`~/.claude/settings.json` would rewrite a file the session never read.
+With a facts file in place, the skill rewrites the block's descriptions
+of your environment against it, shows you the diff and, with your
+approval, backs up, validates and writes. This is a rewrite and not a
+find-and-replace: a paragraph that mentions something your facts do not
+list is reasoned about again.
 
-Each skill resolves the path once, before any command of its own sets
-`CLAUDE_CONFIG_DIR` to a scratch directory. The order matters because
-the scratch directory below is selected through the same variable: a
-lookup made after that point would find the scratch copy and call it
-live.
+Afterwards `settings.json` is the thing you maintain, and the facts
+file is expected to go stale. Running the skill again starts over from
+the block as it then stands.
 
-The path is resolved through symlinks, so when `settings.json` is a
-link — into a dotfiles repository, say — the read, the backup and the
-final write all act on the link's target, and the link stays a link.
-A write that replaced the link with a regular file would detach the
-config directory from the file it pointed at, with nothing to report
-it.
+## What it deliberately does not do
 
-## Isolation: every round runs in a scratch config dir
-
-`CLAUDE_CONFIG_DIR` makes `claude` read `settings.json` from the
-directory it names. This is verified: with a `settings.json` in `$D`
-carrying a sentinel `autoMode.environment` entry,
-`CLAUDE_CONFIG_DIR=$D claude auto-mode config` prints the sentinel and
-exits 0.
-
-`/tune-auto-mode` therefore copies the live `settings.json` into a
-scratch config directory and runs every capture and every round against
-that copy. Accepted edits are applied to the copy, not to the live
-file. The live file is the permission configuration the running session
-is enforcing; editing it between rounds would have the loop rewrite its
-own enforcement while running, and a bad intermediate round would
-degrade the very session doing the work.
-
-The live file is written only at the end, after the human approves, and
-only after a timestamped backup of it is taken and the candidate file
-passes `claude auto-mode config` against the scratch directory without
-error.
-
-`/personalize-auto-mode` writes the same file, so it carries the same
-protections in the same order.
-
-Neither skill fixes a path for that backup: each writes a timestamped
-name of its own choosing and tells the human where it went, so the
-backup is not among the fixed paths below.
-
-## Machine-local state
-
-The tuner's own state lives under `$XDG_STATE_HOME/auto-mode-tools/`,
-defaulting to `~/.local/state/auto-mode-tools/` — macOS sets no
-`XDG_STATE_HOME`, so the default is the path this will use in
-practice.
-
-Concurrent `/tune-auto-mode` invocations are not supported, and the
-skill does **not** guard against them: there is no lock file and no
-per-session directory. Two parallel runs share the paths below and will
-corrupt each other's results, and the answer is to run one at a time.
-This is written down so the shared fixed paths are read as a decision
-rather than as an oversight to fix.
-
-### The ledger
-
-`~/.local/state/auto-mode-tools/ledger.yml` carries a `schema-version`
-key that starts at `1` and that the reader gates on: on any other
-value the skill aborts, naming the file and the version it expected,
-rather than reading the file as if it matched.
-
-The ledger is **cumulative** — it accumulates across every run and is
-never truncated, which is the whole point of feeding prior rejections
-into a later round. The last-run-only retention below applies to the
-run artifacts and not to it.
-
-It is machine-local and does not travel with `settings.json`: a
-recipient of a tuned config who dislikes what they got re-runs the
-tuner rather than inheriting someone else's decisions.
-
-It cannot live inside `settings.json`, because Claude Code strips
-`//`-prefixed keys whenever it rewrites that file itself. The same
-constraint applies to all of the tuner's provenance, so that lives
-beside the ledger too — in `provenance.yml`, below — and the `autoMode`
-block ends up carrying only `environment`, `allow`, `soft_deny` and
-`hard_deny`.
-
-Each ledger entry keys on the rule's label rather than on a position or
-an index, so a decision survives reordering or a later rewrite of the
-block.
-
-### Provenance
-
-`~/.local/state/auto-mode-tools/provenance.yml` holds the provenance
-`settings.json` cannot carry: `revision`, the revision number of the
-tuned block; `prompt-sha256`, the SHA-256 of the captured critique
-prompt that produced it; and `last-run`, the UTC timestamp of the run
-that wrote it. It carries a `schema-version` key gated exactly as the
-ledger's is.
-
-`/tune-auto-mode` writes it as the last step of writing the live file,
-reading the previous `revision` back to increment it. A run that leaves
-the live `settings.json` untouched writes no provenance, because a
-revision that names no write names a block nobody has.
-
-A record therefore names the block **this tuner last wrote**, not
-whatever `settings.json` holds now. `/personalize-auto-mode` writes the
-same file and writes nothing to the state directory, so once it has
-run, `revision` and `prompt-sha256` describe a block that has since
-been rewritten. That is a decision rather than an oversight: having the
-personalizer bump the revision would claim a critique round it never
-ran, and having it read the state directory would end the independence
-the two skills are built on. Read the record as the tuner's own
-history, and re-run the tuner if you want provenance for what is in the
-live file today.
-
-### Run artifacts
-
-`~/.local/state/auto-mode-tools/last-run/` retains the last run only,
-where a run is one `/tune-auto-mode` invocation including every round
-inside it — not the last round. It holds the captured critique prompt
-(`critique-request.json`), the URL the sink bound (`sink-url`), the
-built-in rules as fetched (`defaults.json`), the per-round transcripts,
-and the proposed-edit sets.
-
-As its last act, `/tune-auto-mode` writes a ready-to-use PR body into
-that directory: the accepted findings with the human's reasons and the
-rejected ones with theirs. This makes landing the tuned
-`settings.json` on a branch of a config repo an ordinary `git-tools`
-plus `github-prs` operation needing no skill of its own.
-
-## The facts file
-
-`$XDG_CONFIG_HOME/auto-mode-tools/facts.yml`, defaulting to
-`~/.config/auto-mode-tools/facts.yml`. It carries a `schema-version`
-key that starts at `1` and that the reader gates on with the same abort
-as the ledger: on any other value, abort naming the file and the
-expected version. It is the input to `/personalize-auto-mode` and is
-machine- and user-specific.
-
-The shape is a hybrid, and the split is deliberate:
-
-- **Structured keys for anything enumerable.** These appear verbatim
-  inside the environment paragraphs and must be reproduced exactly;
-  free prose invites a model to drop a list member or paraphrase a
-  profile name, with nothing to catch it.
-- **One free-prose `notes:` field** for what is not enumerable — "I no
-  longer work on that project", "this laptop is one-employer-only",
-  "everything under `~/scratch` is disposable".
-
-`/personalize-auto-mode` prints the full schema, with placeholder
-values, when no facts file exists: no machine's real facts ship in the
-plugin.
-
-These properties of that schema are load-bearing:
-
-- **`bots` is a list of records, not three parallel lists.** A rule
-  matching a bot generally needs its login and its email to agree, and
-  parallel lists let those drift out of alignment with nothing to
-  detect it.
-- **`identity` and each `bots` entry carry the same three key names**,
-  so the personalizer reads one shape twice rather than two shapes.
-
-`organizations` and `sso-profiles` are deliberately flat lists of bare
-names. An SSO profile may map to several accounts or to a shared role,
-so attaching an account or a role to it would record something that is
-not a function of the profile. `public-repositories` holds
-`owner/repo` strings, self-scoping and independent of the
-`organizations` list. `scratch-globs` and `worktree-globs` are separate
-keys because the tuned rules treat disposable scratch space and
-worktrees differently.
-
-The environment entries are dense paragraphs, not templates, so
-personalizing one is a rewrite rather than a token substitution. The
-structured keys give the rewrite exact lists to place; the prose gives
-it the rest to reason from.
-
-## Genericity
-
-The facts the plugin tunes against never ship inside it.
-Organizations, hosts, SSO profiles, repository lists and paths come
-from the facts file or from the `autoMode` block being tuned; the
-plugin supplies only the harness.
-
-The `author` block in `.claude-plugin/plugin.json` is outside that
-claim and stays. It names the plugin's maintainer, as every plugin in
-this marketplace does, and no skill reads it — it is not a fact any
-rule is tuned against.
-
-## Deliberately out of scope
-
-Each of these is a decision, not an omission to repair:
-
-- **A skill that opens the config-repo PR.** The PR body artifact above
-  makes the manual path a one-liner; revisit only if that turns out to
-  be frequent.
-- **An `update-auto-mode` skill** reconciling a block against a changed
-  shipped baseline.
-- **Comparing critique quality across models and effort levels.** That
-  needs a way to measure a tuned config — a corpus of tool calls with
-  expected verdicts, replayed after each edit — which does not exist
-  yet, and without it the comparison has nothing to compare on.
-- **Any guard against concurrent `/tune-auto-mode` runs**, per
-  *Machine-local state* above.
+- **It does not open a pull request.** The tuner writes a pull request
+  body into `last-run/`; landing the tuned `settings.json` in a config
+  repository is left to you.
+- **It does not reconcile your block against a changed set of built-in
+  rules.** A Claude Code release that changes the shipped rules does
+  not update your block; tune again to have it judged against them.
+- **It does not compare critique quality across models or effort
+  levels.** Nothing measures a tuned configuration yet, so there is
+  nothing to compare on.
+- **It does not guard against overlapping `/tune-auto-mode` runs.**
+  There is no lock; running one at a time is up to you.
+- **It does not ship anyone's facts.** Every name, organization,
+  repository and path comes from your facts file or from the block
+  being worked on.
