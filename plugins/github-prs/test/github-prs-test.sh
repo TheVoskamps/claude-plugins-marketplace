@@ -24,9 +24,10 @@
 # top level, inside a function, inside a command substitution, and inside
 # a function called from one; each must exit 1 with the catalogue line
 # and run nothing after the failure. A git that fails under
-# pr-merge-conflicts checks the same for an unhandled git step, and a sort
-# that fails under pr-closing-issues, that its pipeline exits 1 whatever
-# sort's status. A case for another repository's PR under
+# pr-merge-conflicts checks that an unhandled git step exits 1 with the
+# catalogue line and still removes the worktree, and a sort that fails
+# under pr-closing-issues, that its pipeline exits 1 whatever sort's
+# status. A case for another repository's PR under
 # pr-merge-conflicts reaches a bare repository standing in for it through
 # git's `insteadOf`.
 #

@@ -1,8 +1,8 @@
 # github-prs
 
 `bin/lib/github-prs-common.sh` — read when writing or changing a verb.
-Kernel: report every failure through a catalogue entry; a verb's own
-exit statuses sit in 2–125; use no construct the ERR trap cannot see.
+  Kernel: report every failure through a catalogue entry; a verb's own
+  exit statuses sit in 2–125; use no construct the ERR trap cannot see.
 
 - No SKILL.md carries a `gh` procedure; the skill runs its script.
 - `gp_gh` adds `--hostname` to every `api` call, and `GH_HOST` is never
