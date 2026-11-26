@@ -373,13 +373,13 @@ other:
   x: 1
 YML
 
-assert_eq "scalar presence:explicit false is preserved (not replaced by fallback)" \
+assert_eq "scalar presence: explicit false is preserved (not replaced by fallback)" \
   "false" "$(claude_vm_scalar "$BOOL_YML" '.knob_false' 'FALLBACK')"
-assert_eq "scalar presence:explicit true is preserved" \
+assert_eq "scalar presence: explicit true is preserved" \
   "true" "$(claude_vm_scalar "$BOOL_YML" '.knob_true' 'FALLBACK')"
-assert_eq "scalar presence:genuinely absent key falls back" \
+assert_eq "scalar presence: genuinely absent key falls back" \
   "FALLBACK" "$(claude_vm_scalar "$BOOL_YML" '.knob_absent' 'FALLBACK')"
-assert_eq "scalar presence:explicit null falls back (same as absent)" \
+assert_eq "scalar presence: explicit null falls back (same as absent)" \
   "FALLBACK" "$(claude_vm_scalar "$BOOL_YML" '.knob_null' 'FALLBACK')"
 
 # Same check against the real merged fixture's two guest-capability
@@ -392,9 +392,9 @@ BOOL_R="$WORK/bool-r.yml"
 printf 'update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' >"$BOOL_R"
 MERGED_BOOL="$WORK/merged-bool.yml"
 claude_vm_merge_config "$BOOL_G" "$BOOL_R" >"$MERGED_BOOL"
-assert_eq "scalar presence:update_at_boot repo-wins explicit false survives" \
+assert_eq "scalar presence: update_at_boot repo-wins explicit false survives" \
   "false" "$(claude_vm_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
-assert_eq "scalar presence:claude.plugins.update_at_boot repo-wins explicit false survives" \
+assert_eq "scalar presence: claude.plugins.update_at_boot repo-wins explicit false survives" \
   "false" "$(claude_vm_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
 
 # ---------------------------------------------------------------------
@@ -1940,7 +1940,7 @@ REG_BOOT_G="$WORK/reg-boot-g.yml"
 printf 'update_at_boot: false\nadd_apt_uris_to_allowlist: auto\n' >"$REG_BOOT_G"
 REG_BOOT="$WORK/reg-boot.yml"
 claude_vm_merge_config "$REG_BOOT_G" "$WORK/does-not-exist.yml" >"$REG_BOOT"
-assert_eq "regression: boot-file update_at_boot: false reaches the boolean resolver" \
+assert_eq "regression: boot-file update_at_boot: false reaches claude_vm_scalar" \
   "false" "$(claude_vm_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 assert_eq "regression: boot-file add_apt_uris_to_allowlist reaches the resolver" \
   "auto" "$(claude_vm_scalar "$REG_BOOT" '.add_apt_uris_to_allowlist' 'X')"

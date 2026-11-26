@@ -3021,7 +3021,7 @@ $name
 #   $2 -- merged BAKE document file path (optional; omitted/missing means no
 #         baked plugin refs, which is exactly the pre-#107 behavior)
 #
-# TWO documents since issue #107: each key this render reads -- permissions,
+# Each key this render reads -- permissions,
 # permission_mode, plugins.bake, plugins.install_at_boot, plugins.enabled --
 # comes from the document of the file type the key table places it in (see
 # the placement note above claude_vm_check_plugin_key_placement).

@@ -448,11 +448,11 @@ case "$CLAUDE_RENDERER" in
     ;;
 esac
 
-# claude.remote_control (issue #88) enables Claude Code's Remote Control on
-# this launch. When true, the launcher injects `--remote-control` into the
-# guest's CLAUDE_ARGS (unless the CLI args already carry it) and, if Remote
-# Control is in effect but no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
-# date-stamp default). Validate like the renderer knob: accept true/false/unset;
+# claude.remote_control enables Claude Code's Remote Control on this launch.
+# When true, the launcher injects `--remote-control` into the guest's
+# CLAUDE_ARGS (unless the CLI args already carry it) and, if Remote Control is
+# in effect but no `--name` was given, appends a date-stamped `--name`.
+# Validate like the renderer knob: accept true/false/unset;
 # anything else aborts up front rather than being silently ignored.
 CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED_BOOT" '.claude.remote_control' "")"
 case "$CLAUDE_REMOTE_CONTROL" in
@@ -1027,8 +1027,8 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # (claude.permission_mode, enum-guarded above), and
 # the enabledPlugins object (every ref in claude.plugins.bake ++ install_at_boot
 # defaults true, then claude.plugins.enabled overrides per key). BOTH merged
-# documents are passed since issue #107, each key being read from the document
-# of the file type the key table places it in. The permissions
+# documents are passed, each key being read from the document of the file
+# type the key table places it in. The permissions
 # come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
 # NEVER read, so the guest's PERMISSION surface is defined entirely by
 # claude-vm, per the issue's product intent. (The host's ~/.claude working

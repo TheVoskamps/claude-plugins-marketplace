@@ -396,7 +396,7 @@ fi
 # not the old stop-here message.)
 SEAM_MARKER="guest booted to the claude-fetch seam"
 if [ -n "$IMG" ] && [ -s "$IMG" ]; then
-  BOOT_LOG="$LOG_DIR/boot.log" # retained diagnostic (issue #115)
+  BOOT_LOG="$LOG_DIR/boot.log" # retained diagnostic
   EFISTORE="$WORK/efistore"
   GVSOCK="$WORK/vfkit-net.sock"
 
@@ -564,7 +564,7 @@ STUBCLAUDE
   # launcher routes its diagnostics to /dev/console (hvc0 = BOOT_LOG), so the
   # seam marker still lands in BOOT_LOG regardless of which console claude's own
   # stdio is on. Device ORDER is load-bearing: 1st -> hvc0, 2nd -> hvc1.
-  HVC1_LOG="$LOG_DIR/hvc1.log" # retained diagnostic (issue #115)
+  HVC1_LOG="$LOG_DIR/hvc1.log" # retained diagnostic
   vfkit \
     --cpus 2 --memory 2048 \
     --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -667,7 +667,7 @@ fi
 # CONNECT stage).
 # ---------------------------------------------------------------------
 PROXY_PORT_C=13128
-PROXY_LOG="$LOG_DIR/proxy.log" # retained diagnostic (issue #115)
+PROXY_LOG="$LOG_DIR/proxy.log" # retained diagnostic
 
 # start_proxy <allowlist-file> -> sets PROXY_PID_C, waits for the listener.
 # CLAUDE_VM_PROXY_LISTEN_ADDR is intentionally NOT set here: production
