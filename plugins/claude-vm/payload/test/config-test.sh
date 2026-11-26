@@ -63,7 +63,7 @@ REPO_BOOT="$WORK/repo-boot.yml"
 GLOBAL_BAKE="$WORK/global-bake.yml"
 REPO_BAKE="$WORK/repo-bake.yml"
 
-cat > "$GLOBAL_BOOT" <<'YML'
+cat >"$GLOBAL_BOOT" <<'YML'
 cpus: 2
 mem: 4096
 guest_image: /global/guest.raw
@@ -109,7 +109,7 @@ github:
   auth: none
 YML
 
-cat > "$REPO_BOOT" <<'YML'
+cat >"$REPO_BOOT" <<'YML'
 cpus: 8
 guest_image: /repo/guest.raw
 repo:
@@ -149,7 +149,7 @@ github:
   auth: host-token
 YML
 
-cat > "$GLOBAL_BAKE" <<'YML'
+cat >"$GLOBAL_BAKE" <<'YML'
 image:
   root_headroom_mb: 1024
 packages:
@@ -168,7 +168,7 @@ claude:
       - foo@global-mp
 YML
 
-cat > "$REPO_BAKE" <<'YML'
+cat >"$REPO_BAKE" <<'YML'
 image:
   root_headroom_mb: 2048
 packages:
@@ -192,8 +192,8 @@ YML
 # ---------------------------------------------------------------------
 MERGED_BOOT="$WORK/merged-boot.yml"
 MERGED_BAKE="$WORK/merged-bake.yml"
-claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" > "$MERGED_BOOT"
-claude_vm_merge_config "$GLOBAL_BAKE" "$REPO_BAKE" > "$MERGED_BAKE"
+claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$MERGED_BOOT"
+claude_vm_merge_config "$GLOBAL_BAKE" "$REPO_BAKE" >"$MERGED_BAKE"
 
 assert_eq "scalar: repo overrides global (cpus)" \
   "8" "$(claude_vm_scalar "$MERGED_BOOT" '.cpus' 'X')"
@@ -215,7 +215,7 @@ assert_eq "scalar: repo overrides global (bake image.root_headroom_mb)" \
 # ---------------------------------------------------------------------
 # global: api.anthropic.com, github.com ; repo: github.com, cache.example.com
 # union (sorted by yq unique): api.anthropic.com, cache.example.com, github.com
-EGRESS="$(claude_vm_egress_hosts "$MERGED_BOOT" | sort | tr '\n' ',' )"
+EGRESS="$(claude_vm_egress_hosts "$MERGED_BOOT" | sort | tr '\n' ',')"
 assert_eq "list: egress.allow is unioned + de-duped" \
   "api.anthropic.com,cache.example.com,github.com," "$EGRESS"
 
@@ -225,7 +225,7 @@ assert_eq "list: egress.allow is unioned + de-duped" \
 MOUNT_TAGS="$(claude_vm_mount_specs "$MERGED_BOOT" | cut -f2 | sort | tr '\n' ',')"
 assert_eq "list: mounts unioned (policy + data tags present)" \
   "data,policy," "$MOUNT_TAGS"
-MOUNT_COUNT="$(claude_vm_mount_specs "$MERGED_BOOT" | grep -c . )"
+MOUNT_COUNT="$(claude_vm_mount_specs "$MERGED_BOOT" | grep -c .)"
 assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 
 # ---------------------------------------------------------------------
@@ -321,7 +321,7 @@ assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
 # explicit true, genuinely absent, and explicit null.
 # ---------------------------------------------------------------------
 BOOL_YML="$WORK/bool-scalar.yml"
-cat > "$BOOL_YML" <<'YML'
+cat >"$BOOL_YML" <<'YML'
 knob_false: false
 knob_true: true
 knob_null: null
@@ -342,10 +342,12 @@ assert_eq "bool_scalar: explicit null falls back (same as absent)" \
 # booleans, with fixtures inverted (global=true / repo=false) so "repo
 # wins" resolving to "false" is a genuine round-trip proof, not an
 # artifact of the fallback also being "false".
-BOOL_G="$WORK/bool-g.yml"; printf 'update_at_boot: true\nclaude:\n  plugins:\n    update_at_boot: true\n' > "$BOOL_G"
-BOOL_R="$WORK/bool-r.yml"; printf 'update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' > "$BOOL_R"
+BOOL_G="$WORK/bool-g.yml"
+printf 'update_at_boot: true\nclaude:\n  plugins:\n    update_at_boot: true\n' >"$BOOL_G"
+BOOL_R="$WORK/bool-r.yml"
+printf 'update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' >"$BOOL_R"
 MERGED_BOOL="$WORK/merged-bool.yml"
-claude_vm_merge_config "$BOOL_G" "$BOOL_R" > "$MERGED_BOOL"
+claude_vm_merge_config "$BOOL_G" "$BOOL_R" >"$MERGED_BOOL"
 assert_eq "bool_scalar: update_at_boot repo-wins explicit false survives" \
   "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
 assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false survives" \
@@ -357,7 +359,7 @@ assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false s
 # "null" (issue #103 review finding).
 # ---------------------------------------------------------------------
 OPTIONAL_FIELD_YML="$WORK/optional-field.yml"
-cat > "$OPTIONAL_FIELD_YML" <<'YML'
+cat >"$OPTIONAL_FIELD_YML" <<'YML'
 apt_sources:
   - name: no-key-repo
     repo: "deb https://example.com/nokey stable main"
@@ -385,8 +387,8 @@ assert_eq "marketplaces: missing url field value is empty string" \
 # ---------------------------------------------------------------------
 MERGED_G="$WORK/merged-global.yml"
 MERGED_G_BAKE="$WORK/merged-global-bake.yml"
-claude_vm_merge_config "$GLOBAL_BOOT" "$WORK/does-not-exist.yml" > "$MERGED_G"
-claude_vm_merge_config "$GLOBAL_BAKE" "$WORK/does-not-exist.yml" > "$MERGED_G_BAKE"
+claude_vm_merge_config "$GLOBAL_BOOT" "$WORK/does-not-exist.yml" >"$MERGED_G"
+claude_vm_merge_config "$GLOBAL_BAKE" "$WORK/does-not-exist.yml" >"$MERGED_G_BAKE"
 assert_eq "global-only: cpus from global" \
   "2" "$(claude_vm_scalar "$MERGED_G" '.cpus' 'X')"
 assert_eq "global-only: egress count is 2" \
@@ -416,8 +418,8 @@ assert_eq "global-only: image.root_headroom_mb from global bake" \
 # ---------------------------------------------------------------------
 MERGED_R="$WORK/merged-repo.yml"
 MERGED_R_BAKE="$WORK/merged-repo-bake.yml"
-claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BOOT" > "$MERGED_R"
-claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BAKE" > "$MERGED_R_BAKE"
+claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BOOT" >"$MERGED_R"
+claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BAKE" >"$MERGED_R_BAKE"
 assert_eq "repo-only: cpus from repo" \
   "8" "$(claude_vm_scalar "$MERGED_R" '.cpus' 'X')"
 assert_eq "repo-only: mem falls back to hardcoded default" \
@@ -435,7 +437,7 @@ assert_eq "repo-only: image.root_headroom_mb from repo bake (2048)" \
 # Test 6: neither layer present -- all scalars hit hardcoded fallbacks
 # ---------------------------------------------------------------------
 MERGED_N="$WORK/merged-none.yml"
-claude_vm_merge_config "$WORK/none-a.yml" "$WORK/none-b.yml" > "$MERGED_N"
+claude_vm_merge_config "$WORK/none-a.yml" "$WORK/none-b.yml" >"$MERGED_N"
 assert_eq "neither: cpus fallback" \
   "$CLAUDE_VM_DEFAULT_CPUS" "$(claude_vm_scalar "$MERGED_N" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
 assert_eq "neither: repo.mount fallback is clone" \
@@ -492,9 +494,9 @@ assert_eq "prune: fully-empty merge document is the empty map" \
 # keeping the scalar (proves pruning doesn't over-delete a populated
 # parent map, only ones that become genuinely empty).
 SCALAR_ONLY_G="$WORK/scalar-only-g.yml"
-printf 'claude:\n  permission_mode: default\n' > "$SCALAR_ONLY_G"
+printf 'claude:\n  permission_mode: default\n' >"$SCALAR_ONLY_G"
 MERGED_SCALAR_ONLY="$WORK/merged-scalar-only.yml"
-claude_vm_merge_config "$SCALAR_ONLY_G" "$WORK/does-not-exist.yml" > "$MERGED_SCALAR_ONLY"
+claude_vm_merge_config "$SCALAR_ONLY_G" "$WORK/does-not-exist.yml" >"$MERGED_SCALAR_ONLY"
 assert_eq "prune: scalar-bearing claude map survives with only its scalar" \
   '{"claude":{"permission_mode":"default"}}' \
   "$(yq eval -o=json -I=0 '.' "$MERGED_SCALAR_ONLY")"
@@ -515,26 +517,27 @@ assert_eq "prune: populated merge still has claude.marketplaces with entries" \
 # ---------------------------------------------------------------------
 DUP_G="$WORK/dup-g.yml"
 DUP_R="$WORK/dup-r.yml"
-cat > "$DUP_G" <<'YML'
+cat >"$DUP_G" <<'YML'
 mounts:
   - source: ~/shared
     tag: shared
     path: /srv/shared
 YML
-cat > "$DUP_R" <<'YML'
+cat >"$DUP_R" <<'YML'
 mounts:
   - source: ~/shared
     tag: shared
     path: /srv/shared
 YML
 MERGED_D="$WORK/merged-dup.yml"
-claude_vm_merge_config "$DUP_G" "$DUP_R" > "$MERGED_D"
+claude_vm_merge_config "$DUP_G" "$DUP_R" >"$MERGED_D"
 assert_eq "dedup: identical mount collapses to 1 entry" \
   "1" "$(claude_vm_mount_specs "$MERGED_D" | grep -c .)"
 
 # assert_true <label> <command...> -- passes when the command succeeds.
 assert_true() {
-  local label="$1"; shift
+  local label="$1"
+  shift
   if "$@"; then
     PASS=$((PASS + 1))
     echo "ok   - $label"
@@ -569,43 +572,31 @@ assert_ne() {
 # Point TMPDIR at the test workdir so the created files are cleaned up
 # with $WORK and do not litter the real temp dir.
 # ---------------------------------------------------------------------
-(
-  export TMPDIR="$WORK"
+F1="$(TMPDIR="$WORK" claude_vm_mktemp claude-vm-mktemp-test)"
+F2="$(TMPDIR="$WORK" claude_vm_mktemp claude-vm-mktemp-test)"
+assert_true "mktemp: first file exists" test -f "$F1"
+assert_true "mktemp: second file exists" test -f "$F2"
+assert_ne "mktemp: two file calls produce distinct paths" "$F1" "$F2"
 
-  F1="$(claude_vm_mktemp claude-vm-mktemp-test)"
-  F2="$(claude_vm_mktemp claude-vm-mktemp-test)"
-  assert_true "mktemp: first file exists"  test -f "$F1"
-  assert_true "mktemp: second file exists" test -f "$F2"
-  assert_ne   "mktemp: two file calls produce distinct paths" "$F1" "$F2"
+D1="$(TMPDIR="$WORK" claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
+D2="$(TMPDIR="$WORK" claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
+assert_true "mktemp -d: first dir exists" test -d "$D1"
+assert_true "mktemp -d: second dir exists" test -d "$D2"
+assert_ne "mktemp -d: two dir calls produce distinct paths" "$D1" "$D2"
 
-  D1="$(claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
-  D2="$(claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
-  assert_true "mktemp -d: first dir exists"  test -d "$D1"
-  assert_true "mktemp -d: second dir exists" test -d "$D2"
-  assert_ne   "mktemp -d: two dir calls produce distinct paths" "$D1" "$D2"
+# The created path must NOT carry a literal X-run -- a regression check
+# that the template was actually substituted, not used verbatim.
+case "$F1" in
+  *XXXXXX*) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "literal-XXXXXX" ;;
+  *) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "no-XXXXXX" ;;
+esac
 
-  # The created path must NOT carry a literal X-run -- a regression check
-  # that the template was actually substituted, not used verbatim.
-  case "$F1" in
-    *XXXXXX*) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "literal-XXXXXX" ;;
-    *)        assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "no-XXXXXX" ;;
-  esac
-
-  # A trailing slash on TMPDIR must not produce a doubled slash.
-  export TMPDIR="$WORK/"
-  SLASH="$(claude_vm_mktemp claude-vm-mktemp-slash)"
-  case "$SLASH" in
-    *//*) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "doubled-slash" ;;
-    *)    assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "single-slash" ;;
-  esac
-
-  # Propagate this subshell's pass/fail tallies to the parent via a temp
-  # file (a subshell cannot mutate the parent's PASS/FAIL vars).
-  printf '%s %s\n' "$PASS" "$FAIL" > "$WORK/mktemp-tally"
-)
-read -r SUB_PASS SUB_FAIL < "$WORK/mktemp-tally"
-PASS="$SUB_PASS"
-FAIL="$SUB_FAIL"
+# A trailing slash on TMPDIR must not produce a doubled slash.
+SLASH="$(TMPDIR="$WORK/" claude_vm_mktemp claude-vm-mktemp-slash)"
+case "$SLASH" in
+  *//*) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "doubled-slash" ;;
+  *) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "single-slash" ;;
+esac
 
 # ---------------------------------------------------------------------
 # Test 9: claude_vm_merge_config can run twice in succession.
@@ -616,21 +607,14 @@ FAIL="$SUB_FAIL"
 # would die on "File exists". Run two merges back-to-back into two
 # outputs and assert both succeeded and produced content.
 # ---------------------------------------------------------------------
-(
-  export TMPDIR="$WORK"
-  OUT_A="$WORK/twice-a.yml"
-  OUT_B="$WORK/twice-b.yml"
-  rc=0
-  claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" > "$OUT_A" || rc=1
-  claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" > "$OUT_B" || rc=1
-  assert_true "merge twice: both calls succeeded" test "$rc" -eq 0
-  assert_true "merge twice: first output non-empty"  test -s "$OUT_A"
-  assert_true "merge twice: second output non-empty" test -s "$OUT_B"
-  printf '%s %s\n' "$PASS" "$FAIL" > "$WORK/merge-tally"
-)
-read -r SUB_PASS SUB_FAIL < "$WORK/merge-tally"
-PASS="$SUB_PASS"
-FAIL="$SUB_FAIL"
+OUT_A="$WORK/twice-a.yml"
+OUT_B="$WORK/twice-b.yml"
+rc=0
+TMPDIR="$WORK" claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$OUT_A" || rc=1
+TMPDIR="$WORK" claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$OUT_B" || rc=1
+assert_true "merge twice: both calls succeeded" test "$rc" -eq 0
+assert_true "merge twice: first output non-empty" test -s "$OUT_A"
+assert_true "merge twice: second output non-empty" test -s "$OUT_B"
 
 # ---------------------------------------------------------------------
 # Test 10: claude_vm_quote_args round-trip (issue #88).
@@ -648,14 +632,15 @@ FAIL="$SUB_FAIL"
 # guest source+eval reconstruction, and set <var-out> to a printable
 # "ARGC|<a1>|<a2>|..." string of the reconstructed argv.
 rt_argv() {
-  local __out="$1"; shift
+  local __out="$1"
+  shift
   local inner envline tf
   # Host: inner per-arg %q, then outer %q for the whole line.
   inner="$(claude_vm_quote_args "$@")"
   inner="${inner%$'\n'}"
   printf -v envline 'CLAUDE_ARGS=%q\n' "$inner"
   tf="$(claude_vm_mktemp claude-vm-runenv)"
-  printf '%s' "$envline" > "$tf"
+  printf '%s' "$envline" >"$tf"
   # Guest: source run.env under set -a, eval set --, serialize argv.
   local serialized
   serialized="$(
@@ -677,7 +662,7 @@ rt_argv RT --remote-control --name "foo #7 micro-vm Claude Plugins"
 assert_eq "quote-args: reproducing example round-trips to 3 args" \
   "ARGC=3|<--remote-control>|<--name>|<foo #7 micro-vm Claude Plugins>" "$RT"
 
-rt_argv RT   # zero args
+rt_argv RT # zero args
 assert_eq "quote-args: empty array -> zero argv" \
   "ARGC=0" "$RT"
 
@@ -685,9 +670,9 @@ rt_argv RT --flag "" tail
 assert_eq "quote-args: explicit empty-string arg survives" \
   "ARGC=3|<--flag>|<>|<tail>" "$RT"
 
-rt_argv RT 'a b' "it's" '#c' '$HOME' 'back\slash' '"dq"'
+rt_argv RT 'a b' "it's" '#c' "\$HOME" 'back\slash' '"dq"'
 assert_eq "quote-args: quotes/spaces/#/\$/backslash survive verbatim" \
-  'ARGC=6|<a b>|<it'\''s>|<#c>|<$HOME>|<back\slash>|<"dq">' "$RT"
+  "ARGC=6|<a b>|<it's>|<#c>|<\$HOME>|<back\\slash>|<\"dq\">" "$RT"
 
 # claude_vm_quote_args prints NOTHING (empty) for zero args -- a stray ''
 # would round-trip into a bogus empty argv element downstream.
@@ -705,7 +690,8 @@ STAMP="Jul10-14:30"
 
 # aug_join <rc> <stamp> <args...> : pipe-joined augmented argv.
 aug_join() {
-  local rc="$1" stamp="$2"; shift 2
+  local rc="$1" stamp="$2"
+  shift 2
   claude_vm_augment_rc_args "$rc" "$stamp" "$@" | paste -sd '|' -
 }
 # aug_join_noargs <rc> <stamp> : augment with NO user args.
@@ -747,18 +733,25 @@ rc_resolve() {
   # Prints "true"/"false" on success; prints "ABORT" and returns 1 on garbage.
   local raw="$1"
   case "$raw" in
-    ""|false) printf 'false\n' ;;
-    true)     printf 'true\n' ;;
-    *)        printf 'ABORT\n'; return 1 ;;
+    "" | false) printf 'false\n' ;;
+    true) printf 'true\n' ;;
+    *)
+      printf 'ABORT\n'
+      return 1
+      ;;
   esac
 }
-RC_TRUE_YML="$WORK/rc-true.yml";  printf 'claude:\n  remote_control: true\n'  > "$RC_TRUE_YML"
-RC_FALSE_YML="$WORK/rc-false.yml"; printf 'claude:\n  remote_control: false\n' > "$RC_FALSE_YML"
-RC_UNSET_YML="$WORK/rc-unset.yml"; printf 'claude:\n  version: stable\n'        > "$RC_UNSET_YML"
-RC_GARBAGE_YML="$WORK/rc-garbage.yml"; printf 'claude:\n  remote_control: maybe\n' > "$RC_GARBAGE_YML"
+RC_TRUE_YML="$WORK/rc-true.yml"
+printf 'claude:\n  remote_control: true\n' >"$RC_TRUE_YML"
+RC_FALSE_YML="$WORK/rc-false.yml"
+printf 'claude:\n  remote_control: false\n' >"$RC_FALSE_YML"
+RC_UNSET_YML="$WORK/rc-unset.yml"
+printf 'claude:\n  version: stable\n' >"$RC_UNSET_YML"
+RC_GARBAGE_YML="$WORK/rc-garbage.yml"
+printf 'claude:\n  remote_control: maybe\n' >"$RC_GARBAGE_YML"
 
 assert_eq "remote_control: true resolves to true" \
-  "true"  "$(rc_resolve "$(claude_vm_scalar "$RC_TRUE_YML" '.claude.remote_control' '')")"
+  "true" "$(rc_resolve "$(claude_vm_scalar "$RC_TRUE_YML" '.claude.remote_control' '')")"
 # NOTE: yq's `// ""` returns "" for a boolean false, so the scalar is "" here;
 # the launcher's normalization maps both "" and "false" to false. Assert false.
 assert_eq "remote_control: false resolves to false" \
@@ -788,25 +781,26 @@ if command -v rsync >/dev/null 2>&1; then
       "$wt"/ "$src"/ | grep -E '^[>c*]' || true
   }
 
-  CB_SRC="$WORK/cb-src"; CB_WT="$WORK/cb-wt"
+  CB_SRC="$WORK/cb-src"
+  CB_WT="$WORK/cb-wt"
   mkdir -p "$CB_SRC" "$CB_WT"
   # Identical content, skewed mtime (the false-positive case).
-  printf 'hello\n' > "$CB_SRC/same.txt"
-  printf 'hello\n' > "$CB_WT/same.txt"
+  printf 'hello\n' >"$CB_SRC/same.txt"
+  printf 'hello\n' >"$CB_WT/same.txt"
   touch -t 202001010000 "$CB_SRC/same.txt"
   touch -t 202512120000 "$CB_WT/same.txt"
   assert_eq "copy-back gate: identical content + mtime skew -> no real changes" \
     "" "$(cb_real_changes "$CB_WT" "$CB_SRC")"
 
   # Genuinely differing file -> a real change (leading '>').
-  printf 'NEW content\n' > "$CB_WT/changed.txt"
-  printf 'old\n'         > "$CB_SRC/changed.txt"
+  printf 'NEW content\n' >"$CB_WT/changed.txt"
+  printf 'old\n' >"$CB_SRC/changed.txt"
   touch -t 202001010000 "$CB_SRC/changed.txt"
   touch -t 202512120000 "$CB_WT/changed.txt"
   CB_CHANGED="$(cb_real_changes "$CB_WT" "$CB_SRC")"
   case "$CB_CHANGED" in
     *changed.txt*) assert_eq "copy-back gate: genuinely changed file -> a real change" "hit" "hit" ;;
-    *)             assert_eq "copy-back gate: genuinely changed file -> a real change" "hit" "miss: [$CB_CHANGED]" ;;
+    *) assert_eq "copy-back gate: genuinely changed file -> a real change" "hit" "miss: [$CB_CHANGED]" ;;
   esac
 else
   echo "ok   - copy-back gate: SKIP (rsync not available)"
@@ -830,7 +824,7 @@ fi
 # <boot-doc> <bake-doc>, mirroring the launcher.
 # ---------------------------------------------------------------------
 S_FULL="$WORK/settings-full.yml"
-cat > "$S_FULL" <<'YML'
+cat >"$S_FULL" <<'YML'
 claude:
   permission_mode: bypassPermissions
   permissions:
@@ -847,7 +841,7 @@ claude:
       show-loaded-rules@thevoskamps: false
 YML
 S_FULL_BAKE="$WORK/settings-full-bake.yml"
-cat > "$S_FULL_BAKE" <<'YML'
+cat >"$S_FULL_BAKE" <<'YML'
 claude:
   plugins:
     bake:
@@ -886,7 +880,7 @@ assert_eq "render: enabledPlugins has one entry per installed ref (3)" \
 # Config-only permissions: the render NEVER reads host settings; with no
 # claude.permissions.* set, the lists are empty (NOT populated from anywhere).
 S_EMPTY="$WORK/settings-empty.yml"
-printf 'claude:\n  permission_mode: default\n' > "$S_EMPTY"
+printf 'claude:\n  permission_mode: default\n' >"$S_EMPTY"
 R_EMPTY="$(claude_vm_render_guest_settings "$S_EMPTY")"
 assert_eq "render: permission_mode: default -> defaultMode default" \
   "default" "$(get_json "$R_EMPTY" '.permissions.defaultMode')"
@@ -899,7 +893,7 @@ assert_eq "render: no plugins -> empty enabledPlugins object" \
 
 # permission_mode default resolution: absent key -> bypassPermissions.
 S_NOMODE="$WORK/settings-nomode.yml"
-printf 'claude:\n  permissions:\n    deny:\n      - "Bash(sudo:*)"\n' > "$S_NOMODE"
+printf 'claude:\n  permissions:\n    deny:\n      - "Bash(sudo:*)"\n' >"$S_NOMODE"
 R_NOMODE="$(claude_vm_render_guest_settings "$S_NOMODE")"
 assert_eq "render: absent permission_mode defaults to bypassPermissions" \
   "bypassPermissions" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
@@ -908,8 +902,8 @@ assert_eq "render: absent permission_mode defaults to bypassPermissions" \
 # (bake in the bake doc, install_at_boot in the boot doc -- issue #107).
 S_DUP="$WORK/settings-dup.yml"
 S_DUP_BAKE="$WORK/settings-dup-bake.yml"
-printf 'claude:\n  plugins:\n    install_at_boot:\n      - dup@mp\n' > "$S_DUP"
-printf 'claude:\n  plugins:\n    bake:\n      - dup@mp\n' > "$S_DUP_BAKE"
+printf 'claude:\n  plugins:\n    install_at_boot:\n      - dup@mp\n' >"$S_DUP"
+printf 'claude:\n  plugins:\n    bake:\n      - dup@mp\n' >"$S_DUP_BAKE"
 R_DUP="$(claude_vm_render_guest_settings "$S_DUP" "$S_DUP_BAKE")"
 assert_eq "render: ref in both lists de-duplicates to one entry" \
   "1" "$(get_json "$R_DUP" '.enabledPlugins | length')"
@@ -928,14 +922,14 @@ assert_eq "render: de-duplicated ref is enabled" \
 # Accept: a valid enabled map (all keys installed, all boolean values) renders.
 S_ENA_OK="$WORK/settings-enabled-ok.yml"
 S_ENA_BAKE="$WORK/settings-enabled-bake.yml"
-cat > "$S_ENA_OK" <<'YML'
+cat >"$S_ENA_OK" <<'YML'
 claude:
   plugins:
     enabled:
       a@mp: false
       b@mp: true
 YML
-cat > "$S_ENA_BAKE" <<'YML'
+cat >"$S_ENA_BAKE" <<'YML'
 claude:
   plugins:
     bake:
@@ -953,13 +947,13 @@ fi
 # Reject: an unknown key (names a plugin not in bake/install_at_boot) aborts.
 S_ENA_BADKEY="$WORK/settings-enabled-badkey.yml"
 S_ENA_ONE_BAKE="$WORK/settings-enabled-one-bake.yml"
-cat > "$S_ENA_BADKEY" <<'YML'
+cat >"$S_ENA_BADKEY" <<'YML'
 claude:
   plugins:
     enabled:
       typo@mp: false
 YML
-printf 'claude:\n  plugins:\n    bake:\n      - a@mp\n' > "$S_ENA_ONE_BAKE"
+printf 'claude:\n  plugins:\n    bake:\n      - a@mp\n' >"$S_ENA_ONE_BAKE"
 if claude_vm_render_guest_settings "$S_ENA_BADKEY" "$S_ENA_ONE_BAKE" >/dev/null 2>&1; then
   assert_eq "enabled-validate: unknown key aborts (reject)" "reject" "accept"
 else
@@ -968,7 +962,7 @@ fi
 
 # Reject: a non-boolean value aborts.
 S_ENA_BADVAL="$WORK/settings-enabled-badval.yml"
-cat > "$S_ENA_BADVAL" <<'YML'
+cat >"$S_ENA_BADVAL" <<'YML'
 claude:
   plugins:
     enabled:
@@ -991,7 +985,7 @@ fi
 # ---------------------------------------------------------------------
 _permission_mode_ok() {
   case "$1" in
-    bypassPermissions|default) return 0 ;;
+    bypassPermissions | default) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -1027,8 +1021,10 @@ fi
 # absent one (the "shares the global image" case), and different bake content
 # hashes differently.
 # ---------------------------------------------------------------------
-BH_EMPTY="$WORK/bake-empty.yml";  printf '{}\n' > "$BH_EMPTY"
-BH_EMPTY2="$WORK/bake-empty2.yml"; printf 'cpus: 4\nmem: 8192\n' > "$BH_EMPTY2"  # no packages at all
+BH_EMPTY="$WORK/bake-empty.yml"
+printf '{}\n' >"$BH_EMPTY"
+BH_EMPTY2="$WORK/bake-empty2.yml"
+printf 'cpus: 4\nmem: 8192\n' >"$BH_EMPTY2" # no packages at all
 
 # Canonical form of an absent/empty bake config is the constant empty object.
 assert_eq "bake-hash: absent packages canonicalizes to empty form" \
@@ -1044,7 +1040,8 @@ assert_true "bake-hash: absent bake config is_empty" \
 
 # Order-insensitivity: two configs with the same bake set in different orders
 # (and a duplicate) hash identically.
-BH_A="$WORK/bake-a.yml"; cat > "$BH_A" <<'YML'
+BH_A="$WORK/bake-a.yml"
+cat >"$BH_A" <<'YML'
 packages: [git, jq, ripgrep]
 apt_sources:
   - name: zeta
@@ -1053,7 +1050,8 @@ apt_sources:
   - name: alpha
     repo: "deb https://a stable main"
 YML
-BH_B="$WORK/bake-b.yml"; cat > "$BH_B" <<'YML'
+BH_B="$WORK/bake-b.yml"
+cat >"$BH_B" <<'YML'
 packages: [ripgrep, git, jq, git]
 apt_sources:
   - name: alpha
@@ -1076,7 +1074,8 @@ else
 fi
 
 # Different bake content -> different hash.
-BH_MORE="$WORK/bake-more.yml"; printf 'packages: [git, jq, ripgrep, fd-find]\n' > "$BH_MORE"
+BH_MORE="$WORK/bake-more.yml"
+printf 'packages: [git, jq, ripgrep, fd-find]\n' >"$BH_MORE"
 assert_ne "bake-hash: adding a package changes the hash" \
   "$(claude_vm_bake_hash "$BH_A")" "$(claude_vm_bake_hash "$BH_MORE")"
 
@@ -1090,7 +1089,8 @@ fi
 
 # apt_sources-only (no bake packages) still counts as non-empty and hashes
 # distinctly from the empty form.
-BH_APTONLY="$WORK/bake-aptonly.yml"; cat > "$BH_APTONLY" <<'YML'
+BH_APTONLY="$WORK/bake-aptonly.yml"
+cat >"$BH_APTONLY" <<'YML'
 apt_sources:
   - name: gh
     repo: "deb https://cli.github.com/packages stable main"
@@ -1108,16 +1108,19 @@ assert_ne "bake-hash: apt_sources-only hashes distinctly from empty" \
 # trailing comma in flow style) must be STRIPPED from the canonical form, not
 # passed through as the literal string "None"/"" -- a "None" package name
 # would fail the mkosi image build (PR #161 review finding).
-BH_NULLS="$WORK/bake-nulls.yml"; cat > "$BH_NULLS" <<'YML'
+BH_NULLS="$WORK/bake-nulls.yml"
+cat >"$BH_NULLS" <<'YML'
 packages: [null, "", git]
 YML
 assert_eq "bake-hash: null/empty bake entries are stripped from canonical JSON" \
   '{"bake":["git"],"apt_sources":[],"env":{}}' "$(claude_vm_bake_config_json "$BH_NULLS")"
-BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"; printf 'packages: [git]\n' > "$BH_NULLS_CLEAN"
+BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"
+printf 'packages: [git]\n' >"$BH_NULLS_CLEAN"
 assert_eq "bake-hash: null/empty-stripped config hashes the same as the equivalent clean config" \
   "$(claude_vm_bake_hash "$BH_NULLS")" "$(claude_vm_bake_hash "$BH_NULLS_CLEAN")"
 # All-null/empty bake list canonicalizes to the same empty form as no bake key.
-BH_ALLNULL="$WORK/bake-allnull.yml"; cat > "$BH_ALLNULL" <<'YML'
+BH_ALLNULL="$WORK/bake-allnull.yml"
+cat >"$BH_ALLNULL" <<'YML'
 packages: [null, ""]
 YML
 assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" \
@@ -1152,8 +1155,9 @@ derive_image_path() {
 }
 
 # A missing repo-bake file -> repo shares guest+global<hash>.raw.
-VP_GBAKE="$WORK/vp-gbake.yml"; printf 'packages:\n  - jq\n' > "$VP_GBAKE"
-VP_NOREPO="$WORK/vp-norepo.yml"  # deliberately not created
+VP_GBAKE="$WORK/vp-gbake.yml"
+printf 'packages:\n  - jq\n' >"$VP_GBAKE"
+VP_NOREPO="$WORK/vp-norepo.yml" # deliberately not created
 VP_GHASH="$(claude_vm_file_identity_hash "$VP_GBAKE")"
 assert_eq "identity: no repo-bake file -> global segment only" \
   "global$VP_GHASH" "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_NOREPO" myrepo)"
@@ -1168,14 +1172,16 @@ assert_eq "identity: absent global bake file -> global00000000 sentinel" \
 # A repo that SHIPS a config-bake.yml -> two-segment identity, repo name
 # sanitized (a name with a slash/space collapses to filename-safe chars). The
 # repo segment's PRESENCE is gated on the FILE existing, not on its content.
-VP_REPO_BAKE="$WORK/vp-repo-bake.yml"; printf 'packages:\n  - git\n  - jq\n' > "$VP_REPO_BAKE"
+VP_REPO_BAKE="$WORK/vp-repo-bake.yml"
+printf 'packages:\n  - git\n  - jq\n' >"$VP_REPO_BAKE"
 VP_RHASH="$(claude_vm_file_identity_hash "$VP_REPO_BAKE")"
 assert_eq "identity: repo w/ a config-bake.yml appends +<name>-<repohash>" \
   "global$VP_GHASH+acme-widgets-$VP_RHASH" \
   "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_REPO_BAKE" 'acme/widgets')"
 
 # Explicit guest_image opts out entirely, even with a repo-bake file present.
-VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\n' > "$VP_OVERRIDE"
+VP_OVERRIDE="$WORK/vp-override.yml"
+printf 'guest_image: /custom/my.raw\n' >"$VP_OVERRIDE"
 assert_eq "identity: explicit guest_image opts out (used verbatim)" \
   "/custom/my.raw" \
   "$(derive_image_path "$VP_OVERRIDE" "$VP_GBAKE" "$VP_REPO_BAKE" myrepo "$IMGDIR")"
@@ -1200,19 +1206,25 @@ assert_eq "identity: identical inputs -> identical identity (warm path)" \
 # whole-file hash rather than a key-picked projection.
 # ---------------------------------------------------------------------
 # Trailing-newline toggle changes the hash (the documented force-rebuild lever).
-VP_NL_NO="$WORK/vp-nl-no.yml";  printf 'packages:\n  - jq' > "$VP_NL_NO"
-VP_NL_YES="$WORK/vp-nl-yes.yml"; printf 'packages:\n  - jq\n' > "$VP_NL_YES"
+VP_NL_NO="$WORK/vp-nl-no.yml"
+printf 'packages:\n  - jq' >"$VP_NL_NO"
+VP_NL_YES="$WORK/vp-nl-yes.yml"
+printf 'packages:\n  - jq\n' >"$VP_NL_YES"
 assert_ne "identity: trailing-newline toggle changes the bake-file hash" \
   "$(claude_vm_file_identity_hash "$VP_NL_NO")" "$(claude_vm_file_identity_hash "$VP_NL_YES")"
 # List ORDER changes the hash (raw bytes -- no order-canonicalization).
-VP_ORD_A="$WORK/vp-ord-a.yml"; printf 'packages:\n  - git\n  - jq\n' > "$VP_ORD_A"
-VP_ORD_B="$WORK/vp-ord-b.yml"; printf 'packages:\n  - jq\n  - git\n' > "$VP_ORD_B"
+VP_ORD_A="$WORK/vp-ord-a.yml"
+printf 'packages:\n  - git\n  - jq\n' >"$VP_ORD_A"
+VP_ORD_B="$WORK/vp-ord-b.yml"
+printf 'packages:\n  - jq\n  - git\n' >"$VP_ORD_B"
 assert_ne "identity: bake-file list order changes the hash (no canonicalization)" \
   "$(claude_vm_file_identity_hash "$VP_ORD_A")" "$(claude_vm_file_identity_hash "$VP_ORD_B")"
 # root_headroom_mb lives in the bake file, so changing it changes the bake-file
 # hash and thus the identity -> a rebuild.
-VP_HR1="$WORK/vp-hr1.yml"; printf 'image:\n  root_headroom_mb: 1024\n' > "$VP_HR1"
-VP_HR2="$WORK/vp-hr2.yml"; printf 'image:\n  root_headroom_mb: 2048\n' > "$VP_HR2"
+VP_HR1="$WORK/vp-hr1.yml"
+printf 'image:\n  root_headroom_mb: 1024\n' >"$VP_HR1"
+VP_HR2="$WORK/vp-hr2.yml"
+printf 'image:\n  root_headroom_mb: 2048\n' >"$VP_HR2"
 assert_ne "identity: global bake-file headroom change flips the global hash" \
   "$(claude_vm_file_identity_hash "$VP_HR1")" "$(claude_vm_file_identity_hash "$VP_HR2")"
 assert_ne "identity: global bake-file headroom change flips the whole identity" \
@@ -1236,7 +1248,7 @@ fi
 # test); set -> base+<segments>, appended verbatim.
 # ---------------------------------------------------------------------
 BGI="$TEST_DIR/../build-guest-image.sh"
-BASE_VER="$("$BGI" --print-version)"   # unset segments -> bare base version
+BASE_VER="$("$BGI" --print-version)" # unset segments -> bare base version
 assert_eq "print-version: unset identity segments -> bare base version" \
   "$BASE_VER" "$("$BGI" --print-version)"
 # Segments are appended verbatim as +<segments>.
@@ -1301,8 +1313,8 @@ RAS_START="$(grep -n '^render_apt_source() {' "$PODMAN_MKOSI" | head -1 | cut -d
 RAS_END="$(awk -v start="$RAS_START" 'NR > start && /^}/ { print NR; exit }' "$PODMAN_MKOSI")"
 RAS_SRC="$WORK/render_apt_source.sh"
 if [ -n "$RAS_START" ] && [ -n "$RAS_END" ]; then
-  awk -v start="$RAS_START" -v end="$RAS_END" 'NR >= start && NR <= end' "$PODMAN_MKOSI" \
-    | sed 's/\\\$/$/g' > "$RAS_SRC"
+  awk -v start="$RAS_START" -v end="$RAS_END" 'NR >= start && NR <= end' "$PODMAN_MKOSI" |
+    sed 's/\\\$/$/g' >"$RAS_SRC"
   # shellcheck source=/dev/null
   . "$RAS_SRC"
 fi
@@ -1313,23 +1325,25 @@ if [ -n "${RAS_START:-}" ] && [ -n "${RAS_END:-}" ] && command -v render_apt_sou
 
   # Path-traversal name is rejected (non-zero return), and -- critically --
   # no file is written outside (or inside) the intended staging dirs.
-  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"
+  mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
   if render_apt_source '../../etc/evil' 'deb https://x stable main' '' \
-      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
     assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "accepted"
   else
     assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "rejected"
   fi
   assert_true "render_apt_source: rejected traversal name writes no file in sources_dir" \
-    bash -c '[ -z "$(ls -A "$1" 2>/dev/null)" ]' _ "$RAS_SOURCES"
+    test -z "$(ls -A "$RAS_SOURCES" 2>/dev/null)"
   assert_true "render_apt_source: rejected traversal name writes nothing outside staging dirs" \
-    bash -c '[ ! -e "$1/etc/evil.list" ]' _ "$WORK"
+    test ! -e "$WORK/etc/evil.list"
 
   # A name containing a slash but no ".." is equally rejected -- the guard is
   # a charset allowlist, not a ".." blacklist.
-  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"
+  mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
   if render_apt_source 'sub/dir' 'deb https://x stable main' '' \
-      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
     assert_eq "render_apt_source: slash-containing name is rejected" "rejected" "accepted"
   else
     assert_eq "render_apt_source: slash-containing name is rejected" "rejected" "rejected"
@@ -1337,9 +1351,10 @@ if [ -n "${RAS_START:-}" ] && [ -n "${RAS_END:-}" ] && command -v render_apt_sou
 
   # A conservative charset-safe name (letters, digits, dot, underscore,
   # hyphen) is still accepted and renders the expected files.
-  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"
+  mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
   if render_apt_source 'gh-cli.v2' 'deb https://cli.github.com/packages stable main' '' \
-      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
     assert_eq "render_apt_source: charset-safe name is accepted" "accepted" "accepted"
   else
     assert_eq "render_apt_source: charset-safe name is accepted" "accepted" "rejected"
@@ -1360,7 +1375,7 @@ fi
 # directly, with no VM and no launcher run.
 # ---------------------------------------------------------------------
 DE_AUTO_QUIET="$WORK/de-auto-quiet.yml"
-cat > "$DE_AUTO_QUIET" <<'YML'
+cat >"$DE_AUTO_QUIET" <<'YML'
 packages: []
 update_at_boot: false
 add_apt_uris_to_allowlist: auto
@@ -1372,7 +1387,7 @@ else
 fi
 
 DE_INSTALL="$WORK/de-install.yml"
-cat > "$DE_INSTALL" <<'YML'
+cat >"$DE_INSTALL" <<'YML'
 packages:
   - htop
 update_at_boot: false
@@ -1385,7 +1400,7 @@ else
 fi
 
 DE_UPDATE_DEFAULT="$WORK/de-update-default.yml"
-printf '{}\n' > "$DE_UPDATE_DEFAULT"
+printf '{}\n' >"$DE_UPDATE_DEFAULT"
 if claude_vm_boot_apt_egress_needed "$DE_UPDATE_DEFAULT"; then
   assert_eq "boot_apt_egress_needed: unset config -> needed (update_at_boot defaults true)" "needed" "needed"
 else
@@ -1393,7 +1408,7 @@ else
 fi
 
 DE_ALWAYS="$WORK/de-always.yml"
-cat > "$DE_ALWAYS" <<'YML'
+cat >"$DE_ALWAYS" <<'YML'
 packages: []
 update_at_boot: false
 add_apt_uris_to_allowlist: always
@@ -1408,7 +1423,7 @@ fi
 # must be STRIPPED -- egress allowlists in this codebase are host-only), a
 # repo line with no key_url at all, de-duplicated across entries.
 DE_HOSTS="$WORK/de-hosts.yml"
-cat > "$DE_HOSTS" <<'YML'
+cat >"$DE_HOSTS" <<'YML'
 apt_sources:
   - name: gh-cli
     repo: "deb https://cli.github.com/packages stable main"
@@ -1421,7 +1436,7 @@ assert_eq "apt_source_hosts: repo + key_url hosts extracted, port stripped, de-d
   "cli.github.com,key.example.com," "$DE_HOSTS_OUT"
 
 DE_HOSTS_EMPTY="$WORK/de-hosts-empty.yml"
-printf '{}\n' > "$DE_HOSTS_EMPTY"
+printf '{}\n' >"$DE_HOSTS_EMPTY"
 assert_eq "apt_source_hosts: no apt_sources in either tier -> empty" \
   "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY" "$DE_HOSTS_EMPTY")"
 
@@ -1453,11 +1468,11 @@ RASB_START="$(grep -n '^render_apt_source_boot() {' "$BUILD_GUEST_IMAGE" | head 
 RASB_END="$(awk -v start="$RASB_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 RASB_SRC="$WORK/render_apt_source_boot.sh"
 if [ -n "$RASB_START" ] && [ -n "$RASB_END" ]; then
-  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" > "$RASB_SRC"
+  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" >"$RASB_SRC"
   # render_apt_source_boot calls log(); stub it so the extracted function
   # sources standalone without pulling in the rest of the boot launcher.
-  printf 'log() { :; }\n' > "$WORK/render_apt_source_boot_stub.sh"
-  cat "$RASB_SRC" >> "$WORK/render_apt_source_boot_stub.sh"
+  printf 'log() { :; }\n' >"$WORK/render_apt_source_boot_stub.sh"
+  cat "$RASB_SRC" >>"$WORK/render_apt_source_boot_stub.sh"
   # shellcheck source=/dev/null
   . "$WORK/render_apt_source_boot_stub.sh"
 fi
@@ -1525,14 +1540,17 @@ RASB_SNIFF_ROOT="$WORK/rasb-sniff-root"
 mkdir -p "$RASB_SNIFF_ROOT/bin"
 if [ -n "${RASB_START:-}" ] && [ -n "${RASB_END:-}" ]; then
   RASB_SNIFF_SRC="$WORK/render_apt_source_boot_sniff.sh"
-  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" \
-    | sed \
-        -e "s#local keyrings_dir=\"/etc/apt/keyrings\" sources_dir=\"/etc/apt/sources.list.d\"#local keyrings_dir=\"$RASB_SNIFF_ROOT/keyrings\" sources_dir=\"$RASB_SNIFF_ROOT/sources\"#" \
-    > "$RASB_SNIFF_SRC"
-  printf 'log() { :; }\n' > "$WORK/render_apt_source_boot_sniff_stub.sh"
-  cat "$RASB_SNIFF_SRC" >> "$WORK/render_apt_source_boot_sniff_stub.sh"
+  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" |
+    sed \
+      -e "s#local keyrings_dir=\"/etc/apt/keyrings\" sources_dir=\"/etc/apt/sources.list.d\"#local keyrings_dir=\"$RASB_SNIFF_ROOT/keyrings\" sources_dir=\"$RASB_SNIFF_ROOT/sources\"#" \
+      >"$RASB_SNIFF_SRC"
+  printf 'log() { :; }\n' >"$WORK/render_apt_source_boot_sniff_stub.sh"
+  cat "$RASB_SNIFF_SRC" >>"$WORK/render_apt_source_boot_sniff_stub.sh"
   # shellcheck source=/dev/null
-  ( . "$WORK/render_apt_source_boot_sniff_stub.sh"; command -v render_apt_source_boot >/dev/null 2>&1 )
+  (
+    . "$WORK/render_apt_source_boot_sniff_stub.sh"
+    command -v render_apt_source_boot >/dev/null 2>&1
+  )
   RASB_SNIFF_RC=$?
 else
   RASB_SNIFF_RC=1
@@ -1541,7 +1559,7 @@ fi
 # Stub curl, same URL-keyed content-shape convention as podman-mkosi-test.sh:
 # a URL containing "binary" writes raw/binary OpenPGP-shaped bytes; every
 # other URL writes ASCII-armored content starting with "-----BEGIN PGP".
-cat > "$RASB_SNIFF_ROOT/bin/curl" <<'EOF'
+cat >"$RASB_SNIFF_ROOT/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 out=""
 prev=""
@@ -1568,9 +1586,10 @@ EOF
 chmod +x "$RASB_SNIFF_ROOT/bin/curl"
 
 if [ "$RASB_SNIFF_RC" -eq 0 ]; then
-  # call_render_boot <case-label> <name> <repo> <key_url>
+  # call_render_boot <case-label> <name> <repo> <key_url> -- the case label
+  # only names the call site for a reader; the function never reads it.
   call_render_boot() {
-    local case_label="$1" c_name="$2" c_repo="$3" c_key_url="$4"
+    local c_name="$2" c_repo="$3" c_key_url="$4"
     rm -rf "$RASB_SNIFF_ROOT/keyrings" "$RASB_SNIFF_ROOT/sources"
     (
       PATH="$RASB_SNIFF_ROOT/bin:$PATH"
@@ -1603,7 +1622,7 @@ if [ "$RASB_SNIFF_RC" -eq 0 ]; then
   assert_true "render_apt_source_boot: bare line, binary key: key written as .gpg" \
     test -f "$RASB_SNIFF_ROOT/keyrings/boot-bin.gpg"
   assert_true "render_apt_source_boot: bare line, binary key: no stray .asc" \
-    bash -c '[ ! -e "$1" ]' _ "$RASB_SNIFF_ROOT/keyrings/boot-bin.asc"
+    test ! -e "$RASB_SNIFF_ROOT/keyrings/boot-bin.asc"
 
   # --- Bare repo line, ARMORED fetched key -- stays .asc (content-driven,
   # not a blanket switch). ---
@@ -1655,13 +1674,20 @@ BAP_START="$(grep -n '^boot_apt_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut 
 BAP_END="$(awk -v start="$BAP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 BAP_SRC="$WORK/boot_apt_phase.sh"
 if [ -n "$BAP_START" ] && [ -n "$BAP_END" ]; then
+  # render_apt_source_boot records its arguments to $BAP_ARGV when that is
+  # set, and is inert otherwise.
   {
-    echo 'log() { :; }'
-    echo 'render_apt_source_boot() { :; }'
-    echo 'APT_GET_CALL_LOG="${APT_GET_CALL_LOG:-/dev/null}"'
-    echo 'apt-get() { printf "%s\n" "$*" >> "$APT_GET_CALL_LOG"; return "${APT_GET_STUB_EXIT:-0}"; }'
+    cat <<'STUBS'
+log() { :; }
+render_apt_source_boot() {
+  if [ -n "${BAP_ARGV:-}" ]; then printf '%s|%s|%s\n' "$1" "$2" "$3" >>"$BAP_ARGV"; fi
+}
+APT_GET_CALL_LOG="${APT_GET_CALL_LOG:-/dev/null}"
+APT_PROXY_OPTS=()
+apt-get() { printf "%s\n" "$*" >> "$APT_GET_CALL_LOG"; return "${APT_GET_STUB_EXIT:-0}"; }
+STUBS
     awk -v start="$BAP_START" -v end="$BAP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
-  } > "$BAP_SRC"
+  } >"$BAP_SRC"
   # shellcheck source=/dev/null
   . "$BAP_SRC"
 fi
@@ -1672,15 +1698,16 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   # the fix: exactly one 'update' call (the hoisted fallback), before the
   # 'install' call.
   BAP_CALLS="$WORK/boot-apt-calls.log"
-  : > "$BAP_CALLS"
-  APT_GET_CALL_LOG="$BAP_CALLS"
+  : >"$BAP_CALLS"
+  # The two exported variables below are read only by the boot_apt_phase
+  # sliced in above.
+  export APT_GET_CALL_LOG="$BAP_CALLS"
   APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
-  printf 'curl\n' > "$APT_INSTALL_LIST"
+  printf 'curl\n' >"$APT_INSTALL_LIST"
   APT_SOURCES_TSV="$WORK/apt-sources-empty.tsv"
-  : > "$APT_SOURCES_TSV"
-  APT_PROXY_OPTS=()
-  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
-  ( boot_apt_phase >/dev/null 2>&1 || true )
+  : >"$APT_SOURCES_TSV"
+  export CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  (boot_apt_phase >/dev/null 2>&1 || true)
 
   UPDATE_CALLS="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
   assert_eq "boot_apt_phase: base-repo-only install with update_at_boot=false still refreshes the index" \
@@ -1697,20 +1724,20 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   # Scenario: update_at_boot=true. did_update is already 1, so the
   # fallback must NOT fire a second 'update' -- only the one from the
   # update_at_boot branch itself.
-  : > "$BAP_CALLS"
+  : >"$BAP_CALLS"
   CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="true"
-  ( boot_apt_phase >/dev/null 2>&1 || true )
+  (boot_apt_phase >/dev/null 2>&1 || true)
   UPDATE_CALLS_TRUE="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
   assert_eq "boot_apt_phase: update_at_boot=true does not double-update for install_at_boot" \
     "1" "$UPDATE_CALLS_TRUE"
 
   # Scenario: update_at_boot=false and install_at_boot EMPTY -- no apt-get
   # calls should run at all (nothing to refresh an index for).
-  : > "$BAP_CALLS"
+  : >"$BAP_CALLS"
   CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
   APT_INSTALL_LIST="$WORK/apt-install-empty.list"
-  : > "$APT_INSTALL_LIST"
-  ( boot_apt_phase >/dev/null 2>&1 || true )
+  : >"$APT_INSTALL_LIST"
+  (boot_apt_phase >/dev/null 2>&1 || true)
   UPDATE_CALLS_EMPTY="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
   assert_eq "boot_apt_phase: no install_at_boot and update_at_boot=false runs no update" \
     "0" "$UPDATE_CALLS_EMPTY"
@@ -1726,16 +1753,15 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   # class as the marketplace record split in podman-mkosi.sh (issue #226).
   #
   # Driven through the REAL extracted boot_apt_phase, with
-  # render_apt_source_boot swapped for a recorder so the assertion is on the
+  # render_apt_source_boot recording to $BAP_ARGV so the assertion is on the
   # three values the split actually produced. The records come from the real
   # emitter (claude_vm_apt_sources) rather than hand-typed tabs, so the test
   # would notice the emitter changing shape underneath the reader.
   # -------------------------------------------------------------------
   BAP_ARGV="$WORK/boot-apt-argv.log"
-  render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$BAP_ARGV"; }
 
   BAP_AS_YML="$WORK/bap-apt-sources.yml"
-  cat > "$BAP_AS_YML" <<'YML'
+  cat >"$BAP_AS_YML" <<'YML'
 apt_sources:
   - name: nr
     key_url: https://k.example/key.asc
@@ -1746,11 +1772,11 @@ apt_sources:
     repo: "deb https://r.example x main"
 YML
   APT_SOURCES_TSV="$WORK/bap-apt-sources.tsv"
-  claude_vm_apt_sources "$BAP_AS_YML" > "$APT_SOURCES_TSV"
+  claude_vm_apt_sources "$BAP_AS_YML" >"$APT_SOURCES_TSV"
   APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
   CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
-  : > "$BAP_ARGV"
-  ( boot_apt_phase >/dev/null 2>&1 || true )
+  : >"$BAP_ARGV"
+  (boot_apt_phase >/dev/null 2>&1 || true)
 
   assert_eq "boot_apt_phase: an apt_source with no repo keeps the key_url in field 3" \
     "nr||https://k.example/key.asc" "$(sed -n 1p "$BAP_ARGV")"
@@ -1763,7 +1789,8 @@ YML
   # NEGATIVE CONTROL: rebuild the pre-fix collapsing read from the SAME
   # extracted lines (swap the read line back, drop the four hand-split
   # expansions) and show it hands the key url over as the repo line. Sourced
-  # and run inside a subshell so the good definition above survives.
+  # and run inside a subshell so the good definition above survives; the
+  # control carries the same recording render_apt_source_boot.
   BAP_OLD_SRC="$WORK/boot_apt_phase_old.sh"
   BAP_OLD_READ="      while IFS=\$'\\t' read -r as_name as_repo as_key_url; do"
   BAP_OLD_READ_AWK="      while IFS=\$'\\\\t' read -r as_name as_repo as_key_url; do"
@@ -1771,22 +1798,21 @@ YML
     $0 == "      while IFS= read -r as_record; do" { print oldread; next }
     $0 ~ /^        as_(name|rest|repo|key_url)=/ { next }
     { print }
-  ' "$BAP_SRC" > "$BAP_OLD_SRC"
+  ' "$BAP_SRC" >"$BAP_OLD_SRC"
   assert_eq "boot_apt_phase: the control really carries the old tab-IFS read" \
     "1" "$(grep -cF -- "$BAP_OLD_READ" "$BAP_OLD_SRC" || true)"
-  : > "$BAP_ARGV"
+  : >"$BAP_ARGV"
   (
     # shellcheck source=/dev/null
     . "$BAP_OLD_SRC"
-    render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$BAP_ARGV"; }
     boot_apt_phase >/dev/null 2>&1 || true
   )
   assert_eq "boot_apt_phase: NEGATIVE CONTROL -- the old read misreads the key_url as the repo" \
     "nr|https://k.example/key.asc|" "$(sed -n 1p "$BAP_ARGV")"
 
-  # Restore the inert stub so any later use of the extracted phase behaves as
-  # the surrounding tests expect.
-  render_apt_source_boot() { :; }
+  # Make the stub inert again so any later use of the extracted phase behaves
+  # as the surrounding tests expect.
+  BAP_ARGV=""
 else
   echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
 fi
@@ -1803,7 +1829,8 @@ fi
 # forced this shape (top-level boot keys silently dropped by the old
 # normalize shim).
 # ---------------------------------------------------------------------
-F_GBAKE="$WORK/f-gbake.yml"; cat > "$F_GBAKE" <<'YML'
+F_GBAKE="$WORK/f-gbake.yml"
+cat >"$F_GBAKE" <<'YML'
 packages:
   - jq
   - ripgrep
@@ -1814,7 +1841,8 @@ apt_sources:
 image:
   root_headroom_mb: 1024
 YML
-F_GBOOT="$WORK/f-gboot.yml"; cat > "$F_GBOOT" <<'YML'
+F_GBOOT="$WORK/f-gboot.yml"
+cat >"$F_GBOOT" <<'YML'
 cpus: 2
 mem: 4096
 packages:
@@ -1825,11 +1853,13 @@ egress:
     - api.anthropic.com
     - github.com
 YML
-F_RBAKE="$WORK/f-rbake.yml"; cat > "$F_RBAKE" <<'YML'
+F_RBAKE="$WORK/f-rbake.yml"
+cat >"$F_RBAKE" <<'YML'
 packages:
   - fd-find
 YML
-F_RBOOT="$WORK/f-rboot.yml"; cat > "$F_RBOOT" <<'YML'
+F_RBOOT="$WORK/f-rboot.yml"
+cat >"$F_RBOOT" <<'YML'
 cpus: 8
 packages:
   - awscli
@@ -1839,8 +1869,8 @@ egress:
 YML
 F_BOOT="$WORK/f-boot.yml"
 F_BAKE="$WORK/f-bake.yml"
-claude_vm_merge_config "$F_GBAKE" "$F_RBAKE" > "$F_BAKE"
-claude_vm_merge_config "$F_GBOOT" "$F_RBOOT" > "$F_BOOT"
+claude_vm_merge_config "$F_GBAKE" "$F_RBAKE" >"$F_BAKE"
+claude_vm_merge_config "$F_GBOOT" "$F_RBOOT" >"$F_BOOT"
 
 assert_eq "two-doc: repo boot scalar wins (cpus)" \
   "8" "$(claude_vm_scalar "$F_BOOT" '.cpus' 'X')"
@@ -1868,9 +1898,9 @@ assert_eq "two-doc: bake doc carries no boot packages" \
 # ignored (no reader ever looked at the top level), so the defaults won and
 # boot-time apt ran despite an explicit false.
 REG_BOOT_G="$WORK/reg-boot-g.yml"
-printf 'update_at_boot: false\nadd_apt_uris_to_allowlist: auto\n' > "$REG_BOOT_G"
+printf 'update_at_boot: false\nadd_apt_uris_to_allowlist: auto\n' >"$REG_BOOT_G"
 REG_BOOT="$WORK/reg-boot.yml"
-claude_vm_merge_config "$REG_BOOT_G" "$WORK/does-not-exist.yml" > "$REG_BOOT"
+claude_vm_merge_config "$REG_BOOT_G" "$WORK/does-not-exist.yml" >"$REG_BOOT"
 assert_eq "regression: boot-file update_at_boot: false reaches the boolean resolver" \
   "false" "$(claude_vm_bool_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 assert_eq "regression: boot-file add_apt_uris_to_allowlist reaches the resolver" \
@@ -1885,7 +1915,7 @@ fi
 
 # All-absent files merge to an empty document cleanly, per tier.
 F_EFF_NONE="$WORK/f-eff-none.yml"
-claude_vm_merge_config "$WORK/nope-a" "$WORK/nope-b" > "$F_EFF_NONE"
+claude_vm_merge_config "$WORK/nope-a" "$WORK/nope-b" >"$F_EFF_NONE"
 assert_eq "two-doc: all-absent merges to empty document" \
   "0" "$(yq eval 'length' "$F_EFF_NONE" 2>/dev/null)"
 
@@ -1898,21 +1928,24 @@ assert_eq "two-doc: all-absent merges to empty document" \
 # ---------------------------------------------------------------------
 # Identical name+content in bake and boot tiers -> no conflict (an identical
 # entry present in both tiers is fine; each tier renders its own copy).
-AS_GBAKE="$WORK/as-gbake.yml"; cat > "$AS_GBAKE" <<'YML'
+AS_GBAKE="$WORK/as-gbake.yml"
+cat >"$AS_GBAKE" <<'YML'
 apt_sources:
   - name: gh
     repo: "deb https://cli.github.com/packages stable main"
     key_url: https://cli.github.com/packages/key.gpg
 YML
-AS_GBOOT_OK="$WORK/as-gboot-ok.yml"; cat > "$AS_GBOOT_OK" <<'YML'
+AS_GBOOT_OK="$WORK/as-gboot-ok.yml"
+cat >"$AS_GBOOT_OK" <<'YML'
 apt_sources:
   - name: gh
     repo: "deb https://cli.github.com/packages stable main"
     key_url: https://cli.github.com/packages/key.gpg
 YML
-AS_BAKE_OK="$WORK/as-bake-ok.yml"; AS_BOOT_OK="$WORK/as-boot-ok.yml"
-claude_vm_merge_config "$AS_GBAKE" "$WORK/does-not-exist.yml" > "$AS_BAKE_OK"
-claude_vm_merge_config "$AS_GBOOT_OK" "$WORK/does-not-exist.yml" > "$AS_BOOT_OK"
+AS_BAKE_OK="$WORK/as-bake-ok.yml"
+AS_BOOT_OK="$WORK/as-boot-ok.yml"
+claude_vm_merge_config "$AS_GBAKE" "$WORK/does-not-exist.yml" >"$AS_BAKE_OK"
+claude_vm_merge_config "$AS_GBOOT_OK" "$WORK/does-not-exist.yml" >"$AS_BOOT_OK"
 if claude_vm_check_apt_sources_conflicts "$AS_BAKE_OK" "$AS_BOOT_OK" 2>/dev/null; then
   assert_eq "apt_sources: identical name+content across tiers passes the conflict check" \
     "passes" "passes"
@@ -1923,14 +1956,15 @@ fi
 
 # Same name, DIFFERING content across tiers -> conflict check ABORTS (non-zero)
 # with a diagnostic naming the entry.
-AS_GBOOT_CONFLICT="$WORK/as-gboot-conflict.yml"; cat > "$AS_GBOOT_CONFLICT" <<'YML'
+AS_GBOOT_CONFLICT="$WORK/as-gboot-conflict.yml"
+cat >"$AS_GBOOT_CONFLICT" <<'YML'
 apt_sources:
   - name: gh
     repo: "deb https://cli.github.com/OTHER stable main"
     key_url: https://cli.github.com/packages/key.gpg
 YML
 AS_BOOT_CONFLICT="$WORK/as-boot-conflict.yml"
-claude_vm_merge_config "$AS_GBOOT_CONFLICT" "$WORK/does-not-exist.yml" > "$AS_BOOT_CONFLICT"
+claude_vm_merge_config "$AS_GBOOT_CONFLICT" "$WORK/does-not-exist.yml" >"$AS_BOOT_CONFLICT"
 if claude_vm_check_apt_sources_conflicts "$AS_BAKE_OK" "$AS_BOOT_CONFLICT" >/dev/null 2>"$WORK/as-conflict.err"; then
   assert_eq "apt_sources: name conflict with differing content aborts" "aborted" "passed"
 else
@@ -1947,13 +1981,15 @@ assert_true "apt_sources: conflict abort names the conflicting entry" \
 # boot-only apt_source survives; a baked one is filtered out; a trailing-empty
 # key_url row is preserved verbatim.
 # ---------------------------------------------------------------------
-BR_GBAKE="$WORK/br-gbake.yml"; cat > "$BR_GBAKE" <<'YML'
+BR_GBAKE="$WORK/br-gbake.yml"
+cat >"$BR_GBAKE" <<'YML'
 apt_sources:
   - name: baked-repo
     repo: "deb https://ex.com/baked stable main"
     key_url: https://ex.com/baked/key.asc
 YML
-BR_RBOOT="$WORK/br-rboot.yml"; cat > "$BR_RBOOT" <<'YML'
+BR_RBOOT="$WORK/br-rboot.yml"
+cat >"$BR_RBOOT" <<'YML'
 apt_sources:
   - name: boot-repo
     repo: "deb https://ex.com/boot stable main"
@@ -1961,9 +1997,10 @@ apt_sources:
     repo: "deb https://ex.com/baked stable main"
     key_url: https://ex.com/baked/key.asc
 YML
-BR_BAKE="$WORK/br-bake.yml"; BR_BOOT="$WORK/br-boot.yml"
-claude_vm_merge_config "$BR_GBAKE" "$WORK/does-not-exist.yml" > "$BR_BAKE"
-claude_vm_merge_config "$WORK/does-not-exist.yml" "$BR_RBOOT" > "$BR_BOOT"
+BR_BAKE="$WORK/br-bake.yml"
+BR_BOOT="$WORK/br-boot.yml"
+claude_vm_merge_config "$BR_GBAKE" "$WORK/does-not-exist.yml" >"$BR_BAKE"
+claude_vm_merge_config "$WORK/does-not-exist.yml" "$BR_RBOOT" >"$BR_BOOT"
 assert_eq "boot-render: baked-repo skipped, boot-repo kept" \
   "boot-repo" "$(claude_vm_boot_apt_sources "$BR_BOOT" "$BR_BAKE" | cut -f1 | sort | tr '\n' ',' | sed 's/,$//')"
 # The surviving boot-repo row has a trailing-empty key_url field preserved.
@@ -1983,10 +2020,11 @@ assert_eq "boot-render: apt_source_hosts unions bake + boot tier hosts" \
 # config.yml exists where a bake/boot pair is now expected -- the design's
 # fail-with-clear-message migration path (no silent misread).
 # ---------------------------------------------------------------------
-LEGACY_DIR="$WORK/legacy-dir"; mkdir -p "$LEGACY_DIR"
+LEGACY_DIR="$WORK/legacy-dir"
+mkdir -p "$LEGACY_DIR"
 assert_true "legacy: no config.yml present -> returns 0 (nothing to migrate)" \
   claude_vm_detect_legacy_config "global" "$LEGACY_DIR/config.yml" "$LEGACY_DIR"
-printf 'cpus: 4\n' > "$LEGACY_DIR/config.yml"
+printf 'cpus: 4\n' >"$LEGACY_DIR/config.yml"
 if claude_vm_detect_legacy_config "global" "$LEGACY_DIR/config.yml" "$LEGACY_DIR" >/dev/null 2>"$WORK/legacy.err"; then
   assert_eq "legacy: present config.yml -> non-zero (abort with migration message)" "abort" "ok"
 else
@@ -2042,7 +2080,7 @@ fi
 # ---------------------------------------------------------------------
 MP_BAKE="$WORK/mp-bake.yml"
 MP_BOOT="$WORK/mp-boot.yml"
-cat > "$MP_BAKE" <<'YML'
+cat >"$MP_BAKE" <<'YML'
 claude:
   marketplaces:
     - name: thevoskamps
@@ -2052,7 +2090,7 @@ claude:
       - guardrails@thevoskamps
       - block-background-agents@thevoskamps
 YML
-cat > "$MP_BOOT" <<'YML'
+cat >"$MP_BOOT" <<'YML'
 claude:
   marketplaces:
     - name: official
@@ -2075,7 +2113,7 @@ assert_eq "mp: hosts derived from both docs' urls, de-duplicated" \
 
 # An identical entry in both docs collapses to ONE effective marketplace.
 MP_BOOT_DUP="$WORK/mp-boot-dup.yml"
-cat > "$MP_BOOT_DUP" <<'YML'
+cat >"$MP_BOOT_DUP" <<'YML'
 claude:
   marketplaces:
     - name: thevoskamps
@@ -2091,7 +2129,7 @@ fi
 
 # Same name, DIFFERENT url anywhere -> loud abort (never silently pick one).
 MP_BOOT_CONFLICT="$WORK/mp-boot-conflict.yml"
-cat > "$MP_BOOT_CONFLICT" <<'YML'
+cat >"$MP_BOOT_CONFLICT" <<'YML'
 claude:
   marketplaces:
     - name: thevoskamps
@@ -2127,13 +2165,13 @@ PLACE_ERR="$WORK/place.err"
 PLACE_MERGED_BAKE="$WORK/place-merged-bake.yml"
 PLACE_MERGED_BOOT="$WORK/place-merged-boot.yml"
 placement_verdict() {
-  claude_vm_merge_config "$1" "$2" > "$PLACE_MERGED_BAKE" 2>/dev/null
-  claude_vm_merge_config "$3" "$4" > "$PLACE_MERGED_BOOT" 2>/dev/null
-  claude_vm_check_plugin_key_placement "$1" "$2" "$3" "$4" 2>"$PLACE_ERR" \
-    && echo pass || echo abort
+  claude_vm_merge_config "$1" "$2" >"$PLACE_MERGED_BAKE" 2>/dev/null
+  claude_vm_merge_config "$3" "$4" >"$PLACE_MERGED_BOOT" 2>/dev/null
+  claude_vm_check_plugin_key_placement "$1" "$2" "$3" "$4" 2>"$PLACE_ERR" &&
+    echo pass || echo abort
 }
 PLACE_NONE="$WORK/place-none.yml"
-printf 'cpus: 2\n' > "$PLACE_NONE"
+printf 'cpus: 2\n' >"$PLACE_NONE"
 
 assert_eq "placement: correctly-placed keys pass" \
   "pass" "$(placement_verdict "" "$MP_BAKE" "" "$MP_BOOT")"
@@ -2141,7 +2179,7 @@ assert_eq "placement: a config with no claude.plugins at all passes" \
   "pass" "$(placement_verdict "$PLACE_NONE" "" "$PLACE_NONE" "")"
 
 PLACE_BOOT_BAD="$WORK/place-boot-bad.yml"
-printf 'claude:\n  plugins:\n    bake:\n      - oops@mp\n' > "$PLACE_BOOT_BAD"
+printf 'claude:\n  plugins:\n    bake:\n      - oops@mp\n' >"$PLACE_BOOT_BAD"
 assert_eq "placement: claude.plugins.bake in a boot file aborts" \
   "abort" "$(placement_verdict "" "$MP_BAKE" "" "$PLACE_BOOT_BAD")"
 if grep -q "config-boot.yml ($PLACE_BOOT_BAD)" "$PLACE_ERR"; then
@@ -2151,7 +2189,7 @@ else
     "$(cat "$PLACE_ERR")"
 fi
 PLACE_BAKE_BAD="$WORK/place-bake-bad.yml"
-printf 'claude:\n  plugins:\n    install_at_boot:\n      - oops@mp\n' > "$PLACE_BAKE_BAD"
+printf 'claude:\n  plugins:\n    install_at_boot:\n      - oops@mp\n' >"$PLACE_BAKE_BAD"
 assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" \
   "abort" "$(placement_verdict "" "$PLACE_BAKE_BAD" "" "$MP_BOOT")"
 
@@ -2170,13 +2208,13 @@ assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" \
 for place_spell in ':' ': []' ': ""' ': {}'; do
   for place_key in "${CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS[@]}"; do
     printf 'claude:\n  plugins:\n    %s%s\n' "$place_key" "$place_spell" \
-      > "$WORK/place-empty-boot.yml"
+      >"$WORK/place-empty-boot.yml"
     assert_eq "placement: an empty '${place_key}${place_spell}' in a boot file aborts" \
       "abort" "$(placement_verdict "" "$MP_BAKE" "" "$WORK/place-empty-boot.yml")"
   done
   for place_key in "${CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS[@]}"; do
     printf 'claude:\n  plugins:\n    %s%s\n' "$place_key" "$place_spell" \
-      > "$WORK/place-empty-bake.yml"
+      >"$WORK/place-empty-bake.yml"
     assert_eq "placement: an empty '${place_key}${place_spell}' in a bake file aborts" \
       "abort" "$(placement_verdict "" "$WORK/place-empty-bake.yml" "" "$MP_BOOT")"
   done
@@ -2187,8 +2225,8 @@ done
 # routes. Pinning the merged half as well as the raw half means a future change
 # that points the gate back at MERGED_BAKE/MERGED_BOOT fails here with the
 # reason attached, rather than only failing the abort assertions above.
-printf 'claude:\n  plugins:\n    bake:\n' > "$WORK/place-nc-list.yml"
-claude_vm_merge_config "" "$WORK/place-nc-list.yml" > "$WORK/place-nc-list.merged.yml"
+printf 'claude:\n  plugins:\n    bake:\n' >"$WORK/place-nc-list.yml"
+claude_vm_merge_config "" "$WORK/place-nc-list.yml" >"$WORK/place-nc-list.merged.yml"
 assert_eq "placement: the merge PRUNES a valueless list key out of the document" \
   "absent" \
   "$(claude_vm_plugin_raw_has_key "$WORK/place-nc-list.merged.yml" bake && echo present || echo absent)"
@@ -2198,8 +2236,8 @@ assert_eq "placement: ...and the old value test therefore answered 'not present'
 assert_eq "placement: ...while the RAW file the operator wrote still carries it" \
   "present" \
   "$(claude_vm_plugin_raw_has_key "$WORK/place-nc-list.yml" bake && echo present || echo absent)"
-printf 'claude:\n  plugins:\n    enabled: {}\n' > "$WORK/place-nc-map.yml"
-claude_vm_merge_config "" "$WORK/place-nc-map.yml" > "$WORK/place-nc-map.merged.yml"
+printf 'claude:\n  plugins:\n    enabled: {}\n' >"$WORK/place-nc-map.yml"
+claude_vm_merge_config "" "$WORK/place-nc-map.yml" >"$WORK/place-nc-map.merged.yml"
 assert_eq "placement: the merge PRUNES an empty-MAP sub-key that is NOT a list key" \
   "false" \
   "$(yq eval '(.claude.plugins.enabled != null)' "$WORK/place-nc-map.merged.yml")"
@@ -2210,8 +2248,8 @@ assert_eq "placement: ...while the RAW file still carries that one too" \
 # widening rather than a swap. `update_at_boot: []` is not a list key, so no
 # prune pass touches it and it reaches the merged document intact, where
 # `!= null` answered true.
-printf 'claude:\n  plugins:\n    update_at_boot: []\n' > "$WORK/place-nc-scalar.yml"
-claude_vm_merge_config "" "$WORK/place-nc-scalar.yml" > "$WORK/place-nc-scalar.merged.yml"
+printf 'claude:\n  plugins:\n    update_at_boot: []\n' >"$WORK/place-nc-scalar.yml"
+claude_vm_merge_config "" "$WORK/place-nc-scalar.yml" >"$WORK/place-nc-scalar.merged.yml"
 assert_eq "placement: an empty-LIST non-list key was already visible in the merged doc" \
   "true" \
   "$(yq eval '(.claude.plugins.update_at_boot != null)' "$WORK/place-nc-scalar.merged.yml")"
@@ -2223,9 +2261,9 @@ assert_eq "placement: ...and still aborts after the conversion to a presence tes
 # shape with both layers present), but the global-with-no-repo case deep-merges
 # it against the empty document and coerces it to '', which `!= null` called
 # true. Same config, two verdicts, decided by which file it sat in.
-printf 'claude:\n  plugins:\n    update_at_boot:\n' > "$WORK/place-nc-null.yml"
-claude_vm_merge_config "" "$WORK/place-nc-null.yml" > "$WORK/place-nc-null-repo.yml"
-claude_vm_merge_config "$WORK/place-nc-null.yml" "" > "$WORK/place-nc-null-global.yml"
+printf 'claude:\n  plugins:\n    update_at_boot:\n' >"$WORK/place-nc-null.yml"
+claude_vm_merge_config "" "$WORK/place-nc-null.yml" >"$WORK/place-nc-null-repo.yml"
+claude_vm_merge_config "$WORK/place-nc-null.yml" "" >"$WORK/place-nc-null-global.yml"
 assert_eq "placement: a valueless non-list key in the REPO layer answered 'not present'" \
   "false" \
   "$(yq eval '(.claude.plugins.update_at_boot != null)' "$WORK/place-nc-null-repo.yml")"
@@ -2275,9 +2313,9 @@ assert_eq "bake-manifest: a name in both docs counts as bake-declared" \
 # guest-local path, with NOTHING in the bake doc. Nothing here is a build
 # precondition, so the entry must be marked boot.
 MP_BAKE_BARE="$WORK/mp-bake-bare.yml"
-printf 'packages:\n  - git\n' > "$MP_BAKE_BARE"
+printf 'packages:\n  - git\n' >"$MP_BAKE_BARE"
 MP_BOOT_LOCAL="$WORK/mp-boot-local.yml"
-cat > "$MP_BOOT_LOCAL" <<'YML'
+cat >"$MP_BOOT_LOCAL" <<'YML'
 claude:
   marketplaces:
     - name: thevoskamps
@@ -2295,7 +2333,7 @@ assert_eq "bake-manifest: ... and contributes no bake ref" \
   "$(claude_vm_bake_plugins_json "$MP_BAKE_BARE" "$MP_BOOT_LOCAL" | yq -p=json eval '.bake | length' - 2>/dev/null)"
 # Empty config -> the stable empty canonical form the provisioner tests for.
 EMPTY_DOC="$WORK/mp-empty.yml"
-printf '{}\n' > "$EMPTY_DOC"
+printf '{}\n' >"$EMPTY_DOC"
 assert_eq "bake-manifest: no plugins configured -> stable empty form" \
   '{"marketplaces":[],"bake":[]}' \
   "$(claude_vm_bake_plugins_json "$EMPTY_DOC" "$EMPTY_DOC")"
@@ -2303,7 +2341,7 @@ assert_eq "bake-manifest: no plugins configured -> stable empty form" \
 # Derived egress gate. The HARD-SECURE case is acceptance criterion 1:
 # everything bake-declared, updates off, "auto" -> derives NOTHING.
 MP_BOOT_HARD="$WORK/mp-boot-hard.yml"
-printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: auto\n' > "$MP_BOOT_HARD"
+printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: auto\n' >"$MP_BOOT_HARD"
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_HARD" "$MP_BAKE"; then
   assert_eq "egress: hard-secure (all bake-declared, updates off, auto) derives nothing" "no" "yes"
 else
@@ -2316,21 +2354,21 @@ else
   assert_eq "egress: a boot-declared marketplace outside the bake set derives" "yes" "no"
 fi
 MP_BOOT_INSTALL="$WORK/mp-boot-install.yml"
-printf 'claude:\n  plugins:\n    install_at_boot:\n      - x@thevoskamps\n    update_at_boot: false\n' > "$MP_BOOT_INSTALL"
+printf 'claude:\n  plugins:\n    install_at_boot:\n      - x@thevoskamps\n    update_at_boot: false\n' >"$MP_BOOT_INSTALL"
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_INSTALL" "$MP_BAKE"; then
   assert_eq "egress: nonempty install_at_boot triggers derivation" "yes" "yes"
 else
   assert_eq "egress: nonempty install_at_boot triggers derivation" "yes" "no"
 fi
 MP_BOOT_ALWAYS="$WORK/mp-boot-always.yml"
-printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: always\n' > "$MP_BOOT_ALWAYS"
+printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: always\n' >"$MP_BOOT_ALWAYS"
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_ALWAYS" "$MP_BAKE"; then
   assert_eq "egress: 'always' derives even with nothing boot-side to do" "yes" "yes"
 else
   assert_eq "egress: 'always' derives even with nothing boot-side to do" "yes" "no"
 fi
 MP_BOOT_UPD="$WORK/mp-boot-upd.yml"
-printf 'claude:\n  plugins:\n    update_at_boot: true\n' > "$MP_BOOT_UPD"
+printf 'claude:\n  plugins:\n    update_at_boot: true\n' >"$MP_BOOT_UPD"
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_UPD" "$MP_BAKE"; then
   assert_eq "egress: update_at_boot with a configured marketplace derives" "yes" "yes"
 else
@@ -2359,7 +2397,7 @@ assert_eq "render: baked plugin refs are enabled by default" \
   "true" "$(get_json "$R_MP" '.enabledPlugins["guardrails@thevoskamps"]')"
 # An owner/repo shorthand renders as a github source instead.
 MP_BAKE_SHORT="$WORK/mp-bake-short.yml"
-printf 'claude:\n  marketplaces:\n    - name: short\n      url: owner/repo\n' > "$MP_BAKE_SHORT"
+printf 'claude:\n  marketplaces:\n    - name: short\n      url: owner/repo\n' >"$MP_BAKE_SHORT"
 R_SHORT="$(claude_vm_render_guest_settings "$EMPTY_DOC" "$MP_BAKE_SHORT")"
 assert_eq "render: an owner/repo shorthand renders as a github source" \
   "github" "$(get_json "$R_SHORT" '.extraKnownMarketplaces["short"].source.source')"
@@ -2413,7 +2451,7 @@ if [ -n "$BPP_START" ] && [ -n "$BPP_END" ]; then
   {
     echo 'log() { :; }'
     awk -v start="$BPP_START" -v end="$BPP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
-  } > "$BPP_SRC"
+  } >"$BPP_SRC"
   # shellcheck source=/dev/null
   . "$BPP_SRC"
 fi
@@ -2422,7 +2460,7 @@ fi
 # `plugin list` from files the tests control, so "already registered" and
 # "already installed" are settable states.
 BPP_CLI="$WORK/stub-claude"
-cat > "$BPP_CLI" <<'STUB'
+cat >"$BPP_CLI" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CLAUDE_CALL_LOG"
 if [ "${1:-}" = "plugin" ] && [ "${2:-}" = "marketplace" ] && [ "${3:-}" = "list" ]; then
@@ -2438,7 +2476,8 @@ STUB
 chmod +x "$BPP_CLI"
 
 if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_phase >/dev/null 2>&1; then
-  CLAUDE_BIN="$BPP_CLI"
+  # CLAUDE_BIN is read only by the boot_plugin_phase sliced in above.
+  export CLAUDE_BIN="$BPP_CLI"
   export CLAUDE_CALL_LOG MP_LIST_FILE PLUGIN_LIST_FILE CLAUDE_STUB_EXIT
   CLAUDE_CALL_LOG="$WORK/claude-calls.log"
   MP_LIST_FILE="$WORK/mp-list.txt"
@@ -2446,25 +2485,27 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   CLAUDE_STUB_EXIT=0
 
   # Nothing configured at all -> zero CLI calls.
-  : > "$CLAUDE_CALL_LOG"
-  : > "$MP_LIST_FILE"
-  : > "$PLUGIN_LIST_FILE"
-  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-empty.tsv"; : > "$PLUGIN_MARKETPLACES_TSV"
-  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"; : > "$PLUGIN_INSTALL_LIST"
-  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  : >"$CLAUDE_CALL_LOG"
+  : >"$MP_LIST_FILE"
+  : >"$PLUGIN_LIST_FILE"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-empty.tsv"
+  : >"$PLUGIN_MARKETPLACES_TSV"
+  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"
+  : >"$PLUGIN_INSTALL_LIST"
+  export CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: nothing configured runs no claude calls" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
 
   # The marketplace already registered in the image, updates OFF -> the
   # hard-secure warm case: no add, no update, no install. This phase reads the
   # image (what `plugin marketplace list` reports), not the bake declaration.
-  : > "$CLAUDE_CALL_LOG"
+  : >"$CLAUDE_CALL_LOG"
   PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp.tsv"
-  printf 'thevoskamps\thttps://github.com/TheVoskamps/claude-plugins-marketplace.git\n' > "$PLUGIN_MARKETPLACES_TSV"
-  printf 'Configured marketplaces:\n\n  x thevoskamps\n' > "$MP_LIST_FILE"
+  printf 'thevoskamps\thttps://github.com/TheVoskamps/claude-plugins-marketplace.git\n' >"$PLUGIN_MARKETPLACES_TSV"
+  printf 'Configured marketplaces:\n\n  x thevoskamps\n' >"$MP_LIST_FILE"
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: an already-registered marketplace is not re-added" \
     "0" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
   assert_eq "boot_plugin_phase: update_at_boot=false runs no marketplace update" \
@@ -2473,9 +2514,9 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
     "0" "$(grep -c '^plugin update ' "$CLAUDE_CALL_LOG" || true)"
 
   # A marketplace the image does NOT carry -> exactly one add, with its url.
-  : > "$CLAUDE_CALL_LOG"
-  printf 'No marketplaces configured\n' > "$MP_LIST_FILE"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  : >"$CLAUDE_CALL_LOG"
+  printf 'No marketplaces configured\n' >"$MP_LIST_FILE"
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: an unregistered marketplace is added exactly once" \
     "1" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
   if grep -q 'marketplace add https://github.com/TheVoskamps/claude-plugins-marketplace.git' "$CLAUDE_CALL_LOG"; then
@@ -2488,19 +2529,19 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   # The name charset allows '.', which as a regex is "any character", so a
   # configured 'foo.bar' must NOT be considered already-registered when the
   # registry actually holds 'fooxbar' -- it must still be added.
-  : > "$CLAUDE_CALL_LOG"
+  : >"$CLAUDE_CALL_LOG"
   PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-dot.tsv"
-  printf 'foo.bar\thttps://example.invalid/foo-bar.git\n' > "$PLUGIN_MARKETPLACES_TSV"
-  printf 'Configured marketplaces:\n\n  x fooxbar\n' > "$MP_LIST_FILE"
+  printf 'foo.bar\thttps://example.invalid/foo-bar.git\n' >"$PLUGIN_MARKETPLACES_TSV"
+  printf 'Configured marketplaces:\n\n  x fooxbar\n' >"$MP_LIST_FILE"
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: a '.' in the name is matched literally, not as a regex" \
     "1" "$(grep -c 'marketplace add https://example.invalid/foo-bar.git' "$CLAUDE_CALL_LOG" || true)"
   # ...and the exact same name IS recognized, so the literal check did not
   # simply break the positive case.
-  : > "$CLAUDE_CALL_LOG"
-  printf 'Configured marketplaces:\n\n  x foo.bar\n' > "$MP_LIST_FILE"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  : >"$CLAUDE_CALL_LOG"
+  printf 'Configured marketplaces:\n\n  x foo.bar\n' >"$MP_LIST_FILE"
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: an exactly-matching dotted name is not re-added" \
     "0" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
   PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp.tsv"
@@ -2508,13 +2549,13 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   # update_at_boot=true with an install list: marketplace update runs BEFORE
   # the install (so the install resolves against the refreshed marketplace),
   # and every installed ref is then updated (the baked-plugin freshness path).
-  : > "$CLAUDE_CALL_LOG"
-  printf 'Configured marketplaces:\n\n  x thevoskamps\n' > "$MP_LIST_FILE"
-  printf 'Installed plugins:\n\n  x baked@thevoskamps\n    Version: 1.0.0\n' > "$PLUGIN_LIST_FILE"
+  : >"$CLAUDE_CALL_LOG"
+  printf 'Configured marketplaces:\n\n  x thevoskamps\n' >"$MP_LIST_FILE"
+  printf 'Installed plugins:\n\n  x baked@thevoskamps\n    Version: 1.0.0\n' >"$PLUGIN_LIST_FILE"
   PLUGIN_INSTALL_LIST="$WORK/bpp-install.list"
-  printf 'cc-tools@thevoskamps\n' > "$PLUGIN_INSTALL_LIST"
+  printf 'cc-tools@thevoskamps\n' >"$PLUGIN_INSTALL_LIST"
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   MP_UPD_LINE="$(grep -n 'marketplace update' "$CLAUDE_CALL_LOG" | head -1 | cut -d: -f1)"
   INS_LINE="$(grep -n 'plugin install ' "$CLAUDE_CALL_LOG" | head -1 | cut -d: -f1)"
   if [ -n "$MP_UPD_LINE" ] && [ -n "$INS_LINE" ] && [ "$MP_UPD_LINE" -lt "$INS_LINE" ]; then
@@ -2531,9 +2572,9 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
 
   # Fail-soft: every CLI call failing must NOT make the phase fail -- a broken
   # marketplace can never block an interactive session.
-  : > "$CLAUDE_CALL_LOG"
+  : >"$CLAUDE_CALL_LOG"
   CLAUDE_STUB_EXIT=1
-  if ( boot_plugin_phase >/dev/null 2>&1 ); then
+  if (boot_plugin_phase >/dev/null 2>&1); then
     assert_eq "boot_plugin_phase: a failing CLI is fail-soft (phase still succeeds)" "soft" "soft"
   else
     assert_eq "boot_plugin_phase: a failing CLI is fail-soft (phase still succeeds)" "soft" "hard"
@@ -2589,12 +2630,14 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
       echo '#!/usr/bin/env bash'
       echo 'set -uo pipefail'
       printf '. %s\n' "\"$LIB\""
-      echo 'MERGED_BOOT="$1"'
-      echo 'RUN="$2"'
-      echo 'CONFIG_DIR="$RUN/config"'
-      echo 'mkdir -p "$CONFIG_DIR"'
+      cat <<'HARNESS'
+MERGED_BOOT="$1"
+RUN="$2"
+CONFIG_DIR="$RUN/config"
+mkdir -p "$CONFIG_DIR"
+HARNESS
       awk -v start="$MNT_START" -v end="$MNT_END" \
-          -v mode="$mode" -v oldread="$MNT_OLD_READ_AWK" '
+        -v mode="$mode" -v oldread="$MNT_OLD_READ_AWK" '
         NR < start || NR > end { next }
         mode == "old" && $0 == "while IFS= read -r mount_record; do" { print oldread; next }
         mode == "old" && $0 ~ /^  (src|mount_rest|tag|mount_path)=\$\{mount_(record|rest)/ { next }
@@ -2602,8 +2645,10 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
         drop == 1 { if ($0 == "    esac") drop = 0; next }
         { print }
       ' "$LAUNCHER"
-      echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
-    } > "$out"
+      cat <<'HARNESS'
+printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"
+HARNESS
+    } >"$out"
   }
 
   MNT_SLICE="$WORK/mount-loop.sh"
@@ -2612,7 +2657,7 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
   write_mnt_slice "$MNT_SLICE_OLD" old
 
   MNT_YML="$WORK/mount-loop-boot.yml"
-  cat > "$MNT_YML" <<'YML'
+  cat >"$MNT_YML" <<'YML'
 mounts:
   - source: /a/empty-tag
     tag: ""
@@ -2641,15 +2686,17 @@ YML
   #
   # Real host paths this time: the loop stats each source to decide directory
   # vs single file, and hard-links a file source into its wrap dir.
-  MNT_SRC_DIR="$WORK/mount-src-dir"; mkdir -p "$MNT_SRC_DIR"
-  MNT_SRC_FILE="$WORK/mount-src-file.txt"; printf 'file-mount-content\n' > "$MNT_SRC_FILE"
+  MNT_SRC_DIR="$WORK/mount-src-dir"
+  mkdir -p "$MNT_SRC_DIR"
+  MNT_SRC_FILE="$WORK/mount-src-file.txt"
+  printf 'file-mount-content\n' >"$MNT_SRC_FILE"
   MNT_YML2="$WORK/mount-loop-boot2.yml"
   {
     printf 'mounts:\n'
     printf '  - source: %s\n    tag: data\n' "$MNT_SRC_DIR"
     printf '  - source: %s\n    tag: elsewhere\n    path: /srv/elsewhere\n' "$MNT_SRC_DIR"
     printf '  - source: %s\n    tag: cfg\n    path: /root/.gitconfig\n' "$MNT_SRC_FILE"
-  } > "$MNT_YML2"
+  } >"$MNT_YML2"
   MNT_RUN2="$WORK/mount-loop-run2"
   MNT_OUT2="$(bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN2" 2>&1)"
   MNT_TSV2="$MNT_RUN2/config/mounts.tsv"
@@ -2681,13 +2728,14 @@ YML
     "virtio-fs,sharedDir=$MNT_RUN2/mount-wrap/cfg,mountTag=cfg" \
     "$(printf '%s\n' "$MNT_OUT2" | grep -x -- "virtio-fs,sharedDir=$MNT_RUN2/mount-wrap/cfg,mountTag=cfg")"
   assert_eq "single-file: the wrap dir holds only the one file" \
-    "mount-src-file.txt" "$(ls "$MNT_RUN2/mount-wrap/cfg" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+    "mount-src-file.txt" \
+    "$(find "$MNT_RUN2/mount-wrap/cfg" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
   # HARD LINK, not a copy: same inode as the host file, which is what makes an
   # `rw` single-file mount write through to the host instead of into a
-  # throwaway copy. Compared by inode number rather than by content, since a
-  # copy would match on content.
+  # throwaway copy. Compared by device and inode (`-ef`) rather than by
+  # content, since a copy would match on content.
   assert_eq "single-file: the wrap entry is a HARD LINK to the source (same inode)" \
-    "same" "$([ "$(ls -i "$MNT_SRC_FILE" | awk '{print $1}')" = "$(ls -i "$MNT_RUN2/mount-wrap/cfg/mount-src-file.txt" | awk '{print $1}')" ] && echo same || echo different)"
+    "same" "$([ "$MNT_SRC_FILE" -ef "$MNT_RUN2/mount-wrap/cfg/mount-src-file.txt" ] && echo same || echo different)"
 
   # A directory source is NOT wrapped -- its own path is shared directly, so an
   # rw directory mount writes through with no intermediary at all.
@@ -2750,7 +2798,7 @@ YML
   {
     printf 'mounts:\n'
     printf '  - source: %s\n    tag: data\n' "$MNT_SRC_DIR"
-  } > "$MNT_YML4"
+  } >"$MNT_YML4"
   MNT_OUT5="$(bash "$MNT_SLICE" "$MNT_YML4" "$MNT_COMMA_RUN" 2>&1)"
   assert_eq "wrap-dir comma: a directory-only config under the same run dir is not aborted" \
     "virtio-fs,sharedDir=$MNT_SRC_DIR,mountTag=data" \
@@ -2763,7 +2811,7 @@ YML
   MNT_SLICE_PREGUARD="$WORK/mount-loop-preguard.sh"
   write_mnt_slice "$MNT_SLICE_PREGUARD" preguard
   assert_eq "wrap-dir comma: the control really has the guard removed" \
-    "0" "$(grep -c 'case "$MOUNT_WRAP_DIR" in' "$MNT_SLICE_PREGUARD")"
+    "0" "$(grep -cF "case \"\$MOUNT_WRAP_DIR\" in" "$MNT_SLICE_PREGUARD")"
   MNT_COMMA_RUN6="$WORK/run,dir6"
   mkdir -p "$MNT_COMMA_RUN6"
   MNT_OUT6="$(bash "$MNT_SLICE_PREGUARD" "$MNT_YML2" "$MNT_COMMA_RUN6" 2>&1)"
@@ -2781,22 +2829,22 @@ YML
   MNT_VOL_OK=0
   if command -v hdiutil >/dev/null 2>&1; then
     mkdir -p "$MNT_VOL"
-    if hdiutil create -quiet -size 4m -fs HFS+ -volname cvmtest "$WORK/second-volume.dmg" >/dev/null 2>&1 \
-      && hdiutil attach -quiet -nobrowse -noverify -mountpoint "$MNT_VOL" "$WORK/second-volume.dmg" >/dev/null 2>&1; then
+    if hdiutil create -quiet -size 4m -fs HFS+ -volname cvmtest "$WORK/second-volume.dmg" >/dev/null 2>&1 &&
+      hdiutil attach -quiet -nobrowse -noverify -mountpoint "$MNT_VOL" "$WORK/second-volume.dmg" >/dev/null 2>&1; then
       MNT_VOL_ATTACHED="$MNT_VOL"
       MNT_VOL_OK=1
     fi
   fi
   if [ "$MNT_VOL_OK" -eq 1 ]; then
     MNT_VOL_SRC="$MNT_VOL/vol-src.txt"
-    printf 'second-volume-content\n' > "$MNT_VOL_SRC"
+    printf 'second-volume-content\n' >"$MNT_VOL_SRC"
     MNT_VOL_TMP="$MNT_VOL/tmp"
     mkdir -p "$MNT_VOL_TMP"
     MNT_YML_VOL="$WORK/mount-loop-boot-vol.yml"
     {
       printf 'mounts:\n'
       printf '  - source: %s\n    tag: cfg\n    path: /root/.gitconfig\n' "$MNT_VOL_SRC"
-    } > "$MNT_YML_VOL"
+    } >"$MNT_YML_VOL"
     MNT_RUN8="$WORK/mount-loop-run8"
     mkdir -p "$MNT_RUN8"
 
@@ -2849,8 +2897,9 @@ fi
 GATE_START=""
 GATE_END=""
 if [ -f "$LAUNCHER" ]; then
-  GATE_START="$(grep -nF 'MERGED_BAKE="$(claude_vm_mktemp claude-vm-merged-bake)"' "$LAUNCHER" | head -1 | cut -d: -f1)"
-  GATE_END="$(grep -nF 'aborting -- move the misplaced claude.plugins key(s)' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  GATE_START="$(grep -nF "MERGED_BAKE=\"\$(claude_vm_mktemp claude-vm-merged-bake)\"" "$LAUNCHER" | head -1 | cut -d: -f1)"
+  # The slice ends on the `}` closing the brace group that prints this abort.
+  GATE_END="$(awk 'index($0, "aborting -- move the misplaced claude.plugins key(s)") { found = 1 } found && /^  }$/ { print NR; exit }' "$LAUNCHER")"
 fi
 if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   GATE_SLICE="$WORK/config-load-gates.sh"
@@ -2858,13 +2907,15 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
     echo '#!/usr/bin/env bash'
     echo 'set -uo pipefail'
     printf '. %s\n' "\"$LIB\""
-    echo 'GLOBAL_BAKE_CONFIG="$1"'
-    echo 'REPO_BAKE_CONFIG="$2"'
-    echo 'GLOBAL_BOOT_CONFIG="$3"'
-    echo 'REPO_BOOT_CONFIG="$4"'
+    cat <<'HARNESS'
+GLOBAL_BAKE_CONFIG="$1"
+REPO_BAKE_CONFIG="$2"
+GLOBAL_BOOT_CONFIG="$3"
+REPO_BOOT_CONFIG="$4"
+HARNESS
     awk -v start="$GATE_START" -v end="$GATE_END" 'NR >= start && NR <= end' "$LAUNCHER"
     echo 'echo GATE-OK'
-  } > "$GATE_SLICE"
+  } >"$GATE_SLICE"
 
   # run_gates <bake-file> <boot-file> -- run the sliced load block over one
   # pair of repo-tier files and print "<rc>|<merged stdout+stderr, one line>".
@@ -2877,8 +2928,10 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
     printf '%s|%s\n' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
   }
 
-  GATE_NONE_BAKE="$WORK/gate-none-bake.yml"; printf 'packages:\n  - git\n'   > "$GATE_NONE_BAKE"
-  GATE_NONE_BOOT="$WORK/gate-none-boot.yml"; printf 'cpus: 2\nmem: 4096\n'   > "$GATE_NONE_BOOT"
+  GATE_NONE_BAKE="$WORK/gate-none-bake.yml"
+  printf 'packages:\n  - git\n' >"$GATE_NONE_BAKE"
+  GATE_NONE_BOOT="$WORK/gate-none-boot.yml"
+  printf 'cpus: 2\nmem: 4096\n' >"$GATE_NONE_BOOT"
 
   # A config that declares NEITHER mounts nor marketplaces must pass. This is
   # the regression guard for the empty-result-set shape: yq prints ONE EMPTY
@@ -2890,14 +2943,16 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # Real, existing host paths from here on: since issue #157 the gate also
   # rejects a source that is not on the host, so a fixture pointing at a made-up
   # /a/one would now fail for the wrong reason.
-  GATE_SRC_A="$WORK/gate-src-a"; mkdir -p "$GATE_SRC_A"
-  GATE_SRC_B="$WORK/gate-src-b"; mkdir -p "$GATE_SRC_B"
+  GATE_SRC_A="$WORK/gate-src-a"
+  mkdir -p "$GATE_SRC_A"
+  GATE_SRC_B="$WORK/gate-src-b"
+  mkdir -p "$GATE_SRC_B"
   GATE_OK_BOOT="$WORK/gate-ok-boot.yml"
   {
     printf 'mounts:\n'
     printf '  - source: %s\n    tag: one\n' "$GATE_SRC_A"
     printf 'claude:\n  marketplaces:\n    - name: mp\n      url: https://example.invalid/mp.git\n'
-  } > "$GATE_OK_BOOT"
+  } >"$GATE_OK_BOOT"
   assert_eq "load-gates: a well-formed mounts + marketplaces config passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$GATE_OK_BOOT")"
 
@@ -2911,12 +2966,12 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # shadowed, or pointed somewhere else.
   gate_mount_case() {
     local name="$1" body="$2" want="$3" got
-    printf '%s' "$body" > "$WORK/gate-mnt-case.yml"
+    printf '%s' "$body" >"$WORK/gate-mnt-case.yml"
     got="$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-mnt-case.yml")"
     assert_eq "load-gates: $name aborts the launch" "1" "${got%%|*}"
     case "$got" in
       *"$want"*) assert_eq "load-gates: $name is named in the diagnostic" "named" "named" ;;
-      *)         assert_eq "load-gates: $name is named in the diagnostic" "named" "$got" ;;
+      *) assert_eq "load-gates: $name is named in the diagnostic" "named" "$got" ;;
     esac
   }
 
@@ -3037,7 +3092,7 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # with a reserved mountpoint, without sharing a component boundary, is a
   # perfectly ordinary mountpoint and must still pass.
   printf 'mounts:\n  - source: %s\n    tag: near\n    path: /mnt/repofoo\n' "$GATE_SRC_A" \
-    > "$WORK/gate-near-boot.yml"
+    >"$WORK/gate-near-boot.yml"
   assert_eq "load-gates: a path that only PREFIX-matches a reserved mountpoint passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-near-boot.yml")"
 
@@ -3050,7 +3105,8 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # single-file bind replaces one file. $GATE_SRC_A is a DIRECTORY and
   # $GATE_SRC_FILE a FILE, which is how each case below picks its shape -- the
   # gate stats the source exactly as the launcher's loop does.
-  GATE_SRC_FILE="$WORK/gate-src-file.txt"; printf 'x\n' > "$GATE_SRC_FILE"
+  GATE_SRC_FILE="$WORK/gate-src-file.txt"
+  printf 'x\n' >"$GATE_SRC_FILE"
 
   # ON a system path. /root is the motivating one: the credential seed writes
   # /root/.claude AFTER this phase, so a directory mounted at /root swallows
@@ -3077,11 +3133,11 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # acceptance case, and a blanket "nothing overlapping a system path" rule
   # would have killed it. /home and /tmp are the same class.
   printf 'mounts:\n  - source: %s\n    tag: cfg\n    path: /root/.gitconfig\n' "$GATE_SRC_FILE" \
-    > "$WORK/gate-sysfile-ok.yml"
+    >"$WORK/gate-sysfile-ok.yml"
   assert_eq "load-gates: a single FILE inside the guest HOME (/root/.gitconfig) passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-sysfile-ok.yml")"
   printf 'mounts:\n  - source: %s\n    tag: t\n    path: /tmp/seed.json\n' "$GATE_SRC_FILE" \
-    > "$WORK/gate-sysfile-tmp.yml"
+    >"$WORK/gate-sysfile-tmp.yml"
   assert_eq "load-gates: a single FILE inside /tmp passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-sysfile-tmp.yml")"
 
@@ -3111,21 +3167,21 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # /mnt/<tag> DEFAULT has to keep working, and the FHS mount-here directories
   # ship empty, which is what makes them the right destination for a share.
   printf 'mounts:\n  - source: %s\n    tag: plain\n' "$GATE_SRC_A" \
-    > "$WORK/gate-default-mnt.yml"
+    >"$WORK/gate-default-mnt.yml"
   assert_eq "load-gates: the DEFAULT /mnt/<tag> mountpoint still passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-default-mnt.yml")"
   printf 'mounts:\n  - source: %s\n    tag: s\n    path: /srv/custom\n' "$GATE_SRC_A" \
-    > "$WORK/gate-srv.yml"
+    >"$WORK/gate-srv.yml"
   assert_eq "load-gates: a directory at /srv/custom still passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-srv.yml")"
   printf 'mounts:\n  - source: %s\n    tag: o\n    path: /opt/tools\n' "$GATE_SRC_A" \
-    > "$WORK/gate-opt.yml"
+    >"$WORK/gate-opt.yml"
   assert_eq "load-gates: a directory at /opt/tools still passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-opt.yml")"
   # ...and a system path is matched on a COMPONENT boundary, so an ordinary
   # /etc-prefixed name that is not under /etc is not a collision.
   printf 'mounts:\n  - source: %s\n    tag: etcish\n    path: /etcetera\n' "$GATE_SRC_A" \
-    > "$WORK/gate-etcetera.yml"
+    >"$WORK/gate-etcetera.yml"
   assert_eq "load-gates: a path that only PREFIX-matches a system path passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-etcetera.yml")"
 
@@ -3181,11 +3237,11 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # between separators; a run of three is an ORDINARY directory name, and the
   # sanctioned single-file case still passes when spelled with a leading `/./`.
   printf 'mounts:\n  - source: %s\n    tag: tripledot\n    path: /.../weird\n' "$GATE_SRC_A" \
-    > "$WORK/gate-tripledot.yml"
+    >"$WORK/gate-tripledot.yml"
   assert_eq "load-gates: a '...' directory name is NOT a '.' segment and passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-tripledot.yml")"
   printf 'mounts:\n  - source: %s\n    tag: dotcfg\n    path: /./root/.gitconfig\n' "$GATE_SRC_FILE" \
-    > "$WORK/gate-dot-gitconfig.yml"
+    >"$WORK/gate-dot-gitconfig.yml"
   assert_eq "load-gates: the sanctioned /root/.gitconfig case still passes with a leading '.'" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-dot-gitconfig.yml")"
 
@@ -3194,9 +3250,10 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # so it may carry a space. On the padded encoding `/opt/a b` seeded
   # `" /opt/a b "` and the DISTINCT later `/opt/a` matched inside it, aborting a
   # valid pair with a diagnostic naming a collision that did not exist.
-  GATE_SRC_SPACE="$WORK/gate-src-with space"; mkdir -p "$GATE_SRC_SPACE"
+  GATE_SRC_SPACE="$WORK/gate-src-with space"
+  mkdir -p "$GATE_SRC_SPACE"
   printf 'mounts:\n  - source: %s\n    tag: sp1\n    path: "/opt/a b"\n  - source: %s\n    tag: sp2\n    path: "/opt/a"\n' \
-    "$GATE_SRC_SPACE" "$GATE_SRC_A" > "$WORK/gate-space-distinct.yml"
+    "$GATE_SRC_SPACE" "$GATE_SRC_A" >"$WORK/gate-space-distinct.yml"
   assert_eq "load-gates: a path with a space does not make a PREFIX of it read as a duplicate" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-space-distinct.yml")"
   # ...and a GENUINE duplicate is still caught, space or no space -- the fix
@@ -3259,11 +3316,11 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # ordinary component names and ordinary argv words, and every one of them
   # must still pass.
   printf 'mounts:\n  - source: %s\n    tag: "..."\n  - source: %s\n    tag: "a..b"\n' \
-    "$GATE_SRC_A" "$GATE_SRC_B" > "$WORK/gate-dotty-tags.yml"
+    "$GATE_SRC_A" "$GATE_SRC_B" >"$WORK/gate-dotty-tags.yml"
   assert_eq "load-gates: a '...' tag and an 'a..b' tag are ordinary names and pass" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-dotty-tags.yml")"
   printf 'mounts:\n  - source: %s\n    tag: ".hidden"\n  - source: %s\n    tag: "a-b"\n' \
-    "$GATE_SRC_A" "$GATE_SRC_B" > "$WORK/gate-dashy-tags.yml"
+    "$GATE_SRC_A" "$GATE_SRC_B" >"$WORK/gate-dashy-tags.yml"
   assert_eq "load-gates: a leading-dot tag and an interior-dash tag pass" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-dashy-tags.yml")"
 
@@ -3274,30 +3331,32 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # with `unknown option for virtio-fs devices: b` (a message about a device
   # rather than about this config line), and a source spelling a second
   # `sharedDir=` replaces the first.
-  GATE_SRC_COMMA="$WORK/gate-src,comma"; mkdir -p "$GATE_SRC_COMMA"
+  GATE_SRC_COMMA="$WORK/gate-src,comma"
+  mkdir -p "$GATE_SRC_COMMA"
   gate_mount_case "a DIRECTORY source whose path contains a comma" \
     "$(printf 'mounts:\n  - source: "%s"\n    tag: cm\n' "$GATE_SRC_COMMA")" \
     "contains a ','"
   # ...and the single-FILE source is deliberately exempt: what gets shared then
   # is the wrap directory, named after the already-charset-checked tag, so the
   # operator's own filename never reaches the device string.
-  GATE_SRC_FILE_COMMA="$WORK/gate-file,comma.txt"; printf 'x\n' > "$GATE_SRC_FILE_COMMA"
+  GATE_SRC_FILE_COMMA="$WORK/gate-file,comma.txt"
+  printf 'x\n' >"$GATE_SRC_FILE_COMMA"
   printf 'mounts:\n  - source: "%s"\n    tag: fc\n    path: /mnt/fc/x\n' "$GATE_SRC_FILE_COMMA" \
-    > "$WORK/gate-file-comma.yml"
+    >"$WORK/gate-file-comma.yml"
   assert_eq "load-gates: a single-FILE source whose path contains a comma passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-file-comma.yml")"
 
   # A single FILE source is legal (it is wrapped by the launcher), so the
   # host-existence check must accept it rather than demanding a directory.
   printf 'mounts:\n  - source: %s\n    tag: f\n    path: /root/.gitconfig\n' "$GATE_SRC_FILE" \
-    > "$WORK/gate-file-boot.yml"
+    >"$WORK/gate-file-boot.yml"
   assert_eq "load-gates: a single-FILE source with a path override passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-file-boot.yml")"
 
   # A `~` source is expanded before the existence check -- otherwise every
   # config in the example file would abort, since no literal './~/...' exists.
   # $HOME itself is the one path guaranteed to be there.
-  printf 'mounts:\n  - source: "~"\n    tag: home\n' > "$WORK/gate-tilde-boot.yml"
+  printf 'mounts:\n  - source: "~"\n    tag: home\n' >"$WORK/gate-tilde-boot.yml"
   assert_eq "load-gates: a '~' source is expanded before the existence check" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-tilde-boot.yml")"
 
@@ -3305,47 +3364,53 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # claude_vm_mount_specs this rendered the literal string `null` and sailed
   # through to vfkit as mountTag=null; it is now an empty field and a hard stop.
   GATE_NOTAG_BOOT="$WORK/gate-notag-boot.yml"
-  printf 'mounts:\n  - source: /a/omitted-tag\n' > "$GATE_NOTAG_BOOT"
+  printf 'mounts:\n  - source: /a/omitted-tag\n' >"$GATE_NOTAG_BOOT"
   GATE_NOTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOTAG_BOOT")"
   assert_eq "load-gates: an OMITTED mount tag aborts the launch" \
     "1" "${GATE_NOTAG%%|*}"
   case "$GATE_NOTAG" in
     *"mounts entry #1 ('/a/omitted-tag') has no tag"*)
-      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "named" ;;
+      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "$GATE_NOTAG" ;;
+      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "$GATE_NOTAG"
+      ;;
   esac
 
   # ...and an EXPLICITLY empty tag, the other spelling of the same mistake.
   GATE_EMPTYTAG_BOOT="$WORK/gate-emptytag-boot.yml"
-  printf 'mounts:\n  - source: /a/empty-tag\n    tag: ""\n' > "$GATE_EMPTYTAG_BOOT"
+  printf 'mounts:\n  - source: /a/empty-tag\n    tag: ""\n' >"$GATE_EMPTYTAG_BOOT"
   GATE_EMPTYTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_EMPTYTAG_BOOT")"
   assert_eq "load-gates: an EXPLICITLY empty mount tag aborts the launch" \
     "1" "${GATE_EMPTYTAG%%|*}"
   case "$GATE_EMPTYTAG" in
     *"mounts entry #1 ('/a/empty-tag') has no tag"*)
-      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "named" ;;
+      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "$GATE_EMPTYTAG" ;;
+      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "$GATE_EMPTYTAG"
+      ;;
   esac
 
   # A mounts entry with no source at all: nothing to share, and nothing to name
   # it by. Previously the launcher's loop dropped it without a word.
   GATE_NOSRC_BOOT="$WORK/gate-nosrc-boot.yml"
-  printf 'mounts:\n  - tag: orphan\n' > "$GATE_NOSRC_BOOT"
+  printf 'mounts:\n  - tag: orphan\n' >"$GATE_NOSRC_BOOT"
   GATE_NOSRC="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOSRC_BOOT")"
   assert_eq "load-gates: a mount with no source aborts the launch" \
     "1" "${GATE_NOSRC%%|*}"
   case "$GATE_NOSRC" in
     *"mounts entry #1 has no source"*)
-      assert_eq "load-gates: the no-source abort says which entry" "named" "named" ;;
+      assert_eq "load-gates: the no-source abort says which entry" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the no-source abort says which entry" "named" "$GATE_NOSRC" ;;
+      assert_eq "load-gates: the no-source abort says which entry" "named" "$GATE_NOSRC"
+      ;;
   esac
 
   # A claude.marketplaces entry with a url but no name, in the BOOT document.
   GATE_NONAME_BOOT="$WORK/gate-noname-boot.yml"
-  cat > "$GATE_NONAME_BOOT" <<'YML'
+  cat >"$GATE_NONAME_BOOT" <<'YML'
 claude:
   marketplaces:
     - name: fine
@@ -3357,15 +3422,17 @@ YML
     "1" "${GATE_NONAME%%|*}"
   case "$GATE_NONAME" in
     *"claude.marketplaces entry #2 in the merged BOOT config has no name (url: 'https://example.invalid/nameless.git')"*)
-      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "named" ;;
+      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "$GATE_NONAME" ;;
+      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "$GATE_NONAME"
+      ;;
   esac
 
   # ...and the same entry in the BAKE document, which is a different tier label
   # and a different reader (the origin stamp, the baked-name set).
   GATE_NONAME_BAKE="$WORK/gate-noname-bake.yml"
-  cat > "$GATE_NONAME_BAKE" <<'YML'
+  cat >"$GATE_NONAME_BAKE" <<'YML'
 claude:
   marketplaces:
     - url: https://example.invalid/bake-nameless.git
@@ -3375,9 +3442,11 @@ YML
     "1" "${GATE_NONAME_B%%|*}"
   case "$GATE_NONAME_B" in
     *"in the merged BAKE config has no name"*)
-      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "named" ;;
+      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "$GATE_NONAME_B" ;;
+      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "$GATE_NONAME_B"
+      ;;
   esac
 
   # ---- the claude.plugins placement gate, through the launcher's own call ----
@@ -3388,26 +3457,30 @@ YML
   # swapped) would leave both directions looking in the wrong files and every
   # abort above still passing, so it is worth one case per direction.
   GATE_PLACE_BOOT="$WORK/gate-place-boot.yml"
-  printf 'claude:\n  plugins:\n    bake:\n' > "$GATE_PLACE_BOOT"
+  printf 'claude:\n  plugins:\n    bake:\n' >"$GATE_PLACE_BOOT"
   GATE_PLACE_1="$(run_gates "$GATE_NONE_BAKE" "$GATE_PLACE_BOOT")"
   assert_eq "load-gates: a valueless claude.plugins.bake in a boot file aborts the launch" \
     "1" "${GATE_PLACE_1%%|*}"
   case "$GATE_PLACE_1" in
     *"'claude.plugins.bake' is a BAKE key but was found in a config-boot.yml ($GATE_PLACE_BOOT)"*)
-      assert_eq "load-gates: the placement abort names the boot file carrying it" "named" "named" ;;
+      assert_eq "load-gates: the placement abort names the boot file carrying it" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the placement abort names the boot file carrying it" "named" "$GATE_PLACE_1" ;;
+      assert_eq "load-gates: the placement abort names the boot file carrying it" "named" "$GATE_PLACE_1"
+      ;;
   esac
   GATE_PLACE_BAKE="$WORK/gate-place-bake.yml"
-  printf 'claude:\n  plugins:\n    enabled: {}\n' > "$GATE_PLACE_BAKE"
+  printf 'claude:\n  plugins:\n    enabled: {}\n' >"$GATE_PLACE_BAKE"
   GATE_PLACE_2="$(run_gates "$GATE_PLACE_BAKE" "$GATE_NONE_BOOT")"
   assert_eq "load-gates: an empty-map claude.plugins.enabled in a bake file aborts the launch" \
     "1" "${GATE_PLACE_2%%|*}"
   case "$GATE_PLACE_2" in
     *"'claude.plugins.enabled' is a BOOT key but was found in a config-bake.yml ($GATE_PLACE_BAKE)"*)
-      assert_eq "load-gates: the placement abort names the bake file carrying it" "named" "named" ;;
+      assert_eq "load-gates: the placement abort names the bake file carrying it" "named" "named"
+      ;;
     *)
-      assert_eq "load-gates: the placement abort names the bake file carrying it" "named" "$GATE_PLACE_2" ;;
+      assert_eq "load-gates: the placement abort names the bake file carrying it" "named" "$GATE_PLACE_2"
+      ;;
   esac
   # ...and from the GLOBAL layer, which run_gates leaves empty. The launcher
   # hands the gate both files of each tier, so a misplacement in either aborts.
@@ -3416,10 +3489,12 @@ YML
   case "$GATE_PLACE_3" in
     *"'claude.plugins.bake' is a BAKE key but was found in a config-boot.yml ($GATE_PLACE_BOOT)"*)
       assert_eq "load-gates: the same key in the GLOBAL boot file aborts the launch too" \
-        "named" "named" ;;
+        "named" "named"
+      ;;
     *)
       assert_eq "load-gates: the same key in the GLOBAL boot file aborts the launch too" \
-        "named" "$GATE_PLACE_3" ;;
+        "named" "$GATE_PLACE_3"
+      ;;
   esac
 else
   echo "SKIP: config-load gate block extraction from claude-vm.sh failed; load-gate tests skipped." >&2
@@ -3440,7 +3515,7 @@ fi
 # contrasted with.
 # ---------------------------------------------------------------------
 TF_BOOT="$WORK/twofield-boot.yml"
-cat > "$TF_BOOT" <<'YML'
+cat >"$TF_BOOT" <<'YML'
 claude:
   marketplaces:
     - url: https://example.invalid/nameless.git
@@ -3448,12 +3523,12 @@ claude:
       url: https://example.invalid/named.git
 YML
 TF_BAKE="$WORK/twofield-bake.yml"
-printf '{}\n' > "$TF_BAKE"
+printf '{}\n' >"$TF_BAKE"
 
 # The emitter really does produce a LEADING empty field for that entry -- the
 # premise every assertion below rests on.
 TF_LINES="$WORK/twofield-lines.tsv"
-claude_vm_marketplaces "$TF_BOOT" > "$TF_LINES"
+claude_vm_marketplaces "$TF_BOOT" >"$TF_LINES"
 assert_eq "two-field: the emitter leads a nameless entry with an EMPTY field" \
   "1" "$(grep -c '^	https://example.invalid/nameless.git$' "$TF_LINES" || true)"
 
@@ -3467,10 +3542,10 @@ assert_eq "two-field: effective set drops the nameless entry, keeps the named on
 # written a marketplace literally named `https://example.invalid/nameless.git`
 # into plugin-marketplaces.tsv, with an empty url.
 TF_OLD_NAME=""
-while IFS=$'\t' read -r tf_name tf_url; do
+while IFS=$'\t' read -r tf_name _; do
   [ -n "$tf_name" ] || continue
   [ -n "$TF_OLD_NAME" ] || TF_OLD_NAME="$tf_name"
-done < "$TF_LINES"
+done <"$TF_LINES"
 assert_eq "two-field: NEGATIVE CONTROL -- the old tab-IFS read takes the url as the name" \
   "https://example.invalid/nameless.git" "$TF_OLD_NAME"
 
@@ -3485,13 +3560,13 @@ assert_eq "two-field: the bake manifest carries only the named marketplace" \
 # the reason one check covers both spellings. The record is THREE fields
 # (source, tag, path) with `tag` the optional MIDDLE one.
 TF_MNT="$WORK/twofield-mounts.yml"
-printf 'mounts:\n  - source: /a/omitted-tag\n' > "$TF_MNT"
+printf 'mounts:\n  - source: /a/omitted-tag\n' >"$TF_MNT"
 assert_eq "mount-specs: an omitted tag emits an EMPTY field, not the string 'null'" \
   "/a/omitted-tag		" "$(claude_vm_mount_specs "$TF_MNT")"
 # ...and an omitted `path:` likewise, so the record always carries both
 # separators and a hand split is total.
 TF_MNT_PATH="$WORK/twofield-mounts-path.yml"
-printf 'mounts:\n  - source: /a/with-path\n    tag: wp\n    path: /srv/wp\n' > "$TF_MNT_PATH"
+printf 'mounts:\n  - source: /a/with-path\n    tag: wp\n    path: /srv/wp\n' >"$TF_MNT_PATH"
 assert_eq "mount-specs: an explicit path rides the 3rd field" \
   "/a/with-path	wp	/srv/wp" "$(claude_vm_mount_specs "$TF_MNT_PATH")"
 assert_eq "mount-specs: every record carries exactly 2 separators" \
@@ -3499,7 +3574,7 @@ assert_eq "mount-specs: every record carries exactly 2 separators" \
 # ...and `mode` is gone from the record entirely, whatever the config says. A
 # leftover mode field would shift `path` into the guest's `file` slot.
 TF_MNT_MODE="$WORK/twofield-mounts-mode.yml"
-printf 'mounts:\n  - source: /a/with-mode\n    tag: wm\n    mode: ro\n    path: /srv/wm\n' > "$TF_MNT_MODE"
+printf 'mounts:\n  - source: /a/with-mode\n    tag: wm\n    mode: ro\n    path: /srv/wm\n' >"$TF_MNT_MODE"
 assert_eq "mount-specs: a config that still sets mode: emits no mode field" \
   "/a/with-mode	wm	/srv/wm" "$(claude_vm_mount_specs "$TF_MNT_MODE")"
 
@@ -3518,7 +3593,7 @@ TF_MODE_ENTRIES="$WORK/mode-entries.yml"
   printf '  - source: /a/empty\n    tag: empty\n    mode: ""\n'
   printf '  - source: /a/null\n    tag: null-mode\n    mode:\n'
   printf '  - source: /a/list\n    tag: list-mode\n    mode: []\n'
-} > "$TF_MODE_ENTRIES"
+} >"$TF_MODE_ENTRIES"
 assert_eq "mode-entries: every SPELLING of a supplied mode is reported, by entry number" \
   "2	/a/set 3	/a/empty 4	/a/null 5	/a/list" \
   "$(claude_vm_mount_mode_entries "$TF_MODE_ENTRIES" | tr '\n' ' ' | sed 's/ $//')"
@@ -3539,7 +3614,7 @@ assert_eq "mode-entries: a config with no mounts at all reports nothing" \
 # the empty map, and the launch proceeds. There is no case for it below because
 # the emitter does not report it -- see claude_vm_mount_mode_entries' header.
 TF_MODE_MERGED="$WORK/mode-entries-merged.yml"
-claude_vm_merge_config "" "$TF_MODE_ENTRIES" > "$TF_MODE_MERGED"
+claude_vm_merge_config "" "$TF_MODE_ENTRIES" >"$TF_MODE_MERGED"
 assert_eq "mode-entries: these spellings survive the real merge, unchanged" \
   "2	/a/set 3	/a/empty 4	/a/null 5	/a/list" \
   "$(claude_vm_mount_mode_entries "$TF_MODE_MERGED" | tr '\n' ' ' | sed 's/ $//')"
@@ -3606,29 +3681,44 @@ assert_eq "guest-path: a '..' segment is left INTACT for the validator to reject
 OLD_BASH=""
 for _ob in /bin/bash /usr/bin/bash /bin/sh; do
   [ -x "$_ob" ] || continue
-  _obv="$("$_ob" -c 'printf "%s" "${BASH_VERSINFO[0]:-0}"' 2>/dev/null)"
+  _obv="$(
+    "$_ob" -s 2>/dev/null <<'SH'
+printf "%s" "${BASH_VERSINFO[0]:-0}"
+SH
+  )"
   case "$_obv" in
-    ''|*[!0-9]*) continue ;;
+    '' | *[!0-9]*) continue ;;
   esac
-  if [ "$_obv" -gt 0 ] && [ "$_obv" -lt 4 ]; then OLD_BASH="$_ob"; break; fi
+  if [ "$_obv" -gt 0 ] && [ "$_obv" -lt 4 ]; then
+    OLD_BASH="$_ob"
+    break
+  fi
 done
 if [ -n "$OLD_BASH" ]; then
+  # old_bash_guest_path <path> -- claude_vm_mount_guest_path's output for <path>
+  # under $OLD_BASH.
+  old_bash_guest_path() {
+    "$OLD_BASH" -s "$LIB" "$1" 2>/dev/null <<'SH'
+. "$1"; claude_vm_mount_guest_path t "$2"
+SH
+  }
   assert_eq "guest-path: an OLD bash ($OLD_BASH) collapses repeated slashes identically" \
-    "/mnt/repo" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "///mnt//repo"' _ "$LIB" 2>/dev/null)"
+    "/mnt/repo" "$(old_bash_guest_path "///mnt//repo")"
   assert_eq "guest-path: an OLD bash drops a trailing slash identically" \
-    "/mnt/repo" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "/mnt/repo/"' _ "$LIB" 2>/dev/null)"
+    "/mnt/repo" "$(old_bash_guest_path "/mnt/repo/")"
   assert_eq "guest-path: an OLD bash collapses a '.' segment identically" \
-    "/etc" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "/./etc"' _ "$LIB" 2>/dev/null)"
+    "/etc" "$(old_bash_guest_path "/./etc")"
   # NEGATIVE CONTROL: the same old bash, running the INLINE escaped spelling
   # this function deliberately avoids. If this ever stops differing, the
   # portability hazard is gone and the variables above are no longer earning
   # their comment.
   assert_eq "guest-path: NEGATIVE CONTROL -- the inline '\\/' spelling really does differ on an old bash" \
     "differs" \
-    "$("$OLD_BASH" -c 'p="///mnt//repo"; q="${p//\/\//\/}"; [ "$q" = "//mnt/repo" ] && echo same || echo differs' 2>/dev/null)"
+    "$(
+      "$OLD_BASH" -s 2>/dev/null <<'SH'
+p="///mnt//repo"; q="${p//\/\//\/}"; [ "$q" = "//mnt/repo" ] && echo same || echo differs
+SH
+    )"
 fi
 
 # claude_vm_guest_path_covers is the DIRECTED half of the overlap relation, and
@@ -3660,9 +3750,9 @@ assert_eq "system-container: the DEFAULT /mnt/<tag> is under none of them" \
 # `true`; it is now named as the empty ref it is, and it ABORTS rather than
 # being skipped.
 TF_ENA_BOOT="$WORK/twofield-enabled-boot.yml"
-printf 'claude:\n  plugins:\n    enabled:\n      "": true\n' > "$TF_ENA_BOOT"
+printf 'claude:\n  plugins:\n    enabled:\n      "": true\n' >"$TF_ENA_BOOT"
 TF_ENA_BAKE="$WORK/twofield-enabled-bake.yml"
-printf 'claude:\n  plugins:\n    bake:\n      - real@mp\n' > "$TF_ENA_BAKE"
+printf 'claude:\n  plugins:\n    bake:\n      - real@mp\n' >"$TF_ENA_BAKE"
 TF_ENA_ERR="$(claude_vm_render_guest_settings "$TF_ENA_BOOT" "$TF_ENA_BAKE" 2>&1 >/dev/null)"
 if claude_vm_render_guest_settings "$TF_ENA_BOOT" "$TF_ENA_BAKE" >/dev/null 2>&1; then
   assert_eq "two-field: an empty claude.plugins.enabled ref aborts the render" "abort" "rendered"
@@ -3671,9 +3761,11 @@ else
 fi
 case "$TF_ENA_ERR" in
   *"claude.plugins.enabled entry #1 has an empty plugin ref (value: 'true')"*)
-    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "named" ;;
+    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "named"
+    ;;
   *)
-    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "$TF_ENA_ERR" ;;
+    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "$TF_ENA_ERR"
+    ;;
 esac
 
 # ---------------------------------------------------------------------
@@ -3692,17 +3784,18 @@ esac
 # ---------------------------------------------------------------------
 if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_phase >/dev/null 2>&1; then
   BPP_LOG="$WORK/bpp-log.txt"
-  log() { printf '%s\n' "$*" >> "$BPP_LOG"; }
+  log() { printf '%s\n' "$*" >>"$BPP_LOG"; }
 
-  : > "$CLAUDE_CALL_LOG"
-  : > "$BPP_LOG"
-  printf 'No marketplaces configured\n' > "$MP_LIST_FILE"
-  : > "$PLUGIN_LIST_FILE"
+  : >"$CLAUDE_CALL_LOG"
+  : >"$BPP_LOG"
+  printf 'No marketplaces configured\n' >"$MP_LIST_FILE"
+  : >"$PLUGIN_LIST_FILE"
   PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-noname.tsv"
-  printf '\texample.invalid\n' > "$PLUGIN_MARKETPLACES_TSV"
-  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"; : > "$PLUGIN_INSTALL_LIST"
+  printf '\texample.invalid\n' >"$PLUGIN_MARKETPLACES_TSV"
+  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"
+  : >"$PLUGIN_INSTALL_LIST"
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: a nameless record makes no CLI call at all" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
   assert_eq "boot_plugin_phase: a nameless record is WARNED about, not dropped silently" \
@@ -3710,10 +3803,10 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
 
   # A wholly blank line is skipped without a warning -- the record has no
   # content to complain about.
-  : > "$CLAUDE_CALL_LOG"
-  : > "$BPP_LOG"
-  printf '\n' > "$PLUGIN_MARKETPLACES_TSV"
-  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  : >"$CLAUDE_CALL_LOG"
+  : >"$BPP_LOG"
+  printf '\n' >"$PLUGIN_MARKETPLACES_TSV"
+  (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: a blank record is skipped with no warning" \
     "0" "$(grep -c . "$BPP_LOG" || true)"
 
@@ -3726,22 +3819,27 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   BPP_OLD_READ_AWK="    while IFS=\$'\\\\t' read -r mp_name mp_url; do"
   BPP_OLD_SRC="$WORK/boot_plugin_phase_old.sh"
   {
-    echo 'log() { printf "%s\n" "$*" >> "$BPP_LOG"; }'
+    cat <<'STUBS'
+log() { printf "%s\n" "$*" >> "$BPP_LOG"; }
+STUBS
     awk -v start="$BPP_START" -v end="$BPP_END" -v oldread="$BPP_OLD_READ_AWK" '
       NR < start || NR > end { next }
       $0 ~ /^ *while IFS= read -r mp_record; do$/ { print oldread; next }
       $0 ~ /^ *mp_(name|url)=\$\{mp_record/ { next }
       { print }
     ' "$BUILD_GUEST_IMAGE"
-  } > "$BPP_OLD_SRC"
+  } >"$BPP_OLD_SRC"
   assert_eq "boot_plugin_phase: the control really carries the old tab-IFS read" \
     "1" "$(grep -cF -- "read -r mp_name mp_url; do" "$BPP_OLD_SRC" || true)"
 
-  : > "$CLAUDE_CALL_LOG"
-  : > "$BPP_LOG"
-  printf '\texample.invalid\n' > "$PLUGIN_MARKETPLACES_TSV"
+  : >"$CLAUDE_CALL_LOG"
+  : >"$BPP_LOG"
+  printf '\texample.invalid\n' >"$PLUGIN_MARKETPLACES_TSV"
   # shellcheck source=/dev/null
-  ( . "$BPP_OLD_SRC"; boot_plugin_phase >/dev/null 2>&1 || true )
+  (
+    . "$BPP_OLD_SRC"
+    boot_plugin_phase >/dev/null 2>&1 || true
+  )
   assert_eq "boot_plugin_phase: NEGATIVE CONTROL -- the old read queries the registry for a marketplace named after the url" \
     "1" "$(grep -c '^plugin marketplace list$' "$CLAUDE_CALL_LOG" || true)"
 else
@@ -3791,10 +3889,12 @@ fi
 if [ -n "${BMP_START:-}" ] && [ -n "${BMP_END:-}" ]; then
   BMP_SRC="$WORK/boot_mount_phase.sh"
   {
-    echo 'log() { printf "%s\n" "$*" >> "$BMP_LOG"; }'
-    echo 'mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }'
+    cat <<'STUBS'
+log() { printf "%s\n" "$*" >> "$BMP_LOG"; }
+mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }
+STUBS
     awk -v start="$BMP_START" -v end="$BMP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
-  } > "$BMP_SRC"
+  } >"$BMP_SRC"
   # shellcheck source=/dev/null
   . "$BMP_SRC"
 fi
@@ -3802,7 +3902,8 @@ fi
 if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   BMP_LOG="$WORK/bmp.log"
   MOUNT_CALL_LOG="$WORK/bmp-mount-calls.log"
-  MOUNT_STUB_EXIT=0
+  # MOUNT_STUB_EXIT is read only by the mount() stub sliced in above.
+  export MOUNT_STUB_EXIT=0
   # Guest paths are rooted under $WORK: the phase really does mkdir its
   # mountpoints, and a literal /mnt/... would try to write outside the test's
   # temp tree (and fail for a reason that has nothing to do with the code).
@@ -3817,8 +3918,8 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     "defined" "$(command -v boot_dir_is_nonempty >/dev/null 2>&1 && echo defined || echo missing)"
 
   run_bmp() {
-    : > "$BMP_LOG"
-    : > "$MOUNT_CALL_LOG"
+    : >"$BMP_LOG"
+    : >"$MOUNT_CALL_LOG"
     rm -rf "$BMP_GUEST"
     boot_mount_phase >/dev/null 2>&1
     printf '%s' "$?"
@@ -3833,7 +3934,8 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
 
   # An EMPTY manifest (the shape the host writes for a config with no mounts).
-  MOUNTS_TSV="$WORK/bmp-empty.tsv"; : > "$MOUNTS_TSV"
+  MOUNTS_TSV="$WORK/bmp-empty.tsv"
+  : >"$MOUNTS_TSV"
   assert_eq "boot_mount_phase: an EMPTY manifest returns 0" "0" "$(run_bmp)"
   assert_eq "boot_mount_phase: an empty manifest issues no mount calls" \
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
@@ -3842,7 +3944,7 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # field, because read-only is unenforceable on this stack (issue #233), and
   # the mount is read-write and says so to mount(8).
   MOUNTS_TSV="$WORK/bmp-dir.tsv"
-  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
   assert_eq "boot_mount_phase: a directory mount returns 0" "0" "$(run_bmp)"
   assert_eq "boot_mount_phase: a directory mount passes -o rw to mount(8)" \
     "-t virtiofs -o rw data $BMP_GUEST/mnt/data" "$(cat "$MOUNT_CALL_LOG")"
@@ -3852,7 +3954,7 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # A `path:` override reaches mount(8) as the mountpoint. The host resolved it
   # into the manifest, so the guest simply obeys.
   MOUNTS_TSV="$WORK/bmp-path.tsv"
-  printf 'elsewhere\t%s/srv/somewhere-else\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'elsewhere\t%s/srv/somewhere-else\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
   run_bmp >/dev/null
   assert_eq "boot_mount_phase: a path override is used as the mountpoint verbatim" \
     "-t virtiofs -o rw elsewhere $BMP_GUEST/srv/somewhere-else" "$(cat "$MOUNT_CALL_LOG")"
@@ -3865,10 +3967,12 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # of, but it cannot read the image's filesystem -- this side can. An occupied
   # DIRECTORY mountpoint is warned about and SKIPPED.
   MOUNTS_TSV="$WORK/bmp-occupied.tsv"
-  printf 'data\t%s/etc\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  printf 'data\t%s/etc\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   mkdir -p "$BMP_GUEST/etc"
-  printf 'root:x:0:0\n' > "$BMP_GUEST/etc/passwd"
+  printf 'root:x:0:0\n' >"$BMP_GUEST/etc/passwd"
   BMP_OCC_RC=0
   boot_mount_phase >/dev/null 2>&1 || BMP_OCC_RC=$?
   assert_eq "boot_mount_phase: an OCCUPIED directory mountpoint issues NO mount call" \
@@ -3877,9 +3981,11 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     "0" "$BMP_OCC_RC"
   case "$(cat "$BMP_LOG")" in
     *"already exists and is NOT EMPTY"*)
-      assert_eq "boot_mount_phase: the occupied mountpoint is WARNED about" "warned" "warned" ;;
+      assert_eq "boot_mount_phase: the occupied mountpoint is WARNED about" "warned" "warned"
+      ;;
     *)
-      assert_eq "boot_mount_phase: the occupied mountpoint is WARNED about" "warned" "$(cat "$BMP_LOG")" ;;
+      assert_eq "boot_mount_phase: the occupied mountpoint is WARNED about" "warned" "$(cat "$BMP_LOG")"
+      ;;
   esac
   # There is deliberately no "the occupying file survived" assertion here: the
   # stubbed `mount` never really mounts, so that would hold whether or not the
@@ -3891,8 +3997,10 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # check could be "skip whenever the path exists", which would break the
   # default /mnt/<tag> on any image that ships those directories.
   MOUNTS_TSV="$WORK/bmp-empty-dir.tsv"
-  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   mkdir -p "$BMP_GUEST/mnt/data"
   boot_mount_phase >/dev/null 2>&1
   assert_eq "boot_mount_phase: an EMPTY existing mountpoint still mounts" \
@@ -3900,20 +4008,24 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # A directory holding only a DOTFILE is occupied -- the glob has to see it, or
   # ~/.gitconfig-shaped content reads as empty.
   MOUNTS_TSV="$WORK/bmp-dotfile-dir.tsv"
-  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   mkdir -p "$BMP_GUEST/mnt/data"
-  printf 'x\n' > "$BMP_GUEST/mnt/data/.hidden"
+  printf 'x\n' >"$BMP_GUEST/mnt/data/.hidden"
   boot_mount_phase >/dev/null 2>&1
   assert_eq "boot_mount_phase: a mountpoint holding only a DOTFILE counts as occupied" \
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
 
   # An existing NON-directory is not a mountpoint for a directory share at all.
   MOUNTS_TSV="$WORK/bmp-notadir.tsv"
-  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   mkdir -p "$BMP_GUEST/mnt"
-  printf 'x\n' > "$BMP_GUEST/mnt/data"
+  printf 'x\n' >"$BMP_GUEST/mnt/data"
   boot_mount_phase >/dev/null 2>&1
   assert_eq "boot_mount_phase: a mountpoint that exists and is NOT a directory issues no mount call" \
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
@@ -3922,12 +4034,14 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # file the image shipped (/root/.bashrc is the live example -- the launcher's
   # own post-mortem shell would source the operator's file instead of it).
   MOUNTS_TSV="$WORK/bmp-file-occupied.tsv"
-  printf 'cfg\t%s/root/.bashrc\tbashrc\n' "$BMP_GUEST" > "$MOUNTS_TSV"
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  printf 'cfg\t%s/root/.bashrc\tbashrc\n' "$BMP_GUEST" >"$MOUNTS_TSV"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   mkdir -p "$BMP_GUEST/root"
-  printf 'image-owned\n' > "$BMP_GUEST/root/.bashrc"
+  printf 'image-owned\n' >"$BMP_GUEST/root/.bashrc"
   mkdir -p "$MOUNT_WRAP_MNT/cfg"
-  printf 'operator-owned\n' > "$MOUNT_WRAP_MNT/cfg/bashrc"
+  printf 'operator-owned\n' >"$MOUNT_WRAP_MNT/cfg/bashrc"
   boot_mount_phase >/dev/null 2>&1
   assert_eq "boot_mount_phase: an OCCUPIED single-file target issues NO mount call" \
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
@@ -3935,9 +4049,11 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     "image-owned" "$(cat "$BMP_GUEST/root/.bashrc" 2>/dev/null)"
   case "$(cat "$BMP_LOG")" in
     *"ALREADY EXISTS in the guest"*)
-      assert_eq "boot_mount_phase: the occupied single-file target is WARNED about" "warned" "warned" ;;
+      assert_eq "boot_mount_phase: the occupied single-file target is WARNED about" "warned" "warned"
+      ;;
     *)
-      assert_eq "boot_mount_phase: the occupied single-file target is WARNED about" "warned" "$(cat "$BMP_LOG")" ;;
+      assert_eq "boot_mount_phase: the occupied single-file target is WARNED about" "warned" "$(cat "$BMP_LOG")"
+      ;;
   esac
 
   # A SINGLE-FILE entry: mount the wrap share out of the way FIRST, then bind
@@ -3946,13 +4062,15 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # named file is bound -- that is what keeps the rest of the host file's real
   # parent directory out of the guest.
   MOUNTS_TSV="$WORK/bmp-file.tsv"
-  printf 'cfg\t%s/root/.gitconfig\tgitconfig\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'cfg\t%s/root/.gitconfig\tgitconfig\n' "$BMP_GUEST" >"$MOUNTS_TSV"
   # The stubbed `mount` never really mounts, so materialize the file the bind
   # step looks for inside the wrap mountpoint the phase creates.
   BMP_FILE_RC=0
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   mkdir -p "$MOUNT_WRAP_MNT/cfg"
-  printf 'host-content\n' > "$MOUNT_WRAP_MNT/cfg/gitconfig"
+  printf 'host-content\n' >"$MOUNT_WRAP_MNT/cfg/gitconfig"
   boot_mount_phase >/dev/null 2>&1 || BMP_FILE_RC=$?
   assert_eq "boot_mount_phase: a single-file mount returns 0" "0" "$BMP_FILE_RC"
   assert_eq "boot_mount_phase: the wrap share is mounted FIRST, at the hidden wrap path" \
@@ -3969,14 +4087,16 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # mount that fails warns loudly on the hvc0 diagnostic log and the boot
   # continues to claude. A missing optional mount must never brick a session.
   MOUNTS_TSV="$WORK/bmp-failing.tsv"
-  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" >"$MOUNTS_TSV"
   MOUNT_STUB_EXIT=1
   assert_eq "boot_mount_phase: a FAILING mount still returns 0 (fail-soft)" "0" "$(run_bmp)"
   case "$(cat "$BMP_LOG")" in
     *"WARNING -- failed to mount extra share 'data'"*)
-      assert_eq "boot_mount_phase: a failing mount is WARNED about by tag" "warned" "warned" ;;
+      assert_eq "boot_mount_phase: a failing mount is WARNED about by tag" "warned" "warned"
+      ;;
     *)
-      assert_eq "boot_mount_phase: a failing mount is WARNED about by tag" "warned" "$(cat "$BMP_LOG")" ;;
+      assert_eq "boot_mount_phase: a failing mount is WARNED about by tag" "warned" "$(cat "$BMP_LOG")"
+      ;;
   esac
   MOUNT_STUB_EXIT=0
 
@@ -3993,8 +4113,10 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # turns that into a skip rather than a mount somewhere arbitrary.
   BMP_OLD_SRC="$WORK/boot_mount_phase-old.sh"
   {
-    echo 'log() { printf "%s\n" "$*" >> "$BMP_LOG"; }'
-    echo 'mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }'
+    cat <<'STUBS'
+log() { printf "%s\n" "$*" >> "$BMP_LOG"; }
+mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }
+STUBS
     awk -v start="$BMP_START" -v end="$BMP_END" '
       NR < start || NR > end { next }
       $0 ~ /^ *while IFS= read -r record; do$/ {
@@ -4008,7 +4130,7 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
       $0 ~ /\[ -n "\$record" \]/ { next }
       { print }
     ' "$BUILD_GUEST_IMAGE"
-  } > "$BMP_OLD_SRC"
+  } >"$BMP_OLD_SRC"
   assert_eq "boot_mount_phase: the control really carries the old tab-IFS read" \
     "1" "$(grep -c -- 'read -r tag path file; do' "$BMP_OLD_SRC" || true)"
 
@@ -4016,24 +4138,30 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # the correct split sees an empty path, calls the record malformed and mounts
   # NOTHING; the old read shifts the file name into `path` and mounts there.
   MOUNTS_TSV="$WORK/bmp-emptymid.tsv"
-  printf 'cfg\t\tgitconfig\n' > "$MOUNTS_TSV"
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  printf 'cfg\t\tgitconfig\n' >"$MOUNTS_TSV"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   boot_mount_phase >/dev/null 2>&1 || true
   assert_eq "boot_mount_phase: an empty MIDDLE field is seen as an empty path, and nothing is mounted" \
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
   case "$(cat "$BMP_LOG")" in
     *"malformed mounts.tsv record (tag='cfg' path='')"*)
-      assert_eq "boot_mount_phase: the malformed record is named with its own empty path" "named" "named" ;;
+      assert_eq "boot_mount_phase: the malformed record is named with its own empty path" "named" "named"
+      ;;
     *)
-      assert_eq "boot_mount_phase: the malformed record is named with its own empty path" "named" "$(cat "$BMP_LOG")" ;;
+      assert_eq "boot_mount_phase: the malformed record is named with its own empty path" "named" "$(cat "$BMP_LOG")"
+      ;;
   esac
 
-  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  : >"$BMP_LOG"
+  : >"$MOUNT_CALL_LOG"
+  rm -rf "$BMP_GUEST"
   # The control really does mkdir its (wrong) mountpoint, and that mountpoint is
   # RELATIVE -- which is the damage. cd into $WORK so it lands in the suite's own
   # temp tree instead of the caller's working directory.
   # shellcheck source=/dev/null
-  ( cd "$WORK" && . "$BMP_OLD_SRC" && boot_mount_phase >/dev/null 2>&1 || true )
+  (cd "$WORK" && . "$BMP_OLD_SRC" && boot_mount_phase >/dev/null 2>&1 || true)
   # The collapse shifts every field one slot left: the FILE NAME is read as the
   # path. So the share is mounted at a RELATIVE path named after the host file
   # -- not skipped as the malformed record it is, and not a single-file bind at
@@ -4078,7 +4206,7 @@ mkdir -p "$ENVD"
 # does, with the global layer absent and the fixture standing in for the repo
 # layer.
 env_merge() {
-  claude_vm_merge_config "" "$1" > "$2"
+  claude_vm_merge_config "" "$1" >"$2"
 }
 # env_gate <raw-bake-file> <raw-boot-file> -- prints everything the gate emits;
 # empty means it passed (the gate writes nothing on success). Wrapped in a
@@ -4097,7 +4225,7 @@ env_verdict() {
 
 # --- merge: env.set is a scalar MAP (repo-over-global per key), env.copy and
 #     env.files are LISTS (union, de-duplicated). ---
-cat > "$ENVD/g-boot.yml" <<'YML'
+cat >"$ENVD/g-boot.yml" <<'YML'
 env:
   set:
     A: global-a
@@ -4108,7 +4236,7 @@ env:
   files:
     - /gf.env
 YML
-cat > "$ENVD/r-boot.yml" <<'YML'
+cat >"$ENVD/r-boot.yml" <<'YML'
 env:
   set:
     B: repo-b
@@ -4120,7 +4248,7 @@ env:
     - /rf.env
 YML
 ENV_MERGED="$ENVD/merged-boot.yml"
-claude_vm_merge_config "$ENVD/g-boot.yml" "$ENVD/r-boot.yml" > "$ENV_MERGED"
+claude_vm_merge_config "$ENVD/g-boot.yml" "$ENVD/r-boot.yml" >"$ENV_MERGED"
 assert_eq "env-merge: env.set takes the global key the repo does not restate" \
   "global-a" "$(yq eval '.env.set.A' "$ENV_MERGED")"
 assert_eq "env-merge: env.set takes the REPO value for a key both layers set" \
@@ -4135,18 +4263,21 @@ assert_eq "env-merge: env.files unions the same way" \
 # --- a config with NO env: block leaves nothing behind, and the boot-tier
 #     resolve emits nothing at all (the "boots exactly as before" case). ---
 ENV_NONE="$ENVD/none.yml"
-printf 'cpus: 2\n' > "$ENV_NONE"
+printf 'cpus: 2\n' >"$ENV_NONE"
 assert_eq "env: a config with no env: block passes the gate" \
   "pass" "$(env_verdict "$ENV_NONE" "$ENV_NONE")"
 assert_eq "env: a config with no env: block resolves to an empty boot environment" \
   "" "$(claude_vm_resolve_boot_env "$ENV_NONE")"
 assert_eq "env: ... and merging two such files leaves no empty env skeleton behind" \
-  "null" "$(claude_vm_merge_config "$ENV_NONE" "$ENV_NONE" > "$ENVD/none-merged.yml"; yq eval '.env' "$ENVD/none-merged.yml")"
+  "null" "$(
+    claude_vm_merge_config "$ENV_NONE" "$ENV_NONE" >"$ENVD/none-merged.yml"
+    yq eval '.env' "$ENVD/none-merged.yml"
+  )"
 
 # --- the PRECEDENCE chain, sourced. One variable, LAYERED, is set at all four
 #     levels; the guest must end up with the boot env.set value. Each lower
 #     level is checked too, by a variable only that level sets. ---
-cat > "$ENVD/prec.env" <<'ENVF'
+cat >"$ENVD/prec.env" <<'ENVF'
 # a comment line, and a blank one follow
 
 LAYERED=from-file
@@ -4155,7 +4286,7 @@ export EXPORTED=exported-value
 QUOTED_DQ="spaced double"
 QUOTED_SQ='spaced single'
 ENVF
-cat > "$ENVD/prec-boot.yml" <<YML
+cat >"$ENVD/prec-boot.yml" <<YML
 env:
   set:
     LAYERED: from-set
@@ -4166,7 +4297,7 @@ env:
   files:
     - $ENVD/prec.env
 YML
-cat > "$ENVD/prec-bake.yml" <<'YML'
+cat >"$ENVD/prec-bake.yml" <<'YML'
 env:
   set:
     LAYERED: from-bake
@@ -4177,15 +4308,15 @@ YML
 # `NAME=<quoted>` file that renderer produces, so this test measures the
 # ORDERING contract -- bake sourced first, boot second -- rather than
 # re-measuring the renderer.
-printf "LAYERED=from-bake\nONLY_BAKE=bake-value\n" > "$ENVD/bake-env"
+printf "LAYERED=from-bake\nONLY_BAKE=bake-value\n" >"$ENVD/bake-env"
 ENV_PREC_OUT="$ENVD/boot-env"
 # Resolved from a MERGED document, like every other env reader in the launcher.
 env_merge "$ENVD/prec-boot.yml" "$ENVD/prec-boot.merged.yml"
 LAYERED=from-copy ONLY_COPY=copy-value \
-  claude_vm_resolve_boot_env "$ENVD/prec-boot.merged.yml" > "$ENV_PREC_OUT"
+  claude_vm_resolve_boot_env "$ENVD/prec-boot.merged.yml" >"$ENV_PREC_OUT"
 ENV_SOURCED="$(
   set -a
-  # shellcheck disable=SC1090
+  # shellcheck source=/dev/null
   . "$ENVD/bake-env"
   # shellcheck disable=SC1090
   . "$ENV_PREC_OUT"
@@ -4200,24 +4331,36 @@ assert_eq "env-precedence: bake set < boot files < boot copy < boot set, and eve
 
 # Later env.files entries win over earlier ones -- the same emission-order rule,
 # one level down.
-printf 'DUP=first\n' > "$ENVD/first.env"
-printf 'DUP=second\n' > "$ENVD/second.env"
+printf 'DUP=first\n' >"$ENVD/first.env"
+printf 'DUP=second\n' >"$ENVD/second.env"
 printf 'env:\n  files:\n    - %s\n    - %s\n' "$ENVD/first.env" "$ENVD/second.env" \
-  > "$ENVD/files-order.yml"
+  >"$ENVD/files-order.yml"
 assert_eq "env-files: a later file wins over an earlier one" \
   "second" \
-  "$(claude_vm_resolve_boot_env "$ENVD/files-order.yml" > "$ENVD/files-order.out"
-     set -a; . "$ENVD/files-order.out"; set +a; printf '%s' "$DUP")"
+  "$(
+    claude_vm_resolve_boot_env "$ENVD/files-order.yml" >"$ENVD/files-order.out"
+    set -a
+    # shellcheck source=/dev/null
+    . "$ENVD/files-order.out"
+    set +a
+    printf '%s' "$DUP"
+  )"
 
 # A value with shell metacharacters must round-trip byte-exact: the emitted line
 # is sourced by the guest, so an unquoted `;` or `$` would be a second statement
 # rather than part of the value.
-ENV_HOSTILE='a b"c'\''d$e`f\g;h'
-printf 'env:\n  set:\n    HOSTILE: %s\n' "'a b\"c''d\$e\`f\\g;h'" > "$ENVD/hostile.yml"
+ENV_HOSTILE="a b\"c'd\$e\`f\\g;h"
+printf 'env:\n  set:\n    HOSTILE: %s\n' "'a b\"c''d\$e\`f\\g;h'" >"$ENVD/hostile.yml"
 assert_eq "env: a value with shell metacharacters round-trips byte-exact" \
   "$ENV_HOSTILE" \
-  "$(claude_vm_resolve_boot_env "$ENVD/hostile.yml" > "$ENVD/hostile.out"
-     set -a; . "$ENVD/hostile.out"; set +a; printf '%s' "$HOSTILE")"
+  "$(
+    claude_vm_resolve_boot_env "$ENVD/hostile.yml" >"$ENVD/hostile.out"
+    set -a
+    # shellcheck source=/dev/null
+    . "$ENVD/hostile.out"
+    set +a
+    printf '%s' "$HOSTILE"
+  )"
 
 # A value whose own bytes END IN NEWLINES. yq terminates its output with one
 # `\n` of its own and `$( )` strips ALL trailing newlines, so a raw capture
@@ -4227,12 +4370,17 @@ assert_eq "env: a value with shell metacharacters round-trips byte-exact" \
 # what the BAKE tier renders for the same literal (its own JSON carrier plus
 # shlex.quote), because a divergence between the two tiers is the defect.
 ENV_TRAILNL=$'a\nb\n\n'
-printf 'env:\n  set:\n    TRAILNL: "a\\nb\\n\\n"\n' > "$ENVD/trailnl.yml"
+printf 'env:\n  set:\n    TRAILNL: "a\\nb\\n\\n"\n' >"$ENVD/trailnl.yml"
 assert_eq "env: a value's own trailing newlines survive the boot-tier resolve" \
   "$(printf '%s' "$ENV_TRAILNL" | od -An -c | tr -s ' ')" \
-  "$(claude_vm_resolve_boot_env "$ENVD/trailnl.yml" > "$ENVD/trailnl.out"
-     set -a; . "$ENVD/trailnl.out"; set +a
-     printf '%s' "$TRAILNL" | od -An -c | tr -s ' ')"
+  "$(
+    claude_vm_resolve_boot_env "$ENVD/trailnl.yml" >"$ENVD/trailnl.out"
+    set -a
+    # shellcheck source=/dev/null
+    . "$ENVD/trailnl.out"
+    set +a
+    printf '%s' "$TRAILNL" | od -An -c | tr -s ' '
+  )"
 # The two tiers must agree on the VALUE the guest ends up with for the same
 # literal. The bake side is rendered the way the provisioner does it --
 # claude_vm_bake_config_json's JSON, then shlex.quote -- so this is a real
@@ -4243,10 +4391,22 @@ assert_eq "env: a value's own trailing newlines survive the boot-tier resolve" \
 if command -v python3 >/dev/null 2>&1; then
   claude_vm_bake_config_json "$ENVD/trailnl.yml" | python3 -c \
     'import json,shlex,sys; d=json.load(sys.stdin); sys.stdout.write("TRAILNL=%s\n" % shlex.quote(d["env"]["TRAILNL"]))' \
-    > "$ENVD/trailnl.bake"
+    >"$ENVD/trailnl.bake"
   assert_eq "env: the boot tier's value matches the bake tier's for the same literal" \
-    "$(set -a; . "$ENVD/trailnl.bake"; set +a; printf '%s' "$TRAILNL" | od -An -c | tr -s ' ')" \
-    "$(set -a; . "$ENVD/trailnl.out"; set +a; printf '%s' "$TRAILNL" | od -An -c | tr -s ' ')"
+    "$(
+      set -a
+      # shellcheck source=/dev/null
+      . "$ENVD/trailnl.bake"
+      set +a
+      printf '%s' "$TRAILNL" | od -An -c | tr -s ' '
+    )" \
+    "$(
+      set -a
+      # shellcheck source=/dev/null
+      . "$ENVD/trailnl.out"
+      set +a
+      printf '%s' "$TRAILNL" | od -An -c | tr -s ' '
+    )"
 else
   echo "SKIP: python3 not available; boot-vs-bake env value comparison skipped." >&2
 fi
@@ -4254,7 +4414,10 @@ fi
 # does lose those newlines, so the assertion above is measuring something.
 assert_eq "env: the raw-capture shape this fix replaced loses the trailing newlines" \
   "$(printf '%s' $'a\nb' | od -An -c | tr -s ' ')" \
-  "$(v="$(yq eval '.env.set["TRAILNL"]' "$ENVD/trailnl.yml")"; printf '%s' "$v" | od -An -c | tr -s ' ')"
+  "$(
+    v="$(yq eval '.env.set["TRAILNL"]' "$ENVD/trailnl.yml")"
+    printf '%s' "$v" | od -An -c | tr -s ' '
+  )"
 
 # --- the aborts. Each is a PRESENCE/shape mistake the operator can only learn
 #     about at load: past this point the guest is already running. Every one
@@ -4263,34 +4426,37 @@ assert_eq "env: the raw-capture shape this fix replaced loses the trailing newli
 # env.copy / env.files in a BAKE file. A PRESENCE test: a valueless `copy:`
 # must abort exactly like a populated one, since a silently-ignored key leaves
 # the operator believing a host variable is forwarded into a PERSISTENT image.
-printf 'env:\n  copy:\n    - FOO\n' > "$ENVD/bake-copy.yml"
+printf 'env:\n  copy:\n    - FOO\n' >"$ENVD/bake-copy.yml"
 case "$(env_gate "$ENVD/bake-copy.yml" "$ENV_NONE")" in
   *"'env.copy' was found in a config-bake.yml"*)
-    assert_eq "env-bake-gate: env.copy in a bake file aborts, naming the key" "named" "named" ;;
+    assert_eq "env-bake-gate: env.copy in a bake file aborts, naming the key" "named" "named"
+    ;;
   *) assert_eq "env-bake-gate: env.copy in a bake file aborts, naming the key" "named" \
-       "$(env_gate "$ENVD/bake-copy.yml" "$ENV_NONE")" ;;
+    "$(env_gate "$ENVD/bake-copy.yml" "$ENV_NONE")" ;;
 esac
-printf 'env:\n  copy:\n' > "$ENVD/bake-copy-empty.yml"
+printf 'env:\n  copy:\n' >"$ENVD/bake-copy-empty.yml"
 case "$(env_gate "$ENVD/bake-copy-empty.yml" "$ENV_NONE")" in
   *"'env.copy' was found in a config-bake.yml"*)
-    assert_eq "env-bake-gate: an EMPTY env.copy in a bake file aborts too" "named" "named" ;;
+    assert_eq "env-bake-gate: an EMPTY env.copy in a bake file aborts too" "named" "named"
+    ;;
   *) assert_eq "env-bake-gate: an EMPTY env.copy in a bake file aborts too" "named" \
-       "$(env_gate "$ENVD/bake-copy-empty.yml" "$ENV_NONE")" ;;
+    "$(env_gate "$ENVD/bake-copy-empty.yml" "$ENV_NONE")" ;;
 esac
-printf 'env:\n  files:\n' > "$ENVD/bake-files-empty.yml"
+printf 'env:\n  files:\n' >"$ENVD/bake-files-empty.yml"
 case "$(env_gate "$ENVD/bake-files-empty.yml" "$ENV_NONE")" in
   *"'env.files' was found in a config-bake.yml"*)
-    assert_eq "env-bake-gate: an EMPTY env.files in a bake file aborts too" "named" "named" ;;
+    assert_eq "env-bake-gate: an EMPTY env.files in a bake file aborts too" "named" "named"
+    ;;
   *) assert_eq "env-bake-gate: an EMPTY env.files in a bake file aborts too" "named" \
-       "$(env_gate "$ENVD/bake-files-empty.yml" "$ENV_NONE")" ;;
+    "$(env_gate "$ENVD/bake-files-empty.yml" "$ENV_NONE")" ;;
 esac
 # The other two empty spellings, which reach the prune by different routes: an
 # explicit `copy: []` is already the empty list pass 1 deletes, and `copy: ""`
 # is a zero-length scalar, which `select(length == 0)` matches just the same.
-printf 'env:\n  copy: []\n' > "$ENVD/bake-copy-emptylist.yml"
+printf 'env:\n  copy: []\n' >"$ENVD/bake-copy-emptylist.yml"
 assert_eq "env-bake-gate: an explicit empty LIST env.copy in a bake file aborts too" \
   "abort" "$(env_verdict "$ENVD/bake-copy-emptylist.yml" "$ENV_NONE")"
-printf 'env:\n  copy: ""\n' > "$ENVD/bake-copy-emptystr.yml"
+printf 'env:\n  copy: ""\n' >"$ENVD/bake-copy-emptystr.yml"
 assert_eq "env-bake-gate: an empty-STRING env.copy in a bake file aborts too" \
   "abort" "$(env_verdict "$ENVD/bake-copy-emptystr.yml" "$ENV_NONE")"
 # NEGATIVE CONTROL for all of the above: the merged document -- what the gate
@@ -4307,33 +4473,34 @@ assert_eq "env-bake-gate: ...while the RAW file the operator wrote still carries
 # The key may sit in EITHER bake file, so the gate is handed both raw paths.
 # Exercised with a populated repo layer beside it, so the global layer is what
 # the verdict turns on.
-printf 'env:\n  set:\n    OK: yes\n' > "$ENVD/bake-set-ok.yml"
+printf 'env:\n  set:\n    OK: yes\n' >"$ENVD/bake-set-ok.yml"
 claude_vm_merge_config "$ENVD/bake-copy-empty.yml" "$ENVD/bake-set-ok.yml" \
-  > "$ENVD/bake-two-layer.merged.yml"
+  >"$ENVD/bake-two-layer.merged.yml"
 env_merge "$ENV_NONE" "$ENVD/boot-none.merged.yml"
 assert_eq "env-bake-gate: an empty env.copy in the GLOBAL bake file aborts too" \
   "abort" \
   "$(claude_vm_check_env "$ENVD/bake-two-layer.merged.yml" "$ENVD/boot-none.merged.yml" \
-       "$ENVD/bake-copy-empty.yml" "$ENVD/bake-set-ok.yml" >/dev/null 2>&1 \
-     && echo pass || echo abort)"
+    "$ENVD/bake-copy-empty.yml" "$ENVD/bake-set-ok.yml" >/dev/null 2>&1 &&
+    echo pass || echo abort)"
 assert_eq "env-bake-gate: ...and the same two layers without it launch" \
   "pass" \
   "$(claude_vm_check_env "$ENVD/bake-two-layer.merged.yml" "$ENVD/boot-none.merged.yml" \
-       "$ENV_NONE" "$ENVD/bake-set-ok.yml" >/dev/null 2>&1 \
-     && echo pass || echo abort)"
+    "$ENV_NONE" "$ENVD/bake-set-ok.yml" >/dev/null 2>&1 &&
+    echo pass || echo abort)"
 # ...but env.set in a bake file is exactly what the bake tier is FOR.
-printf 'env:\n  set:\n    OK: yes\n' > "$ENVD/bake-set.yml"
+printf 'env:\n  set:\n    OK: yes\n' >"$ENVD/bake-set.yml"
 assert_eq "env-bake-gate: env.set in a bake file is accepted" \
   "" "$(env_gate "$ENVD/bake-set.yml" "$ENV_NONE")"
 
 # An env.copy name that is unset (or empty) on the host. The loudest case: a
 # guest that silently lacks the key fails much later, inside a tool call.
-printf 'env:\n  copy:\n    - ENV_TEST_ABSENT_KEY\n' > "$ENVD/copy-unset.yml"
+printf 'env:\n  copy:\n    - ENV_TEST_ABSENT_KEY\n' >"$ENVD/copy-unset.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/copy-unset.yml")" in
   *"env.copy names 'ENV_TEST_ABSENT_KEY', but it is unset"*)
-    assert_eq "env-copy-gate: an unset host variable aborts, naming it" "named" "named" ;;
+    assert_eq "env-copy-gate: an unset host variable aborts, naming it" "named" "named"
+    ;;
   *) assert_eq "env-copy-gate: an unset host variable aborts, naming it" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/copy-unset.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/copy-unset.yml")" ;;
 esac
 assert_eq "env-copy-gate: an EMPTY host variable aborts the same way as an unset one" \
   "abort" \
@@ -4344,36 +4511,40 @@ assert_eq "env-copy-gate: a SET host variable passes" \
 # The diagnostic must never print the VALUE -- these are exactly the strings
 # that must not reach a terminal or a log.
 printf 'env:\n  set:\n    LEAKY: super-secret-literal\n  copy:\n    - ENV_TEST_LEAK\n' \
-  > "$ENVD/leak.yml"
+  >"$ENVD/leak.yml"
 ENV_LEAK_OUT="$(ENV_TEST_LEAK="sk-do-not-print" env_gate "$ENV_NONE" "$ENVD/leak.yml")"
 case "$ENV_LEAK_OUT" in
-  *sk-do-not-print*|*super-secret-literal*)
-    assert_eq "env: no diagnostic ever prints a value" "clean" "$ENV_LEAK_OUT" ;;
+  *sk-do-not-print* | *super-secret-literal*)
+    assert_eq "env: no diagnostic ever prints a value" "clean" "$ENV_LEAK_OUT"
+    ;;
   *) assert_eq "env: no diagnostic ever prints a value" "clean" "clean" ;;
 esac
 
 # An invalid name, from each of the three sources.
-printf 'env:\n  set:\n    "2BAD": x\n' > "$ENVD/badname-set.yml"
+printf 'env:\n  set:\n    "2BAD": x\n' >"$ENVD/badname-set.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/badname-set.yml")" in
   *"env.set key '2BAD' in the merged BOOT config is not a usable"*)
-    assert_eq "env-name-gate: an env.set key outside the charset aborts" "named" "named" ;;
+    assert_eq "env-name-gate: an env.set key outside the charset aborts" "named" "named"
+    ;;
   *) assert_eq "env-name-gate: an env.set key outside the charset aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/badname-set.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/badname-set.yml")" ;;
 esac
-printf 'env:\n  copy:\n    - "FOO-BAR"\n' > "$ENVD/badname-copy.yml"
+printf 'env:\n  copy:\n    - "FOO-BAR"\n' >"$ENVD/badname-copy.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/badname-copy.yml")" in
   *"env.copy entry #1 ('FOO-BAR') is not a usable"*)
-    assert_eq "env-name-gate: an env.copy entry outside the charset aborts" "named" "named" ;;
+    assert_eq "env-name-gate: an env.copy entry outside the charset aborts" "named" "named"
+    ;;
   *) assert_eq "env-name-gate: an env.copy entry outside the charset aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/badname-copy.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/badname-copy.yml")" ;;
 esac
-printf 'FOO BAR=x\n' > "$ENVD/badname.env"
-printf 'env:\n  files:\n    - %s\n' "$ENVD/badname.env" > "$ENVD/badname-file.yml"
+printf 'FOO BAR=x\n' >"$ENVD/badname.env"
+printf 'env:\n  files:\n    - %s\n' "$ENVD/badname.env" >"$ENVD/badname-file.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" in
   *"is not a usable environment-variable name"*)
-    assert_eq "env-name-gate: a name declared by an env.files file is checked too" "named" "named" ;;
+    assert_eq "env-name-gate: a name declared by an env.files file is checked too" "named" "named"
+    ;;
   *) assert_eq "env-name-gate: a name declared by an env.files file is checked too" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" ;;
 esac
 
 # A launcher-owned name, from each source. The guest sources run.env FIRST and
@@ -4383,27 +4554,30 @@ esac
 # CLAUDE_VM_LAST_CLAUDE_STATUS is the one exception in the other direction (the
 # boot launcher exports it after both files are sourced, so a config entry for
 # it would be silently overwritten); refusing at load covers both.
-printf 'env:\n  set:\n    CLAUDE_ARGS: nope\n' > "$ENVD/reserved-set.yml"
+printf 'env:\n  set:\n    CLAUDE_ARGS: nope\n' >"$ENVD/reserved-set.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/reserved-set.yml")" in
   *"env.set key 'CLAUDE_ARGS' in the merged BOOT config names a variable the LAUNCHER owns"*)
-    assert_eq "env-reserved-gate: an env.set key the launcher owns aborts" "named" "named" ;;
+    assert_eq "env-reserved-gate: an env.set key the launcher owns aborts" "named" "named"
+    ;;
   *) assert_eq "env-reserved-gate: an env.set key the launcher owns aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/reserved-set.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/reserved-set.yml")" ;;
 esac
-printf 'env:\n  copy:\n    - HTTPS_PROXY\n' > "$ENVD/reserved-copy.yml"
+printf 'env:\n  copy:\n    - HTTPS_PROXY\n' >"$ENVD/reserved-copy.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/reserved-copy.yml")" in
   *"env.copy entry #1 ('HTTPS_PROXY') names a variable the LAUNCHER owns"*)
-    assert_eq "env-reserved-gate: an env.copy entry the launcher owns aborts" "named" "named" ;;
+    assert_eq "env-reserved-gate: an env.copy entry the launcher owns aborts" "named" "named"
+    ;;
   *) assert_eq "env-reserved-gate: an env.copy entry the launcher owns aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/reserved-copy.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/reserved-copy.yml")" ;;
 esac
-printf 'IS_SANDBOX=0\n' > "$ENVD/reserved.env"
-printf 'env:\n  files:\n    - %s\n' "$ENVD/reserved.env" > "$ENVD/reserved-file.yml"
+printf 'IS_SANDBOX=0\n' >"$ENVD/reserved.env"
+printf 'env:\n  files:\n    - %s\n' "$ENVD/reserved.env" >"$ENVD/reserved-file.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/reserved-file.yml")" in
   *"declares 'IS_SANDBOX', a variable the LAUNCHER owns"*)
-    assert_eq "env-reserved-gate: an env.files file setting a launcher-owned name aborts" "named" "named" ;;
+    assert_eq "env-reserved-gate: an env.files file setting a launcher-owned name aborts" "named" "named"
+    ;;
   *) assert_eq "env-reserved-gate: an env.files file setting a launcher-owned name aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/reserved-file.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/reserved-file.yml")" ;;
 esac
 # The reserved set is matched with a space-padded case, so a name that merely
 # CONTAINS a reserved one is not itself reserved.
@@ -4416,81 +4590,87 @@ assert_eq "env-reserved-gate: ... and the exact name is" \
 # has no environment representation at all; a valueless key is the `mode: ""`
 # shape -- accepted silently it would leave the operator believing a variable
 # is set when it holds nothing.
-printf 'env:\n  set:\n    X:\n      - 1\n' > "$ENVD/seq.yml"
+printf 'env:\n  set:\n    X:\n      - 1\n' >"$ENVD/seq.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/seq.yml")" in
   *"env.set['X'] in the merged BOOT config is a !!seq"*)
-    assert_eq "env-scalar-gate: a list env.set value aborts" "named" "named" ;;
+    assert_eq "env-scalar-gate: a list env.set value aborts" "named" "named"
+    ;;
   *) assert_eq "env-scalar-gate: a list env.set value aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/seq.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/seq.yml")" ;;
 esac
-printf 'env:\n  set:\n    X:\n      k: v\n' > "$ENVD/map.yml"
+printf 'env:\n  set:\n    X:\n      k: v\n' >"$ENVD/map.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/map.yml")" in
   *"env.set['X'] in the merged BOOT config is a !!map"*)
-    assert_eq "env-scalar-gate: a map env.set value aborts" "named" "named" ;;
+    assert_eq "env-scalar-gate: a map env.set value aborts" "named" "named"
+    ;;
   *) assert_eq "env-scalar-gate: a map env.set value aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/map.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/map.yml")" ;;
 esac
-printf 'env:\n  set:\n    X:\n' > "$ENVD/null.yml"
+printf 'env:\n  set:\n    X:\n' >"$ENVD/null.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/null.yml")" in
   *"env.set['X'] in the merged BOOT config has no value"*)
-    assert_eq "env-scalar-gate: a valueless env.set key aborts" "named" "named" ;;
+    assert_eq "env-scalar-gate: a valueless env.set key aborts" "named" "named"
+    ;;
   *) assert_eq "env-scalar-gate: a valueless env.set key aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/null.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/null.yml")" ;;
 esac
 # ...while an explicit empty string is a legitimate value and is accepted --
 # the two spellings must not collapse into one.
-printf 'env:\n  set:\n    X: ""\n' > "$ENVD/emptystr.yml"
+printf 'env:\n  set:\n    X: ""\n' >"$ENVD/emptystr.yml"
 assert_eq "env-scalar-gate: an explicit empty string is accepted" \
   "" "$(env_gate "$ENV_NONE" "$ENVD/emptystr.yml")"
 # A non-map env.set is a shape error of its own.
-printf 'env:\n  set:\n    - A\n' > "$ENVD/setseq.yml"
+printf 'env:\n  set:\n    - A\n' >"$ENVD/setseq.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/setseq.yml")" in
   *"'env.set' in the merged BOOT config is a !!seq, not a map"*)
-    assert_eq "env-scalar-gate: an env.set that is not a map aborts" "named" "named" ;;
+    assert_eq "env-scalar-gate: an env.set that is not a map aborts" "named" "named"
+    ;;
   *) assert_eq "env-scalar-gate: an env.set that is not a map aborts" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/setseq.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/setseq.yml")" ;;
 esac
 
 # env.files: the path must exist on the host, and the file must parse.
-printf 'env:\n  files:\n    - %s/definitely-absent.env\n' "$ENVD" > "$ENVD/missing-file.yml"
+printf 'env:\n  files:\n    - %s/definitely-absent.env\n' "$ENVD" >"$ENVD/missing-file.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/missing-file.yml")" in
   *"is not a file on this host"*)
-    assert_eq "env-files-gate: a missing env.files path aborts, naming it" "named" "named" ;;
+    assert_eq "env-files-gate: a missing env.files path aborts, naming it" "named" "named"
+    ;;
   *) assert_eq "env-files-gate: a missing env.files path aborts, naming it" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/missing-file.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/missing-file.yml")" ;;
 esac
-printf 'this is not an assignment\n' > "$ENVD/unparseable.env"
-printf 'env:\n  files:\n    - %s\n' "$ENVD/unparseable.env" > "$ENVD/unparseable.yml"
+printf 'this is not an assignment\n' >"$ENVD/unparseable.env"
+printf 'env:\n  files:\n    - %s\n' "$ENVD/unparseable.env" >"$ENVD/unparseable.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/unparseable.yml")" in
   *"line 1 does not parse as NAME=value"*)
-    assert_eq "env-files-gate: an unparseable line aborts, naming the line number" "named" "named" ;;
+    assert_eq "env-files-gate: an unparseable line aborts, naming the line number" "named" "named"
+    ;;
   *) assert_eq "env-files-gate: an unparseable line aborts, naming the line number" "named" \
-       "$(env_gate "$ENV_NONE" "$ENVD/unparseable.yml")" ;;
+    "$(env_gate "$ENV_NONE" "$ENVD/unparseable.yml")" ;;
 esac
 # A `~` in an env.files path is expanded the same way a mount source is -- the
 # config is YAML, so nothing else expands it.
 assert_eq "env-files: a leading ~ is expanded against \$HOME" \
-  "$HOME/some/.env" "$(claude_vm_expand_mount_source '~/some/.env')"
+  "$HOME/some/.env" "$(claude_vm_expand_mount_source \~/some/.env)"
 # A file with a final line carrying no trailing newline is still read (the
 # `|| [ -n "$line" ]` arm), and its parse is not silently skipped.
-printf 'NO_NEWLINE=tail-value' > "$ENVD/no-newline.env"
+printf 'NO_NEWLINE=tail-value' >"$ENVD/no-newline.env"
 assert_eq "env-files: a final line with no trailing newline is still read" \
   "NO_NEWLINE=tail-value" "$(claude_vm_env_file_assignments "$ENVD/no-newline.env")"
 
 # The bake tier's canonical JSON carries env.set, sorted and stringified, so a
 # YAML int or bool renders the way yq renders the scalar rather than the way
 # Python's str() would.
-printf 'env:\n  set:\n    PORT: 8080\n    DEBUG: true\n    A_NAME: last\n' > "$ENVD/bakejson.yml"
+printf 'env:\n  set:\n    PORT: 8080\n    DEBUG: true\n    A_NAME: last\n' >"$ENVD/bakejson.yml"
 assert_eq "env-bake-json: env.set is sorted and every value is a string" \
   '{"bake":[],"apt_sources":[],"env":{"A_NAME":"last","DEBUG":"true","PORT":"8080"}}' \
   "$(claude_vm_bake_config_json "$ENVD/bakejson.yml")"
 # Changing a baked env value changes the whole-file identity hash, so the next
 # launch rebuilds rather than reusing the cached image. (Whole-file raw bytes,
 # so this holds for any edit -- asserted here on the key this feature adds.)
-printf 'env:\n  set:\n    FOO: one\n' > "$ENVD/ident-a.yml"
-printf 'env:\n  set:\n    FOO: two\n' > "$ENVD/ident-b.yml"
+printf 'env:\n  set:\n    FOO: one\n' >"$ENVD/ident-a.yml"
+printf 'env:\n  set:\n    FOO: two\n' >"$ENVD/ident-b.yml"
 if [ "$(claude_vm_file_identity_hash "$ENVD/ident-a.yml")" \
-     = "$(claude_vm_file_identity_hash "$ENVD/ident-b.yml")" ]; then
+  = "$(claude_vm_file_identity_hash "$ENVD/ident-b.yml")" ]; then
   FAIL=$((FAIL + 1))
   echo "FAIL - env-bake-identity: changing a baked env.set value must change the image identity hash"
 else
@@ -4505,15 +4685,15 @@ fi
 # set in config and have the launcher overwrite anyway. Derive the run.env set
 # from claude-vm.sh's own write block and compare, so the claim checks itself.
 ENV_RUNENV_NAMES="$(
-  sed -n '/^RUN_ENV=/,/^chmod 600 "\$RUN_ENV"/p' "$LAUNCHER" \
-    | grep -oE "printf '[A-Za-z_][A-Za-z0-9_]*=" \
-    | sed "s/printf '//; s/=//" | sort -u
+  sed -n "/^RUN_ENV=/,/^chmod 600 \"\\\$RUN_ENV\"/p" "$LAUNCHER" |
+    grep -oE "printf '[A-Za-z_][A-Za-z0-9_]*=" |
+    sed "s/printf '//; s/=//" | sort -u
 )"
 assert_eq "env-reserved-set: the run.env write block was found (non-empty)" \
   "yes" "$([ -n "$ENV_RUNENV_NAMES" ] && echo yes || echo no)"
 assert_eq "env-reserved-set: it is exactly run.env's names + CLAUDE_VM_LAST_CLAUDE_STATUS" \
   "$(printf '%s\nCLAUDE_VM_LAST_CLAUDE_STATUS\n' "$ENV_RUNENV_NAMES" | sort -u)" \
-  "$(printf '%s\n' $CLAUDE_VM_RESERVED_ENV_NAMES | sort -u)"
+  "$(printf '%s\n' "$CLAUDE_VM_RESERVED_ENV_NAMES" | tr -s ' ' '\n' | sort -u)"
 # ...and the boot launcher really does export that last one, so its presence in
 # the set is earned rather than defensive.
 assert_eq "env-reserved-set: the boot launcher really exports CLAUDE_VM_LAST_CLAUDE_STATUS" \
@@ -4529,73 +4709,87 @@ if [ -n "${OLD_BASH:-}" ]; then
   # (see the .env case below), but the VALUES the guest ends up with must not.
   assert_eq "env: an OLD bash ($OLD_BASH) resolves the same boot environment" \
     "from-set|file-value|copy-value|set-value|spaced double" \
-    "$(LAYERED=from-copy ONLY_COPY=copy-value "$OLD_BASH" -c \
-        '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a;
-         printf "%s|%s|%s|%s|%s" "$LAYERED" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" "$QUOTED_DQ"' \
-        _ "$LIB" "$ENVD/prec-boot.yml" "$ENVD/old-bash-boot.out" 2>/dev/null)"
+    "$(
+      LAYERED=from-copy ONLY_COPY=copy-value "$OLD_BASH" -s \
+        "$LIB" "$ENVD/prec-boot.yml" "$ENVD/old-bash-boot.out" 2>/dev/null <<'SH'
+. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a;
+printf "%s|%s|%s|%s|%s" "$LAYERED" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" "$QUOTED_DQ"
+SH
+    )"
   # The sentinel capture in claude_vm_env_set_value strips one `\n` with
   # ${raw%$'\n'}. ANSI-C quoting inside a suffix pattern is the kind of
   # construct that can differ across bash versions, so measure the VALUE the
   # old shell produces rather than assuming it matches.
   assert_eq "env: an OLD bash keeps a value's own trailing newlines too" \
     "$(printf '%s' "$ENV_TRAILNL" | od -An -c | tr -s ' ')" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$TRAILNL"' \
-        _ "$LIB" "$ENVD/trailnl.yml" "$ENVD/old-bash-trailnl.out" 2>/dev/null | od -An -c | tr -s ' ')"
+    "$(
+      "$OLD_BASH" -s "$LIB" "$ENVD/trailnl.yml" "$ENVD/old-bash-trailnl.out" 2>/dev/null <<'SH' |
+. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$TRAILNL"
+SH
+        od -An -c | tr -s ' '
+    )"
   # Both gate runs below merge in the OLD shell too, so what the old bash is
   # given is the same document shape the launcher produces -- and the bake arm
   # is exercised through the `shift 2` + `"$@"` walk over the raw bake paths,
   # which is a construct the 3.2 rule covers.
+  # old_bash_env_verdict <bake> <boot> <merged-bake> <merged-boot> -- merge both
+  # files and run claude_vm_check_env over them in $OLD_BASH; prints pass|abort.
+  old_bash_env_verdict() {
+    "$OLD_BASH" -s "$LIB" "$@" 2>/dev/null <<'SH'
+. "$1"; claude_vm_merge_config "" "$2" > "$4"
+claude_vm_merge_config "" "$3" > "$5"
+claude_vm_check_env "$4" "$5" "" "$2" >/dev/null 2>&1 && echo pass || echo abort
+SH
+  }
   assert_eq "env: an OLD bash reaches the same unset-env.copy verdict" \
     "abort" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_env "$4" "$5" "" "$2" >/dev/null 2>&1 && echo pass || echo abort' \
-        _ "$LIB" "$ENV_NONE" "$ENVD/copy-unset.yml" \
-        "$ENVD/old-bash-bake.merged.yml" "$ENVD/old-bash-boot.merged.yml" 2>/dev/null)"
+    "$(old_bash_env_verdict "$ENV_NONE" "$ENVD/copy-unset.yml" \
+      "$ENVD/old-bash-bake.merged.yml" "$ENVD/old-bash-boot.merged.yml")"
   assert_eq "env: an OLD bash also aborts on an EMPTY env.copy in a bake file" \
     "abort" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_env "$4" "$5" "" "$2" >/dev/null 2>&1 && echo pass || echo abort' \
-        _ "$LIB" "$ENVD/bake-copy-empty.yml" "$ENV_NONE" \
-        "$ENVD/old-bash-bake2.merged.yml" "$ENVD/old-bash-boot2.merged.yml" 2>/dev/null)"
+    "$(old_bash_env_verdict "$ENVD/bake-copy-empty.yml" "$ENV_NONE" \
+      "$ENVD/old-bash-bake2.merged.yml" "$ENVD/old-bash-boot2.merged.yml")"
   # Compared by SOURCING, not by text: bash 3.2's %q spells a space as `a\ b`
   # where bash 5 spells it `'a b'`. Both are correct shell quoting of the same
   # value, and the value is what the guest ends up with -- an assertion on the
   # literal text would fail on a difference that does not exist.
   assert_eq "env: an OLD bash unwraps a quoted .env value to the same VALUE" \
     "spaced double" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_env_file_assignments "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$QUOTED_DQ"' \
-        _ "$LIB" "$ENVD/prec.env" "$ENVD/old-bash.out" 2>/dev/null)"
+    "$(
+      "$OLD_BASH" -s "$LIB" "$ENVD/prec.env" "$ENVD/old-bash.out" 2>/dev/null <<'SH'
+. "$1"; claude_vm_env_file_assignments "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$QUOTED_DQ"
+SH
+    )"
   # The claude.plugins placement gate is a config-load guard on the same
   # footing, and it has a 3.2 exposure of its own: two `for f in "$a" "$b"`
   # walks over path arguments that are routinely the EMPTY string (a config
-  # file the operator never created), under `set -u` -- which the -c script
-  # turns on explicitly, since the suite's own `set -u` does not reach into a
-  # child shell. Both tiers are merged in the old shell too, so the whole load
+  # file the operator never created), under `set -u` -- which the script turns
+  # on explicitly, since the suite's own `set -u` does not reach into a child
+  # shell. Both tiers are merged in the old shell too, so the whole load
   # sequence runs there and not just the gate. The pass case is included: a
   # guard that aborted on everything would satisfy the abort rows alone.
+  # old_bash_placement_verdict <bake> <boot> <merged-bake> <merged-boot> --
+  # merge both files and run the placement gate over them in $OLD_BASH; prints
+  # pass|abort.
+  old_bash_placement_verdict() {
+    "$OLD_BASH" -s "$LIB" "$@" 2>/dev/null <<'SH'
+set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
+claude_vm_merge_config "" "$3" > "$5"
+claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort
+SH
+  }
   assert_eq "placement: an OLD bash ($OLD_BASH) aborts on a valueless bake: in a boot file" \
     "abort" \
-    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
-        _ "$LIB" "$MP_BAKE" "$WORK/place-nc-list.yml" \
-        "$WORK/ob-place-bake.merged.yml" "$WORK/ob-place-boot.merged.yml" 2>/dev/null)"
+    "$(old_bash_placement_verdict "$MP_BAKE" "$WORK/place-nc-list.yml" \
+      "$WORK/ob-place-bake.merged.yml" "$WORK/ob-place-boot.merged.yml")"
   assert_eq "placement: an OLD bash aborts on an empty-MAP boot key in a bake file" \
     "abort" \
-    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
-        _ "$LIB" "$WORK/place-nc-map.yml" "$MP_BOOT" \
-        "$WORK/ob-place-bake2.merged.yml" "$WORK/ob-place-boot2.merged.yml" 2>/dev/null)"
+    "$(old_bash_placement_verdict "$WORK/place-nc-map.yml" "$MP_BOOT" \
+      "$WORK/ob-place-bake2.merged.yml" "$WORK/ob-place-boot2.merged.yml")"
   assert_eq "placement: an OLD bash still lets correctly-placed keys through" \
     "pass" \
-    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
-        _ "$LIB" "$MP_BAKE" "$MP_BOOT" \
-        "$WORK/ob-place-bake3.merged.yml" "$WORK/ob-place-boot3.merged.yml" 2>/dev/null)"
+    "$(old_bash_placement_verdict "$MP_BAKE" "$MP_BOOT" \
+      "$WORK/ob-place-bake3.merged.yml" "$WORK/ob-place-boot3.merged.yml")"
 
   # claude_vm_render_guest_settings is NOT a config-load guard -- it runs after
   # the image build -- and that is exactly why it needs this battery. It shipped
@@ -4616,14 +4810,19 @@ if [ -n "${OLD_BASH:-}" ]; then
   # The ref deliberately LEADS WITH AN IDENTIFIER (`block`), the shape that
   # arithmetic subscript evaluation kills. A digits-only ref would be a valid
   # arithmetic expression and would silently write the wrong slot instead.
-  printf 'claude:\n  marketplaces:\n    - name: thevoskamps\n      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git\n  plugins:\n    bake:\n      - block-background-agents@thevoskamps\n      - guardrails@thevoskamps\n' > "$OB_ENA_BAKE"
-  printf 'claude:\n  plugins:\n    update_at_boot: false\n    enabled:\n      block-background-agents@thevoskamps: false\n' > "$OB_ENA_BOOT"
-  OB_RENDER='set -u; . "$1"
-      claude_vm_merge_config "" "$2" > "$4"
-      claude_vm_merge_config "" "$3" > "$5"
-      claude_vm_render_guest_settings "$5" "$4"'
-  OB_ENA_JSON="$("$OLD_BASH" -c "$OB_RENDER" \
-    _ "$LIB" "$OB_ENA_BAKE" "$OB_ENA_BOOT" \
+  printf 'claude:\n  marketplaces:\n    - name: thevoskamps\n      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git\n  plugins:\n    bake:\n      - block-background-agents@thevoskamps\n      - guardrails@thevoskamps\n' >"$OB_ENA_BAKE"
+  printf 'claude:\n  plugins:\n    update_at_boot: false\n    enabled:\n      block-background-agents@thevoskamps: false\n' >"$OB_ENA_BOOT"
+  # old_bash_render <bake> <boot> <merged-bake> <merged-boot> -- merge both
+  # files and render the guest settings from them in $OLD_BASH.
+  old_bash_render() {
+    "$OLD_BASH" -s "$LIB" "$@" <<'SH'
+set -u; . "$1"
+claude_vm_merge_config "" "$2" > "$4"
+claude_vm_merge_config "" "$3" > "$5"
+claude_vm_render_guest_settings "$5" "$4"
+SH
+  }
+  OB_ENA_JSON="$(old_bash_render "$OB_ENA_BAKE" "$OB_ENA_BOOT" \
     "$WORK/ob-ena-bake.merged.yml" "$WORK/ob-ena-boot.merged.yml" 2>/dev/null)"
   assert_eq "render: an OLD bash ($OLD_BASH) renders a config carrying a plugins.enabled override" \
     "true" "$([ -n "$OB_ENA_JSON" ] && echo true || echo false)"
@@ -4640,9 +4839,8 @@ if [ -n "${OLD_BASH:-}" ]; then
   # it is a semantics guard for the fix, not a second detector of it -- the
   # three rows above are what go red under that mutation.
   OB_ENA_BADKEY="$WORK/ob-ena-badkey.yml"
-  printf 'claude:\n  plugins:\n    enabled:\n      typo@thevoskamps: false\n' > "$OB_ENA_BADKEY"
-  OB_ENA_ERR="$("$OLD_BASH" -c "$OB_RENDER" \
-    _ "$LIB" "$OB_ENA_BAKE" "$OB_ENA_BADKEY" \
+  printf 'claude:\n  plugins:\n    enabled:\n      typo@thevoskamps: false\n' >"$OB_ENA_BADKEY"
+  OB_ENA_ERR="$(old_bash_render "$OB_ENA_BAKE" "$OB_ENA_BADKEY" \
     "$WORK/ob-ena-bake2.merged.yml" "$WORK/ob-ena-boot2.merged.yml" 2>&1 >/dev/null)"
   case "$OB_ENA_ERR" in
     *"claude.plugins.enabled['typo@thevoskamps'] names a plugin not in"*) OB_ENA_V=named ;;

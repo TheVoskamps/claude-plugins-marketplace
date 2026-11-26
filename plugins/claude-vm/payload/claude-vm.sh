@@ -50,8 +50,15 @@
 # guest boot launcher installs it at /root/.claude.json before launching claude.
 # This seed is ADDITIVE, layered alongside the keychain credential mount above.
 #
+# ACCOUNT (--as <name>): the host sources above are those of a launch without
+# --as. With it, every source follows from the account directory
+# D=$HOME/.claude.<name>: the credential comes from the Keychain service
+# claude_vm_keychain_service derives from D (lib/credential.sh), the identity
+# seed from D/.claude.json, and the curated working rules from D. Nothing falls
+# back to the default account's files or credential.
+#
 # Usage:
-#   claude-vm.sh <repo-path> [claude args...]
+#   claude-vm.sh [--as <name>] <repo-path> [claude args...]
 #
 # Requires: yq, git, gvproxy, vfkit, and a forward proxy (proxy.cmd; the
 # bundled default needs tinyproxy). A launch that has to BUILD the guest
@@ -80,17 +87,43 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------
-REPO_SRC="${1:?usage: claude-vm <repo-path> [claude args...]}"
+# The account (see ACCOUNT above). Checked here, before anything reads host
+# state, so a bad name or a missing account directory refuses before any build
+# or boot. ACCOUNT_NOTE is appended to the Keychain and identity-seed refusals
+# further down so each one names the account; it is empty without --as.
+# LOGIN_HINT is the host command those refusals tell the operator to log in
+# with: under --as it runs claude against the account directory, so the login
+# repairs that account's Keychain item and .claude.json.
+ACCOUNT_NAME=""
+ACCOUNT_DIR=""
+ACCOUNT_NOTE=""
+LOGIN_HINT="'claude'"
+if [ "${1:-}" = "--as" ]; then
+  if [ "$#" -lt 2 ]; then
+    echo "claude-vm: --as needs an account name: claude-vm.sh --as <name> <repo-path> [claude args...]" >&2
+    exit 1
+  fi
+  ACCOUNT_NAME="$2"
+  shift 2
+  ACCOUNT_DIR="$(claude_vm_account_dir "$ACCOUNT_NAME")" || exit 1
+  ACCOUNT_NOTE=" for account '$ACCOUNT_NAME'"
+  LOGIN_HINT="CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude"
+fi
+KEYCHAIN_SERVICE="$(claude_vm_keychain_service "$ACCOUNT_DIR")" || exit 1
+
+REPO_SRC="${1:?usage: claude-vm [--as <name>] <repo-path> [claude args...]}"
 shift
 CLAUDE_ARGS=("$@")
 
-# claude-vm has NO own-flags: every post-repo arg is forwarded to the guest
-# claude verbatim (the #51 launcher contract). The guest's plugin enable/disable
-# state comes from the config files (claude.plugins.enabled), not from CLI flags.
+# claude-vm has NO own-flags but a leading --as: every post-repo arg is
+# forwarded to the guest claude verbatim. --as is the one exception because the
+# account must be known before any host state is read, and it is recognised only
+# ahead of the repo path. The guest's plugin enable/disable state comes from the
+# config files (claude.plugins.enabled), not from CLI flags.
 
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
-REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
+REPO_SRC="$(cd "$REPO_SRC" && { git rev-parse --show-toplevel 2>/dev/null || pwd; })"
 
 # The fixed guest-side mount point the boot launcher cd's into (build-guest-
 # image.sh's boot launcher sets REPO_MNT=/mnt/repo and the guest fstab mounts
@@ -100,7 +133,10 @@ REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "
 GUEST_REPO_MNT="/mnt/repo"
 
 claude_vm_require_yq || exit 1
-command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 1; }
+command -v git >/dev/null 2>&1 || {
+  echo "claude-vm: git is required" >&2
+  exit 1
+}
 
 # ---------------------------------------------------------------------
 # Resolve effective config (issue #179: FOUR bake/boot files, all optional).
@@ -124,11 +160,17 @@ REPO_BOOT_CONFIG="${CLAUDE_VM_REPO_BOOT_CONFIG:-$REPO_SRC/.claude-vm/config-boot
 # bake/boot pair is now expected is NOT silently read (that would drop knobs
 # whose bake/boot placement it cannot express). Abort with a migration message
 # instead. Checked for BOTH tiers.
-claude_vm_detect_legacy_config "global" "$CLAUDE_VM_GLOBAL_LEGACY_CONFIG" "$CLAUDE_VM_GLOBAL_CONFIG_DIR" \
-  || { echo "claude-vm: aborting -- migrate your global config to the bake/boot pair (see above)." >&2; exit 1; }
+claude_vm_detect_legacy_config "global" "$CLAUDE_VM_GLOBAL_LEGACY_CONFIG" "$CLAUDE_VM_GLOBAL_CONFIG_DIR" ||
+  {
+    echo "claude-vm: aborting -- migrate your global config to the bake/boot pair (see above)." >&2
+    exit 1
+  }
 REPO_LEGACY_CONFIG="${CLAUDE_VM_REPO_LEGACY_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
-claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CONFIG" "$REPO_SRC/.claude-vm" \
-  || { echo "claude-vm: aborting -- migrate this repo's config to the bake/boot pair (see above)." >&2; exit 1; }
+claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CONFIG" "$REPO_SRC/.claude-vm" ||
+  {
+    echo "claude-vm: aborting -- migrate this repo's config to the bake/boot pair (see above)." >&2
+    exit 1
+  }
 
 # NOTE: the merged-config temp file is removed by cleanup() (the
 # consolidated EXIT/INT/TERM trap installed below). A narrow interim trap is
@@ -151,10 +193,16 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # from MERGED_BOOT, exactly as documented in the example files.
 MERGED_BAKE="$(claude_vm_mktemp claude-vm-merged-bake)"
 MERGED_BOOT="$(claude_vm_mktemp claude-vm-merged-boot)"
-claude_vm_merge_config "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" > "$MERGED_BAKE" \
-  || { echo "claude-vm: could not resolve effective bake config" >&2; exit 1; }
-claude_vm_merge_config "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" > "$MERGED_BOOT" \
-  || { echo "claude-vm: could not resolve effective boot config" >&2; exit 1; }
+claude_vm_merge_config "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" >"$MERGED_BAKE" ||
+  {
+    echo "claude-vm: could not resolve effective bake config" >&2
+    exit 1
+  }
+claude_vm_merge_config "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" >"$MERGED_BOOT" ||
+  {
+    echo "claude-vm: could not resolve effective boot config" >&2
+    exit 1
+  }
 # Same apt_sources name with differing content anywhere across the two tiers
 # is a silent-shadowing hazard -- abort loudly instead.
 claude_vm_check_apt_sources_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
@@ -164,8 +212,11 @@ claude_vm_check_marketplace_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
 # A claude.marketplaces entry with no name (issue #226): the name is the key
 # every reader of the effective set matches on, so a nameless entry is dropped
 # by every one of them. Abort instead of silently configuring nothing.
-claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
-  || { echo "claude-vm: aborting -- name every claude.marketplaces entry as described above." >&2; exit 1; }
+claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" ||
+  {
+    echo "claude-vm: aborting -- name every claude.marketplaces entry as described above." >&2
+    exit 1
+  }
 # A mounts entry with no source or no tag (issue #226): the guest mounts each
 # virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
 # two of them collide on one tag. Since issue #157 the same call also rejects a
@@ -182,8 +233,11 @@ claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
 # /root, /home or /tmp. The whole mounts contract is enforced here, in one
 # pass, so the launcher below can assume every record it reads is usable. Abort
 # rather than launching without the mount the operator asked for.
-claude_vm_check_mounts "$MERGED_BOOT" \
-  || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
+claude_vm_check_mounts "$MERGED_BOOT" ||
+  {
+    echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2
+    exit 1
+  }
 # claude.plugins is the one map that legitimately appears in BOTH file types
 # (bake refs in a bake file; install_at_boot/update_at_boot/enabled in a boot
 # file), which makes a misplaced sub-key easy to write and -- absent this guard
@@ -198,8 +252,11 @@ claude_vm_check_mounts "$MERGED_BOOT" \
 # claude_vm_check_env's two.
 claude_vm_check_plugin_key_placement \
   "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
-  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" \
-  || { echo "claude-vm: aborting -- move the misplaced claude.plugins key(s) as described above." >&2; exit 1; }
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" ||
+  {
+    echo "claude-vm: aborting -- move the misplaced claude.plugins key(s) as described above." >&2
+    exit 1
+  }
 # Guest environment variables (issue #135). One gate covers the whole `env:`
 # contract, in both tiers: `env.copy`/`env.files` in a BAKE file (they resolve
 # against the host environment at LAUNCH, which does not exist at image-build
@@ -220,8 +277,11 @@ claude_vm_check_plugin_key_placement \
 # a tool call, with an auth error that names neither claude-vm nor the
 # variable. Runs HERE, before the image build and the VM start, like every
 # other config gate. No diagnostic ever prints a VALUE.
-claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
-  || { echo "claude-vm: aborting -- fix the env: entr(ies) described above." >&2; exit 1; }
+claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" ||
+  {
+    echo "claude-vm: aborting -- fix the env: entr(ies) described above." >&2
+    exit 1
+  }
 
 VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
 VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
@@ -279,8 +339,11 @@ PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.
 # headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
 # as the image build CONTENT.
 DEFAULT_IMAGE_DIR="$CLAUDE_VM_STATE_DIR/images"
-CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
-  || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
+CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" ||
+  {
+    echo "claude-vm: could not canonicalize the bake config" >&2
+    exit 1
+  }
 export CLAUDE_VM_BAKE_CONFIG
 
 # Baked marketplaces + plugins (issue #107). The build CONTENT sibling of
@@ -295,8 +358,11 @@ export CLAUDE_VM_BAKE_CONFIG
 # refs" the issue asks for; it costs no new key-picked hash and it means the
 # one-time rebuild lands the moment an operator moves the keys into their bake
 # file.
-CLAUDE_VM_BAKE_PLUGINS="$(claude_vm_bake_plugins_json "$MERGED_BAKE" "$MERGED_BOOT")" \
-  || { echo "claude-vm: could not canonicalize the bake plugin manifest" >&2; exit 1; }
+CLAUDE_VM_BAKE_PLUGINS="$(claude_vm_bake_plugins_json "$MERGED_BAKE" "$MERGED_BOOT")" ||
+  {
+    echo "claude-vm: could not canonicalize the bake plugin manifest" >&2
+    exit 1
+  }
 export CLAUDE_VM_BAKE_PLUGINS
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
@@ -311,7 +377,7 @@ export CLAUDE_VM_BAKE_PLUGINS
 # cache key is the identity segment below, which covers headroom per LAYER.
 CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
 case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
-  ''|*[!0-9]*)
+  '' | *[!0-9]*)
     echo "claude-vm: image.root_headroom_mb must be a positive integer (MiB), got '$CLAUDE_VM_ROOT_HEADROOM_MB'" >&2
     exit 1
     ;;
@@ -324,8 +390,11 @@ export CLAUDE_VM_ROOT_HEADROOM_MB
 # config-bake.yml appends "+<reponame>-<repohash>". Boot files never enter this
 # computation. Exported so build-guest-image.sh's --print-version and --output
 # stamp the exact same version string.
-CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" "$(basename "$REPO_SRC")")" \
-  || { echo "claude-vm: could not compute the guest image identity segments" >&2; exit 1; }
+CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" "$(basename "$REPO_SRC")")" ||
+  {
+    echo "claude-vm: could not compute the guest image identity segments" >&2
+    exit 1
+  }
 export CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS
 
 _explicit_guest_image="$(claude_vm_scalar "$MERGED_BOOT" '.guest_image' "")"
@@ -359,7 +428,7 @@ CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$CLAUDE_VM_
 # is rejected up front rather than silently ignored.
 CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED_BOOT" '.claude.renderer' "")"
 case "$CLAUDE_RENDERER" in
-  ""|classic|fullscreen) : ;;
+  "" | classic | fullscreen) : ;;
   *)
     echo "claude-vm: unknown claude.renderer '$CLAUDE_RENDERER' (expected classic|fullscreen, or leave unset)" >&2
     exit 1
@@ -376,8 +445,8 @@ esac
 # anything else aborts up front rather than being silently ignored.
 CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED_BOOT" '.claude.remote_control' "")"
 case "$CLAUDE_REMOTE_CONTROL" in
-  ""|false) CLAUDE_REMOTE_CONTROL="false" ;;
-  true)     CLAUDE_REMOTE_CONTROL="true" ;;
+  "" | false) CLAUDE_REMOTE_CONTROL="false" ;;
+  true) CLAUDE_REMOTE_CONTROL="true" ;;
   *)
     echo "claude-vm: unknown claude.remote_control '$CLAUDE_REMOTE_CONTROL' (expected true|false, or leave unset)" >&2
     exit 1
@@ -398,8 +467,8 @@ _augmented_args=()
 while IFS= read -r _line; do
   _augmented_args+=("$_line")
 done < <(claude_vm_augment_rc_args \
-           "$CLAUDE_REMOTE_CONTROL" "$_rc_name_stamp" \
-           ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
+  "$CLAUDE_REMOTE_CONTROL" "$_rc_name_stamp" \
+  ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
 CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
 unset _rc_name_stamp _augmented_args _line
 
@@ -414,10 +483,11 @@ unset _rc_name_stamp _augmented_args _line
 # rather than writing an unexpected defaultMode into the guest.
 CLAUDE_PERMISSION_MODE="$(claude_vm_scalar "$MERGED_BOOT" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
 case "$CLAUDE_PERMISSION_MODE" in
-  bypassPermissions|default) : ;;
+  bypassPermissions | default) : ;;
   *)
     echo "claude-vm: claude.permission_mode must be 'bypassPermissions' or 'default', got '$CLAUDE_PERMISSION_MODE'" >&2
-    exit 1 ;;
+    exit 1
+    ;;
 esac
 
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
@@ -494,8 +564,11 @@ claude_vm_preflight_trust_path() {
 
   [ "$ok" -eq 1 ]
 }
-claude_vm_preflight_trust_path \
-  || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
+claude_vm_preflight_trust_path ||
+  {
+    echo "claude-vm: trust-path preflight failed; see the messages above." >&2
+    exit 1
+  }
 
 # ---------------------------------------------------------------------
 # Identity-seed PREFLIGHT (issue #88). The interactive Claude Code TUI in the
@@ -514,31 +587,102 @@ claude_vm_preflight_trust_path \
 # actionable, claude-vm-branded message. Guarded ${...:-} so an unset $HOME
 # does not trip `set -u`. The full selection (which validates and reserializes
 # the two keys) runs later against $CREDS_DIR; this is the cheap early gate on
-# the same preconditions.
+# the same preconditions. Under --as the file is the account's,
+# $ACCOUNT_DIR/.claude.json, and a refusal names the account.
 # ---------------------------------------------------------------------
-HOST_CLAUDE_JSON="${HOME:-}/.claude.json"
+HOST_CLAUDE_JSON="${ACCOUNT_DIR:-${HOME:-}}/.claude.json"
 if [ ! -s "$HOST_CLAUDE_JSON" ]; then
-  echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
-  echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
-  echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
-  echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
-  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  if [ -n "$ACCOUNT_NAME" ]; then
+    echo "claude-vm: account '$ACCOUNT_NAME' has no .claude.json (looked at '$HOST_CLAUDE_JSON')." >&2
+    echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from that file so the" >&2
+    echo "claude-vm: in-guest claude comes up already logged in, and it exists only once the account" >&2
+    echo "claude-vm: has logged in on this host: run CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude once" >&2
+    echo "claude-vm: and complete the claude.ai login, then retry." >&2
+  else
+    echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
+    echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
+    echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
+    echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
+    echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  fi
   exit 1
 fi
 # The version arg here is best-effort ($CLAUDE_VERSION, the raw channel/pin):
 # this preflight only validates that userID/oauthAccount are present and
 # discards stdout, so the version fields it would emit are not load-bearing.
 # The authoritative concrete version is resolved later (after the cache-ensure
-# block) and passed to the REAL seed write below (~line 588). Resolving a
-# channel here would force a premature network fetch in the fast preflight.
-if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
-  echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
-  echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
-  echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
-  echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
-  echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
-  echo "claude-vm: macOS, is required to select the seed.)" >&2
+# block) and passed to the REAL seed write below, the authoritative write of
+# $HOST_CLAUDE_JSON_SEED. Resolving a channel here would force a premature
+# network fetch in the fast preflight.
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" "$REPO_SRC" "$GUEST_REPO_MNT" <"$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
+  if [ -n "$ACCOUNT_NAME" ]; then
+    echo "claude-vm: the .claude.json of account '$ACCOUNT_NAME' ('$HOST_CLAUDE_JSON') has no usable" >&2
+    echo "claude-vm: identity state (a 'userID' string and an 'oauthAccount' object). The guest" >&2
+    echo "claude-vm: seeds these two keys so the in-guest claude comes up already logged in. This" >&2
+    echo "claude-vm: usually means the account is not (fully) logged in on this host: run" >&2
+    echo "claude-vm: CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude once and complete the claude.ai login," >&2
+    echo "claude-vm: then retry. (python3, which ships with macOS, is required to select the seed.)" >&2
+  else
+    echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
+    echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
+    echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
+    echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
+    echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
+    echo "claude-vm: macOS, is required to select the seed.)" >&2
+  fi
   exit 1
+fi
+
+# ---------------------------------------------------------------------
+# Account Keychain PREFLIGHT (--as only). Without --as the Keychain item is
+# read once, further down, after the image build. With --as, a missing or
+# unusable item for the account is refused HERE, before any build or boot, by
+# reading the item and running it through the same selection and token
+# validation the later read uses. The blob travels only through the pipe --
+# nothing of it is written to disk or printed -- and the later read is the one
+# that installs the credential.
+# ---------------------------------------------------------------------
+claude_vm_preflight_account_keychain() {
+  local err_file sec_rc sel_rc val_rc
+  err_file="$(claude_vm_mktemp claude-vm-security-err)" || return 1
+  set +e
+  security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>"$err_file" |
+    claude_vm_select_claude_credential 2>/dev/null |
+    claude_vm_validate_claude_credential_tokens 2>/dev/null
+  sec_rc=${PIPESTATUS[0]} sel_rc=${PIPESTATUS[1]} val_rc=${PIPESTATUS[2]}
+  set -e
+  if [ "$sec_rc" -ne 0 ] && [ "$sec_rc" -ne 44 ]; then
+    echo "claude-vm: reading the claude.ai OAuth credential for account '$ACCOUNT_NAME' from the" >&2
+    echo "claude-vm: macOS Keychain (service '$KEYCHAIN_SERVICE') failed with an unexpected error" >&2
+    echo "claude-vm: (security exit $sec_rc). The underlying error from 'security' was:" >&2
+    if [ -s "$err_file" ]; then
+      sed 's/^/claude-vm:   /' "$err_file" >&2
+    else
+      echo "claude-vm:   (security produced no error output)" >&2
+    fi
+    rm -f "$err_file"
+    return 1
+  fi
+  rm -f "$err_file"
+  if [ "$sec_rc" -eq 44 ]; then
+    echo "claude-vm: account '$ACCOUNT_NAME' has no claude.ai OAuth credential in the macOS Keychain" >&2
+    echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with that account's live" >&2
+    echo "claude-vm: claude.ai login: run CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude once and complete" >&2
+    echo "claude-vm: the login, then retry." >&2
+    return 1
+  fi
+  if [ "$sel_rc" -ne 0 ] || [ "$val_rc" -ne 0 ]; then
+    echo "claude-vm: the macOS Keychain item for account '$ACCOUNT_NAME' (service '$KEYCHAIN_SERVICE')" >&2
+    echo "claude-vm: has no usable claude.ai OAuth credential: it is empty, has no 'claudeAiOauth'," >&2
+    echo "claude-vm: or its accessToken/refreshToken are empty. Re-login the account on THIS HOST --" >&2
+    echo "claude-vm: run CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude, then '/login' -- and retry. Do NOT" >&2
+    echo "claude-vm: run /login inside the guest: a retried guest login can revoke other live sessions." >&2
+    return 1
+  fi
+  return 0
+}
+if [ -n "$ACCOUNT_NAME" ]; then
+  claude_vm_preflight_account_keychain || exit 1
 fi
 
 # ---------------------------------------------------------------------
@@ -562,8 +706,11 @@ if [ "$PROXY_CMD" = "$DEFAULT_PROXY_CMD" ]; then
 else
   PREFLIGHT_PROXY_MODE="custom-proxy"
 fi
-claude_vm_preflight_toolchain "$PREFLIGHT_PROXY_MODE" \
-  || { echo "claude-vm: dependency preflight failed; see the messages above." >&2; exit 1; }
+claude_vm_preflight_toolchain "$PREFLIGHT_PROXY_MODE" ||
+  {
+    echo "claude-vm: dependency preflight failed; see the messages above." >&2
+    exit 1
+  }
 
 # Resolve gvproxy once, up front. The preflight above already confirmed
 # it is resolvable; capture the absolute path so the launch step below
@@ -622,10 +769,10 @@ echo "claude-vm: using verified claude binary: $CLAUDE_BIN_HOST (fetch=${CLAUDE_
 # pointer. We resolve here -- AFTER claude_cache_ensure, which already did any
 # channel-pointer fetch a few lines up -- so this is a warm/no-op resolution
 # with no extra network round-trip, and it is captured ONCE and reused at the
-# real seed write below (~line 588). On the unexpected event that resolution
-# fails, fall back to the raw channel/pin string: the seed's version fields are
-# a best-effort onboarding hint, not a correctness gate, and must not block an
-# otherwise-bootable guest.
+# real seed write below, the authoritative write of $HOST_CLAUDE_JSON_SEED. On
+# the unexpected event that resolution fails, fall back to the raw channel/pin
+# string: the seed's version fields are a best-effort onboarding hint, not a
+# correctness gate, and must not block an otherwise-bootable guest.
 CLAUDE_VERSION_RESOLVED="$(claude_cache_resolve_version "$CLAUDE_VERSION" 2>/dev/null || true)"
 [ -n "$CLAUDE_VERSION_RESOLVED" ] || CLAUDE_VERSION_RESOLVED="$CLAUDE_VERSION"
 
@@ -685,8 +832,11 @@ if [ "$HAVE_VERSION" != "$PINNED_VERSION" ]; then
   # claude_vm_stop_podman_machine call forward -- a replacement that dropped
   # it would leak the machine.
   trap 'claude_vm_stop_podman_machine' EXIT INT TERM
-  claude_vm_ensure_podman_machine \
-    || { echo "claude-vm: cannot bring up a podman runtime for the image build; see the messages above." >&2; exit 1; }
+  claude_vm_ensure_podman_machine ||
+    {
+      echo "claude-vm: cannot bring up a podman runtime for the image build; see the messages above." >&2
+      exit 1
+    }
   mkdir -p "$(dirname "$GUEST_IMAGE")"
   "$SCRIPT_DIR/build-guest-image.sh" --output "$GUEST_IMAGE"
 fi
@@ -873,8 +1023,11 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # still inside the umask-077 window, so it lands 0600 like its dir-mates; the
 # chmod 600 is belt-and-braces.
 GUEST_SETTINGS="$CREDS_DIR/settings.json"
-claude_vm_render_guest_settings "$MERGED_BOOT" "$MERGED_BAKE" > "$GUEST_SETTINGS" \
-  || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
+claude_vm_render_guest_settings "$MERGED_BOOT" "$MERGED_BAKE" >"$GUEST_SETTINGS" ||
+  {
+    echo "claude-vm: failed to render the guest settings.json" >&2
+    exit 1
+  }
 chmod 600 "$GUEST_SETTINGS"
 
 # ---------------------------------------------------------------------
@@ -905,8 +1058,11 @@ chmod 600 "$GUEST_SETTINGS"
 #
 #   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
 GUEST_ENV="$CREDS_DIR/env"
-claude_vm_resolve_boot_env "$MERGED_BOOT" > "$GUEST_ENV" \
-  || { echo "claude-vm: failed to resolve the boot-tier guest environment" >&2; exit 1; }
+claude_vm_resolve_boot_env "$MERGED_BOOT" >"$GUEST_ENV" ||
+  {
+    echo "claude-vm: failed to resolve the boot-tier guest environment" >&2
+    exit 1
+  }
 chmod 600 "$GUEST_ENV"
 
 # ---------------------------------------------------------------------
@@ -950,8 +1106,10 @@ chmod 600 "$GUEST_ENV"
 #     `security` tool error, a permissions denial -- is NOT a "log in" problem.
 #     Hiding it behind the friendly message sent operators chasing the wrong
 #     fix. Surface `security`'s real stderr so the actual error is visible.
+#
+# The service is $KEYCHAIN_SERVICE, set at the inputs: `Claude Code-
+# credentials` without --as, the account's derived service with it.
 # ---------------------------------------------------------------------
-KEYCHAIN_SERVICE="Claude Code-credentials"
 HOST_CREDENTIAL="$CREDS_DIR/.credentials.json"
 # The FULL raw blob lands here -- OUTSIDE $CREDS_DIR (the claudecreds share)
 # so the unselected blob is never exposed to the guest -- and is removed
@@ -984,7 +1142,7 @@ trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED_BAKE:-}" "$
 # raw blob lands in RAW_CREDENTIAL (outside the share); selection below writes
 # only claudeAiOauth into the mounted HOST_CREDENTIAL.
 set +e
-security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$RAW_CREDENTIAL" 2>"$SEC_STDERR"
+security find-generic-password -s "$KEYCHAIN_SERVICE" -w >"$RAW_CREDENTIAL" 2>"$SEC_STDERR"
 SEC_RC=$?
 set -e
 if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
@@ -993,7 +1151,7 @@ if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
   rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: reading the claude.ai OAuth credential from the macOS Keychain failed" >&2
-  echo "claude-vm: (service '$KEYCHAIN_SERVICE') with an unexpected error (security exit $SEC_RC)." >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) with an unexpected error (security exit $SEC_RC)." >&2
   echo "claude-vm: this is NOT a 'not logged in' case -- a locked keychain or a 'security' tool" >&2
   echo "claude-vm: error is likely. The underlying error from 'security' was:" >&2
   if [ -s "$SEC_STDERR" ]; then
@@ -1009,9 +1167,9 @@ if [ "$SEC_RC" -eq 44 ] || [ ! -s "$RAW_CREDENTIAL" ]; then
   rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
-  echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with the host's" >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE). The guest authenticates with the host's" >&2
   echo "claude-vm: live claude.ai login, so you must be logged in to Claude Code on this host." >&2
-  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry. (macOS only:" >&2
+  echo "claude-vm: run $LOGIN_HINT once and complete the claude.ai login, then retry. (macOS only:" >&2
   echo "claude-vm: this uses 'security find-generic-password', a macOS Keychain tool.)" >&2
   exit 1
 fi
@@ -1032,7 +1190,7 @@ rm -f "$SEC_STDERR"
 # mcpOAuth-only file. A missing python3 (return 2) is surfaced distinctly.
 # ---------------------------------------------------------------------
 set +e
-claude_vm_select_claude_credential < "$RAW_CREDENTIAL" > "$HOST_CREDENTIAL"
+claude_vm_select_claude_credential <"$RAW_CREDENTIAL" >"$HOST_CREDENTIAL"
 SELECT_RC=$?
 set -e
 # The full raw blob has served its purpose -- remove it now, do not wait for
@@ -1051,10 +1209,10 @@ if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
   # Treat exactly like the not-logged-in case: friendly "log in" guidance.
   rm -f "$HOST_CREDENTIAL"
   umask "$OLD_UMASK"
-  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has no usable" >&2
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) has no usable" >&2
   echo "claude-vm: claude.ai OAuth credential ('claudeAiOauth'). The guest authenticates with" >&2
   echo "claude-vm: the host's live claude.ai login, so you must be logged in to Claude Code on" >&2
-  echo "claude-vm: this host. Run 'claude' once and complete the claude.ai login, then retry." >&2
+  echo "claude-vm: this host. Run $LOGIN_HINT once and complete the claude.ai login, then retry." >&2
   exit 1
 fi
 chmod 600 "$HOST_CREDENTIAL"
@@ -1074,7 +1232,7 @@ chmod 600 "$HOST_CREDENTIAL"
 # Keychain entry) -- NOT into an in-guest /login.
 # ---------------------------------------------------------------------
 set +e
-claude_vm_validate_claude_credential_tokens < "$HOST_CREDENTIAL"
+claude_vm_validate_claude_credential_tokens <"$HOST_CREDENTIAL"
 VALIDATE_RC=$?
 set -e
 if [ "$VALIDATE_RC" -eq 2 ]; then
@@ -1090,12 +1248,12 @@ if [ "$VALIDATE_RC" -ne 0 ]; then
   # accessToken/refreshToken are empty. Abort BEFORE booting a broken guest.
   rm -f "$HOST_CREDENTIAL"
   umask "$OLD_UMASK"
-  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has a claude.ai OAuth" >&2
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) has a claude.ai OAuth" >&2
   echo "claude-vm: credential, but its accessToken and refreshToken are EMPTY -- a degraded state" >&2
   echo "claude-vm: that happens when your host claude sessions coast on the shared auth daemon's" >&2
   echo "claude-vm: in-memory tokens while the persisted Keychain entry has gone stale. The guest" >&2
   echo "claude-vm: would boot to 'Not logged in -- Run /login' with this credential. Re-login on" >&2
-  echo "claude-vm: THIS HOST to repair the Keychain entry -- run 'claude' then '/login' (or restart" >&2
+  echo "claude-vm: THIS HOST to repair the Keychain entry -- run $LOGIN_HINT then '/login' (or restart" >&2
   echo "claude-vm: Claude Code) -- then retry claude-vm. Do NOT run /login inside the guest: a" >&2
   echo "claude-vm: retried guest login can revoke your other live sessions." >&2
   exit 1
@@ -1130,17 +1288,20 @@ fi
 # belt-and-braces. Selection is fail-closed and was already validated at the
 # preflight; a failure here is unexpected -- abort rather than seed a partial or
 # empty file that would drop the guest back to the onboarding/login wall.
+#
+# Under --as the seed is built from the account's $ACCOUNT_DIR/.claude.json
+# instead of ~/.claude.json.
 # ---------------------------------------------------------------------
 HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
 # Authoritative seed write: pass the CONCRETE resolved version (captured after
 # the cache-ensure block) so the emitted seed's lastOnboardingVersion /
 # lastReleaseNotesSeen carry a real dotted version, not a channel name.
-if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$GUEST_REPO_MNT" <"$HOST_CLAUDE_JSON" >"$HOST_CLAUDE_JSON_SEED"; then
   rm -f "$HOST_CLAUDE_JSON_SEED"
   umask "$OLD_UMASK"
-  echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2
+  echo "claude-vm: failed to select the identity seed (userID + oauthAccount)$ACCOUNT_NOTE from" >&2
   echo "claude-vm: '$HOST_CLAUDE_JSON'. It passed the earlier preflight, so this is unexpected" >&2
-  echo "claude-vm: (the file may have changed under us). Re-run 'claude' to confirm you are" >&2
+  echo "claude-vm: (the file may have changed under us). Re-run $LOGIN_HINT to confirm you are" >&2
   echo "claude-vm: logged in on the host, then retry." >&2
   exit 1
 fi
@@ -1194,9 +1355,12 @@ chmod 600 "$HOST_CLAUDE_JSON_SEED"
 # half-copied rules/ tree is worse than an absent one. Neither aborts the
 # launch -- this layer is a convenience, not a security control, and the
 # credential/seed/settings installs above are the steps that get to refuse.
+#
+# Under --as the entries come from the account directory $ACCOUNT_DIR instead
+# of ~/.claude.
 # ---------------------------------------------------------------------
 CLAUDE_VM_HOME_SEED_ENTRIES="CLAUDE.md rules agents skills keybindings.json"
-HOST_CLAUDE_DIR="${HOME:-}/.claude"
+HOST_CLAUDE_DIR="${ACCOUNT_DIR:-${HOME:-}/.claude}"
 CLAUDE_HOME_SEED_DIR="$CREDS_DIR/claude-home"
 mkdir -p "$CLAUDE_HOME_SEED_DIR"
 for seed_entry in $CLAUDE_VM_HOME_SEED_ENTRIES; do
@@ -1205,7 +1369,7 @@ for seed_entry in $CLAUDE_VM_HOME_SEED_ENTRIES; do
   # present here and a dangling one is (correctly) treated as absent.
   [ -e "$seed_src" ] || continue
   if ! cp -RL "$seed_src" "$CLAUDE_HOME_SEED_DIR/$seed_entry" 2>/dev/null; then
-    rm -rf "$CLAUDE_HOME_SEED_DIR/$seed_entry"
+    rm -rf "${CLAUDE_HOME_SEED_DIR:?}/$seed_entry"
     echo "claude-vm: WARNING -- could not copy '$seed_src' into the guest ~/.claude seed;" >&2
     echo "claude-vm: the guest will boot WITHOUT it. Everything else is seeded normally." >&2
   fi
@@ -1253,14 +1417,14 @@ RUN_META="$RUN/run.meta"
   printf 'repo_mount=%s\n' "$REPO_MOUNT"
   printf 'worktree=%s\n' "$MOUNT_SHARED_DIR"
   printf 'copy_back=%s\n' "$COPY_BACK"
-} > "$RUN_META"
+} >"$RUN_META"
 
 # Append a single `key=value` line to run.meta. Used to record each per-run
 # endpoint (pid / socket / port) the instant it is created and confirmed live,
 # rather than batching them at the paths-write above where they do not yet
 # exist.
 claude_vm_run_meta_put() {
-  printf '%s=%s\n' "$1" "$2" >> "$RUN_META"
+  printf '%s=%s\n' "$1" "$2" >>"$RUN_META"
 }
 
 # ---------------------------------------------------------------------
@@ -1307,7 +1471,7 @@ if [ -t 0 ]; then
   fi
 fi
 if [ -e /dev/tty ] && [ -r /dev/tty ]; then
-  HOST_TTY_STATE="$(stty -g < /dev/tty 2>/dev/null || true)"
+  HOST_TTY_STATE="$(stty -g </dev/tty 2>/dev/null || true)"
 fi
 
 RUN_ENV="$CONFIG_DIR/run.env"
@@ -1385,7 +1549,7 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # launcher exports the matching CLAUDE_CODE_* var when this is set; an
     # empty value leaves claude on its own default.
     case "$CLAUDE_RENDERER" in
-      classic)    printf 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1\n' ;;
+      classic) printf 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1\n' ;;
       fullscreen) printf 'CLAUDE_CODE_NO_FLICKER=1\n' ;;
     esac
     # Disable claude's auto-updater in the guest (issue #88). This is the
@@ -1438,7 +1602,7 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # variable error on bash < 4.4), matching EXTRA_MOUNT_FLAGS below.
     printf 'CLAUDE_ARGS=%q\n' \
       "$(claude_vm_quote_args ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})"
-  } > "$RUN_ENV"
+  } >"$RUN_ENV"
 )
 chmod 600 "$RUN_ENV"
 
@@ -1463,8 +1627,8 @@ chmod 600 "$RUN_ENV"
 #                        skipped). Same TSV shape the #105 build-time render
 #                        consumes, so both boot-time and bake-time renders read
 #                        identically-shaped input.
-claude_vm_list_items "$MERGED_BOOT" '.packages' > "$CONFIG_DIR/apt-install.list"
-claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sources.tsv"
+claude_vm_list_items "$MERGED_BOOT" '.packages' >"$CONFIG_DIR/apt-install.list"
+claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" >"$CONFIG_DIR/apt-sources.tsv"
 
 # ---------------------------------------------------------------------
 # Boot-time plugin manifest (issue #107): the plugin-side sibling of the apt
@@ -1490,8 +1654,8 @@ claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sour
 #                              re-installing them at boot would defeat the
 #                              whole point of baking (and need egress a
 #                              hard-secure config deliberately withholds).
-claude_vm_effective_marketplaces "$MERGED_BAKE" "$MERGED_BOOT" > "$CONFIG_DIR/plugin-marketplaces.tsv"
-claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.install_at_boot' > "$CONFIG_DIR/plugin-install.list"
+claude_vm_effective_marketplaces "$MERGED_BAKE" "$MERGED_BOOT" >"$CONFIG_DIR/plugin-marketplaces.tsv"
+claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.install_at_boot' >"$CONFIG_DIR/plugin-install.list"
 
 # ---------------------------------------------------------------------
 # Egress allowlist -- write it where the proxy reads it. The proxy.cmd
@@ -1499,7 +1663,7 @@ claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.install_at_boot' > "$CONFIG
 # host file) instead of a hand-maintained allowlist baked into the cmd.
 # ---------------------------------------------------------------------
 EGRESS_ALLOWLIST="$CONFIG_DIR/egress.allow"
-claude_vm_egress_hosts "$MERGED_BOOT" > "$EGRESS_ALLOWLIST"
+claude_vm_egress_hosts "$MERGED_BOOT" >"$EGRESS_ALLOWLIST"
 
 # Warm-boot allowlist tightening (issue #49): the claude binary is fetched
 # and verified HOST-SIDE, so the GUEST never reaches claude.ai /
@@ -1513,7 +1677,7 @@ claude_vm_egress_hosts "$MERGED_BOOT" > "$EGRESS_ALLOWLIST"
 # who lists them expecting the first-run fetch to use the guest path. The
 # drop is keyed on CLAUDE_VM_CACHE_NETWORK being a warm/cached state.
 case "${CLAUDE_VM_CACHE_NETWORK:-}" in
-  warm|channel-resolve)
+  warm | channel-resolve)
     # Remove claude.ai and downloads.claude.ai (and nothing else) from the
     # effective allowlist for this run. grep -v with anchored, dot-escaped
     # patterns so we do not also strip an unrelated host that contains the
@@ -1521,7 +1685,7 @@ case "${CLAUDE_VM_CACHE_NETWORK:-}" in
     if [ -s "$EGRESS_ALLOWLIST" ]; then
       TIGHTENED="$CONFIG_DIR/egress.allow.tightened"
       grep -ivE '^[[:space:]]*(claude\.ai|downloads\.claude\.ai)[[:space:]]*$' \
-        "$EGRESS_ALLOWLIST" > "$TIGHTENED" || true
+        "$EGRESS_ALLOWLIST" >"$TIGHTENED" || true
       mv -f "$TIGHTENED" "$EGRESS_ALLOWLIST"
       echo "claude-vm: warm boot -- dropped claude.ai/downloads.claude.ai from the guest egress allowlist (binary already cached host-side)." >&2
     fi
@@ -1544,12 +1708,12 @@ esac
 # re-introduced by this step.
 if claude_vm_boot_apt_egress_needed "$MERGED_BOOT"; then
   DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
-  EXISTING_HOSTS=" $(tr '\n' ' ' < "$EGRESS_ALLOWLIST" 2>/dev/null) "
+  EXISTING_HOSTS=" $(tr '\n' ' ' <"$EGRESS_ALLOWLIST" 2>/dev/null) "
   for _host in $DERIVED_APT_HOSTS; do
     case "$EXISTING_HOSTS" in
       *" $_host "*) ;;
       *)
-        printf '%s\n' "$_host" >> "$EGRESS_ALLOWLIST"
+        printf '%s\n' "$_host" >>"$EGRESS_ALLOWLIST"
         EXISTING_HOSTS="${EXISTING_HOSTS}${_host} "
         echo "claude-vm: derived apt egress -- added '$_host' to the guest egress allowlist (boot-time apt work configured)." >&2
         ;;
@@ -1590,12 +1754,12 @@ fi
 # rather than silently letting the boot phase fail.
 if claude_vm_boot_marketplace_egress_needed "$MERGED_BOOT" "$MERGED_BAKE"; then
   DERIVED_MP_HOSTS="$(claude_vm_marketplace_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
-  EXISTING_HOSTS=" $(tr '\n' ' ' < "$EGRESS_ALLOWLIST" 2>/dev/null) "
+  EXISTING_HOSTS=" $(tr '\n' ' ' <"$EGRESS_ALLOWLIST" 2>/dev/null) "
   for _host in $DERIVED_MP_HOSTS; do
     case "$EXISTING_HOSTS" in
       *" $_host "*) ;;
       *)
-        printf '%s\n' "$_host" >> "$EGRESS_ALLOWLIST"
+        printf '%s\n' "$_host" >>"$EGRESS_ALLOWLIST"
         EXISTING_HOSTS="${EXISTING_HOSTS}${_host} "
         echo "claude-vm: derived marketplace egress -- added '$_host' to the guest egress allowlist (boot-time marketplace/plugin work configured)." >&2
         ;;
@@ -1692,7 +1856,7 @@ fi
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
 MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
-: > "$MOUNTS_TSV"
+: >"$MOUNTS_TSV"
 # Parent of the per-entry single-file wrap dirs. Every entry in it is a HARD
 # LINK to the operator's file -- the same inode -- so whatever can write inside
 # this directory can write that file. It must therefore sit OUTSIDE the
@@ -1746,10 +1910,10 @@ MOUNT_WRAP_DIR="$RUN/mount-wrap"
 # slices it out.
 MOUNT_TAB=$'\t'
 while IFS= read -r mount_record; do
-  src=${mount_record%%$MOUNT_TAB*}
-  mount_rest=${mount_record#*$MOUNT_TAB}
-  tag=${mount_rest%%$MOUNT_TAB*}
-  mount_path=${mount_rest#*$MOUNT_TAB}
+  src=${mount_record%%"$MOUNT_TAB"*}
+  mount_rest=${mount_record#*"$MOUNT_TAB"}
+  tag=${mount_rest%%"$MOUNT_TAB"*}
+  mount_path=${mount_rest#*"$MOUNT_TAB"}
   [ -z "$src" ] && continue
   # Expand a leading ~ to $HOME (config is YAML, not shell). Shared with
   # claude_vm_check_mounts's host-existence check so both see the same path.
@@ -1798,7 +1962,7 @@ while IFS= read -r mount_record; do
     fi
   fi
   EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$mount_shared_dir,mountTag=$tag")
-  printf '%s\t%s\t%s\n' "$tag" "$mount_guest_path" "$mount_file" >> "$MOUNTS_TSV"
+  printf '%s\t%s\t%s\n' "$tag" "$mount_guest_path" "$mount_file" >>"$MOUNTS_TSV"
 done < <(claude_vm_mount_specs "$MERGED_BOOT")
 
 # ---------------------------------------------------------------------
@@ -1848,8 +2012,11 @@ src_tree_is_dirty() {
 # preview below flag files the session never touched). --checksum makes the
 # real copy-back and its dry-run preview agree on exactly which files changed.
 copy_back_rsync() {
-  rsync -a --checksum --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ \
-    || { echo "claude-vm: copy-back failed (rsync); worktree retained at $WORKTREE" >&2; return 1; }
+  rsync -a --checksum --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ ||
+    {
+      echo "claude-vm: copy-back failed (rsync); worktree retained at $WORKTREE" >&2
+      return 1
+    }
 }
 
 # Print the rsync itemize lines for CONTENT/STRUCTURAL changes only (issue #88).
@@ -1868,8 +2035,8 @@ copy_back_rsync() {
 # (no 2>/dev/null) so a broken preview is visible.
 copy_back_real_changes() {
   rsync -a --checksum --dry-run --itemize-changes --exclude '.git' \
-    "$WORKTREE"/ "$REPO_SRC"/ \
-    | grep -E '^[>c*]' || true
+    "$WORKTREE"/ "$REPO_SRC"/ |
+    grep -E '^[>c*]' || true
 }
 
 # Re-assert the host terminal's saved line settings on /dev/tty (issue #88).
@@ -1881,9 +2048,9 @@ copy_back_real_changes() {
 # so it is a no-op for a non-interactive launch (HOST_TTY_STATE empty).
 restore_host_tty() {
   if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
-    stty "$HOST_TTY_STATE" < /dev/tty 2>/dev/null \
-      || stty sane < /dev/tty 2>/dev/null \
-      || true
+    stty "$HOST_TTY_STATE" </dev/tty 2>/dev/null ||
+      stty sane </dev/tty 2>/dev/null ||
+      true
   fi
 }
 
@@ -1901,7 +2068,7 @@ copy_back() {
   [ "$REPO_MOUNT" = "clone" ] || return 0
   case "$COPY_BACK" in
     none) return 0 ;;
-    local|"")
+    local | "")
       # Compute the REAL (content/structural) changes ONCE, up front (issue #88).
       # This is the --checksum-based, attribute-only-filtered set (see
       # copy_back_real_changes). It gates BOTH the clean and dirty paths so a
@@ -1971,18 +2138,18 @@ copy_back() {
         # Guard the same way restore_host_tty() does (writable /dev/tty) rather
         # than relying on the redirect failing -- consistent with the sibling.
         if [ -e /dev/tty ] && [ -w /dev/tty ]; then
-          stty icrnl icanon echo < /dev/tty 2>/dev/null || true
+          stty icrnl icanon echo </dev/tty 2>/dev/null || true
         fi
         local reply=""
         if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
           printf 'claude-vm: apply copy-back over the dirty source tree? [y/N] ' >&2
-          if { read -r reply < /dev/tty; } 2>/dev/null; then :; else reply=""; fi
+          if { read -r reply </dev/tty; } 2>/dev/null; then :; else reply=""; fi
         fi
         # Belt-and-braces: strip a trailing CR so a raw `y\r` still matches if
         # ICRNL is somehow still off at read time (issue #88).
         reply=${reply%$'\r'}
         case "$reply" in
-          y|Y|yes|YES)
+          y | Y | yes | YES)
             echo "claude-vm: confirmed; copying back to $REPO_SRC..." >&2
             copy_back_rsync || true
             ;;
@@ -2276,7 +2443,7 @@ echo "claude-vm: handing this terminal to the guest console (hvc1)..." >&2
 # its own ~5s bound and cleanup() runs normally). restore_host_tty() puts the
 # full saved state (including isig/ixon) back on every exit path.
 if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
-  stty -isig -ixon < /dev/tty 2>/dev/null || true
+  stty -isig -ixon </dev/tty 2>/dev/null || true
 fi
 
 # vfkit runs as a CHILD here (the launcher does NOT exec it), so cleanup()
@@ -2361,4 +2528,9 @@ set +e
 )
 VM_EXIT_STATUS=$?
 set -e
-exit "$VM_EXIT_STATUS"
+# End with vfkit's status as the last command's rather than through `exit`:
+# the launcher's exit status and the EXIT trap are the same either way, but a
+# script that ends in an explicit `exit` is one whose trap shellcheck stops
+# counting as a call of cleanup(), so it reports cleanup() and every function
+# it calls as never invoked.
+(exit "$VM_EXIT_STATUS")

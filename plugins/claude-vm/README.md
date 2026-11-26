@@ -19,9 +19,11 @@ You stay logged in the way you already are: the launcher takes the
 host's live claude.ai login from the macOS Keychain and seeds the
 guest's identity from your host `~/.claude.json`, so the in-guest
 session comes up onboarded and logged in with no token variable and
-no browser paste. The `claude` binary the guest runs is fetched and
-GPG-verified on the host against a signing-key fingerprint you pin, and
-shared into the guest read-only.
+no browser paste. Those are the sources of a launch without `--as`;
+`--as <name>` launches as another account logged in on the host, as
+"Launching as a named account" below describes. The `claude` binary the
+guest runs is fetched and GPG-verified on the host against a signing-key
+fingerprint you pin, and shared into the guest read-only.
 
 ## Prerequisites
 
@@ -29,7 +31,9 @@ shared into the guest read-only.
   guest with Apple's virtualization stack; it refuses to run elsewhere.
 - Logged in to Claude Code on the host: run `claude` once and complete
   the claude.ai login. The launcher aborts if the Keychain holds no
-  credential or `~/.claude.json` carries no usable identity.
+  credential or `~/.claude.json` carries no usable identity. A launch
+  with `--as <name>` needs that account logged in instead:
+  `CLAUDE_CONFIG_DIR=$HOME/.claude.<name> claude`.
 - `git`, `yq` (mikefarah v4+), `python3`, `gpg`, `vfkit`, `podman` and
   `tinyproxy`. On a clean host
   `brew install yq git gnupg vfkit podman tinyproxy` covers them in one
@@ -107,7 +111,7 @@ PATH for the Bash tool. Run it from a real terminal, anywhere inside
 the repo you want the guest to work on:
 
 ```bash
-claude-vm [claude args...]
+claude-vm [--as <name>] [claude args...]
 ```
 
 With no config on the host, the first launch runs on built-in defaults
@@ -120,7 +124,8 @@ terminal becomes the guest's console and the session is the ordinary
 Claude Code REPL, running inside the VM on that clone or share.
 
 Arguments after `claude-vm` reach the in-guest `claude` unchanged,
-except for a `--name`: whenever you pass none, the launcher adds one
+except for a leading `--as <name>`, which `claude-vm` takes for itself,
+and a `--name`: whenever you pass none, the launcher adds one
 made of your arguments — or a date stamp when there are none —
 followed by the repo name. A `--name` you pass yourself is kept as is.
 `claude.remote_control: true` in a boot file additionally adds
@@ -145,6 +150,48 @@ stops any of the run's processes still running, removes the clone and
 credential files, and keeps the worktree so the companion skills still
 find the run. It tells a live run from a dead one by a lock the kernel
 releases on the launcher's death, so it never touches a running VM.
+
+## Launching as a named account
+
+```bash
+claude-vm --as <name> [claude args...]
+```
+
+A leading `--as <name>` launches the guest as the host Claude Code
+account whose config directory is `$HOME/.claude.<name>` — the account
+you run on the host as `CLAUDE_CONFIG_DIR=$HOME/.claude.<name> claude`.
+A name holds only ASCII letters, digits, `_` and `-`, and is not
+`backup`.
+
+Every host source follows from that directory, and no config key
+selects an account:
+
+- the login comes from the Keychain item whose service is
+  `Claude Code-credentials-<h>`, where `<h>` is the first 8 lowercase
+  hex characters of the SHA-256 of the directory's absolute path — the
+  item Claude Code itself keeps for a session run with
+  `CLAUDE_CONFIG_DIR` set to that directory;
+- the identity comes from the directory's `.claude.json`;
+- the working rules the launcher copies into the guest come from the
+  directory.
+
+Without `--as` those are the `Claude Code-credentials` item,
+`~/.claude.json` and `~/.claude`. The account comes from `--as` alone:
+a `CLAUDE_CONFIG_DIR` set in the shell you launch from decides nothing.
+
+`--as` counts only as the first argument, because the account has to be
+known before the launcher reads any host state. Anywhere later it
+reaches the in-guest `claude` like any other argument. It is not part
+of the session name the launcher computes.
+
+Before any image build or boot, the launcher refuses an invalid name, a
+missing account directory, a `.claude.json` that is missing or carries
+no usable identity, and a Keychain item that is missing or unusable.
+Each of those refusals names the account and the missing piece. Nothing is copied
+in place of a missing file and no launch falls back to another account,
+so a guest never runs one account's identity with another's login. Log
+the account in with `CLAUDE_CONFIG_DIR=$HOME/.claude.<name> claude` and
+launch again.
 
 ## Limits
 

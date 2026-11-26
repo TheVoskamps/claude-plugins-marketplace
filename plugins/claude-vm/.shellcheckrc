@@ -1,0 +1,5 @@
+# Follow each script's `source=` directive without `-x`, resolving it against
+# the script's own directory, so a plain `shellcheck` sees the functions and
+# variables the payload/lib helpers define.
+external-sources=true
+source-path=SCRIPTDIR

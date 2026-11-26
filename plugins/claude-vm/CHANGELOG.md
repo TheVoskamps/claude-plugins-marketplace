@@ -1,5 +1,30 @@
 # claude-vm changelog
 
+## 0.23.0 — 2026-11-25
+
+`claude-vm --as <name> [claude args...]` launches the guest as another
+Claude Code account logged in on the host: the one whose config
+directory is `$HOME/.claude.<name>`. A launch without `--as` is
+unchanged.
+
+- With `--as`, the login comes from that account's Keychain item —
+  service `Claude Code-credentials-<h>`, `<h>` being the first 8
+  lowercase hex characters of the SHA-256 of the directory's path, the
+  item Claude Code keeps for `CLAUDE_CONFIG_DIR` set to that directory —
+  the identity from the directory's `.claude.json`, and the working
+  rules from the directory.
+- `--as` counts only as the first argument and is left out of the
+  session name; anywhere later it reaches the in-guest `claude`
+  unchanged. A `CLAUDE_CONFIG_DIR` in the environment is ignored.
+- A name holds only ASCII letters, digits, `_` and `-`, and is not
+  `backup`.
+- An invalid name, a missing account directory, a `.claude.json` that is
+  missing or has no usable identity, and a missing or unusable Keychain
+  item are each refused before any image build or boot. Each of those
+  refusals names the account, and nothing falls back to another account.
+- Under `--as`, the launcher's Keychain and identity refusals name
+  `CLAUDE_CONFIG_DIR='<account dir>' claude` as the login to run.
+
 ## 0.22.1 — 2026-11-23
 
 Internal only: agents no longer read this plugin's READMEs. The
