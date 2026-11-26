@@ -15,8 +15,6 @@
   Kernel: probe the real hypervisor, kernel and launcher; a green
   fixture-driven suite has measured the fixture.
 
-Every script must run under bash 3.2, and a gate asking whether the
-operator wrote a key reads the raw config files, never the merged one.
 No secret is written to config, `run.env` or the claude binary cache.
 `claude` reaches the guest only through the verified cache; never add a
 lower-trust fallback.

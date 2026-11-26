@@ -530,6 +530,42 @@ Only the bake path itself waits for the merge — the image build
 installing the new version from the marketplace's default branch. That
 is one line in a PR, not a test plan handed to the human.
 
+## Testing a PR branch interactively
+
+No suite exercises a change's acceptance criteria in a real interactive
+session under the operator's own config: most run off-VM, and
+`host-acceptance.sh` boots a stub config. That last step is a human
+one, with this shape:
+
+1. **A plain worktree on the PR branch**, made from the primary clone
+   with `git worktree add .claude/worktrees/pr-<N>-test <branch>`, so
+   the primary clone is never switched under the test. Invoke the
+   worktree's own `plugins/claude-vm/bin/claude-vm`: it resolves the
+   plugin root from `${BASH_SOURCE[0]}`, so it runs the branch's
+   `payload/`, not the installed plugin cache's.
+2. **The repo's `.claude-vm/` pair, copied into the worktree.** It is
+   git-ignored, so a fresh worktree has none, and the launcher reads the
+   per-repo pair against the repo root it was handed — the worktree.
+   The global pair under `~/.config/claude-vm/` is read in place.
+3. **The launch, from a real terminal**, never a pipe, working a test
+   plan aimed at the PR's own criteria. Expect the first launch to build
+   an image: `<reponame>` in the identity is the worktree directory's
+   basename, and a launcher-logic change bumps `LAUNCHER_LOGIC_REV`, so
+   the branch gets its own image under its own filename and the
+   everyday cached image is neither reused nor replaced.
+4. **Boot-phase assertions settled by grepping the run's
+   `guest-console.log` after the run**, under
+   `$CLAUDE_VM_STATE_DIR/logs/<run-id>/`, not by watching the terminal.
+   The boot launcher writes its `claude-vm:` markers to `/dev/console`,
+   which is `hvc0` and lands in that capture; the terminal is `hvc1`
+   and carries the interactive session alone.
+5. **The run dir, kept and inspected after exit.** `$RUN` is
+   `$CLAUDE_VM_RUNS_DIR/<run-id>/`, under the state root, and
+   `cleanup()` prints each path on the way out. Its `creds/` must be
+   **gone**: it is the transient `claudecreds` share, which `cleanup()`
+   removes on every exit, a Ctrl-C included. A surviving `creds/` is a
+   defect, not a leftover.
+
 ## Driving a real build and boot yourself
 
 The podman machine is usually stopped and must be started explicitly,

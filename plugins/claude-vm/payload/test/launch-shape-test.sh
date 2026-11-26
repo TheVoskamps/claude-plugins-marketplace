@@ -16,6 +16,10 @@
 # That subshell is as foreground as a bare invocation: it must not be
 # backgrounded either, and its status is what lands in `$?`.
 #
+# VM_EXIT_STATUS starts at 1 before the launch, the status cleanup() reads as
+# abnormal and answers by retaining the run. A run interrupted before vfkit's
+# status reaches `$?` therefore fails safe to retain rather than to discard.
+#
 # These are grep-level shape assertions against the launcher SOURCE (like the
 # getty drop-in assertions in podman-mkosi-test.sh) -- no VM, no network, no
 # root; needs only bash + awk.

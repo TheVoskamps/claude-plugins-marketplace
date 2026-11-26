@@ -2931,7 +2931,11 @@ GATE_START=""
 GATE_END=""
 if [ -f "$LAUNCHER" ]; then
   GATE_START="$(grep -nF "MERGED_BAKE=\"\$(claude_vm_mktemp claude-vm-merged-bake)\"" "$LAUNCHER" | head -1 | cut -d: -f1)"
-  # The slice ends on the `}` closing the brace group that prints this abort.
+  # The slice must end on the `}` that closes the abort block holding this
+  # message, not on the message line itself. The launcher writes each gate's
+  # `|| { echo ...; exit 1; }` across separate lines, so a slice ending on the
+  # echo would leave that brace group open and the sliced script would not
+  # parse; the `exit 1` it closes over is part of what the cases below run.
   GATE_END="$(awk 'index($0, "aborting -- move the misplaced claude.plugins key(s)") { found = 1 } found && /^  }$/ { print NR; exit }' "$LAUNCHER")"
 fi
 if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
