@@ -91,9 +91,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # state, so a bad name or a missing account directory refuses before any build
 # or boot. ACCOUNT_NOTE is appended to the Keychain and identity-seed refusals
 # further down so each one names the account; it is empty without --as.
+# LOGIN_HINT is the host command those refusals tell the operator to log in
+# with: under --as it runs claude against the account directory, so the login
+# repairs that account's Keychain item and .claude.json.
 ACCOUNT_NAME=""
 ACCOUNT_DIR=""
 ACCOUNT_NOTE=""
+LOGIN_HINT="'claude'"
 if [ "${1:-}" = "--as" ]; then
   if [ "$#" -lt 2 ]; then
     echo "claude-vm: --as needs an account name: claude-vm.sh --as <name> <repo-path> [claude args...]" >&2
@@ -103,6 +107,7 @@ if [ "${1:-}" = "--as" ]; then
   shift 2
   ACCOUNT_DIR="$(claude_vm_account_dir "$ACCOUNT_NAME")" || exit 1
   ACCOUNT_NOTE=" for account '$ACCOUNT_NAME'"
+  LOGIN_HINT="CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude"
 fi
 KEYCHAIN_SERVICE="$(claude_vm_keychain_service "$ACCOUNT_DIR")" || exit 1
 
@@ -1164,7 +1169,7 @@ if [ "$SEC_RC" -eq 44 ] || [ ! -s "$RAW_CREDENTIAL" ]; then
   echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
   echo "claude-vm: (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE). The guest authenticates with the host's" >&2
   echo "claude-vm: live claude.ai login, so you must be logged in to Claude Code on this host." >&2
-  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry. (macOS only:" >&2
+  echo "claude-vm: run $LOGIN_HINT once and complete the claude.ai login, then retry. (macOS only:" >&2
   echo "claude-vm: this uses 'security find-generic-password', a macOS Keychain tool.)" >&2
   exit 1
 fi
@@ -1207,7 +1212,7 @@ if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
   echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) has no usable" >&2
   echo "claude-vm: claude.ai OAuth credential ('claudeAiOauth'). The guest authenticates with" >&2
   echo "claude-vm: the host's live claude.ai login, so you must be logged in to Claude Code on" >&2
-  echo "claude-vm: this host. Run 'claude' once and complete the claude.ai login, then retry." >&2
+  echo "claude-vm: this host. Run $LOGIN_HINT once and complete the claude.ai login, then retry." >&2
   exit 1
 fi
 chmod 600 "$HOST_CREDENTIAL"
@@ -1248,7 +1253,7 @@ if [ "$VALIDATE_RC" -ne 0 ]; then
   echo "claude-vm: that happens when your host claude sessions coast on the shared auth daemon's" >&2
   echo "claude-vm: in-memory tokens while the persisted Keychain entry has gone stale. The guest" >&2
   echo "claude-vm: would boot to 'Not logged in -- Run /login' with this credential. Re-login on" >&2
-  echo "claude-vm: THIS HOST to repair the Keychain entry -- run 'claude' then '/login' (or restart" >&2
+  echo "claude-vm: THIS HOST to repair the Keychain entry -- run $LOGIN_HINT then '/login' (or restart" >&2
   echo "claude-vm: Claude Code) -- then retry claude-vm. Do NOT run /login inside the guest: a" >&2
   echo "claude-vm: retried guest login can revoke your other live sessions." >&2
   exit 1
@@ -1293,7 +1298,7 @@ if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$
   umask "$OLD_UMASK"
   echo "claude-vm: failed to select the identity seed (userID + oauthAccount)$ACCOUNT_NOTE from" >&2
   echo "claude-vm: '$HOST_CLAUDE_JSON'. It passed the earlier preflight, so this is unexpected" >&2
-  echo "claude-vm: (the file may have changed under us). Re-run 'claude' to confirm you are" >&2
+  echo "claude-vm: (the file may have changed under us). Re-run $LOGIN_HINT to confirm you are" >&2
   echo "claude-vm: logged in on the host, then retry." >&2
   exit 1
 fi
@@ -1980,7 +1985,6 @@ VM_EXIT_STATUS=""
 # untracked, non-ignored files)? Returns 0 (dirty) / 1 (clean). A
 # non-git source or a git failure is treated as "dirty" so we err on
 # the side of NOT clobbering unattended.
-# shellcheck disable=SC2329 # reached only through cleanup(); see the note there
 src_tree_is_dirty() {
   local status
   git -C "$REPO_SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
@@ -2004,7 +2008,6 @@ src_tree_is_dirty() {
 # those content-identical files (harmless but noisy, and it made the dirty-gate
 # preview below flag files the session never touched). --checksum makes the
 # real copy-back and its dry-run preview agree on exactly which files changed.
-# shellcheck disable=SC2329 # reached only through cleanup(); see the note there
 copy_back_rsync() {
   rsync -a --checksum --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ ||
     {
@@ -2027,7 +2030,6 @@ copy_back_rsync() {
 # change. Prints nothing (and the caller treats that as "no real changes") when
 # only attribute-only or no differences exist. rsync's own errors flow to stderr
 # (no 2>/dev/null) so a broken preview is visible.
-# shellcheck disable=SC2329 # reached only through cleanup(); see the note there
 copy_back_real_changes() {
   rsync -a --checksum --dry-run --itemize-changes --exclude '.git' \
     "$WORKTREE"/ "$REPO_SRC"/ |
@@ -2041,7 +2043,6 @@ copy_back_real_changes() {
 # fall back to `stty sane`, and never let a tty-restore failure abort the
 # caller (|| true). Guarded on a non-empty saved state and a writable /dev/tty,
 # so it is a no-op for a non-interactive launch (HOST_TTY_STATE empty).
-# shellcheck disable=SC2329 # reached only through cleanup(); see the note there
 restore_host_tty() {
   if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
     stty "$HOST_TTY_STATE" </dev/tty 2>/dev/null ||
@@ -2050,7 +2051,6 @@ restore_host_tty() {
   fi
 }
 
-# shellcheck disable=SC2329 # reached only through cleanup(); see the note there
 copy_back() {
   # Default post-exit behavior: copy the worktree's changes back to the
   # local source. Only meaningful in clone mode (live mode already wrote
@@ -2169,10 +2169,6 @@ copy_back() {
   esac
 }
 
-# Invoked only by the `trap cleanup EXIT INT TERM` below. shellcheck stops
-# counting that trap as a call once the script ends in an explicit `exit`, and
-# so reports cleanup() and every function only it calls as never invoked.
-# shellcheck disable=SC2329
 cleanup() {
   # Run at most ONCE (issue #179). cleanup() can be reached twice: a signal
   # (INT/TERM) fires the trap, and then the ensuing `exit` fires the EXIT trap
@@ -2529,4 +2525,9 @@ set +e
 )
 VM_EXIT_STATUS=$?
 set -e
-exit "$VM_EXIT_STATUS"
+# End with vfkit's status as the last command's rather than through `exit`:
+# the launcher's exit status and the EXIT trap are the same either way, but a
+# script that ends in an explicit `exit` is one whose trap shellcheck stops
+# counting as a call of cleanup(), so it reports cleanup() and every function
+# it calls as never invoked.
+(exit "$VM_EXIT_STATUS")
