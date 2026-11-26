@@ -499,8 +499,11 @@ An agent does not work the directory out itself: it runs `claude-home`,
 which `cc-tools` puts on `PATH`, and reads `CLAUDE.md` in the directory
 that prints, so no agent spells the rule for choosing the directory.
 `reload-after-compact` and `sdlc-agent-result-persist` do not run
-`claude-home`: each applies the same rule in its own code, so a change
-to the rule is made in `claude-home` and in both of them.
+`claude-home`: each applies the same rule in its own code, and their
+tests and the prose describing them spell it again. A change to the rule is
+therefore made in `claude-home` and in every file of this plugin that
+spells it. Each of those names `CLAUDE_CONFIG_DIR`, so a search of the
+plugin for that name finds them all.
 
 ## Dependencies
 
