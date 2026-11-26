@@ -1,5 +1,14 @@
 # claude-harness-tools changelog
 
+## 0.1.1 — 2026-11-25
+
+The transcript lookup follows `CLAUDE_CONFIG_DIR`. The
+`claude-harness-capture` skill names the transcript a capture joins to
+under `projects/` in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, an empty
+variable counting as unset, where it named a fixed `~/.claude/projects/`
+before. A session run under another config directory keeps its
+transcripts there, so the fixed path pointed at the wrong place.
+
 ## 0.1.0 — 2026-09-27
 
 The plugin is new. It shows what the Claude Code harness sends to the
