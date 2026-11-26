@@ -137,9 +137,11 @@ change can silently switch a repository setting back off.
 
 What it changes on GitHub, directly:
 
-- Security settings: Dependabot alerts, security updates and malware
-  alerts, and, where the repository is entitled to them, Code Security,
-  secret scanning and push protection.
+- Security settings: Dependabot alerts and security updates, and, where
+  the repository is entitled to them, Code Security, secret scanning
+  and push protection. Dependabot malware alerts it only reports:
+  GitHub offers no API to switch them on, so that is yours to do in the
+  repository's Code security settings.
 - Merge settings: merge commits only, with auto-merge, branch-update
   suggestions and automatic deletion of merged branches switched on.
 - A `protect-main` ruleset on the default branch: no deletion, no
