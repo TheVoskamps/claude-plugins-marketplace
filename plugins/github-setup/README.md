@@ -310,6 +310,9 @@ What it changes:
 
 What it asks you for:
 
+- When the repository is already public, whether to re-assert the
+  public posture, propose a rename, or both. The history question and
+  the switch to public are then skipped.
 - For each PR `/gh-repo-setup-protection` or
   `/gh-repo-setup-pr-automation` opened, whether it should merge the PR
   once its checks pass or leave it to you.
