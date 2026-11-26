@@ -292,7 +292,8 @@ Read the reference snippet from the payload:
 ${CLAUDE_PLUGIN_ROOT}/payload/gh-create-app/app-auth-snippet.yml
 ```
 
-Strip its leading comment block, substitute `__APP_NAME__`,
+Strip its leading comment block and the `---` line that ends it,
+substitute `__APP_NAME__`,
 `__APP_ID_SECRET__`, and `__APP_PRIVATE_KEY_SECRET__`, and **show** the
 rendered snippet to the user. This skill does **not** write a workflow
 file — consuming skills (e.g. `/gh-repo-setup-pr-automation`) own their

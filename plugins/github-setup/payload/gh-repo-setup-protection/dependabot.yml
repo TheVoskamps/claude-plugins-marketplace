@@ -21,8 +21,9 @@
 #
 # This file is the OUTER template. The skill renders one copy of the
 # per-ecosystem block (kept in `ecosystem-block.yml` alongside this file)
-# for each SUPPORTED ecosystem, concatenates them, and substitutes the
-# result for __DEPENDABOT_ECOSYSTEMS__.
+# for each SUPPORTED ecosystem, concatenates them, and substitutes a line
+# break followed by the result for __DEPENDABOT_ECOSYSTEMS__ together with
+# the space before it, so the blocks start on the line below `updates:`.
+---
 version: 2
-updates:
-__DEPENDABOT_ECOSYSTEMS__
+updates: __DEPENDABOT_ECOSYSTEMS__

@@ -16,7 +16,7 @@
 # consumers. Auth model: App ID + private key in secrets, a short-lived
 # installation token minted per run by actions/create-github-app-token.
 # There is no long-lived "App token" to store.
-
+---
 # Step: mint the installation token. Place this before any step that
 # needs to act as the App "__APP_NAME__".
 - name: Mint App installation token

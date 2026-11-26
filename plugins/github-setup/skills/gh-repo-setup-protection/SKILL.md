@@ -522,8 +522,10 @@ hardest.
 
 3. Concatenate the rendered blocks.
 4. Read the outer template `gh-repo-setup-protection/dependabot.yml`,
-   strip its leading comment block, and substitute
-   `__DEPENDABOT_ECOSYSTEMS__` with the concatenated blocks (and
+   strip its leading comment block and the `---` line that ends it, and
+   substitute `__DEPENDABOT_ECOSYSTEMS__`, together with the space before
+   it, with a line break followed by the concatenated blocks, so the blocks
+   start on the line below `updates:` (and substitute
    `__DEFAULT_BRANCH__` if it appears).
 
 This produces the **desired file content**.
