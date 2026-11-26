@@ -56,7 +56,10 @@ Measured on vfkit v0.6.4.
 - **The comma splits every host-path argument**, not just
   `sharedDir=`: `efi,variable-store=`, `virtio-blk,path=`,
   `virtio-net,unixSocketPath=` and `virtio-serial,logFilePath=` all
-  behave the same way. Since `$TMPDIR` reaches
+  behave the same way, each dying on the text after the comma with its
+  own device's wording — `unknown option for virtio-net devices: …`
+  for the socket, `unknown option for EFI bootloaders: …` for the
+  variable store. Since `$TMPDIR` reaches
   `virtio-net,unixSocketPath=` through a `mktemp -d` on every launch,
   "no built-in argument touches `$TMPDIR`" is false.
 - **A repeated key parses silently, last occurrence winning.** Prove
@@ -152,7 +155,9 @@ richer, so a probe run there silently carries tools the guest lacks.
 The worked incident: a boot phase was verified in a container with
 git, the guest bakes no git, and the CLI spawns **system git** for
 git-url marketplace operations — so in the real guest every
-`claude plugin marketplace add`/`update` fails, fail-soft, and
+`claude plugin marketplace add`/`update` fails, fail-soft, with
+`Failed to clone marketplace repository: Command failed with
+ERR_STREAM_PREMATURE_CLOSE: git … clone --depth 1 …`, and
 `update_at_boot: true` is inert. The decisive probe runs the cached
 verified guest binary in a plain arm64 `debian:trixie`, with
 `HOME=/root` plus the autoupdater and telemetry disables. Note the CLI
@@ -227,6 +232,14 @@ source on a genuinely different volume from `$RUN`: `hdiutil attach`
 of a small image at a mountpoint inside the harness's workspace works
 unprivileged, and `config-test.sh` does exactly that. The same trick
 works on the config-load gate block when you want the real validator.
+
+A slice starts at the first helper the sliced code calls, not at the
+code itself. A `boot_mount_phase` slice out of `build-guest-image.sh`
+starts at `boot_dir_is_nonempty` and runs through the end of the phase,
+since a slice that took only the phase would leave the occupancy helper
+undefined and every occupancy assertion would pass while testing
+nothing: an undefined helper returns non-zero, which reads as "empty".
+Assert in the harness that the helper is defined.
 
 Before filing such a finding, enumerate the emitted strings with
 `grep -n -- '--device'` plus the assignment of each interpolated
@@ -594,6 +607,11 @@ you only because you are driving the build directly: run through
 `claude-vm.sh` instead and the launcher does its own init/start and
 stops the machine again at end of run (issue #215), so a machine-state
 change on that path is the launcher's, not a leak of yours to chase.
+
+Name the machine from `podman machine list --format json`, never from
+the `{{.Name}}` Go template: the template renders the default machine
+with a trailing `*` default-marker (`podman-machine-default*`), a name
+no later `podman machine start` or `stop` resolves.
 
 Drive the build with `build-guest-image.sh --output <path>`, exporting
 the same environment the launcher does. Derive the JSON blobs with the

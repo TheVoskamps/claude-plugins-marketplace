@@ -308,7 +308,7 @@ fi
 # Boot-time apt update flag (issue #106): resolved once here so both the
 # run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
 # below) read the SAME value the boot launcher will act on.
-PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+PACKAGES_UPDATE_AT_BOOT="$(claude_vm_scalar "$MERGED_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 
 # Boot-time plugin update flag (issue #107): the plugin-side sibling of
 # PACKAGES_UPDATE_AT_BOOT above. Baked plugins are frozen at image-build time
@@ -317,7 +317,7 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot
 # marketplace bump is picked up at the next boot with no image rebuild.
 # Resolved once here so the run.env write and the derived-egress gate
 # (claude_vm_boot_marketplace_egress_needed) act on the same value.
-PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
+PLUGINS_UPDATE_AT_BOOT="$(claude_vm_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
 
 # Both flags are written unquoted into run.env, which the guest sources under
 # `set -a`, so a value other than true/false aborts here, before run.env exists.

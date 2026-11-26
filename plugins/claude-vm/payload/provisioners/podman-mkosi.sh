@@ -137,12 +137,17 @@ fi
 
 # Root partition headroom (issue #106 real-run fix). build-guest-image.sh
 # resolves image.root_headroom_mb (its default is justified beside the key
-# table in lib/config.sh) and exports it as
-# CLAUDE_VM_ROOT_HEADROOM_MB; it also validates it as a positive integer, so
-# this is defense-in-depth, not the primary guard.
-ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-1024}"
+# table in lib/config.sh) and always passes it as CLAUDE_VM_ROOT_HEADROOM_MB, so
+# this provisioner carries no default of its own and refuses to build without
+# one. build-guest-image.sh also validates it as a positive integer, so the
+# check below is defense-in-depth, not the primary guard.
+ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-}"
 case "$ROOT_HEADROOM_MB" in
-  '' | *[!0-9]*)
+  '')
+    echo "podman-mkosi: CLAUDE_VM_ROOT_HEADROOM_MB is not set (build-guest-image.sh passes it)" >&2
+    exit 1
+    ;;
+  *[!0-9]*)
     echo "podman-mkosi: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
     exit 1
     ;;

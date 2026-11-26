@@ -348,7 +348,12 @@ BASE_OS_REV="debian-12-20250601"
 # present either way and only its failure behavior differs. Same reasoning as
 # every rev above: the launcher's SOURCE is not part of the image-identity hash,
 # so this constant is the only thing that invalidates a cached image.
-LAUNCHER_LOGIC_REV="27"
+# Bumped 27 -> 28: the boot-phase flags lost their guest-side defaults. A
+# launcher27 image falls back to `true` for an unset
+# CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT / CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT, a second
+# copy of the key table's defaults; the boot launcher now stops when run.env
+# lacks either, since the host always writes both.
+LAUNCHER_LOGIC_REV="28"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -539,6 +544,11 @@ set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
 set +a
+# The two boot-phase flags carry no default here: the host resolves each from
+# the key table and always writes it into run.env, so a run.env without one is
+# a launcher fault, and the boot stops on it rather than guessing.
+: "${CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT:?run.env carries no CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT (the host launcher writes it)}"
+: "${CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT:?run.env carries no CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT (the host launcher writes it)}"
 
 # ---------------------------------------------------------------------
 # Guest environment variables (issue #135) -- the GUEST half of the `env:`
@@ -1004,7 +1014,7 @@ fi
 # BLOCKING, before claude launches (agreed in the issue: if a package is too
 # slow to install at boot, the user moves it from install_at_boot to bake).
 #
-#   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, default true):
+#   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, always written by the host):
 #      `apt-get update` + `apt-get -y upgrade`.
 #   2. apt-install.list (runconfig mount) nonempty: render any
 #      apt-sources.tsv entries into the guest's LIVE /etc/apt (reusing the
@@ -1217,7 +1227,7 @@ render_apt_source_boot() {
 boot_apt_phase() {
   local did_update=0
 
-  if [ "${CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT:-true}" = "true" ]; then
+  if [ "$CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT" = "true" ]; then
     log "claude-vm: boot-time apt: running 'apt-get update' + 'apt-get -y upgrade' (packages.update_at_boot)."
     if apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" update -qq \
         && DEBIAN_FRONTEND=noninteractive apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" -y -qq upgrade; then
@@ -1365,7 +1375,7 @@ log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CL
 #
 #   plugin-marketplaces.tsv -- name<TAB>url, the EFFECTIVE marketplace set.
 #   plugin-install.list     -- claude.plugins.install_at_boot refs.
-#   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT -- run.env, default true.
+#   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT -- run.env, always written by the host.
 #
 # Steps, in this order (each skipped when it has nothing to do):
 #   1. ENSURE: add any configured marketplace the image does not already carry.
@@ -1426,7 +1436,7 @@ boot_plugin_phase() {
   if [ -s "$PLUGIN_INSTALL_LIST" ]; then
     have_installs=1
   fi
-  local do_update="${CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT:-true}"
+  local do_update="$CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT"
 
   # Nothing configured at all -> no work, no log noise, no network.
   if [ "$have_marketplaces" -eq 0 ] && [ "$have_installs" -eq 0 ]; then

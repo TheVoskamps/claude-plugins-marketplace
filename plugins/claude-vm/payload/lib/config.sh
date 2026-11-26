@@ -981,51 +981,29 @@ claude_vm_boot_apt_sources() {
   '
 }
 
-# Read a scalar from a merged-config document (on stdin or in a file),
-# applying a hardcoded fallback when the key is absent/null.
-#   $1 -- merged config file path
-#   $2 -- yq path expression (e.g. '.cpus', '.repo.mount')
-#   $3 -- fallback value if the key is null/absent
-#
-# NOT boolean-safe: the `// ""` idiom below treats an explicit YAML
-# `false` the same as an absent key (both stringify to empty via `// ""`,
-# so this falls through to $fallback). That is correct for the existing
-# string/number scalars (cpus, mem, repo.mount, proxy.*, etc. -- none of
-# which are booleans), but WRONG for a boolean key where `false` is a
-# meaningful, distinct-from-absent value. Use claude_vm_bool_scalar for
-# those (update_at_boot, claude.plugins.update_at_boot).
-claude_vm_scalar() {
-  local file="$1" path="$2" fallback="$3" val
-  val="$(yq eval "$path // \"\"" "$file" 2>/dev/null)"
-  if [ -z "$val" ] || [ "$val" = "null" ]; then
-    printf '%s\n' "$fallback"
-  else
-    printf '%s\n' "$val"
-  fi
-}
-
-# Read a BOOLEAN scalar from a merged-config document, applying a
-# hardcoded fallback ONLY when the key is absent, null or empty --
-# unlike claude_vm_scalar, an explicit `false` is preserved and
+# Read a scalar from a merged-config document, applying a hardcoded fallback
+# ONLY when the key is absent, null or empty -- an explicit `false` is
 # returned as "false", not silently replaced by $fallback.
 #   $1 -- merged config file path
-#   $2 -- yq path expression (e.g. '.update_at_boot')
-#   $3 -- fallback value if the key is absent, null or empty (e.g.
-#         "true"/"false")
+#   $2 -- yq path expression (e.g. '.cpus', '.update_at_boot')
+#   $3 -- fallback value if the key is absent, null or empty
 #
 # Presence check: `(<path> == null)` is true both when the key is absent
 # AND when it is explicitly set to YAML `null`; either way there is no
 # value to preserve, so the fallback applies. We branch explicitly on
 # that presence check rather than yq's `//` operator, because `//`
 # treats the boolean `false` itself as falsy and would substitute
-# $fallback for it too -- exactly the bug this accessor exists to avoid.
-# A value written as `""` reads as unset too, as it does for claude_vm_scalar:
-# a valueless key reaches a global-only merge as `''` rather than null, so
-# without this the same spelling would resolve differently by layer.
+# $fallback for it too: a boolean key would lose its `false`, and an
+# enumeration such as claude.permission_mode would resolve `false` to its
+# default and pass the launcher's enum guard instead of aborting.
+# A value written as `""` reads as unset too: a valueless key reaches a
+# global-only merge as `''` rather than null, so without this the same
+# spelling would resolve differently by layer.
 #
-# The value is returned as written, boolean or not; claude_vm_check_bool is
-# the gate that rejects anything but true/false.
-claude_vm_bool_scalar() {
+# The value is returned as written; the caller's own gate (claude_vm_check_bool
+# for a boolean, a `case` for an enumeration) rejects what its type does not
+# allow.
+claude_vm_scalar() {
   local file="$1" path="$2" fallback="$3" is_null val
   is_null="$(yq eval "(${path} == null)" "$file" 2>/dev/null)"
   if [ "$is_null" != "false" ]; then
@@ -1785,7 +1763,7 @@ claude_vm_boot_apt_egress_needed() {
     return 0
   fi
   local update_at_boot
-  update_at_boot="$(claude_vm_bool_scalar "$file" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+  update_at_boot="$(claude_vm_scalar "$file" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
   [ "$update_at_boot" = "true" ]
 }
 
@@ -2938,7 +2916,7 @@ $name
     esac
   done < <(claude_vm_marketplaces "$boot_doc")
   local update_at_boot
-  update_at_boot="$(claude_vm_bool_scalar "$boot_doc" '.claude.plugins.update_at_boot' \
+  update_at_boot="$(claude_vm_scalar "$boot_doc" '.claude.plugins.update_at_boot' \
     "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
   [ "$update_at_boot" = "true" ] &&
     [ -n "$(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")" ]
@@ -3120,10 +3098,9 @@ claude_vm_render_guest_settings() {
   local permission_mode
 
   # Resolve permission_mode with the same default as the schema
-  # (bypassPermissions). claude_vm_scalar treats absent/null as the
-  # fallback; permission_mode is a plain string, never a boolean, so the
-  # non-boolean-safe accessor is correct here. The launcher enum-guards the
-  # value up front, so an unexpected mode never reaches this render.
+  # (bypassPermissions). claude_vm_scalar treats absent/null/empty as the
+  # fallback. The launcher enum-guards the value up front, so an unexpected
+  # mode never reaches this render.
   permission_mode="$(claude_vm_scalar "$file" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
 
   # Collect the installed plugin refs (bake ++ install_at_boot), preserving

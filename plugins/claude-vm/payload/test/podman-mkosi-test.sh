@@ -152,8 +152,14 @@ printf '#!/usr/bin/env bash\n' >"$BOOT_LAUNCHER"
 chmod +x "$BOOT_LAUNCHER"
 OUT_IMAGE="$WORK/out.raw"
 
+# The headroom every run passes unless it names one; build-guest-image.sh always
+# passes one, and the provisioner refuses to build without it.
+TEST_HEADROOM_MB=2048
+
+# run_provisioner <bake-config-json> [headroom-mb] -- an explicit empty
+# headroom-mb leaves CLAUDE_VM_ROOT_HEADROOM_MB empty.
 run_provisioner() {
-  local bake_config="$1" headroom_mb="${2:-}"
+  local bake_config="$1" headroom_mb="${2-$TEST_HEADROOM_MB}"
   PATH="$STUB_PATH" \
     CLAUDE_VM_BAKE_CONFIG="$bake_config" \
     CLAUDE_VM_ROOT_HEADROOM_MB="$headroom_mb" \
@@ -696,7 +702,7 @@ fi
 # fresh capture so these assertions do not depend on state left over from
 # the render_apt_source cases above.
 # ---------------------------------------------------------------------
-run_provisioner "$BAKE_CONFIG" "2048"
+run_provisioner "$BAKE_CONFIG" "$TEST_HEADROOM_MB"
 DIET_RUN_EXIT=$?
 assert_eq "diet/headroom run reaches container handoff (stub exit 42)" \
   "42" "$DIET_RUN_EXIT"
@@ -754,19 +760,19 @@ else
   echo "FAIL - mkosi.repart/ definition files not found ($REPART_ESP, $REPART_ROOT)"
 fi
 
-# Default headroom (unset CLAUDE_VM_ROOT_HEADROOM_MB) resolves to 900+1024=1924M.
+# No headroom at all: the provisioner carries no default of its own, so an
+# empty CLAUDE_VM_ROOT_HEADROOM_MB aborts before any container handoff.
 run_provisioner "$BAKE_CONFIG" ""
-DEFAULT_HEADROOM_EXIT=$?
-assert_eq "default-headroom run reaches container handoff (stub exit 42)" \
-  "42" "$DEFAULT_HEADROOM_EXIT"
-DEFAULT_REPART_ROOT="$CAPTURE_RECIPE/mkosi.repart/10-root.conf"
-if [ -f "$DEFAULT_REPART_ROOT" ]; then
-  assert_contains "repart root: default headroom yields SizeMinBytes=1924M" \
-    "$DEFAULT_REPART_ROOT" "SizeMinBytes=1924M"
+NO_HEADROOM_EXIT=$?
+if [ "$NO_HEADROOM_EXIT" -ne 0 ] && [ "$NO_HEADROOM_EXIT" -ne 42 ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - empty CLAUDE_VM_ROOT_HEADROOM_MB aborts before container handoff"
 else
   FAIL=$((FAIL + 1))
-  echo "FAIL - mkosi.repart/10-root.conf not found for default-headroom run"
+  echo "FAIL - empty CLAUDE_VM_ROOT_HEADROOM_MB did not abort as expected (exit=$NO_HEADROOM_EXIT)"
 fi
+assert_contains "empty headroom: actionable error on stderr" \
+  "$WORK/stderr.log" "CLAUDE_VM_ROOT_HEADROOM_MB is not set"
 
 # An invalid (non-integer) headroom must abort before any container handoff.
 run_provisioner "$BAKE_CONFIG" "not-a-number"
@@ -854,6 +860,7 @@ run_provisioner_plugins() {
     CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' \
     CLAUDE_VM_BAKE_PLUGINS="$bake_plugins" \
     CLAUDE_VM_GUEST_CLAUDE_BIN="$guest_bin" \
+    CLAUDE_VM_ROOT_HEADROOM_MB="$TEST_HEADROOM_MB" \
     bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" \
     >"$WORK/plugins-stdout.log" 2>"$WORK/plugins-stderr.log"
 }

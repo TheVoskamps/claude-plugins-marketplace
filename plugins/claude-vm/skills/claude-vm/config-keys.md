@@ -189,8 +189,10 @@ or a single-file target that exists at all.
 
 - `claude.renderer` picks the in-guest terminal renderer: `classic` sets
   `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, `fullscreen` sets
-  `CLAUDE_CODE_NO_FLICKER=1`, and unset leaves claude's own renderer. Both
-  work over the console; a value outside its type aborts the launch.
+  `CLAUDE_CODE_NO_FLICKER=1`. Leaving it unset means Claude Code's own
+  renderer, so unset is accepted beside the two values its type lists.
+  Both listed renderers work over the console; any other value, a YAML
+  `false` included, aborts the launch.
 - `claude.remote_control`, when `true`, adds `--remote-control` to the
   in-guest claude unless the arguments already carry it, and a
   date-stamped `--name` such as `Jul10-14:30` when none was given. A

@@ -496,6 +496,11 @@ CLAUDE_VM_COLUMNS=
 CLAUDE_VM_LINES=
 CLAUDE_ARGS=--version\ spaced\\\ #arg
 RUNENV
+  # The two boot-phase flags the boot launcher requires, at the key table's
+  # defaults, as the real launcher writes them for a config that sets neither.
+  printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\nCLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=%s\n' \
+    "$(claude_vm_config_key_default update_at_boot)" \
+    "$(claude_vm_config_key_default claude.plugins.update_at_boot)" >>"$RUNCONFIG_SHARE/run.env"
   # Stub claude: prints a marker the boot test asserts, proving the guest
   # ran the mounted binary off /mnt/claudebin.
   cat >"$CLAUDEBIN_SHARE/claude" <<'STUBCLAUDE'

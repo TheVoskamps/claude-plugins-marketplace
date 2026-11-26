@@ -25,7 +25,7 @@
 set -euo pipefail
 
 ALLOWLIST="${CLAUDE_VM_EGRESS_ALLOWLIST:?tinyproxy-launch: CLAUDE_VM_EGRESS_ALLOWLIST is not set (the launcher exports it)}"
-PORT="${CLAUDE_VM_PROXY_PORT:-3128}"
+PORT="${CLAUDE_VM_PROXY_PORT:?tinyproxy-launch: CLAUDE_VM_PROXY_PORT is not set (the launcher exports it)}"
 # Bind address the guest reaches the proxy on. The guest's HTTPS_PROXY
 # targets the gvproxy host alias, which gvproxy forwards to a listener on
 # the host loopback, so binding 127.0.0.1 is correct and avoids exposing

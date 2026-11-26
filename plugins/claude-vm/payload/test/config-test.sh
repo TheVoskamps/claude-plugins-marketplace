@@ -282,15 +282,9 @@ assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 # ---------------------------------------------------------------------
 # Test 3b: guest-capability schema (issue #103) -- scalars repo-wins
 # ---------------------------------------------------------------------
-# NOTE: yq's `// ""` returns "" for a boolean `false`, so claude_vm_scalar
-# (the plain string/number accessor) cannot distinguish an explicit
-# `false` from an absent key -- see claude_vm_bool_scalar's dedicated
-# round-trip coverage in Test 3d below, which proves explicit `false`
-# survives via the boolean-aware accessor. Fixtures set the
-# *_update_at_boot booleans global=false / repo=true so "repo wins"
-# resolves to a non-empty "true" here via claude_vm_scalar; the
-# false/fallback case for claude_vm_scalar specifically is covered
-# separately for the global-only merge below.
+# Fixtures set the *_update_at_boot booleans global=false / repo=true so
+# "repo wins" resolves to "true" here; Test 3d below covers an explicit
+# `false` surviving.
 assert_eq "scalar: update_at_boot repo wins (true)" \
   "true" "$(claude_vm_scalar "$MERGED_BOOT" '.update_at_boot' 'X')"
 assert_eq "scalar: add_apt_uris_to_allowlist repo wins (always)" \
@@ -365,11 +359,11 @@ assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
   "1" "$PLUGIN_INSTALL_COUNT"
 
 # ---------------------------------------------------------------------
-# Test 3d: claude_vm_bool_scalar -- explicit `false` survives (issue #103
-# review finding). Unlike claude_vm_scalar's `// ""` idiom, an explicit
-# YAML `false` must round-trip as "false", not be replaced by the
-# caller's fallback. Cover all four presence states: explicit false,
-# explicit true, genuinely absent, and explicit null.
+# Test 3d: claude_vm_scalar -- explicit `false` survives (issue #103
+# review finding). An explicit YAML `false` must round-trip as "false",
+# not be replaced by the caller's fallback. Cover all four presence
+# states: explicit false, explicit true, genuinely absent, and explicit
+# null.
 # ---------------------------------------------------------------------
 BOOL_YML="$WORK/bool-scalar.yml"
 cat >"$BOOL_YML" <<'YML'
@@ -380,14 +374,14 @@ other:
   x: 1
 YML
 
-assert_eq "bool_scalar: explicit false is preserved (not replaced by fallback)" \
-  "false" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_false' 'FALLBACK')"
-assert_eq "bool_scalar: explicit true is preserved" \
-  "true" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_true' 'FALLBACK')"
-assert_eq "bool_scalar: genuinely absent key falls back" \
-  "FALLBACK" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_absent' 'FALLBACK')"
-assert_eq "bool_scalar: explicit null falls back (same as absent)" \
-  "FALLBACK" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_null' 'FALLBACK')"
+assert_eq "scalar presence:explicit false is preserved (not replaced by fallback)" \
+  "false" "$(claude_vm_scalar "$BOOL_YML" '.knob_false' 'FALLBACK')"
+assert_eq "scalar presence:explicit true is preserved" \
+  "true" "$(claude_vm_scalar "$BOOL_YML" '.knob_true' 'FALLBACK')"
+assert_eq "scalar presence:genuinely absent key falls back" \
+  "FALLBACK" "$(claude_vm_scalar "$BOOL_YML" '.knob_absent' 'FALLBACK')"
+assert_eq "scalar presence:explicit null falls back (same as absent)" \
+  "FALLBACK" "$(claude_vm_scalar "$BOOL_YML" '.knob_null' 'FALLBACK')"
 
 # Same check against the real merged fixture's two guest-capability
 # booleans, with fixtures inverted (global=true / repo=false) so "repo
@@ -399,10 +393,10 @@ BOOL_R="$WORK/bool-r.yml"
 printf 'update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' >"$BOOL_R"
 MERGED_BOOL="$WORK/merged-bool.yml"
 claude_vm_merge_config "$BOOL_G" "$BOOL_R" >"$MERGED_BOOL"
-assert_eq "bool_scalar: update_at_boot repo-wins explicit false survives" \
-  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
-assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false survives" \
-  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
+assert_eq "scalar presence:update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
+assert_eq "scalar presence:claude.plugins.update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
 
 # ---------------------------------------------------------------------
 # Test 3e: claude_vm_apt_sources / claude_vm_marketplaces -- missing
@@ -444,17 +438,10 @@ assert_eq "global-only: cpus from global" \
   "2" "$(claude_vm_scalar "$MERGED_G" '.cpus' 'X')"
 assert_eq "global-only: egress count is 2" \
   "2" "$(claude_vm_egress_hosts "$MERGED_G" | grep -c .)"
-# global's update_at_boot is false; the yq `// ""` quirk for
-# boolean false means the plain claude_vm_scalar accessor falls back to
-# the caller default here -- this is claude_vm_scalar's DOCUMENTED
-# limitation (see its header comment), not a bug in this accessor. The
-# boolean-aware claude_vm_bool_scalar accessor (Test 3d above) is the
-# one that must preserve explicit false; this assertion just pins
-# claude_vm_scalar's known, unchanged behavior so a future edit doesn't
-# silently "fix" it here and break the non-boolean scalar callers that
-# rely on the `// ""` idiom.
-assert_eq "global-only: update_at_boot from global (false, plain scalar accessor falls back)" \
-  "X" "$(claude_vm_scalar "$MERGED_G" '.update_at_boot' 'X')"
+# global's update_at_boot is false, and the explicit `false` survives the
+# global-only merge rather than falling back to the caller's default.
+assert_eq "global-only: update_at_boot from global (explicit false survives)" \
+  "false" "$(claude_vm_scalar "$MERGED_G" '.update_at_boot' 'X')"
 assert_eq "global-only: claude.permission_mode from global" \
   "bypassPermissions" "$(claude_vm_scalar "$MERGED_G" '.claude.permission_mode' 'X')"
 assert_eq "global-only: github.auth from global" \
@@ -803,8 +790,6 @@ printf 'claude:\n  remote_control: maybe\n' >"$RC_GARBAGE_YML"
 
 assert_eq "remote_control: true resolves to true" \
   "true" "$(rc_resolve "$(claude_vm_scalar "$RC_TRUE_YML" '.claude.remote_control' '')")"
-# NOTE: yq's `// ""` returns "" for a boolean false, so the scalar is "" here;
-# the launcher's normalization maps both "" and "false" to false. Assert false.
 assert_eq "remote_control: false resolves to false" \
   "false" "$(rc_resolve "$(claude_vm_scalar "$RC_FALSE_YML" '.claude.remote_control' '')")"
 assert_eq "remote_control: unset resolves to false" \
@@ -946,8 +931,8 @@ assert_eq "render: no plugins -> empty enabledPlugins object" \
 S_NOMODE="$WORK/settings-nomode.yml"
 printf 'claude:\n  permissions:\n    deny:\n      - "Bash(sudo:*)"\n' >"$S_NOMODE"
 R_NOMODE="$(claude_vm_render_guest_settings "$S_NOMODE")"
-assert_eq "render: absent permission_mode defaults to bypassPermissions" \
-  "bypassPermissions" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
+assert_eq "render: absent permission_mode takes the key table's default" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
 
 # A ref in BOTH bake and install_at_boot collapses to one enabledPlugins entry
 # (bake in the bake doc, install_at_boot in the boot doc -- issue #107).
@@ -1957,7 +1942,7 @@ printf 'update_at_boot: false\nadd_apt_uris_to_allowlist: auto\n' >"$REG_BOOT_G"
 REG_BOOT="$WORK/reg-boot.yml"
 claude_vm_merge_config "$REG_BOOT_G" "$WORK/does-not-exist.yml" >"$REG_BOOT"
 assert_eq "regression: boot-file update_at_boot: false reaches the boolean resolver" \
-  "false" "$(claude_vm_bool_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+  "false" "$(claude_vm_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 assert_eq "regression: boot-file add_apt_uris_to_allowlist reaches the resolver" \
   "auto" "$(claude_vm_scalar "$REG_BOOT" '.add_apt_uris_to_allowlist' 'X')"
 if ! claude_vm_boot_apt_egress_needed "$REG_BOOT"; then
@@ -5045,6 +5030,40 @@ uab_case "a valueless claude.plugins.update_at_boot in a repo config passes" pas
   permission_mode: uab-backstop
   plugins:
     update_at_boot:
+"
+
+# ---------------------------------------------------------------------
+# Test 38: a YAML boolean `false` for an enumeration aborts the launch.
+#
+# `false` is a value, not an absent key, so it must reach the enum guards
+# rather than resolve to the key's default: claude.permission_mode: false
+# would otherwise run under bypassPermissions. Driven through the REAL
+# claude-vm.sh with run_uab; the claude.renderer guard runs before the
+# permission_mode guard, so a renderer case that passes its guard reaches the
+# uab-backstop diagnostic.
+# ---------------------------------------------------------------------
+enum_case() {
+  local label="$1" expected="$2" diag="$3" got
+  rm -f "$UAB/r.yml"
+  printf '%s' "$4" >"$UAB/r.yml"
+  got="$(run_uab "$UAB/absent-g.yml" "$UAB/r.yml")"
+  assert_eq "enum false: $label" "$expected" "$(uab_verdict "$got" "$diag")"
+}
+enum_case "claude.permission_mode: false aborts" aborted \
+  "claude.permission_mode must be 'bypassPermissions' or 'default', got 'false'" \
+  "claude:
+  permission_mode: false
+"
+enum_case "claude.renderer: false aborts" aborted \
+  "unknown claude.renderer 'false'" \
+  "claude:
+  renderer: false
+  permission_mode: uab-backstop
+"
+enum_case "claude.renderer: classic passes its guard" passed "" \
+  "claude:
+  renderer: classic
+  permission_mode: uab-backstop
 "
 
 # ---------------------------------------------------------------------
