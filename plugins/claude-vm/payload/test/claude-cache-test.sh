@@ -134,6 +134,7 @@ assert_eq "default cache dir is \$CLAUDE_VM_STATE_DIR/cache" \
   "$STATE_HOME/claude-vm/cache/9.9.9/linux-arm64/claude" \
   "$(
     unset CLAUDE_VM_CACHE_DIR CLAUDE_VM_STATE_DIR
+    # shellcheck source=../lib/claude-cache.sh
     XDG_STATE_HOME="$STATE_HOME" . "$LIB"
     claude_cache_binary_path 9.9.9
   )"
@@ -148,6 +149,7 @@ cp "$LIB" "$STUB_LIB/claude-cache.sh"
 printf 'CLAUDE_VM_STATE_DIR=""\n' >"$STUB_LIB/config.sh"
 STUB_ERR="$( (
   unset CLAUDE_VM_CACHE_DIR
+  # shellcheck source=../lib/claude-cache.sh
   . "$STUB_LIB/claude-cache.sh"
 ) 2>&1 >/dev/null)"
 assert_rc "empty CLAUDE_VM_STATE_DIR after config.sh -> source aborts (rc 1)" "1" "$?"
@@ -243,6 +245,7 @@ echo "[GNUPG:] VALIDSIG $FAKE_FPR 2026-01-01 0 0 4 0 1 8 00 $FAKE_FPR"
 exit 0
 GPGSTUB
 chmod +x "$GPG_BIN/gpg"
+GPG_PATH="$GPG_BIN:$PATH"
 
 # The top of this file replaced claude_cache_gpg_verify with a stub, so we
 # cannot call the REAL function in this shell. Instead each check runs in a
@@ -254,9 +257,10 @@ verify_with_pin() {
   # the function's rc.
   local pin="$1"
   (
-    PATH="$GPG_BIN:$PATH"
+    PATH="$GPG_PATH"
     CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$pin"
     export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
+    # shellcheck source=../lib/claude-cache.sh
     . "$LIB" # fresh lib => REAL claude_cache_gpg_verify, not the stub
     : >"$WORK/sig"
     : >"$WORK/signed"
@@ -360,9 +364,10 @@ ensure_unset_pin_caches_nothing() {
   # Run in a subshell so the real lib (with real gpg_verify) and the empty
   # pin do not leak into the rest of this file's stubbed pipeline.
   (
-    PATH="$GPG_BIN:$PATH"
+    PATH="$GPG_PATH"
     CLAUDE_VM_SIGNING_KEY_FINGERPRINT="" # unpinned => must hard-abort
-    export CLAUDE_VM_SIGNING_KEY_FINGERPRINT CLAUDE_VM_CACHE_DIR
+    export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
+    # shellcheck source=../lib/claude-cache.sh
     . "$LIB" # fresh lib => REAL claude_cache_gpg_verify
     # Re-install the fetch stub inside this subshell (sourcing the lib reset
     # it to the real curl wrapper). Serve a fresh version so no prior cache

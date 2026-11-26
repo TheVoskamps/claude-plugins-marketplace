@@ -81,11 +81,10 @@ alive() {
   if kill -0 "$1" 2>/dev/null; then echo alive; else echo dead; fi
 }
 
-# pid_start <pid> -- lib/config.sh's claude_vm_pid_start, sourced in a subshell
-# so this shell's environment is left alone.
+# pid_start <pid> -- lib/config.sh's claude_vm_pid_start, sourced in a child
+# shell so this shell's environment is left alone.
 pid_start() {
-  # shellcheck source=../lib/config.sh
-  (. "$LIB" && claude_vm_pid_start "$1")
+  "$BASH" -c ". \"\$1\" && claude_vm_pid_start \"\$2\"" _ "$LIB" "$1"
 }
 
 # track_pids <file> -- add every pid listed in <file>, one per line, to
@@ -110,7 +109,7 @@ wait_for_file() {
 # ---------------------------------------------------------------------
 # The launcher holds the lock for its lifetime, and kill -9 drops it.
 # ---------------------------------------------------------------------
-LOCK_START="$(grep -n '^RUN="\$CLAUDE_VM_RUNS_DIR/\$RUN_ID"$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+LOCK_START="$(awk '$0 == "RUN=\"$CLAUDE_VM_RUNS_DIR/$RUN_ID\"" { print NR; exit }' "$LAUNCHER")"
 LOCK_END=""
 if [ -n "$LOCK_START" ]; then
   LOCK_END="$(awk -v s="$LOCK_START" 'NR > s && /^fi$/ { print NR; exit }' "$LAUNCHER")"
@@ -128,13 +127,17 @@ write_holder() {
     echo '#!/usr/bin/env bash'
     echo 'set -euo pipefail'
     printf '. %s\n' "\"$LIB\""
-    echo 'RUN_ID="$1"'
+    cat <<'EOF'
+RUN_ID="$1"
+EOF
     awk -v s="$LOCK_START" -v e="$LOCK_END" 'NR >= s && NR <= e' "$LAUNCHER"
     [ -n "$extra" ] && cat "$extra"
-    echo 'printf "%s\n" "$RUN" > "$2"'
-    echo 'sleep 300 9>&- >/dev/null 2>&1 &'
-    echo 'echo $! >> "$3"'
-    echo 'wait'
+    cat <<'EOF'
+printf "%s\n" "$RUN" > "$2"
+sleep 300 9>&- >/dev/null 2>&1 &
+echo $! >> "$3"
+wait
+EOF
   } >"$out"
 }
 
@@ -191,8 +194,8 @@ fi
 # ---------------------------------------------------------------------
 # The proxy and gvproxy are spawned without the lock.
 # ---------------------------------------------------------------------
-PROXY_LINE="$(grep -n '^eval "exec \$PROXY_CMD" ' "$LAUNCHER" | head -1 | cut -d: -f1)"
-GV_START="$(grep -n '^"\$GVPROXY_BIN" --listen-vfkit' "$LAUNCHER" | head -1 | cut -d: -f1)"
+PROXY_LINE="$(awk 'index($0, "eval \"exec $PROXY_CMD\" ") == 1 { print NR; exit }' "$LAUNCHER")"
+GV_START="$(awk 'index($0, "\"$GVPROXY_BIN\" --listen-vfkit") == 1 { print NR; exit }' "$LAUNCHER")"
 GV_END=""
 if [ -n "$GV_START" ]; then
   GV_END="$(awk -v s="$GV_START" 'NR >= s && /^GV_PID=\$!$/ { print NR; exit }' "$LAUNCHER")"
@@ -207,21 +210,31 @@ if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$
   printf '#!/bin/sh\nexec sleep 300\n' >"$FAKE_GVPROXY"
   chmod +x "$FAKE_GVPROXY"
   FAKE_PROXY="$WORK/fake-proxy"
-  printf '#!/bin/sh\necho "$$" > "$1"\nexec sleep 300\n' >"$FAKE_PROXY"
+  cat >"$FAKE_PROXY" <<'EOF'
+#!/bin/sh
+echo "$$" > "$1"
+exec sleep 300
+EOF
   chmod +x "$FAKE_PROXY"
   SPAWN_LINES="$WORK/spawn-lines.sh"
   {
     printf 'PROXY_CMD=%s\n' "'$FAKE_PROXY \"\$RUN/proxy.self\"'"
-    echo 'PROXY_LOG="$RUN/proxy.log"'
     echo "GVPROXY_BIN=\"$FAKE_GVPROXY\""
-    echo 'GVPROXY_LOG="$RUN/gvproxy.log"'
-    echo 'GVPROXY_SOCK="$RUN/net.sock"'
-    echo 'SSH_PORT=0'
-    echo 'PCAP="$RUN/egress.pcap"'
+    cat <<'EOF'
+PROXY_LOG="$RUN/proxy.log"
+GVPROXY_LOG="$RUN/gvproxy.log"
+GVPROXY_SOCK="$RUN/net.sock"
+SSH_PORT=0
+PCAP="$RUN/egress.pcap"
+EOF
     awk -v n="$PROXY_LINE" 'NR == n' "$LAUNCHER"
-    echo 'echo $! >> "$3"'
+    cat <<'EOF'
+echo $! >> "$3"
+EOF
     awk -v s="$GV_START" -v e="$GV_END" 'NR >= s && NR <= e' "$LAUNCHER"
-    echo 'echo $GV_PID >> "$3"'
+    cat <<'EOF'
+echo $GV_PID >> "$3"
+EOF
   } >"$SPAWN_LINES"
   HOLDER_SPAWN="$WORK/holder-spawn.sh"
   write_holder "$HOLDER_SPAWN" "$SPAWN_LINES"
@@ -275,9 +288,9 @@ if [ -n "$LOCK_START" ] && [ -n "$LOCK_END" ] && [ -n "$PROXY_LINE" ] && [ -n "$
   # The recorded pid is then the subshell the eval runs in, and the proxy is
   # its child, which stopping the recorded pid leaves running.
   SPAWN_LINES_NOEXEC="$WORK/spawn-lines-noexec.sh"
-  sed 's/"exec \$PROXY_CMD"/"$PROXY_CMD"/' "$SPAWN_LINES" >"$SPAWN_LINES_NOEXEC"
+  awk '{ sub(/"exec \$PROXY_CMD"/, "\"$PROXY_CMD\"") } 1' "$SPAWN_LINES" >"$SPAWN_LINES_NOEXEC"
   assert_eq "spawn: the control really evals proxy.cmd without the exec" \
-    "0" "$(grep -c 'exec \$PROXY_CMD' "$SPAWN_LINES_NOEXEC")"
+    "0" "$(awk 'index($0, "exec $PROXY_CMD") { n++ } END { print n + 0 }' "$SPAWN_LINES_NOEXEC")"
   HOLDER_NOEXEC="$WORK/holder-noexec.sh"
   write_holder "$HOLDER_NOEXEC" "$SPAWN_LINES_NOEXEC"
   bash "$HOLDER_NOEXEC" run-d2 "$WORK/d2.ready" "$WORK/d2.pids" 2>/dev/null &
@@ -315,7 +328,11 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
   # had before it exec'd into this -- then sleeps as a running VM would.
   FAKE_BIN="$WORK/fake-bin"
   mkdir -p "$FAKE_BIN"
-  printf '#!/bin/sh\necho "$$" > "$VFKIT_PIDFILE"\nexec sleep 300\n' >"$FAKE_BIN/vfkit"
+  cat >"$FAKE_BIN/vfkit" <<'EOF'
+#!/bin/sh
+echo "$$" > "$VFKIT_PIDFILE"
+exec sleep 300
+EOF
   chmod +x "$FAKE_BIN/vfkit"
 
   # The launch harness: the lock lines, the proxy and gvproxy spawns, then the
@@ -326,22 +343,30 @@ if [ -n "${SPAWN_LINES:-}" ] && [ -f "${SPAWN_LINES:-}" ] && [ -n "$VF_START" ] 
     echo '#!/usr/bin/env bash'
     echo 'set -euo pipefail'
     printf '. %s\n' "\"$LIB\""
-    echo 'RUN_ID="$1"'
+    cat <<'EOF'
+RUN_ID="$1"
+EOF
     awk -v s="$LOCK_START" -v e="$LOCK_END" 'NR >= s && NR <= e' "$LAUNCHER"
     cat "$SPAWN_LINES"
     # The launcher's own PROXY_PID=$! line is not in the spawn slice, nor are
     # the start-time readings taken beside it and beside GV_PID=$!. A
     # FAKE_PROXY_START in the environment stands in for a recorded start time
     # the proxy's pid no longer carries: a pid another process has taken.
-    echo 'PROXY_PID="$(sed -n 1p "$3")"'
-    echo 'PROXY_PID_START="${FAKE_PROXY_START:-$(claude_vm_pid_start "$PROXY_PID")}"'
-    echo 'GV_PID_START="$(claude_vm_pid_start "$GV_PID")"'
+    cat <<'EOF'
+PROXY_PID="$(sed -n 1p "$3")"
+PROXY_PID_START="${FAKE_PROXY_START:-$(claude_vm_pid_start "$PROXY_PID")}"
+GV_PID_START="$(claude_vm_pid_start "$GV_PID")"
+EOF
     printf 'SCRIPT_DIR="%s"\n' "$TEST_DIR/.."
-    echo 'RUN_META="$RUN/run.meta"'
+    cat <<'EOF'
+RUN_META="$RUN/run.meta"
+EOF
     awk -v s="$META_START" 'NR >= s { print } NR > s && /^}$/ { exit }' "$LAUNCHER"
-    echo 'VM_CPUS=1 VM_MEM=512 EFISTORE="$RUN/efistore" GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"'
-    echo 'MOUNT_SHARED_DIR="$RUN/worktree" CONFIG_DIR="$RUN/config" CLAUDE_BIN_DIR="$RUN/bin"'
-    echo 'CREDS_DIR="$RUN/creds" GUEST_CONSOLE_LOG="$RUN/guest-console.log" EXTRA_MOUNT_FLAGS=()'
+    cat <<'EOF'
+VM_CPUS=1 VM_MEM=512 EFISTORE="$RUN/efistore" GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
+MOUNT_SHARED_DIR="$RUN/worktree" CONFIG_DIR="$RUN/config" CLAUDE_BIN_DIR="$RUN/bin"
+CREDS_DIR="$RUN/creds" GUEST_CONSOLE_LOG="$RUN/guest-console.log" EXTRA_MOUNT_FLAGS=()
+EOF
     echo "PATH=\"$FAKE_BIN:\$PATH\""
     awk -v s="$VF_START" -v e="$VF_END" 'NR >= s && NR < e' "$LAUNCHER"
   } >"$VF_HOLDER"
@@ -444,11 +469,11 @@ fi
 # run.meta, and spares the live one.
 # ---------------------------------------------------------------------
 # Only the state root is set; the runs root is whatever lib/config.sh derives
-# from it, read back here the same way the cleaner gets it.
+# from it, read back here the same way the cleaner gets it: by sourcing
+# lib/config.sh, here in a child shell.
 export CLAUDE_VM_STATE_DIR="$WORK/state"
 unset CLAUDE_VM_RUNS_DIR
-# shellcheck source=../lib/config.sh
-CLAUDE_VM_RUNS_DIR="$(. "$LIB" && printf '%s' "$CLAUDE_VM_RUNS_DIR")"
+CLAUDE_VM_RUNS_DIR="$("$BASH" -c ". \"\$1\" && printf '%s' \"\$CLAUDE_VM_RUNS_DIR\"" _ "$LIB")"
 assert_eq "runs root: lib/config.sh derives it under the state root" \
   "$CLAUDE_VM_STATE_DIR/runs" "$CLAUDE_VM_RUNS_DIR"
 REPO="/repos/shared"

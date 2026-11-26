@@ -455,7 +455,7 @@ claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BAKE" >"$MERGED_R_BAKE"
 assert_eq "repo-only: cpus from repo" \
   "8" "$(claude_vm_scalar "$MERGED_R" '.cpus' 'X')"
 assert_eq "repo-only: mem falls back to hardcoded default" \
-  "$CLAUDE_VM_DEFAULT_MEM" "$(claude_vm_scalar "$MERGED_R" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
+  "$(claude_vm_config_key_default mem)" "$(claude_vm_scalar "$MERGED_R" '.mem' "$(claude_vm_config_key_default mem)")"
 assert_eq "repo-only: claude.permission_mode from repo (default)" \
   "default" "$(claude_vm_scalar "$MERGED_R" '.claude.permission_mode' 'X')"
 assert_eq "repo-only: github.auth from repo (host-token)" \
@@ -471,9 +471,9 @@ assert_eq "repo-only: image.root_headroom_mb from repo bake (2048)" \
 MERGED_N="$WORK/merged-none.yml"
 claude_vm_merge_config "$WORK/none-a.yml" "$WORK/none-b.yml" >"$MERGED_N"
 assert_eq "neither: cpus fallback" \
-  "$CLAUDE_VM_DEFAULT_CPUS" "$(claude_vm_scalar "$MERGED_N" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
+  "$(claude_vm_config_key_default cpus)" "$(claude_vm_scalar "$MERGED_N" '.cpus' "$(claude_vm_config_key_default cpus)")"
 assert_eq "neither: repo.mount fallback is clone" \
-  "$CLAUDE_VM_DEFAULT_REPO_MOUNT" "$(claude_vm_scalar "$MERGED_N" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
+  "$(claude_vm_config_key_default repo.mount)" "$(claude_vm_scalar "$MERGED_N" '.repo.mount' "$(claude_vm_config_key_default repo.mount)")"
 assert_eq "neither: egress allow is empty" \
   "0" "$(claude_vm_egress_hosts "$MERGED_N" | grep -c .)"
 assert_eq "neither: update_at_boot fallback (true)" \
@@ -494,8 +494,8 @@ assert_eq "neither: claude.plugins.add_marketplace_uris_to_allowlist fallback (a
 assert_eq "neither: claude.plugins.enabled absent -> empty map" \
   "0" "$(yq eval '.claude.plugins.enabled // {} | length' "$MERGED_N" 2>/dev/null)"
 assert_eq "neither: github.auth fallback (none)" \
-  "$CLAUDE_VM_DEFAULT_GITHUB_AUTH" \
-  "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$CLAUDE_VM_DEFAULT_GITHUB_AUTH")"
+  "$(claude_vm_config_key_default github.auth)" \
+  "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$(claude_vm_config_key_default github.auth)")"
 assert_eq "neither: packages list is empty" \
   "0" "$(claude_vm_list_items "$MERGED_N" '.packages' | grep -c .)"
 assert_eq "neither: claude.permissions.allow is empty" \
@@ -503,8 +503,8 @@ assert_eq "neither: claude.permissions.allow is empty" \
 assert_eq "neither: claude.marketplaces is empty" \
   "0" "$(claude_vm_marketplaces "$MERGED_N" | grep -c .)"
 assert_eq "neither: image.root_headroom_mb fallback (1024)" \
-  "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB" \
-  "$(claude_vm_scalar "$MERGED_N" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
+  "$(claude_vm_config_key_default image.root_headroom_mb)" \
+  "$(claude_vm_scalar "$MERGED_N" '.image.root_headroom_mb' "$(claude_vm_config_key_default image.root_headroom_mb)")"
 
 # ---------------------------------------------------------------------
 # Test 6b: empty-skeleton pruning (issue #103 review finding). A list
@@ -1472,8 +1472,8 @@ printf '{}\n' >"$DE_HOSTS_EMPTY"
 assert_eq "apt_source_hosts: no apt_sources in either tier -> empty" \
   "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY" "$DE_HOSTS_EMPTY")"
 
-assert_eq "CLAUDE_VM_DEBIAN_MIRROR_HOSTS: pins the two Debian mirror hosts" \
-  "deb.debian.org security.debian.org" "$CLAUDE_VM_DEBIAN_MIRROR_HOSTS"
+assert_eq "claude_vm_debian_mirror_hosts: pins the two Debian mirror hosts" \
+  "deb.debian.org security.debian.org" "$(claude_vm_debian_mirror_hosts)"
 
 # ---------------------------------------------------------------------
 # Test 22: render_apt_source_boot name validation (issue #106).
@@ -2612,6 +2612,7 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
     assert_eq "boot_plugin_phase: a failing CLI is fail-soft (phase still succeeds)" "soft" "hard"
   fi
   CLAUDE_STUB_EXIT=0
+  export -n CLAUDE_BIN
 else
   echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; plugin-phase tests skipped." >&2
 fi
@@ -3826,7 +3827,9 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   printf '\texample.invalid\n' >"$PLUGIN_MARKETPLACES_TSV"
   PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"
   : >"$PLUGIN_INSTALL_LIST"
-  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
+  # Exported only so a static reader sees the sourced phase consume it; the
+  # export is dropped again at the end of this test.
+  export CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
   (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: a nameless record makes no CLI call at all" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
@@ -3874,6 +3877,7 @@ STUBS
   )
   assert_eq "boot_plugin_phase: NEGATIVE CONTROL -- the old read queries the registry for a marketplace named after the url" \
     "1" "$(grep -c '^plugin marketplace list$' "$CLAUDE_CALL_LOG" || true)"
+  export -n CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT
 else
   echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; guest-side two-field tests skipped." >&2
 fi
@@ -4202,6 +4206,7 @@ STUBS
     "-t virtiofs -o rw cfg gitconfig" "$(sed -n 1p "$MOUNT_CALL_LOG")"
   assert_eq "boot_mount_phase: NEGATIVE CONTROL -- and the single-file bind never happens" \
     "1" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+  export -n MOUNT_STUB_EXIT
 else
   echo "SKIP: boot_mount_phase extraction from build-guest-image.sh failed; guest-side mount tests skipped." >&2
 fi

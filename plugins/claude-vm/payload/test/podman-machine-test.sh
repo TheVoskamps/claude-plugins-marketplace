@@ -91,6 +91,7 @@ assert_eq() {
 #                exits non-zero
 # ---------------------------------------------------------------------
 STUB_BIN="$WORK/stubbin"
+STUB_PATH="$STUB_BIN:$PATH"
 mkdir -p "$STUB_BIN"
 cat >"$STUB_BIN/podman" <<'EOF'
 #!/usr/bin/env bash
@@ -193,15 +194,15 @@ stub_log() {
 # 1. The probe: which machine, and is it running.
 # ---------------------------------------------------------------------
 D="$(new_case probe-empty)"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
 assert_eq "probe: no machine on the host yields no output" "" "$OUT"
 
 D="$(new_case probe-stopped 'solo:false:false')"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
 assert_eq "probe: sole machine, stopped" "solo	false" "$OUT"
 
 D="$(new_case probe-default 'other:false:false' 'chosen:true:true')"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
 assert_eq "probe: prefers the default-flagged machine over the first listed" \
   "chosen	true" "$OUT"
 
@@ -217,7 +218,7 @@ assert_eq "probe: prefers the default-flagged machine over the first listed" \
 # machine-name-resolution-test.sh's, whose stub renders both forms
 # faithfully and drives this same helper.
 D="$(new_case probe-marker 'podman-machine-default:false:true')"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe | cut -f1)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe | cut -f1)"
 assert_eq "probe: the default machine's name carries no '*' marker" \
   "podman-machine-default" "$OUT"
 
@@ -236,7 +237,7 @@ assert_eq "probe: podman absent yields no output rather than an error" "" "$OUT"
 run_ensure() {
   local d="$1"
   (
-    PATH="$STUB_BIN:$PATH"
+    PATH="$STUB_PATH"
     PODMAN_STUB_DIR="$d"
     export PODMAN_STUB_DIR
     claude_vm_ensure_podman_machine >/dev/null 2>&1
@@ -321,7 +322,7 @@ esac
 # ---------------------------------------------------------------------
 D="$(new_case stop-started 'solo:true:true')"
 OUT="$(
-  PATH="$STUB_BIN:$PATH"
+  PATH="$STUB_PATH"
   PODMAN_STUB_DIR="$D"
   export PODMAN_STUB_DIR
   CLAUDE_VM_PODMAN_MACHINE_STARTED="solo"
@@ -335,7 +336,7 @@ assert_eq "stop: a second call is a no-op, not a second stop" \
 
 D="$(new_case stop-untouched 'solo:true:true')"
 OUT="$(
-  PATH="$STUB_BIN:$PATH"
+  PATH="$STUB_PATH"
   PODMAN_STUB_DIR="$D"
   export PODMAN_STUB_DIR
   CLAUDE_VM_PODMAN_MACHINE_STARTED=""
@@ -397,7 +398,7 @@ EOF
     fi
     (
       set -euo pipefail
-      PATH="$STUB_BIN:$PATH"
+      PATH="$STUB_PATH"
       PODMAN_STUB_DIR="$d"
       export PODMAN_STUB_DIR
       BUILD_MARKER="$d/build-marker"

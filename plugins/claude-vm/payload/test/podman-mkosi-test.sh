@@ -119,6 +119,7 @@ assert_not_contains() {
 # heredocs rendered) without needing a real podman machine.
 # ---------------------------------------------------------------------
 STUB_BIN="$WORK/bin"
+STUB_PATH="$STUB_BIN:$PATH"
 mkdir -p "$STUB_BIN"
 CAPTURE_RECIPE="$WORK/captured-recipe"
 CAPTURE_INNER="$WORK/captured-build-in-container.sh"
@@ -153,7 +154,7 @@ OUT_IMAGE="$WORK/out.raw"
 
 run_provisioner() {
   local bake_config="$1" headroom_mb="${2:-}"
-  PATH="$STUB_BIN:$PATH" \
+  PATH="$STUB_PATH" \
     CLAUDE_VM_BAKE_CONFIG="$bake_config" \
     CLAUDE_VM_ROOT_HEADROOM_MB="$headroom_mb" \
     bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" >"$WORK/stdout.log" 2>"$WORK/stderr.log"
@@ -326,6 +327,7 @@ esac
 exit 0
 EOF
 chmod +x "$RENDER_WORK/bin/curl"
+RENDER_PATH="$RENDER_WORK/bin:$PATH"
 
 if [ -f "$CAPTURE_INNER" ]; then
   # Extract exactly the render_apt_source() { ... } function body (from its
@@ -352,7 +354,7 @@ if [ -f "$CAPTURE_INNER" ]; then
       rm -rf "$stage"
       mkdir -p "$stage/sandbox/etc/apt/keyrings" "$stage/sandbox/etc/apt/sources.list.d"
       (
-        PATH="$RENDER_WORK/bin:$PATH"
+        PATH="$RENDER_PATH"
         # shellcheck source=/dev/null
         source "$RENDER_FN"
         render_apt_source "$c_name" "$c_repo" "$c_key_url" \
@@ -625,7 +627,9 @@ if [ -n "$AS_SLICE_START" ] && [ -n "$AS_SLICE_END" ]; then
       echo 'SANDBOX_KEYRINGS=/sandbox/keyrings'
       echo 'SANDBOX_SOURCES=/sandbox/sources'
       echo 'APT_KEYRINGS_RT=/etc/apt/keyrings'
-      echo 'render_apt_source() { printf "%s|%s|%s\n" "$1" "$2" "$3" >> "$AS_ARGV_LOG"; }'
+      cat <<'EOF'
+render_apt_source() { printf "%s|%s|%s\n" "$1" "$2" "$3" >> "$AS_ARGV_LOG"; }
+EOF
       awk -v start="$AS_SLICE_START" -v end="$AS_SLICE_END" \
         -v mode="$mode" -v oldread="$AS_OLD_READ_AWK" -v q="'" '
         NR < start || NR > end { next }
@@ -678,7 +682,7 @@ if [ -n "$AS_SLICE_START" ] && [ -n "$AS_SLICE_END" ]; then
   assert_contains "apt-sources-split: the control really carries the old tab-IFS read" \
     "$AS_SLICE_OLD" "$AS_OLD_READ"
   assert_not_contains "apt-sources-split: ... and none of the hand-split expansions" \
-    "$AS_SLICE_OLD" 'as_rest=${as_record'
+    "$AS_SLICE_OLD" "as_rest=\${as_record"
   assert_eq "apt-sources-split: NEGATIVE CONTROL -- the old read misreads the key_url as the repo" \
     "nr|https://k.example/key.asc|" "$(run_as_split "$AS_SLICE_OLD" "$AS_NO_REPO")"
 else
@@ -846,7 +850,7 @@ chmod +x "$FAKE_GUEST_CLAUDE"
 # run_provisioner_plugins <bake-plugins-json> [guest-claude-bin]
 run_provisioner_plugins() {
   local bake_plugins="$1" guest_bin="${2-$FAKE_GUEST_CLAUDE}"
-  PATH="$STUB_BIN:$PATH" \
+  PATH="$STUB_PATH" \
     CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' \
     CLAUDE_VM_BAKE_PLUGINS="$bake_plugins" \
     CLAUDE_VM_GUEST_CLAUDE_BIN="$guest_bin" \
@@ -912,9 +916,9 @@ if [ -f "$CAPTURE_INNER" ]; then
   # which as a regex means "any character", so 'foo.bar' would be accepted
   # against a registered 'fooxbar'.
   assert_contains "plugins: registered-name check uses the literal helper" \
-    "$CAPTURE_INNER" 'marketplace_registered "$mp_name"'
+    "$CAPTURE_INNER" "marketplace_registered \"\$mp_name\""
   assert_not_contains "plugins: registered-name check builds NO grep regex from the name" \
-    "$CAPTURE_INNER" 'grep -qE "(^|[[:space:]])${mp_name}'
+    "$CAPTURE_INNER" "grep -qE \"(^|[[:space:]])\${mp_name}"
 else
   FAIL=$((FAIL + 1))
   echo "FAIL - plugins: build-in-container.sh not captured"
@@ -961,11 +965,15 @@ fi
 if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
   {
     echo '#!/usr/bin/env bash'
-    echo 'set -euo pipefail'
-    echo 'GUEST_CLAUDE="$MP_STUB"'
+    cat <<'EOF'
+set -euo pipefail
+GUEST_CLAUDE="$MP_STUB"
+EOF
     awk -v start="$MP_SLICE_START" -v end="$MP_SLICE_END" 'NR >= start && NR <= end' "$CAPTURE_INNER" |
       sed "s#/work/recipe#$MP_POLICY_DIR#g"
-    echo 'echo "BAKED_ITEMS=$BAKED_ITEMS" >&2'
+    cat <<'EOF'
+echo "BAKED_ITEMS=$BAKED_ITEMS" >&2
+EOF
   } >"$MP_SLICE"
 
   # run_mp_policy <manifest-json> <add-exit> -- returns the loop's exit status,
@@ -1056,7 +1064,7 @@ fi
 # The tree-copy step must be skipped, not fatal, when nothing was baked.
 if [ -f "$CAPTURE_INNER" ]; then
   assert_contains "mp-policy: nothing baked skips the tree copy instead of aborting" \
-    "$CAPTURE_INNER" 'if [ "$BAKED_ITEMS" -eq 0 ]; then'
+    "$CAPTURE_INNER" "if [ \"\$BAKED_ITEMS\" -eq 0 ]; then"
 fi
 
 # No plugins configured -> the whole apparatus is inert and no binary is
@@ -1150,14 +1158,14 @@ C=3" \
     # survives quoting but not sourcing is still a broken guest.
     # The literal value, and the JSON encoding of that same value, written side
     # by side so the escaping of each is readable on its own terms.
-    BE_HOSTILE='a b"c'\''d$e`f\g;h'
+    BE_HOSTILE="a b\"c'd\$e\`f\\g;h"
     cat >"$BE_DIR/hostile.json" <<'HOSTILEJSON'
 {"bake":[],"apt_sources":[],"env":{"HOSTILE":"a b\"c'd$e`f\\g;h"}}
 HOSTILEJSON
     render_bake_env "$(cat "$BE_DIR/hostile.json")" >/dev/null
     BE_ROUNDTRIP="$(
       set -a
-      # shellcheck disable=SC1090
+      # shellcheck source=/dev/null
       . "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env"
       set +a
       printf '%s' "${HOSTILE:-<unset>}"

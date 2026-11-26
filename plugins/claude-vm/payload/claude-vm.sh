@@ -288,12 +288,12 @@ claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_B
     exit 1
   }
 
-VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
-VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
-REPO_MOUNT="$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
-COPY_BACK="$(claude_vm_scalar "$MERGED_BOOT" '.repo.copy_back' "$CLAUDE_VM_DEFAULT_REPO_COPY_BACK")"
-PROXY_PORT="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' "$CLAUDE_VM_DEFAULT_PROXY_PORT")"
-GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS")"
+VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$(claude_vm_config_key_default cpus)")"
+VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$(claude_vm_config_key_default mem)")"
+REPO_MOUNT="$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' "$(claude_vm_config_key_default repo.mount)")"
+COPY_BACK="$(claude_vm_scalar "$MERGED_BOOT" '.repo.copy_back' "$(claude_vm_config_key_default repo.copy_back)")"
+PROXY_PORT="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' "$(claude_vm_config_key_default proxy.port)")"
+GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$(claude_vm_config_key_default proxy.host_alias)")"
 # proxy.cmd: when unset in BOTH config layers, default to the bundled
 # tinyproxy launcher (the chosen forward proxy). It reads the egress
 # allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds $CLAUDE_VM_PROXY_PORT,
@@ -372,15 +372,14 @@ export CLAUDE_VM_BAKE_PLUGINS
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized above its base content, so a live session has room to grow
-# without hitting ENOSPC (see lib/config.sh's
-# CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB for the default's justification). A
-# normal scalar (repo overrides global), resolved once here as the MERGED,
-# default-filled value and exported so build-guest-image.sh forwards it to the
+# without hitting ENOSPC (lib/config.sh justifies the default beside its key
+# table). A normal scalar (repo overrides global), resolved once here as the
+# MERGED, default-filled value and exported so build-guest-image.sh forwards it to the
 # provisioner as the actual partition size. Validated as a positive integer up
 # front (a typo here should abort the launch, not silently fall through to
 # whatever the provisioner does with garbage). This is the BUILD input; the
 # cache key is the identity segment below, which covers headroom per LAYER.
-CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
+CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$(claude_vm_config_key_default image.root_headroom_mb)")"
 case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
   '' | *[!0-9]*)
     echo "claude-vm: image.root_headroom_mb must be a positive integer (MiB), got '$CLAUDE_VM_ROOT_HEADROOM_MB'" >&2
@@ -420,7 +419,7 @@ unset _explicit_guest_image
 # claude.version: the channel/pin the host-side verified cache fetches
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
-CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
+CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$(claude_vm_config_key_default claude.version)")"
 
 # claude.renderer: which renderer the in-guest claude uses on the byte-pipe
 # console (issue #88). The vfkit stdio console is a plain bidirectional byte
@@ -1730,7 +1729,7 @@ esac
 # above so a dropped claude.ai/downloads.claude.ai entry is never
 # re-introduced by this step.
 if claude_vm_boot_apt_egress_needed "$MERGED_BOOT"; then
-  DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
+  DERIVED_APT_HOSTS="$(claude_vm_debian_mirror_hosts) $(claude_vm_apt_source_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
   EXISTING_HOSTS=" $(tr '\n' ' ' <"$EGRESS_ALLOWLIST" 2>/dev/null) "
   for _host in $DERIVED_APT_HOSTS; do
     case "$EXISTING_HOSTS" in

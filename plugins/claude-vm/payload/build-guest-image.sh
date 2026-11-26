@@ -385,8 +385,7 @@ BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 # identity/cache-key above (which is provenance-based, per layer). The headroom
 # is validated here as a positive integer so a typo aborts the build rather
 # than reaching the provisioner as garbage.
-CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB="$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB"
-ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB}"
+ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$(claude_vm_config_key_default image.root_headroom_mb)}"
 case "$ROOT_HEADROOM_MB" in
   '' | *[!0-9]*)
     echo "build-guest-image: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
@@ -426,8 +425,8 @@ The MERGED bake config (canonical JSON from the launcher) is read from the
 CLAUDE_VM_BAKE_CONFIG environment variable and forwarded to the provisioner as
 the image build CONTENT; unset/empty means no baked packages (the legacy base
 image). The root-partition headroom (MiB) is read from
-CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to
-CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB (lib/config.sh).
+CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to image.root_headroom_mb's
+default in the key table (lib/config.sh).
 EOF
 }
 

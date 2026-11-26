@@ -242,21 +242,14 @@ claude_vm_config_subkeys() {
   done
 }
 
-# The fallbacks for scalars the operator set in NEITHER tier, read off the key
-# table. claude.version is consumed by lib/claude-cache.sh.
-CLAUDE_VM_DEFAULT_CPUS="$(claude_vm_config_key_default cpus)"
-CLAUDE_VM_DEFAULT_MEM="$(claude_vm_config_key_default mem)"
-CLAUDE_VM_DEFAULT_REPO_MOUNT="$(claude_vm_config_key_default repo.mount)"
-CLAUDE_VM_DEFAULT_REPO_COPY_BACK="$(claude_vm_config_key_default repo.copy_back)"
-CLAUDE_VM_DEFAULT_PROXY_PORT="$(claude_vm_config_key_default proxy.port)"
-CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS="$(claude_vm_config_key_default proxy.host_alias)"
-CLAUDE_VM_DEFAULT_CLAUDE_VERSION="$(claude_vm_config_key_default claude.version)"
+# The fallbacks this library applies for scalars the operator set in NEITHER
+# tier, read off the key table. A sourcing script reads any other key's
+# fallback with claude_vm_config_key_default.
 CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT="$(claude_vm_config_key_default update_at_boot)"
 CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST="$(claude_vm_config_key_default add_apt_uris_to_allowlist)"
 CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE="$(claude_vm_config_key_default claude.permission_mode)"
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT="$(claude_vm_config_key_default claude.plugins.update_at_boot)"
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST="$(claude_vm_config_key_default claude.plugins.add_marketplace_uris_to_allowlist)"
-CLAUDE_VM_DEFAULT_GITHUB_AUTH="$(claude_vm_config_key_default github.auth)"
 
 # Extra-mount defaults + reserved names (issue #157).
 #
@@ -361,9 +354,10 @@ CLAUDE_VM_GUEST_SYSTEM_PATHS="/bin /boot /dev /etc /home /lib /lib32 /lib64 /lib
 # same rule.
 CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 
-# image.root_headroom_mb's default, from the key table. The headroom is the
-# extra MiB the guest root partition is sized ABOVE the measured/estimated base image content, so a
-# live session has room to grow without hitting ENOSPC. A real guest boot hit
+# Why image.root_headroom_mb defaults to 1024 in the key table above. The
+# headroom is the extra MiB the guest root partition is sized ABOVE the
+# measured/estimated base image content, so a live session has room to grow
+# without hitting ENOSPC. A real guest boot hit
 # ENOSPC twice in one short session on the previously auto-sized (~991 MB)
 # root, which left only ~140 MB free over an ~850 MB base -- consumed by the
 # boot-time apt working set (up to ~250 MB pre-diet, ~50 MB post-diet; see
@@ -375,7 +369,6 @@ CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 # session (update_at_boot: true, the default) should not hit ENOSPC. Chosen
 # to be generous rather than tight: the human's directive is that claude-vm
 # must WORK out of the box, and disk is cheap relative to a bricked session.
-CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB="$(claude_vm_config_key_default image.root_headroom_mb)"
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
 # Homebrew formula at <prefix>/libexec/podman/gvproxy and is NOT placed
@@ -919,14 +912,16 @@ claude_vm_check_apt_sources_conflicts() {
   # Collect .apt_sources entries from BOTH tier documents, group by name; a
   # name whose de-duplicated entry list is longer than 1 has conflicting
   # content under one name.
-  dup="$(yq eval-all '
+  # Double-quoted, every yq `$` escaped: shellcheck exempts no yq filter from
+  # its single-quoted-expansion check.
+  dup="$(yq eval-all "
     ([select(fileIndex == 0) | .apt_sources // [] | .[]]
-      + [select(fileIndex == 1) | .apt_sources // [] | .[]]) as $srcs
-    | ($srcs | map(.name) | unique)
-    | map(. as $n | {"name": $n, "n": [$srcs[] | select(.name == $n)] | unique | length})
+      + [select(fileIndex == 1) | .apt_sources // [] | .[]]) as \$srcs
+    | (\$srcs | map(.name) | unique)
+    | map(. as \$n | {\"name\": \$n, \"n\": [\$srcs[] | select(.name == \$n)] | unique | length})
     | map(select(.n > 1))
     | .[].name
-  ' "$bake_doc" "$boot_doc" 2>/dev/null)"
+  " "$bake_doc" "$boot_doc" 2>/dev/null)"
   if [ -n "$dup" ]; then
     echo "claude-vm: apt_sources name conflict -- the following name(s) appear more than once with DIFFERING repo/key_url content across your bake/boot config files:" >&2
     printf '%s\n' "$dup" | while IFS= read -r n; do
@@ -1438,8 +1433,8 @@ claude_vm_check_mounts() {
   # as the main loop -- an empty result set is one empty LINE here too.
   while IFS= read -r record; do
     [ -n "$record" ] || continue
-    mode_idx=${record%%$mnt_tab*}
-    mode_src=${record#*$mnt_tab}
+    mode_idx=${record%%"$mnt_tab"*}
+    mode_src=${record#*"$mnt_tab"}
     echo "claude-vm: mounts entry #${mode_idx} ('$mode_src') sets 'mode:'. claude-vm no longer has that key:" >&2
     echo "claude-vm:   every extra mount is READ-WRITE, and read-only cannot be enforced on this stack --" >&2
     echo "claude-vm:   vfkit's virtio-fs device has no read-only option, and the guest session is root, so" >&2
@@ -1456,10 +1451,10 @@ claude_vm_check_mounts() {
     # even `- {}` -- always carries its separators and so is never empty.
     [ -n "$record" ] || continue
     idx=$((idx + 1))
-    src=${record%%$mnt_tab*}
-    rest=${record#*$mnt_tab}
-    tag=${rest%%$mnt_tab*}
-    path=${rest#*$mnt_tab}
+    src=${record%%"$mnt_tab"*}
+    rest=${record#*"$mnt_tab"}
+    tag=${rest%%"$mnt_tab"*}
+    path=${rest#*"$mnt_tab"}
     if [ -z "$src" ]; then
       echo "claude-vm: mounts entry #${idx} has no source -- there is no host path to share." >&2
       bad=1
@@ -1725,10 +1720,12 @@ claude_vm_apt_sources() {
 # claude_vm_boot_apt_egress_needed (the "iff" gate) and
 # claude_vm_apt_source_hosts (the per-entry host derivation) below.
 
-# The two Debian mirror hosts every install_at_boot/update_at_boot needs
-# regardless of any apt_sources -- the base image's /etc/apt/sources.list
-# points at these.
-CLAUDE_VM_DEBIAN_MIRROR_HOSTS="deb.debian.org security.debian.org"
+# Print, space-separated, the two Debian mirror hosts every
+# install_at_boot/update_at_boot needs regardless of any apt_sources -- the
+# base image's /etc/apt/sources.list points at these.
+claude_vm_debian_mirror_hosts() {
+  printf '%s\n' "deb.debian.org security.debian.org"
+}
 
 # True (exit 0) when boot-time apt work is configured that needs the Debian
 # mirrors/apt_sources hosts reachable from the guest -- i.e. the launcher
@@ -1758,7 +1755,7 @@ claude_vm_boot_apt_egress_needed() {
 }
 
 # Emit the hostnames parsed out of both tiers' apt_sources repo/key_url URIs,
-# one per line, de-duplicated. Used (alongside CLAUDE_VM_DEBIAN_MIRROR_HOSTS)
+# one per line, de-duplicated. Used (alongside claude_vm_debian_mirror_hosts)
 # to derive the egress hosts a boot-time apt_sources render needs.
 #
 #   $1 -- merged BAKE document file path
@@ -2684,14 +2681,15 @@ claude_vm_resolve_boot_env() {
 #   $2 -- merged BOOT document file path
 claude_vm_check_marketplace_conflicts() {
   local bake_doc="$1" boot_doc="$2" dup
-  dup="$(yq eval-all '
+  # Double-quoted like claude_vm_check_apt_sources_conflicts's filter.
+  dup="$(yq eval-all "
     ([select(fileIndex == 0) | .claude.marketplaces // [] | .[]]
-      + [select(fileIndex == 1) | .claude.marketplaces // [] | .[]]) as $mps
-    | ($mps | map(.name) | unique)
-    | map(. as $n | {"name": $n, "n": [$mps[] | select(.name == $n)] | unique | length})
+      + [select(fileIndex == 1) | .claude.marketplaces // [] | .[]]) as \$mps
+    | (\$mps | map(.name) | unique)
+    | map(. as \$n | {\"name\": \$n, \"n\": [\$mps[] | select(.name == \$n)] | unique | length})
     | map(select(.n > 1))
     | .[].name
-  ' "$bake_doc" "$boot_doc" 2>/dev/null)"
+  " "$bake_doc" "$boot_doc" 2>/dev/null)"
   if [ -n "$dup" ]; then
     echo "claude-vm: claude.marketplaces name conflict -- the following name(s) appear more than once with DIFFERING url across your bake/boot config files:" >&2
     printf '%s\n' "$dup" | while IFS= read -r n; do
@@ -2730,8 +2728,8 @@ claude_vm_check_marketplace_names() {
       # empty line for a document that declares no claude.marketplaces at all.
       [ -n "$record" ] || continue
       idx=$((idx + 1))
-      name=${record%%$mp_tab*}
-      url=${record#*$mp_tab}
+      name=${record%%"$mp_tab"*}
+      url=${record#*"$mp_tab"}
       [ -n "$name" ] && continue
       echo "claude-vm: claude.marketplaces entry #${idx} in the merged ${tier} config has no name (url: '${url}')." >&2
       echo "claude-vm:   the name is what a 'plugin@marketplace' ref resolves against and what the guest" >&2
@@ -2764,8 +2762,8 @@ claude_vm_effective_marketplaces() {
   for f in "$bake_doc" "$boot_doc"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
     while IFS= read -r record; do
-      name=${record%%$mp_tab*}
-      url=${record#*$mp_tab}
+      name=${record%%"$mp_tab"*}
+      url=${record#*"$mp_tab"}
       [ -n "$name" ] || continue
       case " $seen " in
         *" $name "*) continue ;;
@@ -2841,8 +2839,8 @@ claude_vm_marketplaces_without_host() {
   mp_tab=$'\t'
   # Hand split, per the TSV RECORDS note above.
   while IFS= read -r record; do
-    name=${record%%$mp_tab*}
-    url=${record#*$mp_tab}
+    name=${record%%"$mp_tab"*}
+    url=${record#*"$mp_tab"}
     [ -n "$name" ] || continue
     case "$url" in
       http://* | https://*) ;;
@@ -2892,7 +2890,7 @@ claude_vm_boot_marketplace_egress_needed() {
   # name, and the membership test below then compared a URL against a set of
   # NAMES -- deriving marketplace egress from a comparison that cannot match.
   while IFS= read -r record; do
-    name=${record%%$mp_tab*}
+    name=${record%%"$mp_tab"*}
     [ -n "$name" ] || continue
     case "
 $baked_names
@@ -2968,8 +2966,8 @@ claude_vm_bake_plugins_json() {
   baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
   # Hand split, per the TSV RECORDS note above.
   while IFS= read -r record; do
-    name=${record%%$mp_tab*}
-    url=${record#*$mp_tab}
+    name=${record%%"$mp_tab"*}
+    url=${record#*"$mp_tab"}
     [ -n "$name" ] || continue
     origin="boot"
     case "
@@ -3148,8 +3146,8 @@ claude_vm_render_guest_settings() {
     # below, which would otherwise fire on every config that sets no overrides.
     [ -n "$ov_record" ] || continue
     ov_idx=$((ov_idx + 1))
-    ov_ref=${ov_record%%$ov_tab*}
-    ov_val=${ov_record#*$ov_tab}
+    ov_ref=${ov_record%%"$ov_tab"*}
+    ov_val=${ov_record#*"$ov_tab"}
     if [ -z "$ov_ref" ]; then
       echo "claude-vm: claude.plugins.enabled entry #${ov_idx} has an empty plugin ref (value: '$ov_val')" >&2
       echo "claude-vm:   every key must name a plugin ref from claude.plugins.bake or install_at_boot" >&2
@@ -3219,8 +3217,8 @@ claude_vm_render_guest_settings() {
   mp_tab=$'\t'
   # Hand split, per the TSV RECORDS note near the top of this file.
   while IFS= read -r mp_record; do
-    mp_name=${mp_record%%$mp_tab*}
-    mp_url=${mp_record#*$mp_tab}
+    mp_name=${mp_record%%"$mp_tab"*}
+    mp_url=${mp_record#*"$mp_tab"}
     [ -n "$mp_name" ] && [ -n "$mp_url" ] || continue
     case "$mp_url" in
       http://* | https://*)

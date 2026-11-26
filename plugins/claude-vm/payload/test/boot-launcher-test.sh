@@ -143,7 +143,7 @@ assert_eq "emitted boot launcher is syntactically valid bash" "0" "$?"
 # status the decision depends on). It must run claude as a child and branch
 # on the status.
 assert_not_contains "emitted launcher no longer ends with 'exec \"\$CLAUDE_BIN\"'" \
-  "$(cat "$LAUNCHER")" 'exec "$CLAUDE_BIN"'
+  "$(cat "$LAUNCHER")" "exec \"\$CLAUDE_BIN\""
 assert_contains "emitted launcher captures claude's exit status" \
   "$(cat "$LAUNCHER")" 'CLAUDE_STATUS=$?'
 assert_contains "emitted launcher powers off via SIGRTMIN+4 to PID 1 on the clean path" \
@@ -180,7 +180,7 @@ assert_eq "emitted launcher powers off in exactly two places (clean path + after
 assert_not_contains "emitted launcher never re-execs the boot launcher (no loop)" \
   "$(cat "$LAUNCHER")" 'boot-launcher.sh'
 assert_not_contains "emitted launcher never re-execs itself via \$0 (no loop)" \
-  "$(cat "$LAUNCHER")" 'exec "$0"'
+  "$(cat "$LAUNCHER")" "exec \"\$0\""
 
 # ---------------------------------------------------------------------
 # 2. Slice the DECISION FRAGMENT (from the `set +e` that guards the claude run
@@ -253,25 +253,32 @@ exit 0
 STUB
   chmod +x "$stubdir/bash"
 
+  # The function stubs lead the sourced file itself, so they are defined in the
+  # shell that runs the fragment.
+  local harness="$WORK/decision-harness.sh"
+  cat >"$harness" <<HARNESS
+# Stub log() to a no-op (the real one writes /dev/console).
+log() { :; }
+# Intercept \`kill -s RTMIN+4 1\` (both the clean path's and the after-shell
+# one): a function shadows the builtin, appends the argv, and never sends a
+# real signal (this test must not signal PID 1, and macOS bash could not
+# resolve RTMIN+4 anyway).
+kill() { printf 'rtmin4-%s\n' "\$*" >>"$marker"; }
+HARNESS
+  cat "$FRAGMENT" >>"$harness"
+
   (
-    CLAUDE_BIN="$claude_bin"
+    export CLAUDE_BIN="$claude_bin"
     # The abnormal path echoes the workspace path; give it a value so the
     # fragment does not trip on an unset var under the launcher's `set -u`.
-    REPO_MNT="/mnt/repo"
-    # Stub log() to a no-op (the real one writes /dev/console).
-    log() { :; }
-    # Intercept `kill -s RTMIN+4 1` (both the clean path's and the
-    # after-shell one): a function shadows the builtin, appends the argv, and
-    # never sends a real signal (this test must not signal PID 1, and macOS
-    # bash could not resolve RTMIN+4 anyway).
-    kill() { printf 'rtmin4-%s\n' "$*" >>"$marker"; }
+    export REPO_MNT="/mnt/repo"
     # Prepend the stub dir so `command -v bash` and the abnormal path's child
     # `bash -l` resolve our bash stub first, while keeping the real system
     # bins on PATH so the fake claude's `/bin/sh` shebang still resolves.
     PATH="$stubdir:$PATH"
     set -- # zero argv, like an empty CLAUDE_ARGS
     # shellcheck disable=SC1090
-    . "$FRAGMENT"
+    . "$harness"
   ) 2>/dev/null
   local frag_rc=$?
   if [ -s "$marker" ]; then
@@ -426,7 +433,7 @@ fi
 # The composite the launcher compares against must be built from that rev, so a
 # bump actually reaches the cache key.
 assert_contains "BASE_PINNED_VERSION is built from LAUNCHER_LOGIC_REV" \
-  "$(cat "$BUILD")" 'BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"'
+  "$(cat "$BUILD")" "BASE_PINNED_VERSION=\"\${BASE_OS_REV}+launcher\${LAUNCHER_LOGIC_REV}\""
 
 # ---------------------------------------------------------------------
 # 5. Guest environment variables (issue #135): the launcher sources the BAKED
@@ -467,11 +474,16 @@ else
   # run_env_fragment <bake-file-or-empty> -- runs the real block with the two
   # paths redirected at the fixtures and prints the resulting values. The
   # launcher hardcodes /etc/claude-vm/bake-env (an image path), so the slice is
-  # rewritten to the fixture; CLAUDECREDS_MNT is already a variable.
+  # rewritten to the fixture; CLAUDECREDS_MNT is already a variable. A no-op
+  # log() stub and the CLAUDECREDS_MNT assignment lead the rewritten slice, so
+  # both are set in the shell that runs the block.
+  write_env_fragment() {
+    printf 'log() { :; }\nCLAUDECREDS_MNT=%q\n' "$ENV_WORK/claudecreds" >"$ENV_WORK/fragment.sh"
+    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$1#" \
+      "$ENV_FRAGMENT" >>"$ENV_WORK/fragment.sh"
+  }
   run_env_fragment() {
-    local bake="$1"
-    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$bake#" \
-      "$ENV_FRAGMENT" >"$ENV_WORK/fragment.sh"
+    write_env_fragment "$1"
     (
       # The real launcher runs under `set -euo pipefail` and the slice does not
       # carry its `set` line, so it is restated here: the block must behave the
@@ -480,9 +492,7 @@ else
       # because a failing command other than the last in an AND-OR list is
       # exempt. The `if` form is chosen for legibility, not to dodge that.)
       set -euo pipefail
-      log() { :; }
-      CLAUDECREDS_MNT="$ENV_WORK/claudecreds"
-      # shellcheck disable=SC1090
+      # shellcheck source=/dev/null
       . "$ENV_WORK/fragment.sh"
       printf '%s|%s|%s|%s' \
         "${LAYERED:-<unset>}" "${ONLY_BAKE:-<unset>}" \
@@ -505,8 +515,7 @@ else
   # The variables must be EXPORTED, not merely assigned: claude runs as a child
   # of this launcher, so an unexported assignment would be invisible to it.
   ENV_EXPORTED="$(
-    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$ENV_WORK/bake-env#" \
-      "$ENV_FRAGMENT" >"$ENV_WORK/fragment.sh"
+    write_env_fragment "$ENV_WORK/bake-env"
     (
       # The real launcher runs under `set -euo pipefail` and the slice does not
       # carry its `set` line, so it is restated here: the block must behave the
@@ -515,9 +524,7 @@ else
       # because a failing command other than the last in an AND-OR list is
       # exempt. The `if` form is chosen for legibility, not to dodge that.)
       set -euo pipefail
-      log() { :; }
-      CLAUDECREDS_MNT="$ENV_WORK/claudecreds"
-      # shellcheck disable=SC1090
+      # shellcheck source=/dev/null
       . "$ENV_WORK/fragment.sh"
       # A CHILD process, exactly like claude.
       bash -c 'printf "%s|%s" "${LAYERED:-<unset>}" "${ONLY_BAKE:-<unset>}"'
@@ -530,7 +537,7 @@ else
   # anywhere: an env.copy value is a third-party API key, and a copy would put it
   # on the guest filesystem, outliving the mount the host shreds on exit.
   assert_not_contains "guest env: the boot env file is never copied onto the guest filesystem" \
-    "$(cat "$ENV_FRAGMENT")" 'cp "$BOOT_ENV_FILE"'
+    "$(cat "$ENV_FRAGMENT")" "cp \"\$BOOT_ENV_FILE\""
 fi
 
 # ---------------------------------------------------------------------

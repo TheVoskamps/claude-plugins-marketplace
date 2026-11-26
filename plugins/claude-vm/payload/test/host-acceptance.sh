@@ -783,6 +783,7 @@ stop_proxy
 # Gated on gpg + a sha256 tool; SKIPs (not fails) when gpg is absent, like
 # the binary gates above -- the test will not install gpg for the user.
 # ---------------------------------------------------------------------
+# shellcheck source=../lib/claude-cache.sh
 . "$PAYLOAD_DIR/lib/claude-cache.sh"
 
 if ! command -v gpg >/dev/null 2>&1; then
@@ -810,8 +811,9 @@ else
     --quick-generate-key 'claude-vm acceptance <accept@example.invalid>' \
     default sign never >>"$LOG_DIR/gpg.log" 2>&1
   # The pinned (expected) fingerprint: the FIRST fpr line is the primary key.
-  export CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(gpg --with-colons --fingerprint 2>/dev/null |
+  CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(gpg --with-colons --fingerprint 2>/dev/null |
     awk -F: '/^fpr:/{print $10; exit}')"
+  export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
 
   # A SECOND, unrelated sign-capable key also in the keyring. d5 signs a valid
   # manifest with THIS key; the pin must reject it even though gpg --verify

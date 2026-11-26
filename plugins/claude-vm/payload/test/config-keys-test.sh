@@ -147,20 +147,14 @@ check_subkeys CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS claude.plugins bake "${CLAUDE_VM_P
 check_subkeys CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS claude.plugins boot "${CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS[@]}"
 check_subkeys CLAUDE_VM_ENV_BOOT_ONLY_KEYS env boot "${CLAUDE_VM_ENV_BOOT_ONLY_KEYS[@]}"
 
-# The scalar fallbacks the launcher applies are the table's defaults.
+# The scalar fallbacks the library applies are the table's defaults.
 defaults_off=""
 for pair in \
-  cpus:CLAUDE_VM_DEFAULT_CPUS mem:CLAUDE_VM_DEFAULT_MEM \
-  repo.mount:CLAUDE_VM_DEFAULT_REPO_MOUNT repo.copy_back:CLAUDE_VM_DEFAULT_REPO_COPY_BACK \
-  proxy.port:CLAUDE_VM_DEFAULT_PROXY_PORT proxy.host_alias:CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS \
-  claude.version:CLAUDE_VM_DEFAULT_CLAUDE_VERSION \
   update_at_boot:CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT \
   add_apt_uris_to_allowlist:CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST \
   claude.permission_mode:CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE \
   claude.plugins.update_at_boot:CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT \
-  claude.plugins.add_marketplace_uris_to_allowlist:CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST \
-  github.auth:CLAUDE_VM_DEFAULT_GITHUB_AUTH \
-  image.root_headroom_mb:CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB; do
+  claude.plugins.add_marketplace_uris_to_allowlist:CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST; do
   key="${pair%%:*}"
   var="${pair#*:}"
   want="$(awk -F'\t' -v k="$key" '$1 == k { print $5 }' "$EXPECTED")"

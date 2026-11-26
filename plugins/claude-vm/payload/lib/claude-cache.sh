@@ -84,8 +84,7 @@ CLAUDE_VM_SIGNING_KEY_URL="https://downloads.claude.ai/keys/claude-code.asc"
 : "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT:=}"
 
 # The channel used when `claude.version` is unset in both config layers is
-# CLAUDE_VM_DEFAULT_CLAUDE_VERSION, which the config.sh sourced above reads off
-# its key table.
+# that key's default in the key table of the config.sh sourced above.
 
 # A concrete pinned version is a dotted numeric like 2.1.172. The two
 # symbolic channels resolve to such a version host-side.
@@ -195,7 +194,7 @@ claude_cache_manifest_sha256() {
     # (braces, commas, and `"key": value` pairs separated) so the awk pass
     # can track brace depth and key/value adjacency regardless of the
     # source whitespace/formatting.
-    digest="$(tr '{},' '\n\n\n' <"$manifest_file" 2>/dev/null |
+    digest="$(tr '{},' '\n' <"$manifest_file" 2>/dev/null |
       awk -v p="\"$platform\"" '
           # State: not yet inside the platform object until we see its key.
           # depth counts braces from that point; we leave when it returns
