@@ -39,8 +39,8 @@ encoding.
   detach, goes through `has_working_tree`, because git run in a path that
   is no longer the holder's worktree answers for whatever repository
   encloses it.
-- `git-default-branch`'s non-zero exit is what a caller reads as "no
-  protected branch is known", so a new source for the name goes in ahead
-  of that failure, in the order the sources are trusted, rather than as a
-  new exit status; a source read off the clone rather than the host goes
-  after the GitHub setting, never before it.
+- `git-default-branch` exits 1 when no source names a branch, which a
+  caller reads as "no protected branch is known", so a new source for the
+  name goes in ahead of that failure, in the order the sources are
+  trusted, rather than as a new exit status; a source read off the clone
+  rather than the host goes after the GitHub setting, never before it.

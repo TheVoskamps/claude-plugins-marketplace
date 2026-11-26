@@ -8,9 +8,10 @@
 # The setting comes first because it is the live answer: the symref is a
 # local copy, which a fetch under remote.origin.followRemoteHEAD's default
 # creates when it is missing but never updates, so after a rename on
-# GitHub it still names the old branch. A non-zero exit means no
-# protected branch is known, so a caller about to remove branches stops
-# on it rather than guessing a name.
+# GitHub it still names the old branch. Every non-zero exit leaves no
+# branch name on stdout, so a caller about to remove branches reads any
+# of them as "no protected branch is known" and stops rather than
+# guessing a name.
 #
 # Usage: git-default-branch
 #
