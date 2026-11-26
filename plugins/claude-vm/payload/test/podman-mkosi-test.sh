@@ -123,7 +123,7 @@ mkdir -p "$STUB_BIN"
 CAPTURE_RECIPE="$WORK/captured-recipe"
 CAPTURE_INNER="$WORK/captured-build-in-container.sh"
 
-cat > "$STUB_BIN/podman" <<EOF
+cat >"$STUB_BIN/podman" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
   info) exit 0 ;;
@@ -147,16 +147,16 @@ EOF
 chmod +x "$STUB_BIN/podman"
 
 BOOT_LAUNCHER="$WORK/fake-boot-launcher.sh"
-printf '#!/usr/bin/env bash\n' > "$BOOT_LAUNCHER"
+printf '#!/usr/bin/env bash\n' >"$BOOT_LAUNCHER"
 chmod +x "$BOOT_LAUNCHER"
 OUT_IMAGE="$WORK/out.raw"
 
 run_provisioner() {
   local bake_config="$1" headroom_mb="${2:-}"
   PATH="$STUB_BIN:$PATH" \
-  CLAUDE_VM_BAKE_CONFIG="$bake_config" \
-  CLAUDE_VM_ROOT_HEADROOM_MB="$headroom_mb" \
-  bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" >"$WORK/stdout.log" 2>"$WORK/stderr.log"
+    CLAUDE_VM_BAKE_CONFIG="$bake_config" \
+    CLAUDE_VM_ROOT_HEADROOM_MB="$headroom_mb" \
+    bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" >"$WORK/stdout.log" 2>"$WORK/stderr.log"
 }
 
 BAKE_CONFIG='{"bake":["gh"],"apt_sources":[{"name":"githubcli","repo":"deb [arch=amd64] https://cli.github.com/packages stable main","key_url":"https://cli.github.com/packages/githubcli-archive-keyring.gpg"}]}'
@@ -298,7 +298,7 @@ mkdir -p "$RENDER_WORK/bin"
 # fatal-on-failure branch) is exercised by the whole-provisioner run above;
 # this stub only removes the network dependency for the direct-call cases
 # below.
-cat > "$RENDER_WORK/bin/curl" <<'EOF'
+cat >"$RENDER_WORK/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 # curl -fsSL <url> -o <path>
 out=""
@@ -337,7 +337,7 @@ if [ -f "$CAPTURE_INNER" ]; then
     /^render_apt_source\(\) \{/ { capture=1 }
     capture { print }
     capture && /^}$/ { exit }
-  ' "$CAPTURE_INNER" > "$RENDER_FN"
+  ' "$CAPTURE_INNER" >"$RENDER_FN"
 
   if [ -s "$RENDER_FN" ]; then
     # call_render <case-label> <name> <repo> <key_url>
@@ -627,20 +627,20 @@ if [ -n "$AS_SLICE_START" ] && [ -n "$AS_SLICE_END" ]; then
       echo 'APT_KEYRINGS_RT=/etc/apt/keyrings'
       echo 'render_apt_source() { printf "%s|%s|%s\n" "$1" "$2" "$3" >> "$AS_ARGV_LOG"; }'
       awk -v start="$AS_SLICE_START" -v end="$AS_SLICE_END" \
-          -v mode="$mode" -v oldread="$AS_OLD_READ_AWK" -v q="'" '
+        -v mode="$mode" -v oldread="$AS_OLD_READ_AWK" -v q="'" '
         NR < start || NR > end { next }
         mode == "old" && $0 == q " | while IFS= read -r as_record; do" { print oldread; next }
         mode == "old" && $0 ~ /^  as_(name|rest|repo|key_url)=/ { next }
         { print }
       ' "$CAPTURE_INNER" | sed "s#/work/recipe#$AS_SPLIT_DIR#g"
-    } > "$out"
+    } >"$out"
   }
 
   # run_as_split <slice-file> <bake-config-json> -- returns the argv
   # render_apt_source was called with, one "name|repo|key_url" line per entry.
   run_as_split() {
-    printf '%s' "$2" > "$AS_SPLIT_DIR/bake-config.json"
-    : > "$AS_SPLIT_DIR/argv.log"
+    printf '%s' "$2" >"$AS_SPLIT_DIR/bake-config.json"
+    : >"$AS_SPLIT_DIR/argv.log"
     AS_ARGV_LOG="$AS_SPLIT_DIR/argv.log" bash "$1" >/dev/null 2>&1
     cat "$AS_SPLIT_DIR/argv.log"
   }
@@ -805,9 +805,11 @@ if [ -f "$GETTY_DROPIN" ]; then
   # Restart=no is what neutralizes the respawn (overriding the template's
   # Restart=always).
   if grep -qE '^Restart=no$' "$GETTY_DROPIN"; then
-    PASS=$((PASS + 1)); echo "ok   - getty drop-in: Restart=no set (this is what neutralizes the respawn)"
+    PASS=$((PASS + 1))
+    echo "ok   - getty drop-in: Restart=no set (this is what neutralizes the respawn)"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - getty drop-in: Restart=no set (this is what neutralizes the respawn)"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - getty drop-in: Restart=no set (this is what neutralizes the respawn)"
   fi
   # NO leading `-`: a nonzero launcher exit marks the unit failed rather than
   # being reported as success. Inert here (nothing sets OnFailure=), but pinned
@@ -838,17 +840,17 @@ fi
 # and the literal content of the generated in-container step.
 # ---------------------------------------------------------------------
 FAKE_GUEST_CLAUDE="$WORK/fake-guest-claude"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE_GUEST_CLAUDE"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$FAKE_GUEST_CLAUDE"
 chmod +x "$FAKE_GUEST_CLAUDE"
 
 # run_provisioner_plugins <bake-plugins-json> [guest-claude-bin]
 run_provisioner_plugins() {
   local bake_plugins="$1" guest_bin="${2-$FAKE_GUEST_CLAUDE}"
   PATH="$STUB_BIN:$PATH" \
-  CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' \
-  CLAUDE_VM_BAKE_PLUGINS="$bake_plugins" \
-  CLAUDE_VM_GUEST_CLAUDE_BIN="$guest_bin" \
-  bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" \
+    CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' \
+    CLAUDE_VM_BAKE_PLUGINS="$bake_plugins" \
+    CLAUDE_VM_GUEST_CLAUDE_BIN="$guest_bin" \
+    bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" \
     >"$WORK/plugins-stdout.log" 2>"$WORK/plugins-stderr.log"
 }
 
@@ -868,12 +870,15 @@ if [ -f "$CAPTURE_RECIPE/bake-plugins.json" ]; then
   assert_contains "plugins: staged manifest carries the marketplace url" \
     "$CAPTURE_RECIPE/bake-plugins.json" "TheVoskamps/claude-plugins-marketplace.git"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - plugins: bake-plugins.json not staged"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - plugins: bake-plugins.json not staged"
 fi
 if [ -x "$CAPTURE_RECIPE/guest-claude" ]; then
-  PASS=$((PASS + 1)); echo "ok   - plugins: verified guest claude binary staged executable"
+  PASS=$((PASS + 1))
+  echo "ok   - plugins: verified guest claude binary staged executable"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - plugins: verified guest claude binary staged executable"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - plugins: verified guest claude binary staged executable"
 fi
 
 if [ -f "$CAPTURE_INNER" ]; then
@@ -911,7 +916,8 @@ if [ -f "$CAPTURE_INNER" ]; then
   assert_not_contains "plugins: registered-name check builds NO grep regex from the name" \
     "$CAPTURE_INNER" 'grep -qE "(^|[[:space:]])${mp_name}'
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - plugins: build-in-container.sh not captured"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - plugins: build-in-container.sh not captured"
 fi
 
 # ---------------------------------------------------------------------
@@ -932,7 +938,7 @@ fi
 MP_POLICY_DIR="$WORK/mp-policy"
 mkdir -p "$MP_POLICY_DIR"
 MP_STUB="$MP_POLICY_DIR/stub-claude"
-cat > "$MP_STUB" <<'STUB'
+cat >"$MP_STUB" <<'STUB'
 #!/usr/bin/env bash
 if [ "${2:-}" = "marketplace" ] && [ "${3:-}" = "list" ]; then
   cat "$MP_LIST_FILE" 2>/dev/null
@@ -957,18 +963,18 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
     echo '#!/usr/bin/env bash'
     echo 'set -euo pipefail'
     echo 'GUEST_CLAUDE="$MP_STUB"'
-    awk -v start="$MP_SLICE_START" -v end="$MP_SLICE_END" 'NR >= start && NR <= end' "$CAPTURE_INNER" \
-      | sed "s#/work/recipe#$MP_POLICY_DIR#g"
+    awk -v start="$MP_SLICE_START" -v end="$MP_SLICE_END" 'NR >= start && NR <= end' "$CAPTURE_INNER" |
+      sed "s#/work/recipe#$MP_POLICY_DIR#g"
     echo 'echo "BAKED_ITEMS=$BAKED_ITEMS" >&2'
-  } > "$MP_SLICE"
+  } >"$MP_SLICE"
 
   # run_mp_policy <manifest-json> <add-exit> -- returns the loop's exit status,
   # with its stderr in $MP_POLICY_DIR/err.log.
   run_mp_policy() {
-    printf '%s' "$1" > "$MP_POLICY_DIR/bake-plugins.json"
+    printf '%s' "$1" >"$MP_POLICY_DIR/bake-plugins.json"
     MP_STUB="$MP_STUB" \
-    MP_LIST_FILE="$MP_POLICY_DIR/mp-list.txt" \
-    MP_ADD_EXIT="$2" \
+      MP_LIST_FILE="$MP_POLICY_DIR/mp-list.txt" \
+      MP_ADD_EXIT="$2" \
       bash "$MP_SLICE" >"$MP_POLICY_DIR/out.log" 2>"$MP_POLICY_DIR/err.log"
   }
 
@@ -976,7 +982,7 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
   MP_BOOT_DECL='{"marketplaces":[{"name":"mp","url":"/mnt/repo","origin":"boot"}],"bake":[]}'
 
   # A failing add on a BAKE-declared marketplace still aborts the build.
-  printf 'No marketplaces configured\n' > "$MP_POLICY_DIR/mp-list.txt"
+  printf 'No marketplaces configured\n' >"$MP_POLICY_DIR/mp-list.txt"
   run_mp_policy "$MP_BAKE_DECL" 1
   assert_eq "mp-policy: a failed add on a bake-declared marketplace aborts" \
     "1" "$?"
@@ -998,7 +1004,7 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
 
   # An add that SUCCEEDS but registers under a different name: still fatal for
   # a bake-declared entry, still best-effort for a boot-declared one.
-  printf 'Configured marketplaces:\n\n  x other\n' > "$MP_POLICY_DIR/mp-list.txt"
+  printf 'Configured marketplaces:\n\n  x other\n' >"$MP_POLICY_DIR/mp-list.txt"
   run_mp_policy "$MP_BAKE_DECL" 0
   assert_eq "mp-policy: a name mismatch on a bake-declared marketplace aborts" \
     "1" "$?"
@@ -1008,7 +1014,7 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
 
   # The happy path counts the registration, so a build that DID register
   # something keeps the strict "tree must exist" check downstream.
-  printf 'Configured marketplaces:\n\n  x mp\n' > "$MP_POLICY_DIR/mp-list.txt"
+  printf 'Configured marketplaces:\n\n  x mp\n' >"$MP_POLICY_DIR/mp-list.txt"
   run_mp_policy "$MP_BOOT_DECL" 0
   assert_eq "mp-policy: a successful add succeeds whatever the origin" "0" "$?"
   assert_contains "mp-policy: ... and counts toward BAKED_ITEMS" \
@@ -1016,7 +1022,7 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
 
   # An origin-less entry (an older or hand-written manifest) is read as
   # bake-declared -- the fail-safe reading.
-  printf 'No marketplaces configured\n' > "$MP_POLICY_DIR/mp-list.txt"
+  printf 'No marketplaces configured\n' >"$MP_POLICY_DIR/mp-list.txt"
   run_mp_policy '{"marketplaces":[{"name":"mp","url":"/mnt/repo"}],"bake":[]}' 1
   assert_eq "mp-policy: an origin-less manifest entry defaults to the strict policy" \
     "1" "$?"
@@ -1043,7 +1049,8 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
   assert_contains "mp-policy: ... with the cannot-register message" \
     "$MP_POLICY_DIR/err.log" "has no url; cannot register it in the image"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - mp-policy: could not slice the marketplace loop out of build-in-container.sh"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mp-policy: could not slice the marketplace loop out of build-in-container.sh"
 fi
 
 # The tree-copy step must be skipped, not fatal, when nothing was baked.
@@ -1062,9 +1069,11 @@ if [ -f "$CAPTURE_INNER" ]; then
     "$CAPTURE_INNER" 'if [ "0" -eq 1 ]; then'
 fi
 if [ -e "$CAPTURE_RECIPE/guest-claude" ]; then
-  FAIL=$((FAIL + 1)); echo "FAIL - plugins: unconfigured build must not stage a claude binary"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - plugins: unconfigured build must not stage a claude binary"
 else
-  PASS=$((PASS + 1)); echo "ok   - plugins: unconfigured build stages no claude binary"
+  PASS=$((PASS + 1))
+  echo "ok   - plugins: unconfigured build stages no claude binary"
 fi
 
 # Plugins configured but NO verified binary -> abort BEFORE the container, so
@@ -1094,7 +1103,8 @@ assert_contains "plugins: the abort explains the missing verified binary" \
 run_provisioner "$BAKE_CONFIG"
 if [ -f "$CAPTURE_INNER" ]; then
   BE_DIR="$WORK/bake-env"
-  rm -rf "$BE_DIR"; mkdir -p "$BE_DIR"
+  rm -rf "$BE_DIR"
+  mkdir -p "$BE_DIR"
   BE_SLICE="$BE_DIR/render.sh"
   # The block is delimited by its own heredoc markers, so the slice needs no
   # line numbers and cannot drift if the surrounding script is reordered.
@@ -1102,7 +1112,7 @@ if [ -f "$CAPTURE_INNER" ]; then
     /^python3 - <<.BAKEENV.$/ { cap = 1 }
     cap { print }
     cap && /^BAKEENV$/ { cap = 0 }
-  ' "$CAPTURE_INNER" | sed "s#/work/recipe#$BE_DIR#g" > "$BE_SLICE"
+  ' "$CAPTURE_INNER" | sed "s#/work/recipe#$BE_DIR#g" >"$BE_SLICE"
 
   if [ ! -s "$BE_SLICE" ]; then
     FAIL=$((FAIL + 1))
@@ -1111,7 +1121,7 @@ if [ -f "$CAPTURE_INNER" ]; then
     # render_bake_env <bake-config-json> -- run the real block, then print the
     # rendered file's assignment lines (comments stripped).
     render_bake_env() {
-      printf '%s' "$1" > "$BE_DIR/bake-config.json"
+      printf '%s' "$1" >"$BE_DIR/bake-config.json"
       rm -rf "$BE_DIR/mkosi.extra"
       bash "$BE_SLICE" 2>"$BE_DIR/render.err"
       grep -v '^#' "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" 2>/dev/null
@@ -1141,7 +1151,7 @@ C=3" \
     # The literal value, and the JSON encoding of that same value, written side
     # by side so the escaping of each is readable on its own terms.
     BE_HOSTILE='a b"c'\''d$e`f\g;h'
-    cat > "$BE_DIR/hostile.json" <<'HOSTILEJSON'
+    cat >"$BE_DIR/hostile.json" <<'HOSTILEJSON'
 {"bake":[],"apt_sources":[],"env":{"HOSTILE":"a b\"c'd$e`f\\g;h"}}
 HOSTILEJSON
     render_bake_env "$(cat "$BE_DIR/hostile.json")" >/dev/null
@@ -1159,9 +1169,11 @@ HOSTILEJSON
     # leaves the image byte-identical to one built before this feature.
     render_bake_env '{"bake":[],"apt_sources":[],"env":{}}' >/dev/null
     if [ -e "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" ]; then
-      FAIL=$((FAIL + 1)); echo "FAIL - bake-env: an empty env map must render no file"
+      FAIL=$((FAIL + 1))
+      echo "FAIL - bake-env: an empty env map must render no file"
     else
-      PASS=$((PASS + 1)); echo "ok   - bake-env: an empty env map renders no file"
+      PASS=$((PASS + 1))
+      echo "ok   - bake-env: an empty env map renders no file"
     fi
 
     # A malformed NAME FAILS the build. The host launcher already aborts on one,
@@ -1170,9 +1182,11 @@ HOSTILEJSON
     # be lenient, and skipping the entry would ship a guest missing a variable.
     render_bake_env '{"bake":[],"apt_sources":[],"env":{"2BAD":"x"}}' >/dev/null
     if [ -e "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" ]; then
-      FAIL=$((FAIL + 1)); echo "FAIL - bake-env: a malformed name must not be baked"
+      FAIL=$((FAIL + 1))
+      echo "FAIL - bake-env: a malformed name must not be baked"
     else
-      PASS=$((PASS + 1)); echo "ok   - bake-env: a malformed name is not baked"
+      PASS=$((PASS + 1))
+      echo "ok   - bake-env: a malformed name is not baked"
     fi
     assert_contains "bake-env: the malformed-name failure names the key" \
       "$BE_DIR/render.err" "2BAD"
@@ -1184,9 +1198,11 @@ HOSTILEJSON
     # refuse. `re.fullmatch` is what makes the check as strict as its comment.
     render_bake_env '{"bake":[],"apt_sources":[],"env":{"OK\n":"x"}}' >/dev/null
     if [ -e "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" ]; then
-      FAIL=$((FAIL + 1)); echo "FAIL - bake-env: a name with a trailing newline must not be baked"
+      FAIL=$((FAIL + 1))
+      echo "FAIL - bake-env: a name with a trailing newline must not be baked"
     else
-      PASS=$((PASS + 1)); echo "ok   - bake-env: a name with a trailing newline is not baked"
+      PASS=$((PASS + 1))
+      echo "ok   - bake-env: a name with a trailing newline is not baked"
     fi
   fi
 else

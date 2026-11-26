@@ -388,7 +388,7 @@ BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB="$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB"
 ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB}"
 case "$ROOT_HEADROOM_MB" in
-  ''|*[!0-9]*)
+  '' | *[!0-9]*)
     echo "build-guest-image: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
     exit 1
     ;;
@@ -402,8 +402,11 @@ compute_pinned_version() {
   fi
   printf '%s\n' "$version"
 }
-PINNED_VERSION="$(compute_pinned_version)" \
-  || { echo "build-guest-image: failed to compute image-identity version" >&2; exit 1; }
+PINNED_VERSION="$(compute_pinned_version)" ||
+  {
+    echo "build-guest-image: failed to compute image-identity version" >&2
+    exit 1
+  }
 
 usage() {
   cat >&2 <<'EOF'
@@ -1683,7 +1686,7 @@ build_image() {
   # (issue #88).
   local stage
   stage="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-build.XXXXXX")"
-  emit_boot_launcher > "$stage/boot-launcher.sh"
+  emit_boot_launcher >"$stage/boot-launcher.sh"
   chmod +x "$stage/boot-launcher.sh"
 
   # --- provisioning -----------------------------------------------------
@@ -1721,17 +1724,17 @@ build_image() {
   # image -- so a bare `build-guest-image.sh --output` smoke test with no
   # launcher still builds.
   CLAUDE_VM_BASE_OS_REV="$BASE_OS_REV" \
-  CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
-  CLAUDE_VM_BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}" \
-  CLAUDE_VM_GUEST_CLAUDE_BIN="${CLAUDE_VM_GUEST_CLAUDE_BIN:-}" \
-  CLAUDE_VM_ROOT_HEADROOM_MB="$ROOT_HEADROOM_MB" \
+    CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
+    CLAUDE_VM_BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}" \
+    CLAUDE_VM_GUEST_CLAUDE_BIN="${CLAUDE_VM_GUEST_CLAUDE_BIN:-}" \
+    CLAUDE_VM_ROOT_HEADROOM_MB="$ROOT_HEADROOM_MB" \
     "$provisioner" "$stage/boot-launcher.sh" "$output"
   # ----------------------------------------------------------------------
 
   rm -rf "$stage"
 
   # Stamp the version so the launcher's ensure-image check can compare.
-  printf '%s\n' "$PINNED_VERSION" > "$output.version"
+  printf '%s\n' "$PINNED_VERSION" >"$output.version"
   echo "build-guest-image: built '$PINNED_VERSION' at $output" >&2
 }
 
@@ -1741,7 +1744,10 @@ main() {
       printf '%s\n' "$PINNED_VERSION"
       ;;
     --output)
-      [ -n "${2:-}" ] || { usage; exit 2; }
+      [ -n "${2:-}" ] || {
+        usage
+        exit 2
+      }
       build_image "$2"
       ;;
     *)

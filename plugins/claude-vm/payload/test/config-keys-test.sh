@@ -27,22 +27,29 @@ BIN="$TEST_DIR/../../bin/claude-vm-config-keys"
 PASS=0
 FAIL=0
 
-ok()   { PASS=$((PASS + 1)); echo "ok   - $1"; }
-bad()  { FAIL=$((FAIL + 1)); echo "FAIL - $1"; [ -n "${2:-}" ] && echo "        $2"; }
+ok() {
+  PASS=$((PASS + 1))
+  echo "ok   - $1"
+}
+bad() {
+  FAIL=$((FAIL + 1))
+  echo "FAIL - $1"
+  [ -n "${2:-}" ] && echo "        $2"
+}
 
 # shellcheck source=../lib/config.sh
 . "$LIB"
 
 SCRATCH="$(claude_vm_mktemp -d claude-vm-config-keys-test)"
 EXPECTED="$SCRATCH/expected.tsv"
-: > "$EXPECTED"
+: >"$EXPECTED"
 i=0
 n="${#CLAUDE_VM_CONFIG_KEYS[@]}"
 while [ "$i" -lt "$n" ]; do
   printf '%s\t%s\t%s\t%s\t%s\n' "${CLAUDE_VM_CONFIG_KEYS[$i]}" \
     "${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}" "${CLAUDE_VM_CONFIG_KEYS[$((i + 2))]}" \
     "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}" "${CLAUDE_VM_CONFIG_KEYS[$((i + 4))]}" \
-    >> "$EXPECTED"
+    >>"$EXPECTED"
   i=$((i + 5))
 done
 
@@ -59,11 +66,11 @@ i=0
 malformed=""
 while [ "$i" -lt "$n" ]; do
   case "${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}" in
-    bake|boot|both) : ;;
+    bake | boot | both) : ;;
     *) malformed="$malformed ${CLAUDE_VM_CONFIG_KEYS[$i]}(file)" ;;
   esac
   case "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}" in
-    list|scalar) : ;;
+    list | scalar) : ;;
     *) malformed="$malformed ${CLAUDE_VM_CONFIG_KEYS[$i]}(shape)" ;;
   esac
   i=$((i + 5))
@@ -82,7 +89,7 @@ for shell in bash /bin/bash; do
     echo "skip - no $shell on this host"
     continue
   fi
-  "$shell" "$BIN" > "$SCRATCH/actual.tsv" 2> "$SCRATCH/actual.err"
+  "$shell" "$BIN" >"$SCRATCH/actual.tsv" 2>"$SCRATCH/actual.err"
   rc=$?
   if [ "$rc" -eq 0 ] && [ ! -s "$SCRATCH/actual.err" ]; then
     ok "$shell: claude-vm-config-keys exits 0 with no stderr"
@@ -93,9 +100,9 @@ for shell in bash /bin/bash; do
     ok "$shell: the output is the key table, one key per line, five tab-separated fields"
   else
     bad "$shell: the output is the key table, one key per line, five tab-separated fields" \
-        "$(diff "$EXPECTED" "$SCRATCH/actual.tsv" | head -5)"
+      "$(diff "$EXPECTED" "$SCRATCH/actual.tsv" | head -5)"
   fi
-  "$shell" "$BIN" extra > /dev/null 2>&1
+  "$shell" "$BIN" extra >/dev/null 2>&1
   rc=$?
   if [ "$rc" -eq 2 ]; then
     ok "$shell: an argument exits 2"

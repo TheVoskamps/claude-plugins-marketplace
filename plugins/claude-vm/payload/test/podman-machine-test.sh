@@ -92,7 +92,7 @@ assert_eq() {
 # ---------------------------------------------------------------------
 STUB_BIN="$WORK/stubbin"
 mkdir -p "$STUB_BIN"
-cat > "$STUB_BIN/podman" <<'EOF'
+cat >"$STUB_BIN/podman" <<'EOF'
 #!/usr/bin/env bash
 set -u
 D="$PODMAN_STUB_DIR"
@@ -169,15 +169,16 @@ chmod +x "$STUB_BIN/podman"
 
 # new_case <case-name> [<machines-line>...] -- fresh stub state dir.
 new_case() {
-  local name="$1"; shift
+  local name="$1"
+  shift
   local d="$WORK/case-$name"
   rm -rf "$d"
   mkdir -p "$d"
-  : > "$d/machines"
-  : > "$d/log"
+  : >"$d/machines"
+  : >"$d/log"
   local rec
   for rec in "$@"; do
-    echo "$rec" >> "$d/machines"
+    echo "$rec" >>"$d/machines"
   done
   echo "$d"
 }
@@ -185,7 +186,7 @@ new_case() {
 # stub_log <case-dir> -- the invocation log as one semicolon-joined line, so
 # an assertion can pin the ORDER of the calls, not just their presence.
 stub_log() {
-  tr '\n' ';' < "$1/log"
+  tr '\n' ';' <"$1/log"
 }
 
 # ---------------------------------------------------------------------
@@ -305,10 +306,14 @@ OUT="$(
 assert_eq "ensure: podman absent fails" "rc:1" "$(printf '%s\n' "$OUT" | tail -1)"
 case "$OUT" in
   *"'podman' not found on PATH"*)
-    PASS=$((PASS + 1)); echo "ok   - ensure: podman absent says so" ;;
+    PASS=$((PASS + 1))
+    echo "ok   - ensure: podman absent says so"
+    ;;
   *)
-    FAIL=$((FAIL + 1)); echo "FAIL - ensure: podman absent says so"
-    echo "        actual: [$OUT]" ;;
+    FAIL=$((FAIL + 1))
+    echo "FAIL - ensure: podman absent says so"
+    echo "        actual: [$OUT]"
+    ;;
 esac
 
 # ---------------------------------------------------------------------
@@ -357,7 +362,7 @@ awk '
     if (tail && $0 ~ /^fi$/) exit
     if ($0 ~ /--output "\$GUEST_IMAGE"/) tail = 1
   }
-' "$LAUNCHER" > "$BLOCK"
+' "$LAUNCHER" >"$BLOCK"
 
 if ! grep -q 'claude_vm_ensure_podman_machine' "$BLOCK"; then
   FAIL=$((FAIL + 1))
@@ -369,7 +374,7 @@ else
 
   BUILD_STUB_DIR="$WORK/scriptdir"
   mkdir -p "$BUILD_STUB_DIR"
-  cat > "$BUILD_STUB_DIR/build-guest-image.sh" <<'EOF'
+  cat >"$BUILD_STUB_DIR/build-guest-image.sh" <<'EOF'
 #!/usr/bin/env bash
 set -u
 echo "build" >> "$BUILD_MARKER"
@@ -385,10 +390,10 @@ EOF
   run_block() {
     local d="$1" have="$2"
     local img="$d/guest.raw"
-    : > "$d/build-marker"
+    : >"$d/build-marker"
     if [ -n "$have" ]; then
-      : > "$img"
-      echo "$have" > "$img.version"
+      : >"$img"
+      echo "$have" >"$img.version"
     fi
     (
       set -euo pipefail
@@ -408,7 +413,7 @@ EOF
       # shellcheck source=/dev/null
       . "$BLOCK"
     ) >/dev/null 2>&1
-    wc -l < "$d/build-marker" | tr -d ' '
+    wc -l <"$d/build-marker" | tr -d ' '
   }
 
   D="$(new_case warm 'solo:false:true')"

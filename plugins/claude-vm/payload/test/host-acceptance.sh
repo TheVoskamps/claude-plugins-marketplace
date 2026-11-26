@@ -136,7 +136,7 @@ command -v curl >/dev/null 2>&1 || gate_skip "curl not available;"
 # needs the podman binary too. The checks are therefore spelled out here
 # rather than delegated. gvproxy ships in podman's libexec rather than on
 # PATH, so it uses the resolver; the rest are plain PATH lookups.
-claude_vm_resolve_gvproxy >/dev/null 2>&1 || \
+claude_vm_resolve_gvproxy >/dev/null 2>&1 ||
   gate_skip "gvproxy not resolvable (install podman);"
 for bin in vfkit podman tinyproxy; do
   command -v "$bin" >/dev/null 2>&1 || gate_skip "$bin not available;"
@@ -215,15 +215,15 @@ cleanup() {
   case "$MACHINE_ACTION" in
     start)
       echo "host-acceptance: stopping the podman machine we started ($MACHINE_NAME)." >&2
-      podman machine stop "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1 \
-        || teardown_warn "'podman machine stop $MACHINE_NAME' failed; the machine may still be running."
+      podman machine stop "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1 ||
+        teardown_warn "'podman machine stop $MACHINE_NAME' failed; the machine may still be running."
       ;;
     init)
       echo "host-acceptance: stopping and removing the podman machine we created ($MACHINE_NAME)." >&2
-      podman machine stop "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1 \
-        || teardown_warn "'podman machine stop $MACHINE_NAME' failed; the machine may still be running."
-      podman machine rm -f "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1 \
-        || teardown_warn "'podman machine rm -f $MACHINE_NAME' failed; a leftover machine may remain on the host."
+      podman machine stop "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1 ||
+        teardown_warn "'podman machine stop $MACHINE_NAME' failed; the machine may still be running."
+      podman machine rm -f "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1 ||
+        teardown_warn "'podman machine rm -f $MACHINE_NAME' failed; a leftover machine may remain on the host."
       ;;
   esac
   echo "host-acceptance: diagnostics for this run are retained in: $LOG_DIR" >&2
@@ -330,8 +330,15 @@ fi
 PASS=0
 FAIL=0
 
-pass() { PASS=$((PASS + 1)); echo "ok   - $1"; }
-fail() { FAIL=$((FAIL + 1)); echo "FAIL - $1"; [ -n "${2:-}" ] && echo "        $2"; }
+pass() {
+  PASS=$((PASS + 1))
+  echo "ok   - $1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  echo "FAIL - $1"
+  [ -n "${2:-}" ] && echo "        $2"
+}
 
 GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 
@@ -370,7 +377,7 @@ if "$BUILD" --output "$IMG" >"$BUILD_LOG" 2>&1; then
   fi
 else
   fail "(a) default provisioner build failed" "see $BUILD_LOG"
-  IMG=""  # downstream boot test cannot run
+  IMG="" # downstream boot test cannot run
 fi
 
 # ---------------------------------------------------------------------
@@ -388,7 +395,7 @@ fi
 # not the old stop-here message.)
 SEAM_MARKER="guest booted to the claude-fetch seam"
 if [ -n "$IMG" ] && [ -s "$IMG" ]; then
-  BOOT_LOG="$LOG_DIR/boot.log"     # retained diagnostic (issue #115)
+  BOOT_LOG="$LOG_DIR/boot.log" # retained diagnostic (issue #115)
   EFISTORE="$WORK/efistore"
   GVSOCK="$WORK/vfkit-net.sock"
 
@@ -396,7 +403,10 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   # network-online.target is satisfiable.
   "$GVPROXY_BIN" --listen-vfkit "unixgram://$GVSOCK" >/dev/null 2>&1 &
   PIDS_TO_KILL+=("$!")
-  for _ in $(seq 1 50); do [ -S "$GVSOCK" ] && break; sleep 0.1; done
+  for _ in $(seq 1 50); do
+    [ -S "$GVSOCK" ] && break
+    sleep 0.1
+  done
 
   # Boot the image the SAME WAY the real launcher (claude-vm.sh) does: it
   # ALWAYS attaches these virtio-fs shares -- mountTag=runconfig (the run.env
@@ -473,7 +483,7 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   # flat unquoted join would have crashed the getty on. The stub claude echoes
   # its argv so (b3) below can assert the boundary survived (the `#arg` did NOT
   # get comment-stripped and `spaced #arg` stayed a single arg).
-  cat > "$RUNCONFIG_SHARE/run.env" <<'RUNENV'
+  cat >"$RUNCONFIG_SHARE/run.env" <<'RUNENV'
 HTTPS_PROXY=http://192.168.127.1:8080
 HTTP_PROXY=http://192.168.127.1:8080
 NO_PROXY=localhost,127.0.0.1
@@ -487,7 +497,7 @@ CLAUDE_ARGS=--version\ spaced\\\ #arg
 RUNENV
   # Stub claude: prints a marker the boot test asserts, proving the guest
   # ran the mounted binary off /mnt/claudebin.
-  cat > "$CLAUDEBIN_SHARE/claude" <<'STUBCLAUDE'
+  cat >"$CLAUDEBIN_SHARE/claude" <<'STUBCLAUDE'
 #!/bin/sh
 echo "claude-vm-stub: ran host-verified claude off the mount, args=[$*]"
 STUBCLAUDE
@@ -495,7 +505,7 @@ STUBCLAUDE
   # Stub OAuth credential: a non-secret placeholder so the boot launcher's
   # credential-install step has a file to copy into $HOME/.claude/. The stub
   # claude never reads it.
-  printf '{"placeholder":"not-a-real-credential"}\n' > "$CLAUDECREDS_SHARE/.credentials.json"
+  printf '{"placeholder":"not-a-real-credential"}\n' >"$CLAUDECREDS_SHARE/.credentials.json"
   chmod 0600 "$CLAUDECREDS_SHARE/.credentials.json"
   # Stub identity seed (issue #88): a non-secret placeholder so the boot
   # launcher's seed-install step (copy to $HOME/.claude.json) is exercised. The
@@ -503,7 +513,7 @@ STUBCLAUDE
   # missing seed is tolerated by the boot launcher, but we provide one so the
   # install path runs. The stub claude never reads it.
   printf '{"userID":"stub-user-id","oauthAccount":{"emailAddress":"stub@example.invalid"}}\n' \
-    > "$CLAUDECREDS_SHARE/claude-json-seed.json"
+    >"$CLAUDECREDS_SHARE/claude-json-seed.json"
   chmod 0600 "$CLAUDECREDS_SHARE/claude-json-seed.json"
   # Stub rendered settings.json (issue #104): the boot launcher HARD-ABORTS
   # (exit 1, no boot) when this file is absent -- it is the security-posture
@@ -515,10 +525,13 @@ STUBCLAUDE
   # reads falls back gracefully on an absent key (claude_vm_scalar /
   # `// []` / `// {}`), so an empty YAML document is a valid merged config.
   STUB_MERGED="$(claude_vm_mktemp claude-vm-hostaccept-merged)"
-  printf '{}\n' > "$STUB_MERGED"
+  printf '{}\n' >"$STUB_MERGED"
   claude_vm_render_guest_settings "$STUB_MERGED" \
-    > "$CLAUDECREDS_SHARE/settings.json" \
-    || { echo "FAIL: failed to render the stub guest settings.json" >&2; exit 1; }
+    >"$CLAUDECREDS_SHARE/settings.json" ||
+    {
+      echo "FAIL: failed to render the stub guest settings.json" >&2
+      exit 1
+    }
   rm -f "$STUB_MERGED"
   chmod 0600 "$CLAUDECREDS_SHARE/settings.json"
   # Stub host working rules (issue #108): the real launcher stages copies of the
@@ -527,8 +540,8 @@ STUBCLAUDE
   # each (a plain overwrite vs. an additive `cp -R <src>/.` merge). Assertion
   # (b4) reads the launcher's own log line back out of the console capture.
   mkdir -p "$CLAUDECREDS_SHARE/claude-home/rules"
-  printf 'stub host CLAUDE.md\n' > "$CLAUDECREDS_SHARE/claude-home/CLAUDE.md"
-  printf 'stub host rule\n'      > "$CLAUDECREDS_SHARE/claude-home/rules/core.md"
+  printf 'stub host CLAUDE.md\n' >"$CLAUDECREDS_SHARE/claude-home/CLAUDE.md"
+  printf 'stub host rule\n' >"$CLAUDECREDS_SHARE/claude-home/rules/core.md"
 
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
@@ -545,7 +558,7 @@ STUBCLAUDE
   # launcher routes its diagnostics to /dev/console (hvc0 = BOOT_LOG), so the
   # seam marker still lands in BOOT_LOG regardless of which console claude's own
   # stdio is on. Device ORDER is load-bearing: 1st -> hvc0, 2nd -> hvc1.
-  HVC1_LOG="$LOG_DIR/hvc1.log"     # retained diagnostic (issue #115)
+  HVC1_LOG="$LOG_DIR/hvc1.log" # retained diagnostic (issue #115)
   vfkit \
     --cpus 2 --memory 2048 \
     --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -563,12 +576,14 @@ STUBCLAUDE
   PIDS_TO_KILL+=("$VFKIT_PID")
 
   reached_seam=0
-  for _ in $(seq 1 120); do  # up to ~120s for a cold boot
+  for _ in $( # up to ~120s for a cold boot
+    seq 1 120
+  ); do
     if [ -f "$BOOT_LOG" ] && grep -q "$SEAM_MARKER" "$BOOT_LOG"; then
       reached_seam=1
       break
     fi
-    kill -0 "$VFKIT_PID" 2>/dev/null || break  # VM exited
+    kill -0 "$VFKIT_PID" 2>/dev/null || break # VM exited
     sleep 1
   done
   kill "$VFKIT_PID" 2>/dev/null || true
@@ -590,8 +605,8 @@ STUBCLAUDE
   # /dev/console diagnostics go). Search BOTH logs so the assertion is robust to
   # exactly which console carries the stub's stdout.
   STUB_MARKER="claude-vm-stub: ran host-verified claude off the mount"
-  if grep -q "$STUB_MARKER" "$BOOT_LOG" 2>/dev/null \
-     || grep -q "$STUB_MARKER" "$HVC1_LOG" 2>/dev/null; then
+  if grep -q "$STUB_MARKER" "$BOOT_LOG" 2>/dev/null ||
+    grep -q "$STUB_MARKER" "$HVC1_LOG" 2>/dev/null; then
     pass "(b) guest ran the host-verified claude off the /mnt/claudebin mount"
   else
     fail "(b) guest did not run the mounted claude binary at the seam" "see $BOOT_LOG and $HVC1_LOG"
@@ -606,8 +621,8 @@ STUBCLAUDE
   # crash the login program before the marker ever appeared -- pre-#179 into an
   # agetty respawn loop; since #179's Restart=no, into an ended session).
   ARGS_MARKER="args=[--version spaced #arg]"
-  if grep -qF "$ARGS_MARKER" "$BOOT_LOG" 2>/dev/null \
-     || grep -qF "$ARGS_MARKER" "$HVC1_LOG" 2>/dev/null; then
+  if grep -qF "$ARGS_MARKER" "$BOOT_LOG" 2>/dev/null ||
+    grep -qF "$ARGS_MARKER" "$HVC1_LOG" 2>/dev/null; then
     pass "(b) guest reconstructed spaced/#-bearing CLAUDE_ARGS argv intact"
   else
     fail "(b) guest did not round-trip the spaced CLAUDE_ARGS argv" "see $BOOT_LOG and $HVC1_LOG"
@@ -622,8 +637,8 @@ STUBCLAUDE
   # install. The launcher's own diagnostics go to /dev/console
   # (hvc0/BOOT_LOG); search both captures for the same reason (b2) does.
   SEED_MARKER="seeded host working rules"
-  if grep -qF "$SEED_MARKER" "$BOOT_LOG" 2>/dev/null \
-     || grep -qF "$SEED_MARKER" "$HVC1_LOG" 2>/dev/null; then
+  if grep -qF "$SEED_MARKER" "$BOOT_LOG" 2>/dev/null ||
+    grep -qF "$SEED_MARKER" "$HVC1_LOG" 2>/dev/null; then
     pass "(b) guest installed the host working rules off the claudecreds mount"
   else
     fail "(b) guest did not install the host working rules (claude-home/)" \
@@ -646,7 +661,7 @@ fi
 # CONNECT stage).
 # ---------------------------------------------------------------------
 PROXY_PORT_C=13128
-PROXY_LOG="$LOG_DIR/proxy.log"   # retained diagnostic (issue #115)
+PROXY_LOG="$LOG_DIR/proxy.log" # retained diagnostic (issue #115)
 
 # start_proxy <allowlist-file> -> sets PROXY_PID_C, waits for the listener.
 # CLAUDE_VM_PROXY_LISTEN_ADDR is intentionally NOT set here: production
@@ -656,7 +671,7 @@ PROXY_LOG="$LOG_DIR/proxy.log"   # retained diagnostic (issue #115)
 start_proxy() {
   local allowlist="$1"
   CLAUDE_VM_EGRESS_ALLOWLIST="$allowlist" \
-  CLAUDE_VM_PROXY_PORT="$PROXY_PORT_C" \
+    CLAUDE_VM_PROXY_PORT="$PROXY_PORT_C" \
     "$PROXY_LAUNCH" >>"$PROXY_LOG" 2>&1 &
   PROXY_PID_C="$!"
   PIDS_TO_KILL+=("$PROXY_PID_C")
@@ -664,7 +679,7 @@ start_proxy() {
   local i
   for i in $(seq 1 50); do
     if curl -s -o /dev/null --max-time 2 \
-        --proxy "http://127.0.0.1:$PROXY_PORT_C" "http://127.0.0.1/" 2>/dev/null; then
+      --proxy "http://127.0.0.1:$PROXY_PORT_C" "http://127.0.0.1/" 2>/dev/null; then
       break
     fi
     kill -0 "$PROXY_PID_C" 2>/dev/null || break
@@ -720,7 +735,7 @@ probe_https() {
 # Sub-test c1+c2: a populated allowlist permits the allowlisted host and
 # refuses a non-allowlisted host.
 ALLOWLIST_C="$WORK/egress.allow"
-printf 'example.com\n' > "$ALLOWLIST_C"
+printf 'example.com\n' >"$ALLOWLIST_C"
 start_proxy "$ALLOWLIST_C"
 
 if [ "$(probe_https example.com)" = "ALLOW" ]; then
@@ -740,7 +755,7 @@ stop_proxy
 # that WOULD be allowed under a populated allowlist (example.com) must be
 # refused when the allowlist is empty.
 EMPTY_ALLOWLIST_C="$WORK/egress.empty"
-: > "$EMPTY_ALLOWLIST_C"
+: >"$EMPTY_ALLOWLIST_C"
 start_proxy "$EMPTY_ALLOWLIST_C"
 
 if [ "$(probe_https example.com)" = "DENY" ]; then
@@ -778,7 +793,8 @@ else
   # Isolated GNUPGHOME + cache dir so we never touch the operator's real
   # keyring or $CLAUDE_VM_STATE_DIR/cache.
   D_HOME="$WORK/gpg-d"
-  mkdir -p "$D_HOME"; chmod 700 "$D_HOME"
+  mkdir -p "$D_HOME"
+  chmod 700 "$D_HOME"
   export GNUPGHOME="$D_HOME"
   export CLAUDE_VM_CACHE_DIR="$WORK/cache-d"
   export CLAUDE_VM_CACHE_STATE_FILE="$WORK/cache-d-state"
@@ -794,8 +810,8 @@ else
     --quick-generate-key 'claude-vm acceptance <accept@example.invalid>' \
     default sign never >>"$LOG_DIR/gpg.log" 2>&1
   # The pinned (expected) fingerprint: the FIRST fpr line is the primary key.
-  export CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(gpg --with-colons --fingerprint 2>/dev/null \
-    | awk -F: '/^fpr:/{print $10; exit}')"
+  export CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(gpg --with-colons --fingerprint 2>/dev/null |
+    awk -F: '/^fpr:/{print $10; exit}')"
 
   # A SECOND, unrelated sign-capable key also in the keyring. d5 signs a valid
   # manifest with THIS key; the pin must reject it even though gpg --verify
@@ -803,18 +819,19 @@ else
   gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
     --quick-generate-key 'claude-vm rogue <rogue@example.invalid>' \
     default sign never >>"$LOG_DIR/gpg.log" 2>&1
-  ROGUE_FPR="$(gpg --with-colons --fingerprint 2>/dev/null \
-    | awk -F: '/^fpr:/{print $10}' | grep -v "^$CLAUDE_VM_SIGNING_KEY_FINGERPRINT$" | head -n1)"
+  ROGUE_FPR="$(gpg --with-colons --fingerprint 2>/dev/null |
+    awk -F: '/^fpr:/{print $10}' | grep -v "^$CLAUDE_VM_SIGNING_KEY_FINGERPRINT$" | head -n1)"
 
   # Fixtures: a fake binary + a manifest carrying its real sha256, signed
   # with the throwaway key.
-  D_FIX="$WORK/fix-d"; mkdir -p "$D_FIX"
-  printf 'fake-claude-acceptance-binary\n' > "$D_FIX/claude"
+  D_FIX="$WORK/fix-d"
+  mkdir -p "$D_FIX"
+  printf 'fake-claude-acceptance-binary\n' >"$D_FIX/claude"
   D_SHA="$(claude_cache_file_sha256 "$D_FIX/claude")"
-  cat > "$D_FIX/manifest.good.json" <<JSON
+  cat >"$D_FIX/manifest.good.json" <<JSON
 { "platforms": { "linux-arm64": { "checksum": "$D_SHA" } } }
 JSON
-  cat > "$D_FIX/manifest.bad.json" <<JSON
+  cat >"$D_FIX/manifest.bad.json" <<JSON
 { "platforms": { "linux-arm64": { "checksum": "0000000000000000000000000000000000000000000000000000000000000000" } } }
 JSON
   # Sign the GOOD manifest only. (A tampered manifest's signature would not
@@ -830,10 +847,11 @@ JSON
   D_SIG="$D_FIX/manifest.good.json.sig"
   claude_cache_fetch_url() {
     case "$1" in
-      */claude-code-releases/stable|*/claude-code-releases/latest)
-        printf '%s\n' "$D_RESOLVED" ;;
-      */manifest.json)      cat "$D_MANIFEST" ;;
-      */manifest.json.sig)  cat "$D_SIG" ;;
+      */claude-code-releases/stable | */claude-code-releases/latest)
+        printf '%s\n' "$D_RESOLVED"
+        ;;
+      */manifest.json) cat "$D_MANIFEST" ;;
+      */manifest.json.sig) cat "$D_SIG" ;;
       */linux-arm64/claude) cat "$D_FIX/claude" ;;
       *) return 1 ;;
     esac
@@ -842,9 +860,9 @@ JSON
   # throwaway key, so d1's "verified" and d2's "tamper aborts" are genuine.
 
   # d1: happy path caches a verified binary.
-  if d_out="$(claude_cache_ensure stable 2>>"$LOG_DIR/cache-d.log")" \
-     && [ -s "$d_out" ] \
-     && [ "$(cat "$CLAUDE_VM_CACHE_STATE_FILE" 2>/dev/null)" = "cold" ]; then
+  if d_out="$(claude_cache_ensure stable 2>>"$LOG_DIR/cache-d.log")" &&
+    [ -s "$d_out" ] &&
+    [ "$(cat "$CLAUDE_VM_CACHE_STATE_FILE" 2>/dev/null)" = "cold" ]; then
     pass "(d) resolve+fetch+gpg-verify+checksum caches the binary"
   else
     fail "(d) verified-cache happy path did not cache the binary" "see $LOG_DIR/cache-d.log"
@@ -853,7 +871,9 @@ JSON
   # d2: a tampered manifest -- serve the BAD manifest but the GOOD sig, so
   # gpg --verify fails (signature does not match the swapped content). Use a
   # fresh version so a prior cache entry cannot mask the abort.
-  D_RESOLVED="3.2.2"; D_MANIFEST="$D_FIX/manifest.bad.json"; D_SIG="$D_FIX/manifest.good.json.sig"
+  D_RESOLVED="3.2.2"
+  D_MANIFEST="$D_FIX/manifest.bad.json"
+  D_SIG="$D_FIX/manifest.good.json.sig"
   if claude_cache_ensure stable >>"$LOG_DIR/cache-d.log" 2>&1; then
     fail "(d) tampered manifest did NOT abort (verified-cache returned success)"
   elif [ -e "$CLAUDE_VM_CACHE_DIR/3.2.2/linux-arm64/claude" ]; then
@@ -868,7 +888,9 @@ JSON
   gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
     --detach-sign -o "$D_FIX/manifest.bad.json.sig" "$D_FIX/manifest.bad.json" \
     >>"$LOG_DIR/gpg.log" 2>&1
-  D_RESOLVED="3.2.3"; D_MANIFEST="$D_FIX/manifest.bad.json"; D_SIG="$D_FIX/manifest.bad.json.sig"
+  D_RESOLVED="3.2.3"
+  D_MANIFEST="$D_FIX/manifest.bad.json"
+  D_SIG="$D_FIX/manifest.bad.json.sig"
   if claude_cache_ensure stable >>"$LOG_DIR/cache-d.log" 2>&1; then
     fail "(d) checksum mismatch did NOT abort"
   elif [ -e "$CLAUDE_VM_CACHE_DIR/3.2.3/linux-arm64/claude" ]; then
@@ -887,7 +909,9 @@ JSON
       --default-key "$ROGUE_FPR" \
       --detach-sign -o "$D_FIX/manifest.rogue.json.sig" "$D_FIX/manifest.good.json" \
       >>"$LOG_DIR/gpg.log" 2>&1
-    D_RESOLVED="3.2.4"; D_MANIFEST="$D_FIX/manifest.good.json"; D_SIG="$D_FIX/manifest.rogue.json.sig"
+    D_RESOLVED="3.2.4"
+    D_MANIFEST="$D_FIX/manifest.good.json"
+    D_SIG="$D_FIX/manifest.rogue.json.sig"
     if claude_cache_ensure stable >>"$LOG_DIR/cache-d.log" 2>&1; then
       fail "(d) signature by an UNEXPECTED key did NOT abort (key pin not enforced)"
     elif [ -e "$CLAUDE_VM_CACHE_DIR/3.2.4/linux-arm64/claude" ]; then
@@ -903,10 +927,13 @@ JSON
   # it by making the fetch primitive fail loudly; a warm hit must not call it.
   # Reuse the version cached in d1 by re-resolving stable to it first... but
   # d1 cached 3.2.1, so request it as a pin.
-  claude_cache_fetch_url() { echo "(d) WARM boot must not touch the network: $1" >>"$LOG_DIR/cache-d.log"; return 1; }
-  if d_out="$(claude_cache_ensure 3.2.1 2>>"$LOG_DIR/cache-d.log")" \
-     && [ -s "$d_out" ] \
-     && [ "$(cat "$CLAUDE_VM_CACHE_STATE_FILE" 2>/dev/null)" = "warm" ]; then
+  claude_cache_fetch_url() {
+    echo "(d) WARM boot must not touch the network: $1" >>"$LOG_DIR/cache-d.log"
+    return 1
+  }
+  if d_out="$(claude_cache_ensure 3.2.1 2>>"$LOG_DIR/cache-d.log")" &&
+    [ -s "$d_out" ] &&
+    [ "$(cat "$CLAUDE_VM_CACHE_STATE_FILE" 2>/dev/null)" = "warm" ]; then
     pass "(d) warm boot uses the cached binary with no network fetch"
   else
     fail "(d) warm boot did not use the cache without network" "see $LOG_DIR/cache-d.log"

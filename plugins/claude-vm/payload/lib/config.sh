@@ -161,39 +161,39 @@ claude_vm_detect_legacy_config() {
 # row needs no split at all -- see "TSV RECORDS" below for what splitting a
 # tab-joined record with `read` costs.
 CLAUDE_VM_CONFIG_KEYS=(
-  'cpus'                     'boot' 'int'                        'scalar' '4'
-  'mem'                      'boot' 'int'                        'scalar' '8192'
-  'guest_image'              'boot' 'path'                       'scalar' ''
-  'repo.mount'               'boot' 'clone|live'                 'scalar' 'clone'
-  'repo.copy_back'           'boot' 'local|none'                 'scalar' 'local'
-  'proxy.cmd'                'boot' 'string'                     'scalar' ''
-  'proxy.port'               'boot' 'int'                        'scalar' '3128'
-  'proxy.host_alias'         'boot' 'string'                     'scalar' '192.168.127.254'
-  'egress.allow'             'boot' 'string'                     'list'   ''
-  'mounts'                   'boot' 'mount'                      'list'   ''
-  'packages'                 'both' 'string'                     'list'   ''
-  'apt_sources'              'both' 'apt_source'                 'list'   ''
-  'update_at_boot'           'boot' 'bool'                       'scalar' 'true'
-  'add_apt_uris_to_allowlist' 'boot' 'auto|always'               'scalar' 'auto'
-  'image.root_headroom_mb'   'bake' 'int'                        'scalar' '1024'
-  'claude.version'           'boot' 'string'                     'scalar' 'stable'
-  'claude.signing_key_fingerprint' 'boot' 'string'               'scalar' ''
-  'claude.renderer'          'boot' 'classic|fullscreen'         'scalar' ''
-  'claude.remote_control'    'boot' 'bool'                       'scalar' 'false'
-  'claude.permission_mode'   'boot' 'bypassPermissions|default'  'scalar' 'bypassPermissions'
-  'claude.permissions.allow' 'boot' 'string'                     'list'   ''
-  'claude.permissions.ask'   'boot' 'string'                     'list'   ''
-  'claude.permissions.deny'  'boot' 'string'                     'list'   ''
-  'claude.marketplaces'      'both' 'marketplace'                'list'   ''
-  'claude.plugins.bake'      'bake' 'string'                     'list'   ''
-  'claude.plugins.install_at_boot' 'boot' 'string'               'list'   ''
-  'claude.plugins.update_at_boot'  'boot' 'bool'                 'scalar' 'true'
+  'cpus' 'boot' 'int' 'scalar' '4'
+  'mem' 'boot' 'int' 'scalar' '8192'
+  'guest_image' 'boot' 'path' 'scalar' ''
+  'repo.mount' 'boot' 'clone|live' 'scalar' 'clone'
+  'repo.copy_back' 'boot' 'local|none' 'scalar' 'local'
+  'proxy.cmd' 'boot' 'string' 'scalar' ''
+  'proxy.port' 'boot' 'int' 'scalar' '3128'
+  'proxy.host_alias' 'boot' 'string' 'scalar' '192.168.127.254'
+  'egress.allow' 'boot' 'string' 'list' ''
+  'mounts' 'boot' 'mount' 'list' ''
+  'packages' 'both' 'string' 'list' ''
+  'apt_sources' 'both' 'apt_source' 'list' ''
+  'update_at_boot' 'boot' 'bool' 'scalar' 'true'
+  'add_apt_uris_to_allowlist' 'boot' 'auto|always' 'scalar' 'auto'
+  'image.root_headroom_mb' 'bake' 'int' 'scalar' '1024'
+  'claude.version' 'boot' 'string' 'scalar' 'stable'
+  'claude.signing_key_fingerprint' 'boot' 'string' 'scalar' ''
+  'claude.renderer' 'boot' 'classic|fullscreen' 'scalar' ''
+  'claude.remote_control' 'boot' 'bool' 'scalar' 'false'
+  'claude.permission_mode' 'boot' 'bypassPermissions|default' 'scalar' 'bypassPermissions'
+  'claude.permissions.allow' 'boot' 'string' 'list' ''
+  'claude.permissions.ask' 'boot' 'string' 'list' ''
+  'claude.permissions.deny' 'boot' 'string' 'list' ''
+  'claude.marketplaces' 'both' 'marketplace' 'list' ''
+  'claude.plugins.bake' 'bake' 'string' 'list' ''
+  'claude.plugins.install_at_boot' 'boot' 'string' 'list' ''
+  'claude.plugins.update_at_boot' 'boot' 'bool' 'scalar' 'true'
   'claude.plugins.add_marketplace_uris_to_allowlist' 'boot' 'auto|always' 'scalar' 'auto'
-  'claude.plugins.enabled'   'boot' 'map(bool)'                  'scalar' ''
-  'github.auth'              'boot' 'none|host-token'            'scalar' 'none'
-  'env.set'                  'both' 'map(string)'                'scalar' ''
-  'env.copy'                 'boot' 'string'                     'list'   ''
-  'env.files'                'boot' 'path'                       'list'   ''
+  'claude.plugins.enabled' 'boot' 'map(bool)' 'scalar' ''
+  'github.auth' 'boot' 'none|host-token' 'scalar' 'none'
+  'env.set' 'both' 'map(string)' 'scalar' ''
+  'env.copy' 'boot' 'string' 'list' ''
+  'env.files' 'boot' 'path' 'list' ''
 )
 
 # claude_vm_config_keys -- print the key table, one key per line, as the
@@ -756,7 +756,7 @@ claude_vm_merge_config() {
   # `select(fileIndex == N)` empty and collapses the whole merge -- so
   # we point missing layers at a real `{}` document instead.
   empty="$(claude_vm_mktemp claude-vm-empty)"
-  printf '{}\n' > "$empty"
+  printf '{}\n' >"$empty"
   if [ -n "$global" ] && [ -f "$global" ]; then g="$global"; else g="$empty"; fi
   if [ -n "$repo" ] && [ -f "$repo" ]; then r="$repo"; else r="$empty"; fi
 
@@ -768,7 +768,11 @@ claude_vm_merge_config() {
     yq eval-all '
       select(fileIndex == 0) * select(fileIndex == 1)
     ' "$g" "$r" 2>/dev/null
-  )" || { echo "claude-vm: failed to merge config (scalar layer)" >&2; rm -f "$empty"; return 1; }
+  )" || {
+    echo "claude-vm: failed to merge config (scalar layer)" >&2
+    rm -f "$empty"
+    return 1
+  }
 
   # Step 2: recompute list unions for every key in CLAUDE_VM_LIST_KEYS.
   # For each list key, concatenate global ++ repo then unique. Mapping
@@ -784,7 +788,11 @@ claude_vm_merge_config() {
           + [select(fileIndex == 1) | ${key} // [] | .[]]
         | unique
       " "$g" "$r" 2>/dev/null
-    )" || { echo "claude-vm: failed to merge $key" >&2; rm -f "$empty"; return 1; }
+    )" || {
+      echo "claude-vm: failed to merge $key" >&2
+      rm -f "$empty"
+      return 1
+    }
     merged_lists+=("$key" "$list_yaml")
   done
 
@@ -804,14 +812,21 @@ claude_vm_merge_config() {
         yq eval "
           ${key} = (strenv(CLAUDE_VM_SPLICE_YAML) | from_yaml)
         " <(printf '%s\n' "$current") 2>/dev/null
-    )" || { echo "claude-vm: failed to splice merged list $key" >&2; rc=1; break; }
+    )" || {
+      echo "claude-vm: failed to splice merged list $key" >&2
+      rc=1
+      break
+    }
     i=$((i + 2))
   done
 
   # Step 4: prune the empty skeleton (see claude_vm_prune_empty_skeleton).
   if [ "$rc" -eq 0 ]; then
-    current="$(claude_vm_prune_empty_skeleton "$current")" \
-      || { echo "claude-vm: failed to prune empty config skeleton" >&2; rc=1; }
+    current="$(claude_vm_prune_empty_skeleton "$current")" ||
+      {
+        echo "claude-vm: failed to prune empty config skeleton" >&2
+        rc=1
+      }
   fi
 
   printf '%s\n' "$current"
@@ -932,8 +947,8 @@ claude_vm_check_apt_sources_conflicts() {
 claude_vm_baked_apt_source_names() {
   local bake_doc="$1"
   [ -n "$bake_doc" ] && [ -f "$bake_doc" ] || return 0
-  yq eval '.apt_sources // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null \
-    | grep -v '^$' | sort -u
+  yq eval '.apt_sources // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null |
+    grep -v '^$' | sort -u
 }
 
 # Emit the BOOT-tier apt_sources TSV: the BOOT document's apt_sources MINUS
@@ -1128,8 +1143,8 @@ claude_vm_expand_mount_source() {
   local src="$1"
   case "$src" in
     "~"/*) printf '%s\n' "$HOME/${src#"~/"}" ;;
-    "~")   printf '%s\n' "$HOME" ;;
-    *)     printf '%s\n' "$src" ;;
+    "~") printf '%s\n' "$HOME" ;;
+    *) printf '%s\n' "$src" ;;
   esac
 }
 
@@ -1475,7 +1490,7 @@ claude_vm_check_mounts() {
     # not just a tag" in this function's header enumerates the uses these arms
     # are derived from.
     case "$tag" in
-      .|..)
+      . | ..)
         echo "claude-vm: mounts entry #${idx} ('$src') has tag '$tag', which is not a usable path COMPONENT --" >&2
         echo "claude-vm:   and the tag is used as one in the default guest mountpoint $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>," >&2
         echo "claude-vm:   in the host-side directory a single-file source is wrapped in, and in that wrap's own" >&2
@@ -1778,10 +1793,10 @@ claude_vm_apt_source_hosts() {
       .apt_sources // [] | .[]
       | [(.repo // ""), (.key_url // "")] | .[]
     ' "$f" 2>/dev/null
-  done \
-    | grep -oE 'https?://[^/[:space:]]+' \
-    | sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' \
-    | sort -u
+  done |
+    grep -oE 'https?://[^/[:space:]]+' |
+    sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' |
+    sort -u
 }
 
 # ---------------------------------------------------------------------
@@ -1922,7 +1937,10 @@ claude_vm_bake_hash_from_json() {
   fi
   # An empty hex (tool failure) is a hard error -- a truncated/empty variant
   # segment would silently collapse distinct bake configs onto one image.
-  [ -n "$hex" ] || { echo "claude-vm: failed to compute bake-hash" >&2; return 1; }
+  [ -n "$hex" ] || {
+    echo "claude-vm: failed to compute bake-hash" >&2
+    return 1
+  }
   printf '%s\n' "${hex:0:8}"
 }
 
@@ -2001,14 +2019,17 @@ claude_vm_file_identity_hash() {
     return 0
   fi
   if command -v shasum >/dev/null 2>&1; then
-    hex="$(shasum -a 256 < "$file" 2>/dev/null | cut -d' ' -f1)"
+    hex="$(shasum -a 256 <"$file" 2>/dev/null | cut -d' ' -f1)"
   elif command -v sha256sum >/dev/null 2>&1; then
-    hex="$(sha256sum < "$file" 2>/dev/null | cut -d' ' -f1)"
+    hex="$(sha256sum <"$file" 2>/dev/null | cut -d' ' -f1)"
   else
     echo "claude-vm: neither 'shasum' nor 'sha256sum' found to compute the image identity hash." >&2
     return 1
   fi
-  [ -n "$hex" ] || { echo "claude-vm: failed to compute the image identity hash for '$file'" >&2; return 1; }
+  [ -n "$hex" ] || {
+    echo "claude-vm: failed to compute the image identity hash for '$file'" >&2
+    return 1
+  }
   printf '%s\n' "${hex:0:8}"
 }
 
@@ -2259,8 +2280,8 @@ CLAUDE_VM_RESERVED_ENV_NAMES="HTTPS_PROXY HTTP_PROXY NO_PROXY https_proxy http_p
 # smuggle a second assignment past the reader.
 claude_vm_env_name_is_valid() {
   case "$1" in
-    ''|[!A-Za-z_]*)   return 1 ;;
-    *[!A-Za-z0-9_]*)  return 1 ;;
+    '' | [!A-Za-z_]*) return 1 ;;
+    *[!A-Za-z0-9_]*) return 1 ;;
   esac
   return 0
 }
@@ -2326,7 +2347,10 @@ claude_vm_env_set_tag() {
 #   $2 -- the variable name (already charset-validated by the caller)
 claude_vm_env_set_value() {
   local file="$1" name="$2" raw
-  raw="$(yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null; printf 'x')"
+  raw="$(
+    yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null
+    printf 'x'
+  )"
   raw="${raw%x}"
   raw="${raw%$'\n'}"
   printf '%q\n' "$raw"
@@ -2408,12 +2432,12 @@ claude_vm_env_file_assignments() {
     # Strip leading blanks so an indented comment is still a comment.
     while :; do
       case "$line" in
-        ' '*|"$env_tab"*) line="${line#?}" ;;
+        ' '* | "$env_tab"*) line="${line#?}" ;;
         *) break ;;
       esac
     done
     case "$line" in
-      ''|'#'*) continue ;;
+      '' | '#'*) continue ;;
       'export '*) line="${line#export }" ;;
     esac
     case "$line" in
@@ -2442,7 +2466,7 @@ claude_vm_env_file_assignments() {
       fi
     fi
     printf '%s=%q\n' "$name" "$value"
-  done < "$file"
+  done <"$file"
   return 0
 }
 
@@ -2503,12 +2527,12 @@ claude_vm_check_env() {
   for tier in BAKE BOOT; do
     case "$tier" in
       BAKE) doc="$bake_doc" ;;
-      *)    doc="$boot_doc" ;;
+      *) doc="$boot_doc" ;;
     esac
     [ -n "$doc" ] && [ -f "$doc" ] || continue
     tag="$(yq eval '.env.set | tag' "$doc" 2>/dev/null)"
     case "$tag" in
-      '!!map'|'!!null'|'') : ;;
+      '!!map' | '!!null' | '') : ;;
       *)
         echo "claude-vm: 'env.set' in the merged ${tier} config is a ${tag}, not a map." >&2
         echo "claude-vm:   write it as 'NAME: value' pairs, one per variable." >&2
@@ -2534,7 +2558,7 @@ claude_vm_check_env() {
       fi
       tag="$(claude_vm_env_set_tag "$doc" "$name")"
       case "$tag" in
-        '!!map'|'!!seq')
+        '!!map' | '!!seq')
           echo "claude-vm: env.set['$name'] in the merged ${tier} config is a ${tag}. An environment variable" >&2
           echo "claude-vm:   holds a single scalar value; a map or a list has no environment representation." >&2
           bad=1
@@ -2697,7 +2721,7 @@ claude_vm_check_marketplace_names() {
   for tier in BAKE BOOT; do
     case "$tier" in
       BAKE) f="$bake_doc" ;;
-      *)    f="$boot_doc" ;;
+      *) f="$boot_doc" ;;
     esac
     [ -n "$f" ] && [ -f "$f" ] || continue
     idx=0
@@ -2769,8 +2793,8 @@ claude_vm_effective_marketplaces() {
 claude_vm_baked_marketplace_names() {
   local bake_doc="$1"
   [ -n "$bake_doc" ] && [ -f "$bake_doc" ] || return 0
-  yq eval '.claude.marketplaces // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null \
-    | grep -v '^$' | sort -u
+  yq eval '.claude.marketplaces // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null |
+    grep -v '^$' | sort -u
 }
 
 # Emit the hostnames parsed out of both documents' claude.marketplaces urls,
@@ -2794,10 +2818,10 @@ claude_vm_marketplace_hosts() {
   for f in "$bake_doc" "$boot_doc"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
     yq eval '.claude.marketplaces // [] | .[] | .url // ""' "$f" 2>/dev/null
-  done \
-    | grep -oE 'https?://[^/[:space:]]+' \
-    | sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' \
-    | sort -u
+  done |
+    grep -oE 'https?://[^/[:space:]]+' |
+    sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' |
+    sort -u
 }
 
 # Emit the NAME of every effective marketplace whose url yields NO derivable
@@ -2821,7 +2845,7 @@ claude_vm_marketplaces_without_host() {
     url=${record#*$mp_tab}
     [ -n "$name" ] || continue
     case "$url" in
-      http://*|https://*) ;;
+      http://* | https://*) ;;
       *) printf '%s\n' "$name" ;;
     esac
   done < <(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")
@@ -2849,7 +2873,7 @@ claude_vm_boot_marketplace_egress_needed() {
   local boot_doc="$1" bake_doc="$2"
   local mode
   mode="$(claude_vm_scalar "$boot_doc" '.claude.plugins.add_marketplace_uris_to_allowlist' \
-            "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
+    "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
   if [ "$mode" = "always" ]; then
     return 0
   fi
@@ -2881,9 +2905,9 @@ $name
   done < <(claude_vm_marketplaces "$boot_doc")
   local update_at_boot
   update_at_boot="$(claude_vm_bool_scalar "$boot_doc" '.claude.plugins.update_at_boot' \
-                     "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
-  [ "$update_at_boot" = "true" ] \
-    && [ -n "$(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")" ]
+    "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
+  [ "$update_at_boot" = "true" ] &&
+    [ -n "$(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")" ]
 }
 
 # Emit the CANONICAL bake-plugin manifest as compact JSON on stdout: the
@@ -3132,16 +3156,18 @@ claude_vm_render_guest_settings() {
       return 1
     fi
     case "$ov_val" in
-      true|false) : ;;
+      true | false) : ;;
       *)
         echo "claude-vm: claude.plugins.enabled['$ov_ref'] must be a boolean (true|false), got '$ov_val'" >&2
-        return 1 ;;
+        return 1
+        ;;
     esac
     case " $seen " in
       *" $ov_ref "*) : ;;
       *)
         echo "claude-vm: claude.plugins.enabled['$ov_ref'] names a plugin not in claude.plugins.bake or install_at_boot" >&2
-        return 1 ;;
+        return 1
+        ;;
     esac
     # Append rather than assign-by-key. A repeated ref therefore appears
     # twice; the lookup below scans to the END and keeps the LAST match, which
@@ -3197,12 +3223,14 @@ claude_vm_render_guest_settings() {
     mp_url=${mp_record#*$mp_tab}
     [ -n "$mp_name" ] && [ -n "$mp_url" ] || continue
     case "$mp_url" in
-      http://*|https://*)
+      http://* | https://*)
         mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
-          '{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)" ;;
+          '{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)"
+        ;;
       *)
         mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
-          '{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)" ;;
+          '{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)"
+        ;;
     esac
     mp_yaml="${mp_yaml}$(printf '%s' "$mp_name" | yq -o=json eval '.' - 2>/dev/null): {\"source\": ${mp_src}}"$'\n'
   done < <(claude_vm_effective_marketplaces "$bake_doc" "$file")
@@ -3214,8 +3242,8 @@ claude_vm_render_guest_settings() {
   # defaultMode, and the enabledPlugins / extraKnownMarketplaces fragments
   # injected as parsed YAML.
   CLAUDE_VM_PERMISSION_MODE="$permission_mode" \
-  CLAUDE_VM_ENABLED_PLUGINS="$plugins_yaml" \
-  CLAUDE_VM_EXTRA_MARKETPLACES="$mp_yaml" \
+    CLAUDE_VM_ENABLED_PLUGINS="$plugins_yaml" \
+    CLAUDE_VM_EXTRA_MARKETPLACES="$mp_yaml" \
     yq eval -o=json '
       {
         "permissions": {
@@ -3340,7 +3368,10 @@ claude_vm_augment_rc_args() {
     local has_name=0
     for a in ${args[@]+"${args[@]}"}; do
       case "$a" in
-        --name|--name=*) has_name=1; break ;;
+        --name | --name=*)
+          has_name=1
+          break
+          ;;
       esac
     done
     if [ "$has_name" -eq 0 ]; then

@@ -46,8 +46,11 @@ set -uo pipefail
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=config.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
-[ -n "${CLAUDE_VM_STATE_DIR:-}" ] \
-  || { echo "claude-vm: CLAUDE_VM_STATE_DIR is empty after sourcing lib/config.sh; cannot place the claude binary cache" >&2; exit 1; }
+[ -n "${CLAUDE_VM_STATE_DIR:-}" ] ||
+  {
+    echo "claude-vm: CLAUDE_VM_STATE_DIR is empty after sourcing lib/config.sh; cannot place the claude binary cache" >&2
+    exit 1
+  }
 
 # Default cache location. Overridable via env for testing.
 : "${CLAUDE_VM_CACHE_DIR:=$CLAUDE_VM_STATE_DIR/cache}"
@@ -98,7 +101,7 @@ claude_cache_is_pinned_version() {
 claude_cache_validate_version() {
   local v="$1"
   case "$v" in
-    stable|latest)
+    stable | latest)
       printf '%s\n' "$v"
       return 0
       ;;
@@ -134,8 +137,8 @@ claude_cache_resolve_version() {
     return 0
   fi
   # stable|latest: fetch the channel pointer (a bare version string).
-  resolved="$(claude_cache_fetch_url "$CLAUDE_VM_RELEASES_BASE/$channel" 2>/dev/null \
-    | tr -d '[:space:]')" || {
+  resolved="$(claude_cache_fetch_url "$CLAUDE_VM_RELEASES_BASE/$channel" 2>/dev/null |
+    tr -d '[:space:]')" || {
     echo "claude-cache: could not fetch the '$channel' channel pointer from $CLAUDE_VM_RELEASES_BASE/$channel." >&2
     return 1
   }
@@ -192,8 +195,8 @@ claude_cache_manifest_sha256() {
     # (braces, commas, and `"key": value` pairs separated) so the awk pass
     # can track brace depth and key/value adjacency regardless of the
     # source whitespace/formatting.
-    digest="$(tr '{},' '\n\n\n' < "$manifest_file" 2>/dev/null \
-      | awk -v p="\"$platform\"" '
+    digest="$(tr '{},' '\n\n\n' <"$manifest_file" 2>/dev/null |
+      awk -v p="\"$platform\"" '
           # State: not yet inside the platform object until we see its key.
           # depth counts braces from that point; we leave when it returns
           # below zero (the platform object closed). armed is set by a
@@ -211,8 +214,8 @@ claude_cache_manifest_sha256() {
             }
             if (depth < 0) exit
           }
-        ' \
-      | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+        ' |
+      head -n1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   fi
   if ! printf '%s\n' "$digest" | grep -qiE '^[0-9a-f]{64}$'; then
     echo "claude-cache: could not read a sha256 for platform '$platform' from the manifest." >&2
@@ -317,9 +320,9 @@ claude_cache_gpg_verify() {
   # accept a pin match against EITHER (a subkey-signed manifest still pins
   # to the configured primary fingerprint).
   local payload sig_fpr primary_fpr
-  payload="${validsig_line#*VALIDSIG }"   # drop "[GNUPG:] VALIDSIG "
-  sig_fpr="${payload%% *}"                 # first token
-  primary_fpr="${payload##* }"             # last token
+  payload="${validsig_line#*VALIDSIG }" # drop "[GNUPG:] VALIDSIG "
+  sig_fpr="${payload%% *}"              # first token
+  primary_fpr="${payload##* }"          # last token
 
   local want
   want="$(claude_cache_normalize_fpr "$CLAUDE_VM_SIGNING_KEY_FINGERPRINT")"
@@ -400,11 +403,11 @@ claude_cache_fetch_verified() {
   trap 'rm -rf "$work"; rm -f "$tmp_dest"' RETURN
 
   # Step 1: download manifest + signature.
-  if ! claude_cache_fetch_url "$manifest_url" > "$work/manifest.json" 2>/dev/null; then
+  if ! claude_cache_fetch_url "$manifest_url" >"$work/manifest.json" 2>/dev/null; then
     echo "claude-cache: failed to download the manifest for version $version ($manifest_url)." >&2
     return 1
   fi
-  if ! claude_cache_fetch_url "$sig_url" > "$work/manifest.json.sig" 2>/dev/null; then
+  if ! claude_cache_fetch_url "$sig_url" >"$work/manifest.json.sig" 2>/dev/null; then
     echo "claude-cache: failed to download the manifest signature for version $version ($sig_url)." >&2
     return 1
   fi
@@ -427,7 +430,7 @@ claude_cache_fetch_verified() {
 
   # Step 4: download the binary and verify its checksum against the
   # verified manifest. A mismatch ABORTS.
-  if ! claude_cache_fetch_url "$binary_url" > "$work/claude" 2>/dev/null; then
+  if ! claude_cache_fetch_url "$binary_url" >"$work/claude" 2>/dev/null; then
     echo "claude-cache: failed to download the claude binary for version $version ($binary_url)." >&2
     return 1
   fi
@@ -532,5 +535,5 @@ claude_cache_note_network() {
   export CLAUDE_VM_CACHE_NETWORK
   local state_file="${CLAUDE_VM_CACHE_STATE_FILE:-$CLAUDE_VM_CACHE_DIR/.last-network-state}"
   mkdir -p "$(dirname "$state_file")" 2>/dev/null || true
-  printf '%s\n' "$1" > "$state_file" 2>/dev/null || true
+  printf '%s\n' "$1" >"$state_file" 2>/dev/null || true
 }

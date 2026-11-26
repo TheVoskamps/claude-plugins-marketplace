@@ -48,10 +48,13 @@ FAIL=0
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
-    echo "        expected: [$expected]"; echo "        actual:   [$actual]"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
+    echo "        expected: [$expected]"
+    echo "        actual:   [$actual]"
   fi
 }
 assert_rc() {
@@ -66,14 +69,14 @@ assert_rc() {
 # ---------------------------------------------------------------------
 FIXTURE="$WORK/fixture"
 mkdir -p "$FIXTURE"
-printf 'fake-claude-binary-bytes-v1\n' > "$FIXTURE/claude"
+printf 'fake-claude-binary-bytes-v1\n' >"$FIXTURE/claude"
 BIN_SHA="$(claude_cache_file_sha256 "$FIXTURE/claude")"
-cat > "$FIXTURE/manifest.good.json" <<JSON
+cat >"$FIXTURE/manifest.good.json" <<JSON
 { "version": "9.9.9",
   "platforms": { "linux-arm64": { "checksum": "$BIN_SHA" } } }
 JSON
 # A manifest whose checksum does NOT match the binary (mismatch fixture).
-cat > "$FIXTURE/manifest.badsum.json" <<JSON
+cat >"$FIXTURE/manifest.badsum.json" <<JSON
 { "version": "9.9.9",
   "platforms": { "linux-arm64": { "checksum": "0000000000000000000000000000000000000000000000000000000000000000" } } }
 JSON
@@ -86,18 +89,22 @@ RESOLVED_VERSION="9.9.9"
 # suffix; claude_cache_gpg_verify is redefined to honor a toggle so we can
 # simulate both a good signature and a tampered one without real gpg/keys.
 # ---------------------------------------------------------------------
-GPG_VERIFY_RESULT=0      # 0 = signature valid; non-zero = tampered/invalid
+GPG_VERIFY_RESULT=0 # 0 = signature valid; non-zero = tampered/invalid
 MANIFEST_TO_SERVE="$FIXTURE/manifest.good.json"
 
 claude_cache_fetch_url() {
   local url="$1"
   case "$url" in
-    */claude-code-releases/stable|*/claude-code-releases/latest)
-      printf '%s\n' "$RESOLVED_VERSION" ;;
-    */manifest.json)      cat "$MANIFEST_TO_SERVE" ;;
-    */manifest.json.sig)  printf 'FAKE-SIGNATURE\n' ;;
+    */claude-code-releases/stable | */claude-code-releases/latest)
+      printf '%s\n' "$RESOLVED_VERSION"
+      ;;
+    */manifest.json) cat "$MANIFEST_TO_SERVE" ;;
+    */manifest.json.sig) printf 'FAKE-SIGNATURE\n' ;;
     */linux-arm64/claude) cat "$FIXTURE/claude" ;;
-    *) echo "stub: unexpected URL: $url" >&2; return 1 ;;
+    *)
+      echo "stub: unexpected URL: $url" >&2
+      return 1
+      ;;
   esac
 }
 claude_cache_gpg_verify() { return "$GPG_VERIFY_RESULT"; }
@@ -125,9 +132,11 @@ assert_eq "cache path keyed on version + platform" \
 STATE_HOME="$WORK/xdg-state"
 assert_eq "default cache dir is \$CLAUDE_VM_STATE_DIR/cache" \
   "$STATE_HOME/claude-vm/cache/9.9.9/linux-arm64/claude" \
-  "$(unset CLAUDE_VM_CACHE_DIR CLAUDE_VM_STATE_DIR
-     XDG_STATE_HOME="$STATE_HOME" . "$LIB"
-     claude_cache_binary_path 9.9.9)"
+  "$(
+    unset CLAUDE_VM_CACHE_DIR CLAUDE_VM_STATE_DIR
+    XDG_STATE_HOME="$STATE_HOME" . "$LIB"
+    claude_cache_binary_path 9.9.9
+  )"
 
 # An EMPTY state root after config.sh loads is a hard abort naming the
 # variable, never a cache rooted at "/cache". The real config.sh always
@@ -136,8 +145,11 @@ assert_eq "default cache dir is \$CLAUDE_VM_STATE_DIR/cache" \
 STUB_LIB="$WORK/stub-lib"
 mkdir -p "$STUB_LIB"
 cp "$LIB" "$STUB_LIB/claude-cache.sh"
-printf 'CLAUDE_VM_STATE_DIR=""\n' > "$STUB_LIB/config.sh"
-STUB_ERR="$( (unset CLAUDE_VM_CACHE_DIR; . "$STUB_LIB/claude-cache.sh") 2>&1 >/dev/null )"
+printf 'CLAUDE_VM_STATE_DIR=""\n' >"$STUB_LIB/config.sh"
+STUB_ERR="$( (
+  unset CLAUDE_VM_CACHE_DIR
+  . "$STUB_LIB/claude-cache.sh"
+) 2>&1 >/dev/null)"
 assert_rc "empty CLAUDE_VM_STATE_DIR after config.sh -> source aborts (rc 1)" "1" "$?"
 case "$STUB_ERR" in
   *CLAUDE_VM_STATE_DIR*) named=yes ;;
@@ -165,14 +177,15 @@ assert_rc "checksum mismatch -> rc 1" "1" "$?"
 # ---------------------------------------------------------------------
 # Build a PATH that has the parse tools (awk/grep/tr/head/sed/cat) but NOT
 # jq, so claude_cache_manifest_sha256 exercises its jq-free branch.
-NOJQ_BIN="$WORK/nojq-bin"; mkdir -p "$NOJQ_BIN"
+NOJQ_BIN="$WORK/nojq-bin"
+mkdir -p "$NOJQ_BIN"
 for _t in awk grep tr head sed cat shasum sha256sum; do
   _src="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_src" "$NOJQ_BIN/$_t" 2>/dev/null
 done
 parse_nojq() { PATH="$NOJQ_BIN" claude_cache_manifest_sha256 "$1" 2>/dev/null; }
 
 # Adversarial layout A: a url carrying its own 64-hex run BEFORE the checksum.
-cat > "$FIXTURE/manifest.urlhex.json" <<JSON
+cat >"$FIXTURE/manifest.urlhex.json" <<JSON
 { "version": "9.9.9",
   "platforms": {
     "linux-arm64": {
@@ -185,7 +198,7 @@ assert_eq "fallback parse ignores a hex-bearing url before checksum" \
   "$BIN_SHA" "$(parse_nojq "$FIXTURE/manifest.urlhex.json")"
 
 # Adversarial layout B: another platform's digest precedes ours.
-cat > "$FIXTURE/manifest.multiplat.json" <<JSON
+cat >"$FIXTURE/manifest.multiplat.json" <<JSON
 { "platforms": {
     "darwin-arm64": { "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
     "linux-arm64":  { "checksum": "$BIN_SHA" }
@@ -214,9 +227,10 @@ assert_eq "normalize_fpr strips spaces + uppercases" \
 # A fake `gpg` whose --verify run emits a VALIDSIG status line carrying a
 # known fingerprint as BOTH the signing-key (field 1) and primary-key (last)
 # token. command -v gpg must succeed, so the fake also answers --version.
-GPG_BIN="$WORK/gpg-bin"; mkdir -p "$GPG_BIN"
+GPG_BIN="$WORK/gpg-bin"
+mkdir -p "$GPG_BIN"
 FAKE_FPR="C8D7E3123F312A2DC66F4F009C01EB1720C49782"
-cat > "$GPG_BIN/gpg" <<GPGSTUB
+cat >"$GPG_BIN/gpg" <<GPGSTUB
 #!/usr/bin/env bash
 for a in "\$@"; do
   case "\$a" in
@@ -239,12 +253,15 @@ verify_with_pin() {
   # gpg on PATH, against throwaway sig/signed files. Prints nothing; returns
   # the function's rc.
   local pin="$1"
-  ( PATH="$GPG_BIN:$PATH"
+  (
+    PATH="$GPG_BIN:$PATH"
     CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$pin"
     export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
-    . "$LIB"   # fresh lib => REAL claude_cache_gpg_verify, not the stub
-    : > "$WORK/sig"; : > "$WORK/signed"
-    claude_cache_gpg_verify "$WORK/sig" "$WORK/signed" >/dev/null 2>&1 )
+    . "$LIB" # fresh lib => REAL claude_cache_gpg_verify, not the stub
+    : >"$WORK/sig"
+    : >"$WORK/signed"
+    claude_cache_gpg_verify "$WORK/sig" "$WORK/signed" >/dev/null 2>&1
+  )
 }
 
 verify_with_pin ""
@@ -266,7 +283,8 @@ MANIFEST_TO_SERVE="$FIXTURE/manifest.good.json"
 # why claude_cache_note_network also writes a state file). This mirrors how
 # the launcher reads it.
 cache_net() { cat "$WORK/cache/.last-network-state" 2>/dev/null; }
-out="$(claude_cache_ensure stable)"; rc=$?
+out="$(claude_cache_ensure stable)"
+rc=$?
 assert_rc "ensure(stable) happy path -> rc 0" "0" "$rc"
 assert_eq "ensure prints the cache path" "$WORK/cache/9.9.9/linux-arm64/claude" "$out"
 assert_eq "ensure reports cold fetch" "cold" "$(cache_net)"
@@ -278,8 +296,12 @@ assert_eq "verified binary is cached" "yes" "$cached"
 #    We prove "no network" by making the fetch stub FAIL loudly; if the
 #    warm path called it, ensure would error.
 # ---------------------------------------------------------------------
-claude_cache_fetch_url() { echo "stub: network MUST NOT be called on warm boot ($1)" >&2; return 1; }
-out="$(claude_cache_ensure 9.9.9)"; rc=$?
+claude_cache_fetch_url() {
+  echo "stub: network MUST NOT be called on warm boot ($1)" >&2
+  return 1
+}
+out="$(claude_cache_ensure 9.9.9)"
+rc=$?
 assert_rc "ensure(pinned, cached) warm -> rc 0 with no network" "0" "$rc"
 assert_eq "warm boot reports 'warm' (no network)" "warm" "$(cache_net)"
 assert_eq "warm boot returns the cached path" "$WORK/cache/9.9.9/linux-arm64/claude" "$out"
@@ -287,12 +309,16 @@ assert_eq "warm boot returns the cached path" "$WORK/cache/9.9.9/linux-arm64/cla
 claude_cache_fetch_url() {
   local url="$1"
   case "$url" in
-    */claude-code-releases/stable|*/claude-code-releases/latest)
-      printf '%s\n' "$RESOLVED_VERSION" ;;
-    */manifest.json)      cat "$MANIFEST_TO_SERVE" ;;
-    */manifest.json.sig)  printf 'FAKE-SIGNATURE\n' ;;
+    */claude-code-releases/stable | */claude-code-releases/latest)
+      printf '%s\n' "$RESOLVED_VERSION"
+      ;;
+    */manifest.json) cat "$MANIFEST_TO_SERVE" ;;
+    */manifest.json.sig) printf 'FAKE-SIGNATURE\n' ;;
     */linux-arm64/claude) cat "$FIXTURE/claude" ;;
-    *) echo "stub: unexpected URL: $url" >&2; return 1 ;;
+    *)
+      echo "stub: unexpected URL: $url" >&2
+      return 1
+      ;;
   esac
 }
 
@@ -303,7 +329,8 @@ claude_cache_fetch_url() {
 GPG_VERIFY_RESULT=1
 RESOLVED_VERSION="8.8.8"
 MANIFEST_TO_SERVE="$FIXTURE/manifest.good.json"
-out="$(claude_cache_ensure stable 2>/dev/null)"; rc=$?
+out="$(claude_cache_ensure stable 2>/dev/null)"
+rc=$?
 assert_rc "ensure aborts on gpg --verify failure -> rc 1" "1" "$rc"
 [ -e "$WORK/cache/8.8.8/linux-arm64/claude" ] && leaked=yes || leaked=no
 assert_eq "gpg failure caches NOTHING" "no" "$leaked"
@@ -315,7 +342,8 @@ assert_eq "gpg failure caches NOTHING" "no" "$leaked"
 GPG_VERIFY_RESULT=0
 RESOLVED_VERSION="7.7.7"
 MANIFEST_TO_SERVE="$FIXTURE/manifest.badsum.json"
-out="$(claude_cache_ensure stable 2>/dev/null)"; rc=$?
+out="$(claude_cache_ensure stable 2>/dev/null)"
+rc=$?
 assert_rc "ensure aborts on checksum mismatch -> rc 1" "1" "$rc"
 [ -e "$WORK/cache/7.7.7/linux-arm64/claude" ] && leaked=yes || leaked=no
 assert_eq "checksum mismatch caches NOTHING" "no" "$leaked"
@@ -331,23 +359,25 @@ assert_eq "checksum mismatch caches NOTHING" "no" "$leaked"
 ensure_unset_pin_caches_nothing() {
   # Run in a subshell so the real lib (with real gpg_verify) and the empty
   # pin do not leak into the rest of this file's stubbed pipeline.
-  ( PATH="$GPG_BIN:$PATH"
-    CLAUDE_VM_SIGNING_KEY_FINGERPRINT=""        # unpinned => must hard-abort
+  (
+    PATH="$GPG_BIN:$PATH"
+    CLAUDE_VM_SIGNING_KEY_FINGERPRINT="" # unpinned => must hard-abort
     export CLAUDE_VM_SIGNING_KEY_FINGERPRINT CLAUDE_VM_CACHE_DIR
-    . "$LIB"   # fresh lib => REAL claude_cache_gpg_verify
+    . "$LIB" # fresh lib => REAL claude_cache_gpg_verify
     # Re-install the fetch stub inside this subshell (sourcing the lib reset
     # it to the real curl wrapper). Serve a fresh version so no prior cache
     # entry can mask the abort.
     claude_cache_fetch_url() {
       case "$1" in
         */claude-code-releases/stable) printf '%s\n' "6.6.6" ;;
-        */manifest.json)      cat "$FIXTURE/manifest.good.json" ;;
-        */manifest.json.sig)  printf 'FAKE-SIGNATURE\n' ;;
+        */manifest.json) cat "$FIXTURE/manifest.good.json" ;;
+        */manifest.json.sig) printf 'FAKE-SIGNATURE\n' ;;
         */linux-arm64/claude) cat "$FIXTURE/claude" ;;
         *) return 1 ;;
       esac
     }
-    claude_cache_ensure stable >/dev/null 2>&1 )
+    claude_cache_ensure stable >/dev/null 2>&1
+  )
 }
 ensure_unset_pin_caches_nothing
 assert_rc "ensure(unset pin) hard-aborts -> rc 1" "1" "$?"
