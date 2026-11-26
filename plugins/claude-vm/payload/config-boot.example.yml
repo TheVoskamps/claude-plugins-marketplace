@@ -317,10 +317,11 @@ egress:
 # config -- that number counts through the global entries before the per-repo
 # ones and need not be the entry's position in this file -- and by its path.
 #
-# Every entry below is COMMENTED OUT on purpose. A `source:` that is not on the
-# host aborts the launch, so shipping live entries here would make a
+# The whole block below is COMMENTED OUT on purpose. A `source:` that is not on
+# the host aborts the launch, so shipping live entries here would make a
 # copied-verbatim config refuse to boot until you happened to have a
-# ~/datasets/foo. Uncomment the ones you want and point them at real paths.
+# ~/datasets/foo. Uncomment `mounts:` and the entries you want, and point them
+# at real paths.
 # mounts:
 #   # A reference directory, mounted at /mnt/policy. Read-write, like all of
 #   # them -- the guest can change what it finds there.
