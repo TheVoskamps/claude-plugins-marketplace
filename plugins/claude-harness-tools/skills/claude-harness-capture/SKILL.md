@@ -69,7 +69,9 @@ turned into one `-` and a leading or trailing `-` dropped, so
 
 Every path is logged, not only `/v1/messages`; filter on `method` and
 `path` in `request.json`. `session_header` joins the capture to the
-session's transcript under `~/.claude/projects/`.
+session's transcript under `projects/` in the config directory,
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, where an empty `CLAUDE_CONFIG_DIR`
+counts as unset.
 
 ## Reading a capture
 
