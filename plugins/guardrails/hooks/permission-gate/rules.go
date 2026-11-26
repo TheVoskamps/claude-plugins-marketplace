@@ -111,10 +111,12 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		case "login":
 			// HARD ASK tier: login can re-target identity, and the
 			// credential surface is user-owned, so this is a human decision by
-			// policy rather than an unclassifiable command. (The normal pipeline
-			// allow-lists 'gh auth login', but a switch via re-login is the
-			// multi-identity-switch form the deny above warns about.)
-			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") {
+			// policy rather than an unclassifiable command. A switch via
+			// re-login is the multi-identity-switch form the deny above warns
+			// about. The `--hostname=<host>` spelling asks with the separate
+			// one, as the `gh api` arm denies both.
+			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") ||
+				hasFlagPrefix(cmd[2:], "--hostname=") {
 				return ask("gh auth login --hostname",
 					"'gh auth login' targeting a specific host can switch the active identity. Credential "+
 						"surfaces are user-owned, so this is a human decision by policy. Confirm this is "+
@@ -1176,8 +1178,15 @@ func awsCredentialRead(svc, op string, args []string) bool {
 		// bare-verb command (no hyphen) so it is excluded from awsReadOnlyOp;
 		// when the key it reads is secret-bearing it is a credential read → ASK
 		// (exposure harm). The key is the next positional after `get`.
-		if op == "get" {
+		// `aws configure export-credentials` resolves the profile's
+		// credentials and prints them in every `--format` it takes ("Export
+		// credentials in various formats", the AWS CLI reference), so it is a
+		// credential read whatever its flags.
+		switch op {
+		case "get":
 			return awsConfigureReadsSecret(args)
+		case "export-credentials":
+			return true
 		}
 	}
 	// Structural whitelist anchor: any `get-*` operation whose NAME carries a

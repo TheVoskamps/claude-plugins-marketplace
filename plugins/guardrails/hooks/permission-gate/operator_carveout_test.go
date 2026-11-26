@@ -745,9 +745,10 @@ func TestOperatorCarveOutDotDotEscape(t *testing.T) {
 	wantBucket(t, d, BucketDeny, "read of a sibling repo (negative control)")
 }
 
-// A call mixing a listed target with an ordinary in-repo one falls back to the
-// ordinary defer rather than letting the carve-out's ALLOW ride along with a
-// path the gate has not blessed on its own terms.
+// On the file tools, a call mixing a listed target with an ordinary in-repo
+// one defers, as the in-repo target alone does, rather than letting the
+// carve-out's ALLOW ride along with a path the gate has not blessed on its own
+// terms. The Bash tracks grade the same mix by their own terminals.
 func TestOperatorCarveOutDoesNotRideAlong(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

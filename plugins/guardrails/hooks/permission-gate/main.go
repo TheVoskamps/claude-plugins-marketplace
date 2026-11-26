@@ -23,9 +23,9 @@
 // how confident it is:
 //
 //   - DENY with teaching — a known-bad call for which a prescriptive redirect
-//     exists. This tier keeps its value BECAUSE of automode: a defer that
-//     automode denies produces a generic denial, while the gate's deny carries
-//     the redirect prose the model self-corrects on.
+//     exists. The deny's reason carries the redirect prose the model
+//     self-corrects on, which no defer carries: emitDecision drops a defer's
+//     reason.
 //   - ALLOW with positive grounds — proven read-only operations and contained
 //     writes. This is what keeps the hot path off the evaluator entirely.
 //   - Hard ASK — a short, enumerated human-click tier: publish verbs,
@@ -34,10 +34,10 @@
 //
 // Everything else — the whole judgment middle, including every "the gate
 // cannot statically classify this" arm — DEFERS, carrying the gate's analysis
-// into the evolution log for the evaluator's tuning. Uncertainty never asks: a
-// gate ask is a guaranteed hard prompt that BYPASSES the smartest layer in the
-// stack, so spending one on uncertainty buys prompt fatigue rather than
-// safety.
+// into the evolution log for the evaluator's tuning. Uncertainty never asks:
+// an ask spends a human click, and the ask tier is a policy list rather than
+// an uncertainty default, so spending one on uncertainty buys prompt fatigue
+// rather than safety.
 package main
 
 import (

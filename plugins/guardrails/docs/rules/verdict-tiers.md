@@ -20,10 +20,11 @@ the reason names what to do instead.
 - A shape with no legitimate use at all (`gh api --hostname`,
   `aws --endpoint-url`, `gh auth switch`) strands nothing, so it denies;
   its reason says to drop the shape and stay on the sanctioned one.
-- Totality is graded per input, not per element: a GraphQL document
-  bundling a redirectable mutation with one the gate can only refuse
-  defers, because the deny would teach about one field and leave the
-  other with nowhere to go.
+- Totality is graded per input, not per element. A redirectable GraphQL
+  mutation denies when it is the document's only mutation, or is bundled
+  only with allow-listed ones. A document bundling it with one the gate
+  can only refuse defers, in either field order, because the deny would
+  teach about one field and leave the other with nowhere to go.
 
 ## Allow, with positive grounds
 
@@ -54,7 +55,7 @@ below names. The whole tier:
   `awsCredentialRead` and `awsCredentialMint` in `rules.go` match,
   `gh auth token`, `gh auth status -t`/`--show-token` and its
   unknown-flag screen, and `gh auth login` with `--hostname` or `-h` as
-  an argument of its own; `--hostname=<host>` defers.
+  an argument of its own, or with `--hostname=<host>`.
 
 Ask rather than deny where a human has legitimate reasons to proceed:
 the gate governs interactive sessions as well as agent ones, and one

@@ -41,19 +41,20 @@ import (
 // relocate a root, so the opt-in is bounded by denies rather than by refusing
 // to read the variable at all: nothing under a `.git/` segment is ever handed
 // out (testContainmentFrom withholds the region), and no write to this config
-// file itself is ever allowed (isSelfWrite, below). In practice the hook
-// inherits the launcher's environment, so the only same-session route to a
-// relocated root is a nested `claude` launch from the Bash tool with an XDG
-// assignment in front of it. The gate deliberately neither denies nor detects
-// that launch: it would be adjudicating an assignment whose effect on a root it
-// cannot see, in a session it does not adjudicate, and the operator who opted
-// in accepted that exposure, which the two denies bound. A change that wants
-// such a rule is adding one. harnessScratchDir is a different case and stays a
-// literal: no operator file names it, and its region is safe by construction.
+// file itself is ever allowed (isSelfWrite, below). The gate reads both
+// variables from its own process environment (carveOutRootPath), and it
+// deliberately neither denies nor detects a Bash call that sets one for a
+// process it starts, such as a `claude` launch with an XDG assignment in front
+// of it: it would be adjudicating an assignment whose effect on a root it
+// cannot see, for a process whose calls it does not grade here, and the
+// operator who opted in accepted that exposure, which the two denies bound. A
+// change that wants such a rule is adding one. harnessScratchDir is a
+// different case and stays a literal: no operator file names it, and its
+// region is safe by construction.
 //
-// A listed path ALLOWS rather than defers: a defer only removes the gate's
-// veto and hands the call to the ordinary permission rules, which nothing here
-// establishes would permit it.
+// A listed path ALLOWS rather than defers: the operator's listing meets
+// BucketAllow's bar, so the gate clears the call rather than handing it back
+// to be graded again.
 //
 // With no listing, a call mixing a path that resolves into another repo — the
 // dotfiles case above — with an in-worktree one denies as cross-repo on every
@@ -65,7 +66,10 @@ import (
 // own contained terminal: `cat <listed> a.md` allows and `less <listed> a.md`
 // defers. The Bash write track (containWriteOperands) allows an in-worktree
 // operand as well, so `touch <listed>/x.md a.md` allows. On every track an
-// operand that escapes denies, whatever the listed one beside it is.
+// operand that escapes denies, whatever the listed one beside it is. These are
+// the listing's verdicts alone: in a linked worktree the file-work redirect
+// (classify_file_work.go), in its default worktree mode, denies `cat` and
+// `less` of a listed operand and an in-worktree one alike.
 //
 // The listing is consulted in exactly one place, testContainmentFrom
 // (engine_b_containment.go), which reports a match as the operatorListed
@@ -152,14 +156,15 @@ type operatorCarveOut struct {
 // whatever a glob says.
 type operatorCarveOutLists struct {
 	// Read lists the paths a read-class call may reach under this root. It
-	// defaults to empty when absent; a value that is not a sequence of
-	// scalars fails the parse.
+	// defaults to empty when absent, bare or null; any other value that is not
+	// a sequence of scalars fails the parse, a quoted empty string and a single
+	// unbracketed path included. Each scalar entry is read as its text, so `1`
+	// is the glob `1`.
 	Read []string `yaml:"read"`
 	// Write lists the paths a write may reach under this root, and implies
-	// Read for the same paths (allows). It defaults to empty when absent; a
-	// value that is not a sequence of scalars fails the parse. No write to
-	// this config file itself is allowed, whatever the list says
-	// (isSelfWrite).
+	// Read for the same paths (allows). It decodes under the same rules as
+	// Read. No write to this config file itself is allowed, whatever the list
+	// says (isSelfWrite).
 	Write []string `yaml:"write"`
 }
 
@@ -186,9 +191,11 @@ type operatorCarveOutLists struct {
 //	    - .ssh/config
 //
 // An absent file is the ordinary case: no carve-out entry anywhere, and the
-// file-work redirect in its worktree default, with nothing reported. A file
-// that exists but cannot be read, or that does not decode into this struct —
-// a value of the wrong YAML type for its field, say — denies every gated tool
+// file-work redirect in its worktree default, with nothing reported. An empty
+// file decodes, carries no stamp, and so reads as absent too. A file that
+// exists but cannot be read, or that does not decode into this struct — a top
+// level that is not a mapping, a key given twice, or a value of the wrong YAML
+// type for its field — denies every gated tool
 // call, a write to the file included, as config:unusable until it is fixed or
 // removed (classify): both the carve-out and the redirect come from this file,
 // and a gate that guessed at a broken one would apply policy the operator did
@@ -210,29 +217,38 @@ type operatorCarveOutDocument struct {
 	// operatorCarveOutSchemaVersion, or not at all, is read as absent,
 	// silently, every key below included; a file still spelling the schema-1
 	// `allow-read` / `allow-write` keys is stamped 1 and lands there. A
-	// higher stamp is read for the keys declared here. A non-integer value
-	// fails the parse.
+	// higher stamp is read for the keys declared here. A bare or null value
+	// (`schema-version:`, `~`, `null`) is no stamp. An unquoted number decodes
+	// to its integer part, so `2.0` and `2.5` are both stamped 2 and `1.9` is
+	// stamped 1; a quoted number, a boolean, an infinite or out-of-range
+	// number, or any other value fails the parse.
 	SchemaVersion int `yaml:"schema-version"`
 	// ResolveXDGEnvVars, `resolve-xdg-environment-variables`, makes the
 	// config-home and state-home roots follow $XDG_CONFIG_HOME and
 	// $XDG_STATE_HOME whenever the variable is set and non-empty
-	// (carveOutRootPath). It defaults to no, as does an empty or null value.
-	// true/false and the YAML 1.1 spellings yes/no, y/n and on/off decode,
-	// each in lower, title or upper case; any other value fails the parse.
+	// (carveOutRootPath). It defaults to no, as does a bare or null value
+	// (`resolve-xdg-environment-variables:`, `~`, `null`). An unquoted
+	// true/false decodes, and so do the YAML 1.1 spellings yes/no, y/n and
+	// on/off, quoted or not; each in lower, title or upper case. Any other
+	// value fails the parse: a quoted empty string, a quoted true or false, a
+	// number, or another case such as `yEs`.
 	ResolveXDGEnvVars bool `yaml:"resolve-xdg-environment-variables"`
 	// ConfigHomeDefault, `config-home-default`, spells the config-home root
 	// when the XDG variable is not in effect: an absolute path, or one opening
 	// with `~` or `~/`, expanded against the process home. There is no
 	// built-in default: absent, empty, relative, or opening with any other
 	// tilde shape such as `~someone/`, the root does not exist and every glob
-	// under config-home is dead, silently (absoluteRootPath). A non-scalar
-	// value fails the parse.
+	// under config-home is dead, silently (absoluteRootPath). A bare or null
+	// value is empty, and any other scalar is read as its text, so `5` is the
+	// relative spelling `5`. A sequence or mapping fails the parse.
 	ConfigHomeDefault string `yaml:"config-home-default"`
 	// StateHomeDefault, `state-home-default`, spells the state-home root, under
 	// the same rules as ConfigHomeDefault.
 	StateHomeDefault string `yaml:"state-home-default"`
 	// ConfigHome, `config-home`, lists globs relative to the config-home root.
-	// Absent, it lists nothing; a value that is not a mapping fails the parse.
+	// Absent, bare or null, it lists nothing; any other value that is not a
+	// mapping fails the parse, a quoted empty string included. A key inside
+	// the mapping other than `read` and `write` is ignored.
 	ConfigHome operatorCarveOutLists `yaml:"config-home"`
 	// StateHome, `state-home`, lists globs relative to the state-home root,
 	// under the same rules as ConfigHome.
@@ -246,8 +262,10 @@ type operatorCarveOutDocument struct {
 	Home operatorCarveOutLists `yaml:"home"`
 	// RedirectBashFileWork, `redirect-bash-file-work`, is the file-work
 	// redirect's mode (classify_file_work.go): `off`, `worktree` or `always`.
-	// It defaults to `worktree`: absent, empty or null, silently; any other
-	// value — another case, a non-scalar — with a warning logged naming the
+	// It defaults to `worktree`: absent, bare, null or a quoted empty string,
+	// silently; any other value — another case such as `Off`, a scalar of
+	// another type such as `false` or `5`, a sequence or a mapping — with a
+	// warning logged naming the
 	// file, the key, the value and the value used (redirectBashFileWorkMode).
 	// Only an explicit `off` turns the redirect off. The key is read only in a
 	// file stamped at or above operatorCarveOutSchemaVersion while the process
@@ -354,7 +372,8 @@ func buildOperatorCarveOut(doc operatorCarveOutDocument, configPath string, home
 const redirectBashFileWorkKey = "redirect-bash-file-work"
 
 // redirectBashFileWorkMode reads the file-work redirect's mode from the
-// decoded key. An absent key and an empty value mean fileWorkWorktree, silently.
+// decoded key. An absent key, a bare or null value and a quoted empty string
+// mean fileWorkWorktree, silently.
 // A value that is not one of the modes also means fileWorkWorktree, and comes
 // back with the warning it earns, so a typo never turns the redirect off: only
 // an explicit `off` does.
@@ -508,8 +527,8 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool, she
 // The LEXICALLY-cleaned spelling — the one `remainder` matches the globs
 // against — is compared beside it so the deny is never read off a different
 // path than the glob match that would otherwise hand the write out. Comparing
-// both can only widen the deny, and a widened deny hands the call back to the
-// verdict it would have had without the listing anyway.
+// both can only widen the deny, and a target the widened deny catches is
+// graded as one no listing covers.
 //
 // Both sides also pass through selfWriteResolveLink, so a spelling whose final
 // segment is a symlink at a file that does not exist yet is compared as the
@@ -772,8 +791,9 @@ func lexicalAbs(target string, base string) string {
 // The listing is matched against the operand the gate holds, and the shell
 // opens whatever that operand expands to, so the two have to name the same
 // files. The rule is stated as what is ADMITTED rather than what is withheld,
-// because the shell is zsh, which gives characters a meaning of their own
-// that expand.Literal does not resolve, and a predicate that named each such
+// because the gate does not assume the line runs under bash: zsh gives
+// characters a meaning of their own that expand.Literal does not resolve, and
+// a predicate that named each such
 // character as it was found was a round behind the next one. At a word's
 // opening, `=ls` is the path of the `ls` binary on $PATH under its equals
 // expansion and `~+` is `$PWD`; inside a segment, `#` and `^` are pattern
@@ -781,8 +801,8 @@ func lexicalAbs(target string, base string) string {
 // the literal names one file. Any character outside the plain set — `=`, a
 // `~` past the opening, `$`, `%`, `!`, `#`, `^`, a quote, whatever any shell
 // option may expand — is withheld without being named. The cost is a
-// filename carrying such a character, which then earns the verdict it has
-// without the listing; the gain is that every character the shell reads is
+// filename carrying such a character, which is then graded as an operand no
+// listing covers; the gain is that every character the shell reads is
 // one the gate has held to a literal. The tilde forms outside the two
 // admitted ones show why that matters: expand.Literal hands `~+/x` over
 // untouched, so lexicalAbs joins it onto the base as a literal segment while

@@ -843,8 +843,8 @@ func harnessScratchRemainder(real, root string) string {
 // expand it to one. The operand as written carries at most a bare `*`
 // (shellOperandListable), while the canonical path can carry
 // any character an on-disk name can, a symlink's target name included. Such a
-// target earns on the bash tracks the verdict it has without the listing, so
-// no listing hands out git internals there, while the file-tool track reads
+// target is graded on the bash tracks as one no listing covers, so no listing
+// hands out git internals there, while the file-tool track reads
 // listed to deny the read outright (classifyFileTool). This is the one place
 // the listing is consulted, so listed is how a caller learns of a match the
 // region does not carry.

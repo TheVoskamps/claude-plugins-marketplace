@@ -12,11 +12,11 @@ import (
 // line (logWarning) whenever the gate's own input earns one, appended to
 // ~/.claude/logs/permission-gate.jsonl or to the PERMISSION_GATE_LOG override.
 //
-// The DEFER rows are what make it a tuning input rather than a tally: a
-// deferred call lands in the automode evaluator, and the record tells whoever
-// tunes that evaluator what the gate could and could not establish about the
-// same call. A defer's analysis travels ONLY here — emitDecision omits it from
-// stdout — so the gate puts no words in the judge's mouth. An ALLOW verdict
+// The DEFER rows are what make it a tuning input rather than a tally: a defer
+// is a call the gate leaves to whatever grades it next, and the record tells
+// whoever tunes that grader what the gate could and could not establish about
+// the same call. A defer's analysis travels ONLY here — emitDecision omits it
+// from stdout — so the gate puts no words in the judge's mouth. An ALLOW verdict
 // gets no row of its own, since the allow track exists to keep the hot path
 // out of this feed; a warning row is written whatever the verdict, so an
 // allowed call can still carry one.
