@@ -205,18 +205,17 @@ assert_contains "guest fragment is the real install loop" \
 #    An optional second argument is the account directory a --as launch sets
 #    as $ACCOUNT_DIR; without it the fragment runs as a launch without --as,
 #    with $ACCOUNT_DIR unset.
-# shellcheck disable=SC2016 # the -c script's $1 is the child shell's to expand
 run_seed() {
   local case_dir="$1" account_dir="${2:-}"
   mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
   local st=0
   if [ -n "$account_dir" ]; then
     HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" ACCOUNT_DIR="$account_dir" \
-      "$SHELL_UNDER_TEST" -c 'set -euo pipefail; . "$1"' _ "$HOST_FRAGMENT" \
+      "$SHELL_UNDER_TEST" -c "set -euo pipefail; . \"\$1\"" _ "$HOST_FRAGMENT" \
       2>"$case_dir/host.err" || st=$?
   else
     HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" \
-      "$SHELL_UNDER_TEST" -c 'set -euo pipefail; unset ACCOUNT_DIR; . "$1"' _ "$HOST_FRAGMENT" \
+      "$SHELL_UNDER_TEST" -c "set -euo pipefail; unset ACCOUNT_DIR; . \"\$1\"" _ "$HOST_FRAGMENT" \
       2>"$case_dir/host.err" || st=$?
   fi
   printf '%s\n' "$st" >"$case_dir/host.status"
@@ -227,13 +226,12 @@ run_seed() {
 # hand. Used for the failure injections: a source the guest cannot read has to
 # be planted on the MOUNT, since a host ~/.claude the host itself cannot copy
 # is dropped host-side and never reaches the guest at all.
-# shellcheck disable=SC2016 # the -c script's $1 and $* are the child shell's to expand
 run_guest_only() {
   local case_dir="$1"
   mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
   local st=0
   CLAUDECREDS_MNT="$case_dir/creds" CRED_DIR="$case_dir/guest/.claude" \
-    "$SHELL_UNDER_TEST" -c 'set -euo pipefail; log() { printf "%s\n" "$*"; }; . "$1"' \
+    "$SHELL_UNDER_TEST" -c "set -euo pipefail; log() { printf '%s\n' \"\$*\"; }; . \"\$1\"" \
     _ "$GUEST_FRAGMENT" 2>"$case_dir/guest.err" || st=$?
   printf '%s\n' "$st" >"$case_dir/guest.status"
 }

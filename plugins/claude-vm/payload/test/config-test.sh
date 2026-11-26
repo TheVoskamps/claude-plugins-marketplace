@@ -10,10 +10,6 @@
 #
 # Requires: yq (mikefarah v4+). Skips with a clear message if absent.
 
-# The suite writes shell source into harness files and `bash -c` scripts, so
-# single-quoted `$` and literal backslashes are the text it means to emit.
-# shellcheck disable=SC2016,SC2028
-
 set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -576,44 +572,31 @@ assert_ne() {
 # Point TMPDIR at the test workdir so the created files are cleaned up
 # with $WORK and do not litter the real temp dir.
 # ---------------------------------------------------------------------
-# shellcheck disable=SC2030 # the subshell keeps the TMPDIR override local
-(
-  export TMPDIR="$WORK"
+F1="$(TMPDIR="$WORK" claude_vm_mktemp claude-vm-mktemp-test)"
+F2="$(TMPDIR="$WORK" claude_vm_mktemp claude-vm-mktemp-test)"
+assert_true "mktemp: first file exists" test -f "$F1"
+assert_true "mktemp: second file exists" test -f "$F2"
+assert_ne "mktemp: two file calls produce distinct paths" "$F1" "$F2"
 
-  F1="$(claude_vm_mktemp claude-vm-mktemp-test)"
-  F2="$(claude_vm_mktemp claude-vm-mktemp-test)"
-  assert_true "mktemp: first file exists" test -f "$F1"
-  assert_true "mktemp: second file exists" test -f "$F2"
-  assert_ne "mktemp: two file calls produce distinct paths" "$F1" "$F2"
+D1="$(TMPDIR="$WORK" claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
+D2="$(TMPDIR="$WORK" claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
+assert_true "mktemp -d: first dir exists" test -d "$D1"
+assert_true "mktemp -d: second dir exists" test -d "$D2"
+assert_ne "mktemp -d: two dir calls produce distinct paths" "$D1" "$D2"
 
-  D1="$(claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
-  D2="$(claude_vm_mktemp -d claude-vm-mktemp-test-dir)"
-  assert_true "mktemp -d: first dir exists" test -d "$D1"
-  assert_true "mktemp -d: second dir exists" test -d "$D2"
-  assert_ne "mktemp -d: two dir calls produce distinct paths" "$D1" "$D2"
+# The created path must NOT carry a literal X-run -- a regression check
+# that the template was actually substituted, not used verbatim.
+case "$F1" in
+  *XXXXXX*) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "literal-XXXXXX" ;;
+  *) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "no-XXXXXX" ;;
+esac
 
-  # The created path must NOT carry a literal X-run -- a regression check
-  # that the template was actually substituted, not used verbatim.
-  case "$F1" in
-    *XXXXXX*) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "literal-XXXXXX" ;;
-    *) assert_eq "mktemp: template was substituted (no literal X-run)" "no-XXXXXX" "no-XXXXXX" ;;
-  esac
-
-  # A trailing slash on TMPDIR must not produce a doubled slash.
-  export TMPDIR="$WORK/"
-  SLASH="$(claude_vm_mktemp claude-vm-mktemp-slash)"
-  case "$SLASH" in
-    *//*) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "doubled-slash" ;;
-    *) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "single-slash" ;;
-  esac
-
-  # Propagate this subshell's pass/fail tallies to the parent via a temp
-  # file (a subshell cannot mutate the parent's PASS/FAIL vars).
-  printf '%s %s\n' "$PASS" "$FAIL" >"$WORK/mktemp-tally"
-)
-read -r SUB_PASS SUB_FAIL <"$WORK/mktemp-tally"
-PASS="$SUB_PASS"
-FAIL="$SUB_FAIL"
+# A trailing slash on TMPDIR must not produce a doubled slash.
+SLASH="$(TMPDIR="$WORK/" claude_vm_mktemp claude-vm-mktemp-slash)"
+case "$SLASH" in
+  *//*) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "doubled-slash" ;;
+  *) assert_eq "mktemp: trailing-slash TMPDIR yields no doubled slash" "single-slash" "single-slash" ;;
+esac
 
 # ---------------------------------------------------------------------
 # Test 9: claude_vm_merge_config can run twice in succession.
@@ -624,22 +607,14 @@ FAIL="$SUB_FAIL"
 # would die on "File exists". Run two merges back-to-back into two
 # outputs and assert both succeeded and produced content.
 # ---------------------------------------------------------------------
-# shellcheck disable=SC2030,SC2031 # the subshell keeps the TMPDIR override local
-(
-  export TMPDIR="$WORK"
-  OUT_A="$WORK/twice-a.yml"
-  OUT_B="$WORK/twice-b.yml"
-  rc=0
-  claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$OUT_A" || rc=1
-  claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$OUT_B" || rc=1
-  assert_true "merge twice: both calls succeeded" test "$rc" -eq 0
-  assert_true "merge twice: first output non-empty" test -s "$OUT_A"
-  assert_true "merge twice: second output non-empty" test -s "$OUT_B"
-  printf '%s %s\n' "$PASS" "$FAIL" >"$WORK/merge-tally"
-)
-read -r SUB_PASS SUB_FAIL <"$WORK/merge-tally"
-PASS="$SUB_PASS"
-FAIL="$SUB_FAIL"
+OUT_A="$WORK/twice-a.yml"
+OUT_B="$WORK/twice-b.yml"
+rc=0
+TMPDIR="$WORK" claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$OUT_A" || rc=1
+TMPDIR="$WORK" claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" >"$OUT_B" || rc=1
+assert_true "merge twice: both calls succeeded" test "$rc" -eq 0
+assert_true "merge twice: first output non-empty" test -s "$OUT_A"
+assert_true "merge twice: second output non-empty" test -s "$OUT_B"
 
 # ---------------------------------------------------------------------
 # Test 10: claude_vm_quote_args round-trip (issue #88).
@@ -695,9 +670,9 @@ rt_argv RT --flag "" tail
 assert_eq "quote-args: explicit empty-string arg survives" \
   "ARGC=3|<--flag>|<>|<tail>" "$RT"
 
-rt_argv RT 'a b' "it's" '#c' '$HOME' 'back\slash' '"dq"'
+rt_argv RT 'a b' "it's" '#c' "\$HOME" 'back\slash' '"dq"'
 assert_eq "quote-args: quotes/spaces/#/\$/backslash survive verbatim" \
-  'ARGC=6|<a b>|<it'\''s>|<#c>|<$HOME>|<back\slash>|<"dq">' "$RT"
+  "ARGC=6|<a b>|<it's>|<#c>|<\$HOME>|<back\\slash>|<\"dq\">" "$RT"
 
 # claude_vm_quote_args prints NOTHING (empty) for zero args -- a stray ''
 # would round-trip into a bogus empty argv element downstream.
@@ -1359,9 +1334,9 @@ if [ -n "${RAS_START:-}" ] && [ -n "${RAS_END:-}" ] && command -v render_apt_sou
     assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "rejected"
   fi
   assert_true "render_apt_source: rejected traversal name writes no file in sources_dir" \
-    bash -c '[ -z "$(ls -A "$1" 2>/dev/null)" ]' _ "$RAS_SOURCES"
+    test -z "$(ls -A "$RAS_SOURCES" 2>/dev/null)"
   assert_true "render_apt_source: rejected traversal name writes nothing outside staging dirs" \
-    bash -c '[ ! -e "$1/etc/evil.list" ]' _ "$WORK"
+    test ! -e "$WORK/etc/evil.list"
 
   # A name containing a slash but no ".." is equally rejected -- the guard is
   # a charset allowlist, not a ".." blacklist.
@@ -1647,7 +1622,7 @@ if [ "$RASB_SNIFF_RC" -eq 0 ]; then
   assert_true "render_apt_source_boot: bare line, binary key: key written as .gpg" \
     test -f "$RASB_SNIFF_ROOT/keyrings/boot-bin.gpg"
   assert_true "render_apt_source_boot: bare line, binary key: no stray .asc" \
-    bash -c '[ ! -e "$1" ]' _ "$RASB_SNIFF_ROOT/keyrings/boot-bin.asc"
+    test ! -e "$RASB_SNIFF_ROOT/keyrings/boot-bin.asc"
 
   # --- Bare repo line, ARMORED fetched key -- stays .asc (content-driven,
   # not a blanket switch). ---
@@ -1699,11 +1674,18 @@ BAP_START="$(grep -n '^boot_apt_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut 
 BAP_END="$(awk -v start="$BAP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 BAP_SRC="$WORK/boot_apt_phase.sh"
 if [ -n "$BAP_START" ] && [ -n "$BAP_END" ]; then
+  # render_apt_source_boot records its arguments to $BAP_ARGV when that is
+  # set, and is inert otherwise.
   {
-    echo 'log() { :; }'
-    echo 'render_apt_source_boot() { :; }'
-    echo 'APT_GET_CALL_LOG="${APT_GET_CALL_LOG:-/dev/null}"'
-    echo 'apt-get() { printf "%s\n" "$*" >> "$APT_GET_CALL_LOG"; return "${APT_GET_STUB_EXIT:-0}"; }'
+    cat <<'STUBS'
+log() { :; }
+render_apt_source_boot() {
+  if [ -n "${BAP_ARGV:-}" ]; then printf '%s|%s|%s\n' "$1" "$2" "$3" >>"$BAP_ARGV"; fi
+}
+APT_GET_CALL_LOG="${APT_GET_CALL_LOG:-/dev/null}"
+APT_PROXY_OPTS=()
+apt-get() { printf "%s\n" "$*" >> "$APT_GET_CALL_LOG"; return "${APT_GET_STUB_EXIT:-0}"; }
+STUBS
     awk -v start="$BAP_START" -v end="$BAP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
   } >"$BAP_SRC"
   # shellcheck source=/dev/null
@@ -1717,18 +1699,14 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   # 'install' call.
   BAP_CALLS="$WORK/boot-apt-calls.log"
   : >"$BAP_CALLS"
-  # The variables below are read by the boot_apt_phase sliced in above, a
-  # generated file the linter cannot follow.
-  # shellcheck disable=SC2034
-  APT_GET_CALL_LOG="$BAP_CALLS"
+  # The two exported variables below are read only by the boot_apt_phase
+  # sliced in above.
+  export APT_GET_CALL_LOG="$BAP_CALLS"
   APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
   printf 'curl\n' >"$APT_INSTALL_LIST"
   APT_SOURCES_TSV="$WORK/apt-sources-empty.tsv"
   : >"$APT_SOURCES_TSV"
-  # shellcheck disable=SC2034
-  APT_PROXY_OPTS=()
-  # shellcheck disable=SC2034
-  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  export CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
   (boot_apt_phase >/dev/null 2>&1 || true)
 
   UPDATE_CALLS="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
@@ -1775,14 +1753,12 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   # class as the marketplace record split in podman-mkosi.sh (issue #226).
   #
   # Driven through the REAL extracted boot_apt_phase, with
-  # render_apt_source_boot swapped for a recorder so the assertion is on the
+  # render_apt_source_boot recording to $BAP_ARGV so the assertion is on the
   # three values the split actually produced. The records come from the real
   # emitter (claude_vm_apt_sources) rather than hand-typed tabs, so the test
   # would notice the emitter changing shape underneath the reader.
   # -------------------------------------------------------------------
   BAP_ARGV="$WORK/boot-apt-argv.log"
-  # shellcheck disable=SC2329 # called by the sliced boot_apt_phase
-  render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >>"$BAP_ARGV"; }
 
   BAP_AS_YML="$WORK/bap-apt-sources.yml"
   cat >"$BAP_AS_YML" <<'YML'
@@ -1798,7 +1774,6 @@ YML
   APT_SOURCES_TSV="$WORK/bap-apt-sources.tsv"
   claude_vm_apt_sources "$BAP_AS_YML" >"$APT_SOURCES_TSV"
   APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
-  # shellcheck disable=SC2034 # read by the sliced boot_apt_phase
   CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
   : >"$BAP_ARGV"
   (boot_apt_phase >/dev/null 2>&1 || true)
@@ -1814,7 +1789,8 @@ YML
   # NEGATIVE CONTROL: rebuild the pre-fix collapsing read from the SAME
   # extracted lines (swap the read line back, drop the four hand-split
   # expansions) and show it hands the key url over as the repo line. Sourced
-  # and run inside a subshell so the good definition above survives.
+  # and run inside a subshell so the good definition above survives; the
+  # control carries the same recording render_apt_source_boot.
   BAP_OLD_SRC="$WORK/boot_apt_phase_old.sh"
   BAP_OLD_READ="      while IFS=\$'\\t' read -r as_name as_repo as_key_url; do"
   BAP_OLD_READ_AWK="      while IFS=\$'\\\\t' read -r as_name as_repo as_key_url; do"
@@ -1829,16 +1805,14 @@ YML
   (
     # shellcheck source=/dev/null
     . "$BAP_OLD_SRC"
-    # shellcheck disable=SC2329 # called by the sliced boot_apt_phase
-    render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >>"$BAP_ARGV"; }
     boot_apt_phase >/dev/null 2>&1 || true
   )
   assert_eq "boot_apt_phase: NEGATIVE CONTROL -- the old read misreads the key_url as the repo" \
     "nr|https://k.example/key.asc|" "$(sed -n 1p "$BAP_ARGV")"
 
-  # Restore the inert stub so any later use of the extracted phase behaves as
-  # the surrounding tests expect.
-  render_apt_source_boot() { :; }
+  # Make the stub inert again so any later use of the extracted phase behaves
+  # as the surrounding tests expect.
+  BAP_ARGV=""
 else
   echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
 fi
@@ -2502,8 +2476,8 @@ STUB
 chmod +x "$BPP_CLI"
 
 if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_phase >/dev/null 2>&1; then
-  # shellcheck disable=SC2034 # read by the sliced boot_plugin_phase
-  CLAUDE_BIN="$BPP_CLI"
+  # CLAUDE_BIN is read only by the boot_plugin_phase sliced in above.
+  export CLAUDE_BIN="$BPP_CLI"
   export CLAUDE_CALL_LOG MP_LIST_FILE PLUGIN_LIST_FILE CLAUDE_STUB_EXIT
   CLAUDE_CALL_LOG="$WORK/claude-calls.log"
   MP_LIST_FILE="$WORK/mp-list.txt"
@@ -2518,7 +2492,7 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   : >"$PLUGIN_MARKETPLACES_TSV"
   PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"
   : >"$PLUGIN_INSTALL_LIST"
-  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
+  export CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
   (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: nothing configured runs no claude calls" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
@@ -2656,10 +2630,12 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
       echo '#!/usr/bin/env bash'
       echo 'set -uo pipefail'
       printf '. %s\n' "\"$LIB\""
-      echo 'MERGED_BOOT="$1"'
-      echo 'RUN="$2"'
-      echo 'CONFIG_DIR="$RUN/config"'
-      echo 'mkdir -p "$CONFIG_DIR"'
+      cat <<'HARNESS'
+MERGED_BOOT="$1"
+RUN="$2"
+CONFIG_DIR="$RUN/config"
+mkdir -p "$CONFIG_DIR"
+HARNESS
       awk -v start="$MNT_START" -v end="$MNT_END" \
         -v mode="$mode" -v oldread="$MNT_OLD_READ_AWK" '
         NR < start || NR > end { next }
@@ -2669,7 +2645,9 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
         drop == 1 { if ($0 == "    esac") drop = 0; next }
         { print }
       ' "$LAUNCHER"
-      echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
+      cat <<'HARNESS'
+printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"
+HARNESS
     } >"$out"
   }
 
@@ -2749,16 +2727,15 @@ YML
   assert_eq "single-file: the shared dir is the per-entry wrap dir, not the file's parent" \
     "virtio-fs,sharedDir=$MNT_RUN2/mount-wrap/cfg,mountTag=cfg" \
     "$(printf '%s\n' "$MNT_OUT2" | grep -x -- "virtio-fs,sharedDir=$MNT_RUN2/mount-wrap/cfg,mountTag=cfg")"
-  # shellcheck disable=SC2012 # the test names every file it lists
   assert_eq "single-file: the wrap dir holds only the one file" \
-    "mount-src-file.txt" "$(ls "$MNT_RUN2/mount-wrap/cfg" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+    "mount-src-file.txt" \
+    "$(find "$MNT_RUN2/mount-wrap/cfg" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
   # HARD LINK, not a copy: same inode as the host file, which is what makes an
   # `rw` single-file mount write through to the host instead of into a
-  # throwaway copy. Compared by inode number rather than by content, since a
-  # copy would match on content.
-  # shellcheck disable=SC2012 # the test names every file it lists
+  # throwaway copy. Compared by device and inode (`-ef`) rather than by
+  # content, since a copy would match on content.
   assert_eq "single-file: the wrap entry is a HARD LINK to the source (same inode)" \
-    "same" "$([ "$(ls -i "$MNT_SRC_FILE" | awk '{print $1}')" = "$(ls -i "$MNT_RUN2/mount-wrap/cfg/mount-src-file.txt" | awk '{print $1}')" ] && echo same || echo different)"
+    "same" "$([ "$MNT_SRC_FILE" -ef "$MNT_RUN2/mount-wrap/cfg/mount-src-file.txt" ] && echo same || echo different)"
 
   # A directory source is NOT wrapped -- its own path is shared directly, so an
   # rw directory mount writes through with no intermediary at all.
@@ -2834,7 +2811,7 @@ YML
   MNT_SLICE_PREGUARD="$WORK/mount-loop-preguard.sh"
   write_mnt_slice "$MNT_SLICE_PREGUARD" preguard
   assert_eq "wrap-dir comma: the control really has the guard removed" \
-    "0" "$(grep -c 'case "$MOUNT_WRAP_DIR" in' "$MNT_SLICE_PREGUARD")"
+    "0" "$(grep -cF "case \"\$MOUNT_WRAP_DIR\" in" "$MNT_SLICE_PREGUARD")"
   MNT_COMMA_RUN6="$WORK/run,dir6"
   mkdir -p "$MNT_COMMA_RUN6"
   MNT_OUT6="$(bash "$MNT_SLICE_PREGUARD" "$MNT_YML2" "$MNT_COMMA_RUN6" 2>&1)"
@@ -2920,7 +2897,7 @@ fi
 GATE_START=""
 GATE_END=""
 if [ -f "$LAUNCHER" ]; then
-  GATE_START="$(grep -nF 'MERGED_BAKE="$(claude_vm_mktemp claude-vm-merged-bake)"' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  GATE_START="$(grep -nF "MERGED_BAKE=\"\$(claude_vm_mktemp claude-vm-merged-bake)\"" "$LAUNCHER" | head -1 | cut -d: -f1)"
   # The slice ends on the `}` closing the brace group that prints this abort.
   GATE_END="$(awk 'index($0, "aborting -- move the misplaced claude.plugins key(s)") { found = 1 } found && /^  }$/ { print NR; exit }' "$LAUNCHER")"
 fi
@@ -2930,10 +2907,12 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
     echo '#!/usr/bin/env bash'
     echo 'set -uo pipefail'
     printf '. %s\n' "\"$LIB\""
-    echo 'GLOBAL_BAKE_CONFIG="$1"'
-    echo 'REPO_BAKE_CONFIG="$2"'
-    echo 'GLOBAL_BOOT_CONFIG="$3"'
-    echo 'REPO_BOOT_CONFIG="$4"'
+    cat <<'HARNESS'
+GLOBAL_BAKE_CONFIG="$1"
+REPO_BAKE_CONFIG="$2"
+GLOBAL_BOOT_CONFIG="$3"
+REPO_BOOT_CONFIG="$4"
+HARNESS
     awk -v start="$GATE_START" -v end="$GATE_END" 'NR >= start && NR <= end' "$LAUNCHER"
     echo 'echo GATE-OK'
   } >"$GATE_SLICE"
@@ -3702,7 +3681,11 @@ assert_eq "guest-path: a '..' segment is left INTACT for the validator to reject
 OLD_BASH=""
 for _ob in /bin/bash /usr/bin/bash /bin/sh; do
   [ -x "$_ob" ] || continue
-  _obv="$("$_ob" -c 'printf "%s" "${BASH_VERSINFO[0]:-0}"' 2>/dev/null)"
+  _obv="$(
+    "$_ob" -s 2>/dev/null <<'SH'
+printf "%s" "${BASH_VERSINFO[0]:-0}"
+SH
+  )"
   case "$_obv" in
     '' | *[!0-9]*) continue ;;
   esac
@@ -3712,22 +3695,30 @@ for _ob in /bin/bash /usr/bin/bash /bin/sh; do
   fi
 done
 if [ -n "$OLD_BASH" ]; then
+  # old_bash_guest_path <path> -- claude_vm_mount_guest_path's output for <path>
+  # under $OLD_BASH.
+  old_bash_guest_path() {
+    "$OLD_BASH" -s "$LIB" "$1" 2>/dev/null <<'SH'
+. "$1"; claude_vm_mount_guest_path t "$2"
+SH
+  }
   assert_eq "guest-path: an OLD bash ($OLD_BASH) collapses repeated slashes identically" \
-    "/mnt/repo" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "///mnt//repo"' _ "$LIB" 2>/dev/null)"
+    "/mnt/repo" "$(old_bash_guest_path "///mnt//repo")"
   assert_eq "guest-path: an OLD bash drops a trailing slash identically" \
-    "/mnt/repo" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "/mnt/repo/"' _ "$LIB" 2>/dev/null)"
+    "/mnt/repo" "$(old_bash_guest_path "/mnt/repo/")"
   assert_eq "guest-path: an OLD bash collapses a '.' segment identically" \
-    "/etc" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "/./etc"' _ "$LIB" 2>/dev/null)"
+    "/etc" "$(old_bash_guest_path "/./etc")"
   # NEGATIVE CONTROL: the same old bash, running the INLINE escaped spelling
   # this function deliberately avoids. If this ever stops differing, the
   # portability hazard is gone and the variables above are no longer earning
   # their comment.
   assert_eq "guest-path: NEGATIVE CONTROL -- the inline '\\/' spelling really does differ on an old bash" \
     "differs" \
-    "$("$OLD_BASH" -c 'p="///mnt//repo"; q="${p//\/\//\/}"; [ "$q" = "//mnt/repo" ] && echo same || echo differs' 2>/dev/null)"
+    "$(
+      "$OLD_BASH" -s 2>/dev/null <<'SH'
+p="///mnt//repo"; q="${p//\/\//\/}"; [ "$q" = "//mnt/repo" ] && echo same || echo differs
+SH
+    )"
 fi
 
 # claude_vm_guest_path_covers is the DIRECTED half of the overlap relation, and
@@ -3803,7 +3794,6 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   printf '\texample.invalid\n' >"$PLUGIN_MARKETPLACES_TSV"
   PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"
   : >"$PLUGIN_INSTALL_LIST"
-  # shellcheck disable=SC2034 # read by the sliced boot_plugin_phase
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
   (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: a nameless record makes no CLI call at all" \
@@ -3829,7 +3819,9 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   BPP_OLD_READ_AWK="    while IFS=\$'\\\\t' read -r mp_name mp_url; do"
   BPP_OLD_SRC="$WORK/boot_plugin_phase_old.sh"
   {
-    echo 'log() { printf "%s\n" "$*" >> "$BPP_LOG"; }'
+    cat <<'STUBS'
+log() { printf "%s\n" "$*" >> "$BPP_LOG"; }
+STUBS
     awk -v start="$BPP_START" -v end="$BPP_END" -v oldread="$BPP_OLD_READ_AWK" '
       NR < start || NR > end { next }
       $0 ~ /^ *while IFS= read -r mp_record; do$/ { print oldread; next }
@@ -3897,8 +3889,10 @@ fi
 if [ -n "${BMP_START:-}" ] && [ -n "${BMP_END:-}" ]; then
   BMP_SRC="$WORK/boot_mount_phase.sh"
   {
-    echo 'log() { printf "%s\n" "$*" >> "$BMP_LOG"; }'
-    echo 'mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }'
+    cat <<'STUBS'
+log() { printf "%s\n" "$*" >> "$BMP_LOG"; }
+mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }
+STUBS
     awk -v start="$BMP_START" -v end="$BMP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
   } >"$BMP_SRC"
   # shellcheck source=/dev/null
@@ -3908,7 +3902,8 @@ fi
 if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   BMP_LOG="$WORK/bmp.log"
   MOUNT_CALL_LOG="$WORK/bmp-mount-calls.log"
-  MOUNT_STUB_EXIT=0
+  # MOUNT_STUB_EXIT is read only by the mount() stub sliced in above.
+  export MOUNT_STUB_EXIT=0
   # Guest paths are rooted under $WORK: the phase really does mkdir its
   # mountpoints, and a literal /mnt/... would try to write outside the test's
   # temp tree (and fail for a reason that has nothing to do with the code).
@@ -4103,7 +4098,6 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
       assert_eq "boot_mount_phase: a failing mount is WARNED about by tag" "warned" "$(cat "$BMP_LOG")"
       ;;
   esac
-  # shellcheck disable=SC2034 # read by the generated mount() stub
   MOUNT_STUB_EXIT=0
 
   # The hand split, on the guest side this time. A record whose MIDDLE field is
@@ -4119,8 +4113,10 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # turns that into a skip rather than a mount somewhere arbitrary.
   BMP_OLD_SRC="$WORK/boot_mount_phase-old.sh"
   {
-    echo 'log() { printf "%s\n" "$*" >> "$BMP_LOG"; }'
-    echo 'mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }'
+    cat <<'STUBS'
+log() { printf "%s\n" "$*" >> "$BMP_LOG"; }
+mount() { printf "%s\n" "$*" >> "$MOUNT_CALL_LOG"; return "${MOUNT_STUB_EXIT:-0}"; }
+STUBS
     awk -v start="$BMP_START" -v end="$BMP_END" '
       NR < start || NR > end { next }
       $0 ~ /^ *while IFS= read -r record; do$/ {
@@ -4353,7 +4349,7 @@ assert_eq "env-files: a later file wins over an earlier one" \
 # A value with shell metacharacters must round-trip byte-exact: the emitted line
 # is sourced by the guest, so an unquoted `;` or `$` would be a second statement
 # rather than part of the value.
-ENV_HOSTILE='a b"c'\''d$e`f\g;h'
+ENV_HOSTILE="a b\"c'd\$e\`f\\g;h"
 printf 'env:\n  set:\n    HOSTILE: %s\n' "'a b\"c''d\$e\`f\\g;h'" >"$ENVD/hostile.yml"
 assert_eq "env: a value with shell metacharacters round-trips byte-exact" \
   "$ENV_HOSTILE" \
@@ -4653,9 +4649,8 @@ case "$(env_gate "$ENV_NONE" "$ENVD/unparseable.yml")" in
 esac
 # A `~` in an env.files path is expanded the same way a mount source is -- the
 # config is YAML, so nothing else expands it.
-# shellcheck disable=SC2088 # the literal `~` is the input under test
 assert_eq "env-files: a leading ~ is expanded against \$HOME" \
-  "$HOME/some/.env" "$(claude_vm_expand_mount_source '~/some/.env')"
+  "$HOME/some/.env" "$(claude_vm_expand_mount_source \~/some/.env)"
 # A file with a final line carrying no trailing newline is still read (the
 # `|| [ -n "$line" ]` arm), and its parse is not silently skipped.
 printf 'NO_NEWLINE=tail-value' >"$ENVD/no-newline.env"
@@ -4690,16 +4685,15 @@ fi
 # set in config and have the launcher overwrite anyway. Derive the run.env set
 # from claude-vm.sh's own write block and compare, so the claim checks itself.
 ENV_RUNENV_NAMES="$(
-  sed -n '/^RUN_ENV=/,/^chmod 600 "\$RUN_ENV"/p' "$LAUNCHER" |
+  sed -n "/^RUN_ENV=/,/^chmod 600 \"\\\$RUN_ENV\"/p" "$LAUNCHER" |
     grep -oE "printf '[A-Za-z_][A-Za-z0-9_]*=" |
     sed "s/printf '//; s/=//" | sort -u
 )"
 assert_eq "env-reserved-set: the run.env write block was found (non-empty)" \
   "yes" "$([ -n "$ENV_RUNENV_NAMES" ] && echo yes || echo no)"
-# shellcheck disable=SC2086 # split the space-separated name list into one per line
 assert_eq "env-reserved-set: it is exactly run.env's names + CLAUDE_VM_LAST_CLAUDE_STATUS" \
   "$(printf '%s\nCLAUDE_VM_LAST_CLAUDE_STATUS\n' "$ENV_RUNENV_NAMES" | sort -u)" \
-  "$(printf '%s\n' $CLAUDE_VM_RESERVED_ENV_NAMES | sort -u)"
+  "$(printf '%s\n' "$CLAUDE_VM_RESERVED_ENV_NAMES" | tr -s ' ' '\n' | sort -u)"
 # ...and the boot launcher really does export that last one, so its presence in
 # the set is earned rather than defensive.
 assert_eq "env-reserved-set: the boot launcher really exports CLAUDE_VM_LAST_CLAUDE_STATUS" \
@@ -4715,73 +4709,87 @@ if [ -n "${OLD_BASH:-}" ]; then
   # (see the .env case below), but the VALUES the guest ends up with must not.
   assert_eq "env: an OLD bash ($OLD_BASH) resolves the same boot environment" \
     "from-set|file-value|copy-value|set-value|spaced double" \
-    "$(LAYERED=from-copy ONLY_COPY=copy-value "$OLD_BASH" -c \
-      '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a;
-         printf "%s|%s|%s|%s|%s" "$LAYERED" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" "$QUOTED_DQ"' \
-      _ "$LIB" "$ENVD/prec-boot.yml" "$ENVD/old-bash-boot.out" 2>/dev/null)"
+    "$(
+      LAYERED=from-copy ONLY_COPY=copy-value "$OLD_BASH" -s \
+        "$LIB" "$ENVD/prec-boot.yml" "$ENVD/old-bash-boot.out" 2>/dev/null <<'SH'
+. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a;
+printf "%s|%s|%s|%s|%s" "$LAYERED" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" "$QUOTED_DQ"
+SH
+    )"
   # The sentinel capture in claude_vm_env_set_value strips one `\n` with
   # ${raw%$'\n'}. ANSI-C quoting inside a suffix pattern is the kind of
   # construct that can differ across bash versions, so measure the VALUE the
   # old shell produces rather than assuming it matches.
   assert_eq "env: an OLD bash keeps a value's own trailing newlines too" \
     "$(printf '%s' "$ENV_TRAILNL" | od -An -c | tr -s ' ')" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$TRAILNL"' \
-      _ "$LIB" "$ENVD/trailnl.yml" "$ENVD/old-bash-trailnl.out" 2>/dev/null | od -An -c | tr -s ' ')"
+    "$(
+      "$OLD_BASH" -s "$LIB" "$ENVD/trailnl.yml" "$ENVD/old-bash-trailnl.out" 2>/dev/null <<'SH' |
+. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$TRAILNL"
+SH
+        od -An -c | tr -s ' '
+    )"
   # Both gate runs below merge in the OLD shell too, so what the old bash is
   # given is the same document shape the launcher produces -- and the bake arm
   # is exercised through the `shift 2` + `"$@"` walk over the raw bake paths,
   # which is a construct the 3.2 rule covers.
+  # old_bash_env_verdict <bake> <boot> <merged-bake> <merged-boot> -- merge both
+  # files and run claude_vm_check_env over them in $OLD_BASH; prints pass|abort.
+  old_bash_env_verdict() {
+    "$OLD_BASH" -s "$LIB" "$@" 2>/dev/null <<'SH'
+. "$1"; claude_vm_merge_config "" "$2" > "$4"
+claude_vm_merge_config "" "$3" > "$5"
+claude_vm_check_env "$4" "$5" "" "$2" >/dev/null 2>&1 && echo pass || echo abort
+SH
+  }
   assert_eq "env: an OLD bash reaches the same unset-env.copy verdict" \
     "abort" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_env "$4" "$5" "" "$2" >/dev/null 2>&1 && echo pass || echo abort' \
-      _ "$LIB" "$ENV_NONE" "$ENVD/copy-unset.yml" \
-      "$ENVD/old-bash-bake.merged.yml" "$ENVD/old-bash-boot.merged.yml" 2>/dev/null)"
+    "$(old_bash_env_verdict "$ENV_NONE" "$ENVD/copy-unset.yml" \
+      "$ENVD/old-bash-bake.merged.yml" "$ENVD/old-bash-boot.merged.yml")"
   assert_eq "env: an OLD bash also aborts on an EMPTY env.copy in a bake file" \
     "abort" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_env "$4" "$5" "" "$2" >/dev/null 2>&1 && echo pass || echo abort' \
-      _ "$LIB" "$ENVD/bake-copy-empty.yml" "$ENV_NONE" \
-      "$ENVD/old-bash-bake2.merged.yml" "$ENVD/old-bash-boot2.merged.yml" 2>/dev/null)"
+    "$(old_bash_env_verdict "$ENVD/bake-copy-empty.yml" "$ENV_NONE" \
+      "$ENVD/old-bash-bake2.merged.yml" "$ENVD/old-bash-boot2.merged.yml")"
   # Compared by SOURCING, not by text: bash 3.2's %q spells a space as `a\ b`
   # where bash 5 spells it `'a b'`. Both are correct shell quoting of the same
   # value, and the value is what the guest ends up with -- an assertion on the
   # literal text would fail on a difference that does not exist.
   assert_eq "env: an OLD bash unwraps a quoted .env value to the same VALUE" \
     "spaced double" \
-    "$("$OLD_BASH" -c '. "$1"; claude_vm_env_file_assignments "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$QUOTED_DQ"' \
-      _ "$LIB" "$ENVD/prec.env" "$ENVD/old-bash.out" 2>/dev/null)"
+    "$(
+      "$OLD_BASH" -s "$LIB" "$ENVD/prec.env" "$ENVD/old-bash.out" 2>/dev/null <<'SH'
+. "$1"; claude_vm_env_file_assignments "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$QUOTED_DQ"
+SH
+    )"
   # The claude.plugins placement gate is a config-load guard on the same
   # footing, and it has a 3.2 exposure of its own: two `for f in "$a" "$b"`
   # walks over path arguments that are routinely the EMPTY string (a config
-  # file the operator never created), under `set -u` -- which the -c script
-  # turns on explicitly, since the suite's own `set -u` does not reach into a
-  # child shell. Both tiers are merged in the old shell too, so the whole load
+  # file the operator never created), under `set -u` -- which the script turns
+  # on explicitly, since the suite's own `set -u` does not reach into a child
+  # shell. Both tiers are merged in the old shell too, so the whole load
   # sequence runs there and not just the gate. The pass case is included: a
   # guard that aborted on everything would satisfy the abort rows alone.
+  # old_bash_placement_verdict <bake> <boot> <merged-bake> <merged-boot> --
+  # merge both files and run the placement gate over them in $OLD_BASH; prints
+  # pass|abort.
+  old_bash_placement_verdict() {
+    "$OLD_BASH" -s "$LIB" "$@" 2>/dev/null <<'SH'
+set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
+claude_vm_merge_config "" "$3" > "$5"
+claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort
+SH
+  }
   assert_eq "placement: an OLD bash ($OLD_BASH) aborts on a valueless bake: in a boot file" \
     "abort" \
-    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
-      _ "$LIB" "$MP_BAKE" "$WORK/place-nc-list.yml" \
-      "$WORK/ob-place-bake.merged.yml" "$WORK/ob-place-boot.merged.yml" 2>/dev/null)"
+    "$(old_bash_placement_verdict "$MP_BAKE" "$WORK/place-nc-list.yml" \
+      "$WORK/ob-place-bake.merged.yml" "$WORK/ob-place-boot.merged.yml")"
   assert_eq "placement: an OLD bash aborts on an empty-MAP boot key in a bake file" \
     "abort" \
-    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
-      _ "$LIB" "$WORK/place-nc-map.yml" "$MP_BOOT" \
-      "$WORK/ob-place-bake2.merged.yml" "$WORK/ob-place-boot2.merged.yml" 2>/dev/null)"
+    "$(old_bash_placement_verdict "$WORK/place-nc-map.yml" "$MP_BOOT" \
+      "$WORK/ob-place-bake2.merged.yml" "$WORK/ob-place-boot2.merged.yml")"
   assert_eq "placement: an OLD bash still lets correctly-placed keys through" \
     "pass" \
-    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
-        claude_vm_merge_config "" "$3" > "$5"
-        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
-      _ "$LIB" "$MP_BAKE" "$MP_BOOT" \
-      "$WORK/ob-place-bake3.merged.yml" "$WORK/ob-place-boot3.merged.yml" 2>/dev/null)"
+    "$(old_bash_placement_verdict "$MP_BAKE" "$MP_BOOT" \
+      "$WORK/ob-place-bake3.merged.yml" "$WORK/ob-place-boot3.merged.yml")"
 
   # claude_vm_render_guest_settings is NOT a config-load guard -- it runs after
   # the image build -- and that is exactly why it needs this battery. It shipped
@@ -4804,12 +4812,17 @@ if [ -n "${OLD_BASH:-}" ]; then
   # arithmetic expression and would silently write the wrong slot instead.
   printf 'claude:\n  marketplaces:\n    - name: thevoskamps\n      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git\n  plugins:\n    bake:\n      - block-background-agents@thevoskamps\n      - guardrails@thevoskamps\n' >"$OB_ENA_BAKE"
   printf 'claude:\n  plugins:\n    update_at_boot: false\n    enabled:\n      block-background-agents@thevoskamps: false\n' >"$OB_ENA_BOOT"
-  OB_RENDER='set -u; . "$1"
-      claude_vm_merge_config "" "$2" > "$4"
-      claude_vm_merge_config "" "$3" > "$5"
-      claude_vm_render_guest_settings "$5" "$4"'
-  OB_ENA_JSON="$("$OLD_BASH" -c "$OB_RENDER" \
-    _ "$LIB" "$OB_ENA_BAKE" "$OB_ENA_BOOT" \
+  # old_bash_render <bake> <boot> <merged-bake> <merged-boot> -- merge both
+  # files and render the guest settings from them in $OLD_BASH.
+  old_bash_render() {
+    "$OLD_BASH" -s "$LIB" "$@" <<'SH'
+set -u; . "$1"
+claude_vm_merge_config "" "$2" > "$4"
+claude_vm_merge_config "" "$3" > "$5"
+claude_vm_render_guest_settings "$5" "$4"
+SH
+  }
+  OB_ENA_JSON="$(old_bash_render "$OB_ENA_BAKE" "$OB_ENA_BOOT" \
     "$WORK/ob-ena-bake.merged.yml" "$WORK/ob-ena-boot.merged.yml" 2>/dev/null)"
   assert_eq "render: an OLD bash ($OLD_BASH) renders a config carrying a plugins.enabled override" \
     "true" "$([ -n "$OB_ENA_JSON" ] && echo true || echo false)"
@@ -4827,8 +4840,7 @@ if [ -n "${OLD_BASH:-}" ]; then
   # three rows above are what go red under that mutation.
   OB_ENA_BADKEY="$WORK/ob-ena-badkey.yml"
   printf 'claude:\n  plugins:\n    enabled:\n      typo@thevoskamps: false\n' >"$OB_ENA_BADKEY"
-  OB_ENA_ERR="$("$OLD_BASH" -c "$OB_RENDER" \
-    _ "$LIB" "$OB_ENA_BAKE" "$OB_ENA_BADKEY" \
+  OB_ENA_ERR="$(old_bash_render "$OB_ENA_BAKE" "$OB_ENA_BADKEY" \
     "$WORK/ob-ena-bake2.merged.yml" "$WORK/ob-ena-boot2.merged.yml" 2>&1 >/dev/null)"
   case "$OB_ENA_ERR" in
     *"claude.plugins.enabled['typo@thevoskamps'] names a plugin not in"*) OB_ENA_V=named ;;
