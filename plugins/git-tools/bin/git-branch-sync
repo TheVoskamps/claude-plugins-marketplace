@@ -107,11 +107,15 @@ current_branch() {
 }
 
 # rebase_in_progress -- succeed when a rebase is stopped in this
-# checkout.
+# checkout. Every caller tests its status, which keeps the ERR trap and
+# `set -e` off inside it, so a failing git-path read exits 1 here rather
+# than reading as no rebase.
 rebase_in_progress() {
   local merge apply
-  merge=$(git rev-parse --git-path rebase-merge)
-  apply=$(git rev-parse --git-path rebase-apply)
+  merge=$(git rev-parse --git-path rebase-merge || exit) ||
+    fail 1 "\`git rev-parse --git-path rebase-merge\` failed (exit $?)"
+  apply=$(git rev-parse --git-path rebase-apply || exit) ||
+    fail 1 "\`git rev-parse --git-path rebase-apply\` failed (exit $?)"
   [ -d "$merge" ] || [ -d "$apply" ]
 }
 
@@ -206,7 +210,11 @@ holder_block() {
 # the worktree at <path> itself: the top level it reports is <path>, and
 # the common git dir it reports is this repository's. Fail when <path>
 # is gone, when its .git names a gitdir that is gone, or when its .git is
-# missing and git resolves to a repository enclosing <path>.
+# missing and git resolves to a repository enclosing <path>: a worktree
+# nested inside the clone resolves to the clone itself, which must be
+# neither read as the holder nor detached. A holder this fails for is
+# read and detached through the administrative directory find_admin_dir
+# finds by its gitdir file.
 has_working_tree() {
   local path=$1 top common
   [ -d "$path" ] || return 1
@@ -281,13 +289,18 @@ squeeze() {
 # `claude agent agent-<id> (pid <pid> start <date>)`, whose <pid> is a
 # running process that started at <date>, setting LOCK_PID to <pid>. Any
 # other reason, a <pid> that is gone, or one with another start time is
-# no evidence of life.
+# no evidence of life. The start time is compared because a PID alone is
+# reused.
 lock_is_live() {
   local re='^claude agent agent-[^ ]+ \(pid ([0-9]+) start (.+)\)$' start started
   [[ $1 =~ $re ]] || return 1
   LOCK_PID=${BASH_REMATCH[1]} start=${BASH_REMATCH[2]}
   # The harness writes <date> in UTC, in the C locale's day and month
-  # names; ps prints the start time in the local zone unless told not to.
+  # names, and ps prints the start time in the local zone unless told
+  # otherwise, so ps is read under TZ=UTC LC_ALL=C: a local-time
+  # comparison would read every live lock as stale wherever the zone is
+  # not UTC. Runs of spaces are collapsed on both sides because ps pads a
+  # one-digit day.
   started=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$LOCK_PID" 2>/dev/null || true)
   [ -n "$started" ] && [ "$(squeeze "$started")" = "$(squeeze "$start")" ]
 }
@@ -457,8 +470,9 @@ EOF
     fail 9 "local HEAD $local_head differs from origin/$branch ${remote:-(absent)}"
   fi
   top=$(git rev-parse --show-toplevel)
-  # The `${array[@]+...}` form expands an empty array under bash 3.2's
-  # `set -u`.
+  # Run from the top level, so an untracked file in another directory is
+  # not missed. The `${array[@]+...}` form expands an empty array under
+  # bash 3.2's `set -u`.
   dirty=$(cd "$top" && git status --porcelain -- . ${excludes[@]+"${excludes[@]}"})
   [ -z "$dirty" ] || fail 10 "the working tree is dirty after the push"
 }

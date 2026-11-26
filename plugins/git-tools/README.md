@@ -3,10 +3,10 @@
 Git-side helpers for the issue-branch lifecycle — create the branch an
 issue set is worked on, recover that set from a finished branch's
 name, read a branch's range on `origin` before trusting what was read
-from it, run the fixed git steps around an agent's own work on a
-branch that already exists, and name the repo's default branch for a
-caller that must never remove it — plus `test-generate`, a general dev
-utility that lives here and is not a git operation.
+from it, run the fixed git steps around work on a branch that already
+exists, and name the repo's default branch for a caller that must
+never remove it — plus `test-generate`, a general dev utility that
+lives here and is not a git operation.
 
 ## Why you would want it
 
@@ -15,23 +15,24 @@ delivers, and in what order. A session that spells that convention by
 hand gets it subtly wrong in ways that surface only later: a branch
 rooted at whatever commit the worktree happened to be on, a slug that
 begins with a digit so the issue numbers can no longer be told from
-it, two issue titles mashed into one unreadable slug. And every caller
-that later needs the issue set back parses the name its own way.
+it, several issue titles mashed into one unreadable slug. And every
+caller that later needs the issue set back parses the name its own
+way.
 
 `/git-branch-create` owns the write and `/git-issues-from-branch` owns
-the read, and both go through one script, `bin/git-issue-branch`, so
-the convention is applied by code rather than paraphrased on each
-call, validated before anything is created, and round-trips: the
-issues a branch was created for are the issues its name returns, in
-the order they were given. A caller holding its own list of issues can
-hand it over and get back the reconciliation — which of them the
-branch actually bounds — instead of re-deriving that rule.
+the read, and both go through one script, `git-issue-branch`, so the
+convention is applied by code rather than paraphrased on each call,
+validated before anything is created, and round-trips: the issues a
+branch was created for are the issues its name returns, in the order
+they were given. A caller holding its own list of issues can hand it
+over and get back the reconciliation — which of them the branch
+actually bounds — instead of re-deriving that rule.
 
-A reader of a branch asks three questions before it trusts what it
-read — has the branch moved since I took its head, where does it leave
-its base, and which of its commits are new since the head I read last
-time — and no single git command answers them. Spelled by hand, the
-third goes wrong after a rebase that advances the base: every commit
+A reader of a branch needs to know, before it trusts what it read,
+whether the branch has moved since it took the head, where the branch
+leaves its base, and which commits are new since the head it read last
+time, and no single git command answers all of that. Spelled by hand,
+the last goes wrong after a rebase that advances the base: every commit
 the base gained is reachable from the new head and not from the
 previous one, so a plain `<prev-head>...<head>` reads them as the
 branch's own. `/git-range` owns the one fetch, the head check, and a
@@ -39,26 +40,26 @@ range bounded by the base and filtered by patch equivalence, and it
 exits distinctly when the head has moved so a caller re-reads instead
 of reviewing a tree that is gone.
 
-An agent that commits to a branch it shares runs the same git steps
-every time around the work itself: check the branch out, rebase it onto
-its base, finish or abort a rebase that stopped, push, confirm the push
-landed, and let go of the branch at the end. Spelled by hand, each copy
-drifts in a way that looks like success — a `rebase --continue` that
-opens an editor nobody is there to close, a push confirmed by a local
-log that reads clean for a commit that never left the machine, a lease
-taken on the tip a fetch inside the push just saw, which is the tip a
-concurrent writer moved and so refuses nothing. `/git-branch-sync` owns
-those steps as one script with one exit-status contract. Its `checkout`
+Work committed to a shared branch is wrapped in the same git steps
+every time: check the branch out, rebase it onto its base, finish or
+abort a rebase that stopped, push, confirm the push landed, and let go
+of the branch at the end. Spelled by hand, each goes wrong in a way
+that looks like success — a `rebase --continue` that opens an editor
+nobody is there to close, a push confirmed by a local log that reads
+clean for a commit that never left the machine, a lease taken on the
+tip a fetch inside the push just saw, which is the tip a concurrent
+writer moved and so refuses nothing. `/git-branch-sync` owns those
+steps as one script with one exit-status contract. Its `checkout`
 records the `origin/<branch>` tip it saw, and `push` decides against
 that record and never a fresh fetch, so a commit another writer pushed
-after the checkout is refused rather than replaced. Ancestry against the
-record alone picks the push form — a lease when the record is no longer
-an ancestor of HEAD, a plain push otherwise — so nothing has to remember
-whether a rebase ran. The one step that is judgment stays with the
-caller: resolving a conflict, after which the resolved paths are handed
-back and the rebase walks on.
+after the checkout is refused rather than replaced. Ancestry against
+the record alone picks the push form — a lease when the record is no
+longer an ancestor of HEAD, a plain push otherwise — so nothing has to
+remember whether a rebase ran. The step that is judgment stays with
+the caller: resolving a conflict, after which the resolved paths are
+handed back and the rebase walks on.
 
-Git lets one worktree at a time hold a branch, so an agent that dies
+Git lets one worktree at a time hold a branch, so a run that dies
 between `checkout` and `release` leaves a claim that fails its
 successor at the first git step. `checkout` reports a held branch with
 a status of its own, naming the worktree that holds it, and `reclaim`
@@ -79,20 +80,18 @@ nothing says the holder is still at work.
   the branch prefix reaches `git-issue-branch` through the `issues`
   plugin's `issue-branch-prefix`, and `/git-issues-from-branch` reads
   no config at all.
-- **An authenticated `gh`, and the `issues` plugin.** `git-issue-branch
-  encode` runs `issue-branch-prefix` for the prefix and `issue-view`
-  for each issue's state, both executables the `issues` plugin puts on
-  `PATH`, and `/git-branch-create` derives a single-issue slug from the
-  title `/issues:issue-view` prints, so this plugin declares `issues`
-  as a dependency.
+- **An authenticated `gh`, and the `issues` plugin.** Creating a
+  branch asks the `issues` plugin for the prefix and for each issue's
+  state and title, so this plugin declares `issues` as a dependency.
 
-`/git-range` and `/git-branch-sync` need only the first: each takes
-every ref it needs as an argument and never asks GitHub.
-`git-default-branch` needs either an authenticated `gh` or an `origin`
-whose `HEAD` symref is set: it asks `gh` first and falls back to the
-symref, so a checkout that has only one of the two still gets an
-answer. `test-generate` needs none of these: it works on the code in
-front of it.
+`/git-range` and `/git-branch-sync` need only the working tree and its
+`origin`: each takes every ref it needs as an argument and never asks
+GitHub. `git-default-branch` needs either an authenticated `gh` or an
+`origin` whose `HEAD` symref is set, so a checkout that has only one
+of them still gets an answer. `test-generate` needs none of these: it
+works on the code in front of it.
+
+The scripts run under the bash 3.2 macOS ships.
 
 ## Getting started
 
@@ -121,6 +120,16 @@ Reading a branch back is one line, with a claimed list optional:
 /git-tools:git-issues-from-branch issue-206-196-201-guardrails-gate-sweep 206 196
 ```
 
+Working on a branch that already exists on `origin` runs between a
+`checkout` and a `release`:
+
+```text
+/git-tools:git-branch-sync checkout issue-206-space-indent
+/git-tools:git-branch-sync rebase main
+/git-tools:git-branch-sync push
+/git-tools:git-branch-sync release issue-206-space-indent
+```
+
 ## Skills
 
 | Skill | Purpose |
@@ -128,14 +137,37 @@ Reading a branch back is one line, with a claimed list optional:
 | `/git-branch-create <issue>… [<slug>]` | Create the issue branch — one issue or a batch — off the configured source branch, named per the repo's convention |
 | `/git-issues-from-branch <branch> [<claimed-issue>…]` | Recover the ordered issue set and slug a branch name encodes; reconcile a claimed list against it when one is given |
 | `/git-range --base <base-ref> --head-ref <head-ref> --head <sha> [--prev-head <sha>]` | Fetch `origin` once, confirm `origin/<head-ref>` is still `<sha>`, and print that head's merge base with `origin/<base-ref>` and its own commits since a previous head — never a commit the base gained |
-| `/git-branch-sync <subcommand> [<argument>…]` | Check an existing branch out fast-forward only and record the remote tip it saw, rebase it onto `origin/<base>`, finish or abort a rebase stopped on conflicts, push it against that recorded tip and verify the push landed, release the local branch and its record at the end of a run, or reclaim a branch another worktree still holds after its agent ended, refusing while that work is unfinished or the holder's lock names a running process |
+| `/git-branch-sync <subcommand> [<argument>…]` | Check an existing branch out fast-forward only and record the remote tip it saw, rebase it onto `origin/<base>`, finish or abort a rebase stopped on conflicts, push it against that recorded tip and verify the push landed, release the local branch and its record at the end of a run, or reclaim a branch another worktree still holds after its run ended, refusing while that work is unfinished or the holder's lock names a running process |
 | `/test-generate` | Generate unit tests for the code at hand — a general dev utility, not a git operation |
 
-Each skill defines its own procedure — how it drives its script, what
-it asks the caller, and the report it hands back — and this README
-does not restate those. What it does state is the contract of the
-branch-name script the two branch skills share, because the script's
-usage text carries only its synopsis and output keys.
+## Executables
+
+Enabling the plugin puts these scripts on `PATH`:
+
+- **`git-issue-branch`** — the branch name in both directions.
+  `encode <issue>… [--slug <slug>]` prints the name;
+  `decode <branch-name> [<claimed-issue>…]` prints `outcome`, `issues`
+  and `slug`, one `key: value` line each, and with a claim also
+  `resolved`, `claimed-outside` and `unclaimed`.
+- **`git-range`** — the read behind `/git-range`. It depends on `git`
+  alone.
+- **`git-branch-sync`** — the steps behind `/git-branch-sync`. It
+  never opens an editor, and it gives each condition it can identify
+  an exit status of its own, so a held branch, a stopped rebase and a
+  refused push can each be told from a broken checkout.
+- **`git-default-branch`** — prints the name of the repository's
+  default branch on one line, and takes no argument. It has no skill
+  in front of it. The GitHub repository setting wins, through `gh`;
+  when `gh` fails or names nothing, the branch `origin`'s `HEAD`
+  symref points at is used instead. The setting is first because it is
+  the live answer, where the symref is a local copy that a rename on
+  GitHub does not update. The symref is the fallback because it is
+  what a checkout with no `gh`, an unauthenticated one, or a
+  non-GitHub remote still has. When neither names a branch, or a
+  command fails, it exits non-zero and prints no name. It exists so
+  that a script removing branches can name the one it must keep: a
+  hardcoded `main` deletes the wrong branch on the first repo whose
+  default is something else.
 
 ## The branch name
 
@@ -145,286 +177,62 @@ A convention branch name is
 [<segment>/]issue-<N1>-<N2>-…-<Nk>-<slug>
 ```
 
-The `<segment>/` is the prefix `issue-branch-prefix` resolves from the
+The `<segment>/` is the prefix the `issues` plugin resolves from the
 repo's prefix mode: the configured initials or name under `initials`
 or `name`, and nothing at all under `none`. After the `issue-` marker,
 the leading run of all-numeric hyphen-separated tokens is the issue
 set, in implementation order; everything from the first non-numeric
 token onward is the slug, and a slug is always present. The order is a
-record for humans — the order the caller intends to work the issues,
-which for a batch carrying a dependency edge is the order that edge
-forces — and every comparison against the set is a set comparison, so
-it never changes a decision.
+record for humans — the order the issues are meant to be worked, which
+for a batch carrying a dependency edge is the order that edge forces —
+and every comparison against the set is a set comparison, so it never
+changes a decision.
 
 The number/slug boundary is what keeps the set recoverable, which is
 why a slug may not begin with a digit: `2-space-indent` against issue
 206 would read back as the set `{206, 2}` with slug `space-indent`.
 
-### Issue arguments
+### What `encode` rejects
 
-Every issue argument — to `encode`, to `decode` as a claimed issue, and
-to both branch skills — names an issue in the repository of the current
-working tree, as `N` or `#N`, where `N` is a positive decimal integer
-with no leading zero. Arguments are space-separated. A comma-separated
-list, a cross-repository reference (`repo#N`, `owner/repo#N`,
-`host/owner/repo#N`) and an issue URL are each rejected, naming the
-offending token. Output always carries the bare `N`.
-
-### Validation
-
-`encode` checks its arguments before it runs anything, and the
-assembled name's length before it looks any issue up; every failure
-names the offending value. The validation errors:
-
-- an issue argument that is not `N` or `#N`;
-- one issue and no slug — a fixed message asking for one, which is the
-  case `/git-branch-create` answers by deriving the slug from the
-  title;
-- two or more issues and no slug — a compound slug is the caller's to
-  supply, never merged from the titles;
-- a slug beginning with a digit;
-- a slug that is not kebab-case: lowercase letters, digits and single
-  hyphens only, starting with a lowercase letter and not ending with a
-  hyphen;
-- a branch name longer than 100 characters, prefix included;
-- an issue `issue-view` cannot find, with `issue-view`'s own error
-  relayed above the script's line;
-- an issue whose state is not `OPEN`.
-
-A failure of `issue-branch-prefix` itself is relayed the same way, its
-stderr first and the script's line after.
+`encode` refuses anything that would leave a name it could not read
+back, or a branch for work that cannot be done. An issue is named by
+its number in the current repository, with or without a leading `#`;
+any other way of naming one is refused. A slug must be lowercase
+kebab-case starting with a letter, and a batch must bring its own. The
+whole name has a length limit, and every issue must exist and be open.
+Each refusal names the offending value and comes before anything is
+created.
 
 ### Reconciling a claimed list
 
-How a PR's issues relate to its branch's name is one rule for every
-caller: the branch's set is a maximum rather than an equality, a PR
-may close a subset of it and never a superset, and where a claim and
-the branch name disagree the branch name is the higher-fidelity source.
-`decode` applies that rule, so no consumer re-derives it.
+A branch's issue set is a maximum rather than an equality: a PR may
+close a subset of it and never a superset, and where a claimed list
+and the branch name disagree the branch name is the higher-fidelity
+source. `decode` applies that rule to a claimed list:
 
-With branch set `B` and claimed list `C`, compared as sets:
-
-- **Overlap** — the resolved set is `B ∩ C`. The claim selects, the
+- **The claim overlaps the branch's set** — the resolved set is the
+  members of the branch's set the claim names. The claim selects, the
   branch bounds.
-- **No overlap, `B` has one member** — the resolved set is `B`. The
-  branch names exactly one issue, so standing it in guesses at nothing.
-- **No overlap, `B` has several members** — no resolved set. Standing
-  the whole of `B` in would resolve to members the caller may have
-  deliberately left out, and picking among them is a decision the
-  script has no information to make.
-- **Not a convention branch** — there is no `B` to bound anything
-  with, so the resolved set is `C`, unchanged.
+- **No overlap, and the name carries one issue number** — the resolved
+  set is that issue. Standing it in guesses at nothing.
+- **No overlap, and the name carries several issue numbers** — no
+  resolved set. Standing the whole branch set in could resolve to
+  members left out on purpose, and nothing says which to pick. The
+  numbers in the name are what is counted, so a name that repeats one
+  number, such as `issue-5-5-<slug>`, resolves to none as well.
+- **Not a convention branch** — there is no branch set to bound
+  anything with, so the resolved set is the claim, unchanged.
 
-Alongside the resolved set come two lists: the claimed issues outside
-the branch set — members of `C` not in `B`, computed against `C` as
-passed, so a one-member stand-in never hides one — and the branch
-members not claimed — members of `B` the resolved set does not carry,
-which is all of `B` when nothing resolved. Both are empty on the
-not-a-convention-branch outcome. They are reported, never acted on:
-whether an unclaimed branch member is a sanctioned deferral or a silent
+Alongside the resolved set come the claimed issues outside the branch
+set and the branch members not claimed, which is every member when
+nothing resolved. Both are reported and never acted on: whether an
+unclaimed branch member is a sanctioned deferral or a silent
 under-delivery, and what a claim outside the branch set warrants, are
 the caller's decisions.
 
-## The executables
-
-Every skill here but `test-generate`, which is a procedure the model
-runs, is backed by a script under `bin/`, on `PATH` once the plugin is
-enabled, and one script, `git-default-branch`, has no skill in front
-of it: it exists for other scripts to call by name. Each script runs
-under the bash 3.2 macOS ships, and in each a command the script does
-not handle that fails exits 1 with a line naming the command, never
-with the tool's own status, so a caller branching on the exit sees
-only the statuses the skill, or the script's own header, documents.
-
-### `git-issue-branch`
-
-`encode <issue>… [--slug <slug>]` prints the branch name;
-`decode <branch-name> [<claimed-issue>…]` prints `outcome`, `issues`
-and `slug`, one `key: value` line each, and with a claim also
-`resolved`, `claimed-outside` and `unclaimed`. The branch name is a
-pure string function in both directions, and before the script existed
-the model carried it out, paraphrasing the grammar at each call with
-nothing checking that encode and decode were inverses. The script is
-what makes the round trip a tested contract.
-
-`encode` runs `issue-branch-prefix` once and `issue-view` once per
-issue, both called by bare name; it opens no file under `.issues/` or
-`$XDG_CONFIG_HOME/issues/` itself, and has no prefix or mode flag.
-`decode` runs neither: it strips one optional leading `<segment>/` of
-any value, whatever the repo's prefix mode, so a branch created under
-another user's prefix or before the prefix was configured still
-decodes, and a name that still carries a `/` after that strip, has no
-issue number after `issue-`, or has no slug is `not-a-convention-branch`.
-It exits 0 on both outcomes.
-
-The script exits 2 on a usage error, having run nothing; 3 or above on
-each failure it diagnoses, with a status of its own per failure; and 1
-only on a failure it cannot attribute.
-
-`test/git-issue-branch-test.sh` drives the script with stub
-`issue-branch-prefix` and `issue-view` executables first on `PATH`,
-reaching no network and reading no config: the round trip under each
-prefix mode, with and without trailing whitespace on the stub's
-values; `N` and `#N` producing the same name and resolving the same
-claim; each rejected argument form and each validation error with its
-exit status; the relay of a failing `issue-branch-prefix`; `decode`
-succeeding while that stub fails and calling neither stub; and every
-reconciliation outcome with both side lists.
-
-### `git-range`
-
-The read is a script because its steps — a fetch, a ref check against
-a SHA, a merge base, and a `rev-list` whose `--cherry-pick`,
-`--right-only` and `^origin/<base>` terms each guard a different wrong
-answer — came out differently each time a model spelled them, and
-dropping any one term yields a plausible, wrong range. It depends on
-`git` alone.
-
-`test/git-range-test.sh` drives its script against a local bare
-`origin` it creates and reaches no network: a whole-branch read, a head
-pushed after the clone, a moved head, a rebase that advances the base
-and rewrites one commit's patch while keeping another's — so only the
-changed commit is reported and no upstream commit is — and a clean
-rebase, which is an empty range.
-
-### `git-branch-sync`
-
-The branch steps are a script because the hand-spelled form of each
-goes wrong in a way that looks like success, and a script pins the form
-that does not. It disables the editor for every git command it runs —
-`GIT_EDITOR` and `GIT_SEQUENCE_EDITOR` are no-ops — and `continue`
-commits the stopped commit under `REBASE_HEAD`'s message and author, so
-a resumed rebase never waits on a prompt and never rewrites the
-commit's provenance.
-The tip `checkout` saw is kept in the ref `refs/git-branch-sync/<branch>`
-in the clone itself, so it survives between invocations with no state
-file and goes when `release` or `reclaim` deletes it, and `push`'s
-lease is
-`--force-with-lease=refs/heads/<branch>:<that tip>`: git refuses it
-when the remote holds anything else, which is what a lease on a freshly
-fetched tip cannot do. A push git reports `[rejected]` — stale info,
-fetch first, non-fast-forward — is that refusal and exits 8; one it
-reports `[remote rejected]` is a hook or a rule, and stays an
-unclassified 1. The push is then confirmed against the remote rather
-than the local log: a fetch, `origin/<branch>` compared with local
-HEAD, and `status --porcelain` run from the top level so an untracked
-file in another directory is not missed. It depends on `git` alone,
-but for the one `ps` call `reclaim` reads a process's start time with.
-
-`checkout` reports a branch another worktree holds as exit 13, with the
-holder's path, so a caller can tell a held branch from a broken
-checkout. The holder is the worktree that has the branch checked out or
-is rebasing it: a rebasing worktree is detached, so git lists no branch
-for it, and it is found by the branch its rebase state names.
-
-`reclaim` releases that claim, and refuses for two reasons that guard
-different things, in a fixed order:
-
-- **Unfinished work is refused first, and nothing overrides it.**
-  Releasing the claim deletes the local branch, so a rebase in
-  progress, uncommitted changes, or commits `origin/<branch>` lacks
-  would be lost with it, and nothing a caller knows about the agent
-  makes that work any less unsaved. The commits are checked with no
-  holder too, since a local branch nobody holds can still carry them.
-  `--exclude` is for files a holder owns but never commits, which are
-  not work the branch is waiting on.
-- **A live lock is refused second, and only by default.** The harness
-  locks an agent's worktree with a reason naming a PID and that
-  process's start time. A running process with that PID and that start
-  time is evidence the holder may still be working; the start time is
-  compared because a PID alone is reused. It is evidence about the
-  session rather than the agent, though: the PID names the session that
-  spawned the agent, and an agent can die inside a live session. So
-  `--holder-ended`, the caller's assertion that it knows the agent has
-  ended, overrides this refusal and never the first. No lock, a lock in
-  any other form, or a PID that is gone or started at another time is
-  no evidence of life.
-
-The harness writes the lock's start time in UTC, with the C locale's
-day and month names, and `ps` prints a start time in the local zone
-unless told otherwise. The script therefore reads `ps` under
-`TZ=UTC LC_ALL=C`, and compares the two with runs of spaces collapsed,
-since `ps` pads a one-digit day. A local-time comparison would read
-every live lock as stale wherever the zone is not UTC.
-
-A holder git still lists may have no working tree left: its directory
-deleted, or its `.git` file missing or naming a gitdir that is gone.
-Git run in such a path fails, or — for a worktree nested inside the
-clone, with its `.git` gone — resolves to the enclosing clone, which
-`reclaim` must neither read as the holder nor detach. So a holder has a
-working tree only when git run in its directory reports that directory
-as the top level and this repository's common git dir. Any other holder
-is read and detached through its administrative directory under the
-common git dir's `worktrees/`, found by the `gitdir` file naming it,
-whether git wrote that path absolute or, under
-`worktree.useRelativePaths`, relative. Such a holder has nothing to be
-dirty in, and its rebase state and the branch's unpushed commits still
-refuse.
-
-`reclaim` removes no worktree and no lock: freeing the branch needs
-neither.
-
-`test/git-branch-sync-test.sh` drives its script against a bare
-`origin`, a seed checkout that plays the other writer, and a clone,
-all under `mktemp -d`. A logging `git` wrapper on `PATH` records each
-push's arguments, so the test asserts which push form was picked and
-that no `--force` or `--mirror` ever was. It covers each subcommand on
-its own path and the exits that separate them — a diverged checkout
-refused, a stopped rebase finished through `continue` and one aborted,
-a resolution that empties the stopped commit, a conflicted path git
-would quote, a stop reached from a subdirectory — and the push's
-refusals: a second writer who pushed after the checkout, with and
-without a rebase in between, a `post-receive` hook that moves the branch
-so the verification fails, and a `pre-receive` hook that refuses, which
-stays an unclassified failure.
-
-For the claim, a linked worktree of the clone plays the dead agent's.
-The test covers a `checkout` refused for a branch that worktree has
-checked out and for one it is rebasing; `reclaim` refused for a dirty
-holder with and without `--holder-ended`, and under `--holder-ended`
-for a holder with unpushed commits and for one mid-rebase; a branch no
-worktree holds, released, and refused once it has unpushed commits; a
-lock naming a running process, compared from a zone five
-hours off UTC, refused and then overridden by `--holder-ended` with the
-lock kept; a lock whose PID is gone, one whose start time differs, and
-no lock, each proceeding; and dirt only under an excluded path. It
-covers the holders with no working tree: a directory that is gone and a
-`.git` file naming a missing gitdir, each refused while the branch has
-unpushed commits and released once it has none, and a worktree nested
-in the clone whose `.git` is missing, released while the enclosing
-clone keeps its branch. A `checkout` of an unheld branch walks past a
-worktree whose gitdir is missing. A dirty holder, a mid-rebase one, a
-mid-rebase one whose directory is then deleted, which is still
-refused, and one whose directory is gone with no rebase each run once
-with `worktree.useRelativePaths` off and once with it on.
-
-### `git-default-branch`
-
-Prints the name of the current repository's default branch, on one
-line, and takes no argument. The GitHub repository setting wins,
-through `gh repo view`; when `gh` fails or names nothing, the branch
-`refs/remotes/origin/HEAD` points at is used instead. The setting is
-first because it is the live answer: the symref is a snapshot the
-clone took, which a rename on GitHub does not update and which a
-remote added by hand and fetched never gets. The symref is the fallback
-because it is what a checkout with no `gh`, an unauthenticated one, or
-a non-GitHub remote still has, which is why `gh`'s own error is
-dropped rather than relayed — a failing `gh` is the case the fallback
-exists for, not a failure of the script. It exits 1, with a line
-naming both sources, when neither names a branch, and 2 on any
-argument, having run nothing.
-
-A caller removing branches resolves the default branch through this
-script before it deletes anything, and treats a non-zero exit as "no
-protected branch is known" and stops; a sweep that hardcodes `main`
-deletes the wrong branch on the first repo whose default is something
-else.
-
-`test/git-default-branch-test.sh` drives it with a stub `gh` first on
-`PATH` and a clone of a local bare `origin`, reaching no network: the
-setting winning over the symref, the fallback when `gh` fails and when
-it names nothing, neither source naming a branch, the usage error, and
-a failing command the script does not handle.
+`decode` accepts a name with or without a `<segment>/` of any value,
+whatever the repo's prefix mode, so a branch created under another
+user's prefix or before the prefix was configured still decodes.
 
 ## What it deliberately does not do
 
@@ -432,15 +240,14 @@ a failing command the script does not handle.
   branches; opening a PR, linking issues to one, listing a branch's
   PRs, or changing an issue is not theirs. That is also why no
   end-of-lifecycle cleanup lives here: deciding what a merged PR
-  leaves behind means asking GitHub about the PR, and the sweep over
-  what an orchestrated run leaves belongs with the flow that leaves
-  it. What such a sweep needs from git alone — the one branch it must
-  never remove — is what `git-default-branch` supplies.
+  leaves behind means asking GitHub about the PR. What such a cleanup
+  needs from git alone — the one branch it must never remove — is what
+  `git-default-branch` supplies.
 - **`/git-issues-from-branch` reports and never decides.** It names
   the resolved set and what fell outside it; what a mismatch means, and
   what to do about it, is the caller's call. It also runs no git
   command, so the branch need not exist anywhere.
-- **`/git-branch-create` never invents a compound slug.** Two or more
+- **`/git-branch-create` never invents a compound slug.** Several
   issues with no slug is a question back to the caller, not a guess.
 - **`/git-branch-create` never asks for the prefix value.** The
   `issues` plugin resolves it from its own config; a repo whose prefix
@@ -459,52 +266,8 @@ a failing command the script does not handle.
   `reclaim` deletes a local branch too, but only one whose every commit
   is on `origin`, held by a worktree with no rebase under way and
   nothing uncommitted outside the paths the caller excluded, and it
-  leaves those files where they are.
-- **`reclaim` never decides that an agent has ended.** It reads a lock
-  as evidence of life and never of death, and takes `--holder-ended` as
-  the caller's assertion. It removes no worktree and no lock.
-
-## Editing this plugin
-
-`/git-branch-create` encodes the issue set in the branch name and
-`/git-issues-from-branch` is its inverse, both through
-`bin/git-issue-branch`, and `github-prs` and `sdlc` depend on that
-encoding. The grammar, the issue-argument forms, the validation errors
-and the reconciliation outcomes are applied by the script and stated
-in this README; the script's usage text carries its synopsis and
-output keys only, and neither SKILL.md restates them. Nothing
-downstream restates them either — consumers invoke the skills — so a
-change to the grammar or the rule is made in the script, with its test
-and this README, and nowhere else, and the round trip is the contract
-to re-check.
-
-`/git-branch-create` reads `default-issue-source-branch` from
-`.issues/repo-config.md` through a lightweight inline parse of that one
-line rather than the `issues` plugin's full reader contract, because
-plugins are file-sandboxed and that contract is not reachable from
-here. It is the only config read in this plugin.
-
-`/git-branch-sync`'s exit statuses are a contract callers branch on,
-so each status keeps the one condition it names: a new condition the
-script can detect for certain gets a code of its own, and a failure it
-cannot classify stays 1. The subcommands share one invariant — `push`
-decides against the tip `checkout` recorded, `rebase` and `continue`
-leave that record alone, and nothing else records whether a rebase ran
-— so a change that lets `push` fetch before it decides, or lets a
-rebase touch the record, changes what the lease refuses, and the
-other-writer cases in the test are what re-check it.
-
-`reclaim`'s refusals keep their order: the unfinished-work check runs
-before the lock check, and `--holder-ended` reaches only the lock
-check. A change that lets the flag skip the first makes `reclaim` a
-second subcommand that discards work. Every read of a holder, and its
-detach, goes through the test for whether it has a working tree,
-because git run in a path that is no longer the holder's worktree
-answers for whatever repository encloses it.
-
-`git-default-branch`'s non-zero exit is what a caller reads as "no
-protected branch is known", so a new source for the name goes in ahead
-of that failure, in the order the sources are trusted, rather than as
-a new exit status; and a source that can be wrong about the live
-default — anything read off the clone rather than the host — goes
-after the GitHub setting, never before it.
+  leaves those files where they are. Nothing overrides that refusal.
+- **`reclaim` never decides that a holder's run has ended.** It reads
+  a worktree lock naming a running process as evidence of life and
+  never of death, and takes `--holder-ended` as the caller's assertion
+  that the run is over. It removes no worktree and no lock.

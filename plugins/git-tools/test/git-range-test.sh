@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #
 # git-range-test.sh -- drive plugins/git-tools/bin/git-range, under the
-# bash 3.2 macOS ships, against a local bare origin and a clone of it,
-# including a rebase that advances the base under the branch.
+# bash 3.2 macOS ships, against a local bare origin and a clone of it: a
+# whole-branch read, a head pushed after the clone, a moved head, a
+# rebase that advances the base and rewrites one commit's patch while
+# keeping another's, so only the changed commit is reported and no
+# upstream commit is, and a clean rebase, which is an empty range.
 #
 # Needs git on PATH. Reaches no network.
 #

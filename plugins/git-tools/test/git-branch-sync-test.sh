@@ -3,7 +3,40 @@
 # git-branch-sync-test.sh -- drive plugins/git-tools/bin/git-branch-sync,
 # under the bash 3.2 macOS ships, against a local bare origin, a seed
 # checkout that plays everyone else pushing to it, and a clone the
-# script runs in.
+# script runs in, all under `mktemp -d`. A logging git wrapper on PATH
+# records each push's arguments, so the test asserts which push form was
+# picked and that no push the run made was forced or mirrored.
+#
+# It covers each subcommand on its own path and the exits that separate
+# them: a diverged checkout refused, a stopped rebase finished through
+# continue and one aborted, a resolution that empties the stopped commit,
+# a conflicted path git would quote, a stop reached from a subdirectory,
+# and abort and continue exiting 1 rather than 6 when the rebase check's
+# git-path read fails. It covers the push's refusals: a second writer who
+# pushed after the checkout, with and without a rebase in between, a
+# post-receive hook that moves the branch so the verification fails, and
+# a pre-receive hook that refuses, which stays an unclassified failure.
+#
+# For the claim, a linked worktree of the clone plays the dead agent's.
+# It covers a checkout refused for a branch that worktree has checked out
+# and for one it is rebasing; reclaim refused for a dirty holder with and
+# without --holder-ended, and under --holder-ended for a holder with
+# unpushed commits and for one mid-rebase; a branch no worktree holds,
+# released, and refused once it has unpushed commits; a lock naming a
+# running process, compared from a zone five hours off UTC, refused and
+# then overridden by --holder-ended with the lock kept; a lock whose PID
+# is gone, one whose start time differs, and no lock, each proceeding;
+# and dirt only under an excluded path.
+#
+# It covers the holders with no working tree: a directory that is gone
+# and a .git file naming a missing gitdir, each refused while the branch
+# has unpushed commits and released once it has none, and a worktree
+# nested in the clone whose .git is missing, released while the
+# enclosing clone keeps its branch. A checkout of an unheld branch walks
+# past a worktree whose gitdir is missing. A dirty holder, a mid-rebase
+# one, a mid-rebase one whose directory is then deleted, which is still
+# refused, and one whose directory is gone with no rebase each run once
+# with worktree.useRelativePaths off and once with it on.
 #
 # Needs git on PATH. Reaches no network.
 #
@@ -66,6 +99,8 @@ SEED="$SANDBOX/seed"
 CLONE="$SANDBOX/clone"
 REAL_GIT=$(command -v git)
 PUSH_LOG="$SANDBOX/push.log"
+# Every push of the run, never truncated, for the final no-force check.
+ALL_PUSH_LOG="$SANDBOX/all-push.log"
 
 # commit_file <dir> <file> <content> <message> -- commit one file's new
 # content in <dir>, and print the new commit's SHA.
@@ -80,7 +115,10 @@ commit_file() {
 mkdir -p "$SANDBOX/logbin"
 cat >"$SANDBOX/logbin/git" <<STUB
 #!/usr/bin/env bash
-if [ "\$1" = push ]; then printf '%s\n' "\$*" >>"$PUSH_LOG"; fi
+if [ "\$1" = push ]; then
+  printf '%s\n' "\$*" >>"$PUSH_LOG"
+  printf '%s\n' "\$*" >>"$ALL_PUSH_LOG"
+fi
 exec "$REAL_GIT" "\$@"
 STUB
 chmod +x "$SANDBOX/logbin/git"
@@ -337,6 +375,24 @@ check "$RC" "6" "abort with no rebase in progress: exit 6"
 branch_sync continue shared.txt
 check "$RC" "6" "continue with no rebase in progress: exit 6"
 
+# A git whose `rev-parse --git-path` fails: the rebase check cannot tell,
+# so abort and continue exit 1 rather than report no rebase as 6.
+mkdir -p "$SANDBOX/gitpathbin"
+cat >"$SANDBOX/gitpathbin/git" <<STUB
+#!/usr/bin/env bash
+case " \$* " in
+  *' rev-parse --git-path '*) echo "stub git: git-path refused" >&2; exit 9 ;;
+esac
+exec "$SANDBOX/logbin/git" "\$@"
+STUB
+chmod +x "$SANDBOX/gitpathbin/git"
+CASE_PATH="$SANDBOX/gitpathbin" branch_sync abort
+check "$RC" "1" "abort, git-path fails: exit 1, not 6"
+check_contains "$ERR" "rev-parse --git-path" "abort, git-path fails: stderr names the command"
+CASE_PATH="$SANDBOX/gitpathbin" branch_sync continue shared.txt
+check "$RC" "1" "continue, git-path fails: exit 1, not 6"
+check_contains "$ERR" "rev-parse --git-path" "continue, git-path fails: stderr names the command"
+
 # --- a resolution that empties the stopped commit ---------------------------
 # Branch `skipper` changes other.txt, main changes it differently; taking
 # main's side leaves the stopped commit with no change, so it is skipped.
@@ -478,8 +534,6 @@ git -C "$CLONE" commit -q --amend -m "rewritten"
 CASE_PATH="$SANDBOX/racebin" branch_sync push
 check "$RC" "8" "lease push, remote moved just before it: exit 8"
 check_contains "$(last_push)" "--force-with-lease" "lease push, remote moved just before it: a lease push"
-check_lacks "$(cat "$PUSH_LOG")" "--force " "push never uses --force"
-check_lacks "$(cat "$PUSH_LOG")" "--mirror" "push never uses --mirror"
 
 git -C "$CLONE" fetch -q origin
 git -C "$CLONE" reset -q --hard origin/feature
@@ -547,7 +601,7 @@ cat >"$SANDBOX/failbin/git" <<STUB
 case " \$* " in
   *' status '*) echo "stub git: status refused" >&2; exit 9 ;;
 esac
-exec "$REAL_GIT" "\$@"
+exec "$SANDBOX/logbin/git" "\$@"
 STUB
 chmod +x "$SANDBOX/failbin/git"
 git -C "$CLONE" fetch -q origin
@@ -873,6 +927,14 @@ holder_shapes false
 holder_shapes true
 
 echo
+# --- no forced push, over every push the run made ---------------------------
+# A word that is --force, --mirror, a short-option cluster carrying f, or
+# a refspec with a leading +, each of which forces or mirrors;
+# --force-with-lease is none of them.
+check "$([ -s "$ALL_PUSH_LOG" ] && echo yes)" "yes" "the push log recorded the run's pushes"
+FORCED=$(tr ' ' '\n' <"$ALL_PUSH_LOG" | grep -Ex -- '--force(=.*)?|--mirror|-[^-]*f.*|\+.*' || true)
+check "$FORCED" "" "no push the run made used --force, -f, --mirror or a + refspec"
+
 if [ "$FAILURES" -eq 0 ]; then
   echo "all passed"
 else

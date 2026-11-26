@@ -2,7 +2,13 @@
 #
 # git-issue-branch-test.sh -- drive plugins/git-tools/bin/git-issue-branch,
 # under the bash 3.2 macOS ships, with stub `issue-branch-prefix` and
-# `issue-view` executables first on PATH.
+# `issue-view` executables first on PATH: the round trip under each
+# prefix mode, with and without trailing whitespace on the stub's values;
+# N and #N producing the same name and resolving the same claim; each
+# rejected argument form and each validation error with its exit status;
+# the relay of a failing `issue-branch-prefix`; decode succeeding while
+# that stub fails and calling neither stub; and every reconciliation
+# outcome with both side lists.
 #
 # Reaches no network and reads no config.
 #
@@ -44,7 +50,8 @@ CALLS="$SANDBOX/calls"
 mkdir -p "$STUBS"
 
 # The prefix stub prints what STUB_MODE and STUB_VALUE ask for, with
-# STUB_PAD after each value, or fails when STUB_PREFIX_FAIL is set.
+# STUB_PAD after each value, or fails when STUB_PREFIX_FAIL is set. Mode
+# `no-prefix-line` prints a mode line and no `prefix:` line.
 cat >"$STUBS/issue-branch-prefix" <<'STUB'
 #!/usr/bin/env bash
 echo "issue-branch-prefix" >>"$CALLS"
@@ -54,6 +61,7 @@ if [ -n "${STUB_PREFIX_FAIL:-}" ]; then
 fi
 case "$STUB_MODE" in
   none) printf 'mode: none%s\nprefix:%s\n' "$STUB_PAD" "$STUB_PAD" ;;
+  no-prefix-line) printf 'mode: initials\n' ;;
   *) printf 'mode: %s%s\nprefix: %s/%s\n' "$STUB_MODE" "$STUB_PAD" "$STUB_VALUE" "$STUB_PAD" ;;
 esac
 STUB
@@ -191,6 +199,14 @@ check "$RC" "0" "decode succeeds while issue-branch-prefix fails"
 check "$CALLED" "" "decode runs neither issue-branch-prefix nor issue-view"
 STUB_PREFIX_FAIL=
 
+STUB_MODE=no-prefix-line
+run encode 5 --slug some-slug
+check "$RC:$OUT" "9:" "issue-branch-prefix prints no prefix line: exit 9, nothing on stdout"
+check "$ERR" "git-issue-branch: issue-branch-prefix printed no \`prefix:\` line." \
+  "issue-branch-prefix prints no prefix line: the fixed message"
+check "$CALLED" "issue-branch-prefix" "issue-branch-prefix prints no prefix line: no issue-view was run"
+STUB_MODE=none
+
 run encode 5 6 --slug some-slug
 check "$CALLED" "issue-branch-prefix
 issue-view 5
@@ -257,6 +273,14 @@ slug: gate-sweep
 resolved: (none)
 claimed-outside: 310 311
 unclaimed: 206 196" "no overlap, several members: no resolved set"
+
+run decode issue-5-5-x 999
+check "$RC:$OUT" "0:outcome: convention
+issues: 5 5
+slug: x
+resolved: (none)
+claimed-outside: 999
+unclaimed: 5" "no overlap, one number repeated: counted as several, no resolved set"
 
 run decode dependabot/npm_and_yarn/undici-5.28.4 310 '#311'
 check "$RC:$OUT" "0:$NOT
