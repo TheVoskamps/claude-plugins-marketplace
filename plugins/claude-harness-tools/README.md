@@ -112,7 +112,10 @@ because the code cannot show it.
   it as the signal that the proxy is serving, so the file a reader
   opens first is complete by the time any request can arrive. The first
   request header whose name contains `session` is added to it, which is
-  the join to the transcript under `~/.claude/projects/`.
+  the join to the transcript under `projects/` in the config directory,
+  `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`. The fixed `~/.claude` is not
+  assumed, because a session run under another config directory keeps
+  its transcripts there.
 
 - **Standard library only, and no syntax newer than Python 3.9**, so a
   stock macOS `/usr/bin/python3` runs it with nothing installed.
