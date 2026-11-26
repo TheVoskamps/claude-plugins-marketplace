@@ -174,8 +174,9 @@ on:
 # NOTE on the bypass actor: the dependabot-rest-merge job only achieves an
 # unattended merge of a code-owner-protected PR if the App "thevoskamps-pr-automations"
 # is added as a `pull_request` bypass actor in the repo's branch-protection
-# ruleset. Adding the bypass actor is a branch-protection concern owned by
-# /gh-repo-setup-protection, not this skill. Without the bypass, a green
+# ruleset. The bypass actor is added out of band: neither
+# /gh-repo-setup-pr-automation nor /gh-repo-setup-protection adds it, and
+# no other github-setup skill does either. Without the bypass, a green
 # Dependabot PR on an un-code-owned path still merges (no review required);
 # one on a code-owned path is left for a human, exactly as a human PR would
 # be.
