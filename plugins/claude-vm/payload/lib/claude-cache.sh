@@ -80,9 +80,9 @@ CLAUDE_VM_SIGNING_KEY_URL="https://downloads.claude.ai/keys/claude-code.asc"
 # install. See claude_cache_gpg_verify.
 : "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT:=}"
 
-# Default channel when `claude.version` is unset in both config layers.
-# `stable` is the conservative channel (latest binary tracking stable).
-CLAUDE_VM_DEFAULT_CLAUDE_VERSION="stable"
+# The channel used when `claude.version` is unset in both config layers is
+# CLAUDE_VM_DEFAULT_CLAUDE_VERSION, which the config.sh sourced above reads off
+# its key table.
 
 # A concrete pinned version is a dotted numeric like 2.1.172. The two
 # symbolic channels resolve to such a version host-side.
@@ -336,11 +336,11 @@ claude_cache_gpg_verify() {
     echo "claude-cache: claude-code key. Pin it (one-time, trust-on-first-use):" >&2
     echo "claude-cache:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
     echo "claude-cache:   gpg --fingerprint claude-code   # verify against the published value" >&2
-    echo "claude-cache: then set it in your claude-vm config:" >&2
+    echo "claude-cache: then set it in your claude-vm boot config (config-boot.yml, global or per-repo):" >&2
     echo "claude-cache:   claude:" >&2
     echo "claude-cache:     signing_key_fingerprint: \"<the fingerprint you just verified>\"" >&2
-    echo "claude-cache: See the 'Verified claude cache' section of payload/README.md for the full" >&2
-    echo "claude-cache: operator setup. There is no lower-trust fallback: pinning is required." >&2
+    echo "claude-cache: It is compared case-insensitively with spaces stripped, so the gpg --fingerprint" >&2
+    echo "claude-cache: form pastes verbatim. There is no lower-trust fallback: pinning is required." >&2
     return 1
   fi
 

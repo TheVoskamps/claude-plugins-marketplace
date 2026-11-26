@@ -9,7 +9,9 @@
 #   claude-vm-cleanup
 #
 # Host-scoped: it walks every run dir under $CLAUDE_VM_RUNS_DIR, whichever
-# repo launched it, so it is run by hand from anywhere. For each run it
+# repo launched it, so it is run by hand from anywhere. The launcher does not
+# run it on its own path; folding it in is a separate decision, deferred until
+# the standalone cleaner has been proven in use. For each run it
 # test-acquires $RUN/run.lock without waiting:
 #
 #   - lock held (lockf exits 75)  -> the run is LIVE: its launcher is still

@@ -12,7 +12,11 @@
 # gpg --verify and a checksum mismatch must each cause the ensure/fetch
 # flow to return non-zero WITHOUT caching a binary -- there is no
 # "verify failed, proceed anyway" branch. We assert both the non-zero
-# return AND that nothing landed in the cache.
+# return AND that nothing landed in the cache. An UNSET signing-key pin is
+# the third abort, asserted at the function level -- the real
+# claude_cache_gpg_verify against a fake gpg emitting VALIDSIG: unset aborts,
+# a matching pin is accepted, a different one rejected -- and end to end, the
+# full ensure flow caching nothing under an unpinned key.
 #
 # Run directly:
 #   plugins/claude-vm/payload/test/claude-cache-test.sh

@@ -37,7 +37,10 @@
 # `Restart=` in the stock serial-getty@.service template (`Restart=always`),
 # which the drop-in overrides to `no`. The leading `-` on ExecStart is dropped
 # too, but that prefix only makes a nonzero exit be reported as success -- it
-# never governed the respawn.
+# never governed the respawn, and a `failed` getty unit is inert here because
+# nothing sets OnFailure=/FailureAction=. SIGRTMIN+4 is used over
+# `systemctl poweroff` because the guest ships no dbus, and systemctl's logind
+# attempt printed `Failed to connect to bus` on every clean exit.
 #
 # Finally it asserts LAUNCHER_LOGIC_REV moved off 16: the image-identity hash
 # covers only the bake CONFIG files plus the repo name, never the launcher

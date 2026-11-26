@@ -54,8 +54,13 @@
 # --as. With it, every source follows from the account directory
 # D=$HOME/.claude.<name>: the credential comes from the Keychain service
 # claude_vm_keychain_service derives from D (lib/credential.sh), the identity
-# seed from D/.claude.json, and the curated working rules from D. Nothing falls
-# back to the default account's files or credential.
+# seed from D/.claude.json, and the curated working rules from D, by the same
+# include list. The keys selected from each source, the file modes and the
+# removal on exit are those of a launch without --as. Nothing falls back to the
+# default account's files or credential, so a guest never pairs one account's
+# identity with another's credential, and no refusal prints a value read from
+# the Keychain or the identity file. The account comes from --as alone: an
+# inherited CLAUDE_CONFIG_DIR is never read.
 #
 # Usage:
 #   claude-vm.sh [--as <name>] <repo-path> [claude args...]
@@ -733,7 +738,12 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # the launcher never boots the guest with an unverified binary. There is
 # ONE trusted path and no install.sh fallback: an unpinned/unimported
 # signing key or a verification failure aborts the run, it does NOT
-# downgrade to a lower-trust install (see lib/claude-cache.sh and the README).
+# downgrade to a lower-trust install (see lib/claude-cache.sh). This block
+# runs BEFORE the on-demand image build (issue #107): the build's plugin bake
+# step drives this same guest-platform binary (CLAUDE_VM_GUEST_CLAUDE_BIN), so
+# it must exist when the build starts, a verification failure aborts before a
+# multi-minute build, and bake-time and boot-time plugin work can never run
+# under two different claude versions.
 #
 # Warm boot: when the resolved version is already cached, no binary is
 # re-downloaded and gpg is not re-run (verification happened when it was
@@ -873,7 +883,12 @@ mkdir "$RUN"
 # when the last holder of that open file dies -- kill -9 included. That is
 # bin/claude-vm-cleanup's whole liveness test: a run whose lock it can take
 # is dead, one whose lock it cannot is live. The lock file outliving the run
-# means nothing; only a held lock does.
+# means nothing; only a held lock does. Existence cannot be the test: many
+# concurrent runs is normal, so reaping by existence would delete a running
+# VM's disk. The alternatives were ruled out: macOS ships no flock(1), a PID
+# file has the PID-recycling weakness the lock avoids, and a python3 helper
+# would depend on a binary that may be a version-manager install. lockf(1)
+# has flock(2) semantics and is stock on macOS, the only platform here.
 #
 # Every child forked after this line inherits fd 9, and an inheriting child
 # keeps the lock held after the launcher itself is gone. No long-lived child
@@ -1355,6 +1370,14 @@ chmod 600 "$HOST_CLAUDE_JSON_SEED"
 # half-copied rules/ tree is worse than an absent one. Neither aborts the
 # launch -- this layer is a convenience, not a security control, and the
 # credential/seed/settings installs above are the steps that get to refuse.
+# The staging `mkdir -p` and the failure arm's `rm -rf` below are NOT guarded
+# to that standard: under `set -e` a failure in either aborts the launch
+# outright, before any boot, rather than dropping the entry.
+#
+# The list is spelled on BOTH sides of the seam -- here, and as
+# CLAUDE_HOME_SEED_ENTRIES in the boot launcher build-guest-image.sh emits,
+# which re-walks the same names rather than globbing the mount -- so adding an
+# entry is a deliberate edit in both files.
 #
 # Under --as the entries come from the account directory $ACCOUNT_DIR instead
 # of ~/.claude.
@@ -1852,7 +1875,11 @@ fi
 # single-file mount takes in-place writes but refuses the write-temp-then-
 # rename pattern `git config`, `sed -i` and most editors use. Mount the
 # containing directory when the guest needs to replace the file rather than
-# edit it.
+# edit it. Probed in a privileged Linux container against this exact shape:
+# real `git config` fails with `could not write config file ...: Resource
+# busy` and GNU `sed -i` with `cannot rename ...: Device or resource busy`,
+# both leaving the source unchanged, and both succeed through a directory
+# mount.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
 MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
@@ -1881,9 +1908,27 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # `virtio-blk,path=$GUEST_IMAGE_CLONE`. Measured on vfkit v0.6.4, each of
 # those dies on the text after the comma (`unknown option for EFI
 # bootloaders: ...`), so a launch under such a path was already doomed with
-# or without a mounts entry. See
-# payload/README.md -> *The tag is not just a tag* for that whole class and
-# for where a guard covering it would belong.
+# or without a mounts entry. The class is wider still: every vfkit argument
+# that embeds a host path embeds it in a comma-delimited option string with no
+# comma check -- the built-in shares (the repo under repo.mount: live, $RUN's
+# config and creds dirs, the claude binary cache), the EFI store and disk clone
+# under $RUN, the console log under the state root, and the gvproxy socket
+# under a `mktemp -d` in $TMPDIR on every launch. Those are left unchecked
+# deliberately: none is a value the operator fixes by editing YAML, and an
+# ordinary comma is launch-time-loud. Only a path spelling a second copy of
+# its argument's own key (`sharedDir=`, `path=`, ...) would fail quietly, since
+# vfkit v0.6.4 takes the last of a repeated key, and no real path does. A guard
+# covering the class would belong where those paths are resolved, beside the
+# repo-path resolution, not in claude_vm_check_mounts. This one sits at the
+# point of USE so it can name the entry, which also scopes it: a
+# directory-only mounts list under the same $RUN is not aborted here (and dies
+# later, on the EFI store).
+#
+# A hard link cannot cross volumes, and $RUN is on the home volume whatever
+# volume the operator's file is on, so a single-file source on another volume
+# aborts naming its directory as the mount to declare instead. A fallback
+# linking under $TMPDIR was considered and not built: the per-user $TMPDIR is
+# on the home volume too, so it would rescue nothing.
 #
 # $RUN is RETAINED after the run (cleanup() and bin/claude-vm-cleanup remove
 # only its credential files and guest clone; the diff/apply skills read the

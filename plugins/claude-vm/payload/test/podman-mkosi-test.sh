@@ -39,8 +39,22 @@
 # config.sh layering functions. They render mkosi.conf and
 # build-in-container.sh exactly as a real build would and assert on their
 # literal content. They do not run an actual mkosi build (no container, no
-# network) -- that requires a real podman machine and is the residual gap
-# noted in the PR.
+# network) -- that requires a real podman machine and is host-acceptance.sh's
+# territory.
+#
+# Since issue #107 they also cover the plugin bake step: the generated
+# in-container script stages bake-plugins.json and the verified guest-claude
+# binary, drives `claude plugin marketplace add` / `claude plugin install`
+# under HOME=/root, copies only /root/.claude/plugins into the image, and a
+# nonempty manifest with no CLAUDE_VM_GUEST_CLAUDE_BIN aborts. Issue #226's
+# per-entry failure policy is asserted by RUNNING the generated marketplace
+# loop, sliced out of the captured build-in-container.sh, against a stub
+# claude whose exit the test controls: a failed add or a name mismatch on a
+# bake-declared entry aborts, the same entry declared `origin: boot` warns and
+# continues, and an entry with no origin takes the strict reading. The
+# apt_sources loop is driven the same way with render_apt_source stubbed to
+# record its argv, pinning that a key_url with no repo stays in the third
+# field, against a negative control rebuilt from the same captured lines.
 #
 # Run directly:
 #

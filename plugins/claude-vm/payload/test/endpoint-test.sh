@@ -9,7 +9,10 @@
 # are stood up with the base-macOS perl (TCP via IO::Socket::INET, unix via
 # IO::Socket::UNIX) so the liveness checks are tested against genuine live and
 # genuinely-dead endpoints, which is the exact bug class defect #4 is about (a
-# stale socket FILE passing a mere `[ -S ]` existence check).
+# stale socket FILE passing a mere `[ -S ]` existence check). The corpse
+# clearing is also asserted to refuse a LIVE sibling's socket. There are no
+# vfkit REST-shutdown helpers to test: the guest powers itself off (see
+# boot-launcher-test.sh), so the host drives no shutdown.
 #
 # Run directly:
 #

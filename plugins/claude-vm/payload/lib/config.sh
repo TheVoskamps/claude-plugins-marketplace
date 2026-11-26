@@ -1039,8 +1039,18 @@ claude_vm_egress_hosts() {
 # it does not make such an entry usable. Rejecting one is the other half, and
 # it happens at config load: claude_vm_check_mounts (below),
 # claude_vm_check_marketplace_names, and the empty-ref branch inside
-# claude_vm_render_guest_settings. payload/README.md -> *Splitting a TSV record
-# back apart* carries the full write-up.
+# claude_vm_render_guest_settings. The readers with no load-time gate of their
+# own run in the GUEST -- boot_plugin_phase and boot_mount_phase -- where the
+# host has already aborted any such config before writing their manifests.
+#
+# An EMPTY result set from one of these emitters is one empty LINE, not zero
+# bytes (yq prints a newline for `.x // [] | .[]` with nothing in it), so every
+# reader skips a wholly empty record before judging its fields.
+#
+# The readers: every two-field one in this file, the extra-mount loop in
+# claude-vm.sh, the marketplace and apt_sources loops in
+# provisioners/podman-mkosi.sh, and boot_apt_phase, boot_plugin_phase and
+# boot_mount_phase in build-guest-image.sh. A new reader splits the same way.
 # ---------------------------------------------------------------------
 
 # Emit mounts as tab-separated "source<TAB>tag<TAB>path" lines from a
@@ -1301,11 +1311,8 @@ claude_vm_guest_system_path_containing() {
 #     and again as a `mount -t virtiofs -o rw <tag> <path>` argument in the
 #     guest, so a comma or whitespace in it corrupts one or both. Same
 #     charset the marketplace-name and apt_source-name guards use.
-#   - a tag that the charset admits but one of its OTHER uses does not. The tag
-#     is also a bare PATH COMPONENT (in three trees) and a bare ARGV WORD, so
-#     `.` and `..` walk up out of every tree that embeds it and a leading `-`
-#     is read as an option by the guest's `mount`. payload/README.md -> *The tag
-#     is not just a tag* enumerates the uses these two arms are derived from.
+#   - a tag that the charset admits but one of its OTHER uses does not -- see
+#     "The tag is not just a tag" below.
 #   - a DIRECTORY `source` whose path contains a comma: the source is what
 #     vfkit shares, so it sits inside that same comma-delimited device string,
 #     as the only field of it with no charset check of its own. A single-FILE
@@ -1349,6 +1356,31 @@ claude_vm_guest_system_path_containing() {
 #   - a `path` colliding with another entry's effective mountpoint: the later
 #     mount shadows the earlier one, so one configured mount is silently
 #     unreachable.
+#
+# The tag is not just a tag. Every position it is used in takes the string
+# VERBATIM: vfkit's `mountTag=` inside the comma-delimited `--device` string; a
+# bare argv word in the guest's `mount -t virtiofs -o rw <tag> <path>`; a PATH
+# COMPONENT in the default guest mountpoint <CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>,
+# in the launcher's host-side wrap directory for a single-file source
+# ($MOUNT_WRAP_DIR/<tag>) and in that wrap's guest mountpoint
+# (<CLAUDE_VM_GUEST_WRAP_MOUNT>/<tag>); and a field in mounts.tsv. The charset
+# check covers only the first two, so it is necessary and not sufficient:
+#
+#   - `.` and `..` are not path components. `tag: ".."` walks one level up out of
+#     each tree the entry reaches -- the default mountpoint for any entry, both
+#     wrap paths for a single-file one -- and the `..` rejection on `path:`
+#     never sees it: that guard runs only when `path:` is set, and with one set
+#     the wrap paths are still walked up. The launcher would then share the wrap
+#     directory's PARENT, $RUN, which holds creds/.credentials.json, read-write
+#     in the guest. `...` and `a..b` are ordinary names and pass.
+#   - a leading `-` is not an argv word: the guest's `mount` reads it as an
+#     option. Measured on util-linux 2.38.1, `mount -t virtiofs -o rw -a <path>`
+#     exits 0 having mounted nothing, so boot_mount_phase would log a mount that
+#     never happened; `--bind`, `-o` and `-r` fail loudly. `a-b` passes.
+#
+# That enumeration is what the arms are derived from, so it grades any new
+# position the tag is given -- a filename, another argv slot, an interpolated
+# string -- which adds an arm when it rejects something the existing ones accept.
 #
 # A `mode:` key on ANY entry is also an abort, checked before the loop over its
 # own emitter (claude_vm_mount_mode_entries). It is not a malformed value but a
@@ -1440,9 +1472,9 @@ claude_vm_check_mounts() {
     # The charset is necessary and not sufficient, because the tag is not one
     # thing. Every use of it takes the string as-is -- nothing escapes or
     # rewrites it on the way -- and the arms below are the spellings that pass
-    # the charset while being unusable in one of those positions. See
-    # payload/README.md -> *The tag is not just a tag* for the enumeration of
-    # uses these arms are derived from.
+    # the charset while being unusable in one of those positions. "The tag is
+    # not just a tag" in this function's header enumerates the uses these arms
+    # are derived from.
     case "$tag" in
       .|..)
         echo "claude-vm: mounts entry #${idx} ('$src') has tag '$tag', which is not a usable path COMPONENT --" >&2
@@ -2190,9 +2222,8 @@ claude_vm_check_plugin_key_placement() {
 # claude_vm_resolve_boot_env emits files, then copy, then set, and the guest
 # sources the bake file before the boot one, so a later assignment simply
 # overwrites an earlier one when the file is sourced under `set -a`. That needs
-# no associative array and therefore no bash 4 -- see payload/README.md ->
-# *A guard must survive the oldest bash that can reach it*; these run as
-# config-load guards.
+# no associative array and therefore no bash 4, which matters because these run
+# as config-load guards on a host whose bash may be 3.2.
 
 # The sub-keys of `env:` that a BAKE file may not carry, read off the key
 # table's file column, so a future host-sourced sub-key joins the gate by
@@ -3074,8 +3105,7 @@ claude_vm_render_guest_settings() {
   #
   # The map is TWO PARALLEL INDEXED ARRAYS, not an associative array, because
   # this render is launcher-reachable and stock macOS /bin/bash is 3.2, which
-  # has no associative arrays -- see payload/README.md -> *A guard must survive
-  # the oldest bash that can reach it*. `local -A` there is a hard
+  # has no associative arrays. `local -A` there is a hard
   # `local: -A: invalid option`, and the `map["$ov_ref"]=` assignment that
   # followed it is worse: 3.2 evaluates an indexed array's subscript
   # ARITHMETICALLY, so a real ref like `block-background-agents@thevoskamps`

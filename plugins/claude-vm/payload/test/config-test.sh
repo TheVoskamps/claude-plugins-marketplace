@@ -4,7 +4,39 @@
 #
 # Exercises payload/lib/config.sh's pure layering logic (two YAML
 # inputs -> one merged document) with no VM, no network, no host
-# mutation. Run directly:
+# mutation, plus the helpers built on it: the settings render, the
+# bake/identity hashing, the marketplace/plugin helpers and the load-time
+# gates.
+#
+# Several cases leave pure-helper territory, and each RUNS the real code
+# against records from the real emitter rather than grepping the source:
+# boot_apt_phase, boot_plugin_phase and boot_mount_phase sliced out of
+# build-guest-image.sh, and the launcher's extra-mount loop and whole
+# config-load gate block sliced out of claude-vm.sh by line range, since
+# they are bare top-level code rather than functions. A TSV split case
+# carries a negative control rebuilding the collapsing `read` from the
+# same captured lines, so the control cannot drift from the code. A gate
+# is driven through claude_vm_merge_config in the launcher's own argument
+# shape, once per rejected config, asserting both the non-zero exit and a
+# diagnostic naming the problem.
+#
+# The extra-mount loop is run for the manifest it writes and the wrap
+# directory it builds: the wrap entry's hard link is asserted by inode,
+# since a copy would match on content and break write-through, and the
+# cross-volume abort runs against a real second volume (an `hdiutil attach`
+# image, skipped where that fails) with its premise measured first and
+# $TMPDIR placed on the source's volume, so a launcher that linked there
+# would not pass. boot_mount_phase is sliced from boot_dir_is_nonempty
+# through the end of the phase -- a slice of the phase alone would leave the
+# occupancy helper undefined and every occupancy assertion vacuous -- and
+# run with `mount` replaced by a recorder, so its assertions are which
+# mount calls it makes. What no case here reaches is a guest write landing
+# on the host; that needs a real guest.
+#
+# The suite carries the payload's shebang and is held to the same bash 3.2
+# bar: `/bin/bash config-test.sh` is green, with no baselined failing set.
+#
+# Run directly:
 #
 #   plugins/claude-vm/payload/test/config-test.sh
 #

@@ -32,10 +32,7 @@ a key written in an empty spelling reaches the merged document absent:
 So a gate asking whether the operator wrote a key asks `has()` of each
 raw file, which also lets the diagnostic name the file. Never carve a
 key out of the prune instead: the prune exists so no consumer reads
-presence off a merged document. `claude_vm_mount_mode_entries` still
-asks the merged boot document, so `mode: {}` inside a `mounts` entry is
-pruned before it and launches; that is a gap in the `mode:` abort, not
-an exemption.
+presence off a merged document.
 
 Grade every existing gate on any change, not only the one touched: grep
 `payload/` for `has(`, `!= null` and `== null`, and check each hit

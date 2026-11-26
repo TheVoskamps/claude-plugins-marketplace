@@ -655,7 +655,7 @@ MOUNTS_TSV="$RUNCONFIG_MNT/mounts.tsv"
 # effective mountpoint OVERLAPS it: on it, above it, or inside it. The per-entry
 # <tag> directories below stay inside it for the same reason: the same validator
 # rejects a tag of `.` or `..`, which would otherwise walk back out of this
-# directory (payload/README.md -> *The tag is not just a tag*). This launcher
+# directory (lib/config.sh, claude_vm_check_mounts). This launcher
 # is baked into the image and cannot source that file, so the value is restated
 # here; the two must stay equal, and each side's comment names the other.
 MOUNT_WRAP_MNT=/run/claude-vm/mount-wrap

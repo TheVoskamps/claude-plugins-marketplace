@@ -9,14 +9,27 @@
 #      claude_vm_ensure_podman_machine, claude_vm_stop_podman_machine --
 #      driven against a stub `podman` on PATH that keeps real state, so an
 #      init/start/stop sequence is observable as a sequence rather than as
-#      one call at a time.
+#      one call at a time. A stateless stub always answering the same list
+#      would pass a bring-up that never re-probed for the name init chose,
+#      and asserting the whole sequence per starting state means "starts a
+#      stopped machine" cannot pass on a run that also issued a needless init.
 #
 #   2. The SCOPING: only a launch that builds the guest image may touch
 #      podman. That is a property of the launcher, not of a helper, so the
 #      build-or-reuse block is sliced out of claude-vm.sh with awk and RUN
 #      (the same extract-and-run shape config-test.sh uses on
 #      build-guest-image.sh's apt functions). Asserting it by grepping the
-#      source would pass on a block whose condition is inverted.
+#      source would pass on a block whose condition is inverted. The warm
+#      cases assert podman is invoked ZERO times, on a host with no machine
+#      too; the cold cases assert init/start/build/stop, that a machine found
+#      running is still running at the end, and that a bring-up leaving a
+#      machine up behind a failure still stops it -- at two seams: `start`
+#      succeeding and the `podman info` confirmation failing (`info-broken`),
+#      which holds only while the trap is armed BEFORE the bring-up call, and
+#      `start` bringing the machine up then exiting non-zero
+#      (`start-fails-after-up`), which holds only while the record is written
+#      before that call. A real `podman machine init` on a real host is
+#      host-acceptance.sh's territory.
 #
 # No VM, no network, no host mutation: the stub podman never provisions
 # anything. Requires python3 (which the helper itself parses JSON with, and

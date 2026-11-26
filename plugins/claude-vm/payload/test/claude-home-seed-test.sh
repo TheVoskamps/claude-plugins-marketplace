@@ -34,7 +34,28 @@
 # and out of the launcher heredoc in build-guest-image.sh, against a fake
 # host home and a fake guest home. It is the shipped code deciding, not a
 # hand-copied reimplementation -- the same shape boot-launcher-test.sh uses
-# for the shutdown decision.
+# for the shutdown decision. Excluded entries are asserted at BOTH ends, since
+# a guest-side assertion alone would pass on a host that staged the entry and
+# a guest that merely failed to install it.
+#
+# The guest half's FAILURE arms are pinned by injection, because the emitted
+# launcher runs under `set -euo pipefail` and an unguarded command there costs
+# the whole boot. Each fragment's exit status is recorded: a destination that
+# exists as a non-directory must still leave the later entries installed and
+# the run at status 0, and an unreadable subtree on the mount must leave the
+# destination REMOVED when this seed created it and untouched, with a warning,
+# when it is baked image content. The injection is planted on the mount and
+# skipped under root, which reads a mode-000 directory anyway.
+#
+# Both halves run on one filesystem, where a copied LINK still resolves, so
+# every content assertion stays green when `cp -RL` loses its `-L`. What moves
+# is the SHAPE of the staged entry, so the suite asserts claude-home/rules and
+# claude-home/skills are real directories. The `cp -RL` and `cp -R <src>/.`
+# spellings, and the failure arms, were negative-controlled by mutating each to
+# its unsafe form and seeing a behavioral assertion go red.
+#
+# What this cannot reach is the step running in the real emitted launcher off
+# a real virtio-fs share; host-acceptance.sh criterion (b4) covers that.
 #
 # Run directly:
 #

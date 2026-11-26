@@ -15,11 +15,12 @@
 #   (c) egress is confined to the allowlist by the bundled tinyproxy proxy:
 #       an allowlisted host is permitted, a non-allowlisted host is refused,
 #       and an EMPTY allowlist denies all;
-#   (d) the host-side GPG-verified claude cache (issue #49), exercised with a
-#       LOCALLY-generated key over local fixtures (does NOT reach claude.ai):
-#       resolve+fetch+verify+cache works, a tampered manifest aborts, a
-#       checksum mismatch aborts, and a warm boot uses the cache with no
-#       network. Skips when gpg is absent.
+#   (d) the host-side GPG-verified claude cache (issue #49), exercised with
+#       two LOCALLY-generated keys over local fixtures (does NOT reach
+#       claude.ai): resolve+fetch+verify+cache works against the PINNED key's
+#       fingerprint, a tampered manifest aborts, a checksum mismatch aborts, a
+#       valid signature by the unpinned key is rejected, and a warm boot uses
+#       the cache with no network. Skips when gpg is absent.
 #
 # LIVE-NETWORK CAVEAT (criterion (c) only): unlike (a) and (b), criterion
 # (c) is NOT fully self-contained -- it probes REAL external hosts
@@ -58,7 +59,12 @@
 # NOT deleted on exit, so a failed run stays diagnosable. (The earlier code
 # logged into a mktemp dir it rm -rf'd on exit, so failure diagnostics --
 # including the machine-start error -- were destroyed before they could be
-# read.)
+# read.) The log dir is printed at the start and end of the run. Teardown is
+# best-effort but not silent: a `podman machine stop`/`rm` the test attempted
+# that fails prints a `WARNING (teardown)` rather than leaving a dirty host
+# unannounced. Unlike the launcher, which only stops a machine it started,
+# this test also removes a machine it init'd; it resolves the target machine
+# through the launcher's own claude_vm_podman_machine_probe.
 #
 # Requires (to actually run, not skip): gvproxy (resolved from podman
 # libexec), vfkit, podman, tinyproxy, curl, yq (mikefarah v4+), python3

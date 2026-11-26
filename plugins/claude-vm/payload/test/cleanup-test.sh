@@ -11,7 +11,8 @@
 #   - The launcher's proxy and gvproxy spawn lines, sliced the same way with
 #     a sleeping stand-in for each process: the pid recorded for the proxy is
 #     the proxy's own, and a child still running after its launcher is killed
-#     does not keep the lock held.
+#     does not keep the lock held -- against a negative control that restores
+#     the inherited fd and shows the lock staying held.
 #   - The launcher's vfkit launch, sliced the same way with a sleeping
 #     stand-in for vfkit: after `kill -9` of the launcher its watcher stops
 #     vfkit, gvproxy and the proxy, and the lock test-acquire succeeds; a
