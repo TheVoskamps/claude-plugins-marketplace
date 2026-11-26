@@ -17,6 +17,12 @@
 # would exec the launcher / boot a VM. We assert on the step-4 stderr for each
 # of the three config states (pair present / legacy leftover / nothing).
 #
+# The `--as <name>` cases drive the same entry point: which Keychain service
+# the step-5 check asks for, the name and account-directory refusals made
+# before it, and -- through a copy of bin/claude-vm whose launcher only
+# records its argv, with the Keychain check stubbed to pass -- the arguments
+# it passes on to the launcher.
+#
 # Run directly:
 #
 #   plugins/claude-vm/payload/test/bin-config-check-test.sh
@@ -108,9 +114,9 @@ GLOBAL_DIR="$WORK/gconfig"
 mkdir -p "$GLOBAL_DIR"
 
 # run_bin [arg...] -> prints bin/claude-vm's stderr, with the global config
-# dir pointed at $GLOBAL_DIR and `security` stubbed to fail. cwd is the repo
-# so the repo-tier config paths resolve under $REPO/.claude-vm. $RUN_BIN, when
-# set, is run in place of the real bin/claude-vm.
+# dir pointed at $GLOBAL_DIR and the `security` stub above first on PATH. cwd
+# is the repo so the repo-tier config paths resolve under $REPO/.claude-vm.
+# $RUN_BIN, when set, is run in place of the real bin/claude-vm.
 run_bin() {
   (
     cd "$REPO" || exit 99
@@ -211,8 +217,8 @@ else
 fi
 
 # Refusals before any Keychain read: an invalid name, `backup`, a missing
-# account directory, and a bare --as. Each names the account, and none reaches
-# `security`.
+# account directory, and a bare --as. Each that is given a name names the
+# account, and none reaches `security`.
 for bad in "bad.name" "backup" "a/b"; do
   mkdir -p "$FAKE_HOME/.claude.$bad" 2>/dev/null
   : >"$SEC_LOG"
