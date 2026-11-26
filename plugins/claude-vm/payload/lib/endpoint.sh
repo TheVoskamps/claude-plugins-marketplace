@@ -44,8 +44,9 @@ CLAUDE_VM_ENDPOINT_SH_SOURCED=1
 # that succeeds proves a live listener, which is the liveness signal we want
 # (not "is a file present").
 #
-# Only ECONNREFUSED reads as free: it is the kernel's answer for a port with no
-# listener. Every other outcome reads as in use, the safe bias, since the caller
+# For a port in 1-65535, only ECONNREFUSED reads as free: it is the kernel's
+# answer for a port with no listener. A malformed port reads as free without a
+# connect. Every other outcome reads as in use, the safe bias, since the caller
 # then picks a different port. That includes ECONNRESET, which is what a live
 # listener whose accept queue has overflowed answers a new connect with under
 # load, and a connect still unanswered after 1s -- on a loopback address a live
