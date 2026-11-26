@@ -497,8 +497,10 @@ unset finds everything where it always was.
 
 An agent does not work the directory out itself: it runs `claude-home`,
 which `cc-tools` puts on `PATH`, and reads `CLAUDE.md` in the directory
-that prints. The rule for choosing the directory is then spelled in no
-agent, so changing it changes one executable.
+that prints, so no agent spells the rule for choosing the directory.
+`reload-after-compact` and `sdlc-agent-result-persist` do not run
+`claude-home`: each applies the same rule in its own code, so a change
+to the rule is made in `claude-home` and in both of them.
 
 ## Dependencies
 
