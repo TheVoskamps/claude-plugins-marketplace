@@ -83,8 +83,9 @@ under `agents/` owns:
   branch, and you spawn none of them
 - `pr-merge-readiness` — drives one blessed PR through the
   merge-readiness gate, spawning `issue-fixer` for the remedies. When
-  it returns, either the PR is in a state the close-out proceeds from; or its report carries a
-  question with the gate's output verbatim and, beneath it, any
+  it returns, either the PR is in a state the close-out proceeds
+  from; or its report carries a question with the gate's output
+  verbatim and, beneath it, any
   escalating fixer's report, or a spawn's report and `reclaim` output
   when a `reclaim` did not free the branch, which you handle per "When
   a teammate escalates" and answer by re-spawning it with the ruling in
