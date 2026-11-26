@@ -6,13 +6,11 @@ file loaded into context**.
 
 ## What it does
 
-Claude Code loads instruction files (`CLAUDE.md`, `.claude/rules/*.md`)
-both at session start and lazily during a session (nested-directory
-traversal, glob-path matches, explicit `include`, or context
-compaction). Normally that loading is invisible unless you run with
-`--verbose`. This plugin makes each load visible in a normal session by
-printing a short `Rules loaded: <path> (<reason>)` message for every
-file as it loads.
+Normally the loading of instruction files (`CLAUDE.md`,
+`.claude/rules/*.md`) is invisible unless you run with `--verbose`.
+This plugin makes each load visible in a normal session by printing a
+short `Rules loaded: <path> (<reason>)` message for every file as it
+loads.
 
 ## Why
 
@@ -25,8 +23,7 @@ tiny dedicated hook is the simplest way to expose it.
 ## How it works
 
 `hooks/hooks.json` registers an `InstructionsLoaded` hook with no
-matcher (the event has no tool name to match on; it fires for every
-loaded file regardless of `load_reason`):
+matcher:
 
 ```json
 {
@@ -52,15 +49,6 @@ JSON, extracts `file_path` and `load_reason`, and emits a
 Rules loaded: /path/to/CLAUDE.md (session_start)
 ```
 
-`InstructionsLoaded` is observe-only — it has no decision control and
-its exit code is ignored, so the hook cannot block or alter a load. It
-also does not surface plain stdout to the user for this event; only the
-`systemMessage` JSON field does, which is why the script emits JSON
-rather than printing text directly. The event fires once per file
-loaded, both at session start and on lazy loads during the session,
-with `load_reason` one of `session_start`, `nested_traversal`,
-`path_glob_match`, `include`, or `compact`.
-
 ### Malformed / empty stdin
 
 If stdin is empty or not valid JSON, the script falls back to
@@ -70,5 +58,5 @@ purely observational, so a best-effort message beats a hard failure.
 ## Scope
 
 This plugin only covers rules/instruction files (`InstructionsLoaded`).
-Skill-loading visibility is a separate concern, tracked separately and
-not covered here.
+Skill-loading visibility is a separate concern, covered by
+`show-loaded-skills`.

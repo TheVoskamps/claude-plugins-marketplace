@@ -1,5 +1,12 @@
 # show-loaded-rules changelog
 
+## 0.1.2 — 2026-11-25
+
+Documentation only: the README no longer carries notes on how the
+`InstructionsLoaded` event behaves, and its scope section now names
+`show-loaded-skills` as the plugin that covers skill loads. Behavior is
+unchanged.
+
 ## 0.1.1 — 2026-09-11
 
 Documentation only: the README now states the event's firing and load

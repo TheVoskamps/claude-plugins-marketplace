@@ -1,5 +1,11 @@
 # block-background-agents changelog
 
+## 0.2.1 — 2026-11-25
+
+Documentation only: the README now says in its own words that the hook
+guards the initial spawn, instead of citing a file outside the
+repository. Behavior is unchanged.
+
 ## 0.2.0 — 2026-06-29
 
 The hook now allows an agent spawn only when `run_in_background` is

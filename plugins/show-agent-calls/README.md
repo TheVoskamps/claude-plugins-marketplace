@@ -38,24 +38,11 @@ Sibling observability plugins cover adjacent surfaces but not this one:
 
 Neither fires for a subagent spawn, so this plugin fills that gap.
 
-### Why not `SubagentStart`?
+### Why a `PreToolUse` hook
 
-The purpose-built `SubagentStart` event was considered and rejected.
-Per the official hooks docs (<https://code.claude.com/docs/en/hooks>)
-it carries only `agent_id` and `agent_type` — not the prompt,
-description, model, or spawn parameters. It cannot satisfy "with what
-parameters and what prompt", which is the whole point of this plugin.
-
-### Why `PreToolUse` with matcher `Agent|Task`
-
-The spawn parameters live only in the tool call's `tool_input`, which
-is visible on `PreToolUse`. The repo's existing
-`block-background-agents`
-plugin already registers `PreToolUse` with matcher `Agent|Task` and
-demonstrably fires and reads `tool_input.run_in_background`, proving
-this event+matcher matches the subagent-spawn tool on the current
-Claude Code version. Matching both `Agent` and `Task` is harmless if
-only one name is live on a given build.
+The plugin answers "with what parameters and what prompt", and it reads
+both from the spawn tool call's own `tool_input`, so it hooks the tool
+call itself.
 
 ## How it works
 
@@ -93,25 +80,7 @@ never breaks the hook:
 
 It then emits a single `systemMessage` JSON field containing a header
 line, the optional detail lines, and the full prompt under a `Prompt:`
-heading.
-
-**The official hooks docs do not publish a field-by-field schema for
-the spawn tool's `tool_input`.** `tool_input.run_in_background` is the
-only doc/empirically-confirmed field (via `block-background-agents`);
-the rest (`subagent_type`, `prompt`, `model`, `description`,
-`isolation`) are **inferred** from the Agent tool's own parameter
-schema — the same doc-gap inference `show-loaded-skills` already
-documents for `tool_input.skill`.
-
-### Display-only guarantee
-
-This hook is **display-only**: `PreToolUse` supports
-`hookSpecificOutput.permissionDecision` (allow/deny/ask) and
-`updatedInput`, but this plugin never emits `hookSpecificOutput` — only
-`systemMessage`. This matters because `block-background-agents`
-registers a hook on the exact same event and matcher; since this
-plugin never touches the permission-decision channel, the two compose
-without interference regardless of registration order.
+heading. The hook is **display-only**: that field is its whole output.
 
 ### Malformed / empty stdin
 
