@@ -39,6 +39,77 @@
 # is itself macOS-only). python3's json stdlib does the key selection; we
 # deliberately do NOT add a hard `jq` dependency, mirroring the rest of the
 # plugin (claude-cache.sh treats jq as optional with a jq-free fallback).
+#
+# Also sourced by bin/claude-vm, for the account helpers below: the entry
+# point and the launcher must agree on which names `--as` accepts, where an
+# account's directory is, and which Keychain service its credential lives
+# under.
+
+# claude_vm_account_name_valid <name>
+#
+# Exit 0 when <name> is usable as a `--as` account name: one or more ASCII
+# letters, digits, `_` or `-`, and not `backup`. Exit 1 otherwise. The
+# characters are spelled out rather than written as ranges so no locale can
+# widen the set. Pure.
+claude_vm_account_name_valid() {
+  case "${1:-}" in
+    ''|backup) return 1 ;;
+    *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# claude_vm_account_dir <name>
+#
+# Prints the account directory $HOME/.claude.<name> when <name> passes
+# claude_vm_account_name_valid and that directory exists. Otherwise prints a
+# refusal naming the account on stderr, nothing on stdout, and exits 1. Reads
+# nothing inside the directory.
+claude_vm_account_dir() {
+  local name="${1:-}" dir
+  if ! claude_vm_account_name_valid "$name"; then
+    echo "claude-vm: account '$name' is not a valid account name: a name holds only ASCII" >&2
+    echo "claude-vm: letters, digits, '_' and '-', and is not 'backup'." >&2
+    return 1
+  fi
+  dir="${HOME:-}/.claude.$name"
+  if [ ! -d "$dir" ]; then
+    echo "claude-vm: account '$name' has no config directory (looked at '$dir')." >&2
+    echo "claude-vm: log the account in on this host first: CLAUDE_CONFIG_DIR='$dir' claude" >&2
+    return 1
+  fi
+  printf '%s\n' "$dir"
+}
+
+# claude_vm_keychain_service [<account-dir>]
+#
+# Prints the Keychain service that holds the claude.ai login for an account.
+# With no <account-dir> (or an empty one) that is the host default,
+# `Claude Code-credentials`. With one it is `Claude Code-credentials-<h>`,
+# where <h> is the first 8 lowercase hex characters of the SHA-256 of the
+# directory's path string, no trailing newline -- the service Claude Code
+# itself uses for a session run with CLAUDE_CONFIG_DIR=<account-dir>. Exit 1,
+# printing nothing on stdout, when no sha256 tool is available. Pure.
+claude_vm_keychain_service() {
+  local dir="${1:-}" hex=""
+  if [ -z "$dir" ]; then
+    printf '%s\n' "Claude Code-credentials"
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    hex="$(printf '%s' "$dir" | shasum -a 256 2>/dev/null | cut -c1-8)"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hex="$(printf '%s' "$dir" | sha256sum 2>/dev/null | cut -c1-8)"
+  else
+    echo "claude-vm: neither 'shasum' nor 'sha256sum' found to derive the account's Keychain service." >&2
+    return 1
+  fi
+  if [ "${#hex}" -ne 8 ]; then
+    echo "claude-vm: could not derive the Keychain service for '$dir'." >&2
+    return 1
+  fi
+  printf 'Claude Code-credentials-%s\n' "$hex"
+}
 
 # claude_vm_select_claude_credential
 #

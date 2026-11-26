@@ -127,7 +127,8 @@ assert_real_dir() {
 # 1. Slice the two REAL fragments.
 #
 #    HOST: claude-vm.sh's staging loop, from the include-list assignment
-#    through its `done`. It depends on $HOME and $CREDS_DIR and nothing else.
+#    through its `done`. It depends on $HOME, $CREDS_DIR and, under --as,
+#    $ACCOUNT_DIR, and nothing else.
 #
 #    GUEST: the emitted boot launcher's install step, from the mount-path
 #    assignment to the block comment that opens the next phase. It depends on
@@ -185,13 +186,23 @@ assert_contains "guest fragment is the real install loop" \
 #    run under `set -euo pipefail`, which is what the emitted launcher runs
 #    under, so an unguarded failure inside one shows up here as a nonzero
 #    status -- in the real guest it would be the whole boot aborting.
+#
+#    An optional second argument is the account directory a --as launch sets
+#    as $ACCOUNT_DIR; without it the fragment runs as a launch without --as,
+#    with $ACCOUNT_DIR unset.
 run_seed() {
-  local case_dir="$1"
+  local case_dir="$1" account_dir="${2:-}"
   mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
   local st=0
-  HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" \
-    "$SHELL_UNDER_TEST" -c 'set -euo pipefail; . "$1"' _ "$HOST_FRAGMENT" \
-      2>"$case_dir/host.err" || st=$?
+  if [ -n "$account_dir" ]; then
+    HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" ACCOUNT_DIR="$account_dir" \
+      "$SHELL_UNDER_TEST" -c 'set -euo pipefail; . "$1"' _ "$HOST_FRAGMENT" \
+        2>"$case_dir/host.err" || st=$?
+  else
+    HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" \
+      "$SHELL_UNDER_TEST" -c 'set -euo pipefail; unset ACCOUNT_DIR; . "$1"' _ "$HOST_FRAGMENT" \
+        2>"$case_dir/host.err" || st=$?
+  fi
   printf '%s\n' "$st" > "$case_dir/host.status"
   run_guest_only "$case_dir"
 }
@@ -423,6 +434,43 @@ else
   assert_file_is "baked content under the failed path is NOT deleted" \
     "$G/guest/.claude/rules/baked.md" "baked rule"
 fi
+
+# --- Case H: a --as launch seeds from the account directory -------------
+# With $ACCOUNT_DIR set the entries come from it and from nothing under
+# ~/.claude, even where ~/.claude has an entry the account lacks: an entry
+# missing from the account is absent, never filled in from the default account.
+H="$WORK/case-h"
+mkdir -p "$H/home/.claude/rules" "$H/home/.claude/agents" \
+         "$H/home/.claude.work/rules"
+printf 'default rules\n'  > "$H/home/.claude/CLAUDE.md"
+printf 'default core\n'   > "$H/home/.claude/rules/core.md"
+printf 'default agent\n'  > "$H/home/.claude/agents/dev.md"
+printf 'default keys\n'   > "$H/home/.claude/keybindings.json"
+printf 'work rules\n'     > "$H/home/.claude.work/CLAUDE.md"
+printf 'work core\n'      > "$H/home/.claude.work/rules/core.md"
+printf 'WORK POLICY\n'    > "$H/home/.claude.work/settings.json"
+run_seed "$H" "$H/home/.claude.work" > /dev/null
+assert_eq "--as: the host staging succeeds" "0" "$(cat "$H/host.status")"
+assert_file_is "--as: CLAUDE.md comes from the account directory" \
+  "$H/guest/.claude/CLAUDE.md" "work rules"
+assert_file_is "--as: rules/ comes from the account directory" \
+  "$H/guest/.claude/rules/core.md" "work core"
+assert_absent "--as: an entry the account lacks is not taken from ~/.claude" \
+  "$H/guest/.claude/agents"
+assert_absent "--as: keybindings.json the account lacks is not taken from ~/.claude" \
+  "$H/guest/.claude/keybindings.json"
+assert_absent "--as: the account's settings.json is not staged" \
+  "$H/creds/claude-home/settings.json"
+
+# The same host without --as seeds from ~/.claude, as before.
+H2="$WORK/case-h2"
+mkdir -p "$H2"
+cp -R "$H/home" "$H2/home"
+run_seed "$H2" > /dev/null
+assert_file_is "no --as: CLAUDE.md still comes from ~/.claude" \
+  "$H2/guest/.claude/CLAUDE.md" "default rules"
+assert_file_is "no --as: agents/ still comes from ~/.claude" \
+  "$H2/guest/.claude/agents/dev.md" "default agent"
 
 echo ""
 echo "claude-home-seed-test: $PASS passed, $FAIL failed"

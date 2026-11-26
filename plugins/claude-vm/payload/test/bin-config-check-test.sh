@@ -76,26 +76,35 @@ git -C "$REPO" remote add origin "https://example.invalid/acme/widgets.git"
 
 STUBBIN="$WORK/stubbin"
 mkdir -p "$STUBBIN"
-# `security find-generic-password ... -w` -> nonzero (not logged in). Any other
-# security invocation also returns nonzero; the script only calls the -w form.
+# `security find-generic-password ... -w` -> exit $SEC_RC, default nonzero (not
+# logged in). The service it was asked for (the `-s` value) is appended to
+# $SEC_LOG when that is set, so a case can assert which Keychain item the
+# entry point checked -- or that it checked none.
 cat > "$STUBBIN/security" <<'STUB'
 #!/usr/bin/env bash
-exit 1
+if [ -n "${SEC_LOG:-}" ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-s" ]; then printf '%s\n' "$2" >> "$SEC_LOG"; fi
+    shift
+  done
+fi
+exit "${SEC_RC:-1}"
 STUB
 chmod +x "$STUBBIN/security"
 
 GLOBAL_DIR="$WORK/gconfig"
 mkdir -p "$GLOBAL_DIR"
 
-# run_bin <label> -> prints bin/claude-vm's stderr, with the global config dir
-# pointed at $GLOBAL_DIR and `security` stubbed to fail. cwd is the repo so the
-# repo-tier config paths resolve under $REPO/.claude-vm.
+# run_bin [arg...] -> prints bin/claude-vm's stderr, with the global config
+# dir pointed at $GLOBAL_DIR and `security` stubbed to fail. cwd is the repo
+# so the repo-tier config paths resolve under $REPO/.claude-vm. $RUN_BIN, when
+# set, is run in place of the real bin/claude-vm.
 run_bin() {
   (
     cd "$REPO" || exit 99
     PATH="$STUBBIN:$PATH" \
     CLAUDE_VM_GLOBAL_CONFIG_DIR="$GLOBAL_DIR" \
-      "$BIN" 2>&1 1>/dev/null
+      "${RUN_BIN:-$BIN}" "$@" 2>&1 1>/dev/null
   )
 }
 
@@ -136,6 +145,121 @@ mkdir -p "$REPO/.claude-vm"
 OUT="$(run_bin)"
 assert_contains "repo legacy present: prints migration pointer" "$OUT" "legacy single-file config"
 rm -f "$REPO/.claude-vm/config.yml"
+
+# ---------------------------------------------------------------------
+# --as <name> (issue #771). The fake $HOME holds one account, `work`; a
+# CLAUDE_CONFIG_DIR naming a different directory is inherited by every case,
+# so each one also shows that the variable decides nothing.
+# ---------------------------------------------------------------------
+: > "$GLOBAL_DIR/config-bake.yml"
+FAKE_HOME="$WORK/home"
+mkdir -p "$FAKE_HOME/.claude.work" "$WORK/inherited-config"
+SEC_LOG="$WORK/security.log"
+export SEC_LOG
+export CLAUDE_CONFIG_DIR="$WORK/inherited-config"
+
+# The service Claude Code itself uses for CLAUDE_CONFIG_DIR=<dir>, computed
+# here independently of lib/credential.sh.
+service_for() {
+  printf 'Claude Code-credentials-%s' \
+    "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:8])' "$1")"
+}
+
+# assert_exit <label> <expected> <actual>
+assert_exit() {
+  if [ "$2" = "$3" ]; then PASS=$((PASS + 1)); echo "ok   - $1"
+  else FAIL=$((FAIL + 1)); echo "FAIL - $1"; echo "        expected: [$2]  actual: [$3]"; fi
+}
+
+if command -v python3 >/dev/null 2>&1; then
+  # The Keychain check asks for the account's derived service, not the
+  # default one and not the one CLAUDE_CONFIG_DIR would derive.
+  : > "$SEC_LOG"
+  OUT="$(HOME="$FAKE_HOME" SEC_RC=44 run_bin --as work)"
+  assert_exit "--as work: the Keychain check queries the account's derived service" \
+    "$(service_for "$FAKE_HOME/.claude.work")" "$(cat "$SEC_LOG")"
+  assert_contains "--as work: a missing Keychain item is refused naming the account" "$OUT" "account 'work'"
+  assert_contains "--as work: the refusal names the derived service" "$OUT" "$(service_for "$FAKE_HOME/.claude.work")"
+
+  # Without --as the inherited CLAUDE_CONFIG_DIR is ignored: the default service.
+  : > "$SEC_LOG"
+  HOME="$FAKE_HOME" SEC_RC=44 run_bin > /dev/null
+  assert_exit "no --as: the Keychain check queries the default service despite CLAUDE_CONFIG_DIR" \
+    "Claude Code-credentials" "$(cat "$SEC_LOG")"
+else
+  echo "skip - derived-service cases (python3 not available)"
+fi
+
+# Refusals before any Keychain read: an invalid name, `backup`, a missing
+# account directory, and a bare --as. Each names the account, and none reaches
+# `security`.
+for bad in "bad.name" "backup" "a/b"; do
+  mkdir -p "$FAKE_HOME/.claude.$bad" 2>/dev/null
+  : > "$SEC_LOG"
+  OUT="$(HOME="$FAKE_HOME" SEC_RC=0 run_bin --as "$bad")"
+  assert_contains "--as '$bad': refused as an invalid name" "$OUT" "not a valid account name"
+  assert_contains "--as '$bad': the refusal names the account" "$OUT" "account '$bad'"
+  assert_exit "--as '$bad': no Keychain read" "" "$(cat "$SEC_LOG")"
+done
+: > "$SEC_LOG"
+OUT="$(HOME="$FAKE_HOME" SEC_RC=0 run_bin --as absent)"
+assert_contains "--as absent: a missing account directory is refused" "$OUT" "has no config directory"
+assert_contains "--as absent: the refusal names the account" "$OUT" "account 'absent'"
+assert_exit "--as absent: no Keychain read" "" "$(cat "$SEC_LOG")"
+assert_exit "--as absent: nothing is created in place of the account directory" \
+  "no" "$([ -e "$FAKE_HOME/.claude.absent" ] && echo yes || echo no)"
+: > "$SEC_LOG"
+OUT="$(HOME="$FAKE_HOME" SEC_RC=0 run_bin --as)"
+assert_contains "bare --as: refused for want of a name" "$OUT" "--as needs an account name"
+assert_exit "bare --as: no Keychain read" "" "$(cat "$SEC_LOG")"
+
+# ---------------------------------------------------------------------
+# Forwarding. A copy of bin/claude-vm in a fake plugin tree whose launcher
+# records its argv, one argument per line, so the cases can read exactly what
+# the entry point passes on with the Keychain check stubbed to succeed.
+# ---------------------------------------------------------------------
+FAKE_PLUGIN="$WORK/plugin"
+mkdir -p "$FAKE_PLUGIN/bin" "$FAKE_PLUGIN/payload/lib"
+cp "$BIN" "$FAKE_PLUGIN/bin/claude-vm"
+cp "$TEST_DIR/../lib/credential.sh" "$FAKE_PLUGIN/payload/lib/credential.sh"
+ARGV_LOG="$WORK/launcher-argv"
+export ARGV_LOG
+cat > "$FAKE_PLUGIN/payload/claude-vm.sh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$ARGV_LOG"
+STUB
+chmod +x "$FAKE_PLUGIN/bin/claude-vm" "$FAKE_PLUGIN/payload/claude-vm.sh"
+TOPLEVEL="$(git -C "$REPO" rev-parse --show-toplevel)"
+
+# argv_is <label> <expected-line>... -> the launcher saw exactly these args.
+argv_is() {
+  local label="$1"; shift
+  local want
+  want="$(printf '%s\n' "$@")"
+  assert_exit "$label" "$want" "$(cat "$ARGV_LOG" 2>/dev/null)"
+}
+
+: > "$ARGV_LOG"
+HOME="$FAKE_HOME" SEC_RC=0 RUN_BIN="$FAKE_PLUGIN/bin/claude-vm" run_bin --as work hello --as other > /dev/null
+argv_is "--as work: passed on first, a later --as reaches claude unchanged, and the run name omits the leading one" \
+  --as work "$TOPLEVEL" hello --as other --name "hello --as other widgets"
+
+: > "$ARGV_LOG"
+HOME="$FAKE_HOME" SEC_RC=0 RUN_BIN="$FAKE_PLUGIN/bin/claude-vm" run_bin hello > /dev/null
+argv_is "no --as: the launcher gets the repo first, as before" \
+  "$TOPLEVEL" hello --name "hello widgets"
+
+: > "$ARGV_LOG"
+HOME="$FAKE_HOME" SEC_RC=0 RUN_BIN="$FAKE_PLUGIN/bin/claude-vm" run_bin --as work > /dev/null
+RUN_NAME_SEEN="$(sed -n '5p' "$ARGV_LOG")"
+assert_exit "--as work alone: the launcher gets --as, the repo and a --name" \
+  "--as|work|$TOPLEVEL|--name" "$(sed -n '1,4p' "$ARGV_LOG" | paste -sd'|' -)"
+case "$RUN_NAME_SEEN" in
+  *--as*|*work*) assert_exit "--as work alone: the date-stamped run name omits --as" "omitted" "$RUN_NAME_SEEN" ;;
+  *" widgets")   assert_exit "--as work alone: the date-stamped run name omits --as" "omitted" "omitted" ;;
+  *)             assert_exit "--as work alone: the date-stamped run name omits --as" "omitted" "$RUN_NAME_SEEN" ;;
+esac
+unset CLAUDE_CONFIG_DIR
 
 echo ""
 echo "bin-config-check-test: $PASS passed, $FAIL failed"

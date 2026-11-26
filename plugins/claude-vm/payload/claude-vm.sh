@@ -50,8 +50,15 @@
 # guest boot launcher installs it at /root/.claude.json before launching claude.
 # This seed is ADDITIVE, layered alongside the keychain credential mount above.
 #
+# ACCOUNT (--as <name>): the host sources above are those of a launch without
+# --as. With it, every source follows from the account directory
+# D=$HOME/.claude.<name>: the credential comes from the Keychain service
+# claude_vm_keychain_service derives from D (lib/credential.sh), the identity
+# seed from D/.claude.json, and the curated working rules from D. Nothing falls
+# back to the default account's files or credential.
+#
 # Usage:
-#   claude-vm.sh <repo-path> [claude args...]
+#   claude-vm.sh [--as <name>] <repo-path> [claude args...]
 #
 # Requires: yq, git, gvproxy, vfkit, and a forward proxy (proxy.cmd; the
 # bundled default needs tinyproxy). A launch that has to BUILD the guest
@@ -80,13 +87,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------
-REPO_SRC="${1:?usage: claude-vm <repo-path> [claude args...]}"
+# The account (see ACCOUNT above). Checked here, before anything reads host
+# state, so a bad name or a missing account directory refuses before any build
+# or boot. ACCOUNT_NOTE is appended to the Keychain refusals further down so
+# each one names the account; it is empty without --as.
+ACCOUNT_NAME=""
+ACCOUNT_DIR=""
+ACCOUNT_NOTE=""
+if [ "${1:-}" = "--as" ]; then
+  if [ "$#" -lt 2 ]; then
+    echo "claude-vm: --as needs an account name: claude-vm.sh --as <name> <repo-path> [claude args...]" >&2
+    exit 1
+  fi
+  ACCOUNT_NAME="$2"
+  shift 2
+  ACCOUNT_DIR="$(claude_vm_account_dir "$ACCOUNT_NAME")" || exit 1
+  ACCOUNT_NOTE=" for account '$ACCOUNT_NAME'"
+fi
+KEYCHAIN_SERVICE="$(claude_vm_keychain_service "$ACCOUNT_DIR")" || exit 1
+
+REPO_SRC="${1:?usage: claude-vm [--as <name>] <repo-path> [claude args...]}"
 shift
 CLAUDE_ARGS=("$@")
 
-# claude-vm has NO own-flags: every post-repo arg is forwarded to the guest
-# claude verbatim (the #51 launcher contract). The guest's plugin enable/disable
-# state comes from the config files (claude.plugins.enabled), not from CLI flags.
+# claude-vm has NO own-flags but a leading --as: every post-repo arg is
+# forwarded to the guest claude verbatim (the #51 launcher contract). --as is
+# the one exception because the account must be known before any host state is
+# read, and it is recognised only ahead of the repo path. The guest's plugin
+# enable/disable state comes from the config files (claude.plugins.enabled),
+# not from CLI flags.
 
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
@@ -514,15 +543,24 @@ claude_vm_preflight_trust_path \
 # actionable, claude-vm-branded message. Guarded ${...:-} so an unset $HOME
 # does not trip `set -u`. The full selection (which validates and reserializes
 # the two keys) runs later against $CREDS_DIR; this is the cheap early gate on
-# the same preconditions.
+# the same preconditions. Under --as the file is the account's,
+# $ACCOUNT_DIR/.claude.json, and a refusal names the account.
 # ---------------------------------------------------------------------
-HOST_CLAUDE_JSON="${HOME:-}/.claude.json"
+HOST_CLAUDE_JSON="${ACCOUNT_DIR:-${HOME:-}}/.claude.json"
 if [ ! -s "$HOST_CLAUDE_JSON" ]; then
-  echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
-  echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
-  echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
-  echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
-  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  if [ -n "$ACCOUNT_NAME" ]; then
+    echo "claude-vm: account '$ACCOUNT_NAME' has no .claude.json (looked at '$HOST_CLAUDE_JSON')." >&2
+    echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from that file so the" >&2
+    echo "claude-vm: in-guest claude comes up already logged in, and it exists only once the account" >&2
+    echo "claude-vm: has logged in on this host: run CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude once" >&2
+    echo "claude-vm: and complete the claude.ai login, then retry." >&2
+  else
+    echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
+    echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
+    echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
+    echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
+    echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  fi
   exit 1
 fi
 # The version arg here is best-effort ($CLAUDE_VERSION, the raw channel/pin):
@@ -532,13 +570,74 @@ fi
 # block) and passed to the REAL seed write below (~line 588). Resolving a
 # channel here would force a premature network fetch in the fast preflight.
 if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
-  echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
-  echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
-  echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
-  echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
-  echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
-  echo "claude-vm: macOS, is required to select the seed.)" >&2
+  if [ -n "$ACCOUNT_NAME" ]; then
+    echo "claude-vm: the .claude.json of account '$ACCOUNT_NAME' ('$HOST_CLAUDE_JSON') has no usable" >&2
+    echo "claude-vm: identity state (a 'userID' string and an 'oauthAccount' object). The guest" >&2
+    echo "claude-vm: seeds these two keys so the in-guest claude comes up already logged in. This" >&2
+    echo "claude-vm: usually means the account is not (fully) logged in on this host: run" >&2
+    echo "claude-vm: CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude once and complete the claude.ai login," >&2
+    echo "claude-vm: then retry. (python3, which ships with macOS, is required to select the seed.)" >&2
+  else
+    echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
+    echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
+    echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
+    echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
+    echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
+    echo "claude-vm: macOS, is required to select the seed.)" >&2
+  fi
   exit 1
+fi
+
+# ---------------------------------------------------------------------
+# Account Keychain PREFLIGHT (--as only). Without --as the Keychain item is
+# read once, further down, after the image build; that path is unchanged. With
+# --as, a missing or unusable item for the account is refused HERE, before any
+# build or boot, by reading the item and running it through the same selection
+# and token validation the later read uses. The blob travels only through the
+# pipe -- nothing of it is written to disk or printed -- and the later read
+# remains the one that installs the credential.
+# ---------------------------------------------------------------------
+claude_vm_preflight_account_keychain() {
+  local err_file sec_rc sel_rc val_rc
+  err_file="$(claude_vm_mktemp claude-vm-security-err)" || return 1
+  set +e
+  security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>"$err_file" \
+    | claude_vm_select_claude_credential 2>/dev/null \
+    | claude_vm_validate_claude_credential_tokens 2>/dev/null
+  sec_rc=${PIPESTATUS[0]} sel_rc=${PIPESTATUS[1]} val_rc=${PIPESTATUS[2]}
+  set -e
+  if [ "$sec_rc" -ne 0 ] && [ "$sec_rc" -ne 44 ]; then
+    echo "claude-vm: reading the claude.ai OAuth credential for account '$ACCOUNT_NAME' from the" >&2
+    echo "claude-vm: macOS Keychain (service '$KEYCHAIN_SERVICE') failed with an unexpected error" >&2
+    echo "claude-vm: (security exit $sec_rc). The underlying error from 'security' was:" >&2
+    if [ -s "$err_file" ]; then
+      sed 's/^/claude-vm:   /' "$err_file" >&2
+    else
+      echo "claude-vm:   (security produced no error output)" >&2
+    fi
+    rm -f "$err_file"
+    return 1
+  fi
+  rm -f "$err_file"
+  if [ "$sec_rc" -eq 44 ]; then
+    echo "claude-vm: account '$ACCOUNT_NAME' has no claude.ai OAuth credential in the macOS Keychain" >&2
+    echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with that account's live" >&2
+    echo "claude-vm: claude.ai login: run CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude once and complete" >&2
+    echo "claude-vm: the login, then retry." >&2
+    return 1
+  fi
+  if [ "$sel_rc" -ne 0 ] || [ "$val_rc" -ne 0 ]; then
+    echo "claude-vm: the macOS Keychain item for account '$ACCOUNT_NAME' (service '$KEYCHAIN_SERVICE')" >&2
+    echo "claude-vm: has no usable claude.ai OAuth credential: it is empty, has no 'claudeAiOauth'," >&2
+    echo "claude-vm: or its accessToken/refreshToken are empty. Re-login the account on THIS HOST --" >&2
+    echo "claude-vm: run CLAUDE_CONFIG_DIR='$ACCOUNT_DIR' claude, then '/login' -- and retry. Do NOT" >&2
+    echo "claude-vm: run /login inside the guest: a retried guest login can revoke other live sessions." >&2
+    return 1
+  fi
+  return 0
+}
+if [ -n "$ACCOUNT_NAME" ]; then
+  claude_vm_preflight_account_keychain || exit 1
 fi
 
 # ---------------------------------------------------------------------
@@ -950,8 +1049,10 @@ chmod 600 "$GUEST_ENV"
 #     `security` tool error, a permissions denial -- is NOT a "log in" problem.
 #     Hiding it behind the friendly message sent operators chasing the wrong
 #     fix. Surface `security`'s real stderr so the actual error is visible.
+#
+# The service is $KEYCHAIN_SERVICE, set at the inputs: `Claude Code-
+# credentials` without --as, the account's derived service with it.
 # ---------------------------------------------------------------------
-KEYCHAIN_SERVICE="Claude Code-credentials"
 HOST_CREDENTIAL="$CREDS_DIR/.credentials.json"
 # The FULL raw blob lands here -- OUTSIDE $CREDS_DIR (the claudecreds share)
 # so the unselected blob is never exposed to the guest -- and is removed
@@ -993,7 +1094,7 @@ if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
   rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: reading the claude.ai OAuth credential from the macOS Keychain failed" >&2
-  echo "claude-vm: (service '$KEYCHAIN_SERVICE') with an unexpected error (security exit $SEC_RC)." >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) with an unexpected error (security exit $SEC_RC)." >&2
   echo "claude-vm: this is NOT a 'not logged in' case -- a locked keychain or a 'security' tool" >&2
   echo "claude-vm: error is likely. The underlying error from 'security' was:" >&2
   if [ -s "$SEC_STDERR" ]; then
@@ -1009,7 +1110,7 @@ if [ "$SEC_RC" -eq 44 ] || [ ! -s "$RAW_CREDENTIAL" ]; then
   rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
-  echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with the host's" >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE). The guest authenticates with the host's" >&2
   echo "claude-vm: live claude.ai login, so you must be logged in to Claude Code on this host." >&2
   echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry. (macOS only:" >&2
   echo "claude-vm: this uses 'security find-generic-password', a macOS Keychain tool.)" >&2
@@ -1051,7 +1152,7 @@ if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
   # Treat exactly like the not-logged-in case: friendly "log in" guidance.
   rm -f "$HOST_CREDENTIAL"
   umask "$OLD_UMASK"
-  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has no usable" >&2
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) has no usable" >&2
   echo "claude-vm: claude.ai OAuth credential ('claudeAiOauth'). The guest authenticates with" >&2
   echo "claude-vm: the host's live claude.ai login, so you must be logged in to Claude Code on" >&2
   echo "claude-vm: this host. Run 'claude' once and complete the claude.ai login, then retry." >&2
@@ -1090,7 +1191,7 @@ if [ "$VALIDATE_RC" -ne 0 ]; then
   # accessToken/refreshToken are empty. Abort BEFORE booting a broken guest.
   rm -f "$HOST_CREDENTIAL"
   umask "$OLD_UMASK"
-  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has a claude.ai OAuth" >&2
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE'$ACCOUNT_NOTE) has a claude.ai OAuth" >&2
   echo "claude-vm: credential, but its accessToken and refreshToken are EMPTY -- a degraded state" >&2
   echo "claude-vm: that happens when your host claude sessions coast on the shared auth daemon's" >&2
   echo "claude-vm: in-memory tokens while the persisted Keychain entry has gone stale. The guest" >&2
@@ -1138,7 +1239,7 @@ HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
 if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
   rm -f "$HOST_CLAUDE_JSON_SEED"
   umask "$OLD_UMASK"
-  echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2
+  echo "claude-vm: failed to select the identity seed (userID + oauthAccount)$ACCOUNT_NOTE from" >&2
   echo "claude-vm: '$HOST_CLAUDE_JSON'. It passed the earlier preflight, so this is unexpected" >&2
   echo "claude-vm: (the file may have changed under us). Re-run 'claude' to confirm you are" >&2
   echo "claude-vm: logged in on the host, then retry." >&2
@@ -1194,9 +1295,12 @@ chmod 600 "$HOST_CLAUDE_JSON_SEED"
 # half-copied rules/ tree is worse than an absent one. Neither aborts the
 # launch -- this layer is a convenience, not a security control, and the
 # credential/seed/settings installs above are the steps that get to refuse.
+#
+# Under --as the entries come from the account directory $ACCOUNT_DIR instead
+# of ~/.claude.
 # ---------------------------------------------------------------------
 CLAUDE_VM_HOME_SEED_ENTRIES="CLAUDE.md rules agents skills keybindings.json"
-HOST_CLAUDE_DIR="${HOME:-}/.claude"
+HOST_CLAUDE_DIR="${ACCOUNT_DIR:-${HOME:-}/.claude}"
 CLAUDE_HOME_SEED_DIR="$CREDS_DIR/claude-home"
 mkdir -p "$CLAUDE_HOME_SEED_DIR"
 for seed_entry in $CLAUDE_VM_HOME_SEED_ENTRIES; do

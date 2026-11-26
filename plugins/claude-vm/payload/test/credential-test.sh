@@ -505,6 +505,71 @@ SR7=$?
 assert_rc "seed: empty input exits non-zero" "1" "$SR7"
 
 # ---------------------------------------------------------------------
+# claude_vm_account_name_valid: ASCII letters, digits, `_` and `-` only, at
+# least one of them, and never `backup`.
+# ---------------------------------------------------------------------
+for good in "work" "Work_2" "a-b" "x" "-" "backup2" "my_backup"; do
+  claude_vm_account_name_valid "$good"
+  assert_rc "account name '$good' is accepted" "0" "$?"
+done
+for bad in "" "backup" "a b" "a/b" "../x" "a.b" "work!" "é" "wörk" 'a$b' "a
+b"; do
+  claude_vm_account_name_valid "$bad"
+  assert_rc "account name '$bad' is refused" "1" "$?"
+done
+
+# ---------------------------------------------------------------------
+# claude_vm_keychain_service: the default service with no account dir, and
+# `Claude Code-credentials-<h>` with one, <h> being the first 8 lowercase hex
+# characters of the SHA-256 of the path string with no trailing newline. The
+# expected value is computed independently with python3's hashlib.
+# ---------------------------------------------------------------------
+assert_eq "keychain service: no account dir is the host default" \
+  "Claude Code-credentials" "$(claude_vm_keychain_service "")"
+assert_eq "keychain service: omitted account dir is the host default" \
+  "Claude Code-credentials" "$(claude_vm_keychain_service)"
+for acct_dir in "/Users/operator/.claude.work" "/Users/operator/.claude.home-2"; do
+  want_hex="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:8])' "$acct_dir")"
+  assert_eq "keychain service for '$acct_dir' is derived from its path" \
+    "Claude Code-credentials-$want_hex" "$(claude_vm_keychain_service "$acct_dir")"
+done
+# A trailing newline in the hashed string would change <h>; the two must differ.
+nl_hex="$(python3 -c 'import hashlib; print(hashlib.sha256(b"/Users/operator/.claude.work\n").hexdigest()[:8])')"
+case "$(claude_vm_keychain_service "/Users/operator/.claude.work")" in
+  *"-$nl_hex") assert_eq "keychain service hashes the path with no trailing newline" "no-newline" "newline" ;;
+  *)           assert_eq "keychain service hashes the path with no trailing newline" "no-newline" "no-newline" ;;
+esac
+
+# ---------------------------------------------------------------------
+# claude_vm_account_dir: $HOME/.claude.<name> when the name is valid and the
+# directory exists; a refusal naming the account, and nothing on stdout,
+# otherwise.
+# ---------------------------------------------------------------------
+ACCT_HOME="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-acct-test.XXXXXX")"
+mkdir -p "$ACCT_HOME/.claude.work"
+AD_OUT="$(HOME="$ACCT_HOME" claude_vm_account_dir work 2>/dev/null)"
+AD_RC=$?
+assert_rc "account dir: an existing account resolves" "0" "$AD_RC"
+assert_eq "account dir: resolves to \$HOME/.claude.<name>" "$ACCT_HOME/.claude.work" "$AD_OUT"
+AD_OUT="$(HOME="$ACCT_HOME" claude_vm_account_dir absent 2>"$ACCT_HOME/err")"
+AD_RC=$?
+assert_rc "account dir: a missing directory is refused" "1" "$AD_RC"
+assert_eq "account dir: a missing directory prints nothing on stdout" "" "$AD_OUT"
+case "$(cat "$ACCT_HOME/err")" in
+  *"account 'absent'"*) assert_eq "account dir: the missing-directory refusal names the account" "named" "named" ;;
+  *)                    assert_eq "account dir: the missing-directory refusal names the account" "named" "unnamed" ;;
+esac
+mkdir -p "$ACCT_HOME/.claude.backup"
+AD_OUT="$(HOME="$ACCT_HOME" claude_vm_account_dir backup 2>"$ACCT_HOME/err")"
+AD_RC=$?
+assert_rc "account dir: 'backup' is refused even when the directory exists" "1" "$AD_RC"
+case "$(cat "$ACCT_HOME/err")" in
+  *"account 'backup'"*) assert_eq "account dir: the invalid-name refusal names the account" "named" "named" ;;
+  *)                    assert_eq "account dir: the invalid-name refusal names the account" "named" "unnamed" ;;
+esac
+rm -rf "$ACCT_HOME"
+
+# ---------------------------------------------------------------------
 echo
 echo "credential-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -56,8 +56,45 @@ surface and drives the launcher.
 # 3. Launch from inside the repo you want to run a VM for. bin/claude-vm
 #    derives the repo name and root, names the run, and forwards to the
 #    launcher, which makes the repo available RW to the guest.
-claude-vm [claude args...]
+claude-vm [--as <name>] [claude args...]
 ```
+
+## Launching as a named account (`--as`)
+
+`claude-vm --as <name> [claude args...]` launches the guest as the host
+Claude Code account whose config directory is `D` = `$HOME/.claude.<name>`.
+The entry point passes it on as
+`claude-vm.sh --as <name> <repo-path> [claude args...]`. A name holds only
+ASCII letters, digits, `_` and `-`, and is not `backup`. `--as` is
+recognised only as the first argument of each, is not part of the computed
+session name, and every later argument still reaches the guest `claude`
+unchanged.
+
+With `--as`, every host source follows from `D`; there is no config key for
+accounts:
+
+- the credential comes from the Keychain service
+  `Claude Code-credentials-<h>`, where `<h>` is the first 8 lowercase hex
+  characters of the SHA-256 of `D`'s path string with no trailing newline —
+  the service Claude Code itself uses for `CLAUDE_CONFIG_DIR=D`. The entry
+  point's presence check and the launcher read the same service;
+- the identity seed comes from `D/.claude.json`;
+- the curated working rules come from `D`.
+
+The account comes from `--as` alone: an inherited `CLAUDE_CONFIG_DIR` is
+never read. Wherever else this skill names the `Claude Code-credentials`
+item, `~/.claude.json` or `~/.claude` as a host source, it describes a launch
+without `--as`.
+
+Before any build or boot, the launcher refuses a missing or invalid name, a
+missing account directory, a missing `D/.claude.json` or one with no usable
+identity, and a missing or unusable Keychain item. A refusal names the
+account and the missing piece and prints no value read from the Keychain or
+the identity file; nothing is copied or substituted for a missing piece, and
+no launch falls back to another account's identity or credential. Log an
+account in on the host with `CLAUDE_CONFIG_DIR=$HOME/.claude.<name> claude`.
+The selection of keys from each source, the file modes and the removal on
+exit are the same as without `--as`.
 
 On exit, the launcher copies the guest's changes back to the local
 source by default (clone mode). The companion skills extract work
@@ -718,8 +755,11 @@ the guest* below.) The rendered keys:
   settings.json and no `~/.claude/plugins` tree installs nothing), which is
   why the guest's explicit ensure/install/update phase is load-bearing.
 
-claude-vm has **no** own CLI flags: every post-repo argument is forwarded
-to the guest `claude` verbatim. Plugin enable/disable state is set through
+claude-vm has **no** own CLI flags but a leading `--as <name>` (see
+*Launching as a named account* above), which it takes for itself because
+the account must be known before any host state is read: every other
+argument is forwarded to the guest `claude` verbatim. Plugin enable/disable
+state is set through
 `claude.plugins.enabled` in the config files, not on the command line.
 
 ### Host working rules seeded into the guest (issue #108)
