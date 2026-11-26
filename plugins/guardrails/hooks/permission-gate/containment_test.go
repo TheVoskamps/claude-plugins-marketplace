@@ -2451,9 +2451,10 @@ func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
 	}
 }
 
-// accountConfigFixture is a fixture home holding $HOME/.claude, an accepted
-// account directory, a backup directory, a symlinked account directory and an
-// arbitrary directory, plus a git repo outside that home for events to run in.
+// accountConfigFixture is the paths the account-config tests run against: a
+// home holding $HOME/.claude, the candidate CLAUDE_CONFIG_DIR directories its
+// fields name, in that home or under another parent, and a git repo outside the
+// home for events to run in.
 type accountConfigFixture struct {
 	home    string
 	repo    string
