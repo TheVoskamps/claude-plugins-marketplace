@@ -20,7 +20,10 @@
 # LOGIN SHELL and must NOT re-enter the boot launcher (which would rerun claude,
 # possibly die identically, and rebuild the respawn loop this redesign removed).
 # The tests below assert both halves of that -- the handoff IS a shell, and the
-# handoff is NOT the launcher.
+# handoff is NOT the launcher. They also assert the shell runs as a CHILD rather
+# than by exec, and that the poweroff follows it: an exec'd shell REPLACES the
+# launcher, so nothing is left to power the guest off when the operator exits
+# it -- observed live as "logout" then a dead console and a hung host.
 #
 # That decision is the whole point of the shutdown redesign, so it is worth a
 # unit test. The full boot launcher does mount/credential/settings setup that
@@ -158,9 +161,7 @@ assert_not_contains "emitted launcher no longer execs poweroff(8)" \
   "$(cat "$LAUNCHER")" 'exec poweroff'
 assert_contains "emitted launcher runs a login shell on the abnormal path" \
   "$(cat "$LAUNCHER")" 'bash -l'
-# The shell must run as a CHILD, not an exec: an exec'd shell REPLACES the
-# launcher, so nothing is left to power the guest off when the operator exits
-# it -- observed live as "logout" then a dead console and a hung host.
+# The shell must run as a CHILD, not an exec (see the header).
 assert_not_contains "emitted launcher does not exec the post-mortem shell" \
   "$(cat "$LAUNCHER")" 'exec bash'
 assert_not_contains "emitted launcher does not exec the /bin/sh fallback" \

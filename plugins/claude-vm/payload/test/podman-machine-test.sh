@@ -28,8 +28,11 @@
 #      which holds only while the trap is armed BEFORE the bring-up call, and
 #      `start` bringing the machine up then exiting non-zero
 #      (`start-fails-after-up`), which holds only while the record is written
-#      before that call. A real `podman machine init` on a real host is
-#      host-acceptance.sh's territory.
+#      before that call. The helper battery in (1) pins the same two seams
+#      one level down, on what CLAUDE_VM_PODMAN_MACHINE_STARTED is left
+#      holding. A real `podman machine init` on a real host is
+#      host-acceptance.sh's territory and, for the fresh-host criterion, a
+#      human's.
 #
 # No VM, no network, no host mutation: the stub podman never provisions
 # anything. Requires python3 (which the helper itself parses JSON with, and

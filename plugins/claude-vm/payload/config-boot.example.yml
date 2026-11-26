@@ -44,7 +44,7 @@
 #   copy_back: none
 
 # apt packages installed AT BOOT, blocking, before claude starts, through the
-# proxy (flat list of names). Use this for packages that change often (the AWS
+# proxy (package names). Use this for packages that change often (the AWS
 # SDK/CLI is the motivating example) so they stay fresh without an image
 # rebuild; put stable packages in the BAKE file's `packages:` instead. A failed
 # boot-time install prints a loud warning to the captured console/log and
@@ -104,10 +104,10 @@ claude:
   #   fullscreen  -- CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
   #   (unset)     -- pass nothing; claude uses its own default
   # renderer: classic
-  # remote_control: OPT-IN boolean. When true, the launcher adds
-  # --remote-control (unless already on the command line) and, when RC is in
-  # effect but no --name was given, appends a date-stamped --name. Accepts
-  # true/false; any other value aborts the launch.
+  # remote_control: when true, the launcher adds --remote-control (unless
+  # already on the command line) and, when RC is in effect but no --name was
+  # given, appends a date-stamped --name. A value outside the table's type
+  # aborts the launch.
   # remote_control: true
 
   # Guest Claude permission mode + rules, rendered into the guest
@@ -116,8 +116,8 @@ claude:
   # (The host's ~/.claude working rules -- CLAUDE.md, rules/, agents/, skills/,
   # keybindings.json -- ARE seeded into the guest; see issue #108. That layer is
   # not policy and has no config key.)
-  # YOLO-by-default: the VM is the isolation boundary. A value outside the
-  # table's type aborts the launch.
+  # bypassPermissions treats the VM as the isolation boundary. A value outside
+  # the table's type aborts the launch.
   # permission_mode: default   # prompt, as claude does on a host
   permissions:
     allow: []
@@ -191,10 +191,11 @@ claude:
     # is logged.
     # add_marketplace_uris_to_allowlist: always
 
-    # enabled: OPTIONAL map of plugin ref -> boolean mirroring settings.json's
-    # enabledPlugins. Every bake/install_at_boot ref defaults enabled; list an
-    # entry ONLY to override (false = installed-but-disabled). Keys must name
-    # an installed ref and values must be boolean -- a typo aborts the launch.
+    # enabled: per plugin ref, whether it is enabled, mirroring settings.json's
+    # enabledPlugins. Every bake/install_at_boot ref is enabled unless listed
+    # here; list an entry ONLY to override (false = installed-but-disabled).
+    # Keys must name an installed ref and values must fit the table's type --
+    # a typo aborts the launch.
     # enabled:
     #   show-loaded-rules@thevoskamps: false
 
@@ -351,23 +352,24 @@ egress:
 #
 # The sub-keys, split by HOW the value is obtained rather than by preference:
 #
-#   set    a map of explicit LITERALS written in this file. Non-secret only --
+#   set    explicit LITERALS, by name, written in this file. Non-secret only --
 #          these values ARE the committed config.
-#   copy   a list of NAMES read from the environment claude-vm is launched from.
+#   copy   NAMES read from the environment claude-vm is launched from.
 #          No secret is ever written to config, so the config stays committable
 #          and you keep supplying values however you already do -- shell
 #          profile, direnv, `op run`.
-#   files  a list of host .env files whose NAME=value lines are read at launch
+#   files  host .env files whose NAME=value lines are read at launch
 #          and forwarded the same way. A later file wins over an earlier one.
 #          Blank lines and `#` comments are skipped, a leading `export ` is
 #          dropped, and a value wrapped in matching quotes is unwrapped. No
 #          variable expansion and no escape processing -- a `$` or a
 #          backslash means itself.
 #
-# `copy` and `files` in a config-bake.yml are a hard abort, even when
-# present-but-empty: they resolve against the host environment at
-# LAUNCH, which does not exist at image-build time, and their values are exactly
-# the secrets that must never become image bytes.
+# `copy` and `files` resolve against the host environment at LAUNCH, which
+# does not exist at image-build time, and their values are exactly the secrets
+# that must never become image bytes. That is why the key table places them as
+# it does, and one written into the file type it does not place them in aborts
+# even when present-but-empty.
 #
 # CARRIER + LIFETIME: the whole boot tier -- including the non-secret `set`
 # literals -- rides the same transient, owner-only mount as the host's OAuth

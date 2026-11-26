@@ -7,7 +7,7 @@ description: Apply a claude-vm guest worktree's changes onto the local source re
 
 Apply the changes a `claude-vm` guest made (in its persistent worktree)
 onto the **local source** repo's working tree. This is the explicit,
-opt-in equivalent of the launcher's default copy-back — use it when
+opt-in equivalent of the launcher's on-exit copy-back — use it when
 `repo.copy_back: none` was set, or to re-apply / apply a specific run's
 changes after reviewing them with `/claude-vm-diff`.
 
@@ -66,7 +66,7 @@ exits (clone mode).
 - This skill never touches the remote. Push explicitly with
   `/claude-vm-apply-remote` or your normal git workflow once you have
   reviewed and committed.
-- The launcher's default on-exit copy-back (`claude-vm.sh`, the
+- The launcher's on-exit copy-back (`claude-vm.sh`, the
   `copy_back` function) mirrors this skill's safety contract: it checks
   whether the local source tree is dirty, previews what would change
   with `rsync --dry-run --itemize-changes`, and requires explicit

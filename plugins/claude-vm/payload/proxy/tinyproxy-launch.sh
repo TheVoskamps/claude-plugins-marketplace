@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# tinyproxy-launch.sh -- the BUNDLED DEFAULT claude-vm forward proxy.
+# tinyproxy-launch.sh -- the BUNDLED claude-vm forward proxy.
 #
-# This is the default `proxy.cmd`: claude-vm.sh runs it to start the
+# This is the bundled `proxy.cmd`: claude-vm.sh runs it to start the
 # forward proxy that confines the guest's egress to the allowlist. It
 # bridges the launcher's interface to tinyproxy:
 #

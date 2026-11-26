@@ -41,7 +41,7 @@
 # a hard abort in THIS file precisely because of the persistence above.
 
 ---
-# apt packages baked into the guest image at build time (flat list of names).
+# apt packages baked into the guest image at build time (package names).
 # Present with no network at boot. Use `bake` for packages stable enough not to
 # need a fresh copy every launch; put fast-changing packages in the BOOT file's
 # `packages:` (installed at boot) instead.
@@ -89,11 +89,12 @@ apt_sources:
 # CLAUDE.md, rules/, agents/, skills/, keybindings.json -- ARE seeded in; see
 # issue #108. That layer is not policy and has no config key.)
 #
-# WHY HERE AND NOT IN THE BOOT FILE: baked plugins change the guest image's
-# BYTES, so placement in a bake file is what puts them under the whole-file
-# image-identity hash -- edit either key and the next launch rebuilds. Writing
-# `claude.plugins.bake` into a boot file is REJECTED at launch with a message
-# pointing here, rather than parsing and silently baking nothing.
+# WHY HERE: baked plugins change the guest image's BYTES, so placement in a
+# bake file is what puts them under the whole-file image-identity hash -- edit
+# either key and the next launch rebuilds. A `claude.plugins` sub-key written
+# into the file type the key table does not place it in is REJECTED at launch
+# with a message naming the file, rather than parsing and silently baking
+# nothing.
 #
 # marketplaces dedupe by `name` across both file types; the same name with a
 # DIFFERING url anywhere aborts the launch. Put a marketplace here when a
@@ -134,16 +135,17 @@ claude:
 
 # Guest environment variables (issue #135).
 #
-# In a BAKE file, `env.set` -- a map of explicit literals -- is written into the
+# In a BAKE file, `env.set` -- explicit literals, by name -- is written into the
 # image at build time, so its values are present in every session that image
 # serves and PERSIST across runs.
 #
-# `env.copy` and `env.files` are a HARD ABORT here, including when the sub-key
-# is present but empty. They resolve against the HOST
-# environment at LAUNCH -- an environment that does not exist while the image is
-# being built -- and a value read from it is exactly the kind of secret that
-# must never become image bytes. Put them in config-boot.yml, where they ride
-# the transient credential mount the launcher shreds on exit.
+# `env.copy` and `env.files` resolve against the HOST environment at LAUNCH --
+# an environment that does not exist while the image is being built -- and a
+# value read from it is exactly the kind of secret that must never become image
+# bytes. That is why the key table places them as it does; one written into the
+# file type it does not place them in is a HARD ABORT, including when the
+# sub-key is present but empty. In a boot file they ride the transient
+# credential mount the launcher shreds on exit.
 #
 # NO SECRETS. The "NO SECRETS HERE" note at the top of this file applies to
 # `env.set` with full force: the value is committed config AND image bytes.

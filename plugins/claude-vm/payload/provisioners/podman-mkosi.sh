@@ -136,8 +136,8 @@ if [ "$BAKE_PLUGINS_ACTIVE" -eq 1 ] && [ ! -f "$GUEST_CLAUDE_BIN" ]; then
 fi
 
 # Root partition headroom (issue #106 real-run fix). build-guest-image.sh
-# resolves image.root_headroom_mb (default 1024, justified beside the key table
-# in lib/config.sh) and exports it as
+# resolves image.root_headroom_mb (its default is justified beside the key
+# table in lib/config.sh) and exports it as
 # CLAUDE_VM_ROOT_HEADROOM_MB; it also validates it as a positive integer, so
 # this is defense-in-depth, not the primary guard.
 ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-1024}"
@@ -684,7 +684,7 @@ Packages=
     # debian:trixie container reproduces the failure exactly -- "Failed to
     # clone marketplace repository: Command failed with
     # ERR_STREAM_PREMATURE_CLOSE: git ... clone --depth 1 ..." -- which would
-    # make claude.plugins.update_at_boot (default true) permanently inert and
+    # make claude.plugins.update_at_boot permanently inert and
     # any boot-added marketplace unreachable. The security boundary for a
     # hard-secure all-bake-declared config (add_marketplace_uris_to_allowlist:
     # auto, nothing to do at boot) is the egress allowlist leaving the

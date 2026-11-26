@@ -67,8 +67,9 @@
 # through the launcher's own claude_vm_podman_machine_probe.
 #
 # Requires (to actually run, not skip): gvproxy (resolved from podman
-# libexec), vfkit, podman, tinyproxy, curl, yq (mikefarah v4+), python3
-# (the shared machine probe parses podman's JSON with it). A podman
+# libexec), vfkit, podman, tinyproxy, curl, yq (mikefarah v4+, which backs
+# the stub guest settings.json render criterion (b) writes), python3 (the
+# shared machine probe parses podman's JSON with it). A podman
 # machine is started by the test when absent/stopped, rather than
 # required up front.
 

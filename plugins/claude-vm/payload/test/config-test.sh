@@ -26,11 +26,30 @@
 # cross-volume abort runs against a real second volume (an `hdiutil attach`
 # image, skipped where that fails) with its premise measured first and
 # $TMPDIR placed on the source's volume, so a launcher that linked there
-# would not pass. boot_mount_phase is sliced from boot_dir_is_nonempty
+# would not pass. A comma in the wrap directory's parent, the run dir, must
+# abort blaming the run dir and naming the runs root, while a directory-only
+# config under the same run dir is left alone: the guard sits at the point of
+# use, in the loop's single-file branch, so it fires only for a config that
+# wraps a file, and that scope is what the directory-only case pins. Its
+# negative control drops the guard's lines from the same captured loop and
+# shows the malformed `sharedDir=` the loop would otherwise emit.
+#
+# The gate block's `mode:` cases spell it `ro`, `rw`, a typo, `[]`, `""` and
+# valueless, since only a presence test tells the last two from an omitted
+# key; `mode: {}`, which the merged-document read drops, has no case. The
+# guest-OS-path rule is driven from both sides with a pair of configs
+# differing only in whether the source is a directory or a file, since that
+# difference is the whole rule, and the passing side (`/mnt/<tag>`, `/srv`,
+# `/opt`, the near-miss `/etcetera`) is pinned too.
+#
+# boot_mount_phase is sliced from boot_dir_is_nonempty
 # through the end of the phase -- a slice of the phase alone would leave the
 # occupancy helper undefined and every occupancy assertion vacuous -- and
 # run with `mount` replaced by a recorder, so its assertions are which
-# mount calls it makes. What no case here reaches is a guest write landing
+# mount calls it makes. An EMPTY existing mountpoint must still mount:
+# without that case the occupancy check could be "skip whenever the path
+# exists", which would break `/mnt/<tag>` on any image that ships those
+# directories. What no case here reaches is a guest write landing
 # on the host; that needs a real guest.
 #
 # The suite carries the payload's shebang and is held to the same bash 3.2
@@ -1342,6 +1361,8 @@ fi
 # ---------------------------------------------------------------------
 PODMAN_MKOSI="$TEST_DIR/../provisioners/podman-mkosi.sh"
 RAS_START="$(grep -n '^render_apt_source() {' "$PODMAN_MKOSI" | head -1 | cut -d: -f1)"
+# Ends on the first column-0 `}` after the definition, the function's own
+# closing brace, so the slice is the whole function and nothing after it.
 RAS_END="$(awk -v start="$RAS_START" 'NR > start && /^}/ { print NR; exit }' "$PODMAN_MKOSI")"
 RAS_SRC="$WORK/render_apt_source.sh"
 if [ -n "$RAS_START" ] && [ -n "$RAS_END" ]; then
@@ -1497,6 +1518,7 @@ assert_eq "claude_vm_debian_mirror_hosts: pins the two Debian mirror hosts" \
 # ---------------------------------------------------------------------
 BUILD_GUEST_IMAGE="$TEST_DIR/../build-guest-image.sh"
 RASB_START="$(grep -n '^render_apt_source_boot() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+# Ends on the function's own closing brace, the first column-0 `}` after it.
 RASB_END="$(awk -v start="$RASB_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 RASB_SRC="$WORK/render_apt_source_boot.sh"
 if [ -n "$RASB_START" ] && [ -n "$RASB_END" ]; then
@@ -1703,6 +1725,7 @@ fi
 # update_at_boot didn't already provide one.
 # ---------------------------------------------------------------------
 BAP_START="$(grep -n '^boot_apt_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+# Ends on the function's own closing brace, the first column-0 `}` after it.
 BAP_END="$(awk -v start="$BAP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 BAP_SRC="$WORK/boot_apt_phase.sh"
 if [ -n "$BAP_START" ] && [ -n "$BAP_END" ]; then
@@ -2474,6 +2497,9 @@ assert_eq "render: no marketplaces -> empty extraKnownMarketplaces object" \
 #                                  failed plugin must never brick the session)
 # ---------------------------------------------------------------------
 BPP_START="$(grep -n '^plugin_marketplace_registered() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+# Starts at the helper the phase calls and ends on boot_plugin_phase's own
+# closing brace, the first column-0 `}` after its definition, so the helper is
+# defined in the slice and nothing past the phase is.
 BPP_END="$(grep -n '^boot_plugin_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
 if [ -n "$BPP_END" ]; then
   BPP_END="$(awk -v start="$BPP_END" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
@@ -2641,6 +2667,9 @@ MNT_START=""
 MNT_END=""
 if [ -f "$LAUNCHER" ]; then
   MNT_START="$(grep -n '^EXTRA_MOUNT_FLAGS=()$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  # The slice ends on the loop's own `done < <(claude_vm_mount_specs ...)`
+  # line, which closes the `while` and names the emitter feeding it, so the
+  # sliced loop parses whole and reads the real emitter's records.
   MNT_END="$(awk -v start="${MNT_START:-0}" 'NR >= start && /^done < <\(claude_vm_mount_specs/ { print NR; exit }' "$LAUNCHER")"
 fi
 if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
@@ -3924,6 +3953,8 @@ fi
 BMP_START="$(grep -n '^boot_dir_is_nonempty() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
 BMP_PHASE_START="$(grep -n '^boot_mount_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
 if [ -n "$BMP_START" ] && [ -n "$BMP_PHASE_START" ]; then
+  # Ends on boot_mount_phase's own closing brace, the first column-0 `}` after
+  # its definition, for the reason above.
   BMP_END="$(awk -v start="$BMP_PHASE_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 fi
 if [ -n "${BMP_START:-}" ] && [ -n "${BMP_END:-}" ]; then

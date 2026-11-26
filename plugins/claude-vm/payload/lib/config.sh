@@ -145,10 +145,15 @@ claude_vm_detect_legacy_config() {
 #   shape    `list` (merged by union) or `scalar` (repo wins; a map merges
 #            repo-over-global per key)
 #   default  the value the launcher uses when neither tier sets the key, or
-#            empty when there is none. A scalar written as `""` reads as unset
-#            (claude_vm_scalar), so an enumeration whose default is empty
-#            also accepts the empty value, as unset, beside the values its
-#            type lists -- `claude.renderer` is one. `proxy.cmd`'s default
+#            empty when there is none. An empty default is never a value of
+#            the type column: it means the key is unset when neither tier
+#            sets it -- an empty list for a `list` row, an empty map for a
+#            `map(...)` row, and no value at all for any other scalar. A
+#            scalar written as `""` reads as unset too (claude_vm_scalar), so
+#            on a row with an empty default, unset is accepted beside the
+#            values its type lists (an enumeration such as `claude.renderer`
+#            included) unless the key's own check requires a value, as
+#            `claude.signing_key_fingerprint`'s does. `proxy.cmd`'s default
 #            is a path relative to the payload directory, which claude-vm.sh
 #            resolves
 #
@@ -356,7 +361,7 @@ CLAUDE_VM_GUEST_SYSTEM_PATHS="/bin /boot /dev /etc /home /lib /lib32 /lib64 /lib
 # same rule.
 CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 
-# Why image.root_headroom_mb defaults to 1024 in the key table above. The
+# Why image.root_headroom_mb's default in the key table above is what it is. The
 # headroom is the extra MiB the guest root partition is sized ABOVE the
 # measured/estimated base image content, so a live session has room to grow
 # without hitting ENOSPC. A real guest boot hit
@@ -365,10 +370,10 @@ CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 # boot-time apt working set (up to ~250 MB pre-diet, ~50 MB post-diet; see
 # podman-mkosi.sh/build-guest-image.sh) plus ~44 MB of observed session growth
 # (journald and/or the in-guest claude's home; root cause not pinned down) in
-# a SHORT session -- a longer one grows more. 1024 MB is roughly 20x that
+# a SHORT session -- a longer one grows more. The default is roughly 20x that
 # observed short-session growth and covers several rounds of mid-session
 # `apt-get install` on top of the post-diet boot working set, so a stock
-# session (update_at_boot: true, the default) should not hit ENOSPC. Chosen
+# session with update_at_boot on should not hit ENOSPC. Chosen
 # to be generous rather than tight: the human's directive is that claude-vm
 # must WORK out of the box, and disk is cheap relative to a bricked session.
 
@@ -1400,7 +1405,7 @@ claude_vm_guest_system_path_containing() {
 # design that will enforce it. Ignoring the key would leave the operator
 # believing a share is read-only when the guest can write it.
 #
-#   $1 -- merged BOOT document file path (mounts is a BOOT key)
+#   $1 -- merged BOOT document file path
 claude_vm_check_mounts() {
   local boot_doc="$1" mnt_tab record src rest tag path gpath expanded
   local idx=0 bad=0 seen_tags=" " reserved_tags=" " rtag rpath spath dup
@@ -1739,8 +1744,8 @@ claude_vm_debian_mirror_hosts() {
 #
 # True iff ANY of (boot-file schema paths):
 #   - `packages:` (installed at boot) is nonempty
-#   - `update_at_boot` is true (default true)
-#   - `add_apt_uris_to_allowlist` is "always" (default "auto")
+#   - `update_at_boot` is true
+#   - `add_apt_uris_to_allowlist` is "always"
 claude_vm_boot_apt_egress_needed() {
   local file="$1"
   local mode
@@ -1854,7 +1859,8 @@ claude_vm_apt_source_hosts() {
 #                            renders each exactly as yq renders the scalar
 #                            (`8080`, `true`), which is what the operator
 #                            wrote. Only `env.set` appears here: `env.copy` /
-#                            `env.files` are boot-only and abort in a bake file
+#                            `env.files` abort when written into a file type
+#                            the key table does not place them in
 #                            (claude_vm_check_env), precisely so a host-read
 #                            secret never becomes image bytes.
 # An absent `packages:` / `apt_sources:` / `env.set:` all normalize to the
@@ -2215,12 +2221,12 @@ claude_vm_check_plugin_key_placement() {
 # ---------------------------------------------------------------------
 # Guest environment variables (issue #135): env.set / env.copy / env.files.
 #
-# The tier a sub-key may be declared in follows from HOW its value is obtained,
-# not from operator preference:
+# The file type a sub-key may be declared in -- the key table's file column --
+# follows from HOW its value is obtained, not from operator preference:
 #
-#   env.set    bake + boot   explicit literal written in the config
-#   env.copy   boot ONLY     read from the HOST environment at launch
-#   env.files  boot ONLY     read from a host `.env` file at launch
+#   env.set    an explicit literal written in the config
+#   env.copy   read from the HOST environment at launch
+#   env.files  read from a host `.env` file at launch
 #
 # A bake file is consumed at image-build time and its result is image BYTES that
 # persist across every run of that image; a boot file is consumed per launch and
@@ -2228,15 +2234,15 @@ claude_vm_check_plugin_key_placement() {
 # exit. `env.copy` / `env.files` resolve against the host environment, which
 # does not exist at image-build time, and a value read from it is exactly the
 # kind of secret that must never become image bytes -- so only explicitly
-# written literals are bakeable, and the two host-sourced sub-keys are a hard
-# abort in a bake file (claude_vm_check_env below).
+# written literals are bakeable, and a host-sourced sub-key written where the
+# table does not place it is a hard abort (claude_vm_check_env below).
 #
 # Precedence, lowest to highest:
 #
 #   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
 #
-# Within each tier, repo-over-global (per key for `set`, union for
-# `copy`/`files`); within `env.files`, later files win over earlier ones. The
+# Within each tier, each sub-key merges repo-over-global by its shape in the
+# key table; within `env.files`, later files win over earlier ones. The
 # whole chain is implemented by EMISSION ORDER rather than by a dedup pass:
 # claude_vm_resolve_boot_env emits files, then copy, then set, and the guest
 # sources the bake file before the boot one, so a later assignment simply
@@ -3009,11 +3015,10 @@ $name
 #   $2 -- merged BAKE document file path (optional; omitted/missing means no
 #         baked plugin refs, which is exactly the pre-#107 behavior)
 #
-# TWO documents since issue #107 moved claude.plugins.bake into the BAKE file
-# (see the placement note above claude_vm_check_plugin_key_placement). Every
-# other key this render reads -- permissions, permission_mode,
-# plugins.install_at_boot, plugins.enabled -- is a BOOT key and still comes
-# from the boot document.
+# TWO documents since issue #107: each key this render reads -- permissions,
+# permission_mode, plugins.bake, plugins.install_at_boot, plugins.enabled --
+# comes from the document of the file type the key table places it in (see
+# the placement note above claude_vm_check_plugin_key_placement).
 #
 # The rendered document's top-level keys are:
 #
@@ -3026,9 +3031,9 @@ $name
 #                            intent; the host's working-rules layer, issue
 #                            #108, is separate and is copied in). An
 #                            empty/unset list renders as [].
-#     defaultMode         -- from claude.permission_mode (default
-#                            bypassPermissions). Read here from the merged
-#                            file with the same default so the render is
+#     defaultMode         -- from claude.permission_mode. Read here from the
+#                            merged file with the key table's default, as the
+#                            launcher reads it, so the render is
 #                            self-contained and testable. The launcher
 #                            (claude-vm.sh) enum-guards this value BEFORE
 #                            calling here; this render trusts it.

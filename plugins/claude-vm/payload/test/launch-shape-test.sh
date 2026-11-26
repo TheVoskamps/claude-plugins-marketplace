@@ -17,8 +17,10 @@
 # backgrounded either, and its status is what lands in `$?`.
 #
 # VM_EXIT_STATUS starts at 1 before the launch, the status cleanup() reads as
-# abnormal and answers by retaining the run. A run interrupted before vfkit's
-# status reaches `$?` therefore fails safe to retain rather than to discard.
+# abnormal and answers by retaining the per-run guest image clone; that clone is
+# the only thing the status decides, since the run dir is kept on every exit. A
+# run interrupted before vfkit's status reaches `$?` therefore fails safe to
+# retaining the clone rather than discarding it.
 #
 # These are grep-level shape assertions against the launcher SOURCE (like the
 # getty drop-in assertions in podman-mkosi-test.sh) -- no VM, no network, no

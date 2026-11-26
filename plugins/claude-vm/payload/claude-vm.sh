@@ -294,12 +294,11 @@ REPO_MOUNT="$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' "$(claude_vm_config_
 COPY_BACK="$(claude_vm_scalar "$MERGED_BOOT" '.repo.copy_back' "$(claude_vm_config_key_default repo.copy_back)")"
 PROXY_PORT="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' "$(claude_vm_config_key_default proxy.port)")"
 GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$(claude_vm_config_key_default proxy.host_alias)")"
-# proxy.cmd: when unset in BOTH config layers, default to the bundled
-# tinyproxy launcher (the chosen forward proxy). It reads the egress
-# allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds $CLAUDE_VM_PROXY_PORT,
-# both exported below. An explicit proxy.cmd in config still overrides it.
-# The key table's default is relative to this payload directory, so a config
-# that writes the default verbatim resolves to the same bundled launcher.
+# proxy.cmd: when unset in BOTH config layers, fall back to the key table's
+# default. A command reads the egress allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST
+# and binds $CLAUDE_VM_PROXY_PORT, both exported below. The key table's default
+# is relative to this payload directory, so it is resolved against
+# $SCRIPT_DIR, and a config that writes the default verbatim resolves the same.
 DEFAULT_PROXY_CMD="$SCRIPT_DIR/$(claude_vm_config_key_default proxy.cmd)"
 PROXY_CMD="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 if [ "$PROXY_CMD" = "$(claude_vm_config_key_default proxy.cmd)" ]; then
@@ -320,7 +319,7 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot
 # (claude_vm_boot_marketplace_egress_needed) act on the same value.
 PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
 
-# guest_image: a normal scalar. When SET, it is used as-is -- an explicit
+# guest_image: when SET, it is used as-is -- an explicit
 # operator override that opts OUT of variant derivation (issue #105, extended
 # by the #106 root-headroom knob): the operator owns that path and its
 # contents, so we neither hash nor rewrite it. When UNSET, the launcher
@@ -378,8 +377,7 @@ export CLAUDE_VM_BAKE_PLUGINS
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized above its base content, so a live session has room to grow
 # without hitting ENOSPC (lib/config.sh justifies the default beside its key
-# table). A normal scalar (repo overrides global), resolved once here as the
-# MERGED, default-filled value and exported so build-guest-image.sh forwards it
+# table). Resolved once here as the MERGED, default-filled value and exported so build-guest-image.sh forwards it
 # to the provisioner as the actual partition size. Validated as a positive integer up
 # front (a typo here should abort the launch, not silently fall through to
 # whatever the provisioner does with garbage). This is the BUILD input; the
@@ -432,7 +430,7 @@ CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$(claude_vm
 # (verified on a real host), so this is a preference, not a workaround:
 #   classic    -> CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (no alt-screen)
 #   fullscreen -> CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
-#   unset/""   -> pass nothing; claude uses its own default
+#   unset/""   -> pass nothing; claude uses its own renderer
 # Mapped to the matching env var(s) in run.env below. An unrecognized value
 # is rejected up front rather than silently ignored. The empty arm below is the
 # key table's empty default, which claude_vm_scalar also returns for `""`.
@@ -445,10 +443,8 @@ case "$CLAUDE_RENDERER" in
     ;;
 esac
 
-# claude.remote_control: OPT-IN boolean (issue #88) enabling Claude Code's
-# Remote Control on this launch. Same layered-scalar resolution as
-# claude.renderer (global + per-repo override, repo wins), default false/unset.
-# When true, the launcher injects `--remote-control` into the guest's CLAUDE_ARGS
+# claude.remote_control (issue #88) enables Claude Code's Remote Control on
+# this launch. When true, the launcher injects `--remote-control` into the guest's CLAUDE_ARGS
 # (unless the CLI args already carry it) and, if Remote Control is in effect but
 # no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
 # date-stamp default). Validate like the renderer knob: accept true/false/unset;
@@ -486,8 +482,8 @@ unset _rc_name_stamp _augmented_args _line
 # settings.json (issue #104). This is a security-posture value -- it becomes
 # permissions.defaultMode in the guest's settings.json -- and there is no
 # reasoning model for how the guest claude behaves under an unknown defaultMode,
-# so accept ONLY the two known modes and abort on anything else, mirroring the
-# scalar-enum validation used for claude.renderer / claude.remote_control above.
+# so accept ONLY the modes the case below names and abort on anything else,
+# mirroring the validation used for claude.renderer / claude.remote_control above.
 # The render (claude_vm_render_guest_settings) re-reads this key with the same
 # default, but the authoritative guard is HERE so a typo aborts the launch
 # rather than writing an unexpected defaultMode into the guest.
@@ -1022,11 +1018,11 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 #
 # Host-side render of /root/.claude/settings.json from the merged config: the
 # permission allow/ask/deny lists, the permission defaultMode
-# (claude.permission_mode, default bypassPermissions, enum-guarded above), and
+# (claude.permission_mode, enum-guarded above), and
 # the enabledPlugins object (every ref in claude.plugins.bake ++ install_at_boot
 # defaults true, then claude.plugins.enabled overrides per key). BOTH merged
-# documents are passed since issue #107 (bake refs live in the BAKE file, every
-# other key it reads is a BOOT key). The permissions
+# documents are passed since issue #107, each key being read from the document
+# of the file type the key table places it in. The permissions
 # come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
 # NEVER read, so the guest's PERMISSION surface is defined entirely by
 # claude-vm, per the issue's product intent. (The host's ~/.claude working
@@ -1593,23 +1589,23 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # bypassPermissions as root unless IS_SANDBOX=1 (or CLAUDE_CODE_BUBBLEWRAP=1)
     # -- confirmed from the claude-code source quoted in anthropics/claude-code
     # #58510. The guest IS the sandbox (the VM is the isolation boundary), so set
-    # it always: bypassPermissions is the default guest posture, and even under
+    # it always: under bypassPermissions claude needs it, and even under
     # permission_mode: default this is a correct, harmless assertion (the guest is
     # a sandbox regardless). A FIXED LITERAL -> provably safe under the run.env
     # `set -a` sourcing (value-quoting audit above). The boot launcher sources
     # run.env under `set -a`, so it exports into claude's environment for free.
     printf 'IS_SANDBOX=1\n'
     # Boot-time apt update flag (issue #106): whether the guest boot launcher
-    # runs `apt-get update && apt-get -y upgrade` before claude starts. A
-    # plain boolean scalar (the boot file's update_at_boot, default true) -> a fixed
-    # 'true'/'false' literal is provably safe under the run.env `set -a`
-    # sourcing (value-quoting audit above).
+    # runs `apt-get update && apt-get -y upgrade` before claude starts.
+    # A boolean update_at_boot resolves through claude_vm_bool_scalar to a
+    # fixed 'true'/'false' literal, safe under the run.env `set -a` sourcing
+    # (value-quoting audit above). That accessor does not reject a
+    # non-boolean value; it is written here as given.
     printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
     # Boot-time plugin update flag (issue #107): whether the guest boot
     # launcher refreshes the marketplaces and updates the installed plugins
     # before claude starts. Same shape and safety argument as the apt flag
-    # above -- a plain boolean scalar resolves to a fixed 'true'/'false'
-    # literal, provably safe under the run.env `set -a` sourcing.
+    # above, including that a non-boolean value is written as given.
     printf 'CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=%s\n' "$PLUGINS_UPDATE_AT_BOOT"
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
@@ -1826,7 +1822,7 @@ if ! grep -q '[^[:space:]]' "$EGRESS_ALLOWLIST" 2>/dev/null; then
 fi
 
 if [ -z "$PROXY_CMD" ]; then
-  # proxy.cmd defaults to the bundled tinyproxy launcher; reaching here
+  # proxy.cmd falls back to the key table's nonempty default; reaching here
   # means a config layer explicitly set proxy.cmd to an empty value.
   echo "claude-vm: proxy.cmd is set to an empty value in config; cannot start the forward proxy." >&2
   echo "claude-vm: leave proxy.cmd unset to use the bundled tinyproxy launcher, or set it" >&2

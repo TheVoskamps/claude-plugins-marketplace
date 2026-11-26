@@ -86,8 +86,9 @@ bake/boot pair by the rule above.
   in-guest claude reach the Anthropic API on 443. `github.com` is needed
   for git and for an `owner/repo` marketplace shorthand, and `claude.ai`
   and `downloads.claude.ai` for a cold claude fetch.
-- `proxy.cmd` is the forward-proxy launch command. Unset, the bundled
-  tinyproxy launcher runs. An override must read the allowlist from the
+- `proxy.cmd` is the forward-proxy launch command; a default given as a
+  relative path is resolved against the payload directory, where the
+  bundled tinyproxy launcher lives. An override must read the allowlist from the
   file `$CLAUDE_VM_EGRESS_ALLOWLIST` names and bind
   `$CLAUDE_VM_PROXY_PORT`, never carry a hand-maintained list of its own.
 - `proxy.port` is the port the proxy binds, and `proxy.host_alias` the
@@ -187,20 +188,20 @@ or a single-file target that exists at all.
 
 - `claude.renderer` picks the in-guest terminal renderer: `classic` sets
   `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, `fullscreen` sets
-  `CLAUDE_CODE_NO_FLICKER=1`, and unset leaves claude's own default. Both
-  work over the console; any other value aborts the launch.
+  `CLAUDE_CODE_NO_FLICKER=1`, and unset leaves claude's own renderer. Both
+  work over the console; a value outside its type aborts the launch.
 - `claude.remote_control`, when `true`, adds `--remote-control` to the
   in-guest claude unless the arguments already carry it, and a
   date-stamped `--name` such as `Jul10-14:30` when none was given. A
-  user-supplied `--name` is never overridden. Any value other than `true`
-  or `false` aborts the launch.
+  user-supplied `--name` is never overridden. A value outside its type
+  aborts the launch.
 
 ## Permissions
 
 - `claude.permission_mode` becomes the guest `settings.json`'s
-  `permissions.defaultMode`. Only `bypassPermissions` and `default` are
-  accepted; anything else aborts. `bypassPermissions` treats the VM as the
-  isolation boundary, with the deny list as backstop.
+  `permissions.defaultMode`; a value outside its type aborts the launch.
+  `bypassPermissions` treats the VM as the isolation boundary, with the
+  deny list as backstop, and `default` prompts as claude does on a host.
 - `claude.permissions.allow`, `.ask` and `.deny` are copied verbatim into
   the guest `settings.json`'s `permissions`. The deny list is enforced
   even under `bypassPermissions`.
@@ -235,10 +236,11 @@ alone; the host's `~/.claude/settings.json` is never read.
   nonempty `install_at_boot`, a marketplace declared in a boot file and
   not in a bake file, or `update_at_boot` true with any marketplace
   configured.
-- `claude.plugins.enabled` maps a plugin ref to a boolean and overrides,
-  per ref, the default that every baked and boot-installed ref is enabled;
-  `false` ships a plugin installed but disabled. Every key must name an
-  installed ref and every value must be a boolean, or the launch aborts.
+- `claude.plugins.enabled` maps a plugin ref to its enabled state and
+  overrides, per ref, the rule that every baked and boot-installed ref is
+  enabled; `false` ships a plugin installed but disabled. Every key must
+  name an installed ref and every value must fit the type, or the launch
+  aborts.
 
 Baking a plugin with a compiled hook, such as `guardrails@thevoskamps`,
 needs nothing in `packages`: its binaries are prebuilt and committed per
@@ -247,8 +249,8 @@ platform.
 ## GitHub
 
 - `github.auth` selects whether the guest is seeded with a GitHub token
-  derived from the host: `none` or `host-token`. Nothing consumes it yet;
-  it merges like any scalar.
+  derived from the host: `host-token` asks for one and `none` for none.
+  Nothing consumes it yet.
 
 ## Environment
 

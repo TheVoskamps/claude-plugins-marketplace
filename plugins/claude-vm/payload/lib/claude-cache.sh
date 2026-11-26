@@ -70,7 +70,7 @@ CLAUDE_VM_SIGNING_KEY_URL="https://downloads.claude.ai/keys/claude-code.asc"
 # ANY key in the operator's keyring, so the exit code alone does not
 # constrain WHICH key signed). The operator sets this to the claude-code
 # key's fingerprint they out-of-band-verified at import time, via the
-# `claude.signing_key_fingerprint` config scalar (plumbed in as this env
+# `claude.signing_key_fingerprint` config value (plumbed in as this env
 # var by claude-vm.sh). Compared case-insensitively with spaces stripped,
 # so the human-readable `gpg --fingerprint` form (groups of four hex with
 # spaces) can be pasted verbatim. When EMPTY the verify path HARD ABORTS:
@@ -92,7 +92,7 @@ claude_cache_is_pinned_version() {
   printf '%s\n' "$1" | grep -qE '^[0-9]+(\.[0-9]+)*$'
 }
 
-# Validate a `claude.version` scalar: `stable` | `latest` | a concrete
+# Validate a `claude.version` value: `stable` | `latest` | a concrete
 # pinned version. Prints the normalized value and returns 0 when valid;
 # prints an error to stderr and returns 1 otherwise. Keeping this as a
 # guard means a typo in config (`stabel`) fails fast with a clear message
@@ -465,10 +465,10 @@ claude_cache_fetch_verified() {
 }
 
 # Top-level: ensure a verified, cached binary exists for the requested
-# `claude.version` scalar, and print its host path on stdout. This is the
+# `claude.version` value, and print its host path on stdout. This is the
 # single entry point claude-vm.sh calls.
 #
-#   $1 -- the `claude.version` scalar (stable|latest|pinned)
+#   $1 -- the `claude.version` value (stable|latest|pinned)
 #
 # Warm boot: when the resolved version is already cached, returns the
 # cached path with NO network fetch and NO gpg call (the verification

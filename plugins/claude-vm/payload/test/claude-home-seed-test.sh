@@ -44,13 +44,18 @@
 # exists as a non-directory must still leave the later entries installed and
 # the run at status 0, and an unreadable subtree on the mount must leave the
 # destination REMOVED when this seed created it and untouched, with a warning,
-# when it is baked image content. The injection is planted on the mount and
-# skipped under root, which reads a mode-000 directory anyway.
+# when it is baked image content. The injection is planted on the mount,
+# driving the guest loop alone, because a host ~/.claude entry the host itself
+# cannot read is dropped host-side and never reaches the guest; it is skipped
+# under root, which reads a mode-000 directory anyway.
 #
 # Both halves run on one filesystem, where a copied LINK still resolves, so
 # every content assertion stays green when `cp -RL` loses its `-L`. What moves
 # is the SHAPE of the staged entry, so the suite asserts claude-home/rules and
-# claude-home/skills are real directories. Mutating the `cp -RL` or
+# claude-home/skills are real directories. In the real VM that drop is fatal
+# rather than invisible -- the link's target sits outside the staging dir, so
+# outside the share the guest mounts -- which is why an off-VM harness cannot
+# see it by reading content. Mutating the `cp -RL` or
 # `cp -R <src>/.` spelling, or a failure arm, to its unsafe form turns a
 # behavioral assertion red.
 #

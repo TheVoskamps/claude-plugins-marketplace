@@ -97,8 +97,9 @@ account in on the host with `CLAUDE_CONFIG_DIR=$HOME/.claude.<name> claude`.
 The selection of keys from each source, the file modes and the removal on
 exit are the same as without `--as`.
 
-On exit, the launcher copies the guest's changes back to the local
-source by default (clone mode). The companion skills extract work
+On exit in clone mode, `repo.copy_back` decides whether the launcher
+copies the guest's changes back to the local source. The companion
+skills extract work
 explicitly: `/claude-vm-diff`, `/claude-vm-apply-local`,
 `/claude-vm-apply-remote`.
 
@@ -207,13 +208,12 @@ non-policy layer of `CLAUDE.md`, `rules/`, `agents/`, `skills/` and
 the guest* below.) The rendered keys:
 
 - `permissions.allow` / `.ask` / `.deny` come verbatim from
-  `claude.permissions.*` (each a unioned list).
-- `permissions.defaultMode` comes from `claude.permission_mode`
-  (`bypassPermissions` default | `default`). Only those two values are
-  accepted — any other aborts the launch (it is a security-posture value
-  with no defined behavior for an unknown mode). YOLO-by-default: the VM is
-  the isolation boundary, so `bypassPermissions` is the default with the
-  deny list as backstop. The guest runs claude as **root**, which claude
+  `claude.permissions.*`.
+- `permissions.defaultMode` comes from `claude.permission_mode`. A value
+  outside its type aborts the launch (it is a security-posture value with
+  no defined behavior for an unknown mode). `bypassPermissions` treats the
+  VM as the isolation boundary, with the deny list as backstop. The guest
+  runs claude as **root**, which claude
   refuses in `bypassPermissions` unless `IS_SANDBOX=1`; the launcher sets
   `IS_SANDBOX=1` unconditionally in `run.env` (the guest *is* the
   sandbox).
@@ -221,11 +221,11 @@ the guest* below.) The rendered keys:
   `claude.plugins.bake ++ claude.plugins.install_at_boot` to `true`
   (de-duplicated), then the optional `claude.plugins.enabled` map
   overrides those defaults per key. `enabled` mirrors `settings.json`'s
-  own `enabledPlugins` vocabulary (plugin ref → boolean): `false` marks a
+  own `enabledPlugins` vocabulary: `false` marks a
   plugin **installed-but-disabled** (re-enabling needs no reinstall — handy
   for toggling debug plugins like `show-loaded-rules` / `show-loaded-skills`
   around a specific issue). The map is validated **once**: every value must
-  be boolean and every key must name an installed ref — an unknown key is a
+  fit its type and every key must name an installed ref — an unknown key is a
   typo and **aborts the launch**.
 - `extraKnownMarketplaces` maps every configured marketplace name (the
   effective bake ++ boot set) to its source, in the shape claude itself
@@ -309,7 +309,7 @@ Ways to turn on Remote Control:
 
 - **Per-launch, via CLI** — pass `--remote-control` (and optionally
   `--name <n>`) after the repo path, as above.
-- **Opt-in by config** — set `claude.remote_control: true` in the global
+- **By config** — set `claude.remote_control: true` in the global
   or per-repo config. The launcher then injects `--remote-control` for
   you (without duplicating it if you also pass it on the CLI). Either way,
   if Remote Control is in effect but you gave no `--name`, the launcher
@@ -340,7 +340,7 @@ there is no live resize.
 
 How the repo is made available RW to the guest:
 
-- **`clone` (default)**: `git clone --no-hardlinks` the repo into a
+- **`clone`**: `git clone --no-hardlinks` the repo into a
   **persistent** worktree, mounted RW. The guest never touches the live
   working tree or `.git`. The worktree lives under
   `$CLAUDE_VM_RUNS_DIR/<runid>/worktree` — the runs root, `runs/`
@@ -349,13 +349,13 @@ How the repo is made available RW to the guest:
   diff/apply skills can inspect and extract results; they find this
   repo's runs by the `repo_src` line of each run's `run.meta`.
 - **`live`**: mount the live repo dir RW directly. More convenient,
-  less isolated. Opt-in.
+  less isolated.
 
 ### Getting work back out (clone mode)
 
-After the guest exits, the launcher runs **copy-back to the local
-source by default** (`repo.copy_back: local`). Set
-`repo.copy_back: none` to disable it and extract manually. The three
+After the guest exits, `repo.copy_back: local` copies the guest's changes
+back to the local source, and `repo.copy_back: none` leaves them to
+extract manually. The three
 companion skills handle extraction explicitly:
 
 - `/claude-vm-diff` — read-only: show what changed in the VM worktree
@@ -446,8 +446,8 @@ Claude Code updates daily, so the guest image does **not** bake in
     disambiguates): legibility over dedup, an explicit choice.
 
   Editing a **boot** file never changes identity and never rebuilds;
-  editing a **bake** file (including only its trailing newline) does. The
-  `guest_image` scalar, when set, opts out of identity derivation and is
+  editing a **bake** file (including only its trailing newline) does.
+  `guest_image`, when set, opts out of identity derivation and is
   used verbatim.
 
   The cached base `.raw` is **immutable** and is NEVER attached to a VM:
@@ -493,7 +493,7 @@ Claude Code updates daily, so the guest image does **not** bake in
     the guest off** and returns control to the host launcher; the clone
     is retained (its path is logged) for further forensics.
 - **Boot-time package install/update (issue #106).** A **boot** file's
-  `packages:` (install list) and `update_at_boot` do **not** feed the
+  `packages:` and `update_at_boot` do **not** feed the
   image-identity hash — they
   run a blocking phase in the boot launcher itself, right before claude launches,
   through the same proxy the rest of the guest's egress goes through. The
@@ -587,8 +587,8 @@ the image build, since the build's plugin bake step drives the same
 binary, so a verification failure aborts before a multi-minute build.
 
 The operator's one-time setup imports the signing key, reads its
-fingerprint, verifies that fingerprint out of band, and pins it in a boot
-file:
+fingerprint, verifies that fingerprint out of band, and pins it as
+`claude.signing_key_fingerprint`:
 
 ```bash
 curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
