@@ -1,5 +1,12 @@
 # claude-vm changelog
 
+## 0.23.2 — 2026-11-27
+
+No change to the launcher or the guest. The `guardrails` permission-gate
+binaries a guest runs are now built with `-buildvcs=false` from a tree
+that must be clean, so a rebuild of the same source with the same Go
+release matches the committed binary byte for byte.
+
 ## 0.23.1 — 2026-11-26
 
 `payload/test/endpoint-test.sh` no longer fails under parallel load. Its
