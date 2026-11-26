@@ -1,9 +1,9 @@
 # issues
 
 `docs/rules/plugin-authoring-constraints.md` — read when moving or
-  renaming a config path this plugin owns. Kernel: every consumer spells
-  a config path as a literal, so moving one edits every plugin that
-  spells it.
+  renaming a config path this plugin owns. Kernel: a PR that moves or
+  renames one edits every plugin that spells it, in one PR, and bumps
+  each of their versions.
 
 - Every `gh api` call, GraphQL document and ID resolution lives in
   `bin/lib/issues-common.sh`, behind its helpers, as does the error

@@ -152,7 +152,7 @@ the diff already touched:
 
 ```bash
 grep -rn '\.issues/' plugins/
-grep -rn 'XDG_CONFIG_HOME/issues' plugins/
+grep -rnE '(XDG_CONFIG_HOME|\.config\})/issues' plugins/
 ```
 
 ### Sharing an interface across an agent set: one preloaded skill
