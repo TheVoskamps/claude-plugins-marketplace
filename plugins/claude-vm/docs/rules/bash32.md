@@ -1,15 +1,21 @@
 # bash 3.2 in claude-vm
 
+## Every script runs under bash 3.2
+
 Every claude-vm script is `#!/usr/bin/env bash`, so the interpreter is
 whatever `bash` PATH resolves to — on a stock macOS, `/bin/bash` 3.2. No
 part of `lib/config.sh` needs bash 4, and the file is run end to end
 under `/bin/bash`.
+
+## A guard must not fail open
 
 A construct that behaves differently on 3.2 is worst in a config-load
 guard. The guard runs early and decides whether a mount or a key is
 safe, so the construct does not stop the launch: it changes the answer
 the guard gives. A guard must not fail open on the way to someone
 else's error.
+
+## A config-test failure is a defect, never a baseline
 
 `test/config-test.sh` carries the same shebang and is under the same
 rule, at a different cost: a 3.2-only construct in an assertion gives a

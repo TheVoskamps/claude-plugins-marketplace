@@ -115,8 +115,7 @@ fi
 #    no reap functions, no REAP_ constants, no `wait "$VFKIT...`. The
 #    subshell's own VFKIT_PID, handed to the watcher, is never waited on.
 # ---------------------------------------------------------------------
-# shellcheck disable=SC2016 # the patterns are literal launcher text
-for FORBIDDEN in 'wait "$VFKIT' 'reap_vfkit' 'REAP_'; do
+for FORBIDDEN in "wait \"\$VFKIT" 'reap_vfkit' 'REAP_'; do
   if grep -q "$FORBIDDEN" "$LAUNCHER"; then
     bad "launcher contains no '$FORBIDDEN'" \
       "$(grep -n "$FORBIDDEN" "$LAUNCHER" | head -3)"

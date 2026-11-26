@@ -122,7 +122,8 @@ claude:
   permissions:
     allow: []
     ask: []
-    deny: []              # enforced even under bypassPermissions
+    # deny is enforced even under bypassPermissions.
+    deny: []
 
   # Marketplaces + plugins available to the guest. The guest's plugin set comes
   # from THESE configs only -- the host's own installed plugins and its
@@ -151,7 +152,8 @@ claude:
   # `name:` is mandatory on every entry: it is what a plugin@marketplace ref
   # resolves against and what the guest checks registration by, so an entry
   # with a url and no name ABORTS the launch rather than being ignored.
-  marketplaces: []        # {name, url} entries
+  # Entries are {name, url}.
+  marketplaces: []
   plugins:
     # NOTE: a claude.plugins sub-key the key table places in the BAKE file,
     # written here, ABORTS the launch with a message naming this file, rather
@@ -210,7 +212,8 @@ claude:
 # key here would parse without being read.
 
 egress:
-  allow:                # outbound hosts permitted through the proxy
+  # Outbound hosts permitted through the proxy.
+  allow:
     - api.anthropic.com
     - github.com
     - claude.ai

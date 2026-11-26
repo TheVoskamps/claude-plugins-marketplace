@@ -1,5 +1,7 @@
 # claude-vm seam sweeps
 
+## Sweep the whole plugin, not the diff
+
 Statements about the host→guest seam are restated far from the code
 they describe, and a change that moves the seam falsifies the ones it
 does not touch. Each section names a trigger and the sweep it owes.
