@@ -18,7 +18,9 @@ format, each run as the binary on `PATH`:
   inside `golangci-lint`, not as binaries of their own; `go vet` stays
   available directly.
 - GitHub Actions workflow — `actionlint`.
-- YAML — `yamllint`.
+- YAML — `yamllint`, run under the repo-root `.yamllint`, which accepts
+  the single space `oxfmt` puts before an inline comment and the line
+  length of a SHA-pinned `uses:` step that Dependabot keeps on one line.
 - JSON and JSONC — `biome lint`; `oxfmt` alone formats them.
 - TOML — `tombi`.
 - CloudFormation template — `cfn-lint`.

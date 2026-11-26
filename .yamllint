@@ -1,0 +1,12 @@
+---
+extends: default
+
+rules:
+  # oxfmt formats YAML with one space before an inline comment.
+  comments:
+    min-spaces-from-content: 1
+  # Dependabot keeps a SHA-pinned `uses: <action>@<sha> # <version>` step on
+  # one line, so the line cannot wrap; 120 leaves room for the action path
+  # beside the 40-character SHA and its version comment.
+  line-length:
+    max: 120
