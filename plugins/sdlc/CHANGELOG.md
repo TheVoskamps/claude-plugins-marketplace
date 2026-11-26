@@ -1,5 +1,24 @@
 # sdlc changelog
 
+## 0.100.0 — 2026-11-25
+
+The plugin follows a session started under another Claude Code config
+directory. It looks for Claude Code's own files under
+`CLAUDE_CONFIG_DIR` when that variable is set and not empty, and under
+`$HOME/.claude` otherwise, where it used to look under `$HOME/.claude`
+always. With the variable unset, nothing changes.
+
+- Every agent reads the global `CLAUDE.md` in the directory
+  `claude-home` prints. `claude-home` comes with the `cc-tools` plugin
+  from 0.12.0 on, so that is now the oldest `cc-tools` this plugin
+  works with.
+- `reload-after-compact` finds your own skills, the installed-plugin
+  registry and the plugin cache under the config directory, and leaves
+  the files under its `rules/` to Claude Code, which restores them
+  itself.
+- `sdlc-agent-result-persist` records each review agent's transcript
+  path under the config directory's `projects/`.
+
 ## 0.99.1 — 2026-11-24
 
 A review round posts its review again. `theorem-based-pr-reviewer`
