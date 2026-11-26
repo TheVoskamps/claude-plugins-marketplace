@@ -42,12 +42,12 @@
 # network) -- that requires a real podman machine and is host-acceptance.sh's
 # territory.
 #
-# They also cover the plugin bake step (issue #107): the generated
-# in-container script stages bake-plugins.json and the verified guest-claude
-# binary, drives `claude plugin marketplace add` / `claude plugin install`
-# under HOME=/root, copies only /root/.claude/plugins into the image, and a
-# nonempty manifest with no CLAUDE_VM_GUEST_CLAUDE_BIN aborts. Issue #226's
-# per-entry failure policy is asserted by RUNNING the generated marketplace
+# They also cover the plugin bake step: the generated in-container script
+# stages bake-plugins.json and the verified guest-claude binary, drives
+# `claude plugin marketplace add` / `claude plugin install` under HOME=/root,
+# copies only /root/.claude/plugins into the image, and a nonempty manifest
+# with no CLAUDE_VM_GUEST_CLAUDE_BIN aborts. The per-entry failure policy is
+# asserted by RUNNING the generated marketplace
 # loop, sliced out of the captured build-in-container.sh, against a stub
 # claude whose exit the test controls: a failed add or a name mismatch on a
 # bake-declared entry aborts, the same entry declared `origin: boot` warns and

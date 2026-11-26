@@ -361,9 +361,8 @@ CLAUDE_VM_GUEST_SYSTEM_PATHS="/bin /boot /dev /etc /home /lib /lib32 /lib64 /lib
 # same rule.
 CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 
-# image.root_headroom_mb's default, from the key table (issue #106 real-run
-# fix). The headroom is the extra MiB the guest root
-# partition is sized ABOVE the measured/estimated base image content, so a
+# image.root_headroom_mb's default, from the key table. The headroom is the
+# extra MiB the guest root partition is sized ABOVE the measured/estimated base image content, so a
 # live session has room to grow without hitting ENOSPC. A real guest boot hit
 # ENOSPC twice in one short session on the previously auto-sized (~991 MB)
 # root, which left only ~140 MB free over an ~850 MB base -- consumed by the

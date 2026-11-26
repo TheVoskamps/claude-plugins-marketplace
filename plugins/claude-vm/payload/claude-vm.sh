@@ -739,7 +739,7 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # ONE trusted path and no install.sh fallback: an unpinned/unimported
 # signing key or a verification failure aborts the run, it does NOT
 # downgrade to a lower-trust install (see lib/claude-cache.sh). This block
-# runs BEFORE the on-demand image build (issue #107): the build's plugin bake
+# runs BEFORE the on-demand image build: the build's plugin bake
 # step drives this same guest-platform binary (CLAUDE_VM_GUEST_CLAUDE_BIN), so
 # it must exist when the build starts, a verification failure aborts before a
 # multi-minute build, and bake-time and boot-time plugin work can never run

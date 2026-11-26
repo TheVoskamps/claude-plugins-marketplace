@@ -15,7 +15,7 @@
 #   (c) egress is confined to the allowlist by the bundled tinyproxy proxy:
 #       an allowlisted host is permitted, a non-allowlisted host is refused,
 #       and an EMPTY allowlist denies all;
-#   (d) the host-side GPG-verified claude cache (issue #49), exercised with
+#   (d) the host-side GPG-verified claude cache, exercised with
 #       two LOCALLY-generated keys over local fixtures (does NOT reach
 #       claude.ai): resolve+fetch+verify+cache works against the PINNED key's
 #       fingerprint, a tampered manifest aborts, a checksum mismatch aborts, a
