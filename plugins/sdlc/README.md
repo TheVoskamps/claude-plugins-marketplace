@@ -234,19 +234,17 @@ A PR's documentation loop ending, on your confirmation or on a clean
 end under `docs-loop-end: auto-when-clean`, is what lets it be marked
 ready. One PR at a time then goes through these stages:
 
-1. `agent-memory-scrubber` curates what the run's agents recorded into
-   a commit on the PR.
-2. `pr-merge-readiness` runs the merge-readiness gate. A branch that is
+1. `pr-merge-readiness` runs the merge-readiness gate. A branch that is
    behind its base or conflicts with it goes to `issue-fixer` to
    rebase, and the gate runs again. A conflict the fixer cannot
    settle, or a required check that is not green, comes back as a
    question. A remedy that changed documentation gets a
    documentation loop over it before the gate runs again.
-3. `pr-finalizer` posts the review detail on the PR and writes the
+2. `pr-finalizer` posts the review detail on the PR and writes the
    run's final section into the PR body.
-4. The PR's issues are set to In Review and the PR is marked ready for
+3. The PR's issues are set to In Review and the PR is marked ready for
    review.
-5. Unless `merge-wait` is `skip`, `pr-monitor` polls the PR until it
+4. Unless `merge-wait` is `skip`, `pr-monitor` polls the PR until it
    merges or closes. A PR that falls behind its base or into conflict
    while it waits goes back to the merge-readiness stage. One that sits
    unchanged for `merge-max-unchanged-polls` polls brings a question:
@@ -393,7 +391,6 @@ from the `/` menu:
 | `code-documenter` | Corrects the comments in the files a round changed, before its review. |
 | `style-checker` | Reports a round's style-guide violations: in code and instruction Markdown in the code loop, in documentation in the documentation loop. |
 | `docs-writer` | Writes a PR's documentation in the documentation loop and fixes what that loop's rounds find in it; for a batch with no code to implement, also creates the branch and opens the PR. |
-| `agent-memory-scrubber` | Curates what the run's agents recorded as memory onto the PR. |
 | `pr-merge-readiness` | Drives one PR through the merge-readiness gate, sending a branch that is behind or in conflict to `issue-fixer`, and returns a state that needs a ruling as a question. |
 | `pr-finalizer` | Posts the run's review detail on a finished PR and writes the run's final section into its body. |
 | `pr-monitor` | Watches one ready PR until it merges, closes unmerged, falls behind or into conflict, or sits unchanged long enough to ask whether to keep waiting. |
@@ -512,7 +509,7 @@ plugin for that name finds them all.
 | `issues` | The issue verbs, and `issue-view` for the readiness check. Version 0.19.0 or later: with an older one the readiness check exits with an error naming the `issue-view` it needs. |
 | `git-tools` | Branch creation, branch sync, the branch-name grammar and the default-branch lookup. |
 | `github-prs` | Every PR read and write. |
-| `cc-tools` | Capturing and curating agent memory, and `claude-home`, which prints Claude Code's config directory. Version 0.12.0 or later, the first with `claude-home`. |
+| `cc-tools` | `claude-home`, which prints Claude Code's config directory. Version 0.12.0 or later, the first with `claude-home`. |
 
 `yq`, the mikefarah build at v4 or later, comes with no plugin and is
 installed on the machine. Without it `sdlc-decision` exits with an
