@@ -1005,12 +1005,13 @@ claude_vm_scalar() {
 }
 
 # Read a BOOLEAN scalar from a merged-config document, applying a
-# hardcoded fallback ONLY when the key is genuinely absent/null --
+# hardcoded fallback ONLY when the key is absent, null or empty --
 # unlike claude_vm_scalar, an explicit `false` is preserved and
 # returned as "false", not silently replaced by $fallback.
 #   $1 -- merged config file path
 #   $2 -- yq path expression (e.g. '.update_at_boot')
-#   $3 -- fallback value if the key is null/absent (e.g. "true"/"false")
+#   $3 -- fallback value if the key is absent, null or empty (e.g.
+#         "true"/"false")
 #
 # Presence check: `(<path> == null)` is true both when the key is absent
 # AND when it is explicitly set to YAML `null`; either way there is no
@@ -1040,10 +1041,11 @@ claude_vm_bool_scalar() {
 }
 
 # claude_vm_check_bool <key> <value> -- succeed when <value> is `true` or
-# `false`; otherwise print a diagnostic naming <key> and fail. The launcher
-# runs it on a `bool` row's resolved value before that value is written
-# anywhere, since run.env carries it unquoted and the guest sources run.env
-# under `set -a`.
+# `false`; otherwise print a diagnostic naming <key> and fail. A caller runs
+# it on a resolved value before writing that value anywhere unquoted: the
+# launcher runs it on both update_at_boot values before run.env exists,
+# since run.env carries them unquoted and the guest sources it under
+# `set -a`.
 claude_vm_check_bool() {
   case "$2" in
     true | false) return 0 ;;
