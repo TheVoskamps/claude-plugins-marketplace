@@ -3,7 +3,39 @@
 # git-branch-sync-test.sh -- drive plugins/git-tools/bin/git-branch-sync,
 # under the bash 3.2 macOS ships, against a local bare origin, a seed
 # checkout that plays everyone else pushing to it, and a clone the
-# script runs in.
+# script runs in, all under `mktemp -d`. A logging git wrapper on PATH
+# records each push's arguments, so the test asserts which push form was
+# picked and that no --force or --mirror ever was.
+#
+# It covers each subcommand on its own path and the exits that separate
+# them: a diverged checkout refused, a stopped rebase finished through
+# continue and one aborted, a resolution that empties the stopped commit,
+# a conflicted path git would quote, and a stop reached from a
+# subdirectory. It covers the push's refusals: a second writer who pushed
+# after the checkout, with and without a rebase in between, a
+# post-receive hook that moves the branch so the verification fails, and
+# a pre-receive hook that refuses, which stays an unclassified failure.
+#
+# For the claim, a linked worktree of the clone plays the dead agent's.
+# It covers a checkout refused for a branch that worktree has checked out
+# and for one it is rebasing; reclaim refused for a dirty holder with and
+# without --holder-ended, and under --holder-ended for a holder with
+# unpushed commits and for one mid-rebase; a branch no worktree holds,
+# released, and refused once it has unpushed commits; a lock naming a
+# running process, compared from a zone five hours off UTC, refused and
+# then overridden by --holder-ended with the lock kept; a lock whose PID
+# is gone, one whose start time differs, and no lock, each proceeding;
+# and dirt only under an excluded path.
+#
+# It covers the holders with no working tree: a directory that is gone
+# and a .git file naming a missing gitdir, each refused while the branch
+# has unpushed commits and released once it has none, and a worktree
+# nested in the clone whose .git is missing, released while the
+# enclosing clone keeps its branch. A checkout of an unheld branch walks
+# past a worktree whose gitdir is missing. A dirty holder, a mid-rebase
+# one, a mid-rebase one whose directory is then deleted, which is still
+# refused, and one whose directory is gone with no rebase each run once
+# with worktree.useRelativePaths off and once with it on.
 #
 # Needs git on PATH. Reaches no network.
 #

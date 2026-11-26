@@ -5,6 +5,12 @@
 # else the branch the refs/remotes/origin/HEAD symref points at.
 # Read-only. Runs under the bash 3.2 macOS ships.
 #
+# The setting comes first because it is the live answer: the symref is a
+# snapshot the clone took, which a rename on GitHub does not update and
+# which a remote added by hand and fetched never gets. A non-zero exit
+# means no protected branch is known, so a caller about to remove
+# branches stops on it rather than guessing a name.
+#
 # Usage: git-default-branch
 #
 # Exit statuses:

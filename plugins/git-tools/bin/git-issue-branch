@@ -4,11 +4,55 @@
 # name, or decode a branch name back into its issue set and slug and
 # reconcile a claimed issue list against it.
 #
-# encode runs `issue-branch-prefix` and `issue-view`, both put on PATH
-# by the issues plugin; decode runs neither. The script opens no config
-# file itself. The grammar, the issue-argument forms, the validation
-# errors and the reconciliation outcomes are stated in
-# plugins/git-tools/README.md.
+# A convention branch name is
+#
+#   [<segment>/]issue-<N1>-<N2>-...-<Nk>-<slug>
+#
+# The <segment>/ is the prefix issue-branch-prefix resolves from the
+# repo's prefix mode, and nothing at all under mode `none`. After
+# `issue-`, the leading run of all-numeric hyphen-separated tokens is the
+# issue set, in implementation order; everything from the first
+# non-numeric token onward is the slug, and a slug is always present. The
+# order is a record for humans: every comparison against the set is a set
+# comparison. A slug may not begin with a digit, which is what keeps the
+# set recoverable: `2-space-indent` against issue 206 would read back as
+# the set {206, 2} with the slug `space-indent`.
+#
+# An issue argument, to encode and as decode's claimed issue, names an
+# issue in the repository of the current working tree as N or #N, where N
+# is a positive decimal integer with no leading zero. Arguments are
+# space-separated. A comma-separated list, a cross-repository reference
+# (repo#N, owner/repo#N, host/owner/repo#N) and an issue URL are each
+# rejected, naming the offending token: exit 3 under encode, a usage
+# error under decode. Output always carries the bare N.
+#
+# encode checks its arguments before it runs anything, and the assembled
+# name's length before it looks any issue up; every failure names the
+# offending value. It runs `issue-branch-prefix` once and `issue-view`
+# once per issue, both put on PATH by the issues plugin and called by
+# bare name, and opens no config file itself.
+#
+# decode runs no external command. It strips one optional leading
+# <segment>/ of any value, whatever the repo's prefix mode, so a branch
+# created under another user's prefix or before the prefix was configured
+# still decodes. A name that still carries a `/` after that strip, has no
+# issue number after `issue-`, or has no slug is not-a-convention-branch.
+# It exits 0 on both outcomes.
+#
+# Given a claimed list C against the branch set B, compared as sets,
+# decode resolves:
+#   - overlap: the members of B that C names; the claim selects, the
+#     branch bounds.
+#   - no overlap, B has one member: B, which guesses at nothing.
+#   - no overlap, B has several members: no resolved set, printed
+#     `(none)`; standing B in could resolve to members the caller left
+#     out on purpose, and the script has nothing to pick among them by.
+#   - not a convention branch: C, unchanged.
+# claimed-outside is the members of C not in B, computed against C as
+# passed, so a one-member stand-in never hides one. unclaimed is the
+# members of B the resolved set does not carry, which is all of B when
+# nothing resolved. Both are empty on the not-a-convention-branch
+# outcome. The script reports both lists and acts on neither.
 #
 # Exit statuses:
 #   0   success
@@ -16,13 +60,18 @@
 #   2   a usage error; nothing was run
 #   3   an issue argument is not N or #N
 #   4   one issue and no slug
-#   5   two or more issues and no slug
+#   5   two or more issues and no slug: a compound slug is the caller's
+#       to supply, never merged from the titles
 #   6   the slug begins with a digit
-#   7   the slug is not kebab-case
-#   8   issue-branch-prefix exited non-zero; its stderr is relayed
+#   7   the slug is not kebab-case: lowercase letters, digits and single
+#       hyphens only, starting with a lowercase letter and not ending
+#       with a hyphen
+#   8   issue-branch-prefix exited non-zero; its stderr is relayed above
+#       the script's line
 #   9   issue-branch-prefix printed no `prefix:` line
-#   10  the branch name is longer than 100 characters
+#   10  the branch name, prefix included, is longer than 100 characters
 #   11  issue-view exited non-zero for an issue; its stderr is relayed
+#       above the script's line
 #   12  an issue's state is not OPEN
 set -euo pipefail
 

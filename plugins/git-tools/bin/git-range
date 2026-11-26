@@ -8,6 +8,22 @@
 #
 # The contract is plugins/git-tools/skills/git-range/SKILL.md.
 #
+# The range is one `rev-list` over <prev-head>...<head>, with the merge
+# base standing in for an absent --prev-head, and each of its terms guards a different wrong answer; dropping any one still yields a
+# plausible range:
+#   --right-only     keeps only the head's side of the symmetric
+#                    difference, so a commit only the previous head
+#                    carries, such as one a rewrite left behind, is not
+#                    reported.
+#   --cherry-pick    drops a head commit whose patch matches one on the
+#                    previous head's side, so a commit a rebase only
+#                    replayed is not reported as new, while one whose
+#                    patch the rebase changed is.
+#   ^origin/<base>   keeps out every commit the base gained: after a
+#                    rebase that advances the base, those are reachable
+#                    from the head and not from the previous head, and
+#                    would otherwise read as the branch's own.
+#
 # Exit statuses:
 #   0  the range is on stdout
 #   1  a command failed, or a ref or commit the range needs is missing;
@@ -103,9 +119,6 @@ else
   prev=$merge_base
 fi
 
-# The ^origin/<base> term keeps out every commit the base gained: after a
-# rebase that advances the base, those are reachable from the head and
-# not from the previous head, and would otherwise read as the branch's.
 commits=$(git rev-list --right-only --cherry-pick "$prev...$head" "^refs/remotes/origin/$base")
 
 printf 'merge-base\t%s\n' "$merge_base"

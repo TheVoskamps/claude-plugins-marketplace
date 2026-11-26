@@ -2,7 +2,13 @@
 #
 # git-issue-branch-test.sh -- drive plugins/git-tools/bin/git-issue-branch,
 # under the bash 3.2 macOS ships, with stub `issue-branch-prefix` and
-# `issue-view` executables first on PATH.
+# `issue-view` executables first on PATH: the round trip under each
+# prefix mode, with and without trailing whitespace on the stub's values;
+# N and #N producing the same name and resolving the same claim; each
+# rejected argument form and each validation error with its exit status;
+# the relay of a failing `issue-branch-prefix`; decode succeeding while
+# that stub fails and calling neither stub; and every reconciliation
+# outcome with both side lists.
 #
 # Reaches no network and reads no config.
 #
