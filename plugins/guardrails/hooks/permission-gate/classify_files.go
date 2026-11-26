@@ -276,8 +276,9 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 // current worktree, or is one of the carve-outs (the ~/.claude tree, the
 // accepted account config directory, or the harness scratchpad prefix), so the
 // caller may proceed to its contained-path terminal (ALLOW for the
-// read-only-utility classifier, DEFER for classifyPathReader). A path the operator listed counts as contained for
-// that purpose when it sits beside an ordinary in-worktree operand.
+// read-only-utility classifier, DEFER for classifyPathReader). A path the
+// operator listed counts as contained for that purpose when it sits beside an
+// ordinary in-worktree operand.
 //
 // ok=false means the returned Decision settles the paths: the caller's own
 // terminal no longer applies. Usually that is a deny (cross-repo, a worktree
@@ -395,10 +396,10 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// A target under the real ~/.claude or the accepted account
 			// config directory, and the part of the harness scratchpad
 			// prefix matching neither the session nor the bundled-skills
-			// shape. Treat both as contained, leaving
-			// the caller's own terminal to govern — which differs by track, and
-			// is the read-only-utility classifier's ALLOW for the two callers
-			// here that hold one. That is this track's pre-existing terminal for
+			// shape. Treat both as contained, leaving the caller's own
+			// terminal to govern — which differs by track, and is the
+			// read-only-utility classifier's ALLOW for the two callers here
+			// that hold one. That is this track's pre-existing terminal for
 			// any contained operand, not a verdict either carve-out chose.
 		case contained:
 		}
