@@ -7,6 +7,12 @@
 # writes and no case reaches the real GitHub; the runs inside one case share
 # its state and build on each other.
 #
+# The fake's call log is how a case asserts which gh calls a run made, or that
+# a refusal made none. PATH also carries a stub curl, the same fake reading an
+# issue body as stored, so a body read that went through gh fails its case,
+# and a sleep that returns at once and logs each wait, so a case asserts the
+# waits a verb made without spending them.
+#
 # Usage: issues-bin-test.sh    (exit 0 when every case passes)
 
 set -uo pipefail

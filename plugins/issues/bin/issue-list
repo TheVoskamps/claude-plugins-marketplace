@@ -373,9 +373,11 @@ if [ "$view_set" = yes ]; then
   fi
 fi
 
-# Each group that can hold OR is parenthesized: OR binds loosest in the
-# board's filter grammar, so an unparenthesized one would widen the whole
-# query.
+# This search is the whole selection: GitHub evaluates it, the view's filter
+# in the board's own grammar included, and nothing below drops an item it
+# returns but --limit's cut, so that grammar is never reimplemented here. Each
+# group that can hold OR is parenthesized: OR binds loosest in the board's
+# filter grammar, so an unparenthesized one would widen the whole query.
 search=
 [ -z "$view_filter" ] || search="($view_filter) "
 search="${search}$repo_term$status_key:\"$status_name\" is:issue is:open"
