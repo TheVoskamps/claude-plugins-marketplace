@@ -49,13 +49,9 @@ parameters and what prompt", which is the whole point of this plugin.
 ### Why `PreToolUse` with matcher `Agent|Task`
 
 The spawn parameters live only in the tool call's `tool_input`, which
-is visible on `PreToolUse`. The repo's existing
-`block-background-agents`
-plugin already registers `PreToolUse` with matcher `Agent|Task` and
-demonstrably fires and reads `tool_input.run_in_background`, proving
-this event+matcher matches the subagent-spawn tool on the current
-Claude Code version. Matching both `Agent` and `Task` is harmless if
-only one name is live on a given build.
+is visible on `PreToolUse`. The matcher names both `Agent` and `Task`
+so the hook fires whichever name the spawn tool carries on a given
+Claude Code build.
 
 ## How it works
 
@@ -94,14 +90,6 @@ never breaks the hook:
 It then emits a single `systemMessage` JSON field containing a header
 line, the optional detail lines, and the full prompt under a `Prompt:`
 heading.
-
-**The official hooks docs do not publish a field-by-field schema for
-the spawn tool's `tool_input`.** `tool_input.run_in_background` is the
-only doc/empirically-confirmed field (via `block-background-agents`);
-the rest (`subagent_type`, `prompt`, `model`, `description`,
-`isolation`) are **inferred** from the Agent tool's own parameter
-schema — the same doc-gap inference `show-loaded-skills` already
-documents for `tool_input.skill`.
 
 ### Display-only guarantee
 

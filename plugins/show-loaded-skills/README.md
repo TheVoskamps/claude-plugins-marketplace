@@ -68,11 +68,7 @@ Skill loaded: review-pr (typed command)
 
 `hooks/show-loaded-skill-tool.sh` reads the `PreToolUse` stdin JSON,
 extracts the skill identifier from `tool_input` (`tool_input.skill`,
-falling back to `tool_input.name` — see the in-script comment; the
-official hooks docs don't publish a field-by-field schema for the
-`Skill` tool's `tool_input`, so this was inferred from the `Skill` tool's
-own parameter schema, which names the identifier `skill`), and emits the
-analogous message:
+falling back to `tool_input.name`), and emits the analogous message:
 
 ```text
 Skill loaded: review-pr (model-invoked)
@@ -87,10 +83,6 @@ Both hooks are **display-only**:
   (allow/deny/ask) and `updatedInput`. This plugin never emits
   `hookSpecificOutput` — it must leave the normal permission flow
   completely untouched and only surface a message.
-
-Only the `systemMessage` JSON stdout field reaches the user for these
-events (plain stdout on `UserPromptExpansion` feeds Claude's context, not
-the user's UI; plain stdout on `PreToolUse` isn't surfaced to either).
 
 ### Malformed / empty stdin
 

@@ -1,5 +1,11 @@
 # show-loaded-skills changelog
 
+## 0.1.2 — 2026-11-25
+
+Documentation only: the README no longer carries notes on how Claude
+Code's hook events behave, and keeps to what the plugin does and why.
+Behavior is unchanged.
+
 ## 0.1.1 — 2026-09-11
 
 Documentation and code comments only: links and pointers to files

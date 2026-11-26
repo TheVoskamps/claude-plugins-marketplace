@@ -52,15 +52,6 @@ JSON, extracts `file_path` and `load_reason`, and emits a
 Rules loaded: /path/to/CLAUDE.md (session_start)
 ```
 
-`InstructionsLoaded` is observe-only — it has no decision control and
-its exit code is ignored, so the hook cannot block or alter a load. It
-also does not surface plain stdout to the user for this event; only the
-`systemMessage` JSON field does, which is why the script emits JSON
-rather than printing text directly. The event fires once per file
-loaded, both at session start and on lazy loads during the session,
-with `load_reason` one of `session_start`, `nested_traversal`,
-`path_glob_match`, `include`, or `compact`.
-
 ### Malformed / empty stdin
 
 If stdin is empty or not valid JSON, the script falls back to
@@ -70,5 +61,5 @@ purely observational, so a best-effort message beats a hard failure.
 ## Scope
 
 This plugin only covers rules/instruction files (`InstructionsLoaded`).
-Skill-loading visibility is a separate concern, tracked separately and
-not covered here.
+Skill-loading visibility is a separate concern, covered by
+`show-loaded-skills`.

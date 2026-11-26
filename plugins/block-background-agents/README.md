@@ -27,9 +27,9 @@ When such an agent hits an ask-list command (or any prompt-gated action),
 the prompt has nowhere to surface, so the agent silently stalls — it
 neither proceeds nor reports a clear, actionable reason.
 
-This is the same failure class documented for `SendMessage`-resumption in
-`~/.claude/rules/foreground-vs-background.md`, but here the trigger is the
-*initial* background spawn rather than resumption.
+The trigger this plugin guards is the *initial* spawn. The hook matches
+the spawn tool alone, so it does nothing about an agent that ends up
+detached by a later route.
 
 This plugin is deliberately separate from the compiled `guardrails`
 permission-gate so it stays a small, auditable shell hook.
