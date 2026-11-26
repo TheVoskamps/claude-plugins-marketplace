@@ -145,7 +145,7 @@ LREADY="$WORK/tcp-listener.ready"
 LPID="$(start_tcp_listener "$LPORT" "$LREADY")"
 LISTENER_PIDS+=("$LPID")
 # Wait for the listener's own ready signal, or for it to exit having failed
-# to bind.
+# to bind or to create the ready file.
 for _ in $(seq 1 100); do
   [ -e "$LREADY" ] && break
   kill -0 "$LPID" 2>/dev/null || break
