@@ -148,12 +148,21 @@ and any difference is a defect.
 So a PR that moves or renames a config path the `issues` plugin owns
 edits every plugin that spells it, in one PR, and bumps each of their
 versions. Find them by grepping the literal, not by opening the plugins
-the diff already touched:
+the diff already touched. Key the grep on the path's last component,
+never on its directory prefix, which each consumer spells its own way —
+`.issues/`, `$XDG_CONFIG_HOME/issues/`,
+`${XDG_CONFIG_HOME:-$HOME/.config}/issues/`, a test's
+`$CASE_DIR/xdg/issues`. Every spelling ends in a config file's
+name or in the directory `issues` or `.issues` ending the path:
 
 ```bash
-grep -rn '\.issues/' plugins/
-grep -rnE '(XDG_CONFIG_HOME|\.config\})/issues' plugins/
+grep -rnE '(repo|user)-config\.md' plugins/
+grep -rnE "[./]issues/?([\"'\`[:space:]]|\$)" plugins/
 ```
+
+The second grep also prints a few `issues` that are no config path, such
+as a `gh api repos/o/r/issues` call; read past them rather than
+narrowing the pattern back onto a prefix.
 
 ### Sharing an interface across an agent set: one preloaded skill
 
