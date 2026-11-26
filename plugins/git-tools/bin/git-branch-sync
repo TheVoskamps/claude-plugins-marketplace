@@ -107,11 +107,15 @@ current_branch() {
 }
 
 # rebase_in_progress -- succeed when a rebase is stopped in this
-# checkout.
+# checkout. Every caller tests its status, which keeps the ERR trap and
+# `set -e` off inside it, so a failing git-path read exits 1 here rather
+# than reading as no rebase.
 rebase_in_progress() {
   local merge apply
-  merge=$(git rev-parse --git-path rebase-merge)
-  apply=$(git rev-parse --git-path rebase-apply)
+  merge=$(git rev-parse --git-path rebase-merge || exit) ||
+    fail 1 "\`git rev-parse --git-path rebase-merge\` failed (exit $?)"
+  apply=$(git rev-parse --git-path rebase-apply || exit) ||
+    fail 1 "\`git rev-parse --git-path rebase-apply\` failed (exit $?)"
   [ -d "$merge" ] || [ -d "$apply" ]
 }
 

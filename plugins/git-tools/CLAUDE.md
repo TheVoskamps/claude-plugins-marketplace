@@ -14,6 +14,12 @@ encoding.
   `bin/git-issue-branch`, whose header comment states them, together
   with `test/git-issue-branch-test.sh`, and restate them in no
   `SKILL.md`; the encode-decode round trip is the contract to re-check.
+- `/git-branch-create` reads `default-issue-source-branch` from
+  `.issues/repo-config.md` with an inline parse of that one front-matter
+  line, not the `issues` plugin's reader contract, because plugins are
+  file-sandboxed and that contract does not resolve from here. It is the
+  plugin's only config read: any other value reaches git-tools through
+  an `issues` script on `PATH`, as the branch prefix does.
 - Every script under `bin/` runs under the bash 3.2 macOS ships, and a
   command it does not handle that fails exits 1 with a line naming the
   command, never with the tool's own status.

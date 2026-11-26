@@ -13,8 +13,8 @@
 # `issue-`, the leading run of all-numeric hyphen-separated tokens is the
 # issue set, in implementation order; everything from the first
 # non-numeric token onward is the slug, and a slug is always present. The
-# order is a record for humans: every comparison against the set is a set
-# comparison. A slug may not begin with a digit, which is what keeps the
+# order is a record for humans: no comparison against the set reads it.
+# A slug may not begin with a digit, which is what keeps the
 # set recoverable: `2-space-indent` against issue 206 would read back as
 # the set {206, 2} with the slug `space-indent`.
 #
@@ -39,14 +39,18 @@
 # issue number after `issue-`, or has no slug is not-a-convention-branch.
 # It exits 0 on both outcomes.
 #
-# Given a claimed list C against the branch set B, compared as sets,
-# decode resolves:
+# Given a claimed list C against the branch set B, compared as sets but
+# where noted, decode resolves:
 #   - overlap: the members of B that C names; the claim selects, the
 #     branch bounds.
-#   - no overlap, B has one member: B, which guesses at nothing.
-#   - no overlap, B has several members: no resolved set, printed
-#     `(none)`; standing B in could resolve to members the caller left
-#     out on purpose, and the script has nothing to pick among them by.
+#   - no overlap, the name carries one number: that number, which
+#     guesses at nothing.
+#   - no overlap, the name carries several numbers: no resolved set,
+#     printed `(none)`; standing B in could resolve to members the caller
+#     left out on purpose, and the script has nothing to pick among them
+#     by. This counts the numbers in the name, not the members of B, so
+#     a name that repeats one number, such as issue-5-5-<slug>, lands
+#     here.
 #   - not a convention branch: C, unchanged.
 # claimed-outside is the members of C not in B, computed against C as
 # passed, so a one-member stand-in never hides one. unclaimed is the
