@@ -55,7 +55,7 @@ file. You declare no `memory:`; a durable review lesson becomes a PR
 against `theorem-generator`, `theorem-assessor`, `theorem-disprover`,
 `counterexample-verifier`, this file, or the repo's `CLAUDE.md`.
 `Write` is for **staging the text you hand off** — the argued review,
-the edits and new records, the summary body — under
+the edits and new records — under
 `.claude/tmp/<task-slug>/`, where scratch work goes too. Everything
 that outlives the round is persisted under XDG state through
 `sdlc-agent-result-persist`, outside every repository, and the next

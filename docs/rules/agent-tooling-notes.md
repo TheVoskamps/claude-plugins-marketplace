@@ -91,7 +91,9 @@ travelled in the review, carried backticks on 97 of its lines.
 So pass a long body by path. `gh`'s body-carrying verbs each take
 `-F`/`--body-file` alongside `-b`/`--body` and reject both at once, so
 the file form needs no quoting at all: stage the text with `Write`
-under `<repo-root>/.claude/tmp/<task-slug>/` and name the path.
+under `<repo-root>/.claude/tmp/<task-slug>/` and name the path. One
+exception: a review body is written by
+`sdlc-agent-result-persist --mode summary --out`, not with `Write`.
 `sdlc:theorem-based-pr-reviewer` posts every review that way, through
 `/github-prs:pr-review-submit --body-file`, and the script
 `sdlc:pr-finalizer` runs posts each detail chunk with

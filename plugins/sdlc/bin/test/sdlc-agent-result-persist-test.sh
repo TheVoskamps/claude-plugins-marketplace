@@ -40,7 +40,10 @@
 #     round that spawned nothing, and a theorem the assessor rejected,
 #     which only a --full round gives a row.
 #   - --mode summary over a stored records file and review file, and the
-#     review-round stamp it opens with.
+#     review-round stamp it opens with; and --out over a new path, an
+#     existing file, a refused and a failed render, a failed staging, a
+#     missing parent directory, a directory, an empty value and another
+#     mode.
 #   - --mode rounds over rounds with and without a log, round 0 and a
 #     voided round among them.
 #   - --mode progress over a PR with no log, a round mid-disprove beside a
@@ -992,11 +995,88 @@ assert_contains "summary: a theorem settled this round says what it was" \
   "- T2 — retired, survived — was disproved, finding 1, High — \`round2/T2-theorem-disprover\`" "$OUT"
 assert_eq "summary: the stamp names the round it renders" "<!-- sdlc:review-round 2 -->" "${OUT%%$'\n'*}"
 
+# same <name> <expected file> <actual file>: the two hold the same bytes.
+same() {
+  if cmp -s "$2" "$3"; then
+    pass "$1"
+  else
+    fail "$1" "expected the bytes of $2" "actual: [$(cat "$3")]"
+  fi
+}
+
+# refused_out <what> <needle>: the last run was refused, naming <needle>,
+# printed nothing, and left the sentinel file at $CASE/out/kept and
+# nothing else in $CASE/out.
+refused_out() {
+  assert_eq "summary --out: $1 exits 2 with no stdout" "2:" "$RC:$OUT"
+  assert_contains "summary --out: $1 says why" "$2" "$ERR"
+  assert_eq "summary --out: $1 leaves the file at the path unchanged" "sentinel" "$(cat "$CASE/out/kept")"
+  assert_eq "summary --out: $1 leaves nothing else behind" "kept" "$(ls -A "$CASE/out")"
+}
+
+"$PERSIST" --pr "$PR" --mode summary --round 2 >"$CASE/printed" </dev/null ||
+  fail "setup call failed: summary to a file"
+mkdir -p "$CASE/out"
+run --mode summary --round 2 --out "$CASE/out/new"
+assert_eq "summary --out: exits 0 and prints nothing" "0:" "$RC:$OUT"
+same "summary --out: writes the bytes the mode prints without it" "$CASE/printed" "$CASE/out/new"
+assert_eq "summary --out: leaves no staging file" "new" "$(ls -A "$CASE/out")"
+rm "$CASE/out/new"
+printf 'sentinel\n' >"$CASE/out/kept"
+run --mode summary --round 2 --out "$CASE/out/kept"
+assert_eq "summary --out: an existing file exits 0 and prints nothing" "0:" "$RC:$OUT"
+same "summary --out: replaces an existing file" "$CASE/printed" "$CASE/out/kept"
+printf 'sentinel\n' >"$CASE/out/kept"
+
+run --mode summary --round 2 --out "$CASE/out/absent/summary"
+refused_out "a missing parent directory" "$CASE/out/absent/summary"
+run --mode summary --round 2 --out "$CASE/out"
+refused_out "a directory" "$CASE/out"
+run --mode summary --round 2 --out ""
+refused_out "an empty value" "--out"
+for mode in anchor spawn enter leave return stopped print print-in-flight wait records review \
+  print-records print-round-records print-review print-root agent print-agents rounds progress \
+  delete next dispose seed-review; do
+  run --mode "$mode" --out "$CASE/out/kept"
+  refused_out "--mode $mode" "--out is not accepted in --mode $mode"
+done
+OUT=$("$PERSIST" --mode list o/r --out "$CASE/out/kept" 2>"$CASE/err" </dev/null)
+RC=$?
+ERR=$(cat "$CASE/err")
+refused_out "--mode list" "--out is not accepted in --mode list"
+OUT=$("$PERSIST" --mode repos --out "$CASE/out/kept" 2>"$CASE/err" </dev/null)
+RC=$?
+ERR=$(cat "$CASE/err")
+refused_out "--mode repos" "--out is not accepted in --mode repos"
+
+# An awk that prints part of the body and then fails, and a cp that fails,
+# each ahead of the real one on PATH for one call.
+mkdir -p "$CASE/bin-awk" "$CASE/bin-cp"
+cat >"$CASE/bin-awk/awk" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *'Closing-line corrections'*)
+    echo partial
+    echo 'awk broke' >&2
+    exit 1
+    ;;
+esac
+exec "$(command -v awk)" "\$@"
+EOF
+printf '#!/usr/bin/env bash\nexit 1\n' >"$CASE/bin-cp/cp"
+chmod +x "$CASE/bin-awk/awk" "$CASE/bin-cp/cp"
+PATH="$CASE/bin-awk:$PATH" run --mode summary --round 2 --out "$CASE/out/kept"
+refused_out "a failed render" "awk broke"
+PATH="$CASE/bin-cp:$PATH" run --mode summary --round 2 --out "$CASE/out/kept"
+refused_out "a failed staging" "could not stage $CASE/out/kept"
+
 sed '/^## Overall verdict/,/^Fix/d' "$CASE/review" >"$CASE/short-review"
 must --mode review --round 2 --from "$CASE/short-review"
 run --mode summary --round 2
 assert_eq "summary: a review missing a copied section is refused" "2" "$RC"
 assert_contains "summary: the refusal names the section" '"## Overall verdict"' "$ERR"
+run --mode summary --round 2 --out "$CASE/out/kept"
+refused_out "a refused render" '"## Overall verdict"'
 
 # --- rounds ----------------------------------------------------------------
 

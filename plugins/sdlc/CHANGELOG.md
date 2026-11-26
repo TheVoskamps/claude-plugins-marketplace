@@ -1,5 +1,24 @@
 # sdlc changelog
 
+## 0.99.1 — 2026-11-24
+
+A review round posts its review again. `theorem-based-pr-reviewer`
+staged the review body by writing `summary.md` with the `Write` tool,
+and the harness refuses a subagent that write, so a reviewer running as
+a subagent posted no review.
+
+- The reviewer posts its review from a file
+  `sdlc-agent-result-persist --mode summary --out` writes, so no step
+  has a model copy the body.
+- `sdlc-agent-result-persist --mode summary` takes an optional
+  `--out <path>`. With it, the mode writes the bytes it otherwise prints
+  to that path and prints nothing; without it, the output is unchanged.
+- The body is rendered whole before it replaces the file at the path,
+  so a render that fails or is refused leaves that file as it was.
+- `--out` is refused with an empty path, a path that is a directory, a
+  path whose parent directory is missing, and in every other mode. The
+  script creates no directory.
+
 ## 0.99.0 — 2026-11-23
 
 The README is now a user manual: what the plugin does, why you would

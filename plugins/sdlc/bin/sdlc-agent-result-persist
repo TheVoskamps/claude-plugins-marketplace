@@ -17,7 +17,7 @@
 # whole, which is the only way any of it is ever removed, and lists the
 # repositories the state root holds.
 #
-# Every path is composed here — the round log, each result file, the
+# Every path into the state is composed here — the round log, each result file, the
 # records file, the review file, the PR's agents log and each child's
 # harness transcript — or, for the repository's repo.yml, in the layout
 # functions of the file sourced below, which sdlc-decision shares, so no
@@ -64,7 +64,7 @@ usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 [--tokens <n>] [--tools <n>] [--ms <n>] [--from <path>]
                 [--carry] [--edits <path>] [--full]
                 [--deadline-minutes <n>] [--loop-exited] [--issues <issues>]
-                [--value accept-recommended]
+                [--value accept-recommended] [--out <path>]
        $PROGRAM --mode list [((<host>/)<owner>/)<repo> | https://<host>/<owner>/<repo>]
        $PROGRAM --mode repos
 EOF
@@ -95,6 +95,7 @@ loop_exited=
 deadline_minutes=
 issues=
 value_flag=
+out=
 # Every flag but --mode the caller gave, by name, whatever its value.
 given_flags=
 
@@ -105,7 +106,7 @@ while [ "$#" -gt 0 ]; do
     --*) given_flags="$given_flags $flag" ;;
   esac
   case "$flag" in
-    --mode | --pr | --round | --head-sha | --round-type | --theorem | --stage | --agent | --model | --effort | --agent-id | --tokens | --tools | --ms | --from | --edits | --deadline-minutes | --issues | --value)
+    --mode | --pr | --round | --head-sha | --round-type | --theorem | --stage | --agent | --model | --effort | --agent-id | --tokens | --tools | --ms | --from | --edits | --deadline-minutes | --issues | --value | --out)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -159,6 +160,7 @@ while [ "$#" -gt 0 ]; do
     --deadline-minutes) deadline_minutes=$value ;;
     --issues) issues=$value ;;
     --value) value_flag=$value ;;
+    --out) out=$value ;;
   esac
 done
 
@@ -179,6 +181,19 @@ if [ "$mode" = repos ]; then
     die "$given is not accepted in --mode repos"
   done
 fi
+
+# --out is summary's alone: the caller's own file for the rendered body.
+# It is recognized by its presence, so an empty value is refused rather
+# than read as no --out. A directory at the path is refused because the
+# rename in install_whole would land inside it.
+case "$given_flags " in
+  *' --out '*)
+    [ "$mode" = summary ] || die "--out is not accepted in --mode $mode: $out"
+    [ -n "$out" ] || die "--out needs a path"
+    [ ! -d "$out" ] || die "--out names a directory: $out"
+    [ -d "$(dirname -- "$out")" ] || die "--out names a path whose parent directory does not exist: $out"
+    ;;
+esac
 
 # The state root as the script opens it, and as the signpost a human is
 # shown, unexpanded; the two spell the same fallback and change together.
@@ -589,9 +604,9 @@ read_payload() {
   fi
 }
 
-# install_whole <source> <target>: the way every file stored whole — a
-# result file, the records, the review — reaches its name, unlike the
-# log, which grows by appends. It lands in a staging name and is renamed
+# install_whole <source> <target>: the way every file written whole — a
+# result file, the records, the review, the body at summary's --out path —
+# reaches its name, unlike the log, which grows by appends. It lands in a staging name and is renamed
 # into place only once it is whole, because a stored file's mere
 # existence is what a reader takes as settled: a file streamed straight
 # to its own name would read as complete the moment the first byte
@@ -1511,11 +1526,12 @@ AWK
 
 migrate_old_layout
 
-# Every mode that writes creates the directory it writes into, and the
-# repository's repo.yml with it: the round's directory, or the PR's for
-# agent, which writes no round. Past migrate_old_layout's move, the
-# reading modes and delete create nothing, and neither does a refused
-# carry, which creates the directory only once its file is built.
+# Every mode that writes state creates the directory it writes into, and
+# the repository's repo.yml with it: the round's directory, or the PR's
+# for agent, which writes no round. Past migrate_old_layout's move, the
+# reading modes and delete create nothing but summary's --out file, and
+# neither does a refused carry, which creates the directory only once its
+# file is built.
 make_dir() {
   mkdir -p "$dir"
   write_repo_yml
@@ -1884,7 +1900,12 @@ case "$mode" in
     awk -v prog="$PROGRAM" -v round="$round" -v review_file="$review_file" \
       -v records_file="$records_file" -v prev_file="$prev_file" -v results_file="$work/results" \
       -v root="$state_root_form/$host/$owner/$repo/pr$pr/" -v marker="$(sp_review_round_marker "$round")" \
-      "$(summary_prog)" "$review_file" "$records_file" "$prev_file" "$work/results" ||
+      "$(summary_prog)" "$review_file" "$records_file" "$prev_file" "$work/results" >"$work/summary" ||
       exit 2
+    if [ -n "$out" ]; then
+      install_whole "$work/summary" "$out"
+    else
+      cat -- "$work/summary"
+    fi
     ;;
 esac
