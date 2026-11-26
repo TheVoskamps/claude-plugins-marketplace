@@ -295,11 +295,10 @@ jobs:
             echo "Slash command /rebase on PR #$COMMENT_PR_NUMBER"
             # Query just the commenting PR. Same field set as the sweep
             # query so the jq filter and loop are reused unchanged.
-            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
-            PRS_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $number: Int!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequest(number: $number) {
+            PRS_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$number: Int!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequest(number: \$number) {
                     number
                     isDraft
                     mergeStateStatus
@@ -313,7 +312,7 @@ jobs:
                     labels(first: 50) { nodes { name } }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
+              }" -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
 
             # Reshape `pullRequest` (single object) into the same
             # `pullRequests.nodes[]` array shape the sweep query returns,
@@ -350,11 +349,10 @@ jobs:
             # dropped here: CLEAN/UNSTABLE are already up-to-date, DIRTY is
             # a GitHub-visible merge conflict (rebase would just abort),
             # HAS_HOOKS / UNKNOWN are out of scope.
-            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
-            PRS_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $base: String!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequests(states: OPEN, first: 100, baseRefName: $base) {
+            PRS_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$base: String!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequests(states: OPEN, first: 100, baseRefName: \$base) {
                     nodes {
                       number
                       isDraft
@@ -369,7 +367,7 @@ jobs:
                     }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
+              }" -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
 
             # Exclude Dependabot-authored PRs from routine behind-main
             # rebasing UNLESS a non-Dependabot actor has already pushed to
@@ -523,11 +521,10 @@ jobs:
               echo "No standalone /rebase command; skipping lockfile-regen pass."
               exit 0
             fi
-            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
-            REGEN_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $number: Int!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequest(number: $number) {
+            REGEN_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$number: Int!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequest(number: \$number) {
                     number
                     isDraft
                     headRefName
@@ -542,18 +539,17 @@ jobs:
                     }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
+              }" -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
             CANDIDATES_RAW=$(echo "$REGEN_JSON" | jq -c --arg base "$BASE_BRANCH" '
               .data.repository.pullRequest
               | select(. != null)
               | select(.baseRefName == $base)
               | [.]')
           else
-            # shellcheck disable=SC2016  # $owner etc. are GraphQL variables
-            REGEN_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $base: String!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequests(states: OPEN, first: 100, baseRefName: $base) {
+            REGEN_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$base: String!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequests(states: OPEN, first: 100, baseRefName: \$base) {
                     nodes {
                       number
                       isDraft
@@ -569,7 +565,7 @@ jobs:
                     }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
+              }" -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
             CANDIDATES_RAW=$(echo "$REGEN_JSON" | jq -c '
               .data.repository.pullRequests.nodes')
           fi
