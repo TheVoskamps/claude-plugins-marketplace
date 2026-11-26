@@ -2,7 +2,7 @@
 # per-machine location:
 #   ~/.config/claude-github-app/config   (chmod 600)
 #
-# Placeholders (see ${CLAUDE_PLUGIN_ROOT}/payload/README.md for the convention):
+# Placeholders:
 #   __APP_ID__           numeric GitHub App ID (from the App settings page)
 #   __INSTALLATION_ID__  numeric installation ID (install URL ends /installations/<id>)
 #   __APP_SLUG__         the App slug (from the App settings URL)

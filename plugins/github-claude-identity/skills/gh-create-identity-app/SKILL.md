@@ -3,6 +3,8 @@ name: gh-create-identity-app
 description: "Provision the per-user Claude Code GitHub App identity — a dedicated bot account that Claude's commits, pushes, PRs, and issue comments are attributed to, distinct from your personal identity. Walks the UI-gated App registration, deploys the un-mirrored per-machine token-minting + credential-helper scripts to ~/.config/claude-github-app/, renders the config from your App identifiers, applies the per-repo bot-identity override, and verifies the bot acts correctly. Idempotent: detects an already-configured machine/repo and converges instead of re-doing."
 ---
 
+# GH Create Identity App
+
 You are running the `/gh-create-identity-app` skill. Your job is to set
 up the **per-user Claude Code GitHub App identity** so that everything
 Claude Code does on GitHub — commits, pushes, PRs, issue comments — is
@@ -256,7 +258,13 @@ signal the hook keys on. Placeholder map:
 
 Strip the template's leading comment block, write the result to
 `<config-dir>/config`, and `chmod 600` it. Never write the config with
-unresolved `__...__` placeholders: abort instead.
+unresolved `__...__` placeholders. Abort instead, with exactly this,
+where `__NAME__` is the unresolved placeholder:
+
+> Unresolved placeholder `__NAME__` in template
+> `gh-create-identity-app/config.template`. Pass a value or add
+> inference logic.
+
 The rendered config holds your App identifiers and **stays in the
 un-mirrored `<config-dir>`** — it is never written into a repo.
 

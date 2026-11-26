@@ -1,5 +1,15 @@
 # github-claude-identity changelog
 
+## 0.1.2 — 2026-11-25
+
+The plugin gains a README that says what it does, what it needs before
+it works, what a setup run looks like and what it leaves alone.
+
+`payload/README.md` is gone. `/gh-create-identity-app` is now the only
+statement of how the config is rendered, and it gives the exact message
+it aborts with when a placeholder in the config template has no value.
+What the skill provisions is unchanged.
+
 ## 0.1.1 — 2026-11-23
 
 Internal only: agents no longer read this plugin's READMEs.
