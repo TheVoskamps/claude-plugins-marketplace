@@ -10,7 +10,8 @@ promotion of a private repo to public.
 Each skill runs from inside a repository's checkout and acts on that
 repository; `/gh-create-app` can be pointed at another with
 `--target-repo`. Not every change waits for your approval: each section
-below says what the skill changes and what it asks you first.
+below says what the skill changes and names the questions that decide
+it. A skill may ask you something lesser that its section leaves out.
 
 ## What you need first
 
@@ -66,6 +67,8 @@ What it asks you for:
   is done.
 - Under `--permissions=custom`, the permissions you want in place of
   the default set.
+- Whether to overwrite a metadata doc that differs from the one it
+  would write. It shows you the diff first, and stops until you answer.
 
 Running it again is safe. When a suitable App is already installed on
 the repository, it offers to verify the secrets and refresh the
@@ -115,6 +118,7 @@ What it changes:
 
 What it asks you for:
 
+- Which App to use, when it finds more than one suitable App.
 - To confirm the values it resolved, before it writes a file or sets a
   secret.
 - To confirm the required-check workflow it proposes, when you did not
