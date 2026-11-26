@@ -676,9 +676,8 @@ var harnessSessionShape = regexp.MustCompile(
 // none of the bounds stated there — a variable that is the home itself, an
 // operator's explicit opt-in with denies that bound what a relocated root can
 // hand out, or a fixed shape the value must match — is available for this
-// region. Shape-checking also survives an
-// upgrade, where the previous version's directory lingers alongside the new
-// one.
+// region. Shape-checking also survives an upgrade, where the previous version's
+// directory lingers alongside the new one.
 //
 // The evidence base here is narrower than for the session shape: one version
 // directory, one hash directory, one machine. A channel-tagged version such as

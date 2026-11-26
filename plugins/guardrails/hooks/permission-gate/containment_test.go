@@ -2559,9 +2559,10 @@ func TestAccountConfigCarveOutMatchesClaudeConfig(t *testing.T) {
 
 // accountConfigRoot accepts $HOME/.claude.<name> in every spelling that Cleans
 // to it, and nothing else: no arbitrary directory, no symlink, no backup, no
-// name outside the alphabet, and no .claude.<name> under another parent. An
-// accepted value puts its directory in the claudeConfig region, and a home the
-// process may search but not list still lets the directory be accepted.
+// empty or out-of-alphabet name, no directory that is absent, no relative
+// spelling, and no .claude.<name> under another parent. An accepted value puts
+// its directory in the claudeConfig region, and a home the process may search
+// but not list still lets the directory be accepted.
 func TestAccountConfigRootAcceptance(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
