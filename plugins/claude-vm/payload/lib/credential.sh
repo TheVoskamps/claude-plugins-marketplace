@@ -53,7 +53,7 @@
 # widen the set. Pure.
 claude_vm_account_name_valid() {
   case "${1:-}" in
-    ''|backup) return 1 ;;
+    '' | backup) return 1 ;;
     *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;
   esac
   return 0
@@ -307,9 +307,9 @@ claude_vm_select_claude_json_seed() {
   # json.dumps runs only after BOTH host identity keys are validated and is the
   # last statement, so a failure exits non-zero WITHOUT writing partial output.
   CLAUDE_VM_SEED_VERSION="${1:-}" \
-  CLAUDE_VM_SEED_HOST_REPO_PATH="${2:-}" \
-  CLAUDE_VM_SEED_GUEST_REPO_PATH="${3:-}" \
-  python3 -c '
+    CLAUDE_VM_SEED_HOST_REPO_PATH="${2:-}" \
+    CLAUDE_VM_SEED_GUEST_REPO_PATH="${3:-}" \
+    python3 -c '
 import sys, json, os
 try:
     doc = json.load(sys.stdin)

@@ -145,6 +145,7 @@ STR_BLOB='{"claudeAiOauth": "not-an-object"}'
 OUT4="$(printf '%s' "$STR_BLOB" | claude_vm_select_claude_credential)"
 RC4=$?
 assert_rc "claudeAiOauth=string: selection exits non-zero" "1" "$RC4"
+assert_eq "claudeAiOauth=string: NOTHING written to stdout" "" "$OUT4"
 
 # Invalid JSON -> fail-fast, no output.
 OUT5="$(printf '%s' "not json at all {" | claude_vm_select_claude_credential)"
@@ -156,6 +157,7 @@ assert_eq "invalid JSON: NOTHING written to stdout" "" "$OUT5"
 OUT6="$(printf '%s' "" | claude_vm_select_claude_credential)"
 RC6=$?
 assert_rc "empty input: selection exits non-zero" "1" "$RC6"
+assert_eq "empty input: NOTHING written to stdout" "" "$OUT6"
 
 # A clean single-key blob (already only claudeAiOauth) round-trips fine.
 SINGLE_BLOB='{"claudeAiOauth": {"accessToken": "only-token"}}'
@@ -213,6 +215,7 @@ NONSTR_TOKEN='{"claudeAiOauth": {"accessToken": 12345, "refreshToken": "ref-456"
 VOUT6="$(printf '%s' "$NONSTR_TOKEN" | claude_vm_validate_claude_credential_tokens)"
 VRC6=$?
 assert_rc "validate: non-string accessToken exits 1" "1" "$VRC6"
+assert_eq "validate: non-string accessToken writes nothing" "" "$VOUT6"
 
 # Invalid JSON -> exit 1, no stdout.
 VOUT7="$(printf '%s' "not json {" | claude_vm_validate_claude_credential_tokens)"
@@ -225,6 +228,7 @@ NO_CRED='{"mcpOAuth": {"x": {"accessToken": "y"}}}'
 VOUT8="$(printf '%s' "$NO_CRED" | claude_vm_validate_claude_credential_tokens)"
 VRC8=$?
 assert_rc "validate: no claudeAiOauth key exits 1" "1" "$VRC8"
+assert_eq "validate: no claudeAiOauth key writes nothing" "" "$VOUT8"
 
 # ---------------------------------------------------------------------
 # claude_vm_select_claude_json_seed (issue #88): build the identity seed from
@@ -480,18 +484,21 @@ BAD_USER='{"userID": 12345, "oauthAccount": {"a": "b"}}'
 SO3="$(printf '%s' "$BAD_USER" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
 SR3=$?
 assert_rc "seed: non-string userID exits non-zero" "1" "$SR3"
+assert_eq "seed: non-string userID writes nothing" "" "$SO3"
 
 # Fail-closed: oauthAccount present but not an object.
 BAD_OAUTH='{"userID": "abc", "oauthAccount": "not-an-object"}'
 SO4="$(printf '%s' "$BAD_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
 SR4=$?
 assert_rc "seed: non-object oauthAccount exits non-zero" "1" "$SR4"
+assert_eq "seed: non-object oauthAccount writes nothing" "" "$SO4"
 
 # Fail-closed: empty oauthAccount object -> not usable.
 EMPTY_OAUTH='{"userID": "abc", "oauthAccount": {}}'
 SO5="$(printf '%s' "$EMPTY_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
 SR5=$?
 assert_rc "seed: empty oauthAccount exits non-zero" "1" "$SR5"
+assert_eq "seed: empty oauthAccount writes nothing" "" "$SO5"
 
 # Fail-closed: invalid JSON.
 SO6="$(printf '%s' "not json {" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
@@ -503,6 +510,7 @@ assert_eq "seed: invalid JSON writes nothing" "" "$SO6"
 SO7="$(printf '%s' "" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
 SR7=$?
 assert_rc "seed: empty input exits non-zero" "1" "$SR7"
+assert_eq "seed: empty input writes nothing" "" "$SO7"
 
 # ---------------------------------------------------------------------
 # claude_vm_account_name_valid: ASCII letters, digits, `_` and `-` only, at
@@ -512,7 +520,7 @@ for good in "work" "Work_2" "a-b" "x" "-" "backup2" "my_backup"; do
   claude_vm_account_name_valid "$good"
   assert_rc "account name '$good' is accepted" "0" "$?"
 done
-for bad in "" "backup" "a b" "a/b" "../x" "a.b" "work!" "é" "wörk" 'a$b' "a
+for bad in "" "backup" "a b" "a/b" "../x" "a.b" "work!" "é" "wörk" "a\$b" "a
 b"; do
   claude_vm_account_name_valid "$bad"
   assert_rc "account name '$bad' is refused" "1" "$?"
@@ -537,7 +545,7 @@ done
 nl_hex="$(python3 -c 'import hashlib; print(hashlib.sha256(b"/Users/operator/.claude.work\n").hexdigest()[:8])')"
 case "$(claude_vm_keychain_service "/Users/operator/.claude.work")" in
   *"-$nl_hex") assert_eq "keychain service hashes the path with no trailing newline" "no-newline" "newline" ;;
-  *)           assert_eq "keychain service hashes the path with no trailing newline" "no-newline" "no-newline" ;;
+  *) assert_eq "keychain service hashes the path with no trailing newline" "no-newline" "no-newline" ;;
 esac
 
 # ---------------------------------------------------------------------
@@ -557,7 +565,7 @@ assert_rc "account dir: a missing directory is refused" "1" "$AD_RC"
 assert_eq "account dir: a missing directory prints nothing on stdout" "" "$AD_OUT"
 case "$(cat "$ACCT_HOME/err")" in
   *"account 'absent'"*) assert_eq "account dir: the missing-directory refusal names the account" "named" "named" ;;
-  *)                    assert_eq "account dir: the missing-directory refusal names the account" "named" "unnamed" ;;
+  *) assert_eq "account dir: the missing-directory refusal names the account" "named" "unnamed" ;;
 esac
 mkdir -p "$ACCT_HOME/.claude.backup"
 AD_OUT="$(HOME="$ACCT_HOME" claude_vm_account_dir backup 2>"$ACCT_HOME/err")"
@@ -565,7 +573,7 @@ AD_RC=$?
 assert_rc "account dir: 'backup' is refused even when the directory exists" "1" "$AD_RC"
 case "$(cat "$ACCT_HOME/err")" in
   *"account 'backup'"*) assert_eq "account dir: the invalid-name refusal names the account" "named" "named" ;;
-  *)                    assert_eq "account dir: the invalid-name refusal names the account" "named" "unnamed" ;;
+  *) assert_eq "account dir: the invalid-name refusal names the account" "named" "unnamed" ;;
 esac
 rm -rf "$ACCT_HOME"
 

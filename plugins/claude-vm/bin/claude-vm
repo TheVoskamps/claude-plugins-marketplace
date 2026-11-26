@@ -126,8 +126,14 @@ for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
     continue
   fi
   case "$arg" in
-    --name=*) HAS_NAME=1; CALLER_NAME="${arg#--name=}" ;;
-    --name) HAS_NAME=1; NEXT_IS_NAME_VALUE=1 ;;
+    --name=*)
+      HAS_NAME=1
+      CALLER_NAME="${arg#--name=}"
+      ;;
+    --name)
+      HAS_NAME=1
+      NEXT_IS_NAME_VALUE=1
+      ;;
   esac
 done
 if [ "$HAS_NAME" -eq 0 ]; then
@@ -181,8 +187,8 @@ if [ -f "$GLOBAL_LEGACY_CONFIG" ] || [ -f "$REPO_LEGACY_CONFIG" ]; then
   echo "claude-vm: a config-bake.yml / config-boot.yml pair per tier (issue #179). The launcher" >&2
   echo "claude-vm: will stop with migration instructions; run /claude-vm-config-global and" >&2
   echo "claude-vm: /claude-vm-config-repo to write the pair, then remove the old config.yml." >&2
-elif [ -f "$GLOBAL_BAKE_CONFIG" ] || [ -f "$GLOBAL_BOOT_CONFIG" ] \
-  || [ -f "$REPO_BAKE_CONFIG" ] || [ -f "$REPO_BOOT_CONFIG" ]; then
+elif [ -f "$GLOBAL_BAKE_CONFIG" ] || [ -f "$GLOBAL_BOOT_CONFIG" ] ||
+  [ -f "$REPO_BAKE_CONFIG" ] || [ -f "$REPO_BOOT_CONFIG" ]; then
   # (b) A bake/boot config file exists -> nothing to say; proceed.
   :
 else

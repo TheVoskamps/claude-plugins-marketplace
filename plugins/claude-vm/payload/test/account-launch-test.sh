@@ -36,9 +36,11 @@ FAIL=0
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        expected: [$expected]"
     echo "        actual:   [$actual]"
   fi
@@ -47,19 +49,31 @@ assert_eq() {
 assert_contains() {
   local label="$1" haystack="$2" needle="$3"
   case "$haystack" in
-    *"$needle"*) PASS=$((PASS + 1)); echo "ok   - $label" ;;
-    *)           FAIL=$((FAIL + 1)); echo "FAIL - $label"
-                 echo "        expected to contain: [$needle]"
-                 printf '%s\n' "$haystack" | sed 's/^/          /' ;;
+    *"$needle"*)
+      PASS=$((PASS + 1))
+      echo "ok   - $label"
+      ;;
+    *)
+      FAIL=$((FAIL + 1))
+      echo "FAIL - $label"
+      echo "        expected to contain: [$needle]"
+      printf '%s\n' "$haystack" | sed 's/^/          /'
+      ;;
   esac
 }
 
 assert_not_contains() {
   local label="$1" haystack="$2" needle="$3"
   case "$haystack" in
-    *"$needle"*) FAIL=$((FAIL + 1)); echo "FAIL - $label"
-                 echo "        expected NOT to contain: [$needle]" ;;
-    *)           PASS=$((PASS + 1)); echo "ok   - $label" ;;
+    *"$needle"*)
+      FAIL=$((FAIL + 1))
+      echo "FAIL - $label"
+      echo "        expected NOT to contain: [$needle]"
+      ;;
+    *)
+      PASS=$((PASS + 1))
+      echo "ok   - $label"
+      ;;
   esac
 }
 
@@ -72,7 +86,7 @@ assert_not_contains() {
 # ---------------------------------------------------------------------
 STUBBIN="$WORK/stubbin"
 mkdir -p "$STUBBIN"
-cat > "$STUBBIN/security" <<'STUB'
+cat >"$STUBBIN/security" <<'STUB'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-s" ]; then printf '%s\n' "$2" >> "$SEC_LOG"; fi
@@ -82,11 +96,11 @@ done
 [ -n "${SEC_ERR:-}" ] && printf '%s\n' "$SEC_ERR" >&2
 exit "${SEC_RC:-0}"
 STUB
-cat > "$STUBBIN/gpg" <<'STUB'
+cat >"$STUBBIN/gpg" <<'STUB'
 #!/usr/bin/env bash
 exit 0
 STUB
-cat > "$STUBBIN/podman" <<'STUB'
+cat >"$STUBBIN/podman" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$PODMAN_LOG"
 exit 1
@@ -102,7 +116,7 @@ git -C "$REPO" init -q
 GLOBAL_DIR="$WORK/gconfig"
 mkdir -p "$GLOBAL_DIR"
 printf 'claude:\n  signing_key_fingerprint: "0123456789ABCDEF0123456789ABCDEF01234567"\n' \
-  > "$GLOBAL_DIR/config-boot.yml"
+  >"$GLOBAL_DIR/config-boot.yml"
 
 FAKE_HOME="$WORK/home"
 ACCOUNT_DIR="$FAKE_HOME/.claude.work"
@@ -110,18 +124,18 @@ mkdir -p "$ACCOUNT_DIR" "$WORK/tmp" "$WORK/state"
 
 SEC_LOG="$WORK/security.log"
 PODMAN_LOG="$WORK/podman.log"
-: > "$PODMAN_LOG"
+: >"$PODMAN_LOG"
 
 # Identity and credential fixtures. Each carries a LEAKME marker in a value,
 # so a refusal that printed what it read would be caught.
 IDENTITY_OK='{"userID":"LEAKME-USER","oauthAccount":{"emailAddress":"LEAKME@example.com"}}'
 IDENTITY_NONE='{"oauthAccount":{"emailAddress":"LEAKME@example.com"}}'
 BLOB_OK="$WORK/blob-ok.json"
-printf '%s' '{"claudeAiOauth":{"accessToken":"LEAKME-ACCESS","refreshToken":"LEAKME-REFRESH"}}' > "$BLOB_OK"
+printf '%s' '{"claudeAiOauth":{"accessToken":"LEAKME-ACCESS","refreshToken":"LEAKME-REFRESH"}}' >"$BLOB_OK"
 BLOB_EMPTY_TOKENS="$WORK/blob-empty.json"
-printf '%s' '{"claudeAiOauth":{"accessToken":"","refreshToken":"","note":"LEAKME-NOTE"}}' > "$BLOB_EMPTY_TOKENS"
+printf '%s' '{"claudeAiOauth":{"accessToken":"","refreshToken":"","note":"LEAKME-NOTE"}}' >"$BLOB_EMPTY_TOKENS"
 BLOB_MCP_ONLY="$WORK/blob-mcp.json"
-printf '%s' '{"mcpOAuth":{"x":{"accessToken":"LEAKME-MCP"}}}' > "$BLOB_MCP_ONLY"
+printf '%s' '{"mcpOAuth":{"x":{"accessToken":"LEAKME-MCP"}}}' >"$BLOB_MCP_ONLY"
 
 # The service Claude Code itself uses for CLAUDE_CONFIG_DIR=<dir>, computed
 # here independently of lib/credential.sh.
@@ -134,14 +148,14 @@ PAST_ACCOUNT_CHECKS="dependency preflight failed"
 # run_launcher [arg...] -> the launcher's stderr+stdout. Every case inherits a
 # CLAUDE_CONFIG_DIR naming the account directory, which must decide nothing.
 run_launcher() {
-  : > "$SEC_LOG"
+  : >"$SEC_LOG"
   HOME="$FAKE_HOME" \
-  PATH="$STUBBIN:/usr/bin:/bin" \
-  TMPDIR="$WORK/tmp" \
-  XDG_STATE_HOME="$WORK/state" \
-  CLAUDE_VM_GLOBAL_CONFIG_DIR="$GLOBAL_DIR" \
-  CLAUDE_CONFIG_DIR="$ACCOUNT_DIR" \
-  SEC_LOG="$SEC_LOG" PODMAN_LOG="$PODMAN_LOG" \
+    PATH="$STUBBIN:/usr/bin:/bin" \
+    TMPDIR="$WORK/tmp" \
+    XDG_STATE_HOME="$WORK/state" \
+    CLAUDE_VM_GLOBAL_CONFIG_DIR="$GLOBAL_DIR" \
+    CLAUDE_CONFIG_DIR="$ACCOUNT_DIR" \
+    SEC_LOG="$SEC_LOG" PODMAN_LOG="$PODMAN_LOG" \
     /bin/bash "$LAUNCHER" "$@" "$REPO" 2>&1
 }
 
@@ -149,7 +163,7 @@ run_launcher() {
 # from the identity file or the Keychain.
 assert_refusal() {
   local label="$1" out="$2"
-  assert_contains     "$label: names the account" "$out" "account 'work'"
+  assert_contains "$label: names the account" "$out" "account 'work'"
   assert_not_contains "$label: refuses before the image build" "$out" "$PAST_ACCOUNT_CHECKS"
   assert_not_contains "$label: prints no value it read" "$out" "LEAKME"
 }
@@ -157,7 +171,7 @@ assert_refusal() {
 # --- 1. Every source is the account's ----------------------------------
 # The default account has no ~/.claude.json at all, so getting past the
 # identity preflight proves the account's file was the one read.
-printf '%s' "$IDENTITY_OK" > "$ACCOUNT_DIR/.claude.json"
+printf '%s' "$IDENTITY_OK" >"$ACCOUNT_DIR/.claude.json"
 OUT="$(SEC_BLOB="$BLOB_OK" SEC_RC=0 run_launcher --as work)"
 assert_contains "--as work: the account's identity and credential pass the preflights" "$OUT" "$PAST_ACCOUNT_CHECKS"
 assert_eq "--as work: the Keychain is asked for the account's derived service only" \
@@ -166,7 +180,7 @@ assert_not_contains "--as work: no value from the Keychain or identity file is p
 
 # --- 2. A missing account .claude.json is refused, never substituted ----
 rm -f "$ACCOUNT_DIR/.claude.json"
-printf '%s' "$IDENTITY_OK" > "$FAKE_HOME/.claude.json"
+printf '%s' "$IDENTITY_OK" >"$FAKE_HOME/.claude.json"
 OUT="$(SEC_BLOB="$BLOB_OK" SEC_RC=0 run_launcher --as work)"
 assert_refusal "--as work, no account .claude.json" "$OUT"
 assert_contains "--as work, no account .claude.json: names the missing file" "$OUT" "$ACCOUNT_DIR/.claude.json"
@@ -175,11 +189,11 @@ assert_eq "--as work, no account .claude.json: the default account's file is not
 assert_eq "--as work, no account .claude.json: no Keychain read" "" "$(cat "$SEC_LOG")"
 
 # --- 3. An account .claude.json with no usable identity is refused -------
-printf '%s' "$IDENTITY_NONE" > "$ACCOUNT_DIR/.claude.json"
+printf '%s' "$IDENTITY_NONE" >"$ACCOUNT_DIR/.claude.json"
 OUT="$(SEC_BLOB="$BLOB_OK" SEC_RC=0 run_launcher --as work)"
 assert_refusal "--as work, no usable identity" "$OUT"
 assert_contains "--as work, no usable identity: says so" "$OUT" "no usable"
-printf '%s' "$IDENTITY_OK" > "$ACCOUNT_DIR/.claude.json"
+printf '%s' "$IDENTITY_OK" >"$ACCOUNT_DIR/.claude.json"
 
 # --- 4. Keychain refusals -------------------------------------------------
 OUT="$(SEC_RC=44 run_launcher --as work)"
@@ -226,7 +240,7 @@ assert_contains "no --as: ~/.claude.json passes the identity preflight" "$OUT" "
 assert_eq "no --as: no Keychain read before the image build" "" "$(cat "$SEC_LOG")"
 
 rm -f "$FAKE_HOME/.claude.json"
-printf '%s' "$IDENTITY_OK" > "$ACCOUNT_DIR/.claude.json"
+printf '%s' "$IDENTITY_OK" >"$ACCOUNT_DIR/.claude.json"
 OUT="$(SEC_BLOB="$BLOB_OK" SEC_RC=0 run_launcher)"
 assert_contains "no --as: a missing ~/.claude.json is refused even with CLAUDE_CONFIG_DIR's present" \
   "$OUT" "no ~/.claude.json found on the host"

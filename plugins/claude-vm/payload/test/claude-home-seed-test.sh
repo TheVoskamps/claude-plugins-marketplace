@@ -70,9 +70,11 @@ FAIL=0
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        expected: [$expected]"
     echo "        actual:   [$actual]"
   fi
@@ -83,7 +85,8 @@ assert_file_is() {
   if [ -f "$path" ]; then
     assert_eq "$label" "$expected" "$(cat "$path")"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        no such file: $path"
   fi
 }
@@ -91,19 +94,27 @@ assert_file_is() {
 assert_absent() {
   local label="$1" path="$2"
   if [ -e "$path" ]; then
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        expected NOT to exist: $path"
   else
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   fi
 }
 
 assert_contains() {
   local label="$1" haystack="$2" needle="$3"
   case "$haystack" in
-    *"$needle"*) PASS=$((PASS + 1)); echo "ok   - $label" ;;
-    *)           FAIL=$((FAIL + 1)); echo "FAIL - $label"
-                 echo "        expected to contain: [$needle]" ;;
+    *"$needle"*)
+      PASS=$((PASS + 1))
+      echo "ok   - $label"
+      ;;
+    *)
+      FAIL=$((FAIL + 1))
+      echo "FAIL - $label"
+      echo "        expected to contain: [$needle]"
+      ;;
   esac
 }
 
@@ -113,13 +124,16 @@ assert_contains() {
 assert_real_dir() {
   local label="$1" path="$2"
   if [ -L "$path" ]; then
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        is a symlink, not a real directory: $path"
   elif [ ! -d "$path" ]; then
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        not a directory: $path"
   else
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   fi
 }
 
@@ -139,7 +153,7 @@ awk '
   /^CLAUDE_VM_HOME_SEED_ENTRIES=/ { cap=1 }
   cap { print }
   cap && /^done$/ { exit }
-' "$LAUNCHER_SRC" > "$HOST_FRAGMENT"
+' "$LAUNCHER_SRC" >"$HOST_FRAGMENT"
 
 LAUNCHER="$WORK/boot-launcher.sh"
 awk '
@@ -147,17 +161,18 @@ awk '
   in_fn && /cat <<.BOOT.$/ { cap=1; next }
   cap && /^BOOT$/ { cap=0; in_fn=0 }
   cap { print }
-' "$BUILD" > "$LAUNCHER"
+' "$BUILD" >"$LAUNCHER"
 
 GUEST_FRAGMENT="$WORK/guest-install-fragment.sh"
 awk '
   /^MOUNTED_CLAUDE_HOME_SEED=/ { cap=1 }
   cap && /^# -----/ { exit }
   cap { print }
-' "$LAUNCHER" > "$GUEST_FRAGMENT"
+' "$LAUNCHER" >"$GUEST_FRAGMENT"
 
 for pair in "host staging:$HOST_FRAGMENT" "guest install:$GUEST_FRAGMENT"; do
-  label="${pair%%:*}"; path="${pair#*:}"
+  label="${pair%%:*}"
+  path="${pair#*:}"
   if [ ! -s "$path" ]; then
     FAIL=$((FAIL + 1))
     echo "FAIL - could not slice the $label fragment"
@@ -190,6 +205,7 @@ assert_contains "guest fragment is the real install loop" \
 #    An optional second argument is the account directory a --as launch sets
 #    as $ACCOUNT_DIR; without it the fragment runs as a launch without --as,
 #    with $ACCOUNT_DIR unset.
+# shellcheck disable=SC2016 # the -c script's $1 is the child shell's to expand
 run_seed() {
   local case_dir="$1" account_dir="${2:-}"
   mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
@@ -197,13 +213,13 @@ run_seed() {
   if [ -n "$account_dir" ]; then
     HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" ACCOUNT_DIR="$account_dir" \
       "$SHELL_UNDER_TEST" -c 'set -euo pipefail; . "$1"' _ "$HOST_FRAGMENT" \
-        2>"$case_dir/host.err" || st=$?
+      2>"$case_dir/host.err" || st=$?
   else
     HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" \
       "$SHELL_UNDER_TEST" -c 'set -euo pipefail; unset ACCOUNT_DIR; . "$1"' _ "$HOST_FRAGMENT" \
-        2>"$case_dir/host.err" || st=$?
+      2>"$case_dir/host.err" || st=$?
   fi
-  printf '%s\n' "$st" > "$case_dir/host.status"
+  printf '%s\n' "$st" >"$case_dir/host.status"
   run_guest_only "$case_dir"
 }
 
@@ -211,37 +227,38 @@ run_seed() {
 # hand. Used for the failure injections: a source the guest cannot read has to
 # be planted on the MOUNT, since a host ~/.claude the host itself cannot copy
 # is dropped host-side and never reaches the guest at all.
+# shellcheck disable=SC2016 # the -c script's $1 and $* are the child shell's to expand
 run_guest_only() {
   local case_dir="$1"
   mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
   local st=0
   CLAUDECREDS_MNT="$case_dir/creds" CRED_DIR="$case_dir/guest/.claude" \
     "$SHELL_UNDER_TEST" -c 'set -euo pipefail; log() { printf "%s\n" "$*"; }; . "$1"' \
-      _ "$GUEST_FRAGMENT" 2>"$case_dir/guest.err" || st=$?
-  printf '%s\n' "$st" > "$case_dir/guest.status"
+    _ "$GUEST_FRAGMENT" 2>"$case_dir/guest.err" || st=$?
+  printf '%s\n' "$st" >"$case_dir/guest.status"
 }
 
 # --- Case A: a full host ~/.claude, with excluded neighbours ----------
 A="$WORK/case-a"
 mkdir -p "$A/home/.claude/rules" "$A/home/.claude/agents" \
-         "$A/home/.claude/skills/deep" "$A/home/.claude/projects" \
-         "$A/home/.claude/todos" "$A/home/.claude/statsig"
-printf 'global rules\n'   > "$A/home/.claude/CLAUDE.md"
-printf 'core\n'           > "$A/home/.claude/rules/core-principles.md"
-printf 'an agent\n'       > "$A/home/.claude/agents/dev.md"
-printf 'a skill\n'        > "$A/home/.claude/skills/deep/SKILL.md"
-printf 'keys\n'           > "$A/home/.claude/keybindings.json"
+  "$A/home/.claude/skills/deep" "$A/home/.claude/projects" \
+  "$A/home/.claude/todos" "$A/home/.claude/statsig"
+printf 'global rules\n' >"$A/home/.claude/CLAUDE.md"
+printf 'core\n' >"$A/home/.claude/rules/core-principles.md"
+printf 'an agent\n' >"$A/home/.claude/agents/dev.md"
+printf 'a skill\n' >"$A/home/.claude/skills/deep/SKILL.md"
+printf 'keys\n' >"$A/home/.claude/keybindings.json"
 # Everything below is on the EXCLUSION side and must never reach the guest.
-printf 'HOST POLICY\n'    > "$A/home/.claude/settings.json"
-printf 'host session\n'   > "$A/home/.claude/history.jsonl"
-printf 'host project\n'   > "$A/home/.claude/projects/p.json"
-printf 'host todo\n'      > "$A/home/.claude/todos/t.json"
-printf 'host statsig\n'   > "$A/home/.claude/statsig/s.json"
+printf 'HOST POLICY\n' >"$A/home/.claude/settings.json"
+printf 'host session\n' >"$A/home/.claude/history.jsonl"
+printf 'host project\n' >"$A/home/.claude/projects/p.json"
+printf 'host todo\n' >"$A/home/.claude/todos/t.json"
+printf 'host statsig\n' >"$A/home/.claude/statsig/s.json"
 # The guest home is NOT empty -- the image bakes plugins/ -- and additivity
 # must leave a pre-existing sibling inside a seeded directory alone.
 mkdir -p "$A/guest/.claude/plugins" "$A/guest/.claude/skills"
-printf 'baked plugin\n'   > "$A/guest/.claude/plugins/marketplace.json"
-printf 'baked skill\n'    > "$A/guest/.claude/skills/baked.md"
+printf 'baked plugin\n' >"$A/guest/.claude/plugins/marketplace.json"
+printf 'baked skill\n' >"$A/guest/.claude/skills/baked.md"
 A_LOG="$(run_seed "$A")"
 
 assert_file_is "host CLAUDE.md reaches the guest" \
@@ -263,17 +280,17 @@ assert_file_is "host keybindings.json reaches the guest" \
 # host loop's property and "reaches the guest never" is the guest loop's, and a
 # guest-side assertion alone would still pass if the host staged the entry and
 # the guest merely failed to install it.
-assert_absent "host settings.json is not staged"      "$A/creds/claude-home/settings.json"
-assert_absent "host projects/ is not staged"          "$A/creds/claude-home/projects"
-assert_absent "host history.jsonl is not staged"      "$A/creds/claude-home/history.jsonl"
-assert_absent "host todos/ is not staged"             "$A/creds/claude-home/todos"
-assert_absent "host statsig/ is not staged"           "$A/creds/claude-home/statsig"
+assert_absent "host settings.json is not staged" "$A/creds/claude-home/settings.json"
+assert_absent "host projects/ is not staged" "$A/creds/claude-home/projects"
+assert_absent "host history.jsonl is not staged" "$A/creds/claude-home/history.jsonl"
+assert_absent "host todos/ is not staged" "$A/creds/claude-home/todos"
+assert_absent "host statsig/ is not staged" "$A/creds/claude-home/statsig"
 assert_absent "host settings.json never reaches the guest" \
   "$A/guest/.claude/settings.json"
-assert_absent "host projects/ never reaches the guest"     "$A/guest/.claude/projects"
+assert_absent "host projects/ never reaches the guest" "$A/guest/.claude/projects"
 assert_absent "host history.jsonl never reaches the guest" "$A/guest/.claude/history.jsonl"
-assert_absent "host todos/ never reaches the guest"        "$A/guest/.claude/todos"
-assert_absent "host statsig/ never reaches the guest"      "$A/guest/.claude/statsig"
+assert_absent "host todos/ never reaches the guest" "$A/guest/.claude/todos"
+assert_absent "host statsig/ never reaches the guest" "$A/guest/.claude/statsig"
 
 # ADDITIVE, and specifically NOT nesting: `cp -R src dst` (rather than
 # `cp -R src/. dst/`) would land the tree at .claude/skills/skills on a path
@@ -306,12 +323,12 @@ assert_contains "guest logs which entries it seeded" "$A_LOG" "seeded host worki
 # has to check the staged shape instead.
 B="$WORK/case-b"
 mkdir -p "$B/home/.claude" "$B/elsewhere/rules" "$B/elsewhere/skills"
-printf 'linked rule\n'  > "$B/elsewhere/rules/core.md"
-printf 'linked skill\n' > "$B/elsewhere/skills/s.md"
-ln -s "$B/elsewhere/rules"  "$B/home/.claude/rules"
+printf 'linked rule\n' >"$B/elsewhere/rules/core.md"
+printf 'linked skill\n' >"$B/elsewhere/skills/s.md"
+ln -s "$B/elsewhere/rules" "$B/home/.claude/rules"
 ln -s "$B/elsewhere/skills" "$B/home/.claude/skills"
-printf 'linked home\n' > "$B/home/.claude/CLAUDE.md"
-run_seed "$B" > /dev/null
+printf 'linked home\n' >"$B/home/.claude/CLAUDE.md"
+run_seed "$B" >/dev/null
 
 assert_file_is "a symlinked rules/ is dereferenced into real content" \
   "$B/guest/.claude/rules/core.md" "linked rule"
@@ -328,7 +345,7 @@ assert_real_dir "the guest's rules/ is a real directory" \
 # Absence is silent and must not fail either side.
 C="$WORK/case-c"
 mkdir -p "$C/home/.claude"
-printf 'only a claude.md\n' > "$C/home/.claude/CLAUDE.md"
+printf 'only a claude.md\n' >"$C/home/.claude/CLAUDE.md"
 C_LOG="$(run_seed "$C")"
 assert_file_is "a sparse host still seeds what it has" \
   "$C/guest/.claude/CLAUDE.md" "only a claude.md"
@@ -360,12 +377,12 @@ assert_eq "an empty seed leaves no guest-side error output" "" "$(cat "$D/guest.
 # ones double as the evidence that the loop survived.
 E="$WORK/case-e"
 mkdir -p "$E/home/.claude/rules" "$E/home/.claude/skills"
-printf 'global rules\n' > "$E/home/.claude/CLAUDE.md"
-printf 'core\n'         > "$E/home/.claude/rules/core.md"
-printf 'a skill\n'      > "$E/home/.claude/skills/s.md"
-printf 'keys\n'         > "$E/home/.claude/keybindings.json"
+printf 'global rules\n' >"$E/home/.claude/CLAUDE.md"
+printf 'core\n' >"$E/home/.claude/rules/core.md"
+printf 'a skill\n' >"$E/home/.claude/skills/s.md"
+printf 'keys\n' >"$E/home/.claude/keybindings.json"
 mkdir -p "$E/guest/.claude"
-printf 'not a directory\n' > "$E/guest/.claude/rules"
+printf 'not a directory\n' >"$E/guest/.claude/rules"
 E_LOG="$(run_seed "$E")"
 
 assert_eq "a failed mkdir does not abort the guest install" \
@@ -394,9 +411,9 @@ if [ "$(id -u)" -eq 0 ]; then
 else
   F="$WORK/case-f"
   mkdir -p "$F/creds/claude-home/rules/locked" "$F/creds/claude-home/skills"
-  printf 'readable\n' > "$F/creds/claude-home/rules/readable.md"
-  printf 'locked\n'   > "$F/creds/claude-home/rules/locked/x.md"
-  printf 'a skill\n'  > "$F/creds/claude-home/skills/s.md"
+  printf 'readable\n' >"$F/creds/claude-home/rules/readable.md"
+  printf 'locked\n' >"$F/creds/claude-home/rules/locked/x.md"
+  printf 'a skill\n' >"$F/creds/claude-home/skills/s.md"
   chmod 000 "$F/creds/claude-home/rules/locked"
   F_LOG="$(run_guest_only "$F")"
   chmod 700 "$F/creds/claude-home/rules/locked"
@@ -420,9 +437,9 @@ if [ "$(id -u)" -eq 0 ]; then
 else
   G="$WORK/case-g"
   mkdir -p "$G/creds/claude-home/rules/locked" "$G/guest/.claude/rules"
-  printf 'readable\n'  > "$G/creds/claude-home/rules/readable.md"
-  printf 'locked\n'    > "$G/creds/claude-home/rules/locked/x.md"
-  printf 'baked rule\n' > "$G/guest/.claude/rules/baked.md"
+  printf 'readable\n' >"$G/creds/claude-home/rules/readable.md"
+  printf 'locked\n' >"$G/creds/claude-home/rules/locked/x.md"
+  printf 'baked rule\n' >"$G/guest/.claude/rules/baked.md"
   chmod 000 "$G/creds/claude-home/rules/locked"
   G_LOG="$(run_guest_only "$G")"
   chmod 700 "$G/creds/claude-home/rules/locked"
@@ -441,15 +458,15 @@ fi
 # missing from the account is absent, never filled in from the default account.
 H="$WORK/case-h"
 mkdir -p "$H/home/.claude/rules" "$H/home/.claude/agents" \
-         "$H/home/.claude.work/rules"
-printf 'default rules\n'  > "$H/home/.claude/CLAUDE.md"
-printf 'default core\n'   > "$H/home/.claude/rules/core.md"
-printf 'default agent\n'  > "$H/home/.claude/agents/dev.md"
-printf 'default keys\n'   > "$H/home/.claude/keybindings.json"
-printf 'work rules\n'     > "$H/home/.claude.work/CLAUDE.md"
-printf 'work core\n'      > "$H/home/.claude.work/rules/core.md"
-printf 'WORK POLICY\n'    > "$H/home/.claude.work/settings.json"
-run_seed "$H" "$H/home/.claude.work" > /dev/null
+  "$H/home/.claude.work/rules"
+printf 'default rules\n' >"$H/home/.claude/CLAUDE.md"
+printf 'default core\n' >"$H/home/.claude/rules/core.md"
+printf 'default agent\n' >"$H/home/.claude/agents/dev.md"
+printf 'default keys\n' >"$H/home/.claude/keybindings.json"
+printf 'work rules\n' >"$H/home/.claude.work/CLAUDE.md"
+printf 'work core\n' >"$H/home/.claude.work/rules/core.md"
+printf 'WORK POLICY\n' >"$H/home/.claude.work/settings.json"
+run_seed "$H" "$H/home/.claude.work" >/dev/null
 assert_eq "--as: the host staging succeeds" "0" "$(cat "$H/host.status")"
 assert_file_is "--as: CLAUDE.md comes from the account directory" \
   "$H/guest/.claude/CLAUDE.md" "work rules"
@@ -466,7 +483,7 @@ assert_absent "--as: the account's settings.json is not staged" \
 H2="$WORK/case-h2"
 mkdir -p "$H2"
 cp -R "$H/home" "$H2/home"
-run_seed "$H2" > /dev/null
+run_seed "$H2" >/dev/null
 assert_file_is "no --as: CLAUDE.md still comes from ~/.claude" \
   "$H2/guest/.claude/CLAUDE.md" "default rules"
 assert_file_is "no --as: agents/ still comes from ~/.claude" \
