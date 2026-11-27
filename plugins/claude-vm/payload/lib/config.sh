@@ -160,7 +160,8 @@ claude_vm_detect_legacy_config() {
 # Everything that needs the schema derives it from here: the list keys the
 # merge unions and prunes (CLAUDE_VM_LIST_KEYS), the sub-keys the placement
 # gates hunt in the wrong file type (CLAUDE_VM_PLUGIN_*_ONLY_KEYS,
-# CLAUDE_VM_ENV_BOOT_ONLY_KEYS), the CLAUDE_VM_DEFAULT_* fallbacks, and
+# CLAUDE_VM_ENV_BOOT_ONLY_KEYS), the CLAUDE_VM_DEFAULT_* fallbacks, the
+# load-time type check (claude_vm_check_scalars), and
 # bin/claude-vm-config-keys, which prints the table for the config wizards.
 # A new key joins all of them by gaining a row here.
 #

@@ -197,10 +197,10 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # value, a quoted "true" for a boolean, a YAML `false` for a string or path, an
 # empty map -- aborts the launch naming the key instead of being used. Several
 # of these values reach run.env unquoted, which the guest sources under
-# `set -a`, or become a command line, as proxy.cmd does. It is handed the four
-# RAW files rather than the merged documents, because the merge prunes every
-# empty map: a scalar key written `{}` would otherwise reach the check absent
-# and silently take its default.
+# `set -a`, or become a command line, as proxy.cmd does. The check is handed
+# the four RAW files rather than the merged documents, because the merge
+# prunes every empty map: a scalar key written `{}` would otherwise reach the
+# check absent and silently take its default.
 claude_vm_check_scalars \
   "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
   "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1

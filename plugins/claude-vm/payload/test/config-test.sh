@@ -4933,8 +4933,8 @@ fi
 # every config path and the state root pointed into $WORK. Each config also
 # sets github.auth to a value its type rejects: claude_vm_check_scalars checks
 # its key-table rows in table order and stops at the first refusal,
-# github.auth is the last row it checks, and the check runs before anything is built
-# or written, so a run whose other values all pass stops there, and its
+# github.auth is the last row it checks, and the check runs before anything is
+# built or written, so a run whose other values all pass stops there, and its
 # diagnostic is what shows they were accepted.
 # ---------------------------------------------------------------------
 UAB="$WORK/uab"
