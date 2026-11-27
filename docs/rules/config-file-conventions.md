@@ -20,18 +20,11 @@ A skill spells the fallback out once and refers to that spelling
 elsewhere rather than restating it, because a second spelling is a
 second thing to get wrong.
 
-### The permission gate's carve-out follows these same roots
+### The permission gate decides what a tool call reaches
 
-The `guardrails` permission gate carves tool-mediated reads and writes
-out of its containment deny, driven by globs the operator lists in
-`~/.config/guardrails/config.yml` — which is what makes any of these
-files reachable at all on a machine whose `~/.config` is a symlink into
-a dotfiles repo. Its roots are the two this document prescribes plus
-the home directory, and where it resolves `$XDG_CONFIG_HOME` /
-`$XDG_STATE_HOME` it does so by **the same test given above** — the
-variable when set and non-empty. So where a plugin and the gate
-disagree about where a config lives, the disagreement is in what that
-operator's file says, not two different resolution rules.
+The `guardrails` permission gate denies a tool-mediated read or write
+of these files unless the machine's operator carved the path out of
+its containment deny.
 
 A config a plugin writes at the path this document prescribes is
 correct whether or not a carve-out covers it, but one no carve-out
@@ -74,9 +67,9 @@ yet to key it on. `cc-tools`' `cr` writes its merged settings file as
 `cc-tools/<host>/<owner>/<repo>/cr-settings-<stamp>-<pid>.json` for
 this reason, and removes it when the launch ends.
 
-The permission gate's carve-out roots this directory too, on the same
-terms as the config one — see "The permission gate's carve-out follows
-these same roots" above.
+A state file is reachable from a tool call on the same terms as a
+config file — see "The permission gate decides what a tool call
+reaches" above.
 
 State is not config, so the format and `schema-version` rules below do
 not reach it by default. A state file a human may open and edit takes
@@ -137,9 +130,9 @@ defaults degrades to them, while a watermark or a facts file that
 cannot be invented stops and says what to write.
 
 **Named exception: the permission gate's stamp.** The `guardrails`
-permission gate reads a `~/.config/guardrails/config.yml` stamped below
-its pin, or not stamped at all, as it reads an absent one, without
-aborting. The rule above stands for every other reader.
+permission gate does not abort on an absent or lower-than-pin
+`schema-version` in its `~/.config/guardrails/config.yml`. The rule
+above stands for every other reader.
 
 ## Multi-writer files merge; single-owner files rewrite
 
