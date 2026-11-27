@@ -1,5 +1,42 @@
 # sdlc changelog
 
+## 0.102.0 — 2026-11-27
+
+`/sdlc:orchestrate-cleanup` leaves a running agent's work alone. It
+used to unlock and remove every worktree in its scope whatever the lock
+said, and `--all` removed every local branch but the default branch and
+every other session's scratchpad, so a cleanup run while other
+orchestrate runs were in flight destroyed their work in progress,
+unpushed commits included.
+
+- Every locked worktree is kept, with the branch it has checked out,
+  whatever its lock reason. A worktree with a kept worktree inside its
+  directory is kept too.
+- Only two kinds of local branch are deleted: a `worktree-agent-<id>`
+  branch whose worktree is removed or already gone, and an issue branch
+  once all its issues are closed. An issue whose state cannot be read
+  counts as open. The per-PR form considers no issue branch but the
+  PR's own.
+- Scratchpads and `.claude/tmp/` are kept while a locked worktree
+  remains. The per-PR form counts only the PR's own worktrees, and
+  holds back the PR's `.claude/tmp/` entries.
+- `--stale-locks`, new on both forms, also removes the locked worktree
+  of a dead agent: one whose lock names a process that is gone, or that
+  started at another time than the lock records. A worktree whose lock
+  names a running process, or that is locked for any other reason, is
+  kept with the flag too.
+- The per-PR form releases the locks of the PR's own finished agents
+  and removes their worktrees, with or without `--stale-locks`: those
+  the PR's state records, locked by the session the cleanup runs in.
+  `--all` makes no such exception.
+- Each thing kept prints a `keep` line saying why, `would-keep` under
+  `--dry-run`. A keep is no failure and leaves the exit status as it
+  was.
+- The readiness refusal for an issue a local branch names no longer
+  points at `/sdlc:orchestrate-cleanup`, which now keeps an open
+  issue's branch. It names `git branch -D <branch>`, once no run is
+  using the branch.
+
 ## 0.101.0 — 2026-11-26
 
 sdlc agents no longer record or curate memory. With Claude Code's auto

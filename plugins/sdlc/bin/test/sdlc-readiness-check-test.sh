@@ -219,13 +219,13 @@ git -C "$REPO" branch ab/issue-7-prefixed
 git -C "$REPO" branch issue-56
 git -C "$REPO" branch issue-123-not-twelve
 run "$PASSING" 12
-check "$RC:$OUT" "4:Local branch: the local branch issue-12-34-some-slug names issue 12; run /sdlc:orchestrate-cleanup on it" \
-  "local branch: the batch's first issue is refused, naming the branch and the cleanup"
+check "$RC:$OUT" "4:Local branch: the local branch issue-12-34-some-slug names issue 12; once no run is using it, delete it with git branch -D issue-12-34-some-slug" \
+  "local branch: the batch's first issue is refused, naming the branch and git branch -D"
 run "$PASSING" 34
-check "$RC:$OUT" "4:Local branch: the local branch issue-12-34-some-slug names issue 34; run /sdlc:orchestrate-cleanup on it" \
+check "$RC:$OUT" "4:Local branch: the local branch issue-12-34-some-slug names issue 34; once no run is using it, delete it with git branch -D issue-12-34-some-slug" \
   "local branch: the batch's second issue is refused too"
 run "$PASSING" 7
-check "$RC:$OUT" "4:Local branch: the local branch ab/issue-7-prefixed names issue 7; run /sdlc:orchestrate-cleanup on it" \
+check "$RC:$OUT" "4:Local branch: the local branch ab/issue-7-prefixed names issue 7; once no run is using it, delete it with git branch -D ab/issue-7-prefixed" \
   "local branch: a branch under a prefix segment names its issue"
 run "$PASSING" 3
 check "$RC:$OUT" "0:" "local branch: an issue no branch decodes to passes, though its digits appear in one"

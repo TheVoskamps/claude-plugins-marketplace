@@ -1,6 +1,6 @@
 ---
 name: orchestrate-cleanup
-description: Remove what sdlc runs leave behind — worktrees, local branches, .claude/tmp/ scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR, asking nothing, or for the whole repo after one go-ahead; then bring the default branch up to date. Review state is kept unless --review-state is passed. --dry-run lists what would go and removes nothing.
+description: Remove what sdlc runs leave behind — worktrees, local branches, .claude/tmp/ scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR, asking nothing, or for the whole repo after one go-ahead; then bring the default branch up to date. --stale-locks widens it to the locked worktrees of agents no longer running, --review-state to review state, and --dry-run lists what would go and removes nothing.
 ---
 
 # Orchestrate Cleanup
@@ -13,21 +13,22 @@ script, which decides what goes by scope and asks nothing, and removes
 the review state too only under `--review-state`. Spell the script as a
 bare name.
 
-Removal is forced: a worktree goes with its uncommitted and unpushed
-work and its lock, and a branch goes whether or not it merged. No scope
-touches a branch on `origin`, and none removes the default branch.
+The run keeps what a running agent may still use. No scope touches a
+branch on `origin`, and none removes the default branch.
 
 ## Invocation
 
 ```text
-/sdlc:orchestrate-cleanup <PR> [--review-state] [--dry-run]
-/sdlc:orchestrate-cleanup --all [--review-state] [--dry-run]
+/sdlc:orchestrate-cleanup <PR> [--stale-locks] [--review-state] [--dry-run]
+/sdlc:orchestrate-cleanup --all [--stale-locks] [--review-state] [--dry-run]
 ```
 
 - `<PR>` — one merged or closed pull request, in any form
   `/github-prs:pr-view` accepts.
 - `--all` — the whole repository, for a human clearing up after many
   runs.
+- `--stale-locks` — also remove the locked worktrees of agents that
+  are no longer running.
 - `--review-state` — delete review state as well: the PR's under
   `<PR>`, every PR's in the repository under `--all`. Without it, review
   state is kept.
@@ -42,22 +43,20 @@ what was meant.
 Run the script and relay its output as it stands:
 
 ```bash
-sdlc-orchestrate-cleanup --pr <PR> [--review-state] [--dry-run]
+sdlc-orchestrate-cleanup --pr <PR> [--stale-locks] [--review-state] [--dry-run]
 ```
 
 An open PR, and a PR in another repository than this
-checkout's, are refused with nothing removed. The worktrees it removes
-are those of the agents the PR's state records, whatever their HEAD,
-and any other under `.claude/worktrees/` holding a branch it deletes.
+checkout's, are refused with nothing removed.
 
 ## `--all`
 
 1. List what would go, passing the scratchpad path the harness gave
-   this session, verbatim, and `--review-state` when the human passed
-   it:
+   this session, verbatim, and `--stale-locks` and `--review-state`
+   when the human passed them:
 
    ```bash
-   sdlc-orchestrate-cleanup --all --scratchpad <this session's scratchpad> [--review-state] --dry-run
+   sdlc-orchestrate-cleanup --all --scratchpad <this session's scratchpad> [--stale-locks] [--review-state] --dry-run
    ```
 
 2. Show the human the full list as the script printed it. Under the
@@ -73,9 +72,9 @@ and any other under `.claude/worktrees/` holding a branch it deletes.
 
 Each item is one line, `<action> <category> <item>`, its action
 prefixed `would-` under `--dry-run`. A `failed` line after an item
-quotes why that item's action failed; the rest carried on. A
-`keep branch` line names a branch left in place because a worktree
-still has it checked out, and is not a failure. A run that removes
+quotes why that item's action failed; the rest carried on. A `keep`
+line names what the run left in place and why, and is not a failure. A
+run that removes
 switches the primary clone to the default branch before it deletes any
 branch, or detaches it off a branch it deletes when another worktree
 holds the default branch, and ends by pruning the worktree

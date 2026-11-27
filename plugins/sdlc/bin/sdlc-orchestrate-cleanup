@@ -2,44 +2,49 @@
 #
 # sdlc-orchestrate-cleanup -- remove what sdlc runs leave behind in this
 # repository, for one merged or closed pull request or for the whole
-# repository, and bring the default branch up to date. Asks nothing.
+# repository, keeping what a running agent may still use, and bring the
+# default branch up to date. Asks nothing.
 #
 # The default branch comes from git-tools' `git-default-branch`, and is
-# never removed. No branch on origin is ever deleted or pushed to.
-# Removal is forced: a worktree is unlocked and removed with `--force`,
-# a branch is deleted with `-D`, and scratch with `rm -rf`, so
-# uncommitted or unpushed work goes with it. Review state, and the agents
-# a PR's state names, are read and deleted only through
-# `sdlc-agent-result-persist`. The PR is read through github-prs'
-# `pr-view` and `pr-closing-issues`, and this checkout's repository is
+# never removed. No branch on origin is ever deleted or pushed to. What
+# the run removes goes whatever it holds: a worktree with `--force`, a
+# branch with `-D`, and scratch with `rm -rf`, so uncommitted or unpushed
+# work in it goes too. What it keeps is stated under "Keeps" below, and
+# nowhere else. Review state, and the agents a PR's state names, are read
+# and deleted only through `sdlc-agent-result-persist`. The PR is read
+# through github-prs' `pr-view` and `pr-closing-issues`, an issue's state
+# through issues' `issue-view`, an issue branch's issues through
+# git-tools' `git-issue-branch decode`, and this checkout's repository is
 # the one `gh repo view` reports. Every executable is called by name off
 # PATH. Worktrees, branches and scratch are those of the primary clone,
 # whichever of its worktrees the script runs in. Runs under the bash 3.2
 # macOS ships.
 #
-# Usage: sdlc-orchestrate-cleanup --pr <PR> [--review-state] [--dry-run]
-#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--review-state] [--dry-run]
+# Usage: sdlc-orchestrate-cleanup --pr <PR> [--stale-locks] [--review-state] [--dry-run]
+#        sdlc-orchestrate-cleanup --all --scratchpad <path> [--stale-locks] [--review-state] [--dry-run]
 #
 #   --pr <PR>           the pull request, in any form pr-view accepts. It
 #                       must be merged or closed, and in this checkout's
-#                       repository. Removes every worktree under
+#                       repository. Its worktrees are those under
 #                       .claude/worktrees/, nested ones included, named
 #                       agent-<id> for an agent id its state names, and
-#                       each such agent's local worktree-agent-<id>
-#                       branch; its local head branch, and every
-#                       worktree under .claude/worktrees/ holding a
-#                       branch it deletes; and every top-level
-#                       .claude/tmp/ entry named `<anything>-<N>` for an
-#                       issue <N> its body closes.
+#                       any holding its head branch. Removes its
+#                       worktrees; the local worktree-agent-<id> branch
+#                       of each agent id its state names; its local head
+#                       branch; and every top-level .claude/tmp/ entry
+#                       named `<anything>-<N>` for an issue <N> its body
+#                       closes.
 #   --all               the whole repository: every worktree under
-#                       .claude/worktrees/, every local branch but the
-#                       default branch, every top-level .claude/tmp/
-#                       entry, and every per-session scratchpad beside
-#                       --scratchpad's.
+#                       .claude/worktrees/, every local worktree-agent-<id>
+#                       branch and issue branch, every top-level
+#                       .claude/tmp/ entry, and every per-session
+#                       scratchpad beside --scratchpad's.
 #   --scratchpad <path> this session's scratchpad, whose last component
 #                       is `scratchpad`; the directory two levels above
 #                       it holds one <session-id>/scratchpad/ per
 #                       session. It is kept.
+#   --stale-locks       also remove a worktree whose lock is stale, as
+#                       "Keeps" defines it.
 #   --review-state      also delete review state: the PR's under --pr,
 #                       every PR's in the repository under --all. Without
 #                       it review state is kept, and neither listed nor
@@ -50,26 +55,76 @@
 #                       that read the review state still move old-layout
 #                       state into place, as every call of that CLI does
 #
+# Keeps. Every removal above is subject to these rules, and each item
+# they keep prints a `keep` line -- `would-keep` under --dry-run -- which
+# is no failure:
+#   - A locked worktree is neither unlocked nor removed, whatever its lock
+#     reason, and prints `keep worktree <path>: locked`; the next rule
+#     names the one exception. A harness lock reads `claude agent
+#     agent-<id> (pid <pid> start <date>)`. It is live when <pid> is a
+#     running process whose start time, read with `ps -o lstart=` under
+#     TZ=UTC LC_ALL=C and compared with runs of spaces collapsed, is
+#     <date>; a live lock's worktree is kept under every flag and prints
+#     `keep worktree <path>: locked by running pid <pid>`. A harness lock
+#     whose <pid> is not running, or started at another time, is stale,
+#     and only under --stale-locks is its worktree unlocked and removed. A
+#     lock of any other reason is kept under every flag.
+#   - The one exception, under --pr with or without --stale-locks: a
+#     worktree agent-<id> under .claude/worktrees/ for an agent id the
+#     PR's state names, whose live harness lock names a <pid> that is an
+#     ancestor process of this script, is unlocked and removed. A harness
+#     lock names the session that spawned the agent, and that session
+#     runs the post-merge cleanup only once every agent it spawned has
+#     returned. Any other live lock is kept, and --all makes no such
+#     exception.
+#   - A worktree with another worktree the run leaves inside its
+#     directory is kept, since removing it deletes the inner one, and
+#     prints `keep worktree <path>: holds worktree <inner path>`.
+#   - Only two kinds of local branch are deleted, and no other prints a
+#     line. A worktree-agent-<id> branch goes when no worktree named
+#     agent-<id> remains under .claude/worktrees/ after the removals, and
+#     otherwise prints `keep branch <branch>: worktree <path> is kept`.
+#     An issue branch, one `git-issue-branch decode` reports as
+#     `outcome: convention`, goes when every issue that decode lists is
+#     CLOSED on issue-view's title line; under --pr the only one
+#     considered is the PR's head branch. An issue that is open, or whose
+#     state issue-view cannot report, keeps it, printing `keep branch
+#     <branch>: issue #<N> is open`.
+#   - A branch of either kind that a worktree still has checked out after
+#     the removals is not deleted. A worktree under .claude/worktrees/ --
+#     one the run kept, or failed to remove -- prints `keep branch
+#     <branch>: worktree <path> is kept`; any other prints `keep branch
+#     <branch>: checked out at <path>`. The primary clone counts as such a
+#     worktree only when the switch or detach below failed: a branch it
+#     stays on because no move was attempted is kept, or not, by the rules
+#     above, with the same line under --dry-run as in a real run.
+#   - Under --all, while a locked worktree remains under
+#     .claude/worktrees/ after the removals, no per-session scratchpad and
+#     nothing under .claude/tmp/ is removed: one `keep scratchpads: <n>
+#     locked worktree(s)` line stands in place of the scratchpad lines,
+#     and one `keep .claude/tmp: <n> locked worktree(s)` line in place of
+#     the .claude/tmp/ lines. Under --pr only the PR's worktrees are
+#     counted: while one of them remains locked, its .claude/tmp/ entries
+#     are kept, with the one `keep .claude/tmp` line.
+#
 # Stdout is one line per item, `<action> <category> <item>`, the action
 # `delete` or `remove` -- `would-delete` or `would-remove` under
 # --dry-run -- and the category `review-state`, `worktree`, `branch`,
-# `scratch` or `scratchpad`. An action that fails is followed by
-# `failed <action> <category> <item>: <its error>`, and the rest carry on.
-# A run that is not --dry-run puts the primary clone on the default
-# branch before it deletes any branch -- `git switch`, unless another
-# worktree has the default branch checked out, in which case a primary
-# clone on a branch the run deletes is detached with `git switch
-# --detach`. A branch the run deletes that a worktree still has checked
-# out after that -- one outside .claude/worktrees/, or one an earlier
-# action or step failed to free -- is not deleted, and prints
-# `keep branch <branch>: checked out at <path>`, `would-keep` under
-# --dry-run, which is no failure. The run ends with
-# `git worktree prune`, `git fetch --all --prune` and
-# `git -C <path> pull --ff-only` in the worktree holding the default
-# branch. A step that fails prints `failed <step>: <its error>`.
+# `scratch` or `scratchpad`, and the `keep` lines "Keeps" states, among
+# them in the order their items come up. An action that fails
+# is followed by `failed <action> <category> <item>: <its error>`, and the
+# rest carry on. A run that is not --dry-run puts the primary clone on
+# the default branch before it deletes any branch -- `git switch`, unless
+# another worktree has the default branch checked out, in which case a
+# primary clone on a branch the run deletes is detached with `git switch
+# --detach`. The run ends with `git worktree prune`,
+# `git fetch --all --prune` and `git -C <path> pull --ff-only` in the
+# worktree holding the default branch. A step that fails prints
+# `failed <step>: <its error>`.
 #
 # Exit statuses:
-#   0  every action and step succeeded, or --dry-run printed its items
+#   0  every action and step succeeded, or --dry-run printed its items;
+#      a keep is no failure
 #   1  an action or step failed, its failure line on stdout; or a
 #      command the script ran outside an action failed, its error on
 #      stderr above the script's line
@@ -89,7 +144,7 @@ fail() {
   exit "$1"
 }
 
-usage="usage: $PROGRAM --pr <PR> [--review-state] [--dry-run] | --all --scratchpad <path> [--review-state] [--dry-run]"
+usage="usage: $PROGRAM --pr <PR> [--stale-locks] [--review-state] [--dry-run] | --all --scratchpad <path> [--stale-locks] [--review-state] [--dry-run]"
 
 # usage_error <message> -- print <message> and the synopsis, and exit 2.
 usage_error() {
@@ -113,6 +168,7 @@ all=
 scratchpad=
 dry=
 review_state=
+stale_locks=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --pr | --scratchpad)
@@ -134,6 +190,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --review-state)
       review_state=yes
+      shift
+      ;;
+    --stale-locks)
+      stale_locks=yes
       shift
       ;;
     *) usage_error "\`$1\` is not an argument $PROGRAM takes." ;;
@@ -179,25 +239,66 @@ attempt() {
 
 # act <action> <category> <item> <command>... -- print the item's line,
 # then run the command through attempt; under --dry-run print it as
-# would-<action> and run nothing.
+# would-<action> and run nothing. Sets ACTED to `yes` when the command
+# succeeded or --dry-run stood in for it, and to empty when it failed.
 act() {
   local action=$1 category=$2 item=$3
   shift 3
+  ACTED=yes
   if [ -n "$dry" ]; then
     printf 'would-%s %s %s\n' "$action" "$category" "$item"
     return 0
   fi
   printf '%s %s %s\n' "$action" "$category" "$item"
-  attempt "$action $category $item" "$@" || :
+  attempt "$action $category $item" "$@" || ACTED=
 }
 
-# remove_worktree <path> <locked> -- unlock the worktree when <locked>
-# is non-empty, then remove it whatever it holds.
+# keep <category> <item> <reason> -- print the line of an item a keep
+# rule leaves in place, as would-keep under --dry-run.
+keep() {
+  printf '%skeep %s %s: %s\n' "${dry:+would-}" "$1" "$2" "$3"
+}
+
+# remove_worktree <path> <unlock> -- unlock the worktree when <unlock> is
+# non-empty, then remove it whatever it holds.
 remove_worktree() {
   if [ -n "$2" ]; then
     git -C "$root" worktree unlock "$1" || return
   fi
   git -C "$root" worktree remove --force "$1"
+}
+
+# squeeze <text> -- print <text> with each run of spaces collapsed to one
+# and no space at either end.
+squeeze() {
+  local text
+  text=$(printf '%s' "$1" | tr -s ' ')
+  text=${text# }
+  printf '%s\n' "${text% }"
+}
+
+# lock_state <reason> -- set LOCK_STATE to `live` when <reason> is a
+# harness lock, `claude agent agent-<id> (pid <pid> start <date>)`, whose
+# <pid> is a running process that started at <date>; to `stale` when it
+# is a harness lock whose <pid> is gone or started at another time; and
+# to `other` for any other reason. Sets LOCK_PID to <pid>, empty for
+# `other`. The start time is compared because a PID alone is reused.
+lock_state() {
+  local re='^claude agent agent-[^ ]+ \(pid ([0-9]+) start (.+)\)$' start started
+  LOCK_STATE=other
+  LOCK_PID=
+  [[ $1 =~ $re ]] || return 0
+  LOCK_PID=${BASH_REMATCH[1]}
+  start=${BASH_REMATCH[2]}
+  # The harness writes <date> in UTC, in the C locale's day and month
+  # names, and ps prints the start time in the local zone unless told
+  # otherwise, so ps is read under TZ=UTC LC_ALL=C. Runs of spaces are
+  # collapsed on both sides because ps pads a one-digit day.
+  started=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$LOCK_PID" 2>/dev/null || exit) || started=
+  LOCK_STATE=stale
+  if [ -n "$started" ] && [ "$(squeeze "$started")" = "$(squeeze "$start")" ]; then
+    LOCK_STATE=live
+  fi
 }
 
 # The field separator of the worktree lines. A tab or any other
@@ -207,35 +308,41 @@ remove_worktree() {
 SEP=$'\x1f'
 
 # worktrees -- print one line per worktree of the repository, the
-# primary clone first: <path> SEP <HEAD> SEP <branch> SEP <locked>,
-# <branch> empty for a detached HEAD and <locked> `yes` or empty.
+# primary clone first: <path> SEP <HEAD> SEP <branch> SEP <locked> SEP
+# <reason>, <branch> empty for a detached HEAD, <locked> `yes` or empty,
+# and <reason> the lock's reason, empty for none.
 worktrees() {
-  local list line path='' head='' branch='' locked=''
+  local list line path='' head='' branch='' locked='' reason=''
   list=$(git worktree list --porcelain || exit) || fail 1 "git worktree list --porcelain failed"
   while IFS= read -r line; do
     case "$line" in
       'worktree '*)
-        [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked"
+        [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked" "$reason"
         path=${line#worktree }
         head=
         branch=
         locked=
+        reason=
         ;;
       'HEAD '*) head=${line#HEAD } ;;
       'branch refs/heads/'*) branch=${line#branch refs/heads/} ;;
-      locked | 'locked '*) locked=yes ;;
+      locked) locked=yes ;;
+      'locked '*)
+        locked=yes
+        reason=${line#locked }
+        ;;
     esac
   done <<EOF
 $list
 EOF
-  [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked"
+  [ -z "$path" ] || printf "%s$SEP%s$SEP%s$SEP%s$SEP%s\n" "$path" "$head" "$branch" "$locked" "$reason"
 }
 
 all_worktrees=$(worktrees || exit) || exit
 root=${all_worktrees%%"$SEP"*}
 # Reverse order puts every nested worktree before the one it sits in,
-# so each is removed while its own directory is still there rather than
-# deleted under it by the outer removal.
+# so each is decided, and removed, while its own directory is still
+# there, and before the one around it is decided.
 under=$(printf '%s\n' "$all_worktrees" | LC_ALL=C sort -r || exit) ||
   fail 1 "sorting the worktrees failed"
 
@@ -276,22 +383,151 @@ EOF
   agents=$'\n'$agents$'\n'
 fi
 
-# deletes_branch <branch> -- succeed when the run deletes the local
-# branch <branch>: under --all every branch but the default branch, and
-# under --pr the PR's head branch and the worktree-agent-<id> branch of
-# each agent id its state names.
-deletes_branch() {
-  [ -n "$1" ] && [ "$1" != "$default" ] || return 1
-  [ -n "$pr" ] || return 0
-  [ "$1" != "$head_branch" ] || return 0
-  case "$1" in
-    worktree-agent-?*) ;;
-    *) return 1 ;;
-  esac
+# names_agent <id> -- succeed when the PR's state names the agent id <id>.
+names_agent() {
   case "$agents" in
-    *$'\n'"${1#worktree-agent-}"$'\n'*) return 0 ;;
+    *$'\n'"$1"$'\n'*) return 0 ;;
   esac
   return 1
+}
+
+# pr_worktree <path> <branch> -- succeed when the worktree at <path>,
+# with <branch> checked out, is one of the PR's: named agent-<id> for an
+# agent id its state names, or holding its head branch.
+pr_worktree() {
+  [ -z "$2" ] || [ "$2" != "$head_branch" ] || return 0
+  case "${1##*/}" in
+    agent-?*) names_agent "${1##*/agent-}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# own_agent <path> -- succeed under --pr when the worktree at <path>,
+# whose lock lock_state has just found live, is named agent-<id> for an
+# agent id the PR's state names, and its lock's LOCK_PID is an ancestor
+# process of this script: the invoking session, whose agents have all
+# returned by the time it runs the cleanup.
+own_agent() {
+  local p
+  [ -n "$pr" ] || return 1
+  case "${1##*/}" in
+    agent-?*) names_agent "${1##*/agent-}" || return 1 ;;
+    *) return 1 ;;
+  esac
+  p=$PPID
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    [ "$p" != "$LOCK_PID" ] || return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null || exit) || return 1
+    p=${p//[[:space:]]/}
+  done
+  return 1
+}
+
+# The issue states read so far, each a newline-delimited list with a
+# newline at each end.
+ISSUES_OPEN=$'\n'
+ISSUES_CLOSED=$'\n'
+
+# issue_open <N> -- succeed unless issue-view reports issue <N> CLOSED: an
+# issue it reports in any other state, or cannot report, counts as open.
+# Each issue is read once.
+issue_open() {
+  local view first state='' re='\(([^()]*)\)[[:space:]]*$'
+  case "$ISSUES_CLOSED" in
+    *$'\n'"$1"$'\n'*) return 1 ;;
+  esac
+  case "$ISSUES_OPEN" in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+  esac
+  view=$(issue-view "$1" 2>/dev/null || exit) || view=
+  # The state is the last parenthesized group on the title line, so a
+  # title carrying parentheses of its own is never read as the state.
+  first=${view%%$'\n'*}
+  [[ $first =~ $re ]] && state=${BASH_REMATCH[1]}
+  if [ "$state" = CLOSED ]; then
+    ISSUES_CLOSED=$ISSUES_CLOSED$1$'\n'
+    return 1
+  fi
+  ISSUES_OPEN=$ISSUES_OPEN$1$'\n'
+  return 0
+}
+
+# kept_at <path> -- print the reason a branch the worktree at <path> has
+# checked out is kept: `worktree <path> is kept` under
+# .claude/worktrees/, and `checked out at <path>` anywhere else.
+kept_at() {
+  case "$1" in
+    "$root/.claude/worktrees/"*) printf 'worktree %s is kept\n' "$1" ;;
+    *) printf 'checked out at %s\n' "$1" ;;
+  esac
+}
+
+# branch_fate <branch> -- set FATE to `delete` when the run deletes the
+# local branch <branch>, to `keep` with FATE_WHY its keep line's reason
+# when a keep rule saves a branch of a kind the scope deletes, and to
+# `skip` for a branch of no such kind. Reads `holding`, the worktrees
+# that may still have a branch checked out, and `remaining`, the
+# worktrees left after the removals. Exits 1 when `git-issue-branch
+# decode` fails.
+branch_fate() {
+  local decoded line numbers='' n path head branch locked reason
+  FATE=skip
+  FATE_WHY=
+  [ -n "$1" ] && [ "$1" != "$default" ] || return 0
+  case "$1" in
+    worktree-agent-?*)
+      [ -z "$pr" ] || names_agent "${1#worktree-agent-}" || return 0
+      ;;
+    *)
+      [ -z "$pr" ] || [ "$1" = "$head_branch" ] || return 0
+      decoded=$(git-issue-branch decode "$1" || exit) || fail 1 "git-issue-branch decode $1 failed"
+      case "$decoded" in
+        'outcome: convention'*) ;;
+        *) return 0 ;;
+      esac
+      while IFS= read -r line; do
+        case "$line" in
+          'issues: '*) numbers=${line#issues: } ;;
+        esac
+      done <<EOF
+$decoded
+EOF
+      ;;
+  esac
+  FATE=keep
+  while IFS=$SEP read -r path head branch locked reason; do
+    if [ -n "$branch" ] && [ "$branch" = "$1" ]; then
+      FATE_WHY=$(kept_at "$path")
+      return 0
+    fi
+  done <<EOF
+$holding
+EOF
+  case "$1" in
+    worktree-agent-?*)
+      while IFS=$SEP read -r path head branch locked reason; do
+        case "$path" in
+          "$root/.claude/worktrees/"*)
+            if [ "${path##*/}" = "agent-${1#worktree-agent-}" ]; then
+              FATE_WHY="worktree $path is kept"
+              return 0
+            fi
+            ;;
+        esac
+      done <<EOF
+$remaining
+EOF
+      ;;
+    *)
+      for n in $numbers; do
+        if issue_open "$n"; then
+          FATE_WHY="issue #$n is open"
+          return 0
+        fi
+      done
+      ;;
+  esac
+  FATE=delete
 }
 
 # --- review state ------------------------------------------------------
@@ -313,27 +549,101 @@ EOF
 fi
 
 # --- worktrees ---------------------------------------------------------
-while IFS=$SEP read -r path head branch locked; do
+# REMOVED lists, one per line with a newline at each end, the worktrees
+# the run removed, or under --dry-run would remove.
+REMOVED=$'\n'
+
+# inner_worktree <path> -- print the first worktree inside <path> that
+# the run leaves, or nothing when it leaves none.
+inner_worktree() {
+  local inner head branch locked reason
+  while IFS=$SEP read -r inner head branch locked reason; do
+    case "$inner" in
+      "$1/"*)
+        case "$REMOVED" in
+          *$'\n'"$inner"$'\n'*) ;;
+          *)
+            printf '%s\n' "$inner"
+            return 0
+            ;;
+        esac
+        ;;
+    esac
+  done <<EOF
+$all_worktrees
+EOF
+  return 0
+}
+
+while IFS=$SEP read -r path head branch locked reason; do
   case "$path" in
     "$root/.claude/worktrees/"*) ;;
     *) continue ;;
   esac
-  # Under --pr, a worktree holding a branch the run deletes goes too,
-  # whoever it was made for, so that it does not keep the branch.
-  if [ -n "$pr" ] && ! deletes_branch "$branch"; then
-    name=${path##*/}
-    case "$name" in
-      agent-?*) ;;
-      *) continue ;;
-    esac
-    case "$agents" in
-      *$'\n'"${name#agent-}"$'\n'*) ;;
-      *) continue ;;
-    esac
+  [ -z "$pr" ] || pr_worktree "$path" "$branch" || continue
+  if [ -n "$locked" ]; then
+    lock_state "$reason"
+    if [ "$LOCK_STATE" = live ]; then
+      if ! own_agent "$path"; then
+        keep worktree "$path" "locked by running pid $LOCK_PID"
+        continue
+      fi
+    elif [ -z "$stale_locks" ] || [ "$LOCK_STATE" != stale ]; then
+      keep worktree "$path" locked
+      continue
+    fi
+  fi
+  inner=$(inner_worktree "$path" || exit) || exit
+  if [ -n "$inner" ]; then
+    keep worktree "$path" "holds worktree $inner"
+    continue
   fi
   act remove worktree "$path" remove_worktree "$path" "$locked"
+  [ -z "$ACTED" ] || REMOVED=$REMOVED$path$'\n'
 done <<EOF
 $under
+EOF
+
+# The worktrees left once the removals have run: after them, every
+# worktree git still lists; under --dry-run, every worktree the run would
+# not remove.
+if [ -z "$dry" ]; then
+  remaining=$(worktrees || exit) || exit
+else
+  remaining=
+  while IFS= read -r line; do
+    case "$REMOVED" in
+      *$'\n'"${line%%"$SEP"*}"$'\n'*) ;;
+      *) remaining=$remaining$line$'\n' ;;
+    esac
+  done <<EOF
+$all_worktrees
+EOF
+fi
+
+# Every remaining worktree but the primary clone, which the step below
+# moves off the branches the run deletes.
+holding=
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  [ "${line%%"$SEP"*}" = "$root" ] || holding=$holding$line$'\n'
+done <<EOF
+$remaining
+EOF
+
+# The number of locked worktrees that remain under .claude/worktrees/ and
+# hold the scratch back: under --pr the PR's alone.
+locked_left=0
+while IFS=$SEP read -r path head branch locked reason; do
+  [ -n "$locked" ] || continue
+  case "$path" in
+    "$root/.claude/worktrees/"*) ;;
+    *) continue ;;
+  esac
+  [ -z "$pr" ] || pr_worktree "$path" "$branch" || continue
+  locked_left=$((locked_left + 1))
+done <<EOF
+$remaining
 EOF
 
 # --- the primary clone off the branches it deletes ---------------------
@@ -343,67 +653,44 @@ EOF
 # the default branch is the one the finish pulls in.
 holder=
 if [ -z "$dry" ]; then
-  remaining=$(worktrees || exit) || exit
   root_branch=
-  while IFS=$SEP read -r path head branch locked; do
+  root_line=
+  while IFS=$SEP read -r path head branch locked reason; do
     [ "$branch" != "$default" ] || holder=$path
-    [ "$path" != "$root" ] || root_branch=$branch
+    if [ "$path" = "$root" ]; then
+      root_branch=$branch
+      root_line=$path$SEP$head$SEP$branch$SEP$locked$SEP$reason
+    fi
   done <<EOF
 $remaining
 EOF
+  stuck=
   if [ -z "$holder" ]; then
     if attempt "git switch $default" git -C "$root" switch "$default"; then
       holder=$root
+    else
+      stuck=yes
     fi
-  elif [ "$holder" != "$root" ] && deletes_branch "$root_branch"; then
-    attempt "git switch --detach" git -C "$root" switch --detach || :
+  elif [ "$holder" != "$root" ]; then
+    branch_fate "$root_branch"
+    if [ "$FATE" = delete ]; then
+      attempt "git switch --detach" git -C "$root" switch --detach || stuck=yes
+    fi
   fi
+  # The primary clone holds its branch only when a move off it failed; a
+  # branch it stays on with no move attempted is decided as under --dry-run.
+  [ -z "$stuck" ] || holding=$holding$root_line$'\n'
 fi
 
 # --- branches ----------------------------------------------------------
-# The worktrees that still hold a branch once the steps above have run:
-# after them, every worktree left; under --dry-run, which runs none of
-# them, every worktree but the primary clone and those under
-# .claude/worktrees/, the ones they would free.
-if [ -z "$dry" ]; then
-  holding=$(worktrees || exit) || exit
-else
-  holding=
-  while IFS= read -r line; do
-    case "${line%%"$SEP"*}" in
-      "$root" | "$root/.claude/worktrees/"*) ;;
-      *) holding=$holding$line$'\n' ;;
-    esac
-  done <<EOF
-$all_worktrees
-EOF
-fi
-
-# checked_out_at <branch> -- print the path of the worktree in
-# `holding` that has <branch> checked out, or nothing when none has.
-checked_out_at() {
-  local path head branch locked
-  while IFS=$SEP read -r path head branch locked; do
-    if [ -n "$branch" ] && [ "$branch" = "$1" ]; then
-      printf '%s\n' "$path"
-      return 0
-    fi
-  done <<EOF
-$holding
-EOF
-  return 0
-}
-
 branches=$(git -C "$root" for-each-ref --format='%(refname:lstrip=2)' refs/heads/ || exit) ||
   fail 1 "git for-each-ref refs/heads/ failed"
 while IFS= read -r branch; do
-  deletes_branch "$branch" || continue
-  at=$(checked_out_at "$branch" || exit) || exit
-  if [ -n "$at" ]; then
-    printf '%skeep branch %s: checked out at %s\n' "${dry:+would-}" "$branch" "$at"
-    continue
-  fi
-  act delete branch "$branch" git -C "$root" branch -D "$branch"
+  branch_fate "$branch"
+  case "$FATE" in
+    delete) act delete branch "$branch" git -C "$root" branch -D "$branch" ;;
+    keep) keep branch "$branch" "$FATE_WHY" ;;
+  esac
 done <<EOF
 $branches
 EOF
@@ -413,6 +700,7 @@ if [ -d "$root/.claude/tmp" ]; then
   entries=$(find "$root/.claude/tmp" -mindepth 1 -maxdepth 1 || exit) ||
     fail 1 "find $root/.claude/tmp failed"
   entries=$(printf '%s\n' "$entries" | LC_ALL=C sort || exit) || fail 1 "sorting .claude/tmp/ failed"
+  scratch=
   while IFS= read -r entry; do
     [ -n "$entry" ] || continue
     if [ -n "$pr" ]; then
@@ -424,21 +712,42 @@ if [ -d "$root/.claude/tmp" ]; then
       done
       [ -n "$match" ] || continue
     fi
-    act remove scratch "$entry" rm -rf "$entry"
+    scratch=$scratch$entry$'\n'
   done <<EOF
 $entries
 EOF
+  if [ -n "$scratch" ] && [ "$locked_left" -gt 0 ]; then
+    printf '%skeep .claude/tmp: %s locked worktree(s)\n' "${dry:+would-}" "$locked_left"
+  else
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      act remove scratch "$entry" rm -rf "$entry"
+    done <<EOF
+$scratch
+EOF
+  fi
 fi
 
 # --- scratchpads -------------------------------------------------------
 if [ -n "$all" ]; then
   sessions=${scratchpad%/*}
   sessions=${sessions%/*}
+  pads=
   for pad in "$sessions"/*/scratchpad; do
     [ -d "$pad" ] || continue
     [ ! "$pad" -ef "$scratchpad" ] || continue
-    act remove scratchpad "$pad" rm -rf "$pad"
+    pads=$pads$pad$'\n'
   done
+  if [ -n "$pads" ] && [ "$locked_left" -gt 0 ]; then
+    printf '%skeep scratchpads: %s locked worktree(s)\n' "${dry:+would-}" "$locked_left"
+  else
+    while IFS= read -r pad; do
+      [ -n "$pad" ] || continue
+      act remove scratchpad "$pad" rm -rf "$pad"
+    done <<EOF
+$pads
+EOF
+  fi
 fi
 
 # --- finish ------------------------------------------------------------

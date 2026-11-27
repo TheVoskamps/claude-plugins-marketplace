@@ -169,7 +169,7 @@ while IFS= read -r ref; do
   numbers=$(printf '%s\n' "$decoded" | awk 'sub(/^issues: */, "") { print; exit }')
   for n in $numbers; do
     if [ "$((10#$n))" -eq "$((10#$issue))" ]; then
-      refuse "Local branch: the local branch $branch names issue $issue; run /sdlc:orchestrate-cleanup on it"
+      refuse "Local branch: the local branch $branch names issue $issue; once no run is using it, delete it with git branch -D $branch"
       break
     fi
   done
