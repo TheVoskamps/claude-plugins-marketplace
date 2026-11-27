@@ -16,12 +16,12 @@
 # they are bare top-level code rather than functions. Together they assert
 # that a record's empty middle field and empty leading field each survive the
 # split, and that a mounts or claude.marketplaces entry missing its key field
-# aborts the launch naming it. A TSV split case
-# carries a negative control rebuilding the collapsing `read` from the
-# same captured lines, so the control cannot drift from the code. A gate
-# is driven through claude_vm_merge_config in the launcher's own argument
-# shape, once per rejected config, asserting both the non-zero exit and a
-# diagnostic naming the problem.
+# aborts the launch naming it. A TSV split case carries a negative control
+# rebuilding the collapsing `read` from the same captured lines, so the
+# control cannot drift from the code. A gate is driven through
+# claude_vm_merge_config in the launcher's own argument shape, once per
+# rejected config, asserting both the non-zero exit and a diagnostic naming
+# the problem.
 #
 # The extra-mount loop is run for the manifest it writes and the wrap
 # directory it builds: the wrap entry's hard link is asserted by inode,
@@ -41,11 +41,11 @@
 # valueless, since only a presence test tells the last two from an omitted
 # key; `mode: {}`, which the merged-document read drops, has no case. A
 # `path` over a reserved mountpoint is spelled with a trailing slash, so the
-# normalization is what catches it. The
-# guest-OS-path rule is driven from both sides with a pair of configs
-# differing only in whether the source is a directory or a file, since that
-# difference is the whole rule, and the passing side (`/mnt/<tag>`, `/srv`,
-# `/opt`, the near-miss `/etcetera`) is pinned too.
+# normalization is what catches it. The guest-OS-path rule is driven from
+# both sides with a pair of configs differing only in whether the source is a
+# directory or a file, since that difference is the whole rule, and the
+# passing side (`/mnt/<tag>`, `/srv`, `/opt`, the near-miss `/etcetera`) is
+# pinned too.
 #
 # boot_mount_phase is sliced from boot_dir_is_nonempty
 # through the end of the phase -- a slice of the phase alone would leave the
@@ -5366,7 +5366,7 @@ assert_eq "merge: an aliased list key is unioned as its entries" \
   "a@mp" "$(claude_vm_list_items "$WORK/sc-alias-list.merged.yml" '.claude.plugins.install_at_boot')"
 
 # The render reads each value by its tag, so a map value that reached it would
-# abort naming the ref rather than dying inside @tsv with its status discarded.
+# abort naming the ref rather than fail inside @tsv.
 printf 'claude:\n  plugins:\n    install_at_boot: [a@mp]\n    enabled:\n      a@mp: {x: 1}\n' >"$WORK/sc-render-map.yml"
 if sc_err="$(claude_vm_render_guest_settings "$WORK/sc-render-map.yml" "" 2>&1 >/dev/null)"; then
   sc_v=pass

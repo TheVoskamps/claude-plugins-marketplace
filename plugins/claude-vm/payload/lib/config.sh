@@ -3268,11 +3268,11 @@ $name
 # and every KEY must name a plugin ref present in the merged
 # (bake ++ install_at_boot) lists. claude_vm_check_scalars has already checked
 # each value on the raw files, where a value written `{}` is still present. A
-# non-boolean value or an unknown key is a config typo and ABORTS (non-zero return + a claude-vm: diagnostic on
-# stderr) so the launcher stops rather than rendering a settings.json that
-# silently drops or misspells a plugin toggle. A yq stage of the render that
-# fails aborts it the same way, rather than rendering from the output it
-# did not produce.
+# non-boolean value or an unknown key is a config typo and ABORTS (non-zero
+# return + a claude-vm: diagnostic on stderr) so the launcher stops rather
+# than rendering a settings.json that silently drops or misspells a plugin
+# toggle. A yq stage of the render that fails aborts it the same way, rather
+# than rendering from the output it did not produce.
 claude_vm_render_guest_settings() {
   local file="$1" bake_doc="${2:-}"
   local permission_mode
@@ -3290,8 +3290,8 @@ claude_vm_render_guest_settings() {
   # Collect the installed plugin refs (bake ++ install_at_boot), preserving
   # order and de-duplicating. These are both the enabledPlugins keys (all
   # default true) AND the valid key-set for claude.plugins.enabled overrides.
-  # Baked refs come from the BAKE document (issue #107 placement); a missing
-  # bake doc simply contributes none.
+  # Baked refs come from the BAKE document; a missing bake doc simply
+  # contributes none.
   local ref refs="" installed=() seen=""
   if [ -n "$bake_doc" ] && [ -f "$bake_doc" ]; then
     refs="$(claude_vm_list_items "$bake_doc" '.claude.plugins.bake')" ||
@@ -3316,7 +3316,7 @@ claude_vm_render_guest_settings() {
 
   # Read the claude.plugins.enabled override map as tab-separated
   # "ref<TAB>tag<TAB>value" lines. yq emits nothing when the key is absent.
-  # Validate each entry HERE, once: key must be non-empty and must name an
+  # Validate each entry HERE: key must be non-empty and must name an
   # installed ref, value must be of the map's key-table type, which the tag
   # settles for a quoted "true". Build an override map keyed by ref.
   #
@@ -3358,9 +3358,10 @@ claude_vm_render_guest_settings() {
       return 1
     }
   while IFS= read -r ov_record; do
-    # An ABSENT enabled map is one empty line, not zero bytes (yq prints a
-    # newline for `{} | to_entries | .[]`). Skip it before the empty-ref abort
-    # below, which would otherwise fire on every config that sets no overrides.
+    # An ABSENT enabled map is one empty line, not zero bytes (the here-string
+    # ends even an empty $ov_records with a newline). Skip it before the
+    # empty-ref abort below, which would otherwise fire on every config that
+    # sets no overrides.
     [ -n "$ov_record" ] || continue
     ov_idx=$((ov_idx + 1))
     ov_ref=${ov_record%%"$ov_tab"*}
