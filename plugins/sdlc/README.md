@@ -254,9 +254,10 @@ ready. One PR at a time then goes through these stages:
 
 After the last PR's stages, `/sdlc:orchestrate-cleanup <PR>` runs for
 each PR the run saw merge, asking nothing. It removes the worktrees of
-the agents that worked on the PR, the PR's local branch and the
-`.claude/tmp/` scratch of the issues it closes, then brings the default
-branch up to date. A PR the run did not see merge keeps all of them.
+the agents that worked on the PR, the PR's local branch once every
+issue the branch names is closed, and the `.claude/tmp/` scratch of the
+issues the PR closes, then brings the default branch up to date. A PR
+the run did not see merge keeps all of them.
 
 The run closes with a summary: the PRs that merged, those marked ready
 and left unwatched under `merge-wait: skip`, those your pick at a loop
@@ -264,13 +265,36 @@ end left as drafts, anything that needs your attention, and the
 batches still waiting on an earlier one.
 
 `/sdlc:orchestrate-cleanup --all` is for clearing up after many runs.
-It lists every worktree under `.claude/worktrees/`, every local branch
-but the default branch, all `.claude/tmp/` scratch and every other
-session's scratchpad, asks for one go-ahead, and removes them.
+It lists every worktree under `.claude/worktrees/`, every agent
+worktree's local branch, every issue branch whose issues are all
+closed, all `.claude/tmp/` scratch and every other session's
+scratchpad, asks for one go-ahead, and removes them. It deletes no
+other local branch.
 
-With either form, `--dry-run` lists what would go and removes nothing,
-and `--review-state` also deletes the review state: the one PR's, or
-every PR's in the repository under `--all`.
+Neither form takes what a running agent may still use, because other
+runs can be in flight in the same repository while a cleanup runs:
+
+- A locked worktree is kept, and so is any branch a remaining worktree
+  has checked out. Agents run in locked worktrees, so a lock is how
+  cleanup tells that one may still be at work.
+- A branch that names an open issue is kept, as is one naming an issue
+  whose state cannot be read.
+- While a locked worktree remains, `--all` removes no scratchpad and
+  nothing under `.claude/tmp/`. The per-PR form holds back the PR's
+  `.claude/tmp/` scratch only while one of the PR's own worktrees
+  remains locked.
+
+Each thing kept prints a `keep` line saying why, which is no failure.
+The per-PR form, run from the session that spawned the PR's agents,
+does remove their locked worktrees: that session runs it only once
+every agent it spawned has returned.
+
+With either form, `--stale-locks` also removes a locked worktree whose
+agent's session is no longer running, `--dry-run` lists what would go
+and removes nothing, and `--review-state` also deletes the review
+state: the one PR's, or every PR's in the repository under `--all`. A
+worktree locked for any other reason than an agent's run is kept
+whatever the flags.
 
 `/sdlc:orchestrate-analysis <PR>` reports where a run's wall-clock time
 went and, per class of decision, how your picks compared with the
@@ -286,8 +310,10 @@ recommendations.
   one an open PR already closes, one a local branch names, or one at a
   status the config does not allow is refused. Reopening it, closing
   the PR, deleting the branch and moving the status are yours.
-- **It does not resume on a leftover branch.** What an abandoned run
-  left is cleaned up with `/sdlc:orchestrate-cleanup` before the issue
+- **It does not resume on a leftover branch.** An open issue's local
+  branch that an abandoned run left is refused, and cleanup keeps it,
+  since it cannot tell an abandoned branch from one in use. Once no run
+  is using it, delete it with `git branch -D <branch>` before the issue
   is run again.
 - **It changes no other repository.** A fix that belongs in another
   repository, or to a PR that has left draft, is put to you.
@@ -365,8 +391,8 @@ The verbs you run:
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then set its status. Interactive. |
 | `/sdlc:orchestrate <issue>…` | Plan, implement, review and bring to merge one or more issues, refusing any that fails the readiness check. |
 | `/sdlc:git-review-pr <PR> [--generator-effort <low\|medium\|high\|xhigh>] [--full] [--mode <mode>]` | Review one PR outside an orchestrate run. `--mode` is `code-and-instruction-markdown`, the default, or `documentation`. |
-| `/sdlc:orchestrate-cleanup <PR> [--review-state] [--dry-run]` | Remove what one merged or closed PR left behind, then bring the default branch up to date. |
-| `/sdlc:orchestrate-cleanup --all [--review-state] [--dry-run]` | Remove everything every run left in the repository, after one go-ahead. |
+| `/sdlc:orchestrate-cleanup <PR> [--stale-locks] [--review-state] [--dry-run]` | Remove what one merged or closed PR left behind, keeping what a running agent may still use, then bring the default branch up to date. |
+| `/sdlc:orchestrate-cleanup --all [--stale-locks] [--review-state] [--dry-run]` | Remove what every run left in the repository, keeping what a running agent may still use, after one go-ahead. |
 | `/sdlc:orchestrate-analysis <PR>` | Report where one run's wall-clock time went, and how your picks compare with the recommendations per class of decision. |
 | `/sdlc:sdlc-config-global` | Create or update the global user config. Interactive. |
 | `/sdlc:sdlc-config-repo` | Create or update the shared repo config. Interactive. |
@@ -401,8 +427,9 @@ from the `/` menu:
 | `counterexample-verifier` | Tries to reject exactly one disprover's counterexample. |
 
 Every agent but `pr-merge-readiness` and `pr-monitor` runs in a
-throwaway worktree under `.claude/worktrees/`. Those worktrees stay in
-place during a run and are removed by the cleanup.
+throwaway worktree under `.claude/worktrees/`, locked while the agent
+runs. Those worktrees stay in place during a run and are removed by
+the cleanup.
 
 `theorem-generator` runs at a reasoning tier the reviewer picks per
 round. You can name one yourself: `--generator-effort` on
@@ -418,7 +445,7 @@ Each is callable by bare name once the plugin is enabled.
 | `sdlc-agent-result-persist` | Writes and reads the review pipeline's state, and derives from it where a round stands, each theorem's disposition and severity, the verdicts and the posted review. |
 | `sdlc-decision` | Checks and stores a decision record and prints its question, stores your answer, prints a record or its question again, and reports whether a design question still waits on you. |
 | `sdlc-readiness-check` | Refuses an issue that is closed, closed by an open PR, named by a local branch or at a status not allowed; otherwise grades the mechanical acceptance bullets of its body against the tree and prints one line per gap. |
-| `sdlc-orchestrate-cleanup` | Removes worktrees, local branches and scratch for one merged or closed PR, or for the whole repository, then brings the default branch up to date. |
+| `sdlc-orchestrate-cleanup` | Removes worktrees, local branches and scratch for one merged or closed PR, or for the whole repository, keeping what a running agent may still use, then brings the default branch up to date. |
 | `sdlc-orchestrate-analysis` | Prints the time report and the per-class decisions table behind `/sdlc:orchestrate-analysis`. Writes nothing. |
 | `sdlc-pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls behind or into conflict, or sits unchanged for the configured number of polls. Writes nothing. |
 | `sdlc-pr-round` | Prints the number of the review round under way on a PR. |
