@@ -64,7 +64,9 @@
 # that fails prints a `WARNING (teardown)` rather than leaving a dirty host
 # unannounced. Unlike the launcher, which only stops a machine it started,
 # this test also removes a machine it init'd; it resolves the target machine
-# through the launcher's own claude_vm_podman_machine_probe.
+# through the launcher's own claude_vm_podman_machine_probe, so the
+# `--format json` read that keeps the `{{.Name}}` template's `*`
+# default-marker out of the name is guarded in one place.
 #
 # Requires (to actually run, not skip): gvproxy (resolved from podman
 # libexec), vfkit, podman, tinyproxy, curl, yq (mikefarah v4+, which backs

@@ -30,6 +30,11 @@
 #   - an absent entry is tolerated on both sides (most hosts have no
 #     keybindings.json), and an EMPTY seed still boots.
 #
+# Case H runs the staging loop as `--as` runs it, with the account directory
+# set: the entries come from it alone, so one the account lacks stays absent
+# rather than being filled in from ~/.claude, and the account's settings.json
+# is staged no more than the host's is.
+#
 # So the test runs the REAL fragments, sliced verbatim out of claude-vm.sh
 # and out of the launcher heredoc in build-guest-image.sh, against a fake
 # host home and a fake guest home. It is the shipped code deciding, not a

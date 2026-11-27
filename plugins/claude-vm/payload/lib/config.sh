@@ -776,11 +776,13 @@ claude_vm_merge_config() {
 
   # Step 1: scalar layer via deep merge (second doc wins on scalars).
   # Arrays from the repo doc temporarily clobber global arrays here;
-  # fixed in step 2.
+  # fixed in step 2. Steps 1 and 2 resolve each layer's aliases first, so the
+  # merged document holds the values their anchors name and never an alias
+  # whose anchor it no longer carries.
   local scalars rc=0
   scalars="$(
     yq eval-all '
-      select(fileIndex == 0) * select(fileIndex == 1)
+      (select(fileIndex == 0) | explode(.)) * (select(fileIndex == 1) | explode(.))
     ' "$g" "$r" 2>/dev/null
   )" || {
     echo "claude-vm: failed to merge config (scalar layer)" >&2
@@ -798,8 +800,8 @@ claude_vm_merge_config() {
     local list_yaml
     list_yaml="$(
       yq eval-all "
-        [select(fileIndex == 0) | ${key} // [] | .[]]
-          + [select(fileIndex == 1) | ${key} // [] | .[]]
+        [select(fileIndex == 0) | explode(.) | ${key} // [] | .[]]
+          + [select(fileIndex == 1) | explode(.) | ${key} // [] | .[]]
         | unique
       " "$g" "$r" 2>/dev/null
     )" || {
@@ -1087,57 +1089,121 @@ claude_vm_check_typed_value() {
 # claude_vm_check_scalar <file> <key> -- check <key>'s value in the config
 # file <file> against its key-table type with claude_vm_check_typed_value.
 # An absent or null key, and one written as `""`, is unset and passes: the
-# value used is then the key table's default.
+# value used is then the key table's default. Aliases are resolved first, as
+# claude_vm_merge_config resolves them, so `cpus: *a` is checked as the value
+# its anchor holds rather than read as an untagged, unset key. A yq read that
+# fails, such as on a file that does not parse or an alias naming no anchor,
+# fails the check.
 claude_vm_check_scalar() {
   local file="$1" key="$2" tag val
-  tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)"
+  tag="$(yq eval "explode(.) | .${key} | tag" "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
   case "$tag" in
     '' | '!!null') return 0 ;;
   esac
-  val="$(yq eval ".${key}" "$file" 2>/dev/null)"
+  val="$(yq eval "explode(.) | .${key}" "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
   if [ "$tag" = '!!str' ] && [ -z "$val" ]; then
     return 0
   fi
   claude_vm_check_typed_value "$key" "$(claude_vm_config_key_type "$key")" "$tag" "$val"
 }
 
+# claude_vm_check_map_values <file> <key> -- check every value of the map
+# <key> in the config file <file> against the element type of <key>'s
+# `map(<type>)` key-table type with claude_vm_check_typed_value, aliases
+# resolved first. An absent or null <key> passes; one that is not a map fails.
+# A map or list value is checked by its tag alone, so `@tsv` never sees one.
+# A yq read that fails fails the check.
+claude_vm_check_map_values() {
+  local file="$1" key="$2" tab tag type records record ref val
+  tab=$'\t'
+  tag="$(yq eval "explode(.) | .${key} | tag" "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
+  case "$tag" in
+    '' | '!!null') return 0 ;;
+    '!!map') : ;;
+    *)
+      echo "claude-vm: $key must be a map, got a $tag" >&2
+      return 1
+      ;;
+  esac
+  type="$(claude_vm_config_key_type "$key")"
+  type=${type#"map("}
+  type=${type%")"}
+  records="$(yq eval "
+    explode(.) | .${key} | to_entries | .[]
+    | [.key, (.value | tag),
+       (if (.value | tag) == \"!!map\" or (.value | tag) == \"!!seq\" or (.value | tag) == \"!!null\"
+        then \"\" else .value end)]
+    | @tsv
+  " "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
+  # Split by hand, per the TSV RECORDS note below.
+  while IFS= read -r record; do
+    [ -n "$record" ] || continue
+    ref=${record%%"$tab"*}
+    val=${record#*"$tab"}
+    tag=${val%%"$tab"*}
+    val=${val#*"$tab"}
+    claude_vm_check_typed_value "${key}['$ref']" "$type" "$tag" "$val" || return 1
+  done <<<"$records"
+}
+
 # claude_vm_check_scalars <global_bake> <repo_bake> <global_boot> <repo_boot>
-# -- run claude_vm_check_scalar for every key-table row of shape `scalar` whose
-# type is not a `map(...)`, against each raw config file of the file types its
-# file column names, in table order. A path that is empty or names no file is
-# skipped. Stops at the first value its type refuses and fails, so the launcher
-# aborts before it reads any of these keys.
+# -- for every key-table row of shape `scalar`, run claude_vm_check_scalar, or
+# claude_vm_check_map_values for a `map(bool)` row, against each raw config
+# file of the file types its file column names, in table order. A row of any
+# other `map(...)` type is not checked here. A path that is empty or names no
+# file is skipped. Stops at the first value its type refuses, or the first yq
+# read that fails, and fails, so the launcher aborts before it reads any of
+# these keys.
 #
 # The files are the RAW ones the operator wrote, not the merged documents:
 # claude_vm_prune_empty_skeleton deletes every empty map from a merged
-# document, so a scalar key written `{}` would reach a merged-document check
-# as absent and silently take its default.
+# document, so a scalar key, or a `map(bool)` value, written `{}` would reach
+# a merged-document check as absent and silently take its default.
 claude_vm_check_scalars() {
-  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key file doc
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key file doc check
   while [ "$i" -lt "$n" ]; do
     key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
     file="${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}"
     case "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}:${CLAUDE_VM_CONFIG_KEYS[$((i + 2))]}" in
-      scalar:map\(*) : ;;
-      scalar:*)
-        case "$file" in
-          bake | both)
-            for doc in "$1" "$2"; do
-              [ -n "$doc" ] && [ -f "$doc" ] || continue
-              claude_vm_check_scalar "$doc" "$key" || return 1
-            done
-            ;;
-        esac
-        case "$file" in
-          boot | both)
-            for doc in "$3" "$4"; do
-              [ -n "$doc" ] && [ -f "$doc" ] || continue
-              claude_vm_check_scalar "$doc" "$key" || return 1
-            done
-            ;;
-        esac
-        ;;
+      'scalar:map(bool)') check=claude_vm_check_map_values ;;
+      scalar:map\(*) check="" ;;
+      scalar:*) check=claude_vm_check_scalar ;;
+      *) check="" ;;
     esac
+    if [ -n "$check" ]; then
+      case "$file" in
+        bake | both)
+          for doc in "$1" "$2"; do
+            [ -n "$doc" ] && [ -f "$doc" ] || continue
+            "$check" "$doc" "$key" || return 1
+          done
+          ;;
+      esac
+      case "$file" in
+        boot | both)
+          for doc in "$3" "$4"; do
+            [ -n "$doc" ] && [ -f "$doc" ] || continue
+            "$check" "$doc" "$key" || return 1
+          done
+          ;;
+      esac
+    fi
     i=$((i + 5))
   done
 }
@@ -2879,12 +2945,13 @@ claude_vm_check_marketplace_names() {
 # marketplace called `https://...`. claude_vm_check_marketplace_names rejects
 # that entry at load; the `[ -n "$name" ]` guard here is the floor for any
 # caller that runs without the load-time guards (the unit tests, and any future
-# non-launcher consumer).
+# non-launcher consumer). A yq read of either document that fails fails it.
 claude_vm_effective_marketplaces() {
-  local bake_doc="$1" boot_doc="$2" f seen="" mp_tab record name url
+  local bake_doc="$1" boot_doc="$2" f seen="" mp_tab records record name url
   mp_tab=$'\t'
   for f in "$bake_doc" "$boot_doc"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
+    records="$(claude_vm_marketplaces "$f")" || return 1
     while IFS= read -r record; do
       name=${record%%"$mp_tab"*}
       url=${record#*"$mp_tab"}
@@ -2894,7 +2961,7 @@ claude_vm_effective_marketplaces() {
       esac
       seen="$seen $name"
       printf '%s\t%s\n' "$name" "$url"
-    done < <(claude_vm_marketplaces "$f")
+    done <<<"$records"
   done
 }
 
@@ -3196,26 +3263,48 @@ $name
 #     NOT collapse into this render -- the explicit ensure/install/update phase
 #     in the guest boot launcher is load-bearing.
 #
-# VALIDATION (done here, once, on the merged config -- this is the single
+# VALIDATION (done here, on the merged config -- this is the single
 # reader/render path): every claude.plugins.enabled VALUE must be a boolean,
 # and every KEY must name a plugin ref present in the merged
-# (bake ++ install_at_boot) lists. A non-boolean value or an unknown key is
-# a config typo and ABORTS (non-zero return + a claude-vm: diagnostic on
+# (bake ++ install_at_boot) lists. claude_vm_check_scalars has already checked
+# each value on the raw files, where a value written `{}` is still present. A
+# non-boolean value or an unknown key is a config typo and ABORTS (non-zero return + a claude-vm: diagnostic on
 # stderr) so the launcher stops rather than rendering a settings.json that
-# silently drops or misspells a plugin toggle.
+# silently drops or misspells a plugin toggle. A yq stage of the render that
+# fails aborts it the same way, rather than rendering from the output it
+# did not produce.
 claude_vm_render_guest_settings() {
   local file="$1" bake_doc="${2:-}"
   local permission_mode
 
-  # Resolve permission_mode with the key table's default. The launcher
-  # enum-guards the value up front, so an unexpected mode never reaches this
-  # render.
-  permission_mode="$(claude_vm_scalar "$file" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+  # Resolve permission_mode with the key table's default, which an absent,
+  # null or `""` value takes. The launcher enum-guards the value up front, so
+  # an unexpected mode never reaches this render.
+  permission_mode="$(yq eval '.claude.permission_mode // ""' "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read claude.permission_mode from $file" >&2
+      return 1
+    }
+  [ -n "$permission_mode" ] || permission_mode="$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE"
 
   # Collect the installed plugin refs (bake ++ install_at_boot), preserving
   # order and de-duplicating. These are both the enabledPlugins keys (all
   # default true) AND the valid key-set for claude.plugins.enabled overrides.
-  local ref installed=() seen=""
+  # Baked refs come from the BAKE document (issue #107 placement); a missing
+  # bake doc simply contributes none.
+  local ref refs="" installed=() seen=""
+  if [ -n "$bake_doc" ] && [ -f "$bake_doc" ]; then
+    refs="$(claude_vm_list_items "$bake_doc" '.claude.plugins.bake')" ||
+      {
+        echo "claude-vm: could not read claude.plugins.bake from $bake_doc" >&2
+        return 1
+      }
+  fi
+  refs="$refs"$'\n'"$(claude_vm_list_items "$file" '.claude.plugins.install_at_boot')" ||
+    {
+      echo "claude-vm: could not read claude.plugins.install_at_boot from $file" >&2
+      return 1
+    }
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
     case " $seen " in
@@ -3223,14 +3312,7 @@ claude_vm_render_guest_settings() {
     esac
     seen="$seen $ref"
     installed+=("$ref")
-  done < <(
-    # Baked refs come from the BAKE document (issue #107 placement); a missing
-    # bake doc simply contributes none.
-    if [ -n "$bake_doc" ] && [ -f "$bake_doc" ]; then
-      claude_vm_list_items "$bake_doc" '.claude.plugins.bake'
-    fi
-    claude_vm_list_items "$file" '.claude.plugins.install_at_boot'
-  )
+  done <<<"$refs"
 
   # Read the claude.plugins.enabled override map as tab-separated
   # "ref<TAB>tag<TAB>value" lines. yq emits nothing when the key is absent.
@@ -3244,7 +3326,8 @@ claude_vm_render_guest_settings() {
   # ov_val="" and abort with a message blaming a plugin called `true`. It now
   # sees the empty ref and says so. That entry ABORTS rather than being skipped
   # -- an override no plugin can ever match is a typo, and this render is the
-  # single place claude.plugins.enabled is validated.
+  # one place claude.plugins.enabled's keys are validated. A map or list value
+  # is read by its tag alone, so `@tsv` never sees one.
   #
   # The map is TWO PARALLEL INDEXED ARRAYS, not an associative array, because
   # this render is launcher-reachable and stock macOS /bin/bash is 3.2, which
@@ -3260,8 +3343,20 @@ claude_vm_render_guest_settings() {
   # 3.2.57). A config with no override never entered this branch at all, which
   # is why the defect survived to a real launch.
   local ov_refs=() ov_vals=()
-  local ov_tab ov_record ov_ref ov_tag ov_type ov_val ov_idx=0
+  local ov_tab ov_records ov_record ov_ref ov_tag ov_type ov_val ov_idx=0
   ov_tab=$'\t'
+  ov_records="$(yq eval '
+    .claude.plugins.enabled // {}
+    | to_entries | .[]
+    | [.key, (.value | tag),
+       (if (.value | tag) == "!!map" or (.value | tag) == "!!seq" or (.value | tag) == "!!null"
+        then "" else .value end)]
+    | @tsv
+  ' "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read claude.plugins.enabled from $file" >&2
+      return 1
+    }
   while IFS= read -r ov_record; do
     # An ABSENT enabled map is one empty line, not zero bytes (yq prints a
     # newline for `{} | to_entries | .[]`). Skip it before the empty-ref abort
@@ -3293,16 +3388,11 @@ claude_vm_render_guest_settings() {
     # is the same value an associative-array assignment would have left.
     ov_refs+=("$ov_ref")
     ov_vals+=("$ov_val")
-  done < <(
-    yq eval '
-      .claude.plugins.enabled // {}
-      | to_entries | .[] | [.key, (.value | tag), .value] | @tsv
-    ' "$file" 2>/dev/null
-  )
+  done <<<"$ov_records"
 
   # Build the enabledPlugins object as a YAML fragment: every installed ref
   # -> true, then apply the validated overrides.
-  local plugins_yaml="" value ov_i ov_n
+  local plugins_yaml="" value ov_i ov_n quoted
   ov_n=${#ov_refs[@]}
   for ref in ${installed[@]+"${installed[@]}"}; do
     value="true"
@@ -3318,7 +3408,12 @@ claude_vm_render_guest_settings() {
     done
     # Quote the key so a ref containing YAML-significant characters is a
     # valid single mapping key; the value is a bare boolean literal.
-    plugins_yaml="${plugins_yaml}$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null): ${value}"$'\n'
+    quoted="$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not quote the plugin ref '$ref'" >&2
+        return 1
+      }
+    plugins_yaml="${plugins_yaml}${quoted}: ${value}"$'\n'
   done
 
   # An empty fragment (no plugin refs at all) must parse to an empty object,
@@ -3334,25 +3429,34 @@ claude_vm_render_guest_settings() {
   # what claude itself writes: an http(s) url -> {"source":"git","url":...};
   # anything else is treated as the `owner/repo` GitHub shorthand ->
   # {"source":"github","repo":...}. A urlless entry contributes nothing.
-  local mp_yaml="" mp_tab mp_record mp_name mp_url mp_src
+  local mp_yaml="" mp_tab mp_records mp_record mp_name mp_url mp_src mp_expr
   mp_tab=$'\t'
+  mp_records="$(claude_vm_effective_marketplaces "$bake_doc" "$file")" ||
+    {
+      echo "claude-vm: could not read claude.marketplaces" >&2
+      return 1
+    }
   # Hand split, per the TSV RECORDS note near the top of this file.
   while IFS= read -r mp_record; do
     mp_name=${mp_record%%"$mp_tab"*}
     mp_url=${mp_record#*"$mp_tab"}
     [ -n "$mp_name" ] && [ -n "$mp_url" ] || continue
     case "$mp_url" in
-      http://* | https://*)
-        mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
-          '{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)"
-        ;;
-      *)
-        mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
-          '{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)"
-        ;;
+      http://* | https://*) mp_expr='{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' ;;
+      *) mp_expr='{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' ;;
     esac
-    mp_yaml="${mp_yaml}$(printf '%s' "$mp_name" | yq -o=json eval '.' - 2>/dev/null): {\"source\": ${mp_src}}"$'\n'
-  done < <(claude_vm_effective_marketplaces "$bake_doc" "$file")
+    mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n "$mp_expr" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not render the source of marketplace '$mp_name'" >&2
+        return 1
+      }
+    quoted="$(printf '%s' "$mp_name" | yq -o=json eval '.' - 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not quote the marketplace name '$mp_name'" >&2
+        return 1
+      }
+    mp_yaml="${mp_yaml}${quoted}: {\"source\": ${mp_src}}"$'\n'
+  done <<<"$mp_records"
   # Same empty-fragment guard as enabledPlugins above: `"" | from_yaml` errors.
   [ -n "$mp_yaml" ] || mp_yaml="{}"
 

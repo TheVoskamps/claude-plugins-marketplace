@@ -13,7 +13,10 @@
 # boot_apt_phase, boot_plugin_phase and boot_mount_phase sliced out of
 # build-guest-image.sh, and the launcher's extra-mount loop and whole
 # config-load gate block sliced out of claude-vm.sh by line range, since
-# they are bare top-level code rather than functions. A TSV split case
+# they are bare top-level code rather than functions. Together they assert
+# that a record's empty middle field and empty leading field each survive the
+# split, and that a mounts or claude.marketplaces entry missing its key field
+# aborts the launch naming it. A TSV split case
 # carries a negative control rebuilding the collapsing `read` from the
 # same captured lines, so the control cannot drift from the code. A gate
 # is driven through claude_vm_merge_config in the launcher's own argument
@@ -36,7 +39,9 @@
 #
 # The gate block's `mode:` cases spell it `ro`, `rw`, a typo, `[]`, `""` and
 # valueless, since only a presence test tells the last two from an omitted
-# key; `mode: {}`, which the merged-document read drops, has no case. The
+# key; `mode: {}`, which the merged-document read drops, has no case. A
+# `path` over a reserved mountpoint is spelled with a trailing slash, so the
+# normalization is what catches it. The
 # guest-OS-path rule is driven from both sides with a pair of configs
 # differing only in whether the source is a directory or a file, since that
 # difference is the whole rule, and the passing side (`/mnt/<tag>`, `/srv`,
@@ -5187,8 +5192,10 @@ $UAB_TAIL"
 #
 # For each key-table row of shape `scalar` and a type that is not a map, a
 # value of the row's type passes, unset passes, and each wrong value for the
-# type aborts naming the key. The rows are read off the key table, so a new
-# row is covered by gaining it.
+# type aborts naming the key, written directly and through a YAML alias. The
+# rows are read off the key table, so a new row is covered by gaining it. A
+# `map(bool)` row has each of its values checked the same way, a map or list
+# value included, since @tsv cannot render one and the merge prunes `{}`.
 # ---------------------------------------------------------------------
 
 # nest_yaml <dotted-key> <yaml-value> -- print a document setting the key.
@@ -5206,14 +5213,23 @@ nest_yaml() {
   done
 }
 
-# scalar_case <key> <file-type> <yaml-value> <expected> -- run
-# claude_vm_check_scalars with the key set to the value in a file of its file
-# type, once as the global file and once as the repo file, the other three
+# scalar_case <key> <file-type> <yaml-value> <expected> [<anchor-value>] --
+# run claude_vm_check_scalars with the key set to the value in a file of its
+# file type, once as the global file and once as the repo file, the other three
 # files absent, and assert "pass", or "abort" with a diagnostic naming the key,
-# for each.
+# for each. With <anchor-value>, the file first sets an unrelated top-level key
+# to it under the anchor `&a`, so a <yaml-value> of `*a` reaches the key only
+# through the alias.
 scalar_case() {
-  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err tier
-  nest_yaml "$key" "$val" >"$doc"
+  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err tier label
+  label="$val"
+  if [ "$#" -ge 5 ]; then
+    printf 'anchored: &a %s\n' "$5" >"$doc"
+    nest_yaml "$key" "$val" >>"$doc"
+    label="$val -> $5"
+  else
+    nest_yaml "$key" "$val" >"$doc"
+  fi
   for tier in global repo; do
     case "$file:$tier" in
       bake:global) err="$(claude_vm_check_scalars "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
@@ -5223,11 +5239,11 @@ scalar_case() {
     esac
     if [ "$got" = abort ]; then
       case "$err" in
-        "claude-vm: $key must be "*) : ;;
+        "claude-vm: $key must be "* | "claude-vm: ${key}['"*"'] must be "*) : ;;
         *) got="abort without naming the key: $err" ;;
       esac
     fi
-    assert_eq "check_scalars: $key: $val ($tier) -> $want" "$want" "$got"
+    assert_eq "check_scalars: $key: $label ($tier) -> $want" "$want" "$got"
   done
 }
 
@@ -5250,6 +5266,7 @@ while IFS= read -r sc_row; do
   scalar_case "$sc_key" "$sc_file" '[]' abort
   scalar_case "$sc_key" "$sc_file" '{}' abort
   scalar_case "$sc_key" "$sc_file" '{a: 1}' abort
+  scalar_case "$sc_key" "$sc_file" '*a' abort '{x: 1}'
   case "$sc_type" in
     bool)
       scalar_case "$sc_key" "$sc_file" true pass
@@ -5258,6 +5275,8 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" '"false"' abort
       scalar_case "$sc_key" "$sc_file" True abort
       scalar_case "$sc_key" "$sc_file" 1 abort
+      scalar_case "$sc_key" "$sc_file" '*a' pass false
+      scalar_case "$sc_key" "$sc_file" '*a' abort 4
       ;;
     int)
       scalar_case "$sc_key" "$sc_file" 8 pass
@@ -5265,6 +5284,8 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" -1 abort
       scalar_case "$sc_key" "$sc_file" 0x10 abort
       scalar_case "$sc_key" "$sc_file" false abort
+      scalar_case "$sc_key" "$sc_file" '*a' pass 8
+      scalar_case "$sc_key" "$sc_file" '*a' abort false
       ;;
     string | path)
       scalar_case "$sc_key" "$sc_file" some-value pass
@@ -5272,6 +5293,8 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" '"false"' pass
       scalar_case "$sc_key" "$sc_file" false abort
       scalar_case "$sc_key" "$sc_file" true abort
+      scalar_case "$sc_key" "$sc_file" '*a' pass some-value
+      scalar_case "$sc_key" "$sc_file" '*a' abort false
       ;;
     *\|*)
       scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}" pass
@@ -5279,6 +5302,8 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\"" pass
       scalar_case "$sc_key" "$sc_file" not-listed abort
       scalar_case "$sc_key" "$sc_file" false abort
+      scalar_case "$sc_key" "$sc_file" '*a' pass "${sc_type%%|*}"
+      scalar_case "$sc_key" "$sc_file" '*a' abort not-listed
       ;;
     *) assert_eq "check_scalars: $sc_key has a type this test covers" "covered" "$sc_type" ;;
   esac
@@ -5286,9 +5311,74 @@ done <<EOF
 $SC_ROWS
 EOF
 
-# A map row is not checked here: claude.plugins.enabled's values are checked
-# by the render (Test 15), and the gate passes a map whatever its values.
-scalar_case claude.plugins.enabled boot '{a@mp: "true"}' pass
+# A `map(bool)` row: the map itself must be a map, and each value a bool.
+# claude.plugins.enabled is the table's one such row.
+while IFS= read -r sc_row; do
+  sc_key=${sc_row%%"$SC_TAB"*}
+  sc_rest=${sc_row#*"$SC_TAB"}
+  sc_file=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_type=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_shape=${sc_rest%%"$SC_TAB"*}
+  [ "$sc_shape:$sc_type" = 'scalar:map(bool)' ] || continue
+  scalar_case "$sc_key" "$sc_file" '' pass
+  scalar_case "$sc_key" "$sc_file" '{}' pass
+  scalar_case "$sc_key" "$sc_file" '{a@mp: true, b@mp: false}' pass
+  scalar_case "$sc_key" "$sc_file" '[a@mp]' abort
+  scalar_case "$sc_key" "$sc_file" true abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: "true"}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: 1}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: }' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: [true]}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: {x: 1}}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: {}}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: true, b@mp: {}}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: *a}' pass false
+  scalar_case "$sc_key" "$sc_file" '{a@mp: *a}' abort '{x: 1}'
+  scalar_case "$sc_key" "$sc_file" '*a' abort '{a@mp: {}}'
+done <<EOF
+$SC_ROWS
+EOF
+
+# A yq read that fails aborts the check rather than reading as unset: an alias
+# naming no anchor makes the file unreadable.
+printf 'cpus: *nowhere\n' >"$WORK/sc-badalias.yml"
+if claude_vm_check_scalars "" "" "$WORK/sc-badalias.yml" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_scalars: an alias naming no anchor aborts" abort "$sc_v"
+
+# The merge resolves an alias, so the merged document carries the anchored
+# value and never the literal `*a` a reader would otherwise take for the value.
+printf 'anchored: &a 6\ncpus: *a\n' >"$WORK/sc-alias.yml"
+claude_vm_merge_config "$WORK/sc-alias.yml" "" >"$WORK/sc-alias-g.merged.yml"
+claude_vm_merge_config "" "$WORK/sc-alias.yml" >"$WORK/sc-alias-r.merged.yml"
+for sc_merged in "$WORK/sc-alias-g.merged.yml" "$WORK/sc-alias-r.merged.yml"; do
+  assert_eq "merge: an aliased scalar reaches the merged document as its value ($(basename "$sc_merged"))" \
+    "6" "$(claude_vm_scalar "$sc_merged" '.cpus' 'X')"
+done
+printf 'anchored: &a [a@mp]\nclaude:\n  plugins:\n    install_at_boot: *a\n' >"$WORK/sc-alias-list.yml"
+claude_vm_merge_config "" "$WORK/sc-alias-list.yml" >"$WORK/sc-alias-list.merged.yml"
+assert_eq "merge: an aliased list key is unioned as its entries" \
+  "a@mp" "$(claude_vm_list_items "$WORK/sc-alias-list.merged.yml" '.claude.plugins.install_at_boot')"
+
+# The render reads each value by its tag, so a map value that reached it would
+# abort naming the ref rather than dying inside @tsv with its status discarded.
+printf 'claude:\n  plugins:\n    install_at_boot: [a@mp]\n    enabled:\n      a@mp: {x: 1}\n' >"$WORK/sc-render-map.yml"
+if sc_err="$(claude_vm_render_guest_settings "$WORK/sc-render-map.yml" "" 2>&1 >/dev/null)"; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "render: a map claude.plugins.enabled value aborts" abort "$sc_v"
+case "$sc_err" in
+  *"claude.plugins.enabled['a@mp'] must be true or false"*) sc_v=named ;;
+  *) sc_v="$sc_err" ;;
+esac
+assert_eq "render: the map-value abort names the ref" named "$sc_v"
 
 # NEGATIVE CONTROL: the check must read the raw files, because the merge
 # prunes an empty map. A `{}` scalar run through the real merge, in either

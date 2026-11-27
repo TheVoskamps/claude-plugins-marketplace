@@ -184,8 +184,9 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # of these values reach run.env unquoted, which the guest sources under
 # `set -a`, or become a command line, as proxy.cmd does. The check is handed
 # the four RAW files rather than the merged documents, because the merge
-# prunes every empty map: a scalar key written `{}` would otherwise reach the
-# check absent and silently take its default.
+# prunes every empty map: a scalar key, or a claude.plugins.enabled value,
+# written `{}` would otherwise reach the check absent and silently take its
+# default.
 claude_vm_check_scalars \
   "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
   "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
