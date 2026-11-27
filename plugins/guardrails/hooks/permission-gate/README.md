@@ -205,26 +205,28 @@ The gate's engines feed that decision:
   Every **process-home** reader fails closed the same way, rather than
   composing a path against a relative home: an unusable home loads no
   carve-out config (so no operator allow), resolves no `~/.claude` root
-  (so a target landing there grades as an ordinary escape — a **deny**
-  — instead of the `claudeConfig` defer that root buys), and resolves no
-  log path. The criterion there is that **no home-derived path is ever
-  composed**, not that nothing is written: the home-rooted default is
-  withheld, while the `PERMISSION_GATE_LOG` override — the operator's
+  and no account config root (so a target landing under either grades
+  as an ordinary escape — a **deny** — instead of the `claudeConfig`
+  defer that root buys), and resolves no log path. The criterion there
+  is that **no home-derived path is ever composed**, not that nothing
+  is written: the home-rooted default is withheld, while the
+  `PERMISSION_GATE_LOG` override — the operator's
   own explicit destination, which reads no home — still writes, provided
   it is **absolute**. A relative override is graded with the same
   predicate a home is, for the same reason: it would compose against
   whatever directory the gate happens to be running in, which is the
   outcome the predicate exists to prevent. Only the log sits
   outside the verdict; the
-  carve-out and the `~/.claude` root are relaxations an unusable home
-  withdraws. So an event carrying no `~`, no `$HOME` and no `cd` the
-  chokepoint reads as carrying no directory operand — the operand-less
-  spelling, the all-options ones, and the ones whose operand may expand
+  carve-out and the config roots, `~/.claude` and the account config
+  directory, are relaxations an unusable home withdraws. So an event
+  carrying no `~`, no `$HOME` and no `cd` the chokepoint reads as
+  carrying no directory operand — the operand-less spelling, the
+  all-options ones, and the ones whose operand may expand
   to no field — is
   never denied by the chokepoint, and its verdict is identical under an
   unusable home and an absolute one **unless** it was riding one of
-  those two relaxations, which an unusable home leaves unresolved. The
-  `~/.claude` root is home-rooted, so that half only reaches a target
+  those relaxations, which an unusable home leaves unresolved. The
+  config roots are home-rooted, so that half only reaches a target
   under the home. The carve-out's is **not**: its roots are whatever
   the operator's file spells, up to and including a `config-home-default`
   nowhere near `$HOME` — and the file itself is read at the fixed
@@ -1586,7 +1588,26 @@ The gate's engines feed that decision:
   not denied as a cross-repo escape, leaving the `settings.json`
   allow-list governing it. The carve-out is canonicalized on both sides
   so it cannot be symlink-escaped, and genuine sibling repos are still
-  denied. (2) a
+  denied. An **account config directory** gets the same carve-out: when
+  the gate's own environment carries `CLAUDE_CONFIG_DIR`, the variable
+  Claude Code reads to run under another account, and its value names
+  an accepted directory, a target under that directory gets on every
+  track the verdict it would get under `~/.claude`. An accepted
+  directory is `$HOME/.claude.<name>`, where `<name>` holds only ASCII
+  letters, digits, `_` and `-` and is not `backup`, and the directory
+  itself is a real directory rather than a symlink. The value is
+  matched lexically: after `filepath.Clean` it must equal that path,
+  with `$HOME` as the gate's home lookup returns it, so a trailing
+  slash, a doubled `/` and a `.` segment are accepted and a
+  `.claude.<name>` under any other parent is not. The path is then
+  canonicalized as the `~/.claude` root is. Any other value adds no
+  carve-out, and a target under the directory it names is graded as
+  it would be with the variable unset. The shape
+  is what makes reading the variable affordable: it can pick a sibling
+  of `~/.claude` and cannot move the carve-out anywhere else, which is
+  also why a symlink is refused: it would let an accepted name point at
+  an arbitrary directory. `~/.claude` keeps its carve-out whatever the
+  variable holds. (2) a
   file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
   canonical target is anywhere under a `.git/` directory is denied (the
   Engine B half of the identity-write rule, broadened from
@@ -1810,11 +1831,19 @@ The gate's engines feed that decision:
   `os.TempDir()` honours `$TMPDIR` (a `/var/folders/...` path on macOS
   that the harness does not use), and deriving a security carve-out
   from an environment variable would let whatever set that variable
-  relocate it to an arbitrary directory. The operator carve-out in (6)
-  below does read `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME`, and states
+  relocate it to an arbitrary directory. Other carve-outs do read the
+  environment, and none is a counter-example. The `~/.claude`, account
+  config and operator carve-outs each read `$HOME`, through the home
+  lookup every `~` and `$HOME` the gate grades already resolves
+  against, so `$HOME` moves a carve-out only by moving the home the
+  whole gate places paths in. The account config carve-out in (1)
+  above also reads `CLAUDE_CONFIG_DIR`, only to pick one of the
+  `$HOME/.claude.<name>` directories. The operator carve-out in (6)
+  below also reads `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME`, and states
   there what buys that off — an opt-in in a file the operator
-  hand-wrote, and denies that hold whatever the file says. Neither
-  is available here.
+  hand-wrote, and denies that hold whatever the file says. None of
+  that is available here: `$TMPDIR` is not the home, no fixed shape
+  bounds where it points, and no operator file names this root.
 
   **Both `/tmp` and `/private/tmp` spellings** are handled by
   canonicalizing *both sides*, with no literal enumeration of either.
@@ -2380,9 +2409,11 @@ bucket, the field absent for a defer and present for the other three.
 
 Every ASK, DENY and DEFER is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
-`PERMISSION_GATE_LOG`). A log the gate creates is mode `0600` in a
-`0750` directory; an existing file or directory keeps its mode. A `..`
-in the override is resolved the way the kernel resolves it — after the
+`PERMISSION_GATE_LOG`). `CLAUDE_CONFIG_DIR` does not move that default:
+every account's session logs to the one file under `~/.claude`. A log
+the gate creates is mode `0600` in a `0750` directory; an existing file
+or directory keeps its mode. A `..` in the override is resolved the way
+the kernel resolves it — after the
 symlinks ahead of it — so the record lands in the file the path as
 written names, never in the one a lexical clean would pick, as long as
 the directory the kernel resolves to already exists and the directory a
