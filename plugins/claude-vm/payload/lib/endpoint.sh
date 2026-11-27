@@ -32,7 +32,7 @@
 # Guard against double-sourcing (the launcher and the test suite may both
 # source this alongside config.sh).
 if [ -n "${CLAUDE_VM_ENDPOINT_SH_SOURCED:-}" ]; then
-  return 0 2>/dev/null || true
+  return 0
 fi
 CLAUDE_VM_ENDPOINT_SH_SOURCED=1
 
@@ -40,42 +40,42 @@ CLAUDE_VM_ENDPOINT_SH_SOURCED=1
 # claude_vm_tcp_port_in_use <port>
 #
 # Return 0 (true) when something is LISTENING on 127.0.0.1:<port> right now,
-# 1 (false) when the port is free. Uses a real connect attempt via bash's
-# /dev/tcp -- a connect that succeeds proves a live listener, which is the
-# liveness signal we want (not "is a file present"). A refused/failed connect
-# means nothing is accepting there.
+# 1 (false) when the port is free. Uses a real connect attempt -- a connect
+# that succeeds proves a live listener, which is the liveness signal we want
+# (not "is a file present").
 #
-# The connect is wrapped in a short-timeout subshell so a filtered/black-holed
-# port cannot hang the probe. On a loopback address a live listener answers
-# effectively instantly; 1s is generous.
+# For a port in 1-65535, only ECONNREFUSED reads as free: it is the kernel's
+# answer for a port with no listener. A malformed port reads as free without a
+# connect. Every other outcome reads as in use, the safe bias, since the caller
+# then picks a different port. That includes ECONNRESET, which is what a live
+# listener whose accept queue has overflowed answers a new connect with under
+# load, and a connect still unanswered after 1s -- on a loopback address a live
+# listener answers effectively instantly, so 1s is generous. perl rather than
+# bash's /dev/tcp because the decision needs the connect's errno, which
+# /dev/tcp reports only as message text.
 # ---------------------------------------------------------------------
 claude_vm_tcp_port_in_use() {
   local port="$1"
-  # An empty/non-numeric port is never "in use" -- let the caller's own
-  # validation handle the malformed case.
+  # An empty/non-numeric/out-of-range port is never "in use" -- let the
+  # caller's own validation handle the malformed case. A value of six or more
+  # digits is rejected before the numeric test, which a value past the shell's
+  # integer range would make complain on stderr.
   case "$port" in
-    ''|*[!0-9]*) return 1 ;;
+    '' | *[!0-9]* | ??????*) return 1 ;;
   esac
-  # `timeout` is not on stock macOS; use a background connect + bounded wait.
-  # bash /dev/tcp opens a TCP connection; success == a listener accepted it.
-  (
-    exec 3<>"/dev/tcp/127.0.0.1/$port"
-  ) >/dev/null 2>&1 &
-  local probe_pid=$!
-  local waited=0
-  while kill -0 "$probe_pid" 2>/dev/null; do
-    if [ "$waited" -ge 10 ]; then
-      kill "$probe_pid" 2>/dev/null || true
-      wait "$probe_pid" 2>/dev/null || true
-      # Hung connect -> treat as "in use" (something is there but not answering
-      # cleanly); the caller will pick a different port, which is the safe bias.
-      return 0
-    fi
-    sleep 0.1
-    waited=$((waited + 1))
-  done
-  wait "$probe_pid" 2>/dev/null
-  return $?
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || return 1
+  # ECONNREFUSED exits 200, a status no errno a dying perl exits with and no
+  # signal death reaches, so a perl that fails to start, to load its modules or
+  # to finish reads as in use like every other outcome.
+  local rc=0
+  /usr/bin/perl -MSocket -MErrno=ECONNREFUSED -e '
+    $SIG{ALRM} = sub { exit 0 };
+    alarm 1;
+    socket(S, PF_INET, SOCK_STREAM, getprotobyname("tcp")) or exit 0;
+    connect(S, sockaddr_in($ARGV[0], inet_aton("127.0.0.1"))) and exit 0;
+    exit($!{ECONNREFUSED} ? 200 : 0);
+  ' "$port" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 200 ]
 }
 
 # ---------------------------------------------------------------------
@@ -106,7 +106,7 @@ claude_vm_acquire_free_tcp_port() {
     ' 2>/dev/null
   )" || return 1
   case "$port" in
-    ''|*[!0-9]*) return 1 ;;
+    '' | *[!0-9]*) return 1 ;;
   esac
   echo "$port"
   return 0

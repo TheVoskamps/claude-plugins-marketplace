@@ -1,5 +1,23 @@
 # claude-vm changelog
 
+## 0.23.1 — 2026-11-26
+
+`payload/test/endpoint-test.sh` no longer fails under parallel load. Its
+"a live listener reads in-use" check failed intermittently when the test
+ran alongside other suites, because `claude_vm_tcp_port_in_use` read
+every failed connect as a free port.
+
+- `claude_vm_tcp_port_in_use` now reads a port as free only when the
+  connect is refused, the kernel's answer for a port with no listener. A
+  reset connect, which a live listener whose accept queue has overflowed
+  answers with under load, reads as in use, as a connect unanswered
+  after 1s already did. A port outside 1-65535 reads as not in use, like
+  an empty or non-numeric one.
+- The probe connects through `/usr/bin/perl` instead of bash's
+  `/dev/tcp`, since the decision needs the connect's errno.
+- When the check fails, its message says whether the listener never came
+  up or a live listener read as free.
+
 ## 0.23.0 — 2026-11-25
 
 `claude-vm --as <name> [claude args...]` launches the guest as another

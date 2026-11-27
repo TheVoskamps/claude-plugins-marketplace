@@ -46,29 +46,37 @@ PASS=0
 FAIL=0
 
 assert_true() {
-  local label="$1"; shift
+  local label="$1"
+  shift
   if "$@"; then
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label (expected success, got failure)"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label (expected success, got failure)"
   fi
 }
 
 assert_false() {
-  local label="$1"; shift
+  local label="$1"
+  shift
   if "$@"; then
-    FAIL=$((FAIL + 1)); echo "FAIL - $label (expected failure, got success)"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label (expected failure, got success)"
   else
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   fi
 }
 
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        expected: [$expected]"
     echo "        actual:   [$actual]"
   fi
@@ -79,17 +87,21 @@ assert_eq() {
 # ---------------------------------------------------------------------
 
 # Start a TCP listener on 127.0.0.1:<port>, backgrounded. Prints the pid on
-# stdout. The listener's own stdout/stderr are redirected to /dev/null so a
-# `$(...)` capture of the pid does not block waiting for the backgrounded
-# process to close the inherited stdout fd.
+# stdout. Once it is listening it creates <ready-file>, so a caller can wait
+# for the listener without probing it through the function under test. The
+# listener's own stdout/stderr are redirected to /dev/null so a `$(...)`
+# capture of the pid does not block waiting for the backgrounded process to
+# close the inherited stdout fd.
 start_tcp_listener() {
-  local port="$1"
+  local port="$1" ready="$2"
   /usr/bin/perl -MIO::Socket::INET -e '
     my $s = IO::Socket::INET->new(
       LocalAddr => "127.0.0.1", LocalPort => $ARGV[0],
       Proto => "tcp", Listen => 1, ReuseAddr => 1) or exit 1;
+    open(my $f, ">", $ARGV[1]) or exit 1;
+    close($f);
     sleep 30;
-  ' "$port" >/dev/null 2>&1 &
+  ' "$port" "$ready" >/dev/null 2>&1 &
   echo $!
 }
 
@@ -112,8 +124,14 @@ PORT="$(claude_vm_acquire_free_tcp_port)"
 RC=$?
 assert_eq "acquire_free_tcp_port: succeeds (rc 0)" 0 "$RC"
 case "$PORT" in
-  ''|*[!0-9]*) FAIL=$((FAIL + 1)); echo "FAIL - acquire_free_tcp_port: prints a numeric port (got [$PORT])" ;;
-  *)           PASS=$((PASS + 1)); echo "ok   - acquire_free_tcp_port: prints a numeric port ($PORT)" ;;
+  '' | *[!0-9]*)
+    FAIL=$((FAIL + 1))
+    echo "FAIL - acquire_free_tcp_port: prints a numeric port (got [$PORT])"
+    ;;
+  *)
+    PASS=$((PASS + 1))
+    echo "ok   - acquire_free_tcp_port: prints a numeric port ($PORT)"
+    ;;
 esac
 
 # Two acquisitions should (almost always) differ -- the kernel hands out
@@ -122,9 +140,11 @@ esac
 P1="$(claude_vm_acquire_free_tcp_port)"
 P2="$(claude_vm_acquire_free_tcp_port)"
 if [ -n "$P1" ] && [ -n "$P2" ]; then
-  PASS=$((PASS + 1)); echo "ok   - acquire_free_tcp_port: two acquisitions both numeric ($P1, $P2)"
+  PASS=$((PASS + 1))
+  echo "ok   - acquire_free_tcp_port: two acquisitions both numeric ($P1, $P2)"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - acquire_free_tcp_port: two acquisitions numeric"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - acquire_free_tcp_port: two acquisitions numeric"
 fi
 
 # ---------------------------------------------------------------------
@@ -137,17 +157,34 @@ assert_false "tcp_port_in_use: a free port reads not-in-use" \
 
 # Stand up a real listener, then it MUST read in-use.
 LPORT="$(claude_vm_acquire_free_tcp_port)"
-LPID="$(start_tcp_listener "$LPORT")"
+LREADY="$WORK/tcp-listener.ready"
+LPID="$(start_tcp_listener "$LPORT" "$LREADY")"
 LISTENER_PIDS+=("$LPID")
-# Give perl a moment to bind.
-for _ in $(seq 1 30); do claude_vm_tcp_port_in_use "$LPORT" && break; sleep 0.1; done
-assert_true "tcp_port_in_use: a live listener reads in-use" \
-  claude_vm_tcp_port_in_use "$LPORT"
+# Wait for the listener's own ready signal, or for it to exit having failed
+# to bind or to create the ready file.
+for _ in $(seq 1 30); do
+  [ -e "$LREADY" ] && break
+  kill -0 "$LPID" 2>/dev/null || break
+  sleep 0.1
+done
+if [ ! -e "$LREADY" ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL - tcp_port_in_use: a live listener reads in-use (the listener on port $LPORT never came up)"
+elif claude_vm_tcp_port_in_use "$LPORT"; then
+  PASS=$((PASS + 1))
+  echo "ok   - tcp_port_in_use: a live listener reads in-use"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - tcp_port_in_use: a live listener reads in-use (the live listener on port $LPORT read as free)"
+fi
 
 # After the listener dies, the port reads free again.
 kill "$LPID" 2>/dev/null || true
 wait "$LPID" 2>/dev/null || true
-for _ in $(seq 1 30); do claude_vm_tcp_port_in_use "$LPORT" || break; sleep 0.1; done
+for _ in $(seq 1 30); do
+  claude_vm_tcp_port_in_use "$LPORT" || break
+  sleep 0.1
+done
 assert_false "tcp_port_in_use: a dead listener's port reads not-in-use" \
   claude_vm_tcp_port_in_use "$LPORT"
 
@@ -169,7 +206,10 @@ assert_false "unix_sock_live: absent path is not live" \
 LIVE_SOCK="$WORK/live.sock"
 USPID="$(start_unix_listener "$LIVE_SOCK")"
 LISTENER_PIDS+=("$USPID")
-for _ in $(seq 1 30); do [ -S "$LIVE_SOCK" ] && break; sleep 0.1; done
+for _ in $(seq 1 30); do
+  [ -S "$LIVE_SOCK" ] && break
+  sleep 0.1
+done
 assert_true "unix_sock_live: a live listener's socket is live" \
   claude_vm_unix_sock_live "$LIVE_SOCK"
 
@@ -180,11 +220,13 @@ wait "$USPID" 2>/dev/null || true
 # The perl listener does not unlink on kill, so the file lingers -- exactly the
 # stale-corpse scenario. Recreate it explicitly if the OS cleaned it up, so the
 # test deterministically exercises "file present, no listener".
-[ -e "$LIVE_SOCK" ] || : > "$LIVE_SOCK"
+[ -e "$LIVE_SOCK" ] || : >"$LIVE_SOCK"
 if [ -e "$LIVE_SOCK" ]; then
-  PASS=$((PASS + 1)); echo "ok   - unix_sock_live: corpse setup (socket file lingers)"
+  PASS=$((PASS + 1))
+  echo "ok   - unix_sock_live: corpse setup (socket file lingers)"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - unix_sock_live: corpse setup (socket file lingers)"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - unix_sock_live: corpse setup (socket file lingers)"
 fi
 assert_false "unix_sock_live: a stale corpse (file, no listener) is NOT live" \
   claude_vm_unix_sock_live "$LIVE_SOCK"
@@ -198,13 +240,15 @@ assert_true "clear_stale_unix_sock: absent path -> free to bind (rc 0)" \
 
 # A corpse: cleared, path now gone, returns 0.
 CORPSE="$WORK/corpse.sock"
-: > "$CORPSE"
+: >"$CORPSE"
 assert_true "clear_stale_unix_sock: corpse -> cleared (rc 0)" \
   claude_vm_clear_stale_unix_sock "$CORPSE"
 if [ -e "$CORPSE" ]; then
-  FAIL=$((FAIL + 1)); echo "FAIL - clear_stale_unix_sock: corpse file removed"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - clear_stale_unix_sock: corpse file removed"
 else
-  PASS=$((PASS + 1)); echo "ok   - clear_stale_unix_sock: corpse file removed"
+  PASS=$((PASS + 1))
+  echo "ok   - clear_stale_unix_sock: corpse file removed"
 fi
 
 # A LIVE listener's path: NOT cleared, returns 1 (caller must not stomp it),
@@ -212,13 +256,18 @@ fi
 GUARD_SOCK="$WORK/guard.sock"
 GPID="$(start_unix_listener "$GUARD_SOCK")"
 LISTENER_PIDS+=("$GPID")
-for _ in $(seq 1 30); do [ -S "$GUARD_SOCK" ] && break; sleep 0.1; done
+for _ in $(seq 1 30); do
+  [ -S "$GUARD_SOCK" ] && break
+  sleep 0.1
+done
 assert_false "clear_stale_unix_sock: live listener path -> refuses (rc 1)" \
   claude_vm_clear_stale_unix_sock "$GUARD_SOCK"
 if [ -S "$GUARD_SOCK" ]; then
-  PASS=$((PASS + 1)); echo "ok   - clear_stale_unix_sock: live listener's socket left intact"
+  PASS=$((PASS + 1))
+  echo "ok   - clear_stale_unix_sock: live listener's socket left intact"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL - clear_stale_unix_sock: live listener's socket left intact"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - clear_stale_unix_sock: live listener's socket left intact"
 fi
 kill "$GPID" 2>/dev/null || true
 
