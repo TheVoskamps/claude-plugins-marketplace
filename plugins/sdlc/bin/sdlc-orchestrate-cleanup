@@ -59,16 +59,24 @@
 # they keep prints a `keep` line -- `would-keep` under --dry-run -- which
 # is no failure:
 #   - A locked worktree is neither unlocked nor removed, whatever its lock
-#     reason, and prints `keep worktree <path>: locked`. A harness lock
-#     reads `claude agent agent-<id> (pid <pid> start <date>)`. It is live
-#     when <pid> is a running process whose start time, read with
-#     `ps -o lstart=` under TZ=UTC LC_ALL=C and compared with runs of
-#     spaces collapsed, is <date>; a live lock's worktree is kept under
-#     every flag and prints `keep worktree <path>: locked by running pid
-#     <pid>`. A harness lock whose <pid> is not running, or started at
+#     reason, and prints `keep worktree <path>: locked`; the next rule
+#     names the one exception. A harness lock reads `claude agent
+#     agent-<id> (pid <pid> start <date>)`. It is live when <pid> is a
+#     running process whose start time, read with `ps -o lstart=` under
+#     TZ=UTC LC_ALL=C and compared with runs of spaces collapsed, is
+#     <date>; a live lock's worktree is kept under every flag and prints
+#     `keep worktree <path>: locked by running pid <pid>`. A harness lock whose <pid> is not running, or started at
 #     another time, is stale, and only under --stale-locks is its worktree
 #     unlocked and removed. A lock of any other reason is kept under every
 #     flag.
+#   - The one exception, under --pr with or without --stale-locks: a
+#     worktree agent-<id> under .claude/worktrees/ for an agent id the
+#     PR's state names, whose live harness lock names a <pid> that is an
+#     ancestor process of this script, is unlocked and removed. A harness
+#     lock names the session that spawned the agent, and that session
+#     runs the post-merge cleanup only once every agent it spawned has
+#     returned. Any other live lock is kept, and --all makes no such
+#     exception.
 #   - A worktree with another worktree the run leaves inside its
 #     directory is kept, since removing it deletes the inner one, and
 #     prints `keep worktree <path>: holds worktree <inner path>`.
@@ -85,9 +93,11 @@
 #   - A branch of either kind that a worktree still has checked out after
 #     the removals is not deleted. A worktree under .claude/worktrees/ --
 #     one the run kept, or failed to remove -- prints `keep branch
-#     <branch>: worktree <path> is kept`; any other, the primary clone
-#     included when the switch below failed, prints `keep branch
-#     <branch>: checked out at <path>`.
+#     <branch>: worktree <path> is kept`; any other prints `keep branch
+#     <branch>: checked out at <path>`. The primary clone counts as such a
+#     worktree only when the switch or detach below failed: a branch it
+#     stays on because no move was attempted is kept, or not, by the rules
+#     above, with the same line under --dry-run as in a real run.
 #   - Under --all, while a locked worktree remains under
 #     .claude/worktrees/ after the removals, no per-session scratchpad and
 #     nothing under .claude/tmp/ is removed: one `keep scratchpads: <n>
@@ -392,6 +402,27 @@ pr_worktree() {
   esac
 }
 
+# own_agent <path> -- succeed under --pr when the worktree at <path>,
+# whose lock lock_state has just found live, is named agent-<id> for an
+# agent id the PR's state names, and its lock's LOCK_PID is an ancestor
+# process of this script: the invoking session, whose agents have all
+# returned by the time it runs the cleanup.
+own_agent() {
+  local p
+  [ -n "$pr" ] || return 1
+  case "${1##*/}" in
+    agent-?*) names_agent "${1##*/agent-}" || return 1 ;;
+    *) return 1 ;;
+  esac
+  p=$PPID
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    [ "$p" != "$LOCK_PID" ] || return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null || exit) || return 1
+    p=${p//[[:space:]]/}
+  done
+  return 1
+}
+
 # The issue states read so far, each a newline-delimited list with a
 # newline at each end.
 ISSUES_OPEN=$'\n'
@@ -552,10 +583,11 @@ while IFS=$SEP read -r path head branch locked reason; do
   if [ -n "$locked" ]; then
     lock_state "$reason"
     if [ "$LOCK_STATE" = live ]; then
-      keep worktree "$path" "locked by running pid $LOCK_PID"
-      continue
-    fi
-    if [ -z "$stale_locks" ] || [ "$LOCK_STATE" != stale ]; then
+      if ! own_agent "$path"; then
+        keep worktree "$path" "locked by running pid $LOCK_PID"
+        continue
+      fi
+    elif [ -z "$stale_locks" ] || [ "$LOCK_STATE" != stale ]; then
       keep worktree "$path" locked
       continue
     fi
@@ -621,25 +653,32 @@ EOF
 holder=
 if [ -z "$dry" ]; then
   root_branch=
+  root_line=
   while IFS=$SEP read -r path head branch locked reason; do
     [ "$branch" != "$default" ] || holder=$path
-    [ "$path" != "$root" ] || root_branch=$branch
+    if [ "$path" = "$root" ]; then
+      root_branch=$branch
+      root_line=$path$SEP$head$SEP$branch$SEP$locked$SEP$reason
+    fi
   done <<EOF
 $remaining
 EOF
+  stuck=
   if [ -z "$holder" ]; then
     if attempt "git switch $default" git -C "$root" switch "$default"; then
       holder=$root
+    else
+      stuck=yes
     fi
   elif [ "$holder" != "$root" ]; then
     branch_fate "$root_branch"
     if [ "$FATE" = delete ]; then
-      attempt "git switch --detach" git -C "$root" switch --detach || :
+      attempt "git switch --detach" git -C "$root" switch --detach || stuck=yes
     fi
   fi
-  # The primary clone among them again, on whatever branch the switch
-  # left it.
-  holding=$(worktrees || exit) || exit
+  # The primary clone holds its branch only when a move off it failed; a
+  # branch it stays on with no move attempted is decided as under --dry-run.
+  [ -z "$stuck" ] || holding=$holding$root_line$'\n'
 fi
 
 # --- branches ----------------------------------------------------------

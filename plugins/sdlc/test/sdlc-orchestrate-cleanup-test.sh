@@ -22,9 +22,13 @@
 # scratch and every scratchpad but its own; removal of a dirty, unpushed
 # worktree; locked worktrees -- a live lock, a dead pid, a reused pid, a
 # lock of another reason -- kept, with and without --stale-locks, and the
-# worktree around a kept one; the branches of kept worktrees and of open
-# or unreadable issues kept; scratch and scratchpads held back while a
-# locked worktree remains, under --pr only for the PR's own; the primary
+# worktree around a kept one; under --pr, the invoking session's live
+# lock on a recorded agent's worktree released and that worktree removed,
+# and every other live lock kept; the branches of kept worktrees and of
+# open or unreadable issues kept, an open head branch the primary clone
+# holds for the same reason in a dry run and a real run; scratch and
+# scratchpads held back while a locked worktree remains, under --pr only
+# for the PR's own; the primary
 # clone switched to the default branch before any branch is deleted, in
 # both scopes, and the fast-forward of the default branch there or in
 # the worktree holding it; an action that fails while the rest carry on;
@@ -525,6 +529,12 @@ untouched_origin "a failed action"
 # and this shell's pid under another start time, as a reused pid reads.
 LIVE_START=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$$")
 DEAD_PID=$(sh -c 'echo $$')
+# A running process that is no ancestor of the script.
+sleep 600 >/dev/null 2>&1 &
+OTHER_PID=$!
+disown "$OTHER_PID"
+trap 'kill "$OTHER_PID" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
+OTHER_START=$(TZ=UTC LC_ALL=C ps -o lstart= -p "$OTHER_PID")
 # lock_all -- lock agent-a live, agent-c with a dead pid, agent-d with a
 # reused pid, and the nested agent-n with a reason of another shape.
 lock_all() {
@@ -604,65 +614,120 @@ check "$(ls -A "$PRIMARY/.claude/tmp")" "" "--stale-locks, only a stale lock: al
 check "$(printf '%s ' "$SESSIONS"/*/*)" "$PAD $SESSIONS/s2/tasks " \
   "--stale-locks, only a stale lock: and every other scratchpad"
 
-# --- issue branches under --all ---------------------------------------------
-build issue-branches
-git -C "$PRIMARY" branch -q issue-9-open
-git -C "$PRIMARY" branch -q issue-11-unread
-git -C "$PRIMARY" branch -q issue-7-12-pair
-echo OPEN >"$SERVE/issue-9"
-echo CLOSED >"$SERVE/issue-12"
-run --all --scratchpad "$PAD"
-check "$RC" "0" "issue branches, --all: exit 0"
-check "$(printf '%s\n' "$OUT" | grep ' branch ')" "keep branch issue-11-unread: issue #11 is open
+# Each case below runs once without --stale-locks and once with it, to
+# the same outcome.
+for flag in "" --stale-locks; do
+  with=${flag:+ $flag}
+
+  # --- issue branches under --all -------------------------------------------
+  build "issue-branches$flag"
+  git -C "$PRIMARY" branch -q issue-9-open
+  git -C "$PRIMARY" branch -q issue-11-unread
+  git -C "$PRIMARY" branch -q issue-7-12-pair
+  echo OPEN >"$SERVE/issue-9"
+  echo CLOSED >"$SERVE/issue-12"
+  run --all --scratchpad "$PAD" ${flag:+"$flag"}
+  check "$RC" "0" "issue branches, --all$with: exit 0"
+  check "$(printf '%s\n' "$OUT" | grep ' branch ')" "keep branch issue-11-unread: issue #11 is open
 delete branch issue-7-12-pair
 delete branch issue-7-feat
 keep branch issue-9-open: issue #9 is open
 delete branch worktree-agent-b
 delete branch worktree-agent-c" \
-  "issue branches, --all: all-closed issue branches deleted, open and unreadable ones kept"
-check "$(branches)" "issue-11-unread issue-9-open main other-branch " "issue branches, --all: the kept branches remain"
-check "$(sort "$SERVE/issue-view.args" | tr '\n' ' ')" "11 12 7 9 " "issue branches, --all: each issue is read once"
+    "issue branches, --all$with: all-closed issue branches deleted, open and unreadable ones kept"
+  check "$(branches)" "issue-11-unread issue-9-open main other-branch " "issue branches, --all$with: the kept branches remain"
+  check "$(sort "$SERVE/issue-view.args" | tr '\n' ' ')" "11 12 7 9 " "issue branches, --all$with: each issue is read once"
 
-# --- --pr and the head branch's issues ---------------------------------------
-build pr-open-issue
-echo OPEN >"$SERVE/issue-7"
-git -C "$PRIMARY" branch -q issue-12-other
-echo CLOSED >"$SERVE/issue-12"
-run --pr 7
-check "$RC" "0" "--pr, head branch's issue open: exit 0"
-check_contains "$OUT" "remove worktree $WT/agent-a
+  # --- --pr and the head branch's issues -------------------------------------
+  build "pr-open-issue$flag"
+  echo OPEN >"$SERVE/issue-7"
+  git -C "$PRIMARY" branch -q issue-12-other
+  echo CLOSED >"$SERVE/issue-12"
+  run --pr 7 ${flag:+"$flag"}
+  check "$RC" "0" "--pr$with, head branch's issue open: exit 0"
+  check_contains "$OUT" "remove worktree $WT/agent-a
 keep branch issue-7-feat: issue #7 is open
-delete branch worktree-agent-b" "--pr, head branch's issue open: the PR's worktree goes, the head branch is kept"
-check "$(branches)" "issue-12-other issue-7-feat main other-branch worktree-agent-c " \
-  "--pr, head branch's issue open: no other issue branch is deleted, closed or not"
-check "$(cat "$SERVE/issue-view.args")" "7" "--pr: only the head branch's issues are read"
+delete branch worktree-agent-b" "--pr$with, head branch's issue open: the PR's worktree goes, the head branch is kept"
+  check "$(branches)" "issue-12-other issue-7-feat main other-branch worktree-agent-c " \
+    "--pr$with, head branch's issue open: no other issue branch is deleted, closed or not"
+  check "$(cat "$SERVE/issue-view.args")" "7" "--pr$with: only the head branch's issues are read"
 
-# --- --pr and locked worktrees ---------------------------------------------
-build pr-locked-own
-git -C "$PRIMARY" worktree lock --reason "held by hand" "$WT/agent-a"
-run --pr 7 --stale-locks
-check "$RC" "0" "--pr, the PR's worktree locked: exit 0"
-check "$OUT" "remove worktree $WT/agent-b/.claude/worktrees/agent-n
+  # --- --pr, an open head branch in the primary clone, main held elsewhere ---
+  # No move off the branch is attempted, so the real run keeps it for its
+  # open issue, as the dry run does.
+  build "pr-open-primary$flag"
+  echo OPEN >"$SERVE/issue-7"
+  git -C "$WT/agent-a" checkout -q --detach
+  git -C "$PRIMARY" checkout -q issue-7-feat
+  git -C "$PRIMARY" worktree add -q "$CASE/main-wt" main
+  run --pr 7 --dry-run ${flag:+"$flag"}
+  check "$(printf '%s\n' "$OUT" | grep ' branch issue-7-feat')" "would-keep branch issue-7-feat: issue #7 is open" \
+    "--pr$with, open head branch in the primary clone, dry run: kept for its open issue"
+  run --pr 7 ${flag:+"$flag"}
+  check "$RC" "0" "--pr$with, open head branch in the primary clone: exit 0"
+  check "$(printf '%s\n' "$OUT" | grep ' branch issue-7-feat')" "keep branch issue-7-feat: issue #7 is open" \
+    "--pr$with, open head branch in the primary clone: kept for its open issue, as in the dry run"
+  check "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD)" "issue-7-feat" \
+    "--pr$with, open head branch in the primary clone: the primary clone stays on it"
+
+  # --- --pr and locked worktrees -------------------------------------------
+  build "pr-locked-own$flag"
+  git -C "$PRIMARY" worktree lock --reason "held by hand" "$WT/agent-a"
+  run --pr 7 ${flag:+"$flag"}
+  check "$RC" "0" "--pr$with, the PR's worktree locked: exit 0"
+  check "$OUT" "remove worktree $WT/agent-b/.claude/worktrees/agent-n
 remove worktree $WT/agent-b
 keep worktree $WT/agent-a: locked
 keep branch issue-7-feat: worktree $WT/agent-a is kept
 delete branch worktree-agent-b
 keep .claude/tmp: 1 locked worktree(s)" \
-  "--pr, the PR's worktree locked: it, its branch and the PR's scratch are kept"
-check "$([ -d "$PRIMARY/.claude/tmp/issue-7" ] && echo kept)" "kept" "--pr, the PR's worktree locked: the PR's scratch is still there"
+    "--pr$with, the PR's worktree locked: it, its branch and the PR's scratch are kept"
+  check "$([ -d "$PRIMARY/.claude/tmp/issue-7" ] && echo kept)" "kept" "--pr$with, the PR's worktree locked: the PR's scratch is still there"
 
-build pr-locked-other
-git -C "$PRIMARY" worktree lock --reason "claude agent agent-d (pid $DEAD_PID start Mon Jan  1 00:00:00 2001)" "$WT/agent-d"
-run --pr 7 --stale-locks
-check "$RC" "0" "--pr, another worktree locked: exit 0"
-check "$OUT" "remove worktree $WT/agent-b/.claude/worktrees/agent-n
+  build "pr-locked-other$flag"
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-d (pid $DEAD_PID start Mon Jan  1 00:00:00 2001)" "$WT/agent-d"
+  run --pr 7 ${flag:+"$flag"}
+  check "$RC" "0" "--pr$with, another worktree locked: exit 0"
+  check "$OUT" "remove worktree $WT/agent-b/.claude/worktrees/agent-n
 remove worktree $WT/agent-b
 remove worktree $WT/agent-a
 delete branch issue-7-feat
 delete branch worktree-agent-b
 remove scratch $PRIMARY/.claude/tmp/issue-7" \
-  "--pr, another worktree locked: a locked worktree outside the PR's holds nothing back"
-check "$(locks)" "$WT/agent-d " "--pr, another worktree locked: it is left, lock and all, stale or not"
+    "--pr$with, another worktree locked: a locked worktree outside the PR's holds nothing back"
+  check "$(locks)" "$WT/agent-d " "--pr$with, another worktree locked: it is left, lock and all, stale or not"
+
+  # --- --pr and the invoking session's own locks ------------------------------
+  # This shell is an ancestor of the script, as the invoking session is.
+  # agent-a, a recorded agent's, carries this shell's live lock; agent-b, a
+  # recorded agent's, the live lock of a process that is not an ancestor;
+  # manual, unrecorded but holding the head branch, and agent-d, unrecorded
+  # and not the PR's, carry this shell's live lock.
+  build "pr-own-session$flag"
+  git -C "$WT/agent-a" checkout -q --detach
+  git -C "$PRIMARY" worktree add -q "$WT/manual" issue-7-feat
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-a (pid $$ start $LIVE_START)" "$WT/agent-a"
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-b (pid $OTHER_PID start $OTHER_START)" "$WT/agent-b"
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-m (pid $$ start $LIVE_START)" "$WT/manual"
+  git -C "$PRIMARY" worktree lock --reason "claude agent agent-d (pid $$ start $LIVE_START)" "$WT/agent-d"
+  EXPECTED="keep worktree $WT/manual: locked by running pid $$
+remove worktree $WT/agent-b/.claude/worktrees/agent-n
+keep worktree $WT/agent-b: locked by running pid $OTHER_PID
+remove worktree $WT/agent-a
+keep branch issue-7-feat: worktree $WT/manual is kept
+keep branch worktree-agent-b: worktree $WT/agent-b is kept
+keep .claude/tmp: 2 locked worktree(s)"
+  run --pr 7 --dry-run ${flag:+"$flag"}
+  check "$OUT" "$(printf '%s\n' "$EXPECTED" | sed 's/^/would-/')" \
+    "--pr$with, own-session locks, dry run: every item as would-<action>"
+  run --pr 7 ${flag:+"$flag"}
+  check "$RC" "0" "--pr$with, own-session locks: exit 0"
+  check "$OUT" "$EXPECTED" \
+    "--pr$with, own-session locks: only the recorded agent's own-session lock is released, its worktree removed"
+  check "$([ -e "$WT/agent-a" ] && echo left)" "" "--pr$with, own-session locks: the recorded agent's worktree is gone"
+  check "$(locks)" "$WT/agent-b $WT/agent-d $WT/manual " \
+    "--pr$with, own-session locks: another pid's lock and the unrecorded worktrees' locks are kept"
+done
 
 # --- usage ----------------------------------------------------------------
 build usage
