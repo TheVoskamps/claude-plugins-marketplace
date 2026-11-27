@@ -30,6 +30,12 @@ That is a presence test, so a misplaced sub-key written empty —
 valueless, `[]`, `""` or `{}` — aborts exactly like a populated one.
 Never write a placeholder sub-key into the file it does not belong in.
 
+A scalar key's value, and a `claude.plugins.enabled` value, outside its
+type aborts the launch, naming the key. The YAML tag decides the type, so
+a quoted `"true"` is a string and not a boolean, and an unquoted `true` or
+`false` is a boolean and not a string or path. A scalar key left unset,
+`""` or valueless takes its default.
+
 No config file holds a secret. The host's claude.ai OAuth credential is
 extracted from the macOS Keychain at launch, and a third-party API key
 reaches the guest by name through `env.copy` or by path through
@@ -154,7 +160,6 @@ or a single-file target that exists at all.
   without a rebuild. A failed boot install warns and continues.
 - `update_at_boot` runs `apt-get update` and `apt-get upgrade` at boot,
   through the proxy, before claude starts; a failure warns and continues.
-  A value outside its type aborts the launch.
 - `add_apt_uris_to_allowlist` decides whether `deb.debian.org`,
   `security.debian.org` and every `apt_sources` host join the guest's
   egress allowlist. `auto` adds them only when boot-time apt work is
@@ -191,20 +196,18 @@ or a single-file target that exists at all.
   `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, `fullscreen` sets
   `CLAUDE_CODE_NO_FLICKER=1`. Leaving it unset means Claude Code's own
   renderer, so unset is accepted beside the two values its type lists.
-  Both listed renderers work over the console; any other value, a YAML
-  `false` included, aborts the launch.
+  Both listed renderers work over the console.
 - `claude.remote_control`, when `true`, adds `--remote-control` to the
   in-guest claude unless the arguments already carry it, and a
   date-stamped `--name` such as `Jul10-14:30` when none was given. A
-  user-supplied `--name` is never overridden. A value outside its type
-  aborts the launch.
+  user-supplied `--name` is never overridden.
 
 ## Permissions
 
 - `claude.permission_mode` becomes the guest `settings.json`'s
-  `permissions.defaultMode`; a value outside its type aborts the launch.
-  `bypassPermissions` treats the VM as the isolation boundary, with the
-  deny list as backstop, and `default` prompts as claude does on a host.
+  `permissions.defaultMode`. `bypassPermissions` treats the VM as the
+  isolation boundary, with the deny list as backstop, and `default`
+  prompts as claude does on a host.
 - `claude.permissions.allow`, `.ask` and `.deny` are copied verbatim into
   the guest `settings.json`'s `permissions`. The deny list is enforced
   even under `bypassPermissions`.
@@ -232,8 +235,7 @@ alone; the host's `~/.claude/settings.json` is never read.
   blocking, before claude starts.
 - `claude.plugins.update_at_boot` refreshes the marketplaces and updates
   the installed plugins at boot. It is the freshness path for baked
-  plugins, which are frozen at build time. A value outside its type aborts
-  the launch.
+  plugins, which are frozen at build time.
 - `claude.plugins.add_marketplace_uris_to_allowlist` is the marketplace
   counterpart of `add_apt_uris_to_allowlist`. Under `auto` the marketplace
   hosts join the allowlist only when boot-side plugin work can run: a
@@ -243,8 +245,7 @@ alone; the host's `~/.claude/settings.json` is never read.
 - `claude.plugins.enabled` maps a plugin ref to its enabled state and
   overrides, per ref, the rule that every baked and boot-installed ref is
   enabled; `false` ships a plugin installed but disabled. Every key must
-  name an installed ref and every value must fit the type, or the launch
-  aborts.
+  name an installed ref, or the launch aborts.
 
 Baking a plugin with a compiled hook, such as `guardrails@thevoskamps`,
 needs nothing in `packages`: its binaries are prebuilt and committed per

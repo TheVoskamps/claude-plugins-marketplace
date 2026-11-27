@@ -761,22 +761,16 @@ fi
 # ---------------------------------------------------------------------
 # Test 12: claude.remote_control config resolution (issue #88).
 #
-# The launcher resolves the scalar then normalizes: ""/false -> false,
-# true -> true, anything else -> abort. Reproduce that normalization here
-# (the launcher's `case` is not a sourced function, so mirror its logic)
-# and assert true/false/unset resolve and garbage would abort.
+# The launcher checks the key with claude_vm_check_scalar, then reads it with
+# the key table's default. Assert true/false/unset resolve and garbage aborts.
 # ---------------------------------------------------------------------
 rc_resolve() {
-  # Prints "true"/"false" on success; prints "ABORT" and returns 1 on garbage.
-  local raw="$1"
-  case "$raw" in
-    "" | false) printf 'false\n' ;;
-    true) printf 'true\n' ;;
-    *)
-      printf 'ABORT\n'
-      return 1
-      ;;
-  esac
+  # Prints the resolved value, or "ABORT" and returns 1 when the check refuses.
+  if ! claude_vm_check_scalar "$1" claude.remote_control 2>/dev/null; then
+    printf 'ABORT\n'
+    return 1
+  fi
+  claude_vm_scalar "$1" '.claude.remote_control' "$(claude_vm_config_key_default claude.remote_control)"
 }
 RC_TRUE_YML="$WORK/rc-true.yml"
 printf 'claude:\n  remote_control: true\n' >"$RC_TRUE_YML"
@@ -788,12 +782,12 @@ RC_GARBAGE_YML="$WORK/rc-garbage.yml"
 printf 'claude:\n  remote_control: maybe\n' >"$RC_GARBAGE_YML"
 
 assert_eq "remote_control: true resolves to true" \
-  "true" "$(rc_resolve "$(claude_vm_scalar "$RC_TRUE_YML" '.claude.remote_control' '')")"
+  "true" "$(rc_resolve "$RC_TRUE_YML")"
 assert_eq "remote_control: false resolves to false" \
-  "false" "$(rc_resolve "$(claude_vm_scalar "$RC_FALSE_YML" '.claude.remote_control' '')")"
+  "false" "$(rc_resolve "$RC_FALSE_YML")"
 assert_eq "remote_control: unset resolves to false" \
-  "false" "$(rc_resolve "$(claude_vm_scalar "$RC_UNSET_YML" '.claude.remote_control' '')")"
-GARBAGE_RESOLVE="$(rc_resolve "$(claude_vm_scalar "$RC_GARBAGE_YML" '.claude.remote_control' '')" || true)"
+  "false" "$(rc_resolve "$RC_UNSET_YML")"
+GARBAGE_RESOLVE="$(rc_resolve "$RC_GARBAGE_YML" || true)"
 assert_eq "remote_control: garbage would abort the launch" \
   "ABORT" "$GARBAGE_RESOLVE"
 
@@ -1009,20 +1003,32 @@ else
   assert_eq "enabled-validate: non-boolean value aborts (reject)" "reject" "reject"
 fi
 
+# Reject: a quoted "true" or "false" is a string, not the boolean, and aborts
+# naming the entry.
+for S_ENA_Q in '"true"' '"false"'; do
+  printf 'claude:\n  plugins:\n    enabled:\n      a@mp: %s\n' "$S_ENA_Q" >"$WORK/settings-enabled-quoted.yml"
+  if S_ENA_ERR="$(claude_vm_render_guest_settings "$WORK/settings-enabled-quoted.yml" "$S_ENA_ONE_BAKE" 2>&1 >/dev/null)"; then
+    S_ENA_V=accept
+  else
+    case "$S_ENA_ERR" in
+      *"claude.plugins.enabled['a@mp'] must be true or false"*) S_ENA_V=reject ;;
+      *) S_ENA_V="$S_ENA_ERR" ;;
+    esac
+  fi
+  assert_eq "enabled-validate: quoted $S_ENA_Q value aborts naming the entry (reject)" "reject" "$S_ENA_V"
+done
+
 # ---------------------------------------------------------------------
 # Test 16: claude.permission_mode enum guard (issue #104).
 #
-# The launcher (claude-vm.sh) accepts ONLY bypassPermissions | default for
+# The launcher accepts ONLY the modes the key table lists for
 # claude.permission_mode and aborts on anything else -- it is a security-posture
-# value and there is no reasoning model for an unknown defaultMode. The guard is
-# a bare case in claude-vm.sh (not a lib function), so exercise the same case
-# logic here against representative values.
+# value and there is no reasoning model for an unknown defaultMode. Exercise the
+# check the launcher runs against representative values.
 # ---------------------------------------------------------------------
 _permission_mode_ok() {
-  case "$1" in
-    bypassPermissions | default) return 0 ;;
-    *) return 1 ;;
-  esac
+  claude_vm_check_typed_value claude.permission_mode \
+    "$(claude_vm_config_key_type claude.permission_mode)" '!!str' "$1" 2>/dev/null
 }
 if _permission_mode_ok "bypassPermissions"; then
   assert_eq "permission-mode: bypassPermissions accepted" "accept" "accept"
@@ -4925,14 +4931,15 @@ fi
 # `set -a`, so the launcher must reject anything but true/false before run.env
 # exists. Driven through the REAL claude-vm.sh, in this suite's own shell, with
 # every config path and the state root pointed into $WORK. Each config also
-# sets claude.permission_mode to a value its later guard rejects: that guard
-# runs after the update_at_boot gate and before anything is built or written,
-# so a run that passes the gate stops there, and its diagnostic is what shows
-# a value was accepted.
+# sets github.auth to a value its type rejects: claude_vm_check_scalars checks
+# its key-table rows in table order and stops at the first refusal,
+# github.auth is the last row it checks, and the check runs before anything is built
+# or written, so a run whose other values all pass stops there, and its
+# diagnostic is what shows they were accepted.
 # ---------------------------------------------------------------------
 UAB="$WORK/uab"
 mkdir -p "$UAB/repo" "$UAB/gconfig" "$UAB/state"
-UAB_BACKSTOP="claude.permission_mode must be 'bypassPermissions' or 'default', got 'uab-backstop'"
+UAB_BACKSTOP="github.auth must be one of none|host-token, got 'uab-backstop'"
 
 # run_uab <global-boot> <repo-boot> -- run the launcher over the two boot
 # files and print "<rc>|<stderr, one line>".
@@ -4986,8 +4993,8 @@ uab_case() {
     "" "$(find "$UAB/state" -name run.env 2>/dev/null)"
 }
 
-UAB_TAIL='claude:
-  permission_mode: uab-backstop
+UAB_TAIL='github:
+  auth: uab-backstop
 '
 uab_case "a non-boolean update_at_boot aborts" aborted \
   "update_at_boot must be true or false, got 'maybe'" \
@@ -5001,23 +5008,25 @@ uab_case "a non-boolean update_at_boot in a global-only config aborts" aborted \
   "update_at_boot must be true or false, got 'yes'" \
   "update_at_boot: \"yes\"
 $UAB_TAIL" ""
+uab_case "a quoted \"false\" update_at_boot aborts" aborted \
+  "update_at_boot must be true or false, got 'false', which is quoted and so a string" \
+  "" "update_at_boot: \"false\"
+$UAB_TAIL"
 uab_case "a non-boolean claude.plugins.update_at_boot aborts" aborted \
   "claude.plugins.update_at_boot must be true or false, got '1'" \
   "" "claude:
-  permission_mode: uab-backstop
   plugins:
     update_at_boot: 1
-"
+$UAB_TAIL"
 # The passing side: both booleans, `""`, and a valueless key reach the
 # backstop. A valueless key reaches a global-only merge as `''` and a repo
 # merge as null; both resolve to the default rather than aborting.
 uab_case "boolean values pass" passed "" \
   "" "update_at_boot: false
 claude:
-  permission_mode: uab-backstop
   plugins:
     update_at_boot: true
-"
+$UAB_TAIL"
 uab_case "an empty-string update_at_boot reads as unset and passes" passed "" \
   "" "update_at_boot: \"\"
 $UAB_TAIL"
@@ -5026,47 +5035,200 @@ uab_case "a valueless update_at_boot in a global-only config passes" passed "" \
 $UAB_TAIL" ""
 uab_case "a valueless claude.plugins.update_at_boot in a repo config passes" passed "" \
   "" "claude:
-  permission_mode: uab-backstop
   plugins:
     update_at_boot:
-"
+$UAB_TAIL"
 
 # ---------------------------------------------------------------------
-# Test 38: a YAML boolean `false` for an enumeration aborts the launch.
+# Test 38: the launcher aborts on a scalar of the wrong key-table type.
 #
-# `false` is a value, not an absent key, so it must reach the enum guards
-# rather than resolve to the key's default: claude.permission_mode: false
-# would otherwise run under bypassPermissions. Driven through the REAL
-# claude-vm.sh with run_uab; the claude.renderer guard runs before the
-# permission_mode guard, so a renderer case that passes its guard reaches the
-# uab-backstop diagnostic.
+# Driven through the REAL claude-vm.sh with run_uab, so each case shows the
+# check runs over the merged documents before the value is used. `false` is a
+# value, not an absent key, so it must reach the check rather than resolve to
+# the key's default: claude.permission_mode: false would otherwise run under
+# bypassPermissions, and proxy.cmd: false would run `false` as the proxy. A
+# case whose value passes reaches the uab-backstop diagnostic.
 # ---------------------------------------------------------------------
 
-# enum_case <label> <expected> <diagnostic> <repo-boot-yaml> -- write the repo
+# gate_case <label> <expected> <diagnostic> <repo-boot-yaml> -- write the repo
 # boot file, run the launcher with no global boot file, and assert the verdict.
-enum_case() {
+gate_case() {
   local label="$1" expected="$2" diag="$3" got
   rm -f "$UAB/r.yml"
   printf '%s' "$4" >"$UAB/r.yml"
   got="$(run_uab "$UAB/absent-g.yml" "$UAB/r.yml")"
-  assert_eq "enum false: $label" "$expected" "$(uab_verdict "$got" "$diag")"
+  assert_eq "scalar gate: $label" "$expected" "$(uab_verdict "$got" "$diag")"
 }
-enum_case "claude.permission_mode: false aborts" aborted \
-  "claude.permission_mode must be 'bypassPermissions' or 'default', got 'false'" \
+gate_case "claude.permission_mode: false aborts" aborted \
+  "claude.permission_mode must be one of bypassPermissions|default, got 'false'" \
   "claude:
   permission_mode: false
 "
-enum_case "claude.renderer: false aborts" aborted \
-  "unknown claude.renderer 'false'" \
+gate_case "claude.renderer: false aborts" aborted \
+  "claude.renderer must be one of classic|fullscreen, got 'false'" \
   "claude:
   renderer: false
-  permission_mode: uab-backstop
-"
-enum_case "claude.renderer: classic passes its guard" passed "" \
+$UAB_TAIL"
+gate_case "claude.renderer: classic passes" passed "" \
   "claude:
   renderer: classic
-  permission_mode: uab-backstop
-"
+$UAB_TAIL"
+gate_case "repo.copy_back: an unlisted value aborts" aborted \
+  "repo.copy_back must be one of local|none, got 'remote'" \
+  "repo:
+  copy_back: remote
+$UAB_TAIL"
+gate_case "claude.remote_control: a quoted \"true\" aborts" aborted \
+  "claude.remote_control must be true or false, got 'true', which is quoted and so a string" \
+  "claude:
+  remote_control: \"true\"
+$UAB_TAIL"
+gate_case "claude.remote_control: true passes" passed "" \
+  "claude:
+  remote_control: true
+$UAB_TAIL"
+gate_case "proxy.cmd: false aborts" aborted \
+  "proxy.cmd must be a string, got 'false', which is a YAML boolean; quote it to mean the string" \
+  "proxy:
+  cmd: false
+$UAB_TAIL"
+gate_case "proxy.host_alias: false aborts" aborted \
+  "proxy.host_alias must be a string, got 'false', which is a YAML boolean" \
+  "proxy:
+  host_alias: false
+$UAB_TAIL"
+gate_case "guest_image: false aborts" aborted \
+  "guest_image must be a path, got 'false', which is a YAML boolean" \
+  "guest_image: false
+$UAB_TAIL"
+gate_case "cpus: a non-integer aborts" aborted \
+  "cpus must be an integer, got 'many'" \
+  "cpus: many
+$UAB_TAIL"
+gate_case "a string, a path and an integer of their types pass" passed "" \
+  "cpus: 2
+guest_image: /tmp/x.raw
+proxy:
+  host_alias: 192.168.127.254
+$UAB_TAIL"
+
+# ---------------------------------------------------------------------
+# Test 39: claude_vm_check_scalars over every key it checks.
+#
+# For each key-table row of shape `scalar` and a type that is not a map, a
+# value of the row's type passes, unset passes, and each wrong value for the
+# type aborts naming the key. The rows are read off the key table, so a new
+# row is covered by gaining it.
+# ---------------------------------------------------------------------
+
+# nest_yaml <dotted-key> <yaml-value> -- print a document setting the key.
+nest_yaml() {
+  local key="$1" indent="" part
+  while :; do
+    part="${key%%.*}"
+    if [ "$part" = "$key" ]; then
+      printf '%s%s: %s\n' "$indent" "$part" "$2"
+      return 0
+    fi
+    printf '%s%s:\n' "$indent" "$part"
+    indent="$indent  "
+    key="${key#*.}"
+  done
+}
+
+# scalar_case <key> <file-type> <yaml-value> <expected> -- run
+# claude_vm_check_scalars with the key set to the value in the document of its
+# file type, and assert "pass", or "abort" with a diagnostic naming the key.
+scalar_case() {
+  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err
+  nest_yaml "$key" "$val" >"$doc"
+  printf '{}\n' >"$WORK/scalar-empty.yml"
+  case "$file" in
+    bake) err="$(claude_vm_check_scalars "$doc" "$WORK/scalar-empty.yml" 2>&1)" && got=pass || got=abort ;;
+    *) err="$(claude_vm_check_scalars "$WORK/scalar-empty.yml" "$doc" 2>&1)" && got=pass || got=abort ;;
+  esac
+  if [ "$got" = abort ]; then
+    case "$err" in
+      "claude-vm: $key must be "*) : ;;
+      *) got="abort without naming the key: $err" ;;
+    esac
+  fi
+  assert_eq "check_scalars: $key: $val -> $want" "$want" "$got"
+}
+
+SC_ROWS="$(claude_vm_config_keys)"
+SC_TAB=$'\t'
+while IFS= read -r sc_row; do
+  sc_key=${sc_row%%"$SC_TAB"*}
+  sc_rest=${sc_row#*"$SC_TAB"}
+  sc_file=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_type=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_shape=${sc_rest%%"$SC_TAB"*}
+  [ "$sc_shape" = scalar ] || continue
+  case "$sc_type" in
+    map\(*) continue ;;
+  esac
+  scalar_case "$sc_key" "$sc_file" '""' pass
+  scalar_case "$sc_key" "$sc_file" '' pass
+  scalar_case "$sc_key" "$sc_file" '[]' abort
+  scalar_case "$sc_key" "$sc_file" '{a: 1}' abort
+  case "$sc_type" in
+    bool)
+      scalar_case "$sc_key" "$sc_file" true pass
+      scalar_case "$sc_key" "$sc_file" false pass
+      scalar_case "$sc_key" "$sc_file" '"true"' abort
+      scalar_case "$sc_key" "$sc_file" '"false"' abort
+      scalar_case "$sc_key" "$sc_file" True abort
+      scalar_case "$sc_key" "$sc_file" 1 abort
+      ;;
+    int)
+      scalar_case "$sc_key" "$sc_file" 8 pass
+      scalar_case "$sc_key" "$sc_file" '"8"' abort
+      scalar_case "$sc_key" "$sc_file" -1 abort
+      scalar_case "$sc_key" "$sc_file" 0x10 abort
+      scalar_case "$sc_key" "$sc_file" false abort
+      ;;
+    string | path)
+      scalar_case "$sc_key" "$sc_file" some-value pass
+      scalar_case "$sc_key" "$sc_file" 2 pass
+      scalar_case "$sc_key" "$sc_file" '"false"' pass
+      scalar_case "$sc_key" "$sc_file" false abort
+      scalar_case "$sc_key" "$sc_file" true abort
+      ;;
+    *\|*)
+      scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}" pass
+      scalar_case "$sc_key" "$sc_file" "${sc_type##*|}" pass
+      scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\"" pass
+      scalar_case "$sc_key" "$sc_file" not-listed abort
+      scalar_case "$sc_key" "$sc_file" false abort
+      ;;
+    *) assert_eq "check_scalars: $sc_key has a type this test covers" "covered" "$sc_type" ;;
+  esac
+done <<EOF
+$SC_ROWS
+EOF
+
+# A map row is not checked here: claude.plugins.enabled's values are checked
+# by the render (Test 15), and the gate passes a map whatever its values.
+scalar_case claude.plugins.enabled boot '{a@mp: "true"}' pass
+
+# The merge keeps a quoted boolean quoted, so the check sees the operator's
+# spelling whichever tier wrote it.
+printf 'claude:\n  remote_control: "true"\n' >"$WORK/sc-quoted.yml"
+claude_vm_merge_config "$WORK/sc-quoted.yml" "" >"$WORK/sc-quoted-g.merged.yml"
+claude_vm_merge_config "" "$WORK/sc-quoted.yml" >"$WORK/sc-quoted-r.merged.yml"
+printf '{}\n' >"$WORK/sc-empty.yml"
+for sc_merged in "$WORK/sc-quoted-g.merged.yml" "$WORK/sc-quoted-r.merged.yml"; do
+  if claude_vm_check_scalars "$WORK/sc-empty.yml" "$sc_merged" 2>/dev/null; then
+    sc_v=pass
+  else
+    sc_v=abort
+  fi
+  assert_eq "check_scalars: a quoted \"true\" survives the merge ($(basename "$sc_merged")) and aborts" \
+    abort "$sc_v"
+done
 
 # ---------------------------------------------------------------------
 # Summary

@@ -215,17 +215,30 @@ claude_vm_config_keys() {
   done
 }
 
-# claude_vm_config_key_default <key> -- print <key>'s default from the key
-# table, or nothing when the key has none or is not in the table.
-claude_vm_config_key_default() {
+# claude_vm_config_key_field <key> <offset> -- print the element <offset>
+# places after <key> in its key-table row (2 is the type, 4 the default), or
+# nothing when the key is not in the table.
+claude_vm_config_key_field() {
   local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}"
   while [ "$i" -lt "$n" ]; do
     if [ "${CLAUDE_VM_CONFIG_KEYS[$i]}" = "$1" ]; then
-      printf '%s\n' "${CLAUDE_VM_CONFIG_KEYS[$((i + 4))]}"
+      printf '%s\n' "${CLAUDE_VM_CONFIG_KEYS[$((i + $2))]}"
       return 0
     fi
     i=$((i + 5))
   done
+}
+
+# claude_vm_config_key_default <key> -- print <key>'s default from the key
+# table, or nothing when the key has none or is not in the table.
+claude_vm_config_key_default() {
+  claude_vm_config_key_field "$1" 4
+}
+
+# claude_vm_config_key_type <key> -- print <key>'s type from the key table, or
+# nothing when the key is not in the table.
+claude_vm_config_key_type() {
+  claude_vm_config_key_field "$1" 2
 }
 
 # claude_vm_config_subkeys <parent> <file> -- print the last path component of
@@ -1000,9 +1013,8 @@ claude_vm_boot_apt_sources() {
 # global-only merge as `''` rather than null, so without this the same
 # spelling would resolve differently by layer.
 #
-# The value is returned as written; the caller's own gate (claude_vm_check_bool
-# for a boolean, a `case` for an enumeration) rejects what its type does not
-# allow.
+# The value is returned as written; claude_vm_check_scalars rejects what the
+# key table's type column does not allow.
 claude_vm_scalar() {
   local file="$1" path="$2" fallback="$3" is_null val
   is_null="$(yq eval "(${path} == null)" "$file" 2>/dev/null)"
@@ -1018,18 +1030,101 @@ claude_vm_scalar() {
   fi
 }
 
-# claude_vm_check_bool <key> <value> -- succeed when <value> is `true` or
-# `false`; otherwise print a diagnostic naming <key> and fail. A caller runs
-# it on a resolved value before writing that value anywhere unquoted: the
-# launcher runs it on both update_at_boot values before run.env exists,
-# since run.env carries them unquoted and the guest sources it under
-# `set -a`.
-claude_vm_check_bool() {
-  case "$2" in
-    true | false) return 0 ;;
+# claude_vm_check_typed_value <name> <type> <tag> <value> -- succeed when a
+# config value whose YAML tag is <tag> and whose text is <value> is a <type>,
+# spelled as the key table's type column spells a scalar type; otherwise print
+# a diagnostic naming <name> and fail. The tag is what tells a YAML boolean
+# from the quoted string with the same text:
+#   bool         a `!!bool` spelled `true` or `false`, so a quoted "true" and
+#                a `True` are both refused
+#   int          an `!!int` written as decimal digits
+#   string|path  any scalar but a `!!bool`, so `false` is not taken as the
+#                string `false`
+#   a|b|...      a `!!str` that is one of the alternatives
+# A `!!map` or `!!seq` is refused for every type. Any other type column
+# spelling is not a scalar type, and is accepted.
+claude_vm_check_typed_value() {
+  local name="$1" type="$2" tag="$3" val="$4" want ok=0
+  case "$type" in
+    bool)
+      want="true or false"
+      case "$tag:$val" in
+        '!!bool:true' | '!!bool:false') ok=1 ;;
+      esac
+      ;;
+    int)
+      want="an integer"
+      case "$val" in
+        '' | *[!0-9]*) : ;;
+        *) [ "$tag" = '!!int' ] && ok=1 ;;
+      esac
+      ;;
+    string | path)
+      want="a $type"
+      case "$tag" in
+        '!!bool' | '!!map' | '!!seq') : ;;
+        *) ok=1 ;;
+      esac
+      ;;
+    *\|*)
+      want="one of $type"
+      if [ "$tag" = '!!str' ]; then
+        case "|$type|" in
+          *"|$val|"*) ok=1 ;;
+        esac
+      fi
+      ;;
+    *) return 0 ;;
   esac
-  echo "claude-vm: $1 must be true or false, got '$2'" >&2
+  [ "$ok" -eq 1 ] && return 0
+  case "$tag:$type:$val" in
+    '!!str:bool:true' | '!!str:bool:false') echo "claude-vm: $name must be $want, got '$val', which is quoted and so a string" >&2 ;;
+    '!!bool:string:'* | '!!bool:path:'*) echo "claude-vm: $name must be $want, got '$val', which is a YAML boolean; quote it to mean the string" >&2 ;;
+    *) echo "claude-vm: $name must be $want, got '$val'" >&2 ;;
+  esac
   return 1
+}
+
+# claude_vm_check_scalar <file> <key> -- check <key>'s value in the config
+# document <file> against its key-table type with claude_vm_check_typed_value.
+# An absent or null key, and one written as `""`, is unset and passes: the
+# value used is then the key table's default.
+claude_vm_check_scalar() {
+  local file="$1" key="$2" tag val
+  tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)"
+  case "$tag" in
+    '' | '!!null') return 0 ;;
+  esac
+  val="$(yq eval ".${key}" "$file" 2>/dev/null)"
+  if [ "$tag" = '!!str' ] && [ -z "$val" ]; then
+    return 0
+  fi
+  claude_vm_check_typed_value "$key" "$(claude_vm_config_key_type "$key")" "$tag" "$val"
+}
+
+# claude_vm_check_scalars <bake_doc> <boot_doc> -- run claude_vm_check_scalar
+# for every key-table row of shape `scalar` whose type is not a `map(...)`,
+# against the merged document of each file type its file column names, in
+# table order. Stops at the first value its type refuses and fails, so the
+# launcher aborts before it reads any of these keys.
+claude_vm_check_scalars() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key file
+  while [ "$i" -lt "$n" ]; do
+    key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
+    file="${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}"
+    case "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}:${CLAUDE_VM_CONFIG_KEYS[$((i + 2))]}" in
+      scalar:map\(*) : ;;
+      scalar:*)
+        case "$file" in
+          bake | both) claude_vm_check_scalar "$1" "$key" || return 1 ;;
+        esac
+        case "$file" in
+          boot | both) claude_vm_check_scalar "$2" "$key" || return 1 ;;
+        esac
+        ;;
+    esac
+    i=$((i + 5))
+  done
 }
 
 # Emit the egress allowlist, one host per line, from a merged-config file.
@@ -3123,9 +3218,10 @@ claude_vm_render_guest_settings() {
   )
 
   # Read the claude.plugins.enabled override map as tab-separated
-  # "ref<TAB>value" lines. yq emits nothing when the key is absent.
+  # "ref<TAB>tag<TAB>value" lines. yq emits nothing when the key is absent.
   # Validate each entry HERE, once: key must be non-empty and must name an
-  # installed ref, value must be a boolean. Build an override map keyed by ref.
+  # installed ref, value must be of the map's key-table type, which the tag
+  # settles for a quoted "true". Build an override map keyed by ref.
   #
   # Records are split by hand, per the TSV RECORDS note near the top of this
   # file. An empty KEY (`enabled: { "": true }`) leads the record with an empty
@@ -3149,7 +3245,7 @@ claude_vm_render_guest_settings() {
   # 3.2.57). A config with no override never entered this branch at all, which
   # is why the defect survived to a real launch.
   local ov_refs=() ov_vals=()
-  local ov_tab ov_record ov_ref ov_val ov_idx=0
+  local ov_tab ov_record ov_ref ov_tag ov_type ov_val ov_idx=0
   ov_tab=$'\t'
   while IFS= read -r ov_record; do
     # An ABSENT enabled map is one empty line, not zero bytes (yq prints a
@@ -3159,18 +3255,17 @@ claude_vm_render_guest_settings() {
     ov_idx=$((ov_idx + 1))
     ov_ref=${ov_record%%"$ov_tab"*}
     ov_val=${ov_record#*"$ov_tab"}
+    ov_tag=${ov_val%%"$ov_tab"*}
+    ov_val=${ov_val#*"$ov_tab"}
     if [ -z "$ov_ref" ]; then
       echo "claude-vm: claude.plugins.enabled entry #${ov_idx} has an empty plugin ref (value: '$ov_val')" >&2
       echo "claude-vm:   every key must name a plugin ref from claude.plugins.bake or install_at_boot" >&2
       return 1
     fi
-    case "$ov_val" in
-      true | false) : ;;
-      *)
-        echo "claude-vm: claude.plugins.enabled['$ov_ref'] must be a boolean (true|false), got '$ov_val'" >&2
-        return 1
-        ;;
-    esac
+    ov_type="$(claude_vm_config_key_type claude.plugins.enabled)"
+    ov_type=${ov_type#"map("}
+    claude_vm_check_typed_value "claude.plugins.enabled['$ov_ref']" "${ov_type%")"}" "$ov_tag" "$ov_val" ||
+      return 1
     case " $seen " in
       *" $ov_ref "*) : ;;
       *)
@@ -3186,7 +3281,7 @@ claude_vm_render_guest_settings() {
   done < <(
     yq eval '
       .claude.plugins.enabled // {}
-      | to_entries | .[] | [.key, .value] | @tsv
+      | to_entries | .[] | [.key, (.value | tag), .value] | @tsv
     ' "$file" 2>/dev/null
   )
 
