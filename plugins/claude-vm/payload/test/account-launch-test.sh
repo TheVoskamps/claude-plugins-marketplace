@@ -8,6 +8,22 @@
 # is the last gate before the guest-image build -- so every case ends before
 # any build or boot, and the cases read off which Keychain service was asked
 # for, which .claude.json was accepted, and what each refusal printed.
+# Reaching the preflight's message is the marker for "past every account
+# check", and its absence shows a refusal came before the build.
+#
+# The default account has no ~/.claude.json in the passing `--as` case, so
+# getting past the identity preflight proves the account's file was the one
+# read, and the `security` stub's log shows the account's derived service was
+# the only one asked for. Each refusal over something the launcher read -- a
+# missing account .claude.json with the default account's present, one with
+# no usable identity, a missing, empty, token-less, claudeAiOauth-less or
+# locked Keychain item -- is asserted to name the account, to come before the
+# build, and to print none of the LEAKME marker values planted in the identity
+# and Keychain fixtures. An invalid name is refused, and `backup` and a missing
+# account directory are refused with no Keychain read. Every case inherits a
+# CLAUDE_CONFIG_DIR naming the account directory, which must decide nothing:
+# the cases without `--as` still read ~/.claude.json, with no Keychain read
+# before the build.
 #
 # Run directly:
 #

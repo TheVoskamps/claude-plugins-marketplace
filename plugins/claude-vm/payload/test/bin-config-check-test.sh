@@ -17,18 +17,25 @@
 # would exec the launcher / boot a VM. We assert on the step-4 stderr for each
 # of the three config states (pair present / legacy leftover / nothing).
 #
-# The `--as <name>` cases drive the same entry point: which Keychain service
-# the step-5 check asks for, the name and account-directory refusals made
-# before it, and -- through a copy of bin/claude-vm whose launcher only
-# records its argv, with the Keychain check stubbed to pass -- the arguments
-# it passes on to the launcher.
+# The `--as <name>` cases drive the same entry point. Every one of them
+# inherits a CLAUDE_CONFIG_DIR naming some other directory, so each also shows
+# that the variable decides nothing. The `security` stub records the service
+# it was asked for: under `--as` that is the account's derived service,
+# computed here independently of lib/credential.sh with python3's hashlib, and
+# without `--as` it is the default service. An invalid name, `backup`, a
+# missing account directory and a bare `--as` are each refused before any
+# Keychain read, and each refusal given a name names the account. What reaches
+# the launcher is read off a copy of bin/claude-vm in a fake plugin tree whose
+# launcher only records its argv, with the Keychain check stubbed to pass:
+# `--as <name>` first, then the repo root, a later `--as` among the claude
+# arguments untouched, and a run name without the leading one.
 #
 # Run directly:
 #
 #   plugins/claude-vm/payload/test/bin-config-check-test.sh
 #
 # Requires: git (to make the throwaway repo bin/claude-vm insists on). Skips if
-# absent.
+# absent. Without python3 the derived-service cases alone are skipped.
 
 set -uo pipefail
 

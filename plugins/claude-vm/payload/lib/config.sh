@@ -1084,7 +1084,7 @@ claude_vm_check_typed_value() {
 }
 
 # claude_vm_check_scalar <file> <key> -- check <key>'s value in the config
-# document <file> against its key-table type with claude_vm_check_typed_value.
+# file <file> against its key-table type with claude_vm_check_typed_value.
 # An absent or null key, and one written as `""`, is unset and passes: the
 # value used is then the key table's default.
 claude_vm_check_scalar() {
@@ -1100,13 +1100,19 @@ claude_vm_check_scalar() {
   claude_vm_check_typed_value "$key" "$(claude_vm_config_key_type "$key")" "$tag" "$val"
 }
 
-# claude_vm_check_scalars <bake_doc> <boot_doc> -- run claude_vm_check_scalar
-# for every key-table row of shape `scalar` whose type is not a `map(...)`,
-# against the merged document of each file type its file column names, in
-# table order. Stops at the first value its type refuses and fails, so the
-# launcher aborts before it reads any of these keys.
+# claude_vm_check_scalars <global_bake> <repo_bake> <global_boot> <repo_boot>
+# -- run claude_vm_check_scalar for every key-table row of shape `scalar` whose
+# type is not a `map(...)`, against each raw config file of the file types its
+# file column names, in table order. A path that is empty or names no file is
+# skipped. Stops at the first value its type refuses and fails, so the launcher
+# aborts before it reads any of these keys.
+#
+# The files are the RAW ones the operator wrote, not the merged documents:
+# claude_vm_prune_empty_skeleton deletes every empty map from a merged
+# document, so a scalar key written `{}` would reach a merged-document check
+# as absent and silently take its default.
 claude_vm_check_scalars() {
-  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key file
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key file doc
   while [ "$i" -lt "$n" ]; do
     key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
     file="${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}"
@@ -1114,10 +1120,20 @@ claude_vm_check_scalars() {
       scalar:map\(*) : ;;
       scalar:*)
         case "$file" in
-          bake | both) claude_vm_check_scalar "$1" "$key" || return 1 ;;
+          bake | both)
+            for doc in "$1" "$2"; do
+              [ -n "$doc" ] && [ -f "$doc" ] || continue
+              claude_vm_check_scalar "$doc" "$key" || return 1
+            done
+            ;;
         esac
         case "$file" in
-          boot | both) claude_vm_check_scalar "$2" "$key" || return 1 ;;
+          boot | both)
+            for doc in "$3" "$4"; do
+              [ -n "$doc" ] && [ -f "$doc" ] || continue
+              claude_vm_check_scalar "$doc" "$key" || return 1
+            done
+            ;;
         esac
         ;;
     esac

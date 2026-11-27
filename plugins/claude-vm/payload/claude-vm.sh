@@ -191,6 +191,20 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # (issue #215), the narrow interim credential trap, then cleanup(). Each later
 # link repeats the machine stop; a new link that omits it strands a podman
 # machine this run started.
+#
+# Every scalar key read below is checked against its key-table type before any
+# of them is read, so a value of the wrong type -- an unlisted enumeration
+# value, a quoted "true" for a boolean, a YAML `false` for a string or path, an
+# empty map -- aborts the launch naming the key instead of being used. Several
+# of these values reach run.env unquoted, which the guest sources under
+# `set -a`, or become a command line, as proxy.cmd does. It is handed the four
+# RAW files rather than the merged documents, because the merge prunes every
+# empty map: a scalar key written `{}` would otherwise reach the check absent
+# and silently take its default.
+claude_vm_check_scalars \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
+
 # Two per-tier documents, each in its FILE schema (issue #179): bake files
 # merge into MERGED_BAKE, boot files into MERGED_BOOT. There is no combined
 # cross-tier document and no schema translation -- bake consumers read
@@ -287,14 +301,6 @@ claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_B
     echo "claude-vm: aborting -- fix the env: entr(ies) described above." >&2
     exit 1
   }
-
-# Every scalar key read below is checked against its key-table type before any
-# of them is read, so a value of the wrong type -- an unlisted enumeration
-# value, a quoted "true" for a boolean, a YAML `false` for a string or path --
-# aborts the launch naming the key instead of being used. Several of these
-# values reach run.env unquoted, which the guest sources under `set -a`, or
-# become a command line, as proxy.cmd does.
-claude_vm_check_scalars "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
 
 VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$(claude_vm_config_key_default cpus)")"
 VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$(claude_vm_config_key_default mem)")"

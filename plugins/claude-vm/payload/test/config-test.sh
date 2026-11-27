@@ -4941,16 +4941,17 @@ UAB="$WORK/uab"
 mkdir -p "$UAB/repo" "$UAB/gconfig" "$UAB/state"
 UAB_BACKSTOP="github.auth must be one of none|host-token, got 'uab-backstop'"
 
-# run_uab <global-boot> <repo-boot> -- run the launcher over the two boot
-# files and print "<rc>|<stderr, one line>".
+# run_uab <global-boot> <repo-boot> [<global-bake> <repo-bake>] -- run the
+# launcher over the two boot files, and the two bake files when given (absent
+# otherwise), and print "<rc>|<stderr, one line>".
 run_uab() {
   local out rc
   out="$(cd "$UAB/repo" && TMPDIR="$WORK" \
     CLAUDE_VM_GLOBAL_CONFIG_DIR="$UAB/gconfig" \
-    CLAUDE_VM_GLOBAL_BAKE_CONFIG="$UAB/absent-bake.yml" \
+    CLAUDE_VM_GLOBAL_BAKE_CONFIG="${3:-$UAB/absent-bake.yml}" \
     CLAUDE_VM_GLOBAL_BOOT_CONFIG="$1" \
     CLAUDE_VM_GLOBAL_LEGACY_CONFIG="$UAB/absent-legacy.yml" \
-    CLAUDE_VM_REPO_BAKE_CONFIG="$UAB/absent-bake.yml" \
+    CLAUDE_VM_REPO_BAKE_CONFIG="${4:-$UAB/absent-bake.yml}" \
     CLAUDE_VM_REPO_BOOT_CONFIG="$2" \
     CLAUDE_VM_REPO_LEGACY_CONFIG="$UAB/absent-legacy.yml" \
     CLAUDE_VM_STATE_DIR="$UAB/state" \
@@ -5043,11 +5044,13 @@ $UAB_TAIL"
 # Test 38: the launcher aborts on a scalar of the wrong key-table type.
 #
 # Driven through the REAL claude-vm.sh with run_uab, so each case shows the
-# check runs over the merged documents before the value is used. `false` is a
-# value, not an absent key, so it must reach the check rather than resolve to
-# the key's default: claude.permission_mode: false would otherwise run under
-# bypassPermissions, and proxy.cmd: false would run `false` as the proxy. A
-# case whose value passes reaches the uab-backstop diagnostic.
+# check runs over the raw files before the value is used. `false` is a value,
+# not an absent key, so it must reach the check rather than resolve to the
+# key's default: claude.permission_mode: false would otherwise run under
+# bypassPermissions, and proxy.cmd: false would run `false` as the proxy. An
+# empty map is a value too, and the merge prunes it, so `{}` cases are driven
+# in each tier of both file types. A case whose value passes reaches the
+# uab-backstop diagnostic.
 # ---------------------------------------------------------------------
 
 # gate_case <label> <expected> <diagnostic> <repo-boot-yaml> -- write the repo
@@ -5059,6 +5062,73 @@ gate_case() {
   got="$(run_uab "$UAB/absent-g.yml" "$UAB/r.yml")"
   assert_eq "scalar gate: $label" "$expected" "$(uab_verdict "$got" "$diag")"
 }
+
+# gate_tier_case <label> <diagnostic> <file-type> <tier> <yaml> -- write <yaml>
+# as the <tier> (global or repo) file of <file-type> (bake or boot), with
+# UAB_TAIL as the repo boot file whenever that is not the one written, run the
+# launcher, and assert it aborted with <diagnostic>.
+gate_tier_case() {
+  local label="$1" diag="$2" gb="$UAB/absent-g.yml" rb="$UAB/r.yml" gk="" rk="" got
+  rm -f "$UAB/g.yml" "$UAB/r.yml" "$UAB/gk.yml" "$UAB/rk.yml"
+  printf '%s' "$UAB_TAIL" >"$UAB/r.yml"
+  case "$3:$4" in
+    boot:global)
+      printf '%s' "$5" >"$UAB/g.yml"
+      gb="$UAB/g.yml"
+      ;;
+    boot:repo) printf '%s%s' "$5" "$UAB_TAIL" >"$UAB/r.yml" ;;
+    bake:global)
+      printf '%s' "$5" >"$UAB/gk.yml"
+      gk="$UAB/gk.yml"
+      ;;
+    bake:repo)
+      printf '%s' "$5" >"$UAB/rk.yml"
+      rk="$UAB/rk.yml"
+      ;;
+  esac
+  got="$(run_uab "$gb" "$rb" "$gk" "$rk")"
+  assert_eq "scalar gate: $label ($3, $4)" aborted "$(uab_verdict "$got" "$2")"
+}
+for gt_tier in global repo; do
+  gate_tier_case "claude.renderer: {} aborts" \
+    "claude.renderer must be one of classic|fullscreen, got '{}'" boot "$gt_tier" \
+    "claude:
+  renderer: {}
+"
+  gate_tier_case "claude.remote_control: {} aborts" \
+    "claude.remote_control must be true or false, got '{}'" boot "$gt_tier" \
+    "claude:
+  remote_control: {}
+"
+  gate_tier_case "proxy.port: {} aborts" \
+    "proxy.port must be an integer, got '{}'" boot "$gt_tier" \
+    "proxy:
+  port: {}
+"
+  gate_tier_case "mem: {} aborts" \
+    "mem must be an integer, got '{}'" boot "$gt_tier" \
+    "mem: {}
+"
+  gate_tier_case "proxy.cmd: {} aborts" \
+    "proxy.cmd must be a string, got '{}'" boot "$gt_tier" \
+    "proxy:
+  cmd: {}
+"
+  gate_tier_case "guest_image: {} aborts" \
+    "guest_image must be a path, got '{}'" boot "$gt_tier" \
+    "guest_image: {}
+"
+  gate_tier_case "repo.mount: {} aborts" \
+    "repo.mount must be one of clone|live, got '{}'" boot "$gt_tier" \
+    "repo:
+  mount: {}
+"
+  gate_tier_case "image.root_headroom_mb: {} aborts" \
+    "image.root_headroom_mb must be an integer, got '{}'" bake "$gt_tier" \
+    "image:
+  root_headroom_mb: {}
+"
+done
 gate_case "claude.permission_mode: false aborts" aborted \
   "claude.permission_mode must be one of bypassPermissions|default, got 'false'" \
   "claude:
@@ -5137,23 +5207,28 @@ nest_yaml() {
 }
 
 # scalar_case <key> <file-type> <yaml-value> <expected> -- run
-# claude_vm_check_scalars with the key set to the value in the document of its
-# file type, and assert "pass", or "abort" with a diagnostic naming the key.
+# claude_vm_check_scalars with the key set to the value in a file of its file
+# type, once as the global file and once as the repo file, the other three
+# files absent, and assert "pass", or "abort" with a diagnostic naming the key,
+# for each.
 scalar_case() {
-  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err
+  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err tier
   nest_yaml "$key" "$val" >"$doc"
-  printf '{}\n' >"$WORK/scalar-empty.yml"
-  case "$file" in
-    bake) err="$(claude_vm_check_scalars "$doc" "$WORK/scalar-empty.yml" 2>&1)" && got=pass || got=abort ;;
-    *) err="$(claude_vm_check_scalars "$WORK/scalar-empty.yml" "$doc" 2>&1)" && got=pass || got=abort ;;
-  esac
-  if [ "$got" = abort ]; then
-    case "$err" in
-      "claude-vm: $key must be "*) : ;;
-      *) got="abort without naming the key: $err" ;;
+  for tier in global repo; do
+    case "$file:$tier" in
+      bake:global) err="$(claude_vm_check_scalars "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
+      bake:repo) err="$(claude_vm_check_scalars "" "$doc" "" "" 2>&1)" && got=pass || got=abort ;;
+      *:global) err="$(claude_vm_check_scalars "" "" "$doc" "" 2>&1)" && got=pass || got=abort ;;
+      *:repo) err="$(claude_vm_check_scalars "" "" "" "$doc" 2>&1)" && got=pass || got=abort ;;
     esac
-  fi
-  assert_eq "check_scalars: $key: $val -> $want" "$want" "$got"
+    if [ "$got" = abort ]; then
+      case "$err" in
+        "claude-vm: $key must be "*) : ;;
+        *) got="abort without naming the key: $err" ;;
+      esac
+    fi
+    assert_eq "check_scalars: $key: $val ($tier) -> $want" "$want" "$got"
+  done
 }
 
 SC_ROWS="$(claude_vm_config_keys)"
@@ -5173,6 +5248,7 @@ while IFS= read -r sc_row; do
   scalar_case "$sc_key" "$sc_file" '""' pass
   scalar_case "$sc_key" "$sc_file" '' pass
   scalar_case "$sc_key" "$sc_file" '[]' abort
+  scalar_case "$sc_key" "$sc_file" '{}' abort
   scalar_case "$sc_key" "$sc_file" '{a: 1}' abort
   case "$sc_type" in
     bool)
@@ -5214,20 +5290,21 @@ EOF
 # by the render (Test 15), and the gate passes a map whatever its values.
 scalar_case claude.plugins.enabled boot '{a@mp: "true"}' pass
 
-# The merge keeps a quoted boolean quoted, so the check sees the operator's
-# spelling whichever tier wrote it.
-printf 'claude:\n  remote_control: "true"\n' >"$WORK/sc-quoted.yml"
-claude_vm_merge_config "$WORK/sc-quoted.yml" "" >"$WORK/sc-quoted-g.merged.yml"
-claude_vm_merge_config "" "$WORK/sc-quoted.yml" >"$WORK/sc-quoted-r.merged.yml"
-printf '{}\n' >"$WORK/sc-empty.yml"
-for sc_merged in "$WORK/sc-quoted-g.merged.yml" "$WORK/sc-quoted-r.merged.yml"; do
-  if claude_vm_check_scalars "$WORK/sc-empty.yml" "$sc_merged" 2>/dev/null; then
+# NEGATIVE CONTROL: the check must read the raw files, because the merge
+# prunes an empty map. A `{}` scalar run through the real merge, in either
+# layer, reaches the check absent and passes, while the same file read raw
+# aborts (above).
+printf 'claude:\n  renderer: {}\n' >"$WORK/sc-emptymap.yml"
+claude_vm_merge_config "$WORK/sc-emptymap.yml" "" >"$WORK/sc-emptymap-g.merged.yml"
+claude_vm_merge_config "" "$WORK/sc-emptymap.yml" >"$WORK/sc-emptymap-r.merged.yml"
+for sc_merged in "$WORK/sc-emptymap-g.merged.yml" "$WORK/sc-emptymap-r.merged.yml"; do
+  if claude_vm_check_scalars "" "" "" "$sc_merged" 2>/dev/null; then
     sc_v=pass
   else
     sc_v=abort
   fi
-  assert_eq "check_scalars: a quoted \"true\" survives the merge ($(basename "$sc_merged")) and aborts" \
-    abort "$sc_v"
+  assert_eq "check_scalars: NEGATIVE CONTROL -- a {} scalar does not survive the merge ($(basename "$sc_merged"))" \
+    pass "$sc_v"
 done
 
 # ---------------------------------------------------------------------

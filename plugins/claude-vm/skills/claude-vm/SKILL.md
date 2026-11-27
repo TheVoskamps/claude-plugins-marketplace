@@ -720,8 +720,8 @@ can reach it.
 ## Requirements
 
 `yq` (mikefarah v4+), `git`, `python3` (stock on macOS; used to select
-the `claudeAiOauth` key from the Keychain blob — see "Authentication"
-above), `gpg` (`brew install gnupg`, for the host-side verified claude
+the `claudeAiOauth` key from the Keychain blob — see "Authentication
+(secrets)" above), `gpg` (`brew install gnupg`, for the host-side verified claude
 cache), a sha256
 tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
 actual VM boot — `vfkit` and `tinyproxy` (for the bundled default
@@ -754,7 +754,7 @@ usable `userID`/`oauthAccount` (i.e. you are not logged in on the host).
 Later, once the credential is selected, a **credential-token check**
 aborts if the selected `claudeAiOauth` carries empty `accessToken` /
 `refreshToken` (the degraded-Keychain state described under
-"Authentication"), steering you to re-login on the host.
+"Authentication (secrets)"), steering you to re-login on the host.
 Each failed check prints the exact remediation
 command(s) (e.g. `brew install gnupg`, the
 `curl … | gpg --import` + `gpg --fingerprint` pin steps). Without this
