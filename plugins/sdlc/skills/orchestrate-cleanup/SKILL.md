@@ -1,6 +1,6 @@
 ---
 name: orchestrate-cleanup
-description: Remove what sdlc runs leave behind — unlocked worktrees, local branches, .claude/tmp/ scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR, asking nothing, or for the whole repo after one go-ahead; then bring the default branch up to date. What a running agent may still use is kept, and a keep line is no failure. Review state is kept unless --review-state is passed. --dry-run lists what would go and removes nothing.
+description: Remove what sdlc runs leave behind — worktrees, local branches, .claude/tmp/ scratch and, for the whole repo, other sessions' scratchpads — for one merged or closed PR, asking nothing, or for the whole repo after one go-ahead; then bring the default branch up to date. --stale-locks widens it to the locked worktrees of agents no longer running, --review-state to review state, and --dry-run lists what would go and removes nothing.
 ---
 
 # Orchestrate Cleanup
