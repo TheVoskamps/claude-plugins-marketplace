@@ -26,8 +26,8 @@
 #
 # Exit status: 0 when the binaries are installed; 1 on any failure — a dirty
 # working tree, an ignored file in this directory, a GOFLAGS value, a test, vet, lint, format or build step, or a git or
-# filesystem step — with nothing copied into ../bin/ unless a copy or chmod
-# into it fails, which leaves in place every arch copied before the failure;
+# filesystem step — with nothing copied into ../bin/ unless a mkdir, copy or
+# chmod into it fails, which leaves in place every arch copied before the failure;
 # 2 on a usage error.
 
 set -euo pipefail
@@ -97,6 +97,8 @@ for target in "${TARGETS[@]}"; do
 done
 
 for target in "${TARGETS[@]}"; do
+  # A target new to TARGETS has no directory under ../bin/ yet.
+  mkdir -p "$bin_dir/$target" || fail "creating $bin_dir/$target failed"
   cp "$scratch/$target/permission-gate" "$bin_dir/$target/permission-gate" ||
     fail "copying the $target binary into $bin_dir failed"
   chmod 755 "$bin_dir/$target/permission-gate" || fail "chmod of the $target binary failed"
