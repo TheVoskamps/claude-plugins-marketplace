@@ -1775,8 +1775,7 @@ func TestHarnessShapesMatchLiveLayout(t *testing.T) {
 				rem := e.Name() + "/" + s.Name() + "/" + leaf
 				if !harnessSessionShape.MatchString(rem) {
 					t.Errorf("the LIVE session directory %q does not match the shipped session shape "+
-						"%q — writes to it degrade from ALLOW to DEFER, which is this issue's original "+
-						"symptom wherever settings.json still denies /tmp",
+						"%q — writes to it degrade from ALLOW to DEFER",
 						rem, harnessSessionShape.String())
 				}
 				checkedSessions++
