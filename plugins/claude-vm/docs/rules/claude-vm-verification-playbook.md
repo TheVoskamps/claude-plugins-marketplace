@@ -233,13 +233,14 @@ of a small image at a mountpoint inside the harness's workspace works
 unprivileged, and `config-test.sh` does exactly that. The same trick
 works on the config-load gate block when you want the real validator.
 
-A slice starts at the first helper the sliced code calls, not at the
-code itself. A `boot_mount_phase` slice out of `build-guest-image.sh`
-starts at `boot_dir_is_nonempty` and runs through the end of the phase,
-since a slice that took only the phase would leave the occupancy helper
-undefined and every occupancy assertion would pass while testing
-nothing: an undefined helper returns non-zero, which reads as "empty".
-Assert in the harness that the helper is defined.
+The harness defines or stubs every helper the sliced code calls that the
+slice does not itself carry, and asserts each one is defined before the
+slice runs. A helper left undefined returns non-zero, so an assertion
+over it can pass while testing nothing. A `boot_mount_phase` slice out
+of `build-guest-image.sh` calls `boot_dir_is_nonempty`, an undefined
+occupancy helper reads as "empty", and `log`, which the emitted
+launcher defines far above both, so the harness supplies `log` even
+when the slice starts at `boot_dir_is_nonempty`.
 
 Before filing such a finding, enumerate the emitted strings with
 `grep -n -- '--device'` plus the assignment of each interpolated
