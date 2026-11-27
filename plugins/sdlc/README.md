@@ -310,11 +310,11 @@ recommendations.
   one an open PR already closes, one a local branch names, or one at a
   status the config does not allow is refused. Reopening it, closing
   the PR, deleting the branch and moving the status are yours.
-- **It does not resume on a leftover branch.** An open issue's local
-  branch that an abandoned run left is refused, and cleanup keeps it,
-  since it cannot tell an abandoned branch from one in use. Once no run
-  is using it, delete it with `git branch -D <branch>` before the issue
-  is run again.
+- **It does not resume on a leftover branch.** An open issue is refused
+  while a local branch an abandoned run left still names it, and
+  cleanup keeps that branch, since it cannot tell an abandoned branch
+  from one in use. Once no run is using it, delete it with
+  `git branch -D <branch>` before the issue is run again.
 - **It changes no other repository.** A fix that belongs in another
   repository, or to a PR that has left draft, is put to you.
 - **The readiness check runs nothing from an issue body.** It runs no
