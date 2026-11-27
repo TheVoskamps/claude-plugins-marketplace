@@ -177,6 +177,19 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
     exit 1
   }
 
+# Every scalar key read below is checked against its key-table type before any
+# of them is read, so a value of the wrong type -- an unlisted enumeration
+# value, a quoted "true" for a boolean, a YAML `false` for a string or path, an
+# empty map -- aborts the launch naming the key instead of being used. Several
+# of these values reach run.env unquoted, which the guest sources under
+# `set -a`, or become a command line, as proxy.cmd does. The check is handed
+# the four RAW files rather than the merged documents, because the merge
+# prunes every empty map: a scalar key written `{}` would otherwise reach the
+# check absent and silently take its default.
+claude_vm_check_scalars \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
+
 # NOTE: the merged-config temp file is removed by cleanup() (the
 # consolidated EXIT/INT/TERM trap installed below). A narrow interim trap is
 # armed earlier (right after the OAuth credential is written) to cover the
@@ -192,19 +205,6 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # link repeats the machine stop; a new link that omits it strands a podman
 # machine this run started.
 #
-# Every scalar key read below is checked against its key-table type before any
-# of them is read, so a value of the wrong type -- an unlisted enumeration
-# value, a quoted "true" for a boolean, a YAML `false` for a string or path, an
-# empty map -- aborts the launch naming the key instead of being used. Several
-# of these values reach run.env unquoted, which the guest sources under
-# `set -a`, or become a command line, as proxy.cmd does. The check is handed
-# the four RAW files rather than the merged documents, because the merge
-# prunes every empty map: a scalar key written `{}` would otherwise reach the
-# check absent and silently take its default.
-claude_vm_check_scalars \
-  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
-  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
-
 # Two per-tier documents, each in its FILE schema (issue #179): bake files
 # merge into MERGED_BAKE, boot files into MERGED_BOOT. There is no combined
 # cross-tier document and no schema translation -- bake consumers read
