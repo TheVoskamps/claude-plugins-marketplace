@@ -1,56 +1,367 @@
 # github-setup
 
-Skills that provision a GitHub repo's automation and posture:
-`/gh-create-app` registers the org- or enterprise-scoped App the
-workflows authenticate as, `/gh-repo-setup-pr-automation` installs the
-auto-merge / auto-rebase workflows that run under it,
-`/gh-repo-setup-protection` converges the security and merge-button
-surface, `/repo-public-mirror-setup` stands up a filtered read-only
-mirror, `/gh-repo-scrub-history` rewrites history to purge a leaked
-string, and `/gh-repo-setup-public` promotes a private repo to public.
-`skills/lib/gh-app.md` is the shared find/verify library every
-App-consuming skill calls rather than re-implementing.
+Sets up a GitHub repository's automation and security posture from
+inside Claude Code: a GitHub App for workflows to authenticate as,
+workflows that merge and rebase pull requests on their own, a hardened
+security and branch-protection baseline, a filtered public mirror of a
+private repo, a history rewrite that purges a leaked string, and the
+promotion of a private repo to public.
 
-## Sweep every App-permission surface when the starter set changes
+Each skill runs from inside a repository's checkout and acts on that
+repository; `/gh-create-app` can be pointed at another with
+`--target-repo`. Not every change waits for your approval: each section
+below says what the skill changes and names the questions that decide
+it. A skill may ask you something lesser that its section leaves out.
 
-The PR-automation GitHub App's permission set is restated as a literal
-list in several places here, each a separate edit:
+## What you need first
 
-- `skills/gh-create-app/SKILL.md` — the *Starter permission set* table,
-  the per-scope rationale paragraphs between it and the
-  `required_permissions` code block, that code block, the "Permissions →
-  Repository permissions" bullets the user is told to click through
-  during registration, the scopes named as the worked example in the
-  App-resolution step's missing-permissions branch, the
-  `__APP_PERMISSIONS__` rendering example in the metadata-doc step, and
-  the reused-App upgrade note in the final report.
-- `skills/gh-repo-setup-pr-automation/SKILL.md` — the *Required GitHub
-  App permissions* block, the per-scope prose under it saying what each
-  scope covers, and the `required_permissions = { … }` line in its
-  App-resolution step.
-- `skills/lib/gh-app.md` — the `required_permissions` example in the
-  caller-passes list, and the paragraphs under it that name a scope
-  callers forget.
+- `gh`, authenticated as an admin of the target repository. Setting
+  organization secrets needs the `admin:org` scope on the `gh` token; an
+  enterprise-owned App needs an enterprise owner.
+- `git`.
+- A target repository, checked out locally. Run each skill from inside
+  it.
+- `git-filter-repo`, for `/repo-public-mirror-setup` and
+  `/gh-repo-scrub-history`. Neither installs it for you.
+- `jq`, for `/gh-repo-setup-protection`.
 
-`payload/gh-create-app/app-metadata.md` renders the set from
-`__APP_PERMISSIONS__` and holds no literal list, so it never takes this
-edit — hard-coding a map there would freeze one caller's scopes into
-every rendered metadata doc.
-`plugins/github-claude-identity/skills/gh-create-identity-app/SKILL.md`
-does carry a literal permission list, but it belongs to a **different**
-App (the per-user commit identity, provisioned with its own scopes).
-Never sweep it along with this set.
+## The skills
 
-Widening the set has a converge-time consequence worth stating wherever
-the new scope is introduced: a scope added to an already-registered App
-is not live until every installing account approves it
-(`skills/lib/gh-app.md` → "Granting a missing permission to an existing
-App"), so every previously-provisioned App fails the library's
-permission filter until that approval lands.
+### `/gh-create-app`
 
-That failure is determinate in every caller: the library aborts the
-calling skill with its "missing permissions" report and the pointer to
-the two-step remediation — on the discovery path from Step 3's
-no-suitable-candidates branch, on the `--app-name` path from that
-path's own permission check. No caller routes such an App into
-registration instead.
+Provisions the GitHub App your workflows authenticate as. An App is
+owned by an organization or an enterprise and installed on
+repositories; there is no per-repo App.
+
+```text
+/gh-create-app [--scope=org|enterprise] [--app-name=<slug>]
+               [--owner=<org-or-enterprise>] [--target-repo=<owner/repo>]
+               [--secret-scope=repository|organization]
+               [--app-id-secret=<NAME>] [--app-key-secret=<NAME>]
+               [--metadata-path=<path>] [--permissions=starter|custom]
+```
+
+What it changes:
+
+- Sets the App ID and the private key as secrets, `WORKFLOW_APP_ID` and
+  `WORKFLOW_APP_PRIVATE_KEY` unless you name others, on the target
+  repository or, under `--secret-scope=organization`, as secrets of the
+  App's owner that the target repository can read. It asks no separate
+  approval for this, and overwrites a secret that already has the name.
+- Writes a metadata doc, `docs/github-app.md` by default, recording the
+  App's name, ID, owner, permissions and secret names. It leaves the
+  file uncommitted for you to review.
+
+It also shows you the workflow snippet that mints a token as the App,
+and tells you how to confirm in CI that the token works.
+
+What it asks you for:
+
+- Whether the App belongs to an organization or an enterprise, the
+  App's name, and the owner when it is an enterprise.
+- To register the App in GitHub's web UI, with the form values it gives
+  you, and to generate a private key there.
+- The App ID and the path to the downloaded `.pem` file. It takes the
+  path only; the key's contents never enter the conversation.
+- To install the App on the target repository, and to confirm when that
+  is done.
+- Under `--permissions=custom`, the permissions you want in place of
+  the default set.
+- Whether to overwrite a metadata doc that differs from the one it
+  would write. It shows you the diff first, and stops until you answer.
+
+Running it again is safe. When a suitable App is already installed on
+the repository, it offers to verify the secrets and refresh the
+metadata doc instead of registering a second one.
+
+### `/gh-repo-setup-pr-automation`
+
+Installs workflows that keep pull requests moving without you: every PR
+to the default branch gets auto-merge enabled, PRs that fall behind the
+base branch are rebased, a scheduled sweep catches the ones an event
+missed, and a collaborator with write access can comment `/rebase` on a
+PR to rebase that one on demand. When the repository has a
+required-check workflow, green Dependabot PRs are also merged
+unattended. Dependabot's own PRs are left out of the routine rebase
+unless someone else has pushed to the branch.
+
+The workflows run as a GitHub App, because GitHub's default workflow
+token cannot enable auto-merge and its pushes do not re-trigger
+required checks. The skill uses an App that already exists; when it
+finds none, it points you at `/gh-create-app`.
+
+```text
+/gh-repo-setup-pr-automation [--app-name <slug>] [--app-private-key <path>]
+                             [--secret-prefix <prefix>]
+                             [--secret-scope <repository|organization>]
+                             [--merge-method <MERGE|SQUASH|REBASE>]
+                             [--do-not-merge-label <label>] [--bot-slug <name>]
+                             [--required-check-workflow <name>]
+                             [--install-gate-workflow <name>]
+                             [--install-gate-npm-check <name>]
+```
+
+What it changes:
+
+- Adds `.github/workflows/auto-enable-automerge.yml` and
+  `.github/workflows/auto-rebase-prs.yml`. When the repository has a
+  dependency-install-gate workflow, it also adds a script under
+  `.github/scripts/` that regenerates an npm lockfile a Dependabot PR
+  left out of step, with that script's self-test.
+- Commits those files to a `gh-repo-setup-pr-automation` branch, pushes
+  it, and opens a PR against the default branch.
+- Sets the App's ID as the secret `AUTOMERGE_APP_ID`, on the repository
+  or on its organization, and the private key as
+  `AUTOMERGE_APP_PRIVATE_KEY` when you have it set the key rather than
+  setting it yourself. `--secret-prefix` replaces `AUTOMERGE`. It skips
+  both when both secrets already exist at either level.
+
+What it asks you for:
+
+- Which App to use, when it finds more than one suitable App.
+- To confirm the values it resolved, before it writes a file or sets a
+  secret.
+- To confirm the required-check workflow it proposes, when you did not
+  name one. Without one, the Dependabot merge is left out.
+- One approval covering the commit, the push and the PR.
+- Where the secrets go, the repository or the organization.
+- How the private key is set. By default it prints a `gh secret set`
+  command for you to run, so the key never enters the session; or you
+  give it the path to the `.pem` file and it sets the secret itself.
+
+A PR labelled `do-not-merge` is left out of both auto-merge and
+auto-rebase.
+
+### `/gh-repo-setup-protection`
+
+Brings a repository to a hardened security and merge baseline, and
+re-asserts every setting on each run, since an organization-level
+change can silently switch a repository setting back off.
+
+```text
+/gh-repo-setup-protection [--codeql=on|off|auto] [--ghas=on|off]
+                          [--ruleset=on|off] [--dry-run]
+```
+
+What it changes on GitHub, directly:
+
+- Security settings: Dependabot alerts and security updates, and, where
+  the repository is entitled to them, Code Security, secret scanning
+  and push protection. It also tries to turn on delegated bypass for
+  push protection, and reports what is left for you to set. Dependabot
+  malware alerts it only reports: there is no public API to switch them
+  on, so that is yours to do in the repository's Code security
+  settings.
+- CodeQL default setup, which it switches off, once you confirm, when
+  it is about to add the CodeQL workflow. The two cannot coexist.
+- Merge settings: merge commits only, with auto-merge, branch-update
+  suggestions and automatic deletion of merged branches switched on.
+- A `protect-main` ruleset on the default branch: no deletion, no
+  force-push, and a pull request with code-owner review, approval of
+  the last push and every review thread resolved. Repository admins may
+  bypass the pull-request rule, so a sole maintainer is not locked out.
+
+What it adds as files, in a PR from a `gh-repo-setup-protection`
+branch:
+
+- A `dependabot.yml` covering every package ecosystem Dependabot
+  supports. Dependabot ignores an ecosystem the repository does not
+  use, so one that arrives later is covered without a re-run.
+- A CodeQL workflow, when CodeQL is on for the repository. It analyzes
+  the languages present in each PR.
+- A dependency-install-gate workflow, which fails a PR whose npm, pip,
+  pnpm or yarn lockfile has drifted from its manifest.
+- A dependency-pinned-gate workflow, which fails a PR that declares an
+  npm, pip, GitHub Actions, Docker or Go dependency without an exact
+  version.
+- A no-back-merging-guard workflow, which fails a PR whose branch
+  merged the default branch in rather than rebasing onto it.
+
+Each workflow reports through one required check, which the ruleset
+requires only when that workflow is present, so a check that can never
+report does not block merging.
+
+What it asks you for:
+
+- Which languages and ecosystems to leave out. Everything is on by
+  default, and the only edit is to drop one.
+- Whether to switch off CodeQL default setup, when it finds it on.
+  Decline, and the CodeQL workflow is not added.
+- Whether to overwrite an existing workflow or script that differs from
+  the one it would write, or a `dependabot.yml` holding entries the new
+  one would drop. It shows you the diff first.
+- One approval covering the commit, the push and the PR.
+
+Apart from CodeQL default setup, what it changes on GitHub directly is
+applied without an approval, and reported.
+
+`--dry-run` reports what would change and changes nothing.
+`--codeql=auto`, the default, never turns CodeQL on for a private
+repository that is not entitled to it; `--codeql=on` overrides that.
+
+### `/repo-public-mirror-setup`
+
+Stands up a filtered, read-only public copy of a private repository.
+The private repository stays the source of truth: a workflow republishes
+the paths you allow, with author emails rewritten, on every push to
+`main`.
+
+```text
+/repo-public-mirror-setup <ssh-key-path>
+```
+
+What it changes:
+
+- Creates a public repository named `<repo>-public` under the same
+  owner, with Issues on, and Wiki, Discussions and Projects off.
+- Pushes a first commit to the mirror's `main`, with a read-only
+  banner `README.md`, the mirror's `.gitignore`, `CONTRIBUTORS`, and
+  the source's `LICENSE`, `PATENTS`, `PRIOR_ART.md` and, when it has
+  one, `CODEOWNERS`. Where the source has no `LICENSE`, `PATENTS` or
+  `PRIOR_ART.md`, a starter takes its place.
+- Adds a `mirror-main-readonly` ruleset to the mirror, which blocks
+  pushes and PR merges to its default branch from everyone but
+  repository admins and the workflow.
+- Uploads the public half of your SSH key to the mirror as a deploy
+  key, and stores the private half on the source repository as the
+  secret `PUBLIC_MIRROR_DEPLOY_KEY`.
+- Writes the filter configuration under `.github/public-mirror/`, the
+  workflow `.github/workflows/public-mirror.yml` and a `CONTRIBUTORS`
+  file into the source repository, uncommitted. The first filtered
+  push happens when you commit and push them.
+
+What it asks you for:
+
+- The path to an SSH keypair you generated yourself with `ssh-keygen`.
+  It does not generate one.
+- To confirm the names it derived, before it touches anything.
+- The owner name and release date for the prior-art notice, when the
+  source has no `PATENTS` or `PRIOR_ART.md` of its own.
+- To fill in `paths.allowlist` with the paths the mirror may publish.
+  A file not listed stays out of the mirror. Commit messages are
+  published whatever a commit touched: one that changed only unlisted
+  files appears in the mirror as an empty commit.
+- To review a local dry run of the filtered tree, before it creates the
+  mirror. Once you approve it, the mirror is created and configured
+  with no further approval.
+
+It refuses to run on a repository that is not private, and stops rather
+than overwrite when `<repo>-public` already exists.
+
+### `/gh-repo-scrub-history`
+
+Rewrites a repository's entire history so that one string is replaced
+by another in every commit, then force-pushes the result. Use it to
+purge a leaked secret or name before a private repository goes public.
+
+```text
+/gh-repo-scrub-history
+```
+
+You may pass the string to replace and its replacement; it prompts for
+whichever is missing and has you confirm both. With no replacement
+given it writes `***REMOVED***`.
+
+What it changes:
+
+- Every commit from the first match onward gets a new SHA, on every
+  branch and tag. Existing clones and forks stop matching, and open PRs
+  need recreating.
+- The remote's history is overwritten.
+
+Your working clone is not touched: the rewrite happens in a scratch
+copy, and after the push the skill tells you how to bring your clone
+into line.
+
+What it asks you for:
+
+- Approval of the strings and the exact command, before the rewrite.
+- A second, separate approval before the force-push, after it has shown
+  you whether the string was found and is now gone.
+
+On a repository that is not private it warns you, loudly, and proceeds
+if you say so.
+
+### `/gh-repo-setup-public`
+
+Promotes a private repository to public, with the posture a public
+repository needs settled before the switch.
+
+```text
+/gh-repo-setup-public
+```
+
+What it changes:
+
+- Runs `/gh-repo-setup-protection` and `/gh-repo-setup-pr-automation`
+  on the repository.
+- Writes a `CODEOWNERS` file assigning the whole repository to
+  `@evoskamp`, and checks that code-owner review and conversation
+  resolution are required before merge, putting the second back in the
+  ruleset when it is missing.
+- Enables Issues, and leaves issues and PRs open to outside
+  contributors.
+- Adds a "Contributing" section to `README.md` and a `CONTRIBUTORS`
+  file, and a `LICENSE`, `PATENTS` and `PRIOR_ART.md` where the
+  repository has none. These and `CODEOWNERS` are left uncommitted for
+  you to review.
+- Renames the repository on GitHub, when you accept a new name.
+- Switches the repository's visibility to public.
+
+What it asks you for:
+
+- When the repository is already public, whether to re-assert the
+  public posture, propose a rename, or both. The history question and
+  the switch to public are then skipped.
+- For each PR `/gh-repo-setup-protection` or
+  `/gh-repo-setup-pr-automation` opened, whether it should merge the PR
+  once its checks pass or leave it to you.
+- Whether to remove any collaborator it does not expect. It lists them
+  and removes no one on its own.
+- The owner name and release date for the prior-art notice, when the
+  repository has no `PATENTS` or `PRIOR_ART.md` of its own.
+- Whether the history holds anything that must not become public. A
+  yes stops the run and sends you to `/gh-repo-scrub-history`.
+- A new name. It proposes the current one with suffixes such as
+  `-private` stripped, and you accept it, give another, or keep the
+  name.
+- A final, separate approval of the switch to public.
+
+## What it deliberately does not do
+
+- **It does not register a GitHub App for you.** GitHub allows
+  registration only through its web UI, so `/gh-create-app` walks you
+  through the form and waits.
+- **It does not print a private key.** A skill that sets a key as a
+  secret takes the path to the key file and pipes the file into
+  `gh secret set`; the contents never enter the conversation.
+- **It does not rotate a credential.** `/gh-create-app` leaves App key
+  rotation to you, and a history rewrite does not un-leak a secret that
+  was ever public. Rotate it.
+- **It does not generate an SSH key or install `git-filter-repo`.** You
+  do both yourself, beforehand.
+- **It does not commit to the repository you ran it from without your
+  approval.** `/gh-repo-setup-protection` and
+  `/gh-repo-setup-pr-automation` commit and open a PR on one approval;
+  every other file a skill writes there is left uncommitted.
+- **It does not write outside the repository you ran it from.** Beyond
+  that repository's files, the only changes are the GitHub settings,
+  secrets and repositories each skill names above.
+- **It does not buy a GitHub Advanced Security entitlement.** Where a
+  repository lacks one, `/gh-repo-setup-protection` reports the
+  settings it skipped.
+- **It does not delete an existing CodeQL workflow** when you pass
+  `--codeql=off`. It reports the workflow and leaves it in place.
+- **It does not make the PR-automation App a bypass actor.** Unattended
+  merging of a Dependabot PR on a code-owned path needs the App listed
+  as a bypass actor in the branch ruleset, and no skill here adds it.
+  Without it, such a PR waits for a human.
+- **It does not scrub file names or commit messages.**
+  `/gh-repo-scrub-history` rewrites file contents only, and reports
+  when the string survives elsewhere.
+- **It does not migrate or retire an existing mirror.**
+  `/repo-public-mirror-setup` is for a new mirror only, and
+  `/gh-repo-setup-public` never runs it: one publishes a copy of a repo
+  that stays private, the other makes the repo itself public.
+- **It does not touch your local clone after a rename.** The rename is
+  on GitHub only; updating your remote URL is yours to do.

@@ -1,16 +1,20 @@
 # Template for /gh-repo-setup-pr-automation. Rendered into the target
 # repo at .github/workflows/auto-rebase-prs.yml.
 #
-# Placeholders (see the github-setup plugin payload README for the convention):
+# Placeholders (see the github-setup plugin's skills/lib/payload-render.md
+# for the convention):
 #   main   default branch PRs target (e.g. main)
 #   thevoskamps-pr-automations         GitHub App slug used for automation
 #   AUTOMERGE_APP_ID    repo secret holding the App ID
 #                        (e.g. AUTOMERGE_APP_ID)
 #   AUTOMERGE_APP_PRIVATE_KEY  repo secret holding the App private key
 #                        (e.g. AUTOMERGE_APP_PRIVATE_KEY)
-#   claude-plugins-marketplace-auto-rebase[bot]         git identity used for rebase commits, e.g.
+#   claude-plugins-marketplace-auto-rebase[bot]
+#                        git identity used for rebase commits, e.g.
 #                        "<repo>-auto-rebase[bot]"
-#   no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql  name of the repo's required-check
+#   no-back-merging-guard, dependency-install-gate,
+#   dependency-pinned-gate, codeql
+#                        name of the repo's required-check
 #                        workflow that, on completion, should trigger a
 #                        rebase pass (e.g. no-back-merging-guard). If the
 #                        repo has no such workflow, the
@@ -28,12 +32,17 @@
 #   Install gate (npm)  name of the npm CheckRun within
 #                        dependency-install-gate that fails on a lockfile
 #                        desync (e.g. npm).
+---
 name: auto-rebase-prs
-on:
+"on":
   push:
     branches: [main]
   workflow_run:
-    workflows: [no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql]
+    workflows:
+      - no-back-merging-guard
+      - dependency-install-gate
+      - dependency-pinned-gate
+      - codeql
     types: [completed]
   workflow_dispatch:
   schedule:
@@ -43,7 +52,7 @@ on:
     # to BEHIND, and the event-driven runs above can drop a genuinely
     # behind PR because of that race. This cron tick re-enumerates fresh
     # state and catches any PR the race skipped.
-    - cron: '*/20 * * * *'
+    - cron: "*/20 * * * *"
   issue_comment:
     types: [created]
 
@@ -54,7 +63,8 @@ on:
 #
 # Triggers:
 #   - push to main -- every advance rebases eligible PRs
-#   - workflow_run on no-back-merging-guard, dependency-install-gate, dependency-pinned-gate, codeql completion -- as soon
+#   - workflow_run on no-back-merging-guard, dependency-install-gate,
+#     dependency-pinned-gate, codeql completion -- as soon
 #     as a PR's required check finishes, the rebase pass runs
 #   - workflow_dispatch -- manual "Run workflow" button (or
 #     `gh workflow run auto-rebase-prs.yml`). Recovery path for the
@@ -142,14 +152,14 @@ on:
 #   pip is out of scope (a pip gate failure is an unresolvable pin set,
 #   not a lockfile-only desync -- see the script header).
 #
-# Auth: this workflow MUST run as the GitHub App "thevoskamps-pr-automations", not as
-# the default GITHUB_TOKEN. A push made with GITHUB_TOKEN does NOT
-# re-trigger downstream workflows (GitHub design, to prevent infinite
-# recursion). After an auto-rebase push, the PR's required status checks
-# would not re-run, leaving stale results and breaking the "rebase keeps
-# the PR mergeable" loop. Pushing as a GitHub App makes the push look
-# like an external actor, so the checks do re-run. Do NOT fall back to
-# GITHUB_TOKEN.
+# Auth: this workflow MUST run as the GitHub App
+# "thevoskamps-pr-automations", not as the default GITHUB_TOKEN. A push
+# made with GITHUB_TOKEN does NOT re-trigger downstream workflows (GitHub
+# design, to prevent infinite recursion). After an auto-rebase push, the
+# PR's required status checks would not re-run, leaving stale results and
+# breaking the "rebase keeps the PR mergeable" loop. Pushing as a GitHub
+# App makes the push look like an external actor, so the checks do
+# re-run. Do NOT fall back to GITHUB_TOKEN.
 #
 # The workflow consumes two repo secrets: AUTOMERGE_APP_ID and
 # AUTOMERGE_APP_PRIVATE_KEY. A short-lived installation token is
@@ -227,13 +237,16 @@ jobs:
           PERMISSION=$(gh api \
             "repos/${REPO}/collaborators/${COMMENTER}/permission" \
             --jq '.permission')
-          echo "Commenter @${COMMENTER} has '${PERMISSION}' permission on ${REPO}"
+          echo "Commenter @${COMMENTER} has '${PERMISSION}' permission" \
+            "on ${REPO}"
           case "$PERMISSION" in
             admin|write)
               echo "Authorized: @${COMMENTER} may trigger /rebase."
               ;;
             *)
-              echo "::error::@${COMMENTER} has '${PERMISSION}' permission on ${REPO}; /rebase requires admin or write. Refusing to force-push."
+              echo "::error::@${COMMENTER} has '${PERMISSION}' permission" \
+                "on ${REPO}; /rebase requires admin or write." \
+                "Refusing to force-push."
               exit 1
               ;;
           esac
@@ -247,8 +260,9 @@ jobs:
       - name: Configure git identity
         run: |
           set -euo pipefail
-          git config user.name "claude-plugins-marketplace-auto-rebase[bot]"
-          git config user.email "claude-plugins-marketplace-auto-rebase[bot]@users.noreply.github.com"
+          BOT_SLUG="claude-plugins-marketplace-auto-rebase[bot]"
+          git config user.name "$BOT_SLUG"
+          git config user.email "$BOT_SLUG@users.noreply.github.com"
 
       # Needed by the lockfile-regen pass below (`npm ci` / `npm install
       # --package-lock-only`). Pinned to node 22 to match a typical
@@ -287,17 +301,19 @@ jobs:
             # on this repo. Tighten the body match here: require a line
             # that is exactly `/rebase` (allowing surrounding whitespace)
             # so the command quoted inside prose does not fire.
-            if ! printf '%s' "$COMMENT_BODY" | grep -qE '^[[:space:]]*/rebase[[:space:]]*$'; then
-              echo "Comment does not contain a standalone /rebase command; nothing to do."
+            if ! printf '%s' "$COMMENT_BODY" \
+              | grep -qE '^[[:space:]]*/rebase[[:space:]]*$'; then
+              echo "Comment does not contain a standalone /rebase command;" \
+                "nothing to do."
               exit 0
             fi
             echo "Slash command /rebase on PR #$COMMENT_PR_NUMBER"
             # Query just the commenting PR. Same field set as the sweep
             # query so the jq filter and loop are reused unchanged.
-            PRS_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $number: Int!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequest(number: $number) {
+            PRS_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$number: Int!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequest(number: \$number) {
                     number
                     isDraft
                     mergeStateStatus
@@ -311,7 +327,8 @@ jobs:
                     labels(first: 50) { nodes { name } }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
+              }" -f owner="$OWNER" -f name="$NAME" \
+              -F number="$COMMENT_PR_NUMBER")
 
             # Reshape `pullRequest` (single object) into the same
             # `pullRequests.nodes[]` array shape the sweep query returns,
@@ -327,12 +344,14 @@ jobs:
             # too. The `author` / `commits` fields are fetched so the field
             # set stays parallel with the sweep query, but this jq filter
             # omits the author `select(...)`.
-            mapfile -t CANDIDATES < <(echo "$PRS_JSON" | jq -r --arg base "$BASE_BRANCH" '
+            mapfile -t CANDIDATES < <(echo "$PRS_JSON" \
+              | jq -r --arg base "$BASE_BRANCH" '
               .data.repository.pullRequest
               | select(. != null)
               | select(.baseRefName == $base)
               | select(.isDraft == false)
-              | select([.labels.nodes[].name] | index("do-not-merge") | not)
+              | select([.labels.nodes[].name]
+                  | index("do-not-merge") | not)
               | "\(.number)\t\(.headRefName)\t\(.headRepositoryOwner.login)"
             ')
           else
@@ -348,10 +367,10 @@ jobs:
             # dropped here: CLEAN/UNSTABLE are already up-to-date, DIRTY is
             # a GitHub-visible merge conflict (rebase would just abort),
             # HAS_HOOKS / UNKNOWN are out of scope.
-            PRS_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $base: String!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequests(states: OPEN, first: 100, baseRefName: $base) {
+            PRS_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$base: String!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequests(states: OPEN, first: 100, baseRefName: \$base) {
                     nodes {
                       number
                       isDraft
@@ -366,7 +385,7 @@ jobs:
                     }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
+              }" -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
 
             # Exclude Dependabot-authored PRs from routine behind-main
             # rebasing UNLESS a non-Dependabot actor has already pushed to
@@ -399,12 +418,15 @@ jobs:
             mapfile -t CANDIDATES < <(echo "$PRS_JSON" | jq -r '
               .data.repository.pullRequests.nodes[]
               | select(.isDraft == false)
-              | select(.mergeStateStatus == "BEHIND" or .mergeStateStatus == "BLOCKED")
-              | select([.labels.nodes[].name] | index("do-not-merge") | not)
+              | select(.mergeStateStatus == "BEHIND"
+                  or .mergeStateStatus == "BLOCKED")
+              | select([.labels.nodes[].name]
+                  | index("do-not-merge") | not)
               | select(
                   (.author.login != "dependabot")
                   or
-                  ((.commits.nodes[0].commit.author.user.login // "") != "dependabot[bot]")
+                  ((.commits.nodes[0].commit.author.user.login // "")
+                    != "dependabot[bot]")
                 )
               | "\(.number)\t\(.headRefName)\t\(.headRepositoryOwner.login)"
             ')
@@ -426,13 +448,15 @@ jobs:
               continue
             fi
 
-            echo "PR #$PR_NUMBER: attempting rebase of $HEAD_REF onto origin/$BASE_BRANCH"
+            echo "PR #$PR_NUMBER: attempting rebase of $HEAD_REF onto" \
+              "origin/$BASE_BRANCH"
 
             # Use an explicit refspec to avoid the ambiguity of
             # `git fetch origin "$HEAD_REF"`: if a tag in the repo happens
             # to share the branch name, the bare form silently fetches the
             # tag instead of the branch.
-            git fetch origin "refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+            git fetch origin \
+              "refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
             EXPECTED_SHA=$(git rev-parse "origin/$HEAD_REF")
 
             # mergeStateStatus=BLOCKED is overloaded: it can mean behind,
@@ -441,7 +465,8 @@ jobs:
             # actually behind the base branch (no rebase, no force-push,
             # nothing). BEHIND PRs always fail this check, so this only
             # filters the BLOCKED-but-up-to-date case.
-            if git merge-base --is-ancestor "origin/$BASE_BRANCH" "$EXPECTED_SHA"; then
+            if git merge-base --is-ancestor \
+              "origin/$BASE_BRANCH" "$EXPECTED_SHA"; then
               echo "PR #$PR_NUMBER: not behind $BASE_BRANCH, skipping rebase"
               continue
             fi
@@ -449,19 +474,23 @@ jobs:
             # Detach onto the PR head so we can rebase without claiming the
             # branch ref locally. --no-track keeps origin tracking
             # untouched on the resulting branch.
-            git checkout -B "auto-rebase-$PR_NUMBER" --no-track "origin/$HEAD_REF"
+            git checkout -B "auto-rebase-$PR_NUMBER" --no-track \
+              "origin/$HEAD_REF"
 
             if git rebase "origin/$BASE_BRANCH"; then
               # --force-with-lease=<ref>:<expected> rejects the push if a
               # concurrent author push has moved origin/$HEAD_REF since we
               # read it, instead of clobbering their work.
-              if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$HEAD_REF"; then
+              if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" \
+                origin "HEAD:refs/heads/$HEAD_REF"; then
                 echo "PR #$PR_NUMBER: rebased and force-pushed"
               else
-                echo "PR #$PR_NUMBER: push rejected (lease lost or auth); skipping"
+                echo "PR #$PR_NUMBER: push rejected (lease lost or auth);" \
+                  "skipping"
               fi
             else
-              echo "PR #$PR_NUMBER: rebase produced conflicts; aborting and skipping"
+              echo "PR #$PR_NUMBER: rebase produced conflicts; aborting" \
+                "and skipping"
               git rebase --abort || true
             fi
 
@@ -516,14 +545,16 @@ jobs:
           # the ones that need this). The only skips are draft and the
           # `do-not-merge` human escape hatch.
           if [ "$EVENT_NAME" = "issue_comment" ]; then
-            if ! printf '%s' "$COMMENT_BODY" | grep -qE '^[[:space:]]*/rebase[[:space:]]*$'; then
-              echo "No standalone /rebase command; skipping lockfile-regen pass."
+            if ! printf '%s' "$COMMENT_BODY" \
+              | grep -qE '^[[:space:]]*/rebase[[:space:]]*$'; then
+              echo "No standalone /rebase command; skipping lockfile-regen" \
+                "pass."
               exit 0
             fi
-            REGEN_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $number: Int!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequest(number: $number) {
+            REGEN_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$number: Int!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequest(number: \$number) {
                     number
                     isDraft
                     headRefName
@@ -531,24 +562,32 @@ jobs:
                     baseRefName
                     labels(first: 50) { nodes { name } }
                     commits(last: 1) {
-                      nodes { commit { statusCheckRollup { contexts(first: 100) {
-                        nodes { __typename
-                          ... on CheckRun { name conclusion checkSuite { workflowRun { workflow { name } } } }
-                        } } } } }
+                      nodes { commit { statusCheckRollup {
+                        contexts(first: 100) {
+                          nodes { __typename
+                            ... on CheckRun {
+                              name conclusion
+                              checkSuite { workflowRun { workflow { name } } }
+                            }
+                          }
+                        }
+                      } } }
                     }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
-            CANDIDATES_RAW=$(echo "$REGEN_JSON" | jq -c --arg base "$BASE_BRANCH" '
+              }" -f owner="$OWNER" -f name="$NAME" \
+              -F number="$COMMENT_PR_NUMBER")
+            CANDIDATES_RAW=$(echo "$REGEN_JSON" \
+              | jq -c --arg base "$BASE_BRANCH" '
               .data.repository.pullRequest
               | select(. != null)
               | select(.baseRefName == $base)
               | [.]')
           else
-            REGEN_JSON=$(gh api graphql -f query='
-              query($owner: String!, $name: String!, $base: String!) {
-                repository(owner: $owner, name: $name) {
-                  pullRequests(states: OPEN, first: 100, baseRefName: $base) {
+            REGEN_JSON=$(gh api graphql -f query="
+              query(\$owner: String!, \$name: String!, \$base: String!) {
+                repository(owner: \$owner, name: \$name) {
+                  pullRequests(states: OPEN, first: 100, baseRefName: \$base) {
                     nodes {
                       number
                       isDraft
@@ -556,15 +595,21 @@ jobs:
                       headRepositoryOwner { login }
                       labels(first: 50) { nodes { name } }
                       commits(last: 1) {
-                        nodes { commit { statusCheckRollup { contexts(first: 100) {
-                          nodes { __typename
-                            ... on CheckRun { name conclusion checkSuite { workflowRun { workflow { name } } } }
-                          } } } } }
+                        nodes { commit { statusCheckRollup {
+                          contexts(first: 100) {
+                            nodes { __typename
+                              ... on CheckRun {
+                                name conclusion
+                                checkSuite { workflowRun { workflow { name } } }
+                              }
+                            }
+                          }
+                        } } }
                       }
                     }
                   }
                 }
-              }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
+              }" -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
             CANDIDATES_RAW=$(echo "$REGEN_JSON" | jq -c '
               .data.repository.pullRequests.nodes')
           fi
@@ -575,15 +620,18 @@ jobs:
           # rendered placeholders so the filter tracks the repo's actual
           # gate.
           mapfile -t CANDIDATES < <(echo "$CANDIDATES_RAW" | jq -r \
-            --arg gate "$INSTALL_GATE_WORKFLOW" --arg npm "$INSTALL_GATE_NPM_CHECK" '
+            --arg gate "$INSTALL_GATE_WORKFLOW" \
+            --arg npm "$INSTALL_GATE_NPM_CHECK" '
             .[]
             | select(.isDraft == false)
-            | select([.labels.nodes[].name] | index("do-not-merge") | not)
+            | select([.labels.nodes[].name]
+                | index("do-not-merge") | not)
             | select(
                 [ .commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
                   | select(.__typename == "CheckRun")
                   | select(.name == $npm)
-                  | select((.checkSuite.workflowRun.workflow.name // "") == $gate)
+                  | select((.checkSuite.workflowRun.workflow.name // "")
+                      == $gate)
                   | .conclusion ]
                 | index("FAILURE")
               )
@@ -591,7 +639,8 @@ jobs:
           ')
 
           if [ "${#CANDIDATES[@]}" -eq 0 ]; then
-            echo "No PRs with a failing $INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK check; nothing to regenerate."
+            echo "No PRs with a failing $INSTALL_GATE_WORKFLOW" \
+              "$INSTALL_GATE_NPM_CHECK check; nothing to regenerate."
             exit 0
           fi
 
@@ -601,18 +650,23 @@ jobs:
             HEAD_OWNER=$(echo "$line" | cut -f3)
 
             if [ "$HEAD_OWNER" != "$OWNER" ]; then
-              echo "PR #$PR_NUMBER: skipping lockfile-regen (head is a fork: $HEAD_OWNER)"
+              echo "PR #$PR_NUMBER: skipping lockfile-regen (head is a" \
+                "fork: $HEAD_OWNER)"
               continue
             fi
 
-            echo "PR #$PR_NUMBER: $INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK is red; checking for a lockfile-only desync on $HEAD_REF"
+            echo "PR #$PR_NUMBER: $INSTALL_GATE_WORKFLOW" \
+              "$INSTALL_GATE_NPM_CHECK is red; checking for a lockfile-only" \
+              "desync on $HEAD_REF"
 
-            git fetch origin "refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+            git fetch origin \
+              "refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
             EXPECTED_SHA=$(git rev-parse "origin/$HEAD_REF")
 
             # Detach onto the PR head so we operate without claiming the
             # branch ref locally (same pattern as the rebase loop).
-            git checkout -B "auto-regen-$PR_NUMBER" --no-track "origin/$HEAD_REF"
+            git checkout -B "auto-regen-$PR_NUMBER" --no-track \
+              "origin/$HEAD_REF"
 
             # The regen script mutates only the lockfiles in the working
             # tree and signals via exit code:
@@ -640,12 +694,21 @@ jobs:
               # fault to this one PR; control then falls through to the
               # unconditional cleanup below (same shape as the rebase loop's
               # else-branch), so the auto-regen branch is still cleaned up.
-              if git commit -m "Regenerate npm lockfile to match manifest (auto)" \
-                -m "$INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK check was failing on a lockfile desynced from its manifest. Regenerated with npm install --package-lock-only --ignore-scripts. The re-run of the gate on this push is the verification."; then
-                if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$HEAD_REF"; then
-                  echo "PR #$PR_NUMBER: regenerated lockfile(s) committed and force-pushed"
+              COMMIT_BODY="$INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK"
+              COMMIT_BODY+=" check was failing on a lockfile desynced from"
+              COMMIT_BODY+=" its manifest. Regenerated with npm install"
+              COMMIT_BODY+=" --package-lock-only --ignore-scripts. The re-run"
+              COMMIT_BODY+=" of the gate on this push is the verification."
+              if git commit \
+                -m "Regenerate npm lockfile to match manifest (auto)" \
+                -m "$COMMIT_BODY"; then
+                if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" \
+                  origin "HEAD:refs/heads/$HEAD_REF"; then
+                  echo "PR #$PR_NUMBER: regenerated lockfile(s) committed" \
+                    "and force-pushed"
                 else
-                  echo "PR #$PR_NUMBER: push rejected (lease lost or auth); skipping"
+                  echo "PR #$PR_NUMBER: push rejected (lease lost or" \
+                    "auth); skipping"
                 fi
               else
                 echo "PR #$PR_NUMBER: commit failed; skipping"
@@ -653,7 +716,8 @@ jobs:
             elif [ "$REGEN_RC" -eq 3 ]; then
               echo "PR #$PR_NUMBER: no lockfile desync to fix; leaving alone"
             else
-              echo "PR #$PR_NUMBER: gate-red is not a fixable lockfile-only desync; leaving for a human"
+              echo "PR #$PR_NUMBER: gate-red is not a fixable lockfile-only" \
+                "desync; leaving for a human"
             fi
 
             git checkout --detach

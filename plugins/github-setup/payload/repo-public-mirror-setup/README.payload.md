@@ -4,8 +4,7 @@ Template payload for the `repo-public-mirror-setup` skill. The skill
 reads these files from
 `${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`, renders the
 placeholders below, and installs the rendered output into the target
-(source) repo. See the github-setup plugin payload README for the
-placeholder/render/existence-check contract this directory conforms to.
+(source) repo.
 
 This file (`README.payload.md`) is documentation for maintainers — it
 is NOT installed into the target repo and carries no placeholders. It

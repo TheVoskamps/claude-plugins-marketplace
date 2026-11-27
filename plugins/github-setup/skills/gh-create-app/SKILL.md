@@ -70,71 +70,29 @@ infer.
 - `--metadata-path=<path>` (default `docs/github-app.md`, repo-root
   relative): where the checked-in metadata doc is written.
 - `--permissions=<starter|custom>` (default `starter`): the permission
-  set requested at registration. `starter` is the PR-automation set
-  below; `custom` prompts the user for the scopes.
+  set requested at registration. `starter` is the starter permission
+  set; `custom` prompts the user for the scopes.
 
 If the user passed nothing, use the defaults above and prompt for the
 non-defaulted required inputs (`--scope`, `--app-name`, and `--owner`
 for enterprise scope).
 
-### Starter permission set (PR automation)
-
-The default `--permissions=starter` requests exactly:
-
-| Permission | Access | Why |
-| --- | --- | --- |
-| Pull requests | Read and write | open / approve / merge / label PRs |
-| Contents | Read and write | push branches, create commits |
-| Issues | Read and write | close the issues a merged PR's `Closes #N` lines link |
-| Checks | Read-only | read a commit's check-run results before merging |
-| Commit statuses | Read-only | read a commit's combined status before merging |
-| Metadata | Read-only | mandatory; GitHub auto-selects it |
-
-`Issues: write` is not optional decoration. Merging a PR whose body
-carries a closing keyword has an **issue-side** side effect, and that
-side effect runs under the *merging* token's authority — so an App
-with `contents: write` + `pull_requests: write` and no `issues` scope
-merges the PR successfully and silently leaves every linked issue
-open. That is the exact half of the closing-keyword convention (PR
-body only, the branch's own issue set only) that the automation exists
-to deliver.
-
-`Checks: read` and `Commit statuses: read` are what let the App see
-whether CI passed. `GET /repos/{owner}/{repo}/commits/{ref}/check-runs`
-needs the first and `GET /repos/{owner}/{repo}/commits/{ref}/status`
-needs the second, and the `statusCheckRollup` GraphQL field the
-PR-automation workflows gate on reads both. Those workflows read the
-rollup and make neither REST call, so an App without the two scopes
-fails in the GraphQL shape the first time a merge pass has an open PR
-to evaluate: HTTP 200 carrying a `FORBIDDEN` body error —
-`Resource not accessible by integration` — which exits `gh api
-graphql` non-zero. HTTP 403 is the REST shape, and it is what a caller
-of either endpoint above gets instead. Both scopes are read-only on an
-App that already holds write on Pull requests, Contents, and Issues,
-so they widen nothing an operator has not already granted.
+For `--permissions=custom`, ask the user which scopes and levels they
+need, then carry that map through the walkthrough and the metadata doc
+in place of the starter set.
 
 **No webhook.** This App mints installation tokens in CI; it does not
 receive event deliveries. Leave "Active" under Webhook **unchecked**
 during registration.
-
-The corresponding `required_permissions` map (the shape
-`skills/lib/gh-app.md` and consuming skills use) is:
-
-```text
-{ pull_requests: write, contents: write, issues: write, checks: read,
-  statuses: read, metadata: read }
-```
-
-For `--permissions=custom`, ask the user which scopes and levels they
-need, then carry that map through the walkthrough and the metadata doc
-in place of the starter set.
 
 ---
 
 ## Step 0: Payload
 
 The template payloads this skill renders ship with the plugin at
-`${CLAUDE_PLUGIN_ROOT}/payload/gh-create-app/`.
+`${CLAUDE_PLUGIN_ROOT}/payload/gh-create-app/`. Read
+`skills/lib/payload-render.md`, and verify the payload exists as it
+states before Step 1.
 
 ## Step 1: Pre-flight — repo root, auth, identifiers, inputs
 
@@ -169,7 +127,9 @@ gh repo view --json defaultBranchRef -q .defaultBranchRef.name
 ```
 
 Resolve `--scope` (prompt if absent), `--app-name` (prompt if absent),
-and `--owner` (default for org; prompt for enterprise). Echo the
+and `--owner` (default for org; prompt for enterprise). Read
+`skills/lib/gh-app.md`: under `--permissions=starter` the resolved
+permission map is its starter permission set. Echo the
 resolved configuration back to the user before proceeding:
 
 ```text
@@ -216,8 +176,7 @@ the "User-supplied App name (skip discovery)" path from that library.
   "Granting a missing permission to an existing App": the UI-only
   edit, **and** the approval each installing account must give before
   the new scope goes live. An App that predates a change to the
-  starter set — one provisioned before `checks: read` and
-  `statuses: read` joined it, say — lands in exactly this branch.
+  starter set lands in exactly this branch.
 
 - **No suitable App** — proceed to Step 3 (registration).
 
@@ -249,13 +208,7 @@ Tell the user to set:
 - **Webhook → Active:** **uncheck.** No webhook is needed for
   token-minting.
 - **Permissions → Repository permissions:** set exactly the resolved
-  map. For the starter set:
-  - Pull requests: **Read and write**
-  - Contents: **Read and write**
-  - Issues: **Read and write**
-  - Checks: **Read-only**
-  - Commit statuses: **Read-only**
-  - Metadata: **Read-only** (auto-selected; leave it)
+  map, listing each permission and its access level for the user.
 - **Where can this GitHub App be installed?** "Only on this account"
   is the right choice for an internal automation App.
 
@@ -339,7 +292,8 @@ Read the reference snippet from the payload:
 ${CLAUDE_PLUGIN_ROOT}/payload/gh-create-app/app-auth-snippet.yml
 ```
 
-Strip its leading comment block, substitute `__APP_NAME__`,
+Strip its leading comment block and the `---` line that ends it,
+substitute `__APP_NAME__`,
 `__APP_ID_SECRET__`, and `__APP_PRIVATE_KEY_SECRET__`, and **show** the
 rendered snippet to the user. This skill does **not** write a workflow
 file — consuming skills (e.g. `/gh-repo-setup-pr-automation`) own their
@@ -408,9 +362,9 @@ Render the metadata doc from the payload and write it to
    | `__CREATED_DATE__` | today's date (ISO `YYYY-MM-DD`) |
 
    The `__APP_PERMISSIONS__` value is an inline, comma-separated
-   string (e.g. `Pull requests: write, Contents: write, Issues: write,
-   Checks: read, Commit statuses: read, Metadata: read`), not a
-   markdown list — the template renders it inside a sentence.
+   string of `<Permission>: <level>` pairs, one per scope in the
+   resolved map, not a markdown list — the template renders it inside
+   a sentence.
 
 4. **Converge** like the other setup skills: if the target file is
    absent, write it; if present and **semantically equal** to the
@@ -450,20 +404,6 @@ Next steps:
   5. Re-run /gh-create-app any time — it detects the existing App and
      converges (verify + refresh metadata) instead of re-creating.
 ```
-
-When the App was **reused** rather than created, append the
-check-state upgrade note to the report:
-
-```text
-  6. Checks: read and Commit statuses: read joined the starter set
-     after some Apps were registered. If this App predates that, add
-     both in the App's settings AND accept the change on every
-     installation — granting alone leaves it pending and the minted
-     token unchanged.
-```
-
-Both scopes are read-only, so an operator who reads that note is being
-asked for the two reads and nothing else.
 
 ---
 
@@ -534,6 +474,6 @@ converge**, never duplicate:
   per-user Claude commit identity is a separate sub-issue / design
   doc, not this skill.
 - **Branch-protection bypass wiring.** Listing the App as a
-  bypass actor in a ruleset is `/gh-repo-setup-protection`'s / a
-  protection skill's concern; this skill only provisions the App
-  identity and secrets.
+  bypass actor in a ruleset is done out of band — no skill in this
+  plugin adds it; this skill only provisions the App identity and
+  secrets.

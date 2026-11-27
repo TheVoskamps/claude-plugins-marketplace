@@ -5,7 +5,8 @@
 # (e.g. /gh-repo-setup-pr-automation) embed this pattern in their own
 # workflow files; /gh-create-app does not write a workflow file itself.
 #
-# Placeholders (see the github-setup plugin payload README for the convention):
+# Placeholders (see the github-setup plugin's skills/lib/payload-render.md
+# for the convention):
 #   __APP_NAME__                GitHub App slug used for automation
 #   __APP_ID_SECRET__           secret holding the App ID
 #   __APP_PRIVATE_KEY_SECRET__  secret holding the App private key
@@ -15,7 +16,7 @@
 # consumers. Auth model: App ID + private key in secrets, a short-lived
 # installation token minted per run by actions/create-github-app-token.
 # There is no long-lived "App token" to store.
-
+---
 # Step: mint the installation token. Place this before any step that
 # needs to act as the App "__APP_NAME__".
 - name: Mint App installation token

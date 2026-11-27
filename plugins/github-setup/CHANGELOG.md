@@ -1,5 +1,30 @@
 # github-setup changelog
 
+## 0.11.8 — 2026-11-25
+
+The README is now a user manual: what the plugin needs, what each skill
+changes in the target repo, how to invoke it and what it asks you for,
+and what the plugin deliberately leaves alone.
+
+Internally, the PR-automation App's starter permission set is stated
+once, in the App library the skills read, instead of being repeated in
+`/gh-create-app` and `/gh-repo-setup-pr-automation`. The rules for
+rendering a template payload are stated once as well, in a library file
+each rendering skill reads before it starts; `payload/README.md`, which
+used to hold them, is gone, and so is the plugin's `CLAUDE.md`.
+
+The workflows `/gh-repo-setup-pr-automation` installs are reformatted
+to pass `yamllint` and `shellcheck`: each now opens with a `---`
+document marker and spells its trigger key `"on":`, long lines are
+wrapped, and the GraphQL documents are double-quoted. What the workflows
+do is unchanged.
+
+The skills and the auto-merge workflow no longer say
+`/gh-repo-setup-protection` adds the PR-automation App as a bypass actor
+in the branch ruleset. No skill adds it, and
+`/gh-repo-setup-pr-automation`'s report now tells you to add it
+yourself.
+
 ## 0.11.7 — 2026-11-23
 
 Internal only: agents no longer read this plugin's READMEs. The skills

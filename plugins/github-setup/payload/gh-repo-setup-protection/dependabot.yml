@@ -1,7 +1,7 @@
 # Dependabot configuration rendered by /gh-repo-setup-protection.
 #
-# Placeholders (see the github-setup plugin payload README for the syntax and
-# the skill's SKILL.md for how each is resolved):
+# Placeholders (see the github-setup plugin's skills/lib/payload-render.md
+# for the syntax and the skill's SKILL.md for how each is resolved):
 #
 #   __DEFAULT_BRANCH__       Default branch of the target repo. Used as
 #                            the `target-branch` for every ecosystem so
@@ -21,8 +21,9 @@
 #
 # This file is the OUTER template. The skill renders one copy of the
 # per-ecosystem block (kept in `ecosystem-block.yml` alongside this file)
-# for each SUPPORTED ecosystem, concatenates them, and substitutes the
-# result for __DEPENDABOT_ECOSYSTEMS__.
+# for each SUPPORTED ecosystem, concatenates them, and substitutes a line
+# break followed by the result for __DEPENDABOT_ECOSYSTEMS__ together with
+# the space before it, so the blocks start on the line below `updates:`.
+---
 version: 2
-updates:
-__DEPENDABOT_ECOSYSTEMS__
+updates: __DEPENDABOT_ECOSYSTEMS__

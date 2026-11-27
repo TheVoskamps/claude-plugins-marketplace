@@ -43,8 +43,8 @@ The workflows are rendered from templates in
 App**, not the default `GITHUB_TOKEN` — the default token gets
 `FORBIDDEN: Resource not accessible by integration` on
 `enablePullRequestAutoMerge`, and pushes made with `GITHUB_TOKEN` do not
-re-trigger downstream required checks. The App is resolved via
-`skills/lib/gh-app.md`.
+re-trigger downstream required checks. The App must hold the starter
+permission set, and is resolved via `skills/lib/gh-app.md`.
 
 Follow the steps in order. There are explicit **halts** where you wait
 for the user (the resolved-values confirmation, the commit/push/PR
@@ -53,74 +53,14 @@ gates" below). Do not skip them.
 
 ---
 
-## Required GitHub App permissions
-
-This skill resolves an App that satisfies this `required_permissions`
-map (passed to `skills/lib/gh-app.md`):
-
-```text
-contents:      write    # force-push rebased PR branches
-pull_requests: write    # enable auto-merge, read PR state
-issues:        write    # close the issues a merged PR's `Closes #N` lines link
-checks:        read     # read check-run results via `statusCheckRollup`
-statuses:      read     # read commit statuses via `statusCheckRollup`
-```
-
-`contents: write` covers the auto-rebase force-push (and the
-in-workflow Dependabot rebase); `pull_requests: write` covers
-`enablePullRequestAutoMerge`, the REST merge endpoint, and reading PR /
-merge state. No `workflows` scope is needed — the skill installs
-workflow files via a normal commit, it does not write them through the
-App at runtime.
-
-`issues: write` covers the **issue-side side effect of merging**.
-Merging a PR whose body carries a closing keyword closes the linked
-issues, and GitHub performs that close under the *merging* token's
-authority — so an App holding only `contents: write` +
-`pull_requests: write` merges every PR successfully and silently
-leaves its linked issues open. That is a real failure mode rather than
-a hypothetical: the permission set is coherent for the mechanical act
-of merging, which is why the gap goes unnoticed until someone audits
-issue state. What it defeats is the closing-keyword convention (PR
-body only, the branch's own issue set only) — the very thing this
-automation exists to carry out.
-
-`checks: read` and `statuses: read` cover the **CI-outcome reads** the
-rendered workflows make. `auto-enable-automerge.yml` reads the
-aggregate `statusCheckRollup.state` and its contexts under both
-`CheckRun` and `StatusContext`; `auto-rebase-prs.yml` reads the
-`CheckRun` contexts. Every one of those queries
-runs with `GH_TOKEN` set to the App-minted installation token, not the
-default `GITHUB_TOKEN`. The rollup draws on check runs and commit
-statuses, so a token holding neither read cannot see whether CI passed.
-That failure does not arrive as an HTTP 403: GraphQL answers 200 and
-puts a `FORBIDDEN` error — `Resource not accessible by integration` —
-in the response body, so what the step actually sees is `gh api
-graphql` exiting non-zero with that message, the first time the pass
-has an open PR to evaluate. (The 403 is the REST shape, and it is what
-`GET /repos/{owner}/{repo}/commits/{ref}/status` returns to an App
-without `statuses: read`.)
-Both are read-only, which is why they sit at `read` on an App that
-already writes Pull requests, Contents, and Issues.
-
-Because every one of those scopes sits in the `required_permissions`
-map above, Step 3's find/verify pass **is** the converge-time check: an
-App provisioned before a scope joined the set fails the library's
-permission filter and the skill aborts with its "missing permissions"
-report, rather than installing workflows that will merge-but-not-close
-or fail their rollup query with `Resource not accessible by
-integration`.
-Remediating an existing App takes two steps — a UI-only permission
-edit and an approval from every installing account — both documented
-in `skills/lib/gh-app.md` → "Granting a missing permission to an
-existing App". Relay them when the report fires.
+## Dependabot merge bypass actor
 
 The **unattended Dependabot REST-merge** path additionally requires the
 App to be a `pull_request` **bypass actor** in the repo's
 branch-protection ruleset — that is what lets its direct REST merge waive
-the review/code-owner rule for a code-owned Dependabot PR. Adding the
-bypass actor is a **branch-protection concern owned by
-`/gh-repo-setup-protection`**, not this skill (see "Out of scope").
+the review/code-owner rule for a code-owned Dependabot PR. The bypass
+actor is **added out of band**: neither this skill nor
+`/gh-repo-setup-protection` adds it (see "Out of scope").
 Without the bypass, a green Dependabot PR on an un-code-owned path still
 merges (no review required); one on a code-owned path is left for a human
 — the job degrades safely.
@@ -130,7 +70,9 @@ merges (no review required); one on a code-owned path is left for a human
 ## Step 0: Payload
 
 The workflow template payloads this skill renders ship with the plugin
-at `${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`.
+at `${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`. Read
+`skills/lib/payload-render.md`, and verify the payload exists as it
+states before Step 1.
 
 ## Step 1: Pre-flight — repo root and tooling
 
@@ -177,11 +119,11 @@ These resolve `__GH_ORG__`, `__GH_REPO__`, and `__DEFAULT_BRANCH__`.
 
 ## Step 3: Resolve the GitHub App
 
-Run the find/verify sequence in `skills/lib/gh-app.md` (Steps 1–5) with:
+Read `skills/lib/gh-app.md`, then run its find/verify sequence
+(Steps 1–5) with:
 
 ```text
-required_permissions = { contents: write, pull_requests: write, issues: write,
-                         checks: read, statuses: read }
+required_permissions = the starter permission set
 target_repo          = <gh_org>/<gh_repo>
 ```
 
@@ -802,15 +744,16 @@ Rendered-files PR (branch gh-repo-setup-pr-automation, Step 6b):
 
 Unattended Dependabot rebase-and-merge: <ON | OFF: no required-check workflow>
   - When ON, also add the App "<app_slug>" as a `pull_request` bypass
-    actor in the branch-protection ruleset (owned by
-    /gh-repo-setup-protection) so a code-owned Dependabot PR can merge
-    unattended. Without the bypass it still merges un-code-owned PRs.
+    actor in the branch-protection ruleset, out of band (no skill adds
+    it), so a code-owned Dependabot PR can merge unattended. Without the
+    bypass it still merges un-code-owned PRs.
 
 Next steps:
   1. Review and merge the rendered-files PR above (if one was opened);
      the workflows take effect once on the default branch.
-  2. If unattended Dependabot merge is ON, run /gh-repo-setup-protection
-     to add the App as a bypass actor (if not already done).
+  2. If unattended Dependabot merge is ON, add the App as a
+     `pull_request` bypass actor in the branch-protection ruleset (if
+     not already done).
   3. Verify end-to-end (operational, see "Live verification" below).
 ```
 
@@ -846,9 +789,9 @@ the default branch, the human:
    `dependabot-rest-merge` job resolves the required-check set, finds the
    PR green, rebases it in-workflow if behind, and merges it. A
    code-owned Dependabot PR merges unattended **only** if the App is a
-   `pull_request` bypass actor in the branch-protection ruleset (see
-   `/gh-repo-setup-protection`); otherwise it is left for a human, which
-   is the safe default.
+   `pull_request` bypass actor in the branch-protection ruleset, added
+   out of band; otherwise it is left for a human, which is the safe
+   default.
 
 5. **Lockfile-regen** (only when the install-gate scripts were rendered):
    the shipped self-test runs offline with a fake `npm` and needs no live
@@ -1001,9 +944,9 @@ All optional except where the skill prompts:
   secrets for `<gh_org>` and touches no other repo's files.
 - **Never add the bypass actor.** The unattended Dependabot REST-merge
   needs the App to be a `pull_request` bypass actor in the
-  branch-protection ruleset, but adding it is owned by
-  `/gh-repo-setup-protection`. This skill only renders the job and tells
-  the operator (Step 8) to run that skill; it never edits a ruleset.
+  branch-protection ruleset, and it is added out of band: no skill in
+  this plugin adds it. This skill only renders the job and tells the
+  operator (Step 8) to add it; it never edits a ruleset.
 
 ---
 
@@ -1022,10 +965,10 @@ All optional except where the skill prompts:
   scope. The Dependabot REST-merge job **reads** the live required-check
   set from the rulesets at runtime, but it never writes a ruleset. Adding
   the App as a `pull_request` **bypass actor** (what lets the REST merge
-  waive review on a code-owned Dependabot PR) is owned by
-  `/gh-repo-setup-protection`; this skill renders the job and hands the
-  operator off (Step 8). Without the bypass the job still merges
-  un-code-owned green Dependabot PRs.
+  waive review on a code-owned Dependabot PR) is done out of band, by
+  neither this skill nor `/gh-repo-setup-protection`; this skill renders
+  the job and hands the operator off (Step 8). Without the bypass the
+  job still merges un-code-owned green Dependabot PRs.
 - **The live end-to-end verification.** The skill installs everything so
   the human can verify; performing the live PR test requires real
   secrets and a real PR and is the human's operational step (see "Live

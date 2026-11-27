@@ -82,7 +82,9 @@ The template payloads this skill renders ship with the plugin at
 `${CLAUDE_PLUGIN_ROOT}/payload/repo-public-mirror-setup/`. Treat that
 directory as `$PAYLOAD` for the rest of the skill. Every starter file
 the skill writes is rendered from a template under `$PAYLOAD` — the
-skill does not carry those file bodies inline.
+skill does not carry those file bodies inline. Read
+`skills/lib/payload-render.md`, and verify the payload exists as it
+states before Step 1.
 
 ## Step 1: Pre-flight — repo root and visibility
 
