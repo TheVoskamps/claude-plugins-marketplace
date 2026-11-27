@@ -25,10 +25,10 @@
 # it was.
 #
 # Exit status: 0 when the binaries are installed; 1 on any failure — a dirty
-# working tree, an ignored file in this directory, a GOFLAGS value, a test, vet, lint, format or build step, or a git or
-# filesystem step — with nothing copied into ../bin/ unless a mkdir, copy or
-# chmod into it fails, which leaves in place every arch copied before the failure;
-# 2 on a usage error.
+# working tree, an ignored file in this directory, a GOFLAGS value, a test,
+# vet, lint, format or build step, or a git or filesystem step — with nothing
+# copied into ../bin/ unless a mkdir, copy or chmod into it fails, which
+# leaves in place every arch copied before the failure; 2 on a usage error.
 
 set -euo pipefail
 
