@@ -65,10 +65,10 @@
 #     running process whose start time, read with `ps -o lstart=` under
 #     TZ=UTC LC_ALL=C and compared with runs of spaces collapsed, is
 #     <date>; a live lock's worktree is kept under every flag and prints
-#     `keep worktree <path>: locked by running pid <pid>`. A harness lock whose <pid> is not running, or started at
-#     another time, is stale, and only under --stale-locks is its worktree
-#     unlocked and removed. A lock of any other reason is kept under every
-#     flag.
+#     `keep worktree <path>: locked by running pid <pid>`. A harness lock
+#     whose <pid> is not running, or started at another time, is stale,
+#     and only under --stale-locks is its worktree unlocked and removed. A
+#     lock of any other reason is kept under every flag.
 #   - The one exception, under --pr with or without --stale-locks: a
 #     worktree agent-<id> under .claude/worktrees/ for an agent id the
 #     PR's state names, whose live harness lock names a <pid> that is an
@@ -452,9 +452,9 @@ issue_open() {
   return 0
 }
 
-# kept_at <path> -- the line naming a worktree <path> was kept at:
-# `worktree <path> is kept` under .claude/worktrees/, and `checked out at
-# <path>` anywhere else.
+# kept_at <path> -- print the reason a branch the worktree at <path> has
+# checked out is kept: `worktree <path> is kept` under
+# .claude/worktrees/, and `checked out at <path>` anywhere else.
 kept_at() {
   case "$1" in
     "$root/.claude/worktrees/"*) printf 'worktree %s is kept\n' "$1" ;;
@@ -467,7 +467,8 @@ kept_at() {
 # when a keep rule saves a branch of a kind the scope deletes, and to
 # `skip` for a branch of no such kind. Reads `holding`, the worktrees
 # that may still have a branch checked out, and `remaining`, the
-# worktrees left after the removals.
+# worktrees left after the removals. Exits 1 when `git-issue-branch
+# decode` fails.
 branch_fate() {
   local decoded line numbers='' n path head branch locked reason
   FATE=skip
