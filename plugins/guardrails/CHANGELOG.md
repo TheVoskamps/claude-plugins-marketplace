@@ -1,5 +1,22 @@
 # guardrails changelog
 
+## 0.20.0 — 2026-11-26
+
+The gate honors an account config directory. When `CLAUDE_CONFIG_DIR`
+names an accepted directory, a file under it gets the verdict it would
+get under `~/.claude`, so a session running under a second account
+reaches its own config tree without a cross-repo deny.
+
+- An accepted directory is `$HOME/.claude.<name>`, where `<name>` holds
+  only ASCII letters, digits, `_` and `-`. A trailing slash, a doubled
+  `/` or a `.` segment in the value does not matter.
+- `$HOME/.claude.backup` is not accepted, and neither is a directory
+  that is a symlink. Any other value adds nothing: a file under the
+  directory it names gets the verdict it got before.
+- `~/.claude` keeps its carve-out whatever the variable holds.
+- The evolution log stays at `~/.claude/logs/permission-gate.jsonl` for
+  every account, and `PERMISSION_GATE_LOG` still overrides it.
+
 ## 0.19.1 — 2026-11-23
 
 Internal only: agents no longer read this plugin's READMEs. The rule

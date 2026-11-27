@@ -2450,3 +2450,241 @@ func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// accountConfigFixture is the paths the account-config tests run against: a
+// home holding $HOME/.claude, the candidate CLAUDE_CONFIG_DIR directories its
+// fields name, in that home or under another parent, and a git repo outside the
+// home for events to run in.
+type accountConfigFixture struct {
+	home    string
+	repo    string
+	account string // $HOME/.claude.work, a real directory
+	backup  string // $HOME/.claude.backup, a real directory
+	linked  string // $HOME/.claude.linked, a symlink to a real directory
+	other   string // $HOME/other, a real directory
+	dotted  string // $HOME/.claude.a.b, a real directory whose name carries a dot
+	outside string // a real .claude.work directory under another parent
+}
+
+// newAccountConfigFixture builds the fixture and installs its home. The repo is
+// built before HOME moves, with git detached from the driving machine's
+// global/system config, as applyHomeShape does.
+func newAccountConfigFixture(t *testing.T) accountConfigFixture {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv(logEnvVar, "")
+	repo := homeTestRepo(t)
+	home := t.TempDir()
+	f := accountConfigFixture{
+		home:    home,
+		repo:    repo,
+		account: filepath.Join(home, ".claude.work"),
+		backup:  filepath.Join(home, ".claude.backup"),
+		linked:  filepath.Join(home, ".claude.linked"),
+		other:   filepath.Join(home, "other"),
+		dotted:  filepath.Join(home, ".claude.a.b"),
+		outside: filepath.Join(t.TempDir(), ".claude.work"),
+	}
+	for _, d := range []string{filepath.Join(home, ".claude"), f.account, f.backup, f.other, f.dotted, f.outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linkTarget := t.TempDir()
+	if err := os.Symlink(linkTarget, f.linked); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	return f
+}
+
+// accountConfigVerdicts classifies the same set of calls against a file under
+// root, on the file-tool and Bash tracks alike, keyed by the call's spelling
+// with root left out so two roots' maps compare directly.
+func accountConfigVerdicts(t *testing.T, repo, root string) map[string]Decision {
+	t.Helper()
+	target := filepath.Join(root, "rules", "foo.md")
+	got := map[string]Decision{}
+	for _, tool := range []string{"Read", "Write", "Edit"} {
+		got[tool] = fileToolVerdict(t, tool, repo, target)
+	}
+	for _, prog := range []string{"cat", "less", "tee"} {
+		got[prog] = classifyInRepo(t, prog+" "+target, repo)
+	}
+	return got
+}
+
+// An accepted account directory earns, on every track, exactly the verdicts
+// $HOME/.claude earns, and $HOME/.claude keeps them whatever CLAUDE_CONFIG_DIR
+// holds.
+func TestAccountConfigCarveOutMatchesClaudeConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	f := newAccountConfigFixture(t)
+	t.Setenv(accountConfigEnvVar, "")
+	want := accountConfigVerdicts(t, f.repo, filepath.Join(f.home, ".claude"))
+
+	// The negative control: unset, the account directory is an ordinary
+	// escape, so the matching verdicts below come from the carve-out.
+	if d := want["Read"]; d.Bucket != BucketDefer {
+		t.Fatalf("Read under $HOME/.claude: got %q (%s), want the claudeConfig defer", d.Bucket, d.Reason)
+	}
+	if d := fileToolVerdict(t, "Read", f.repo, filepath.Join(f.account, "rules", "foo.md")); d.Bucket != BucketDeny {
+		t.Fatalf("Read under an account directory with CLAUDE_CONFIG_DIR unset: got %q (%s), want deny",
+			d.Bucket, d.Reason)
+	}
+
+	t.Setenv(accountConfigEnvVar, f.account)
+	got := accountConfigVerdicts(t, f.repo, f.account)
+	for call, w := range want {
+		if g := got[call]; g.Bucket != w.Bucket || g.Operation != w.Operation {
+			t.Errorf("%s under the account directory: got %q/%q (%s), want %q/%q as under $HOME/.claude",
+				call, g.Bucket, g.Operation, g.Reason, w.Bucket, w.Operation)
+		}
+	}
+
+	for _, value := range []string{"", f.account, f.backup, f.linked, f.other, f.outside, "/etc"} {
+		t.Setenv(accountConfigEnvVar, value)
+		still := accountConfigVerdicts(t, f.repo, filepath.Join(f.home, ".claude"))
+		for call, w := range want {
+			if g := still[call]; g.Bucket != w.Bucket || g.Operation != w.Operation {
+				t.Errorf("CLAUDE_CONFIG_DIR=%q: %s under $HOME/.claude got %q/%q (%s), want %q/%q",
+					value, call, g.Bucket, g.Operation, g.Reason, w.Bucket, w.Operation)
+			}
+		}
+	}
+}
+
+// accountConfigRoot accepts $HOME/.claude.<name> in every spelling that Cleans
+// to it, and nothing else: no arbitrary directory, no symlink, no backup, no
+// empty or out-of-alphabet name, no directory that is absent, no relative
+// spelling, and no .claude.<name> under another parent. An accepted value puts
+// its directory in the claudeConfig region, and a home the process may search
+// but not list still lets the directory be accepted.
+func TestAccountConfigRootAcceptance(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	f := newAccountConfigFixture(t)
+	wantRoot := canonicalize(f.account)
+	t.Cleanup(func() { _ = os.Chmod(f.home, 0o755) })
+	for _, tc := range []struct {
+		value          string
+		accept         bool
+		ownRegion      bool
+		unreadableHome bool
+	}{
+		{value: f.account, accept: true},
+		{value: f.account, accept: true, unreadableHome: true},
+		{value: f.account + "/", accept: true},
+		{value: f.home + "//.claude.work", accept: true},
+		{value: f.home + "/./.claude.work", accept: true},
+		{value: f.account + "/.", accept: true},
+		// filepath.Clean folds the `..` lexically, so this names the account
+		// directory too.
+		{value: f.other + "/../.claude.work", accept: true},
+		{value: ""},
+		{value: f.other},
+		{value: f.linked},
+		{value: f.backup},
+		{value: f.dotted},
+		{value: f.outside},
+		// $HOME/.claude is no account directory; it keeps its own carve-out,
+		// so its Read verdict is not an escape and is not checked here.
+		{value: filepath.Join(f.home, ".claude"), ownRegion: true},
+		{value: filepath.Join(f.home, ".claude.")},
+		{value: filepath.Join(f.home, ".claude.missing")},
+		{value: ".claude.work"},
+	} {
+		t.Setenv(accountConfigEnvVar, tc.value)
+		homeMode := os.FileMode(0o755)
+		if tc.unreadableHome {
+			homeMode = 0o311
+		}
+		if err := os.Chmod(f.home, homeMode); err != nil {
+			t.Fatal(err)
+		}
+		got := accountConfigRoot()
+		if tc.accept && got != wantRoot {
+			t.Errorf("CLAUDE_CONFIG_DIR=%q (home mode %o): accountConfigRoot() = %q, want %q",
+				tc.value, homeMode, got, wantRoot)
+		}
+		if !tc.accept && got != "" {
+			t.Errorf("CLAUDE_CONFIG_DIR=%q: accountConfigRoot() = %q, want no carve-out", tc.value, got)
+		}
+		if tc.ownRegion {
+			continue
+		}
+		target := filepath.Join(filepath.Clean(tc.value), "rules", "foo.md")
+		if tc.accept {
+			// An accepted value puts its directory in the claudeConfig region,
+			// whose Read verdict is the defer rather than the escape's deny.
+			if d := fileToolVerdict(t, "Read", f.repo, target); d.Bucket != BucketDefer {
+				t.Errorf("CLAUDE_CONFIG_DIR=%q (home mode %o): Read of %s got %q (%s), want the claudeConfig defer",
+					tc.value, homeMode, target, d.Bucket, d.Reason)
+			}
+			continue
+		}
+		// A rejected value leaves its directory an ordinary escape.
+		if filepath.IsAbs(target) {
+			if d := fileToolVerdict(t, "Read", f.repo, target); d.Bucket != BucketDeny {
+				t.Errorf("CLAUDE_CONFIG_DIR=%q: Read of %s got %q (%s), want deny", tc.value, target, d.Bucket, d.Reason)
+			}
+		}
+	}
+}
+
+// An unusable home resolves no account root, even for a value that Joins onto
+// that home and names a real directory. The control installs that home's
+// absolute spelling and names the same directory through it, and
+// accountConfigRoot accepts it, so the empty result comes from the home grading.
+func TestAccountConfigRootUnusableHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	for _, shape := range homeShapes() {
+		if shape.usable {
+			continue
+		}
+		t.Run(shape.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			applyHomeShape(t, shape)
+			home := os.Getenv("HOME")
+			value := filepath.Join(home, ".claude.work")
+			if err := os.MkdirAll(value, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(accountConfigEnvVar, value)
+			if got := accountConfigRoot(); got != "" {
+				t.Errorf("accountConfigRoot() = %q with a %s home, want \"\"", got, shape.name)
+			}
+			absHome, err := filepath.Abs(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HOME", absHome)
+			t.Setenv(accountConfigEnvVar, filepath.Join(absHome, ".claude.work"))
+			if got := accountConfigRoot(); got == "" {
+				t.Errorf("control: accountConfigRoot() = \"\" with HOME=%q, want the directory accepted", absHome)
+			}
+		})
+	}
+}
+
+// The default log path stays under $HOME/.claude whatever CLAUDE_CONFIG_DIR
+// holds, an accepted account directory included.
+func TestAccountConfigLeavesLogPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	f := newAccountConfigFixture(t)
+	want := filepath.Join(f.home, ".claude", "logs", "permission-gate.jsonl")
+	for _, value := range []string{"", f.account, f.other} {
+		t.Setenv(accountConfigEnvVar, value)
+		if got := logPath(); got != want {
+			t.Errorf("CLAUDE_CONFIG_DIR=%q: logPath() = %q, want %q", value, got, want)
+		}
+	}
+}

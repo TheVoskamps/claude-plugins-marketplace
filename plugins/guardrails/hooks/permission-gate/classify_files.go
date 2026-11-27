@@ -201,10 +201,10 @@ func classifyFileTool(ev *Event) Decision {
 		case claudeConfig, harnessScratch:
 			// Carve-outs that DEFER rather than deny, so the normal
 			// settings.json pipeline governs them: a target under the real
-			// ~/.claude, and the part of the harness scratchpad prefix
-			// matching neither the session nor the bundled-skills shape
-			// (in the right tree but not provably either, so the gate has no
-			// opinion).
+			// ~/.claude or the accepted account config directory, and the
+			// part of the harness scratchpad prefix matching neither the
+			// session nor the bundled-skills shape (in the right tree but not
+			// provably either, so the gate has no opinion).
 		case operatorListed:
 			// A path the operator listed for this call's class. Eligible for
 			// the ALLOW terminal (scratchAllowEligible said so above), wherever
@@ -273,11 +273,12 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 
 // containPathOperands runs Engine B containment on a read-class command's path
 // operands. It returns ok=true when every operand is contained inside the
-// current worktree, or is one of the carve-outs (the ~/.claude tree,
-// or the harness scratchpad prefix), so the caller may proceed to its
-// contained-path terminal (ALLOW for the read-only-utility classifier, DEFER
-// for classifyPathReader). A path the operator listed counts as contained for
-// that purpose when it sits beside an ordinary in-worktree operand.
+// current worktree, or is one of the carve-outs (the ~/.claude tree, the
+// accepted account config directory, or the harness scratchpad prefix), so the
+// caller may proceed to its contained-path terminal (ALLOW for the
+// read-only-utility classifier, DEFER for classifyPathReader). A path the
+// operator listed counts as contained for that purpose when it sits beside an
+// ordinary in-worktree operand.
 //
 // ok=false means the returned Decision settles the paths: the caller's own
 // terminal no longer applies. Usually that is a deny (cross-repo, a worktree
@@ -392,12 +393,13 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// below wherever it lands, which is the point of the listing.
 			sawOperator = true
 		case claudeConfig, harnessScratch:
-			// A target under the real ~/.claude, and the part of
-			// the harness scratchpad prefix matching neither the session nor
-			// the bundled-skills shape. Treat both as contained, leaving
-			// the caller's own terminal to govern — which differs by track, and
-			// is the read-only-utility classifier's ALLOW for the two callers
-			// here that hold one. That is this track's pre-existing terminal for
+			// A target under the real ~/.claude or the accepted account
+			// config directory, and the part of the harness scratchpad
+			// prefix matching neither the session nor the bundled-skills
+			// shape. Treat both as contained, leaving the caller's own
+			// terminal to govern — which differs by track, and is the
+			// read-only-utility classifier's ALLOW for the two callers here
+			// that hold one. That is this track's pre-existing terminal for
 			// any contained operand, not a verdict either carve-out chose.
 		case contained:
 		}
@@ -607,7 +609,7 @@ func handoffHint() string {
 // terminal for a contained target, which is not one verdict across the board: a
 // DEFER on the file-tool, path-reader and write tracks, and the curated
 // read-utility track's ordinary ALLOW — the terminal that track already returns
-// for an in-repo operand and for the ~/.claude carve-out, decided long
+// for an in-repo operand and for the claudeConfig carve-out, decided long
 // before this carve-out existed.
 //
 // readClass is the caller's existing read/write predicate — isMutatingFileTool
