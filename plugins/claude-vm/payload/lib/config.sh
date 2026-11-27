@@ -1006,9 +1006,7 @@ claude_vm_boot_apt_sources() {
 # value to preserve, so the fallback applies. We branch explicitly on
 # that presence check rather than yq's `//` operator, because `//`
 # treats the boolean `false` itself as falsy and would substitute
-# $fallback for it too: a boolean key would lose its `false`, and an
-# enumeration such as claude.permission_mode would resolve `false` to its
-# default and pass the launcher's enum guard instead of aborting.
+# $fallback for it too: a boolean key would lose its `false`.
 # A value written as `""` reads as unset too: a valueless key reaches a
 # global-only merge as `''` rather than null, so without this the same
 # spelling would resolve differently by layer.
