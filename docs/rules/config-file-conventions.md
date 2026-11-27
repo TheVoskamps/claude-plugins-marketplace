@@ -129,10 +129,9 @@ the reader's own contract decides it: a config whose keys have
 defaults degrades to them, while a watermark or a facts file that
 cannot be invented stops and says what to write.
 
-**Named exception: the permission gate's stamp.** The `guardrails`
-permission gate does not abort on an absent or lower-than-pin
-`schema-version` in its `~/.config/guardrails/config.yml`. The rule
-above stands for every other reader.
+**Named exception: the permission gate.** The `guardrails` permission
+gate is an exception to the abort-on-stamp rule above:
+`plugins/guardrails/hooks/permission-gate/operator_carveout.go`.
 
 ## Multi-writer files merge; single-owner files rewrite
 
