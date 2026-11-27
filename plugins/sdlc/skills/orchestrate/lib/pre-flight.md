@@ -57,6 +57,8 @@ sdlc config:
   merge-wait: monitor (default)
   merge-poll-interval-seconds: 300 (repo user)
   merge-max-unchanged-polls: 720 (default)
+  merge-poll-error-retry-seconds: 30 (default)
+  merge-poll-error-max-retries: 15 (default)
   reload-after-compact-token-budget: 100000 (default)
   code-review-max-rounds: 10 (default)
   docs-review-max-rounds: unlimited (shared repo)

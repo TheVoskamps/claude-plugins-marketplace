@@ -1,6 +1,6 @@
 ---
 name: pr-monitor
-description: Watches one ready PR until it merges. Given a PR reference, its branch, a poll interval and an unchanged-poll bound, runs the sdlc-pr-monitor script once in the background, which polls the PR once per interval and runs the github-prs:pr-ready-to-merge gate while the PR is open, and waits on it with Monitor watches until it exits. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after the bound's number of consecutive polls with no change in state, as a question whether to keep waiting; on a script failure, returns its error verbatim, or, for a run that ended with no terminal or error line, its exit code and last line. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
+description: Watches one ready PR until it merges. Given a PR reference, its branch, a poll interval, an unchanged-poll bound, and a retry wait and retry limit for recoverable poll errors, runs the sdlc-pr-monitor script once in the background, which polls the PR once per interval and runs the github-prs:pr-ready-to-merge gate while the PR is open, and waits on it with Monitor watches until it exits. Returns when the PR is merged, when it is closed without merging, when the gate reports BEHIND or DIRTY, or after the bound's number of consecutive polls with no change in state, as a question whether to keep waiting; on a script failure, returns its error verbatim, or, for a run that ended with no terminal or error line, its exit code and last line. Spawns nothing and changes nothing. Spawned by /sdlc:orchestrate after the ready flip, and again after a BEHIND or DIRTY remedy or a yes to keep waiting.
 tools: Read, Bash, Monitor, TaskStop
 model: sonnet
 effort: low
@@ -33,6 +33,9 @@ You must be given:
 - The branch name (`<branch-name>`).
 - The poll interval, in seconds (`<interval>`).
 - The unchanged-poll bound (`<bound>`).
+- The wait before a poll is retried after a recoverable failure, in
+  seconds (`<retry-wait>`).
+- The most consecutive recoverable failures retried (`<max-retries>`).
 
 Ask if any is missing.
 
@@ -45,7 +48,7 @@ however long that takes. Start it **once**, with the Bash tool's
 tool returns:
 
 ```bash
-sdlc-pr-monitor <PR> <interval> <bound>
+sdlc-pr-monitor <PR> <interval> <bound> <retry-wait> <max-retries>
 ```
 
 Never start a second run, on any outcome, in any turn: the one task is
@@ -53,7 +56,10 @@ the loop.
 
 Each poll reads the PR's state through github-prs' `pr-view` and, while
 the PR is still open, runs its `pr-ready-to-merge` gate, printing one
-`Polled <PR>: <state>` line. On exit 0 the run's last line is a
+`Polled <PR>: <state>` line. A poll whose call fails on a transient
+cause, such as a dropped connection, prints `Polled <PR>: recoverable
+failure <k>/<max-retries>: <error>` instead and is tried again by the
+script itself; it is not an outcome. On exit 0 the run's last line is a
 terminal line — `Merged`, `Closed without merging`, `BEHIND`, `DIRTY`
 or `No change after <bound> polls`. When the script itself exits
 non-zero, rather than being killed by a signal, its last line is its
@@ -69,7 +75,7 @@ Wait for the task to exit with `Monitor`, one watch at a time:
   when the run is killed by a signal before it prints either:
 
   ```bash
-  while pgrep -f '[s]dlc-pr-monitor <PR> <interval> <bound>' >/dev/null && ! grep -qE '^(Merged|Closed without merging|BEHIND|DIRTY|No change after [0-9]+ polls|sdlc-pr-monitor: .*)$' <output-file>; do sleep 5; done; tail -n 1 <output-file>
+  while pgrep -f '[s]dlc-pr-monitor <PR> <interval> <bound> <retry-wait> <max-retries>' >/dev/null && ! grep -qE '^(Merged|Closed without merging|BEHIND|DIRTY|No change after [0-9]+ polls|sdlc-pr-monitor: .*)$' <output-file>; do sleep 5; done; tail -n 1 <output-file>
   ```
 
   The brackets around the `s` keep the pattern from matching the
@@ -92,8 +98,8 @@ waiting as above, on the same task.
 Once the task has exited, read its output file. The harness ends it
 with a line of its own, `[exited with code <n>]`, after the script's
 output. The script's last line above that, or the non-zero exit with
-its stderr, is the outcome; the `Polled` lines give the state the last
-poll found and the number of polls.
+its stderr, is the outcome; the `Polled` lines that are not recoverable
+failures give the state the last poll found and the number of polls.
 
 A run whose output holds neither a terminal line nor an error line
 ended without finishing, as one killed by a signal does. Report it as
@@ -137,9 +143,11 @@ Your report carries:
 - **The outcome** that ended the loop, one of: `Merged`, `Closed
   without merging`, `BEHIND`, `DIRTY`, `No change after <bound> polls
   — keep waiting?`, or the script's error, as above.
-- **The state the last poll found**: its `Polled` line, which carries
+- **The state the last poll found**: its `Polled` line, never a
+  recoverable failure's, which carries
   the PR's open/merged/closed state and the gate's report, so the
   orchestrator can tell whether the PR is gone or still open, ready,
   and unmerged.
-- **How many polls** the run made: its `Polled` lines.
+- **How many polls** the run made: its `Polled` lines, and how many of
+  them were recoverable failures.
 - **That every task and watch you recorded has ended.**
