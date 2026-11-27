@@ -348,11 +348,11 @@ BASE_OS_REV="debian-12-20250601"
 # present either way and only its failure behavior differs. Same reasoning as
 # every rev above: the launcher's SOURCE is not part of the image-identity hash,
 # so this constant is the only thing that invalidates a cached image.
-# Bumped 27 -> 28: the boot-phase flags lost their guest-side defaults. A
-# launcher27 image falls back to `true` for an unset
-# CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT / CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT, a second
-# copy of the key table's defaults; the boot launcher now stops when run.env
-# lacks either, since the host always writes both.
+# Rev 28: the boot launcher stops when run.env lacks
+# CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT or CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT. The
+# host always writes both, and the key table is the only home of their
+# defaults. An image stamped with a lower rev falls back to `true` for an unset
+# flag instead, so it must rebuild to gain the stop.
 LAUNCHER_LOGIC_REV="28"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
