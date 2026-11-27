@@ -631,8 +631,8 @@ done <<EOF
 $remaining
 EOF
 
-# The locked worktrees that remain under .claude/worktrees/ and hold the
-# scratch back: under --pr the PR's alone.
+# The number of locked worktrees that remain under .claude/worktrees/ and
+# hold the scratch back: under --pr the PR's alone.
 locked_left=0
 while IFS=$SEP read -r path head branch locked reason; do
   [ -n "$locked" ] || continue
