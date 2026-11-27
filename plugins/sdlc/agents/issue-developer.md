@@ -5,13 +5,11 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
 isolation: worktree
-memory: project
 skills:
   - issue-view
   - git-tools:git-branch-create
   - git-tools:git-branch-sync
   - github-prs:pr-create
-  - cc-tools:agent-memory-inbox-capture
   - sdlc:orchestrate-readiness
 ---
 
@@ -41,7 +39,7 @@ file.
 You do not read `.issues/repo-config.md` yourself for branch or PR
 mechanics — the `git-tools:git-branch-create` and
 `github-prs:pr-create` skills declared in the `skills:` frontmatter
-above own them, configuration included, save the one read step 13
+above own them, configuration included, save the one read step 12
 names. Invoke those skills rather than re-deriving what they resolve.
 
 ## Inputs
@@ -225,26 +223,13 @@ owns — but never a finding, a location, or an implementation shape.
       "Drop protocol" below, because it is a fact about what this PR
       delivers rather than a point-in-time nit.
 
-11. Capture agent memory into the session inbox, before worktree
-    cleanup:
-
-    ```text
-    /cc-tools:agent-memory-inbox-capture
-    ```
-
-    The skill applies its own session-scope filter and reports what it
-    dropped, so do not curate your own entries here. If the capture
-    fails, stop and report it rather than proceeding to cleanup.
-
-12. End-of-run cleanup — release the branch claim so subsequent
+11. End-of-run cleanup — release the branch claim so subsequent
     subagents (`code-documenter`, `issue-fixer`) can check out the same
-    branch in their own worktrees. Run this only if step 11 completed
-    **and** either your commit and push both succeeded or you had
-    nothing to commit — if the capture failed, or if either the commit
-    or the push failed, deleting the local branch would destroy the
-    only copy of your work, so stop and report the failure instead of
-    proceeding to cleanup. The capture condition holds on the
-    nothing-to-commit path too:
+    branch in their own worktrees. Run this only if your commit and
+    push both succeeded or you had nothing to commit — if either the
+    commit or the push failed, deleting the local branch would destroy
+    the only copy of your work, so stop and report the failure instead
+    of proceeding to cleanup:
 
     ```bash
     git-branch-sync release <branch-name>
@@ -255,7 +240,7 @@ owns — but never a finding, a location, or an implementation shape.
     the orchestrator's primary clone is already holding that branch, so
     a subagent worktree can't switch to it.
 
-13. Report back: PR URL (or equivalent), the issue set the PR closes,
+12. Report back: PR URL (or equivalent), the issue set the PR closes,
     branch name, and — per member — what you implemented, its commit,
     and its test result. Name any dropped member and why, and any
     design decision you stopped on, with its options. (The worktree
@@ -347,8 +332,8 @@ with one:
 1. Make the manifest changes the batch needs, and commit them per
    step 7 as the work of the member they belong to. Steps 5 and 6 wait
    for the developer that continues after the install.
-2. Push the branch, then run step 11. Skip step 12: the orchestrator
-   runs the install in this worktree, on this branch.
+2. Push the branch. Skip step 11: the orchestrator runs the install in
+   this worktree, on this branch.
 3. Stop, and report that the approved resolving install is due, with
    its command and directory, the commit you pushed, and the members
    still to work. Open no PR.

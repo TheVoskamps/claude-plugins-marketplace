@@ -400,8 +400,11 @@ The other route is the **session inbox**, for agents that run under
 throwaway worktree and dies with it, so the work has to leave before
 cleanup: a capture step copies the entries that outlive the run into a
 per-branch inbox under the session scratchpad, and a curation step
-grades them and writes the survivors into the repo. You invoke
-neither: an orchestration flow drives them at the right two moments.
+grades them and writes the survivors into the repo. Neither is a
+command you can type. An agent runs the capture step at the end of its
+own run, and an agent curating a branch runs the curation step
+afterwards, so the route does something only where your agents are
+written to run both.
 
 ## What it deliberately does not do
 

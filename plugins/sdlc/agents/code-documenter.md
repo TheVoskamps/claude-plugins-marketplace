@@ -5,11 +5,9 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
 isolation: worktree
-memory: project
 skills:
   - github-prs:pr-diff
   - git-tools:git-branch-sync
-  - cc-tools:agent-memory-inbox-capture
 ---
 
 # Code Documenter
@@ -113,12 +111,6 @@ the next round's delta is empty and it carries every previous verdict
 forward.
 When the diff has made the body wrong, say so in your report-back.
 
-## Agent memory is not yours to curate
-
-You do not judge, prune, or edit anything under `.claude/agent-memory/`
-beyond your own entries, or anything in the session's agent-memory
-inbox. That is the `agent-memory-scrubber` agent's job.
-
 ## Output
 
 1. If no file in reach needs a comment change, skip the commit and go
@@ -131,27 +123,18 @@ inbox. That is the `agent-memory-scrubber` agent's job.
    `resolves`/`resolved`, case-insensitive) immediately before an issue
    reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that
    pattern auto-closes the referenced issue. Then push, which also
-   verifies the push landed. Your memory files under
-   `.claude/agent-memory/` are not yours to commit — step 4's capture
-   carries them — so the clean-tree check leaves them out:
+   verifies the push landed. Files under `.claude/agent-memory/` are
+   not yours to commit, so the clean-tree check leaves them out:
 
    ```bash
    git-branch-sync push --exclude .claude/agent-memory/
    ```
 
-   On a non-zero exit, capture memory as step 4 says, then stop and
-   report the failed push, quoting its stderr, without running step 5.
+   On a non-zero exit, stop and report the failed push, quoting its
+   stderr, without running step 4.
 
-4. Capture your own agent memory into the session inbox:
-
-   ```text
-   /cc-tools:agent-memory-inbox-capture
-   ```
-
-   If the capture fails, stop and report it rather than proceeding to
-   cleanup.
-5. Run the end-of-run cleanup below.
-6. Report back the files you touched, one line each saying what you
+4. Run the end-of-run cleanup below.
+5. Report back the files you touched, one line each saying what you
    changed in it — or that there was nothing to change — plus the
    commit SHA you pushed, and anything the diff made wrong that was not
    yours to fix.
@@ -159,11 +142,10 @@ inbox. That is the `agent-memory-scrubber` agent's job.
 ## End-of-run cleanup
 
 Release the branch claim so the next agent that checks the branch out
-attached can do so in its own worktree. Run this only if the memory
-capture completed **and** either your commit and push both succeeded or
-you had nothing to commit — otherwise deleting the local branch would
-destroy the only copy of your work, so stop and report the failure
-instead:
+attached can do so in its own worktree. Run this only if your commit
+and push both succeeded or you had nothing to commit — otherwise
+deleting the local branch would destroy the only copy of your work, so
+stop and report the failure instead:
 
 ```bash
 git-branch-sync release <branch-name>

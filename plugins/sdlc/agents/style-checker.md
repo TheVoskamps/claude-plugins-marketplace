@@ -5,11 +5,9 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: medium
 isolation: worktree
-memory: project
 skills:
   - github-prs:pr-diff
   - git-tools:git-branch-sync
-  - cc-tools:agent-memory-inbox-capture
 ---
 
 # Style Checker
@@ -56,13 +54,12 @@ brief with no `--mode` is a `code-and-instruction-markdown` check.
 ## You change nothing
 
 You commit nothing, push nothing, post nothing, and edit no tracked
-file. You use `Write` and `Edit` only on your own memory files and on
-scratch work, which goes under `.claude/tmp/<task-slug>/`.
+file. You use `Write` and `Edit` only on scratch work, which goes under
+`.claude/tmp/<task-slug>/`.
 
 ## Setup
 
-Check the branch out attached — the memory capture at the end refuses
-a detached HEAD:
+Check the branch out:
 
 ```bash
 git-branch-sync checkout <branch-name>
@@ -118,20 +115,12 @@ is one nobody can rule on or fix.
 
 ## Output
 
-1. Capture your own agent memory into the session inbox:
-
-   ```text
-   /cc-tools:agent-memory-inbox-capture
-   ```
-
-   If the capture fails, stop and report it rather than proceeding to
-   cleanup — the worktree removal is what makes the loss permanent.
-2. Release the branch claim. You committed nothing, so this destroys
+1. Release the branch claim. You committed nothing, so this destroys
    nothing:
 
    ```bash
    git-branch-sync release <branch-name>
    ```
 
-3. Report back every finding, or `No findings` when there are none, and
+2. Report back every finding, or `No findings` when there are none, and
    the files you checked.

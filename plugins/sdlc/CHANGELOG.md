@@ -1,5 +1,22 @@
 # sdlc changelog
 
+## 0.101.0 — 2026-11-26
+
+sdlc agents no longer record or curate memory. With Claude Code's auto
+memory off, no agent read or wrote any, so the capture step and the
+curation pass did nothing. Where they did run, the curation commit
+landed after the last review round and reached the ready flip
+unreviewed.
+
+- `issue-developer`, `issue-fixer`, `code-documenter`, `style-checker`
+  and `docs-writer` declare no memory and copy nothing into the
+  session's inbox at the end of a run.
+- Neither `/sdlc:orchestrate` nor `pr-merge-readiness` spawns
+  `agent-memory-scrubber`.
+- The run's reports carry no memory-curation lines.
+- The `agent-memory-scrubber` agent still ships and does what it did
+  when you spawn it yourself. No run does.
+
 ## 0.100.0 — 2026-11-25
 
 The plugin follows a session started under another Claude Code config

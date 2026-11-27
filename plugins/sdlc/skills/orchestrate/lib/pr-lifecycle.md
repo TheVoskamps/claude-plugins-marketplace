@@ -299,41 +299,10 @@ Either way, what moves the PR on from that end, and how a cap end
 reaches the human, is in `skills/orchestrate/SKILL.md` → "Final
 Report".
 
-## The pre-readiness spawn, once the documentation loop has ended
-
-**Spawn `agent-memory-scrubber` to curate the PR's agent memory.**
-By now every teammate that writes memory has captured into the
-session's inbox for this branch, so one pass grades the whole run's
-entries; the scrubber's commit is the last one on the branch before
-the gate runs, so that what the gate grades is what the human blesses.
-Give it the PR reference and the branch name:
-
-```text
-PR <PR_REF> has settled its review loop. Branch: <branch-name>
-
-Curate the PR's agent memory per your agent definition. Report back
-what was transferred, what was deleted, and what was cut from or
-created as a destination file, where transfers landed, and the commit
-SHA you pushed — or, if nothing was staged, why.
-```
-
-The scrubber's per-entry and per-cut lines are the record of what it
-deleted, transferred, and cut from a destination file, so pass them
-through to the human as it wrote them.
-
-A memory-declaring teammate spawned after the scrubber last ran
-leaves entries the scrubber has not seen, and none of them reports a
-*successful* capture back, so a spawn is the only evidence that
-entries may be waiting. Past this point the only such spawns are the
-`issue-fixer` a merge-readiness remedy runs, after which
-`pr-merge-readiness` runs the scrubber itself, and the `docs-writer`
-of a documentation loop that remedy needed, after which you spawn it
-here again. The only wrong placement is spawning it *early*, while
-more branch work is still expected.
-
 ## The brief for `pr-merge-readiness`
 
-Give it the PR reference and the branch name — after a
+Once the documentation loop has ended, spawn `pr-merge-readiness`
+directly. Give it the PR reference and the branch name — after a
 `documentation loop needed` return, the same brief as a first spawn —
 and, on a re-spawn after it returned with a question, the ruling —
 yours or the human's — with the state and the cause the question
@@ -357,9 +326,8 @@ loop is needed, with the fixer's entries that need it; any ruling this
 brief carried that went unconsumed — by the gate's report, with what
 the gate reported instead, or by the fixer's rebase on whatever state
 its brief named, as the fixer reported it — quoted; every issue-fixer
-round you ran; the scrubber's per-entry and per-cut lines as it wrote them;
-every wait you took on a running check, with the checks it named; and
-every spawn record that failed, with the CLI's message.
+round you ran; every wait you took on a running check, with the checks
+it named; and every spawn record that failed, with the CLI's message.
 ```
 
 ## The close-out
@@ -440,7 +408,7 @@ ready goes back to draft before the loop reopens:
 The loop then runs as any review loop does. A reopened code loop's
 end starts the documentation loop, as any code loop's end does. Only
 the documentation loop's end sends the PR through the stages from the
-pre-readiness spawn on again, so the close-out flips it ready once
+`pr-merge-readiness` spawn on again, so the close-out flips it ready once
 more.
 That close-out's finalizer posts the rounds the PR's detail chains are
 missing, as one supplementary chain; nothing already posted is posted

@@ -5,13 +5,11 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
 isolation: worktree
-memory: project
 skills:
   - issue-view
   - github-prs:pr-diff
   - github-prs:pr-view
   - git-tools:git-branch-sync
-  - cc-tools:agent-memory-inbox-capture
   - sdlc:pr-read-cli-interface
   - sdlc:orchestrate-readiness
 ---
@@ -195,36 +193,23 @@ from its issue.
    referenced issue. The keyword as plain English prose with no
    adjacent issue reference is fine.
 
-10. Push the branch, which also verifies the push landed. Your memory
-    files under `.claude/agent-memory/` are not yours to commit — step
-    11's capture carries them — so the clean-tree check leaves them out:
+10. Push the branch, which also verifies the push landed. Files under
+    `.claude/agent-memory/` are not yours to commit, so the clean-tree
+    check leaves them out:
 
     ```bash
     git-branch-sync push --exclude .claude/agent-memory/
     ```
 
-    On a non-zero exit, capture memory as step 11 says, then stop and
-    report the failed push, quoting its stderr, without running step 12.
+    On a non-zero exit, stop and report the failed push, quoting its
+    stderr, without running step 11.
 
-11. Capture agent memory into the session inbox, before worktree
-    cleanup:
-
-    ```text
-    /cc-tools:agent-memory-inbox-capture
-    ```
-
-    The skill applies its own session-scope filter and reports what it
-    dropped, so do not curate your own entries here. If the capture
-    fails, stop and report it rather than proceeding to cleanup.
-
-12. End-of-run cleanup — release the branch claim so subsequent
-    subagents can check out the same branch. Run this only if step 11
-    completed **and** either your commit and push both succeeded or you
-    had nothing to commit — if the capture failed, or if either the
-    commit or the push failed, deleting the local branch would destroy
-    the only copy of your work, so stop and report the failure instead
-    of proceeding to cleanup. The capture condition holds on the
-    nothing-to-commit path too:
+11. End-of-run cleanup — release the branch claim so subsequent
+    subagents can check out the same branch. Run this only if your
+    commit and push both succeeded or you had nothing to commit — if
+    either the commit or the push failed, deleting the local branch
+    would destroy the only copy of your work, so stop and report the
+    failure instead of proceeding to cleanup:
 
     ```bash
     git-branch-sync release <branch-name>
@@ -234,7 +219,7 @@ from its issue.
     primary clone is already holding that branch, so a subagent worktree
     can't switch to it.
 
-13. Report back, per finding and per owner ruling, un-tiered:
+12. Report back, per finding and per owner ruling, un-tiered:
     - Which findings were fixed, and how
     - Which findings were not fixed, and why (including any escalated
       for a design decision)
@@ -383,19 +368,18 @@ rebase is undone by the abort, and resolved again on the next round.
 ruling on it, the orchestrator's or the human's, reaches you in the
 next brief.
 
-Run the tests after the rebase, as for any other change. Then capture
-memory, clean up, and report back per the workflow: which state the
+Run the tests after the rebase, as for any other change. Then clean
+up, and report back per the workflow: which state the
 brief named, the base you rebased onto, each conflict and what settled
 it — for one a ruling named, the ruling; for one you resolved without
 a ruling, the repo rule, quoted, or the combination of both sides you
 kept — any ruling the rebase did not need, quoted, the new head SHA,
 and the test result. Add a fixed `Documentation conflicts:` line, one
 entry per documentation file whose conflict you resolved, or `none`.
-On your return `pr-merge-readiness` runs `agent-memory-scrubber` and
-then the gate again — or, when that line or your
-`Deferred to docs-writer:` line is not `none`, returns the PR to the
-orchestrator for a documentation loop. No code review round follows a
-merge-readiness brief.
+On your return `pr-merge-readiness` runs the gate again — or, when
+that line or your `Deferred to docs-writer:` line is not `none`,
+returns the PR to the orchestrator for a documentation loop. No code
+review round follows a merge-readiness brief.
 
 Push only through `git-branch-sync push`. After a rebase it pushes
 with a lease on the tip `checkout` saw, because the push replaces
