@@ -27,23 +27,17 @@ out of its containment deny, driven by globs the operator lists in
 `~/.config/guardrails/config.yml` — which is what makes any of these
 files reachable at all on a machine whose `~/.config` is a symlink into
 a dotfiles repo. Its roots are the two this document prescribes plus
-the home directory, and it resolves `$XDG_CONFIG_HOME` /
-`$XDG_STATE_HOME` by **the same test given above** — the variable when
-set and non-empty — on a per-machine opt-in
-(`resolve-xdg-environment-variables: yes`) that is off by default. So
-where a plugin and the gate disagree about where a config lives, the
-disagreement is in what that operator's file says, not two different
-resolution rules.
+the home directory, and where it resolves `$XDG_CONFIG_HOME` /
+`$XDG_STATE_HOME` it does so by **the same test given above** — the
+variable when set and non-empty. So where a plugin and the gate
+disagree about where a config lives, the disagreement is in what that
+operator's file says, not two different resolution rules.
 
-Without the opt-in the gate follows the `config-home-default` /
-`state-home-default` spellings the operator's own file gives, and a
-root the file spells nowhere does not exist for the gate at all. So on
-a machine that relocates `$XDG_CONFIG_HOME` and neither opts in nor
-names the relocated path, the config a plugin writes is still at the
-path this document prescribes, and is still correct — but it is
-unreachable from a tool-mediated read or write,
-because no carve-out covers it. A reader that is not a tool call at all
-— a script running inside a claude-vm guest, say — is unaffected. A
+A config a plugin writes at the path this document prescribes is
+correct whether or not a carve-out covers it, but one no carve-out
+covers is unreachable from a tool-mediated read or write. A reader
+that is not a tool call at all — a script running inside a claude-vm
+guest, say — is unaffected. A
 listed path is reachable from every tool the agent holds — `Read`,
 `Write`, `Edit`, and a Bash `cat`, `grep` or redirect alike — and an
 unlisted one from none of them; which tools an agent holds is its
@@ -143,14 +137,9 @@ defaults degrades to them, while a watermark or a facts file that
 cannot be invented stops and says what to write.
 
 **Named exception: the permission gate's stamp.** The `guardrails`
-permission gate's `~/.config/guardrails/config.yml` (see above) treats a
-file stamped below the pin, or not stamped at all, as it treats an
-absent one: no usable entry on any root and `redirect-bash-file-work`
-at its default, `worktree`, with nothing reported anywhere. A file that
-exists but cannot be read or parsed is not exempt: the gate denies every
-gated tool call, naming the path and the error, until the file is fixed.
-An unknown `redirect-bash-file-work` value is read as `worktree`, with a
-warning in the gate's own log. The rule above stands for every other reader.
+permission gate reads a `~/.config/guardrails/config.yml` stamped below
+its pin, or not stamped at all, as it reads an absent one, without
+aborting. The rule above stands for every other reader.
 
 ## Multi-writer files merge; single-owner files rewrite
 
