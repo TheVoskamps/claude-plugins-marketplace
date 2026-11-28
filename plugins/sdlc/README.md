@@ -592,7 +592,7 @@ plugin for that name finds them all.
 | `issues` | The issue verbs, `issue-view` for the readiness check, and `issue-comment` for the readiness stamp. Version 0.20.0 or later, the first whose `issue-comment` takes `--marker`. |
 | `git-tools` | Branch creation, branch sync, the branch-name grammar and the default-branch lookup. |
 | `github-prs` | Every PR read and write. |
-| `cc-tools` | `claude-home`, which prints Claude Code's config directory, and the `agent-memory-inbox-cleanup` skill, which the `agent-memory-scrubber` agent runs when you spawn it yourself. Version 0.12.0 or later, the first with `claude-home`. |
+| `cc-tools` | `claude-home`, which prints Claude Code's config directory. Version 0.12.0 or later, the first with `claude-home`. |
 
 `yq`, the mikefarah build at v4 or later, comes with no plugin and is
 installed on the machine. Without it `sdlc-decision` exits with an

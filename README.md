@@ -27,10 +27,7 @@ The marketplace currently ships these plugins (one entry each in
 - **`cc-tools`** — Claude Code meta-skills: global rules, feature/bug
   watchlist status, what's-new-since-last-run — both filtered to the
   topics in your own config, which a suggester widens from this
-  machine's Claude configuration on your yes — and agent-memory
-  curation into the nearest governing `CLAUDE.md`, else an on-demand
-  `docs/rules/*.md` routed from it, else the root `CLAUDE.md`; plus the
-  `cr` session
+  machine's Claude configuration on your yes; plus the `cr` session
   launcher, kept current at `~/.local/bin/cr` by a `SessionStart`
   hook, which runs Claude Code under a named account with `--as` and
   merges per-user host, account, owner and repo settings layers
@@ -67,6 +64,11 @@ The marketplace currently ships these plugins (one entry each in
   logging reverse proxy that writes every request and response to disk
   verbatim, so two sessions launched identically except for one setting
   can be compared.
+- **`memory-tools`** — `PostToolUse` (matcher `Write|Edit`) hook that
+  records every write into agent memory or auto memory as a YAML file
+  under `~/.local/state/memory-tools/`, filed by repository, plus a
+  read-only skill that grades what was captured as delete, durable or
+  no code home.
 
 ## Add this marketplace
 
