@@ -5,7 +5,7 @@
 # a case's blocked-by rows and body, and a stub issue-comment keeping the
 # one marker comment in a file: `check` with no stamp, `match` on an
 # unchanged origin and on one whose change touches no listed file, `diff`
-# on a change to a listed file and on a rename from and onto one, `full`
+# on a rename from a listed path and on a rename onto one, `full`
 # for a changed body, a changed blocked-by edge, a changed sdlc version,
 # an unreadable stamp, a stamped commit origin no longer carries and a
 # Jira tracker; a blocked-by reference spelled another way still matching;
