@@ -38,8 +38,9 @@
 # host `.env` file, both read at launch (issue #135). `env.set` is for
 # non-secret literals only, since its values ARE the committed config.
 #
-# Requires: yq (v4+, the Go/mikefarah implementation). Sourcing does not
-# check for it; a caller runs claude_vm_require_yq before parsing config.
+# Requires: yq (the Go/mikefarah implementation, at CLAUDE_VM_YQ_FLOOR or
+# later). Sourcing does not check for it; a caller runs claude_vm_require_yq
+# before parsing config.
 
 set -uo pipefail
 
@@ -444,15 +445,54 @@ claude_vm_resolve_gvproxy() {
   return 1
 }
 
-# Verify yq is present and is the v4+ mikefarah build (the eval-all /
-# load API used below differs from the kislyuk Python yq).
+# The oldest mikefarah yq release, as major, minor and patch, that
+# test/config-test.sh has been run green against. Lower it only after a green
+# run under the lower release: an older v4 lacks operators this file uses, such
+# as `...`, which v4.2.0 added.
+CLAUDE_VM_YQ_FLOOR=(4 54 3)
+
+# Verify yq is present and is a mikefarah v4 release at CLAUDE_VM_YQ_FLOOR or
+# later (the eval-all / load API used below differs from the kislyuk Python
+# yq). A version this cannot read as major.minor.patch fails.
 claude_vm_require_yq() {
+  local out ver major minor patch floor
+  floor="${CLAUDE_VM_YQ_FLOOR[0]}.${CLAUDE_VM_YQ_FLOOR[1]}.${CLAUDE_VM_YQ_FLOOR[2]}"
   if ! command -v yq >/dev/null 2>&1; then
-    echo "claude-vm: 'yq' (mikefarah v4+) is required to parse config. Install it (e.g. 'brew install yq')." >&2
+    echo "claude-vm: 'yq' (mikefarah v$floor or later) is required to parse config. Install it (e.g. 'brew install yq')." >&2
     return 1
   fi
-  if ! yq --version 2>/dev/null | grep -qiE 'mikefarah|version v?4'; then
-    echo "claude-vm: 'yq' found but does not look like mikefarah v4+. Got: $(yq --version 2>&1)" >&2
+  out="$(yq --version 2>&1)"
+  case "$out" in
+    *mikefarah*' version '*) : ;;
+    *)
+      echo "claude-vm: 'yq' found but does not look like mikefarah yq. Got: $out" >&2
+      return 1
+      ;;
+  esac
+  ver=${out##*' version '}
+  ver=${ver#v}
+  major=${ver%%.*}
+  minor=${ver#*.}
+  patch=${minor#*.}
+  minor=${minor%%.*}
+  patch=${patch%%[!0-9]*}
+  case "$ver" in
+    *.*.*) : ;;
+    *) major="" ;;
+  esac
+  case "$major:$minor:$patch" in
+    *[!0-9:]* | :* | *::* | *:)
+      echo "claude-vm: could not read a yq version from: $out" >&2
+      return 1
+      ;;
+  esac
+  if [ "$major" -ne "${CLAUDE_VM_YQ_FLOOR[0]}" ]; then
+    echo "claude-vm: claude-vm needs mikefarah yq v4, v$floor or later. Got: $out" >&2
+    return 1
+  fi
+  if [ "$minor" -lt "${CLAUDE_VM_YQ_FLOOR[1]}" ] ||
+    { [ "$minor" -eq "${CLAUDE_VM_YQ_FLOOR[1]}" ] && [ "$patch" -lt "${CLAUDE_VM_YQ_FLOOR[2]}" ]; }; then
+    echo "claude-vm: 'yq' $major.$minor.$patch is older than v$floor, which claude-vm needs. Got: $out" >&2
     return 1
   fi
   return 0
@@ -1044,10 +1084,22 @@ claude_vm_scalar() {
 #                string `false`
 #   a|b|...      a `!!str` equal to one of the alternatives, each compared
 #                whole, so a value joining several with `|` is refused
-# A `!!map` or `!!seq` is refused for every type. Any other type column
+# A `!!map` or `!!seq` is refused for every type, and so is a value holding a
+# newline, wherever it sits: <value> must therefore carry the value's own
+# trailing newlines, which a `$(...)` capture strips. Any other type column
 # spelling is not a scalar type, and is accepted.
 claude_vm_check_typed_value() {
-  local name="$1" type="$2" tag="$3" val="$4" want ok=0 rest alt
+  local name="$1" type="$2" tag="$3" val="$4" want ok=0 rest alt nl=$'\n'
+  case "$type" in
+    bool | int | string | path | *\|*)
+      case "$val" in
+        *"$nl"*)
+          echo "claude-vm: $name must be one line, got $(printf '%q' "$val"), which holds a newline" >&2
+          return 1
+          ;;
+      esac
+      ;;
+  esac
   case "$type" in
     bool)
       want="true or false"
@@ -1098,13 +1150,130 @@ claude_vm_check_typed_value() {
   return 1
 }
 
+# claude_vm_config_nonmap_nodes <file> -- print a `path<TAB>tag` record for
+# every node of <file> no deeper than two keys whose tag is neither `!!map`
+# nor `!!null`, the path's keys joined with `.` and the document's own path
+# empty. Those depths hold every proper prefix of a key-table key, and one of
+# these records naming a prefix is a parent that holds no keys: yq reads a key
+# under a scalar parent as untagged and empty, and fails to read one under a
+# list. Read it of a file with one document and no alias: an alias node gets a
+# record with an empty tag, and each further document adds its own records.
+claude_vm_config_nonmap_nodes() {
+  yq eval '
+    .. | select((path | length) <= 2 and tag != "!!map" and tag != "!!null")
+    | [(path | join(".")), tag] | @tsv
+  ' "$1" 2>/dev/null
+}
+
+# claude_vm_config_parent_fault <records> <key> -- given the records
+# claude_vm_config_nonmap_nodes printed for a file, print why <key> cannot be
+# read there, as `<parent> is a <tag>, not a map`, naming the shallowest
+# parent of <key> that is not a map. Prints nothing when every parent is one.
+claude_vm_config_parent_fault() {
+  local records="$1" key="$2" tab prefix rest record p tag
+  tab=$'\t'
+  prefix="" rest="$key"
+  while :; do
+    while IFS= read -r record; do
+      [ -n "$record" ] || continue
+      p=${record%%"$tab"*}
+      tag=${record#*"$tab"}
+      if [ "$p" = "$prefix" ]; then
+        if [ -z "$p" ]; then
+          echo "the document is a $tag, not a map"
+        else
+          echo "$p is a $tag, not a map"
+        fi
+        return 0
+      fi
+    done <<<"$records"
+    case "$rest" in
+      *.*) : ;;
+      *) return 0 ;;
+    esac
+    prefix="${prefix:+$prefix.}${rest%%.*}"
+    rest=${rest#*.}
+  done
+}
+
+# claude_vm_check_config_structure <file>... -- fail, naming the file, when a
+# config file is not one YAML document, when a parent of any key-table key
+# in it is not a map (`repo: 5` holds no `repo.mount`, `[1]` no key at all),
+# or when a string anywhere in it outside `env.set` holds a newline. A path
+# that is empty or names no file is skipped, and a yq read that fails fails
+# the check. The document count is checked before the rest; run it after
+# claude_vm_check_no_aliases, or an alias is reported as a parent with no tag.
+#
+# Each is refused because the readers cannot see it: a read of a key in a
+# file of several documents answers once per document, a key under a scalar
+# parent reads as absent and takes its default, and a `$(...)` capture or a
+# one-entry-per-line list read strips or splits a newline, so `"clone\n"`
+# would be taken as `clone`. An `env.set` value is exempt: it may hold a
+# newline, and its reader keeps every one.
+claude_vm_check_config_structure() {
+  local file n records paths i=0 key len="${#CLAUDE_VM_CONFIG_KEYS[@]}" fault nl=$'\n'
+  for file in "$@"; do
+    [ -n "$file" ] && [ -f "$file" ] || continue
+    n="$(yq eval-all '[.] | length' "$file" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    if [ "$n" != 1 ]; then
+      echo "claude-vm: $file holds $n YAML documents, and claude-vm reads exactly one; remove each \`---\` that starts another" >&2
+      return 1
+    fi
+    records="$(claude_vm_config_nonmap_nodes "$file")" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    i=0
+    while [ "$i" -lt "$len" ]; do
+      key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
+      fault="$(claude_vm_config_parent_fault "$records" "$key")"
+      if [ -n "$fault" ]; then
+        echo "claude-vm: $file: $fault, so claude-vm cannot read $key under it" >&2
+        return 1
+      fi
+      i=$((i + 5))
+    done
+    paths="$(yq eval '
+      .. | select(tag == "!!str" and test("\n"))
+      | select((path | length) < 2 or path[0] != "env" or path[1] != "set")
+      | path | join(".")
+    ' "$file" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    if [ -n "$paths" ]; then
+      echo "claude-vm: ${paths%%"$nl"*} in $file holds a newline, which claude-vm allows only in an env.set value" >&2
+      return 1
+    fi
+  done
+}
+
+# claude_vm_config_key_unreadable <file> <key> -- print why yq gave <key> in
+# <file> no tag: a parent that is not a map, or else a YAML alias.
+claude_vm_config_key_unreadable() {
+  local fault
+  fault="$(claude_vm_config_parent_fault "$(claude_vm_config_nonmap_nodes "$1")" "$2")"
+  if [ -n "$fault" ]; then
+    echo "claude-vm: $2 in $1 cannot be read: $fault" >&2
+  else
+    echo "claude-vm: $2 in $1 is a YAML alias, which claude-vm does not resolve" >&2
+  fi
+}
+
 # claude_vm_check_scalar <file> <key> -- check <key>'s value in the config
 # file <file> against its key-table type with claude_vm_check_typed_value.
 # An absent or null key, and one written as `""`, is unset and passes: the
-# value used is then the key table's default. A value yq gives no tag is a
-# YAML alias, which the launcher refuses first (claude_vm_check_no_aliases),
-# and fails here too. A yq read that fails, such as on a file that does not
-# parse, fails the check.
+# value used is then the key table's default. The value is read with its own
+# trailing newlines kept, so `"clone\n"` is checked as written. A value yq
+# gives no tag sits under a parent that is not a map, or is a YAML alias, and
+# fails, the diagnostic saying which; the launcher refuses both first. A yq
+# read that fails, such as on a file that does not parse, fails the check.
 claude_vm_check_scalar() {
   local file="$1" key="$2" tag val
   tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)" ||
@@ -1115,15 +1284,22 @@ claude_vm_check_scalar() {
   case "$tag" in
     '!!null') return 0 ;;
     '')
-      echo "claude-vm: $key in $file is a YAML alias, which claude-vm does not resolve" >&2
+      claude_vm_config_key_unreadable "$file" "$key"
       return 1
       ;;
   esac
-  val="$(yq eval ".${key}" "$file" 2>/dev/null)" ||
+  # The sentinel keeps the value's trailing newlines from `$(...)`; the one
+  # newline stripped after it is the one yq ends its output with.
+  val="$(
+    yq eval ".${key}" "$file" 2>/dev/null || exit 1
+    printf 'x'
+  )" ||
     {
       echo "claude-vm: could not read $key from $file" >&2
       return 1
     }
+  val="${val%x}"
+  val="${val%$'\n'}"
   if [ "$tag" = '!!str' ] && [ -z "$val" ]; then
     return 0
   fi
@@ -1133,9 +1309,10 @@ claude_vm_check_scalar() {
 # claude_vm_check_map_values <file> <key> -- check every value of the map
 # <key> in the config file <file> against the element type of <key>'s
 # `map(<type>)` key-table type with claude_vm_check_typed_value. An absent or
-# null <key> passes; one that is not a map fails, an alias, which yq gives no
-# tag, included. A map or list value is checked by its tag alone, so `@tsv`
-# never sees one. A yq read that fails fails the check.
+# null <key> passes; one that is not a map fails, and so does one yq gives no
+# tag, the diagnostic naming the parent that is not a map or the alias. A map
+# or list value is checked by its tag alone, so `@tsv` never sees one. A yq
+# read that fails fails the check.
 claude_vm_check_map_values() {
   local file="$1" key="$2" tab tag type records record ref val
   tab=$'\t'
@@ -1148,7 +1325,7 @@ claude_vm_check_map_values() {
     '!!null') return 0 ;;
     '!!map') : ;;
     '')
-      echo "claude-vm: $key in $file is a YAML alias, which claude-vm does not resolve" >&2
+      claude_vm_config_key_unreadable "$file" "$key"
       return 1
       ;;
     *)
@@ -2769,9 +2946,17 @@ claude_vm_check_env() {
       *) doc="$boot_doc" ;;
     esac
     [ -n "$doc" ] && [ -f "$doc" ] || continue
-    tag="$(yq eval '.env.set | tag' "$doc" 2>/dev/null)"
+    # No tag, or a read that fails, is an `env` that is not a map, or an alias;
+    # both are refused before the merge, and refused here too rather than read
+    # as no env.set at all.
+    tag="$(yq eval '.env.set | tag' "$doc" 2>/dev/null)" || tag=""
     case "$tag" in
-      '!!map' | '!!null' | '') : ;;
+      '!!map' | '!!null') : ;;
+      '')
+        echo "claude-vm: 'env.set' in the merged ${tier} config cannot be read: 'env' is not a map, or 'env.set' is a YAML alias." >&2
+        bad=1
+        continue
+        ;;
       *)
         echo "claude-vm: 'env.set' in the merged ${tier} config is a ${tag}, not a map." >&2
         echo "claude-vm:   write it as 'NAME: value' pairs, one per variable." >&2
@@ -2806,6 +2991,10 @@ claude_vm_check_env() {
           echo "claude-vm: env.set['$name'] in the merged ${tier} config has no value. Give it one, or write" >&2
           echo "claude-vm:   '$name: \"\"' if you really mean the empty string -- claude-vm aborts rather than" >&2
           echo "claude-vm:   guessing, so you never believe a variable is set when it is not." >&2
+          bad=1
+          ;;
+        '')
+          echo "claude-vm: env.set['$name'] in the merged ${tier} config is a YAML alias, which claude-vm does not resolve." >&2
           bad=1
           ;;
       esac

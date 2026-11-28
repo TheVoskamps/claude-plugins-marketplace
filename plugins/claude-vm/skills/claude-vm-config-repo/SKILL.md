@@ -155,16 +155,22 @@ plugins/claude-vm/payload/test/config-test.sh
 ```
 
 Confirm it reports `0 failed`. To show this pair resolving against the
-global one, merge the real files read-only, reading back the key you
-overrode:
+global one, check the real files as the launcher does and merge them
+read-only, reading back the key you overrode:
 
 ```bash
 . plugins/claude-vm/payload/lib/config.sh
 GD="${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm"
 RD="$(git rev-parse --show-toplevel)/.claude-vm"
-claude_vm_merge_config "$GD/config-boot.yml" "$RD/config-boot.yml" \
+claude_vm_require_yq \
+  && claude_vm_check_no_aliases "$GD/config-boot.yml" "$RD/config-boot.yml" \
+  && claude_vm_check_config_structure "$GD/config-boot.yml" "$RD/config-boot.yml" \
+  && claude_vm_merge_config "$GD/config-boot.yml" "$RD/config-boot.yml" \
   | yq eval '.mem' -
 ```
+
+A diagnostic from either config check is a fault in the file it names:
+fix it there before you report.
 
 Report back:
 

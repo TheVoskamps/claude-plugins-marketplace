@@ -184,6 +184,13 @@ claude_vm_check_no_aliases \
   "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
   "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
 
+# So does a file of more than one YAML document, a key-table key under a
+# parent that is not a map, and a string outside env.set holding a newline:
+# every reader below would see each of them as something else.
+claude_vm_check_config_structure \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
+
 # Every scalar key read below is checked against its key-table type before any
 # of them is read, so a value of the wrong type -- an unlisted enumeration
 # value, a quoted "true" for a boolean, a YAML `false` for a string or path, an

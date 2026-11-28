@@ -29,7 +29,8 @@
 #
 #   plugins/claude-vm/payload/test/account-launch-test.sh
 #
-# Requires: git, yq (mikefarah v4+) and python3. Skips if any is absent.
+# Requires: git, yq (mikefarah, at the floor claude_vm_require_yq checks) and
+# python3. Skips if any is absent.
 
 set -uo pipefail
 

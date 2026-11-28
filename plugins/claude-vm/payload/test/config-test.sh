@@ -66,7 +66,8 @@
 #
 #   plugins/claude-vm/payload/test/config-test.sh
 #
-# Requires: yq (mikefarah v4+). Skips with a clear message if absent.
+# Requires: yq (mikefarah, at the floor claude_vm_require_yq checks). Skips
+# with a clear message if absent or older.
 
 set -uo pipefail
 
@@ -5202,8 +5203,10 @@ $UAB_TAIL"
 # For each key-table row of shape `scalar` and a type that is not a map, a
 # value of the row's type passes, unset passes, and each wrong value for the
 # type aborts naming the key; an enumeration value is compared against each
-# alternative whole, so one joining several with `|` aborts. The rows are read
-# off the key table, so a new row is covered by gaining it. A `map(bool)` row
+# alternative whole, so one joining several with `|` aborts, and a value holding
+# a newline aborts wherever the newline sits, a trailing one included. The rows
+# are read off the key table, so a new row is covered by gaining it. A
+# `map(bool)` row
 # has each of its values checked the same way, a map or list value included,
 # since @tsv cannot render one and the merge prunes `{}`.
 # ---------------------------------------------------------------------
@@ -5267,6 +5270,7 @@ while IFS= read -r sc_row; do
   scalar_case "$sc_key" "$sc_file" '[]' abort
   scalar_case "$sc_key" "$sc_file" '{}' abort
   scalar_case "$sc_key" "$sc_file" '{a: 1}' abort
+  scalar_case "$sc_key" "$sc_file" '"a\nb"' abort
   case "$sc_type" in
     bool)
       scalar_case "$sc_key" "$sc_file" true pass
@@ -5289,6 +5293,7 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" '"false"' pass
       scalar_case "$sc_key" "$sc_file" false abort
       scalar_case "$sc_key" "$sc_file" true abort
+      scalar_case "$sc_key" "$sc_file" '"some-value\n"' abort
       ;;
     *\|*)
       scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}" pass
@@ -5300,6 +5305,8 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}|" abort
       scalar_case "$sc_key" "$sc_file" "\"|${sc_type##*|}\"" abort
       scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}x" abort
+      scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\\n\"" abort
+      scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\\n\\n\"" abort
       ;;
     *) assert_eq "check_scalars: $sc_key has a type this test covers" "covered" "$sc_type" ;;
   esac
@@ -5355,6 +5362,43 @@ for sc_pair in "cpus:$WORK/sc-alias.yml" "claude.plugins.enabled:$WORK/sc-alias-
   esac
   assert_eq "check_scalars: an aliased ${sc_pair%%:*} aborts naming the key" named "$sc_v"
 done
+
+# A key under a parent that is not a map is untagged too, and is not called an
+# alias: the diagnostic names the parent.
+printf 'repo: 5\n' >"$WORK/sc-scalar-parent.yml"
+printf 'claude:\n  plugins: true\n' >"$WORK/sc-scalar-grandparent.yml"
+for sc_pair in "repo.mount:$WORK/sc-scalar-parent.yml:repo is a !!int, not a map" \
+  "claude.plugins.update_at_boot:$WORK/sc-scalar-grandparent.yml:claude.plugins is a !!bool, not a map" \
+  "claude.plugins.enabled:$WORK/sc-scalar-grandparent.yml:claude.plugins is a !!bool, not a map"; do
+  sc_k=${sc_pair%%:*}
+  sc_rest=${sc_pair#*:}
+  sc_f=${sc_rest%%:*}
+  sc_why=${sc_rest#*:}
+  if [ "$sc_k" = claude.plugins.enabled ]; then
+    sc_err="$(claude_vm_check_map_values "$sc_f" "$sc_k" 2>&1)" && sc_v=pass || sc_v=abort
+  else
+    sc_err="$(claude_vm_check_scalar "$sc_f" "$sc_k" 2>&1)" && sc_v=pass || sc_v=abort
+  fi
+  case "$sc_v:$sc_err" in
+    "abort:claude-vm: $sc_k in $sc_f cannot be read: $sc_why") sc_v=named ;;
+    *) sc_v="$sc_v:$sc_err" ;;
+  esac
+  assert_eq "check_scalar: $sc_k under a non-map parent aborts naming the parent" named "$sc_v"
+done
+
+# A block scalar ends in a newline yq keeps, and the check sees it.
+printf 'claude:\n  renderer: |\n    classic\n' >"$WORK/sc-block.yml"
+sc_err="$(claude_vm_check_scalar "$WORK/sc-block.yml" claude.renderer 2>&1)" && sc_v=pass || sc_v=abort
+case "$sc_v:$sc_err" in
+  "abort:claude-vm: claude.renderer must be one line, got \$'classic\\n', which holds a newline") sc_v=named ;;
+  *) sc_v="$sc_v:$sc_err" ;;
+esac
+assert_eq "check_scalar: a block-scalar enum value ending in a newline aborts" named "$sc_v"
+
+# NEGATIVE CONTROL: a `$(...)` capture of the same read strips the newline, so
+# a check fed from one would see the clean alternative.
+assert_eq "check_scalar: NEGATIVE CONTROL -- a \$(...) capture reads the block scalar as clean" \
+  classic "$(yq eval '.claude.renderer' "$WORK/sc-block.yml")"
 
 # The render reads each value by its tag, so a map value that reached it would
 # abort naming the ref rather than fail inside @tsv.
@@ -5508,6 +5552,138 @@ else
 fi
 assert_eq "env_bake_has_key: NEGATIVE CONTROL -- an aliased env.copy in a bake file is not seen" \
   missed "$sc_v"
+
+# ---------------------------------------------------------------------
+# Test 41: claude_vm_check_config_structure refuses what the readers misread.
+#
+# A file of several YAML documents, a key-table key under a parent that is not
+# a map, the document itself not a map, and a string holding a newline outside
+# env.set each abort naming the file and the cause, in whichever argument slot
+# the file sits; a newline inside an env.set value, a leading `---`, an empty
+# file, an empty path and an absent file pass. Driven through the real
+# claude-vm.sh with run_uab (Test 37), each refused shape aborts the launch.
+# The negative controls show what each reader sees without the refusal.
+# ---------------------------------------------------------------------
+
+# structure_case <label> <yaml> <expected> <diagnostic> -- write <yaml> to a
+# file, run claude_vm_check_config_structure with it in each argument slot,
+# the other three empty, and assert "pass", or "abort" with a diagnostic that
+# names the file and holds <diagnostic>.
+structure_case() {
+  local doc="$WORK/structure-case.yml" slot got err
+  printf '%s\n' "$2" >"$doc"
+  for slot in 1 2 3 4; do
+    case "$slot" in
+      1) err="$(claude_vm_check_config_structure "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
+      2) err="$(claude_vm_check_config_structure "" "$doc" "" "" 2>&1)" && got=pass || got=abort ;;
+      3) err="$(claude_vm_check_config_structure "" "" "$doc" "" 2>&1)" && got=pass || got=abort ;;
+      4) err="$(claude_vm_check_config_structure "" "" "" "$doc" 2>&1)" && got=pass || got=abort ;;
+    esac
+    if [ "$got" = abort ]; then
+      case "$err" in
+        *"$doc"*) : ;;
+        *) got="abort without naming the file: $err" ;;
+      esac
+      case "$err" in
+        *"$4"*) : ;;
+        *) got="abort without naming the cause: $err" ;;
+      esac
+    fi
+    assert_eq "check_config_structure: $1 (slot $slot) -> $3" "$3" "$got"
+  done
+}
+
+structure_case "two documents" 'cpus: 2
+---
+cpus: 4' abort "holds 2 YAML documents"
+structure_case "a trailing ---" 'cpus: 2
+---' abort "holds 2 YAML documents"
+structure_case "a leading ---" '---
+cpus: 2' pass ""
+structure_case "a scalar parent" 'repo: 5' abort "repo is a !!int, not a map, so claude-vm cannot read repo.mount"
+structure_case "a list parent" 'proxy: [3128]' abort "proxy is a !!seq, not a map, so claude-vm cannot read proxy.cmd"
+structure_case "a scalar grandparent" 'claude:
+  plugins: true' abort "claude.plugins is a !!bool, not a map"
+structure_case "a list document" '- cpus: 2' abort "the document is a !!seq, not a map"
+structure_case "a scalar document" 'cpus' abort "the document is a !!str, not a map"
+structure_case "a null parent" 'repo:
+claude:' pass ""
+structure_case "a newline in a scalar" 'claude: {renderer: "classic\n"}' abort \
+  "claude.renderer in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in a list entry" 'egress: {allow: [a.example, "b.example\nc.example"]}' abort \
+  "egress.allow.1 in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in a mount field" 'mounts: [{host: "/a\n", tag: t}]' abort \
+  "mounts.0.host in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in an env.set value" 'env: {set: {A: "x\ny\n"}}' pass ""
+structure_case "a well-formed file" 'cpus: 2
+repo: {mount: live}
+claude: {plugins: {install_at_boot: [a@mp], enabled: {a@mp: false}}}' pass ""
+structure_case "an empty file" '' pass ""
+
+if claude_vm_check_config_structure "" "$WORK/does-not-exist.yml" "" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_config_structure: an empty path and an absent file are skipped" pass "$sc_v"
+
+# Through the launcher: each refused shape in the repo boot file aborts before
+# the type check's backstop.
+for st_pair in "holds 2 YAML documents|cpus: 2
+---
+cpus: 4
+" "repo is a !!int, not a map|repo: 5
+" "claude.renderer in $UAB/r.yml holds a newline|claude: {renderer: \"classic\\n\"}
+"; do
+  rm -f "$UAB/r.yml"
+  printf '%s%s' "${st_pair#*|}" "$UAB_TAIL" >"$UAB/r.yml"
+  st_got="$(run_uab "$UAB/absent-g.yml" "$UAB/r.yml")"
+  assert_eq "launcher: aborts with: ${st_pair%%|*}" \
+    aborted "$(uab_verdict "$st_got" "${st_pair%%|*}")"
+done
+
+# NEGATIVE CONTROLS: without the refusal, a key read answers once per document,
+# and a key under a scalar parent reads as absent, so it takes its default.
+printf 'cpus: 2\n---\ncpus: 4\n' >"$WORK/structure-multi.yml"
+assert_eq "check_config_structure: NEGATIVE CONTROL -- a two-document file answers a read twice" \
+  "2|---|4" "$(yq eval '.cpus' "$WORK/structure-multi.yml" | tr '\n' '|' | sed 's/|$//')"
+printf 'repo: 5\n' >"$WORK/structure-scalar.yml"
+assert_eq "check_config_structure: NEGATIVE CONTROL -- repo.mount under a scalar repo reads as its default" \
+  clone "$(claude_vm_scalar "$WORK/structure-scalar.yml" .repo.mount clone)"
+
+# ---------------------------------------------------------------------
+# Test 42: claude_vm_require_yq refuses a yq older than CLAUDE_VM_YQ_FLOOR.
+#
+# A stub yq function prints each version string; the floor itself and later v4
+# releases pass, and an older v4, a v3, a v5, a non-mikefarah yq and a version
+# that does not read as major.minor.patch each fail.
+# ---------------------------------------------------------------------
+YQ_FLOOR_V="${CLAUDE_VM_YQ_FLOOR[0]}.${CLAUDE_VM_YQ_FLOOR[1]}.${CLAUDE_VM_YQ_FLOOR[2]}"
+# yq_case <label> <version-output> <expected>
+yq_case() {
+  local got
+  # A subshell, so the stub function never outlives the case.
+  if (
+    yq() { printf '%s\n' "$YQ_STUB_OUT"; }
+    YQ_STUB_OUT="$2"
+    claude_vm_require_yq 2>/dev/null
+  ); then got=pass; else got=fail; fi
+  assert_eq "require_yq: $1 -> $3" "$3" "$got"
+}
+yq_case "the floor" "yq (https://github.com/mikefarah/yq/) version v$YQ_FLOOR_V" pass
+yq_case "a later release without a v" "yq (https://github.com/mikefarah/yq/) version 4.$((CLAUDE_VM_YQ_FLOOR[1] + 1)).0" pass
+yq_case "a later minor" "yq (https://github.com/mikefarah/yq/) version v4.$((CLAUDE_VM_YQ_FLOOR[1] + 1)).0" pass
+yq_case "a later patch" "yq (https://github.com/mikefarah/yq/) version v4.${CLAUDE_VM_YQ_FLOOR[1]}.$((CLAUDE_VM_YQ_FLOOR[2] + 1))" pass
+yq_case "an earlier minor" "yq (https://github.com/mikefarah/yq/) version v4.$((CLAUDE_VM_YQ_FLOOR[1] - 1)).99" fail
+yq_case "v4.1.0, before the ... operator" "yq (https://github.com/mikefarah/yq/) version v4.1.0" fail
+yq_case "4.0.0 without a v" "yq (https://github.com/mikefarah/yq/) version 4.0.0" fail
+yq_case "a mikefarah v3" "yq version 3.4.1" fail
+yq_case "a v5" "yq (https://github.com/mikefarah/yq/) version v5.0.0" fail
+yq_case "the Python yq" "yq 3.4.3" fail
+yq_case "an unreadable version" "yq (https://github.com/mikefarah/yq/) version v4.x" fail
+if [ "${CLAUDE_VM_YQ_FLOOR[2]}" -gt 0 ]; then
+  yq_case "an earlier patch" "yq (https://github.com/mikefarah/yq/) version v4.${CLAUDE_VM_YQ_FLOOR[1]}.$((CLAUDE_VM_YQ_FLOOR[2] - 1))" fail
+fi
 
 # ---------------------------------------------------------------------
 # Summary

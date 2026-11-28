@@ -719,8 +719,8 @@ can reach it.
 
 ## Requirements
 
-`yq` (mikefarah v4+), `git`, `python3` (stock on macOS; used to select
-the `claudeAiOauth` key from the Keychain blob — see "Authentication
+`yq` (mikefarah v4.54.3 or a later v4), `git`, `python3` (stock on
+macOS; used to select the `claudeAiOauth` key from the Keychain blob — see "Authentication
 (secrets)" above), `gpg` (`brew install gnupg`, for the host-side verified claude
 cache), a sha256
 tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
