@@ -1103,8 +1103,8 @@ claude_vm_check_typed_value() {
 # An absent or null key, and one written as `""`, is unset and passes: the
 # value used is then the key table's default. A value yq gives no tag is a
 # YAML alias, which the launcher refuses first (claude_vm_check_no_aliases),
-# and fails here too. A yq read that fails, such as on a file that does not parse, fails
-# the check.
+# and fails here too. A yq read that fails, such as on a file that does not
+# parse, fails the check.
 claude_vm_check_scalar() {
   local file="$1" key="$2" tag val
   tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)" ||
