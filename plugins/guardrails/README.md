@@ -120,6 +120,10 @@ home:
 - `schema-version` stamps the file with the format it is written in and
   relaxes nothing.
 
+**No listing opens `.git/` or makes the config file writable.** Nothing
+under a `.git/` directory is allowed by a listing, however wide, and no
+call may write the config file itself.
+
 **A broken file denies every call.** A config that exists but cannot be
 read or parsed makes the gate deny every gated tool call, a write to
 the file included, and the deny names the file and the error. Repair or
