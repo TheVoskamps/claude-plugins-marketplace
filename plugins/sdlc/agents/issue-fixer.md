@@ -109,7 +109,8 @@ from its issue.
    A brief that carries no findings but names the round as a rebase
    round, or names a merge state, is a rebase brief, and "Rebase
    briefs" below says what it asks of you. Steps 3 to 6 are about
-   findings and do not apply to it; the rest of the workflow does.
+   findings: on a rebase brief, the remedy "Rebase briefs" names takes
+   their place, and every other step runs as written, each once.
 
 2. Check out the PR branch with the preloaded
    `git-tools:git-branch-sync` skill, which owns every git step of this
@@ -287,7 +288,8 @@ the change you make.
 
 Two kinds of brief ask you to rebase the branch onto its base: the
 rebase-round brief and the merge-readiness briefs. Neither names
-findings. Take the head and base branches from the PR:
+findings. Take the head and base branches from the PR; on a rebase
+brief, `<branch-name>` means the head:
 
 ```text
 /github-prs:pr-view <PR_number> --json headRefName,baseRefName
@@ -309,8 +311,8 @@ is condition 1 there. A ruling whose stop line names any other stop —
 a command and its exit, such as a refused push or another non-zero
 `git-branch-sync` exit, or something else reported instead of a push —
 names the remedy for it: carry it out as the ruling says, under this
-file's rules as any fix is, at the point in "Rebasing the branch" where
-the stop the line names came.
+file's rules as any fix is, at the step where the stop the line names
+came.
 
 ### Merge-readiness briefs
 
@@ -349,13 +351,13 @@ The state the brief names sets the remedy:
 
 ### Rebasing the branch
 
-These steps and conditions serve every rebase brief alike. Rebase the
-branch onto its base and push:
+These steps and conditions serve every rebase brief alike, in place of
+Workflow steps 3 to 6: the branch is already checked out by step 2, and
+steps 7 to 12 test, push, release and report as for any fix. Rebase the
+branch onto its base:
 
 ```bash
-git-branch-sync checkout <head>
 git-branch-sync rebase <base>
-git-branch-sync push --exclude .claude/agent-memory/
 ```
 
 A rebase that stops on a conflict exits 3 with the
@@ -364,7 +366,8 @@ conditions below that settles it — resolve it so in the file, a
 documentation file by the same conditions as any other. Once
 every file the stop reported is resolved, hand them all back, which
 lands the stopped commit under its original message and author and
-lets the rebase walk on; repeat at each stop, then push:
+lets the rebase walk on; repeat at each stop until the rebase
+completes:
 
 ```bash
 git-branch-sync continue <resolved-paths>
@@ -390,23 +393,22 @@ The second and third are the resolvability conditions, and they apply
 to a conflict no ruling names. A conflict that meets neither is a
 design decision you cannot make, and so is a ruling that leaves the
 remedy unclear: abort the rebase with `git-branch-sync abort`, which
-leaves the branch as it was, push nothing, and report that you aborted
-and pushed nothing, and each such conflict the rebase reached, quoting
-it. A conflict you resolved
-earlier in the same
-rebase is undone by the abort, and resolved again on the next round.
+leaves the branch as it was; skip Workflow steps 7 to 10, so nothing is
+pushed; and in step 12 report that you aborted and pushed nothing, and
+each such conflict the rebase reached, quoting it. A conflict you
+resolved earlier in the same rebase is undone by the abort, and
+resolved again on the next round.
 On a rebase-round brief the orchestrator puts your report to the human;
 on a merge-readiness brief `pr-merge-readiness` returns it as the
 question. Either way the ruling on it reaches you in the next brief.
 
-Run the tests after the rebase, as for any other change. Then clean
-up, and report back per the workflow: which brief you had — a rebase
+In step 12, report also which brief you had — a rebase
 round, or the state a merge-readiness brief named — the base you
 rebased onto, each conflict and what settled
 it — for one a ruling named, the ruling; for one you resolved without
 a ruling, the repo rule, quoted, or the combination of both sides you
-kept — any ruling the rebase did not need, quoted, the new head SHA,
-and the test result. Add a fixed `Documentation conflicts:` line, one
+kept — any ruling the rebase did not need, quoted, and the new head
+SHA. Add a fixed `Documentation conflicts:` line, one
 entry per documentation file whose conflict you resolved, or `none`.
 
 A review round follows a rebase-round brief: on your return the
