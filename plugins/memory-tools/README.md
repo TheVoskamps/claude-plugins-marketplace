@@ -92,9 +92,9 @@ A record holds these keys, in this order:
 kind: agent-project
 source-path: /abs/path/to/the/memory/file
 tool: Write
-session-id: 0b1c2d3e
+session-id: "0b1c2d3e"
 branch: issue-12-some-branch
-captured-at: 2026-11-26T05:14:25Z
+captured-at: "2026-11-26T05:14:25Z"
 content: "the file's whole text after the call"
 ```
 

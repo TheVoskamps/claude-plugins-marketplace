@@ -26,4 +26,5 @@ anything.
   constraint as it would be written there. The skill writes, deletes
   and commits nothing.
 
-It needs `jq` and `git` on `PATH`, and memory turned on in Claude Code.
+It needs `jq` and `git` on `PATH`, memory turned on in Claude Code, and
+the `cc-tools` plugin, which is installed and enabled with this one.

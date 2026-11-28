@@ -8,8 +8,8 @@ what it recorded without changing anything.
 
 - `/cc-tools:agent-memory-cleanup` is removed. Nothing in this plugin
   deletes memory entries or moves them into `CLAUDE.md` any more;
-  `/memory-tools:memory-grade` reports the same grades and leaves the
-  edits to you.
+  `/memory-tools:memory-grade` grades each memory as delete, durable or
+  no code home and applies nothing, so the edits are yours.
 - The session inbox is removed with its two steps,
   `agent-memory-inbox-capture` and `agent-memory-inbox-cleanup`. An
   agent of yours that names either skill has to stop doing so.
