@@ -36,6 +36,9 @@ no row names is owned by the file its name points at.
 | The terms for a contradicted repo statement, and the search for one | `skills/orchestrate-readiness/SKILL.md` |
 | What an implementing agent does with a contradicted repo statement | `agents/issue-developer.md` and `agents/issue-fixer.md` |
 | How a body is split into sections and bullets, each gap line, each refusal, and the exit statuses | `bin/sdlc-readiness-check` |
+| The readiness stamp's format and hash, each `check` verdict, each `write` refusal, and the exit statuses | `bin/sdlc-readiness-stamp` |
+| The trace, the grading each stamp verdict calls for, and how a caller writes the stamp | `skills/orchestrate-readiness/SKILL.md` |
+| When a stamp is written | `skills/orchestrate-ready/SKILL.md` and `skills/orchestrate/SKILL.md`, each for its own runs |
 | Which gaps grooming repairs with no question, and the closing approval | `skills/orchestrate-ready/SKILL.md` |
 
 ## Decisions and config

@@ -172,6 +172,11 @@ print what each such issue returned:
   yourself: grooming is a conversation with the human, and this flow
   is not it.
 
+For each issue whose `ready` verdict came from a full or diff-only
+check — its `Stamp:` line is anything but `match` — write the stamp per
+`sdlc:orchestrate-readiness` → "Writing the stamp", whether or not
+another issue stops the run here.
+
 ### Read each issue, in parallel
 
 Read each issue via `/issue-view <N>`, which dispatches on the

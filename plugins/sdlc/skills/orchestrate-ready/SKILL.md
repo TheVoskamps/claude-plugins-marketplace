@@ -93,10 +93,11 @@ a side-effect issue — is an approval, not a decision.
    **A return with no verdict ends the session the same way** — the
    check's stderr, relayed as it stands, is all you report.
 
-   Otherwise its verdict, its
-   `Searched:` line and its gap list are what you report. Open with the
+   Otherwise its verdict, its `Stamp:` and
+   `Searched:` lines and its gap list are what you report. Open with the
    verdict, so the user knows the size of the conversation before
-   reading the detail. Relay the `Searched:` line as it stands, then
+   reading the detail. Relay the `Stamp:` and `Searched:` lines as they
+   stand, then
    list the gaps as a numbered list, each gap the rewrite repairs, per
    step 3, with the repair step 4 makes and each other gap with a
    **proposed default answer** — your best reading of what the issue
@@ -312,25 +313,30 @@ a side-effect issue — is an approval, not a decision.
    an issue outside a branch's own set is precisely what the
    closing-keyword rule forbids.
 
-6. **Set the status, then verify the write landed.** Skip this step
-   whenever a gap from step 2 went unresolved (see step 3) or the
-   check has not yet returned an empty gap list (see step 4) — the
-   issue is not ready and the status stays where it is. The flip is a
+6. **Write the stamp, set the status, then verify the write landed.**
+   Skip this step whenever a gap from step 2 went unresolved (see step
+   3) or the check has not yet returned an empty gap list (see step 4)
+   — the issue is not ready, no stamp is written and the status stays
+   where it is. The flip is a
    Kanban visibility aid for humans, not part of readiness: it runs
    only after the check passes, and it is still skipped wherever the
    `status` slot reports unconfigured, or the user picks leaving the
    status where it is, per "Status resolution" below.
    Otherwise resolve the
    orchestrate-ready status name per that section, then run, directly
-   before the flip and whatever the check printed:
+   before the stamp and the flip and whatever the check printed:
 
    ```bash
    sdlc-decision pending --issue <host>/<owner>/<repo>#<N>
    ```
 
    A non-zero exit means a design gap still waits on the user's answer:
-   set no status, and report the issue as not ready, naming each
-   problem its stderr names. On exit 0:
+   write no stamp, set no status, and report the issue as not ready,
+   naming each problem its stderr names. On exit 0, write the stamp
+   from the final `ready` verdict, per `sdlc:orchestrate-readiness` →
+   "Writing the stamp", unless its `Stamp:` line reads `match` — the
+   stamp is written whether or not the flip below runs. Then, unless
+   the flip is skipped:
 
    ```text
    /issue-set-status <N> <status-name>
@@ -345,8 +351,9 @@ a side-effect issue — is an approval, not a decision.
    changes, not a diff), each gap the rewrite repaired and its repair,
    which
    side-effect issues you created and
-   where, the status you set and that you confirmed it by re-reading,
-   and the issue URL. When step 6 was skipped because a gap is still
+   where, whether the stamp was written, left as it matched, or
+   refused and why, the status you set and that you confirmed it by
+   re-reading, and the issue URL. When step 6 was skipped because a gap is still
    open, say instead that the issue is not ready, name the gaps still
    open, and say the status is unchanged. When it was skipped only
    because the `status` slot reports unconfigured, say the issue is
@@ -378,8 +385,8 @@ under the slot's first line, which carries only the kind and any
   nothing to choose: treat the slot as unconfigured, below.
 
 If it reports the `status` slot as unconfigured, there is nothing to
-flip: say so plainly, deliver the groomed body, and stop rather than
-inventing a status.
+flip: say so plainly, deliver the groomed body, and set no status
+rather than inventing one. Step 6's pending check and stamp still run.
 
 ## Non-goals
 

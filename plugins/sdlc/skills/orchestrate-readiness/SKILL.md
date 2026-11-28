@@ -1,6 +1,6 @@
 ---
 name: orchestrate-readiness
-description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that, given the statuses the caller allows, refuses an issue that is closed, closed by an open PR, named by a local branch or in a status not allowed, and otherwise returns what the issue is missing as a gap list. Not invoked from the user's slash menu.
+description: The bar an issue meets before /sdlc:orchestrate runs on it, the issue-body grammar that bar keys on, the terms for a repo statement an issue contradicts, and the check that, given the statuses the caller allows, refuses an issue that is closed, closed by an open PR, named by a local branch or in a status not allowed, and otherwise traces the body against the code, skipping or narrowing that grading when the issue's readiness stamp allows, and returns what the issue is missing as a gap list, with the graded commit and the files a ready verdict relied on, and how a caller writes the stamp. Not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -20,8 +20,9 @@ grades a body against the bar.
 
 One issue number, with or without a leading `#`, and every status name
 the caller allows, each as its own `--allow-status`. The check reads
-the issue's body, state, status, closing PRs and edges, the local
-branches, and the tree at check time. It edits nothing.
+the issue's body, state, status, closing PRs, edges and readiness
+stamp, the local branches, and the tree at check time. It edits
+nothing: the caller writes the stamp, per "Writing the stamp".
 
 ## The readiness bar
 
@@ -246,10 +247,25 @@ Given an issue number:
    stands, and run nothing below. Exit 0
    means it found no gap; exit 3 prints one gap line per gap, each
    already naming its bar item, and each goes into the gap list as it
-   stands. On any other exit, relay its stderr verbatim and stop. Then
-   grade the rest of each bar item but "No contradicted repo
-   statement", in the order listed above, by reading the body; the
-   script's lines are the whole grading of each
+   stands. On any other exit, relay its stderr verbatim and stop.
+3. Decide how much of steps 4 to 6 runs. On exit 3 from step 2, run a
+   **full check**: all of them. On exit 0, run
+   `sdlc-readiness-stamp check <N>`, which this plugin puts on `PATH`,
+   from inside the repo's working tree, and act on the first line it
+   prints:
+   - `match` — run none of them; the verdict is `ready`.
+   - `diff <commit>..<head>` — run a **diff-only check**: read that
+     diff, and grade only whether it breaks the body — a name,
+     interface, validator, path or behavior the body relies on that the
+     diff changed — re-grading nothing the diff leaves unchanged. Its
+     `touched` lines name the stamped files the diff touched, and its
+     `kept` lines the rest of the stamped files.
+   - `full <reason>` — run a full check.
+
+   On a non-zero exit, relay its stderr verbatim and stop.
+4. In a full check, grade the rest of each bar item but "No
+   contradicted repo statement", in the order listed above, by reading
+   the body; the script's lines are the whole grading of each
    `### Mechanical` line's shape and check key, of whether each
    acceptance section is present and carries a bullet under
    `### Mechanical` or `### Semantic`, of an `## Acceptance` section,
@@ -260,9 +276,19 @@ Given an issue number:
    no files-affected section: grade **Files affected** for that body by
    reading, as for one with no list at all. Never run a command a
    `### Mechanical` bullet's text spells.
-3. Grade "No contradicted repo statement" by searching the instruction
-   files for statements about what the body's design changes, on every
-   invocation. At minimum, grep them for every path in the body's
+5. In a full check, trace the body against the code. For each behavior
+   the body specifies and each acceptance criterion:
+   - read the code it names or calls, and confirm that the names,
+     interfaces and validators behave as the body assumes;
+   - confirm the criterion can pass for the change as specified;
+   - follow any state the change introduces through success, stop and
+     re-run.
+
+   Each failure is a gap under the bar item it falls under. The trace
+   never runs a command the body spells.
+6. Grade "No contradicted repo statement" by searching the instruction
+   files for statements about what the body's design changes, in every
+   full check. At minimum, grep them for every path in the body's
    files-affected section and every identifier the design names —
    skill, agent, script and section names — and read the root
    `CLAUDE.md`, and the nested `CLAUDE.md`, and the on-demand files it
@@ -272,11 +298,33 @@ Given an issue number:
    as a capability claim, run a test of it; its gap line proposes
    deleting the statement only when the test showed it false, and then
    quotes the test and its output.
-4. Return the search and a gap list: a `Searched:` line naming the
-   terms step 3 grepped and the files it read, then every line step 2's
-   script printed, and one line per other failure of a bar item, naming
-   the item and the sentence or absence that fails it. An empty
-   list is the verdict `ready`.
+7. Return the stamp line, the search and a gap list: a `Stamp:` line
+   holding the first line `sdlc-readiness-stamp check` printed, or
+   `not consulted` after exit 3 from step 2; a `Searched:` line naming
+   the terms step 6 grepped and the files it read, or what the
+   diff-only check read, or `skipped` after a `match`; then every line
+   step 2's script printed, and one line per other failure of a bar
+   item, naming the item and the sentence or absence that fails it. An
+   empty list is the verdict `ready`. A `ready` verdict from a full or
+   diff-only check also returns the graded commit, the one
+   `git rev-parse HEAD` names in the working tree you read, and the
+   code and instruction files the check relied on for a conclusion;
+   after a diff-only check, those are the files on its `touched` and
+   `kept` lines plus the ones the diff-only check relied on.
+
+## Writing the stamp
+
+The check returns its verdict and writes nothing; the skill that called
+it writes the stamp, at the moment that skill names, with:
+
+```bash
+sdlc-readiness-stamp write <N> --commit <graded commit> --file <path>...
+```
+
+one `--file` per file the verdict relied on. Exit 3 is a refusal,
+printed on stdout; any other non-zero exit is a failure, its stderr the
+detail. Either one leaves the verdict `ready`: report what it printed
+and carry on.
 
 ## Mechanical gaps
 
@@ -292,16 +340,25 @@ label `mechanical:`. The script labels the ones it prints; label each
 ```text
 Verdict: <ready | not ready>
 
-Searched: grepped <terms>; read <files>
+Stamp: <match | diff <commit>..<head> | full <reason> | not consulted>
+
+Searched: <grepped <terms>; read <files> | what the diff-only check read | skipped>
 
 Gaps:
   - [mechanical: ]<bar item>: <the sentence or absence that fails it>
+
+Graded commit: <sha>
+
+Relied on:
+  - <path>
 ```
 
-Under `ready`, the `Gaps:` section reads `(none)`.
+Under `ready`, the `Gaps:` section reads `(none)`. `Graded commit:`
+and `Relied on:` appear only under a `ready` verdict from a full or
+diff-only check.
 
-A refusal is its own verdict, with no `Searched:` line, no gap list and
-no grading of the body:
+A refusal is its own verdict, with no `Stamp:` or `Searched:` line, no
+gap list and no grading of the body:
 
 ```text
 Verdict: refused
