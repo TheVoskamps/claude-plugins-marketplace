@@ -25,6 +25,10 @@
 #     missing or whose counts do not match its records' settle modes, and
 #     storing one whose counts match; and, when the awk reading its ids or
 #     its count line fails, removing its staging file.
+#   - --mode leave --stage assess refusing an empty assessment, one with no
+#     COUNT: line and one whose counts do not match its candidate and add
+#     blocks, and storing one whose counts match, the lone line
+#     COUNT: candidates 0, adds 0 included.
 #   - --mode wait ending on a leave for a child in flight, on the earliest
 #     child's deadline -- a child spawned and not yet entered included,
 #     and a replacement spawned after its predecessor was written off --
@@ -221,7 +225,7 @@ a_generated_list() {
   must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
   report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
   leave G list generate theorem-generator
-  report "$CASE/r" "no theorem to assess"
+  report "$CASE/r" "COUNT: candidates 0, adds 0"
   leave S list assess theorem-assessor
 }
 
@@ -360,7 +364,7 @@ assert_contains "next: the assessor in flight names its agent id" "assess${TAB}l
 : >"$CASE/empty"
 run --mode leave --round 1 --theorem list --stage assess --agent theorem-assessor --from "$CASE/empty"
 assert_eq "leave: an empty assessment is refused" "2" "$RC"
-report "$CASE/r" "T1" "action: accept" "reason: it tests the criterion"
+report "$CASE/r" "T1" "action: accept" "reason: it tests the criterion" "" "COUNT: candidates 1, adds 0"
 as_child S --mode leave --round 1 --theorem list --stage assess --agent theorem-assessor --from "$CASE/r"
 assert_eq "leave: an assessment needs no THEOREM: line and prints its result file" \
   "$PR_DIR/round1/list-theorem-assessor" "$OUT"
@@ -368,6 +372,66 @@ run --mode next --round 1
 assert_eq "next: the assessor's file settles the assessment" "disprove" "$(first_line)"
 assert_eq "next: the assessed list's live theorems are outstanding" \
   "disprove${TAB}T1${TAB}outstanding${TAB}${TAB}" "$(rest)"
+
+# --- leave: an assessor's count line ----------------------------------------
+
+# assess_leave <line>...: the assessor S's leave for round 1, its report
+# the arguments, one a line, run as run does so a refusal is observed.
+assess_leave() {
+  report "$CASE/r" "$@"
+  mkdir -p "$CASE/agent-S"
+  OUT=$(cd "$CASE/agent-S" && "$PERSIST" --pr "$PR" --mode leave --round 1 --theorem list --stage assess \
+    --agent theorem-assessor --from "$CASE/r" 2>"$CASE/err" </dev/null)
+  RC=$?
+  ERR=$(cat "$CASE/err")
+}
+
+# no_assessment: whether round 1 holds no assessor result file and no
+# assess leave.
+no_assessment() {
+  [ ! -e "$PR_DIR/round1/list-theorem-assessor" ] && ! grep -q '^leave list assess' "$PR_DIR/round1/log" \
+    && echo none || echo written
+}
+
+new_case leave-assess-count
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
+leave G list generate theorem-generator
+as_child S --mode enter --round 1 --theorem list --stage assess
+: >"$CASE/empty"
+run --mode leave --round 1 --theorem list --stage assess --agent theorem-assessor --from "$CASE/empty"
+assert_eq "leave: an empty assessment is refused even though a count line could be zero" "2" "$RC"
+assert_contains "leave: the empty assessment's refusal names the empty payload" "is empty" "$ERR"
+assert_eq "leave: an empty assessment stores nothing" "none" "$(no_assessment)"
+assess_leave T1 "action: accept" "reason: it tests the criterion"
+assert_eq "leave: an assessment with no COUNT: line is refused" "2" "$RC"
+assert_contains "leave: the refusal names the missing assessment count line" \
+  "does not end with a line COUNT: candidates <n>, adds <m>" "$ERR"
+assert_eq "leave: an assessment refused for its count stores nothing" "none" "$(no_assessment)"
+assess_leave T1 "action: accept" "reason: it tests the criterion" "" ADDS "claim: c" "issues: #1" \
+  "settle-mode: semantic" "pointers: a.md" "reason: uncovered" "" "COUNT: candidates 1, adds 2"
+assert_eq "leave: a COUNT: line that does not match the blocks is refused" "2" "$RC"
+assert_contains "leave: the refusal names the line and the blocks' counts" \
+  '"COUNT: candidates 1, adds 2", and its blocks hold candidates 1, adds 1' "$ERR"
+assert_eq "leave: an assessment refused for a wrong count stores nothing" "none" "$(no_assessment)"
+assess_leave "COUNT: candidates 0, adds 0"
+assert_eq "leave: an assessment of nothing that found no gap is stored" "0:$PR_DIR/round1/list-theorem-assessor" "$RC:$OUT"
+assert_eq "leave: the stored assessment is the report" "$(cat "$CASE/r")" "$(cat "$PR_DIR/round1/list-theorem-assessor")"
+assert_contains "leave: the stored assessment writes a leave line" "leave list assess" "$(cat "$PR_DIR/round1/log")"
+run --mode next --round 1
+assert_eq "next: an assessment of nothing settles the assess stage" "dispose" "$(first_line)"
+
+new_case leave-assess-count-blocks
+must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown
+report "$CASE/r" "no new theorems" "COUNT: mechanical 0, semantic 0"
+leave G list generate theorem-generator
+as_child S --mode enter --round 1 --theorem list --stage assess
+assess_leave T1 "action: merge" "reason: same claim" "partners: T2" "claim: ab" "" \
+  T3 "action: accept" "reason: fine" "" ADDS "claim: c" "issues: #1" "settle-mode: semantic" \
+  "pointers: a.md" "reason: uncovered" "" "claim: d" "issues: #1" "settle-mode: semantic" \
+  "pointers: a.md" "reason: uncovered" "" "COUNT: candidates 2, adds 2"
+assert_eq "leave: an assessment whose COUNT: line matches its candidate and add blocks is stored" \
+  "0:$PR_DIR/round1/list-theorem-assessor" "$RC:$OUT"
 
 new_case wait-assess
 must --mode anchor --round 1 --head-sha aaa --round-type code-and-instruction-markdown

@@ -359,8 +359,16 @@ derive.
   hold.
 
   With `--stage assess` the report is the assessment of that list,
-  filed under `--theorem list`, and nothing in it is checked but that
-  it is not empty.
+  filed under `--theorem list`, and its last non-blank line is its
+  count line, `COUNT: candidates <n>, adds <m>`, where `<n>` is the
+  number of candidate blocks — each opening on a line holding nothing
+  but `T<n>` — above any `ADDS` line and `<m>` the number of blocks
+  below it. An assessment whose last non-blank line is not of that
+  shape, or whose counts do not match, is refused, non-zero, storing
+  nothing, with a message naming the line and the counts its blocks
+  hold. An empty assessment is still refused as empty, so an assessor
+  that wrote nothing is never read as one that found nothing; one that
+  found nothing is the single line `COUNT: candidates 0, adds 0`.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a final `<task-notification>`

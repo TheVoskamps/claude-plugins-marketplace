@@ -182,7 +182,8 @@ command and its output verbatim rather than assess.
 ## Output format
 
 One block per candidate, in id order, then, when there is any gap, an
-`ADDS` line and one block per add, blocks separated by a blank line:
+`ADDS` line and one block per add, then the count line, blocks
+separated by a blank line:
 
 ```text
 T4
@@ -199,8 +200,15 @@ issues: <members>
 settle-mode: <mode>
 pointers: <pointers>
 reason: <one line>
+
+COUNT: candidates <n>, adds <m>
 ```
 
+- Every assessment, the seed's included, ends with the `COUNT:` line:
+  `<n>` is the number of candidate blocks above the `ADDS` line and
+  `<m>` the number of add blocks below it. An assessment with no
+  candidates and no gaps is the single line
+  `COUNT: candidates 0, adds 0`.
 - `action` is exactly one of the six, and `reason` is one line.
 - A merge is written once, on its lowest id; its partners get no block
   of their own. Every other candidate gets exactly one block.
