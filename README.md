@@ -66,9 +66,9 @@ The marketplace currently ships these plugins (one entry each in
   can be compared.
 - **`memory-tools`** — `PostToolUse` (matcher `Write|Edit`) hook that
   records every write into agent memory or auto memory as a YAML file
-  under `~/.local/state/memory-tools/`, filed by repository, plus a
-  read-only skill that grades what was captured as delete, durable or
-  no code home.
+  under `${XDG_STATE_HOME:-~/.local/state}/memory-tools/`, filed by
+  repository, plus a read-only skill that grades what was captured as
+  delete, durable or no code home.
 
 ## Add this marketplace
 

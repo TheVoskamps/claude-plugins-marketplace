@@ -485,6 +485,13 @@ throwaway worktree under `.claude/worktrees/`, locked while the agent
 runs. Those worktrees stay in place during a run and are removed by
 the cleanup.
 
+`issue-developer`, `issue-fixer`, `code-documenter`, `style-checker`
+and `docs-writer` declare `memory: project`, so with memory turned on
+in Claude Code each reads and writes its own entries under
+`.claude/agent-memory/` in its worktree. The plugin commits none of
+them and copies none out, so an entry is removed with the worktree
+unless something outside the plugin recorded it.
+
 `theorem-generator` runs at a reasoning tier the reviewer picks per
 round. You can name one yourself: `--generator-effort` on
 `/sdlc:git-review-pr`, or a tier you state during an orchestrate run,
