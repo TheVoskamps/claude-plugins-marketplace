@@ -20,6 +20,12 @@ the reason names what to do instead.
 - A shape with no legitimate use at all (`gh api --hostname`,
   `aws --endpoint-url`, `gh auth switch`) strands nothing, so it denies;
   its reason says to drop the shape and stay on the sanctioned one.
+- An inline environment assignment on a `git`, `gh` or `aws` command
+  denies, whatever the variable and whatever the subcommand, written as
+  a prefix (`FOO=bar git status`) or through `env`
+  (`env FOO=bar git status`); its reason says to drop the assignment.
+  It is keyed on the program, not the variable: on any other program
+  the assignment alone does not deny, and `FOO=bar ls` allows.
 - Totality is graded per input, not per element. A redirectable GraphQL
   mutation denies when it is the document's only mutation, or is bundled
   only with allow-listed ones. A document bundling it with one the gate

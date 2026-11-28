@@ -29,15 +29,15 @@ post-merge tail has run, deliver a summary:
 ## Issue Fix Summary
 
 ### Merged
-| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | Readiness Remedies | Doc Changes |
-|-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
-| A | <link-prefix>101 | <PR1> | Approved | 1 code, 1 documentation | 0 | 0 | README.md — documents the new flag |
-| B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 code (fixed high on 104), 1 documentation | 1 | 1 (BEHIND, rebased) | docs/api.md — records the changed endpoint |
+| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | In-loop Rebases | Readiness Remedies | Doc Changes |
+|-------|--------|----|-----------------|---------------|------------------|-----------------|--------------------|-------------|
+| A | <link-prefix>101 | <PR1> | Approved | 1 code, 1 documentation | 0 | 0 | 0 | README.md — documents the new flag |
+| B | <link-prefix>106, <link-prefix>104 | <PR2> | Approved (both) | 2 code (fixed high on 104), 1 documentation | 1 | 1 | 1 (BEHIND, rebased) | docs/api.md — records the changed endpoint |
 
 ### Ready, not monitored
-| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | Readiness Remedies | Doc Changes |
-|-------|--------|----|-----------------|---------------|------------------|--------------------|-------------|
-| E | <link-prefix>107 | <PR4> | Approved | 1 code, 1 documentation | 0 | 0 | none |
+| Batch | Issues | PR | Review Verdict | Review Rounds | Style-fix Rounds | In-loop Rebases | Readiness Remedies | Doc Changes |
+|-------|--------|----|-----------------|---------------|------------------|-----------------|--------------------|-------------|
+| E | <link-prefix>107 | <PR4> | Approved | 1 code, 1 documentation | 0 | 0 | 0 | none |
 
 ### Left Draft
 | Batch | Issues | PR | Review Verdict | Review Rounds | Human's Pick |
@@ -95,10 +95,12 @@ since the error leaves the PR's state unknown.
 Every cell in those tables is a claim to the human, and most arrive
 from a teammate's report — the `Doc Changes` list is `docs-writer`'s,
 and the `Review Verdict` and the severity detail behind it are the
-reviewer's — while `Review Rounds`, `Style-fix Rounds` and
-`Readiness Remedies` are your own counts, the first one per loop, as
-each loop's bound counts them, and the last one naming each
-state `pr-merge-readiness` reported and the remedy it drove. Fill them as
+reviewer's — while `Review Rounds`, `Style-fix Rounds`,
+`In-loop Rebases` and `Readiness Remedies` are your own counts, the
+first one per loop, as each loop's bound counts them, `In-loop Rebases`
+the PR's rebase rounds, and the last one counting close-out
+`pr-merge-readiness` remedies only, naming each state
+`pr-merge-readiness` reported and the remedy it drove. Fill them as
 the claims they are: verify the PR column and its merged state
 against the live PR, since the human reads the table as
 the record of what landed; say what a finding's provenance was when it

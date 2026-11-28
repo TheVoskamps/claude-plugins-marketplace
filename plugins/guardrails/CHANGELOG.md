@@ -1,5 +1,17 @@
 # guardrails changelog
 
+## 0.20.3 — 2026-11-27
+
+Documentation only, in the plugin's rule files. The gate and its
+verdicts are unchanged.
+
+- The verdict-tiers rules now state that an inline environment
+  assignment on a `git`, `gh` or `aws` command is denied, whatever the
+  variable and the subcommand, written as a prefix or through `env`.
+  The rule is keyed on the program: `FOO=bar ls` is still allowed.
+- The verification playbook no longer carries its note on finishing a
+  conflicted rebase.
+
 ## 0.20.2 — 2026-11-27
 
 Documentation only: the README's "Configuration" section says again

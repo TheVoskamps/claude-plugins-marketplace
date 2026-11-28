@@ -35,11 +35,14 @@ under `agents/` owns:
   resolving install, it has pushed the manifest changes and stopped for
   the install, per "When a developer stops for the approved resolving
   install"
-- `issue-fixer` — addresses PR review feedback, or a merge-readiness
-  remedy. When it returns, the branch carries new commits for the
-  review to see again — or, on a merge-readiness brief, has been
-  rebased for the gate to see again. You spawn it on review feedback;
-  `pr-merge-readiness` spawns it on a merge-readiness brief
+- `issue-fixer` — addresses PR review feedback, a rebase round, or a
+  merge-readiness remedy. When it returns, the branch carries new
+  commits for the review to see again — or, on a merge-readiness brief,
+  has been rebased for the gate to see again — or, on a rebase round
+  that hit a conflict it could not resolve, is unchanged and its report
+  quotes each such conflict. You spawn it on review feedback and for
+  the rebase round; `pr-merge-readiness` spawns it on a merge-readiness
+  brief
 - `code-documenter` — adds or corrects the comments in the code files
   a PR's diff touched, and corrects or deletes those its
   instruction-Markdown files carry where the diff contradicts them,
@@ -632,15 +635,128 @@ for the PR until it is answered.
 The PR stays a **draft** from here through the entire review/fix loop,
 until the Final Report flips it.
 
-### After each round's commits: document, check style, then review
+### After each round's commits: check merge, document, check style, review
 
 This is the **code loop**, which reviews code and instruction Markdown
 and runs every round under `--mode code-and-instruction-markdown`; "The
-documentation loop" below follows it. Run `code-documenter`, then
-`style-checker`, then `theorem-based-pr-reviewer`, **sequentially**.
-The review must see the final state of the PR's code, including the
-comment commit and any style fix; if either pass runs after the
-review, the review covers an incomplete PR.
+documentation loop" below follows it. Run the in-loop mergeability
+check, then `code-documenter`, then `style-checker`, then
+`theorem-based-pr-reviewer`, **sequentially**. The review must see the
+final state of the PR's code, including the comment commit and any
+style fix; if either pass runs after the review, the review covers an
+incomplete PR.
+
+#### The in-loop mergeability check
+
+Run it after every round that puts commits on the branch — the
+developer, each review-fix round, each style-fix round and each rebase
+round — and before `code-documenter`. It is read-only, and runs in the
+primary clone. `<base>` is the PR's base branch, as
+`/github-prs:pr-view <PR_REF> --json baseRefName` reports it.
+
+1. Fetch both sides:
+
+   ```bash
+   git fetch origin <base> <branch-name>
+   ```
+
+2. Ask whether the base moved. Exit 0 means it did not:
+
+   ```bash
+   git merge-base --is-ancestor origin/<base> origin/<branch-name>
+   ```
+
+3. On a moved base, compute the **overlap**. Take the merge base
+   `git merge-base origin/<base> origin/<branch-name>` prints, then list
+   the paths each side changed from it, with rename detection:
+
+   ```bash
+   git diff --name-status -M <merge-base> origin/<base>
+   git diff --name-status -M <merge-base> origin/<branch-name>
+   ```
+
+   A rename line counts under its old and its new path, so a rename on
+   one side and an edit on the other overlap. The overlap is the paths
+   both lists hold.
+
+A conflict needs both sides to change one path, so every conflict lies
+inside the overlap. The check calls no `/github-prs:pr-ready-to-merge`,
+reads no `mergeable`, `mergeStateStatus` or status check, and waits on
+no running check.
+
+- **Base not moved, or an empty overlap** — continue with
+  `code-documenter`; no rebase round runs.
+- **A non-empty overlap** — run a rebase round.
+
+#### The rebase round
+
+You run it yourself, as you run a style-fix round:
+
+1. Run `/github-prs:pr-merge-conflicts <PR_REF>`.
+2. Post a fixer brief on the PR, and nothing else before the fixer
+   runs:
+
+   ```text
+   <!-- sdlc:fixer-brief -->
+   PR <PR_REF> for issues <link-prefix><issue_N1>,
+   <link-prefix><issue_N2>, … needs a rebase round: its base has moved
+   under paths it changes.
+   Branch: <branch-name>
+
+   Overlapping files:
+   <each path in the overlap, one per line>
+
+   Conflicts /github-prs:pr-merge-conflicts reported:
+   <its output, verbatim — or omit the section when it reports a clean
+   trial merge>
+
+   Previous round's stop: <what the previous rebase round stopped on,
+   quoted from its report — the conflicts it could not resolve; the
+   command it ran, that command's exit and the stderr line it quoted;
+   or what else it reported instead of a push — or omit the line on a
+   round no ruling precedes>
+
+   Ruling on the previous round's stop: <the ruling, quoted, on the
+   stop the line above names — or omit the line on a round no such
+   ruling precedes>
+
+   Rebase per your agent definition. Report back each conflict and what
+   settled it, the new head SHA, and what you could not resolve.
+   ```
+
+3. Spawn `issue-fixer` with the standard fixer spawn prompt, per
+   "Handling review findings — the fix loop".
+
+On its return:
+
+- **A push** — the round put commits on the branch: run the in-loop
+  check again, then `code-documenter`, `style-checker` and the review
+  over the rebased branch. Its `Deferred to docs-writer:` entries and
+  its `Documentation conflicts:` paths are collected for the
+  documentation loop, per `skills/orchestrate/lib/pr-lifecycle.md` →
+  "The documentation loop".
+- **Conflicts it could not resolve** — it aborted the rebase and pushed
+  nothing. Put the conflicts it quoted to the human as a decision of
+  class `rebase-conflict`, per "Putting a decision to the human", then
+  post a new rebase-round brief carrying those conflicts on its
+  `Previous round's stop:` line and the human's answer on its
+  `Ruling on the previous round's stop:` line, and spawn `issue-fixer`
+  again.
+- **Exit 13 from `git-branch-sync checkout`** — handle it per "A
+  checkout refused because another worktree holds the branch". A
+  reclaim produces no ruling, so the re-spawn runs on the brief already
+  on the PR and no new brief is posted.
+- **Any other stop** — a refused push, another non-zero
+  `git-branch-sync` exit, or anything else it reports instead of a push
+  — is an escalation: handle it per "When a teammate escalates". Its
+  re-dispatch is a new rebase-round brief carrying the stop, quoted
+  from the report, on its `Previous round's stop:` line, and that
+  section's ruling — yours, quoting the sentence that settles the
+  question, or the human's direction, a bare "retry" included — on its
+  `Ruling on the previous round's stop:` line.
+
+A rebase round does not count against `code-review-max-rounds`. Track
+the number per PR and report it in the Final Report summary.
 
 **code-documenter spawn prompt** — give it PR reference and branch name.
 The same prompt serves every round, and no issue set is passed: the
@@ -701,8 +817,9 @@ paused one ends `— put to the human: <question> → <answer>`, the
 answer being the human's fix or ignore.
 Then spawn `issue-fixer` with the standard spawn prompt, so a round
 spawns one fixer however its findings split. That round puts commits on
-the branch, so `code-documenter` and `style-checker` run again after
-it, before the review, like any other fixer round.
+the branch, so the in-loop mergeability check, `code-documenter` and
+`style-checker` run again after it, before the review, like any other
+fixer round.
 
 An ignore binds the rest of the PR's loop. When `style-checker`
 reports a finding the human already ruled ignore, its line carries that
@@ -1051,9 +1168,10 @@ resolves it lets the fix proceed with no question.
    silently into another round. Check the rulings too: the review
    round that follows re-checks only the findings, so an unreported
    ruling is one nothing else will catch.
-4. Run `code-documenter` and `style-checker` against the branch, the
-   style-fix loop included, per "After each round's commits: document,
-   check style, then review" above, before the review runs. Skipping
+4. Run the in-loop mergeability check, then `code-documenter` and
+   `style-checker` against the branch, the style-fix loop included, per
+   "After each round's commits: check merge, document, check style,
+   review" above, before the review runs. Skipping
    them is what lets a fixer's commits reach the review with their
    comments unchecked against their classes' style guides, and
    unchecked against the `## For Authors and Checkers` rules.
@@ -1120,7 +1238,8 @@ the review adjustments — with these differences:
 - **Every round runs under `--mode documentation`** — `style-checker`
   and `theorem-based-pr-reviewer` both get it, so the round checks and
   reviews the PR's documentation and nothing else. `code-documenter`
-  does not run.
+  does not run, and neither do the in-loop mergeability check and the
+  rebase round.
 - **`docs-writer` is the loop's implementer**, in `issue-fixer`'s place
   for review and style findings alike. Its briefs, how a round's fixer
   brief is posted, and when the loop ends are in
@@ -1469,7 +1588,8 @@ definition, `CLAUDE.md` or global rules file already states.
   `theorem-based-pr-reviewer` spawn **that posted a review**, however
   many children its fan-outs spawned and at whatever generator tier.
   The `code-documenter` and `style-checker` passes are not reviews, a
-  style-fix round is counted by its own loop, and a reviewer spawn that
+  style-fix round is counted by its own loop, a rebase round is counted
+  on its own, and a reviewer spawn that
   posted no review — an in-progress return, a broken call, or no
   resolved issue set — is not a round; a spawn that returned without a
   verdict block having posted a review anyway counts, because the
@@ -1498,8 +1618,9 @@ What you do yourself is orchestration mechanics:
   `/pr-ready <PR>`, and `/pr-draft <PR>` when the human reopens the
   review loop on a ready PR, per the PR-lifecycle file. They set or
   read the PR's state; none of them
-  remedies it. The merge-readiness gate and the conflict listing are
-  `pr-merge-readiness`'s and `pr-monitor`'s to run, not yours.
+  remedies it. The merge-readiness gate is `pr-merge-readiness`'s and
+  `pr-monitor`'s to run, not yours. The conflict listing is theirs at
+  close-out, and yours only for the in-loop rebase round.
 - **Set issue status via `/issue-set-status`, and assign via
   `/issue-update`**, per the issue-lifecycle file.
 - **Edit an issue's text via `/issue-update`** — only the edit a

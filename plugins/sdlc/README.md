@@ -205,7 +205,9 @@ The list and its assessment are shown under every value.
 
 ### Review rounds
 
-A round of the code loop runs `code-documenter`, which corrects the
+A round of the code loop first checks whether the PR's base has moved
+under it, per "A base that moves during the code loop" below. It then
+runs `code-documenter`, which corrects the
 comments in what changed, then `style-checker`, whose findings go to
 `issue-fixer` before the review, then `theorem-based-pr-reviewer`. The
 reviewer generates theorems for what changed since the last round,
@@ -222,6 +224,64 @@ A loop ends when a round approves with no findings, or at its round
 cap, where every finding still open reaches you as one decision.
 Whether a clean end waits for you is set by `loop-end` for the code
 loop and `docs-loop-end` for the documentation loop.
+
+### A base that moves during the code loop
+
+The merge-readiness gate runs only after a PR's loops have ended, and
+a review round measures the branch against its own merge base. Left to
+the gate, a base that moved during the code loop would show up as a
+conflict after the last review, and its resolution would bring in base
+code no round had reviewed. The in-loop mergeability check finds the
+moved base while rounds are still running.
+
+The check runs after every round that puts commits on the branch,
+before `code-documenter`. It fetches the base and the PR branch and
+changes nothing:
+
+- The base has **moved** when its tip is not an ancestor of the PR's
+  head.
+- On a moved base, the **overlap** is the set of paths that both the
+  base and the PR changed since their merge base. Renames are detected,
+  and a renamed path counts under its old and its new name, so a rename
+  on one side overlaps an edit on the other.
+
+A conflict needs both sides to change one path, so every conflict lies
+inside the overlap. The check works from the fetched refs alone: it
+does not ask GitHub whether the PR is mergeable, and it waits on no
+running check.
+
+With the base unmoved, or an empty overlap, the round goes on. A base
+that moved under none of the PR's paths cannot conflict with it, and is
+left to the merge-readiness gate.
+
+A non-empty overlap starts a **rebase round**, whether or not the two
+sides' changes conflict. The orchestrator lists the conflicts a trial
+merge finds and posts a fixer brief on the PR carrying the overlapping
+files and those conflicts, and `issue-fixer` rebases the branch onto
+its base. Each conflict is resolved by the first of these that settles
+it:
+
+1. A ruling that names the conflict.
+2. A rule the repository's instruction Markdown states, such as the
+   one that settles a conflicting plugin `version` line.
+3. Both sides kept together, where their changes edit different parts
+   of the conflicting region or one already contains the other.
+
+A conflict none of them settles is a design decision. The fixer aborts
+the rebase, pushes nothing, and the conflict is put to you; your answer
+travels in the next rebase-round brief. Any other stop, such as a
+refused push, is an escalation: the orchestrator's ruling on it, or
+yours where the question is yours, travels in the next brief likewise.
+
+A rebase round that pushed is treated as a fix round: the check runs
+again, and `code-documenter`, `style-checker` and the review run over
+the rebased branch, so the base code the rebase brought in is reviewed
+with the PR's own. A rebase round does not count against
+`code-review-max-rounds`.
+
+The check and the rebase round belong to the code loop. A base that
+moves during the documentation loop, or after it, is the
+merge-readiness gate's to find.
 
 ### The questions it asks you
 
@@ -314,7 +374,10 @@ the run did not see merge keeps all of them.
 The run closes with a summary: the PRs that merged, those marked ready
 and left unwatched under `merge-wait: skip`, those your pick at a loop
 end left as drafts, anything that needs your attention, and the
-batches still waiting on an earlier one.
+batches still waiting on an earlier one. For each PR that reached
+ready, its `In-loop Rebases` column counts the code loop's rebase
+rounds, apart from `Readiness Remedies`, which counts only the
+remedies the merge-readiness gate drove.
 
 `/sdlc:orchestrate-cleanup --all` is for clearing up after many runs.
 It lists every worktree under `.claude/worktrees/`, every agent
@@ -467,7 +530,7 @@ from the `/` menu:
 | Agent | Purpose |
 | --- | --- |
 | `issue-developer` | Implements one batch of issues on one branch and opens its draft PR. |
-| `issue-fixer` | Applies a round's findings to an open PR's branch, or a merge-readiness remedy: a rebase onto the base, with its conflicts resolved or escalated. |
+| `issue-fixer` | Applies a round's findings to an open PR's branch, or rebases it onto its base, with the conflicts resolved or escalated: in a rebase round of the code loop, or as a merge-readiness remedy. |
 | `code-documenter` | Corrects the comments in the files a round changed, before its review. |
 | `style-checker` | Reports a round's style-guide violations: in code and instruction Markdown in the code loop, in documentation in the documentation loop. |
 | `docs-writer` | Writes a PR's documentation in the documentation loop and fixes what that loop's rounds find in it; for a batch with no code to implement, also creates the branch and opens the PR. |

@@ -244,7 +244,15 @@ into a brief.
    prints. Each brief is what a fixer round was told to address. A
    brief from the review loop carries that round's findings, and the
    orchestrator's rulings on how to fix them and on any work that is
-   not itself a finding. A brief from the close-out's merge-readiness
+   not itself a finding. A rebase-round brief, which the orchestrator
+   posts inside the code loop when the PR's base moved under paths the
+   PR changes, carries no finding either: it names the round as a
+   rebase round and carries the overlapping files, any conflicts
+   `github-prs:pr-merge-conflicts` reported, and the ruling on any stop
+   a previous rebase round escalated, and the commit
+   it drove is an in-loop rebase, which "What changed in response"
+   names as such rather than as a fix or a merge-readiness remedy. A
+   brief from the close-out's merge-readiness
    gate carries no finding at all: its body is the gate's report — the
    state it found, for `DIRTY` the conflicts, and the ruling on that
    state, the orchestrator's or the human's, when one was carried — and
@@ -428,7 +436,9 @@ that belong to no type. Each type's sub-section carries:
   carried, and the change each drove, drawn from the commits and the
   fixer briefs. This is the part a reviewer of the merged PR cannot
   reconstruct: the diff shows the end state, and this says which of it
-  was the first attempt and which was a repair.
+  was the first attempt and which was a repair. Name each in-loop
+  rebase the loop's rebase-round briefs drove as an in-loop rebase, with
+  the conflicts its brief carried, rather than as a fix.
 
 The rest of the section belongs to no type, and carries:
 
