@@ -80,11 +80,22 @@ slot_set=no
 if [ "$all" = yes ]; then
   [ "$positionals" -le 1 ] ||
     iss_usage_die "\`--all\` reports every slot, so it takes no slot; $usage"
-  [ "$positionals" -eq 0 ] || { target=$first_arg; target_set=yes; }
+  [ "$positionals" -eq 0 ] || {
+    target=$first_arg
+    target_set=yes
+  }
 else
   case "$positionals" in
-    1) slot=$first_arg; slot_set=yes ;;
-    2) target=$first_arg; target_set=yes; slot=$second_arg; slot_set=yes ;;
+    1)
+      slot=$first_arg
+      slot_set=yes
+      ;;
+    2)
+      target=$first_arg
+      target_set=yes
+      slot=$second_arg
+      slot_set=yes
+      ;;
   esac
 fi
 
