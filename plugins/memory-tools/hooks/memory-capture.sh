@@ -3,8 +3,9 @@
 # memory-capture.sh -- PostToolUse hook (matcher: Write|Edit): record a
 # successful write into a memory directory as one YAML file under
 # ${XDG_STATE_HOME:-$HOME/.local/state}/memory-tools/<host>/<owner>/<repo>/,
-# named <captured-at>-<tool-use-id>.yml and rendered by memory-record.jq
-# beside this script. The memory directories, with <config> being
+# named <stamp>-<tool-use-id>.yml, <stamp> being the UTC capture time as
+# YYYYMMDDTHHMMSSZ, and rendered by memory-record.jq beside this script.
+# The memory directories, with <config> being
 # CLAUDE_CONFIG_DIR when set and non-empty and ~/.claude otherwise:
 #
 #   agent-user     <config>/agent-memory/<agent>/

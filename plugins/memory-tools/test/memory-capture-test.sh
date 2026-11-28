@@ -76,7 +76,8 @@ record_files() {
 
 # expect_record <label> <kind> <source-path> <tool> <branch> <content> --
 # check that the last run left exactly one record, in the o/r directory and
-# named <captured-at>-toolu_01.yml, holding every key in order, and that
+# named <stamp>-toolu_01.yml, <stamp> being the capture time as
+# YYYYMMDDTHHMMSSZ, holding every key in order, and that
 # its content reads back from YAML as <content>.
 expect_record() {
   local label=$1 kind=$2 source=$3 tool=$4 branch=$5 content=$6 files name stamp captured expected actual read_back
