@@ -736,6 +736,9 @@ On its return:
   `Ruling on the conflicts:` line and spawn `issue-fixer` again.
 - **Exit 13 from `git-branch-sync checkout`** — handle it per "A
   checkout refused because another worktree holds the branch".
+- **Any other stop** — a refused push, another non-zero
+  `git-branch-sync` exit, or anything else it reports instead of a push
+  — is an escalation: handle it per "When a teammate escalates".
 
 A rebase round does not count against `code-review-max-rounds`. Track
 the number per PR and report it in the Final Report summary.
@@ -1220,7 +1223,8 @@ the review adjustments — with these differences:
 - **Every round runs under `--mode documentation`** — `style-checker`
   and `theorem-based-pr-reviewer` both get it, so the round checks and
   reviews the PR's documentation and nothing else. `code-documenter`
-  does not run.
+  does not run, and neither do the in-loop mergeability check and the
+  rebase round.
 - **`docs-writer` is the loop's implementer**, in `issue-fixer`'s place
   for review and style findings alike. Its briefs, how a round's fixer
   brief is posted, and when the loop ends are in

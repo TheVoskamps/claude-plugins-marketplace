@@ -381,8 +381,9 @@ The second and third are the resolvability conditions, and they apply
 to a conflict no ruling names. A conflict that meets neither is a
 design decision you cannot make, and so is a ruling that leaves the
 remedy unclear: abort the rebase with `git-branch-sync abort`, which
-leaves the branch as it was, push nothing, and report each such
-conflict the rebase reached, quoting it. A conflict you resolved
+leaves the branch as it was, push nothing, and report that you aborted
+and pushed nothing, and each such conflict the rebase reached, quoting
+it. A conflict you resolved
 earlier in the same
 rebase is undone by the abort, and resolved again on the next round.
 On a rebase-round brief the orchestrator puts your report to the human;
