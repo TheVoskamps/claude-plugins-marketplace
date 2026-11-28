@@ -1,5 +1,27 @@
 # sdlc changelog
 
+## 0.106.0 — 2026-11-27
+
+A review round with nothing to assess now gets past the assess stage.
+An assessment of no candidates that found no coverage gap used to be
+empty, and `sdlc-agent-result-persist --mode leave` refuses an empty
+report, so the stage stayed in flight and the round posted no review.
+Any round whose changes the carried theorems already covered could
+stop there.
+
+- Every `theorem-assessor` assessment, the seed's included, ends with
+  `COUNT: candidates <n>, adds <m>`: the candidate blocks above the
+  `ADDS` line, and the add blocks below it. An assessment that found
+  nothing is the single line `COUNT: candidates 0, adds 0`.
+- `sdlc-agent-result-persist --mode leave --stage assess` refuses,
+  exit 2 and storing nothing, an assessment whose last non-blank line
+  is not that count line, or whose numbers do not match its blocks.
+- An empty assessment is still refused, so an assessor that wrote
+  nothing is never read as one that found nothing.
+- A round whose assessment is `COUNT: candidates 0, adds 0` settles
+  the assess stage with no new theorems, and the review is settled
+  from the carried records.
+
 ## 0.105.0 — 2026-11-27
 
 The agents that write a PR record memory again, and nothing in this
