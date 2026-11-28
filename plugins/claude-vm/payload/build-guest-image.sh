@@ -171,10 +171,10 @@ BASE_OS_REV="debian-12-20250601"
 # hard-secure all-baked config is the egress allowlist (mirrors left
 # unreachable), not the absence of the apt binary, and the
 # add_apt_uris_to_allowlist: always mid-session-install path is only honest if
-# apt exists. This is a base-image CONTENT
-# change (not boot-logic code), but it still must invalidate every cached
-# image built before it -- including images already built at rev 11 without
-# apt -- so old images (stamped 'launcher11') must rebuild to gain it.
+# apt exists. This is a base-image CONTENT change (not boot-logic code), but it
+# still must invalidate every cached image built before it -- including images
+# already built at rev 11 without apt -- so old images (stamped 'launcher11')
+# must rebuild to gain it.
 # Bumped 12 -> 13: second real-run pass (issue #106) -- mid-session apt
 # proxying, apt metadata/cache diet, and root-partition headroom. A real
 # guest boot found THREE more problems past the 11 -> 12 apt-bake fix: (1) an
