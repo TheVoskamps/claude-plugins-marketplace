@@ -1,7 +1,7 @@
 {
   "name": "cc-tools",
   "description": "Claude Code meta-skills: load all global rules, track Claude Code feature/bug watchlist status, report what changed upstream since the last run — both filtered to the topics in the user's own cc-tools config — propose further topics from this machine's own global Claude configuration and append only the ones the user accepts, and ship the cr session launcher, kept current at ~/.local/bin/cr by a SessionStart hook, which runs Claude Code under a named account with --as and merges per-user host, account, owner and repo settings layers under ~/.config/cc-tools/cr-settings/ with a repo's .cc-tools/cr-settings.json into one --settings file — list, add and remove an account directory's symlinks into ~/.claude, and print the config directory in effect with claude-home.",
-  "version": "0.12.2",
+  "version": "0.13.0",
   "author": {
     "name": "Edwin Voskamp",
     "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps"
