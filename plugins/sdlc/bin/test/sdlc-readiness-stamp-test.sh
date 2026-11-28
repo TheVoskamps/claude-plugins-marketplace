@@ -8,11 +8,14 @@
 # on a rename from a listed path and on a rename onto one, `full`
 # for a changed body, a changed blocked-by edge, a changed sdlc version,
 # an unreadable stamp, a stamped commit origin no longer carries and a
-# Jira tracker; a blocked-by reference spelled another way still matching;
-# `write` composing the stamp from the files-affected section and --file,
-# and editing it in place; and `write` refusing, with nothing written, a
-# dirty tree, an untracked file, a HEAD origin lacks, a --commit that is
-# not HEAD, an unknown --commit and a Jira tracker; and the usage errors.
+# Jira tracker, blank lines before its front matter included; a blocked-by
+# reference spelled another way still matching; `write` composing the stamp
+# from the files-affected section and --file, an absolute --file inside the
+# tree stored repo-relative, and editing it in place; and `write` refusing,
+# with nothing written, a dirty tree, an untracked file, a HEAD origin
+# lacks, a --commit that is not HEAD, an unknown --commit, an absolute
+# --file outside the tree, a --file with a `..` component and a Jira
+# tracker; and the usage errors.
 #
 # Needs bash, git, jq, the POSIX utilities and
 # plugins/git-tools/bin/git-default-branch in the same checkout. Reaches no
@@ -311,10 +314,17 @@ git -C "$REPO" reset -q --hard "$TIP"
 run write 7 --commit 0123456789abcdef0123456789abcdef01234567
 check "$RC:$OUT" "3:refused: --commit 0123456789abcdef0123456789abcdef01234567 names no commit in this clone; no stamp was written" \
   "write: an unknown --commit refuses"
+run write 7 --commit "$TIP" --file /elsewhere/x.sh
+check "$RC:$OUT" "3:refused: --file /elsewhere/x.sh is not a repo-relative path inside the working tree; no stamp was written" \
+  "write: an absolute --file outside the tree refuses"
+run write 7 --commit "$TIP" --file src/../other.txt
+check "$RC" 3 "write: a --file with a .. component refuses"
 check "$(writes)" "$before" "write: no refusal wrote anything"
 
-run write 7 --commit "$TIP"
+ROOT=$(git -C "$REPO" rev-parse --show-toplevel)
+run write 7 --commit "$TIP" --file "$ROOT/src/a.sh"
 check "$RC" 0 "write: the clean tip writes again"
+check "$(grep -c '^  - src/a.sh$' "$SANDBOX/comment")" 1 "write: an absolute --file inside the tree is stored repo-relative"
 
 # --- Jira ----------------------------------------------------------------
 
@@ -326,6 +336,9 @@ before=$(writes)
 run write 7 --commit "$TIP"
 check "$RC:$OUT" "3:refused: the tracker is Jira, which carries no stamp; no stamp was written" "Jira: write refuses"
 check "$(writes)" "$before" "Jira: nothing written"
+printf -- '\n\n---\nissues: Jira\n---\n' >"$REPO/.issues/repo-config.md"
+run check 7
+check "$RC:$OUT" "0:full the tracker is Jira, which carries no stamp" "Jira: blank lines before the front matter are skipped"
 rm -r "$REPO/.issues"
 
 echo

@@ -321,7 +321,7 @@ it writes the stamp, at the moment that skill names, with:
 sdlc-readiness-stamp write <N> --commit <graded commit> --file <path>...
 ```
 
-one `--file` per file the verdict relied on. Exit 3 is a refusal,
+one `--file` per `Relied on:` path. Exit 3 is a refusal,
 printed on stdout; any other non-zero exit is a failure, its stderr the
 detail. Either one leaves the verdict `ready`: report what it printed
 and carry on.
@@ -350,12 +350,13 @@ Gaps:
 Graded commit: <sha>
 
 Relied on:
-  - <path>
+  - <repo-relative path>
 ```
 
 Under `ready`, the `Gaps:` section reads `(none)`. `Graded commit:`
 and `Relied on:` appear only under a `ready` verdict from a full or
-diff-only check.
+diff-only check. Each `Relied on:` path is relative to the working
+tree's root, with no `.` or `..` component.
 
 A refusal is its own verdict, with no `Stamp:` or `Searched:` line, no
 gap list and no grading of the body:

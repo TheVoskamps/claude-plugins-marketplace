@@ -57,10 +57,13 @@
 # write composes the stamp from the issue as issue-view prints it now,
 # with --commit as its commit and, as its files, every --file path and
 # every path of the body's `## Files affected (floor)` section, and posts
-# it, editing the existing stamp when there is one. It refuses, writing
-# nothing, when the tracker is Jira, the working tree has a change or an
-# untracked file, --commit names no commit, or HEAD, --commit and the
-# fetched remote default branch are not one commit.
+# it, editing the existing stamp when there is one. A --file path inside
+# the working tree given as an absolute path is stored relative to its
+# root. It refuses, writing nothing, when the tracker is Jira, the working
+# tree has a change or an untracked file, a --file path is absolute outside
+# the working tree or has an empty, `.` or `..` component, --commit names
+# no commit, or HEAD, --commit and the fetched remote default branch are
+# not one commit.
 #
 # Exit statuses:
 #   0  check printed its verdict, or write wrote the stamp; write's stdout
@@ -121,12 +124,17 @@ esac
 
 root=$(git rev-parse --show-toplevel) || fail 1 "not inside a git working tree"
 
-# The tracker, from an inline parse of the one front-matter key.
-tracker=$(awk '
-  NR == 1 && $0 != "---" { exit }
-  NR > 1 && $0 == "---" { exit }
-  sub(/^issues:[ \t]*/, "") { sub(/[ \t]+#.*$/, ""); gsub(/["\x27]/, ""); print; exit }
-' "$root/.issues/repo-config.md" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+# The tracker, from an inline parse of the one front-matter key; blank
+# lines before the opening `---` are skipped, as the issues plugin does.
+tracker=''
+config=$root/.issues/repo-config.md
+if [ -f "$config" ]; then
+  tracker=$(awk '
+    !started { if ($0 ~ /^[ \t]*$/) next; if ($0 == "---") { started = 1; next } exit }
+    $0 == "---" { exit }
+    sub(/^issues:[ \t]*/, "") { sub(/[ \t]+#.*$/, ""); gsub(/["\x27]/, ""); print; exit }
+  ' "$config" | tr '[:upper:]' '[:lower:]') || fail 1 "could not read the issues: key of $config"
+fi
 if [ "$tracker" = jira ]; then
   [ "$mode" = check ] && {
     printf 'full the tracker is Jira, which carries no stamp\n'
@@ -146,6 +154,23 @@ version=$(jq -r '.version // empty' "$script_dir/../.claude-plugin/plugin.json")
 if [ "$mode" = write ]; then
   dirty=$(git status --porcelain) || fail 1 "git status failed"
   [ -z "$dirty" ] || refuse "the working tree has uncommitted changes or untracked files"
+
+  # Each --file made repo-relative: an absolute path inside the working
+  # tree loses the tree's root, and any other absolute path, or one with
+  # an empty, `.` or `..` component, is refused.
+  if [ "${#files[@]}" -gt 0 ]; then
+    rel=()
+    for f in "${files[@]}"; do
+      case "$f" in
+        "$root"/*) f=${f#"$root"/} ;;
+      esac
+      case "/$f/" in
+        //* | */./* | */../* | *//*) refuse "--file $f is not a repo-relative path inside the working tree" ;;
+      esac
+      rel+=("$f")
+    done
+    files=("${rel[@]}")
+  fi
 fi
 
 branch=$(git-default-branch) || fail 1 "git-default-branch named no default branch"
@@ -165,19 +190,21 @@ fi
 view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
 
 # The repository the issue is in, from the URL on issue-view's second line.
-url=$(printf '%s\n' "$view" | awk 'NR == 2 { sub(/\r$/, ""); print; exit }')
+url=$(awk 'NR == 2 { sub(/\r$/, ""); print; exit }' <<<"$view") ||
+  fail 1 "awk failed reading the issue URL"
 url_re='^https://([^/]+)/([^/]+)/([^/]+)/issues/[0-9]+$'
 [[ $url =~ $url_re ]] || fail 1 "issue-view $issue printed no issue URL on its second line"
 host=${BASH_REMATCH[1]}
 owner=${BASH_REMATCH[2]}
 repo=${BASH_REMATCH[3]}
 
-body=$(printf '%s\n' "$view" | awk 'f { print } !f && $0 == "Body:" { f = 1 }')
+body=$(awk 'f { print } !f && $0 == "Body:" { f = 1 }' <<<"$view") ||
+  fail 1 "awk failed reading the issue body"
 
 # Each `  - <reference> <title>` line of the `Blocked by:` section, the
 # reference made canonical: `#N` in the issue's repository, `repo#N` under
 # its owner, `owner/repo#N` on its host.
-refs=$(printf '%s\n' "$view" | awk -v h="$host" -v o="$owner" -v r="$repo" '
+refs=$(awk -v h="$host" -v o="$owner" -v r="$repo" '
   { sub(/\r$/, "") }
   $0 == "Body:" { exit }
   $0 == "Blocked by:" { sec = 1; next }
@@ -189,7 +216,7 @@ refs=$(printf '%s\n' "$view" | awk -v h="$host" -v o="$owner" -v r="$repo" '
     else if (n == 2) ref = h "/" ref
     print tolower(ref)
   }
-' | LC_ALL=C sort -u)
+' <<<"$view" | LC_ALL=C sort -u) || fail 1 "awk or sort failed reading the blocked-by references"
 
 # hash_input -- print the bytes the stamp's hash covers.
 hash_input() {
@@ -206,7 +233,7 @@ hash=${hash%% *}
 
 if [ "$mode" = write ]; then
   # The paths of the body's files-affected section, fenced blocks skipped.
-  listed=$(printf '%s\n' "$body" | awk '
+  listed=$(awk '
     { sub(/\r$/, "") }
     match($0, /^[ \t]*(```+|~~~+)/) {
       m = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", m)
@@ -216,15 +243,15 @@ if [ "$mode" = write ]; then
     fence { next }
     /^## / { h = $0; sub(/[ \t]+$/, "", h); sec = (h == "## Files affected (floor)"); next }
     sec && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ { p = $0; sub(/^- `/, "", p); sub(/`.*$/, "", p); sub(/^\.\//, "", p); print p }
-  ')
-  [ "${#files[@]}" -eq 0 ] || listed=$(printf '%s\n' "${files[@]}" "$listed")
-  all=$(printf '%s\n' "$listed" | grep -v '^$' | LC_ALL=C sort -u)
+  ' <<<"$body") || fail 1 "awk failed reading the files-affected section"
+  [ "${#files[@]}" -eq 0 ] || listed=$(printf '%s\n' "${files[@]}" "$listed") || fail 1 "printf failed joining the --file paths"
+  all=$(awk 'length' <<<"$listed" | LC_ALL=C sort -u) || fail 1 "awk or sort failed listing the stamp's files"
 
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/sdlc-readiness-stamp.XXXXXX") || fail 1 "mktemp failed"
   {
-    printf '%s\n\n```yaml\nhash: %s\ncommit: %s\nsdlc-version: %s\nfiles:\n' "$MARKER" "$hash" "$commit" "$version"
-    [ -z "$all" ] || printf '%s\n' "$all" | sed 's/^/  - /'
-    printf '```\n'
+    printf '%s\n\n```yaml\nhash: %s\ncommit: %s\nsdlc-version: %s\nfiles:\n' "$MARKER" "$hash" "$commit" "$version" &&
+      { [ -z "$all" ] || awk '{ print "  - " $0 }' <<<"$all"; } &&
+      printf '```\n'
   } >"$tmp/stamp.md" || {
     rm -rf "$tmp"
     fail 1 "could not compose the stamp"
@@ -244,7 +271,7 @@ stamp=$(issue-comment "$issue" --read --marker "$MARKER") || fail 1 "issue-comme
 
 # The stamp's keys, one `<key><TAB><value>` line each, and `file<TAB><path>`
 # per files entry, from its first fenced `yaml` block.
-fields=$(printf '%s\n' "$stamp" | awk '
+fields=$(awk '
   { sub(/\r$/, "") }
   !in_block && $0 == "```yaml" { in_block = 1; next }
   in_block && /^```/ { exit }
@@ -253,13 +280,16 @@ fields=$(printf '%s\n' "$stamp" | awk '
   /^files:[ \t]*$/ { print "files\t"; lst = 1; next }
   lst && /^  - / { v = $0; sub(/^  - /, "", v); print "file\t" v; next }
   { lst = 0 }
-')
-s_hash=$(printf '%s\n' "$fields" | awk -F '\t' '$1 == "hash" { print $2; exit }')
-s_commit=$(printf '%s\n' "$fields" | awk -F '\t' '$1 == "commit" { print $2; exit }')
-s_version=$(printf '%s\n' "$fields" | awk -F '\t' '$1 == "sdlc-version" { print $2; exit }')
-s_files=$(printf '%s\n' "$fields" | awk -F '\t' '$1 == "file" { print $2 }')
+' <<<"$stamp") || fail 1 "awk failed reading the stamp's yaml block"
+s_hash=$(awk -F '\t' '$1 == "hash" { print $2; exit }' <<<"$fields") || fail 1 "awk failed reading the stamp's hash"
+s_commit=$(awk -F '\t' '$1 == "commit" { print $2; exit }' <<<"$fields") || fail 1 "awk failed reading the stamp's commit"
+s_version=$(awk -F '\t' '$1 == "sdlc-version" { print $2; exit }' <<<"$fields") ||
+  fail 1 "awk failed reading the stamp's sdlc-version"
+s_files=$(awk -F '\t' '$1 == "file" { print $2 }' <<<"$fields") || fail 1 "awk failed reading the stamp's files"
+s_has_files=$(awk -F '\t' '$1 == "files" { print "yes"; exit }' <<<"$fields") ||
+  fail 1 "awk failed reading the stamp's files key"
 if ! [[ $s_hash =~ ^[0-9a-f]{64}$ ]] || ! [[ $s_commit =~ ^[0-9a-f]{40}$ ]] || [ -z "$s_version" ] ||
-  ! printf '%s\n' "$fields" | grep -q '^files	'; then
+  [ -z "$s_has_files" ]; then
   printf 'full the stamp is unreadable\n'
   exit 0
 fi
@@ -288,11 +318,12 @@ touched=''
 kept=''
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  if printf '%s\n' "$changed" | grep -Fxq -- "$f"; then
-    touched=$touched"touched $f"$'\n'
-  else
-    kept=$kept"kept $f"$'\n'
-  fi
+  grep -Fxq -- "$f" <<<"$changed"
+  case $? in
+    0) touched=$touched"touched $f"$'\n' ;;
+    1) kept=$kept"kept $f"$'\n' ;;
+    *) fail 1 "grep failed matching $f against the diff" ;;
+  esac
 done <<<"$s_files"
 
 if [ -z "$touched" ]; then

@@ -10,6 +10,7 @@ usage="usage: issue-comment <issue> --body-file PATH [--marker HEADER]
        issue-comment <issue> --read --marker HEADER"
 number_arg=
 body_file=
+has_body_file=
 marker=
 has_marker=
 read_mode=
@@ -18,6 +19,7 @@ while [ "$#" -gt 0 ]; do
     --body-file)
       [ "$#" -ge 2 ] || iss_usage_die "$usage"
       body_file=$2
+      has_body_file=1
       shift 2
       ;;
     --marker)
@@ -40,7 +42,7 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$number_arg" ] || iss_usage_die "$usage"
 if [ -n "$read_mode" ]; then
-  [ -n "$has_marker" ] && [ -z "$body_file" ] || iss_usage_die "$usage"
+  [ -n "$has_marker" ] && [ -z "$has_body_file" ] || iss_usage_die "$usage"
 else
   [ -n "$body_file" ] || iss_usage_die "$usage"
 fi

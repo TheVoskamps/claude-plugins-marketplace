@@ -1474,6 +1474,8 @@ run issue-comment 4 --read
 expect "issue-comment --read without --marker: usage" 2 "usage: issue-comment"
 run issue-comment 4 --read --marker "$MARK" --body-file mark2.md
 expect "issue-comment --read with --body-file: usage" 2 "usage: issue-comment"
+run issue-comment 4 --read --marker "$MARK" --body-file ""
+expect "issue-comment --read with an empty --body-file: usage" 2 "usage: issue-comment"
 run issue-comment 4 --body-file mark2.md --marker ""
 expect "issue-comment --marker with an empty header: usage" 2 "usage: issue-comment"
 run issue-comment 50 --read --marker "$MARK"

@@ -313,6 +313,13 @@ a side-effect issue — is an approval, not a decision.
    an issue outside a branch's own set is precisely what the
    closing-keyword rule forbids.
 
+   A `/issue-set-blocked-by` that makes the groomed issue the blocked
+   one changes what the check graded, so run the check again after it,
+   with the same `--allow-status` names, before step 6. Its verdict is
+   then the final one: a gap it reports goes back to step 3, and a
+   `refused` verdict or a return with no verdict ends the session as
+   step 2 says.
+
 6. **Write the stamp, set the status, then verify the write landed.**
    Skip this step whenever a gap from step 2 went unresolved (see step
    3) or the check has not yet returned an empty gap list (see step 4)
