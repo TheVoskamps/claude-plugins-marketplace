@@ -292,6 +292,16 @@ ready. One PR at a time then goes through these stages:
    unchanged for `merge-max-unchanged-polls` polls brings a question:
    whether to keep waiting.
 
+   A poll that fails on a transient error is tried again after
+   `merge-poll-error-retry-seconds`, without counting as an unchanged
+   poll: a connection error, a timeout, a rate limit, or an HTTP 429
+   or 5xx response. A poll that completes restarts the count of
+   failures. One failure more than `merge-poll-error-max-retries` in a
+   row ends the watch with that error. Any other failed poll ends it
+   at once: a dropped connection says nothing about the PR, while an
+   error such as a refused login would fail the same way on every
+   retry.
+
 ### Cleanup and the summary
 
 After the last PR's stages, `/sdlc:orchestrate-cleanup <PR>` runs for
@@ -398,6 +408,8 @@ A key set at no tier takes its default.
 | `merge-wait` | `monitor`, `skip` | `monitor` | Whether the run watches a ready PR until it merges. |
 | `merge-poll-interval-seconds` | positive integer | `60` | The wait between two polls of a ready PR. |
 | `merge-max-unchanged-polls` | positive integer | `720` | How many consecutive polls with no change pass before the run asks whether to keep waiting. |
+| `merge-poll-error-retry-seconds` | positive integer | `30` | The wait before a poll that failed on a transient error is tried again. |
+| `merge-poll-error-max-retries` | positive integer | `15` | How many consecutive polls failing on a transient error are retried before the next one ends the watch. |
 | `ready-rewrite-approval` | `ask`, `auto` | `ask` | Whether grooming asks you to approve the acceptance criteria and the files-affected list before it rewrites the issue's body. |
 | `orchestrate-statuses` | list of status names | `[Todo, Ready]` | The statuses an issue may be at for `/sdlc:orchestrate` to run on it. |
 | `orchestrate-ready-statuses` | list of status names | `[Backlog, Todo, Ready]` | The statuses an issue may be at for `/sdlc:orchestrate-ready` to run on it. |
@@ -490,7 +502,7 @@ Each is callable by bare name once the plugin is enabled.
 | `sdlc-readiness-stamp` | `check` reads an issue's readiness stamp and prints whether a re-check can be skipped, narrowed to a diff, or has to run in full; `write` records a `ready` verdict as the stamp, refusing unless the working tree is clean and at the tip of the default branch. |
 | `sdlc-orchestrate-cleanup` | Removes worktrees, local branches and scratch for one merged or closed PR, or for the whole repository, keeping what a running agent may still use, then brings the default branch up to date. |
 | `sdlc-orchestrate-analysis` | Prints the time report and the per-class decisions table behind `/sdlc:orchestrate-analysis`. Writes nothing. |
-| `sdlc-pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls behind or into conflict, or sits unchanged for the configured number of polls. Writes nothing. |
+| `sdlc-pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls behind or into conflict, or sits unchanged for the configured number of polls, retrying a poll that fails on a transient error. Changes nothing on GitHub or in the repository; its one write is a temporary file it removes on exit. |
 | `sdlc-pr-round` | Prints the number of the review round under way on a PR. |
 | `sdlc-pr-adjustments` | Prints the comments posted on a PR since the previous round, less the plugin's own. |
 | `sdlc-fixer-brief` | Prints a PR's most recent comment when it is a fixer brief; with `--all`, every brief the PR carries. |

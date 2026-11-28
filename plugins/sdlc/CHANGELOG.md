@@ -1,5 +1,29 @@
 # sdlc changelog
 
+## 0.104.0 — 2026-11-27
+
+The merge monitor retries a poll that fails on a recoverable error. It
+used to end on the first failed poll, whatever the cause, so one
+dropped connection to GitHub stopped the watch on a PR that was still
+open and unchanged, and nothing restarted it.
+
+- A failed poll is recoverable when its error names a connection
+  error, a timeout, a rate limit, or an HTTP 429 or 5xx response. Every
+  other failure ends the watch at once, as before.
+- A recoverable failure is tried again after a fixed wait, with no
+  backoff. It does not count as an unchanged poll, and a poll that
+  completes restarts the count of consecutive failures.
+- Two config keys set the retry: `merge-poll-error-retry-seconds`, the
+  wait, default `30`, and `merge-poll-error-max-retries`, how many
+  consecutive failures are retried before the next one ends the watch,
+  default `15`.
+- `sdlc-pr-monitor` takes both as required arguments, as
+  `sdlc-pr-monitor <PR> <interval> <bound> <retry-wait> <max-retries>`,
+  and refuses any other argument count. Each retried failure prints a
+  `Polled <PR>: recoverable failure <k>/<max-retries>: <error>` line.
+- `sdlc-pr-monitor` now writes one temporary file, holding the last
+  call's error output, and removes it on exit.
+
 ## 0.103.0 — 2026-11-27
 
 The readiness check traces an issue body against the code, and a
