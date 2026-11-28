@@ -94,9 +94,11 @@ done
 [ "$max_retries" -ge 1 ] || fail 2 "<max-retries> must be at least 1 retry"
 
 # Every pr-view and pr-ready-to-merge call writes its stderr here, so a
-# failure is classified before any of it is printed.
+# failure is classified before any of it is printed. The EXIT trap
+# disarms the ERR trap first, so a failed removal leaves the exit status
+# the script was already exiting with.
 errfile=$(mktemp "${TMPDIR:-/tmp}/$PROGRAM.XXXXXX" || exit) || fail 1 "mktemp failed"
-trap 'rm -f "$errfile"' EXIT
+trap 'trap - ERR; rm -f "$errfile"' EXIT
 
 # `last`, the previous poll's state, stays unset until the first poll,
 # so the first poll never counts as unchanged. `failures` counts the
@@ -225,6 +227,7 @@ while :; do
       *)
         read_view
         [ "$VIEW" = open ] || continue
+        [ -z "$report" ] || printf '%s\n' "$report" >&2
         fail 1 "pr-ready-to-merge $pr failed"
         ;;
     esac

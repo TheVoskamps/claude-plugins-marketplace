@@ -148,6 +148,7 @@ Your report carries:
   the PR's open/merged/closed state and the gate's report, so the
   orchestrator can tell whether the PR is gone or still open, ready,
   and unmerged.
-- **How many polls** the run made: its `Polled` lines, and how many of
-  them were recoverable failures.
+- **How many polls** the run made, as "Reading the outcome" counts
+  them, and how many recoverable failures it retried: its recoverable
+  failure lines.
 - **That every task and watch you recorded has ended.**

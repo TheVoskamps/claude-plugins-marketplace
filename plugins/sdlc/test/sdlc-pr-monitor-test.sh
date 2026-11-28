@@ -257,6 +257,17 @@ run "$PR" 60 3 45 2
 check "$RC" 1 "refused while open: exit 1"
 check_contains "$ERR" "pr-ready-to-merge $PR failed" "refused while open: the error names the gate"
 
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/blocked"
+echo 3 >"$SANDBOX/serve/gate.rc.1"
+run "$PR" 60 3 45 2
+check "$RC" 1 "refused while open with a report: exit 1"
+check "$ERR" "pr-ready-to-merge: stub exit 3
+$(cat "$SANDBOX/blocked")
+sdlc-pr-monitor: pr-ready-to-merge $PR failed" \
+  "refused while open with a report: the gate's stderr, then its report, then the script's line"
+
 # --- the unchanged-poll bound -----------------------------------------
 
 reset
@@ -330,6 +341,8 @@ check "$RC" 0 "view connect error: exit 0"
 check "$(printf '%s\n' "$OUT" | sed -n 2p)" \
   "Polled $PR: recoverable failure 1/2: error connecting to api.github.com" \
   "view connect error: the failure's poll line carries the first stderr line"
+check "$(printf '%s\n' "$OUT" | grep -c -e 'githubstatus' -e 'gh pr view failed')" 0 \
+  "view connect error: no later stderr line reaches stdout"
 check "$LAST" "Merged" "view connect error: polling goes on to the terminal line"
 check "$SLEEPS" "60 45 60 " "view connect error: the retry waits <retry-wait>, the next poll <interval>"
 check "$ERR" "" "view connect error: nothing reaches stderr"
@@ -423,6 +436,7 @@ usage_case() {
   check "$RC" 2 "usage: $* exits 2"
 }
 usage_case "$PR" 60
+# The retired three-argument form, kept as a refusal case on purpose.
 usage_case "$PR" 60 3
 usage_case "$PR" 60 3 45
 usage_case "$PR" 60 3 45 2 0
@@ -460,6 +474,16 @@ PATH="$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 >&- 2>"$SANDBOX/err"
 RC=$?
 check "$RC" 1 "unwrapped failure: a failing echo exits 1"
 check_contains "$(cat "$SANDBOX/err")" "\`echo \"Polled \$pr: MERGED\"\` failed" "unwrapped failure: the error names the command"
+
+# A failing rm in the EXIT trap leaves the exit status as it was.
+mkdir -p "$SANDBOX/rm-fails"
+printf '#!/bin/sh\nexit 1\n' >"$SANDBOX/rm-fails/rm"
+chmod +x "$SANDBOX/rm-fails/rm"
+reset
+serve view "$SANDBOX/MERGED"
+OUT=$(PATH="$SANDBOX/rm-fails:$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 2>"$SANDBOX/err")
+RC=$?
+check "$RC.$(cat "$SANDBOX/err")" "0." "exit trap: a failed temporary-file removal keeps exit 0 and prints nothing"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
