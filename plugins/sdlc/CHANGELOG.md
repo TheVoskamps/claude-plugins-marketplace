@@ -1,5 +1,48 @@
 # sdlc changelog
 
+## 0.107.0 — 2026-11-27
+
+The code loop now notices a base that moves under a PR. Whether a PR
+still merges with its base used to be asked only at close-out, by the
+merge-readiness gate, so a conflict with a base that moved mid-loop
+showed up after the last review and was resolved with base code no
+round had reviewed.
+
+- The in-loop mergeability check runs after every round that puts
+  commits on the branch, before `code-documenter`. It is read-only. The
+  base has moved when its tip is not an ancestor of the PR's head; on a
+  moved base, the overlap is the paths both sides changed since their
+  merge base, with a renamed path counted under its old and its new
+  name.
+- The check works from the fetched refs alone. It does not ask GitHub
+  whether the PR is mergeable and waits on no running check.
+- A non-empty overlap starts a rebase round: the orchestrator posts a
+  fixer brief carrying the overlapping files and any conflicts a trial
+  merge reports, `issue-fixer` rebases the branch onto its base, and
+  the check, `code-documenter`, `style-checker` and the review run over
+  the rebased branch.
+- A conflict `issue-fixer` cannot settle makes it abort the rebase and
+  push nothing, and is put to you. Any other stop of a rebase round is
+  an escalation. Either way the next rebase-round brief quotes what the
+  previous round stopped on, on a `Previous round's stop:` line, and
+  carries the ruling on a `Ruling on the previous round's stop:` line.
+- A rebase round does not count against `code-review-max-rounds`. The
+  documentation loop runs neither the check nor a rebase round.
+- On a rebase brief, a rebase round's or a merge-readiness one,
+  `issue-fixer` checks the branch out, runs the tests and pushes once
+  each. The rebase takes the place of only the steps that address
+  findings; its instructions used to spell the checkout and the push a
+  second time for a merge-readiness rebase.
+- The documentation edits a rebase round defers, and the documentation
+  files whose conflicts it resolved, reach `docs-writer` in the
+  documentation loop.
+- The run's summary has an `In-loop Rebases` column counting a PR's
+  rebase rounds. `Readiness Remedies` counts only the remedies the
+  merge-readiness gate drove.
+- The final section `pr-finalizer` writes into the PR body names each
+  in-loop rebase as one, with the conflicts its brief carried, rather
+  than as a fix.
+
 ## 0.106.0 — 2026-11-27
 
 A review round with nothing to assess now gets past the assess stage.
