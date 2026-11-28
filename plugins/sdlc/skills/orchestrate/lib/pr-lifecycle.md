@@ -211,11 +211,12 @@ your findings, or that there are none.
 `docs-writer` the PR reference, the issue set the PR closes, the
 branch name, the deferred edits — every entry on the
 `Deferred to docs-writer:` line of the developer's report and of every
-fixer round's report on this PR, verbatim, or on a
-`documentation loop needed` return, the `Deferred to docs-writer:`
-entries that report relays and one entry per path on its
-`Documentation conflicts:` line, as `<path> — a rebase conflict
-issue-fixer resolved` —
+fixer round's report on this PR, rebase rounds included, verbatim, and
+one entry per path on a rebase round's `Documentation conflicts:` line,
+or on a `documentation loop needed` return, the
+`Deferred to docs-writer:` entries that report relays and one entry per
+path on its `Documentation conflicts:` line — each conflict entry as
+`<path> — a rebase conflict issue-fixer resolved` —
 and the documentation criteria: every bullet of the
 `## Documentation acceptance` section, as `sdlc:orchestrate-readiness`
 defines it, of every issue the PR closes, read off `/issue-view <N>`

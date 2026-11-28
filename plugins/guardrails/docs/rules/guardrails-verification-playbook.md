@@ -870,7 +870,7 @@ not obstacles to route around — each has a plain spelling that works:
   where the redirection is the container's business and no host git
   configuration is in play.
 - Finish a conflicted rebase with the sequence in
-  `plugins/sdlc/agents/issue-fixer.md`, "Merge-readiness briefs". It
+  `plugins/sdlc/agents/issue-fixer.md`, "Rebasing the branch". It
   sets no environment variable, which matters because an inline
   environment assignment on a `git` command is denied outright — a
   narrower rule than the `HOME=` one above, reaching every variable

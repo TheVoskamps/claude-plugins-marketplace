@@ -20,7 +20,7 @@ no row names is owned by the file its name points at.
 | The gate that reads the developer's `Scope:` block, the ruling on a finding line, and which findings reach the human | `skills/orchestrate/SKILL.md` |
 | What makes two findings one class | `skills/orchestrate/SKILL.md` |
 | What an agent does with a finding a ruling settled | `agents/issue-fixer.md`, and `agents/docs-writer.md` in the documentation loop |
-| What a merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
+| What a rebase-round or merge-readiness brief asks of the fixer | `agents/issue-fixer.md` |
 | Who may reopen the review loop after a close-out | `skills/orchestrate/lib/pr-lifecycle.md` |
 | Collecting deferred documentation edits and stale PR-body claims | `skills/orchestrate/lib/pr-lifecycle.md` |
 | How a follow-up issue's fields are filed | `skills/orchestrate/lib/issue-lifecycle.md` |
