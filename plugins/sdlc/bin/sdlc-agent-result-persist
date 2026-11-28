@@ -726,7 +726,7 @@ check_report_ids() {
 # report's settle-mode: mechanical and settle-mode: semantic lines above
 # any RETIREMENTS line. An assessor's report ends with COUNT: candidates
 # <n>, adds <m> the same way, its numbers counting the candidate blocks,
-# each opening on a T<n> line, above the ADDS line and the blocks below
+# each opening on a T<n> line, above any ADDS line and the blocks below
 # it. A report whose count line is missing, misshapen or wrong is refused
 # before it is installed, so a refused report leaves no result file and
 # no leave record behind.
