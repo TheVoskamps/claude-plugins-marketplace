@@ -389,8 +389,8 @@ assess_leave() {
 # no_assessment: whether round 1 holds no assessor result file and no
 # assess leave.
 no_assessment() {
-  [ ! -e "$PR_DIR/round1/list-theorem-assessor" ] && ! grep -q '^leave list assess' "$PR_DIR/round1/log" \
-    && echo none || echo written
+  [ ! -e "$PR_DIR/round1/list-theorem-assessor" ] && ! grep -q '^leave list assess' "$PR_DIR/round1/log" &&
+    echo none || echo written
 }
 
 new_case leave-assess-count
