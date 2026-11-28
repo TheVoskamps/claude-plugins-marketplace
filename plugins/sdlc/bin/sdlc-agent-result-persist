@@ -724,11 +724,56 @@ check_report_ids() {
 # A generator's report ends with its count line, COUNT: mechanical <m>,
 # semantic <s>, as its last non-blank line, and its two numbers count the
 # report's settle-mode: mechanical and settle-mode: semantic lines above
-# any RETIREMENTS line. A list whose count line is missing, misshapen or
-# wrong is refused before it is installed, so a refused list leaves no
-# result file and no leave record behind.
+# any RETIREMENTS line. An assessor's report ends with COUNT: candidates
+# <n>, adds <m> the same way, its numbers counting the candidate blocks,
+# each opening on a T<n> line, above any ADDS line and the blocks below
+# it. A report whose count line is missing, misshapen or wrong is refused
+# before it is installed, so a refused report leaves no result file and
+# no leave record behind.
 check_report_count() {
-  [ "$stage" = generate ] || return 0
+  case "$stage" in
+    generate) count_generate_report "$1" ;;
+    assess) count_assess_report "$1" ;;
+    *) return 0 ;;
+  esac
+  if [ -n "$refusal" ]; then
+    rm -f -- "$1"
+    die "--mode leave --stage $stage --round $round refused: $refusal"
+  fi
+}
+
+# count_assess_report <report>: sets refusal to the reason the
+# assessment's count line is refused, or to empty when it holds. A blank
+# line opens the next block, so an add block is counted at its first line
+# below ADDS. When awk fails it removes <report> and dies.
+count_assess_report() {
+  refusal=$(awk '
+    { line = $0; sub(/[ \t\r]+$/, "", line) }
+    line == "" { gap = 1; next }
+    { last = line }
+    line == "ADDS" { adds_seen = 1; gap = 1; next }
+    line ~ /^COUNT:/ { gap = 0; next }
+    !adds_seen && line ~ /^T[0-9]+$/ { n++ }
+    adds_seen && gap { m++ }
+    { gap = 0 }
+    END {
+      if (last !~ /^COUNT: candidates [0-9]+, adds [0-9]+$/) {
+        print "the assessment does not end with a line COUNT: candidates <n>, adds <m>"
+        exit
+      }
+      split(last, f, /[ ,]+/)
+      if (f[3] + 0 != n + 0 || f[5] + 0 != m + 0)
+        printf "the assessment ends with \"%s\", and its blocks hold candidates %d, adds %d\n", last, n, m
+    }' "$1" || exit) || {
+    rm -f -- "$1"
+    die "could not read the count line of the report for --round $round"
+  }
+}
+
+# count_generate_report <report>: sets refusal to the reason the list's
+# count line is refused, or to empty when it holds. When awk fails it
+# removes <report> and dies.
+count_generate_report() {
   refusal=$(awk '
     { line = $0; sub(/[ \t\r]+$/, "", line) }
     line != "" { last = line }
@@ -750,10 +795,6 @@ check_report_count() {
     rm -f -- "$1"
     die "could not read the count line of the report for --round $round"
   }
-  if [ -n "$refusal" ]; then
-    rm -f -- "$1"
-    die "--mode leave --stage generate --round $round refused: $refusal"
-  fi
 }
 
 # round_type_of <round directory>: the type the round's anchor wrote. A
