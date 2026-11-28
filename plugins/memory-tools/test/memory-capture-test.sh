@@ -228,10 +228,11 @@ run_hook "Edit" "$(event Edit "$path" "$REPO")"
 expect_record "Edit: the record holds the file's content read after the edit" \
   agent-project "$path" Edit work $'after the edit\n'
 
-# --- content the block scalar has to carry exactly ---------------------------------
+# --- content the double-quoted scalar has to carry exactly -------------------------
 
 path="$REPO/.claude/agent-memory/issue-developer/MEMORY.md"
 for content in "no trailing newline" $'two trailing\n\n' $'  leading spaces\nthen none\n' \
+  $'\tleading tab\nthen none\n' $'\t\n\ttab-only first line\n' $'x\n\ttab-led second line\n' \
   $'\n\nleading blank lines\n' $'\n' $'key: value # not a comment\n' "" \
   $'crlf\r\nline\r\n' $'bell\a and escape\e\n' $'del\x7f\n' $'next line\xc2\x85here\n' \
   $'line\xe2\x80\xa8separator\n' $'paragraph\xe2\x80\xa9separator\n' $'c1\xc2\x9acontrol\n'; do
