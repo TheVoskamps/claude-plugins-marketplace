@@ -993,8 +993,9 @@ check "$(cat "$XDG_STATE_HOME/sdlc/h.example/o/r/repo.yml" 2>/dev/null)" "$REPO_
 
 # list_case <name>: a state root holding PR 7's state for the current
 # repository, gh.example/acme/r, PR 9's for acme/other, and PRs 8, 9 and
-# 10 for elsewhere/r on that host, with a stub gh that reports the current
-# repository and records each call.
+# 10 for elsewhere/r on that host, a checkout whose origin names the
+# current repository, and a stub gh that reports the current repository
+# and records each call.
 list_case() {
   new_case "$1"
   for at in acme/r/pr7 acme/other/pr9 elsewhere/r/pr10 elsewhere/r/pr9 elsewhere/r/pr8; do

@@ -319,8 +319,9 @@ chmod +x "$SANDBOX/bin/sleep"
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/.issues"
 git -C "$REPO" init -q
-# The stub answers `gh repo view` with the case's repository whatever URL
-# it is given; github-ref only needs an origin to hand it.
+# Unless a case sets `resolve-url`, the stub answers `gh repo view` with
+# the case's repository whatever URL it is given; github-ref only needs an
+# origin to hand it.
 git -C "$REPO" remote add origin https://github.com/o/r
 # github-ref, which the github-tools plugin puts on PATH beside this one.
 GITHUB_TOOLS_BIN="$(cd "$TEST_DIR/../../github-tools/bin" && pwd)"
