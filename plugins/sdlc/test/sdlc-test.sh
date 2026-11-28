@@ -55,6 +55,9 @@ set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PERSIST="$TEST_DIR/../bin/sdlc-agent-result-persist"
+# github-ref, which the github-tools plugin puts on PATH beside this one.
+GITHUB_TOOLS_BIN="$(cd "$TEST_DIR/../../github-tools/bin" && pwd)"
+PATH="$GITHUB_TOOLS_BIN:$PATH"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 FAILURES=0
@@ -1000,12 +1003,15 @@ list_case() {
   mkdir -p "$CASE/bin"
   printf '#!/bin/sh\necho "$*" >>"%s/calls"\necho https://gh.example/acme/r\n' "$CASE" >"$CASE/bin/gh"
   chmod +x "$CASE/bin/gh"
+  git init -q "$CASE/repo"
+  git -C "$CASE/repo" remote add origin https://gh.example/acme/r
 }
 
-# list <operand...>: runs --mode list with the stub gh on PATH, leaving
-# stdout in OUT and the gh calls in CALLS.
+# list <operand...>: runs --mode list from a checkout of the current
+# repository with the stub gh on PATH, leaving stdout in OUT and the gh
+# calls in CALLS.
 list() {
-  OUT=$(PATH="$CASE/bin:$PATH" "$PERSIST" --mode list "$@" 2>"$CASE/err" </dev/null)
+  OUT=$(cd "$CASE/repo" && PATH="$CASE/bin:$PATH" "$PERSIST" --mode list "$@" 2>"$CASE/err" </dev/null)
   RC=$?
   ERR=$(cat "$CASE/err")
   CALLS=$(cat "$CASE/calls" 2>/dev/null)
@@ -1014,7 +1020,8 @@ list() {
 list_case list-current
 list
 check "$RC:$OUT" "0:gh.example/acme/r#7" "list: no operand lists the current repository, each PR as its --pr reference"
-check "$CALLS" "repo view --json url --jq .url" "list: the current repository comes from gh repo view"
+check "$CALLS" "repo view https://gh.example/acme/r --json url --jq .url" \
+  "list: the current repository comes from gh repo view of origin's URL"
 
 list_case list-repo
 list other
@@ -2241,11 +2248,11 @@ done
 # sdlc-agent-result-persist and a state root of the case's own, with a
 # stub sdlc-records-chain answering from the case's chain and chain-rc
 # files and a stub pr-comment that keeps each body it is handed. PATH
-# holds the stubs and the system directories alone, so no real pr-comment
-# is reachable and bash is the one /usr/bin/env finds there.
+# holds the stubs, github-ref and the system directories alone, so no real
+# pr-comment is reachable and bash is the one /usr/bin/env finds there.
 
 POST="$TEST_DIR/../bin/sdlc-pr-post-theorem-records"
-POST_PATH_TAIL=/usr/bin:/bin
+POST_PATH_TAIL=$GITHUB_TOOLS_BIN:/usr/bin:/bin
 PR_DIR_REL=sdlc/h.example/o/r/pr7
 
 # post_case <name> [<chain lines> <chain exit>]: a case whose PR carries

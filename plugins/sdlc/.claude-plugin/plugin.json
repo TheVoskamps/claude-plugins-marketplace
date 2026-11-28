@@ -6,5 +6,5 @@
     "name": "Edwin Voskamp",
     "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps"
   },
-  "dependencies": ["issues", "git-tools", "github-prs", "cc-tools"]
+  "dependencies": ["issues", "git-tools", "github-prs", "cc-tools", "github-tools"]
 }

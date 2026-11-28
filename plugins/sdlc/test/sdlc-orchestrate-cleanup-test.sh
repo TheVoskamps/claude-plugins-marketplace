@@ -36,8 +36,9 @@
 # branch refused with nothing removed; that no run pushes to origin; and
 # the usage errors.
 #
-# Needs git and ps on PATH, and plugins/git-tools/bin/git-issue-branch in
-# the same checkout. Reaches no network.
+# Needs git and ps on PATH, and plugins/git-tools/bin/git-issue-branch and
+# plugins/github-tools/bin/github-ref in the same checkout. Reaches no
+# network.
 #
 # Usage: sdlc-orchestrate-cleanup-test.sh    (exit 0 when every case passes)
 
@@ -46,6 +47,8 @@ set -uo pipefail
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$TEST_DIR/../bin/sdlc-orchestrate-cleanup"
 ISSUE_BRANCH="$(cd "$TEST_DIR/../../git-tools/bin" && pwd)/git-issue-branch"
+# github-ref, which the github-tools plugin puts on PATH beside this one.
+GITHUB_TOOLS_BIN="$(cd "$TEST_DIR/../../github-tools/bin" && pwd)"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-orchestrate-cleanup-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 # The real path, so the paths git reports and the ones expected here
@@ -232,7 +235,7 @@ build() {
 # run <arg>... -- run the script from PRIMARY with the stubs first on
 # PATH; leaves OUT, ERR, RC.
 run() {
-  OUT=$(cd "$PRIMARY" && PATH="$SANDBOX/bin:$PATH" /bin/bash "$SCRIPT" "$@" 2>"$SANDBOX/stderr")
+  OUT=$(cd "$PRIMARY" && PATH="$SANDBOX/bin:$GITHUB_TOOLS_BIN:$PATH" /bin/bash "$SCRIPT" "$@" 2>"$SANDBOX/stderr")
   RC=$?
   ERR=$(cat "$SANDBOX/stderr")
 }
@@ -286,7 +289,8 @@ check "$RC" "0" "--pr: exit 0"
 check "$OUT" "$EXPECTED" "--pr: the dry run's items, acted on"
 check "$([ -f "$SERVE/deleted" ] && echo deleted)" "" "--pr: no review state is deleted"
 check "$(sed -n 1p "$SERVE/pr-view.args")" "7 --ref" "--pr: the PR is resolved to its reference"
-check "$(cat "$SERVE/gh.args")" "repo view --json url --jq .url" "--pr: this checkout's repository comes from gh repo view"
+check "$(cat "$SERVE/gh.args")" "repo view $ORIGIN --json url --jq .url" \
+  "--pr: this checkout's repository comes from gh repo view of origin's URL"
 check "$(cat "$SERVE/sdlc-agent-result-persist.args")" "--mode print-agents --pr $PR" \
   "--pr: the agents are read for the PR's reference, and review state is neither listed nor deleted"
 check "$([ -e "$WT/agent-a" ] || [ -e "$WT/agent-b" ] && echo left)" "" \

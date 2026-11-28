@@ -93,7 +93,7 @@ if [ "$target_set" = no ]; then
 else
   iss_parse_repo "$target"
   # A target with no repo-config leaves every slot unconfigured.
-  iss_load_target_config "$RP_HOST" "$RP_OWNER" "$RP_REPO" || :
+  iss_load_target_config "$GR_HOST" "$GR_OWNER" "$GR_REPO" || :
 fi
 
 if [ "$slot_set" = yes ]; then

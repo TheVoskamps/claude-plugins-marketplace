@@ -3,9 +3,11 @@
 # cr-test.sh -- drive plugins/cc-tools/bin/cr, hooks/cr-resolver and
 # hooks/cr-deploy.sh under the bash 3.2 macOS ships, with HOME,
 # XDG_CONFIG_HOME and XDG_STATE_HOME pointed at scratch directories and a
-# stub claude, a stub gh and a stub ssh first on PATH: cr's argument
+# stub claude, a stub gh and a stub ssh first on PATH, and the stub
+# claude's plugin list naming this checkout's github-tools: cr's argument
 # handling, repo detection, repository identity, ssh host aliases included,
-# settings layers and their merge, its refusals, GIT_CONFIG_GLOBAL, --as
+# settings layers and their merge, its refusals, a missing or disabled
+# github-tools among them, GIT_CONFIG_GLOBAL, --as
 # and the config directory, and exit status; the resolver's exec of the
 # enabled cc-tools, its --as, its refusals and its failed execs; and the
 # deploy hook's missing, differing, current and
@@ -176,8 +178,21 @@ chmod +x "$SANDBOX/bin/ssh"
 # reset -- forget the previous launch.
 reset() {
   rm -f "$SANDBOX/claude.args" "$SANDBOX/claude.env" "$SANDBOX/claude.rc" "$SANDBOX/claude.signal" \
-    "$SANDBOX/claude.survive" "$SANDBOX/claude.settings" "$SANDBOX/gh.calls" "$SANDBOX/ssh.calls"
+    "$SANDBOX/claude.survive" "$SANDBOX/claude.settings" "$SANDBOX/gh.calls" "$SANDBOX/ssh.calls" \
+    "$SANDBOX/list.ccd"
 }
+
+# entry <id> <enabled> <path> -- one `claude plugin list --json` element.
+entry() {
+  printf '{"id": "%s", "enabled": %s, "installPath": "%s"}' "$1" "$2" "$3"
+}
+
+# The plugin list bin/cr reads: this checkout's github-tools, enabled,
+# after a disabled install of it.
+GITHUB_TOOLS="$(cd "$TEST_DIR/../../github-tools" && pwd)"
+PLUGINS_WITH_GITHUB_TOOLS="[$(entry github-tools@thevoskamps false /nowhere), \
+$(entry github-tools@thevoskamps true "$GITHUB_TOOLS")]"
+echo "$PLUGINS_WITH_GITHUB_TOOLS" >"$SANDBOX/plugins.json"
 
 # run_cr <dir> [<arg>…] -- run bin/cr from <dir> with the stub claude,
 # gh and ssh first on PATH; leaves ARGS (claude's arguments, one per
@@ -438,6 +453,31 @@ reset
 (cd "$REPO" && PATH="$SANDBOX/no-jq" /bin/bash "$CR" x) >/dev/null 2>&1
 check "$?:$(no_claude)" "0:ran" "every tool on a restricted PATH: claude runs"
 
+# github-tools missing, disabled, or unlisted because the list fails: cr
+# refuses on every launch, before it resolves anything, writing no merged
+# file even with a layer present -- inside a repo with an origin, one with
+# none, and outside any git repo, which it leaves without a .git.
+GITHUB_TOOLS_MSG="cr: cc-tools needs the github-tools plugin installed and enabled; install or enable github-tools@thevoskamps to use cr"
+for plugins in "[]" "[$(entry other@thevoskamps true "$GITHUB_TOOLS")]" \
+  "[$(entry github-tools@thevoskamps false "$GITHUB_TOOLS")]" "list fails"; do
+  if [ "$plugins" = "list fails" ]; then
+    echo 1 >"$SANDBOX/list.rc"
+  else
+    echo "$plugins" >"$SANDBOX/plugins.json"
+  fi
+  for dir in "$REPO" "$LOCAL" "$SANDBOX/outside"; do
+    mkdir -p "$dir"
+    run_cr "$dir" x
+    check "$RC:$ERR:$(no_claude)" "1:$GITHUB_TOOLS_MSG:" "github-tools $plugins, in ${dir##*/}: exit 1 naming github-tools"
+    check "$GH:$(state_files)" ":" "github-tools $plugins, in ${dir##*/}: no gh call, no merged file"
+  done
+  check "$([ -e "$SANDBOX/outside/.git" ] && echo git)" "" "github-tools $plugins, outside a repo: no git init"
+  rm -f "$SANDBOX/list.rc"
+done
+echo "$PLUGINS_WITH_GITHUB_TOOLS" >"$SANDBOX/plugins.json"
+run_cr "$REPO" x
+check "$RC:$(no_claude)" "0:ran" "github-tools listed again: claude runs"
+
 rm -r "$CFG" "$REPO/.cc-tools"
 
 # --- bin/cr: GIT_CONFIG_GLOBAL ----------------------------------------------
@@ -683,11 +723,6 @@ exit 5
 EOF
   chmod +x "$SANDBOX/install/$v/bin/cr"
 done
-
-# entry <id> <enabled> <path> -- one `claude plugin list --json` element.
-entry() {
-  printf '{"id": "%s", "enabled": %s, "installPath": "%s"}' "$1" "$2" "$3"
-}
 
 # PATHs for the resolver: the stub claude, with and without jq.
 mkdir -p "$SANDBOX/withjq" "$SANDBOX/nojq"

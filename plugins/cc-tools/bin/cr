@@ -8,8 +8,8 @@
 # ${CLAUDE_CONFIG_DIR:-$HOME/.claude}. When GIT_CONFIG_GLOBAL is unset or
 # empty and ~/.gitconfig-claude is readable, cr exports GIT_CONFIG_GLOBAL
 # pointing at that file for itself and the session. Runs under the bash
-# 3.2 macOS ships. Needs git, gh and jq on PATH, and uses ssh when it is
-# there.
+# 3.2 macOS ships. Needs claude, git, gh and jq on PATH, and the
+# github-tools plugin installed and enabled.
 #
 # Usage: cr [--cr-strict] [--as <name>] [<name-word>…] [<claude-argument>…]
 #
@@ -44,13 +44,16 @@
 #   <config>/<host>/<owner>/<repo>.json
 #   <repo-root>/.cc-tools/cr-settings.json
 #
-# <host>, <owner> and <repo> come from `gh repo view <origin URL> --json
-# url`, the URL in its https:// form, an ssh URL's host first resolved
-# through `ssh -G` so an ssh config alias names its real host. With no
-# `origin`, after a `git init`, or when gh cannot resolve the `origin`,
-# the identity is `local` and the <host> layers do not apply. cr
-# refuses an identity whose <host>, <owner> or <repo> holds anything but
-# letters, digits, `.`, `_` and `-`, or is `.` or `..`.
+# <host>, <owner> and <repo> are the repository `github-ref origin`
+# resolves the `origin` remote to. github-ref is the github-tools
+# plugin's, and cr runs before any session puts a plugin's bin/ on PATH,
+# so on every launch, before it resolves anything, cr finds it under the
+# installPath `claude plugin list --json` reports for the enabled
+# github-tools, and refuses to launch when the list fails or names no
+# enabled github-tools. With no `origin`, after a `git init`, or when gh
+# cannot resolve the `origin`, the identity is `local` and the <host>
+# layers do not apply. cr refuses an identity whose <host>, <owner> or
+# <repo> github-ref refuses.
 # Merging concatenates lists, dropping an entry equal to an earlier one,
 # merges objects key by key, and lets a later scalar override an earlier
 # one. cr refuses when a layer is not a single JSON value, or when a key
@@ -61,9 +64,9 @@
 # With no layer present, claude gets no `--settings` and no merged file
 # is written.
 #
-# Exit status: claude's own; 1 when cr refuses or a step before claude
-# fails, with stderr saying which; or bash's 127 when claude is not on
-# PATH.
+# Exit status: claude's own; or 1 when cr refuses or a step before claude
+# fails, with stderr saying which, the plugin list a missing claude fails
+# included.
 set -uo pipefail
 
 # hooks/cr-resolver parses --as by these same rules and messages before it
@@ -117,6 +120,21 @@ for tool in git gh jq; do
   fi
 done
 
+# Found whether or not this directory has an `origin` to resolve, so a
+# launch without github-tools fails the same way everywhere rather than
+# silently dropping the owner and repo layers where it has one.
+github_tools_needed="cr: cc-tools needs the github-tools plugin installed and enabled; install or enable github-tools@thevoskamps to use cr"
+if ! plugins=$(claude plugin list --json 2>/dev/null); then
+  echo "$github_tools_needed" >&2
+  exit 1
+fi
+github_tools=$(printf '%s' "$plugins" |
+  jq -r 'first(.[]? | select(.id == "github-tools@thevoskamps" and .enabled == true) | .installPath) // empty' 2>/dev/null)
+if [ -z "$github_tools" ]; then
+  echo "$github_tools_needed" >&2
+  exit 1
+fi
+
 if [ -z "${GIT_CONFIG_GLOBAL:-}" ] && [ -r "$HOME/.gitconfig-claude" ]; then
   export GIT_CONFIG_GLOBAL="$HOME/.gitconfig-claude"
 fi
@@ -151,69 +169,6 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-# ssh_hostname <host> -- the hostname ssh connects to for <host>, as
-# `ssh -G` reports it, so an alias a `Host` block in the ssh config renames
-# becomes the host it reaches; GitHub's ssh-over-443 endpoint
-# ssh.github.com becomes github.com. Prints <host> unchanged when ssh is
-# not on PATH, fails, or reports no hostname.
-ssh_hostname() {
-  local out key value real=
-  if command -v ssh >/dev/null 2>&1 && out=$(ssh -G -- "$1" </dev/null 2>/dev/null); then
-    while read -r key value; do
-      if [ "$key" = hostname ]; then real=$value; fi
-    done <<<"$out"
-  fi
-  case "$real" in
-    '') real=$1 ;;
-    [Ss][Ss][Hh].[Gg][Ii][Tt][Hh][Uu][Bb].[Cc][Oo][Mm]) real=github.com ;;
-  esac
-  printf '%s\n' "$real"
-}
-
-# https_url <remote-url> -- the remote URL as https://<host>/<path>, with
-# any scheme, user and port dropped, for a `<scheme>://` URL and for an
-# scp-like `[<user>@]<host>:<path>` one; any other URL, a local path
-# included, is printed unchanged. The host of an ssh URL -- an scp-like
-# one, or one whose scheme is ssh, git+ssh or ssh+git, each of which git
-# reaches over ssh -- is the one ssh_hostname resolves. gh's argument
-# parser takes an scp-like URL only when it begins `git@`, and splits any
-# other one as OWNER/REPO.
-https_url() {
-  local host path ssh=0
-  case "$1" in
-    ssh://* | git+ssh://* | ssh+git://*)
-      ssh=1
-      ;;
-  esac
-  case "$1" in
-    *://*)
-      host=${1#*://}
-      path=
-      case "$host" in */*) path=${host#*/} ;; esac
-      host=${host%%/*}
-      ;;
-    *:*)
-      host=${1%%:*}
-      path=${1#*:}
-      case "$host" in
-        */*)
-          printf '%s\n' "$1"
-          return
-          ;;
-      esac
-      ssh=1
-      ;;
-    *)
-      printf '%s\n' "$1"
-      return
-      ;;
-  esac
-  host=${host##*@}
-  host=${host%%:*}
-  if [ "$ssh" -eq 1 ]; then host=$(ssh_hostname "$host"); fi
-  printf 'https://%s/%s\n' "$host" "${path#/}"
-}
-
 identity=local
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   url=$(git remote get-url origin 2>/dev/null)
@@ -230,13 +185,27 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if [ -n "$url" ]; then
     repo=${url##*/}
     repo=${repo%.git}
-    # Naming origin's URL keeps gh from resolving another remote, such as a
-    # fork's `upstream`, through its own remote-priority rules.
-    if gh_url=$(gh repo view "$(https_url "$url")" --json url --jq .url 2>/dev/null) && [ -n "$gh_url" ]; then
-      identity=$gh_url
-    else
-      echo "cr: gh repo view could not resolve 'origin'; leaving out the owner and per-machine repo settings layers" >&2
-    fi
+    # github-ref runs under this bash, which a restricted PATH may not
+    # hold for its shebang to find.
+    rc=0
+    resolved=$("$BASH" "$github_tools/bin/github-ref" origin) || rc=$?
+    case "$rc" in
+      0)
+        IFS='|' read -r gh_host gh_owner gh_repo <<<"$resolved"
+        identity=resolved
+        ;;
+      2)
+        echo "cr: '${resolved#*|}' in ${resolved%%|*} is not a valid host, owner or repo name" >&2
+        exit 1
+        ;;
+      3)
+        echo "cr: gh repo view could not resolve 'origin'; leaving out the owner and per-machine repo settings layers" >&2
+        ;;
+      *)
+        echo "cr: $github_tools/bin/github-ref origin failed (exit $rc)" >&2
+        exit 1
+        ;;
+    esac
   else
     repo="(local)"
   fi
@@ -253,16 +222,6 @@ else
   repo="(local)"
 fi
 
-# valid_segment <segment> -- whether the segment holds only letters,
-# digits, `.`, `_` and `-`, and is not `.` or `..`. The letters are
-# spelled out because a bracket range can follow the locale's collation.
-valid_segment() {
-  case "$1" in
-    '' | . | .. | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*) return 1 ;;
-  esac
-  return 0
-}
-
 config="${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/cr-settings"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/cc-tools"
 candidates=("$config/host.json")
@@ -272,26 +231,6 @@ fi
 if [ "$identity" = local ]; then
   state="$state/local"
 else
-  case "$identity" in
-    https://*/*/*) ;;
-    *)
-      echo "cr: cannot split $identity into https://<host>/<owner>/<repo>" >&2
-      exit 1
-      ;;
-  esac
-  # A URL with more than three segments leaves a `/` in gh_repo, which
-  # the segment check refuses.
-  rest=${identity#https://}
-  gh_host=${rest%%/*}
-  rest=${rest#*/}
-  gh_owner=${rest%%/*}
-  gh_repo=${rest#*/}
-  for segment in "$gh_host" "$gh_owner" "$gh_repo"; do
-    if ! valid_segment "$segment"; then
-      echo "cr: '$segment' in $identity is not a valid host, owner or repo name" >&2
-      exit 1
-    fi
-  done
   state="$state/$gh_host/$gh_owner/$gh_repo"
   candidates+=("$config/$gh_host/$gh_owner.json" "$config/$gh_host/$gh_owner/$gh_repo.json")
 fi

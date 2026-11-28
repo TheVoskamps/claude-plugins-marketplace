@@ -3,10 +3,10 @@
 # github-prs-common.sh -- sourced by every script in plugins/github-prs/bin/.
 # It holds the error catalogue every verb reports through, the `gh`
 # call wrapper every verb calls through, the body read every body a
-# verb compares or rewrites goes through, and the parser of the PR
-# reference every PR verb takes, so one message and one exit status
-# mean the same thing whichever verb printed it, and one reference
-# names the same PR whichever verb received it. A verb reports
+# verb compares or rewrites goes through, and the github-ref call that
+# parses the PR reference every PR verb takes, so one message and one
+# exit status mean the same thing whichever verb printed it, and one
+# reference names the same PR whichever verb received it. A verb reports
 # a failure by calling a catalogue entry below and never spells a
 # message of its own. Runs under the bash 3.2 macOS ships.
 #
@@ -99,20 +99,36 @@ gp_gh() {
   fi
 }
 
+# gp_github_ref <github-ref args...> -- run github-ref, which the
+# github-tools plugin puts on PATH, passing its line through. Exits 1
+# with gp_err_github_ref's line on any status but 0, 2 and 3, which it
+# returns for the caller to branch on: call it as
+# `line=$(gp_github_ref ... || exit) || rc=$?`, and exit with any rc
+# but those three, whose catalogue line is already printed.
+gp_github_ref() {
+  local rc=0
+  github-ref "$@" || rc=$?
+  case "$rc" in
+    0 | 2 | 3) return "$rc" ;;
+  esac
+  gp_err_github_ref "$1" "$rc"
+}
+
 # gp_current_repo -- set GP_CUR_HOST, GP_CUR_OWNER and GP_CUR_REPO to
-# the current repository, from the URL `gh repo view` reports for it.
-# Exits 1 when gh cannot say. Calls gh at most once per run.
+# the current repository, the one the checkout's `origin` remote names,
+# as `github-ref origin` resolves it. Exits 1 when it cannot. Runs
+# github-ref at most once per run.
 GP_CUR_HOST=
 gp_current_repo() {
-  local url
+  local line rc=0
   [ -z "$GP_CUR_HOST" ] || return 0
-  url=$(gp_gh repo view --json url --jq .url) || exit $?
-  url=${url#https://}
-  url=${url%/}
-  GP_CUR_HOST=${url%%/*}
-  url=${url#*/}
-  GP_CUR_OWNER=${url%/*}
-  GP_CUR_REPO=${url##*/}
+  line=$(gp_github_ref origin || exit) || rc=$?
+  case "$rc" in
+    0) ;;
+    2 | 3) gp_err_no_current_repo "$rc" ;;
+    *) exit "$rc" ;;
+  esac
+  IFS='|' read -r GP_CUR_HOST GP_CUR_OWNER GP_CUR_REPO <<<"$line"
 }
 
 # gp_resolve_host -- set GP_HOST to the host of the PR's repository:
@@ -125,57 +141,17 @@ gp_resolve_host() {
   GP_HOST=$GP_CUR_HOST
 }
 
-# gp_valid_name <name> -- succeed when <name> is a repository name
-# GitHub allows: 1 to 100 ASCII letters, digits, ".", "-" and "_", any
-# of them first.
-gp_valid_name() {
-  case "$1" in
-    '' | *[!A-Za-z0-9._-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 100 ]
-}
+# The context repository gp_parse_pr hands github-ref, so that a
+# reference is parsed and checked before any gh call: a part that comes
+# back as this placeholder's is one the reference left out. No GitHub
+# host sits under the reserved `.invalid` top-level domain, so a
+# reference never names this host itself.
+GP_PH_HOST=context.invalid
+GP_PH_OWNER=github-ref-context
+GP_PH_REPO=github-ref-context
 
-# gp_valid_owner <owner> -- succeed when <owner> is an owner GitHub
-# allows: 1 to 39 ASCII letters, digits and "-", not starting with "-"
-# and with no "--".
-gp_valid_owner() {
-  case "$1" in
-    '' | -* | *--* | *[!A-Za-z0-9-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 39 ]
-}
-
-# gp_valid_host <host> -- succeed when <host> is a DNS hostname: at
-# most 253 characters of "."-separated labels, each 1 to 63 ASCII
-# letters, digits and "-", neither starting nor ending with "-".
-gp_valid_host() {
-  local rest=$1. label
-  [ "${#1}" -le 253 ] || return 1
-  while [ -n "$rest" ]; do
-    label=${rest%%.*}
-    case "$label" in
-      '' | -* | *- | *[!A-Za-z0-9-]*) return 1 ;;
-    esac
-    [ "${#label}" -le 63 ] || return 1
-    rest=${rest#*.}
-  done
-}
-
-# gp_valid_path <path> -- succeed when each part of repo, owner/repo or
-# host/owner/repo is valid for its place, by gp_valid_host,
-# gp_valid_owner and gp_valid_name. iss_parse_operand in the issues
-# plugin validates by the same rules.
-gp_valid_path() {
-  case "$1" in
-    */*/*/*) return 1 ;;
-    */*/*) gp_valid_host "${1%%/*}" && gp_valid_path "${1#*/}" ;;
-    */*) gp_valid_owner "${1%/*}" && gp_valid_name "${1#*/}" ;;
-    *) gp_valid_name "$1" ;;
-  esac
-}
-
-# gp_parse_pr <ref> -- the one parser of the PR-reference grammar that
-# skills/lib/pr-reference.md states. Sets
+# gp_parse_pr <ref> -- parse a PR reference, in any form `github-ref item
+# --type pr` takes. Sets
 #   GP_PR        the PR number
 #   GP_PR_NAME   the PR as a message names it: #N, or host/owner/repo#N
 #                when the reference named a repository
@@ -188,57 +164,29 @@ GP_OWNER=
 GP_REPO=
 GP_REPO_ARG=
 gp_parse_pr() {
-  local ref=$1 repo n
-  case "$ref" in
-    https://*/pull/*)
-      repo=${ref#https://}
-      repo=${repo%/}
-      n=${repo##*/pull/}
-      repo=${repo%/pull/*}
-      case "$repo" in
-        */*/*) ;;
-        *) gp_err_not_pr_ref "$ref" ;;
-      esac
-      ;;
-    *://*) gp_err_not_pr_ref "$ref" ;;
-    *'#'*)
-      repo=${ref%'#'*}
-      n=${ref##*'#'}
-      ;;
-    *)
-      repo=
-      n=$ref
-      ;;
+  local ref=$1 line rc=0 host owner repo n
+  line=$(gp_github_ref item --type pr --in "$GP_PH_HOST/$GP_PH_OWNER/$GP_PH_REPO" -- "$ref" || exit) || rc=$?
+  case "$rc" in
+    0) ;;
+    2) gp_err_not_pr_ref "$ref" ;;
+    *) exit "$rc" ;;
   esac
-  case "$n" in
-    '' | *[!0-9]*) gp_err_not_pr_ref "$ref" ;;
-  esac
-  case "$repo" in
-    */*/*/* | *//* | /* | */) gp_err_not_pr_ref "$ref" ;;
-  esac
-  [ -z "$repo" ] || gp_valid_path "$repo" || gp_err_not_pr_ref "$ref"
+  IFS='|' read -r host owner repo n _ <<<"$line"
   GP_PR=$n
-  if [ -z "$repo" ]; then
+  if [ "$host/$owner/$repo" = "$GP_PH_HOST/$GP_PH_OWNER/$GP_PH_REPO" ]; then
     GP_PR_NAME="#$n"
     return 0
   fi
-  case "$repo" in
-    */*/*)
-      GP_HOST=${repo%%/*}
-      repo=${repo#*/}
-      ;;
-    */*)
-      gp_current_repo
-      GP_HOST=$GP_CUR_HOST
-      ;;
-    *)
-      gp_current_repo
-      GP_HOST=$GP_CUR_HOST
-      repo="$GP_CUR_OWNER/$repo"
-      ;;
-  esac
-  GP_OWNER=${repo%/*}
-  GP_REPO=${repo#*/}
+  if [ "$host" = "$GP_PH_HOST" ]; then
+    gp_current_repo
+    host=$GP_CUR_HOST
+    if [ "$owner" = "$GP_PH_OWNER" ]; then
+      owner=$GP_CUR_OWNER
+    fi
+  fi
+  GP_HOST=$host
+  GP_OWNER=$owner
+  GP_REPO=$repo
   GP_REPO_ARG="$GP_HOST/$GP_OWNER/$GP_REPO"
   GP_PR_NAME="$GP_REPO_ARG#$n"
 }
@@ -506,6 +454,14 @@ gp_err_review_body() {
 gp_err_command() { gp_fail 1 "\`$1\` failed (exit $2)"; }
 # gp_err_gh <gh subcommand> <gh's exit status>
 gp_err_gh() { gp_fail 1 "gh $1 failed (exit $2)"; }
+# gp_err_github_ref <github-ref subcommand> <its exit status> -- github-ref
+# exited with a status its contract does not name, such as bash's 127 when
+# it is not on PATH.
+gp_err_github_ref() { gp_fail 1 "github-ref $1 failed (exit $2); github-prs needs the github-tools plugin enabled"; }
+# gp_err_no_current_repo <github-ref origin's exit status>
+gp_err_no_current_repo() {
+  gp_fail 1 "could not resolve the current repository from the checkout's \`origin\` remote (github-ref origin exit $1)"
+}
 # gp_err_curl <URL> <curl's exit status>
 gp_err_curl() { gp_fail 1 "curl $1 failed (exit $2)"; }
 # gp_err_not_object <URL> -- curl succeeded with a response that is not

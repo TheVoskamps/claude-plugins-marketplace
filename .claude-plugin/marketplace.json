@@ -22,6 +22,7 @@
     { "name": "writing-tools", "source": "./plugins/writing-tools" },
     { "name": "auto-mode-tools", "source": "./plugins/auto-mode-tools" },
     { "name": "claude-harness-tools", "source": "./plugins/claude-harness-tools" },
-    { "name": "memory-tools", "source": "./plugins/memory-tools" }
+    { "name": "memory-tools", "source": "./plugins/memory-tools" },
+    { "name": "github-tools", "source": "./plugins/github-tools" }
   ]
 }

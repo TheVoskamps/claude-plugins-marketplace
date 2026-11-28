@@ -18,6 +18,9 @@ this project", and the item it created stays out of the next N reads of the
 issue's project items.
 
 state["repoViewError"] makes `gh repo view` fail with that message.
+`gh repo view` given a repository answers with state["current"], and given
+none with state["defaultRepo"] when set, as gh does in a checkout whose gh
+default repository is not its origin's.
 
 `issue close` on an open issue records a stateReason -- COMPLETED unless its
 --reason names another -- and, with --duplicate-of, the issue it duplicates as
@@ -659,7 +662,10 @@ def main():
     if args[:2] == ["repo", "view"]:
         if "repoViewError" in state:
             fail(state["repoViewError"])
-        print("https://%s/%s" % (host_of(state, state["current"]), state["current"]))
+        nwo = state["current"]
+        if len(args) < 3 or args[2].startswith("-"):
+            nwo = state.get("defaultRepo", nwo)
+        print("https://%s/%s" % (host_of(state, nwo), nwo))
     elif args[:2] == ["api", "user"]:
         print(login_on(state, host))
     elif args[:2] == ["api", "graphql"]:

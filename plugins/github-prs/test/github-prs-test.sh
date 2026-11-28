@@ -157,7 +157,14 @@ pr_json() {
 
 case "$1 $2" in
   "auth token") printf 'token-for-%s\n' "$4" ;;
-  "repo view") jq -n --arg url "https://$(val host github.com)/$(val cur-repo o/r)" '{url: $url}' | out ;;
+  "repo view")
+    # A case's `resolve-url` makes the stub answer as gh does when the
+    # checkout's gh default repository, `cur-repo`, is not origin's: a URL
+    # argument resolves to itself, and only a bare call reaches the default.
+    url="https://$(val host github.com)/$(val cur-repo o/r)"
+    case "$3" in https://*) [ ! -f "$S/resolve-url" ] || url=$3 ;; esac
+    jq -n --arg url "$url" '{url: $url}' | out
+    ;;
   "pr view") pr_json | out ;;
   "pr diff") echo "diff --git a/x b/x" ;;
   "pr list") val list.json '[]' | out ;;
@@ -312,6 +319,12 @@ chmod +x "$SANDBOX/bin/sleep"
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/.issues"
 git -C "$REPO" init -q
+# The stub answers `gh repo view` with the case's repository whatever URL
+# it is given; github-ref only needs an origin to hand it.
+git -C "$REPO" remote add origin https://github.com/o/r
+# github-ref, which the github-tools plugin puts on PATH beside this one.
+GITHUB_TOOLS_BIN="$(cd "$TEST_DIR/../../github-tools/bin" && pwd)"
+REPO_VIEW="repo view https://github.com/o/r --json url --jq .url"
 cat >"$REPO/.issues/repo-config.md" <<'CONFIG'
 ---
 schema-version: 7
@@ -331,7 +344,7 @@ new_case() {
 run() {
   local verb=$1
   shift
-  OUT=$(cd "$REPO" && PATH="$CASE/bin:$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
+  OUT=$(cd "$REPO" && PATH="$CASE/bin:$SANDBOX/bin:$GITHUB_TOOLS_BIN:$PATH" STUB_DIR="$CASE" \
     /bin/bash "$BIN/$verb" "$@" 2>"$CASE/stderr")
   RC=$?
   ERR=$(cat "$CASE/stderr")
@@ -390,14 +403,21 @@ echo acme/r >"$CASE/cur-repo"
 echo ghe.example.com >"$CASE/host"
 run pr-diff 'r2#7'
 check "$RC" "0" "reference repo#N: exit 0"
-check "$(calls)" "repo view --json url --jq .url
+check "$(calls)" "$REPO_VIEW
 pr diff 7 --repo ghe.example.com/acme/r2" "reference repo#N: under the current repository's owner, on its host"
 
 new_case ref-owner-repo
 echo ghe.example.com >"$CASE/host"
 run pr-diff 'o2/r2#7'
-check "$(calls)" "repo view --json url --jq .url
+check "$(calls)" "$REPO_VIEW
 pr diff 7 --repo ghe.example.com/o2/r2" "reference owner/repo#N: that repository, on the current repository's host"
+
+new_case ref-origin-not-default
+echo up/stream >"$CASE/cur-repo"
+touch "$CASE/resolve-url"
+run pr-diff 'r2#7'
+check "$(calls)" "$REPO_VIEW
+pr diff 7 --repo github.com/o/r2" "reference repo#N: under origin's owner when gh's default repository is another"
 
 new_case ref-host-owner-repo
 run pr-diff 'ghe.example.com/o2/r2#7'
@@ -426,14 +446,14 @@ new_case ref-dash-lone-repo
 echo acme/r >"$CASE/cur-repo"
 echo ghe.example.com >"$CASE/host"
 run pr-diff '-r#7'
-check "$(calls)" "repo view --json url --jq .url
+check "$(calls)" "$REPO_VIEW
 pr diff 7 --repo ghe.example.com/acme/-r" "reference: a lone repository name may start with -"
 
 new_case ref-long-parts
 run pr-diff 'h-1.hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.com/ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7'
 check "$(calls)" "pr diff 7 --repo h-1.hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.com/ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr" "reference: a 63-character host label, a 39-character owner and a 100-character repository name"
 
-for bad in 'h/o/r/x#7' 'o/r#' '-o/r#7' '-h/o/r#7' 'h-/o/r#7' 'h..x/o/r#7' 'h_x/o/r#7' 'o--p/r#7' 'o_p/r#7' 'o.p/r#7' 'oooooooooooooooooooooooooooooooooooooooo/r#7' 'o/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7' 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.x/o/r#7' 'o/r+s#7' 'https://-h/o/r/pull/7' 'https://h/-o/r/pull/7' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
+for bad in 'h/o/r/x#7' 'o/r#' '-o/r#7' '-h/o/r#7' 'h-/o/r#7' 'h..x/o/r#7' 'h_x/o/r#7' 'o--p/r#7' 'o_p_q/r#7' 'o-_p/r#7' 'o/..#7' 'o.p/r#7' 'oooooooooooooooooooooooooooooooooooooooo/r#7' 'o/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7' 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.x/o/r#7' 'o/r+s#7' 'https://-h/o/r/pull/7' 'https://h/-o/r/pull/7' 'o//r#7' '/r#7' 'o r#7' 'o/r#7x' '##7' 'http://h/o/r/pull/7' 'https://h/o/pull/7'; do
   new_case "ref-malformed-$(printf '%s' "$bad" | tr -c 'A-Za-z0-9' '_')"
   run pr-diff "$bad"
   check "$RC:$(calls)" "2:" "reference \`$bad\`: a usage error that calls no gh"
@@ -607,8 +627,8 @@ run pr-closing-issues 7
 check "$RC" "1" "pr-closing-issues: a failed repository lookup exits 1"
 check "$(printf '%s\n' "$ERR" | grep -c '^pr-closing-issues: ')" "1" \
   "pr-closing-issues: a failed repository lookup leaves exactly one catalogue line"
-check "$ERR" "$(printf '%s\n%s' "stub gh: repo view refused" "pr-closing-issues: gh repo view failed (exit 1)")" \
-  "pr-closing-issues: a failed repository lookup leaves gh's own error, then the line naming the lookup"
+check "$ERR" "pr-closing-issues: could not resolve the current repository from the checkout's \`origin\` remote (github-ref origin exit 3)" \
+  "pr-closing-issues: a failed repository lookup leaves the line naming the lookup"
 
 # A sort that fails with a status of its own: the verb exits with the
 # generic failure, not sort's 7.
@@ -730,7 +750,7 @@ check "$(calls)" "" "pr-update: a usage error calls no gh"
 new_case comment
 run pr-comment 7 --body-file "$SANDBOX/new-body.md"
 check "$RC" "0" "pr-comment: exit 0 when the comment lands"
-check "$(call_line 1)" "repo view --json url --jq .url" "pr-comment: resolves the repository's host first"
+check "$(call_line 1)" "$REPO_VIEW" "pr-comment: resolves the repository's host first"
 check "$(call_line 2)" "pr comment 7 --body-file $SANDBOX/new-body.md" "pr-comment: posts by path"
 check "$(call_line 3)" "auth token --hostname github.com" "pr-comment: takes the token for the repository's host"
 check "$(call_line 4)" "curl https://api.github.com/repos/o/r/issues/comments/555" \
@@ -1162,7 +1182,7 @@ echo ".claude/" >"$CLONE/.git/info/exclude"
 # run_conflicts <args...> -- run pr-merge-conflicts from $CLONE, with a
 # case's own bin/ ahead of the stubs when it has one.
 run_conflicts() {
-  OUT=$(cd "$CLONE" && PATH="$CASE/bin:$SANDBOX/bin:$PATH" STUB_DIR="$CASE" \
+  OUT=$(cd "$CLONE" && PATH="$CASE/bin:$SANDBOX/bin:$GITHUB_TOOLS_BIN:$PATH" STUB_DIR="$CASE" \
     /bin/bash "$BIN/pr-merge-conflicts" "$@" 2>"$CASE/stderr")
   RC=$?
   ERR=$(cat "$CASE/stderr")

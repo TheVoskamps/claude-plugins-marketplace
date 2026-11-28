@@ -81,40 +81,31 @@ sp_usage_error() {
 set -E
 trap 'sp_fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
+# The context repository sp_parse_pr hands github-ref, which the
+# github-tools plugin puts on PATH. A reference resolved against it makes
+# no gh call, and one that leaves a part out reads back with a part of this
+# placeholder in place of its own, so it no longer spells itself.
+readonly SP_PH_REPO=context.invalid/github-ref-context/github-ref-context
+
 # sp_parse_pr <ref> -- parse the canonical reference
 # <host>/<owner>/<repo>#<n> that `/github-prs:pr-view <PR> --ref` prints,
 # setting SP_REF to it whole, SP_REPO to <host>/<owner>/<repo> and SP_PR
-# to <n>. Any other form is a usage error: a reference without its host
-# names a different repository on every host.
+# to <n>. github-ref parses it and checks each part; any reference it
+# refuses, and any it reads back other than as the reference spelled it,
+# is a usage error: a reference without its host names a different
+# repository on every host.
 sp_parse_pr() {
-  local repo n rest segment
-  repo=${1%'#'*}
-  n=${1##*'#'}
-  case "$1" in
-    *'#'*) ;;
-    *) sp_err_not_pr_ref "$1" ;;
+  local line rc=0 host owner repo n
+  line=$(github-ref item --type pr --in "$SP_PH_REPO" -- "$1" || exit) || rc=$?
+  case "$rc" in
+    0) ;;
+    2) sp_err_not_pr_ref "$1" ;;
+    *) sp_fail 1 "github-ref item failed (exit $rc); sdlc needs the github-tools plugin enabled" ;;
   esac
-  case "$n" in
-    '' | *[!0-9]*) sp_err_not_pr_ref "$1" ;;
-  esac
-  case "$repo" in
-    */*/*/* | *//* | /* | */) sp_err_not_pr_ref "$1" ;;
-    ?*/?*/?*) ;;
-    *) sp_err_not_pr_ref "$1" ;;
-  esac
-  rest=$repo
-  while [ -n "$rest" ]; do
-    segment=${rest%%/*}
-    case "$segment" in
-      *[!A-Za-z0-9._-]* | . | ..) sp_err_not_pr_ref "$1" ;;
-    esac
-    case "$rest" in
-      */*) rest=${rest#*/} ;;
-      *) rest= ;;
-    esac
-  done
+  IFS='|' read -r host owner repo n _ <<<"$line"
+  [ "$1" = "$host/$owner/$repo#$n" ] || sp_err_not_pr_ref "$1"
   SP_REF=$1
-  SP_REPO=$repo
+  SP_REPO=$host/$owner/$repo
   SP_PR=$n
 }
 

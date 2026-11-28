@@ -6,11 +6,9 @@
 # with. The current repository is github.com/acme/widgets, held as
 # already resolved, so no case calls gh.
 #
-# The accepted forms are those the github-prs PR-reference parser accepts --
-# N, #N, repo#N, owner/repo#N, host/owner/repo#N and a URL -- except that the
-# URL carries an issues segment; a pull segment is refused. So a reference
-# copied between the two plugins' verbs parses to the same host, owner,
-# repository and number. Each form a verb prints is round-tripped under each
+# The accepted forms are those github-ref parses for an issue -- N, #N,
+# repo#N, owner/repo#N, host/owner/repo#N and a URL carrying an issues
+# segment; a pull segment is refused. Each form a verb prints is round-tripped under each
 # kind of issue-link-prefix -- `#`, empty, and a name -- because the prefix
 # decides which printed form parses back to the issue it was printed for.
 #
@@ -40,6 +38,8 @@ parse() {
   ' _ "$LIB" "$@" 2>&1)
   RC=$?
 }
+# github-ref, which the github-tools plugin puts on PATH beside this one.
+PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../github-tools/bin" && pwd):$PATH"
 
 # accepts <operand> <expected "host owner repo number"> [<link-prefix>]: an
 # exit 0 with <expected>, under <link-prefix> as the issue-link-prefix, or
@@ -93,6 +93,7 @@ accepts -b#7 "github.com acme -b 7"
 accepts octo/-b#7 "github.com octo -b 7"
 accepts .b_#7 "github.com acme .b_ 7"
 accepts a-b-c/lib#7 "github.com a-b-c lib 7"
+accepts mona-cat_octo/lib#7 "github.com mona-cat_octo lib 7"
 accepts ooooooooooooooooooooooooooooooooooooooo/lib#7 "github.com ooooooooooooooooooooooooooooooooooooooo lib 7"
 accepts octo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7 "github.com octo rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr 7"
 accepts hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.example.com/corp/tools#7 "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.example.com corp tools 7"
@@ -214,7 +215,9 @@ not_repo="is not a repository"
 refuses a//b#7 "$not_repo"
 refuses -a/b#7 "$not_repo"
 refuses a--b/c#7 "$not_repo"
-refuses a_b/c#7 "$not_repo"
+refuses a_b_c/c#7 "$not_repo"
+refuses a-_b/c#7 "$not_repo"
+refuses octo/..#7 "$not_repo"
 refuses a.b/c#7 "$not_repo"
 refuses oooooooooooooooooooooooooooooooooooooooo/lib#7 "$not_repo"
 refuses octo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#7 "$not_repo"

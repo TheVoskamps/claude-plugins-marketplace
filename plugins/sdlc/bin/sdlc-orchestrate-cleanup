@@ -15,10 +15,10 @@
 # through github-prs' `pr-view` and `pr-closing-issues`, an issue's state
 # through issues' `issue-view`, an issue branch's issues through
 # git-tools' `git-issue-branch decode`, and this checkout's repository is
-# the one `gh repo view` reports. Every executable is called by name off
-# PATH. Worktrees, branches and scratch are those of the primary clone,
-# whichever of its worktrees the script runs in. Runs under the bash 3.2
-# macOS ships.
+# the one github-tools' `github-ref origin` reports. Every executable is
+# called by name off PATH. Worktrees, branches and scratch are those of
+# the primary clone, whichever of its worktrees the script runs in. Runs
+# under the bash 3.2 macOS ships.
 #
 # Usage: sdlc-orchestrate-cleanup --pr <PR> [--stale-locks] [--review-state] [--dry-run]
 #        sdlc-orchestrate-cleanup --all --scratchpad <path> [--stale-locks] [--review-state] [--dry-run]
@@ -353,9 +353,8 @@ under=$(printf '%s\n' "$all_worktrees" | LC_ALL=C sort -r || exit) ||
 # entry the script matches against it is this checkout's.
 if [ -n "$pr" ]; then
   ref=$(pr-view "$pr" --ref || exit) || fail 1 "pr-view $pr --ref failed"
-  here=$(gh repo view --json url --jq .url || exit) || fail 1 "gh repo view failed"
-  here=${here#https://}
-  here=${here%/}
+  here=$(github-ref origin || exit) || fail 1 "github-ref origin failed"
+  here=${here//|//}
   pr_repo=$(printf '%s' "${ref%'#'*}" | tr '[:upper:]' '[:lower:]' || exit) || fail 1 "lowercasing $ref failed"
   here_repo=$(printf '%s' "$here" | tr '[:upper:]' '[:lower:]' || exit) || fail 1 "lowercasing $here failed"
   [ "$pr_repo" = "$here_repo" ] ||
