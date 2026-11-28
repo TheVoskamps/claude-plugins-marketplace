@@ -10,6 +10,10 @@
 #     credential -- exit 0 iff both tokens non-empty (issue #88, Gap 1).
 #   - claude_vm_select_claude_json_seed: build the identity seed from the host
 #     ~/.claude.json (issue #88).
+#   - claude_vm_account_name_valid, claude_vm_account_dir and
+#     claude_vm_keychain_service: the `--as` name check, the account-directory
+#     lookup, and the derived Keychain service, checked against python3's
+#     hashlib.
 # No Keychain, no VM, no network, no host mutation. Run directly:
 #
 #   plugins/claude-vm/payload/test/credential-test.sh

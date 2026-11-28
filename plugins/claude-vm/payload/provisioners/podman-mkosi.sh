@@ -136,13 +136,18 @@ if [ "$BAKE_PLUGINS_ACTIVE" -eq 1 ] && [ ! -f "$GUEST_CLAUDE_BIN" ]; then
 fi
 
 # Root partition headroom (issue #106 real-run fix). build-guest-image.sh
-# resolves image.root_headroom_mb (default 1024, see
-# lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB) and exports it as
-# CLAUDE_VM_ROOT_HEADROOM_MB; it also validates it as a positive integer, so
-# this is defense-in-depth, not the primary guard.
-ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-1024}"
+# resolves image.root_headroom_mb (its default is justified beside the key
+# table in lib/config.sh) and always passes it as CLAUDE_VM_ROOT_HEADROOM_MB, so
+# this provisioner carries no default of its own and refuses to build without
+# one. build-guest-image.sh also validates it as a positive integer, so the
+# check below is defense-in-depth, not the primary guard.
+ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-}"
 case "$ROOT_HEADROOM_MB" in
-  ''|*[!0-9]*)
+  '')
+    echo "podman-mkosi: CLAUDE_VM_ROOT_HEADROOM_MB is not set (build-guest-image.sh passes it)" >&2
+    exit 1
+    ;;
+  *[!0-9]*)
     echo "podman-mkosi: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
     exit 1
     ;;
@@ -198,7 +203,10 @@ if ! podman info >/dev/null 2>&1; then
   exit 1
 fi
 
-[ -f "$BOOT_LAUNCHER" ] || { echo "podman-mkosi: boot launcher not found: $BOOT_LAUNCHER" >&2; exit 1; }
+[ -f "$BOOT_LAUNCHER" ] || {
+  echo "podman-mkosi: boot launcher not found: $BOOT_LAUNCHER" >&2
+  exit 1
+}
 
 OUTPUT_DIR="$(cd "$(dirname "$OUTPUT_IMAGE")" && pwd)"
 OUTPUT_BASE="$(basename "$OUTPUT_IMAGE")"
@@ -269,8 +277,8 @@ mkdir -p "$STAGE/out"
 # NOT relied upon here; that apt run's own cache is discarded with the
 # throwaway build container regardless, so it does not affect guest disk.
 mkdir -p "$STAGE/recipe/mkosi.skeleton/etc/apt/sources.list.d" \
-         "$STAGE/recipe/mkosi.skeleton/etc/apt/apt.conf.d"
-cat > "$STAGE/recipe/mkosi.skeleton/etc/apt/sources.list.d/${GUEST_SUITE}.sources" <<SOURCES
+  "$STAGE/recipe/mkosi.skeleton/etc/apt/apt.conf.d"
+cat >"$STAGE/recipe/mkosi.skeleton/etc/apt/sources.list.d/${GUEST_SUITE}.sources" <<SOURCES
 Types: deb
 URIs: http://deb.debian.org/debian
 Suites: $GUEST_SUITE
@@ -289,7 +297,7 @@ Suites: ${GUEST_SUITE}-security
 Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 SOURCES
-cat > "$STAGE/recipe/mkosi.skeleton/etc/apt/apt.conf.d/99claude-vm-diet.conf" <<'DIET'
+cat >"$STAGE/recipe/mkosi.skeleton/etc/apt/apt.conf.d/99claude-vm-diet.conf" <<'DIET'
 // claude-vm apt metadata diet (issue #106 real-run fix). Skips Translation-*
 // list downloads (unused; ~32 MB of a stock Debian lists set) and disables
 // the persistent binary package caches (regenerated on every apt-get call;
@@ -316,7 +324,7 @@ DIET
 # needed to hold the built rootfs content, with zero margin for anything the
 # guest writes after boot (apt working set, journald, session growth -- all
 # empirically observed to matter; see build-guest-image.sh's boot_apt_phase
-# and lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB comments).
+# and lib/config.sh's image.root_headroom_mb comments).
 #
 # Fix: provide our OWN mkosi.repart/ directory. Once mkosi.repart/ exists at
 # all, mkosi does NOT layer its defaults on top -- our directory must be a
@@ -370,7 +378,7 @@ DIET
 ROOT_BASE_FLOOR_MB=900
 ROOT_SIZE_MIN_MB=$((ROOT_BASE_FLOOR_MB + ROOT_HEADROOM_MB))
 mkdir -p "$STAGE/recipe/mkosi.repart"
-cat > "$STAGE/recipe/mkosi.repart/00-esp.conf" <<'ESPCONF'
+cat >"$STAGE/recipe/mkosi.repart/00-esp.conf" <<'ESPCONF'
 [Partition]
 Type=esp
 Format=vfat
@@ -379,7 +387,7 @@ CopyFiles=/efi:/
 SizeMinBytes=512M
 SizeMaxBytes=512M
 ESPCONF
-cat > "$STAGE/recipe/mkosi.repart/10-root.conf" <<ROOTCONF
+cat >"$STAGE/recipe/mkosi.repart/10-root.conf" <<ROOTCONF
 [Partition]
 Type=root
 Format=ext4
@@ -397,7 +405,7 @@ ROOTCONF
 # mkosi.sandbox/etc/apt/sources.list.d/ (with its key at
 # mkosi.sandbox/etc/apt/keyrings/) is available to mkosi's apt at install time.
 # Created empty here; the in-container step populates it from apt_sources.
-printf '%s\n' "$BAKE_CONFIG" > "$STAGE/recipe/bake-config.json"
+printf '%s\n' "$BAKE_CONFIG" >"$STAGE/recipe/bake-config.json"
 mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/sources.list.d"
 mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/keyrings"
 
@@ -406,7 +414,7 @@ mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/keyrings"
 # so the in-container step can reach them at /work/recipe/. The binary is
 # staged as a COPY rather than bind-mounted separately so the existing single
 # `-v $STAGE/recipe:/work/recipe` mount carries everything the build needs.
-printf '%s\n' "$BAKE_PLUGINS" > "$STAGE/recipe/bake-plugins.json"
+printf '%s\n' "$BAKE_PLUGINS" >"$STAGE/recipe/bake-plugins.json"
 if [ "$BAKE_PLUGINS_ACTIVE" -eq 1 ]; then
   install -m 0755 "$GUEST_CLAUDE_BIN" "$STAGE/recipe/guest-claude"
 fi
@@ -427,7 +435,7 @@ install -m 0755 "$BOOT_LAUNCHER" \
 # renames the link enp0s1 (from eth0), so match the en* / eth* glob rather
 # than a fixed name. wait-online needs the matched link to reach "routable"
 # (DHCP lease) to declare the network online.
-cat > "$STAGE/recipe/mkosi.extra/etc/systemd/network/10-claude-vm.network" <<'NET'
+cat >"$STAGE/recipe/mkosi.extra/etc/systemd/network/10-claude-vm.network" <<'NET'
 [Match]
 Name=en* eth*
 
@@ -462,10 +470,10 @@ NET
 # the secret-bearing OAuth credential -- the boot launcher copies it out to a
 # per-user file); repo is rw (the guest works in it).
 mkdir -p "$STAGE/recipe/mkosi.extra/mnt/runconfig" \
-         "$STAGE/recipe/mkosi.extra/mnt/repo" \
-         "$STAGE/recipe/mkosi.extra/mnt/claudebin" \
-         "$STAGE/recipe/mkosi.extra/mnt/claudecreds"
-cat > "$STAGE/recipe/mkosi.extra/etc/fstab" <<'FSTAB'
+  "$STAGE/recipe/mkosi.extra/mnt/repo" \
+  "$STAGE/recipe/mkosi.extra/mnt/claudebin" \
+  "$STAGE/recipe/mkosi.extra/mnt/claudecreds"
+cat >"$STAGE/recipe/mkosi.extra/etc/fstab" <<'FSTAB'
 # <tag>       <mountpoint>       <type>     <options>     <dump> <pass>
 runconfig     /mnt/runconfig     virtiofs   ro,nofail     0 0
 repo          /mnt/repo          virtiofs   rw,nofail     0 0
@@ -526,7 +534,7 @@ FSTAB
 # after network-online.target so the launcher's egress-allowlisted fetch can
 # reach the proxy.
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d"
-cat > "$STAGE/recipe/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d/10-claude-vm.conf" <<'GETTY'
+cat >"$STAGE/recipe/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d/10-claude-vm.conf" <<'GETTY'
 [Unit]
 Description=claude-vm interactive claude session on hvc1
 After=network-online.target
@@ -581,7 +589,7 @@ ln -sf /usr/lib/systemd/system/serial-getty@.service \
   "$STAGE/recipe/mkosi.extra/etc/systemd/system/getty.target.wants/serial-getty@hvc1.service"
 
 # The mkosi config. Kept as a static file so the recipe is auditable.
-cat > "$STAGE/recipe/mkosi.conf" <<CONF
+cat >"$STAGE/recipe/mkosi.conf" <<CONF
 [Distribution]
 Distribution=debian
 # Suite name (e.g. "bookworm"), NOT the numeric release -- mkosi 404s on a
@@ -681,7 +689,7 @@ Packages=
     # debian:trixie container reproduces the failure exactly -- "Failed to
     # clone marketplace repository: Command failed with
     # ERR_STREAM_PREMATURE_CLOSE: git ... clone --depth 1 ..." -- which would
-    # make claude.plugins.update_at_boot (default true) permanently inert and
+    # make claude.plugins.update_at_boot permanently inert and
     # any boot-added marketplace unreachable. The security boundary for a
     # hard-secure all-bake-declared config (add_marketplace_uris_to_allowlist:
     # auto, nothing to do at boot) is the egress allowlist leaving the
@@ -718,7 +726,7 @@ CONF
 # podman-mkosi-test.sh regression-tests. Escape a runtime reference as \$var,
 # and spell comment prose without backticks.
 MKOSI_REF='v26'
-cat > "$STAGE/build-in-container.sh" <<INNER
+cat >"$STAGE/build-in-container.sh" <<INNER
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1397,7 +1405,10 @@ podman run --rm --privileged \
   /work/build-in-container.sh
 
 PRODUCED="$STAGE/out/claude-vm-guest.raw"
-[ -f "$PRODUCED" ] || { echo "podman-mkosi: build did not produce $PRODUCED" >&2; exit 1; }
+[ -f "$PRODUCED" ] || {
+  echo "podman-mkosi: build did not produce $PRODUCED" >&2
+  exit 1
+}
 
 # Atomic-ish copy into place: write to a temp sibling, then rename.
 TMP_OUT="$OUTPUT_DIR/.$OUTPUT_BASE.tmp.$$"

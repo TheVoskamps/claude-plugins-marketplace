@@ -166,14 +166,15 @@ BASE_OS_REV="debian-12-20250601"
 # nothing ever pulled apt/dpkg tooling INTO the guest rootfs -- the base
 # Packages= list (provisioners/podman-mkosi.sh) never named it. `apt` is now
 # baked UNCONDITIONALLY, not gated on whether boot-time apt work is
-# configured, because the boot file's update_at_boot defaults to true (so nearly
-# every config needs it), the security boundary for a hard-secure all-baked
-# config is the egress allowlist (mirrors left unreachable), not the absence
-# of the apt binary, and the add_apt_uris_to_allowlist: always mid-session-
-# install path is only honest if apt exists. This is a base-image CONTENT
-# change (not boot-logic code), but it still must invalidate every cached
-# image built before it -- including images already built at rev 11 without
-# apt -- so old images (stamped 'launcher11') must rebuild to gain it.
+# configured, because update_at_boot's default in the key table runs boot-time
+# apt work (so nearly every config needs it), the security boundary for a
+# hard-secure all-baked config is the egress allowlist (mirrors left
+# unreachable), not the absence of the apt binary, and the
+# add_apt_uris_to_allowlist: always mid-session-install path is only honest if
+# apt exists. This is a base-image CONTENT change (not boot-logic code), but it
+# still must invalidate every cached image built before it -- including images
+# already built at rev 11 without apt -- so old images (stamped 'launcher11')
+# must rebuild to gain it.
 # Bumped 12 -> 13: second real-run pass (issue #106) -- mid-session apt
 # proxying, apt metadata/cache diet, and root-partition headroom. A real
 # guest boot found THREE more problems past the 11 -> 12 apt-bake fix: (1) an
@@ -348,7 +349,12 @@ BASE_OS_REV="debian-12-20250601"
 # present either way and only its failure behavior differs. Same reasoning as
 # every rev above: the launcher's SOURCE is not part of the image-identity hash,
 # so this constant is the only thing that invalidates a cached image.
-LAUNCHER_LOGIC_REV="27"
+# Rev 28: the boot launcher stops when run.env lacks
+# CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT or CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT. The
+# host always writes both, and the key table is the only home of their
+# defaults. An image stamped with a lower rev falls back to `true` for an unset
+# flag instead, so it must rebuild to gain the stop.
+LAUNCHER_LOGIC_REV="28"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -385,10 +391,9 @@ BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 # identity/cache-key above (which is provenance-based, per layer). The headroom
 # is validated here as a positive integer so a typo aborts the build rather
 # than reaching the provisioner as garbage.
-CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB="$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB"
-ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB}"
+ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$(claude_vm_config_key_default image.root_headroom_mb)}"
 case "$ROOT_HEADROOM_MB" in
-  ''|*[!0-9]*)
+  '' | *[!0-9]*)
     echo "build-guest-image: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
     exit 1
     ;;
@@ -402,8 +407,11 @@ compute_pinned_version() {
   fi
   printf '%s\n' "$version"
 }
-PINNED_VERSION="$(compute_pinned_version)" \
-  || { echo "build-guest-image: failed to compute image-identity version" >&2; exit 1; }
+PINNED_VERSION="$(compute_pinned_version)" ||
+  {
+    echo "build-guest-image: failed to compute image-identity version" >&2
+    exit 1
+  }
 
 usage() {
   cat >&2 <<'EOF'
@@ -423,8 +431,8 @@ The MERGED bake config (canonical JSON from the launcher) is read from the
 CLAUDE_VM_BAKE_CONFIG environment variable and forwarded to the provisioner as
 the image build CONTENT; unset/empty means no baked packages (the legacy base
 image). The root-partition headroom (MiB) is read from
-CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to
-CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB (lib/config.sh).
+CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to image.root_headroom_mb's
+default in the key table (lib/config.sh).
 EOF
 }
 
@@ -537,6 +545,11 @@ set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
 set +a
+# The two boot-phase flags carry no default here: the host resolves each from
+# the key table and always writes it into run.env, so a run.env without one is
+# a launcher fault, and the boot stops on it rather than guessing.
+: "${CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT:?run.env carries no CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT (the host launcher writes it)}"
+: "${CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT:?run.env carries no CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT (the host launcher writes it)}"
 
 # ---------------------------------------------------------------------
 # Guest environment variables (issue #135) -- the GUEST half of the `env:`
@@ -655,7 +668,7 @@ MOUNTS_TSV="$RUNCONFIG_MNT/mounts.tsv"
 # effective mountpoint OVERLAPS it: on it, above it, or inside it. The per-entry
 # <tag> directories below stay inside it for the same reason: the same validator
 # rejects a tag of `.` or `..`, which would otherwise walk back out of this
-# directory (payload/README.md -> *The tag is not just a tag*). This launcher
+# directory (lib/config.sh, claude_vm_check_mounts). This launcher
 # is baked into the image and cannot source that file, so the value is restated
 # here; the two must stay equal, and each side's comment names the other.
 MOUNT_WRAP_MNT=/run/claude-vm/mount-wrap
@@ -1002,7 +1015,7 @@ fi
 # BLOCKING, before claude launches (agreed in the issue: if a package is too
 # slow to install at boot, the user moves it from install_at_boot to bake).
 #
-#   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, default true):
+#   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, always written by the host):
 #      `apt-get update` + `apt-get -y upgrade`.
 #   2. apt-install.list (runconfig mount) nonempty: render any
 #      apt-sources.tsv entries into the guest's LIVE /etc/apt (reusing the
@@ -1215,7 +1228,7 @@ render_apt_source_boot() {
 boot_apt_phase() {
   local did_update=0
 
-  if [ "${CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT:-true}" = "true" ]; then
+  if [ "$CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT" = "true" ]; then
     log "claude-vm: boot-time apt: running 'apt-get update' + 'apt-get -y upgrade' (packages.update_at_boot)."
     if apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" update -qq \
         && DEBIAN_FRONTEND=noninteractive apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" -y -qq upgrade; then
@@ -1363,7 +1376,7 @@ log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CL
 #
 #   plugin-marketplaces.tsv -- name<TAB>url, the EFFECTIVE marketplace set.
 #   plugin-install.list     -- claude.plugins.install_at_boot refs.
-#   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT -- run.env, default true.
+#   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT -- run.env, always written by the host.
 #
 # Steps, in this order (each skipped when it has nothing to do):
 #   1. ENSURE: add any configured marketplace the image does not already carry.
@@ -1424,7 +1437,7 @@ boot_plugin_phase() {
   if [ -s "$PLUGIN_INSTALL_LIST" ]; then
     have_installs=1
   fi
-  local do_update="${CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT:-true}"
+  local do_update="$CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT"
 
   # Nothing configured at all -> no work, no log noise, no network.
   if [ "$have_marketplaces" -eq 0 ] && [ "$have_installs" -eq 0 ]; then
@@ -1683,7 +1696,7 @@ build_image() {
   # (issue #88).
   local stage
   stage="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-build.XXXXXX")"
-  emit_boot_launcher > "$stage/boot-launcher.sh"
+  emit_boot_launcher >"$stage/boot-launcher.sh"
   chmod +x "$stage/boot-launcher.sh"
 
   # --- provisioning -----------------------------------------------------
@@ -1721,17 +1734,17 @@ build_image() {
   # image -- so a bare `build-guest-image.sh --output` smoke test with no
   # launcher still builds.
   CLAUDE_VM_BASE_OS_REV="$BASE_OS_REV" \
-  CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
-  CLAUDE_VM_BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}" \
-  CLAUDE_VM_GUEST_CLAUDE_BIN="${CLAUDE_VM_GUEST_CLAUDE_BIN:-}" \
-  CLAUDE_VM_ROOT_HEADROOM_MB="$ROOT_HEADROOM_MB" \
+    CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
+    CLAUDE_VM_BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}" \
+    CLAUDE_VM_GUEST_CLAUDE_BIN="${CLAUDE_VM_GUEST_CLAUDE_BIN:-}" \
+    CLAUDE_VM_ROOT_HEADROOM_MB="$ROOT_HEADROOM_MB" \
     "$provisioner" "$stage/boot-launcher.sh" "$output"
   # ----------------------------------------------------------------------
 
   rm -rf "$stage"
 
   # Stamp the version so the launcher's ensure-image check can compare.
-  printf '%s\n' "$PINNED_VERSION" > "$output.version"
+  printf '%s\n' "$PINNED_VERSION" >"$output.version"
   echo "build-guest-image: built '$PINNED_VERSION' at $output" >&2
 }
 
@@ -1741,7 +1754,10 @@ main() {
       printf '%s\n' "$PINNED_VERSION"
       ;;
     --output)
-      [ -n "${2:-}" ] || { usage; exit 2; }
+      [ -n "${2:-}" ] || {
+        usage
+        exit 2
+      }
       build_image "$2"
       ;;
     *)

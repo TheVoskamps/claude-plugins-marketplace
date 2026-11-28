@@ -30,11 +30,42 @@
 #   - an absent entry is tolerated on both sides (most hosts have no
 #     keybindings.json), and an EMPTY seed still boots.
 #
+# Case H runs the staging loop as `--as` runs it, with the account directory
+# set: the entries come from it alone, so one the account lacks stays absent
+# rather than being filled in from ~/.claude, and the account's settings.json
+# is staged no more than the host's is.
+#
 # So the test runs the REAL fragments, sliced verbatim out of claude-vm.sh
 # and out of the launcher heredoc in build-guest-image.sh, against a fake
 # host home and a fake guest home. It is the shipped code deciding, not a
 # hand-copied reimplementation -- the same shape boot-launcher-test.sh uses
-# for the shutdown decision.
+# for the shutdown decision. Excluded entries are asserted at BOTH ends, since
+# a guest-side assertion alone would pass on a host that staged the entry and
+# a guest that merely failed to install it.
+#
+# The guest half's FAILURE arms are pinned by injection, because the emitted
+# launcher runs under `set -euo pipefail` and an unguarded command there costs
+# the whole boot. Each fragment's exit status is recorded: a destination that
+# exists as a non-directory must still leave the later entries installed and
+# the run at status 0, and an unreadable subtree on the mount must leave the
+# destination REMOVED when this seed created it and untouched, with a warning,
+# when it is baked image content. The injection is planted on the mount,
+# driving the guest loop alone, because a host ~/.claude entry the host itself
+# cannot read is dropped host-side and never reaches the guest; it is skipped
+# under root, which reads a mode-000 directory anyway.
+#
+# Both halves run on one filesystem, where a copied LINK still resolves, so
+# every content assertion stays green when `cp -RL` loses its `-L`. What moves
+# is the SHAPE of the staged entry, so the suite asserts claude-home/rules and
+# claude-home/skills are real directories. In the real VM that drop is fatal
+# rather than invisible -- the link's target sits outside the staging dir, so
+# outside the share the guest mounts -- which is why an off-VM harness cannot
+# see it by reading content. Mutating the `cp -RL` or
+# `cp -R <src>/.` spelling, or a failure arm, to its unsafe form turns a
+# behavioral assertion red.
+#
+# What this cannot reach is the step running in the real emitted launcher off
+# a real virtio-fs share; host-acceptance.sh criterion (b4) covers that.
 #
 # Run directly:
 #

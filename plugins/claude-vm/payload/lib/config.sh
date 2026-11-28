@@ -12,28 +12,20 @@
 # <repo>/.claude-vm/. A bake file's top-level `packages:` is a flat list
 # baked into the image; a boot file's top-level `packages:` is a flat list
 # installed at boot; each file's `apt_sources:` unions in. Each file type has
-# ONE schema (its example file), read as written -- merging happens WITHIN a
-# tier (global+repo bake -> MERGED_BAKE; global+repo boot -> MERGED_BOOT),
-# never across tiers. See the "Four-file config" section below.
+# ONE schema (the key table's file column), read as written -- merging happens
+# WITHIN a tier (global+repo bake -> MERGED_BAKE; global+repo boot ->
+# MERGED_BOOT), never across tiers. See the "Four-file config" section below.
 #
 # Layering semantics (from issue #6, extended by issue #103), applied within
-# each tier's merge:
-#   - Scalars (cpus, mem, guest_image, repo.mount, repo.copy_back,
-#     proxy.cmd, proxy.port, proxy.host_alias, update_at_boot,
-#     add_apt_uris_to_allowlist, claude.permission_mode,
-#     claude.plugins.update_at_boot,
-#     claude.plugins.add_marketplace_uris_to_allowlist,
-#     github.auth): repo overrides global; global fills gaps.
-#   - Scalar MAPS (claude.plugins.enabled, env.set): repo-over-global PER KEY
-#     -- each entry follows the scalar repo-wins rule independently, so a repo
-#     can flip one plugin's enabled state, or one environment variable's value,
-#     without restating the global map. See claude_vm_merge_config below.
-#   - Lists (egress.allow, mounts, packages, apt_sources,
-#     claude.permissions.allow/ask/deny, claude.marketplaces,
-#     claude.plugins.bake, claude.plugins.install_at_boot, env.copy, env.files
-#     -- see CLAUDE_VM_LIST_KEYS below): MERGED -- union of global + repo
-#     entries (de-duplicated, order: global entries first, then repo entries
-#     not already present).
+# each tier's merge, per the shape column of the key table
+# (CLAUDE_VM_CONFIG_KEYS below):
+#   - Scalars: repo overrides global; global fills gaps.
+#   - Scalar MAPS (a `map(...)` type): repo-over-global PER KEY -- each entry
+#     follows the scalar repo-wins rule independently, so a repo can flip one
+#     plugin's enabled state, or one environment variable's value, without
+#     restating the global map. See claude_vm_merge_config below.
+#   - Lists: MERGED -- union of global + repo entries (de-duplicated, order:
+#     global entries first, then repo entries not already present).
 #
 # All four files are OPTIONAL. A missing file is treated as `{}` (empty
 # document), so any combination resolves cleanly.
@@ -46,8 +38,9 @@
 # host `.env` file, both read at launch (issue #135). `env.set` is for
 # non-secret literals only, since its values ARE the committed config.
 #
-# Requires: yq (v4+, the Go/mikefarah implementation). Sourcing does not
-# check for it; a caller runs claude_vm_require_yq before parsing config.
+# Requires: yq (the Go/mikefarah implementation, at CLAUDE_VM_YQ_FLOOR or
+# later). Sourcing does not check for it; a caller runs claude_vm_require_yq
+# before parsing config.
 
 set -uo pipefail
 
@@ -129,42 +122,156 @@ claude_vm_detect_legacy_config() {
   [ -n "$legacy" ] && [ -f "$legacy" ] || return 0
   echo "claude-vm: found a legacy single-file $tier config at '$legacy'." >&2
   echo "claude-vm: claude-vm now splits config into TWO files per tier (issue #179):" >&2
-  echo "claude-vm:   $dir/config-bake.yml  -- keys that change the guest IMAGE (packages baked in," >&2
-  echo "claude-vm:                            apt_sources, image.root_headroom_mb)" >&2
-  echo "claude-vm:   $dir/config-boot.yml  -- keys applied at run time (egress, mounts, proxy, cpus," >&2
-  echo "claude-vm:                            mem, packages installed at boot, update_at_boot, claude.*," >&2
-  echo "claude-vm:                            github.*, add_apt_uris_to_allowlist)" >&2
+  echo "claude-vm:   $dir/config-bake.yml  -- keys that change the guest IMAGE" >&2
+  echo "claude-vm:   $dir/config-boot.yml  -- keys applied at run time" >&2
   echo "claude-vm: The single '$legacy' is NOT read anymore -- reading it silently would drop knobs" >&2
   echo "claude-vm: whose bake/boot placement it cannot express. Split it into the pair above, then" >&2
   echo "claude-vm: remove or rename '$legacy'. The /claude-vm-config-global and /claude-vm-config-repo" >&2
-  echo "claude-vm: wizards write the pair for you. See payload/config-bake.example.yml /" >&2
-  echo "claude-vm: config-boot.example.yml for the split." >&2
+  echo "claude-vm: wizards write the pair for you. bin/claude-vm-config-keys prints the file each" >&2
+  echo "claude-vm: key belongs in." >&2
   return 1
 }
 
-# Hardcoded fallbacks for scalars the user did not set in EITHER layer.
-# These mirror the reference launcher's env-var defaults.
-CLAUDE_VM_DEFAULT_CPUS=4
-CLAUDE_VM_DEFAULT_MEM=8192
-CLAUDE_VM_DEFAULT_REPO_MOUNT=clone
-CLAUDE_VM_DEFAULT_REPO_COPY_BACK=local
-CLAUDE_VM_DEFAULT_PROXY_PORT=3128
-CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS=192.168.127.254
-# claude.version: which claude binary the host-side verified cache fetches
-# (stable|latest|<pinned>). `stable` is the conservative default. Consumed
-# by lib/claude-cache.sh; defined here so all scalar defaults live together.
-CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
+# ---------------------------------------------------------------------
+# THE KEY TABLE: the config schema's one authority.
+#
+# One row per key, five consecutive elements:
+#
+#   key      the dotted path from the document root (`claude.plugins.bake`)
+#   file     `bake`, `boot` or `both` -- which config file type may carry it
+#   type     the value's type: `int`, `bool`, `string`, `path`, the allowed
+#            values joined by `|` for an enumeration, `map(<type>)` for a map
+#            of name -> value, or for a list the type of one entry (`mount`,
+#            `apt_source` and `marketplace` are the mapping-entry shapes)
+#   shape    `list` (merged by union) or `scalar` (repo wins; a map merges
+#            repo-over-global per key)
+#   default  the value the launcher uses when neither tier sets the key, or
+#            empty when there is none. An empty default is never a value of
+#            the type column: it means the key is unset when neither tier
+#            sets it -- an empty list for a `list` row, an empty map for a
+#            `map(...)` row, and no value at all for any other scalar. A
+#            scalar written as `""` reads as unset too (claude_vm_scalar), so
+#            on a row with an empty default, unset is accepted beside the
+#            values its type lists (an enumeration such as `claude.renderer`
+#            included) unless the key's own check requires a value, as
+#            `claude.signing_key_fingerprint`'s does. `proxy.cmd`'s default
+#            is a path relative to the payload directory, which claude-vm.sh
+#            resolves
+#
+# Everything that needs the schema derives it from here: the list keys the
+# merge unions and prunes (CLAUDE_VM_LIST_KEYS), the sub-keys the placement
+# gates hunt in the wrong file type (CLAUDE_VM_PLUGIN_*_ONLY_KEYS,
+# CLAUDE_VM_ENV_BOOT_ONLY_KEYS), the CLAUDE_VM_DEFAULT_* fallbacks, the
+# load-time type check (claude_vm_check_scalars), and
+# bin/claude-vm-config-keys, which prints the table for the config wizards.
+# A new key joins all of them by gaining a row here.
+#
+# Fixed-arity elements rather than one delimited string per row, so reading a
+# row needs no split at all -- see "TSV RECORDS" below for what splitting a
+# tab-joined record with `read` costs.
+CLAUDE_VM_CONFIG_KEYS=(
+  'cpus' 'boot' 'int' 'scalar' '4'
+  'mem' 'boot' 'int' 'scalar' '8192'
+  'guest_image' 'boot' 'path' 'scalar' ''
+  'repo.mount' 'boot' 'clone|live' 'scalar' 'clone'
+  'repo.copy_back' 'boot' 'local|none' 'scalar' 'local'
+  'proxy.cmd' 'boot' 'string' 'scalar' 'proxy/tinyproxy-launch.sh'
+  'proxy.port' 'boot' 'int' 'scalar' '3128'
+  'proxy.host_alias' 'boot' 'string' 'scalar' '192.168.127.254'
+  'egress.allow' 'boot' 'string' 'list' ''
+  'mounts' 'boot' 'mount' 'list' ''
+  'packages' 'both' 'string' 'list' ''
+  'apt_sources' 'both' 'apt_source' 'list' ''
+  'update_at_boot' 'boot' 'bool' 'scalar' 'true'
+  'add_apt_uris_to_allowlist' 'boot' 'auto|always' 'scalar' 'auto'
+  'image.root_headroom_mb' 'bake' 'int' 'scalar' '1024'
+  'claude.version' 'boot' 'string' 'scalar' 'stable'
+  'claude.signing_key_fingerprint' 'boot' 'string' 'scalar' ''
+  'claude.renderer' 'boot' 'classic|fullscreen' 'scalar' ''
+  'claude.remote_control' 'boot' 'bool' 'scalar' 'false'
+  'claude.permission_mode' 'boot' 'bypassPermissions|default' 'scalar' 'bypassPermissions'
+  'claude.permissions.allow' 'boot' 'string' 'list' ''
+  'claude.permissions.ask' 'boot' 'string' 'list' ''
+  'claude.permissions.deny' 'boot' 'string' 'list' ''
+  'claude.marketplaces' 'both' 'marketplace' 'list' ''
+  'claude.plugins.bake' 'bake' 'string' 'list' ''
+  'claude.plugins.install_at_boot' 'boot' 'string' 'list' ''
+  'claude.plugins.update_at_boot' 'boot' 'bool' 'scalar' 'true'
+  'claude.plugins.add_marketplace_uris_to_allowlist' 'boot' 'auto|always' 'scalar' 'auto'
+  'claude.plugins.enabled' 'boot' 'map(bool)' 'scalar' ''
+  'github.auth' 'boot' 'none|host-token' 'scalar' 'none'
+  'env.set' 'both' 'map(string)' 'scalar' ''
+  'env.copy' 'boot' 'string' 'list' ''
+  'env.files' 'boot' 'path' 'list' ''
+)
 
-# Guest-capability schema defaults (issue #103): packages, Claude
-# permissions/marketplaces/plugins, and GitHub auth. See
-# payload/config-bake.example.yml, payload/config-boot.example.yml, and
-# skills/claude-vm/SKILL.md for the full annotated schema and semantics.
-CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT=true
-CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST=auto
-CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE=bypassPermissions
-CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
-CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
-CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
+# claude_vm_config_keys -- print the key table, one key per line, as the
+# tab-separated fields key, file, type, shape, default.
+claude_vm_config_keys() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}"
+  while [ "$i" -lt "$n" ]; do
+    printf '%s\t%s\t%s\t%s\t%s\n' "${CLAUDE_VM_CONFIG_KEYS[$i]}" \
+      "${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}" "${CLAUDE_VM_CONFIG_KEYS[$((i + 2))]}" \
+      "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}" "${CLAUDE_VM_CONFIG_KEYS[$((i + 4))]}"
+    i=$((i + 5))
+  done
+}
+
+# claude_vm_config_key_field <key> <offset> -- print the element <offset>
+# places after <key> in its key-table row (2 is the type, 4 the default), or
+# nothing when the key is not in the table.
+claude_vm_config_key_field() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}"
+  while [ "$i" -lt "$n" ]; do
+    if [ "${CLAUDE_VM_CONFIG_KEYS[$i]}" = "$1" ]; then
+      printf '%s\n' "${CLAUDE_VM_CONFIG_KEYS[$((i + $2))]}"
+      return 0
+    fi
+    i=$((i + 5))
+  done
+}
+
+# claude_vm_config_key_default <key> -- print <key>'s default from the key
+# table, or nothing when the key has none or is not in the table.
+claude_vm_config_key_default() {
+  claude_vm_config_key_field "$1" 4
+}
+
+# claude_vm_config_key_type <key> -- print <key>'s type from the key table, or
+# nothing when the key is not in the table.
+claude_vm_config_key_type() {
+  claude_vm_config_key_field "$1" 2
+}
+
+# claude_vm_config_subkeys <parent> <file> -- print the last path component of
+# every key directly under <parent> whose file column is exactly <file>, one
+# per line, in table order. `claude_vm_config_subkeys claude.plugins boot`
+# prints the claude.plugins sub-keys only a boot file may carry.
+claude_vm_config_subkeys() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key sub
+  while [ "$i" -lt "$n" ]; do
+    key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
+    case "$key" in
+      "$1".*)
+        sub="${key#"$1".}"
+        case "$sub" in
+          *.*) : ;;
+          *) if [ "${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}" = "$2" ]; then printf '%s\n' "$sub"; fi ;;
+        esac
+        ;;
+    esac
+    i=$((i + 5))
+  done
+}
+
+# The fallbacks this library applies for scalars the operator set in NEITHER
+# tier, read off the key table. A sourcing script reads any other key's
+# fallback with claude_vm_config_key_default.
+CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT="$(claude_vm_config_key_default update_at_boot)"
+CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST="$(claude_vm_config_key_default add_apt_uris_to_allowlist)"
+CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE="$(claude_vm_config_key_default claude.permission_mode)"
+CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT="$(claude_vm_config_key_default claude.plugins.update_at_boot)"
+CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST="$(claude_vm_config_key_default claude.plugins.add_marketplace_uris_to_allowlist)"
 
 # Extra-mount defaults + reserved names (issue #157).
 #
@@ -269,21 +376,21 @@ CLAUDE_VM_GUEST_SYSTEM_PATHS="/bin /boot /dev /etc /home /lib /lib32 /lib64 /lib
 # same rule.
 CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 
-# image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
-# partition is sized ABOVE the measured/estimated base image content, so a
-# live session has room to grow without hitting ENOSPC. A real guest boot hit
+# Why image.root_headroom_mb's default in the key table above is what it is. The
+# headroom is the extra MiB the guest root partition is sized ABOVE the
+# measured/estimated base image content, so a live session has room to grow
+# without hitting ENOSPC. A real guest boot hit
 # ENOSPC twice in one short session on the previously auto-sized (~991 MB)
 # root, which left only ~140 MB free over an ~850 MB base -- consumed by the
 # boot-time apt working set (up to ~250 MB pre-diet, ~50 MB post-diet; see
 # podman-mkosi.sh/build-guest-image.sh) plus ~44 MB of observed session growth
 # (journald and/or the in-guest claude's home; root cause not pinned down) in
-# a SHORT session -- a longer one grows more. 1024 MB is roughly 20x that
+# a SHORT session -- a longer one grows more. The default is roughly 20x that
 # observed short-session growth and covers several rounds of mid-session
 # `apt-get install` on top of the post-diet boot working set, so a stock
-# session (update_at_boot: true, the default) should not hit ENOSPC. Chosen
+# session with update_at_boot on should not hit ENOSPC. Chosen
 # to be generous rather than tight: the human's directive is that claude-vm
 # must WORK out of the box, and disk is cheap relative to a bricked session.
-CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB=1024
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
 # Homebrew formula at <prefix>/libexec/podman/gvproxy and is NOT placed
@@ -338,15 +445,54 @@ claude_vm_resolve_gvproxy() {
   return 1
 }
 
-# Verify yq is present and is the v4+ mikefarah build (the eval-all /
-# load API used below differs from the kislyuk Python yq).
+# The oldest mikefarah yq release, as major, minor and patch, that
+# test/config-test.sh has been run green against. Lower it only after a green
+# run under the lower release: an older v4 lacks operators this file uses, such
+# as `...`, which v4.2.0 added.
+CLAUDE_VM_YQ_FLOOR=(4 54 3)
+
+# Verify yq is present and is a mikefarah v4 release at CLAUDE_VM_YQ_FLOOR or
+# later (the eval-all / load API used below differs from the kislyuk Python
+# yq). A version this cannot read as major.minor.patch fails.
 claude_vm_require_yq() {
+  local out ver major minor patch floor
+  floor="${CLAUDE_VM_YQ_FLOOR[0]}.${CLAUDE_VM_YQ_FLOOR[1]}.${CLAUDE_VM_YQ_FLOOR[2]}"
   if ! command -v yq >/dev/null 2>&1; then
-    echo "claude-vm: 'yq' (mikefarah v4+) is required to parse config. Install it (e.g. 'brew install yq')." >&2
+    echo "claude-vm: 'yq' (mikefarah v$floor or later) is required to parse config. Install it (e.g. 'brew install yq')." >&2
     return 1
   fi
-  if ! yq --version 2>/dev/null | grep -qiE 'mikefarah|version v?4'; then
-    echo "claude-vm: 'yq' found but does not look like mikefarah v4+. Got: $(yq --version 2>&1)" >&2
+  out="$(yq --version 2>&1)"
+  case "$out" in
+    *mikefarah*' version '*) : ;;
+    *)
+      echo "claude-vm: 'yq' found but does not look like mikefarah yq. Got: $out" >&2
+      return 1
+      ;;
+  esac
+  ver=${out##*' version '}
+  ver=${ver#v}
+  major=${ver%%.*}
+  minor=${ver#*.}
+  patch=${minor#*.}
+  minor=${minor%%.*}
+  patch=${patch%%[!0-9]*}
+  case "$ver" in
+    *.*.*) : ;;
+    *) major="" ;;
+  esac
+  case "$major:$minor:$patch" in
+    *[!0-9:]* | :* | *::* | *:)
+      echo "claude-vm: could not read a yq version from: $out" >&2
+      return 1
+      ;;
+  esac
+  if [ "$major" -ne "${CLAUDE_VM_YQ_FLOOR[0]}" ]; then
+    echo "claude-vm: claude-vm needs mikefarah yq v4, v$floor or later. Got: $out" >&2
+    return 1
+  fi
+  if [ "$minor" -lt "${CLAUDE_VM_YQ_FLOOR[1]}" ] ||
+    { [ "$minor" -eq "${CLAUDE_VM_YQ_FLOOR[1]}" ] && [ "$patch" -lt "${CLAUDE_VM_YQ_FLOOR[2]}" ]; }; then
+    echo "claude-vm: 'yq' $major.$minor.$patch is older than v$floor, which claude-vm needs. Got: $out" >&2
     return 1
   fi
   return 0
@@ -622,25 +768,20 @@ claude_vm_stop_podman_machine() {
 }
 
 # The full set of list keys that UNION (global ++ repo, de-duplicated)
-# rather than following scalar repo-wins semantics. Each entry is a yq
-# path expression rooted at the document. Nested paths (e.g.
-# `.claude.permissions.allow`) are supported -- the splice step (below)
-# assigns back through the same path expression, so arbitrary nesting
-# depth works, not just top-level keys.
-CLAUDE_VM_LIST_KEYS=(
-  '.egress.allow'
-  '.mounts'
-  '.packages'
-  '.apt_sources'
-  '.claude.permissions.allow'
-  '.claude.permissions.ask'
-  '.claude.permissions.deny'
-  '.claude.marketplaces'
-  '.claude.plugins.bake'
-  '.claude.plugins.install_at_boot'
-  '.env.copy'
-  '.env.files'
-)
+# rather than following scalar repo-wins semantics: every key-table row whose
+# shape is `list`, in table order. Each entry is a yq path expression rooted at
+# the document. Nested paths (e.g. `.claude.permissions.allow`) are supported
+# -- the splice step (below) assigns back through the same path expression, so
+# arbitrary nesting depth works, not just top-level keys.
+CLAUDE_VM_LIST_KEYS=()
+_claude_vm_i=0
+while [ "$_claude_vm_i" -lt "${#CLAUDE_VM_CONFIG_KEYS[@]}" ]; do
+  if [ "${CLAUDE_VM_CONFIG_KEYS[$((_claude_vm_i + 3))]}" = list ]; then
+    CLAUDE_VM_LIST_KEYS+=(".${CLAUDE_VM_CONFIG_KEYS[$_claude_vm_i]}")
+  fi
+  _claude_vm_i=$((_claude_vm_i + 5))
+done
+unset _claude_vm_i
 
 # Merge two YAML files into one document on stdout.
 #   $1 -- global config path (may be absent)
@@ -654,6 +795,9 @@ CLAUDE_VM_LIST_KEYS=(
 # entirely -- see claude_vm_prune_empty_skeleton below -- so the merged
 # document never conflates "user configured this as empty" with "user
 # didn't touch this at all".
+#
+# The merge does not resolve a YAML alias, so the launcher refuses one in any
+# config file (claude_vm_check_no_aliases) before it merges.
 #
 # Implementation note: yq's `*` deep-merge clobbers arrays (repo array
 # replaces global array), which is the WRONG semantics for our lists.
@@ -669,7 +813,7 @@ claude_vm_merge_config() {
   # `select(fileIndex == N)` empty and collapses the whole merge -- so
   # we point missing layers at a real `{}` document instead.
   empty="$(claude_vm_mktemp claude-vm-empty)"
-  printf '{}\n' > "$empty"
+  printf '{}\n' >"$empty"
   if [ -n "$global" ] && [ -f "$global" ]; then g="$global"; else g="$empty"; fi
   if [ -n "$repo" ] && [ -f "$repo" ]; then r="$repo"; else r="$empty"; fi
 
@@ -681,7 +825,11 @@ claude_vm_merge_config() {
     yq eval-all '
       select(fileIndex == 0) * select(fileIndex == 1)
     ' "$g" "$r" 2>/dev/null
-  )" || { echo "claude-vm: failed to merge config (scalar layer)" >&2; rm -f "$empty"; return 1; }
+  )" || {
+    echo "claude-vm: failed to merge config (scalar layer)" >&2
+    rm -f "$empty"
+    return 1
+  }
 
   # Step 2: recompute list unions for every key in CLAUDE_VM_LIST_KEYS.
   # For each list key, concatenate global ++ repo then unique. Mapping
@@ -697,7 +845,11 @@ claude_vm_merge_config() {
           + [select(fileIndex == 1) | ${key} // [] | .[]]
         | unique
       " "$g" "$r" 2>/dev/null
-    )" || { echo "claude-vm: failed to merge $key" >&2; rm -f "$empty"; return 1; }
+    )" || {
+      echo "claude-vm: failed to merge $key" >&2
+      rm -f "$empty"
+      return 1
+    }
     merged_lists+=("$key" "$list_yaml")
   done
 
@@ -717,14 +869,21 @@ claude_vm_merge_config() {
         yq eval "
           ${key} = (strenv(CLAUDE_VM_SPLICE_YAML) | from_yaml)
         " <(printf '%s\n' "$current") 2>/dev/null
-    )" || { echo "claude-vm: failed to splice merged list $key" >&2; rc=1; break; }
+    )" || {
+      echo "claude-vm: failed to splice merged list $key" >&2
+      rc=1
+      break
+    }
     i=$((i + 2))
   done
 
   # Step 4: prune the empty skeleton (see claude_vm_prune_empty_skeleton).
   if [ "$rc" -eq 0 ]; then
-    current="$(claude_vm_prune_empty_skeleton "$current")" \
-      || { echo "claude-vm: failed to prune empty config skeleton" >&2; rc=1; }
+    current="$(claude_vm_prune_empty_skeleton "$current")" ||
+      {
+        echo "claude-vm: failed to prune empty config skeleton" >&2
+        rc=1
+      }
   fi
 
   printf '%s\n' "$current"
@@ -782,13 +941,12 @@ claude_vm_prune_empty_skeleton() {
 # The CONTAINING FILE carries the bake/boot semantics: a bake file's top-level
 # `packages:` is the flat list of package names BAKED into the image; a boot
 # file's top-level `packages:` is the flat list installed AT BOOT.
-# `apt_sources:` is allowed in BOTH file types. image.root_headroom_mb is a
-# BAKE key; egress / update_at_boot / add_apt_uris_to_allowlist / mounts /
-# proxy / cpus / mem / claude.* / github.* are BOOT keys.
+# The key table's file column (CLAUDE_VM_CONFIG_KEYS above) records which file
+# type each key belongs in.
 #
-# Each file type has exactly ONE schema -- the one its example file documents
-# (config-bake.example.yml / config-boot.example.yml) -- and readers read
-# exactly that schema. Merging happens WITHIN a tier, never across tiers:
+# Each file type has exactly ONE schema -- the rows the key table's file column
+# gives it -- and readers read exactly that schema. Merging happens WITHIN a
+# tier, never across tiers:
 #
 #   MERGED_BAKE = merge(global bake, repo bake)   -- bake-schema document
 #   MERGED_BOOT = merge(global boot, repo boot)   -- boot-schema document
@@ -818,14 +976,16 @@ claude_vm_check_apt_sources_conflicts() {
   # Collect .apt_sources entries from BOTH tier documents, group by name; a
   # name whose de-duplicated entry list is longer than 1 has conflicting
   # content under one name.
-  dup="$(yq eval-all '
+  # Double-quoted, every yq `$` escaped: shellcheck exempts no yq filter from
+  # its single-quoted-expansion check.
+  dup="$(yq eval-all "
     ([select(fileIndex == 0) | .apt_sources // [] | .[]]
-      + [select(fileIndex == 1) | .apt_sources // [] | .[]]) as $srcs
-    | ($srcs | map(.name) | unique)
-    | map(. as $n | {"name": $n, "n": [$srcs[] | select(.name == $n)] | unique | length})
+      + [select(fileIndex == 1) | .apt_sources // [] | .[]]) as \$srcs
+    | (\$srcs | map(.name) | unique)
+    | map(. as \$n | {\"name\": \$n, \"n\": [\$srcs[] | select(.name == \$n)] | unique | length})
     | map(select(.n > 1))
     | .[].name
-  ' "$bake_doc" "$boot_doc" 2>/dev/null)"
+  " "$bake_doc" "$boot_doc" 2>/dev/null)"
   if [ -n "$dup" ]; then
     echo "claude-vm: apt_sources name conflict -- the following name(s) appear more than once with DIFFERING repo/key_url content across your bake/boot config files:" >&2
     printf '%s\n' "$dup" | while IFS= read -r n; do
@@ -846,8 +1006,8 @@ claude_vm_check_apt_sources_conflicts() {
 claude_vm_baked_apt_source_names() {
   local bake_doc="$1"
   [ -n "$bake_doc" ] && [ -f "$bake_doc" ] || return 0
-  yq eval '.apt_sources // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null \
-    | grep -v '^$' | sort -u
+  yq eval '.apt_sources // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null |
+    grep -v '^$' | sort -u
 }
 
 # Emit the BOOT-tier apt_sources TSV: the BOOT document's apt_sources MINUS
@@ -878,51 +1038,412 @@ claude_vm_boot_apt_sources() {
   '
 }
 
-# Read a scalar from a merged-config document (on stdin or in a file),
-# applying a hardcoded fallback when the key is absent/null.
-#   $1 -- merged config file path
-#   $2 -- yq path expression (e.g. '.cpus', '.repo.mount')
-#   $3 -- fallback value if the key is null/absent
-#
-# NOT boolean-safe: the `// ""` idiom below treats an explicit YAML
-# `false` the same as an absent key (both stringify to empty via `// ""`,
-# so this falls through to $fallback). That is correct for the existing
-# string/number scalars (cpus, mem, repo.mount, proxy.*, etc. -- none of
-# which are booleans), but WRONG for a boolean key where `false` is a
-# meaningful, distinct-from-absent value. Use claude_vm_bool_scalar for
-# those (update_at_boot, claude.plugins.update_at_boot).
-claude_vm_scalar() {
-  local file="$1" path="$2" fallback="$3" val
-  val="$(yq eval "$path // \"\"" "$file" 2>/dev/null)"
-  if [ -z "$val" ] || [ "$val" = "null" ]; then
-    printf '%s\n' "$fallback"
-  else
-    printf '%s\n' "$val"
-  fi
-}
-
-# Read a BOOLEAN scalar from a merged-config document, applying a
-# hardcoded fallback ONLY when the key is genuinely absent/null --
-# unlike claude_vm_scalar, an explicit `false` is preserved and
+# Read a scalar from a merged-config document, applying a hardcoded fallback
+# ONLY when the key is absent, null or empty -- an explicit `false` is
 # returned as "false", not silently replaced by $fallback.
 #   $1 -- merged config file path
-#   $2 -- yq path expression (e.g. '.update_at_boot')
-#   $3 -- fallback value if the key is null/absent (e.g. "true"/"false")
+#   $2 -- yq path expression (e.g. '.cpus', '.update_at_boot')
+#   $3 -- fallback value if the key is absent, null or empty
 #
 # Presence check: `(<path> == null)` is true both when the key is absent
 # AND when it is explicitly set to YAML `null`; either way there is no
 # value to preserve, so the fallback applies. We branch explicitly on
 # that presence check rather than yq's `//` operator, because `//`
 # treats the boolean `false` itself as falsy and would substitute
-# $fallback for it too -- exactly the bug this accessor exists to avoid.
-claude_vm_bool_scalar() {
-  local file="$1" path="$2" fallback="$3" is_null
+# $fallback for it too: a boolean key would lose its `false`.
+# A value written as `""` reads as unset too: a valueless key reaches a
+# global-only merge as `''` rather than null, so without this the same
+# spelling would resolve differently by layer.
+#
+# The value is returned as written; claude_vm_check_scalars rejects what the
+# key table's type column does not allow.
+claude_vm_scalar() {
+  local file="$1" path="$2" fallback="$3" is_null val
   is_null="$(yq eval "(${path} == null)" "$file" 2>/dev/null)"
   if [ "$is_null" != "false" ]; then
     printf '%s\n' "$fallback"
-  else
-    yq eval "${path}" "$file" 2>/dev/null
+    return 0
   fi
+  val="$(yq eval "${path}" "$file" 2>/dev/null)"
+  if [ -z "$val" ]; then
+    printf '%s\n' "$fallback"
+  else
+    printf '%s\n' "$val"
+  fi
+}
+
+# claude_vm_check_typed_value <name> <type> <tag> <value> -- succeed when a
+# config value whose YAML tag is <tag> and whose text is <value> is a <type>,
+# spelled as the key table's type column spells a scalar type; otherwise print
+# a diagnostic naming <name> and fail. The tag is what tells a YAML boolean
+# from the quoted string with the same text:
+#   bool         a `!!bool` spelled `true` or `false`, so a quoted "true" and
+#                a `True` are both refused
+#   int          an `!!int` written as decimal digits
+#   string|path  any scalar but a `!!bool`, so `false` is not taken as the
+#                string `false`
+#   a|b|...      a `!!str` equal to one of the alternatives, each compared
+#                whole, so a value joining several with `|` is refused
+# A `!!map` or `!!seq` is refused for every type, and so is a value holding a
+# newline, wherever it sits: <value> must therefore carry the value's own
+# trailing newlines, which a `$(...)` capture strips. Any other type column
+# spelling is not a scalar type, and is accepted.
+claude_vm_check_typed_value() {
+  local name="$1" type="$2" tag="$3" val="$4" want ok=0 rest alt nl=$'\n'
+  case "$type" in
+    bool | int | string | path | *\|*)
+      case "$val" in
+        *"$nl"*)
+          echo "claude-vm: $name must be one line, got $(printf '%q' "$val"), which holds a newline" >&2
+          return 1
+          ;;
+      esac
+      ;;
+  esac
+  case "$type" in
+    bool)
+      want="true or false"
+      case "$tag:$val" in
+        '!!bool:true' | '!!bool:false') ok=1 ;;
+      esac
+      ;;
+    int)
+      want="an integer"
+      case "$val" in
+        '' | *[!0-9]*) : ;;
+        *) [ "$tag" = '!!int' ] && ok=1 ;;
+      esac
+      ;;
+    string | path)
+      want="a $type"
+      case "$tag" in
+        '!!bool' | '!!map' | '!!seq') : ;;
+        *) ok=1 ;;
+      esac
+      ;;
+    *\|*)
+      want="one of $type"
+      case "$tag:$val" in
+        *'|'*)
+          echo "claude-vm: $name must be $want, got '$val', which joins several; give one" >&2
+          return 1
+          ;;
+        '!!str:'*)
+          rest="$type"
+          while :; do
+            alt=${rest%%"|"*}
+            [ "$val" = "$alt" ] && ok=1
+            [ "$alt" = "$rest" ] && break
+            rest=${rest#*"|"}
+          done
+          ;;
+      esac
+      ;;
+    *) return 0 ;;
+  esac
+  [ "$ok" -eq 1 ] && return 0
+  case "$tag:$type:$val" in
+    '!!str:bool:true' | '!!str:bool:false') echo "claude-vm: $name must be $want, got '$val', which is quoted and so a string" >&2 ;;
+    '!!bool:string:'* | '!!bool:path:'*) echo "claude-vm: $name must be $want, got '$val', which is a YAML boolean; quote it to mean the string" >&2 ;;
+    *) echo "claude-vm: $name must be $want, got '$val'" >&2 ;;
+  esac
+  return 1
+}
+
+# claude_vm_config_nonmap_nodes <file> -- print a `path<TAB>tag` record for
+# every node of <file> no deeper than two keys whose tag is neither `!!map`
+# nor `!!null`, the path as a compact JSON array (`["claude","plugins"]`, and
+# `[]` for the document itself). JSON keeps a key holding a `.` one element,
+# so `"claude.plugins": 5` is not read as `claude: {plugins: 5}`, and escapes
+# a tab, so the first tab in a record ends the path. Those depths hold every
+# proper prefix of a key-table key, and one of these records naming a prefix
+# is a parent that holds no keys: yq reads a key under a scalar parent as
+# untagged and empty, and fails to read one under a list. Read it of a file
+# with one document and no alias: an alias node gets a record with an empty
+# tag, and each further document adds its own records.
+claude_vm_config_nonmap_nodes() {
+  yq eval '
+    .. | select((path | length) <= 2 and tag != "!!map" and tag != "!!null")
+    | (path | @json) + "\t" + tag
+  ' "$1" 2>/dev/null
+}
+
+# claude_vm_config_parent_fault <records> <key> -- given the records
+# claude_vm_config_nonmap_nodes printed for a file, print why <key> cannot be
+# read there, as `<parent> is a <tag>, not a map`, naming the shallowest
+# parent of <key> that is not a map. Prints nothing when every parent is one.
+# Each parent is matched as the JSON array yq prints for its path, built here
+# from <key>'s segments, which are bare names that JSON leaves unescaped.
+claude_vm_config_parent_fault() {
+  local records="$1" key="$2" tab prefix elems json rest record p tag
+  tab=$'\t'
+  prefix="" elems="" json="[]" rest="$key"
+  while :; do
+    while IFS= read -r record; do
+      [ -n "$record" ] || continue
+      p=${record%%"$tab"*}
+      tag=${record#*"$tab"}
+      if [ "$p" = "$json" ]; then
+        if [ -z "$prefix" ]; then
+          echo "the document is a $tag, not a map"
+        else
+          echo "$prefix is a $tag, not a map"
+        fi
+        return 0
+      fi
+    done <<<"$records"
+    case "$rest" in
+      *.*) : ;;
+      *) return 0 ;;
+    esac
+    prefix="${prefix:+$prefix.}${rest%%.*}"
+    elems="${elems:+$elems,}\"${rest%%.*}\""
+    json="[$elems]"
+    rest=${rest#*.}
+  done
+}
+
+# claude_vm_check_config_structure <file>... -- fail, naming the file, when a
+# config file is not one YAML document, when a parent of any key-table key
+# in it is not a map (`repo: 5` holds no `repo.mount`, `[1]` no key at all),
+# or when a string anywhere in it, a map key included, holds a newline, other
+# than an `env.set` value. A path that is empty or names no file is skipped,
+# and a yq read that fails fails the check. The document count is checked
+# before the rest; run it after claude_vm_check_no_aliases, or an alias is
+# reported as a parent with no tag. The newline diagnostic names the string's
+# path, each newline in it written `\n`.
+#
+# Each is refused because the readers cannot see it: a read of a key in a
+# file of several documents answers once per document, a key under a scalar
+# parent reads as absent and takes its default, and a `$(...)` capture or a
+# one-entry-per-line list read strips or splits a newline, so `"clone\n"`
+# would be taken as `clone`, and a `claude.plugins.enabled` ref or an
+# `env.set` name read one per line would be split in two. An `env.set` value
+# is exempt: it may hold a newline, and its reader keeps every one.
+claude_vm_check_config_structure() {
+  local file n records paths i=0 key len="${#CLAUDE_VM_CONFIG_KEYS[@]}" fault nl=$'\n'
+  for file in "$@"; do
+    [ -n "$file" ] && [ -f "$file" ] || continue
+    n="$(yq eval-all '[.] | length' "$file" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    if [ "$n" != 1 ]; then
+      echo "claude-vm: $file holds $n YAML documents, and claude-vm reads exactly one; remove each \`---\` that starts another" >&2
+      return 1
+    fi
+    records="$(claude_vm_config_nonmap_nodes "$file")" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    i=0
+    while [ "$i" -lt "$len" ]; do
+      key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
+      fault="$(claude_vm_config_parent_fault "$records" "$key")"
+      if [ -n "$fault" ]; then
+        echo "claude-vm: $file: $fault, so claude-vm cannot read $key under it" >&2
+        return 1
+      fi
+      i=$((i + 5))
+    done
+    # `...` visits map keys as well as values, and gives a key node its value's
+    # path, so under env.set a node is refused when a key on its path holds the
+    # newline, and exempt when only the value does.
+    paths="$(yq eval '
+      ... | select(tag == "!!str" and test("\n"))
+      | select((path | length) < 2 or path[0] != "env" or path[1] != "set"
+          or (path | join(".") | test("\n")))
+      | path | map(tostring | sub("\n", "\\n")) | join(".")
+    ' "$file" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    if [ -n "$paths" ]; then
+      echo "claude-vm: ${paths%%"$nl"*} in $file holds a newline, which claude-vm allows only in an env.set value" >&2
+      return 1
+    fi
+  done
+}
+
+# claude_vm_config_key_unreadable <file> <key> -- print why yq gave <key> in
+# <file> no tag: a parent that is not a map, or else a YAML alias.
+claude_vm_config_key_unreadable() {
+  local fault
+  fault="$(claude_vm_config_parent_fault "$(claude_vm_config_nonmap_nodes "$1")" "$2")"
+  if [ -n "$fault" ]; then
+    echo "claude-vm: $2 in $1 cannot be read: $fault" >&2
+  else
+    echo "claude-vm: $2 in $1 is a YAML alias, which claude-vm does not resolve" >&2
+  fi
+}
+
+# claude_vm_check_scalar <file> <key> -- check <key>'s value in the config
+# file <file> against its key-table type with claude_vm_check_typed_value.
+# An absent or null key, and one written as `""`, is unset and passes: the
+# value used is then the key table's default. The value is read with its own
+# trailing newlines kept, so `"clone\n"` is checked as written. A value yq
+# gives no tag sits under a parent that is not a map, or is a YAML alias, and
+# fails, the diagnostic saying which; the launcher refuses both first. A yq
+# read that fails, such as on a file that does not parse, fails the check.
+claude_vm_check_scalar() {
+  local file="$1" key="$2" tag val
+  tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
+  case "$tag" in
+    '!!null') return 0 ;;
+    '')
+      claude_vm_config_key_unreadable "$file" "$key"
+      return 1
+      ;;
+  esac
+  # The sentinel keeps the value's trailing newlines from `$(...)`; the one
+  # newline stripped after it is the one yq ends its output with.
+  val="$(
+    yq eval ".${key}" "$file" 2>/dev/null || exit 1
+    printf 'x'
+  )" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
+  val="${val%x}"
+  val="${val%$'\n'}"
+  if [ "$tag" = '!!str' ] && [ -z "$val" ]; then
+    return 0
+  fi
+  claude_vm_check_typed_value "$key" "$(claude_vm_config_key_type "$key")" "$tag" "$val"
+}
+
+# claude_vm_check_map_values <file> <key> -- check every value of the map
+# <key> in the config file <file> against the element type of <key>'s
+# `map(<type>)` key-table type with claude_vm_check_typed_value. An absent or
+# null <key> passes; one that is not a map fails, and so does one yq gives no
+# tag, the diagnostic naming the parent that is not a map or the alias. A map
+# or list value is checked by its tag alone, so `@tsv` never sees one. A yq
+# read that fails fails the check.
+claude_vm_check_map_values() {
+  local file="$1" key="$2" tab tag type records record ref val
+  tab=$'\t'
+  tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
+  case "$tag" in
+    '!!null') return 0 ;;
+    '!!map') : ;;
+    '')
+      claude_vm_config_key_unreadable "$file" "$key"
+      return 1
+      ;;
+    *)
+      echo "claude-vm: $key must be a map, got a $tag" >&2
+      return 1
+      ;;
+  esac
+  type="$(claude_vm_config_key_type "$key")"
+  type=${type#"map("}
+  type=${type%")"}
+  # The third field is the value, or empty for a map, list or null. It is the
+  # first of the selected value and "", since `// ""` would empty a `false` too.
+  records="$(yq eval "
+    .${key} | to_entries | .[]
+    | [.key, (.value | tag),
+       ([.value | select(tag != \"!!map\" and tag != \"!!seq\" and tag != \"!!null\")] + [\"\"] | .[0])]
+    | @tsv
+  " "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read $key from $file" >&2
+      return 1
+    }
+  # Split by hand, per the TSV RECORDS note below.
+  while IFS= read -r record; do
+    [ -n "$record" ] || continue
+    ref=${record%%"$tab"*}
+    val=${record#*"$tab"}
+    tag=${val%%"$tab"*}
+    val=${val#*"$tab"}
+    claude_vm_check_typed_value "${key}['$ref']" "$type" "$tag" "$val" || return 1
+  done <<<"$records"
+}
+
+# claude_vm_check_no_aliases <file>... -- fail, naming the file, when a config
+# file uses a YAML alias (`*name`) anywhere: as a value, a list entry, a map
+# key or a `<<` merge. An anchor nothing refers to is allowed. A path that is
+# empty or names no file is skipped, and a file yq cannot read, such as one
+# whose alias names no anchor, fails.
+#
+# Aliases are refused rather than resolved because the raw-file gates read a
+# file as written: `has()` does not follow an alias, so a sub-key reaching the
+# merge through one, as in `claude: {plugins: *p}`, would pass a placement gate
+# unseen. yq gives an alias node no tag and every other node one, so the
+# untagged nodes `...` reaches, keys included, are the aliases.
+claude_vm_check_no_aliases() {
+  local file n
+  for file in "$@"; do
+    [ -n "$file" ] && [ -f "$file" ] || continue
+    n="$(yq eval-all '[... | select(tag == "")] | length' "$file" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    if [ "$n" != 0 ]; then
+      echo "claude-vm: $file uses a YAML alias (*name), which claude-vm does not resolve; write the value out in full" >&2
+      return 1
+    fi
+  done
+}
+
+# claude_vm_check_scalars <global_bake> <repo_bake> <global_boot> <repo_boot>
+# -- for every key-table row of shape `scalar`, run claude_vm_check_scalar, or
+# claude_vm_check_map_values for a `map(bool)` row, against each raw config
+# file of the file types its file column names, in table order. A row of any
+# other `map(...)` type is not checked here. A path that is empty or names no
+# file is skipped. Stops at the first value its type refuses, or the first yq
+# read that fails, and fails, so the launcher aborts before it reads any of
+# these keys.
+#
+# The files are the RAW ones the operator wrote, not the merged documents:
+# claude_vm_prune_empty_skeleton deletes every empty map from a merged
+# document, so a scalar key, or a `map(bool)` value, written `{}` would reach
+# a merged-document check as absent and silently take its default.
+claude_vm_check_scalars() {
+  local i=0 n="${#CLAUDE_VM_CONFIG_KEYS[@]}" key file doc check
+  while [ "$i" -lt "$n" ]; do
+    key="${CLAUDE_VM_CONFIG_KEYS[$i]}"
+    file="${CLAUDE_VM_CONFIG_KEYS[$((i + 1))]}"
+    case "${CLAUDE_VM_CONFIG_KEYS[$((i + 3))]}:${CLAUDE_VM_CONFIG_KEYS[$((i + 2))]}" in
+      'scalar:map(bool)') check=claude_vm_check_map_values ;;
+      scalar:map\(*) check="" ;;
+      scalar:*) check=claude_vm_check_scalar ;;
+      *) check="" ;;
+    esac
+    if [ -n "$check" ]; then
+      case "$file" in
+        bake | both)
+          for doc in "$1" "$2"; do
+            [ -n "$doc" ] && [ -f "$doc" ] || continue
+            "$check" "$doc" "$key" || return 1
+          done
+          ;;
+      esac
+      case "$file" in
+        boot | both)
+          for doc in "$3" "$4"; do
+            [ -n "$doc" ] && [ -f "$doc" ] || continue
+            "$check" "$doc" "$key" || return 1
+          done
+          ;;
+      esac
+    fi
+    i=$((i + 5))
+  done
 }
 
 # Emit the egress allowlist, one host per line, from a merged-config file.
@@ -952,8 +1473,18 @@ claude_vm_egress_hosts() {
 # it does not make such an entry usable. Rejecting one is the other half, and
 # it happens at config load: claude_vm_check_mounts (below),
 # claude_vm_check_marketplace_names, and the empty-ref branch inside
-# claude_vm_render_guest_settings. payload/README.md -> *Splitting a TSV record
-# back apart* carries the full write-up.
+# claude_vm_render_guest_settings. The readers with no load-time gate of their
+# own run in the GUEST -- boot_plugin_phase and boot_mount_phase -- where the
+# host has already aborted any such config before writing their manifests.
+#
+# An EMPTY result set from one of these emitters is one empty LINE, not zero
+# bytes (yq prints a newline for `.x // [] | .[]` with nothing in it), so every
+# reader skips a wholly empty record before judging its fields.
+#
+# The readers: every two-field one in this file, the extra-mount loop in
+# claude-vm.sh, the marketplace and apt_sources loops in
+# provisioners/podman-mkosi.sh, and boot_apt_phase, boot_plugin_phase and
+# boot_mount_phase in build-guest-image.sh. A new reader splits the same way.
 # ---------------------------------------------------------------------
 
 # Emit mounts as tab-separated "source<TAB>tag<TAB>path" lines from a
@@ -1032,8 +1563,8 @@ claude_vm_expand_mount_source() {
   local src="$1"
   case "$src" in
     "~"/*) printf '%s\n' "$HOME/${src#"~/"}" ;;
-    "~")   printf '%s\n' "$HOME" ;;
-    *)     printf '%s\n' "$src" ;;
+    "~") printf '%s\n' "$HOME" ;;
+    *) printf '%s\n' "$src" ;;
   esac
 }
 
@@ -1214,11 +1745,8 @@ claude_vm_guest_system_path_containing() {
 #     and again as a `mount -t virtiofs -o rw <tag> <path>` argument in the
 #     guest, so a comma or whitespace in it corrupts one or both. Same
 #     charset the marketplace-name and apt_source-name guards use.
-#   - a tag that the charset admits but one of its OTHER uses does not. The tag
-#     is also a bare PATH COMPONENT (in three trees) and a bare ARGV WORD, so
-#     `.` and `..` walk up out of every tree that embeds it and a leading `-`
-#     is read as an option by the guest's `mount`. payload/README.md -> *The tag
-#     is not just a tag* enumerates the uses these two arms are derived from.
+#   - a tag that the charset admits but one of its OTHER uses does not -- see
+#     "The tag is not just a tag" below.
 #   - a DIRECTORY `source` whose path contains a comma: the source is what
 #     vfkit shares, so it sits inside that same comma-delimited device string,
 #     as the only field of it with no charset check of its own. A single-FILE
@@ -1263,6 +1791,33 @@ claude_vm_guest_system_path_containing() {
 #     mount shadows the earlier one, so one configured mount is silently
 #     unreachable.
 #
+# The tag is not just a tag. Every position it is used in takes the string
+# VERBATIM: vfkit's `mountTag=` inside the comma-delimited `--device` string; a
+# bare argv word in the guest's `mount -t virtiofs -o rw <tag> <path>`; a PATH
+# COMPONENT in the default guest mountpoint <CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>,
+# in the launcher's host-side wrap directory for a single-file source
+# ($MOUNT_WRAP_DIR/<tag>) and in that wrap's guest mountpoint
+# (<CLAUDE_VM_GUEST_WRAP_MOUNT>/<tag>); and a field in mounts.tsv. The charset
+# check covers only the first two, so it is necessary and not sufficient:
+#
+#   - `.` and `..` are not path components. `tag: ".."` walks one level up out
+#     of each tree the entry reaches -- the default mountpoint for any entry,
+#     both wrap paths for a single-file one -- and the `..` rejection on
+#     `path:` never sees it: that guard runs only when `path:` is set, and with
+#     one set the wrap paths are still walked up. The launcher would then share
+#     the wrap directory's PARENT, $RUN, which holds creds/.credentials.json,
+#     read-write in the guest. `...` and `a..b` are ordinary names and pass.
+#   - a leading `-` is not an argv word: the guest's `mount` reads it as an
+#     option. Measured on util-linux 2.38.1,
+#     `mount -t virtiofs -o rw -a <path>` exits 0 having mounted nothing, so
+#     boot_mount_phase would log a mount that never happened; `--bind`, `-o`
+#     and `-r` fail loudly. `a-b` passes.
+#
+# That enumeration is what the arms are derived from, so it grades any new
+# position the tag is given -- a filename, another argv slot, an interpolated
+# string -- which adds an arm when it rejects something the existing ones
+# accept.
+#
 # A `mode:` key on ANY entry is also an abort, checked before the loop over its
 # own emitter (claude_vm_mount_mode_entries). It is not a malformed value but a
 # key this stack cannot honour at all: see the extra-mount block near the top of
@@ -1270,7 +1825,7 @@ claude_vm_guest_system_path_containing() {
 # design that will enforce it. Ignoring the key would leave the operator
 # believing a share is read-only when the guest can write it.
 #
-#   $1 -- merged BOOT document file path (mounts is a BOOT key)
+#   $1 -- merged BOOT document file path
 claude_vm_check_mounts() {
   local boot_doc="$1" mnt_tab record src rest tag path gpath expanded
   local idx=0 bad=0 seen_tags=" " reserved_tags=" " rtag rpath spath dup
@@ -1305,8 +1860,8 @@ claude_vm_check_mounts() {
   # as the main loop -- an empty result set is one empty LINE here too.
   while IFS= read -r record; do
     [ -n "$record" ] || continue
-    mode_idx=${record%%$mnt_tab*}
-    mode_src=${record#*$mnt_tab}
+    mode_idx=${record%%"$mnt_tab"*}
+    mode_src=${record#*"$mnt_tab"}
     echo "claude-vm: mounts entry #${mode_idx} ('$mode_src') sets 'mode:'. claude-vm no longer has that key:" >&2
     echo "claude-vm:   every extra mount is READ-WRITE, and read-only cannot be enforced on this stack --" >&2
     echo "claude-vm:   vfkit's virtio-fs device has no read-only option, and the guest session is root, so" >&2
@@ -1323,10 +1878,10 @@ claude_vm_check_mounts() {
     # even `- {}` -- always carries its separators and so is never empty.
     [ -n "$record" ] || continue
     idx=$((idx + 1))
-    src=${record%%$mnt_tab*}
-    rest=${record#*$mnt_tab}
-    tag=${rest%%$mnt_tab*}
-    path=${rest#*$mnt_tab}
+    src=${record%%"$mnt_tab"*}
+    rest=${record#*"$mnt_tab"}
+    tag=${rest%%"$mnt_tab"*}
+    path=${rest#*"$mnt_tab"}
     if [ -z "$src" ]; then
       echo "claude-vm: mounts entry #${idx} has no source -- there is no host path to share." >&2
       bad=1
@@ -1353,11 +1908,11 @@ claude_vm_check_mounts() {
     # The charset is necessary and not sufficient, because the tag is not one
     # thing. Every use of it takes the string as-is -- nothing escapes or
     # rewrites it on the way -- and the arms below are the spellings that pass
-    # the charset while being unusable in one of those positions. See
-    # payload/README.md -> *The tag is not just a tag* for the enumeration of
-    # uses these arms are derived from.
+    # the charset while being unusable in one of those positions. "The tag is
+    # not just a tag" in this function's header enumerates the uses these arms
+    # are derived from.
     case "$tag" in
-      .|..)
+      . | ..)
         echo "claude-vm: mounts entry #${idx} ('$src') has tag '$tag', which is not a usable path COMPONENT --" >&2
         echo "claude-vm:   and the tag is used as one in the default guest mountpoint $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>," >&2
         echo "claude-vm:   in the host-side directory a single-file source is wrapped in, and in that wrap's own" >&2
@@ -1592,10 +2147,12 @@ claude_vm_apt_sources() {
 # claude_vm_boot_apt_egress_needed (the "iff" gate) and
 # claude_vm_apt_source_hosts (the per-entry host derivation) below.
 
-# The two Debian mirror hosts every install_at_boot/update_at_boot needs
-# regardless of any apt_sources -- the base image's /etc/apt/sources.list
-# points at these.
-CLAUDE_VM_DEBIAN_MIRROR_HOSTS="deb.debian.org security.debian.org"
+# Print, space-separated, the two Debian mirror hosts every
+# install_at_boot/update_at_boot needs regardless of any apt_sources -- the
+# base image's /etc/apt/sources.list points at these.
+claude_vm_debian_mirror_hosts() {
+  printf '%s\n' "deb.debian.org security.debian.org"
+}
 
 # True (exit 0) when boot-time apt work is configured that needs the Debian
 # mirrors/apt_sources hosts reachable from the guest -- i.e. the launcher
@@ -1607,8 +2164,8 @@ CLAUDE_VM_DEBIAN_MIRROR_HOSTS="deb.debian.org security.debian.org"
 #
 # True iff ANY of (boot-file schema paths):
 #   - `packages:` (installed at boot) is nonempty
-#   - `update_at_boot` is true (default true)
-#   - `add_apt_uris_to_allowlist` is "always" (default "auto")
+#   - `update_at_boot` is true
+#   - `add_apt_uris_to_allowlist` is "always"
 claude_vm_boot_apt_egress_needed() {
   local file="$1"
   local mode
@@ -1620,12 +2177,12 @@ claude_vm_boot_apt_egress_needed() {
     return 0
   fi
   local update_at_boot
-  update_at_boot="$(claude_vm_bool_scalar "$file" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+  update_at_boot="$(claude_vm_scalar "$file" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
   [ "$update_at_boot" = "true" ]
 }
 
 # Emit the hostnames parsed out of both tiers' apt_sources repo/key_url URIs,
-# one per line, de-duplicated. Used (alongside CLAUDE_VM_DEBIAN_MIRROR_HOSTS)
+# one per line, de-duplicated. Used (alongside claude_vm_debian_mirror_hosts)
 # to derive the egress hosts a boot-time apt_sources render needs.
 #
 #   $1 -- merged BAKE document file path
@@ -1660,10 +2217,10 @@ claude_vm_apt_source_hosts() {
       .apt_sources // [] | .[]
       | [(.repo // ""), (.key_url // "")] | .[]
     ' "$f" 2>/dev/null
-  done \
-    | grep -oE 'https?://[^/[:space:]]+' \
-    | sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' \
-    | sort -u
+  done |
+    grep -oE 'https?://[^/[:space:]]+' |
+    sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' |
+    sort -u
 }
 
 # ---------------------------------------------------------------------
@@ -1722,7 +2279,8 @@ claude_vm_apt_source_hosts() {
 #                            renders each exactly as yq renders the scalar
 #                            (`8080`, `true`), which is what the operator
 #                            wrote. Only `env.set` appears here: `env.copy` /
-#                            `env.files` are boot-only and abort in a bake file
+#                            `env.files` abort when written into a file type
+#                            the key table does not place them in
 #                            (claude_vm_check_env), precisely so a host-read
 #                            secret never becomes image bytes.
 # An absent `packages:` / `apt_sources:` / `env.set:` all normalize to the
@@ -1804,7 +2362,10 @@ claude_vm_bake_hash_from_json() {
   fi
   # An empty hex (tool failure) is a hard error -- a truncated/empty variant
   # segment would silently collapse distinct bake configs onto one image.
-  [ -n "$hex" ] || { echo "claude-vm: failed to compute bake-hash" >&2; return 1; }
+  [ -n "$hex" ] || {
+    echo "claude-vm: failed to compute bake-hash" >&2
+    return 1
+  }
   printf '%s\n' "${hex:0:8}"
 }
 
@@ -1883,14 +2444,17 @@ claude_vm_file_identity_hash() {
     return 0
   fi
   if command -v shasum >/dev/null 2>&1; then
-    hex="$(shasum -a 256 < "$file" 2>/dev/null | cut -d' ' -f1)"
+    hex="$(shasum -a 256 <"$file" 2>/dev/null | cut -d' ' -f1)"
   elif command -v sha256sum >/dev/null 2>&1; then
-    hex="$(sha256sum < "$file" 2>/dev/null | cut -d' ' -f1)"
+    hex="$(sha256sum <"$file" 2>/dev/null | cut -d' ' -f1)"
   else
     echo "claude-vm: neither 'shasum' nor 'sha256sum' found to compute the image identity hash." >&2
     return 1
   fi
-  [ -n "$hex" ] || { echo "claude-vm: failed to compute the image identity hash for '$file'" >&2; return 1; }
+  [ -n "$hex" ] || {
+    echo "claude-vm: failed to compute the image identity hash for '$file'" >&2
+    return 1
+  }
   printf '%s\n' "${hex:0:8}"
 }
 
@@ -1962,27 +2526,16 @@ claude_vm_marketplaces() {
 # so it still speaks of "extending the #105 bake-hash with marketplace/plugin
 # refs". Under #179 that extension is not a new hash input at all -- PLACEMENT
 # is the classification, and the image identity is already a whole-file
-# raw-byte hash of the BAKE files. So the keys land like this, mirroring the
-# `packages:` / `apt_sources:` precedent exactly:
-#
-#   claude.plugins.bake              -> BAKE file ONLY. It changes image bytes
-#                                       (plugins are installed into the image's
-#                                       /root/.claude/plugins), so the
-#                                       whole-file bake hash covers it for
-#                                       free: edit it and the image rebuilds.
-#   claude.plugins.install_at_boot   -> BOOT file ONLY (run-time install).
-#   claude.plugins.update_at_boot    -> BOOT file ONLY (run-time freshness).
-#   claude.plugins.add_marketplace_uris_to_allowlist
-#                                    -> BOOT file ONLY (run-time egress).
-#   claude.plugins.enabled           -> BOOT file ONLY (settings.json toggle;
-#                                       no reinstall, so no image change).
-#   claude.marketplaces              -> BOTH files, unioned + deduped by name,
-#                                       exactly like apt_sources. A marketplace
-#                                       is needed at BAKE time (to install the
-#                                       bake set) AND at BOOT time (to install
-#                                       install_at_boot and to update), and a
-#                                       boot-only marketplace must not force an
-#                                       image rebuild.
+# raw-byte hash of the BAKE files. The key table's file column places each
+# key, mirroring the `packages:` / `apt_sources:` precedent, for these reasons:
+# `claude.plugins.bake` changes image bytes (plugins are installed into the
+# image's /root/.claude/plugins), so the whole-file bake hash covers it for
+# free; the other `claude.plugins` sub-keys act at run time (install,
+# freshness, egress, and the settings.json toggle, which needs no reinstall);
+# and `claude.marketplaces` is needed at BAKE time (to install the bake set)
+# AND at BOOT time (to install install_at_boot and to update), and a boot-only
+# marketplace must not force an image rebuild, so it is allowed in both and
+# unioned + deduped by name, exactly like apt_sources.
 #
 # A key in the WRONG file would otherwise parse fine and never be read -- the
 # exact silent no-op #179 set out to make impossible. `claude.plugins` is the
@@ -1992,18 +2545,18 @@ claude_vm_marketplaces() {
 # LOUD abort rather than a silent drop.
 
 # The claude.plugins sub-keys that belong in the BAKE file, and those that
-# belong in the BOOT file. Used by claude_vm_check_plugin_key_placement to
-# reject a misplaced key. Kept as data so a future key joins the guard by
-# being listed once.
-CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS=(
-  'bake'
-)
-CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=(
-  'install_at_boot'
-  'update_at_boot'
-  'add_marketplace_uris_to_allowlist'
-  'enabled'
-)
+# belong in the BOOT file, read off the key table's file column. Used by
+# claude_vm_check_plugin_key_placement to reject a misplaced key, so a future
+# sub-key joins the guard by gaining its table row.
+CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS=()
+while IFS= read -r _claude_vm_k; do
+  if [ -n "$_claude_vm_k" ]; then CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS+=("$_claude_vm_k"); fi
+done < <(claude_vm_config_subkeys claude.plugins bake)
+CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=()
+while IFS= read -r _claude_vm_k; do
+  if [ -n "$_claude_vm_k" ]; then CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS+=("$_claude_vm_k"); fi
+done < <(claude_vm_config_subkeys claude.plugins boot)
+unset _claude_vm_k
 
 # Does a RAW config file carry the claude.plugins sub-key $2? Returns 0 when it
 # does. A PRESENCE test (`has`), not a value test, and asked of the file the
@@ -2032,6 +2585,10 @@ CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=(
 # `enabled`, answered *false* and the launch proceeded. Only `: []` and `: ""`
 # on a NON-list key were caught, because no prune pass reaches those.
 # config-test.sh's negative control holds both halves of that fact.
+#
+# `has` does not follow a YAML alias, so `claude: {plugins: *p}` answers false
+# here whatever `p` holds; the launcher has refused every alias
+# (claude_vm_check_no_aliases) before this runs.
 #   $1 -- a RAW config file path (bake or boot, global or repo), pre-merge
 #   $2 -- the claude.plugins sub-key ('bake', 'enabled', ...)
 claude_vm_plugin_raw_has_key() {
@@ -2088,12 +2645,12 @@ claude_vm_check_plugin_key_placement() {
 # ---------------------------------------------------------------------
 # Guest environment variables (issue #135): env.set / env.copy / env.files.
 #
-# The tier a sub-key may be declared in follows from HOW its value is obtained,
-# not from operator preference:
+# The file type a sub-key may be declared in -- the key table's file column --
+# follows from HOW its value is obtained, not from operator preference:
 #
-#   env.set    bake + boot   explicit literal written in the config
-#   env.copy   boot ONLY     read from the HOST environment at launch
-#   env.files  boot ONLY     read from a host `.env` file at launch
+#   env.set    an explicit literal written in the config
+#   env.copy   read from the HOST environment at launch
+#   env.files  read from a host `.env` file at launch
 #
 # A bake file is consumed at image-build time and its result is image BYTES that
 # persist across every run of that image; a boot file is consumed per launch and
@@ -2101,29 +2658,30 @@ claude_vm_check_plugin_key_placement() {
 # exit. `env.copy` / `env.files` resolve against the host environment, which
 # does not exist at image-build time, and a value read from it is exactly the
 # kind of secret that must never become image bytes -- so only explicitly
-# written literals are bakeable, and the two host-sourced sub-keys are a hard
-# abort in a bake file (claude_vm_check_env below).
+# written literals are bakeable, and a host-sourced sub-key written where the
+# table does not place it is a hard abort (claude_vm_check_env below).
 #
 # Precedence, lowest to highest:
 #
 #   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
 #
-# Within each tier, repo-over-global (per key for `set`, union for
-# `copy`/`files`); within `env.files`, later files win over earlier ones. The
+# Within each tier, each sub-key merges repo-over-global by its shape in the
+# key table; within `env.files`, later files win over earlier ones. The
 # whole chain is implemented by EMISSION ORDER rather than by a dedup pass:
 # claude_vm_resolve_boot_env emits files, then copy, then set, and the guest
 # sources the bake file before the boot one, so a later assignment simply
 # overwrites an earlier one when the file is sourced under `set -a`. That needs
-# no associative array and therefore no bash 4 -- see payload/README.md ->
-# *A guard must survive the oldest bash that can reach it*; these run as
-# config-load guards.
+# no associative array and therefore no bash 4, which matters because these run
+# as config-load guards on a host whose bash may be 3.2.
 
-# The sub-keys of `env:` that a BAKE file may not carry. Data, so a future
-# host-sourced sub-key joins the gate by being listed once.
-CLAUDE_VM_ENV_BOOT_ONLY_KEYS=(
-  'copy'
-  'files'
-)
+# The sub-keys of `env:` that a BAKE file may not carry, read off the key
+# table's file column, so a future host-sourced sub-key joins the gate by
+# gaining its table row.
+CLAUDE_VM_ENV_BOOT_ONLY_KEYS=()
+while IFS= read -r _claude_vm_k; do
+  if [ -n "$_claude_vm_k" ]; then CLAUDE_VM_ENV_BOOT_ONLY_KEYS+=("$_claude_vm_k"); fi
+done < <(claude_vm_config_subkeys env boot)
+unset _claude_vm_k
 
 # The environment variables the LAUNCHER itself composes -- every name written
 # into run.env (claude-vm.sh) plus the one the boot launcher exports on its
@@ -2151,8 +2709,8 @@ CLAUDE_VM_RESERVED_ENV_NAMES="HTTPS_PROXY HTTP_PROXY NO_PROXY https_proxy http_p
 # smuggle a second assignment past the reader.
 claude_vm_env_name_is_valid() {
   case "$1" in
-    ''|[!A-Za-z_]*)   return 1 ;;
-    *[!A-Za-z0-9_]*)  return 1 ;;
+    '' | [!A-Za-z_]*) return 1 ;;
+    *[!A-Za-z0-9_]*) return 1 ;;
   esac
   return 0
 }
@@ -2218,7 +2776,10 @@ claude_vm_env_set_tag() {
 #   $2 -- the variable name (already charset-validated by the caller)
 claude_vm_env_set_value() {
   local file="$1" name="$2" raw
-  raw="$(yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null; printf 'x')"
+  raw="$(
+    yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null
+    printf 'x'
+  )"
   raw="${raw%x}"
   raw="${raw%$'\n'}"
   printf '%q\n' "$raw"
@@ -2252,7 +2813,8 @@ claude_vm_env_files() {
 # two keys out of the prune. (Asking the merged document is what shipped in the
 # first round of issue #135: a valueless `copy:` in a bake file was accepted and
 # the image built, verified by a real launch. config-test.sh's negative control
-# holds that shape.)
+# holds that shape.) As with claude_vm_plugin_raw_has_key, an alias would hide
+# the sub-key from `has`, and the launcher has refused every alias first.
 #   $1 -- a RAW bake config file path (global or repo), pre-merge
 #   $2 -- the sub-key ('copy' or 'files')
 claude_vm_env_bake_has_key() {
@@ -2300,12 +2862,12 @@ claude_vm_env_file_assignments() {
     # Strip leading blanks so an indented comment is still a comment.
     while :; do
       case "$line" in
-        ' '*|"$env_tab"*) line="${line#?}" ;;
+        ' '* | "$env_tab"*) line="${line#?}" ;;
         *) break ;;
       esac
     done
     case "$line" in
-      ''|'#'*) continue ;;
+      '' | '#'*) continue ;;
       'export '*) line="${line#export }" ;;
     esac
     case "$line" in
@@ -2334,7 +2896,7 @@ claude_vm_env_file_assignments() {
       fi
     fi
     printf '%s=%q\n' "$name" "$value"
-  done < "$file"
+  done <"$file"
   return 0
 }
 
@@ -2360,7 +2922,9 @@ claude_vm_env_file_assignments() {
 #   - a name outside [A-Za-z_][A-Za-z0-9_]*, from any source (a `set` key, a
 #     `copy` entry, a name declared by an `env.files` file).
 #   - a name the LAUNCHER owns (CLAUDE_VM_RESERVED_ENV_NAMES).
-#   - an `env.set` value that is not a scalar, or is explicitly valueless.
+#   - an `env.set` that cannot be read: an `env` that is not a map, or an alias.
+#   - an `env.set` value that is not a scalar, is explicitly valueless, or is
+#     an alias.
 #   - an `env.files` path that is not on the host, or that does not parse.
 #   - an `env.copy` name that is unset or EMPTY in this launcher's own
 #     environment.
@@ -2395,12 +2959,20 @@ claude_vm_check_env() {
   for tier in BAKE BOOT; do
     case "$tier" in
       BAKE) doc="$bake_doc" ;;
-      *)    doc="$boot_doc" ;;
+      *) doc="$boot_doc" ;;
     esac
     [ -n "$doc" ] && [ -f "$doc" ] || continue
-    tag="$(yq eval '.env.set | tag' "$doc" 2>/dev/null)"
+    # No tag, or a read that fails, is an `env` that is not a map, or an alias;
+    # both are refused before the merge, and refused here too rather than read
+    # as no env.set at all.
+    tag="$(yq eval '.env.set | tag' "$doc" 2>/dev/null)" || tag=""
     case "$tag" in
-      '!!map'|'!!null'|'') : ;;
+      '!!map' | '!!null') : ;;
+      '')
+        echo "claude-vm: 'env.set' in the merged ${tier} config cannot be read: 'env' is not a map, or 'env.set' is a YAML alias." >&2
+        bad=1
+        continue
+        ;;
       *)
         echo "claude-vm: 'env.set' in the merged ${tier} config is a ${tag}, not a map." >&2
         echo "claude-vm:   write it as 'NAME: value' pairs, one per variable." >&2
@@ -2426,7 +2998,7 @@ claude_vm_check_env() {
       fi
       tag="$(claude_vm_env_set_tag "$doc" "$name")"
       case "$tag" in
-        '!!map'|'!!seq')
+        '!!map' | '!!seq')
           echo "claude-vm: env.set['$name'] in the merged ${tier} config is a ${tag}. An environment variable" >&2
           echo "claude-vm:   holds a single scalar value; a map or a list has no environment representation." >&2
           bad=1
@@ -2435,6 +3007,10 @@ claude_vm_check_env() {
           echo "claude-vm: env.set['$name'] in the merged ${tier} config has no value. Give it one, or write" >&2
           echo "claude-vm:   '$name: \"\"' if you really mean the empty string -- claude-vm aborts rather than" >&2
           echo "claude-vm:   guessing, so you never believe a variable is set when it is not." >&2
+          bad=1
+          ;;
+        '')
+          echo "claude-vm: env.set['$name'] in the merged ${tier} config is a YAML alias, which claude-vm does not resolve." >&2
           bad=1
           ;;
       esac
@@ -2552,14 +3128,15 @@ claude_vm_resolve_boot_env() {
 #   $2 -- merged BOOT document file path
 claude_vm_check_marketplace_conflicts() {
   local bake_doc="$1" boot_doc="$2" dup
-  dup="$(yq eval-all '
+  # Double-quoted like claude_vm_check_apt_sources_conflicts's filter.
+  dup="$(yq eval-all "
     ([select(fileIndex == 0) | .claude.marketplaces // [] | .[]]
-      + [select(fileIndex == 1) | .claude.marketplaces // [] | .[]]) as $mps
-    | ($mps | map(.name) | unique)
-    | map(. as $n | {"name": $n, "n": [$mps[] | select(.name == $n)] | unique | length})
+      + [select(fileIndex == 1) | .claude.marketplaces // [] | .[]]) as \$mps
+    | (\$mps | map(.name) | unique)
+    | map(. as \$n | {\"name\": \$n, \"n\": [\$mps[] | select(.name == \$n)] | unique | length})
     | map(select(.n > 1))
     | .[].name
-  ' "$bake_doc" "$boot_doc" 2>/dev/null)"
+  " "$bake_doc" "$boot_doc" 2>/dev/null)"
   if [ -n "$dup" ]; then
     echo "claude-vm: claude.marketplaces name conflict -- the following name(s) appear more than once with DIFFERING url across your bake/boot config files:" >&2
     printf '%s\n' "$dup" | while IFS= read -r n; do
@@ -2589,7 +3166,7 @@ claude_vm_check_marketplace_names() {
   for tier in BAKE BOOT; do
     case "$tier" in
       BAKE) f="$bake_doc" ;;
-      *)    f="$boot_doc" ;;
+      *) f="$boot_doc" ;;
     esac
     [ -n "$f" ] && [ -f "$f" ] || continue
     idx=0
@@ -2598,8 +3175,8 @@ claude_vm_check_marketplace_names() {
       # empty line for a document that declares no claude.marketplaces at all.
       [ -n "$record" ] || continue
       idx=$((idx + 1))
-      name=${record%%$mp_tab*}
-      url=${record#*$mp_tab}
+      name=${record%%"$mp_tab"*}
+      url=${record#*"$mp_tab"}
       [ -n "$name" ] && continue
       echo "claude-vm: claude.marketplaces entry #${idx} in the merged ${tier} config has no name (url: '${url}')." >&2
       echo "claude-vm:   the name is what a 'plugin@marketplace' ref resolves against and what the guest" >&2
@@ -2625,22 +3202,23 @@ claude_vm_check_marketplace_names() {
 # marketplace called `https://...`. claude_vm_check_marketplace_names rejects
 # that entry at load; the `[ -n "$name" ]` guard here is the floor for any
 # caller that runs without the load-time guards (the unit tests, and any future
-# non-launcher consumer).
+# non-launcher consumer). A yq read of either document that fails fails it.
 claude_vm_effective_marketplaces() {
-  local bake_doc="$1" boot_doc="$2" f seen="" mp_tab record name url
+  local bake_doc="$1" boot_doc="$2" f seen="" mp_tab records record name url
   mp_tab=$'\t'
   for f in "$bake_doc" "$boot_doc"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
+    records="$(claude_vm_marketplaces "$f")" || return 1
     while IFS= read -r record; do
-      name=${record%%$mp_tab*}
-      url=${record#*$mp_tab}
+      name=${record%%"$mp_tab"*}
+      url=${record#*"$mp_tab"}
       [ -n "$name" ] || continue
       case " $seen " in
         *" $name "*) continue ;;
       esac
       seen="$seen $name"
       printf '%s\t%s\n' "$name" "$url"
-    done < <(claude_vm_marketplaces "$f")
+    done <<<"$records"
   done
 }
 
@@ -2661,8 +3239,8 @@ claude_vm_effective_marketplaces() {
 claude_vm_baked_marketplace_names() {
   local bake_doc="$1"
   [ -n "$bake_doc" ] && [ -f "$bake_doc" ] || return 0
-  yq eval '.claude.marketplaces // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null \
-    | grep -v '^$' | sort -u
+  yq eval '.claude.marketplaces // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null |
+    grep -v '^$' | sort -u
 }
 
 # Emit the hostnames parsed out of both documents' claude.marketplaces urls,
@@ -2686,10 +3264,10 @@ claude_vm_marketplace_hosts() {
   for f in "$bake_doc" "$boot_doc"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
     yq eval '.claude.marketplaces // [] | .[] | .url // ""' "$f" 2>/dev/null
-  done \
-    | grep -oE 'https?://[^/[:space:]]+' \
-    | sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' \
-    | sort -u
+  done |
+    grep -oE 'https?://[^/[:space:]]+' |
+    sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' |
+    sort -u
 }
 
 # Emit the NAME of every effective marketplace whose url yields NO derivable
@@ -2709,11 +3287,11 @@ claude_vm_marketplaces_without_host() {
   mp_tab=$'\t'
   # Hand split, per the TSV RECORDS note above.
   while IFS= read -r record; do
-    name=${record%%$mp_tab*}
-    url=${record#*$mp_tab}
+    name=${record%%"$mp_tab"*}
+    url=${record#*"$mp_tab"}
     [ -n "$name" ] || continue
     case "$url" in
-      http://*|https://*) ;;
+      http://* | https://*) ;;
       *) printf '%s\n' "$name" ;;
     esac
   done < <(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")
@@ -2741,7 +3319,7 @@ claude_vm_boot_marketplace_egress_needed() {
   local boot_doc="$1" bake_doc="$2"
   local mode
   mode="$(claude_vm_scalar "$boot_doc" '.claude.plugins.add_marketplace_uris_to_allowlist' \
-            "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
+    "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
   if [ "$mode" = "always" ]; then
     return 0
   fi
@@ -2760,7 +3338,7 @@ claude_vm_boot_marketplace_egress_needed() {
   # name, and the membership test below then compared a URL against a set of
   # NAMES -- deriving marketplace egress from a comparison that cannot match.
   while IFS= read -r record; do
-    name=${record%%$mp_tab*}
+    name=${record%%"$mp_tab"*}
     [ -n "$name" ] || continue
     case "
 $baked_names
@@ -2772,10 +3350,10 @@ $name
     esac
   done < <(claude_vm_marketplaces "$boot_doc")
   local update_at_boot
-  update_at_boot="$(claude_vm_bool_scalar "$boot_doc" '.claude.plugins.update_at_boot' \
-                     "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
-  [ "$update_at_boot" = "true" ] \
-    && [ -n "$(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")" ]
+  update_at_boot="$(claude_vm_scalar "$boot_doc" '.claude.plugins.update_at_boot' \
+    "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
+  [ "$update_at_boot" = "true" ] &&
+    [ -n "$(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")" ]
 }
 
 # Emit the CANONICAL bake-plugin manifest as compact JSON on stdout: the
@@ -2836,8 +3414,8 @@ claude_vm_bake_plugins_json() {
   baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
   # Hand split, per the TSV RECORDS note above.
   while IFS= read -r record; do
-    name=${record%%$mp_tab*}
-    url=${record#*$mp_tab}
+    name=${record%%"$mp_tab"*}
+    url=${record#*"$mp_tab"}
     [ -n "$name" ] || continue
     origin="boot"
     case "
@@ -2877,11 +3455,10 @@ $name
 #   $2 -- merged BAKE document file path (optional; omitted/missing means no
 #         baked plugin refs, which is exactly the pre-#107 behavior)
 #
-# TWO documents since issue #107 moved claude.plugins.bake into the BAKE file
-# (see the placement note above claude_vm_check_plugin_key_placement). Every
-# other key this render reads -- permissions, permission_mode,
-# plugins.install_at_boot, plugins.enabled -- is a BOOT key and still comes
-# from the boot document.
+# Each key this render reads -- permissions,
+# permission_mode, plugins.bake, plugins.install_at_boot, plugins.enabled --
+# comes from the document of the file type the key table places it in (see
+# the placement note above claude_vm_check_plugin_key_placement).
 #
 # The rendered document's top-level keys are:
 #
@@ -2894,9 +3471,9 @@ $name
 #                            intent; the host's working-rules layer, issue
 #                            #108, is separate and is copied in). An
 #                            empty/unset list renders as [].
-#     defaultMode         -- from claude.permission_mode (default
-#                            bypassPermissions). Read here from the merged
-#                            file with the same default so the render is
+#     defaultMode         -- from claude.permission_mode. Read here from the
+#                            merged file with the key table's default, as the
+#                            launcher reads it, so the render is
 #                            self-contained and testable. The launcher
 #                            (claude-vm.sh) enum-guards this value BEFORE
 #                            calling here; this render trusts it.
@@ -2943,28 +3520,48 @@ $name
 #     NOT collapse into this render -- the explicit ensure/install/update phase
 #     in the guest boot launcher is load-bearing.
 #
-# VALIDATION (done here, once, on the merged config -- this is the single
+# VALIDATION (done here, on the merged config -- this is the single
 # reader/render path): every claude.plugins.enabled VALUE must be a boolean,
 # and every KEY must name a plugin ref present in the merged
-# (bake ++ install_at_boot) lists. A non-boolean value or an unknown key is
-# a config typo and ABORTS (non-zero return + a claude-vm: diagnostic on
-# stderr) so the launcher stops rather than rendering a settings.json that
-# silently drops or misspells a plugin toggle.
+# (bake ++ install_at_boot) lists. claude_vm_check_scalars has already checked
+# each value on the raw files, where a value written `{}` is still present. A
+# non-boolean value or an unknown key is a config typo and ABORTS (non-zero
+# return + a claude-vm: diagnostic on stderr) so the launcher stops rather
+# than rendering a settings.json that silently drops or misspells a plugin
+# toggle. A yq stage of the render that fails aborts it the same way, rather
+# than rendering from the output it did not produce.
 claude_vm_render_guest_settings() {
   local file="$1" bake_doc="${2:-}"
   local permission_mode
 
-  # Resolve permission_mode with the same default as the schema
-  # (bypassPermissions). claude_vm_scalar treats absent/null as the
-  # fallback; permission_mode is a plain string, never a boolean, so the
-  # non-boolean-safe accessor is correct here. The launcher enum-guards the
-  # value up front, so an unexpected mode never reaches this render.
-  permission_mode="$(claude_vm_scalar "$file" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+  # Resolve permission_mode with the key table's default, which an absent,
+  # null or `""` value takes. The launcher enum-guards the value up front, so
+  # an unexpected mode never reaches this render.
+  permission_mode="$(yq eval '.claude.permission_mode // ""' "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read claude.permission_mode from $file" >&2
+      return 1
+    }
+  [ -n "$permission_mode" ] || permission_mode="$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE"
 
   # Collect the installed plugin refs (bake ++ install_at_boot), preserving
   # order and de-duplicating. These are both the enabledPlugins keys (all
   # default true) AND the valid key-set for claude.plugins.enabled overrides.
-  local ref installed=() seen=""
+  # Baked refs come from the BAKE document; a missing bake doc simply
+  # contributes none.
+  local ref refs="" installed=() seen=""
+  if [ -n "$bake_doc" ] && [ -f "$bake_doc" ]; then
+    refs="$(claude_vm_list_items "$bake_doc" '.claude.plugins.bake')" ||
+      {
+        echo "claude-vm: could not read claude.plugins.bake from $bake_doc" >&2
+        return 1
+      }
+  fi
+  refs="$refs"$'\n'"$(claude_vm_list_items "$file" '.claude.plugins.install_at_boot')" ||
+    {
+      echo "claude-vm: could not read claude.plugins.install_at_boot from $file" >&2
+      return 1
+    }
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
     case " $seen " in
@@ -2972,19 +3569,13 @@ claude_vm_render_guest_settings() {
     esac
     seen="$seen $ref"
     installed+=("$ref")
-  done < <(
-    # Baked refs come from the BAKE document (issue #107 placement); a missing
-    # bake doc simply contributes none.
-    if [ -n "$bake_doc" ] && [ -f "$bake_doc" ]; then
-      claude_vm_list_items "$bake_doc" '.claude.plugins.bake'
-    fi
-    claude_vm_list_items "$file" '.claude.plugins.install_at_boot'
-  )
+  done <<<"$refs"
 
   # Read the claude.plugins.enabled override map as tab-separated
-  # "ref<TAB>value" lines. yq emits nothing when the key is absent.
-  # Validate each entry HERE, once: key must be non-empty and must name an
-  # installed ref, value must be a boolean. Build an override map keyed by ref.
+  # "ref<TAB>tag<TAB>value" lines. yq emits nothing when the key is absent.
+  # Validate each entry HERE: key must be non-empty and must name an
+  # installed ref, value must be of the map's key-table type, which the tag
+  # settles for a quoted "true". Build an override map keyed by ref.
   #
   # Records are split by hand, per the TSV RECORDS note near the top of this
   # file. An empty KEY (`enabled: { "": true }`) leads the record with an empty
@@ -2992,12 +3583,13 @@ claude_vm_render_guest_settings() {
   # ov_val="" and abort with a message blaming a plugin called `true`. It now
   # sees the empty ref and says so. That entry ABORTS rather than being skipped
   # -- an override no plugin can ever match is a typo, and this render is the
-  # single place claude.plugins.enabled is validated.
+  # one place claude.plugins.enabled's keys are validated. A map or list value
+  # is read by its tag alone, so `@tsv` never sees one: the value field is
+  # empty for it, as claude_vm_check_map_values builds it.
   #
   # The map is TWO PARALLEL INDEXED ARRAYS, not an associative array, because
   # this render is launcher-reachable and stock macOS /bin/bash is 3.2, which
-  # has no associative arrays -- see payload/README.md -> *A guard must survive
-  # the oldest bash that can reach it*. `local -A` there is a hard
+  # has no associative arrays. `local -A` there is a hard
   # `local: -A: invalid option`, and the `map["$ov_ref"]=` assignment that
   # followed it is worse: 3.2 evaluates an indexed array's subscript
   # ARITHMETICALLY, so a real ref like `block-background-agents@thevoskamps`
@@ -3009,48 +3601,56 @@ claude_vm_render_guest_settings() {
   # 3.2.57). A config with no override never entered this branch at all, which
   # is why the defect survived to a real launch.
   local ov_refs=() ov_vals=()
-  local ov_tab ov_record ov_ref ov_val ov_idx=0
+  local ov_tab ov_records ov_record ov_ref ov_tag ov_type ov_val ov_idx=0
   ov_tab=$'\t'
+  ov_records="$(yq eval '
+    .claude.plugins.enabled // {}
+    | to_entries | .[]
+    | [.key, (.value | tag),
+       ([.value | select(tag != "!!map" and tag != "!!seq" and tag != "!!null")] + [""] | .[0])]
+    | @tsv
+  ' "$file" 2>/dev/null)" ||
+    {
+      echo "claude-vm: could not read claude.plugins.enabled from $file" >&2
+      return 1
+    }
   while IFS= read -r ov_record; do
-    # An ABSENT enabled map is one empty line, not zero bytes (yq prints a
-    # newline for `{} | to_entries | .[]`). Skip it before the empty-ref abort
-    # below, which would otherwise fire on every config that sets no overrides.
+    # An ABSENT enabled map is one empty line, not zero bytes (the here-string
+    # ends even an empty $ov_records with a newline). Skip it before the
+    # empty-ref abort below, which would otherwise fire on every config that
+    # sets no overrides.
     [ -n "$ov_record" ] || continue
     ov_idx=$((ov_idx + 1))
-    ov_ref=${ov_record%%$ov_tab*}
-    ov_val=${ov_record#*$ov_tab}
+    ov_ref=${ov_record%%"$ov_tab"*}
+    ov_val=${ov_record#*"$ov_tab"}
+    ov_tag=${ov_val%%"$ov_tab"*}
+    ov_val=${ov_val#*"$ov_tab"}
     if [ -z "$ov_ref" ]; then
       echo "claude-vm: claude.plugins.enabled entry #${ov_idx} has an empty plugin ref (value: '$ov_val')" >&2
       echo "claude-vm:   every key must name a plugin ref from claude.plugins.bake or install_at_boot" >&2
       return 1
     fi
-    case "$ov_val" in
-      true|false) : ;;
-      *)
-        echo "claude-vm: claude.plugins.enabled['$ov_ref'] must be a boolean (true|false), got '$ov_val'" >&2
-        return 1 ;;
-    esac
+    ov_type="$(claude_vm_config_key_type claude.plugins.enabled)"
+    ov_type=${ov_type#"map("}
+    claude_vm_check_typed_value "claude.plugins.enabled['$ov_ref']" "${ov_type%")"}" "$ov_tag" "$ov_val" ||
+      return 1
     case " $seen " in
       *" $ov_ref "*) : ;;
       *)
         echo "claude-vm: claude.plugins.enabled['$ov_ref'] names a plugin not in claude.plugins.bake or install_at_boot" >&2
-        return 1 ;;
+        return 1
+        ;;
     esac
     # Append rather than assign-by-key. A repeated ref therefore appears
     # twice; the lookup below scans to the END and keeps the LAST match, which
     # is the same value an associative-array assignment would have left.
     ov_refs+=("$ov_ref")
     ov_vals+=("$ov_val")
-  done < <(
-    yq eval '
-      .claude.plugins.enabled // {}
-      | to_entries | .[] | [.key, .value] | @tsv
-    ' "$file" 2>/dev/null
-  )
+  done <<<"$ov_records"
 
   # Build the enabledPlugins object as a YAML fragment: every installed ref
   # -> true, then apply the validated overrides.
-  local plugins_yaml="" value ov_i ov_n
+  local plugins_yaml="" value ov_i ov_n quoted
   ov_n=${#ov_refs[@]}
   for ref in ${installed[@]+"${installed[@]}"}; do
     value="true"
@@ -3066,7 +3666,12 @@ claude_vm_render_guest_settings() {
     done
     # Quote the key so a ref containing YAML-significant characters is a
     # valid single mapping key; the value is a bare boolean literal.
-    plugins_yaml="${plugins_yaml}$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null): ${value}"$'\n'
+    quoted="$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not quote the plugin ref '$ref'" >&2
+        return 1
+      }
+    plugins_yaml="${plugins_yaml}${quoted}: ${value}"$'\n'
   done
 
   # An empty fragment (no plugin refs at all) must parse to an empty object,
@@ -3082,23 +3687,34 @@ claude_vm_render_guest_settings() {
   # what claude itself writes: an http(s) url -> {"source":"git","url":...};
   # anything else is treated as the `owner/repo` GitHub shorthand ->
   # {"source":"github","repo":...}. A urlless entry contributes nothing.
-  local mp_yaml="" mp_tab mp_record mp_name mp_url mp_src
+  local mp_yaml="" mp_tab mp_records mp_record mp_name mp_url mp_src mp_expr
   mp_tab=$'\t'
+  mp_records="$(claude_vm_effective_marketplaces "$bake_doc" "$file")" ||
+    {
+      echo "claude-vm: could not read claude.marketplaces" >&2
+      return 1
+    }
   # Hand split, per the TSV RECORDS note near the top of this file.
   while IFS= read -r mp_record; do
-    mp_name=${mp_record%%$mp_tab*}
-    mp_url=${mp_record#*$mp_tab}
+    mp_name=${mp_record%%"$mp_tab"*}
+    mp_url=${mp_record#*"$mp_tab"}
     [ -n "$mp_name" ] && [ -n "$mp_url" ] || continue
     case "$mp_url" in
-      http://*|https://*)
-        mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
-          '{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)" ;;
-      *)
-        mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
-          '{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)" ;;
+      http://* | https://*) mp_expr='{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' ;;
+      *) mp_expr='{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' ;;
     esac
-    mp_yaml="${mp_yaml}$(printf '%s' "$mp_name" | yq -o=json eval '.' - 2>/dev/null): {\"source\": ${mp_src}}"$'\n'
-  done < <(claude_vm_effective_marketplaces "$bake_doc" "$file")
+    mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n "$mp_expr" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not render the source of marketplace '$mp_name'" >&2
+        return 1
+      }
+    quoted="$(printf '%s' "$mp_name" | yq -o=json eval '.' - 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not quote the marketplace name '$mp_name'" >&2
+        return 1
+      }
+    mp_yaml="${mp_yaml}${quoted}: {\"source\": ${mp_src}}"$'\n'
+  done <<<"$mp_records"
   # Same empty-fragment guard as enabledPlugins above: `"" | from_yaml` errors.
   [ -n "$mp_yaml" ] || mp_yaml="{}"
 
@@ -3107,8 +3723,8 @@ claude_vm_render_guest_settings() {
   # defaultMode, and the enabledPlugins / extraKnownMarketplaces fragments
   # injected as parsed YAML.
   CLAUDE_VM_PERMISSION_MODE="$permission_mode" \
-  CLAUDE_VM_ENABLED_PLUGINS="$plugins_yaml" \
-  CLAUDE_VM_EXTRA_MARKETPLACES="$mp_yaml" \
+    CLAUDE_VM_ENABLED_PLUGINS="$plugins_yaml" \
+    CLAUDE_VM_EXTRA_MARKETPLACES="$mp_yaml" \
     yq eval -o=json '
       {
         "permissions": {
@@ -3233,7 +3849,10 @@ claude_vm_augment_rc_args() {
     local has_name=0
     for a in ${args[@]+"${args[@]}"}; do
       case "$a" in
-        --name|--name=*) has_name=1; break ;;
+        --name | --name=*)
+          has_name=1
+          break
+          ;;
       esac
     done
     if [ "$has_name" -eq 0 ]; then

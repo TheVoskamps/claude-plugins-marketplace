@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# claude-vm-config-keys -- print claude-vm's config key table, one key per
+# line, as the tab-separated fields key, file (bake, boot or both), type,
+# list or scalar, and default. The table is CLAUDE_VM_CONFIG_KEYS in
+# payload/lib/config.sh; this prints it and nothing else, so the config
+# wizards interview from the schema the launcher actually reads.
+#
+# Usage:
+#   claude-vm-config-keys
+#
+# Exit status: 0 on success; 2 when given any argument.
+#
+# Runs under bash 3.2, like the rest of claude-vm.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../payload/lib/config.sh
+. "$PLUGIN_ROOT/payload/lib/config.sh"
+
+if [ "$#" -gt 0 ]; then
+  echo "usage: claude-vm-config-keys" >&2
+  exit 2
+fi
+
+claude_vm_config_keys

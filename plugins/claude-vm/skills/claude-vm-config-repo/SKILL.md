@@ -1,6 +1,6 @@
 ---
 name: claude-vm-config-repo
-description: Interactively create the per-repo claude-vm config PAIR at <repo>/.claude-vm/config-bake.yml + config-boot.yml, writing ONLY the keys this repo overrides on top of the global config (e.g. bump mem 4096 -> 6144 for a heavy-build repo). Reads the global config as the basis so you see what you are overriding. Idempotent — detects existing per-repo files and offers to merge or leave rather than clobber.
+description: Interactively create the per-repo claude-vm config PAIR at <repo>/.claude-vm/config-bake.yml + config-boot.yml, writing ONLY the keys this repo overrides on top of the global config (e.g. bump mem for a heavy-build repo), each in the file the launcher's own key table (claude-vm-config-keys) names. Reads the global config as the basis so you see what you are overriding. Idempotent — detects existing per-repo files and offers to merge or leave rather than clobber.
 ---
 
 # claude-vm-config-repo
@@ -8,531 +8,198 @@ description: Interactively create the per-repo claude-vm config PAIR at <repo>/.
 You are running the `/claude-vm-config-repo` skill. Your job is to
 create the **per-repo** claude-vm config **pair** at
 `<repo>/.claude-vm/config-bake.yml` and
-`<repo>/.claude-vm/config-boot.yml` from the keys this repo wants to
-override on top of the global config.
+`<repo>/.claude-vm/config-boot.yml` from the keys this repo overrides on
+top of the global config.
 
-Since issue #179, claude-vm's config is split into a **bake** file and a
-**boot** file per tier. Which of the two per-repo files a given override
-lands in follows the placement rule:
+This pair is the project-specific layer of claude-vm's four-file config,
+the per-repo analogue of `/claude-vm-config-global`. Either file is
+optional: a repo may ship only a boot file, only a bake file, or neither.
+Shipping a `config-bake.yml` at all gives the repo its own image, so a
+repo that overrides only run-time keys keeps sharing the global image.
 
-- **`config-bake.yml`** — image-bytes keys: `packages:` (a flat list of
-  apt packages baked into the image), `apt_sources:`,
-  `image.root_headroom_mb`, `claude.marketplaces`, and
-  `claude.plugins.bake` (the `plugin@marketplace` refs installed into the
-  image). A repo that ships a `config-bake.yml` gets
-  its **own** image (its name in the filename); its content is
-  whole-file, raw-byte hashed.
-- **`config-boot.yml`** — run-time keys: `cpus`, `mem`, `proxy.*`,
-  `egress.allow`, `mounts`, `repo.*`, `packages:` here means **installed
-  at boot** (a flat list), `update_at_boot`, `add_apt_uris_to_allowlist`,
-  `claude.*`, `github.*`. Boot files never affect image identity.
+## The schema comes from the launcher
 
-This pair is the project-specific layer of claude-vm's four-file config.
-At runtime, `payload/lib/config.sh` composes all four files (global
-bake+boot, repo bake+boot): **scalars** in a repo file win over the
-global value, and **lists** (bake file: `packages`, `apt_sources`,
-`claude.marketplaces`, `claude.plugins.bake`; boot
-file: `egress.allow`, `mounts`, `packages`, `apt_sources`,
-`claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
-`claude.plugins.install_at_boot`) are unioned with the global
-lists. The config surface, layering semantics, and key meanings are
-documented in the sibling `claude-vm` skill
-(`skills/claude-vm/SKILL.md`) and the annotated
-`payload/config-bake.example.yml` / `payload/config-boot.example.yml`.
+Run the key table and read the meanings before composing anything:
 
-It is the per-repo analogue of `/claude-vm-config-global`. Because the
-layering merges all four files at runtime, these files hold **only the
-overrides** — not a full duplicate of the global config. The motivating
-case: a heavy-build repo bumps `mem` from the global `4096` to `6144`
-(in `config-boot.yml`) without touching the machine-wide default. A repo
-pair is OPTIONAL: a repo may ship only a boot file, only a bake file, or
-neither.
+```bash
+claude-vm-config-keys
+```
 
-**Migration:** if a legacy `<repo>/.claude-vm/config.yml` exists, the
-launcher aborts with a migration message. When this skill detects it,
-offer to migrate its keys into the bake/boot pair per the placement rule,
-then remind the user to remove or rename the legacy file.
+It prints one key per line as the tab-separated fields key, file (`bake`,
+`boot` or `both`), type, `list` or `scalar`, and default. It is the
+launcher's own table, so it is the only source for which keys exist,
+which file each goes in, how each merges, and what each defaults to when
+neither tier sets it. Never write a key it does not print.
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/claude-vm/config-keys.md` for what
+each key means, which values the launcher rejects, how a key whose file
+is `both` differs between the two files, and how the tiers layer.
 
 ## Write only the overridden keys
 
-The single most important rule of this skill: the per-repo file contains
-**only the keys that differ from the global config** (plus any list
-entries this repo adds). Do not copy the resolved global values into the
-per-repo file. The layering library fills every un-overridden key from
-the global layer at runtime; duplicating them here would mean the repo
-file silently shadows future changes to the global default.
+The per-repo files contain **only the keys that differ from the global
+config**, plus any list entries this repo adds. The merge fills every
+un-overridden key from the global layer at launch; copying a global value
+here would make the repo file silently shadow later changes to it.
 
-- **Scalars.** In `config-boot.yml`: `cpus`, `mem`, `guest_image`,
-  `repo.mount`, `repo.copy_back`, `proxy.*`, `claude.version`,
-  `claude.renderer`, `claude.remote_control`, `update_at_boot`,
-  `add_apt_uris_to_allowlist`, `claude.permission_mode`,
-  `claude.plugins.update_at_boot`,
-  `claude.plugins.add_marketplace_uris_to_allowlist`, `github.auth`.
-  In `config-bake.yml`: `image.root_headroom_mb`. Write a key only if
-  the user wants this repo to use a different value than the global
-  config resolves to.
-  (`image.root_headroom_mb` sets the guest root filesystem's free margin
-  above its base content; bump it for a repo whose sessions install many
-  packages or otherwise grow the guest disk more than the 1024 MB
-  default anticipates. It lives in the BAKE file — so setting it makes
-  this repo get its own image
-  `guest+global<hash>+<reponame>-<repohash>.raw` and triggers a rebuild
-  for this repo. Merely creating a `config-bake.yml` at all gives the
-  repo its own image; a repo that overrides only run-time keys puts them
-  in `config-boot.yml` and keeps sharing the global image.)
-  (`claude.renderer` selects the interactive-console terminal renderer:
-  `classic` | `fullscreen` | unset; an unrecognized value aborts the
-  launch. `claude.remote_control` is an opt-in boolean — `true` adds
-  `--remote-control` plus a date-stamped `--name` default to the in-guest
-  claude invocation; `false`/unset passes the CLI args through unchanged;
-  any other value aborts the launch. Setting it here lets one repo opt in
-  to Remote Control without turning it on globally. `claude.permission_mode`
-  is rendered into the guest `settings.json` (issue #104:
-  `permission_mode` → `permissions.defaultMode`; only `bypassPermissions` /
-  `default` are accepted, anything else aborts the launch). The remaining
-  guest-capability keys are consumed as follows: the boot file's
-  `update_at_boot`/`add_apt_uris_to_allowlist` drive the guest's boot-time
-  apt phase (issue #106) and
-  `claude.plugins.update_at_boot`/`.add_marketplace_uris_to_allowlist` its
-  boot-time plugin phase and derived marketplace egress (issue #107).
-  `github.auth` is schema + merge only as of issue #103 — its consumer
-  lands in a sibling slice under #39, but this repo's override still
-  resolves correctly through the layering library today.)
-- **Scalar maps** (`claude.plugins.enabled`, `env.set`): a map that merges
-  repo-over-global **per key**, so this repo can flip one plugin's enabled
-  state (e.g. `false` = installed-but-disabled), or change one environment
-  variable's value, without restating the global map.
-  `claude.plugins.enabled` is rendered into the guest `settings.json`'s
-  `enabledPlugins` (issue #104); keys must name a ref in
-  `claude.plugins.bake`/`.install_at_boot` and values must be boolean, or
-  the launch aborts. `env.set` is allowed in **both** file types — put a
-  literal in `config-bake.yml` only when it should persist in this repo's
-  image for every session, and never a secret there (a bake value is
-  committed config *and* image bytes).
-- **Lists.** In `config-bake.yml`: `packages` (baked into the image),
-  `apt_sources`, `claude.marketplaces`, `claude.plugins.bake` (installed
-  into the image). In `config-boot.yml`: `egress.allow`, `mounts`,
-  `packages` (installed at boot), `apt_sources`,
-  `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
-  `claude.plugins.install_at_boot`, `env.copy`, `env.files`. Write only the
-  **additional** entries this repo needs. The runtime union keeps the
-  global entries; the per-repo file does not need to restate them. (The
-  library cannot *remove* a global entry from a list — the union only
-  adds — so a repo cannot subtract a global egress host, apt package,
-  permission rule, marketplace, or plugin. If the user asks to drop a
-  global entry, explain that lists union and the removal must happen in
-  the global config. `claude.permissions.*` and `claude.plugins.bake`/
-  `.install_at_boot` feed the rendered guest `settings.json`
-  (issue #104) after the union resolves. `apt_sources` and
-  `claude.marketplaces` may each appear in BOTH the bake and boot
-  files — union, deduped by `name`; the same name with DIFFERING content
-  (`{repo, key_url}` / `url`) aborts the launch, so keep each name's
-  content identical across files or give it a unique name. A
-  `claude.marketplaces` entry with a url and no `name` aborts the launch
-  as well (issue #226) — the name is what every consumer matches on.
-  Which file a marketplace lands in decides its build-time failure
-  policy: one in the bake file must register at build time or the build
-  aborts, so its url has to be reachable from the build container, while
-  one in the boot
-  file only has to be reachable from the **guest** — put a guest-local
-  path like `/mnt/repo`, or a private source needing host-only
-  credentials, in the boot file, where a build that cannot reach it
-  warns and the guest adds it at boot (issue #226). A
-  `claude.plugins` sub-key written into the wrong file type aborts the
-  launch too, on a *presence* test — so even an empty or valueless
-  `bake:` there aborts, and the message names the file carrying it:
-  `bake` belongs in the bake file, `install_at_boot` /
-  `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` in
-  the boot file. `env.copy` and `env.files` are **boot-only** and abort in
-  a bake file on a *presence* test, so even an empty `env.copy:` there
-  aborts — they read the host environment at launch, which does not exist
-  at image-build time, and their values must never become image bytes.)
+- A **scalar**: write it only when this repo needs a different value
+  than the global config resolves to.
+- A **map** (`map(...)` type): write only the entries this repo changes;
+  the map merges per key.
+- A **list**: write only the additional entries. Lists union, so a repo
+  cannot remove a global entry; if the user asks to drop one, explain that
+  the removal belongs in the global config.
 
 ## Idempotent — detect and offer, never clobber
 
-This skill is **idempotent**. Before writing anything it checks each of
-`<repo>/.claude-vm/config-bake.yml` and
-`<repo>/.claude-vm/config-boot.yml` independently:
+Before writing anything, check each of the two files independently:
 
-- **If a file does not exist**: this is the create path for that file.
-  Propose the overrides-only file, get approval, write it. (If a tier
-  has no overrides, do not write that file at all — the pair is
-  optional.)
-- **If a file already exists**: **do not clobber it.** Read it, show the
-  user what is there, and offer these choices:
+- **Absent**: this is the create path for that file. Propose the
+  overrides-only file, get approval, write it. If a file's tier has no
+  overrides, do not write it at all.
+- **Present**: **do not clobber it.** Read it, show the user what is
+  there, and offer:
   1. **Leave** the existing file untouched (the default, safe choice).
-  2. **Merge** the new overrides in for any keys the existing file is
-     missing, preserving every key the user already set.
+  2. **Merge** the new overrides in for any keys it is missing,
+     preserving every key the user already set.
 
-  Never overwrite a key the user already set on the "merge" path, and
-  never delete a key. A merge only *fills gaps* (and, for lists, unions
-  new entries in). If the existing file already has every override the
-  user wants, report that it is already complete and leave it untouched.
+  A merge only fills gaps and unions new list entries in; it never
+  overwrites or deletes a key the user set. If the file already has every
+  override the user wants, report that it is complete and leave it.
 
-Writing the file requires explicit user approval in every case.
+Writing a file requires explicit user approval in every case.
 
 ## Steps
 
-Follow these in order. Do not write the file until the user has
-explicitly approved the proposed content.
+Do not write a file until the user has explicitly approved its content.
 
 ### Step 1: Confirm you are in a repo and resolve the target paths
-
-Find the repo root with `git rev-parse --show-toplevel`. This matches
-how the launcher resolves the per-repo config:
-`REPO_BAKE_CONFIG="${CLAUDE_VM_REPO_BAKE_CONFIG:-$REPO_SRC/.claude-vm/config-bake.yml}"`
-and the boot analogue in `payload/claude-vm.sh`, where `$REPO_SRC` is
-itself the `git rev-parse --show-toplevel` of the launch target.
 
 ```bash
 git rev-parse --show-toplevel
 ```
 
-- If this fails (not inside a git work tree), stop and tell the user
-  this skill must be run from inside a repo, since the per-repo config
-  is repo-scoped. Do not write anything.
-- On success, the target paths are
-  `<repo-root>/.claude-vm/config-bake.yml` and
-  `<repo-root>/.claude-vm/config-boot.yml`. The `.claude-vm/` directory
-  may not exist yet; the `Write` tool creates it. Also check for a
-  legacy `<repo-root>/.claude-vm/config.yml` (offer migration if found).
+The launcher resolves the per-repo pair as
+`$REPO_SRC/.claude-vm/config-{bake,boot}.yml`, where `$REPO_SRC` is this
+same top level of the launch target.
 
-### Step 2: Read the global config as the basis for overrides
+- If it fails (not inside a git work tree), stop and tell the user this
+  skill must run from inside a repo. Write nothing.
+- On success, the targets are `<repo-root>/.claude-vm/config-bake.yml`
+  and `<repo-root>/.claude-vm/config-boot.yml`. The directory may not
+  exist yet; the `Write` tool creates it. Also check for a legacy
+  `<repo-root>/.claude-vm/config.yml`, which the launcher aborts on, and
+  offer to migrate its keys into the pair, placing each by the key
+  table's file column.
 
-Resolve the global config pair the same way the launcher does:
-`${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/config-bake.yml` and
-`config-boot.yml` (matching the `CLAUDE_VM_GLOBAL_*_CONFIG` defaults in
-`payload/lib/config.sh`).
+### Step 2: Read the global config as the basis
 
-- **If the global config is absent**: there is nothing to override
-  against. Tell the user the global layer does not exist yet and point
-  them at `/claude-vm-config-global` to create it first. You may still
-  proceed to write per-repo overrides if the user insists (the launcher
-  also has hardcoded fallbacks: `cpus 4`, `mem 8192`, `repo.mount
-  clone`, `repo.copy_back local`, `proxy.port 3128`, `proxy.host_alias
-  192.168.127.254`), but make clear what the effective baseline is.
-- **If the global config is present**: read both global files and
-  present their resolved values as the **basis** — so the user sees
-  exactly what each key is currently set to and therefore what they
-  would be overriding. Show the scalars and the global `egress.allow` /
-  `mounts` / baked-`packages` lists, and the global `env:` block — its
-  `env.set` KEYS and its `env.copy` / `env.files` entries. The `mounts`
-  name checks run over the MERGED global+repo set, so a per-repo entry
-  can collide with a global one the user has just been shown and abort
-  the launch. `env` is the other way round: there is no cross-layer
-  check, and a per-repo `env.set` key with the same name as a global one
-  simply wins — silently, and by design. Showing the global keys is what
-  tells the user which global value a per-repo entry would replace.
-  Show `env.set` keys and their values (they are non-secret literals by
-  construction), but only the NAMES from `env.copy` — never resolve one
-  against the environment to display its value.
+Read `${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/config-bake.yml` and
+`config-boot.yml`, the launcher's `CLAUDE_VM_GLOBAL_*_CONFIG` defaults.
+
+- **Absent**: tell the user the global layer does not exist yet and point
+  them at `/claude-vm-config-global`. Proceed only if they insist, and
+  then show the table's defaults as the effective baseline.
+- **Present**: show its resolved values as the basis, so the user sees
+  what each override replaces — the scalars, the list entries, and the
+  `env` block. Show `env.set` names and values, which are non-secret by
+  construction, but only the names under `env.copy`; never resolve one
+  against the environment. The `mounts` checks run over the merged global
+  and repo list, so a per-repo entry can collide with a global one, while
+  a per-repo `env.set` name that repeats a global one silently replaces
+  it. Showing both is what lets the user see either coming.
 
 ### Step 3: Collect the overrides
 
-Ask the user which keys this repo should override. Frame each against the
-global value from Step 2, e.g. "Global `mem` is `4096`; what should this
-repo use?" The common cases:
+Ask which keys this repo overrides, framing each against the global value
+from Step 2 — "global `mem` is 4096; what should this repo use?" — and
+place each in the file its table row names. Ask by feature area (VM
+resources, egress, mounts, packages, plugins, environment variables) and
+fold the answers onto rows. For an `env.copy` entry, add its provider's
+host to `egress.allow` in the same file, or write neither.
 
-- A scalar override (the motivating case: `mem: 6144` for a heavy-build
-  repo, while global stays `4096`).
-- Extra `egress.allow` hosts this repo's build/test needs (e.g. a
-  package registry). These union with the global allowlist.
-- Extra `mounts` this repo needs. Each entry takes a `source:` (a host
-  directory, or a single file) and a `tag:`, plus an optional absolute
-  `path:` (the guest mountpoint, default `/mnt/<tag>`). The guest mounts
-  each share *by* its tag, and every mistake aborts the launch rather
-  than booting without the mount: a missing `source:`/`tag:` (issue
-  #226), a `source:` that is not on the host, a **directory** `source:`
-  whose path carries a `,`, a `tag:` that is reserved
-  (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
-  `[A-Za-z0-9._-]`, repeated, `.` or `..`, or beginning with `-`, a
-  `mode:` key at all, and a `path:` that is relative, carries `..`,
-  overlaps one of claude-vm's own guest mountpoints, shadows a guest OS
-  path, or duplicates another entry's (issue #157).
-  Those checks run on a **normalized** `path:` — repeated slashes, a
-  trailing slash and `.` segments are collapsed first — so respelling a
-  mountpoint (`/./etc`, `/mnt/./repo`) cannot slip it past them; a `..`
-  segment is rejected outright rather than resolved.
-  The tag rules beyond the charset are there because the tag is *also* a
-  path component (`/mnt/<tag>`, and the directories a single-file mount
-  is staged through) and a bare argv word in the guest's own `mount`, so
-  never offer `.`, `..` or a leading dash — `...`, `a..b` and `a-b` are
-  ordinary and fine. The comma rule is the `source:` half of the same
-  device string.
-  *Overlaps* is wider than equals: a `path:` above a reserved mountpoint
-  (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) is rejected too, so never
-  offer a `path:` under `/mnt/<built-in tag>`. The tag and path checks
-  run over the **merged** global+repo list, so a per-repo entry can
-  collide with a global one — check Step 2's global `mounts` before
-  writing a tag or path.
-  **Every mount is read-write and pierces the VM isolation boundary for
-  that path**: the guest's writes land on the host path live, with no
-  copy-back step. There is **no `mode:` key** — read-only cannot be
-  enforced on this stack (vfkit's virtio-fs device has no read-only
-  export and the guest runs as root), so a config that sets one aborts
-  the launch; issue #233 tracks enforcing it at the hypervisor. Never
-  offer a mount of anything the user would mind an autonomous agent
-  rewriting, and say so plainly when they ask for one.
-  The guest OS's own paths — `/bin /boot /dev /etc /home /lib` (and its
-  `/lib32`, `/lib64`, `/libx32` spellings), `/proc /root /run /sbin /sys
-  /tmp /usr /var`, listed authoritatively as
-  `CLAUDE_VM_GUEST_SYSTEM_PATHS` in `payload/lib/config.sh` — are
-  protected by **shape**: a directory
-  `source:` may not land on, above or inside one — offer `/mnt/<tag>`,
-  `/srv` or `/opt` — while a single-file `source:` may not land on or
-  above one and may sit inside only `/root`, `/home` or `/tmp`. So
-  `path: /root/.gitconfig` for a file is fine; `path: /root` for a
-  directory is not.
-  A single-file `source:` is shared by wrapping it in a per-entry
-  directory and bind-mounting the one file in the guest, so it carries a
-  caveat a directory mount does not: the kernel refuses a `rename(2)`
-  onto a file bind mount with `EBUSY`, so a single-file mount takes
-  in-place edits but not the write-a-temp-then-rename pattern
-  `git config`, `sed -i` and most editors use. When the user wants the
-  guest to rewrite a file wholesale — `~/.gitconfig` is the usual case —
-  offer its containing **directory** as the `source:` instead.
-- Extra apt packages this repo's build needs beyond the global set:
-  baked into the image (bake file `packages:`) or installed at boot
-  (boot file `packages:`), plus any third-party `apt_sources` (either
-  file). These union with the global lists.
-- Extra `claude.permissions.allow`/`.ask`/`.deny` rules (boot file),
-  `claude.marketplaces` (either file), `claude.plugins.bake` entries
-  (bake file — baked into this repo's own image), or
-  `claude.plugins.install_at_boot` entries (boot file) this repo needs.
-  These union with the global lists.
-- Environment variables this repo's in-guest session needs (issue #135) —
-  a plain setting (`FOO_ENDPOINT`) or a third-party API key for a tool,
-  MCP server or model provider other than Anthropic/GitHub
-  (`OPENROUTER_API_KEY`, `TAVILY_API_KEY`). Place each by **how its value
-  is obtained**, which is what decides the tier:
-  - a **literal** the user dictates → `env.set` (repo-over-global per
-    key). Only put it in `config-bake.yml` when it should persist in this
-    repo's image; **never** a secret there.
-  - a value already in the user's **shell environment** → `env.copy`,
-    listing the NAME only. Never ask for the value, never write it
-    anywhere. Boot file only.
-  - a value already in a host **`.env` file** → `env.files`, listing the
-    path. Boot file only.
-
-  Precedence, lowest to highest:
-  `bake env.set` < `boot env.files` < `boot env.copy` < `boot env.set`.
-
-  **Pair every `env.copy` with `egress.allow`.** The guest is
-  egress-confined, so the provider's host must be in `egress.allow`
-  (`openrouter.ai`, `api.tavily.com`, …) or the proxy blocks the call and
-  the failure is baffling. Nothing is derived automatically — a variable
-  name implies no hostname the way an apt source's URI does — so add both
-  or neither, and remember `egress.allow` unions with the global list you
-  read in Step 2.
-
-  **These entries are written verbatim and the launcher rejects several
-  shapes**, so check before writing: an `env.copy` name that is not
-  currently exported in the user's shell **aborts the launch** (confirm
-  they export it — never print or capture the value); an `env.files` path
-  that is not on the host aborts; a name outside
-  `[A-Za-z_][A-Za-z0-9_]*` aborts; an `env.set` value that is a map or a
-  list aborts, and so does a key left valueless (write `NAME: ""` for the
-  empty string); and a name claude-vm's own launcher composes — every name
-  in `run.env` (the proxy vars, `CLAUDE_ARGS`, the `*_TAG` mount vars,
-  `IS_SANDBOX`, `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars,
-  the terminal geometry, the `CLAUDE_VM_*_UPDATE_AT_BOOT` flags) plus
-  `CLAUDE_VM_LAST_CLAUDE_STATUS` — aborts, because the guest sources
-  `run.env` before the env files, so such an entry would overwrite the
-  launcher's own value and break the boot;
-  `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other direction
-  (exported long after both files, so an entry for it would be silently
-  overwritten instead) and is refused at load for that reason. Those
-  checks run over the **merged** global+repo set, but none of them is a
-  cross-layer collision check: unlike a `mounts` tag, a per-repo
-  `env.set` key that repeats a global name does not abort — it silently
-  overrides the global value, per key, exactly like a
-  `claude.plugins.enabled` toggle. So check Step 2's global `env:`
-  before writing, to be sure replacing that value is what the user
-  meant.
-- A `claude.permission_mode`, a `claude.plugins.enabled` per-plugin
-  toggle, or a `github.auth` override this repo needs that differs from
-  global.
-
-Record **only** the keys that differ from the global resolved value. If
-the user names a value identical to the global one, note that it is
-already the effective value and does not need a per-repo override —
-offer to omit it (a redundant override only adds drift risk).
+Record **only** the keys that differ from the global value. When the user
+names a value identical to the global one, say it is already the
+effective value and offer to omit it.
 
 ### Step 4: Compose the proposed content
 
-**Create variant** (no existing per-repo file). Write only the file(s)
-whose tier has overrides. For the motivating `mem` bump (a run-time
-key), that is just `config-boot.yml`, as small as:
+Each file starts with a comment naming it as this repo's bake or boot
+overrides and stating that it holds no secrets, then only the keys from
+Step 3 as YAML, nested by their dotted path. A key the user did not
+override is absent: an empty `claude.plugins` or `env` sub-key in the
+wrong file aborts the launch.
 
-```yaml
-# claude-vm per-repo BOOT config overrides (<repo-name>).
-#
-# Run-time keys layered OVER the global config by payload/lib/config.sh:
-# scalars here win; lists (egress.allow, mounts, ...) UNION with the
-# global lists. Holds ONLY this repo's overrides. Boot keys never affect
-# the image identity. See the claude-vm skill (skills/claude-vm/SKILL.md)
-# and payload/config-boot.example.yml.
-#
-# NO SECRETS HERE.
+### Step 5: Show the proposed files and get approval
 
-# This repo runs heavier builds than the global default; bump mem.
-mem: 6144
-```
-
-For a repo that also bakes packages into its own image, the paired
-`config-bake.yml` looks like:
-
-```yaml
-# claude-vm per-repo BAKE config overrides (<repo-name>).
-#
-# Image-bytes keys. Creating this file gives the repo its OWN image
-# (guest+global<hash>+<reponame>-<repohash>.raw), whole-file raw-byte
-# hashed. See payload/config-bake.example.yml.
-#
-# NO SECRETS HERE.
-
-# Extra apt packages this repo bakes into its image (union with global).
-packages:
-  - protobuf-compiler
-```
-
-A repo whose in-guest session needs a third-party API key adds it to
-`config-boot.yml` by NAME, never by value:
-
-```yaml
-# This repo's agent uses OpenRouter. The key is read from the shell
-# claude-vm is launched from -- it is never written into this file.
-env:
-  copy:
-    - OPENROUTER_API_KEY
-egress:
-  allow:
-    - openrouter.ai   # unions with the global allowlist; without it the
-                      # egress-confined guest cannot reach the service
-```
-
-Include only the keys the user chose in Step 3, each in its correct
-bake/boot file. Do not pad the file with the global values — that
-defeats the layering.
-
-**Merge variant** (existing per-repo file): start from the existing
-parsed YAML and add **only** the new override keys that are absent. Keep
-every existing key and value verbatim, including any the user customized
-and any this skill does not recognize. For list keys (bake file:
-`packages`, `apt_sources`, `claude.marketplaces`,
-`claude.plugins.bake`; boot file: `egress.allow`, `mounts`,
-`packages`, `apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
-`claude.marketplaces`, `claude.plugins.install_at_boot`, `env.copy`,
-`env.files`), union the new entries in (do not drop the existing extras,
-do not duplicate).
-Render the merged result preserving the user's existing comments where
-practical.
-
-### Step 5: Show the proposed file and get approval
-
-Render the **full proposed file** exactly as it will land on disk. Also
-show a short summary that makes the layering explicit:
-
-- For the create variant: which keys this file overrides and what the
-  global value was for each (e.g. "overrides `mem`: 4096 → 6144; all
-  other keys inherited from global").
-- For the merge variant: which keys this run adds, which it preserves
-  untouched.
-
-Then ask explicitly, per file:
+Render each full proposed file exactly as it will land on disk, with a
+summary of what it overrides and the global value each replaces (for a
+merge, which keys this run adds and which it preserves). Then ask, per
+file:
 
 > Write `<repo>/.claude-vm/config-bake.yml` (and/or `config-boot.yml`)
 > as shown? (y to proceed, or tell me what to change)
 
-Wait for explicit approval. If the user asks for changes, adjust and
-re-render here.
+Wait for explicit approval, and re-render on any change.
 
 ### Step 6: Write, verify, and confirm the layering
 
-On approval, use the `Write` tool to write each file's full content in
-one call. The `.claude-vm/` parent directory is created if needed.
+On approval, write each full file in one `Write` call. Then re-read it
+and confirm it parses as YAML and holds exactly the intended overrides,
+each in the file its table row names, with no copies of global values.
 
-After each `Write`, re-read the file and confirm it parses as YAML and
-contains exactly the override keys you intended (and no accidental
-duplicates of global values). This is content verification — `Write`
-already errors if the bytes did not land; the re-read confirms the
-*intended content*.
-
-Then demonstrate that the existing layering library resolves
-repo-over-global correctly, using the project's own test as the
-authority. Run the config layering test (it requires no VM and no
-network):
+Then run the config layering test, which needs no VM and no network:
 
 ```bash
 plugins/claude-vm/payload/test/config-test.sh
 ```
 
-Confirm it reports `0 failed`. It exercises `payload/lib/config.sh`'s
-per-tier merge, scalar-override, and list-union semantics directly —
-the machinery that makes this per-repo pair's overrides take effect.
-
-If you want to additionally show this specific pair resolving against the
-global config, you can source the library and merge the real files per
-tier (read-only, no host mutation) — the boot pair here, since boot keys
-are where per-repo overrides usually live:
+Confirm it reports `0 failed`. To show this pair resolving against the
+global one, check the real files as the launcher does and merge them
+read-only, reading back the key you overrode. `lib/config.sh` is bash,
+so run the snippet as one `bash -c` call from the repo root:
 
 ```bash
+bash -c '
 . plugins/claude-vm/payload/lib/config.sh
 GD="${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm"
 RD="$(git rev-parse --show-toplevel)/.claude-vm"
-claude_vm_merge_config "$GD/config-boot.yml" "$RD/config-boot.yml" \
-  | yq eval '.mem' -    # read back the key you overrode (.mem here) to
-                        # see the per-repo value winning over the global one
+claude_vm_require_yq \
+  && claude_vm_check_no_aliases "$GD/config-boot.yml" "$RD/config-boot.yml" \
+  && claude_vm_check_config_structure "$GD/config-boot.yml" "$RD/config-boot.yml" \
+  && claude_vm_merge_config "$GD/config-boot.yml" "$RD/config-boot.yml" \
+  | yq eval .mem -
+'
 ```
+
+A diagnostic from either config check is a fault in the file it names:
+fix it there before you report.
 
 Report back:
 
-- The absolute path written (or "left untouched" / "already complete").
-- The override keys this file sets and the global value each replaces
-  (or the list entries it adds).
-- For a merge, which keys were added vs. preserved.
+- The absolute path(s) written, or "left untouched" / "already complete".
+- The keys each file overrides and the global value each replaces, or
+  the list entries it adds; for a merge, which keys were added and which
+  preserved.
 - The config-test result (`N passed, 0 failed`).
-- A reminder that every un-overridden key is inherited from the global
-  config at runtime, and that no secret is ever written here.
+- That every un-overridden key is inherited from the global config at
+  launch, and that no secret is written here.
 
 ## Hard constraints
 
-- **Overrides only.** The per-repo file contains only the keys that
-  differ from the global config (and the list entries this repo adds).
-  Never duplicate resolved global values into it.
-- **Read the global config first** and present its values as the basis,
-  so the user sees what they are overriding. If the global config is
-  absent, point them at `/claude-vm-config-global` before proceeding.
-- **Idempotent.** Never clobber an existing per-repo config. Detect it,
-  and offer leave (default) or gap-fill merge. A merge fills gaps and
-  unions list entries only — it never overwrites or deletes a key the
-  user set.
-- **No secrets in this file.** The host claude.ai OAuth credential is
-  supplied at runtime, never written to config. A third-party API key
-  goes in `env.copy` (name only) or `env.files` (path only) — do not ask
-  the user to paste a key, and do not read one out of their environment
-  to echo back; those keys exist precisely so the value never reaches the
-  config or this conversation.
+- **Overrides only.** Never copy a resolved global value into a per-repo
+  file.
+- **Read the global config first** and present it as the basis.
+- **Idempotent.** Never clobber an existing per-repo config; offer leave
+  (the default) or a gap-filling merge.
+- **The key table decides placement.** Every key goes in the file its
+  `claude-vm-config-keys` row names. Never write a key the table does not
+  print.
+- **No secrets.** A third-party API key goes in `env.copy` by name or
+  `env.files` by path: never ask the user to paste a key, and never read
+  one out of their environment to echo it back.
 - **Never write without explicit approval** in Step 5.
-- **Lists union, they do not subtract.** A per-repo file cannot remove a
-  global `egress.allow` host, a global mount, or a global entry in the
-  baked/boot `packages`, `apt_sources`,
-  `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`, or
-  `claude.plugins.bake`/`.install_at_boot`; the runtime merge only adds.
-  If the user wants to drop a global entry, that edit belongs in the
-  global config.
-- **Respect the bake/boot placement rule.** Image-bytes overrides
-  (`packages` baked in, `apt_sources`, `image.root_headroom_mb`,
-  `claude.plugins.bake`, `env.set` when it should persist in this repo's
-  image) go in `config-bake.yml`; run-time overrides go in
-  `config-boot.yml`. A misplaced key loudly does nothing rather than
-  silently poisoning the image cache, and a misplaced `claude.plugins`
-  sub-key aborts the launch outright — as do `env.copy` and `env.files`
-  in a bake file.
-- **Write at most the two per-repo files**:
-  `<repo>/.claude-vm/config-bake.yml` and
-  `<repo>/.claude-vm/config-boot.yml` (only the tier(s) with overrides).
-  This skill does not edit `.gitignore`, does not touch the global
-  config, and runs no git commands beyond the read-only
-  `git rev-parse --show-toplevel` used to locate the repo root (and the
-  read-only test invocation in Step 6).
+- **Write at most the two per-repo files**, only the tiers with
+  overrides. This skill does not edit `.gitignore`, does not touch the
+  global config, and runs no git command beyond the read-only
+  `git rev-parse --show-toplevel`.

@@ -95,7 +95,7 @@ RUNS_DIR="$(. "$CLAUDE_PLUGIN_ROOT/payload/lib/config.sh" && printf '%s' "$CLAUD
 - This skill is strictly read-only. To apply the changes, use
   `/claude-vm-apply-local` (to the local source) or
   `/claude-vm-apply-remote` (to the remote).
-- The default copy-back (`repo.copy_back: local`) may already have
+- The on-exit copy-back (`repo.copy_back: local`) may already have
   mirrored the guest's changes onto the source. If so, a working-tree
   diff against the source shows nothing — diff the worktree's git
   history instead (the `git log`/`git diff` form above).

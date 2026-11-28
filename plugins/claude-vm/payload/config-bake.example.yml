@@ -7,23 +7,11 @@
 #   per-repo bake: <repo>/.claude-vm/config-bake.yml
 #   per-repo boot: <repo>/.claude-vm/config-boot.yml
 #
-# PLACEMENT RULE: a key that changes BYTES in the guest .raw image lives in a
-# BAKE file; a key applied at run time (launcher/VM wiring) lives in a BOOT
-# file. Placement IS the classification -- a knob in the wrong file loudly does
-# nothing rather than silently poisoning the image cache.
-#
-# WHAT GOES IN A BAKE FILE:
-#   - packages:      apt packages BAKED into the guest image at build time
-#                    (a flat list of names -- present with no network at boot)
-#   - apt_sources:   third-party apt repos rendered into the image at build time
-#                    (also allowed in the boot file; union, deduped by name)
-#   - image.root_headroom_mb: extra MiB of free space in the guest root fs
-#   - claude.marketplaces:    plugin marketplaces registered in the image
-#                    (also allowed in the boot file; union, deduped by name)
-#   - claude.plugins.bake:    plugin@marketplace refs INSTALLED into the image
-#   - env.set:       guest environment variables written INTO the image
-#                    (literals ONLY -- env.copy / env.files are BOOT-only and
-#                    ABORT here; see the env: block at the bottom of this file)
+# Which file type each key belongs in, its type, how the two tiers merge it, and
+# its default are the launcher's key table, which `claude-vm-config-keys` (the
+# plugin's bin/) prints. This file shows what populated entries look like; a key
+# left out takes the table's default, and a commented-out line shows a value
+# other than the default.
 #
 # IMAGE IDENTITY: the image cache key + filename is a WHOLE-FILE, RAW-BYTE hash
 # of the BAKE files (this one, and the repo's config-bake.yml if present):
@@ -40,7 +28,8 @@
 #
 # Every repo without a config-bake.yml shares one image per global-bake hash; a
 # repo with a config-bake.yml gets its own image (its name disambiguates it,
-# even if the file is byte-identical to another repo's -- legibility over dedup).
+# even if the file is byte-identical to another repo's -- legibility over
+# dedup).
 #
 # NO SECRETS HERE, with FULL FORCE. A bake-file value is both committed config
 # AND image bytes: it persists in the .raw for every session that image serves,
@@ -51,7 +40,8 @@
 # by value -- see `env.copy` / `env.files` in config-boot.example.yml, which are
 # a hard abort in THIS file precisely because of the persistence above.
 
-# apt packages baked into the guest image at build time (flat list of names).
+---
+# apt packages baked into the guest image at build time (package names).
 # Present with no network at boot. Use `bake` for packages stable enough not to
 # need a fresh copy every launch; put fast-changing packages in the BOOT file's
 # `packages:` (installed at boot) instead.
@@ -62,9 +52,8 @@ packages:
 # Third-party apt repos rendered into the image at build time (so a baked
 # package served by one -- e.g. gh from cli.github.com -- installs at build
 # time). Each entry: {name, repo, key_url}. key_url is fetched into a keyring
-# and the repo is added signed-by that key. apt_sources is ALSO allowed in the
-# boot file (for a boot-time install pulling from a third-party repo); the two
-# are unioned and deduped by `name`. Same name with identical {repo, key_url} in
+# and the repo is added signed-by that key. Entries in the bake and boot files
+# are deduped by `name`. Same name with identical {repo, key_url} in
 # both -> one render (the boot render skips names already baked). Same name with
 # DIFFERING content -> loud abort at launch (no silent shadowing).
 apt_sources:
@@ -73,12 +62,11 @@ apt_sources:
     key_url: https://example.com/apt/key.asc
 
 # Guest-image build sizing: extra MiB of FREE SPACE the guest root filesystem is
-# sized ABOVE its base content (default 1024), so a live session (boot-time apt
-# working set + ordinary growth) does not hit ENOSPC. This is a BAKE key: it
-# sizes the .raw, so changing it changes the image identity hash and triggers a
-# rebuild, exactly like a `packages:` change does.
-image:
-  root_headroom_mb: 1024
+# sized ABOVE its base content, so a live session (boot-time apt working set +
+# ordinary growth) does not hit ENOSPC. It sizes the .raw, so changing it
+# triggers a rebuild, exactly like a `packages:` change does.
+# image:
+#   root_headroom_mb: 4096
 
 # Claude marketplaces + BAKED plugins.
 #
@@ -101,16 +89,17 @@ image:
 # CLAUDE.md, rules/, agents/, skills/, keybindings.json -- ARE seeded in; see
 # issue #108. That layer is not policy and has no config key.)
 #
-# WHY HERE AND NOT IN THE BOOT FILE: baked plugins change the guest image's
-# BYTES, so placement in a bake file is what puts them under the whole-file
-# image-identity hash -- edit either key and the next launch rebuilds. Writing
-# `claude.plugins.bake` into a boot file is REJECTED at launch with a message
-# pointing here, rather than parsing and silently baking nothing.
+# WHY HERE: baked plugins change the guest image's BYTES, so placement in a
+# bake file is what puts them under the whole-file image-identity hash -- edit
+# either key and the next launch rebuilds. A `claude.plugins` sub-key written
+# into the file type the key table does not place it in is REJECTED at launch
+# with a message naming the file, rather than parsing and silently baking
+# nothing.
 #
-# marketplaces is allowed in BOTH files (like apt_sources) and unions, deduped
-# by `name`; the same name with a DIFFERING url anywhere aborts the launch. Put
-# a marketplace here when a `bake:` ref needs it; put it in the boot file when
-# only an install_at_boot ref does, so it does not force an image rebuild.
+# marketplaces dedupe by `name` across both file types; the same name with a
+# DIFFERING url anywhere aborts the launch. Put a marketplace here when a
+# `bake:` ref needs it; put it in the boot file when only an install_at_boot
+# ref does, so it does not force an image rebuild.
 #
 # `name` MUST match the marketplace's OWN name (the `name` in its
 # .claude-plugin/marketplace.json) -- claude derives the registered name from
@@ -130,12 +119,10 @@ claude:
     - name: thevoskamps
       url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
   plugins:
-    # `bake:` is the ONLY claude.plugins sub-key this file may carry.
-    # install_at_boot / update_at_boot / add_marketplace_uris_to_allowlist /
-    # enabled are BOOT keys and ABORT the launch here, with a message naming
-    # this file. That is a PRESENCE test asked of this raw file, so an empty
-    # placeholder -- a valueless `enabled:`, or `enabled: []` / `""` / `{}` --
-    # aborts too.
+    # A claude.plugins sub-key the key table places in the BOOT file, written
+    # here, ABORTS the launch with a message naming this file. That is a
+    # PRESENCE test asked of this raw file, so an empty placeholder -- a
+    # valueless `enabled:`, or `enabled: []` / `""` / `{}` -- aborts too.
     bake:
       - block-background-agents@thevoskamps
       # COMPILED HOOKS NEED NO TOOLCHAIN: the guardrails permission-gate ships
@@ -148,22 +135,20 @@ claude:
 
 # Guest environment variables (issue #135).
 #
-# In a BAKE file, `env:` has exactly ONE sub-key: `set` -- a map of explicit
-# literals. Those literals are written into the image at build time, so they are
-# present in every session that image serves and PERSIST across runs.
+# In a BAKE file, `env.set` -- explicit literals, by name -- is written into the
+# image at build time, so its values are present in every session that image
+# serves and PERSIST across runs.
 #
-# `env.copy` and `env.files` are BOOT-ONLY and are a HARD ABORT here, including
-# when the sub-key is present but empty. They resolve against the HOST
-# environment at LAUNCH -- an environment that does not exist while the image is
-# being built -- and a value read from it is exactly the kind of secret that
-# must never become image bytes. Put them in config-boot.yml, where they ride
-# the transient credential mount the launcher shreds on exit.
+# `env.copy` and `env.files` resolve against the HOST environment at LAUNCH --
+# an environment that does not exist while the image is being built -- and a
+# value read from it is exactly the kind of secret that must never become image
+# bytes. That is why the key table places them as it does; one written into the
+# file type it does not place them in is a HARD ABORT, including when the
+# sub-key is present but empty. In a boot file they ride the transient
+# credential mount the launcher shreds on exit.
 #
 # NO SECRETS. The "NO SECRETS HERE" note at the top of this file applies to
 # `env.set` with full force: the value is committed config AND image bytes.
-#
-# Merge: repo-over-global PER KEY, like claude.plugins.enabled -- a repo can
-# override one variable without restating the global map.
 #
 # Precedence across both tiers, lowest to highest:
 #   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set

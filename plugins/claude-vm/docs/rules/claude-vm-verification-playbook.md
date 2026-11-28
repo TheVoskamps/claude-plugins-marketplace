@@ -46,6 +46,8 @@ device with an existing directory.
 
 ### What the parser establishes
 
+Measured on vfkit v0.6.4.
+
 - **The comma is the only metacharacter** in a device option string.
   An `=` or a space inside a path reaches `stat` intact, so a guard
   that widens a comma check into a charset is over-reach. A bare comma
@@ -54,7 +56,10 @@ device with an existing directory.
 - **The comma splits every host-path argument**, not just
   `sharedDir=`: `efi,variable-store=`, `virtio-blk,path=`,
   `virtio-net,unixSocketPath=` and `virtio-serial,logFilePath=` all
-  behave the same way. Since `$TMPDIR` reaches
+  behave the same way, each dying on the text after the comma with its
+  own device's wording — `unknown option for virtio-net devices: …`
+  for the socket, `unknown option for EFI bootloaders: …` for the
+  variable store. Since `$TMPDIR` reaches
   `virtio-net,unixSocketPath=` through a `mktemp -d` on every launch,
   "no built-in argument touches `$TMPDIR`" is false.
 - **A repeated key parses silently, last occurrence winning.** Prove
@@ -68,6 +73,9 @@ device with an existing directory.
   block-device control too — that contrast is the whole evidence that
   the read-only gap is specific to virtio-fs rather than a quirk of
   the option parser.
+- **A backgrounded vfkit cannot attach its `virtio-serial,stdio`
+  console.** It fails with `Error: operation not supported by device`,
+  so the launcher's foreground vfkit is load-bearing.
 
 ## Probe kernel mount semantics in a privileged container
 
@@ -109,9 +117,10 @@ Established facts worth reusing:
   `docker.io/alpine/git` has git and needs `--entrypoint sh`.
 - **A leading-dash mount device fails open on exactly one spelling.**
   The guest runs `mount -t virtiofs -o rw "$tag" "$path"`, so a tag is
-  a bare argv word. Run that exact shape: `-a` returns `rc=0` with no
-  output and nothing mounted, while `--bind`, `-o`, `-r`, `-v`, `-w`
-  all fail loudly and an ordinary tag gives `rc=32 permission denied`.
+  a bare argv word. Run that exact shape: on util-linux 2.38.1, `-a`
+  returns `rc=0` with no output and nothing mounted, while `--bind`,
+  `-o`, `-r`, `-v`, `-w` all fail loudly and an ordinary tag gives
+  `rc=32 permission denied`.
   Run the ordinary-tag control, because `rc=32` is what proves the
   success arm only fires on a real success. Grade such a finding by
   fail-open versus fail-closed.
@@ -122,6 +131,18 @@ Established facts worth reusing:
   read-only design has to move the guarantee to the hypervisor (a
   read-only block device). Raise it as a labelled question whenever a
   doc frames a guest-side `ro` as something the guest "cannot write".
+- **Which top-level directories a Debian rootfs populates.** A stock
+  `debian:12` rootfs, enumerated directory by directory, carries content
+  in `/bin /dev /etc /lib /proc /root /run /sbin /sys /usr /var`, while
+  `/boot /home /media /mnt /opt /srv /tmp` ship empty. That is the
+  measurement `CLAUDE_VM_GUEST_SYSTEM_PATHS` was drawn from; `/boot`,
+  `/home` and `/tmp` are in it anyway, `/boot` being populated in a
+  bootable image rather than a container rootfs.
+- **The image is usr-merged.** On `debian:bookworm`/arm64, `/bin`,
+  `/sbin` and `/lib` are symlinks into `/usr`, and the
+  `/lib{32,64,x32}` spellings are absent. No host-side path normalizer
+  can see a guest symlink, so check that both names of each pair fall
+  under the denylist rather than that the normalizer equates them.
 
 ### The probe container must match the guest's package set
 
@@ -134,7 +155,9 @@ richer, so a probe run there silently carries tools the guest lacks.
 The worked incident: a boot phase was verified in a container with
 git, the guest bakes no git, and the CLI spawns **system git** for
 git-url marketplace operations — so in the real guest every
-`claude plugin marketplace add`/`update` fails, fail-soft, and
+`claude plugin marketplace add`/`update` fails, fail-soft, with
+`Failed to clone marketplace repository: Command failed with
+ERR_STREAM_PREMATURE_CLOSE: git … clone --depth 1 …`, and
 `update_at_boot: true` is inert. The decisive probe runs the cached
 verified guest binary in a plain arm64 `debian:trixie`, with
 `HOME=/root` plus the autoupdater and telemetry disables. Note the CLI
@@ -209,6 +232,15 @@ source on a genuinely different volume from `$RUN`: `hdiutil attach`
 of a small image at a mountpoint inside the harness's workspace works
 unprivileged, and `config-test.sh` does exactly that. The same trick
 works on the config-load gate block when you want the real validator.
+
+The harness defines or stubs every helper the sliced code calls that the
+slice does not itself carry, and asserts each one is defined before the
+slice runs. A helper left undefined returns non-zero, so an assertion
+over it can pass while testing nothing. A `boot_mount_phase` slice out
+of `build-guest-image.sh` calls `boot_dir_is_nonempty`, an undefined
+occupancy helper reads as "empty", and `log`, which the emitted
+launcher defines far above both, so the harness supplies `log` even
+when the slice starts at `boot_dir_is_nonempty`.
 
 Before filing such a finding, enumerate the emitted strings with
 `grep -n -- '--device'` plus the assignment of each interpolated
@@ -315,7 +347,7 @@ isolation story around it:
 
 - `RUN="$CLAUDE_VM_RUNS_DIR/$RUN_ID"` for every launch, repo or not —
   under the state root, outside the operator's repo.
-- `repo.mount: clone` (the default) shares `$RUN/worktree`, so a
+- `repo.mount: clone` shares `$RUN/worktree`, so a
   sibling under `$RUN` is outside the share.
 - `repo.mount: live` shares `$REPO_SRC` itself, rw, which holds no run
   dir unless `CLAUDE_VM_RUNS_DIR` was pointed inside it.
@@ -530,6 +562,42 @@ Only the bake path itself waits for the merge — the image build
 installing the new version from the marketplace's default branch. That
 is one line in a PR, not a test plan handed to the human.
 
+## Testing a PR branch interactively
+
+No suite exercises a change's acceptance criteria in a real interactive
+session under the operator's own config: most run off-VM, and
+`host-acceptance.sh` boots a stub config. That last step is a human
+one, with this shape:
+
+1. **A plain worktree on the PR branch**, made from the primary clone
+   with `git worktree add .claude/worktrees/pr-<N>-test <branch>`, so
+   the primary clone is never switched under the test. Invoke the
+   worktree's own `plugins/claude-vm/bin/claude-vm`: it resolves the
+   plugin root from `${BASH_SOURCE[0]}`, so it runs the branch's
+   `payload/`, not the installed plugin cache's.
+2. **The repo's `.claude-vm/` pair, copied into the worktree.** It is
+   git-ignored, so a fresh worktree has none, and the launcher reads the
+   per-repo pair against the repo root it was handed — the worktree.
+   The global pair under `~/.config/claude-vm/` is read in place.
+3. **The launch, from a real terminal**, never a pipe, working a test
+   plan aimed at the PR's own criteria. Expect the first launch to build
+   an image: `<reponame>` in the identity is the worktree directory's
+   basename, and a launcher-logic change bumps `LAUNCHER_LOGIC_REV`, so
+   the branch gets its own image under its own filename and the
+   everyday cached image is neither reused nor replaced.
+4. **Boot-phase assertions settled by grepping the run's
+   `guest-console.log` after the run**, under
+   `$CLAUDE_VM_STATE_DIR/logs/<run-id>/`, not by watching the terminal.
+   The boot launcher writes its `claude-vm:` markers to `/dev/console`,
+   which is `hvc0` and lands in that capture; the terminal is `hvc1`
+   and carries the interactive session alone.
+5. **The run dir, kept and inspected after exit.** `$RUN` is
+   `$CLAUDE_VM_RUNS_DIR/<run-id>/`, under the state root, and
+   `cleanup()` prints each path on the way out. Its `creds/` must be
+   **gone**: it is the transient `claudecreds` share, which `cleanup()`
+   removes on every exit, a Ctrl-C included. A surviving `creds/` is a
+   defect, not a leftover.
+
 ## Driving a real build and boot yourself
 
 The podman machine is usually stopped and must be started explicitly,
@@ -540,6 +608,11 @@ you only because you are driving the build directly: run through
 `claude-vm.sh` instead and the launcher does its own init/start and
 stops the machine again at end of run (issue #215), so a machine-state
 change on that path is the launcher's, not a leak of yours to chase.
+
+Name the machine from `podman machine list --format json`, never from
+the `{{.Name}}` Go template: the template renders the default machine
+with a trailing `*` default-marker (`podman-machine-default*`), a name
+no later `podman machine start` or `stop` resolves.
 
 Drive the build with `build-guest-image.sh --output <path>`, exporting
 the same environment the launcher does. Derive the JSON blobs with the
@@ -552,7 +625,7 @@ flat list, with no `.packages.bake` normalization on that path.
 is unreadable from a worktree-isolated agent unless this machine's
 operator listed `claude-vm/**` under `state-home` in the permission
 gate's operator carve-out (see
-[`docs/rules/config-file-conventions.md`](config-file-conventions.md) →
+`docs/rules/config-file-conventions.md` →
 "The permission gate decides what a tool call reaches"); the gate
 ships no default entries, so assume it is unreadable until a read
 says otherwise. Fetch one into repo scratch through the product's own
@@ -651,7 +724,17 @@ compose as "the larger wins": the result is a partition with a large
 unformatted tail the running guest cannot use, and a guest whose free
 space matches the tight-fit filesystem rather than the configured
 headroom. Verify by reading the GPT entry and the filesystem
-superblock separately out of a real built image.
+superblock separately out of a real built image. Measured that way,
+`Minimize=guess` beside `SizeMinBytes=` gave a ~1041 MiB filesystem in a
+1924 MiB partition, ~883 MiB of it unformatted, and a guest root of
+~991 MB; with `Minimize=guess` dropped, `SizeMinBytes=`,
+`Format=ext4` and `CopyFiles=/` gave filesystem == partition == 1924
+MiB with ~1270 MiB free, over ~723 MiB of baked content.
+
+**A custom `mkosi.repart/` replaces mkosi's defaults, never layers on
+them.** Once the directory exists, it has to be a complete partition
+table, so it carries a verbatim copy of mkosi's default ESP definition
+(`00-esp.conf`) beside the root one.
 
 ## The build-time package manager does not land in the image
 
@@ -671,6 +754,25 @@ regenerate on every subsequent invocation, so `clean` must be the last
 call in a sequence to leave the working set trimmed. Test this on a
 stock image only after removing the vendor drop-in that already
 disables those caches, or the measurement is of the drop-in.
+
+**mkosi's own Debian sources inflate the boot-time apt working set.**
+By default it writes `deb` and `deb-src` for four stanzas — main,
+`debian-debug`, updates and security — and apt regenerates
+`pkgcache.bin` / `srcpkgcache.bin` on every call, so a boot-time
+`apt-get update` re-materialized ~250 MB per boot. Binary-only main,
+updates and security sources, `Acquire::Languages "none"`, empty
+`Dir::Cache::pkgcache` / `srcpkgcache`, and a closing `apt-get clean`
+measured ~50 MB.
+
+**apt honours only the lowercase proxy variables.** A mid-session
+`apt-get install` in a real guest got no proxy from uppercase
+`HTTP_PROXY` / `HTTPS_PROXY` alone, and curl ignores uppercase
+`HTTP_PROXY` for plain `http://` URLs (the httpoxy carve-out), which is
+why `run.env` carries both cases.
+
+**apt's one-line source format allows one `[options]` block.** A real
+build that appended a second `[signed-by=…]` block to a `repo` line that
+already carried one failed with apt's `Malformed entry (URI parse)`.
 
 **A keyring's extension decides how apt loads it.** apt dispatches on
 the file extension, not the content, so binary OpenPGP bytes saved
@@ -705,6 +807,20 @@ something different — it makes a nonzero exit be *reported* as success.
 Shipping correct behavior with the wrong rationale invites a future
 reader to restore the dash believing it inert, or delete the restart
 override believing the missing dash covered it.
+
+**A rendered `settings.json` installs nothing by itself.** Tested
+directly: a home dir carrying only a `settings.json` with
+`extraKnownMarketplaces` and `enabledPlugins`, and no
+`~/.claude/plugins` tree, left `claude plugin marketplace list`
+reporting `No marketplaces configured` and installed nothing, so the
+guest's explicit add/install/update phase is load-bearing. The render
+still emits `extraKnownMarketplaces` because `claude plugin install`
+was observed writing that key into `~/.claude/settings.json` itself, and
+the boot launcher copies the host-rendered file over the baked one.
+
+**The macOS bind mount cannot hold `security.*` xattrs.** The baked
+`/root/.claude/plugins` tree is moved into `mkosi.extra` with a `tar`
+pipe rather than `cp -a` for that reason.
 
 **The image identity hash does not cover the boot-launcher source.** It
 hashes the bake config files and the repo name, and nothing else, so a
@@ -763,6 +879,28 @@ delete that reaches **every** key written as an empty map whether it is
 a list key or not, and no prune at all — where a valueless key arrives
 as a genuine null that a not-null test reads as absent. Negative-control
 with the pre-fix launcher extracted at its own revision.
+
+What the pre-fix gate, which asked `(.claude.plugins.<key> != null)` of
+the merged documents, let through, measured through the real merge
+against yq v4.53.3 with the key misplaced in either direction:
+
+| Spelling | `bake`, `install_at_boot` | `update_at_boot`, `add_marketplace_uris_to_allowlist`, `enabled` |
+| --- | --- | --- |
+| valueless `key:` | accepted | accepted |
+| `key: []` | accepted | aborted |
+| `key: ""` | accepted | aborted |
+| `key: {}` | accepted | accepted |
+
+The valueless verdict also depended on the layer: a global file with no
+repo file deep-merges the null against the empty document and coerces
+it to `''`, which `!= null` called present.
+
+The `mounts` `mode:` gate still asks a merged document, and the
+empty-map route reaches it inside a list element. Measured through the
+real `claude_vm_merge_config` against yq v4.53.3, in both layers:
+`mode: ro`, `mode: ""`, `mode: []` and a valueless `mode:` reach the
+gate and abort the launch, while `mode: {}` arrives as an absent key and
+the launch proceeds.
 
 ## Slice the caller to prove a guard is wired
 

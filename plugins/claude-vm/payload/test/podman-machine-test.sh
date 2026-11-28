@@ -9,14 +9,30 @@
 #      claude_vm_ensure_podman_machine, claude_vm_stop_podman_machine --
 #      driven against a stub `podman` on PATH that keeps real state, so an
 #      init/start/stop sequence is observable as a sequence rather than as
-#      one call at a time.
+#      one call at a time. A stateless stub always answering the same list
+#      would pass a bring-up that never re-probed for the name init chose,
+#      and asserting the whole sequence per starting state means "starts a
+#      stopped machine" cannot pass on a run that also issued a needless init.
 #
 #   2. The SCOPING: only a launch that builds the guest image may touch
 #      podman. That is a property of the launcher, not of a helper, so the
 #      build-or-reuse block is sliced out of claude-vm.sh with awk and RUN
 #      (the same extract-and-run shape config-test.sh uses on
 #      build-guest-image.sh's apt functions). Asserting it by grepping the
-#      source would pass on a block whose condition is inverted.
+#      source would pass on a block whose condition is inverted. The warm
+#      cases assert podman is invoked ZERO times, on a host with no machine
+#      too; the cold cases assert init/start/build/stop, that a machine found
+#      running is still running at the end, and that a bring-up leaving a
+#      machine up behind a failure still stops it -- at two seams: `start`
+#      succeeding and the `podman info` confirmation failing (`info-broken`),
+#      which holds only while the trap is armed BEFORE the bring-up call, and
+#      `start` bringing the machine up then exiting non-zero
+#      (`start-fails-after-up`), which holds only while the record is written
+#      before that call. The helper battery in (1) pins the same two seams
+#      one level down, on what CLAUDE_VM_PODMAN_MACHINE_STARTED is left
+#      holding. A real `podman machine init` on a real host is
+#      host-acceptance.sh's territory and, for the fresh-host criterion, a
+#      human's.
 #
 # No VM, no network, no host mutation: the stub podman never provisions
 # anything. Requires python3 (which the helper itself parses JSON with, and
@@ -78,8 +94,9 @@ assert_eq() {
 #                exits non-zero
 # ---------------------------------------------------------------------
 STUB_BIN="$WORK/stubbin"
+STUB_PATH="$STUB_BIN:$PATH"
 mkdir -p "$STUB_BIN"
-cat > "$STUB_BIN/podman" <<'EOF'
+cat >"$STUB_BIN/podman" <<'EOF'
 #!/usr/bin/env bash
 set -u
 D="$PODMAN_STUB_DIR"
@@ -156,15 +173,16 @@ chmod +x "$STUB_BIN/podman"
 
 # new_case <case-name> [<machines-line>...] -- fresh stub state dir.
 new_case() {
-  local name="$1"; shift
+  local name="$1"
+  shift
   local d="$WORK/case-$name"
   rm -rf "$d"
   mkdir -p "$d"
-  : > "$d/machines"
-  : > "$d/log"
+  : >"$d/machines"
+  : >"$d/log"
   local rec
   for rec in "$@"; do
-    echo "$rec" >> "$d/machines"
+    echo "$rec" >>"$d/machines"
   done
   echo "$d"
 }
@@ -172,22 +190,22 @@ new_case() {
 # stub_log <case-dir> -- the invocation log as one semicolon-joined line, so
 # an assertion can pin the ORDER of the calls, not just their presence.
 stub_log() {
-  tr '\n' ';' < "$1/log"
+  tr '\n' ';' <"$1/log"
 }
 
 # ---------------------------------------------------------------------
 # 1. The probe: which machine, and is it running.
 # ---------------------------------------------------------------------
 D="$(new_case probe-empty)"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
 assert_eq "probe: no machine on the host yields no output" "" "$OUT"
 
 D="$(new_case probe-stopped 'solo:false:false')"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
 assert_eq "probe: sole machine, stopped" "solo	false" "$OUT"
 
 D="$(new_case probe-default 'other:false:false' 'chosen:true:true')"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe)"
 assert_eq "probe: prefers the default-flagged machine over the first listed" \
   "chosen	true" "$OUT"
 
@@ -203,7 +221,7 @@ assert_eq "probe: prefers the default-flagged machine over the first listed" \
 # machine-name-resolution-test.sh's, whose stub renders both forms
 # faithfully and drives this same helper.
 D="$(new_case probe-marker 'podman-machine-default:false:true')"
-OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe | cut -f1)"
+OUT="$(PATH="$STUB_PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe | cut -f1)"
 assert_eq "probe: the default machine's name carries no '*' marker" \
   "podman-machine-default" "$OUT"
 
@@ -222,7 +240,7 @@ assert_eq "probe: podman absent yields no output rather than an error" "" "$OUT"
 run_ensure() {
   local d="$1"
   (
-    PATH="$STUB_BIN:$PATH"
+    PATH="$STUB_PATH"
     PODMAN_STUB_DIR="$d"
     export PODMAN_STUB_DIR
     claude_vm_ensure_podman_machine >/dev/null 2>&1
@@ -292,10 +310,14 @@ OUT="$(
 assert_eq "ensure: podman absent fails" "rc:1" "$(printf '%s\n' "$OUT" | tail -1)"
 case "$OUT" in
   *"'podman' not found on PATH"*)
-    PASS=$((PASS + 1)); echo "ok   - ensure: podman absent says so" ;;
+    PASS=$((PASS + 1))
+    echo "ok   - ensure: podman absent says so"
+    ;;
   *)
-    FAIL=$((FAIL + 1)); echo "FAIL - ensure: podman absent says so"
-    echo "        actual: [$OUT]" ;;
+    FAIL=$((FAIL + 1))
+    echo "FAIL - ensure: podman absent says so"
+    echo "        actual: [$OUT]"
+    ;;
 esac
 
 # ---------------------------------------------------------------------
@@ -303,7 +325,7 @@ esac
 # ---------------------------------------------------------------------
 D="$(new_case stop-started 'solo:true:true')"
 OUT="$(
-  PATH="$STUB_BIN:$PATH"
+  PATH="$STUB_PATH"
   PODMAN_STUB_DIR="$D"
   export PODMAN_STUB_DIR
   CLAUDE_VM_PODMAN_MACHINE_STARTED="solo"
@@ -317,7 +339,7 @@ assert_eq "stop: a second call is a no-op, not a second stop" \
 
 D="$(new_case stop-untouched 'solo:true:true')"
 OUT="$(
-  PATH="$STUB_BIN:$PATH"
+  PATH="$STUB_PATH"
   PODMAN_STUB_DIR="$D"
   export PODMAN_STUB_DIR
   CLAUDE_VM_PODMAN_MACHINE_STARTED=""
@@ -344,7 +366,7 @@ awk '
     if (tail && $0 ~ /^fi$/) exit
     if ($0 ~ /--output "\$GUEST_IMAGE"/) tail = 1
   }
-' "$LAUNCHER" > "$BLOCK"
+' "$LAUNCHER" >"$BLOCK"
 
 if ! grep -q 'claude_vm_ensure_podman_machine' "$BLOCK"; then
   FAIL=$((FAIL + 1))
@@ -356,7 +378,7 @@ else
 
   BUILD_STUB_DIR="$WORK/scriptdir"
   mkdir -p "$BUILD_STUB_DIR"
-  cat > "$BUILD_STUB_DIR/build-guest-image.sh" <<'EOF'
+  cat >"$BUILD_STUB_DIR/build-guest-image.sh" <<'EOF'
 #!/usr/bin/env bash
 set -u
 echo "build" >> "$BUILD_MARKER"
@@ -372,14 +394,14 @@ EOF
   run_block() {
     local d="$1" have="$2"
     local img="$d/guest.raw"
-    : > "$d/build-marker"
+    : >"$d/build-marker"
     if [ -n "$have" ]; then
-      : > "$img"
-      echo "$have" > "$img.version"
+      : >"$img"
+      echo "$have" >"$img.version"
     fi
     (
       set -euo pipefail
-      PATH="$STUB_BIN:$PATH"
+      PATH="$STUB_PATH"
       PODMAN_STUB_DIR="$d"
       export PODMAN_STUB_DIR
       BUILD_MARKER="$d/build-marker"
@@ -395,7 +417,7 @@ EOF
       # shellcheck source=/dev/null
       . "$BLOCK"
     ) >/dev/null 2>&1
-    wc -l < "$d/build-marker" | tr -d ' '
+    wc -l <"$d/build-marker" | tr -d ' '
   }
 
   D="$(new_case warm 'solo:false:true')"

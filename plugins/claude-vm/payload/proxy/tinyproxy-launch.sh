@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# tinyproxy-launch.sh -- the BUNDLED DEFAULT claude-vm forward proxy.
+# tinyproxy-launch.sh -- the BUNDLED claude-vm forward proxy.
 #
-# This is the default `proxy.cmd`: claude-vm.sh runs it to start the
+# This is the bundled `proxy.cmd`: claude-vm.sh runs it to start the
 # forward proxy that confines the guest's egress to the allowlist. It
 # bridges the launcher's interface to tinyproxy:
 #
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 ALLOWLIST="${CLAUDE_VM_EGRESS_ALLOWLIST:?tinyproxy-launch: CLAUDE_VM_EGRESS_ALLOWLIST is not set (the launcher exports it)}"
-PORT="${CLAUDE_VM_PROXY_PORT:-3128}"
+PORT="${CLAUDE_VM_PROXY_PORT:?tinyproxy-launch: CLAUDE_VM_PROXY_PORT is not set (the launcher exports it)}"
 # Bind address the guest reaches the proxy on. The guest's HTTPS_PROXY
 # targets the gvproxy host alias, which gvproxy forwards to a listener on
 # the host loopback, so binding 127.0.0.1 is correct and avoids exposing
@@ -67,12 +67,12 @@ FILTER="$CONF_DIR/tinyproxy.filter"
   printf 'FilterDefaultDeny Yes\n'
   printf 'FilterExtended On\n'
   printf 'Filter "%s"\n' "$FILTER"
-} > "$CONF"
+} >"$CONF"
 
 # Build the filter file: one anchored regex per allowlisted host so a host
 # matches itself exactly (and its subdomains), not as a substring of an
 # unrelated host. Blank lines and comments in the allowlist are skipped.
-: > "$FILTER"
+: >"$FILTER"
 while IFS= read -r host; do
   # Trim surrounding whitespace.
   host="${host#"${host%%[![:space:]]*}"}"
@@ -82,8 +82,8 @@ while IFS= read -r host; do
   # Escape regex-significant dots; anchor so "github.com" matches
   # "github.com" and "*.github.com" but not "evilgithub.com".
   esc="$(printf '%s\n' "$host" | sed 's/\./\\./g')"
-  printf '(^|\\.)%s$\n' "$esc" >> "$FILTER"
-done < "$ALLOWLIST"
+  printf '(^|\\.)%s$\n' "$esc" >>"$FILTER"
+done <"$ALLOWLIST"
 
 echo "tinyproxy-launch: starting tinyproxy on $LISTEN_ADDR:$PORT, egress confined to $ALLOWLIST" >&2
 

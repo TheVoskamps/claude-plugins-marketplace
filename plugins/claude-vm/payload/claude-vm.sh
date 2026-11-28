@@ -16,8 +16,8 @@
 # applied at run time lives in a boot file. Scalars: repo overrides global.
 # Lists (egress.allow, mounts): union. A legacy single-file config.yml (either
 # tier) is not read -- see claude_vm_detect_legacy_config below. See
-# payload/lib/config.sh for the layering implementation and
-# skills/claude-vm/SKILL.md for the full config schema.
+# payload/lib/config.sh for the layering implementation and for the config
+# schema, its key table CLAUDE_VM_CONFIG_KEYS.
 #
 # AUTH: the guest authenticates with the HOST's live claude.ai OAuth
 # credential, not a scoped API token. At launch the launcher reads the
@@ -54,8 +54,13 @@
 # --as. With it, every source follows from the account directory
 # D=$HOME/.claude.<name>: the credential comes from the Keychain service
 # claude_vm_keychain_service derives from D (lib/credential.sh), the identity
-# seed from D/.claude.json, and the curated working rules from D. Nothing falls
-# back to the default account's files or credential.
+# seed from D/.claude.json, and the curated working rules from D, by the same
+# include list. The keys selected from each source, the file modes and the
+# removal on exit are those of a launch without --as. Nothing falls back to the
+# default account's files or credential, so a guest never pairs one account's
+# identity with another's credential, and no refusal prints a value read from
+# the Keychain or the identity file. The account comes from --as alone: an
+# inherited CLAUDE_CONFIG_DIR is never read.
 #
 # Usage:
 #   claude-vm.sh [--as <name>] <repo-path> [claude args...]
@@ -172,6 +177,35 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
     exit 1
   }
 
+# A YAML alias in any of the four files aborts the launch, naming the file: the
+# merge does not resolve one, and the placement gates' raw-file `has()` reads
+# past it.
+claude_vm_check_no_aliases \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
+
+# So do a file of more than one YAML document, a key-table key under a
+# parent that is not a map, and a string, a map key included, holding a
+# newline anywhere but in an env.set value: every reader below would see each
+# of them as something else.
+claude_vm_check_config_structure \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
+
+# Every scalar key read below is checked against its key-table type before any
+# of them is read, so a value of the wrong type -- an unlisted enumeration
+# value, a quoted "true" for a boolean, a YAML `false` for a string or path, an
+# empty map -- aborts the launch naming the key instead of being used. Several
+# of these values reach run.env unquoted, which the guest sources under
+# `set -a`, or become a command line, as proxy.cmd does. The check is handed
+# the four RAW files rather than the merged documents, because the merge
+# prunes every empty map: a scalar key, or a claude.plugins.enabled value,
+# written `{}` would otherwise reach the check absent and silently take its
+# default.
+claude_vm_check_scalars \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
+
 # NOTE: the merged-config temp file is removed by cleanup() (the
 # consolidated EXIT/INT/TERM trap installed below). A narrow interim trap is
 # armed earlier (right after the OAuth credential is written) to cover the
@@ -186,6 +220,7 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # (issue #215), the narrow interim credential trap, then cleanup(). Each later
 # link repeats the machine stop; a new link that omits it strands a podman
 # machine this run started.
+#
 # Two per-tier documents, each in its FILE schema (issue #179): bake files
 # merge into MERGED_BAKE, boot files into MERGED_BOOT. There is no combined
 # cross-tier document and no schema translation -- bake consumers read
@@ -283,23 +318,27 @@ claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_B
     exit 1
   }
 
-VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
-VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
-REPO_MOUNT="$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
-COPY_BACK="$(claude_vm_scalar "$MERGED_BOOT" '.repo.copy_back' "$CLAUDE_VM_DEFAULT_REPO_COPY_BACK")"
-PROXY_PORT="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' "$CLAUDE_VM_DEFAULT_PROXY_PORT")"
-GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS")"
-# proxy.cmd: when unset in BOTH config layers, default to the bundled
-# tinyproxy launcher (the chosen forward proxy). It reads the egress
-# allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds $CLAUDE_VM_PROXY_PORT,
-# both exported below. An explicit proxy.cmd in config still overrides it.
-DEFAULT_PROXY_CMD="$SCRIPT_DIR/proxy/tinyproxy-launch.sh"
+VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$(claude_vm_config_key_default cpus)")"
+VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$(claude_vm_config_key_default mem)")"
+REPO_MOUNT="$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' "$(claude_vm_config_key_default repo.mount)")"
+COPY_BACK="$(claude_vm_scalar "$MERGED_BOOT" '.repo.copy_back' "$(claude_vm_config_key_default repo.copy_back)")"
+PROXY_PORT="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' "$(claude_vm_config_key_default proxy.port)")"
+GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$(claude_vm_config_key_default proxy.host_alias)")"
+# proxy.cmd: when unset in BOTH config layers, fall back to the key table's
+# default. A command reads the egress allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST
+# and binds $CLAUDE_VM_PROXY_PORT, both exported below. The key table's default
+# is relative to this payload directory, so it is resolved against
+# $SCRIPT_DIR, and a config that writes the default verbatim resolves the same.
+DEFAULT_PROXY_CMD="$SCRIPT_DIR/$(claude_vm_config_key_default proxy.cmd)"
 PROXY_CMD="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
+if [ "$PROXY_CMD" = "$(claude_vm_config_key_default proxy.cmd)" ]; then
+  PROXY_CMD="$DEFAULT_PROXY_CMD"
+fi
 
 # Boot-time apt update flag (issue #106): resolved once here so both the
 # run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
 # below) read the SAME value the boot launcher will act on.
-PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+PACKAGES_UPDATE_AT_BOOT="$(claude_vm_scalar "$MERGED_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 
 # Boot-time plugin update flag (issue #107): the plugin-side sibling of
 # PACKAGES_UPDATE_AT_BOOT above. Baked plugins are frozen at image-build time
@@ -308,9 +347,9 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot
 # marketplace bump is picked up at the next boot with no image rebuild.
 # Resolved once here so the run.env write and the derived-egress gate
 # (claude_vm_boot_marketplace_egress_needed) act on the same value.
-PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
+PLUGINS_UPDATE_AT_BOOT="$(claude_vm_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
 
-# guest_image: a normal scalar. When SET, it is used as-is -- an explicit
+# guest_image: when SET, it is used as-is -- an explicit
 # operator override that opts OUT of variant derivation (issue #105, extended
 # by the #106 root-headroom knob): the operator owns that path and its
 # contents, so we neither hash nor rewrite it. When UNSET, the launcher
@@ -367,21 +406,13 @@ export CLAUDE_VM_BAKE_PLUGINS
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized above its base content, so a live session has room to grow
-# without hitting ENOSPC (see lib/config.sh's
-# CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB for the default's justification). A
-# normal scalar (repo overrides global), resolved once here as the MERGED,
-# default-filled value and exported so build-guest-image.sh forwards it to the
-# provisioner as the actual partition size. Validated as a positive integer up
-# front (a typo here should abort the launch, not silently fall through to
-# whatever the provisioner does with garbage). This is the BUILD input; the
+# without hitting ENOSPC (lib/config.sh justifies the default beside its key
+# table). Resolved once here as the MERGED, default-filled value and exported
+# so build-guest-image.sh forwards it to the provisioner as the actual
+# partition size. claude_vm_check_scalars above has already refused a value
+# that is not an integer. This is the BUILD input; the
 # cache key is the identity segment below, which covers headroom per LAYER.
-CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
-case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
-  '' | *[!0-9]*)
-    echo "claude-vm: image.root_headroom_mb must be a positive integer (MiB), got '$CLAUDE_VM_ROOT_HEADROOM_MB'" >&2
-    exit 1
-    ;;
-esac
+CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$(claude_vm_config_key_default image.root_headroom_mb)")"
 export CLAUDE_VM_ROOT_HEADROOM_MB
 
 # Compose the image-identity segments from the two BAKE FILES (issue #179):
@@ -415,7 +446,7 @@ unset _explicit_guest_image
 # claude.version: the channel/pin the host-side verified cache fetches
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
-CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
+CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$(claude_vm_config_key_default claude.version)")"
 
 # claude.renderer: which renderer the in-guest claude uses on the byte-pipe
 # console (issue #88). The vfkit stdio console is a plain bidirectional byte
@@ -423,35 +454,18 @@ CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$CLAUDE_VM_
 # (verified on a real host), so this is a preference, not a workaround:
 #   classic    -> CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (no alt-screen)
 #   fullscreen -> CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
-#   unset/""   -> pass nothing; claude uses its own default
-# Mapped to the matching env var(s) in run.env below. An unrecognized value
-# is rejected up front rather than silently ignored.
-CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED_BOOT" '.claude.renderer' "")"
-case "$CLAUDE_RENDERER" in
-  "" | classic | fullscreen) : ;;
-  *)
-    echo "claude-vm: unknown claude.renderer '$CLAUDE_RENDERER' (expected classic|fullscreen, or leave unset)" >&2
-    exit 1
-    ;;
-esac
+#   unset/""   -> pass nothing; claude uses its own renderer
+# Mapped to the matching env var(s) in run.env below. claude_vm_check_scalars
+# above has already refused a value the key table does not list.
+CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED_BOOT" '.claude.renderer' "$(claude_vm_config_key_default claude.renderer)")"
 
-# claude.remote_control: OPT-IN boolean (issue #88) enabling Claude Code's
-# Remote Control on this launch. Same layered-scalar resolution as
-# claude.renderer (global + per-repo override, repo wins), default false/unset.
-# When true, the launcher injects `--remote-control` into the guest's CLAUDE_ARGS
-# (unless the CLI args already carry it) and, if Remote Control is in effect but
-# no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
-# date-stamp default). Validate like the renderer knob: accept true/false/unset;
-# anything else aborts up front rather than being silently ignored.
-CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED_BOOT" '.claude.remote_control' "")"
-case "$CLAUDE_REMOTE_CONTROL" in
-  "" | false) CLAUDE_REMOTE_CONTROL="false" ;;
-  true) CLAUDE_REMOTE_CONTROL="true" ;;
-  *)
-    echo "claude-vm: unknown claude.remote_control '$CLAUDE_REMOTE_CONTROL' (expected true|false, or leave unset)" >&2
-    exit 1
-    ;;
-esac
+# claude.remote_control enables Claude Code's Remote Control on this launch.
+# When true, the launcher injects `--remote-control` into the guest's
+# CLAUDE_ARGS (unless the CLI args already carry it) and, if Remote Control is
+# in effect but no `--name` was given, appends a date-stamped `--name`.
+# claude_vm_check_scalars above has already refused a value that is not a
+# YAML boolean.
+CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED_BOOT" '.claude.remote_control' "$(claude_vm_config_key_default claude.remote_control)")"
 
 # Augment the user's post-repo CLI args with the Remote Control opt-in and the
 # --name date-stamp default (issue #88). The date stamp uses the '+%b%d-%H:%M'
@@ -471,24 +485,6 @@ done < <(claude_vm_augment_rc_args \
   ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
 CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
 unset _rc_name_stamp _augmented_args _line
-
-# Resolve and enum-guard claude.permission_mode for the rendered guest
-# settings.json (issue #104). This is a security-posture value -- it becomes
-# permissions.defaultMode in the guest's settings.json -- and there is no
-# reasoning model for how the guest claude behaves under an unknown defaultMode,
-# so accept ONLY the two known modes and abort on anything else, mirroring the
-# scalar-enum validation used for claude.renderer / claude.remote_control above.
-# The render (claude_vm_render_guest_settings) re-reads this key with the same
-# default, but the authoritative guard is HERE so a typo aborts the launch
-# rather than writing an unexpected defaultMode into the guest.
-CLAUDE_PERMISSION_MODE="$(claude_vm_scalar "$MERGED_BOOT" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
-case "$CLAUDE_PERMISSION_MODE" in
-  bypassPermissions | default) : ;;
-  *)
-    echo "claude-vm: claude.permission_mode must be 'bypassPermissions' or 'default', got '$CLAUDE_PERMISSION_MODE'" >&2
-    exit 1
-    ;;
-esac
 
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
@@ -733,7 +729,12 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # the launcher never boots the guest with an unverified binary. There is
 # ONE trusted path and no install.sh fallback: an unpinned/unimported
 # signing key or a verification failure aborts the run, it does NOT
-# downgrade to a lower-trust install (see lib/claude-cache.sh and the README).
+# downgrade to a lower-trust install (see lib/claude-cache.sh). This block
+# runs BEFORE the on-demand image build: the build's plugin bake step drives
+# this same guest-platform binary (CLAUDE_VM_GUEST_CLAUDE_BIN), so it must
+# exist when the build starts, a verification failure aborts before a
+# multi-minute build, and bake-time and boot-time plugin work can never run
+# under two different claude versions.
 #
 # Warm boot: when the resolved version is already cached, no binary is
 # re-downloaded and gpg is not re-run (verification happened when it was
@@ -873,7 +874,12 @@ mkdir "$RUN"
 # when the last holder of that open file dies -- kill -9 included. That is
 # bin/claude-vm-cleanup's whole liveness test: a run whose lock it can take
 # is dead, one whose lock it cannot is live. The lock file outliving the run
-# means nothing; only a held lock does.
+# means nothing; only a held lock does. Existence cannot be the test: many
+# concurrent runs is normal, so reaping by existence would delete a running
+# VM's disk. The alternatives were ruled out: macOS ships no flock(1), a PID
+# file has the PID-recycling weakness the lock avoids, and a python3 helper
+# would depend on a binary that may be a version-manager install. lockf(1)
+# has flock(2) semantics and is stock on macOS, the only platform here.
 #
 # Every child forked after this line inherits fd 9, and an inheriting child
 # keeps the lock held after the launcher itself is gone. No long-lived child
@@ -1002,11 +1008,11 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 #
 # Host-side render of /root/.claude/settings.json from the merged config: the
 # permission allow/ask/deny lists, the permission defaultMode
-# (claude.permission_mode, default bypassPermissions, enum-guarded above), and
+# (claude.permission_mode, enum-guarded above), and
 # the enabledPlugins object (every ref in claude.plugins.bake ++ install_at_boot
 # defaults true, then claude.plugins.enabled overrides per key). BOTH merged
-# documents are passed since issue #107 (bake refs live in the BAKE file, every
-# other key it reads is a BOOT key). The permissions
+# documents are passed, each key being read from the document of the file
+# type the key table places it in. The permissions
 # come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
 # NEVER read, so the guest's PERMISSION surface is defined entirely by
 # claude-vm, per the issue's product intent. (The host's ~/.claude working
@@ -1355,6 +1361,14 @@ chmod 600 "$HOST_CLAUDE_JSON_SEED"
 # half-copied rules/ tree is worse than an absent one. Neither aborts the
 # launch -- this layer is a convenience, not a security control, and the
 # credential/seed/settings installs above are the steps that get to refuse.
+# The staging `mkdir -p` and the failure arm's `rm -rf` below are NOT guarded
+# to that standard: under `set -e` a failure in either aborts the launch
+# outright, before any boot, rather than dropping the entry.
+#
+# The list is spelled on BOTH sides of the seam -- here, and as
+# CLAUDE_HOME_SEED_ENTRIES in the boot launcher build-guest-image.sh emits,
+# which re-walks the same names rather than globbing the mount -- so adding an
+# entry is a deliberate edit in both files.
 #
 # Under --as the entries come from the account directory $ACCOUNT_DIR instead
 # of ~/.claude.
@@ -1388,10 +1402,6 @@ case "$REPO_MOUNT" in
   live)
     # Mount the live repo dir RW directly. Less isolated; opt-in.
     MOUNT_SHARED_DIR="$REPO_SRC"
-    ;;
-  *)
-    echo "claude-vm: unknown repo.mount '$REPO_MOUNT' (expected 'clone' or 'live')" >&2
-    exit 1
     ;;
 esac
 
@@ -1565,23 +1575,22 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # bypassPermissions as root unless IS_SANDBOX=1 (or CLAUDE_CODE_BUBBLEWRAP=1)
     # -- confirmed from the claude-code source quoted in anthropics/claude-code
     # #58510. The guest IS the sandbox (the VM is the isolation boundary), so set
-    # it always: bypassPermissions is the default guest posture, and even under
+    # it always: under bypassPermissions claude needs it, and even under
     # permission_mode: default this is a correct, harmless assertion (the guest is
     # a sandbox regardless). A FIXED LITERAL -> provably safe under the run.env
     # `set -a` sourcing (value-quoting audit above). The boot launcher sources
     # run.env under `set -a`, so it exports into claude's environment for free.
     printf 'IS_SANDBOX=1\n'
     # Boot-time apt update flag (issue #106): whether the guest boot launcher
-    # runs `apt-get update && apt-get -y upgrade` before claude starts. A
-    # plain boolean scalar (the boot file's update_at_boot, default true) -> a fixed
-    # 'true'/'false' literal is provably safe under the run.env `set -a`
+    # runs `apt-get update && apt-get -y upgrade` before claude starts.
+    # claude_vm_check_scalars aborted the launch above unless the value is the
+    # literal 'true' or 'false', which is safe under the run.env `set -a`
     # sourcing (value-quoting audit above).
     printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
     # Boot-time plugin update flag (issue #107): whether the guest boot
     # launcher refreshes the marketplaces and updates the installed plugins
     # before claude starts. Same shape and safety argument as the apt flag
-    # above -- a plain boolean scalar resolves to a fixed 'true'/'false'
-    # literal, provably safe under the run.env `set -a` sourcing.
+    # above.
     printf 'CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=%s\n' "$PLUGINS_UPDATE_AT_BOOT"
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
@@ -1707,7 +1716,7 @@ esac
 # above so a dropped claude.ai/downloads.claude.ai entry is never
 # re-introduced by this step.
 if claude_vm_boot_apt_egress_needed "$MERGED_BOOT"; then
-  DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
+  DERIVED_APT_HOSTS="$(claude_vm_debian_mirror_hosts) $(claude_vm_apt_source_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
   EXISTING_HOSTS=" $(tr '\n' ' ' <"$EGRESS_ALLOWLIST" 2>/dev/null) "
   for _host in $DERIVED_APT_HOSTS; do
     case "$EXISTING_HOSTS" in
@@ -1798,7 +1807,7 @@ if ! grep -q '[^[:space:]]' "$EGRESS_ALLOWLIST" 2>/dev/null; then
 fi
 
 if [ -z "$PROXY_CMD" ]; then
-  # proxy.cmd defaults to the bundled tinyproxy launcher; reaching here
+  # proxy.cmd falls back to the key table's nonempty default; reaching here
   # means a config layer explicitly set proxy.cmd to an empty value.
   echo "claude-vm: proxy.cmd is set to an empty value in config; cannot start the forward proxy." >&2
   echo "claude-vm: leave proxy.cmd unset to use the bundled tinyproxy launcher, or set it" >&2
@@ -1852,7 +1861,11 @@ fi
 # single-file mount takes in-place writes but refuses the write-temp-then-
 # rename pattern `git config`, `sed -i` and most editors use. Mount the
 # containing directory when the guest needs to replace the file rather than
-# edit it.
+# edit it. Probed in a privileged Linux container against this exact shape:
+# real `git config` fails with `could not write config file ...: Resource
+# busy` and GNU `sed -i` with `cannot rename ...: Device or resource busy`,
+# both leaving the source unchanged, and both succeed through a directory
+# mount.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
 MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
@@ -1881,9 +1894,27 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # `virtio-blk,path=$GUEST_IMAGE_CLONE`. Measured on vfkit v0.6.4, each of
 # those dies on the text after the comma (`unknown option for EFI
 # bootloaders: ...`), so a launch under such a path was already doomed with
-# or without a mounts entry. See
-# payload/README.md -> *The tag is not just a tag* for that whole class and
-# for where a guard covering it would belong.
+# or without a mounts entry. The class is wider still: every vfkit argument
+# that embeds a host path embeds it in a comma-delimited option string with no
+# comma check -- the built-in shares (the repo under repo.mount: live, $RUN's
+# config and creds dirs, the claude binary cache), the EFI store and disk clone
+# under $RUN, the console log under the state root, and the gvproxy socket
+# under a `mktemp -d` in $TMPDIR on every launch. Those are left unchecked
+# deliberately: none is a value the operator fixes by editing YAML, and an
+# ordinary comma is launch-time-loud. Only a path spelling a second copy of
+# its argument's own key (`sharedDir=`, `path=`, ...) would fail quietly, since
+# vfkit v0.6.4 takes the last of a repeated key, and no real path does. A guard
+# covering the class would belong where those paths are resolved, beside the
+# repo-path resolution, not in claude_vm_check_mounts. This one sits at the
+# point of USE so it can name the entry, which also scopes it: a
+# directory-only mounts list under the same $RUN is not aborted here (and dies
+# later, on the EFI store).
+#
+# A hard link cannot cross volumes, and $RUN is on the home volume whatever
+# volume the operator's file is on, so a single-file source on another volume
+# aborts naming its directory as the mount to declare instead. A fallback
+# linking under $TMPDIR was considered and not built: the per-user $TMPDIR is
+# on the home volume too, so it would rescue nothing.
 #
 # $RUN is RETAINED after the run (cleanup() and bin/claude-vm-cleanup remove
 # only its credential files and guest clone; the diff/apply skills read the
@@ -2165,9 +2196,6 @@ copy_back() {
         echo "claude-vm: copy-back to local source ($REPO_SRC) from worktree..." >&2
         copy_back_rsync || true
       fi
-      ;;
-    *)
-      echo "claude-vm: unknown repo.copy_back '$COPY_BACK' (expected local|none); skipping" >&2
       ;;
   esac
 }

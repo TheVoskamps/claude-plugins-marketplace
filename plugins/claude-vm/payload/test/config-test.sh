@@ -4,11 +4,70 @@
 #
 # Exercises payload/lib/config.sh's pure layering logic (two YAML
 # inputs -> one merged document) with no VM, no network, no host
-# mutation. Run directly:
+# mutation, plus the helpers built on it: the settings render, the
+# bake/identity hashing, the marketplace/plugin helpers and the load-time
+# gates.
+#
+# Several cases leave pure-helper territory, and each RUNS the real code
+# against records from the real emitter rather than grepping the source:
+# boot_apt_phase, boot_plugin_phase and boot_mount_phase sliced out of
+# build-guest-image.sh, and the launcher's extra-mount loop and its
+# config-load gate block, from the merge through the placement gate, sliced
+# out of claude-vm.sh by line range, since they are bare top-level code rather
+# than functions. The raw-file checks that run before the merge are driven
+# through the whole claude-vm.sh instead. Together they assert
+# that a record's empty middle field and empty leading field each survive the
+# split, and that a mounts or claude.marketplaces entry missing its key field
+# aborts the launch naming it. A TSV split case carries a negative control
+# rebuilding the collapsing `read` from the same captured lines, so the
+# control cannot drift from the code. A gate is driven through
+# claude_vm_merge_config in the launcher's own argument shape, once per
+# rejected config, asserting both the non-zero exit and a diagnostic naming
+# the problem.
+#
+# The extra-mount loop is run for the manifest it writes and the wrap
+# directory it builds: the wrap entry's hard link is asserted by inode,
+# since a copy would match on content and break write-through, and the
+# cross-volume abort runs against a real second volume (an `hdiutil attach`
+# image, skipped where that fails) with its premise measured first and
+# $TMPDIR placed on the source's volume, so a launcher that linked there
+# would not pass. A comma in the wrap directory's parent, the run dir, must
+# abort blaming the run dir and naming the runs root, while a directory-only
+# config under the same run dir is left alone: the guard sits at the point of
+# use, in the loop's single-file branch, so it fires only for a config that
+# wraps a file, and that scope is what the directory-only case pins. Its
+# negative control drops the guard's lines from the same captured loop and
+# shows the malformed `sharedDir=` the loop would otherwise emit.
+#
+# The gate block's `mode:` cases spell it `ro`, `rw`, a typo, `[]`, `""` and
+# valueless, since only a presence test tells the last two from an omitted
+# key; `mode: {}`, which the merged-document read drops, has no case. A
+# `path` over a reserved mountpoint is spelled with a trailing slash, so the
+# normalization is what catches it. The guest-OS-path rule is driven from
+# both sides with a pair of configs differing only in whether the source is a
+# directory or a file, since that difference is the whole rule, and the
+# passing side (`/mnt/<tag>`, `/srv`, `/opt`, the near-miss `/etcetera`) is
+# pinned too.
+#
+# boot_mount_phase is sliced from boot_dir_is_nonempty
+# through the end of the phase -- a slice of the phase alone would leave the
+# occupancy helper undefined and every occupancy assertion vacuous -- and
+# run with `mount` replaced by a recorder, so its assertions are which
+# mount calls it makes. An EMPTY existing mountpoint must still mount:
+# without that case the occupancy check could be "skip whenever the path
+# exists", which would break `/mnt/<tag>` on any image that ships those
+# directories. What no case here reaches is a guest write landing
+# on the host; that needs a real guest.
+#
+# The suite carries the payload's shebang and is held to the same bash 3.2
+# bar: `/bin/bash config-test.sh` is green, with no baselined failing set.
+#
+# Run directly:
 #
 #   plugins/claude-vm/payload/test/config-test.sh
 #
-# Requires: yq (mikefarah v4+). Skips with a clear message if absent.
+# Requires: yq (mikefarah, at the floor claude_vm_require_yq checks). Skips
+# with a clear message if absent or older.
 
 set -uo pipefail
 
@@ -231,15 +290,9 @@ assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 # ---------------------------------------------------------------------
 # Test 3b: guest-capability schema (issue #103) -- scalars repo-wins
 # ---------------------------------------------------------------------
-# NOTE: yq's `// ""` returns "" for a boolean `false`, so claude_vm_scalar
-# (the plain string/number accessor) cannot distinguish an explicit
-# `false` from an absent key -- see claude_vm_bool_scalar's dedicated
-# round-trip coverage in Test 3d below, which proves explicit `false`
-# survives via the boolean-aware accessor. Fixtures set the
-# *_update_at_boot booleans global=false / repo=true so "repo wins"
-# resolves to a non-empty "true" here via claude_vm_scalar; the
-# false/fallback case for claude_vm_scalar specifically is covered
-# separately for the global-only merge below.
+# Fixtures set the *_update_at_boot booleans global=false / repo=true so
+# "repo wins" resolves to "true" here; Test 3d below covers an explicit
+# `false` surviving.
 assert_eq "scalar: update_at_boot repo wins (true)" \
   "true" "$(claude_vm_scalar "$MERGED_BOOT" '.update_at_boot' 'X')"
 assert_eq "scalar: add_apt_uris_to_allowlist repo wins (always)" \
@@ -314,11 +367,10 @@ assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
   "1" "$PLUGIN_INSTALL_COUNT"
 
 # ---------------------------------------------------------------------
-# Test 3d: claude_vm_bool_scalar -- explicit `false` survives (issue #103
-# review finding). Unlike claude_vm_scalar's `// ""` idiom, an explicit
-# YAML `false` must round-trip as "false", not be replaced by the
-# caller's fallback. Cover all four presence states: explicit false,
-# explicit true, genuinely absent, and explicit null.
+# Test 3d: claude_vm_scalar -- explicit `false` survives. An explicit YAML
+# `false` must round-trip as "false", not be replaced by the caller's
+# fallback. Cover all four presence states: explicit false, explicit true,
+# genuinely absent, and explicit null.
 # ---------------------------------------------------------------------
 BOOL_YML="$WORK/bool-scalar.yml"
 cat >"$BOOL_YML" <<'YML'
@@ -329,14 +381,14 @@ other:
   x: 1
 YML
 
-assert_eq "bool_scalar: explicit false is preserved (not replaced by fallback)" \
-  "false" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_false' 'FALLBACK')"
-assert_eq "bool_scalar: explicit true is preserved" \
-  "true" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_true' 'FALLBACK')"
-assert_eq "bool_scalar: genuinely absent key falls back" \
-  "FALLBACK" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_absent' 'FALLBACK')"
-assert_eq "bool_scalar: explicit null falls back (same as absent)" \
-  "FALLBACK" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_null' 'FALLBACK')"
+assert_eq "scalar presence: explicit false is preserved (not replaced by fallback)" \
+  "false" "$(claude_vm_scalar "$BOOL_YML" '.knob_false' 'FALLBACK')"
+assert_eq "scalar presence: explicit true is preserved" \
+  "true" "$(claude_vm_scalar "$BOOL_YML" '.knob_true' 'FALLBACK')"
+assert_eq "scalar presence: genuinely absent key falls back" \
+  "FALLBACK" "$(claude_vm_scalar "$BOOL_YML" '.knob_absent' 'FALLBACK')"
+assert_eq "scalar presence: explicit null falls back (same as absent)" \
+  "FALLBACK" "$(claude_vm_scalar "$BOOL_YML" '.knob_null' 'FALLBACK')"
 
 # Same check against the real merged fixture's two guest-capability
 # booleans, with fixtures inverted (global=true / repo=false) so "repo
@@ -348,10 +400,10 @@ BOOL_R="$WORK/bool-r.yml"
 printf 'update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' >"$BOOL_R"
 MERGED_BOOL="$WORK/merged-bool.yml"
 claude_vm_merge_config "$BOOL_G" "$BOOL_R" >"$MERGED_BOOL"
-assert_eq "bool_scalar: update_at_boot repo-wins explicit false survives" \
-  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
-assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false survives" \
-  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
+assert_eq "scalar presence: update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
+assert_eq "scalar presence: claude.plugins.update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
 
 # ---------------------------------------------------------------------
 # Test 3e: claude_vm_apt_sources / claude_vm_marketplaces -- missing
@@ -393,17 +445,10 @@ assert_eq "global-only: cpus from global" \
   "2" "$(claude_vm_scalar "$MERGED_G" '.cpus' 'X')"
 assert_eq "global-only: egress count is 2" \
   "2" "$(claude_vm_egress_hosts "$MERGED_G" | grep -c .)"
-# global's update_at_boot is false; the yq `// ""` quirk for
-# boolean false means the plain claude_vm_scalar accessor falls back to
-# the caller default here -- this is claude_vm_scalar's DOCUMENTED
-# limitation (see its header comment), not a bug in this accessor. The
-# boolean-aware claude_vm_bool_scalar accessor (Test 3d above) is the
-# one that must preserve explicit false; this assertion just pins
-# claude_vm_scalar's known, unchanged behavior so a future edit doesn't
-# silently "fix" it here and break the non-boolean scalar callers that
-# rely on the `// ""` idiom.
-assert_eq "global-only: update_at_boot from global (false, plain scalar accessor falls back)" \
-  "X" "$(claude_vm_scalar "$MERGED_G" '.update_at_boot' 'X')"
+# global's update_at_boot is false, and the explicit `false` survives the
+# global-only merge rather than falling back to the caller's default.
+assert_eq "global-only: update_at_boot from global (explicit false survives)" \
+  "false" "$(claude_vm_scalar "$MERGED_G" '.update_at_boot' 'X')"
 assert_eq "global-only: claude.permission_mode from global" \
   "bypassPermissions" "$(claude_vm_scalar "$MERGED_G" '.claude.permission_mode' 'X')"
 assert_eq "global-only: github.auth from global" \
@@ -423,7 +468,7 @@ claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BAKE" >"$MERGED_R_BAKE"
 assert_eq "repo-only: cpus from repo" \
   "8" "$(claude_vm_scalar "$MERGED_R" '.cpus' 'X')"
 assert_eq "repo-only: mem falls back to hardcoded default" \
-  "$CLAUDE_VM_DEFAULT_MEM" "$(claude_vm_scalar "$MERGED_R" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
+  "$(claude_vm_config_key_default mem)" "$(claude_vm_scalar "$MERGED_R" '.mem' "$(claude_vm_config_key_default mem)")"
 assert_eq "repo-only: claude.permission_mode from repo (default)" \
   "default" "$(claude_vm_scalar "$MERGED_R" '.claude.permission_mode' 'X')"
 assert_eq "repo-only: github.auth from repo (host-token)" \
@@ -439,9 +484,9 @@ assert_eq "repo-only: image.root_headroom_mb from repo bake (2048)" \
 MERGED_N="$WORK/merged-none.yml"
 claude_vm_merge_config "$WORK/none-a.yml" "$WORK/none-b.yml" >"$MERGED_N"
 assert_eq "neither: cpus fallback" \
-  "$CLAUDE_VM_DEFAULT_CPUS" "$(claude_vm_scalar "$MERGED_N" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
+  "$(claude_vm_config_key_default cpus)" "$(claude_vm_scalar "$MERGED_N" '.cpus' "$(claude_vm_config_key_default cpus)")"
 assert_eq "neither: repo.mount fallback is clone" \
-  "$CLAUDE_VM_DEFAULT_REPO_MOUNT" "$(claude_vm_scalar "$MERGED_N" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
+  "$(claude_vm_config_key_default repo.mount)" "$(claude_vm_scalar "$MERGED_N" '.repo.mount' "$(claude_vm_config_key_default repo.mount)")"
 assert_eq "neither: egress allow is empty" \
   "0" "$(claude_vm_egress_hosts "$MERGED_N" | grep -c .)"
 assert_eq "neither: update_at_boot fallback (true)" \
@@ -462,8 +507,8 @@ assert_eq "neither: claude.plugins.add_marketplace_uris_to_allowlist fallback (a
 assert_eq "neither: claude.plugins.enabled absent -> empty map" \
   "0" "$(yq eval '.claude.plugins.enabled // {} | length' "$MERGED_N" 2>/dev/null)"
 assert_eq "neither: github.auth fallback (none)" \
-  "$CLAUDE_VM_DEFAULT_GITHUB_AUTH" \
-  "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$CLAUDE_VM_DEFAULT_GITHUB_AUTH")"
+  "$(claude_vm_config_key_default github.auth)" \
+  "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$(claude_vm_config_key_default github.auth)")"
 assert_eq "neither: packages list is empty" \
   "0" "$(claude_vm_list_items "$MERGED_N" '.packages' | grep -c .)"
 assert_eq "neither: claude.permissions.allow is empty" \
@@ -471,8 +516,8 @@ assert_eq "neither: claude.permissions.allow is empty" \
 assert_eq "neither: claude.marketplaces is empty" \
   "0" "$(claude_vm_marketplaces "$MERGED_N" | grep -c .)"
 assert_eq "neither: image.root_headroom_mb fallback (1024)" \
-  "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB" \
-  "$(claude_vm_scalar "$MERGED_N" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
+  "$(claude_vm_config_key_default image.root_headroom_mb)" \
+  "$(claude_vm_scalar "$MERGED_N" '.image.root_headroom_mb' "$(claude_vm_config_key_default image.root_headroom_mb)")"
 
 # ---------------------------------------------------------------------
 # Test 6b: empty-skeleton pruning (issue #103 review finding). A list
@@ -503,7 +548,7 @@ assert_eq "prune: scalar-bearing claude map survives with only its scalar" \
 assert_eq "prune: scalar-only merge has no packages key (never set)" \
   "false" "$(yq eval 'has("packages")' "$MERGED_SCALAR_ONLY")"
 
-# The populated-both-layers fixture ($MERGED from Test 1) must be
+# The populated-both-layers fixture ($MERGED_BAKE from Test 1) must be
 # UNAFFECTED by pruning -- every list key it set stays present with its
 # full unioned entry count (regression guard: pruning must not touch a
 # non-empty list).
@@ -724,22 +769,16 @@ fi
 # ---------------------------------------------------------------------
 # Test 12: claude.remote_control config resolution (issue #88).
 #
-# The launcher resolves the scalar then normalizes: ""/false -> false,
-# true -> true, anything else -> abort. Reproduce that normalization here
-# (the launcher's `case` is not a sourced function, so mirror its logic)
-# and assert true/false/unset resolve and garbage would abort.
+# The launcher checks the key with claude_vm_check_scalar, then reads it with
+# the key table's default. Assert true/false/unset resolve and garbage aborts.
 # ---------------------------------------------------------------------
 rc_resolve() {
-  # Prints "true"/"false" on success; prints "ABORT" and returns 1 on garbage.
-  local raw="$1"
-  case "$raw" in
-    "" | false) printf 'false\n' ;;
-    true) printf 'true\n' ;;
-    *)
-      printf 'ABORT\n'
-      return 1
-      ;;
-  esac
+  # Prints the resolved value, or "ABORT" and returns 1 when the check refuses.
+  if ! claude_vm_check_scalar "$1" claude.remote_control 2>/dev/null; then
+    printf 'ABORT\n'
+    return 1
+  fi
+  claude_vm_scalar "$1" '.claude.remote_control' "$(claude_vm_config_key_default claude.remote_control)"
 }
 RC_TRUE_YML="$WORK/rc-true.yml"
 printf 'claude:\n  remote_control: true\n' >"$RC_TRUE_YML"
@@ -751,14 +790,12 @@ RC_GARBAGE_YML="$WORK/rc-garbage.yml"
 printf 'claude:\n  remote_control: maybe\n' >"$RC_GARBAGE_YML"
 
 assert_eq "remote_control: true resolves to true" \
-  "true" "$(rc_resolve "$(claude_vm_scalar "$RC_TRUE_YML" '.claude.remote_control' '')")"
-# NOTE: yq's `// ""` returns "" for a boolean false, so the scalar is "" here;
-# the launcher's normalization maps both "" and "false" to false. Assert false.
+  "true" "$(rc_resolve "$RC_TRUE_YML")"
 assert_eq "remote_control: false resolves to false" \
-  "false" "$(rc_resolve "$(claude_vm_scalar "$RC_FALSE_YML" '.claude.remote_control' '')")"
+  "false" "$(rc_resolve "$RC_FALSE_YML")"
 assert_eq "remote_control: unset resolves to false" \
-  "false" "$(rc_resolve "$(claude_vm_scalar "$RC_UNSET_YML" '.claude.remote_control' '')")"
-GARBAGE_RESOLVE="$(rc_resolve "$(claude_vm_scalar "$RC_GARBAGE_YML" '.claude.remote_control' '')" || true)"
+  "false" "$(rc_resolve "$RC_UNSET_YML")"
+GARBAGE_RESOLVE="$(rc_resolve "$RC_GARBAGE_YML" || true)"
 assert_eq "remote_control: garbage would abort the launch" \
   "ABORT" "$GARBAGE_RESOLVE"
 
@@ -895,8 +932,8 @@ assert_eq "render: no plugins -> empty enabledPlugins object" \
 S_NOMODE="$WORK/settings-nomode.yml"
 printf 'claude:\n  permissions:\n    deny:\n      - "Bash(sudo:*)"\n' >"$S_NOMODE"
 R_NOMODE="$(claude_vm_render_guest_settings "$S_NOMODE")"
-assert_eq "render: absent permission_mode defaults to bypassPermissions" \
-  "bypassPermissions" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
+assert_eq "render: absent permission_mode takes the key table's default" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
 
 # A ref in BOTH bake and install_at_boot collapses to one enabledPlugins entry
 # (bake in the bake doc, install_at_boot in the boot doc -- issue #107).
@@ -913,10 +950,12 @@ assert_eq "render: de-duplicated ref is enabled" \
 # ---------------------------------------------------------------------
 # Test 15: claude.plugins.enabled validation (issue #104).
 #
-# The render validates the enabled map ONCE: every value must be a boolean and
-# every key must name an installed plugin ref (present in bake ++
-# install_at_boot). A bad value or an unknown key ABORTS (non-zero), so a config
-# typo stops the launch rather than silently dropping/misspelling a toggle.
+# The render validates the enabled map of the merged document: every value must
+# be a boolean and every key must name an installed plugin ref (present in bake
+# ++ install_at_boot). A bad value or an unknown key ABORTS (non-zero), so a
+# config typo stops the launch rather than silently dropping/misspelling a
+# toggle. The launcher has checked the values on the raw files already
+# (claude_vm_check_scalars, Test 39); these cases drive the render's own check.
 # ---------------------------------------------------------------------
 
 # Accept: a valid enabled map (all keys installed, all boolean values) renders.
@@ -974,20 +1013,32 @@ else
   assert_eq "enabled-validate: non-boolean value aborts (reject)" "reject" "reject"
 fi
 
+# Reject: a quoted "true" or "false" is a string, not the boolean, and aborts
+# naming the entry.
+for S_ENA_Q in '"true"' '"false"'; do
+  printf 'claude:\n  plugins:\n    enabled:\n      a@mp: %s\n' "$S_ENA_Q" >"$WORK/settings-enabled-quoted.yml"
+  if S_ENA_ERR="$(claude_vm_render_guest_settings "$WORK/settings-enabled-quoted.yml" "$S_ENA_ONE_BAKE" 2>&1 >/dev/null)"; then
+    S_ENA_V=accept
+  else
+    case "$S_ENA_ERR" in
+      *"claude.plugins.enabled['a@mp'] must be true or false"*) S_ENA_V=reject ;;
+      *) S_ENA_V="$S_ENA_ERR" ;;
+    esac
+  fi
+  assert_eq "enabled-validate: quoted $S_ENA_Q value aborts naming the entry (reject)" "reject" "$S_ENA_V"
+done
+
 # ---------------------------------------------------------------------
 # Test 16: claude.permission_mode enum guard (issue #104).
 #
-# The launcher (claude-vm.sh) accepts ONLY bypassPermissions | default for
+# The launcher accepts ONLY the modes the key table lists for
 # claude.permission_mode and aborts on anything else -- it is a security-posture
-# value and there is no reasoning model for an unknown defaultMode. The guard is
-# a bare case in claude-vm.sh (not a lib function), so exercise the same case
-# logic here against representative values.
+# value and there is no reasoning model for an unknown defaultMode. Exercise the
+# check the launcher runs against representative values.
 # ---------------------------------------------------------------------
 _permission_mode_ok() {
-  case "$1" in
-    bypassPermissions | default) return 0 ;;
-    *) return 1 ;;
-  esac
+  claude_vm_check_typed_value claude.permission_mode \
+    "$(claude_vm_config_key_type claude.permission_mode)" '!!str' "$1" 2>/dev/null
 }
 if _permission_mode_ok "bypassPermissions"; then
   assert_eq "permission-mode: bypassPermissions accepted" "accept" "accept"
@@ -1310,6 +1361,8 @@ fi
 # ---------------------------------------------------------------------
 PODMAN_MKOSI="$TEST_DIR/../provisioners/podman-mkosi.sh"
 RAS_START="$(grep -n '^render_apt_source() {' "$PODMAN_MKOSI" | head -1 | cut -d: -f1)"
+# Ends on the first column-0 `}` after the definition, the function's own
+# closing brace, so the slice is the whole function and nothing after it.
 RAS_END="$(awk -v start="$RAS_START" 'NR > start && /^}/ { print NR; exit }' "$PODMAN_MKOSI")"
 RAS_SRC="$WORK/render_apt_source.sh"
 if [ -n "$RAS_START" ] && [ -n "$RAS_END" ]; then
@@ -1440,8 +1493,8 @@ printf '{}\n' >"$DE_HOSTS_EMPTY"
 assert_eq "apt_source_hosts: no apt_sources in either tier -> empty" \
   "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY" "$DE_HOSTS_EMPTY")"
 
-assert_eq "CLAUDE_VM_DEBIAN_MIRROR_HOSTS: pins the two Debian mirror hosts" \
-  "deb.debian.org security.debian.org" "$CLAUDE_VM_DEBIAN_MIRROR_HOSTS"
+assert_eq "claude_vm_debian_mirror_hosts: pins the two Debian mirror hosts" \
+  "deb.debian.org security.debian.org" "$(claude_vm_debian_mirror_hosts)"
 
 # ---------------------------------------------------------------------
 # Test 22: render_apt_source_boot name validation (issue #106).
@@ -1465,6 +1518,7 @@ assert_eq "CLAUDE_VM_DEBIAN_MIRROR_HOSTS: pins the two Debian mirror hosts" \
 # ---------------------------------------------------------------------
 BUILD_GUEST_IMAGE="$TEST_DIR/../build-guest-image.sh"
 RASB_START="$(grep -n '^render_apt_source_boot() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+# Ends on the function's own closing brace, the first column-0 `}` after it.
 RASB_END="$(awk -v start="$RASB_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 RASB_SRC="$WORK/render_apt_source_boot.sh"
 if [ -n "$RASB_START" ] && [ -n "$RASB_END" ]; then
@@ -1671,6 +1725,7 @@ fi
 # update_at_boot didn't already provide one.
 # ---------------------------------------------------------------------
 BAP_START="$(grep -n '^boot_apt_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+# Ends on the function's own closing brace, the first column-0 `}` after it.
 BAP_END="$(awk -v start="$BAP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 BAP_SRC="$WORK/boot_apt_phase.sh"
 if [ -n "$BAP_START" ] && [ -n "$BAP_END" ]; then
@@ -1901,8 +1956,8 @@ REG_BOOT_G="$WORK/reg-boot-g.yml"
 printf 'update_at_boot: false\nadd_apt_uris_to_allowlist: auto\n' >"$REG_BOOT_G"
 REG_BOOT="$WORK/reg-boot.yml"
 claude_vm_merge_config "$REG_BOOT_G" "$WORK/does-not-exist.yml" >"$REG_BOOT"
-assert_eq "regression: boot-file update_at_boot: false reaches the boolean resolver" \
-  "false" "$(claude_vm_bool_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+assert_eq "regression: boot-file update_at_boot: false reaches claude_vm_scalar" \
+  "false" "$(claude_vm_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 assert_eq "regression: boot-file add_apt_uris_to_allowlist reaches the resolver" \
   "auto" "$(claude_vm_scalar "$REG_BOOT" '.add_apt_uris_to_allowlist' 'X')"
 if ! claude_vm_boot_apt_egress_needed "$REG_BOOT"; then
@@ -2442,6 +2497,9 @@ assert_eq "render: no marketplaces -> empty extraKnownMarketplaces object" \
 #                                  failed plugin must never brick the session)
 # ---------------------------------------------------------------------
 BPP_START="$(grep -n '^plugin_marketplace_registered() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+# Starts at the helper the phase calls and ends on boot_plugin_phase's own
+# closing brace, the first column-0 `}` after its definition, so the helper is
+# defined in the slice and nothing past the phase is.
 BPP_END="$(grep -n '^boot_plugin_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
 if [ -n "$BPP_END" ]; then
   BPP_END="$(awk -v start="$BPP_END" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
@@ -2580,6 +2638,7 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
     assert_eq "boot_plugin_phase: a failing CLI is fail-soft (phase still succeeds)" "soft" "hard"
   fi
   CLAUDE_STUB_EXIT=0
+  export -n CLAUDE_BIN
 else
   echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; plugin-phase tests skipped." >&2
 fi
@@ -2608,6 +2667,9 @@ MNT_START=""
 MNT_END=""
 if [ -f "$LAUNCHER" ]; then
   MNT_START="$(grep -n '^EXTRA_MOUNT_FLAGS=()$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  # The slice ends on the loop's own `done < <(claude_vm_mount_specs ...)`
+  # line, which closes the `while` and names the emitter feeding it, so the
+  # sliced loop parses whole and reads the real emitter's records.
   MNT_END="$(awk -v start="${MNT_START:-0}" 'NR >= start && /^done < <\(claude_vm_mount_specs/ { print NR; exit }' "$LAUNCHER")"
 fi
 if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
@@ -2898,7 +2960,11 @@ GATE_START=""
 GATE_END=""
 if [ -f "$LAUNCHER" ]; then
   GATE_START="$(grep -nF "MERGED_BAKE=\"\$(claude_vm_mktemp claude-vm-merged-bake)\"" "$LAUNCHER" | head -1 | cut -d: -f1)"
-  # The slice ends on the `}` closing the brace group that prints this abort.
+  # The slice must end on the `}` that closes the abort block holding this
+  # message, not on the message line itself. The launcher writes each gate's
+  # `|| { echo ...; exit 1; }` across separate lines, so a slice ending on the
+  # echo would leave that brace group open and the sliced script would not
+  # parse; the `exit 1` it closes over is part of what the cases below run.
   GATE_END="$(awk 'index($0, "aborting -- move the misplaced claude.plugins key(s)") { found = 1 } found && /^  }$/ { print NR; exit }' "$LAUNCHER")"
 fi
 if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
@@ -3794,7 +3860,9 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   printf '\texample.invalid\n' >"$PLUGIN_MARKETPLACES_TSV"
   PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"
   : >"$PLUGIN_INSTALL_LIST"
-  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
+  # Exported only so a static reader sees the sourced phase consume it; the
+  # export is dropped again at the end of this test.
+  export CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
   (boot_plugin_phase >/dev/null 2>&1 || true)
   assert_eq "boot_plugin_phase: a nameless record makes no CLI call at all" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
@@ -3842,12 +3910,13 @@ STUBS
   )
   assert_eq "boot_plugin_phase: NEGATIVE CONTROL -- the old read queries the registry for a marketplace named after the url" \
     "1" "$(grep -c '^plugin marketplace list$' "$CLAUDE_CALL_LOG" || true)"
+  export -n CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT
 else
   echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; guest-side two-field tests skipped." >&2
 fi
 
 # ---------------------------------------------------------------------
-# Test 33: the guest boot launcher's boot_mount_phase (issue #157).
+# Test 35: the guest boot launcher's boot_mount_phase.
 #
 # The GUEST half of `mounts:`. Extracted from the <<'BOOT' heredoc in
 # build-guest-image.sh by line range, the same way boot_apt_phase (Test 23) and
@@ -3884,6 +3953,8 @@ fi
 BMP_START="$(grep -n '^boot_dir_is_nonempty() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
 BMP_PHASE_START="$(grep -n '^boot_mount_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
 if [ -n "$BMP_START" ] && [ -n "$BMP_PHASE_START" ]; then
+  # Ends on boot_mount_phase's own closing brace, the first column-0 `}` after
+  # its definition, for the reason above.
   BMP_END="$(awk -v start="$BMP_PHASE_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 fi
 if [ -n "${BMP_START:-}" ] && [ -n "${BMP_END:-}" ]; then
@@ -4170,6 +4241,7 @@ STUBS
     "-t virtiofs -o rw cfg gitconfig" "$(sed -n 1p "$MOUNT_CALL_LOG")"
   assert_eq "boot_mount_phase: NEGATIVE CONTROL -- and the single-file bind never happens" \
     "1" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+  export -n MOUNT_STUB_EXIT
 else
   echo "SKIP: boot_mount_phase extraction from build-guest-image.sh failed; guest-side mount tests skipped." >&2
 fi
@@ -4859,6 +4931,773 @@ SH
       f' >/dev/null 2>&1; then OB_NC=lived; else OB_NC=died; fi
   assert_eq "render: NEGATIVE CONTROL -- the 'local -A' spelling really does die on an old bash" \
     "died" "$OB_NC"
+fi
+
+# ---------------------------------------------------------------------
+# Test 37: update_at_boot and claude.plugins.update_at_boot abort the launch
+# unless boolean.
+#
+# Both values are written unquoted into run.env, which the guest sources under
+# `set -a`, so the launcher must reject anything but true/false before run.env
+# exists. Driven through the REAL claude-vm.sh, in this suite's own shell, with
+# every config path and the state root pointed into $WORK. Each config also
+# sets github.auth to a value its type rejects: claude_vm_check_scalars checks
+# its key-table rows in table order and stops at the first refusal,
+# github.auth is the last row it checks, and the check runs before anything is
+# built or written, so a run whose other values all pass stops there, and its
+# diagnostic is what shows they were accepted.
+# ---------------------------------------------------------------------
+UAB="$WORK/uab"
+mkdir -p "$UAB/repo" "$UAB/gconfig" "$UAB/state"
+UAB_BACKSTOP="github.auth must be one of none|host-token, got 'uab-backstop'"
+
+# run_uab <global-boot> <repo-boot> [<global-bake> <repo-bake>] -- run the
+# launcher over the two boot files, and the two bake files when given (absent
+# otherwise), and print "<rc>|<stderr, one line>".
+run_uab() {
+  local out rc
+  out="$(cd "$UAB/repo" && TMPDIR="$WORK" \
+    CLAUDE_VM_GLOBAL_CONFIG_DIR="$UAB/gconfig" \
+    CLAUDE_VM_GLOBAL_BAKE_CONFIG="${3:-$UAB/absent-bake.yml}" \
+    CLAUDE_VM_GLOBAL_BOOT_CONFIG="$1" \
+    CLAUDE_VM_GLOBAL_LEGACY_CONFIG="$UAB/absent-legacy.yml" \
+    CLAUDE_VM_REPO_BAKE_CONFIG="${4:-$UAB/absent-bake.yml}" \
+    CLAUDE_VM_REPO_BOOT_CONFIG="$2" \
+    CLAUDE_VM_REPO_LEGACY_CONFIG="$UAB/absent-legacy.yml" \
+    CLAUDE_VM_STATE_DIR="$UAB/state" \
+    CLAUDE_VM_RUNS_DIR="$UAB/state/runs" \
+    "$BASH" "$TEST_DIR/../claude-vm.sh" "$UAB/repo" 2>&1 >/dev/null)"
+  rc=$?
+  printf '%s|%s\n' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+
+# uab_verdict <run_uab output> <diagnostic> -- "aborted" when the run failed
+# with <diagnostic> and never reached the backstop, "passed" when it reached
+# the backstop, and the raw output otherwise.
+uab_verdict() {
+  case "$1" in
+    0\|*) printf '%s\n' "$1" ;;
+    *"$UAB_BACKSTOP"*) echo passed ;;
+    *"$2"*) echo aborted ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# uab_case <label> <expected> <diagnostic> <global-boot-yaml> <repo-boot-yaml>
+# -- write the two boot files (an empty yaml argument leaves that file
+# absent), run the launcher, and assert the verdict and that no run.env was
+# written anywhere under the state root.
+uab_case() {
+  local label="$1" expected="$2" diag="$3" g="$UAB/absent-g.yml" r="$UAB/absent-r.yml" got
+  rm -f "$UAB/g.yml" "$UAB/r.yml"
+  if [ -n "$4" ]; then
+    printf '%s' "$4" >"$UAB/g.yml"
+    g="$UAB/g.yml"
+  fi
+  if [ -n "$5" ]; then
+    printf '%s' "$5" >"$UAB/r.yml"
+    r="$UAB/r.yml"
+  fi
+  got="$(run_uab "$g" "$r")"
+  assert_eq "update_at_boot gate: $label" "$expected" "$(uab_verdict "$got" "$diag")"
+  assert_eq "update_at_boot gate: $label -- no run.env written" \
+    "" "$(find "$UAB/state" -name run.env 2>/dev/null)"
+}
+
+UAB_TAIL='github:
+  auth: uab-backstop
+'
+uab_case "a non-boolean update_at_boot aborts" aborted \
+  "update_at_boot must be true or false, got 'maybe'" \
+  "" "update_at_boot: maybe
+$UAB_TAIL"
+uab_case "a list-valued update_at_boot aborts" aborted \
+  "update_at_boot must be true or false, got '[]'" \
+  "" "update_at_boot: []
+$UAB_TAIL"
+uab_case "a non-boolean update_at_boot in a global-only config aborts" aborted \
+  "update_at_boot must be true or false, got 'yes'" \
+  "update_at_boot: \"yes\"
+$UAB_TAIL" ""
+uab_case "a quoted \"false\" update_at_boot aborts" aborted \
+  "update_at_boot must be true or false, got 'false', which is quoted and so a string" \
+  "" "update_at_boot: \"false\"
+$UAB_TAIL"
+uab_case "a non-boolean claude.plugins.update_at_boot aborts" aborted \
+  "claude.plugins.update_at_boot must be true or false, got '1'" \
+  "" "claude:
+  plugins:
+    update_at_boot: 1
+$UAB_TAIL"
+# The passing side: both booleans, `""`, and a valueless key reach the
+# backstop. A valueless key reaches a global-only merge as `''` and a repo
+# merge as null; both resolve to the default rather than aborting.
+uab_case "boolean values pass" passed "" \
+  "" "update_at_boot: false
+claude:
+  plugins:
+    update_at_boot: true
+$UAB_TAIL"
+uab_case "an empty-string update_at_boot reads as unset and passes" passed "" \
+  "" "update_at_boot: \"\"
+$UAB_TAIL"
+uab_case "a valueless update_at_boot in a global-only config passes" passed "" \
+  "update_at_boot:
+$UAB_TAIL" ""
+uab_case "a valueless claude.plugins.update_at_boot in a repo config passes" passed "" \
+  "" "claude:
+  plugins:
+    update_at_boot:
+$UAB_TAIL"
+
+# ---------------------------------------------------------------------
+# Test 38: the launcher aborts on a scalar of the wrong key-table type.
+#
+# Driven through the REAL claude-vm.sh with run_uab, so each case shows the
+# check runs over the raw files before the value is used. `false` is a value,
+# not an absent key, so it must reach the check rather than resolve to the
+# key's default: claude.permission_mode: false would otherwise run under
+# bypassPermissions, and proxy.cmd: false would run `false` as the proxy. An
+# empty map is a value too, and the merge prunes it, so `{}` cases are driven
+# in each tier of both file types. A case whose value passes reaches the
+# uab-backstop diagnostic.
+# ---------------------------------------------------------------------
+
+# gate_case <label> <expected> <diagnostic> <repo-boot-yaml> -- write the repo
+# boot file, run the launcher with no global boot file, and assert the verdict.
+gate_case() {
+  local label="$1" expected="$2" diag="$3" got
+  rm -f "$UAB/r.yml"
+  printf '%s' "$4" >"$UAB/r.yml"
+  got="$(run_uab "$UAB/absent-g.yml" "$UAB/r.yml")"
+  assert_eq "scalar gate: $label" "$expected" "$(uab_verdict "$got" "$diag")"
+}
+
+# gate_tier_case <label> <diagnostic> <file-type> <tier> <yaml> -- write <yaml>
+# as the <tier> (global or repo) file of <file-type> (bake or boot), with
+# UAB_TAIL as the repo boot file whenever that is not the one written, run the
+# launcher, and assert it aborted with <diagnostic>.
+gate_tier_case() {
+  local label="$1" diag="$2" gb="$UAB/absent-g.yml" rb="$UAB/r.yml" gk="" rk="" got
+  rm -f "$UAB/g.yml" "$UAB/r.yml" "$UAB/gk.yml" "$UAB/rk.yml"
+  printf '%s' "$UAB_TAIL" >"$UAB/r.yml"
+  case "$3:$4" in
+    boot:global)
+      printf '%s' "$5" >"$UAB/g.yml"
+      gb="$UAB/g.yml"
+      ;;
+    boot:repo) printf '%s%s' "$5" "$UAB_TAIL" >"$UAB/r.yml" ;;
+    bake:global)
+      printf '%s' "$5" >"$UAB/gk.yml"
+      gk="$UAB/gk.yml"
+      ;;
+    bake:repo)
+      printf '%s' "$5" >"$UAB/rk.yml"
+      rk="$UAB/rk.yml"
+      ;;
+  esac
+  got="$(run_uab "$gb" "$rb" "$gk" "$rk")"
+  assert_eq "scalar gate: $label ($3, $4)" aborted "$(uab_verdict "$got" "$2")"
+}
+for gt_tier in global repo; do
+  gate_tier_case "claude.renderer: {} aborts" \
+    "claude.renderer must be one of classic|fullscreen, got '{}'" boot "$gt_tier" \
+    "claude:
+  renderer: {}
+"
+  gate_tier_case "claude.remote_control: {} aborts" \
+    "claude.remote_control must be true or false, got '{}'" boot "$gt_tier" \
+    "claude:
+  remote_control: {}
+"
+  gate_tier_case "proxy.port: {} aborts" \
+    "proxy.port must be an integer, got '{}'" boot "$gt_tier" \
+    "proxy:
+  port: {}
+"
+  gate_tier_case "mem: {} aborts" \
+    "mem must be an integer, got '{}'" boot "$gt_tier" \
+    "mem: {}
+"
+  gate_tier_case "proxy.cmd: {} aborts" \
+    "proxy.cmd must be a string, got '{}'" boot "$gt_tier" \
+    "proxy:
+  cmd: {}
+"
+  gate_tier_case "guest_image: {} aborts" \
+    "guest_image must be a path, got '{}'" boot "$gt_tier" \
+    "guest_image: {}
+"
+  gate_tier_case "repo.mount: {} aborts" \
+    "repo.mount must be one of clone|live, got '{}'" boot "$gt_tier" \
+    "repo:
+  mount: {}
+"
+  gate_tier_case "image.root_headroom_mb: {} aborts" \
+    "image.root_headroom_mb must be an integer, got '{}'" bake "$gt_tier" \
+    "image:
+  root_headroom_mb: {}
+"
+done
+gate_case "claude.permission_mode: false aborts" aborted \
+  "claude.permission_mode must be one of bypassPermissions|default, got 'false'" \
+  "claude:
+  permission_mode: false
+"
+gate_case "claude.renderer: false aborts" aborted \
+  "claude.renderer must be one of classic|fullscreen, got 'false'" \
+  "claude:
+  renderer: false
+$UAB_TAIL"
+gate_case "claude.renderer: classic passes" passed "" \
+  "claude:
+  renderer: classic
+$UAB_TAIL"
+gate_case "claude.renderer: both alternatives joined aborts" aborted \
+  "claude.renderer must be one of classic|fullscreen, got 'classic|fullscreen', which joins several" \
+  "claude:
+  renderer: classic|fullscreen
+$UAB_TAIL"
+gate_case "repo.copy_back: an unlisted value aborts" aborted \
+  "repo.copy_back must be one of local|none, got 'remote'" \
+  "repo:
+  copy_back: remote
+$UAB_TAIL"
+gate_case "claude.remote_control: a quoted \"true\" aborts" aborted \
+  "claude.remote_control must be true or false, got 'true', which is quoted and so a string" \
+  "claude:
+  remote_control: \"true\"
+$UAB_TAIL"
+gate_case "claude.remote_control: true passes" passed "" \
+  "claude:
+  remote_control: true
+$UAB_TAIL"
+gate_case "proxy.cmd: false aborts" aborted \
+  "proxy.cmd must be a string, got 'false', which is a YAML boolean; quote it to mean the string" \
+  "proxy:
+  cmd: false
+$UAB_TAIL"
+gate_case "proxy.host_alias: false aborts" aborted \
+  "proxy.host_alias must be a string, got 'false', which is a YAML boolean" \
+  "proxy:
+  host_alias: false
+$UAB_TAIL"
+gate_case "guest_image: false aborts" aborted \
+  "guest_image must be a path, got 'false', which is a YAML boolean" \
+  "guest_image: false
+$UAB_TAIL"
+gate_case "cpus: a non-integer aborts" aborted \
+  "cpus must be an integer, got 'many'" \
+  "cpus: many
+$UAB_TAIL"
+gate_case "a string, a path and an integer of their types pass" passed "" \
+  "cpus: 2
+guest_image: /tmp/x.raw
+proxy:
+  host_alias: 192.168.127.254
+$UAB_TAIL"
+
+# ---------------------------------------------------------------------
+# Test 39: claude_vm_check_scalars over every key it checks.
+#
+# For each key-table row of shape `scalar` and a type that is not a map, a
+# value of the row's type passes, unset passes, and each wrong value for the
+# type aborts naming the key; an enumeration value is compared against each
+# alternative whole, so one joining several with `|` aborts, and a value holding
+# a newline aborts wherever the newline sits, a trailing one included. The rows
+# are read off the key table, so a new row is covered by gaining it. A
+# `map(bool)` row has each of its values checked the same way, a map or list
+# value included, since @tsv cannot render one and the merge prunes `{}`.
+# ---------------------------------------------------------------------
+
+# nest_yaml <dotted-key> <yaml-value> -- print a document setting the key.
+nest_yaml() {
+  local key="$1" indent="" part
+  while :; do
+    part="${key%%.*}"
+    if [ "$part" = "$key" ]; then
+      printf '%s%s: %s\n' "$indent" "$part" "$2"
+      return 0
+    fi
+    printf '%s%s:\n' "$indent" "$part"
+    indent="$indent  "
+    key="${key#*.}"
+  done
+}
+
+# scalar_case <key> <file-type> <yaml-value> <expected> -- run
+# claude_vm_check_scalars with the key set to the value in a file of its file
+# type, once as the global file and once as the repo file, the other three
+# files absent, and assert "pass", or "abort" with a diagnostic naming the key,
+# for each.
+scalar_case() {
+  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err tier
+  nest_yaml "$key" "$val" >"$doc"
+  for tier in global repo; do
+    case "$file:$tier" in
+      bake:global) err="$(claude_vm_check_scalars "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
+      bake:repo) err="$(claude_vm_check_scalars "" "$doc" "" "" 2>&1)" && got=pass || got=abort ;;
+      *:global) err="$(claude_vm_check_scalars "" "" "$doc" "" 2>&1)" && got=pass || got=abort ;;
+      *:repo) err="$(claude_vm_check_scalars "" "" "" "$doc" 2>&1)" && got=pass || got=abort ;;
+    esac
+    if [ "$got" = abort ]; then
+      case "$err" in
+        "claude-vm: $key must be "* | "claude-vm: ${key}['"*"'] must be "*) : ;;
+        *) got="abort without naming the key: $err" ;;
+      esac
+    fi
+    assert_eq "check_scalars: $key: $val ($tier) -> $want" "$want" "$got"
+  done
+}
+
+SC_ROWS="$(claude_vm_config_keys)"
+SC_TAB=$'\t'
+while IFS= read -r sc_row; do
+  sc_key=${sc_row%%"$SC_TAB"*}
+  sc_rest=${sc_row#*"$SC_TAB"}
+  sc_file=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_type=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_shape=${sc_rest%%"$SC_TAB"*}
+  [ "$sc_shape" = scalar ] || continue
+  case "$sc_type" in
+    map\(*) continue ;;
+  esac
+  scalar_case "$sc_key" "$sc_file" '""' pass
+  scalar_case "$sc_key" "$sc_file" '' pass
+  scalar_case "$sc_key" "$sc_file" '[]' abort
+  scalar_case "$sc_key" "$sc_file" '{}' abort
+  scalar_case "$sc_key" "$sc_file" '{a: 1}' abort
+  scalar_case "$sc_key" "$sc_file" '"a\nb"' abort
+  case "$sc_type" in
+    bool)
+      scalar_case "$sc_key" "$sc_file" true pass
+      scalar_case "$sc_key" "$sc_file" false pass
+      scalar_case "$sc_key" "$sc_file" '"true"' abort
+      scalar_case "$sc_key" "$sc_file" '"false"' abort
+      scalar_case "$sc_key" "$sc_file" True abort
+      scalar_case "$sc_key" "$sc_file" 1 abort
+      ;;
+    int)
+      scalar_case "$sc_key" "$sc_file" 8 pass
+      scalar_case "$sc_key" "$sc_file" '"8"' abort
+      scalar_case "$sc_key" "$sc_file" -1 abort
+      scalar_case "$sc_key" "$sc_file" 0x10 abort
+      scalar_case "$sc_key" "$sc_file" false abort
+      ;;
+    string | path)
+      scalar_case "$sc_key" "$sc_file" some-value pass
+      scalar_case "$sc_key" "$sc_file" 2 pass
+      scalar_case "$sc_key" "$sc_file" '"false"' pass
+      scalar_case "$sc_key" "$sc_file" false abort
+      scalar_case "$sc_key" "$sc_file" true abort
+      scalar_case "$sc_key" "$sc_file" '"some-value\n"' abort
+      ;;
+    *\|*)
+      scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}" pass
+      scalar_case "$sc_key" "$sc_file" "${sc_type##*|}" pass
+      scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\"" pass
+      scalar_case "$sc_key" "$sc_file" not-listed abort
+      scalar_case "$sc_key" "$sc_file" false abort
+      scalar_case "$sc_key" "$sc_file" "$sc_type" abort
+      scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}|" abort
+      scalar_case "$sc_key" "$sc_file" "\"|${sc_type##*|}\"" abort
+      scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}x" abort
+      scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\\n\"" abort
+      scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\\n\\n\"" abort
+      ;;
+    *) assert_eq "check_scalars: $sc_key has a type this test covers" "covered" "$sc_type" ;;
+  esac
+done <<EOF
+$SC_ROWS
+EOF
+
+# A `map(bool)` row: the map itself must be a map, and each value a bool.
+# claude.plugins.enabled is the table's one such row.
+while IFS= read -r sc_row; do
+  sc_key=${sc_row%%"$SC_TAB"*}
+  sc_rest=${sc_row#*"$SC_TAB"}
+  sc_file=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_type=${sc_rest%%"$SC_TAB"*}
+  sc_rest=${sc_rest#*"$SC_TAB"}
+  sc_shape=${sc_rest%%"$SC_TAB"*}
+  [ "$sc_shape:$sc_type" = 'scalar:map(bool)' ] || continue
+  scalar_case "$sc_key" "$sc_file" '' pass
+  scalar_case "$sc_key" "$sc_file" '{}' pass
+  scalar_case "$sc_key" "$sc_file" '{a@mp: true, b@mp: false}' pass
+  scalar_case "$sc_key" "$sc_file" '[a@mp]' abort
+  scalar_case "$sc_key" "$sc_file" true abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: "true"}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: 1}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: }' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: [true]}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: {x: 1}}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: {}}' abort
+  scalar_case "$sc_key" "$sc_file" '{a@mp: true, b@mp: {}}' abort
+done <<EOF
+$SC_ROWS
+EOF
+
+# A yq read that fails aborts the check rather than reading as unset: an alias
+# naming no anchor makes the file unreadable.
+printf 'cpus: *nowhere\n' >"$WORK/sc-badalias.yml"
+if claude_vm_check_scalars "" "" "$WORK/sc-badalias.yml" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_scalars: an alias naming no anchor aborts" abort "$sc_v"
+
+# An alias the check is handed directly is not taken for an unset key: a
+# scalar and a map(bool) map written as an alias each abort naming the key.
+printf 'anchored: &a 4\ncpus: *a\n' >"$WORK/sc-alias.yml"
+printf 'anchored: &a {a@mp: true}\nclaude:\n  plugins:\n    enabled: *a\n' >"$WORK/sc-alias-map.yml"
+for sc_pair in "cpus:$WORK/sc-alias.yml" "claude.plugins.enabled:$WORK/sc-alias-map.yml"; do
+  sc_err="$(claude_vm_check_scalars "" "" "${sc_pair#*:}" "" 2>&1)" && sc_v=pass || sc_v=abort
+  case "$sc_v:$sc_err" in
+    "abort:claude-vm: ${sc_pair%%:*} in ${sc_pair#*:} is a YAML alias"*) sc_v=named ;;
+  esac
+  assert_eq "check_scalars: an aliased ${sc_pair%%:*} aborts naming the key" named "$sc_v"
+done
+
+# A key under a parent that is not a map is untagged too, and is not called an
+# alias: the diagnostic names the parent.
+printf 'repo: 5\n' >"$WORK/sc-scalar-parent.yml"
+printf 'claude:\n  plugins: true\n' >"$WORK/sc-scalar-grandparent.yml"
+for sc_pair in "repo.mount:$WORK/sc-scalar-parent.yml:repo is a !!int, not a map" \
+  "claude.plugins.update_at_boot:$WORK/sc-scalar-grandparent.yml:claude.plugins is a !!bool, not a map" \
+  "claude.plugins.enabled:$WORK/sc-scalar-grandparent.yml:claude.plugins is a !!bool, not a map"; do
+  sc_k=${sc_pair%%:*}
+  sc_rest=${sc_pair#*:}
+  sc_f=${sc_rest%%:*}
+  sc_why=${sc_rest#*:}
+  if [ "$sc_k" = claude.plugins.enabled ]; then
+    sc_err="$(claude_vm_check_map_values "$sc_f" "$sc_k" 2>&1)" && sc_v=pass || sc_v=abort
+  else
+    sc_err="$(claude_vm_check_scalar "$sc_f" "$sc_k" 2>&1)" && sc_v=pass || sc_v=abort
+  fi
+  case "$sc_v:$sc_err" in
+    "abort:claude-vm: $sc_k in $sc_f cannot be read: $sc_why") sc_v=named ;;
+    *) sc_v="$sc_v:$sc_err" ;;
+  esac
+  assert_eq "check_scalar: $sc_k under a non-map parent aborts naming the parent" named "$sc_v"
+done
+
+# A block scalar ends in a newline yq keeps, and the check sees it.
+printf 'claude:\n  renderer: |\n    classic\n' >"$WORK/sc-block.yml"
+sc_err="$(claude_vm_check_scalar "$WORK/sc-block.yml" claude.renderer 2>&1)" && sc_v=pass || sc_v=abort
+case "$sc_v:$sc_err" in
+  "abort:claude-vm: claude.renderer must be one line, got \$'classic\\n', which holds a newline") sc_v=named ;;
+  *) sc_v="$sc_v:$sc_err" ;;
+esac
+assert_eq "check_scalar: a block-scalar enum value ending in a newline aborts" named "$sc_v"
+
+# NEGATIVE CONTROL: a `$(...)` capture of the same read strips the newline, so
+# a check fed from one would see the clean alternative.
+assert_eq "check_scalar: NEGATIVE CONTROL -- a \$(...) capture reads the block scalar as clean" \
+  classic "$(yq eval '.claude.renderer' "$WORK/sc-block.yml")"
+
+# The render reads each value by its tag, so a map value that reached it would
+# abort naming the ref rather than fail inside @tsv.
+printf 'claude:\n  plugins:\n    install_at_boot: [a@mp]\n    enabled:\n      a@mp: {x: 1}\n' >"$WORK/sc-render-map.yml"
+if sc_err="$(claude_vm_render_guest_settings "$WORK/sc-render-map.yml" "" 2>&1 >/dev/null)"; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "render: a map claude.plugins.enabled value aborts" abort "$sc_v"
+case "$sc_err" in
+  *"claude.plugins.enabled['a@mp'] must be true or false"*) sc_v=named ;;
+  *) sc_v="$sc_err" ;;
+esac
+assert_eq "render: the map-value abort names the ref" named "$sc_v"
+
+# NEGATIVE CONTROL: the check must read the raw files, because the merge
+# prunes an empty map. A `{}` scalar run through the real merge, in either
+# layer, reaches the check absent and passes, while the same file read raw
+# aborts (above).
+printf 'claude:\n  renderer: {}\n' >"$WORK/sc-emptymap.yml"
+claude_vm_merge_config "$WORK/sc-emptymap.yml" "" >"$WORK/sc-emptymap-g.merged.yml"
+claude_vm_merge_config "" "$WORK/sc-emptymap.yml" >"$WORK/sc-emptymap-r.merged.yml"
+for sc_merged in "$WORK/sc-emptymap-g.merged.yml" "$WORK/sc-emptymap-r.merged.yml"; do
+  if claude_vm_check_scalars "" "" "" "$sc_merged" 2>/dev/null; then
+    sc_v=pass
+  else
+    sc_v=abort
+  fi
+  assert_eq "check_scalars: NEGATIVE CONTROL -- a {} scalar does not survive the merge ($(basename "$sc_merged"))" \
+    pass "$sc_v"
+done
+
+# ---------------------------------------------------------------------
+# Test 40: claude_vm_check_no_aliases refuses a YAML alias in any position.
+#
+# An alias as a scalar value, a map value, a list entry, a map key and a `<<`
+# merge each aborts naming the file, in whichever of the four argument slots
+# the file sits; an anchor nothing refers to, a quoted "*x" and a file with no
+# alias pass, as do an empty path and one naming no file. Driven through the
+# real claude-vm.sh with run_uab (Test 37), an alias in each tier of both file
+# types aborts the launch naming that file. The negative controls show why the
+# refusal comes first: the placement gates' `has()` reads past an alias, so a
+# misplaced sub-key reached through one is not seen.
+# ---------------------------------------------------------------------
+
+# alias_case <label> <yaml> <expected> -- write <yaml> to a file, run
+# claude_vm_check_no_aliases with it in each argument slot, the other three
+# empty, and assert "pass", or "abort" with a diagnostic naming the file.
+alias_case() {
+  local doc="$WORK/alias-case.yml" slot got err
+  printf '%s\n' "$2" >"$doc"
+  for slot in 1 2 3 4; do
+    case "$slot" in
+      1) err="$(claude_vm_check_no_aliases "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
+      2) err="$(claude_vm_check_no_aliases "" "$doc" "" "" 2>&1)" && got=pass || got=abort ;;
+      3) err="$(claude_vm_check_no_aliases "" "" "$doc" "" 2>&1)" && got=pass || got=abort ;;
+      4) err="$(claude_vm_check_no_aliases "" "" "" "$doc" 2>&1)" && got=pass || got=abort ;;
+    esac
+    if [ "$got" = abort ]; then
+      case "$err" in
+        "claude-vm: $doc uses a YAML alias"*) : ;;
+        *) got="abort without naming the file: $err" ;;
+      esac
+    fi
+    assert_eq "check_no_aliases: $1 (slot $slot) -> $3" "$3" "$got"
+  done
+}
+
+alias_case "a scalar value" 'anchored: &a 4
+cpus: *a' abort
+alias_case "a map value under claude.plugins" 'p: &p {bake: [a@mp]}
+claude: {plugins: *p}' abort
+alias_case "a list entry" 'h: &h example.com
+egress: {allow: [*h]}' abort
+alias_case "a map key" 'k: &k cpus
+*k : 4' abort
+alias_case "a << merge" 'base: &b {cpus: 2}
+proxy:
+  <<: *b
+  port: 3128' abort
+alias_case "an enabled value" 'f: &f false
+claude: {plugins: {enabled: {a@mp: *f}}}' abort
+alias_case "an anchor nothing refers to" 'cpus: &a 4' pass
+alias_case "a quoted *x" 'proxy: {cmd: "*x"}' pass
+alias_case "no alias" 'cpus: 4
+claude: {plugins: {install_at_boot: [a@mp], enabled: {a@mp: false}}}' pass
+alias_case "an empty file" '' pass
+
+if claude_vm_check_no_aliases "" "$WORK/does-not-exist.yml" "" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_no_aliases: an empty path and an absent file are skipped" pass "$sc_v"
+
+printf 'cpus: *nowhere\n' >"$WORK/alias-dangling.yml"
+sc_err="$(claude_vm_check_no_aliases "$WORK/alias-dangling.yml" 2>&1)" && sc_v=pass || sc_v=abort
+assert_eq "check_no_aliases: an alias naming no anchor aborts" abort "$sc_v"
+case "$sc_err" in
+  "claude-vm: could not read $WORK/alias-dangling.yml"*) sc_v=named ;;
+  *) sc_v="$sc_err" ;;
+esac
+assert_eq "check_no_aliases: the unreadable-file abort names the file" named "$sc_v"
+
+# Through the launcher: each file carries a claude.plugins sub-key that its
+# file type never reads, reached through an alias -- the shape the placement
+# gate's `has()` misses (the negative controls below).
+for al_slot in global-boot repo-boot global-bake repo-bake; do
+  rm -f "$UAB/g.yml" "$UAB/r.yml" "$UAB/gk.yml" "$UAB/rk.yml"
+  printf '%s' "$UAB_TAIL" >"$UAB/r.yml"
+  al_gb="$UAB/absent-g.yml" al_gk="" al_rk=""
+  case "$al_slot" in
+    global-boot)
+      printf 'p: &p {bake: [a@mp]}\nclaude: {plugins: *p}\n' >"$UAB/g.yml"
+      al_gb="$UAB/g.yml" al_file="$UAB/g.yml"
+      ;;
+    repo-boot)
+      printf 'p: &p {bake: [a@mp]}\nclaude: {plugins: *p}\n%s' "$UAB_TAIL" >"$UAB/r.yml"
+      al_file="$UAB/r.yml"
+      ;;
+    global-bake)
+      printf 'p: &p {install_at_boot: [a@mp]}\nclaude: {plugins: *p}\n' >"$UAB/gk.yml"
+      al_gk="$UAB/gk.yml" al_file="$UAB/gk.yml"
+      ;;
+    repo-bake)
+      printf 'p: &p {install_at_boot: [a@mp]}\nclaude: {plugins: *p}\n' >"$UAB/rk.yml"
+      al_rk="$UAB/rk.yml" al_file="$UAB/rk.yml"
+      ;;
+  esac
+  al_got="$(run_uab "$al_gb" "$UAB/r.yml" "$al_gk" "$al_rk")"
+  assert_eq "launcher: an aliased claude.plugins map aborts naming the file ($al_slot)" \
+    aborted "$(uab_verdict "$al_got" "claude-vm: $al_file uses a YAML alias")"
+done
+
+# NEGATIVE CONTROLS: without the refusal, the placement gates miss a sub-key
+# reached through an alias.
+printf 'p: &p {bake: [a@mp]}\nclaude: {plugins: *p}\n' >"$WORK/alias-plugins.yml"
+if claude_vm_check_plugin_key_placement "" "" "$WORK/alias-plugins.yml" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_plugin_key_placement: NEGATIVE CONTROL -- an aliased claude.plugins.bake in a boot file is not seen" \
+  pass "$sc_v"
+printf 'e: &e {copy: [HOME]}\nenv: *e\n' >"$WORK/alias-env.yml"
+if claude_vm_env_bake_has_key "$WORK/alias-env.yml" copy; then
+  sc_v=seen
+else
+  sc_v=missed
+fi
+assert_eq "env_bake_has_key: NEGATIVE CONTROL -- an aliased env.copy in a bake file is not seen" \
+  missed "$sc_v"
+
+# ---------------------------------------------------------------------
+# Test 41: claude_vm_check_config_structure refuses what the readers misread.
+#
+# A file of several YAML documents, a key-table key under a parent that is not
+# a map, the document itself not a map, and a string holding a newline, a map
+# key such as an enabled ref or an env.set name included, each abort naming
+# the file and the cause, in whichever argument slot the file sits; a newline
+# inside an env.set value, a key whose name holds a `.`, a leading `---`, an
+# empty file, an empty path and an absent file pass. Driven through the real
+# claude-vm.sh with run_uab (Test 37), each refused shape aborts the launch
+# with a diagnostic no later gate prints. The negative controls show what
+# each reader sees without the refusal.
+# ---------------------------------------------------------------------
+
+# structure_case <label> <yaml> <expected> <diagnostic> -- write <yaml> to a
+# file, run claude_vm_check_config_structure with it in each argument slot,
+# the other three empty, and assert "pass", or "abort" with a diagnostic that
+# names the file and holds <diagnostic>.
+structure_case() {
+  local doc="$WORK/structure-case.yml" slot got err
+  printf '%s\n' "$2" >"$doc"
+  for slot in 1 2 3 4; do
+    case "$slot" in
+      1) err="$(claude_vm_check_config_structure "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
+      2) err="$(claude_vm_check_config_structure "" "$doc" "" "" 2>&1)" && got=pass || got=abort ;;
+      3) err="$(claude_vm_check_config_structure "" "" "$doc" "" 2>&1)" && got=pass || got=abort ;;
+      4) err="$(claude_vm_check_config_structure "" "" "" "$doc" 2>&1)" && got=pass || got=abort ;;
+    esac
+    if [ "$got" = abort ]; then
+      case "$err" in
+        *"$doc"*) : ;;
+        *) got="abort without naming the file: $err" ;;
+      esac
+      case "$err" in
+        *"$4"*) : ;;
+        *) got="abort without naming the cause: $err" ;;
+      esac
+    fi
+    assert_eq "check_config_structure: $1 (slot $slot) -> $3" "$3" "$got"
+  done
+}
+
+structure_case "two documents" 'cpus: 2
+---
+cpus: 4' abort "holds 2 YAML documents"
+structure_case "a trailing ---" 'cpus: 2
+---' abort "holds 2 YAML documents"
+structure_case "a leading ---" '---
+cpus: 2' pass ""
+structure_case "a scalar parent" 'repo: 5' abort "repo is a !!int, not a map, so claude-vm cannot read repo.mount"
+structure_case "a list parent" 'proxy: [3128]' abort "proxy is a !!seq, not a map, so claude-vm cannot read proxy.cmd"
+structure_case "a scalar grandparent" 'claude:
+  plugins: true' abort "claude.plugins is a !!bool, not a map"
+structure_case "a list document" '- cpus: 2' abort "the document is a !!seq, not a map"
+structure_case "a scalar document" 'cpus' abort "the document is a !!str, not a map"
+structure_case "a null parent" 'repo:
+claude:' pass ""
+structure_case "a newline in a scalar" 'claude: {renderer: "classic\n"}' abort \
+  "claude.renderer in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in a list entry" 'egress: {allow: [a.example, "b.example\nc.example"]}' abort \
+  "egress.allow.1 in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in a mount field" 'mounts: [{host: "/a\n", tag: t}]' abort \
+  "mounts.0.host in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in an enabled ref" 'claude: {plugins: {enabled: {"a@mp\n": true}}}' abort \
+  "claude.plugins.enabled.a@mp\\n in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in an env.set name" 'env: {set: {"A\nB": x}}' abort \
+  "env.set.A\\nB in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in an env.set value" 'env: {set: {A: "x\ny\n"}}' pass ""
+structure_case "a dotted key spelling a parent" '"claude.plugins": 5' pass ""
+structure_case "a dotted key beside its real parent" '"claude.plugins": 5
+claude: {plugins: {bake: [a@mp]}}' pass ""
+structure_case "a dotted key beside a scalar parent" '"repo.mount": live
+repo: 5' abort "repo is a !!int, not a map, so claude-vm cannot read repo.mount"
+structure_case "a well-formed file" 'cpus: 2
+repo: {mount: live}
+claude: {plugins: {install_at_boot: [a@mp], enabled: {a@mp: false}}}' pass ""
+structure_case "an empty file" '' pass ""
+
+if claude_vm_check_config_structure "" "$WORK/does-not-exist.yml" "" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_config_structure: an empty path and an absent file are skipped" pass "$sc_v"
+
+# Through the launcher: each refused shape in the repo boot file aborts before
+# the type check's backstop. egress holds only a list key, which the type check
+# does not read, so a scalar egress reaches no later gate that names it.
+for st_pair in "holds 2 YAML documents|cpus: 2
+---
+cpus: 4
+" "egress is a !!int, not a map|egress: 5
+" "claude.renderer in $UAB/r.yml holds a newline|claude: {renderer: \"classic\\n\"}
+"; do
+  rm -f "$UAB/r.yml"
+  printf '%s%s' "${st_pair#*|}" "$UAB_TAIL" >"$UAB/r.yml"
+  st_got="$(run_uab "$UAB/absent-g.yml" "$UAB/r.yml")"
+  assert_eq "launcher: aborts with: ${st_pair%%|*}" \
+    aborted "$(uab_verdict "$st_got" "${st_pair%%|*}")"
+done
+
+# NEGATIVE CONTROLS: without the refusal, a key read answers once per document,
+# a key under a scalar parent reads as absent, so it takes its default, and an
+# env.set name holding a newline is read as two names.
+printf 'cpus: 2\n---\ncpus: 4\n' >"$WORK/structure-multi.yml"
+assert_eq "check_config_structure: NEGATIVE CONTROL -- a two-document file answers a read twice" \
+  "2|---|4" "$(yq eval '.cpus' "$WORK/structure-multi.yml" | tr '\n' '|' | sed 's/|$//')"
+printf 'repo: 5\n' >"$WORK/structure-scalar.yml"
+assert_eq "check_config_structure: NEGATIVE CONTROL -- repo.mount under a scalar repo reads as its default" \
+  clone "$(claude_vm_scalar "$WORK/structure-scalar.yml" .repo.mount clone)"
+printf 'env: {set: {"A\\nB": x}}\n' >"$WORK/structure-name.yml"
+assert_eq "check_config_structure: NEGATIVE CONTROL -- an env.set name holding a newline reads as two names" \
+  "A|B" "$(claude_vm_env_set_names "$WORK/structure-name.yml" | tr '\n' '|' | sed 's/|$//')"
+
+# ---------------------------------------------------------------------
+# Test 42: claude_vm_require_yq refuses a yq older than CLAUDE_VM_YQ_FLOOR.
+#
+# A stub yq function prints each version string; the floor itself and later v4
+# releases pass, and an older v4, a v3, a v5, a non-mikefarah yq and a version
+# that does not read as major.minor.patch each fail.
+# ---------------------------------------------------------------------
+YQ_FLOOR_V="${CLAUDE_VM_YQ_FLOOR[0]}.${CLAUDE_VM_YQ_FLOOR[1]}.${CLAUDE_VM_YQ_FLOOR[2]}"
+# yq_case <label> <version-output> <expected>
+yq_case() {
+  local got
+  # A subshell, so the stub function never outlives the case.
+  if (
+    yq() { printf '%s\n' "$YQ_STUB_OUT"; }
+    YQ_STUB_OUT="$2"
+    claude_vm_require_yq 2>/dev/null
+  ); then got=pass; else got=fail; fi
+  assert_eq "require_yq: $1 -> $3" "$3" "$got"
+}
+yq_case "the floor" "yq (https://github.com/mikefarah/yq/) version v$YQ_FLOOR_V" pass
+yq_case "a later release without a v" "yq (https://github.com/mikefarah/yq/) version 4.$((CLAUDE_VM_YQ_FLOOR[1] + 1)).0" pass
+yq_case "a later minor" "yq (https://github.com/mikefarah/yq/) version v4.$((CLAUDE_VM_YQ_FLOOR[1] + 1)).0" pass
+yq_case "a later patch" "yq (https://github.com/mikefarah/yq/) version v4.${CLAUDE_VM_YQ_FLOOR[1]}.$((CLAUDE_VM_YQ_FLOOR[2] + 1))" pass
+yq_case "an earlier minor" "yq (https://github.com/mikefarah/yq/) version v4.$((CLAUDE_VM_YQ_FLOOR[1] - 1)).99" fail
+yq_case "v4.1.0, before the ... operator" "yq (https://github.com/mikefarah/yq/) version v4.1.0" fail
+yq_case "4.0.0 without a v" "yq (https://github.com/mikefarah/yq/) version 4.0.0" fail
+yq_case "a mikefarah v3" "yq version 3.4.1" fail
+yq_case "a v5" "yq (https://github.com/mikefarah/yq/) version v5.0.0" fail
+yq_case "the Python yq" "yq 3.4.3" fail
+yq_case "an unreadable version" "yq (https://github.com/mikefarah/yq/) version v4.x" fail
+if [ "${CLAUDE_VM_YQ_FLOOR[2]}" -gt 0 ]; then
+  yq_case "an earlier patch" "yq (https://github.com/mikefarah/yq/) version v4.${CLAUDE_VM_YQ_FLOOR[1]}.$((CLAUDE_VM_YQ_FLOOR[2] - 1))" fail
 fi
 
 # ---------------------------------------------------------------------

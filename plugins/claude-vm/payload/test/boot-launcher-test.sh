@@ -20,7 +20,10 @@
 # LOGIN SHELL and must NOT re-enter the boot launcher (which would rerun claude,
 # possibly die identically, and rebuild the respawn loop this redesign removed).
 # The tests below assert both halves of that -- the handoff IS a shell, and the
-# handoff is NOT the launcher.
+# handoff is NOT the launcher. They also assert the shell runs as a CHILD rather
+# than by exec, and that the poweroff follows it: an exec'd shell REPLACES the
+# launcher, so nothing is left to power the guest off when the operator exits
+# it -- observed live as "logout" then a dead console and a hung host.
 #
 # That decision is the whole point of the shutdown redesign, so it is worth a
 # unit test. The full boot launcher does mount/credential/settings setup that
@@ -37,7 +40,10 @@
 # `Restart=` in the stock serial-getty@.service template (`Restart=always`),
 # which the drop-in overrides to `no`. The leading `-` on ExecStart is dropped
 # too, but that prefix only makes a nonzero exit be reported as success -- it
-# never governed the respawn.
+# never governed the respawn, and a `failed` getty unit is inert here because
+# nothing sets OnFailure=/FailureAction=. SIGRTMIN+4 is used over
+# `systemctl poweroff` because the guest ships no dbus, and systemctl's logind
+# attempt printed `Failed to connect to bus` on every clean exit.
 #
 # Finally it asserts LAUNCHER_LOGIC_REV moved off 16: the image-identity hash
 # covers only the bake CONFIG files plus the repo name, never the launcher
@@ -71,9 +77,11 @@ FAIL=0
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
-    PASS=$((PASS + 1)); echo "ok   - $label"
+    PASS=$((PASS + 1))
+    echo "ok   - $label"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - $label"
     echo "        expected: [$expected]"
     echo "        actual:   [$actual]"
   fi
@@ -82,18 +90,30 @@ assert_eq() {
 assert_contains() {
   local label="$1" haystack="$2" needle="$3"
   case "$haystack" in
-    *"$needle"*) PASS=$((PASS + 1)); echo "ok   - $label" ;;
-    *)           FAIL=$((FAIL + 1)); echo "FAIL - $label"
-                 echo "        expected to contain: [$needle]" ;;
+    *"$needle"*)
+      PASS=$((PASS + 1))
+      echo "ok   - $label"
+      ;;
+    *)
+      FAIL=$((FAIL + 1))
+      echo "FAIL - $label"
+      echo "        expected to contain: [$needle]"
+      ;;
   esac
 }
 
 assert_not_contains() {
   local label="$1" haystack="$2" needle="$3"
   case "$haystack" in
-    *"$needle"*) FAIL=$((FAIL + 1)); echo "FAIL - $label"
-                 echo "        expected NOT to contain: [$needle]" ;;
-    *)           PASS=$((PASS + 1)); echo "ok   - $label" ;;
+    *"$needle"*)
+      FAIL=$((FAIL + 1))
+      echo "FAIL - $label"
+      echo "        expected NOT to contain: [$needle]"
+      ;;
+    *)
+      PASS=$((PASS + 1))
+      echo "ok   - $label"
+      ;;
   esac
 }
 
@@ -108,7 +128,7 @@ awk '
   in_fn && /cat <<.BOOT.$/ { cap=1; next }
   cap && /^BOOT$/ { cap=0; in_fn=0 }
   cap { print }
-' "$BUILD" > "$LAUNCHER"
+' "$BUILD" >"$LAUNCHER"
 
 if [ ! -s "$LAUNCHER" ]; then
   FAIL=$((FAIL + 1))
@@ -126,7 +146,7 @@ assert_eq "emitted boot launcher is syntactically valid bash" "0" "$?"
 # status the decision depends on). It must run claude as a child and branch
 # on the status.
 assert_not_contains "emitted launcher no longer ends with 'exec \"\$CLAUDE_BIN\"'" \
-  "$(cat "$LAUNCHER")" 'exec "$CLAUDE_BIN"'
+  "$(cat "$LAUNCHER")" "exec \"\$CLAUDE_BIN\""
 assert_contains "emitted launcher captures claude's exit status" \
   "$(cat "$LAUNCHER")" 'CLAUDE_STATUS=$?'
 assert_contains "emitted launcher powers off via SIGRTMIN+4 to PID 1 on the clean path" \
@@ -141,9 +161,7 @@ assert_not_contains "emitted launcher no longer execs poweroff(8)" \
   "$(cat "$LAUNCHER")" 'exec poweroff'
 assert_contains "emitted launcher runs a login shell on the abnormal path" \
   "$(cat "$LAUNCHER")" 'bash -l'
-# The shell must run as a CHILD, not an exec: an exec'd shell REPLACES the
-# launcher, so nothing is left to power the guest off when the operator exits
-# it -- observed live as "logout" then a dead console and a hung host.
+# The shell must run as a CHILD, not an exec (see the header).
 assert_not_contains "emitted launcher does not exec the post-mortem shell" \
   "$(cat "$LAUNCHER")" 'exec bash'
 assert_not_contains "emitted launcher does not exec the /bin/sh fallback" \
@@ -163,7 +181,7 @@ assert_eq "emitted launcher powers off in exactly two places (clean path + after
 assert_not_contains "emitted launcher never re-execs the boot launcher (no loop)" \
   "$(cat "$LAUNCHER")" 'boot-launcher.sh'
 assert_not_contains "emitted launcher never re-execs itself via \$0 (no loop)" \
-  "$(cat "$LAUNCHER")" 'exec "$0"'
+  "$(cat "$LAUNCHER")" "exec \"\$0\""
 
 # ---------------------------------------------------------------------
 # 2. Slice the DECISION FRAGMENT (from the `set +e` that guards the claude run
@@ -180,7 +198,7 @@ FRAGMENT="$WORK/decision-fragment.sh"
 awk '
   /^set \+e$/ { cap=1 }
   cap { print }
-' "$LAUNCHER" > "$FRAGMENT"
+' "$LAUNCHER" >"$FRAGMENT"
 
 if [ ! -s "$FRAGMENT" ]; then
   FAIL=$((FAIL + 1))
@@ -219,7 +237,7 @@ run_decision() {
   # A fake claude that exits with the requested status. `/bin/sh` shebang so the
   # `bash` stub below cannot intercept it.
   local claude_bin="$WORK/fake-claude.sh"
-  cat > "$claude_bin" <<FAKE
+  cat >"$claude_bin" <<FAKE
 #!/bin/sh
 exit $claude_status
 FAKE
@@ -229,36 +247,43 @@ FAKE
   # runs as a child. Records (appends) its argv so the test can assert it was
   # invoked as a plain login shell (`-l`) rather than as a re-entry into
   # anything, and that it ran BEFORE the poweroff.
-  cat > "$stubdir/bash" <<STUB
+  cat >"$stubdir/bash" <<STUB
 #!/bin/sh
 printf 'shell-%s\n' "\$*" >> "$marker"
 exit 0
 STUB
   chmod +x "$stubdir/bash"
 
+  # The function stubs lead the sourced file itself, so they are defined in the
+  # shell that runs the fragment.
+  local harness="$WORK/decision-harness.sh"
+  cat >"$harness" <<HARNESS
+# Stub log() to a no-op (the real one writes /dev/console).
+log() { :; }
+# Intercept \`kill -s RTMIN+4 1\` (both the clean path's and the after-shell
+# one): a function shadows the builtin, appends the argv, and never sends a
+# real signal (this test must not signal PID 1, and macOS bash could not
+# resolve RTMIN+4 anyway).
+kill() { printf 'rtmin4-%s\n' "\$*" >>"$marker"; }
+HARNESS
+  cat "$FRAGMENT" >>"$harness"
+
   (
-    CLAUDE_BIN="$claude_bin"
+    export CLAUDE_BIN="$claude_bin"
     # The abnormal path echoes the workspace path; give it a value so the
     # fragment does not trip on an unset var under the launcher's `set -u`.
-    REPO_MNT="/mnt/repo"
-    # Stub log() to a no-op (the real one writes /dev/console).
-    log() { :; }
-    # Intercept `kill -s RTMIN+4 1` (both the clean path's and the
-    # after-shell one): a function shadows the builtin, appends the argv, and
-    # never sends a real signal (this test must not signal PID 1, and macOS
-    # bash could not resolve RTMIN+4 anyway).
-    kill() { printf 'rtmin4-%s\n' "$*" >> "$marker"; }
+    export REPO_MNT="/mnt/repo"
     # Prepend the stub dir so `command -v bash` and the abnormal path's child
     # `bash -l` resolve our bash stub first, while keeping the real system
     # bins on PATH so the fake claude's `/bin/sh` shebang still resolves.
     PATH="$stubdir:$PATH"
     set -- # zero argv, like an empty CLAUDE_ARGS
     # shellcheck disable=SC1090
-    . "$FRAGMENT"
+    . "$harness"
   ) 2>/dev/null
   local frag_rc=$?
   if [ -s "$marker" ]; then
-    tr '\n' ',' < "$marker"
+    tr '\n' ',' <"$marker"
     echo ""
   else
     echo "none"
@@ -299,11 +324,17 @@ assert_eq "exit 1 (abnormal) -> login shell, THEN poweroff after it returns" \
 #     both-actions-present check above. ---
 case "$ACTION" in
   rtmin4-*)
-    FAIL=$((FAIL + 1)); echo "FAIL - abnormal path must not power off before the shell (got [$ACTION])" ;;
+    FAIL=$((FAIL + 1))
+    echo "FAIL - abnormal path must not power off before the shell (got [$ACTION])"
+    ;;
   shell-*)
-    PASS=$((PASS + 1)); echo "ok   - abnormal path runs the shell before any poweroff" ;;
+    PASS=$((PASS + 1))
+    echo "ok   - abnormal path runs the shell before any poweroff"
+    ;;
   *)
-    FAIL=$((FAIL + 1)); echo "FAIL - abnormal path took no shell action at all (got [$ACTION])" ;;
+    FAIL=$((FAIL + 1))
+    echo "FAIL - abnormal path took no shell action at all (got [$ACTION])"
+    ;;
 esac
 
 # --- NON-LOOPING: the handoff must be a plain login shell, never the boot
@@ -312,12 +343,18 @@ esac
 #     removed. The stub records the argv it was invoked with, so a handoff that
 #     smuggled a launcher path or a `-c` re-entry in would be visible here. ---
 case "$ACTION" in
-  *boot-launcher*|*-c*)
-    FAIL=$((FAIL + 1)); echo "FAIL - abnormal handoff must be a plain login shell, not a relaunch (got [$ACTION])" ;;
+  *boot-launcher* | *-c*)
+    FAIL=$((FAIL + 1))
+    echo "FAIL - abnormal handoff must be a plain login shell, not a relaunch (got [$ACTION])"
+    ;;
   shell--l,*)
-    PASS=$((PASS + 1)); echo "ok   - abnormal handoff is a plain login shell (cannot loop)" ;;
+    PASS=$((PASS + 1))
+    echo "ok   - abnormal handoff is a plain login shell (cannot loop)"
+    ;;
   *)
-    FAIL=$((FAIL + 1)); echo "FAIL - abnormal handoff is not a plain login shell (got [$ACTION])" ;;
+    FAIL=$((FAIL + 1))
+    echo "FAIL - abnormal handoff is not a plain login shell (got [$ACTION])"
+    ;;
 esac
 
 # ---------------------------------------------------------------------
@@ -341,9 +378,11 @@ if [ -f "$PROVISIONER" ]; then
     "$EXECSTART_LINE" "boot-launcher.sh"
   # Restart=no is what actually neutralizes the respawn.
   if grep -qE '^Restart=no$' "$PROVISIONER"; then
-    PASS=$((PASS + 1)); echo "ok   - getty drop-in sets Restart=no (this is what neutralizes the respawn)"
+    PASS=$((PASS + 1))
+    echo "ok   - getty drop-in sets Restart=no (this is what neutralizes the respawn)"
   else
-    FAIL=$((FAIL + 1)); echo "FAIL - getty drop-in sets Restart=no (this is what neutralizes the respawn)"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - getty drop-in sets Restart=no (this is what neutralizes the respawn)"
   fi
   # The leading `-` is separately absent, so a nonzero launcher exit marks the
   # unit failed rather than being reported as success. Inert here (no
@@ -355,9 +394,11 @@ if [ -f "$PROVISIONER" ]; then
   # A failed getty unit must stay inert: no OnFailure=/FailureAction= anywhere,
   # so the VM stays up (what the abnormal path wants) instead of being torn down.
   if grep -qE '^[[:space:]]*(OnFailure|FailureAction)=' "$PROVISIONER"; then
-    FAIL=$((FAIL + 1)); echo "FAIL - provisioner sets no OnFailure=/FailureAction= (a failed getty must stay inert)"
+    FAIL=$((FAIL + 1))
+    echo "FAIL - provisioner sets no OnFailure=/FailureAction= (a failed getty must stay inert)"
   else
-    PASS=$((PASS + 1)); echo "ok   - provisioner sets no OnFailure=/FailureAction= (a failed getty stays inert)"
+    PASS=$((PASS + 1))
+    echo "ok   - provisioner sets no OnFailure=/FailureAction= (a failed getty stays inert)"
   fi
   # The getty must start the boot launcher exactly ONCE, as agetty's
   # --login-program. Any second ExecStart naming the launcher would be an
@@ -381,9 +422,11 @@ fi
 # ---------------------------------------------------------------------
 REV="$(sed -n 's/^LAUNCHER_LOGIC_REV="\([0-9][0-9]*\)"$/\1/p' "$BUILD" | head -1)"
 if [ -z "$REV" ]; then
-  FAIL=$((FAIL + 1)); echo "FAIL - could not read LAUNCHER_LOGIC_REV from $BUILD"
+  FAIL=$((FAIL + 1))
+  echo "FAIL - could not read LAUNCHER_LOGIC_REV from $BUILD"
 elif [ "$REV" -gt 17 ]; then
-  PASS=$((PASS + 1)); echo "ok   - LAUNCHER_LOGIC_REV bumped past 17 (now $REV; cached launcher17 images cannot be reused)"
+  PASS=$((PASS + 1))
+  echo "ok   - LAUNCHER_LOGIC_REV bumped past 17 (now $REV; cached launcher17 images cannot be reused)"
 else
   FAIL=$((FAIL + 1))
   echo "FAIL - LAUNCHER_LOGIC_REV must be > 17 for the SIGRTMIN+4 bus-less poweroff launcher (got $REV)"
@@ -391,7 +434,7 @@ fi
 # The composite the launcher compares against must be built from that rev, so a
 # bump actually reaches the cache key.
 assert_contains "BASE_PINNED_VERSION is built from LAUNCHER_LOGIC_REV" \
-  "$(cat "$BUILD")" 'BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"'
+  "$(cat "$BUILD")" "BASE_PINNED_VERSION=\"\${BASE_OS_REV}+launcher\${LAUNCHER_LOGIC_REV}\""
 
 # ---------------------------------------------------------------------
 # 5. Guest environment variables (issue #135): the launcher sources the BAKED
@@ -411,7 +454,7 @@ awk '
   /^BAKE_ENV_FILE=/ { cap=1 }
   cap { print }
   cap && /^set \+a$/ { cap=0 }
-' "$LAUNCHER" > "$ENV_FRAGMENT"
+' "$LAUNCHER" >"$ENV_FRAGMENT"
 
 if [ ! -s "$ENV_FRAGMENT" ]; then
   FAIL=$((FAIL + 1))
@@ -425,18 +468,25 @@ else
   # The baked file the provisioner writes into the image, and the boot file the
   # host launcher writes into the credential share, in the shape each really
   # has: plain `NAME=<shell-quoted value>` assignment lines.
-  printf "ONLY_BAKE=bake-value\nLAYERED=from-bake\n" > "$ENV_WORK/bake-env"
+  printf "ONLY_BAKE=bake-value\nLAYERED=from-bake\n" >"$ENV_WORK/bake-env"
   printf "LAYERED=from-boot\nONLY_BOOT=boot-value\nSPACED='a b'\n" \
-    > "$ENV_WORK/claudecreds/env"
+    >"$ENV_WORK/claudecreds/env"
 
-  # run_env_fragment <bake-file-or-empty> -- runs the real block with the two
-  # paths redirected at the fixtures and prints the resulting values. The
-  # launcher hardcodes /etc/claude-vm/bake-env (an image path), so the slice is
-  # rewritten to the fixture; CLAUDECREDS_MNT is already a variable.
+  # write_env_fragment <bake-file-or-empty> -- writes $ENV_WORK/fragment.sh:
+  # the real block with both paths redirected at the fixtures. The launcher
+  # hardcodes /etc/claude-vm/bake-env (an image path), so the slice is
+  # rewritten to the fixture; CLAUDECREDS_MNT is already a variable. A no-op
+  # log() stub and the CLAUDECREDS_MNT assignment lead the rewritten slice, so
+  # both are set in the shell that runs the block.
+  write_env_fragment() {
+    printf 'log() { :; }\nCLAUDECREDS_MNT=%q\n' "$ENV_WORK/claudecreds" >"$ENV_WORK/fragment.sh"
+    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$1#" \
+      "$ENV_FRAGMENT" >>"$ENV_WORK/fragment.sh"
+  }
+  # run_env_fragment <bake-file-or-empty> -- runs the block write_env_fragment
+  # writes and prints the resulting values.
   run_env_fragment() {
-    local bake="$1"
-    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$bake#" \
-      "$ENV_FRAGMENT" > "$ENV_WORK/fragment.sh"
+    write_env_fragment "$1"
     (
       # The real launcher runs under `set -euo pipefail` and the slice does not
       # carry its `set` line, so it is restated here: the block must behave the
@@ -445,9 +495,7 @@ else
       # because a failing command other than the last in an AND-OR list is
       # exempt. The `if` form is chosen for legibility, not to dodge that.)
       set -euo pipefail
-      log() { :; }
-      CLAUDECREDS_MNT="$ENV_WORK/claudecreds"
-      # shellcheck disable=SC1090
+      # shellcheck source=/dev/null
       . "$ENV_WORK/fragment.sh"
       printf '%s|%s|%s|%s' \
         "${LAYERED:-<unset>}" "${ONLY_BAKE:-<unset>}" \
@@ -470,8 +518,7 @@ else
   # The variables must be EXPORTED, not merely assigned: claude runs as a child
   # of this launcher, so an unexported assignment would be invisible to it.
   ENV_EXPORTED="$(
-    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$ENV_WORK/bake-env#" \
-      "$ENV_FRAGMENT" > "$ENV_WORK/fragment.sh"
+    write_env_fragment "$ENV_WORK/bake-env"
     (
       # The real launcher runs under `set -euo pipefail` and the slice does not
       # carry its `set` line, so it is restated here: the block must behave the
@@ -480,9 +527,7 @@ else
       # because a failing command other than the last in an AND-OR list is
       # exempt. The `if` form is chosen for legibility, not to dodge that.)
       set -euo pipefail
-      log() { :; }
-      CLAUDECREDS_MNT="$ENV_WORK/claudecreds"
-      # shellcheck disable=SC1090
+      # shellcheck source=/dev/null
       . "$ENV_WORK/fragment.sh"
       # A CHILD process, exactly like claude.
       bash -c 'printf "%s|%s" "${LAYERED:-<unset>}" "${ONLY_BAKE:-<unset>}"'
@@ -495,7 +540,7 @@ else
   # anywhere: an env.copy value is a third-party API key, and a copy would put it
   # on the guest filesystem, outliving the mount the host shreds on exit.
   assert_not_contains "guest env: the boot env file is never copied onto the guest filesystem" \
-    "$(cat "$ENV_FRAGMENT")" 'cp "$BOOT_ENV_FILE"'
+    "$(cat "$ENV_FRAGMENT")" "cp \"\$BOOT_ENV_FILE\""
 fi
 
 # ---------------------------------------------------------------------
