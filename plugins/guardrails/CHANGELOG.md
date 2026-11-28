@@ -1,5 +1,12 @@
 # guardrails changelog
 
+## 0.20.2 — 2026-11-27
+
+Documentation only: the README's "Configuration" section says again
+that no listing in `~/.config/guardrails/config.yml` allows anything
+under a `.git/` directory, and that no call may write the config file
+itself. The gate and its verdicts are unchanged.
+
 ## 0.20.1 — 2026-11-27
 
 The plugin's README is now the whole user manual: it describes the
