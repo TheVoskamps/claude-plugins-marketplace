@@ -83,8 +83,8 @@ With no config at all the launcher runs on built-in defaults.
 `/claude-vm-config-global` writes the global pair from those defaults
 and `/claude-vm-config-repo` writes a per-repo pair holding only the
 keys the repo overrides; both leave an existing file alone unless you
-choose to merge. `payload/config-bake.example.yml` and `payload/config-boot.example.yml`
-show what populated entries look like.
+choose to merge. `payload/config-bake.example.yml` and
+`payload/config-boot.example.yml` show what populated entries look like.
 
 ### What the launcher refuses in a config file
 
@@ -250,6 +250,14 @@ The launcher migrates nothing into the state root. An `images/`,
 `cache/` or `logs/` directory under `~/.config/claude-vm/`, and a run
 directory under a repo's `.claude/tmp/`, is read by nothing —
 `claude-vm-cleanup` included — and is yours to delete.
+
+The `guardrails` plugin's permission gate treats the config home and
+the state home as separate roots. A carve-out that lists `claude-vm/**`
+under the config home alone opens your config files and nothing under
+the state root, so list it under the state home as well when a
+session's tool calls should read the cached binary or the images. A
+launch from your own terminal, and anything inside the guest, is not a
+tool call and needs no listing.
 
 ## When the launcher tells you to log in again
 
