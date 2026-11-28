@@ -87,21 +87,16 @@ home:
 ```
 
 - `config-home`, `state-home` and `home` each relax containment for the
-  paths listed under them, relative to that root: `read` for reads,
-  `write` for writes and reads alike. A listed path is matched as
-  written, so it is allowed wherever a symlink takes it.
+  paths listed under them: `read` for reads, `write` for writes and
+  reads alike.
 - `config-home-default` and `state-home-default` say where the first two
   roots are.
-- `resolve-xdg-environment-variables: yes` makes those two roots follow
-  `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` when they are set. Whatever
-  sets those variables then decides where the roots are.
+- `resolve-xdg-environment-variables` lets `$XDG_CONFIG_HOME` and
+  `$XDG_STATE_HOME` say where those two roots are instead.
 - `redirect-bash-file-work` relaxes no deny. It sets where the
   Bash-to-file-tool redirect under "Limits" applies.
 - `schema-version` stamps the file with the format it is written in and
   relaxes nothing.
-
-No entry relaxes these: nothing under a `.git/` directory is allowed by
-a listing, and no call may write the config file itself.
 
 **A broken file denies every call.** A config that exists but cannot be
 read or parsed makes the gate deny every gated tool call, a write to

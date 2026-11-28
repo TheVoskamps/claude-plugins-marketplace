@@ -20,8 +20,10 @@ said about the gate's internals now sits in the gate's source.
   `GOWORK=off`.
 - The committed binaries are built without VCS stamps, so a rebuild of
   the same source with the same Go release matches them byte for byte.
-- The deny an unsupported platform or an unrunnable gate binary gets now
-  names `rebuild-binaries.sh` as the fix.
+- The deny an unrunnable gate binary gets now names
+  `rebuild-binaries.sh` as the fix. The deny an unsupported platform
+  gets says to add the platform to the script's `TARGETS` first; the
+  script creates the new platform's directory under `hooks/bin/`.
 
 ## 0.20.0 — 2026-11-26
 
